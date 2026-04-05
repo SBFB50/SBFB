@@ -87,10 +87,10 @@ _ROUTE_TABLE: dict[TaskType, tuple[str, int, bool]] = {
     TaskType.TESTIMONY_COMPARISON: ("model_reasoning", 120, True),
 
     # --- Deep analysis (nexus 26B — heavy) ---
-    TaskType.DEEP_ANALYSIS:        ("model_deep", 300, True),
-    TaskType.HYPOTHESIS_SCORING:   ("model_deep", 300, True),
+    TaskType.DEEP_ANALYSIS:        ("model_deep", 600, True),
+    TaskType.HYPOTHESIS_SCORING:   ("model_deep", 600, True),
     TaskType.FINAL_REPORT:         ("model_deep", 600, True),
-    TaskType.INCREMENTAL_REEVAL:   ("model_deep", 300, True),
+    TaskType.INCREMENTAL_REEVAL:   ("model_deep", 600, True),
 
     # --- Vision (gemma4:e4b fast, qwen3-vl:8b deep) ---
     TaskType.IMAGE_DESCRIPTION:        ("model_vision", 60, False),

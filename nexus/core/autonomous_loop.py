@@ -168,25 +168,29 @@ class AutonomousInvestigator:
                     self._cycle_count,
                 )
 
-                # PHASE 1: OBSERVE -- What's new?
-                self._last_action = "OBSERVE"
-                new_results = await self._observe()
+                # Open ONE DB connection for the entire cycle
+                async with get_db() as conn:
+                    db = Database(conn)
 
-                # PHASE 2: ORIENT -- Ingest, recon, geocode, image analysis
-                self._last_action = "ORIENT"
-                new_evidence_ids = await self._orient(new_results)
+                    # PHASE 1: OBSERVE -- What's new?
+                    self._last_action = "OBSERVE"
+                    new_results = await self._observe(db)
 
-                # PHASE 3: DECIDE -- Analyze, hypotheses, contradictions, forensics, timeline
-                self._last_action = "DECIDE"
-                decisions = await self._decide(new_evidence_ids)
+                    # PHASE 2: ORIENT -- Ingest, recon, geocode, image analysis
+                    self._last_action = "ORIENT"
+                    new_evidence_ids = await self._orient(db, new_results)
 
-                # PHASE 4: ACT -- Search queries, OSINT enrichment, domain recon
-                self._last_action = "ACT"
-                await self._act(decisions)
+                    # PHASE 3: DECIDE -- Analyze, hypotheses, contradictions, forensics, timeline
+                    self._last_action = "DECIDE"
+                    decisions = await self._decide(db, new_evidence_ids)
 
-                # PHASE 5: QUESTION -- Self-questioning, reports, backups
-                self._last_action = "QUESTION"
-                await self._question()
+                    # PHASE 4: ACT -- Search queries, OSINT enrichment, domain recon
+                    self._last_action = "ACT"
+                    await self._act(db, decisions)
+
+                    # PHASE 5: QUESTION -- Self-questioning, reports, backups
+                    self._last_action = "QUESTION"
+                    await self._question(db)
 
                 self._last_action = "SLEEPING"
                 logger.info(
@@ -234,11 +238,9 @@ class AutonomousInvestigator:
     # PHASE 1: OBSERVE -- Check for new monitoring results
     # ================================================================
 
-    async def _observe(self) -> list[dict[str, Any]]:
+    async def _observe(self, db: Database) -> list[dict[str, Any]]:
         """Check for unreviewed monitoring results with high relevance."""
-        async with get_db() as conn:
-            db = Database(conn)
-            results = await db.list_results_by_case(self._case_id)
+        results = await db.list_results_by_case(self._case_id)
 
         new_results = [
             r
@@ -285,95 +287,92 @@ class AutonomousInvestigator:
     # PHASE 2: ORIENT -- Ingest new data, recon, geocode, images
     # ================================================================
 
-    async def _orient(self, new_results: list[dict[str, Any]]) -> list[str]:
+    async def _orient(self, db: Database, new_results: list[dict[str, Any]]) -> list[str]:
         """Auto-ingest monitoring results, then enrich with recon/geo/images."""
         new_evidence_ids: list[str] = []
 
         # --- 2a. Auto-ingest monitoring results as evidence ---
-        new_evidence_ids = await self._orient_ingest(new_results)
+        new_evidence_ids = await self._orient_ingest(db, new_results)
 
         # --- 2b. OSINT recon on new entities (email/username) ---
         if settings.auto_osint_recon:
-            await self._orient_osint_recon()
+            await self._orient_osint_recon(db)
 
         # --- 2c. Geocode location entities ---
         if settings.auto_geocode:
-            await self._orient_geocode()
+            await self._orient_geocode(db)
 
         # --- 2d. Analyse image evidence (VLM) ---
         if settings.auto_image_analysis:
-            await self._orient_image_analysis()
+            await self._orient_image_analysis(db)
 
         # --- 2e. Index images in DINOv2/CLIP ---
         if settings.auto_visual_embeddings:
-            await self._orient_visual_embeddings()
+            await self._orient_visual_embeddings(db)
 
         return new_evidence_ids
 
-    async def _orient_ingest(self, new_results: list[dict[str, Any]]) -> list[str]:
+    async def _orient_ingest(self, db: Database, new_results: list[dict[str, Any]]) -> list[str]:
         """Auto-ingest promising monitoring results as evidence."""
         new_evidence_ids: list[str] = []
         max_ingest = settings.max_auto_ingest_per_cycle
 
         for result in new_results[:max_ingest]:
             try:
-                async with get_db() as conn:
-                    db = Database(conn)
+                from nexus.core.evidence_processor import EvidenceProcessor
 
-                    from nexus.core.evidence_processor import EvidenceProcessor
+                processor = EvidenceProcessor(
+                    db=db,
+                    router=self._router,
+                    upload_dir=settings.upload_dir,
+                    neo4j=self._neo4j,
+                    chroma=self._chroma,
+                )
 
-                    processor = EvidenceProcessor(
-                        db=db,
-                        router=self._router,
-                        upload_dir=settings.upload_dir,
-                        neo4j=self._neo4j,
-                        chroma=self._chroma,
-                    )
+                # Build text from monitoring result
+                text = (
+                    f"Source: {result.get('url', 'unknown')}\n"
+                    f"Titre: {result.get('title', '')}\n"
+                    f"Contenu: {result.get('snippet', '')}\n"
+                    f"Moteur: {result.get('source_engine', '')}\n"
+                    f"Date: {result.get('found_at', '')}"
+                )
 
-                    # Build text from monitoring result
-                    text = (
-                        f"Source: {result.get('url', 'unknown')}\n"
-                        f"Titre: {result.get('title', '')}\n"
-                        f"Contenu: {result.get('snippet', '')}\n"
-                        f"Moteur: {result.get('source_engine', '')}\n"
-                        f"Date: {result.get('found_at', '')}"
-                    )
+                title_raw = result.get("title", "Resultat monitoring")
+                title = f"[AUTO-MONITORING] {title_raw[:100]}"
 
-                    title_raw = result.get("title", "Resultat monitoring")
-                    title = f"[AUTO-MONITORING] {title_raw[:100]}"
+                evidence = await processor.process_text_input(
+                    case_id=self._case_id,
+                    title=title,
+                    text=text,
+                    source=(
+                        f"Monitoring automatique -- "
+                        f"{result.get('source_engine', 'SearXNG')}"
+                    ),
+                )
 
-                    evidence = await processor.process_text_input(
-                        case_id=self._case_id,
-                        title=title,
-                        text=text,
-                        source=(
-                            f"Monitoring automatique -- "
-                            f"{result.get('source_engine', 'SearXNG')}"
-                        ),
-                    )
+                new_evidence_ids.append(evidence.id)
 
-                    new_evidence_ids.append(evidence.id)
+                # Mark monitoring result as reviewed
+                await db.update_monitoring_result(
+                    result["id"], reviewed=True
+                )
 
-                    # Mark monitoring result as reviewed
-                    await db.update_monitoring_result(
-                        result["id"], reviewed=True
-                    )
+                # Audit: log auto-ingestion
+                audit = AuditService(db)
+                await audit.log_auto_ingest(
+                    case_id=self._case_id,
+                    result_id=result["id"],
+                    evidence_id=evidence.id,
+                    title=title,
+                    cycle=self._cycle_count,
+                )
 
-                    # Audit: log auto-ingestion
-                    audit = AuditService(db)
-                    await audit.log_auto_ingest(
-                        case_id=self._case_id,
-                        result_id=result["id"],
-                        evidence_id=evidence.id,
-                        title=title,
-                        cycle=self._cycle_count,
-                    )
-
-                    logger.info(
-                        "ORIENT: Auto-ingested monitoring result {} -> evidence {}",
-                        result["id"][:8],
-                        evidence.id[:8],
-                    )
+                logger.info(
+                    "ORIENT: Auto-ingested monitoring result {} -> evidence {}",
+                    result["id"][:8],
+                    evidence.id[:8],
+                )
 
             except Exception as e:
                 logger.error(
@@ -384,238 +383,230 @@ class AutonomousInvestigator:
 
         return new_evidence_ids
 
-    async def _orient_osint_recon(self) -> None:
+    async def _orient_osint_recon(self, db: Database) -> None:
         """OSINT recon: for each new email/account entity, run holehe + social_recon."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                entities = await db.list_entities_by_case(self._case_id)
+            entities = await db.list_entities_by_case(self._case_id)
 
-                for ent in entities:
-                    etype = ent.get("entity_type", "")
-                    name = ent.get("name", "")
-                    metadata = (
-                        json.loads(ent.get("metadata") or "{}")
-                        if isinstance(ent.get("metadata"), str)
-                        else (ent.get("metadata") or {})
-                    )
+            for ent in entities:
+                etype = ent.get("entity_type", "")
+                name = ent.get("name", "")
+                metadata = (
+                    json.loads(ent.get("metadata") or "{}")
+                    if isinstance(ent.get("metadata"), str)
+                    else (ent.get("metadata") or {})
+                )
 
-                    # Skip if already scanned
-                    if metadata.get("recon_done"):
-                        continue
+                # Skip if already scanned
+                if metadata.get("recon_done"):
+                    continue
 
-                    # --- Holehe: check email existence on 120+ services ---
-                    if etype == "email" and "@" in name:
-                        try:
-                            from nexus.recon.holehe_recon import HoleheRecon
+                # --- Holehe: check email existence on 120+ services ---
+                if etype == "email" and "@" in name:
+                    try:
+                        from nexus.recon.holehe_recon import HoleheRecon
 
-                            recon = HoleheRecon()
-                            results = await recon.check_email(name)
-                            if results:
-                                metadata["holehe_results"] = results
-                                metadata["holehe_count"] = len(results)
-                                await self._audit_log(
-                                    "autonomous_loop", "osint_holehe",
-                                    f"Holehe email {name}: {len(results)} comptes trouves",
-                                    target_type="entity",
-                                    target_id=ent["id"],
-                                    details={"email": name, "results": results},
-                                    cycle_number=self._cycle_count,
-                                )
-                            # Rate-limit between OSINT calls
-                            await asyncio.sleep(settings.auto_recon_rate_limit)
-                        except Exception as e:
-                            logger.warning("ORIENT: Holehe failed for {}: {}", name, e)
+                        recon = HoleheRecon()
+                        results = await recon.check_email(name)
+                        if results:
+                            metadata["holehe_results"] = results
+                            metadata["holehe_count"] = len(results)
+                            await self._audit_log(
+                                "autonomous_loop", "osint_holehe",
+                                f"Holehe email {name}: {len(results)} comptes trouves",
+                                target_type="entity",
+                                target_id=ent["id"],
+                                details={"email": name, "results": results},
+                                cycle_number=self._cycle_count,
+                            )
+                        # Rate-limit between OSINT calls
+                        await asyncio.sleep(settings.auto_recon_rate_limit)
+                    except Exception as e:
+                        logger.warning("ORIENT: Holehe failed for {}: {}", name, e)
 
-                    # --- Social recon: check username on major platforms ---
-                    if etype in ("email", "account", "person"):
-                        try:
-                            from nexus.recon.social_recon import SocialRecon
+                # --- Social recon: check username on major platforms ---
+                if etype in ("email", "account", "person"):
+                    try:
+                        from nexus.recon.social_recon import SocialRecon
 
-                            social = SocialRecon()
-                            # For email, extract username part
-                            if etype == "email" and "@" in name:
-                                profiles = await social.search_email_username(name)
+                        social = SocialRecon()
+                        # For email, extract username part
+                        if etype == "email" and "@" in name:
+                            profiles = await social.search_email_username(name)
+                        else:
+                            # For account/person, search the name directly
+                            search_name = name.replace(" ", "")
+                            if len(search_name) >= 3:
+                                profiles = await social.search_username(search_name)
                             else:
-                                # For account/person, search the name directly
-                                search_name = name.replace(" ", "")
-                                if len(search_name) >= 3:
-                                    profiles = await social.search_username(search_name)
-                                else:
-                                    profiles = []
+                                profiles = []
 
-                            found = [p for p in profiles if p.get("exists")]
-                            if found:
-                                metadata["social_profiles"] = found
-                                metadata["social_count"] = len(found)
-                                await self._audit_log(
-                                    "autonomous_loop", "osint_social",
-                                    f"Social recon {name}: {len(found)} profils trouves",
-                                    target_type="entity",
-                                    target_id=ent["id"],
-                                    details={"name": name, "profiles": found},
-                                    cycle_number=self._cycle_count,
-                                )
-                            # Rate-limit
-                            await asyncio.sleep(settings.auto_recon_rate_limit)
-                        except Exception as e:
-                            logger.warning("ORIENT: Social recon failed for {}: {}", name, e)
+                        found = [p for p in profiles if p.get("exists")]
+                        if found:
+                            metadata["social_profiles"] = found
+                            metadata["social_count"] = len(found)
+                            await self._audit_log(
+                                "autonomous_loop", "osint_social",
+                                f"Social recon {name}: {len(found)} profils trouves",
+                                target_type="entity",
+                                target_id=ent["id"],
+                                details={"name": name, "profiles": found},
+                                cycle_number=self._cycle_count,
+                            )
+                        # Rate-limit
+                        await asyncio.sleep(settings.auto_recon_rate_limit)
+                    except Exception as e:
+                        logger.warning("ORIENT: Social recon failed for {}: {}", name, e)
 
-                    # Mark entity as scanned (even if no results) to avoid re-scanning
-                    metadata["recon_done"] = True
-                    await db.update_entity(ent["id"], metadata=json.dumps(metadata))
+                # Mark entity as scanned (even if no results) to avoid re-scanning
+                metadata["recon_done"] = True
+                await db.update_entity(ent["id"], metadata=json.dumps(metadata))
 
         except Exception as e:
             logger.warning("ORIENT: OSINT recon phase failed: {}", e)
 
-    async def _orient_geocode(self) -> None:
+    async def _orient_geocode(self, db: Database) -> None:
         """Geocode all location entities that haven't been geocoded yet."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                from nexus.core.geo_mapper import GeoMapper
+            from nexus.core.geo_mapper import GeoMapper
 
-                geo = GeoMapper(db)
-                results = await geo.geocode_entities(self._case_id)
+            geo = GeoMapper(db)
+            results = await geo.geocode_entities(self._case_id)
 
-                newly_geocoded = [r for r in results if r.get("status") == "geocoded"]
-                if newly_geocoded:
-                    logger.info(
-                        "ORIENT: Geocoded {} locations for case {}",
-                        len(newly_geocoded),
-                        self._case_id,
+            newly_geocoded = [r for r in results if r.get("status") == "geocoded"]
+            if newly_geocoded:
+                logger.info(
+                    "ORIENT: Geocoded {} locations for case {}",
+                    len(newly_geocoded),
+                    self._case_id,
+                )
+                for r in newly_geocoded:
+                    await self._audit_log(
+                        "autonomous_loop", "geocode",
+                        f"Lieu geocode: {r['name']} -> {r['lat']},{r['lon']}",
+                        target_type="entity",
+                        target_id=r.get("entity_id"),
+                        details={"lat": r["lat"], "lon": r["lon"], "name": r["name"]},
+                        cycle_number=self._cycle_count,
                     )
-                    for r in newly_geocoded:
-                        await self._audit_log(
-                            "autonomous_loop", "geocode",
-                            f"Lieu geocode: {r['name']} -> {r['lat']},{r['lon']}",
-                            target_type="entity",
-                            target_id=r.get("entity_id"),
-                            details={"lat": r["lat"], "lon": r["lon"], "name": r["name"]},
-                            cycle_number=self._cycle_count,
-                        )
         except Exception as e:
             logger.warning("ORIENT: Geocoding phase failed: {}", e)
 
-    async def _orient_image_analysis(self) -> None:
+    async def _orient_image_analysis(self, db: Database) -> None:
         """Analyse image evidence that hasn't been processed yet via VLM."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                all_evidence = await db.list_evidence_by_case(self._case_id)
+            all_evidence = await db.list_evidence_by_case(self._case_id)
 
-                for ev in all_evidence:
-                    if ev.get("evidence_type") == "image" and not ev.get("summary"):
-                        file_path = ev.get("file_path", "")
-                        if not file_path or not Path(file_path).exists():
-                            continue
+            for ev in all_evidence:
+                if ev.get("evidence_type") == "image" and not ev.get("summary"):
+                    file_path = ev.get("file_path", "")
+                    if not file_path or not Path(file_path).exists():
+                        continue
 
-                        try:
-                            from nexus.core.image_analyzer import ImageAnalyzer
+                    try:
+                        from nexus.core.image_analyzer import ImageAnalyzer
 
-                            analyzer = ImageAnalyzer(
-                                router=self._router,
-                                db=db,
-                                chroma=self._chroma,
-                            )
-                            await analyzer.process_evidence_image(
-                                self._case_id, ev["id"], file_path
-                            )
-                            await self._audit_log(
-                                "autonomous_loop", "image_analyzed",
-                                f"Image analysee: {ev.get('title', '?')}",
-                                target_type="evidence",
-                                target_id=ev["id"],
-                                cycle_number=self._cycle_count,
-                            )
-                            logger.info(
-                                "ORIENT: Image analysed: {} ({})",
-                                ev.get("title", "?"),
-                                ev["id"][:8],
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "ORIENT: Image analysis failed for {}: {}",
-                                ev["id"][:8], e,
-                            )
+                        analyzer = ImageAnalyzer(
+                            router=self._router,
+                            db=db,
+                            chroma=self._chroma,
+                        )
+                        await analyzer.process_evidence_image(
+                            self._case_id, ev["id"], file_path
+                        )
+                        await self._audit_log(
+                            "autonomous_loop", "image_analyzed",
+                            f"Image analysee: {ev.get('title', '?')}",
+                            target_type="evidence",
+                            target_id=ev["id"],
+                            cycle_number=self._cycle_count,
+                        )
+                        logger.info(
+                            "ORIENT: Image analysed: {} ({})",
+                            ev.get("title", "?"),
+                            ev["id"][:8],
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "ORIENT: Image analysis failed for {}: {}",
+                            ev["id"][:8], e,
+                        )
         except Exception as e:
             logger.warning("ORIENT: Image analysis phase failed: {}", e)
 
-    async def _orient_visual_embeddings(self) -> None:
+    async def _orient_visual_embeddings(self, db: Database) -> None:
         """Index image evidence in DINOv2/CLIP for visual similarity search."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                all_evidence = await db.list_evidence_by_case(self._case_id)
+            all_evidence = await db.list_evidence_by_case(self._case_id)
 
-                image_evidence = [
-                    ev for ev in all_evidence
-                    if ev.get("evidence_type") == "image"
-                    and ev.get("file_path")
-                    and Path(ev["file_path"]).exists()
-                ]
+            image_evidence = [
+                ev for ev in all_evidence
+                if ev.get("evidence_type") == "image"
+                and ev.get("file_path")
+                and Path(ev["file_path"]).exists()
+            ]
 
-                if not image_evidence:
-                    return
+            if not image_evidence:
+                return
 
-                # Check which images are already indexed by looking at metadata
-                to_index = []
-                for ev in image_evidence:
+            # Check which images are already indexed by looking at metadata
+            to_index = []
+            for ev in image_evidence:
+                metadata = (
+                    json.loads(ev.get("metadata") or "{}")
+                    if isinstance(ev.get("metadata"), str)
+                    else (ev.get("metadata") or {})
+                )
+                if not metadata.get("visual_embeddings_indexed"):
+                    to_index.append(ev)
+
+            if not to_index:
+                return
+
+            from nexus.vision.embeddings import VisualEmbedder
+            from nexus.vision.image_search import ImageSearchEngine
+
+            embedder = VisualEmbedder()
+            search_engine = ImageSearchEngine(self._chroma, embedder)
+
+            indexed_count = 0
+            for ev in to_index:
+                try:
+                    search_engine.index_image(
+                        evidence_id=ev["id"],
+                        case_id=self._case_id,
+                        image_path=ev["file_path"],
+                        description=ev.get("summary", ""),
+                    )
+                    # Mark as indexed in metadata
                     metadata = (
                         json.loads(ev.get("metadata") or "{}")
                         if isinstance(ev.get("metadata"), str)
                         else (ev.get("metadata") or {})
                     )
-                    if not metadata.get("visual_embeddings_indexed"):
-                        to_index.append(ev)
-
-                if not to_index:
-                    return
-
-                from nexus.vision.embeddings import VisualEmbedder
-                from nexus.vision.image_search import ImageSearchEngine
-
-                embedder = VisualEmbedder()
-                search_engine = ImageSearchEngine(self._chroma, embedder)
-
-                indexed_count = 0
-                for ev in to_index:
-                    try:
-                        search_engine.index_image(
-                            evidence_id=ev["id"],
-                            case_id=self._case_id,
-                            image_path=ev["file_path"],
-                            description=ev.get("summary", ""),
-                        )
-                        # Mark as indexed in metadata
-                        metadata = (
-                            json.loads(ev.get("metadata") or "{}")
-                            if isinstance(ev.get("metadata"), str)
-                            else (ev.get("metadata") or {})
-                        )
-                        metadata["visual_embeddings_indexed"] = True
-                        await db.update_evidence(ev["id"], metadata=json.dumps(metadata))
-                        indexed_count += 1
-                    except Exception as e:
-                        logger.warning(
-                            "ORIENT: Visual embedding failed for {}: {}",
-                            ev["id"][:8], e,
-                        )
-
-                # Free GPU memory after batch embedding
-                embedder.unload_all()
-
-                if indexed_count > 0:
-                    logger.info(
-                        "ORIENT: Indexed {} images in DINOv2/CLIP for case {}",
-                        indexed_count, self._case_id,
+                    metadata["visual_embeddings_indexed"] = True
+                    await db.update_evidence(ev["id"], metadata=json.dumps(metadata))
+                    indexed_count += 1
+                except Exception as e:
+                    logger.warning(
+                        "ORIENT: Visual embedding failed for {}: {}",
+                        ev["id"][:8], e,
                     )
-                    await self._audit_log(
-                        "autonomous_loop", "visual_embeddings_indexed",
-                        f"{indexed_count} images indexees dans DINOv2/CLIP",
-                        details={"count": indexed_count},
-                        cycle_number=self._cycle_count,
-                    )
+
+            # Free GPU memory after batch embedding
+            embedder.unload_all()
+
+            if indexed_count > 0:
+                logger.info(
+                    "ORIENT: Indexed {} images in DINOv2/CLIP for case {}",
+                    indexed_count, self._case_id,
+                )
+                await self._audit_log(
+                    "autonomous_loop", "visual_embeddings_indexed",
+                    f"{indexed_count} images indexees dans DINOv2/CLIP",
+                    details={"count": indexed_count},
+                    cycle_number=self._cycle_count,
+                )
 
         except Exception as e:
             logger.warning("ORIENT: Visual embeddings phase failed: {}", e)
@@ -625,7 +616,7 @@ class AutonomousInvestigator:
     #                     forensics, timeline
     # ================================================================
 
-    async def _decide(self, new_evidence_ids: list[str]) -> dict[str, Any]:
+    async def _decide(self, db: Database, new_evidence_ids: list[str]) -> dict[str, Any]:
         """Re-analyze the case if new evidence was added."""
         decisions: dict[str, Any] = {
             "analysis_run": None,
@@ -651,36 +642,34 @@ class AutonomousInvestigator:
 
             for ev_id in new_evidence_ids:
                 try:
-                    async with get_db() as conn:
-                        db = Database(conn)
-                        pipeline = AnalysisPipeline(
-                            db=db,
-                            router=self._router,
-                            chroma=self._chroma,
-                            neo4j=self._neo4j,
-                        )
-                        run = await pipeline.run_incremental_analysis(
-                            case_id=self._case_id,
-                            trigger="autonomous_loop",
-                            new_evidence_id=ev_id,
-                        )
-                        decisions["analysis_run"] = {
-                            "id": run.id,
-                            "status": run.status,
-                        }
-                        # Audit: log analysis completed
-                        audit = AuditService(db)
-                        await audit.log_analysis(
-                            case_id=self._case_id,
-                            run_id=run.id,
-                            run_type="incremental",
-                            status=run.status,
-                            actor="autonomous_loop",
-                        )
-                        logger.info(
-                            "DECIDE: Incremental analysis completed for evidence {}",
-                            ev_id[:8],
-                        )
+                    pipeline = AnalysisPipeline(
+                        db=db,
+                        router=self._router,
+                        chroma=self._chroma,
+                        neo4j=self._neo4j,
+                    )
+                    run = await pipeline.run_incremental_analysis(
+                        case_id=self._case_id,
+                        trigger="autonomous_loop",
+                        new_evidence_id=ev_id,
+                    )
+                    decisions["analysis_run"] = {
+                        "id": run.id,
+                        "status": run.status,
+                    }
+                    # Audit: log analysis completed
+                    audit = AuditService(db)
+                    await audit.log_analysis(
+                        case_id=self._case_id,
+                        run_id=run.id,
+                        run_type="incremental",
+                        status=run.status,
+                        actor="autonomous_loop",
+                    )
+                    logger.info(
+                        "DECIDE: Incremental analysis completed for evidence {}",
+                        ev_id[:8],
+                    )
                 except Exception as e:
                     logger.error(
                         "DECIDE: Analysis failed for evidence {}: {}",
@@ -690,322 +679,312 @@ class AutonomousInvestigator:
 
         # --- 3b. Re-evaluate ALL hypotheses ---
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                from nexus.core.hypothesis_engine import HypothesisEngine
+            from nexus.core.hypothesis_engine import HypothesisEngine
 
-                engine = HypothesisEngine(
-                    db=db,
-                    router=self._router,
-                    chroma=self._chroma,
-                    neo4j=self._neo4j,
+            engine = HypothesisEngine(
+                db=db,
+                router=self._router,
+                chroma=self._chroma,
+                neo4j=self._neo4j,
+            )
+
+            hypotheses = await db.list_hypotheses_by_case(
+                self._case_id, status="active"
+            )
+            if not hypotheses:
+                # No hypotheses yet -- generate initial ones
+                logger.info(
+                    "DECIDE: No hypotheses exist, generating initial set"
                 )
-
+                await engine.generate_hypotheses(self._case_id)
                 hypotheses = await db.list_hypotheses_by_case(
                     self._case_id, status="active"
                 )
-                if not hypotheses:
-                    # No hypotheses yet -- generate initial ones
-                    logger.info(
-                        "DECIDE: No hypotheses exist, generating initial set"
-                    )
-                    await engine.generate_hypotheses(self._case_id)
-                    hypotheses = await db.list_hypotheses_by_case(
-                        self._case_id, status="active"
-                    )
 
-                if hypotheses:
-                    snapshots = await engine.evaluate_all(self._case_id)
-                    decisions["score_shifts"] = [
-                        s
-                        for s in snapshots
-                        if abs(s.get("delta", 0)) > 15
-                    ]
-                    # Audit: log each significant score shift
-                    audit = AuditService(db)
-                    for s in snapshots:
-                        if abs(s.get("delta", 0)) > 5:
-                            hyp = await db.get_hypothesis(s.get("hypothesis_id", ""))
-                            hyp_title = hyp.get("title", "?") if hyp else "?"
-                            await audit.log_hypothesis_scored(
-                                case_id=self._case_id,
-                                hyp_id=s.get("hypothesis_id", ""),
-                                title=hyp_title,
-                                old_score=s.get("previous_score", 0),
-                                new_score=s.get("score", 0),
-                                actor="autonomous_loop",
-                            )
-                    logger.info(
-                        "DECIDE: Re-evaluated {} hypotheses",
-                        len(snapshots),
-                    )
+            if hypotheses:
+                snapshots = await engine.evaluate_all(self._case_id)
+                decisions["score_shifts"] = [
+                    s
+                    for s in snapshots
+                    if abs(s.get("delta", 0)) > 15
+                ]
+                # Audit: log each significant score shift
+                audit = AuditService(db)
+                for s in snapshots:
+                    if abs(s.get("delta", 0)) > 5:
+                        hyp = await db.get_hypothesis(s.get("hypothesis_id", ""))
+                        hyp_title = hyp.get("title", "?") if hyp else "?"
+                        await audit.log_hypothesis_scored(
+                            case_id=self._case_id,
+                            hyp_id=s.get("hypothesis_id", ""),
+                            title=hyp_title,
+                            old_score=s.get("previous_score", 0),
+                            new_score=s.get("score", 0),
+                            actor="autonomous_loop",
+                        )
+                logger.info(
+                    "DECIDE: Re-evaluated {} hypotheses",
+                    len(snapshots),
+                )
         except Exception as e:
             logger.error("DECIDE: Hypothesis evaluation failed: {}", e)
 
         # --- 3c. Detect contradictions ---
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                from nexus.core.contradiction_detector import (
-                    ContradictionDetector,
-                )
+            from nexus.core.contradiction_detector import (
+                ContradictionDetector,
+            )
 
-                detector = ContradictionDetector(
-                    db=db, router=self._router
-                )
-                contradictions = await detector.detect_contradictions(
-                    self._case_id
-                )
-                decisions["contradictions"] = contradictions
+            detector = ContradictionDetector(
+                db=db, router=self._router
+            )
+            contradictions = await detector.detect_contradictions(
+                self._case_id
+            )
+            decisions["contradictions"] = contradictions
 
-                if contradictions:
-                    logger.info(
-                        "DECIDE: Found {} contradictions",
-                        len(contradictions),
+            if contradictions:
+                logger.info(
+                    "DECIDE: Found {} contradictions",
+                    len(contradictions),
+                )
+                alert_mgr = AlertManager(db)
+                audit = AuditService(db)
+                for c in contradictions:
+                    await alert_mgr.create_contradiction_alert(
+                        case_id=self._case_id,
+                        details=c.get("description", str(c)),
                     )
-                    alert_mgr = AlertManager(db)
-                    audit = AuditService(db)
-                    for c in contradictions:
-                        await alert_mgr.create_contradiction_alert(
-                            case_id=self._case_id,
-                            details=c.get("description", str(c)),
-                        )
-                        # Audit: log each contradiction
-                        await audit.log_contradiction_found(
-                            case_id=self._case_id,
-                            description=c.get("description", str(c)),
-                            actor="autonomous_loop",
-                        )
+                    # Audit: log each contradiction
+                    await audit.log_contradiction_found(
+                        case_id=self._case_id,
+                        description=c.get("description", str(c)),
+                        actor="autonomous_loop",
+                    )
         except Exception as e:
             logger.error("DECIDE: Contradiction detection failed: {}", e)
 
         # --- 3d. Forensic analysis on image evidence ---
         if settings.auto_forensic_analysis:
-            await self._decide_forensic_analysis()
+            await self._decide_forensic_analysis(db)
 
         # --- 3e. Rebuild timeline ---
         if settings.auto_timeline_rebuild:
-            await self._decide_timeline()
+            await self._decide_timeline(db)
 
         # --- 3f. Rebuild summary tree periodically (every 3 cycles) ---
         if self._cycle_count % 3 == 0:
             try:
-                async with get_db() as conn:
-                    db = Database(conn)
-                    from nexus.core.summary_tree import SummaryTree
+                from nexus.core.summary_tree import SummaryTree
 
-                    tree = SummaryTree(db, self._router, self._chroma)
-                    await tree.rebuild_tree(self._case_id)
-                    logger.info(
-                        "DECIDE: Summary tree rebuilt for case {} (cycle {})",
-                        self._case_id[:8],
-                        self._cycle_count,
-                    )
-                    await self._audit_log(
-                        "autonomous_loop", "summary_tree_rebuilt",
-                        f"Arbre de resumes RAPTOR reconstruit (cycle {self._cycle_count})",
-                        cycle_number=self._cycle_count,
-                    )
+                tree = SummaryTree(db, self._router, self._chroma)
+                await tree.rebuild_tree(self._case_id)
+                logger.info(
+                    "DECIDE: Summary tree rebuilt for case {} (cycle {})",
+                    self._case_id[:8],
+                    self._cycle_count,
+                )
+                await self._audit_log(
+                    "autonomous_loop", "summary_tree_rebuilt",
+                    f"Arbre de resumes RAPTOR reconstruit (cycle {self._cycle_count})",
+                    cycle_number=self._cycle_count,
+                )
             except Exception as e:
                 logger.warning("DECIDE: Summary tree rebuild failed: {}", e)
 
         return decisions
 
-    async def _decide_forensic_analysis(self) -> None:
+    async def _decide_forensic_analysis(self, db: Database) -> None:
         """Run forensic analysis (blood pattern, traces) on image evidence."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                all_evidence = await db.list_evidence_by_case(self._case_id)
+            all_evidence = await db.list_evidence_by_case(self._case_id)
 
-                for ev in all_evidence:
-                    if ev.get("evidence_type") != "image":
-                        continue
+            for ev in all_evidence:
+                if ev.get("evidence_type") != "image":
+                    continue
 
-                    file_path = ev.get("file_path", "")
-                    if not file_path or not Path(file_path).exists():
-                        continue
+                file_path = ev.get("file_path", "")
+                if not file_path or not Path(file_path).exists():
+                    continue
 
-                    # Check metadata to see if forensic analysis was already done
-                    metadata = (
-                        json.loads(ev.get("metadata") or "{}")
-                        if isinstance(ev.get("metadata"), str)
-                        else (ev.get("metadata") or {})
-                    )
-                    if metadata.get("forensic_analyzed"):
-                        continue
+                # Check metadata to see if forensic analysis was already done
+                metadata = (
+                    json.loads(ev.get("metadata") or "{}")
+                    if isinstance(ev.get("metadata"), str)
+                    else (ev.get("metadata") or {})
+                )
+                if metadata.get("forensic_analyzed"):
+                    continue
 
-                    # Determine what kind of forensic analysis to run based
-                    # on the evidence summary/description (keywords)
-                    summary = (ev.get("summary") or "").lower()
-                    title = (ev.get("title") or "").lower()
-                    combined = f"{summary} {title}"
+                # Determine what kind of forensic analysis to run based
+                # on the evidence summary/description (keywords)
+                summary = (ev.get("summary") or "").lower()
+                title = (ev.get("title") or "").lower()
+                combined = f"{summary} {title}"
 
-                    # Blood pattern analysis
-                    blood_keywords = (
-                        "sang", "blood", "tache", "spatter", "eclaboussure",
-                        "hemoglobine", "rouge", "flaque",
-                    )
-                    if any(kw in combined for kw in blood_keywords):
-                        try:
-                            from nexus.forensics.blood_pattern import BloodPatternAnalyzer
-
-                            bpa = BloodPatternAnalyzer(self._router)
-                            result = await bpa.classify_pattern(file_path)
-                            metadata["bpa_result"] = result
-                            await self._audit_log(
-                                "autonomous_loop", "forensic_bpa",
-                                f"Analyse BPA: {ev.get('title', '?')} -> {result.get('pattern_type', 'inconnu')}",
-                                target_type="evidence",
-                                target_id=ev["id"],
-                                details=result,
-                                cycle_number=self._cycle_count,
-                            )
-                            logger.info(
-                                "DECIDE: BPA classification done for {}",
-                                ev["id"][:8],
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "DECIDE: BPA failed for {}: {}",
-                                ev["id"][:8], e,
-                            )
-
-                    # Trace analysis (fingerprints, shoe prints, tire tracks, etc.)
-                    trace_keywords = (
-                        "empreinte", "fingerprint", "trace", "pneu", "tire",
-                        "chaussure", "shoe", "outil", "tool", "verre", "glass",
-                        "fibre", "cheveu", "hair",
-                    )
-                    if any(kw in combined for kw in trace_keywords):
-                        try:
-                            from nexus.forensics.trace_analyzer import TraceAnalyzer
-
-                            tracer = TraceAnalyzer(self._router)
-                            result = await tracer.analyze_trace(file_path, trace_type="auto")
-                            metadata["trace_result"] = result
-                            await self._audit_log(
-                                "autonomous_loop", "forensic_trace",
-                                f"Analyse trace: {ev.get('title', '?')} -> type={result.get('type', 'auto')}",
-                                target_type="evidence",
-                                target_id=ev["id"],
-                                details=result,
-                                cycle_number=self._cycle_count,
-                            )
-                            logger.info(
-                                "DECIDE: Trace analysis done for {}",
-                                ev["id"][:8],
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "DECIDE: Trace analysis failed for {}: {}",
-                                ev["id"][:8], e,
-                            )
-
-                    # Mark as forensic-analyzed to avoid re-processing
-                    metadata["forensic_analyzed"] = True
-                    await db.update_evidence(ev["id"], metadata=json.dumps(metadata))
-
-                # --- Audio forensic analysis ---
-                for ev in all_evidence:
-                    if ev.get("evidence_type") != "audio":
-                        continue
-
-                    file_path = ev.get("file_path", "")
-                    if not file_path or not Path(file_path).exists():
-                        continue
-
-                    metadata = (
-                        json.loads(ev.get("metadata") or "{}")
-                        if isinstance(ev.get("metadata"), str)
-                        else (ev.get("metadata") or {})
-                    )
-                    if metadata.get("acoustic_analyzed"):
-                        continue
-
+                # Blood pattern analysis
+                blood_keywords = (
+                    "sang", "blood", "tache", "spatter", "eclaboussure",
+                    "hemoglobine", "rouge", "flaque",
+                )
+                if any(kw in combined for kw in blood_keywords):
                     try:
-                        from nexus.forensics.acoustic_analysis import AcousticAnalyzer
+                        from nexus.forensics.blood_pattern import BloodPatternAnalyzer
 
-                        acoustic = AcousticAnalyzer(self._router)
-                        result = await acoustic.analyze_audio_forensic(file_path)
-                        metadata["acoustic_result"] = {
-                            "transcription": result.get("transcription", "")[:2000],
-                            "events_count": len(result.get("events", [])),
-                            "status": result.get("status"),
-                        }
-                        metadata["acoustic_analyzed"] = True
-                        await db.update_evidence(ev["id"], metadata=json.dumps(metadata))
-
-                        # If transcription was produced, store it as raw_text
-                        transcription = result.get("transcription", "")
-                        if transcription and not ev.get("raw_text"):
-                            await db.update_evidence(
-                                ev["id"],
-                                raw_text=transcription,
-                                summary=result.get("forensic_analysis", "")[:500],
-                            )
-
+                        bpa = BloodPatternAnalyzer(self._router)
+                        result = await bpa.classify_pattern(file_path)
+                        metadata["bpa_result"] = result
                         await self._audit_log(
-                            "autonomous_loop", "forensic_acoustic",
-                            f"Analyse acoustique: {ev.get('title', '?')} -> "
-                            f"{len(result.get('events', []))} evenements detectes",
+                            "autonomous_loop", "forensic_bpa",
+                            f"Analyse BPA: {ev.get('title', '?')} -> {result.get('pattern_type', 'inconnu')}",
                             target_type="evidence",
                             target_id=ev["id"],
-                            details=metadata["acoustic_result"],
+                            details=result,
                             cycle_number=self._cycle_count,
                         )
                         logger.info(
-                            "DECIDE: Acoustic analysis done for {}",
+                            "DECIDE: BPA classification done for {}",
                             ev["id"][:8],
                         )
                     except Exception as e:
                         logger.warning(
-                            "DECIDE: Acoustic analysis failed for {}: {}",
+                            "DECIDE: BPA failed for {}: {}",
                             ev["id"][:8], e,
                         )
+
+                # Trace analysis (fingerprints, shoe prints, tire tracks, etc.)
+                trace_keywords = (
+                    "empreinte", "fingerprint", "trace", "pneu", "tire",
+                    "chaussure", "shoe", "outil", "tool", "verre", "glass",
+                    "fibre", "cheveu", "hair",
+                )
+                if any(kw in combined for kw in trace_keywords):
+                    try:
+                        from nexus.forensics.trace_analyzer import TraceAnalyzer
+
+                        tracer = TraceAnalyzer(self._router)
+                        result = await tracer.analyze_trace(file_path, trace_type="auto")
+                        metadata["trace_result"] = result
+                        await self._audit_log(
+                            "autonomous_loop", "forensic_trace",
+                            f"Analyse trace: {ev.get('title', '?')} -> type={result.get('type', 'auto')}",
+                            target_type="evidence",
+                            target_id=ev["id"],
+                            details=result,
+                            cycle_number=self._cycle_count,
+                        )
+                        logger.info(
+                            "DECIDE: Trace analysis done for {}",
+                            ev["id"][:8],
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "DECIDE: Trace analysis failed for {}: {}",
+                            ev["id"][:8], e,
+                        )
+
+                # Mark as forensic-analyzed to avoid re-processing
+                metadata["forensic_analyzed"] = True
+                await db.update_evidence(ev["id"], metadata=json.dumps(metadata))
+
+            # --- Audio forensic analysis ---
+            for ev in all_evidence:
+                if ev.get("evidence_type") != "audio":
+                    continue
+
+                file_path = ev.get("file_path", "")
+                if not file_path or not Path(file_path).exists():
+                    continue
+
+                metadata = (
+                    json.loads(ev.get("metadata") or "{}")
+                    if isinstance(ev.get("metadata"), str)
+                    else (ev.get("metadata") or {})
+                )
+                if metadata.get("acoustic_analyzed"):
+                    continue
+
+                try:
+                    from nexus.forensics.acoustic_analysis import AcousticAnalyzer
+
+                    acoustic = AcousticAnalyzer(self._router)
+                    result = await acoustic.analyze_audio_forensic(file_path)
+                    metadata["acoustic_result"] = {
+                        "transcription": result.get("transcription", "")[:2000],
+                        "events_count": len(result.get("events", [])),
+                        "status": result.get("status"),
+                    }
+                    metadata["acoustic_analyzed"] = True
+                    await db.update_evidence(ev["id"], metadata=json.dumps(metadata))
+
+                    # If transcription was produced, store it as raw_text
+                    transcription = result.get("transcription", "")
+                    if transcription and not ev.get("raw_text"):
+                        await db.update_evidence(
+                            ev["id"],
+                            raw_text=transcription,
+                            summary=result.get("forensic_analysis", "")[:500],
+                        )
+
+                    await self._audit_log(
+                        "autonomous_loop", "forensic_acoustic",
+                        f"Analyse acoustique: {ev.get('title', '?')} -> "
+                        f"{len(result.get('events', []))} evenements detectes",
+                        target_type="evidence",
+                        target_id=ev["id"],
+                        details=metadata["acoustic_result"],
+                        cycle_number=self._cycle_count,
+                    )
+                    logger.info(
+                        "DECIDE: Acoustic analysis done for {}",
+                        ev["id"][:8],
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "DECIDE: Acoustic analysis failed for {}: {}",
+                        ev["id"][:8], e,
+                    )
 
         except Exception as e:
             logger.warning("DECIDE: Forensic analysis phase failed: {}", e)
 
-    async def _decide_timeline(self) -> None:
+    async def _decide_timeline(self, db: Database) -> None:
         """Rebuild the chronological timeline for the case."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                from nexus.core.timeline_builder import TimelineBuilder
+            from nexus.core.timeline_builder import TimelineBuilder
 
-                builder = TimelineBuilder(db, self._neo4j)
-                timeline = await builder.build_timeline(self._case_id)
+            builder = TimelineBuilder(db, self._neo4j)
+            timeline = await builder.build_timeline(self._case_id)
 
-                if timeline:
-                    # Store timeline as an analysis run for record-keeping
-                    await db.create_analysis_run(
-                        case_id=self._case_id,
-                        run_type="timeline_rebuild",
-                        trigger="autonomous_loop",
-                        status="completed",
-                        model_used="N/A",
-                        input_summary=f"Timeline cycle {self._cycle_count}",
-                        output_summary=(
-                            f"{len(timeline)} evenements, "
-                            f"du {timeline[0].get('date', '?')} "
-                            f"au {timeline[-1].get('date', '?')}"
-                        ),
-                    )
-                    await self._audit_log(
-                        "autonomous_loop", "timeline_rebuilt",
-                        f"Timeline reconstruite: {len(timeline)} evenements",
-                        details={
-                            "count": len(timeline),
-                            "earliest": timeline[0].get("date") if timeline else None,
-                            "latest": timeline[-1].get("date") if timeline else None,
-                        },
-                        cycle_number=self._cycle_count,
-                    )
-                    logger.info(
-                        "DECIDE: Timeline rebuilt with {} entries for case {}",
-                        len(timeline), self._case_id,
-                    )
+            if timeline:
+                # Store timeline as an analysis run for record-keeping
+                await db.create_analysis_run(
+                    case_id=self._case_id,
+                    run_type="timeline_rebuild",
+                    trigger="autonomous_loop",
+                    status="completed",
+                    model_used="N/A",
+                    input_summary=f"Timeline cycle {self._cycle_count}",
+                    output_summary=(
+                        f"{len(timeline)} evenements, "
+                        f"du {timeline[0].get('date', '?')} "
+                        f"au {timeline[-1].get('date', '?')}"
+                    ),
+                )
+                await self._audit_log(
+                    "autonomous_loop", "timeline_rebuilt",
+                    f"Timeline reconstruite: {len(timeline)} evenements",
+                    details={
+                        "count": len(timeline),
+                        "earliest": timeline[0].get("date") if timeline else None,
+                        "latest": timeline[-1].get("date") if timeline else None,
+                    },
+                    cycle_number=self._cycle_count,
+                )
+                logger.info(
+                    "DECIDE: Timeline rebuilt with {} entries for case {}",
+                    len(timeline), self._case_id,
+                )
         except Exception as e:
             logger.warning("DECIDE: Timeline rebuild failed: {}", e)
 
@@ -1014,120 +993,117 @@ class AutonomousInvestigator:
     #                  domain recon
     # ================================================================
 
-    async def _act(self, decisions: dict[str, Any]) -> None:
+    async def _act(self, db: Database, decisions: dict[str, Any]) -> None:
         """Adapt monitoring based on what we learned."""
         # --- 4a. Generate new search queries (existing) ---
-        await self._act_generate_queries(decisions)
+        await self._act_generate_queries(db, decisions)
 
         # --- 4b. OSINT enrichment: create monitoring jobs from recon results ---
-        await self._act_osint_enrichment()
+        await self._act_osint_enrichment(db)
 
         # --- 4c. Domain recon on email entity domains ---
         if settings.auto_domain_recon:
-            await self._act_domain_recon()
+            await self._act_domain_recon(db)
 
-    async def _act_generate_queries(self, decisions: dict[str, Any]) -> None:
+    async def _act_generate_queries(self, db: Database, decisions: dict[str, Any]) -> None:
         """Ask the LLM to generate new search queries based on current state."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
+            # Get current state
+            hypotheses = await db.list_hypotheses_by_case(
+                self._case_id, status="active"
+            )
+            entities = await db.list_entities_by_case(self._case_id)
+            existing_jobs = await db.list_jobs_by_case(self._case_id)
+            existing_queries = {j["query"] for j in existing_jobs}
 
-                # Get current state
-                hypotheses = await db.list_hypotheses_by_case(
-                    self._case_id, status="active"
+            if not hypotheses:
+                logger.debug("ACT: No hypotheses, skipping query generation")
+                return
+
+            # Ask the LLM: "Based on current hypotheses and evidence,
+            # what should we search for next?"
+            hypotheses_text = "\n".join(
+                [
+                    f"- {h['title']} (score: {h['current_score']})"
+                    for h in hypotheses
+                ]
+            )
+            entities_text = "\n".join(
+                [
+                    f"- {e['name']} ({e['entity_type']})"
+                    for e in entities[:20]
+                ]
+            )
+            queries_text = "\n".join(
+                [f"- {q}" for q in existing_queries]
+            )
+            contradictions_text = "\n".join(
+                [
+                    str(c)
+                    for c in decisions.get("contradictions", [])[:5]
+                ]
+            )
+
+            prompt = ADAPTIVE_QUERY_PROMPT.format(
+                hypotheses=hypotheses_text or "(aucune)",
+                entities=entities_text or "(aucune)",
+                existing_queries=queries_text or "(aucune)",
+                contradictions=contradictions_text or "(aucune)",
+            )
+
+            response = await self._router.route_json(
+                TaskType.QUERY_REFORMULATION, prompt
+            )
+
+            new_queries = response.get("queries", [])
+            max_new = settings.max_new_queries_per_cycle
+
+            created_count = 0
+            for q in new_queries:
+                if created_count >= max_new:
+                    break
+
+                query_text = (
+                    q.get("query", q)
+                    if isinstance(q, dict)
+                    else str(q)
                 )
-                entities = await db.list_entities_by_case(self._case_id)
-                existing_jobs = await db.list_jobs_by_case(self._case_id)
-                existing_queries = {j["query"] for j in existing_jobs}
 
-                if not hypotheses:
-                    logger.debug("ACT: No hypotheses, skipping query generation")
-                    return
+                if not query_text or query_text in existing_queries:
+                    continue
 
-                # Ask the LLM: "Based on current hypotheses and evidence,
-                # what should we search for next?"
-                hypotheses_text = "\n".join(
-                    [
-                        f"- {h['title']} (score: {h['current_score']})"
-                        for h in hypotheses
-                    ]
+                await db.create_monitoring_job(
+                    case_id=self._case_id,
+                    job_type="searxng",
+                    query=query_text,
+                    interval_hours=12,
                 )
-                entities_text = "\n".join(
-                    [
-                        f"- {e['name']} ({e['entity_type']})"
-                        for e in entities[:20]
-                    ]
+                created_count += 1
+                # Audit: log query generation
+                audit = AuditService(db)
+                await audit.log_query_generated(
+                    case_id=self._case_id,
+                    query=query_text,
+                    cycle=self._cycle_count,
                 )
-                queries_text = "\n".join(
-                    [f"- {q}" for q in existing_queries]
-                )
-                contradictions_text = "\n".join(
-                    [
-                        str(c)
-                        for c in decisions.get("contradictions", [])[:5]
-                    ]
+                logger.info(
+                    "ACT: New monitoring job created: '{}'",
+                    query_text[:60],
                 )
 
-                prompt = ADAPTIVE_QUERY_PROMPT.format(
-                    hypotheses=hypotheses_text or "(aucune)",
-                    entities=entities_text or "(aucune)",
-                    existing_queries=queries_text or "(aucune)",
-                    contradictions=contradictions_text or "(aucune)",
+            if created_count:
+                logger.info(
+                    "ACT: Created {} new monitoring jobs for case {}",
+                    created_count,
+                    self._case_id,
                 )
-
-                response = await self._router.route_json(
-                    TaskType.QUERY_REFORMULATION, prompt
-                )
-
-                new_queries = response.get("queries", [])
-                max_new = settings.max_new_queries_per_cycle
-
-                created_count = 0
-                for q in new_queries:
-                    if created_count >= max_new:
-                        break
-
-                    query_text = (
-                        q.get("query", q)
-                        if isinstance(q, dict)
-                        else str(q)
-                    )
-
-                    if not query_text or query_text in existing_queries:
-                        continue
-
-                    await db.create_monitoring_job(
-                        case_id=self._case_id,
-                        job_type="searxng",
-                        query=query_text,
-                        interval_hours=12,
-                    )
-                    created_count += 1
-                    # Audit: log query generation
-                    audit = AuditService(db)
-                    await audit.log_query_generated(
-                        case_id=self._case_id,
-                        query=query_text,
-                        cycle=self._cycle_count,
-                    )
-                    logger.info(
-                        "ACT: New monitoring job created: '{}'",
-                        query_text[:60],
-                    )
-
-                if created_count:
-                    logger.info(
-                        "ACT: Created {} new monitoring jobs for case {}",
-                        created_count,
-                        self._case_id,
-                    )
 
         except Exception as e:
             logger.error(
                 "ACT: Adaptive query generation failed: {}", e
             )
 
-    async def _act_osint_enrichment(self) -> None:
+    async def _act_osint_enrichment(self, db: Database) -> None:
         """Create monitoring jobs from OSINT recon results.
 
         If holehe found an Instagram account, create a monitoring job
@@ -1135,162 +1111,158 @@ class AutonomousInvestigator:
         a Twitter profile, monitor it.
         """
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                entities = await db.list_entities_by_case(self._case_id)
-                existing_jobs = await db.list_jobs_by_case(self._case_id)
-                existing_queries = {j["query"] for j in existing_jobs}
+            entities = await db.list_entities_by_case(self._case_id)
+            existing_jobs = await db.list_jobs_by_case(self._case_id)
+            existing_queries = {j["query"] for j in existing_jobs}
 
-                created_count = 0
+            created_count = 0
 
-                for ent in entities:
-                    metadata = (
-                        json.loads(ent.get("metadata") or "{}")
-                        if isinstance(ent.get("metadata"), str)
-                        else (ent.get("metadata") or {})
-                    )
+            for ent in entities:
+                metadata = (
+                    json.loads(ent.get("metadata") or "{}")
+                    if isinstance(ent.get("metadata"), str)
+                    else (ent.get("metadata") or {})
+                )
 
-                    # Skip if already enriched
-                    if metadata.get("enrichment_done"):
+                # Skip if already enriched
+                if metadata.get("enrichment_done"):
+                    continue
+
+                # From holehe results: monitor discovered accounts
+                holehe_results = metadata.get("holehe_results", [])
+                for hit in holehe_results[:5]:  # Cap at 5 services per entity
+                    site = hit.get("site", "")
+                    if not site:
                         continue
-
-                    # From holehe results: monitor discovered accounts
-                    holehe_results = metadata.get("holehe_results", [])
-                    for hit in holehe_results[:5]:  # Cap at 5 services per entity
-                        site = hit.get("site", "")
-                        if not site:
-                            continue
-                        query = f'"{ent["name"]}" site:{site}'
-                        if query not in existing_queries:
-                            await db.create_monitoring_job(
-                                case_id=self._case_id,
-                                job_type="searxng",
-                                query=query,
-                                interval_hours=24,
-                            )
-                            existing_queries.add(query)
-                            created_count += 1
-
-                    # From social recon: monitor found profiles
-                    social_profiles = metadata.get("social_profiles", [])
-                    for profile in social_profiles[:5]:
-                        url = profile.get("url", "")
-                        platform = profile.get("platform", "")
-                        if not url:
-                            continue
-                        query = f'"{ent["name"]}" site:{platform}.com'
-                        if query not in existing_queries:
-                            await db.create_monitoring_job(
-                                case_id=self._case_id,
-                                job_type="searxng",
-                                query=query,
-                                interval_hours=24,
-                            )
-                            existing_queries.add(query)
-                            created_count += 1
-
-                    if holehe_results or social_profiles:
-                        metadata["enrichment_done"] = True
-                        await db.update_entity(
-                            ent["id"], metadata=json.dumps(metadata)
+                    query = f'"{ent["name"]}" site:{site}'
+                    if query not in existing_queries:
+                        await db.create_monitoring_job(
+                            case_id=self._case_id,
+                            job_type="searxng",
+                            query=query,
+                            interval_hours=24,
                         )
+                        existing_queries.add(query)
+                        created_count += 1
 
-                if created_count:
-                    logger.info(
-                        "ACT: Created {} OSINT enrichment monitoring jobs for case {}",
-                        created_count, self._case_id,
+                # From social recon: monitor found profiles
+                social_profiles = metadata.get("social_profiles", [])
+                for profile in social_profiles[:5]:
+                    url = profile.get("url", "")
+                    platform = profile.get("platform", "")
+                    if not url:
+                        continue
+                    query = f'"{ent["name"]}" site:{platform}.com'
+                    if query not in existing_queries:
+                        await db.create_monitoring_job(
+                            case_id=self._case_id,
+                            job_type="searxng",
+                            query=query,
+                            interval_hours=24,
+                        )
+                        existing_queries.add(query)
+                        created_count += 1
+
+                if holehe_results or social_profiles:
+                    metadata["enrichment_done"] = True
+                    await db.update_entity(
+                        ent["id"], metadata=json.dumps(metadata)
                     )
-                    await self._audit_log(
-                        "autonomous_loop", "osint_enrichment",
-                        f"{created_count} jobs de monitoring OSINT crees",
-                        details={"count": created_count},
-                        cycle_number=self._cycle_count,
-                    )
+
+            if created_count:
+                logger.info(
+                    "ACT: Created {} OSINT enrichment monitoring jobs for case {}",
+                    created_count, self._case_id,
+                )
+                await self._audit_log(
+                    "autonomous_loop", "osint_enrichment",
+                    f"{created_count} jobs de monitoring OSINT crees",
+                    details={"count": created_count},
+                    cycle_number=self._cycle_count,
+                )
 
         except Exception as e:
             logger.warning("ACT: OSINT enrichment failed: {}", e)
 
-    async def _act_domain_recon(self) -> None:
+    async def _act_domain_recon(self, db: Database) -> None:
         """Run WHOIS/DNS recon on domains from email entities."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                entities = await db.list_entities_by_case(
-                    self._case_id, entity_type="email"
+            entities = await db.list_entities_by_case(
+                self._case_id, entity_type="email"
+            )
+
+            for ent in entities:
+                name = ent.get("name", "")
+                if "@" not in name:
+                    continue
+
+                metadata = (
+                    json.loads(ent.get("metadata") or "{}")
+                    if isinstance(ent.get("metadata"), str)
+                    else (ent.get("metadata") or {})
                 )
 
-                for ent in entities:
-                    name = ent.get("name", "")
-                    if "@" not in name:
-                        continue
+                # Skip if domain recon already done
+                if metadata.get("domain_recon_done"):
+                    continue
 
-                    metadata = (
-                        json.loads(ent.get("metadata") or "{}")
-                        if isinstance(ent.get("metadata"), str)
-                        else (ent.get("metadata") or {})
+                domain = name.split("@")[1]
+
+                # Skip common freemail domains (no investigative value)
+                freemail_domains = {
+                    "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
+                    "live.com", "aol.com", "icloud.com", "protonmail.com",
+                    "proton.me", "mail.com", "gmx.com", "yandex.com",
+                }
+                if domain.lower() in freemail_domains:
+                    metadata["domain_recon_done"] = True
+                    metadata["domain_recon_skipped"] = "freemail"
+                    await db.update_entity(ent["id"], metadata=json.dumps(metadata))
+                    continue
+
+                try:
+                    from nexus.recon.domain_recon import DomainRecon
+
+                    drecon = DomainRecon()
+
+                    whois_info = await drecon.whois_lookup(domain)
+                    dns_info = await drecon.dns_lookup(domain)
+
+                    metadata["domain_recon_done"] = True
+                    metadata["whois"] = {
+                        "registrar": whois_info.get("registrar"),
+                        "creation_date": whois_info.get("creation_date"),
+                        "registrant_name": whois_info.get("registrant_name"),
+                        "registrant_email": whois_info.get("registrant_email"),
+                        "name_servers": whois_info.get("name_servers", []),
+                    }
+                    metadata["dns"] = dns_info
+
+                    await db.update_entity(ent["id"], metadata=json.dumps(metadata))
+
+                    await self._audit_log(
+                        "autonomous_loop", "domain_recon",
+                        f"Domain recon {domain}: registrar={whois_info.get('registrar', '?')}",
+                        target_type="entity",
+                        target_id=ent["id"],
+                        details={"domain": domain, "whois": metadata["whois"], "dns": dns_info},
+                        cycle_number=self._cycle_count,
+                    )
+                    logger.info(
+                        "ACT: Domain recon done for {} (entity {})",
+                        domain, ent["id"][:8],
                     )
 
-                    # Skip if domain recon already done
-                    if metadata.get("domain_recon_done"):
-                        continue
+                    # Rate-limit
+                    await asyncio.sleep(settings.auto_recon_rate_limit)
 
-                    domain = name.split("@")[1]
-
-                    # Skip common freemail domains (no investigative value)
-                    freemail_domains = {
-                        "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
-                        "live.com", "aol.com", "icloud.com", "protonmail.com",
-                        "proton.me", "mail.com", "gmx.com", "yandex.com",
-                    }
-                    if domain.lower() in freemail_domains:
-                        metadata["domain_recon_done"] = True
-                        metadata["domain_recon_skipped"] = "freemail"
-                        await db.update_entity(ent["id"], metadata=json.dumps(metadata))
-                        continue
-
-                    try:
-                        from nexus.recon.domain_recon import DomainRecon
-
-                        drecon = DomainRecon()
-
-                        whois_info = await drecon.whois_lookup(domain)
-                        dns_info = await drecon.dns_lookup(domain)
-
-                        metadata["domain_recon_done"] = True
-                        metadata["whois"] = {
-                            "registrar": whois_info.get("registrar"),
-                            "creation_date": whois_info.get("creation_date"),
-                            "registrant_name": whois_info.get("registrant_name"),
-                            "registrant_email": whois_info.get("registrant_email"),
-                            "name_servers": whois_info.get("name_servers", []),
-                        }
-                        metadata["dns"] = dns_info
-
-                        await db.update_entity(ent["id"], metadata=json.dumps(metadata))
-
-                        await self._audit_log(
-                            "autonomous_loop", "domain_recon",
-                            f"Domain recon {domain}: registrar={whois_info.get('registrar', '?')}",
-                            target_type="entity",
-                            target_id=ent["id"],
-                            details={"domain": domain, "whois": metadata["whois"], "dns": dns_info},
-                            cycle_number=self._cycle_count,
-                        )
-                        logger.info(
-                            "ACT: Domain recon done for {} (entity {})",
-                            domain, ent["id"][:8],
-                        )
-
-                        # Rate-limit
-                        await asyncio.sleep(settings.auto_recon_rate_limit)
-
-                    except Exception as e:
-                        logger.warning(
-                            "ACT: Domain recon failed for {}: {}", domain, e,
-                        )
-                        metadata["domain_recon_done"] = True
-                        metadata["domain_recon_error"] = str(e)
-                        await db.update_entity(ent["id"], metadata=json.dumps(metadata))
+                except Exception as e:
+                    logger.warning(
+                        "ACT: Domain recon failed for {}: {}", domain, e,
+                    )
+                    metadata["domain_recon_done"] = True
+                    metadata["domain_recon_error"] = str(e)
+                    await db.update_entity(ent["id"], metadata=json.dumps(metadata))
 
         except Exception as e:
             logger.warning("ACT: Domain recon phase failed: {}", e)
@@ -1299,17 +1271,17 @@ class AutonomousInvestigator:
     # PHASE 5: QUESTION -- Self-questioning, reports, backups
     # ================================================================
 
-    async def _question(self) -> None:
+    async def _question(self, db: Database) -> None:
         """Self-questioning, periodic reports, and automated backups."""
         # --- 5a. Adversarial self-questioning (existing) ---
-        await self._question_self_questioning()
+        await self._question_self_questioning(db)
 
         # --- 5b. Periodic report generation ---
         if (
             settings.auto_report_every_n_cycles > 0
             and self._cycle_count % settings.auto_report_every_n_cycles == 0
         ):
-            await self._question_periodic_report()
+            await self._question_periodic_report(db)
 
         # --- 5c. Automated backup ---
         if (
@@ -1318,83 +1290,80 @@ class AutonomousInvestigator:
         ):
             await self._question_backup()
 
-    async def _question_self_questioning(self) -> None:
+    async def _question_self_questioning(self, db: Database) -> None:
         """Adversarial thinking against the top hypothesis."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-
-                hypotheses = await db.list_hypotheses_by_case(
-                    self._case_id, status="active"
-                )
-                if not hypotheses:
-                    logger.debug(
-                        "QUESTION: No hypotheses to question for case {}",
-                        self._case_id,
-                    )
-                    return
-
-                # Get top hypothesis
-                top = max(
-                    hypotheses,
-                    key=lambda h: h.get("current_score", 0),
-                )
-
-                evidence = await db.list_evidence_by_case(self._case_id)
-                evidence_summaries = "\n".join(
-                    [
-                        f"- [{e.get('title', '?')}]: "
-                        f"{(e.get('summary') or '')[:200]}"
-                        for e in evidence[:15]
-                    ]
-                )
-
-                all_hyps_text = "\n".join(
-                    [
-                        f"- {h['title']} ({h['current_score']}%)"
-                        for h in hypotheses
-                    ]
-                )
-
-                prompt = SELF_QUESTIONING_PROMPT.format(
-                    top_hypothesis=top["title"],
-                    top_score=top["current_score"],
-                    top_description=top.get("description", ""),
-                    all_hypotheses=all_hyps_text,
-                    evidence_summaries=evidence_summaries or "(aucune preuve)",
-                )
-
-                response = await self._router.route(
-                    TaskType.DEEP_ANALYSIS, prompt
-                )
-
-                # Store the questioning result as a special analysis run
-                await db.create_analysis_run(
-                    case_id=self._case_id,
-                    run_type="self_questioning",
-                    trigger="autonomous_loop",
-                    status="completed",
-                    model_used="nexus",
-                    input_summary=(
-                        f"Self-questioning cycle {self._cycle_count} -- "
-                        f"Top hypothesis: {top['title']} ({top['current_score']}%)"
-                    ),
-                    output_summary=response[:2000],
-                )
-
-                # Audit: log self-questioning
-                audit = AuditService(db)
-                await audit.log_self_questioning(
-                    case_id=self._case_id,
-                    top_hypothesis=top["title"],
-                    summary=response,
-                    cycle=self._cycle_count,
-                )
-
-                logger.info(
-                    "QUESTION: Self-questioning completed for case {}",
+            hypotheses = await db.list_hypotheses_by_case(
+                self._case_id, status="active"
+            )
+            if not hypotheses:
+                logger.debug(
+                    "QUESTION: No hypotheses to question for case {}",
                     self._case_id,
                 )
+                return
+
+            # Get top hypothesis
+            top = max(
+                hypotheses,
+                key=lambda h: h.get("current_score", 0),
+            )
+
+            evidence = await db.list_evidence_by_case(self._case_id)
+            evidence_summaries = "\n".join(
+                [
+                    f"- [{e.get('title', '?')}]: "
+                    f"{(e.get('summary') or '')[:200]}"
+                    for e in evidence[:15]
+                ]
+            )
+
+            all_hyps_text = "\n".join(
+                [
+                    f"- {h['title']} ({h['current_score']}%)"
+                    for h in hypotheses
+                ]
+            )
+
+            prompt = SELF_QUESTIONING_PROMPT.format(
+                top_hypothesis=top["title"],
+                top_score=top["current_score"],
+                top_description=top.get("description", ""),
+                all_hypotheses=all_hyps_text,
+                evidence_summaries=evidence_summaries or "(aucune preuve)",
+            )
+
+            response = await self._router.route(
+                TaskType.DEEP_ANALYSIS, prompt
+            )
+
+            # Store the questioning result as a special analysis run
+            await db.create_analysis_run(
+                case_id=self._case_id,
+                run_type="self_questioning",
+                trigger="autonomous_loop",
+                status="completed",
+                model_used="nexus",
+                input_summary=(
+                    f"Self-questioning cycle {self._cycle_count} -- "
+                    f"Top hypothesis: {top['title']} ({top['current_score']}%)"
+                ),
+                output_summary=response[:2000],
+            )
+
+            # Audit: log self-questioning
+            audit = AuditService(db)
+            await audit.log_self_questioning(
+                case_id=self._case_id,
+                top_hypothesis=top["title"],
+                summary=response,
+                cycle=self._cycle_count,
+            )
+
+            logger.info(
+                "QUESTION: Self-questioning completed for case {}",
+                self._case_id,
+            )
 
         except Exception as e:
             logger.error(
@@ -1403,45 +1372,43 @@ class AutonomousInvestigator:
                 e,
             )
 
-    async def _question_periodic_report(self) -> None:
+    async def _question_periodic_report(self, db: Database) -> None:
         """Generate a periodic progression report."""
         try:
-            async with get_db() as conn:
-                db = Database(conn)
-                from nexus.export.report_generator import ReportGenerator
+            from nexus.export.report_generator import ReportGenerator
 
-                gen = ReportGenerator(db, self._router)
-                report = await gen.generate_summary_report(self._case_id)
+            gen = ReportGenerator(db, self._router)
+            report = await gen.generate_summary_report(self._case_id)
 
-                # Store report as an analysis run
-                report_summary = (
-                    report.get("sections", {}).get("summary", "")[:2000]
-                )
-                await db.create_analysis_run(
-                    case_id=self._case_id,
-                    run_type="periodic_report",
-                    trigger="autonomous_loop",
-                    status="completed",
-                    model_used="nexus",
-                    input_summary=f"Rapport periodique cycle {self._cycle_count}",
-                    output_summary=report_summary,
-                )
+            # Store report as an analysis run
+            report_summary = (
+                report.get("sections", {}).get("summary", "")[:2000]
+            )
+            await db.create_analysis_run(
+                case_id=self._case_id,
+                run_type="periodic_report",
+                trigger="autonomous_loop",
+                status="completed",
+                model_used="nexus",
+                input_summary=f"Rapport periodique cycle {self._cycle_count}",
+                output_summary=report_summary,
+            )
 
-                await self._audit_log(
-                    "autonomous_loop", "periodic_report",
-                    f"Rapport periodique genere (cycle {self._cycle_count})",
-                    details={
-                        "cycle": self._cycle_count,
-                        "evidence_count": report.get("sections", {}).get("evidence_count"),
-                        "hypotheses_count": report.get("sections", {}).get("hypotheses_count"),
-                        "unread_alerts": report.get("sections", {}).get("unread_alerts"),
-                    },
-                    cycle_number=self._cycle_count,
-                )
-                logger.info(
-                    "QUESTION: Periodic report generated for case {} (cycle {})",
-                    self._case_id, self._cycle_count,
-                )
+            await self._audit_log(
+                "autonomous_loop", "periodic_report",
+                f"Rapport periodique genere (cycle {self._cycle_count})",
+                details={
+                    "cycle": self._cycle_count,
+                    "evidence_count": report.get("sections", {}).get("evidence_count"),
+                    "hypotheses_count": report.get("sections", {}).get("hypotheses_count"),
+                    "unread_alerts": report.get("sections", {}).get("unread_alerts"),
+                },
+                cycle_number=self._cycle_count,
+            )
+            logger.info(
+                "QUESTION: Periodic report generated for case {} (cycle {})",
+                self._case_id, self._cycle_count,
+            )
 
         except Exception as e:
             logger.warning(

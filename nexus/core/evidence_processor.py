@@ -240,7 +240,13 @@ class EvidenceProcessor:
         # ----------------------------------------------------------
         # 10. Chunk and embed for RAG
         # ----------------------------------------------------------
-        await self._chunk_and_embed(updated)
+        try:
+            await self._chunk_and_embed(updated)
+        except Exception as exc:
+            logger.error(
+                "RAG chunk+embed failed for evidence {} (non-blocking): {}",
+                evidence_id, exc,
+            )
 
         # ----------------------------------------------------------
         # 11. Update summary tree (RAPTOR hierarchical summaries)
@@ -326,7 +332,13 @@ class EvidenceProcessor:
         await self._sync_to_graph_and_vectors(case_id, evidence_id, cleaned, summary)
 
         # Chunk and embed for RAG
-        await self._chunk_and_embed(updated)
+        try:
+            await self._chunk_and_embed(updated)
+        except Exception as exc:
+            logger.error(
+                "RAG chunk+embed failed for text evidence {} (non-blocking): {}",
+                evidence_id, exc,
+            )
 
         # Update summary tree (RAPTOR hierarchical summaries)
         try:

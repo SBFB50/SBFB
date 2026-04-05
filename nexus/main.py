@@ -126,15 +126,31 @@ async def lifespan(app: FastAPI):
     app.state.ollama = OllamaClient()
     app.state.router = LLMRouter(app.state.ollama)
 
-    # Neo4j graph database
-    app.state.neo4j = Neo4jClient()
-    await app.state.neo4j.init_constraints()
-    logger.info("Neo4j client initialised at {}", settings.neo4j_uri)
+    # Neo4j graph database (optional -- degraded mode if unavailable)
+    app.state.neo4j = None
+    try:
+        neo4j_client = Neo4jClient()
+        await neo4j_client.init_constraints()
+        app.state.neo4j = neo4j_client
+        logger.info("Neo4j client initialised at {}", settings.neo4j_uri)
+    except Exception as exc:
+        logger.warning(
+            "Neo4j unavailable -- running in degraded mode (no graph): {}",
+            exc,
+        )
 
-    # ChromaDB vector store
-    app.state.chroma = ChromaClient()
-    app.state.chroma.init_collections()
-    logger.info("ChromaDB client initialised at {}:{}", settings.chroma_host, settings.chroma_port)
+    # ChromaDB vector store (optional -- degraded mode if unavailable)
+    app.state.chroma = None
+    try:
+        chroma_client = ChromaClient()
+        chroma_client.init_collections()
+        app.state.chroma = chroma_client
+        logger.info("ChromaDB client initialised at {}:{}", settings.chroma_host, settings.chroma_port)
+    except Exception as exc:
+        logger.warning(
+            "ChromaDB unavailable -- running in degraded mode (no vectors): {}",
+            exc,
+        )
 
     # Monitoring scheduler (APScheduler)
     app.state.monitoring_scheduler = None
@@ -178,8 +194,10 @@ async def lifespan(app: FastAPI):
             await app.state.investigation_manager.stop_all()
         if app.state.monitoring_scheduler is not None:
             await app.state.monitoring_scheduler.stop()
-        await app.state.neo4j.close()
-        app.state.chroma.close()
+        if app.state.neo4j is not None:
+            await app.state.neo4j.close()
+        if app.state.chroma is not None:
+            app.state.chroma.close()
         logger.info("NEXUS shutdown complete")
 
 

@@ -22,6 +22,17 @@ from typing import Any, Optional
 import numpy as np
 from loguru import logger
 
+try:
+    from scipy.cluster.hierarchy import fcluster, linkage
+    from scipy.spatial.distance import pdist
+    _HAS_SCIPY = True
+except ImportError:
+    _HAS_SCIPY = False
+    logger.warning(
+        "scipy not installed -- agglomerative clustering unavailable, "
+        "rebuild_tree will fall back to single-cluster mode"
+    )
+
 from nexus.db.sqlite_db import Database
 from nexus.llm.prompts import CLUSTER_SUMMARY_PROMPT, CASE_SUMMARY_PROMPT
 from nexus.llm.router import LLMRouter, TaskType
@@ -329,8 +340,8 @@ class SummaryTree:
             )
             return
 
-        if len(evidence_with_summaries) < _MIN_EVIDENCE_FOR_CLUSTERING:
-            # Too few items: put everything in one cluster
+        if len(evidence_with_summaries) < _MIN_EVIDENCE_FOR_CLUSTERING or not _HAS_SCIPY:
+            # Too few items or scipy unavailable: put everything in one cluster
             cluster_labels = [0] * len(evidence_with_summaries)
         else:
             # 3. Agglomerative clustering
@@ -664,8 +675,9 @@ class SummaryTree:
 
         Returns a list of integer labels (one per input embedding).
         """
-        from scipy.cluster.hierarchy import fcluster, linkage
-        from scipy.spatial.distance import pdist
+        if not _HAS_SCIPY:
+            # Fallback: treat all embeddings as a single cluster
+            return [0] * len(embeddings)
 
         n = len(embeddings)
         if n <= 1:
