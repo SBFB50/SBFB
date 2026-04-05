@@ -93,6 +93,18 @@ class Settings(BaseSettings):
     max_auto_ingest_per_cycle: int = 5
     max_new_queries_per_cycle: int = 3
 
+    # -- Autonomous loop: module activation --
+    auto_osint_recon: bool = True            # Scan emails/usernames automatically
+    auto_geocode: bool = True                # Geocode location entities automatically
+    auto_image_analysis: bool = True         # Analyse images automatically (VLM)
+    auto_forensic_analysis: bool = True      # Forensic analysis (blood, traces) auto
+    auto_visual_embeddings: bool = True      # Index images in DINOv2/CLIP automatically
+    auto_domain_recon: bool = True           # WHOIS/DNS recon on email domains
+    auto_timeline_rebuild: bool = True       # Rebuild timeline each DECIDE phase
+    auto_report_every_n_cycles: int = 12     # Report every 6h (12 cycles * 30min)
+    auto_backup_every_n_cycles: int = 24     # Backup every 12h (24 cycles * 30min)
+    auto_recon_rate_limit: float = 2.0       # Seconds between OSINT recon calls
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

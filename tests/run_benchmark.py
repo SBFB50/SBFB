@@ -94,8 +94,8 @@ BASE_URL = "http://localhost:8000"
 BENCHMARK_DIR = Path(__file__).resolve().parent.parent / "data" / "benchmark" / "affaire-moreau"
 
 # Generous timeout for LLM-powered endpoints
-TIMEOUT_SHORT = 30  # seconds -- CRUD operations
-TIMEOUT_LONG = 600  # seconds -- analysis (LLM work)
+TIMEOUT_SHORT = 300  # seconds -- evidence ingestion includes LLM extraction
+TIMEOUT_LONG = 900  # seconds -- full analysis (multi-model pipeline)
 
 
 class APIError(Exception):
