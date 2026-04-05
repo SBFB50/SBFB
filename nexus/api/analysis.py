@@ -52,7 +52,12 @@ async def _run_analysis_in_background(
 
         async with get_db() as conn:
             db = Database(conn)
-            pipeline = AnalysisPipeline(db=db, router=request_app.state.router)
+            pipeline = AnalysisPipeline(
+                db=db,
+                router=request_app.state.router,
+                chroma=getattr(request_app.state, "chroma", None),
+                neo4j=getattr(request_app.state, "neo4j", None),
+            )
 
             if trigger == "manual" and not new_evidence_id:
                 await pipeline.run_full_analysis(case_id)

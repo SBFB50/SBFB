@@ -61,7 +61,12 @@ async def _generate_hypotheses_bg(case_id: str, request_app) -> None:
 
         async with get_db() as conn:
             db = Database(conn)
-            engine = HypothesisEngine(db, request_app.state.router)
+            engine = HypothesisEngine(
+                db,
+                request_app.state.router,
+                chroma=getattr(request_app.state, "chroma", None),
+                neo4j=getattr(request_app.state, "neo4j", None),
+            )
             results = await engine.generate_hypotheses(case_id)
             logger.info(
                 "Background hypothesis generation completed for case {} ({} hypotheses)",
@@ -78,7 +83,12 @@ async def _evaluate_hypothesis_bg(hypothesis_id: str, request_app) -> None:
 
         async with get_db() as conn:
             db = Database(conn)
-            engine = HypothesisEngine(db, request_app.state.router)
+            engine = HypothesisEngine(
+                db,
+                request_app.state.router,
+                chroma=getattr(request_app.state, "chroma", None),
+                neo4j=getattr(request_app.state, "neo4j", None),
+            )
             snapshot = await engine.evaluate_hypothesis(hypothesis_id, trigger="manual")
             logger.info(
                 "Background evaluation completed for hypothesis {} (score={:.1f})",
@@ -95,7 +105,12 @@ async def _evaluate_all_bg(case_id: str, request_app) -> None:
 
         async with get_db() as conn:
             db = Database(conn)
-            engine = HypothesisEngine(db, request_app.state.router)
+            engine = HypothesisEngine(
+                db,
+                request_app.state.router,
+                chroma=getattr(request_app.state, "chroma", None),
+                neo4j=getattr(request_app.state, "neo4j", None),
+            )
             snapshots = await engine.evaluate_all(case_id)
             logger.info(
                 "Background evaluate-all completed for case {} ({} snapshots)",

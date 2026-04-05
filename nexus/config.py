@@ -93,6 +93,12 @@ class Settings(BaseSettings):
     max_auto_ingest_per_cycle: int = 5
     max_new_queries_per_cycle: int = 3
 
+    # -- RAG settings --
+    rag_chunk_size: int = 512          # tokens per chunk
+    rag_chunk_overlap: int = 128       # overlap tokens
+    rag_top_k: int = 20               # chunks retrieved per query
+    rag_min_reliability: int = 0       # minimum evidence reliability for retrieval
+
     # -- Autonomous loop: module activation --
     auto_osint_recon: bool = True            # Scan emails/usernames automatically
     auto_geocode: bool = True                # Geocode location entities automatically

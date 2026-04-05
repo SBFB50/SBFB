@@ -721,6 +721,47 @@ QUESTIONNE-TOI:
 Sois OBJECTIF, CRITIQUE et IMPITOYABLE. Pas de complaisance."""
 
 
+# =====================================================================
+# RAPTOR -- Resumes hierarchiques  (summary_tree.py)
+# =====================================================================
+
+CLUSTER_SUMMARY_PROMPT = """\
+Tu es un analyste d'investigation. Voici {n} resumes de preuves qui forment un groupe thematique.
+
+RESUMES:
+{evidence_summaries}
+
+Genere:
+1. Un TITRE court pour ce groupe (max 10 mots)
+2. Un RESUME SYNTHETIQUE de ce groupe (200-400 mots) qui:
+   - Identifie le theme commun
+   - Resume les faits cles
+   - Note les contradictions eventuelles
+   - Identifie les lacunes
+
+Reponds en JSON: {{"title": "...", "summary": "..."}}"""
+
+CASE_SUMMARY_PROMPT = """\
+Tu es un analyste d'investigation senior. Voici les resumes des {n} groupes thematiques du dossier.
+
+DOSSIER: {case_name} ({case_reference})
+GROUPES:
+{cluster_summaries}
+
+HYPOTHESES ACTIVES:
+{hypotheses}
+
+Genere un RESUME EXECUTIF du dossier (500-800 mots) qui:
+1. Resume la situation globale
+2. Identifie les faits les plus importants
+3. Resume chaque piste/hypothese
+4. Identifie les contradictions majeures
+5. Pointe les lacunes critiques
+6. Suggere les prochaines etapes
+
+Sois OBJECTIF et FACTUEL."""
+
+
 TRACE_COMPARISON_PROMPT = """\
 Tu es un expert forensique specialise dans la comparaison de traces
 physiques. Compare les deux analyses de traces suivantes.

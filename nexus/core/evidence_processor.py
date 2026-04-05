@@ -25,7 +25,10 @@ from typing import Any, BinaryIO
 
 from loguru import logger
 
+from nexus.config import settings
 from nexus.core.audit import AuditService
+from nexus.core.chunker import TextChunker
+from nexus.core.embedding_store import EmbeddingStore
 from nexus.core.entity_extractor import EntityExtractor
 from nexus.core.image_analyzer import ImageAnalyzer
 from nexus.db.models import Evidence, Entity
@@ -234,6 +237,25 @@ class EvidenceProcessor:
         # ----------------------------------------------------------
         await self._sync_to_graph_and_vectors(case_id, evidence_id, raw_text or "", summary)
 
+        # ----------------------------------------------------------
+        # 10. Chunk and embed for RAG
+        # ----------------------------------------------------------
+        await self._chunk_and_embed(updated)
+
+        # ----------------------------------------------------------
+        # 11. Update summary tree (RAPTOR hierarchical summaries)
+        # ----------------------------------------------------------
+        try:
+            from nexus.core.summary_tree import SummaryTree
+
+            tree = SummaryTree(self._db, self._router, self._chroma)
+            await tree.update_for_new_evidence(case_id, evidence_id)
+        except Exception as exc:
+            logger.warning(
+                "Summary tree update failed for evidence {} (non-blocking): {}",
+                evidence_id, exc,
+            )
+
         # Audit: log evidence added (upload pipeline)
         await self._audit.log_evidence_added(
             case_id, evidence_id, title, source,
@@ -302,6 +324,21 @@ class EvidenceProcessor:
 
         # Sync to Neo4j + ChromaDB
         await self._sync_to_graph_and_vectors(case_id, evidence_id, cleaned, summary)
+
+        # Chunk and embed for RAG
+        await self._chunk_and_embed(updated)
+
+        # Update summary tree (RAPTOR hierarchical summaries)
+        try:
+            from nexus.core.summary_tree import SummaryTree
+
+            tree = SummaryTree(self._db, self._router, self._chroma)
+            await tree.update_for_new_evidence(case_id, evidence_id)
+        except Exception as exc:
+            logger.warning(
+                "Summary tree update failed for text evidence {} (non-blocking): {}",
+                evidence_id, exc,
+            )
 
         # Audit: log evidence added (text pipeline)
         await self._audit.log_evidence_added(
@@ -402,6 +439,29 @@ class EvidenceProcessor:
         # Clean up: the LLM may wrap the summary in markdown or artifacts
         summary = summary.strip()
         return summary
+
+    async def _chunk_and_embed(self, evidence: dict) -> None:
+        """Chunk evidence text and index embeddings for RAG retrieval."""
+        if self._chroma is None:
+            return
+
+        evidence_id = evidence.get("id", "unknown")
+        try:
+            chunker = TextChunker(
+                chunk_size=settings.rag_chunk_size,
+                overlap=settings.rag_chunk_overlap,
+            )
+            chunks = chunker.chunk_evidence(evidence)
+            if chunks:
+                store = EmbeddingStore(self._chroma, self._router)
+                n = await store.index_evidence(evidence, chunks)
+                logger.info("Indexed {} RAG chunks for evidence {}", n, evidence_id)
+            else:
+                logger.debug("No text to chunk for evidence {}", evidence_id)
+        except Exception as exc:
+            logger.error(
+                "RAG chunk+embed failed for evidence {}: {}", evidence_id, exc
+            )
 
     async def _sync_to_graph_and_vectors(
         self,

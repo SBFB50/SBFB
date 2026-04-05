@@ -75,10 +75,19 @@ def get_analysis_pipeline(
     request: Request,
     db: Database = Depends(get_database),
 ):
-    """Build an AnalysisPipeline with per-request DB and shared LLMRouter."""
+    """Build an AnalysisPipeline with per-request DB and shared LLMRouter.
+
+    Injects ChromaDB and Neo4j from app.state when available so the
+    pipeline can use the RAG retriever instead of loading all evidence.
+    """
     from nexus.core.analysis_pipeline import AnalysisPipeline
 
-    return AnalysisPipeline(db=db, router=request.app.state.router)
+    return AnalysisPipeline(
+        db=db,
+        router=request.app.state.router,
+        chroma=getattr(request.app.state, "chroma", None),
+        neo4j=getattr(request.app.state, "neo4j", None),
+    )
 
 
 def get_entity_extractor(request: Request) -> EntityExtractor:
@@ -146,10 +155,19 @@ def get_hypothesis_engine(
     request: Request,
     db: Database = Depends(get_database),
 ):
-    """Build a HypothesisEngine with per-request DB and shared LLMRouter."""
+    """Build a HypothesisEngine with per-request DB and shared LLMRouter.
+
+    Injects ChromaDB and Neo4j from app.state when available so the
+    engine can use the RAG retriever instead of loading all evidence.
+    """
     from nexus.core.hypothesis_engine import HypothesisEngine
 
-    return HypothesisEngine(db=db, router=request.app.state.router)
+    return HypothesisEngine(
+        db=db,
+        router=request.app.state.router,
+        chroma=getattr(request.app.state, "chroma", None),
+        neo4j=getattr(request.app.state, "neo4j", None),
+    )
 
 
 # ------------------------------------------------------------------

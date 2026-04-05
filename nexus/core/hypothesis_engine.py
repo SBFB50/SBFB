@@ -44,10 +44,35 @@ _SCORE_SHIFT_THRESHOLD = 15.0
 class HypothesisEngine:
     """Generate, evaluate and manage evolving hypotheses for a case."""
 
-    def __init__(self, db: Database, router: LLMRouter) -> None:
+    def __init__(
+        self,
+        db: Database,
+        router: LLMRouter,
+        chroma=None,
+        neo4j=None,
+    ) -> None:
         self._db = db
         self._router = router
         self._audit = AuditService(db)
+        self._chroma = chroma
+        self._neo4j = neo4j
+        self._retriever = None  # lazily built
+
+    def _get_retriever(self):
+        """Lazily build and return an InvestigationRetriever.
+
+        Returns None if ChromaDB is not available (falls back to legacy).
+        """
+        if self._retriever is not None:
+            return self._retriever
+        if self._chroma is None:
+            return None
+        from nexus.core.retriever import InvestigationRetriever
+
+        self._retriever = InvestigationRetriever(
+            self._chroma, self._neo4j, self._router, self._db
+        )
+        return self._retriever
 
     # ==================================================================
     # generate_hypotheses
@@ -57,28 +82,36 @@ class HypothesisEngine:
         """Generate initial hypotheses for a case using nexus 26B.
 
         Steps:
-          1. Load all evidence + entities for the case
-          2. Build a textual context (evidence summaries, entity list)
-          3. Call nexus 26B with HYPOTHESIS_GENERATION_PROMPT
-          4. Parse generated hypotheses (title, description, initial score)
-          5. Save each hypothesis to SQLite
-          6. Create an initial snapshot for each hypothesis
-          7. Return the created hypotheses
+          1. Build context via RAG retriever (or legacy fallback)
+          2. Call nexus 26B with HYPOTHESIS_GENERATION_PROMPT
+          3. Parse generated hypotheses (title, description, initial score)
+          4. Save each hypothesis to SQLite
+          5. Create an initial snapshot for each hypothesis
+          6. Return the created hypotheses
         """
         logger.info("Generating hypotheses for case {}", case_id)
 
-        # 1. Load case data
-        evidence_list = await self._db.list_evidence_by_case(case_id)
-        entities_list = await self._db.list_entities_by_case(case_id)
-
-        # 2. Build context
-        facts_text = self._build_facts_context(evidence_list, entities_list)
+        # 1. Build context — RAG or legacy fallback
+        retriever = self._get_retriever()
+        if retriever is not None:
+            facts_text = await retriever.build_analysis_context(
+                case_id, max_tokens=4000
+            )
+            logger.info(
+                "Built RAG context for hypothesis generation ({} chars)",
+                len(facts_text),
+            )
+        else:
+            # Legacy fallback
+            evidence_list = await self._db.list_evidence_by_case(case_id)
+            entities_list = await self._db.list_entities_by_case(case_id)
+            facts_text = self._build_facts_context(evidence_list, entities_list)
 
         if not facts_text.strip() or facts_text == "(aucune donnee)":
             logger.warning("No data available to generate hypotheses for case {}", case_id)
             return []
 
-        # 3. Call nexus 26B
+        # 2. Call nexus 26B
         prompt = HYPOTHESIS_GENERATION_PROMPT.format(facts=facts_text)
         logger.info("Calling nexus 26B for hypothesis generation ({} chars)", len(prompt))
         raw_response = await self._router.route(TaskType.DEEP_ANALYSIS, prompt)
@@ -167,12 +200,13 @@ class HypothesisEngine:
         self,
         hypothesis_id: str,
         trigger: str = "manual",
+        _shared_context: str | None = None,
     ) -> dict[str, Any]:
         """Re-evaluate a single hypothesis through the multi-model pipeline.
 
         Pipeline:
           1. Load hypothesis + last snapshot
-          2. Load full case context (evidence, entities, other hypotheses)
+          2. Build evidence context via RAG retriever (or legacy fallback)
           3. [nexus 26B] Re-score with HYPOTHESIS_SCORING_PROMPT
           4. [deepseek-r1] Verify reasoning with LOGIC_VERIFICATION_PROMPT
           5. Compute final score (70% nexus + 30% deepseek adjustment)
@@ -181,6 +215,12 @@ class HypothesisEngine:
           8. Suggest "refuted" if score < 10 and was > 50
           9. Suggest "confirmed" if score > 90 and deepseek confidence > 0.8
           10. Return the snapshot with metadata
+
+        Args:
+            hypothesis_id: The hypothesis to re-evaluate.
+            trigger: What triggered this evaluation.
+            _shared_context: Optional pre-built context from evaluate_all()
+                to avoid rebuilding the context for each hypothesis.
         """
         logger.info("Evaluating hypothesis {}", hypothesis_id)
 
@@ -196,29 +236,68 @@ class HypothesisEngine:
         snapshots = await self._db.list_snapshots_by_hypothesis(hypothesis_id)
         last_snapshot = snapshots[0] if snapshots else None
 
-        # 2. Load full case context
-        evidence_list = await self._db.list_evidence_by_case(case_id)
-        entities_list = await self._db.list_entities_by_case(case_id)
-        other_hypotheses = await self._db.list_hypotheses_by_case(case_id)
+        # 2. Build evidence context — RAG or legacy fallback
+        retriever = self._get_retriever()
+        if retriever is not None:
+            # Use per-hypothesis RAG retrieval
+            hyp_results = await retriever.retrieve_for_hypothesis(
+                hypothesis, case_id, n_results=10
+            )
+            supporting_chunks = hyp_results.get("supporting", [])
+            contradicting_chunks = hyp_results.get("contradicting", [])
+            sup_lines = [
+                f"- [{c.get('title', '?')}]: {c.get('chunk_text', '')[:500]}"
+                for c in supporting_chunks
+            ]
+            contra_lines = [
+                f"- [CONTRA] [{c.get('title', '?')}]: {c.get('chunk_text', '')[:500]}"
+                for c in contradicting_chunks
+            ]
+            new_evidence_context = "\n".join(sup_lines + contra_lines)
 
-        # Build evidence text for scoring
-        evidence_text = self._build_evidence_text(evidence_list)
-        entities_text = self._build_entities_text(entities_list)
+            # Append shared context summary if provided by evaluate_all
+            if _shared_context:
+                new_evidence_context += f"\n\nCONTEXTE GENERAL:\n{_shared_context}"
 
-        # Build new evidence context (all evidence summaries + entities)
-        new_evidence_context = f"{evidence_text}\n\nENTITES:\n{entities_text}"
+            # Add other hypotheses for cross-reference
+            other_hypotheses = await self._db.list_hypotheses_by_case(case_id)
+            other_hyps_text = "\n".join(
+                f"- [{h.get('status', '?')}] {h.get('title', 'N/A')} "
+                f"(score: {h.get('current_score', '?')})"
+                for h in other_hypotheses
+                if h["id"] != hypothesis_id
+            )
+            if other_hyps_text:
+                new_evidence_context += f"\n\nAUTRES HYPOTHESES:\n{other_hyps_text}"
 
-        # Include other hypotheses for cross-reference
-        other_hyps_text = "\n".join(
-            f"- [{h.get('status', '?')}] {h.get('title', 'N/A')} (score: {h.get('current_score', '?')})"
-            for h in other_hypotheses
-            if h["id"] != hypothesis_id
-        )
-        if other_hyps_text:
-            new_evidence_context += f"\n\nAUTRES HYPOTHESES:\n{other_hyps_text}"
+            logger.info(
+                "Built RAG context for hypothesis {} ({} chars)",
+                hypothesis_id[:8],
+                len(new_evidence_context),
+            )
+        else:
+            # Legacy fallback: load everything
+            evidence_list = await self._db.list_evidence_by_case(case_id)
+            entities_list = await self._db.list_entities_by_case(case_id)
+            other_hypotheses = await self._db.list_hypotheses_by_case(case_id)
+
+            evidence_text = self._build_evidence_text(evidence_list)
+            entities_text = self._build_entities_text(entities_list)
+            new_evidence_context = f"{evidence_text}\n\nENTITES:\n{entities_text}"
+
+            other_hyps_text = "\n".join(
+                f"- [{h.get('status', '?')}] {h.get('title', 'N/A')} "
+                f"(score: {h.get('current_score', '?')})"
+                for h in other_hypotheses
+                if h["id"] != hypothesis_id
+            )
+            if other_hyps_text:
+                new_evidence_context += f"\n\nAUTRES HYPOTHESES:\n{other_hyps_text}"
 
         # 3. [nexus 26B] Re-score
-        hypothesis_text = f"{hypothesis.get('title', '')}: {hypothesis.get('description', '')}"
+        hypothesis_text = (
+            f"{hypothesis.get('title', '')}: {hypothesis.get('description', '')}"
+        )
         scoring_prompt = HYPOTHESIS_SCORING_PROMPT.format(
             hypothesis=hypothesis_text,
             current_score=previous_score,
@@ -373,6 +452,9 @@ class HypothesisEngine:
     async def evaluate_all(self, case_id: str) -> list[dict[str, Any]]:
         """Re-evaluate ALL active hypotheses for a case sequentially.
 
+        Builds a shared context ONCE via the retriever and passes it to
+        each evaluate_hypothesis call to avoid redundant embedding lookups.
+
         Returns the list of snapshots created.
         """
         hypotheses = await self._db.list_hypotheses_by_case(case_id, status="active")
@@ -383,11 +465,25 @@ class HypothesisEngine:
 
         logger.info("Evaluating {} active hypotheses for case {}", len(hypotheses), case_id)
 
+        # Build shared context once for the whole batch
+        shared_context: str | None = None
+        retriever = self._get_retriever()
+        if retriever is not None:
+            shared_context = await retriever.build_analysis_context(
+                case_id, max_tokens=2000
+            )
+            logger.info(
+                "Built shared RAG context for evaluate_all ({} chars)",
+                len(shared_context),
+            )
+
         snapshots: list[dict[str, Any]] = []
         for h in hypotheses:
             try:
                 snapshot = await self.evaluate_hypothesis(
-                    h["id"], trigger="evaluate_all"
+                    h["id"],
+                    trigger="evaluate_all",
+                    _shared_context=shared_context,
                 )
                 snapshots.append(snapshot)
             except Exception as exc:

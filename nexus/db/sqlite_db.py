@@ -189,6 +189,26 @@ CREATE TABLE IF NOT EXISTS audit_log (
     entry_hash TEXT,
     previous_hash TEXT
 );
+
+CREATE TABLE IF NOT EXISTS summary_clusters (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    title TEXT,
+    summary TEXT,
+    evidence_ids TEXT,
+    embedding_centroid TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS case_summaries (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id) UNIQUE,
+    summary TEXT,
+    cluster_ids TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 _CREATE_INDEXES = """
@@ -205,6 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_locations_entity ON locations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_case ON audit_log(case_id);
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_clusters_case ON summary_clusters(case_id);
 """
 
 
@@ -345,6 +366,12 @@ class Database:
     async def delete_case(self, case_id: str) -> bool:
         """Delete a case and all its dependent rows (cascade)."""
         # Delete children in dependency order (leaves first)
+        await self._conn.execute(
+            "DELETE FROM case_summaries WHERE case_id = ?", (case_id,)
+        )
+        await self._conn.execute(
+            "DELETE FROM summary_clusters WHERE case_id = ?", (case_id,)
+        )
         await self._conn.execute(
             "DELETE FROM audit_log WHERE case_id = ?", (case_id,)
         )
@@ -1187,3 +1214,112 @@ class Database:
             d["details"] = _json_loads(d.get("details"))
             result.append(d)
         return result
+
+    # ------------------------------------------------------------------
+    # Summary Clusters (RAPTOR level 1)
+    # ------------------------------------------------------------------
+
+    async def create_cluster(
+        self,
+        *,
+        case_id: str,
+        title: Optional[str] = None,
+        summary: Optional[str] = None,
+        evidence_ids: Optional[str] = None,
+        embedding_centroid: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        row_id = _new_id()
+        now = _now_iso()
+        await self._conn.execute(
+            """INSERT INTO summary_clusters
+               (id, case_id, title, summary, evidence_ids,
+                embedding_centroid, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                row_id, case_id, title, summary, evidence_ids,
+                embedding_centroid, now, now,
+            ),
+        )
+        await self._conn.commit()
+        return await self.get_cluster(row_id)  # type: ignore[return-value]
+
+    async def get_cluster(self, cluster_id: str) -> Optional[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM summary_clusters WHERE id = ?", (cluster_id,)
+        )
+        row = await cursor.fetchone()
+        return _row_to_dict(row) if row else None
+
+    async def list_clusters_by_case(
+        self, case_id: str
+    ) -> List[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM summary_clusters WHERE case_id = ? ORDER BY created_at",
+            (case_id,),
+        )
+        return [_row_to_dict(r) for r in await cursor.fetchall()]
+
+    async def update_cluster(
+        self, cluster_id: str, **fields: Any
+    ) -> Optional[Dict[str, Any]]:
+        if not fields:
+            return await self.get_cluster(cluster_id)
+        fields["updated_at"] = _now_iso()
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [cluster_id]
+        await self._conn.execute(
+            f"UPDATE summary_clusters SET {set_clause} WHERE id = ?", values
+        )
+        await self._conn.commit()
+        return await self.get_cluster(cluster_id)
+
+    async def delete_cluster(self, cluster_id: str) -> bool:
+        cursor = await self._conn.execute(
+            "DELETE FROM summary_clusters WHERE id = ?", (cluster_id,)
+        )
+        await self._conn.commit()
+        return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Case Summaries (RAPTOR level 2)
+    # ------------------------------------------------------------------
+
+    async def create_or_update_case_summary(
+        self,
+        *,
+        case_id: str,
+        summary: str,
+        cluster_ids: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upsert the level-2 case summary (one per case)."""
+        now = _now_iso()
+        # Check if a summary already exists for this case
+        existing = await self.get_case_summary(case_id)
+        if existing:
+            await self._conn.execute(
+                """UPDATE case_summaries
+                   SET summary = ?, cluster_ids = ?, updated_at = ?
+                   WHERE case_id = ?""",
+                (summary, cluster_ids, now, case_id),
+            )
+            await self._conn.commit()
+            return await self.get_case_summary(case_id)  # type: ignore[return-value]
+        else:
+            row_id = _new_id()
+            await self._conn.execute(
+                """INSERT INTO case_summaries
+                   (id, case_id, summary, cluster_ids, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (row_id, case_id, summary, cluster_ids, now, now),
+            )
+            await self._conn.commit()
+            return await self.get_case_summary(case_id)  # type: ignore[return-value]
+
+    async def get_case_summary(
+        self, case_id: str
+    ) -> Optional[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM case_summaries WHERE case_id = ?", (case_id,)
+        )
+        row = await cursor.fetchone()
+        return _row_to_dict(row) if row else None

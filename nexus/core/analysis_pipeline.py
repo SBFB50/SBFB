@@ -48,9 +48,38 @@ _SCORE_SHIFT_THRESHOLD = 15.0
 class AnalysisPipeline:
     """Orchestrate multi-model analysis on a case."""
 
-    def __init__(self, db: Database, router: LLMRouter) -> None:
+    def __init__(
+        self,
+        db: Database,
+        router: LLMRouter,
+        chroma=None,
+        neo4j=None,
+    ) -> None:
         self._db = db
         self._router = router
+        self._chroma = chroma
+        self._neo4j = neo4j
+        self._retriever = None  # lazily built
+
+    # ==================================================================
+    # Retriever access
+    # ==================================================================
+
+    def _get_retriever(self):
+        """Lazily build and return an InvestigationRetriever.
+
+        Returns None if ChromaDB is not available (falls back to legacy).
+        """
+        if self._retriever is not None:
+            return self._retriever
+        if self._chroma is None:
+            return None
+        from nexus.core.retriever import InvestigationRetriever
+
+        self._retriever = InvestigationRetriever(
+            self._chroma, self._neo4j, self._router, self._db
+        )
+        return self._retriever
 
     # ==================================================================
     # Full analysis
@@ -61,10 +90,10 @@ class AnalysisPipeline:
 
         Steps:
           1. Create an AnalysisRun (status='running', run_type='full')
-          2. Load all evidence, entities and hypotheses
-          3. [gemma4:e4b]   Summarise any evidence not yet summarised
-          4. [nexus 26B]    Deep analysis of the full dossier
-          5. [nexus 26B]    Re-score existing hypotheses
+          2. [gemma4:e4b]   Summarise any evidence not yet summarised
+          3. Build analysis context via RAG retriever (or legacy fallback)
+          4. [nexus 26B]    Deep analysis of the context
+          5. [nexus 26B]    Re-score existing hypotheses (RAG per hypothesis)
           6. [deepseek-r1]  Logic verification of the analysis
           7. Save results (output_summary, snapshots)
           8. Update status='completed' + duration
@@ -84,28 +113,42 @@ class AnalysisPipeline:
         logger.info("Starting full analysis run {} for case {}", run_id, case_id)
 
         try:
-            # 2. Load case data
+            # 2. [gemma4:e4b] Summarise un-summarised evidence
             evidence_list = await self._db.list_evidence_by_case(case_id)
-            entities_list = await self._db.list_entities_by_case(case_id)
-            hypotheses_list = await self._db.list_hypotheses_by_case(case_id)
-
-            # 3. [gemma4:e4b] Summarise un-summarised evidence
             await self._summarise_pending_evidence(evidence_list)
 
-            # Reload evidence after summaries
-            evidence_list = await self._db.list_evidence_by_case(case_id)
+            hypotheses_list = await self._db.list_hypotheses_by_case(case_id)
+
+            # 3. Build analysis context — RAG or legacy fallback
+            retriever = self._get_retriever()
+            if retriever is not None:
+                dossier_text = await retriever.build_analysis_context(
+                    case_id, max_tokens=4000
+                )
+                logger.info(
+                    "Built RAG context for full analysis ({} chars)",
+                    len(dossier_text),
+                )
+            else:
+                # Legacy fallback: load everything and truncate
+                evidence_list = await self._db.list_evidence_by_case(case_id)
+                entities_list = await self._db.list_entities_by_case(case_id)
+                dossier_text = self._build_dossier_text(
+                    evidence_list, entities_list, hypotheses_list
+                )
+                logger.info(
+                    "Built legacy dossier text ({} chars, no RAG)",
+                    len(dossier_text),
+                )
 
             # 4. [nexus 26B] Deep analysis
-            dossier_text = self._build_dossier_text(
-                evidence_list, entities_list, hypotheses_list
-            )
             deep_analysis = await self._run_deep_analysis(dossier_text)
 
             # 5. [nexus 26B] Re-score hypotheses if any exist
             score_results = []
             if hypotheses_list:
                 score_results = await self._rescore_hypotheses(
-                    hypotheses_list, evidence_list, run_id
+                    hypotheses_list, case_id, run_id
                 )
 
             # 6. [deepseek-r1] Logic verification
@@ -160,7 +203,9 @@ class AnalysisPipeline:
         """Run an incremental analysis focused on new data.
 
         Lighter than full analysis: only processes the new evidence and
-        re-evaluates hypotheses against it.
+        re-evaluates hypotheses against it.  When a retriever is available
+        the context is focused on the new evidence via RAG rather than
+        loading the entire dossier.
 
         Parameters:
             case_id: The case being analysed.
@@ -189,13 +234,11 @@ class AnalysisPipeline:
         )
 
         try:
-            # Load data
-            evidence_list = await self._db.list_evidence_by_case(case_id)
-            entities_list = await self._db.list_entities_by_case(case_id)
             hypotheses_list = await self._db.list_hypotheses_by_case(case_id)
 
-            # Focus text: if we have a specific new evidence, highlight it
+            # Build focus text from new evidence if provided
             new_evidence_text = ""
+            focus_query: str | None = None
             if new_evidence_id:
                 ev = await self._db.get_evidence(new_evidence_id)
                 if ev:
@@ -210,25 +253,55 @@ class AnalysisPipeline:
                         f"Contenu: {ev.get('raw_text', '')[:4000]}\n"
                         f"Resume: {ev.get('summary', 'N/A')}\n"
                     )
+                    # Use the new evidence title + summary as focus for RAG
+                    focus_query = (
+                        f"{ev.get('title', '')}. {ev.get('summary', '')}"
+                    )
             else:
                 # Summarise any pending evidence
-                await self._summarise_pending_evidence(evidence_list)
                 evidence_list = await self._db.list_evidence_by_case(case_id)
+                await self._summarise_pending_evidence(evidence_list)
 
-            # Deep analysis (focused on new data)
-            dossier_text = self._build_dossier_text(
-                evidence_list, entities_list, hypotheses_list
-            )
-            if new_evidence_text:
-                dossier_text = new_evidence_text + "\n\nCONTEXTE COMPLET DU DOSSIER:\n" + dossier_text
+            # Build context — RAG or legacy fallback
+            retriever = self._get_retriever()
+            if retriever is not None:
+                context = await retriever.build_analysis_context(
+                    case_id, focus=focus_query, max_tokens=4000
+                )
+                if new_evidence_text:
+                    dossier_text = (
+                        new_evidence_text
+                        + "\n\nCONTEXTE PERTINENT DU DOSSIER:\n"
+                        + context
+                    )
+                else:
+                    dossier_text = context
+                logger.info(
+                    "Built RAG context for incremental analysis ({} chars)",
+                    len(dossier_text),
+                )
+            else:
+                # Legacy fallback
+                evidence_list = await self._db.list_evidence_by_case(case_id)
+                entities_list = await self._db.list_entities_by_case(case_id)
+                dossier_text = self._build_dossier_text(
+                    evidence_list, entities_list, hypotheses_list
+                )
+                if new_evidence_text:
+                    dossier_text = (
+                        new_evidence_text
+                        + "\n\nCONTEXTE COMPLET DU DOSSIER:\n"
+                        + dossier_text
+                    )
 
+            # Deep analysis
             deep_analysis = await self._run_deep_analysis(dossier_text)
 
             # Re-score hypotheses
             score_results = []
             if hypotheses_list:
                 score_results = await self._rescore_hypotheses(
-                    hypotheses_list, evidence_list, run_id
+                    hypotheses_list, case_id, run_id
                 )
 
             # Logic verification
@@ -315,31 +388,60 @@ class AnalysisPipeline:
     async def _rescore_hypotheses(
         self,
         hypotheses: list[dict[str, Any]],
-        evidence_list: list[dict[str, Any]],
+        case_id: str,
         run_id: str,
     ) -> list[dict[str, Any]]:
         """[nexus 26B] Re-score each active hypothesis.
+
+        When the retriever is available, fetches per-hypothesis relevant
+        evidence via RAG.  Otherwise falls back to loading all evidence.
 
         Returns a list of scoring result dicts (one per hypothesis),
         each containing 'hypothesis_id', 'previous_score', 'new_score',
         'delta', etc.
         """
-        # Build a compact evidence summary for the scoring prompt
-        evidence_text = "\n".join(
-            f"- [{e.get('title', 'N/A')}]: {e.get('summary') or (e.get('raw_text', '')[:500])}"
-            for e in evidence_list
-        )
-
         active = [h for h in hypotheses if h.get("status") == "active"]
         if not active:
             logger.debug("No active hypotheses to re-score")
             return []
+
+        retriever = self._get_retriever()
+
+        # If no retriever, prepare a single evidence_text for all hypotheses
+        fallback_evidence_text: str | None = None
+        if retriever is None:
+            evidence_list = await self._db.list_evidence_by_case(case_id)
+            fallback_evidence_text = "\n".join(
+                f"- [{e.get('title', 'N/A')}]: "
+                f"{e.get('summary') or (e.get('raw_text', '')[:500])}"
+                for e in evidence_list
+            )
 
         logger.info("Re-scoring {} active hypotheses", len(active))
         results: list[dict[str, Any]] = []
 
         for h in active:
             try:
+                # Build per-hypothesis evidence context
+                if retriever is not None:
+                    hyp_results = await retriever.retrieve_for_hypothesis(
+                        h, case_id, n_results=10
+                    )
+                    supporting_chunks = hyp_results.get("supporting", [])
+                    contradicting_chunks = hyp_results.get("contradicting", [])
+                    # Format chunks into text for the prompt
+                    sup_lines = [
+                        f"- [{c.get('title', '?')}]: {c.get('chunk_text', '')[:500]}"
+                        for c in supporting_chunks
+                    ]
+                    contra_lines = [
+                        f"- [CONTRA] [{c.get('title', '?')}]: {c.get('chunk_text', '')[:500]}"
+                        for c in contradicting_chunks
+                    ]
+                    evidence_text = "\n".join(sup_lines + contra_lines)
+                else:
+                    evidence_text = fallback_evidence_text or "(aucune preuve)"
+
                 prompt = HYPOTHESIS_SCORING_PROMPT.format(
                     hypothesis=f"{h['title']}: {h['description']}",
                     current_score=h.get("current_score", 50.0),

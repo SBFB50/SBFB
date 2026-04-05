@@ -654,7 +654,10 @@ class AutonomousInvestigator:
                     async with get_db() as conn:
                         db = Database(conn)
                         pipeline = AnalysisPipeline(
-                            db=db, router=self._router
+                            db=db,
+                            router=self._router,
+                            chroma=self._chroma,
+                            neo4j=self._neo4j,
                         )
                         run = await pipeline.run_incremental_analysis(
                             case_id=self._case_id,
@@ -691,7 +694,12 @@ class AutonomousInvestigator:
                 db = Database(conn)
                 from nexus.core.hypothesis_engine import HypothesisEngine
 
-                engine = HypothesisEngine(db=db, router=self._router)
+                engine = HypothesisEngine(
+                    db=db,
+                    router=self._router,
+                    chroma=self._chroma,
+                    neo4j=self._neo4j,
+                )
 
                 hypotheses = await db.list_hypotheses_by_case(
                     self._case_id, status="active"
@@ -778,6 +786,28 @@ class AutonomousInvestigator:
         # --- 3e. Rebuild timeline ---
         if settings.auto_timeline_rebuild:
             await self._decide_timeline()
+
+        # --- 3f. Rebuild summary tree periodically (every 3 cycles) ---
+        if self._cycle_count % 3 == 0:
+            try:
+                async with get_db() as conn:
+                    db = Database(conn)
+                    from nexus.core.summary_tree import SummaryTree
+
+                    tree = SummaryTree(db, self._router, self._chroma)
+                    await tree.rebuild_tree(self._case_id)
+                    logger.info(
+                        "DECIDE: Summary tree rebuilt for case {} (cycle {})",
+                        self._case_id[:8],
+                        self._cycle_count,
+                    )
+                    await self._audit_log(
+                        "autonomous_loop", "summary_tree_rebuilt",
+                        f"Arbre de resumes RAPTOR reconstruit (cycle {self._cycle_count})",
+                        cycle_number=self._cycle_count,
+                    )
+            except Exception as e:
+                logger.warning("DECIDE: Summary tree rebuild failed: {}", e)
 
         return decisions
 
