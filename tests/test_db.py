@@ -575,3 +575,152 @@ async def test_get_location_by_entity(db):
     fetched = await db.get_location_by_entity(ent["id"])
     assert fetched is not None
     assert fetched["id"] == loc["id"]
+
+
+# =====================================================================
+# Suspects CRUD
+# =====================================================================
+
+
+@pytest.mark.asyncio
+async def test_create_suspect(db):
+    case = await db.create_case(name="SuspectCase")
+    ent = await db.create_entity(
+        case_id=case["id"], name="John Doe", entity_type="person"
+    )
+    suspect = await db.create_suspect(
+        case_id=case["id"],
+        entity_id=ent["id"],
+        suspicion_score=65.0,
+        alibi_status="weak",
+        relationship_to_victim="neighbor",
+        notes="Seen near the scene",
+    )
+    assert suspect is not None
+    assert suspect["entity_id"] == ent["id"]
+    assert suspect["suspicion_score"] == 65.0
+    assert suspect["alibi_status"] == "weak"
+    assert suspect["relationship_to_victim"] == "neighbor"
+    assert suspect["notes"] == "Seen near the scene"
+    assert "id" in suspect
+    assert "created_at" in suspect
+
+
+@pytest.mark.asyncio
+async def test_get_suspect_by_entity(db):
+    case = await db.create_case(name="SuspEntCase")
+    ent = await db.create_entity(
+        case_id=case["id"], name="Jane", entity_type="person"
+    )
+    created = await db.create_suspect(
+        case_id=case["id"],
+        entity_id=ent["id"],
+        suspicion_score=40.0,
+    )
+    fetched = await db.get_suspect_by_entity(case["id"], ent["id"])
+    assert fetched is not None
+    assert fetched["id"] == created["id"]
+    assert fetched["suspicion_score"] == 40.0
+
+    # Non-existent entity returns None
+    result = await db.get_suspect_by_entity(case["id"], "nonexistent")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_update_suspect(db):
+    case = await db.create_case(name="SuspUpdate")
+    ent = await db.create_entity(
+        case_id=case["id"], name="Bob", entity_type="person"
+    )
+    suspect = await db.create_suspect(
+        case_id=case["id"],
+        entity_id=ent["id"],
+        suspicion_score=30.0,
+        alibi_status="unknown",
+    )
+    updated = await db.update_suspect(
+        suspect["id"],
+        suspicion_score=80.0,
+        alibi_status="none",
+        graph_score=50.0,
+    )
+    assert updated["suspicion_score"] == 80.0
+    assert updated["alibi_status"] == "none"
+    assert updated["graph_score"] == 50.0
+    assert updated["updated_at"] >= suspect["updated_at"]
+
+
+@pytest.mark.asyncio
+async def test_suspect_snapshot(db):
+    case = await db.create_case(name="SuspSnap")
+    ent = await db.create_entity(
+        case_id=case["id"], name="Alice", entity_type="person"
+    )
+    suspect = await db.create_suspect(
+        case_id=case["id"],
+        entity_id=ent["id"],
+        suspicion_score=55.0,
+    )
+    snap = await db.create_suspect_snapshot(
+        suspect_id=suspect["id"],
+        suspicion_score=55.0,
+        graph_score=20.0,
+        evidence_score=60.0,
+        trigger="initial_scoring",
+        model_used="nexus",
+    )
+    assert snap["suspicion_score"] == 55.0
+    assert snap["graph_score"] == 20.0
+    assert snap["evidence_score"] == 60.0
+    assert snap["trigger"] == "initial_scoring"
+
+    # Create a second snapshot
+    snap2 = await db.create_suspect_snapshot(
+        suspect_id=suspect["id"],
+        suspicion_score=70.0,
+        trigger="re_evaluation",
+    )
+    snaps = await db.list_suspect_snapshots(suspect["id"])
+    assert len(snaps) == 2
+
+
+@pytest.mark.asyncio
+async def test_cascade_delete_suspects(db):
+    """Deleting a case must remove suspects and their snapshots."""
+    case = await db.create_case(name="CascadeSusp")
+    cid = case["id"]
+
+    ent = await db.create_entity(
+        case_id=cid, name="Suspect X", entity_type="person"
+    )
+    suspect = await db.create_suspect(
+        case_id=cid,
+        entity_id=ent["id"],
+        suspicion_score=50.0,
+    )
+    await db.create_suspect_snapshot(
+        suspect_id=suspect["id"],
+        suspicion_score=50.0,
+    )
+
+    # Also create other children to ensure full cascade still works
+    ev = await db.create_evidence(
+        case_id=cid, title="Ev", evidence_type="text"
+    )
+    await db.create_entity_mention(
+        entity_id=ent["id"], evidence_id=ev["id"]
+    )
+
+    # Delete cascade
+    deleted = await db.delete_case(cid)
+    assert deleted is True
+
+    # Verify suspects and snapshots are gone
+    assert await db.get_suspect(suspect["id"]) is None
+    suspects_list = await db.list_suspects_by_case(cid)
+    assert len(suspects_list) == 0
+
+    # Verify other children also gone
+    assert await db.get_case(cid) is None
+    assert await db.get_evidence(ev["id"]) is None

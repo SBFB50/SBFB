@@ -445,10 +445,84 @@ AuditAction = Literal[
     "investigation_stopped",
     "case_created",
     "case_updated",
+    "suspect_scored",
+    "suspect_profile_evaluated",
 ]
 
 AuditActor = Literal["system", "user", "autonomous_loop", "monitoring"]
 
+
+# ============================================================================
+# Suspects
+# ============================================================================
+
+AlibiStatus = Literal["none", "weak", "partial", "strong", "verified", "unknown"]
+
+
+class SuspectBase(BaseModel):
+    case_id: str
+    entity_id: str
+    suspicion_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    graph_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    evidence_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    contradiction_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    profile_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    hypothesis_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    known_motive: Optional[str] = None
+    alibi_status: AlibiStatus = "unknown"
+    criminal_record: Optional[str] = None
+    relationship_to_victim: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SuspectCreate(BaseModel):
+    entity_id: str
+
+
+class SuspectUpdate(BaseModel):
+    known_motive: Optional[str] = None
+    alibi_status: Optional[AlibiStatus] = None
+    criminal_record: Optional[str] = None
+    relationship_to_victim: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class Suspect(SuspectBase):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ============================================================================
+# Suspect Snapshots
+# ============================================================================
+
+
+class SuspectSnapshotBase(BaseModel):
+    suspect_id: str
+    suspicion_score: float = Field(ge=0.0, le=100.0)
+    graph_score: Optional[float] = None
+    evidence_score: Optional[float] = None
+    contradiction_score: Optional[float] = None
+    profile_score: Optional[float] = None
+    hypothesis_score: Optional[float] = None
+    trigger: Optional[str] = None
+    reasoning: Optional[str] = None
+    model_used: Optional[str] = None
+
+
+class SuspectSnapshot(SuspectSnapshotBase):
+    id: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ============================================================================
+# Audit Log
+# ============================================================================
 
 class AuditEntryBase(BaseModel):
     case_id: str

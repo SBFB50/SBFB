@@ -82,6 +82,13 @@ export const runBenchmark = (data: { models?: string[] }) =>
 export const getBenchmarkResults = () =>
   api.get('/benchmark/results').then(r => r.data);
 
+// Suspects
+export const getSuspects = (caseId: string) => api.get(`/cases/${caseId}/suspects`).then(r => r.data);
+export const scoreAllSuspects = (caseId: string) => api.post(`/cases/${caseId}/suspects/score`).then(r => r.data);
+export const evaluateSuspectProfile = (suspectId: string) => api.post(`/suspects/${suspectId}/evaluate-profile`).then(r => r.data);
+export const getSuspectEvolution = (suspectId: string) => api.get(`/suspects/${suspectId}/evolution`).then(r => r.data);
+export const updateSuspect = (suspectId: string, data: Record<string, unknown>) => api.put(`/suspects/${suspectId}`, data).then(r => r.data);
+
 // Health
 export const getHealth = () => api.get('/health').then(r => r.data);
 export const getSystemStats = () => api.get('/system/stats').then(r => r.data);

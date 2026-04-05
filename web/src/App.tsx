@@ -10,6 +10,7 @@ import Graph from './pages/Graph';
 import Timeline from './pages/Timeline';
 import Investigation from './pages/Investigation';
 import Benchmark from './pages/Benchmark';
+import Suspects from './pages/Suspects';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="/graph" element={<Graph />} />
             <Route path="/timeline" element={<Timeline />} />
             <Route path="/investigation" element={<Investigation />} />
+            <Route path="/suspects" element={<Suspects />} />
             <Route path="/benchmark" element={<Benchmark />} />
           </Route>
         </Routes>

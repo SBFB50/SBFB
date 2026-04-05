@@ -49,6 +49,7 @@ class TaskType(Enum):
     # Deep analysis → nexus  (Gemma 4 26B Heretic)
     DEEP_ANALYSIS = "deep_analysis"
     HYPOTHESIS_SCORING = "hypothesis_scoring"
+    SUSPECT_PROFILE = "suspect_profile"
     FINAL_REPORT = "final_report"
     INCREMENTAL_REEVAL = "incremental_reeval"
 
@@ -89,6 +90,7 @@ _ROUTE_TABLE: dict[TaskType, tuple[str, int, bool]] = {
     # --- Deep analysis (nexus 26B — heavy) ---
     TaskType.DEEP_ANALYSIS:        ("model_deep", 600, True),
     TaskType.HYPOTHESIS_SCORING:   ("model_deep", 600, True),
+    TaskType.SUSPECT_PROFILE:      ("model_deep", 600, True),
     TaskType.FINAL_REPORT:         ("model_deep", 600, True),
     TaskType.INCREMENTAL_REEVAL:   ("model_deep", 600, True),
 

@@ -664,6 +664,27 @@ REPONDS EN JSON STRICT :
 }}"""
 
 # =====================================================================
+# 13. EVALUATION DE PROFIL SUSPECT  (nexus 26B)
+# =====================================================================
+SUSPECT_PROFILE_PROMPT = """\
+Tu es un analyste d'investigation. Evalue le profil de cette personne comme suspect potentiel.
+
+PERSONNE: {name}
+RELATION AVEC LA VICTIME: {relationship}
+
+PREUVES MENTIONNANT CETTE PERSONNE:
+{evidence_summaries}
+
+Evalue sur 3 axes:
+1. MOBILE (0-30): Cette personne a-t-elle un mobile identifiable? (jalousie, argent, vengeance, etc.)
+2. ALIBI (0-40): Son alibi est-il absent (40), faible (30), partiel (20), solide (10), ou verifie (0)?
+3. DANGEROSITE (0-30): Casier, comportement violent, acces aux moyens, capacite physique
+
+Reponds en JSON:
+{{"mobile_score": 0, "mobile_description": "...", "alibi_score": 0, "alibi_status": "none|weak|partial|strong|verified", "danger_score": 0, "danger_description": "...", "total": 0, "reasoning": "..."}}"""
+
+
+# =====================================================================
 # AUTONOMOUS LOOP -- Adaptive Query Generation  (gemma4:e4b)
 # =====================================================================
 ADAPTIVE_QUERY_PROMPT = """\

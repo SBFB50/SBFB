@@ -201,6 +201,41 @@ CREATE TABLE IF NOT EXISTS summary_clusters (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS suspects (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    entity_id TEXT NOT NULL REFERENCES entities(id),
+    suspicion_score REAL DEFAULT 0.0,
+    graph_score REAL DEFAULT 0.0,
+    evidence_score REAL DEFAULT 0.0,
+    contradiction_score REAL DEFAULT 0.0,
+    profile_score REAL DEFAULT 0.0,
+    hypothesis_score REAL DEFAULT 0.0,
+    known_motive TEXT,
+    alibi_status TEXT DEFAULT 'unknown',
+    criminal_record TEXT,
+    relationship_to_victim TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(case_id, entity_id)
+);
+
+CREATE TABLE IF NOT EXISTS suspect_snapshots (
+    id TEXT PRIMARY KEY,
+    suspect_id TEXT NOT NULL REFERENCES suspects(id),
+    suspicion_score REAL NOT NULL,
+    graph_score REAL,
+    evidence_score REAL,
+    contradiction_score REAL,
+    profile_score REAL,
+    hypothesis_score REAL,
+    trigger TEXT,
+    reasoning TEXT,
+    model_used TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS case_summaries (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL REFERENCES cases(id) UNIQUE,
@@ -226,6 +261,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_case ON audit_log(case_id);
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_clusters_case ON summary_clusters(case_id);
+CREATE INDEX IF NOT EXISTS idx_suspects_case ON suspects(case_id);
+CREATE INDEX IF NOT EXISTS idx_suspect_snapshots ON suspect_snapshots(suspect_id);
 
 -- Composite indexes for common filtered queries at scale
 CREATE INDEX IF NOT EXISTS idx_evidence_case_type ON evidence(case_id, evidence_type);
@@ -433,6 +470,14 @@ class Database:
         )
         await self._conn.execute(
             "DELETE FROM analysis_runs WHERE case_id = ?", (case_id,)
+        )
+        await self._conn.execute(
+            """DELETE FROM suspect_snapshots WHERE suspect_id IN
+               (SELECT id FROM suspects WHERE case_id = ?)""",
+            (case_id,),
+        )
+        await self._conn.execute(
+            "DELETE FROM suspects WHERE case_id = ?", (case_id,)
         )
         await self._conn.execute(
             """DELETE FROM hypothesis_snapshots WHERE hypothesis_id IN
@@ -1421,6 +1466,157 @@ class Database:
             _dict_with_json_fields(_row_to_dict(r), "metadata")
             for r in await cursor.fetchall()
         ]
+
+    # ------------------------------------------------------------------
+    # Suspects
+    # ------------------------------------------------------------------
+
+    async def create_suspect(
+        self,
+        *,
+        case_id: str,
+        entity_id: str,
+        suspicion_score: float = 0.0,
+        graph_score: float = 0.0,
+        evidence_score: float = 0.0,
+        contradiction_score: float = 0.0,
+        profile_score: float = 0.0,
+        hypothesis_score: float = 0.0,
+        known_motive: Optional[str] = None,
+        alibi_status: str = "unknown",
+        criminal_record: Optional[str] = None,
+        relationship_to_victim: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        row_id = _new_id()
+        now = _now_iso()
+        await self._conn.execute(
+            """INSERT INTO suspects
+               (id, case_id, entity_id, suspicion_score, graph_score,
+                evidence_score, contradiction_score, profile_score,
+                hypothesis_score, known_motive, alibi_status,
+                criminal_record, relationship_to_victim, notes,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                row_id, case_id, entity_id, suspicion_score,
+                graph_score, evidence_score, contradiction_score,
+                profile_score, hypothesis_score, known_motive,
+                alibi_status, criminal_record, relationship_to_victim,
+                notes, now, now,
+            ),
+        )
+        await self._conn.commit()
+        return await self.get_suspect(row_id)  # type: ignore[return-value]
+
+    async def get_suspect(self, suspect_id: str) -> Optional[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM suspects WHERE id = ?", (suspect_id,)
+        )
+        row = await cursor.fetchone()
+        return _row_to_dict(row) if row else None
+
+    async def get_suspect_by_entity(
+        self, case_id: str, entity_id: str
+    ) -> Optional[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM suspects WHERE case_id = ? AND entity_id = ?",
+            (case_id, entity_id),
+        )
+        row = await cursor.fetchone()
+        return _row_to_dict(row) if row else None
+
+    async def list_suspects_by_case(
+        self,
+        case_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM suspects WHERE case_id = ? ORDER BY suspicion_score DESC LIMIT ? OFFSET ?",
+            (case_id, limit, offset),
+        )
+        return [_row_to_dict(r) for r in await cursor.fetchall()]
+
+    async def update_suspect(
+        self, suspect_id: str, **fields: Any
+    ) -> Optional[Dict[str, Any]]:
+        if not fields:
+            return await self.get_suspect(suspect_id)
+        fields["updated_at"] = _now_iso()
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [suspect_id]
+        await self._conn.execute(
+            f"UPDATE suspects SET {set_clause} WHERE id = ?", values
+        )
+        await self._conn.commit()
+        return await self.get_suspect(suspect_id)
+
+    async def delete_suspect(self, suspect_id: str) -> bool:
+        # Delete child snapshots first
+        await self._conn.execute(
+            "DELETE FROM suspect_snapshots WHERE suspect_id = ?",
+            (suspect_id,),
+        )
+        cursor = await self._conn.execute(
+            "DELETE FROM suspects WHERE id = ?", (suspect_id,)
+        )
+        await self._conn.commit()
+        return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Suspect Snapshots
+    # ------------------------------------------------------------------
+
+    async def create_suspect_snapshot(
+        self,
+        *,
+        suspect_id: str,
+        suspicion_score: float,
+        graph_score: Optional[float] = None,
+        evidence_score: Optional[float] = None,
+        contradiction_score: Optional[float] = None,
+        profile_score: Optional[float] = None,
+        hypothesis_score: Optional[float] = None,
+        trigger: Optional[str] = None,
+        reasoning: Optional[str] = None,
+        model_used: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        row_id = _new_id()
+        now = _now_iso()
+        await self._conn.execute(
+            """INSERT INTO suspect_snapshots
+               (id, suspect_id, suspicion_score, graph_score,
+                evidence_score, contradiction_score, profile_score,
+                hypothesis_score, trigger, reasoning, model_used,
+                created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                row_id, suspect_id, suspicion_score, graph_score,
+                evidence_score, contradiction_score, profile_score,
+                hypothesis_score, trigger, reasoning, model_used, now,
+            ),
+        )
+        await self._conn.commit()
+        cursor = await self._conn.execute(
+            "SELECT * FROM suspect_snapshots WHERE id = ?", (row_id,)
+        )
+        row = await cursor.fetchone()
+        return _row_to_dict(row)  # type: ignore[arg-type]
+
+    async def list_suspect_snapshots(
+        self,
+        suspect_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM suspect_snapshots WHERE suspect_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (suspect_id, limit, offset),
+        )
+        return [_row_to_dict(r) for r in await cursor.fetchall()]
 
     # ------------------------------------------------------------------
     # Batch / aggregate helpers (avoid N+1 queries)

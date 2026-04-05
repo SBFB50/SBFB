@@ -7,6 +7,7 @@ import {
   Network,
   Clock,
   Search,
+  UserSearch,
   Gauge,
   ChevronDown,
   Plus,
@@ -28,6 +29,7 @@ const navItems = [
   { to: '/graph', icon: Network, label: 'Graph' },
   { to: '/timeline', icon: Clock, label: 'Timeline' },
   { to: '/investigation', icon: Search, label: 'Investigation' },
+  { to: '/suspects', icon: UserSearch, label: 'Suspects' },
   { to: '/benchmark', icon: Gauge, label: 'Benchmark' },
 ];
 

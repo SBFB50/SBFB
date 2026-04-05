@@ -171,6 +171,27 @@ def get_hypothesis_engine(
 
 
 # ------------------------------------------------------------------
+# Suspect Scorer (request-scoped)
+# ------------------------------------------------------------------
+
+def get_suspect_scorer(
+    request: Request,
+    db: Database = Depends(get_database),
+):
+    """Build a SuspectScorer with per-request DB and shared LLMRouter.
+
+    Injects Neo4j from app.state when available for graph scoring.
+    """
+    from nexus.core.suspect_scorer import SuspectScorer
+
+    return SuspectScorer(
+        db=db,
+        router=request.app.state.router,
+        neo4j=getattr(request.app.state, "neo4j", None),
+    )
+
+
+# ------------------------------------------------------------------
 # Contradiction Detector (request-scoped)
 # ------------------------------------------------------------------
 
