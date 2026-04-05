@@ -32,6 +32,8 @@ export default function Benchmark() {
   const [availableBenches, setAvailableBenches] = useState<any[]>([]);
   const [launching, setLaunching] = useState<string | null>(null);
   const [showLauncher, setShowLauncher] = useState(false);
+  const [entityFilter, setEntityFilter] = useState('all');
+  const [entities, setEntities] = useState<any[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -121,10 +123,12 @@ export default function Benchmark() {
     if (!selectedCase) return;
     (async () => {
       try {
-        const [aud] = await Promise.all([
+        const [aud, ents] = await Promise.all([
           api.get(`/cases/${selectedCase}/audit?limit=30`).then(r => r.data).catch(() => []),
+          api.get(`/cases/${selectedCase}/entities`).then(r => r.data).catch(() => []),
         ]);
         setAuditLog(aud || []);
+        setEntities(ents || []);
 
         // Evolution
         const caseData = cases.find(c => c.id === selectedCase);
@@ -439,18 +443,60 @@ export default function Benchmark() {
           )}
         </Card>
 
-        {/* Entity radar */}
-        <Card title="Repartition des entites">
-          {radarData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <RadarChart data={radarData}>
-                <PolarGrid stroke="var(--border)" />
-                <PolarAngleAxis dataKey="type" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
-                <PolarRadiusAxis tick={{ fill: 'var(--text-muted)', fontSize: 9 }} />
-                <Radar name="Entites" dataKey="count" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} />
-              </RadarChart>
-            </ResponsiveContainer>
-          ) : (
+        {/* Entity table + radar */}
+        <Card title={`Entites (${entities.length})`} className="col-span-2">
+          {entities.length > 0 ? (() => {
+            const types = ['all', ...Object.keys(selected.entityTypes).sort((a, b) => (selected.entityTypes[b] || 0) - (selected.entityTypes[a] || 0))];
+            return (
+              <div>
+                {/* Type filter */}
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {types.map(t => (
+                    <button key={t} onClick={() => setEntityFilter(t)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${entityFilter === t ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-primary)] text-[var(--text-muted)] border border-[var(--border)]'}`}>
+                      {t === 'all' ? `Tous (${entities.length})` : `${t} (${selected.entityTypes[t] || 0})`}
+                    </button>
+                  ))}
+                </div>
+                {/* Table */}
+                <div className="max-h-80 overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-[var(--bg-card)]">
+                      <tr className="border-b border-[var(--border)]">
+                        <th className="py-1.5 px-2 text-left text-[var(--text-muted)] font-medium w-24">Type</th>
+                        <th className="py-1.5 px-2 text-left text-[var(--text-muted)] font-medium">Nom</th>
+                        <th className="py-1.5 px-2 text-left text-[var(--text-muted)] font-medium">Contexte</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entities
+                        .filter(e => entityFilter === 'all' || e.entity_type === entityFilter)
+                        .map((e: any, i: number) => (
+                        <tr key={i} className="border-b border-[var(--border)]/30 hover:bg-[var(--bg-primary)]">
+                          <td className="py-1 px-2"><Badge variant={e.entity_type}>{e.entity_type}</Badge></td>
+                          <td className="py-1 px-2 text-[var(--text-primary)] font-medium">{e.name}</td>
+                          <td className="py-1 px-2 text-[var(--text-muted)] truncate max-w-xs">{(e.description || '').slice(0, 80)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Radar below */}
+                {radarData.length > 0 && (
+                  <div className="mt-4 flex justify-center">
+                    <ResponsiveContainer width="50%" height={200}>
+                      <RadarChart data={radarData}>
+                        <PolarGrid stroke="var(--border)" />
+                        <PolarAngleAxis dataKey="type" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                        <PolarRadiusAxis tick={{ fill: 'var(--text-muted)', fontSize: 9 }} />
+                        <Radar name="Entites" dataKey="count" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            );
+          })() : (
             <p className="text-sm text-[var(--text-muted)] text-center py-6">Aucune entite</p>
           )}
         </Card>
