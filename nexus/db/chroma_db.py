@@ -1,11 +1,16 @@
 """
 NEXUS -- ChromaDB vector store client.
 
-Manages 4 collections for semantic search across investigation data:
-- evidence_texts      : full-text embeddings of evidence
+Manages collections for semantic search across investigation data:
+- evidence_chunks     : chunked evidence embeddings (primary RAG source)
 - entity_contexts     : entity description + context embeddings
 - monitoring_results  : monitoring hits (used for deduplication)
 - hypothesis_reasoning: hypothesis snapshots for semantic retrieval
+- evidence_texts      : DEPRECATED -- superseded by evidence_chunks
+
+Image collections (managed by ImageSearchEngine):
+- image_dinov2        : DINOv2 embeddings for image-to-image similarity
+- image_clip          : CLIP embeddings for text-to-image search
 
 Embeddings are pre-computed by Ollama (nomic-embed-text) via the LLMRouter.
 ChromaDB is used purely as a vector store — no internal embedding function.
@@ -14,6 +19,7 @@ Runs against a ChromaDB Docker server over HTTP.
 
 from __future__ import annotations
 
+import warnings
 from itertools import combinations
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,16 +33,34 @@ from nexus.config import settings
 # ---------------------------------------------------------------------------
 # Collection names (constants)
 # ---------------------------------------------------------------------------
-_EVIDENCE_COLLECTION = "evidence_texts"
+_EVIDENCE_CHUNKS_COLLECTION = "evidence_chunks"
 _ENTITY_COLLECTION = "entity_contexts"
 _MONITORING_COLLECTION = "monitoring_results"
 _HYPOTHESIS_COLLECTION = "hypothesis_reasoning"
 
+# DEPRECATED: replaced by evidence_chunks (managed via EmbeddingStore)
+_EVIDENCE_COLLECTION_LEGACY = "evidence_texts"
+
 _ALL_COLLECTIONS = (
-    _EVIDENCE_COLLECTION,
+    _EVIDENCE_CHUNKS_COLLECTION,
     _ENTITY_COLLECTION,
     _MONITORING_COLLECTION,
     _HYPOTHESIS_COLLECTION,
+)
+
+# All collections including image (for stats/diagnostics)
+_ALL_COLLECTIONS_FULL = (
+    *_ALL_COLLECTIONS,
+    _EVIDENCE_COLLECTION_LEGACY,
+    "image_dinov2",
+    "image_clip",
+)
+
+# Default collections for unified cross-collection search
+_DEFAULT_SEARCH_COLLECTIONS = (
+    _EVIDENCE_CHUNKS_COLLECTION,
+    _ENTITY_COLLECTION,
+    _MONITORING_COLLECTION,
 )
 
 
@@ -84,10 +108,13 @@ class ChromaClient:
     # ------------------------------------------------------------------
 
     def init_collections(self) -> None:
-        """Create or retrieve the 4 NEXUS collections.
+        """Create or retrieve the core NEXUS collections.
 
         Uses ``get_or_create_collection`` so it is safe to call repeatedly.
         ``embedding_function=None`` because we supply pre-computed vectors.
+
+        Note: evidence_texts is deprecated. evidence_chunks (managed by
+        EmbeddingStore) is the primary evidence collection for RAG.
         """
         for name in _ALL_COLLECTIONS:
             try:
@@ -103,6 +130,26 @@ class ChromaClient:
             except Exception as exc:
                 logger.error("Failed to init collection '{}': {}", name, exc)
                 raise
+
+        # Also register the legacy collection if it already exists (read-only)
+        try:
+            legacy = self._client.get_or_create_collection(
+                name=_EVIDENCE_COLLECTION_LEGACY,
+                embedding_function=None,
+                metadata={"hnsw:space": "cosine"},
+            )
+            self._collections[_EVIDENCE_COLLECTION_LEGACY] = legacy
+            if legacy.count() > 0:
+                logger.warning(
+                    "Legacy collection '{}' still has {} items — "
+                    "consider migrating to '{}'",
+                    _EVIDENCE_COLLECTION_LEGACY,
+                    legacy.count(),
+                    _EVIDENCE_CHUNKS_COLLECTION,
+                )
+        except Exception:
+            pass  # not critical
+
         logger.info(
             "All {} ChromaDB collections initialised", len(self._collections)
         )
@@ -156,7 +203,7 @@ class ChromaClient:
         return results
 
     # ==================================================================
-    # Evidence collection
+    # Evidence collection (DEPRECATED — use EmbeddingStore for RAG)
     # ==================================================================
 
     def add_evidence(
@@ -167,17 +214,28 @@ class ChromaClient:
         embedding: list[float],
         metadata: Optional[dict] = None,
     ) -> None:
-        """Store an evidence embedding with its full text."""
+        """Store an evidence embedding with its full text.
+
+        .. deprecated::
+            Use ``EmbeddingStore.index_evidence()`` instead, which writes
+            to the ``evidence_chunks`` collection with proper chunking.
+        """
+        warnings.warn(
+            "ChromaClient.add_evidence() is deprecated. "
+            "Use EmbeddingStore.index_evidence() for the evidence_chunks collection.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         meta = dict(metadata or {})
         meta["case_id"] = case_id
         try:
-            self._col(_EVIDENCE_COLLECTION).add(
+            self._col(_EVIDENCE_COLLECTION_LEGACY).add(
                 ids=[evidence_id],
                 documents=[text],
                 embeddings=[embedding],
                 metadatas=[meta],
             )
-            logger.debug("Added evidence '{}' to ChromaDB", evidence_id)
+            logger.debug("Added evidence '{}' to ChromaDB (legacy)", evidence_id)
         except ChromaError as exc:
             logger.error("Failed to add evidence '{}': {}", evidence_id, exc)
             raise
@@ -190,10 +248,31 @@ class ChromaClient:
     ) -> List[Dict[str, Any]]:
         """Semantic search over evidence for a given case.
 
+        Searches the ``evidence_chunks`` collection first. Falls back to
+        the legacy ``evidence_texts`` collection if evidence_chunks has no
+        data for the given case.
+
         Returns [{id, text, distance, metadata}, ...] sorted by relevance.
         """
+        # Prefer evidence_chunks (the modern RAG collection)
+        chunks_col = self._collections.get(_EVIDENCE_CHUNKS_COLLECTION)
+        if chunks_col is not None:
+            try:
+                raw = chunks_col.query(
+                    query_embeddings=[query_embedding],
+                    n_results=n_results,
+                    where={"case_id": case_id},
+                    include=["documents", "distances", "metadatas"],
+                )
+                results = self._format_results(raw)
+                if results:
+                    return results
+            except ChromaError:
+                pass  # fall through to legacy
+
+        # Fallback: legacy evidence_texts collection
         try:
-            raw = self._col(_EVIDENCE_COLLECTION).query(
+            raw = self._col(_EVIDENCE_COLLECTION_LEGACY).query(
                 query_embeddings=[query_embedding],
                 n_results=n_results,
                 where={"case_id": case_id},
@@ -214,37 +293,46 @@ class ChromaClient:
 
         Retrieves the target evidence's embedding, then queries for
         neighbours in the same case (excluding itself).
+
+        Searches evidence_chunks first, falls back to evidence_texts.
         """
-        col = self._col(_EVIDENCE_COLLECTION)
-        try:
-            # Retrieve the source evidence's embedding
-            source = col.get(
-                ids=[evidence_id],
-                include=["embeddings"],
-            )
-            if not source["ids"] or not source["embeddings"]:
-                logger.warning(
-                    "Evidence '{}' not found in ChromaDB", evidence_id
+        # Try evidence_chunks first
+        for col_name in (_EVIDENCE_CHUNKS_COLLECTION, _EVIDENCE_COLLECTION_LEGACY):
+            col = self._collections.get(col_name)
+            if col is None:
+                continue
+            try:
+                source = col.get(
+                    ids=[evidence_id],
+                    include=["embeddings"],
                 )
-                return []
+                if not source["ids"] or not source["embeddings"]:
+                    # Try chunk IDs (evidence_id_chunk_0, etc.)
+                    if col_name == _EVIDENCE_CHUNKS_COLLECTION:
+                        chunk0_id = f"{evidence_id}_chunk_0"
+                        source = col.get(
+                            ids=[chunk0_id],
+                            include=["embeddings"],
+                        )
+                        if not source["ids"] or not source["embeddings"]:
+                            continue
+                    else:
+                        continue
 
-            source_embedding = source["embeddings"][0]
+                source_embedding = source["embeddings"][0]
+                raw = col.query(
+                    query_embeddings=[source_embedding],
+                    n_results=n_results + 1,
+                    where={"case_id": case_id},
+                    include=["documents", "distances", "metadatas"],
+                )
+                results = self._format_results(raw)
+                return [r for r in results if r["id"] != evidence_id][:n_results]
+            except ChromaError:
+                continue
 
-            # Query for similar items (request extra to account for self)
-            raw = col.query(
-                query_embeddings=[source_embedding],
-                n_results=n_results + 1,
-                where={"case_id": case_id},
-                include=["documents", "distances", "metadatas"],
-            )
-            results = self._format_results(raw)
-            # Exclude the source item itself
-            return [r for r in results if r["id"] != evidence_id][:n_results]
-        except ChromaError as exc:
-            logger.error(
-                "find_similar_evidence failed (id={}): {}", evidence_id, exc
-            )
-            raise
+        logger.warning("Evidence '{}' not found in any collection", evidence_id)
+        return []
 
     def find_duplicates(
         self,
@@ -258,8 +346,12 @@ class ChromaClient:
 
         Warning: O(n^2) for n evidence items — intended for moderate
         collection sizes per case.
+
+        Searches evidence_chunks collection.
         """
-        col = self._col(_EVIDENCE_COLLECTION)
+        col = self._collections.get(_EVIDENCE_CHUNKS_COLLECTION)
+        if col is None:
+            col = self._col(_EVIDENCE_COLLECTION_LEGACY)
         try:
             data = col.get(
                 where={"case_id": case_id},
@@ -292,15 +384,19 @@ class ChromaClient:
         return duplicates
 
     def delete_evidence(self, evidence_id: str) -> None:
-        """Remove a single evidence item from the vector store."""
-        try:
-            self._col(_EVIDENCE_COLLECTION).delete(ids=[evidence_id])
-            logger.debug("Deleted evidence '{}' from ChromaDB", evidence_id)
-        except ChromaError as exc:
-            logger.error(
-                "Failed to delete evidence '{}': {}", evidence_id, exc
-            )
-            raise
+        """Remove a single evidence item from the vector store.
+
+        Deletes from both evidence_chunks and legacy evidence_texts.
+        """
+        for col_name in (_EVIDENCE_CHUNKS_COLLECTION, _EVIDENCE_COLLECTION_LEGACY):
+            col = self._collections.get(col_name)
+            if col is None:
+                continue
+            try:
+                col.delete(ids=[evidence_id])
+            except ChromaError:
+                pass
+        logger.debug("Deleted evidence '{}' from ChromaDB", evidence_id)
 
     # ==================================================================
     # Entity collection
@@ -512,18 +608,178 @@ class ChromaClient:
             raise
 
     # ==================================================================
+    # Unified cross-collection search
+    # ==================================================================
+
+    async def unified_search(
+        self,
+        query_embedding: list[float],
+        case_id: str,
+        collections: list[str] | None = None,
+        n_per_collection: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Search across multiple collections and merge results.
+
+        Default: searches evidence_chunks + entity_contexts + monitoring_results.
+        Results are sorted by cosine distance (ascending = most similar).
+
+        Args:
+            query_embedding: Pre-computed embedding vector for the query.
+            case_id: Filter results to this case.
+            collections: List of collection names to search. Defaults to
+                evidence_chunks, entity_contexts, monitoring_results.
+            n_per_collection: Max results per collection.
+
+        Returns:
+            Merged list of dicts sorted by distance, each containing:
+            collection, id, text, distance, metadata.
+        """
+        if collections is None:
+            collections = list(_DEFAULT_SEARCH_COLLECTIONS)
+
+        all_results: List[Dict[str, Any]] = []
+
+        for col_name in collections:
+            try:
+                col = self._client.get_or_create_collection(
+                    name=col_name,
+                    embedding_function=None,
+                    metadata={"hnsw:space": "cosine"},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "unified_search: could not access collection '{}': {}",
+                    col_name,
+                    exc,
+                )
+                continue
+
+            # Skip empty collections
+            if col.count() == 0:
+                continue
+
+            try:
+                results = col.query(
+                    query_embeddings=[query_embedding],
+                    n_results=n_per_collection,
+                    where={"case_id": case_id},
+                    include=["documents", "metadatas", "distances"],
+                )
+            except ChromaError as exc:
+                logger.warning(
+                    "unified_search: query failed on '{}' (case={}): {}",
+                    col_name,
+                    case_id,
+                    exc,
+                )
+                continue
+
+            if not results or not results.get("ids") or not results["ids"][0]:
+                continue
+
+            for i in range(len(results["ids"][0])):
+                all_results.append({
+                    "collection": col_name,
+                    "id": results["ids"][0][i],
+                    "text": (results.get("documents") or [[]])[0][i]
+                    if results.get("documents") and results["documents"][0]
+                    else None,
+                    "distance": (results.get("distances") or [[]])[0][i]
+                    if results.get("distances") and results["distances"][0]
+                    else None,
+                    "metadata": (results.get("metadatas") or [[]])[0][i]
+                    if results.get("metadatas") and results["metadatas"][0]
+                    else {},
+                })
+
+        # Sort by distance (ascending = most similar for cosine)
+        all_results.sort(key=lambda x: x.get("distance") or float("inf"))
+
+        logger.debug(
+            "unified_search: {} total results across {} collections for case {}",
+            len(all_results),
+            len(collections),
+            case_id,
+        )
+        return all_results
+
+    # ==================================================================
+    # Batch re-embedding
+    # ==================================================================
+
+    async def reindex_case(self, case_id: str, router: Any) -> int:
+        """Re-embed all evidence for a case.
+
+        Fetches all evidence from SQLite, re-chunks and re-embeds each one,
+        and upserts into the evidence_chunks collection. Useful after an
+        embedding model change or parameter tuning.
+
+        Args:
+            case_id: The case whose evidence should be re-embedded.
+            router: An LLMRouter instance for generating embeddings.
+
+        Returns:
+            Total number of chunks re-indexed.
+        """
+        # Import here to avoid circular imports
+        from nexus.core.chunker import TextChunker
+        from nexus.core.embedding_store import EmbeddingStore
+        from nexus.db.sqlite_db import Database, get_db
+
+        total_chunks = 0
+
+        async with get_db() as conn:
+            db = Database(conn)
+            evidence_list = await db.list_evidence_by_case(case_id)
+
+        if not evidence_list:
+            logger.info("reindex_case: no evidence found for case {}", case_id)
+            return 0
+
+        logger.info(
+            "reindex_case: re-indexing {} evidence items for case {}",
+            len(evidence_list),
+            case_id,
+        )
+
+        store = EmbeddingStore(self, router)
+        chunker = TextChunker()
+
+        for evidence in evidence_list:
+            try:
+                chunks = chunker.chunk_evidence(evidence)
+                if chunks:
+                    n = await store.index_evidence(evidence, chunks)
+                    total_chunks += n
+            except Exception as exc:
+                logger.warning(
+                    "reindex_case: failed for evidence {}: {}",
+                    evidence.get("id", "?"),
+                    exc,
+                )
+
+        logger.info(
+            "reindex_case: completed for case {} — {} chunks indexed from {} evidence items",
+            case_id,
+            total_chunks,
+            len(evidence_list),
+        )
+        return total_chunks
+
+    # ==================================================================
     # Utilities
     # ==================================================================
 
     def get_collection_stats(self) -> Dict[str, int]:
-        """Return the number of items in each collection.
+        """Return the number of items in each core collection.
 
-        Returns a dict like ``{"evidence_texts": 142, ...}``.
+        Returns a dict like ``{"evidence_chunks": 142, ...}``.
         """
         stats: Dict[str, int] = {}
         for name in _ALL_COLLECTIONS:
             try:
-                stats[name] = self._col(name).count()
+                col = self._collections.get(name)
+                stats[name] = col.count() if col else 0
             except Exception as exc:
                 logger.warning(
                     "Could not count collection '{}': {}", name, exc
@@ -531,13 +787,60 @@ class ChromaClient:
                 stats[name] = -1
         return stats
 
+    def get_detailed_stats(self) -> Dict[str, Dict[str, Any]]:
+        """Return detailed stats for all collections (including image and legacy).
+
+        Returns a dict keyed by collection name, each containing:
+        - count: number of items
+        - error: error message if collection is unavailable
+        - deprecated: True for legacy collections
+        """
+        stats: Dict[str, Dict[str, Any]] = {}
+        for name in _ALL_COLLECTIONS_FULL:
+            entry: Dict[str, Any] = {}
+            try:
+                col = self._client.get_or_create_collection(
+                    name=name,
+                    embedding_function=None,
+                    metadata={"hnsw:space": "cosine"},
+                )
+                entry["count"] = col.count()
+            except Exception as exc:
+                entry["count"] = 0
+                entry["error"] = str(exc)
+
+            if name == _EVIDENCE_COLLECTION_LEGACY:
+                entry["deprecated"] = True
+                entry["replacement"] = _EVIDENCE_CHUNKS_COLLECTION
+
+            stats[name] = entry
+
+        # Add a summary
+        total = sum(
+            s.get("count", 0)
+            for s in stats.values()
+            if isinstance(s.get("count"), int) and s["count"] >= 0
+        )
+        stats["_summary"] = {
+            "total_items": total,
+            "collections_active": len(_ALL_COLLECTIONS),
+            "collections_total": len(_ALL_COLLECTIONS_FULL),
+        }
+        return stats
+
     def clear_case_data(self, case_id: str) -> None:
         """Remove **all** data for a case across every collection.
 
-        Useful when deleting a case from the system entirely.
+        Includes evidence_chunks, entity_contexts, monitoring_results,
+        hypothesis_reasoning, and the legacy evidence_texts.
+
+        Does NOT delete image collections (use ImageSearchEngine.delete_case_images).
         """
-        for name in _ALL_COLLECTIONS:
-            col = self._col(name)
+        collections_to_clear = list(_ALL_COLLECTIONS) + [_EVIDENCE_COLLECTION_LEGACY]
+        for name in collections_to_clear:
+            col = self._collections.get(name)
+            if col is None:
+                continue
             try:
                 matches = col.get(
                     where={"case_id": case_id},

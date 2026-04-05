@@ -77,20 +77,28 @@ class InvestigationRetriever:
         case_id: str,
         n_results: int = 20,
         strategy: str = "hybrid",  # "semantic", "graph", "hybrid"
+        include_hypotheses: bool = False,
     ) -> list[dict]:
         """Retrieve relevant evidence chunks.
 
         Hybrid strategy:
-        1. Semantic search via ChromaDB evidence_chunks (top 2*n)
+        1. Semantic search via ChromaDB unified cross-collection (top 2*n)
         2. Graph search: find entities in query, traverse Neo4j,
            get connected evidence
         3. Merge + deduplicate by evidence_id + chunk_text
         4. Rerank by (semantic * 0.6 + graph * 0.3 + recency * 0.1)
+
+        Args:
+            include_hypotheses: When True, also search hypothesis_reasoning
+                collection (useful for hypothesis-focused retrieval).
         """
         results: list[dict] = []
 
         if strategy in ("semantic", "hybrid"):
-            semantic = await self._semantic_search(query, case_id, n_results * 2)
+            semantic = await self._semantic_search(
+                query, case_id, n_results * 2,
+                include_hypotheses=include_hypotheses,
+            )
             results.extend(semantic)
 
         if strategy in ("graph", "hybrid") and self._neo4j:
@@ -119,14 +127,20 @@ class InvestigationRetriever:
 
         Uses hypothesis title + description as query.
         Also retrieves evidence that CONTRADICTS the hypothesis.
+        Includes hypothesis_reasoning collection for cross-referencing
+        with other hypothesis snapshots.
         """
-        # Supporting evidence
+        # Supporting evidence (include hypothesis_reasoning for cross-reference)
         query = f"{hypothesis.get('title', '')}. {hypothesis.get('description', '')}"
-        supporting = await self.retrieve(query, case_id, n_results)
+        supporting = await self.retrieve(
+            query, case_id, n_results, include_hypotheses=True,
+        )
 
         # Contradicting evidence (negate the hypothesis)
         contra_query = f"Ce qui contredit: {hypothesis.get('title', '')}"
-        contradicting = await self.retrieve(contra_query, case_id, n_results // 2)
+        contradicting = await self.retrieve(
+            contra_query, case_id, n_results // 2, include_hypotheses=True,
+        )
 
         return {
             "supporting": supporting,
@@ -224,12 +238,82 @@ class InvestigationRetriever:
         query: str,
         case_id: str,
         n: int,
+        include_hypotheses: bool = False,
     ) -> list[dict]:
-        """Search ChromaDB evidence_chunks collection via EmbeddingStore.
+        """Search ChromaDB via unified cross-collection search.
+
+        Uses ``ChromaClient.unified_search()`` to query evidence_chunks,
+        entity_contexts, and monitoring_results in a single pass. When
+        *include_hypotheses* is True, also searches hypothesis_reasoning.
+
+        Falls back to EmbeddingStore single-collection search if ChromaDB
+        unified search is unavailable.
 
         Each result is enriched with a ``_semantic_score`` in [0, 1]
         derived from the cosine distance (score = 1 - distance).
         """
+        if self._chroma is None and self._embedding_store is None:
+            logger.debug("No ChromaDB available; semantic search skipped")
+            return []
+
+        # --- Strategy 1: Unified cross-collection search ---
+        if self._chroma is not None:
+            try:
+                query_embedding = await self._router.embed(query)
+
+                collections = [
+                    "evidence_chunks",
+                    "entity_contexts",
+                    "monitoring_results",
+                ]
+                if include_hypotheses:
+                    collections.append("hypothesis_reasoning")
+
+                # Distribute n across collections (evidence gets the lion's share)
+                n_per_col = max(3, n // len(collections))
+
+                raw_results = await self._chroma.unified_search(
+                    query_embedding=query_embedding,
+                    case_id=case_id,
+                    collections=collections,
+                    n_per_collection=n_per_col,
+                )
+
+                results: list[dict] = []
+                for r in raw_results:
+                    distance = r.get("distance") or 1.0
+                    semantic_score = max(0.0, 1.0 - distance)
+                    meta = r.get("metadata") or {}
+                    entry = {
+                        "chunk_text": r.get("text", ""),
+                        "evidence_id": meta.get("evidence_id", r.get("id", "")),
+                        "title": meta.get("title", ""),
+                        "source": meta.get("source", ""),
+                        "metadata": meta,
+                        "_semantic_score": semantic_score,
+                        "_graph_score": 0.0,
+                        "_recency_score": self._compute_recency_score(meta),
+                        "_source": f"semantic:{r.get('collection', 'unknown')}",
+                        "_collection": r.get("collection", ""),
+                    }
+                    results.append(entry)
+
+                logger.debug(
+                    "Unified semantic search for case {}: {} results from {} collections",
+                    case_id,
+                    len(results),
+                    len(collections),
+                )
+                return results[:n]
+
+            except Exception as exc:
+                logger.warning(
+                    "Unified search failed, falling back to EmbeddingStore: {}",
+                    exc,
+                )
+                # Fall through to Strategy 2
+
+        # --- Strategy 2: Fallback to EmbeddingStore (evidence_chunks only) ---
         if self._embedding_store is None:
             logger.debug("No EmbeddingStore available; semantic search skipped")
             return []
@@ -244,10 +328,9 @@ class InvestigationRetriever:
             logger.error("Semantic search failed: {}", exc)
             return []
 
-        results: list[dict] = []
+        results = []
         for r in raw_results:
             distance = r.get("distance", 1.0)
-            # ChromaDB cosine distance: 0 = identical, 2 = opposite
             semantic_score = max(0.0, 1.0 - distance)
             entry = {
                 "chunk_text": r.get("chunk_text", ""),
@@ -284,7 +367,7 @@ class InvestigationRetriever:
         2. Match those names to known Neo4j nodes in this case
         3. Traverse 1-2 hops to find connected Evidence nodes
         4. Load the evidence text from SQLite for each result
-        5. Assign a graph_score based on hop distance
+        5. Assign a graph_score boosted by centrality and bridge importance
 
         Returns a list of dicts compatible with semantic results.
         """
@@ -343,8 +426,28 @@ class InvestigationRetriever:
             len(entity_names),
         )
 
+        # Step 2b: Load centrality data to boost important entities
+        centrality_map: dict[str, float] = {}  # node_id -> centrality bonus
+        try:
+            central = await self._neo4j.get_central_entities(case_id, limit=30)
+            if central:
+                max_degree = max(e["degree"] for e in central) or 1
+                for e in central:
+                    # Normalize degree to [0, 0.3] bonus
+                    centrality_map[e["id"]] = 0.3 * (e["degree"] / max_degree)
+        except Exception as exc:
+            logger.debug("Centrality lookup failed (non-critical): {}", exc)
+
+        bridge_ids: set[str] = set()
+        try:
+            important = await self._neo4j.get_entity_importance(case_id, limit=15)
+            bridge_ids = {e["id"] for e in important if e.get("betweenness_approx", 0) > 0}
+        except Exception as exc:
+            logger.debug("Importance lookup failed (non-critical): {}", exc)
+
         # Step 3: Traverse 1-2 hops from each matched node to find Evidence
         evidence_ids_with_hops: dict[str, int] = {}  # evidence_id -> min_hops
+        evidence_source_nodes: dict[str, set[str]] = {}  # evidence_id -> source node ids
         for node_id in matched_node_ids:
             try:
                 subgraph = await self._neo4j.get_neighbors(node_id, depth=2)
@@ -361,6 +464,7 @@ class InvestigationRetriever:
                             } else 2
                             existing = evidence_ids_with_hops.get(eid, 99)
                             evidence_ids_with_hops[eid] = min(existing, hop)
+                            evidence_source_nodes.setdefault(eid, set()).add(node_id)
             except Exception as exc:
                 logger.warning("Graph traversal failed for node {}: {}", node_id, exc)
 
@@ -368,15 +472,33 @@ class InvestigationRetriever:
             logger.debug("Graph search: no evidence found via graph traversal")
             return []
 
-        # Step 4: Load evidence from SQLite
+        # Step 4: Load evidence from SQLite, apply centrality + bridge boosts
         results: list[dict] = []
         for eid, hops in evidence_ids_with_hops.items():
             try:
                 evidence = await self._db.get_evidence(eid)
                 if evidence is None:
                     continue
-                # Graph score: 1.0 for 1-hop, 0.5 for 2-hop
+                # Base graph score: 1.0 for 1-hop, 0.5 for 2-hop
                 graph_score = 1.0 if hops <= 1 else 0.5
+
+                # Boost: centrality of source nodes
+                source_nodes = evidence_source_nodes.get(eid, set())
+                centrality_bonus = max(
+                    (centrality_map.get(nid, 0.0) for nid in source_nodes),
+                    default=0.0,
+                )
+                graph_score = min(1.0, graph_score + centrality_bonus)
+
+                # Boost: if evidence is connected via a bridge entity
+                if source_nodes & bridge_ids:
+                    graph_score = min(1.0, graph_score + 0.15)
+
+                # Boost: evidence connected through multiple matched entities
+                if len(source_nodes) > 1:
+                    multi_entity_bonus = 0.1 * min(len(source_nodes) - 1, 3)
+                    graph_score = min(1.0, graph_score + multi_entity_bonus)
+
                 text = evidence.get("summary") or (evidence.get("raw_text", "")[:2000])
                 entry = {
                     "chunk_text": text,

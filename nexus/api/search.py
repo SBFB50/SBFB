@@ -3,13 +3,16 @@ NEXUS -- Search API router (ChromaDB vector search).
 
 Exposes semantic search capabilities over the investigation data:
 - Full-text semantic search (evidence or entities)
+- Unified cross-collection search
 - Similar evidence discovery
 - Near-duplicate detection
+- Collection stats and diagnostics
+- Batch re-indexing
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -30,6 +33,19 @@ class SearchRequest(BaseModel):
     query: str
     n_results: int = Field(default=10, ge=1, le=100)
     collection: Literal["evidence", "entities"] = "evidence"
+
+
+class UnifiedSearchRequest(BaseModel):
+    """Body for POST /api/cases/{case_id}/search/unified."""
+    query: str
+    n_per_collection: int = Field(default=5, ge=1, le=50)
+    collections: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "Collections to search. Defaults to evidence_chunks, "
+            "entity_contexts, monitoring_results."
+        ),
+    )
 
 
 # ------------------------------------------------------------------
@@ -67,6 +83,42 @@ async def semantic_search(
     return {
         "query": body.query,
         "collection": body.collection,
+        "count": len(results),
+        "results": results,
+    }
+
+
+# ------------------------------------------------------------------
+# POST /api/cases/{case_id}/search/unified
+# ------------------------------------------------------------------
+
+@router.post("/cases/{case_id}/search/unified")
+async def unified_search(
+    case_id: str,
+    body: UnifiedSearchRequest,
+    chroma: ChromaClient = Depends(get_chroma),
+    llm: LLMRouter = Depends(get_llm_router),
+) -> Dict[str, Any]:
+    """Cross-collection semantic search for a given case.
+
+    Searches across multiple ChromaDB collections (evidence_chunks,
+    entity_contexts, monitoring_results by default) and returns
+    merged results sorted by similarity.
+    """
+    query_embedding = await llm.embed(body.query)
+
+    results = await chroma.unified_search(
+        query_embedding=query_embedding,
+        case_id=case_id,
+        collections=body.collections,
+        n_per_collection=body.n_per_collection,
+    )
+
+    return {
+        "query": body.query,
+        "collections": body.collections or [
+            "evidence_chunks", "entity_contexts", "monitoring_results",
+        ],
         "count": len(results),
         "results": results,
     }
@@ -126,4 +178,44 @@ async def find_duplicates(
             {"id_a": a, "id_b": b, "similarity": sim}
             for a, b, sim in duplicates
         ],
+    }
+
+
+# ------------------------------------------------------------------
+# GET /api/search/stats
+# ------------------------------------------------------------------
+
+@router.get("/search/stats")
+async def search_stats(
+    chroma: ChromaClient = Depends(get_chroma),
+) -> Dict[str, Any]:
+    """Return detailed stats for all ChromaDB collections.
+
+    Includes item counts for every collection (evidence_chunks,
+    entity_contexts, monitoring_results, hypothesis_reasoning,
+    image_dinov2, image_clip) plus a summary with totals.
+    """
+    stats = chroma.get_detailed_stats()
+    return stats
+
+
+# ------------------------------------------------------------------
+# POST /api/cases/{case_id}/search/reindex
+# ------------------------------------------------------------------
+
+@router.post("/cases/{case_id}/search/reindex")
+async def reindex_case(
+    case_id: str,
+    chroma: ChromaClient = Depends(get_chroma),
+    llm: LLMRouter = Depends(get_llm_router),
+) -> Dict[str, Any]:
+    """Re-embed all evidence for a case.
+
+    Useful after embedding model change or parameter tuning.
+    Re-chunks and re-embeds all evidence into evidence_chunks.
+    """
+    total_chunks = await chroma.reindex_case(case_id=case_id, router=llm)
+    return {
+        "case_id": case_id,
+        "chunks_indexed": total_chunks,
     }

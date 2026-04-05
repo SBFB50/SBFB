@@ -14,6 +14,7 @@ All Cypher queries use parameterized $variables -- never f-strings.
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -428,17 +429,22 @@ class Neo4jClient:
         self,
         node_id: str,
         depth: int = 1,
+        max_nodes: int = 200,
     ) -> Dict[str, Any]:
         """Return a sub-graph around a node up to *depth* hops.
 
         Returns ``{nodes: [...], edges: [...]}``.
+        ``max_nodes`` caps the number of paths explored to avoid
+        combinatorial explosion on highly-connected graphs.
         """
         async with self._driver.session() as session:
 
             async def _work(tx: AsyncManagedTransaction) -> Dict[str, Any]:
                 # Collect nodes reachable within `depth` hops
+                # LIMIT on paths prevents Cartesian explosion
                 query = (
                     "MATCH path = (start {id: $node_id})-[*1.." + str(int(depth)) + "]-(end) "
+                    "WITH path LIMIT " + str(int(max_nodes)) + " "
                     "WITH nodes(path) AS ns, relationships(path) AS rs "
                     "UNWIND ns AS n "
                     "WITH collect(DISTINCT n) AS all_nodes, "
@@ -497,13 +503,14 @@ class Neo4jClient:
 
         Returns a list of node dicts along the path (in order),
         or an empty list if no path exists.
+        Uses a max depth of 10 to avoid unbounded expansion.
         """
         async with self._driver.session() as session:
 
             async def _work(tx: AsyncManagedTransaction) -> List[Dict[str, Any]]:
                 result = await tx.run(
                     "MATCH p = shortestPath("
-                    "(a {id: $from_id})-[*]-(b {id: $to_id})"
+                    "(a {id: $from_id})-[*..10]-(b {id: $to_id})"
                     ") "
                     "RETURN nodes(p) AS path_nodes, "
                     "relationships(p) AS path_rels",
@@ -720,3 +727,408 @@ class Neo4jClient:
             evidence_id,
             entity_id,
         )
+
+    # ------------------------------------------------------------------
+    # Advanced graph analytics
+    # ------------------------------------------------------------------
+
+    async def get_central_entities(
+        self,
+        case_id: str,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Find the most connected entities using degree centrality.
+
+        Returns entities sorted by number of connections (highest first).
+        Each result contains: id, name, labels, degree, in_degree, out_degree.
+        """
+        async with self._driver.session() as session:
+
+            async def _work(tx: AsyncManagedTransaction) -> List[Dict[str, Any]]:
+                query = (
+                    "MATCH (n {case_id: $case_id}) "
+                    "OPTIONAL MATCH (n)-[r_out]->() "
+                    "OPTIONAL MATCH (n)<-[r_in]-() "
+                    "WITH n, labels(n) AS labels, "
+                    "  count(DISTINCT r_out) AS out_degree, "
+                    "  count(DISTINCT r_in) AS in_degree "
+                    "WITH n, labels, out_degree, in_degree, "
+                    "  (out_degree + in_degree) AS degree "
+                    "WHERE degree > 0 "
+                    "RETURN n.id AS id, n.name AS name, labels, "
+                    "  degree, in_degree, out_degree "
+                    "ORDER BY degree DESC "
+                    "LIMIT $limit"
+                )
+                result = await tx.run(query, case_id=case_id, limit=limit)
+                records = [r async for r in result]
+                return [
+                    {
+                        "id": rec["id"],
+                        "name": rec["name"],
+                        "labels": list(rec["labels"]),
+                        "degree": rec["degree"],
+                        "in_degree": rec["in_degree"],
+                        "out_degree": rec["out_degree"],
+                    }
+                    for rec in records
+                ]
+
+            return await session.execute_read(_work)
+
+    async def get_entity_importance(
+        self,
+        case_id: str,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Calculate betweenness-style importance to find bridge entities.
+
+        Entities that connect otherwise separate groups are likely
+        important to the investigation.
+
+        Uses a Cypher-based approximation: for each node, counts how many
+        shortest paths between other node-pairs pass through it.
+        Falls back to degree centrality for large graphs (>200 nodes).
+        """
+        async with self._driver.session() as session:
+
+            async def _work(tx: AsyncManagedTransaction) -> List[Dict[str, Any]]:
+                # First, count nodes to decide strategy
+                count_result = await tx.run(
+                    "MATCH (n {case_id: $case_id}) RETURN count(n) AS cnt",
+                    case_id=case_id,
+                )
+                count_rec = await count_result.single()
+                node_count = count_rec["cnt"] if count_rec else 0
+
+                # For large graphs, fall back to degree centrality
+                # (betweenness via Cypher is O(n^3) and would be too slow)
+                if node_count > 200 or node_count < 3:
+                    query = (
+                        "MATCH (n {case_id: $case_id})-[r]-(m) "
+                        "WITH n, labels(n) AS labels, count(DISTINCT r) AS degree, "
+                        "  count(DISTINCT m) AS distinct_neighbors "
+                        "RETURN n.id AS id, n.name AS name, labels, "
+                        "  degree, distinct_neighbors, "
+                        "  0.0 AS betweenness_approx, "
+                        "  toFloat(distinct_neighbors) / toFloat(degree + 1) AS bridge_score "
+                        "ORDER BY degree DESC "
+                        "LIMIT $limit"
+                    )
+                    result = await tx.run(query, case_id=case_id, limit=limit)
+                    records = [r async for r in result]
+                    return [
+                        {
+                            "id": rec["id"],
+                            "name": rec["name"],
+                            "labels": list(rec["labels"]),
+                            "degree": rec["degree"],
+                            "distinct_neighbors": rec["distinct_neighbors"],
+                            "betweenness_approx": rec["betweenness_approx"],
+                            "bridge_score": rec["bridge_score"],
+                        }
+                        for rec in records
+                    ]
+
+                # For smaller graphs: approximate betweenness using
+                # shortest paths sampled between node pairs
+                query = (
+                    "MATCH (n {case_id: $case_id}) "
+                    "WITH collect(n) AS nodes "
+                    "UNWIND nodes AS a "
+                    "UNWIND nodes AS b "
+                    "WITH a, b WHERE a.id < b.id "
+                    "MATCH p = shortestPath((a)-[*..6]-(b)) "
+                    "UNWIND nodes(p) AS intermediate "
+                    "WITH intermediate WHERE intermediate <> a AND intermediate <> b "
+                    "WITH intermediate, count(*) AS pass_through "
+                    "RETURN intermediate.id AS id, intermediate.name AS name, "
+                    "  labels(intermediate) AS labels, pass_through AS betweenness_approx "
+                    "ORDER BY betweenness_approx DESC "
+                    "LIMIT $limit"
+                )
+                result = await tx.run(query, case_id=case_id, limit=limit)
+                records = [r async for r in result]
+                return [
+                    {
+                        "id": rec["id"],
+                        "name": rec["name"],
+                        "labels": list(rec["labels"]),
+                        "betweenness_approx": rec["betweenness_approx"],
+                    }
+                    for rec in records
+                ]
+
+            return await session.execute_read(_work)
+
+    async def detect_communities(
+        self,
+        case_id: str,
+    ) -> List[List[Dict[str, Any]]]:
+        """Detect communities/clusters of related entities.
+
+        Uses connected components with enriched node data.
+        Each community is a list of node dicts (id, name, labels).
+        Communities are sorted by size (largest first).
+        """
+        async with self._driver.session() as session:
+
+            async def _work(tx: AsyncManagedTransaction) -> List[List[Dict[str, Any]]]:
+                # Get all node ids for the case
+                result = await tx.run(
+                    "MATCH (n {case_id: $case_id}) "
+                    "RETURN n.id AS nid, n.name AS name, labels(n) AS labels",
+                    case_id=case_id,
+                )
+                records = [r async for r in result]
+
+                if not records:
+                    return []
+
+                # Build a lookup: id -> node info
+                node_info: Dict[str, Dict[str, Any]] = {}
+                all_ids: set[str] = set()
+                for rec in records:
+                    nid = rec["nid"]
+                    all_ids.add(nid)
+                    node_info[nid] = {
+                        "id": nid,
+                        "name": rec["name"],
+                        "labels": list(rec["labels"]),
+                    }
+
+                # Find connected components using BFS via Cypher
+                visited: set[str] = set()
+                communities: List[List[Dict[str, Any]]] = []
+
+                for nid in all_ids:
+                    if nid in visited:
+                        continue
+                    comp_result = await tx.run(
+                        "MATCH (start {id: $nid}) "
+                        "OPTIONAL MATCH (start)-[*]-(connected) "
+                        "WHERE connected.case_id = $case_id "
+                        "WITH collect(DISTINCT connected.id) + [start.id] AS ids "
+                        "RETURN ids",
+                        nid=nid,
+                        case_id=case_id,
+                    )
+                    comp_record = await comp_result.single()
+                    if comp_record is None:
+                        continue
+
+                    component_ids = [
+                        i for i in comp_record["ids"]
+                        if i is not None and i in all_ids
+                    ]
+                    visited.update(component_ids)
+
+                    if component_ids:
+                        community = [
+                            node_info[cid]
+                            for cid in sorted(component_ids)
+                            if cid in node_info
+                        ]
+                        if community:
+                            communities.append(community)
+
+                # Sort communities by size, largest first
+                communities.sort(key=len, reverse=True)
+                return communities
+
+            return await session.execute_read(_work)
+
+    async def find_indirect_connections(
+        self,
+        entity_id_1: str,
+        entity_id_2: str,
+        max_hops: int = 4,
+    ) -> List[Dict[str, Any]]:
+        """Find all paths between two entities up to max_hops.
+
+        Useful for discovering hidden connections between suspects.
+        Returns a list of paths, each path being a dict with:
+        - nodes: list of node dicts along the path
+        - relationships: list of relationship dicts
+        - length: number of hops
+        Paths are sorted by length (shortest first), limited to 20.
+        """
+        max_hops = min(max_hops, 6)  # Safety cap to avoid Cartesian explosion
+
+        async with self._driver.session() as session:
+
+            async def _work(tx: AsyncManagedTransaction) -> List[Dict[str, Any]]:
+                query = (
+                    "MATCH p = (a {id: $id1})-[*1.." + str(int(max_hops)) + "]-(b {id: $id2}) "
+                    "WITH p, length(p) AS path_len "
+                    "ORDER BY path_len "
+                    "LIMIT 20 "
+                    "RETURN nodes(p) AS path_nodes, "
+                    "  relationships(p) AS path_rels, "
+                    "  path_len"
+                )
+                result = await tx.run(
+                    query, id1=entity_id_1, id2=entity_id_2,
+                )
+                records = [r async for r in result]
+
+                paths: List[Dict[str, Any]] = []
+                for rec in records:
+                    nodes = []
+                    for n in rec["path_nodes"]:
+                        nd = dict(n)
+                        nd["_labels"] = list(n.labels)
+                        nodes.append(nd)
+
+                    rels = []
+                    for r in rec["path_rels"]:
+                        rels.append({
+                            "from": dict(r.start_node).get("id"),
+                            "to": dict(r.end_node).get("id"),
+                            "type": r.type,
+                            "properties": dict(r),
+                        })
+
+                    paths.append({
+                        "nodes": nodes,
+                        "relationships": rels,
+                        "length": rec["path_len"],
+                    })
+
+                return paths
+
+            return await session.execute_read(_work)
+
+    async def get_temporal_graph(
+        self,
+        case_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Get events and relationships ordered by time.
+
+        Returns a temporal view of the knowledge graph: events and
+        time-stamped entities sorted chronologically.
+        Each result contains the node and its relationships.
+        """
+        async with self._driver.session() as session:
+
+            async def _work(tx: AsyncManagedTransaction) -> List[Dict[str, Any]]:
+                # Get nodes with temporal properties, ordered by first_seen/created_at
+                query = (
+                    "MATCH (n {case_id: $case_id}) "
+                    "WHERE n.first_seen IS NOT NULL "
+                    "   OR n.created_at IS NOT NULL "
+                    "   OR n:Event "
+                    "OPTIONAL MATCH (n)-[r]-(m {case_id: $case_id}) "
+                    "WITH n, labels(n) AS labels, "
+                    "  collect({target_id: m.id, target_name: m.name, "
+                    "    rel_type: type(r), direction: CASE "
+                    "      WHEN startNode(r) = n THEN 'out' "
+                    "      ELSE 'in' END}) AS connections, "
+                    "  coalesce(n.first_seen, n.created_at, '9999') AS sort_date "
+                    "ORDER BY sort_date "
+                    "RETURN n.id AS id, n.name AS name, labels, "
+                    "  n.first_seen AS first_seen, "
+                    "  n.created_at AS created_at, "
+                    "  n.description AS description, "
+                    "  connections, sort_date "
+                    "LIMIT 500"
+                )
+                result = await tx.run(query, case_id=case_id)
+                records = [r async for r in result]
+                return [
+                    {
+                        "id": rec["id"],
+                        "name": rec["name"],
+                        "labels": list(rec["labels"]),
+                        "first_seen": rec["first_seen"],
+                        "created_at": rec["created_at"],
+                        "description": rec["description"],
+                        "connections": [
+                            c for c in rec["connections"]
+                            if c.get("target_id") is not None
+                        ],
+                        "sort_date": rec["sort_date"],
+                    }
+                    for rec in records
+                ]
+
+            return await session.execute_read(_work)
+
+    async def get_evidence_entity_matrix(
+        self,
+        case_id: str,
+    ) -> Dict[str, Any]:
+        """Build a matrix of which entities appear in which evidence.
+
+        Returns:
+        - matrix: dict mapping evidence_id -> list of entity_ids it mentions
+        - entities: dict mapping entity_id -> {name, labels}
+        - evidence: dict mapping evidence_id -> {title}
+        - co_occurrences: list of entity pairs that appear together frequently
+        """
+        async with self._driver.session() as session:
+
+            async def _work(tx: AsyncManagedTransaction) -> Dict[str, Any]:
+                # Get all Evidence -> MENTIONS -> Entity links
+                query = (
+                    "MATCH (ev:Evidence {case_id: $case_id})-[:MENTIONS]->(ent {case_id: $case_id}) "
+                    "RETURN ev.id AS evidence_id, ev.title AS evidence_title, "
+                    "  ent.id AS entity_id, ent.name AS entity_name, "
+                    "  labels(ent) AS entity_labels "
+                    "ORDER BY ev.id, ent.name"
+                )
+                result = await tx.run(query, case_id=case_id)
+                records = [r async for r in result]
+
+                matrix: Dict[str, List[str]] = {}
+                entities: Dict[str, Dict[str, Any]] = {}
+                evidence: Dict[str, Dict[str, Any]] = {}
+
+                for rec in records:
+                    eid = rec["evidence_id"]
+                    ent_id = rec["entity_id"]
+
+                    # Build matrix
+                    matrix.setdefault(eid, [])
+                    if ent_id not in matrix[eid]:
+                        matrix[eid].append(ent_id)
+
+                    # Track entity info
+                    if ent_id not in entities:
+                        entities[ent_id] = {
+                            "name": rec["entity_name"],
+                            "labels": list(rec["entity_labels"]),
+                        }
+
+                    # Track evidence info
+                    if eid not in evidence:
+                        evidence[eid] = {"title": rec["evidence_title"]}
+
+                # Compute co-occurrences: entity pairs appearing in same evidence
+                pair_counts: Counter = Counter()
+                for eid, ent_ids in matrix.items():
+                    sorted_ids = sorted(ent_ids)
+                    for i in range(len(sorted_ids)):
+                        for j in range(i + 1, len(sorted_ids)):
+                            pair_counts[(sorted_ids[i], sorted_ids[j])] += 1
+
+                co_occurrences = [
+                    {
+                        "entity_1": pair[0],
+                        "entity_1_name": entities.get(pair[0], {}).get("name", ""),
+                        "entity_2": pair[1],
+                        "entity_2_name": entities.get(pair[1], {}).get("name", ""),
+                        "count": count,
+                    }
+                    for pair, count in pair_counts.most_common(50)
+                    if count >= 2
+                ]
+
+                return {
+                    "matrix": matrix,
+                    "entities": entities,
+                    "evidence": evidence,
+                    "co_occurrences": co_occurrences,
+                }
+
+            return await session.execute_read(_work)

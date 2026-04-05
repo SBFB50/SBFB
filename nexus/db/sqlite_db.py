@@ -226,6 +226,40 @@ CREATE INDEX IF NOT EXISTS idx_audit_case ON audit_log(case_id);
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_clusters_case ON summary_clusters(case_id);
+
+-- Composite indexes for common filtered queries at scale
+CREATE INDEX IF NOT EXISTS idx_evidence_case_type ON evidence(case_id, evidence_type);
+CREATE INDEX IF NOT EXISTS idx_evidence_case_status ON evidence(case_id, status);
+CREATE INDEX IF NOT EXISTS idx_entities_case_type ON entities(case_id, entity_type);
+CREATE INDEX IF NOT EXISTS idx_mentions_evidence ON entity_mentions(evidence_id);
+CREATE INDEX IF NOT EXISTS idx_monitoring_results_job ON monitoring_results(job_id);
+CREATE INDEX IF NOT EXISTS idx_monitoring_results_case ON monitoring_results(case_id);
+"""
+
+_CREATE_FTS = """
+-- FTS5 virtual table for fast full-text search across evidence
+CREATE VIRTUAL TABLE IF NOT EXISTS evidence_fts USING fts5(
+    title, raw_text, summary, source,
+    content=evidence, content_rowid=rowid
+);
+
+-- Triggers to keep FTS index in sync with the evidence table
+CREATE TRIGGER IF NOT EXISTS evidence_fts_insert AFTER INSERT ON evidence BEGIN
+    INSERT INTO evidence_fts(rowid, title, raw_text, summary, source)
+    VALUES (new.rowid, new.title, new.raw_text, new.summary, new.source);
+END;
+
+CREATE TRIGGER IF NOT EXISTS evidence_fts_update AFTER UPDATE ON evidence BEGIN
+    INSERT INTO evidence_fts(evidence_fts, rowid, title, raw_text, summary, source)
+    VALUES ('delete', old.rowid, old.title, old.raw_text, old.summary, old.source);
+    INSERT INTO evidence_fts(rowid, title, raw_text, summary, source)
+    VALUES (new.rowid, new.title, new.raw_text, new.summary, new.source);
+END;
+
+CREATE TRIGGER IF NOT EXISTS evidence_fts_delete AFTER DELETE ON evidence BEGIN
+    INSERT INTO evidence_fts(evidence_fts, rowid, title, raw_text, summary, source)
+    VALUES ('delete', old.rowid, old.title, old.raw_text, old.summary, old.source);
+END;
 """
 
 
@@ -281,10 +315,16 @@ async def init_db() -> None:
     """Create all tables and indexes. Safe to call multiple times."""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(str(settings.sqlite_path)) as db:
+        # -- Performance PRAGMAs (must come before DDL) --
         await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA synchronous=NORMAL")
+        await db.execute("PRAGMA cache_size=-64000")  # 64 MB cache
+        await db.execute("PRAGMA busy_timeout=5000")  # 5 s wait on lock
         await db.execute("PRAGMA foreign_keys=ON")
         await db.executescript(_CREATE_TABLES)
         await db.executescript(_CREATE_INDEXES)
+        # -- FTS5 virtual table + sync triggers --
+        await db.executescript(_CREATE_FTS)
         await db.commit()
 
 
@@ -293,6 +333,10 @@ async def get_db() -> AsyncIterator[aiosqlite.Connection]:
     """Yield an aiosqlite connection with row_factory and FK enforcement."""
     db = await aiosqlite.connect(str(settings.sqlite_path))
     db.row_factory = aiosqlite.Row
+    await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA synchronous=NORMAL")
+    await db.execute("PRAGMA cache_size=-64000")
+    await db.execute("PRAGMA busy_timeout=5000")
     await db.execute("PRAGMA foreign_keys=ON")
     try:
         yield db
@@ -461,15 +505,18 @@ class Database:
         case_id: str,
         *,
         status: Optional[str] = None,
+        limit: int = 1000,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         if status:
             cursor = await self._conn.execute(
-                "SELECT * FROM evidence WHERE case_id = ? AND status = ? ORDER BY created_at DESC",
-                (case_id, status),
+                "SELECT * FROM evidence WHERE case_id = ? AND status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (case_id, status, limit, offset),
             )
         else:
             cursor = await self._conn.execute(
-                "SELECT * FROM evidence WHERE case_id = ? ORDER BY created_at DESC", (case_id,)
+                "SELECT * FROM evidence WHERE case_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (case_id, limit, offset),
             )
         return [_dict_with_json_fields(_row_to_dict(r), "metadata") for r in await cursor.fetchall()]
 
@@ -531,15 +578,18 @@ class Database:
         case_id: str,
         *,
         entity_type: Optional[str] = None,
+        limit: int = 1000,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         if entity_type:
             cursor = await self._conn.execute(
-                "SELECT * FROM entities WHERE case_id = ? AND entity_type = ? ORDER BY name",
-                (case_id, entity_type),
+                "SELECT * FROM entities WHERE case_id = ? AND entity_type = ? ORDER BY name LIMIT ? OFFSET ?",
+                (case_id, entity_type, limit, offset),
             )
         else:
             cursor = await self._conn.execute(
-                "SELECT * FROM entities WHERE case_id = ? ORDER BY name", (case_id,)
+                "SELECT * FROM entities WHERE case_id = ? ORDER BY name LIMIT ? OFFSET ?",
+                (case_id, limit, offset),
             )
         return [_dict_with_json_fields(_row_to_dict(r), "aliases", "metadata") for r in await cursor.fetchall()]
 
@@ -628,15 +678,18 @@ class Database:
         case_id: str,
         *,
         status: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         if status:
             cursor = await self._conn.execute(
-                "SELECT * FROM hypotheses WHERE case_id = ? AND status = ? ORDER BY current_score DESC",
-                (case_id, status),
+                "SELECT * FROM hypotheses WHERE case_id = ? AND status = ? ORDER BY current_score DESC LIMIT ? OFFSET ?",
+                (case_id, status, limit, offset),
             )
         else:
             cursor = await self._conn.execute(
-                "SELECT * FROM hypotheses WHERE case_id = ? ORDER BY current_score DESC", (case_id,)
+                "SELECT * FROM hypotheses WHERE case_id = ? ORDER BY current_score DESC LIMIT ? OFFSET ?",
+                (case_id, limit, offset),
             )
         return [_row_to_dict(r) for r in await cursor.fetchall()]
 
@@ -750,16 +803,17 @@ class Database:
         *,
         status: Optional[str] = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         if status:
             cursor = await self._conn.execute(
-                "SELECT * FROM analysis_runs WHERE case_id = ? AND status = ? ORDER BY started_at DESC LIMIT ?",
-                (case_id, status, limit),
+                "SELECT * FROM analysis_runs WHERE case_id = ? AND status = ? ORDER BY started_at DESC LIMIT ? OFFSET ?",
+                (case_id, status, limit, offset),
             )
         else:
             cursor = await self._conn.execute(
-                "SELECT * FROM analysis_runs WHERE case_id = ? ORDER BY started_at DESC LIMIT ?",
-                (case_id, limit),
+                "SELECT * FROM analysis_runs WHERE case_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?",
+                (case_id, limit, offset),
             )
         return [_row_to_dict(r) for r in await cursor.fetchall()]
 
@@ -797,16 +851,18 @@ class Database:
         case_id: str,
         *,
         active_only: bool = False,
+        limit: int = 500,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         if active_only:
             cursor = await self._conn.execute(
-                "SELECT * FROM monitoring_jobs WHERE case_id = ? AND is_active = 1 ORDER BY created_at DESC",
-                (case_id,),
+                "SELECT * FROM monitoring_jobs WHERE case_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (case_id, limit, offset),
             )
         else:
             cursor = await self._conn.execute(
-                "SELECT * FROM monitoring_jobs WHERE case_id = ? ORDER BY created_at DESC",
-                (case_id,),
+                "SELECT * FROM monitoring_jobs WHERE case_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (case_id, limit, offset),
             )
         return [_row_to_dict(r) for r in await cursor.fetchall()]
 
@@ -879,16 +935,17 @@ class Database:
         *,
         unreviewed_only: bool = False,
         limit: int = 100,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         if unreviewed_only:
             cursor = await self._conn.execute(
-                "SELECT * FROM monitoring_results WHERE job_id = ? AND reviewed = 0 ORDER BY found_at DESC LIMIT ?",
-                (job_id, limit),
+                "SELECT * FROM monitoring_results WHERE job_id = ? AND reviewed = 0 ORDER BY found_at DESC LIMIT ? OFFSET ?",
+                (job_id, limit, offset),
             )
         else:
             cursor = await self._conn.execute(
-                "SELECT * FROM monitoring_results WHERE job_id = ? ORDER BY found_at DESC LIMIT ?",
-                (job_id, limit),
+                "SELECT * FROM monitoring_results WHERE job_id = ? ORDER BY found_at DESC LIMIT ? OFFSET ?",
+                (job_id, limit, offset),
             )
         return [_row_to_dict(r) for r in await cursor.fetchall()]
 
@@ -897,10 +954,11 @@ class Database:
         case_id: str,
         *,
         limit: int = 200,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         cursor = await self._conn.execute(
-            "SELECT * FROM monitoring_results WHERE case_id = ? ORDER BY found_at DESC LIMIT ?",
-            (case_id, limit),
+            "SELECT * FROM monitoring_results WHERE case_id = ? ORDER BY found_at DESC LIMIT ? OFFSET ?",
+            (case_id, limit, offset),
         )
         return [_row_to_dict(r) for r in await cursor.fetchall()]
 
@@ -949,6 +1007,7 @@ class Database:
         unread_only: bool = False,
         severity: Optional[str] = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         conditions = ["case_id = ?"]
         params: list[Any] = [case_id]
@@ -958,9 +1017,9 @@ class Database:
             conditions.append("severity = ?")
             params.append(severity)
         where = " AND ".join(conditions)
-        params.append(limit)
+        params.extend([limit, offset])
         cursor = await self._conn.execute(
-            f"SELECT * FROM alerts WHERE {where} ORDER BY created_at DESC LIMIT ?",
+            f"SELECT * FROM alerts WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
             params,
         )
         return [_row_to_dict(r) for r in await cursor.fetchall()]
@@ -1020,10 +1079,16 @@ class Database:
         await self._conn.commit()
         return await self.get_report(report_id)
 
-    async def list_reports_by_case(self, case_id: str) -> List[Dict[str, Any]]:
+    async def list_reports_by_case(
+        self,
+        case_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
         cursor = await self._conn.execute(
-            "SELECT * FROM reports WHERE case_id = ? ORDER BY created_at DESC",
-            (case_id,),
+            "SELECT * FROM reports WHERE case_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (case_id, limit, offset),
         )
         return [_row_to_dict(r) for r in await cursor.fetchall()]
 
@@ -1066,10 +1131,16 @@ class Database:
             return None
         return _dict_with_json_fields(_row_to_dict(row), "metadata")
 
-    async def list_locations_by_case(self, case_id: str) -> List[Dict[str, Any]]:
+    async def list_locations_by_case(
+        self,
+        case_id: str,
+        *,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
         cursor = await self._conn.execute(
-            "SELECT * FROM locations WHERE case_id = ? ORDER BY name",
-            (case_id,),
+            "SELECT * FROM locations WHERE case_id = ? ORDER BY name LIMIT ? OFFSET ?",
+            (case_id, limit, offset),
         )
         return [_dict_with_json_fields(_row_to_dict(r), "metadata") for r in await cursor.fetchall()]
 
@@ -1251,11 +1322,15 @@ class Database:
         return _row_to_dict(row) if row else None
 
     async def list_clusters_by_case(
-        self, case_id: str
+        self,
+        case_id: str,
+        *,
+        limit: int = 500,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         cursor = await self._conn.execute(
-            "SELECT * FROM summary_clusters WHERE case_id = ? ORDER BY created_at",
-            (case_id,),
+            "SELECT * FROM summary_clusters WHERE case_id = ? ORDER BY created_at LIMIT ? OFFSET ?",
+            (case_id, limit, offset),
         )
         return [_row_to_dict(r) for r in await cursor.fetchall()]
 
@@ -1323,3 +1398,58 @@ class Database:
         )
         row = await cursor.fetchone()
         return _row_to_dict(row) if row else None
+
+    # ------------------------------------------------------------------
+    # FTS5 Full-Text Search
+    # ------------------------------------------------------------------
+
+    async def search_evidence_fts(
+        self,
+        case_id: str,
+        query: str,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Full-text search across evidence (title, raw_text, summary, source)."""
+        cursor = await self._conn.execute(
+            """SELECT e.* FROM evidence e
+               JOIN evidence_fts ON e.rowid = evidence_fts.rowid
+               WHERE evidence_fts MATCH ? AND e.case_id = ?
+               ORDER BY rank LIMIT ?""",
+            (query, case_id, limit),
+        )
+        return [
+            _dict_with_json_fields(_row_to_dict(r), "metadata")
+            for r in await cursor.fetchall()
+        ]
+
+    # ------------------------------------------------------------------
+    # Batch / aggregate helpers (avoid N+1 queries)
+    # ------------------------------------------------------------------
+
+    async def get_evidence_batch(
+        self,
+        evidence_ids: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Fetch multiple evidence rows in a single SELECT with IN clause."""
+        if not evidence_ids:
+            return []
+        placeholders = ", ".join("?" for _ in evidence_ids)
+        cursor = await self._conn.execute(
+            f"SELECT * FROM evidence WHERE id IN ({placeholders})",
+            evidence_ids,
+        )
+        return [
+            _dict_with_json_fields(_row_to_dict(r), "metadata")
+            for r in await cursor.fetchall()
+        ]
+
+    async def count_entities_by_type(
+        self,
+        case_id: str,
+    ) -> Dict[str, int]:
+        """Return entity counts grouped by type (single GROUP BY query)."""
+        cursor = await self._conn.execute(
+            "SELECT entity_type, COUNT(*) FROM entities WHERE case_id = ? GROUP BY entity_type",
+            (case_id,),
+        )
+        return {row[0]: row[1] for row in await cursor.fetchall()}
