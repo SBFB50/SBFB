@@ -87,17 +87,18 @@ export default function Benchmark() {
   const launchBench = async (key: string) => {
     setLaunching(key);
     try {
-      const resp = await api.post(`/benchmark/launch/${key}`);
-      if (resp.data?.case_id) {
+      const resp = await api.post(`/benchmark/launch/${key}`, {}, { timeout: 15000 });
+      setShowLauncher(false);
+    } catch (e: any) {
+      // Timeout is OK — the backend launched the task in background
+      if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout')) {
         setShowLauncher(false);
-        // Wait a bit for the case to be created, then refresh
-        setTimeout(() => { refresh(); setLaunching(null); }, 2000);
-        return;
+      } else {
+        console.error('Launch failed:', e);
       }
-    } catch (e) {
-      console.error('Launch failed:', e);
     }
     setLaunching(null);
+    setTimeout(refresh, 3000);
   };
 
   const injectWave = async (caseId: string, benchKey: string, wave: number) => {
