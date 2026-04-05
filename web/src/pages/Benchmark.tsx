@@ -335,6 +335,83 @@ export default function Benchmark() {
         </Card>
       )}
 
+      {/* Investigation Timeline — chronological progression */}
+      {auditLog.length > 0 && (
+        <Card title="Timeline de l'investigation" className="mb-4">
+          {(() => {
+            // Group audit entries by minute
+            const ACTION_ICONS: Record<string, string> = {
+              evidence_added: '📄', evidence_ingested_auto: '🤖',
+              entity_discovered: '👤', hypothesis_created: '💡',
+              hypothesis_scored: '📊', contradiction_found: '⚡',
+              monitoring_result: '🔍', query_generated: '🔎',
+              self_questioning: '🧠', analysis_completed: '✅',
+              analysis_running: '⏳', investigation_started: '▶️',
+              investigation_stopped: '⏹️', geocode: '🗺️',
+              osint_social: '🌐', osint_enrichment: '🔎',
+            };
+
+            const sorted = [...auditLog].sort((a, b) =>
+              (a.timestamp || '').localeCompare(b.timestamp || '')
+            );
+
+            // Timeline bar: show when each type of event happened
+            const firstTs = sorted[0]?.timestamp ? new Date(sorted[0].timestamp).getTime() : 0;
+            const lastTs = sorted[sorted.length - 1]?.timestamp ? new Date(sorted[sorted.length - 1].timestamp).getTime() : 0;
+            const span = Math.max(lastTs - firstTs, 1000);
+
+            return (
+              <div>
+                {/* Visual timeline bar */}
+                <div className="relative h-8 bg-[var(--bg-primary)] rounded-lg overflow-hidden mb-4 border border-[var(--border)]">
+                  {sorted.map((e, i) => {
+                    const ts = e.timestamp ? new Date(e.timestamp).getTime() : 0;
+                    const pct = ((ts - firstTs) / span) * 100;
+                    const color =
+                      e.action?.includes('evidence') ? '#3b82f6' :
+                      e.action?.includes('entity') || e.action?.includes('geocode') ? '#22c55e' :
+                      e.action?.includes('hypothesis') ? '#a855f7' :
+                      e.action?.includes('analysis') ? '#eab308' :
+                      e.action?.includes('monitoring') || e.action?.includes('osint') ? '#06b6d4' :
+                      '#6b7280';
+                    return (
+                      <div
+                        key={i}
+                        className="absolute top-0 h-full w-1 opacity-80 hover:opacity-100 transition-opacity"
+                        style={{ left: `${pct}%`, backgroundColor: color }}
+                        title={`${e.timestamp?.slice(11, 19)} ${e.action}: ${e.summary?.slice(0, 60)}`}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="flex gap-4 text-[10px] text-[var(--text-muted)] mb-4">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> Preuves</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> Entites</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500" /> Hypotheses</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" /> Analyses</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-500" /> OSINT</span>
+                </div>
+
+                {/* Event list */}
+                <div className="space-y-0.5 max-h-72 overflow-auto">
+                  {sorted.map((e, i) => {
+                    const icon = ACTION_ICONS[e.action] || '📌';
+                    const time = e.timestamp?.slice(11, 19) || '';
+                    return (
+                      <div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-[var(--border)]/20">
+                        <span className="text-base">{icon}</span>
+                        <span className="text-[var(--text-muted)] font-mono w-14 shrink-0">{time}</span>
+                        <span className="text-[var(--text-secondary)] truncate">{e.summary}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+        </Card>
+      )}
+
       {/* Selected case detail */}
       <div className="grid grid-cols-2 gap-4">
         {/* Hypotheses */}
