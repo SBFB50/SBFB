@@ -113,8 +113,18 @@ class EntityExtractor:
                     nexus_type = _GLINER_LABELS.get(label, "other")
                     score = ent["score"]
 
-                    # Skip very short entities (but keep codes postaux, heures, etc.)
+                    # Skip very short or generic entities
                     if len(name) < 2:
+                        continue
+                    # Skip generic words that aren't real entities
+                    GENERIC_WORDS = {
+                        "telephone", "portable", "vehicule", "voiture", "victime",
+                        "suspect", "temoin", "enqueteur", "homme", "femme",
+                        "personne", "individu", "corps", "sang", "adn",
+                        "police", "gendarmerie", "pompiers", "operateur",
+                        "madame", "monsieur",
+                    }
+                    if name.lower().strip() in GENERIC_WORDS:
                         continue
 
                     # Deduplicate within this extraction
@@ -205,32 +215,68 @@ class EntityExtractor:
     # Deduplication
     # ------------------------------------------------------------------
 
+    # Fuzzy threshold for entity resolution (0-100)
+    FUZZY_THRESHOLD = 82
+
     def deduplicate_entities(
         self,
         new_entities: list[dict[str, Any]],
         existing_entities: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Remove entities that already exist in the case."""
-        if not existing_entities:
-            return new_entities
+        """Entity resolution: merge duplicates using RapidFuzz.
 
-        existing_keys: set[tuple[str, str]] = set()
-        for e in existing_entities:
-            name = e.get("name", "")
+        Uses Jaro-Winkler weighted ratio for fuzzy name matching.
+        Works for all entity types, not just persons.
+        """
+        from rapidfuzz import fuzz
+
+        # Build lookup of existing entities by type
+        existing_by_type: dict[str, list[str]] = {}
+        for e in (existing_entities or []):
             etype = e.get("entity_type", e.get("type", ""))
-            existing_keys.add((self.normalize_entity_name(name), etype))
+            norm = self.normalize_entity_name(e.get("name", ""))
+            existing_by_type.setdefault(etype, []).append(norm)
             for alias in (e.get("aliases") or []):
                 if isinstance(alias, str):
-                    existing_keys.add((self.normalize_entity_name(alias), etype))
+                    existing_by_type.setdefault(etype, []).append(self.normalize_entity_name(alias))
 
         unique = []
-        for ent in new_entities:
-            key = (self.normalize_entity_name(ent.get("name", "")), ent.get("type", ""))
-            if key not in existing_keys:
-                unique.append(ent)
-                existing_keys.add(key)
+        seen_norms: dict[str, list[str]] = {}  # type → [norm_names]
 
-        logger.info("Dedup: {} new, {} duplicates removed", len(unique), len(new_entities) - len(unique))
+        for ent in new_entities:
+            name = ent.get("name", "")
+            etype = ent.get("type", "")
+            norm = self.normalize_entity_name(name)
+
+            if not norm:
+                continue
+
+            # Check against existing entities
+            is_dup = False
+            for existing_norm in existing_by_type.get(etype, []):
+                score = fuzz.WRatio(norm, existing_norm)
+                if score >= self.FUZZY_THRESHOLD:
+                    is_dup = True
+                    break
+
+            if is_dup:
+                continue
+
+            # Check against already-accepted new entities
+            for accepted_norm in seen_norms.get(etype, []):
+                score = fuzz.WRatio(norm, accepted_norm)
+                if score >= self.FUZZY_THRESHOLD:
+                    is_dup = True
+                    break
+
+            if is_dup:
+                continue
+
+            unique.append(ent)
+            seen_norms.setdefault(etype, []).append(norm)
+
+        logger.info("Entity resolution: {} in, {} unique, {} merged",
+                     len(new_entities), len(unique), len(new_entities) - len(unique))
         return unique
 
     # ------------------------------------------------------------------
