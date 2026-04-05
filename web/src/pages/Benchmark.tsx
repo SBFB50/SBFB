@@ -29,6 +29,9 @@ export default function Benchmark() {
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
   const [auditLog, setAuditLog] = useState<any[]>([]);
   const [evolution, setEvolution] = useState<any[]>([]);
+  const [availableBenches, setAvailableBenches] = useState<any[]>([]);
+  const [launching, setLaunching] = useState<string | null>(null);
+  const [showLauncher, setShowLauncher] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -69,6 +72,40 @@ export default function Benchmark() {
   }, [selectedCase]);
 
   useEffect(() => { refresh(); }, []);
+
+  // Load available benchmarks
+  useEffect(() => {
+    api.get('/benchmark/available').then(r => setAvailableBenches(r.data || [])).catch(() => {});
+  }, []);
+
+  const launchBench = async (key: string) => {
+    setLaunching(key);
+    try {
+      const resp = await api.post(`/benchmark/launch/${key}`);
+      if (resp.data?.case_id) {
+        setShowLauncher(false);
+        setTimeout(refresh, 3000);
+      }
+    } catch (e) {
+      console.error('Launch failed:', e);
+    }
+    setLaunching(null);
+  };
+
+  const injectWave = async (caseId: string, benchKey: string, wave: number) => {
+    try {
+      await api.post(`/benchmark/inject/${caseId}/${benchKey}/wave/${wave}`);
+      setTimeout(refresh, 3000);
+    } catch {}
+  };
+
+  const deleteCase = async (caseId: string) => {
+    try {
+      await api.delete(`/cases/${caseId}`);
+      setCases(prev => prev.filter(c => c.id !== caseId));
+      if (selectedCase === caseId) setSelectedCase(null);
+    } catch {}
+  };
 
   // Load details for selected case
   useEffect(() => {
@@ -141,10 +178,45 @@ export default function Benchmark() {
           <h2 className="text-lg font-semibold text-[var(--text-primary)]">Benchmark global</h2>
           <p className="text-sm text-[var(--text-muted)]">{cases.length} dossier{cases.length > 1 ? 's' : ''} — vue comparative</p>
         </div>
-        <button onClick={refresh} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
-          <RefreshCw size={12} /> Rafraichir
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowLauncher(!showLauncher)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)]">
+            <Play size={12} /> Nouveau benchmark
+          </button>
+          <button onClick={refresh} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
+            <RefreshCw size={12} /> Rafraichir
+          </button>
+        </div>
       </div>
+
+      {/* Launch new benchmark */}
+      {showLauncher && (
+        <Card title="Lancer un nouveau benchmark">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {availableBenches.map(b => (
+              <div key={b.key} className="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-1">{b.name}</h4>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  {b.evidence_count} preuves — {b.waves} vagues
+                  {b.has_ground_truth && ' — verite connue'}
+                </p>
+                <button
+                  onClick={() => launchBench(b.key)}
+                  disabled={launching === b.key}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                >
+                  {launching === b.key ? <LoadingSpinner size={12} /> : <Play size={12} />}
+                  {launching === b.key ? 'Lancement...' : 'Lancer'}
+                </button>
+              </div>
+            ))}
+            {availableBenches.length === 0 && (
+              <p className="text-sm text-[var(--text-muted)] col-span-3 text-center py-4">
+                Aucun benchmark disponible dans data/benchmark/
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Cases overview cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -158,7 +230,16 @@ export default function Benchmark() {
           >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-[var(--text-primary)] truncate">{c.name}</h3>
-              <Badge variant={c.status}>{c.status}</Badge>
+              <div className="flex items-center gap-1.5">
+                <Badge variant={c.status}>{c.status}</Badge>
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteCase(c.id); }}
+                  className="p-1 text-[var(--text-muted)] hover:text-red-400 transition-colors"
+                  title="Supprimer"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-4 gap-2 text-center">
               <div>
