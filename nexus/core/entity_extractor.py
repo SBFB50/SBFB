@@ -29,12 +29,14 @@ _GLINER_LABELS = {
     "personne": "person",
     "lieu": "location",
     "adresse": "location",
+    "code postal": "location",
     "vehicule": "vehicle",
     "immatriculation": "vehicle",
     "telephone": "phone",
     "email": "email",
     "date": "date",
     "heure": "date",
+    "numero de procedure": "other",
     "organisation": "organization",
     "entreprise": "organization",
     "arme": "weapon",
@@ -111,8 +113,8 @@ class EntityExtractor:
                     nexus_type = _GLINER_LABELS.get(label, "other")
                     score = ent["score"]
 
-                    # Skip very short or numeric-only entities
-                    if len(name) < 2 or name.isdigit():
+                    # Skip very short entities (but keep codes postaux, heures, etc.)
+                    if len(name) < 2:
                         continue
 
                     # Deduplicate within this extraction
