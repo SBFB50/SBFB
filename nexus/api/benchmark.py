@@ -6,6 +6,7 @@ Endpoints for listing available benchmarks and injecting evidence.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,9 @@ from nexus.api.deps import get_database, get_evidence_processor
 from nexus.db.sqlite_db import Database
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
+
+# Global lock to serialise wave injection — prevents VRAM saturation
+_INJECT_LOCK = asyncio.Lock()
 
 BENCHMARK_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "benchmark"
 
@@ -101,45 +105,53 @@ async def inject_wave(
 
 
 async def _inject_wave(case_id: str, bench_key: str, wave: int) -> None:
-    """Background task: inject all evidence for a wave."""
-    from nexus.db.sqlite_db import get_db, Database
-    from nexus.core.evidence_processor import EvidenceProcessor
-    from nexus.llm.ollama_client import OllamaClient
-    from nexus.llm.router import LLMRouter
-    from nexus.config import settings
+    """Background task: inject all evidence for a wave.
 
-    info = KNOWN_BENCHMARKS[bench_key]
-    manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    Serialised via ``_INJECT_LOCK`` so that only one wave runs at a
+    time, preventing VRAM saturation from parallel LLM calls.
+    """
+    async with _INJECT_LOCK:
+        from nexus.db.sqlite_db import get_db, Database
+        from nexus.core.evidence_processor import EvidenceProcessor
+        from nexus.llm.ollama_client import OllamaClient
+        from nexus.llm.router import LLMRouter
+        from nexus.config import settings
 
-    wave_evidence = [e for e in manifest.get("evidence", []) if e.get("wave", 1) == wave]
+        info = KNOWN_BENCHMARKS[bench_key]
+        manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    logger.info("Benchmark inject: case={} bench={} wave={} evidence={}",
-                case_id[:8], bench_key, wave, len(wave_evidence))
+        wave_evidence = [e for e in manifest.get("evidence", []) if e.get("wave", 1) == wave]
 
-    ollama = OllamaClient()
-    router = LLMRouter(ollama)
+        logger.info("Benchmark inject: case={} bench={} wave={} evidence={}",
+                    case_id[:8], bench_key, wave, len(wave_evidence))
 
-    for ev in wave_evidence:
-        file_path = BENCHMARK_DIR / info["dir"] / ev.get("file", "")
-        if not file_path.exists():
-            logger.warning("Benchmark file missing: {}", file_path)
-            continue
+        ollama = OllamaClient()
+        router = LLMRouter(ollama)
 
-        text = file_path.read_text(encoding="utf-8")
+        for ev in wave_evidence:
+            file_path = BENCHMARK_DIR / info["dir"] / ev.get("file", "")
+            if not file_path.exists():
+                logger.warning("Benchmark file missing: {}", file_path)
+                continue
 
-        try:
-            async with get_db() as conn:
-                db = Database(conn)
-                processor = EvidenceProcessor(db=db, router=router, upload_dir=settings.upload_dir)
-                await processor.process_text_input(
-                    case_id=case_id,
-                    title=ev.get("title", file_path.stem),
-                    text=text,
-                    source=ev.get("source", "Benchmark"),
-                )
-            logger.info("Benchmark injected: {}", ev.get("title", "?")[:50])
-        except Exception as exc:
-            logger.error("Benchmark inject failed: {} — {}", ev.get("title", "?")[:50], exc)
+            text = file_path.read_text(encoding="utf-8")
 
-    logger.info("Benchmark wave {} complete for case {}", wave, case_id[:8])
+            try:
+                async with get_db() as conn:
+                    db = Database(conn)
+                    processor = EvidenceProcessor(db=db, router=router, upload_dir=settings.upload_dir)
+                    await processor.process_text_input(
+                        case_id=case_id,
+                        title=ev.get("title", file_path.stem),
+                        text=text,
+                        source=ev.get("source", "Benchmark"),
+                    )
+                logger.info("Benchmark injected: {}", ev.get("title", "?")[:50])
+            except Exception as exc:
+                logger.error("Benchmark inject failed: {} — {}", ev.get("title", "?")[:50], exc)
+
+            # Let the GPU breathe between evidence items
+            await asyncio.sleep(2)
+
+        logger.info("Benchmark wave {} complete for case {}", wave, case_id[:8])

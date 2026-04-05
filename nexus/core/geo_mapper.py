@@ -8,6 +8,7 @@ verification, and map-data assembly for a given case.
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -35,17 +36,37 @@ class GeoMapper:
     # Geocoding
     # ------------------------------------------------------------------
 
-    async def geocode_address(self, address: str) -> Optional[Dict[str, Any]]:
+    async def geocode_address(
+        self, address: str, country_hint: str = "France"
+    ) -> Optional[Dict[str, Any]]:
         """Convert a free-text address to GPS coordinates via Nominatim.
 
         Returns ``{"lat": float, "lon": float, "display_name": str}`` or
         *None* when no result is found.
+
+        Addresses that look like bare route numbers (e.g. "D44") or postal
+        codes (e.g. "80400") are skipped because Nominatim cannot resolve
+        them reliably without more context.
+
+        Results outside metropolitan France are rejected.
         """
+        # Skip bare route numbers (D44, N7, A6) and standalone postal codes
+        stripped = address.strip()
+        if re.match(r'^[A-Z]?\d+$', stripped, re.IGNORECASE):
+            logger.info(
+                "Skipping geocoding for ambiguous code '{}' (route/postal)",
+                stripped,
+            )
+            return None
+
+        # Add country hint to improve Nominatim accuracy
+        query = f"{stripped}, {country_hint}"
+
         async with httpx.AsyncClient(timeout=15) as client:
             try:
                 resp = await client.get(
                     _NOMINATIM_URL,
-                    params={"q": address, "format": "json", "limit": 1},
+                    params={"q": query, "format": "json", "limit": 1},
                     headers={"User-Agent": _USER_AGENT},
                 )
                 resp.raise_for_status()
@@ -59,9 +80,22 @@ class GeoMapper:
             return None
 
         hit = data[0]
+        lat = float(hit["lat"])
+        lon = float(hit["lon"])
+
+        # Reject results far outside metropolitan France
+        # (lat ~42-51, lon ~-5 to 8)
+        if not (42.0 <= lat <= 51.5 and -5.5 <= lon <= 8.5):
+            logger.warning(
+                "Geocoding result for '{}' is outside France "
+                "(lat={:.2f}, lon={:.2f}) -- rejected",
+                address, lat, lon,
+            )
+            return None
+
         return {
-            "lat": float(hit["lat"]),
-            "lon": float(hit["lon"]),
+            "lat": lat,
+            "lon": lon,
             "display_name": hit.get("display_name", address),
         }
 

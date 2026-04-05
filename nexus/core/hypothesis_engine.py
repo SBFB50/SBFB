@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Any
 
 from loguru import logger
+from rapidfuzz import fuzz
 
 from nexus.core.audit import AuditService
 from nexus.db.sqlite_db import Database
@@ -127,6 +128,10 @@ class HypothesisEngine:
             logger.error("'hypotheses' field is not a list")
             return []
 
+        # Load existing hypotheses to detect duplicates
+        existing_hyps = await self._db.list_hypotheses_by_case(case_id)
+        existing_titles = [h.get("title", "") for h in existing_hyps]
+
         # 5 + 6. Save each hypothesis and create initial snapshot
         created: list[dict[str, Any]] = []
         for i, h in enumerate(raw_hypotheses):
@@ -148,6 +153,18 @@ class HypothesisEngine:
 
             # Build a full title from the hypothesis ID + first part of description
             full_title = f"{title}: {description[:80]}" if len(description) > 80 else f"{title}: {description}"
+
+            # Deduplicate: skip if a similar hypothesis already exists
+            is_duplicate = any(
+                fuzz.WRatio(full_title.lower(), ex_title.lower()) > 80
+                for ex_title in existing_titles
+            )
+            if is_duplicate:
+                logger.info(
+                    "Skipping duplicate hypothesis '{}' for case {}",
+                    full_title[:40], case_id,
+                )
+                continue
 
             try:
                 # 5. Save hypothesis
@@ -175,6 +192,9 @@ class HypothesisEngine:
                 )
 
                 created.append(hyp_row)
+
+                # Track newly created title to avoid intra-batch duplicates
+                existing_titles.append(full_title)
 
                 # Audit: log hypothesis created
                 await self._audit.log_hypothesis_created(
