@@ -73,6 +73,12 @@ export default function Benchmark() {
 
   useEffect(() => { refresh(); }, []);
 
+  // Auto-refresh every 3s
+  useEffect(() => {
+    const interval = setInterval(refresh, 3000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
   // Load available benchmarks
   useEffect(() => {
     api.get('/benchmark/available').then(r => setAvailableBenches(r.data || [])).catch(() => {});
@@ -84,7 +90,9 @@ export default function Benchmark() {
       const resp = await api.post(`/benchmark/launch/${key}`);
       if (resp.data?.case_id) {
         setShowLauncher(false);
-        setTimeout(refresh, 3000);
+        // Wait a bit for the case to be created, then refresh
+        setTimeout(() => { refresh(); setLaunching(null); }, 2000);
+        return;
       }
     } catch (e) {
       console.error('Launch failed:', e);
