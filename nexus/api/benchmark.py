@@ -75,15 +75,16 @@ async def launch_benchmark(
     )
     case_id = case["id"]
 
-    # Start background injection of wave 1
+    # Start FULL benchmark pipeline in background:
+    # inject all waves → analyze → hypotheses → suspects → contradictions
     background_tasks.add_task(
-        _inject_wave, case_id, bench_key, wave=1
+        _run_full_benchmark, case_id, bench_key
     )
 
     return {
         "case_id": case_id,
         "name": case["name"],
-        "status": "injecting_wave_1",
+        "status": "running_full_pipeline",
         "total_evidence": len(manifest.get("evidence", [])),
     }
 
@@ -155,3 +156,99 @@ async def _inject_wave(case_id: str, bench_key: str, wave: int) -> None:
             await asyncio.sleep(2)
 
         logger.info("Benchmark wave {} complete for case {}", wave, case_id[:8])
+
+
+async def _run_full_benchmark(case_id: str, bench_key: str) -> None:
+    """Full benchmark pipeline: inject all waves → analyze → hypotheses → suspects."""
+    from nexus.db.sqlite_db import get_db, Database
+    from nexus.llm.ollama_client import OllamaClient
+    from nexus.llm.router import LLMRouter
+    from nexus.db.neo4j_db import Neo4jClient
+
+    info = KNOWN_BENCHMARKS[bench_key]
+    manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    waves = sorted(set(e.get("wave", 1) for e in manifest.get("evidence", [])))
+
+    # 1. Inject all waves sequentially
+    for wave in waves:
+        logger.info("Benchmark full: injecting wave {} for case {}", wave, case_id[:8])
+        await _inject_wave(case_id, bench_key, wave)
+        await asyncio.sleep(3)
+
+    logger.info("Benchmark full: all waves injected for case {}", case_id[:8])
+
+    # 2. Analyze
+    try:
+        ollama = OllamaClient()
+        router = LLMRouter(ollama)
+        async with get_db() as conn:
+            db = Database(conn)
+            from nexus.core.analysis_pipeline import AnalysisPipeline
+            pipeline = AnalysisPipeline(db=db, router=router)
+            logger.info("Benchmark full: running analysis...")
+            await pipeline.run_full_analysis(case_id)
+    except Exception as exc:
+        logger.error("Benchmark analysis failed: {}", exc)
+
+    await asyncio.sleep(2)
+
+    # 3. Generate hypotheses
+    try:
+        async with get_db() as conn:
+            db = Database(conn)
+            from nexus.core.hypothesis_engine import HypothesisEngine
+            engine = HypothesisEngine(db=db, router=router)
+            logger.info("Benchmark full: generating hypotheses...")
+            await engine.generate_hypotheses(case_id)
+    except Exception as exc:
+        logger.error("Benchmark hypothesis generation failed: {}", exc)
+
+    await asyncio.sleep(2)
+
+    # 4. Detect contradictions
+    try:
+        async with get_db() as conn:
+            db = Database(conn)
+            from nexus.core.contradiction_detector import ContradictionDetector
+            detector = ContradictionDetector(db=db, router=router)
+            logger.info("Benchmark full: detecting contradictions...")
+            await detector.detect_contradictions(case_id)
+    except Exception as exc:
+        logger.error("Benchmark contradiction detection failed: {}", exc)
+
+    await asyncio.sleep(2)
+
+    # 5. Score suspects
+    try:
+        async with get_db() as conn:
+            db = Database(conn)
+            from nexus.core.suspect_scorer import SuspectScorer
+            scorer = SuspectScorer(db=db, router=router)
+            logger.info("Benchmark full: scoring suspects...")
+            await scorer.score_all_suspects(case_id)
+    except Exception as exc:
+        logger.error("Benchmark suspect scoring failed: {}", exc)
+
+    # 6. Sync Neo4j
+    try:
+        neo4j = Neo4jClient()
+        await neo4j.init_constraints()
+        async with get_db() as conn:
+            db = Database(conn)
+            entities = await db.list_entities_by_case(case_id)
+            evidence = await db.list_evidence_by_case(case_id)
+            for ent in entities:
+                await neo4j.sync_entity(ent, case_id)
+            for ev in evidence:
+                await neo4j.sync_evidence(ev["id"], case_id, ev["title"], ev["evidence_type"], ev.get("reliability", 50))
+            for ent in entities:
+                mentions = await db.list_mentions_by_entity(ent["id"])
+                for m in mentions:
+                    await neo4j.link_evidence_to_entity(m["evidence_id"], ent["id"])
+        await neo4j.close()
+        logger.info("Benchmark full: Neo4j synced")
+    except Exception as exc:
+        logger.error("Benchmark Neo4j sync failed: {}", exc)
+
+    logger.info("=== BENCHMARK COMPLETE for case {} ===", case_id[:8])
