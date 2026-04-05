@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from frontend.api_client import api
+from frontend.components.system_stats import render_system_stats; render_system_stats()
 
 # ---------------------------------------------------------------------------
 # Guard

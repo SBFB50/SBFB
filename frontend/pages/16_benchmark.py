@@ -1,9 +1,9 @@
 import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent.parent)) if str(Path(__file__).resolve().parent.parent) not in sys.path else None  # noqa: E402
 """
-NEXUS -- Page Benchmark.
+NEXUS -- Page Benchmark LIVE.
 
-Lance et visualise les benchmarks sur vrais cold cases resolus.
-Score /100 par case: entites, hypotheses, contradictions, timeline, geo.
+Dashboard temps reel du benchmark en cours.
+Reload = reconnexion immediate aux donnees live.
 """
 
 import json
@@ -13,402 +13,412 @@ import pandas as pd
 import requests
 from pathlib import Path
 from datetime import datetime
+from frontend.api_client import api
+from frontend.components.system_stats import render_system_stats
+
+render_system_stats()
 
 API = "http://localhost:8000"
 BENCH_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "benchmark"
 
 CASES = {
-    "kulik": {"dir": "kulik", "name": "Affaire Elodie Kulik (2002, France)"},
-    "gsk": {"dir": "golden-state-killer", "name": "Golden State Killer (1974-86, USA)"},
+    "kulik": {"dir": "kulik", "name": "Affaire Elodie Kulik (2002)"},
+    "gsk": {"dir": "golden-state-killer", "name": "Golden State Killer (1974-86)"},
     "moreau": {"dir": "affaire-moreau", "name": "Affaire Moreau (fictif)"},
 }
 
 
-def api(method, path, **kwargs):
+def api_call(method, path, **kwargs):
     kwargs.setdefault("timeout", 300)
     try:
         r = getattr(requests, method)(f"{API}{path}", **kwargs)
-        if r.status_code < 400:
-            return r.json()
-        return {"error": r.status_code, "detail": r.text[:200]}
-    except requests.Timeout:
-        return {"error": "timeout"}
-    except Exception as e:
-        return {"error": str(e)}
+        return r.json() if r.status_code < 400 else None
+    except Exception:
+        return None
+
+
+def find_bench_case():
+    """Find any active benchmark case in the system."""
+    cases = api.list_cases() or []
+    for c in cases:
+        ref = c.get("reference", "")
+        if "BENCH" in ref.upper() or "KULIK" in ref.upper() or "GSK" in ref.upper() or "MOREAU" in ref.upper():
+            return c
+    # Return most recent case if any
+    return cases[0] if cases else None
 
 
 # =====================================================================
-st.title("Benchmark NEXUS")
-st.caption("Evaluation sur vrais cold cases resolus — le systeme recoit les pieces d'enquete brutes et doit converger vers la verite.")
+st.title("Benchmark NEXUS — Live")
 
-# Health check
-health = api("get", "/api/health")
-if not health or health.get("error"):
-    st.error(f"API indisponible: {health}")
-    st.stop()
-st.success(f"API OK — v{health.get('version', '?')}")
-
-st.markdown("---")
-
-# =====================================================================
-# Case selection
-# =====================================================================
-
-st.subheader("Selectionner un cold case")
-
-available = {}
-for key, info in CASES.items():
-    manifest_path = BENCH_DIR / info["dir"] / "manifest.json"
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        n_evidence = len(manifest.get("evidence", []))
-        n_waves = len(set(e.get("wave", 1) for e in manifest.get("evidence", [])))
-        available[key] = {
-            "name": info["name"],
-            "manifest": manifest,
-            "n_evidence": n_evidence,
-            "n_waves": n_waves,
-            "dir": BENCH_DIR / info["dir"],
-        }
-
-if not available:
-    st.error("Aucun benchmark disponible dans data/benchmark/")
+health = api.check_health()
+if not health:
+    st.error("API indisponible")
     st.stop()
 
-cols = st.columns(len(available))
-for i, (key, info) in enumerate(available.items()):
-    with cols[i]:
-        gt = info["manifest"].get("ground_truth", {})
-        st.metric(info["name"], f"{info['n_evidence']} preuves")
-        st.caption(f"{info['n_waves']} vagues")
-        if gt.get("perpetrators"):
-            with st.expander("Verite (spoiler)"):
-                perps = gt["perpetrators"]
-                names = [p["name"] if isinstance(p, dict) else str(p) for p in perps]
-                st.write(f"**Coupables:** {', '.join(names)}")
-                for f in gt.get("key_facts", []):
-                    st.write(f"- {f}")
-
-selected = st.selectbox("Case", list(available.keys()), format_func=lambda k: available[k]["name"])
-case_info = available[selected]
-manifest = case_info["manifest"]
-
 st.markdown("---")
 
 # =====================================================================
-# Options
+# DETECT OR CREATE BENCHMARK
 # =====================================================================
 
-st.subheader("Options")
-c1, c2, c3 = st.columns(3)
-run_analysis = c1.checkbox("Lancer analyse LLM apres chaque vague", value=True)
-timeout_inject = c2.number_input("Timeout injection (s)", value=300, min_value=30)
-timeout_analysis = c3.number_input("Timeout analyse (s)", value=600, min_value=60)
+bench_case = find_bench_case()
+
+if bench_case:
+    case_id = bench_case["id"]
+    case_name = bench_case["name"]
+    st.success(f"Connecte a: **{case_name}** (`{case_id[:12]}`)")
+else:
+    st.warning("Aucun benchmark en cours.")
+
+    # Launch panel
+    st.subheader("Lancer un benchmark")
+    available = {}
+    for key, info in CASES.items():
+        manifest_path = BENCH_DIR / info["dir"] / "manifest.json"
+        if manifest_path.exists():
+            available[key] = info
+
+    if available:
+        selected = st.selectbox("Case", list(available.keys()), format_func=lambda k: available[k]["name"])
+        manifest = json.loads((BENCH_DIR / CASES[selected]["dir"] / "manifest.json").read_text(encoding="utf-8"))
+        case_data = manifest.get("case", {})
+        st.caption(f"{len(manifest.get('evidence', []))} preuves, {len(set(e.get('wave',1) for e in manifest.get('evidence',[])))} vagues")
+
+        if st.button("Creer le dossier et injecter la vague 1", type="primary"):
+            resp = api_call("post", "/api/cases", json={
+                "name": case_data.get("name", selected),
+                "reference": case_data.get("reference", f"#BENCH-{selected.upper()}"),
+                "description": case_data.get("description", ""),
+            })
+            if resp:
+                cid = resp["id"]
+                st.session_state["bench_case_id"] = cid
+                # Inject wave 1 evidence
+                wave1 = [e for e in manifest.get("evidence", []) if e.get("wave", 1) == 1]
+                bar = st.progress(0)
+                for i, ev in enumerate(wave1):
+                    fp = BENCH_DIR / CASES[selected]["dir"] / ev.get("file", "")
+                    if fp.exists():
+                        text = fp.read_text(encoding="utf-8")
+                        api_call("post", f"/api/cases/{cid}/evidence/text", json={
+                            "title": ev.get("title", fp.stem),
+                            "text": text,
+                            "source": ev.get("source", "Benchmark"),
+                        })
+                    bar.progress((i + 1) / len(wave1))
+                st.success(f"Vague 1 injectee ({len(wave1)} preuves)")
+                st.rerun()
+    st.stop()
+
 
 # =====================================================================
-# Run benchmark
+# LIVE DASHBOARD — always shows current state
 # =====================================================================
+
+case_id = bench_case["id"]
+
+# --- Stats ---
+stats = api.get_case_stats(case_id) or {}
+
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Preuves", stats.get("evidence", 0))
+c2.metric("Entites", stats.get("entities", 0))
+c3.metric("Hypotheses", stats.get("hypotheses", 0))
+c4.metric("Alertes", stats.get("alerts", 0))
+c5.metric("Monitoring", stats.get("monitoring_jobs", 0))
 
 st.markdown("---")
 
-if st.button("Lancer le benchmark", type="primary", use_container_width=True):
+# --- Tabs ---
+tab_hyp, tab_ent, tab_ev, tab_graph, tab_contra, tab_audit, tab_inject = st.tabs([
+    "Hypotheses", "Entites", "Preuves", "Graphe", "Contradictions", "Audit", "Injecter vagues"
+])
 
-    progress = st.progress(0)
-    status = st.empty()
-    log_container = st.container()
-    results_container = st.container()
+# --- HYPOTHESES ---
+with tab_hyp:
+    hypotheses = api.list_hypotheses(case_id) or []
+    if hypotheses:
+        for h in sorted(hypotheses, key=lambda x: x.get("current_score", 0), reverse=True):
+            score = h.get("current_score", 50)
+            title = h.get("title", "?")
+            color = "#4ecdc4" if score > 50 else "#e74c3c" if score < 25 else "#f39c12"
+            st.markdown(
+                f'<div style="margin:6px 0">'
+                f'<b>{title}</b> <span style="color:#888">({h.get("status","?")})</span></div>'
+                f'<div style="background:#2d2d2d;border-radius:4px;height:24px">'
+                f'<div style="background:{color};width:{max(score,2)}%;height:100%;border-radius:4px;'
+                f'text-align:right;padding-right:8px;color:white;font-size:13px;line-height:24px">'
+                f'{score:.0f}%</div></div>',
+                unsafe_allow_html=True,
+            )
 
-    logs = []
-    def log(msg):
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-        log_container.code("\n".join(logs[-30:]), language="text")
+        # Evolution chart
+        all_evo = []
+        for h in hypotheses:
+            evo = api.get_hypothesis_evolution(h["id"]) or []
+            for p in evo:
+                all_evo.append({"Date": p.get("date", ""), "Score": p.get("score", 50), "Hypothese": h.get("title", "?")[:40]})
+        if all_evo:
+            df = pd.DataFrame(all_evo)
+            try:
+                df["Date"] = pd.to_datetime(df["Date"])
+                pivot = df.pivot_table(index="Date", columns="Hypothese", values="Score", aggfunc="last").ffill()
+                st.line_chart(pivot, height=300)
+            except Exception:
+                pass
+    else:
+        st.info("Aucune hypothese — lancez une analyse")
+        if st.button("Lancer analyse"):
+            api_call("post", f"/api/cases/{case_id}/analyze", json={"trigger": "benchmark"})
+            st.success("Analyse lancee en background")
 
-    # --- Create case ---
-    status.info("Creation du dossier...")
-    case_data = manifest.get("case", {})
-    resp = api("post", "/api/cases", json={
-        "name": case_data.get("name", selected),
-        "reference": case_data.get("reference", f"#BENCH-{selected}"),
-        "description": case_data.get("description", "Benchmark case"),
-    })
-    if not resp or resp.get("error"):
-        st.error(f"Echec creation dossier: {resp}")
-        st.stop()
+# --- ENTITIES ---
+with tab_ent:
+    entities = api.list_entities(case_id) or []
+    if entities:
+        by_type = {}
+        for e in entities:
+            t = e["entity_type"]
+            by_type.setdefault(t, []).append(e["name"])
 
-    case_id = resp["id"]
-    log(f"Dossier cree: {case_id[:12]}")
+        for t in ["person", "location", "vehicle", "phone", "organization", "date", "other"]:
+            if t in by_type:
+                names = by_type[t]
+                st.markdown(f"**{t.capitalize()}** ({len(names)})")
+                st.write(", ".join(names[:30]))
+        st.caption(f"Total: {len(entities)} entites")
+    else:
+        st.info("Aucune entite")
 
-    # --- Inject evidence by wave ---
-    evidence_list = manifest.get("evidence", [])
-    waves = sorted(set(e.get("wave", 1) for e in evidence_list))
-    total_steps = len(evidence_list) + (len(waves) if run_analysis else 0)
-    step = 0
+# --- EVIDENCE ---
+with tab_ev:
+    evidence = api.list_evidence(case_id) or []
+    if evidence:
+        rows = []
+        for e in evidence:
+            rows.append({
+                "Titre": e.get("title", "?")[:60],
+                "Type": e.get("evidence_type", "?"),
+                "Status": e.get("status", "?"),
+                "Source": (e.get("source") or "")[:30],
+                "Fiabilite": e.get("reliability", 50),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    wave_results = []
+        with st.expander(f"Details ({len(evidence)} preuves)"):
+            for e in evidence:
+                st.markdown(f"**{e.get('title', '?')}**")
+                summary = e.get("summary") or ""
+                if summary:
+                    st.caption(summary[:300])
+                st.markdown("---")
+    else:
+        st.info("Aucune preuve")
 
-    for wave_num in waves:
-        wave_evidence = [e for e in evidence_list if e.get("wave", 1) == wave_num]
-        waves_data = manifest.get("waves", {})
-        if isinstance(waves_data, dict):
-            wave_meta = waves_data.get(wave_num, waves_data.get(str(wave_num), {}))
-        elif isinstance(waves_data, list):
-            wave_meta = next((w for w in waves_data if w.get("wave") == wave_num), {})
-        else:
-            wave_meta = {}
-        if not isinstance(wave_meta, dict):
-            wave_meta = {}
+# --- GRAPH ---
+with tab_graph:
+    graph_data = api.get_graph(case_id)
+    if graph_data and (graph_data.get("nodes") or graph_data.get("edges")):
+        nodes = graph_data.get("nodes", [])
+        edges = graph_data.get("edges", [])
+        st.metric("Noeuds", len(nodes))
+        st.metric("Aretes", len(edges))
 
-        log(f"\n=== VAGUE {wave_num}: {wave_meta.get('name', '')} ({len(wave_evidence)} preuves) ===")
-        status.info(f"Vague {wave_num}/{len(waves)} — injection de {len(wave_evidence)} preuves...")
+        # Stats by type
+        graph_stats = api.get_graph_stats(case_id)
+        if graph_stats:
+            st.json(graph_stats)
+    else:
+        st.info("Graphe vide — les entites n'ont pas encore ete synchronisees vers Neo4j")
 
-        injected = 0
-        for ev in wave_evidence:
-            file_path = case_info["dir"] / ev.get("file", "")
-            if not file_path.exists():
-                log(f"  SKIP {ev.get('title', '?')} — fichier manquant")
-                step += 1
-                continue
+# --- CONTRADICTIONS ---
+with tab_contra:
+    audit_entries = api.list_audit_log(case_id, action="contradiction_found") or []
+    if audit_entries:
+        for c in audit_entries:
+            details = c.get("details")
+            desc = ""
+            if details:
+                try:
+                    parsed = json.loads(details) if isinstance(details, str) else details
+                    desc = parsed.get("description", "")
+                except Exception:
+                    desc = str(details)[:300]
+            st.markdown(f"**{c.get('timestamp', '?')[:19]}** — {desc[:300]}")
+    else:
+        st.info("Aucune contradiction detectee")
+        if st.button("Lancer detection de contradictions"):
+            api_call("get", f"/api/cases/{case_id}/contradictions")
+            st.info("Detection lancee")
 
-            text = file_path.read_text(encoding="utf-8")
-            resp = api("post", f"/api/cases/{case_id}/evidence/text", json={
-                "title": ev.get("title", file_path.stem),
-                "text": text,
-                "source": ev.get("source", "Benchmark"),
-            }, timeout=timeout_inject)
+# --- AUDIT ---
+with tab_audit:
+    ACTION_ICONS = {
+        "evidence_added": "📄", "evidence_ingested_auto": "🤖",
+        "entity_discovered": "👤", "hypothesis_created": "💡",
+        "hypothesis_scored": "📊", "contradiction_found": "⚡",
+        "monitoring_result": "🔍", "query_generated": "🔎",
+        "self_questioning": "🧠", "analysis_completed": "✅",
+    }
+    audit = api.list_audit_log(case_id, limit=30) or []
+    if audit:
+        for e in audit:
+            icon = ACTION_ICONS.get(e.get("action", ""), "📌")
+            ts = (e.get("timestamp") or "")[:19]
+            st.markdown(f"{icon} **{ts}** [{e.get('actor','?')}] {e.get('summary','')[:80]}")
+    else:
+        st.caption("Aucune entree d'audit")
 
-            if resp and not resp.get("error"):
-                injected += 1
-                log(f"  OK {ev.get('title', '?')[:50]}")
+# --- INJECT MORE WAVES ---
+with tab_inject:
+    # Find which case this is
+    ref = bench_case.get("reference", "")
+    case_key = None
+    for k, v in CASES.items():
+        manifest_path = BENCH_DIR / v["dir"] / "manifest.json"
+        if manifest_path.exists():
+            m = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if m.get("case", {}).get("reference") == ref or k.lower() in bench_case.get("name", "").lower():
+                case_key = k
+                break
+
+    if case_key:
+        manifest = json.loads((BENCH_DIR / CASES[case_key]["dir"] / "manifest.json").read_text(encoding="utf-8"))
+        all_evidence = manifest.get("evidence", [])
+        current_count = stats.get("evidence", 0)
+        waves = sorted(set(e.get("wave", 1) for e in all_evidence))
+
+        st.write(f"**{current_count}/{len(all_evidence)}** preuves injectees")
+
+        for w in waves:
+            wave_ev = [e for e in all_evidence if e.get("wave", 1) == w]
+            waves_data = manifest.get("waves", {})
+            if isinstance(waves_data, dict):
+                wm = waves_data.get(w, waves_data.get(str(w), {}))
             else:
-                log(f"  FAIL {ev.get('title', '?')[:50]} — {resp}")
+                wm = {}
+            wave_name = wm.get("name", f"Vague {w}") if isinstance(wm, dict) else f"Vague {w}"
 
-            step += 1
-            progress.progress(step / total_steps)
+            injected = current_count >= sum(len([e for e in all_evidence if e.get("wave", 1) <= w]))
 
-        log(f"  {injected}/{len(wave_evidence)} preuves injectees")
+            col_w, col_btn = st.columns([3, 1])
+            col_w.write(f"**Vague {w}** — {wave_name} ({len(wave_ev)} preuves) {'✅' if injected else ''}")
 
-        # --- Analysis after wave ---
-        if run_analysis:
-            status.info(f"Vague {wave_num} — analyse LLM en cours...")
-            log(f"  Analyse lancee...")
+            if not injected:
+                if col_btn.button(f"Injecter V{w}", key=f"inject_v{w}"):
+                    bar = st.progress(0)
+                    for i, ev in enumerate(wave_ev):
+                        fp = BENCH_DIR / CASES[case_key]["dir"] / ev.get("file", "")
+                        if fp.exists():
+                            text = fp.read_text(encoding="utf-8")
+                            api_call("post", f"/api/cases/{case_id}/evidence/text", json={
+                                "title": ev.get("title", fp.stem),
+                                "text": text,
+                                "source": ev.get("source", "Benchmark"),
+                            })
+                        bar.progress((i + 1) / len(wave_ev))
+                    st.success(f"Vague {w} injectee")
+                    st.rerun()
 
-            resp = api("post", f"/api/cases/{case_id}/analyze", json={"trigger": "benchmark"})
-            if resp and resp.get("run_id"):
-                run_id = resp["run_id"]
-                t0 = time.time()
-                while time.time() - t0 < timeout_analysis:
-                    time.sleep(10)
-                    run_status = api("get", f"/api/analysis/{run_id}")
-                    if run_status and run_status.get("status") != "running":
-                        break
-                elapsed = time.time() - t0
-                final_status = run_status.get("status", "?") if run_status else "timeout"
-                log(f"  Analyse: {final_status} ({elapsed:.0f}s)")
-            else:
-                log(f"  Analyse FAIL: {resp}")
+        st.markdown("---")
+        if st.button("Lancer analyse complete"):
+            api_call("post", f"/api/cases/{case_id}/analyze", json={"trigger": "benchmark"})
+            st.success("Analyse lancee")
 
-            step += 1
-            progress.progress(step / total_steps)
+        if st.button("Generer hypotheses"):
+            api_call("post", f"/api/cases/{case_id}/hypotheses/generate")
+            st.success("Generation lancee")
 
-        # --- Collect wave stats ---
-        stats = api("get", f"/api/cases/{case_id}/stats") or {}
-        hypotheses = api("get", f"/api/cases/{case_id}/hypotheses") or []
-        entities = api("get", f"/api/cases/{case_id}/entities") or []
+        if st.button("Re-evaluer toutes les hypotheses"):
+            api_call("post", f"/api/cases/{case_id}/evaluate-all")
+            st.success("Re-evaluation lancee")
+    else:
+        st.info("Case non identifie — injectez manuellement via l'onglet Preuves")
 
-        wave_result = {
-            "wave": wave_num,
-            "name": wave_meta.get("name", f"Vague {wave_num}"),
-            "evidence": stats.get("evidence", 0),
-            "entities": stats.get("entities", 0),
-            "hypotheses": len(hypotheses),
-            "alerts": stats.get("alerts", 0),
-            "top_hypotheses": [
-                {"title": h["title"][:60], "score": h["current_score"]}
-                for h in sorted(hypotheses, key=lambda x: x.get("current_score", 0), reverse=True)[:5]
-            ],
-            "persons_found": [e["name"] for e in entities if e["entity_type"] == "person"][:15],
-        }
-        wave_results.append(wave_result)
+# =====================================================================
+# SCORING (ground truth comparison)
+# =====================================================================
 
-        log(f"  Stats: {stats.get('evidence', 0)} preuves, {stats.get('entities', 0)} entites, {len(hypotheses)} hypotheses")
-        for h in wave_result["top_hypotheses"][:3]:
-            log(f"    {h['score']:5.1f}% | {h['title']}")
+st.markdown("---")
+st.subheader("Score")
 
-    progress.progress(1.0)
+# Try to find manifest for this case
+scoring_manifest = None
+for k, v in CASES.items():
+    mp = BENCH_DIR / v["dir"] / "manifest.json"
+    if mp.exists() and k.lower() in bench_case.get("name", "").lower():
+        scoring_manifest = json.loads(mp.read_text(encoding="utf-8"))
+        break
 
-    # =====================================================================
-    # SCORING
-    # =====================================================================
-
-    status.info("Calcul du score...")
-    log("\n=== SCORING ===")
-
-    scoring = manifest.get("scoring", {})
-    ground_truth = manifest.get("ground_truth", {})
-    final_stats = api("get", f"/api/cases/{case_id}/stats") or {}
-    final_entities = api("get", f"/api/cases/{case_id}/entities") or []
-    final_hypotheses = api("get", f"/api/cases/{case_id}/hypotheses") or []
-    final_contradictions = manifest.get("expected_contradictions", [])
+if scoring_manifest:
+    gt = scoring_manifest.get("ground_truth", {})
+    scoring_cfg = scoring_manifest.get("scoring", {})
+    target_kw = [kw.lower() for kw in gt.get("target_keywords", [])]
+    hypotheses = api.list_hypotheses(case_id) or []
+    entities = api.list_entities(case_id) or []
+    found_names = [e["name"].lower() for e in entities]
 
     scores = {}
 
-    # 1. Entities found /20
-    target_persons = [kw.lower() for kw in ground_truth.get("target_keywords", [])]
-    found_names = [e["name"].lower() for e in final_entities]
-    entity_hits = sum(1 for t in target_persons if any(t in n for n in found_names))
-    entity_score = min(20, int(20 * entity_hits / max(len(target_persons), 1)))
-    scores["Entites cles"] = entity_score
-    log(f"  Entites: {entity_hits}/{len(target_persons)} trouvees -> {entity_score}/20")
+    # 1. Entities /20
+    hits = sum(1 for t in target_kw if any(t in n for n in found_names))
+    scores["Entites"] = min(20, int(20 * hits / max(len(target_kw), 1)))
 
-    # 2. Correct hypothesis in top 3 /20
-    hyp_keywords = [kw.lower() for kw in scoring.get("correct_hypothesis_keywords", ground_truth.get("target_keywords", []))]
-    top3 = sorted(final_hypotheses, key=lambda x: x.get("current_score", 0), reverse=True)[:3]
+    # 2. Hypothesis top 3 /20
+    top3 = sorted(hypotheses, key=lambda x: x.get("current_score", 0), reverse=True)[:3]
     top3_text = " ".join([h.get("title", "") + " " + h.get("description", "") for h in top3]).lower()
-    hyp_match = any(kw in top3_text for kw in hyp_keywords)
-    scores["Hypothese top 3"] = 20 if hyp_match else 0
-    log(f"  Hypothese correcte dans top 3: {'OUI' if hyp_match else 'NON'} -> {scores['Hypothese top 3']}/20")
+    hyp_kw = [kw.lower() for kw in scoring_cfg.get("correct_hypothesis_keywords", target_kw)]
+    scores["Hypothese top3"] = 20 if any(kw in top3_text for kw in hyp_kw) else 0
 
-    # 3. Contradictions detected /20
-    detected_contras = api("get", f"/api/cases/{case_id}/audit?action=contradiction_found") or []
-    n_detected = len(detected_contras)
-    n_expected = len(final_contradictions)
-    contra_score = min(20, int(20 * n_detected / max(n_expected, 1)))
-    scores["Contradictions"] = contra_score
-    log(f"  Contradictions: {n_detected}/{n_expected} -> {contra_score}/20")
+    # 3. Contradictions /20
+    contras = api.list_audit_log(case_id, action="contradiction_found") or []
+    n_expected = len(scoring_manifest.get("expected_contradictions", []))
+    scores["Contradictions"] = min(20, int(20 * len(contras) / max(n_expected, 1)))
 
-    # 4. Correct hypothesis score > 40% /20
-    best_correct = 0
-    all_hyp_text = [(h, (h.get("title", "") + " " + h.get("description", "")).lower()) for h in final_hypotheses]
-    for h, text in all_hyp_text:
-        if any(kw in text for kw in hyp_keywords):
-            best_correct = max(best_correct, h.get("current_score", 0))
-    score_above_40 = best_correct > 40
-    scores["Score > 40%"] = 20 if score_above_40 else int(20 * best_correct / 40)
-    log(f"  Meilleur score hypothese correcte: {best_correct:.0f}% -> {scores['Score > 40%']}/20")
+    # 4. Score > 40% /20
+    best = 0
+    for h in hypotheses:
+        txt = (h.get("title", "") + " " + h.get("description", "")).lower()
+        if any(kw in txt for kw in hyp_kw):
+            best = max(best, h.get("current_score", 0))
+    scores["Score > 40%"] = 20 if best > 40 else int(20 * best / 40)
 
-    # 5. Timeline + geo /20
-    timeline = api("get", f"/api/cases/{case_id}/timeline") or []
-    locations = api("get", f"/api/cases/{case_id}/map") or {}
-    loc_list = locations.get("locations", []) if isinstance(locations, dict) else []
-    timeline_score = min(10, len(timeline) * 2)
-    geo_score = min(10, len(loc_list) * 3)
-    scores["Timeline + Geo"] = timeline_score + geo_score
-    log(f"  Timeline: {len(timeline)} events ({timeline_score}/10) | Geo: {len(loc_list)} lieux ({geo_score}/10) -> {scores['Timeline + Geo']}/20")
+    # 5. Timeline + Geo /20
+    timeline = api.get_timeline(case_id) or []
+    map_data = api_call("get", f"/api/cases/{case_id}/map") or {}
+    locs = map_data.get("locations", []) if isinstance(map_data, dict) else []
+    scores["Timeline+Geo"] = min(10, len(timeline) * 2) + min(10, len(locs) * 3)
 
     total = sum(scores.values())
-    log(f"\n  SCORE TOTAL: {total}/100")
 
-    status.success(f"Benchmark termine — Score: {total}/100")
+    # Display
+    sc = st.columns(6)
+    sc[0].metric("TOTAL", f"{total}/100")
+    for i, (name, val) in enumerate(scores.items()):
+        sc[i + 1].metric(name, f"{val}/20")
 
-    # =====================================================================
-    # DISPLAY RESULTS
-    # =====================================================================
-
-    with results_container:
-        st.markdown("---")
-        st.subheader(f"Resultats — {case_info['name']}")
-
-        # Score
-        sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
-        sc1.metric("TOTAL", f"{total}/100")
-        for i, (name, val) in enumerate(scores.items()):
-            [sc2, sc3, sc4, sc5, sc6][i].metric(name, f"{val}/20")
-
-        # Wave progression
-        st.markdown("### Progression par vague")
-        wave_df = pd.DataFrame([{
-            "Vague": f"V{r['wave']}",
-            "Nom": r["name"][:30],
-            "Preuves": r["evidence"],
-            "Entites": r["entities"],
-            "Hypotheses": r["hypotheses"],
-        } for r in wave_results])
-        st.dataframe(wave_df, use_container_width=True, hide_index=True)
-
-        # Hypotheses
-        if final_hypotheses:
-            st.markdown("### Hypotheses finales")
-            for h in sorted(final_hypotheses, key=lambda x: x.get("current_score", 0), reverse=True):
-                score = h.get("current_score", 0)
-                title = h.get("title", "?")
-                color = "#4ecdc4" if score > 40 else "#e74c3c" if score < 20 else "#f39c12"
-                st.markdown(
-                    f'<div style="margin:4px 0">'
-                    f'<span style="font-weight:bold">{title}</span></div>'
-                    f'<div style="background:#2d2d2d;border-radius:4px;height:20px">'
-                    f'<div style="background:{color};width:{score}%;height:100%;border-radius:4px;'
-                    f'text-align:right;padding-right:6px;color:white;font-size:12px;line-height:20px">'
-                    f'{score:.0f}%</div></div>',
-                    unsafe_allow_html=True,
-                )
-
-        # Entities
-        st.markdown("### Entites cles trouvees")
-        persons = [e for e in final_entities if e["entity_type"] == "person"]
-        if persons:
-            st.write(", ".join([p["name"] for p in persons[:20]]))
-
-        # Ground truth comparison
-        st.markdown("### Comparaison avec la verite")
-        gt = manifest.get("ground_truth", {})
-        if gt:
-            col_truth, col_found = st.columns(2)
-            with col_truth:
-                st.markdown("**Verite:**")
-                for p in gt.get("perpetrators", []):
-                    name = p["name"] if isinstance(p, dict) else str(p)
-                    st.write(f"- {name}")
-                for f in gt.get("key_facts", []):
-                    st.write(f"- {f}")
-            with col_found:
-                st.markdown("**Trouve par NEXUS:**")
-                if final_hypotheses:
-                    best = sorted(final_hypotheses, key=lambda x: x.get("current_score", 0), reverse=True)[0]
-                    st.write(f"Hypothese principale: **{best['title']}** ({best['current_score']:.0f}%)")
-                st.write(f"Entites: {len(final_entities)} | Personnes: {len(persons)}")
-
-        # Save results
-        bench_results = {
-            "case": selected,
-            "timestamp": datetime.now().isoformat(),
-            "score": total,
-            "scores": scores,
-            "waves": wave_results,
-            "case_id": case_id,
-        }
-        results_json = json.dumps(bench_results, ensure_ascii=False, indent=2, default=str)
-
-        st.download_button(
-            "Telecharger les resultats (JSON)",
-            data=results_json,
-            file_name=f"bench_{selected}_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-            mime="application/json",
-        )
-
-        # Cleanup option
-        st.markdown("---")
-        if st.button("Supprimer le dossier de benchmark"):
-            api("delete", f"/api/cases/{case_id}")
-            st.success("Dossier supprime")
+    # Ground truth
+    with st.expander("Verite (spoiler)"):
+        for p in gt.get("perpetrators", []):
+            name = p["name"] if isinstance(p, dict) else str(p)
+            st.write(f"- {name}")
+        for f in gt.get("key_facts", []):
+            st.write(f"- {f}")
+else:
+    st.caption("Pas de manifest de scoring pour ce dossier")
 
 # =====================================================================
-# Previous results
+# Actions
 # =====================================================================
 
 st.markdown("---")
-st.subheader("Resultats precedents")
-
-results_dir = Path(__file__).resolve().parent.parent.parent / "docs"
-result_files = sorted(results_dir.glob("BENCHMARK-*.json"), reverse=True)
-if result_files:
-    for f in result_files[:5]:
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            score = data.get("score", "?")
-            case_name = data.get("case", "?")
-            ts = data.get("timestamp", "?")[:16]
-            st.write(f"- **{case_name}** — {score}/100 — {ts} — `{f.name}`")
-        except Exception:
-            pass
-else:
-    st.caption("Aucun resultat de benchmark precedent.")
+col_del, col_refresh = st.columns(2)
+with col_refresh:
+    if st.button("Rafraichir", use_container_width=True):
+        st.rerun()
+with col_del:
+    if st.button("Supprimer ce dossier", type="secondary", use_container_width=True):
+        api_call("delete", f"/api/cases/{case_id}")
+        st.success("Supprime")
+        st.rerun()

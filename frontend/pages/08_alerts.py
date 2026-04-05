@@ -8,6 +8,7 @@ and mark-as-read capability.
 
 import streamlit as st
 from frontend.api_client import api
+from frontend.components.system_stats import render_system_stats; render_system_stats()
 
 st.header("Alertes")
 

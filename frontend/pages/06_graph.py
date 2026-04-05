@@ -8,6 +8,7 @@ shortest path computation, and community cluster detection.
 
 import streamlit as st
 from frontend.api_client import api
+from frontend.components.system_stats import render_system_stats; render_system_stats()
 from frontend.components.graph_viewer import (
     render_graph,
     render_node_details,
