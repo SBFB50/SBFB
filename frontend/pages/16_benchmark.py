@@ -148,11 +148,15 @@ if st.button("Lancer le benchmark", type="primary", use_container_width=True):
 
     for wave_num in waves:
         wave_evidence = [e for e in evidence_list if e.get("wave", 1) == wave_num]
-        wave_meta = {}
-        for wm in manifest.get("waves", []):
-            if wm.get("wave") == wave_num:
-                wave_meta = wm
-                break
+        waves_data = manifest.get("waves", {})
+        if isinstance(waves_data, dict):
+            wave_meta = waves_data.get(wave_num, waves_data.get(str(wave_num), {}))
+        elif isinstance(waves_data, list):
+            wave_meta = next((w for w in waves_data if w.get("wave") == wave_num), {})
+        else:
+            wave_meta = {}
+        if not isinstance(wave_meta, dict):
+            wave_meta = {}
 
         log(f"\n=== VAGUE {wave_num}: {wave_meta.get('name', '')} ({len(wave_evidence)} preuves) ===")
         status.info(f"Vague {wave_num}/{len(waves)} — injection de {len(wave_evidence)} preuves...")
