@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Rapport d'investigation — {{ case_info.name }} — NEXUS</title>
+<style>
+  /* ---- Reset & Base ---- */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.5;
+    color: #1a1a2e;
+    background: #fff;
+    padding: 0;
+  }
+
+  /* ---- Page setup (WeasyPrint) ---- */
+  @page {
+    size: A4;
+    margin: 2cm 2.5cm;
+    @bottom-center {
+      content: "NEXUS — Rapport confidentiel — Page " counter(page) " / " counter(pages);
+      font-size: 8pt;
+      color: #78909c;
+    }
+  }
+
+  /* ---- Header / Cover ---- */
+  .cover {
+    text-align: center;
+    padding: 4rem 2rem;
+    border-bottom: 4px solid #1565c0;
+    page-break-after: always;
+  }
+  .cover .logo {
+    font-size: 3rem;
+    font-weight: 800;
+    color: #1565c0;
+    letter-spacing: 0.3rem;
+    margin-bottom: 0.5rem;
+  }
+  .cover .subtitle {
+    font-size: 1rem;
+    color: #546e7a;
+    margin-bottom: 3rem;
+  }
+  .cover h1 {
+    font-size: 2rem;
+    color: #1a1a2e;
+    margin-bottom: 0.5rem;
+  }
+  .cover .ref {
+    font-size: 1rem;
+    color: #78909c;
+    margin-bottom: 2rem;
+  }
+  .cover .meta-table {
+    margin: 2rem auto;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+  .cover .meta-table td {
+    padding: 0.4rem 1.5rem;
+    text-align: left;
+  }
+  .cover .meta-table td:first-child {
+    font-weight: 600;
+    color: #546e7a;
+  }
+
+  /* ---- TOC ---- */
+  .toc {
+    page-break-after: always;
+    padding: 2rem 0;
+  }
+  .toc h2 {
+    font-size: 1.5rem;
+    color: #1565c0;
+    border-bottom: 2px solid #e3f2fd;
+    padding-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .toc ul {
+    list-style: none;
+    padding: 0;
+  }
+  .toc li {
+    padding: 0.4rem 0;
+    border-bottom: 1px dotted #e0e0e0;
+    font-size: 1rem;
+  }
+  .toc .section-num {
+    font-weight: 700;
+    color: #1565c0;
+    margin-right: 0.5rem;
+  }
+
+  /* ---- Sections ---- */
+  .section {
+    margin-bottom: 2rem;
+    page-break-inside: avoid;
+  }
+  .section h2 {
+    font-size: 1.3rem;
+    color: #1565c0;
+    border-bottom: 2px solid #e3f2fd;
+    padding-bottom: 0.3rem;
+    margin-bottom: 1rem;
+  }
+  .section h3 {
+    font-size: 1.1rem;
+    color: #37474f;
+    margin: 1rem 0 0.5rem;
+  }
+  .section-num {
+    color: #1565c0;
+    font-weight: 700;
+    margin-right: 0.3rem;
+  }
+  .section p, .section .content {
+    margin-bottom: 0.8rem;
+    text-align: justify;
+  }
+  .section .llm-text {
+    background: #f5f7fa;
+    border-left: 4px solid #1565c0;
+    padding: 1rem 1.5rem;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+    white-space: pre-wrap;
+  }
+
+  /* ---- Tables ---- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  th {
+    background: #1565c0;
+    color: #fff;
+    padding: 0.5rem 0.8rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  td {
+    padding: 0.4rem 0.8rem;
+    border-bottom: 1px solid #e0e0e0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) { background: #f5f7fa; }
+  tr:hover { background: #e3f2fd; }
+
+  /* ---- Score bars ---- */
+  .score-bar {
+    display: inline-block;
+    width: 80px;
+    height: 12px;
+    background: #e0e0e0;
+    border-radius: 6px;
+    overflow: hidden;
+    vertical-align: middle;
+  }
+  .score-fill {
+    height: 100%;
+    border-radius: 6px;
+  }
+  .score-high { background: #43a047; }
+  .score-mid { background: #fb8c00; }
+  .score-low { background: #e53935; }
+
+  /* ---- Hypothesis cards ---- */
+  .hyp-card {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    page-break-inside: avoid;
+  }
+  .hyp-card .hyp-title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: #1a1a2e;
+    margin-bottom: 0.3rem;
+  }
+  .hyp-card .hyp-status {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .status-active { background: #e3f2fd; color: #1565c0; }
+  .status-confirmed { background: #e8f5e9; color: #2e7d32; }
+  .status-refuted { background: #fce4ec; color: #c62828; }
+  .status-merged { background: #f3e5f5; color: #6a1b9a; }
+
+  /* ---- Severity badges ---- */
+  .severity {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .severity-info { background: #e3f2fd; color: #1565c0; }
+  .severity-warning { background: #fff3e0; color: #e65100; }
+  .severity-critical { background: #fce4ec; color: #c62828; }
+
+  /* ---- Timeline ---- */
+  .timeline-entry {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 0.6rem;
+    font-size: 0.9rem;
+  }
+  .tl-date {
+    width: 140px;
+    flex-shrink: 0;
+    color: #546e7a;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  .tl-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #1565c0;
+    margin: 0.3rem 0.8rem 0 0;
+    flex-shrink: 0;
+  }
+  .tl-content { flex: 1; }
+
+  /* ---- Footer ---- */
+  .footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 2px solid #e0e0e0;
+    text-align: center;
+    font-size: 0.8rem;
+    color: #78909c;
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== COVER PAGE ===================== -->
+<div class="cover">
+  <div class="logo">NEXUS</div>
+  <div class="subtitle">Cold Case Investigation System</div>
+  <h1>Rapport d'investigation complet</h1>
+  <div class="ref">{{ case_info.name }}{% if case_info.reference %} — {{ case_info.reference }}{% endif %}</div>
+  <table class="meta-table">
+    <tr><td>Statut</td><td>{{ case_info.status | upper }}</td></tr>
+    <tr><td>Date de creation</td><td>{{ case_info.created_at | format_date }}</td></tr>
+    <tr><td>Rapport genere le</td><td>{{ generated_at | format_date }}</td></tr>
+    <tr><td>Preuves</td><td>{{ sections.evidence | length }}</td></tr>
+    <tr><td>Entites</td><td>{{ sections.entities | length }}</td></tr>
+    <tr><td>Hypotheses</td><td>{{ sections.hypotheses | length }}</td></tr>
+  </table>
+</div>
+
+<!-- ===================== TABLE OF CONTENTS ===================== -->
+<div class="toc">
+  <h2>Table des matieres</h2>
+  <ul>
+    <li><span class="section-num">1.</span> Resume executif</li>
+    <li><span class="section-num">2.</span> Preuves ({{ sections.evidence | length }})</li>
+    <li><span class="section-num">3.</span> Entites identifiees ({{ sections.entities | length }})</li>
+    <li><span class="section-num">4.</span> Chronologie</li>
+    <li><span class="section-num">5.</span> Hypotheses ({{ sections.hypotheses | length }})</li>
+    <li><span class="section-num">6.</span> Alertes</li>
+    <li><span class="section-num">7.</span> Resultats de monitoring</li>
+    <li><span class="section-num">8.</span> Historique d'analyses</li>
+  </ul>
+</div>
+
+<!-- ===================== 1. EXECUTIVE SUMMARY ===================== -->
+<div class="section">
+  <h2><span class="section-num">1.</span> Resume executif</h2>
+  <div class="llm-text">{{ sections.executive_summary }}</div>
+</div>
+
+<!-- ===================== 2. EVIDENCE ===================== -->
+<div class="section">
+  <h2><span class="section-num">2.</span> Preuves</h2>
+  {% if sections.evidence %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Titre</th>
+        <th>Type</th>
+        <th>Source</th>
+        <th>Date source</th>
+        <th>Fiabilite</th>
+        <th>Statut</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ev in sections.evidence %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td><strong>{{ ev.title }}</strong>{% if ev.summary %}<br><small>{{ ev.summary[:120] }}{% if ev.summary|length > 120 %}...{% endif %}</small>{% endif %}</td>
+        <td>{{ ev.type }}</td>
+        <td>{{ ev.source or 'N/A' }}</td>
+        <td>{{ ev.source_date | format_date }}</td>
+        <td>
+          <div class="score-bar">
+            <div class="score-fill {% if ev.reliability and ev.reliability >= 70 %}score-high{% elif ev.reliability and ev.reliability >= 40 %}score-mid{% else %}score-low{% endif %}"
+                 style="width: {{ ev.reliability or 0 }}%"></div>
+          </div>
+          {{ ev.reliability or 0 }}/100
+        </td>
+        <td>{{ ev.status }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Aucune preuve enregistree.</p>
+  {% endif %}
+</div>
+
+<!-- ===================== 3. ENTITIES ===================== -->
+<div class="section">
+  <h2><span class="section-num">3.</span> Entites identifiees</h2>
+  {% if sections.entities %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Nom</th>
+        <th>Type</th>
+        <th>Description</th>
+        <th>Alias</th>
+        <th>Premiere apparition</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ent in sections.entities %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td><strong>{{ ent.name }}</strong></td>
+        <td>{{ ent.type }}</td>
+        <td>{{ ent.description or 'N/A' }}</td>
+        <td>{% if ent.aliases %}{{ ent.aliases | join(', ') }}{% else %}—{% endif %}</td>
+        <td>{{ ent.first_seen | format_date }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Aucune entite identifiee.</p>
+  {% endif %}
+</div>
+
+<!-- ===================== 4. TIMELINE ===================== -->
+<div class="section">
+  <h2><span class="section-num">4.</span> Chronologie</h2>
+  {% if sections.timeline %}
+  {% for event in sections.timeline %}
+  <div class="timeline-entry">
+    <div class="tl-date">{{ event.date | format_date }}</div>
+    <div class="tl-dot"></div>
+    <div class="tl-content">
+      <strong>{{ event.title }}</strong>
+      <span class="severity severity-info">{{ event.type }}</span>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p>Aucun evenement date disponible.</p>
+  {% endif %}
+</div>
+
+<!-- ===================== 5. HYPOTHESES ===================== -->
+<div class="section">
+  <h2><span class="section-num">5.</span> Hypotheses</h2>
+  {% if sections.hypotheses %}
+  {% for hyp in sections.hypotheses %}
+  <div class="hyp-card">
+    <div class="hyp-title">{{ loop.index }}. {{ hyp.title }}</div>
+    <span class="hyp-status status-{{ hyp.status }}">{{ hyp.status }}</span>
+    <div style="margin-top: 0.5rem;">
+      <strong>Score:</strong>
+      <div class="score-bar" style="width: 120px;">
+        <div class="score-fill {% if hyp.score >= 70 %}score-high{% elif hyp.score >= 40 %}score-mid{% else %}score-low{% endif %}"
+             style="width: {{ hyp.score }}%"></div>
+      </div>
+      {{ hyp.score | format_score }}
+    </div>
+    <p style="margin-top: 0.5rem;">{{ hyp.description }}</p>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p>Aucune hypothese formulee.</p>
+  {% endif %}
+</div>
+
+<!-- ===================== 6. ALERTS ===================== -->
+<div class="section">
+  <h2><span class="section-num">6.</span> Alertes</h2>
+  {% if sections.alerts %}
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Severite</th>
+        <th>Type</th>
+        <th>Titre</th>
+        <th>Message</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for alert in sections.alerts %}
+      <tr>
+        <td>{{ alert.created_at | format_date }}</td>
+        <td><span class="severity severity-{{ alert.severity }}">{{ alert.severity }}</span></td>
+        <td>{{ alert.type }}</td>
+        <td><strong>{{ alert.title }}</strong></td>
+        <td>{{ alert.message[:150] }}{% if alert.message|length > 150 %}...{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Aucune alerte.</p>
+  {% endif %}
+</div>
+
+<!-- ===================== 7. MONITORING ===================== -->
+<div class="section">
+  <h2><span class="section-num">7.</span> Resultats de monitoring</h2>
+  {% if sections.monitoring_results %}
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Source</th>
+        <th>Titre</th>
+        <th>Pertinence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in sections.monitoring_results %}
+      <tr>
+        <td>{{ r.found_at | format_date }}</td>
+        <td>{{ r.source_engine or 'N/A' }}</td>
+        <td>
+          <strong>{{ r.title or 'Sans titre' }}</strong>
+          {% if r.url %}<br><small>{{ r.url[:60] }}{% if r.url|length > 60 %}...{% endif %}</small>{% endif %}
+        </td>
+        <td>{% if r.relevance_score is not none %}{{ r.relevance_score }}/100{% else %}N/A{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Aucun resultat de monitoring.</p>
+  {% endif %}
+</div>
+
+<!-- ===================== 8. ANALYSIS RUNS ===================== -->
+<div class="section">
+  <h2><span class="section-num">8.</span> Historique d'analyses</h2>
+  {% if sections.analysis_runs %}
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Type</th>
+        <th>Modele</th>
+        <th>Statut</th>
+        <th>Duree (s)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in sections.analysis_runs %}
+      <tr>
+        <td>{{ run.started_at | format_date }}</td>
+        <td>{{ run.type }}</td>
+        <td>{{ run.model or 'N/A' }}</td>
+        <td>{{ run.status }}</td>
+        <td>{% if run.duration_sec %}{{ "%.1f" | format(run.duration_sec) }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Aucune analyse effectuee.</p>
+  {% endif %}
+</div>
+
+<!-- ===================== FOOTER ===================== -->
+<div class="footer">
+  <p>Rapport genere automatiquement par <strong>NEXUS</strong> — Cold Case Investigation System</p>
+  <p>Ce document est confidentiel et destine uniquement aux personnes autorisees.</p>
+</div>
+
+</body>
+</html>

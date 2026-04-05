@@ -1,0 +1,57 @@
+# ============================================================
+# NEXUS -- Cold Case Investigation System
+# Python 3.13 | pip install -r requirements.txt
+# ============================================================
+
+# -- Backend --
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.34,<0.35
+python-multipart>=0.0.18,<0.1
+python-dotenv>=1.1,<2
+pydantic>=2.11,<3
+pydantic-settings>=2.7,<3
+httpx>=0.28,<1
+
+# -- Database --
+neo4j>=5.28,<6
+chromadb>=0.6,<1
+aiosqlite>=0.21,<1
+
+# -- LLM --
+ollama>=0.4,<1
+
+# -- Ingestion --
+PyMuPDF>=1.25,<2
+Pillow>=11,<12
+
+# -- Scheduling --
+APScheduler>=3.11,<4
+
+# -- Frontend --
+streamlit>=1.44,<2
+streamlit-agraph>=0.0.45
+streamlit-folium>=0.23,<1
+folium>=0.19,<1
+plotly>=6.0,<7
+
+# -- Export --
+weasyprint>=63,<64
+Jinja2>=3.1,<4
+
+# -- OSINT --
+python-whois>=0.9,<1
+holehe>=1.61,<2
+
+# -- Vision (DINOv2 + CLIP) --
+transformers>=4.46,<5
+torch>=2.5
+torchvision>=0.20
+
+# -- Physics Simulation --
+scipy>=1.14,<2
+# phiflow>=3.3,<4      # optional: differentiable physics (pip install phiflow)
+# the-well>=0.1        # optional: PolymathicAI physics datasets (15TB on HuggingFace)
+
+# -- Utils --
+loguru>=0.7,<1
+tenacity>=9.0,<10
