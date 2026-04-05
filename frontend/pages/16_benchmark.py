@@ -83,7 +83,9 @@ for i, (key, info) in enumerate(available.items()):
         st.caption(f"{info['n_waves']} vagues")
         if gt.get("perpetrators"):
             with st.expander("Verite (spoiler)"):
-                st.write(f"**Coupables:** {', '.join(gt['perpetrators'])}")
+                perps = gt["perpetrators"]
+                names = [p["name"] if isinstance(p, dict) else str(p) for p in perps]
+                st.write(f"**Coupables:** {', '.join(names)}")
                 for f in gt.get("key_facts", []):
                     st.write(f"- {f}")
 
@@ -350,7 +352,8 @@ if st.button("Lancer le benchmark", type="primary", use_container_width=True):
             with col_truth:
                 st.markdown("**Verite:**")
                 for p in gt.get("perpetrators", []):
-                    st.write(f"- {p}")
+                    name = p["name"] if isinstance(p, dict) else str(p)
+                    st.write(f"- {name}")
                 for f in gt.get("key_facts", []):
                     st.write(f"- {f}")
             with col_found:
