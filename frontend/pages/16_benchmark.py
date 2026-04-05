@@ -222,13 +222,25 @@ with tab_graph:
     if graph_data and (graph_data.get("nodes") or graph_data.get("edges")):
         nodes = graph_data.get("nodes", [])
         edges = graph_data.get("edges", [])
-        st.metric("Noeuds", len(nodes))
-        st.metric("Aretes", len(edges))
+
+        c_n, c_e = st.columns(2)
+        c_n.metric("Noeuds", len(nodes))
+        c_e.metric("Aretes", len(edges))
 
         # Stats by type
         graph_stats = api.get_graph_stats(case_id)
         if graph_stats:
-            st.json(graph_stats)
+            cols_stats = st.columns(len(graph_stats))
+            for i, (label, count) in enumerate(graph_stats.items()):
+                cols_stats[i].metric(label, count)
+
+        # Interactive graph visualization
+        try:
+            from frontend.components.graph_viewer import render_graph
+            render_graph(graph_data, height=500)
+        except Exception as exc:
+            st.warning(f"Visualisation graphe indisponible: {exc}")
+            st.json(graph_data)
     else:
         st.info("Graphe vide — les entites n'ont pas encore ete synchronisees vers Neo4j")
 
