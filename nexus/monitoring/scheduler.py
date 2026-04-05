@@ -190,6 +190,22 @@ class MonitoringScheduler:
                 query = job["query"]
                 job_type = job["job_type"]
 
+                # Check for date filter (cold case benchmark: avoid spoilers)
+                # Stored in case description as "before:YYYY-MM-DD" or in job metadata
+                before_date = None
+                try:
+                    import json as _json
+                    case = await db.get_case(case_id)
+                    if case:
+                        desc = case.get("description", "")
+                        # Extract before:YYYY-MM-DD from case description
+                        import re
+                        m = re.search(r"before:(\d{4}-\d{2}-\d{2})", desc)
+                        if m:
+                            before_date = m.group(1)
+                except Exception:
+                    pass
+
                 # 2. Search
                 raw_results: list[dict] = []
 
@@ -198,6 +214,7 @@ class MonitoringScheduler:
                         searxng_results = await self._searxng.search(
                             query=query,
                             max_results=20,
+                            before_date=before_date,
                         )
                         raw_results.extend(searxng_results)
                         logger.debug(

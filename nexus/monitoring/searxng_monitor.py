@@ -40,6 +40,8 @@ class SearXNGMonitor:
         categories: str = "general",
         language: str = "fr",
         max_results: int = 20,
+        time_range: Optional[str] = None,
+        before_date: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Execute a single search query against SearXNG.
 
@@ -48,16 +50,27 @@ class SearXNGMonitor:
             categories: SearXNG categories (e.g. "general", "news", "social media").
             language: Language code for results.
             max_results: Maximum number of results to return.
+            time_range: SearXNG time_range filter ("day", "week", "month", "year").
+            before_date: If set, appends "before:YYYY-MM-DD" to the query
+                         to filter out results published after this date.
+                         Useful for cold case benchmarks to avoid spoilers.
 
         Returns:
-            List of dicts with keys: url, title, snippet, engine, score.
+            List of dicts with keys: url, title, snippet, engine, score, publishedDate.
         """
+        # Append date filter to query if specified
+        effective_query = query
+        if before_date:
+            effective_query = f"{query} before:{before_date}"
+
         params = {
-            "q": query,
+            "q": effective_query,
             "format": "json",
             "categories": categories,
             "language": language,
         }
+        if time_range:
+            params["time_range"] = time_range
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -91,12 +104,25 @@ class SearXNGMonitor:
         results: List[Dict[str, Any]] = []
 
         for item in raw_results[:max_results]:
+            published = item.get("publishedDate", "")
+
+            # Post-filter: skip articles published after before_date
+            if before_date and published:
+                try:
+                    from datetime import datetime as _dt
+                    pub_str = published[:10]  # "YYYY-MM-DD"
+                    if pub_str > before_date:
+                        continue  # Skip — article is after the cutoff
+                except Exception:
+                    pass  # Can't parse date, keep the result
+
             results.append({
                 "url": item.get("url", ""),
                 "title": item.get("title", ""),
                 "snippet": item.get("content", ""),
                 "engine": ", ".join(item.get("engines", [])) if isinstance(item.get("engines"), list) else item.get("engine", ""),
                 "score": item.get("score", 0.0),
+                "published_date": published,
             })
 
         logger.debug(
