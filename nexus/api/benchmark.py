@@ -251,4 +251,23 @@ async def _run_full_benchmark(case_id: str, bench_key: str) -> None:
     except Exception as exc:
         logger.error("Benchmark Neo4j sync failed: {}", exc)
 
-    logger.info("=== BENCHMARK COMPLETE for case {} ===", case_id[:8])
+    # 7. Start autonomous investigation loop (runs until stopped)
+    try:
+        from nexus.core.investigation_manager import InvestigationManager
+        from nexus.db.chroma_db import ChromaClient
+
+        neo4j = Neo4jClient()
+        chroma = None
+        try:
+            chroma = ChromaClient()
+            chroma.init_collections()
+        except Exception:
+            pass
+
+        manager = InvestigationManager(router=router, chroma=chroma, neo4j=neo4j)
+        await manager.start_investigation(case_id)
+        logger.info("Benchmark full: autonomous investigation STARTED — runs until stopped")
+    except Exception as exc:
+        logger.error("Benchmark autonomous loop start failed: {}", exc)
+
+    logger.info("=== BENCHMARK PIPELINE COMPLETE for case {} — autonomous loop running ===", case_id[:8])
