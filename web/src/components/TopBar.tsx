@@ -121,6 +121,31 @@ export default function TopBar() {
         )}
 
         <button
+          onClick={async () => {
+            try {
+              // Stop all investigations
+              const cases = await api.get('/cases').then(r => r.data);
+              for (const c of cases) {
+                await api.post(`/cases/${c.id}/investigation/stop`).catch(() => {});
+              }
+              // Unload all LLMs
+              await fetch('http://localhost:11434/api/generate', {
+                method: 'POST', body: JSON.stringify({ model: 'nexus', prompt: '', keep_alive: 0 })
+              }).catch(() => {});
+              await fetch('http://localhost:11434/api/generate', {
+                method: 'POST', body: JSON.stringify({ model: 'gemma4:e4b', prompt: '', keep_alive: 0 })
+              }).catch(() => {});
+              await fetch('http://localhost:11434/api/generate', {
+                method: 'POST', body: JSON.stringify({ model: 'huihui_ai/deepseek-r1-abliterated:14b', prompt: '', keep_alive: 0 })
+              }).catch(() => {});
+            } catch {}
+          }}
+          className="flex items-center gap-1.5 px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium transition-colors"
+        >
+          <span className="w-2 h-2 bg-white rounded-sm" />
+          Stop All
+        </button>
+        <button
           onClick={() => triggerAnalysis.mutate()}
           disabled={triggerAnalysis.isPending}
           className="flex items-center gap-1.5 px-3 py-1 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
