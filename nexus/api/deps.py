@@ -18,6 +18,7 @@ from typing import AsyncIterator
 from fastapi import Depends, Request
 
 from nexus.config import settings
+from nexus.core.audit import AuditService
 from nexus.core.case_manager import CaseManager
 from nexus.core.entity_extractor import EntityExtractor
 from nexus.core.geo_mapper import GeoMapper
@@ -40,6 +41,13 @@ async def get_database() -> AsyncIterator[Database]:
 # ------------------------------------------------------------------
 # Core services
 # ------------------------------------------------------------------
+
+def get_audit_service(
+    db: Database = Depends(get_database),
+) -> AuditService:
+    """Build an AuditService with per-request DB connection."""
+    return AuditService(db)
+
 
 def get_case_manager(
     db: Database = Depends(get_database),

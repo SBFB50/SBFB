@@ -1,16 +1,21 @@
-import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent.parent)) if str(Path(__file__).resolve().parent.parent) not in sys.path else None
+import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent.parent)) if str(Path(__file__).resolve().parent.parent) not in sys.path else None  # noqa: E402
 """
-NEXUS -- Investigation autonome.
+NEXUS -- Centre de commande de l'investigation autonome.
 
-Controle et visualisation de la boucle d'investigation autonome (OODA).
-- Status de l'investigation (running/stopped, cycle count, derniere action)
-- Boutons start/stop
-- Journal des actions autonomes (derniers cycles OODA)
-- Graphique de l'evolution des hypotheses en temps reel
-- Liste des requetes auto-generees
-- Resultats du self-questioning
+Page tout-en-un pour le systeme autonome:
+- Controle (start/stop/status)
+- Boucle OODA en temps reel
+- Evolution des hypotheses
+- Journal d'audit immutable
+- Preuves et entites
+- Contradictions detectees
+- Alertes
+- Requetes auto-generees
+- Auto-questionnement
+- Verification d'integrite
 """
 
+import json
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -21,368 +26,395 @@ from frontend.api_client import api
 # Helpers
 # ------------------------------------------------------------------
 
-def _format_duration(seconds) -> str:
-    """Format duration in seconds to a human-readable string."""
-    if seconds is None:
-        return "N/A"
-    try:
-        seconds = int(seconds)
-    except (TypeError, ValueError):
-        return str(seconds)
-    if seconds < 60:
-        return f"{seconds}s"
-    minutes = seconds // 60
-    remaining = seconds % 60
-    if minutes < 60:
-        return f"{minutes}m {remaining}s"
-    hours = minutes // 60
-    remaining_min = minutes % 60
-    return f"{hours}h {remaining_min}m"
-
-
-def _format_datetime(iso_str) -> str:
-    """Format an ISO datetime string for display."""
+def _ts(iso_str) -> str:
     if not iso_str:
         return "---"
     try:
-        dt = datetime.fromisoformat(str(iso_str))
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.fromisoformat(str(iso_str)).strftime("%d/%m %H:%M:%S")
     except (ValueError, TypeError):
-        return str(iso_str)
+        return str(iso_str)[:19]
 
 
-PHASE_ICONS = {
-    "OBSERVE": "1/5",
-    "ORIENT": "2/5",
-    "DECIDE": "3/5",
-    "ACT": "4/5",
-    "QUESTION": "5/5",
-    "SLEEPING": "Pause",
+ACTION_ICONS = {
+    "evidence_added": "📄", "evidence_ingested_auto": "🤖📄",
+    "entity_discovered": "👤", "hypothesis_created": "💡",
+    "hypothesis_scored": "📊", "contradiction_found": "⚡",
+    "monitoring_result": "🔍", "query_generated": "🔎",
+    "self_questioning": "🧠", "analysis_completed": "✅",
+    "analysis_started": "⏳", "analysis_running": "⏳",
+    "investigation_started": "▶️", "investigation_stopped": "⏹️",
+}
+
+ACTOR_COLORS = {
+    "autonomous_loop": "#ff6b6b",
+    "system": "#4ecdc4",
+    "user": "#45b7d1",
+    "monitoring": "#f9ca24",
 }
 
 
 # ------------------------------------------------------------------
-# Page
+# Page header
 # ------------------------------------------------------------------
 
-st.header("Investigation autonome")
+st.set_page_config(page_title="NEXUS — Autonome", layout="wide") if False else None
 
 case_id = st.session_state.get("case_id")
+case_name = st.session_state.get("case_name", "")
+
+st.title(f"Centre de commande — {case_name}" if case_name else "Centre de commande")
+
 if not case_id:
     st.warning("Selectionnez un dossier dans la barre laterale.")
     st.stop()
 
 
 # ------------------------------------------------------------------
-# Investigation status + controls
+# 1. STATUS + CONTROLS
 # ------------------------------------------------------------------
 
-st.subheader("Controle de l'investigation")
-
-status = api.get_investigation_status(case_id)
-
-if status is None:
-    st.error("Impossible de recuperer le statut de l'investigation.")
-    st.stop()
-
+status = api.get_investigation_status(case_id) or {}
 is_running = status.get("running", False)
 
-col_status, col_controls = st.columns([3, 1])
+col1, col2, col3, col4, col_btn = st.columns([1, 1, 1, 1, 1.5])
 
-with col_status:
-    # Status metrics
-    m_cols = st.columns(4)
-    m_cols[0].metric(
-        "Statut",
-        "En cours" if is_running else "Arrete",
-    )
-    m_cols[1].metric("Cycles completes", status.get("cycle_count", 0))
-    m_cols[2].metric(
-        "Phase actuelle",
-        PHASE_ICONS.get(
-            status.get("last_action", ""),
-            status.get("last_action") or "---",
-        ),
-    )
-    m_cols[3].metric(
-        "Dernier cycle",
-        _format_datetime(status.get("last_cycle_at")),
-    )
+col1.metric("Statut", "🟢 Actif" if is_running else "🔴 Arrete")
+col2.metric("Cycles", status.get("cycle_count", 0))
+col3.metric("Phase", status.get("last_action", "---"))
+col4.metric("Dernier cycle", _ts(status.get("last_cycle_at")))
 
-    if status.get("started_at"):
-        st.caption(f"Demarre le: {_format_datetime(status.get('started_at'))}")
-
-with col_controls:
+with col_btn:
     if is_running:
-        if st.button(
-            "Arreter l'investigation",
-            type="secondary",
-            use_container_width=True,
-        ):
-            result = api.stop_investigation(case_id)
-            if result and result.get("status") == "stopped":
-                st.success("Investigation arretee.")
-            else:
-                st.info(
-                    f"Statut: {result.get('status', '?')}"
-                    if result else "Erreur"
-                )
+        if st.button("⏹️ Arreter", type="secondary", use_container_width=True):
+            api.stop_investigation(case_id)
             st.rerun()
     else:
-        if st.button(
-            "Demarrer l'investigation",
-            type="primary",
-            use_container_width=True,
-        ):
-            result = api.start_investigation(case_id)
-            if result and result.get("status") == "started":
-                st.success("Investigation autonome demarree.")
-            elif result and result.get("status") == "already_running":
-                st.info("L'investigation tourne deja.")
-            else:
-                st.error("Echec du demarrage.")
+        if st.button("▶️ Demarrer l'investigation", type="primary", use_container_width=True):
+            api.start_investigation(case_id)
             st.rerun()
 
-st.markdown(
-    "> La boucle OODA (Observe-Orient-Decide-Act + Question) "
-    "tourne en continu, analysant les nouveaux resultats de monitoring, "
-    "ingerant les preuves, re-evaluant les hypotheses, detectant les "
-    "contradictions, et generant de nouvelles requetes de recherche."
+st.caption(
+    "Boucle OODA: Observe (monitoring) → Orient (ingestion) → "
+    "Decide (analyse + hypotheses) → Act (nouvelles requetes) → "
+    "Question (pensee adversariale)"
 )
 
+st.markdown("---")
+
 
 # ------------------------------------------------------------------
-# Hypothesis evolution chart
+# 2. STATS OVERVIEW
 # ------------------------------------------------------------------
+
+stats = api.get_case_stats(case_id) or {}
+audit_summary = api.get_audit_summary(case_id) or {}
+by_action = audit_summary.get("by_action", {})
+
+s1, s2, s3, s4, s5, s6 = st.columns(6)
+s1.metric("Preuves", stats.get("evidence", 0))
+s2.metric("Entites", stats.get("entities", 0))
+s3.metric("Hypotheses", stats.get("hypotheses", 0))
+s4.metric("Contradictions", by_action.get("contradiction_found", 0))
+s5.metric("Requetes auto", by_action.get("query_generated", 0))
+s6.metric("Auto-questionnements", by_action.get("self_questioning", 0))
 
 st.markdown("---")
+
+
+# ------------------------------------------------------------------
+# 3. HYPOTHESES EVOLUTION
+# ------------------------------------------------------------------
+
 st.subheader("Evolution des hypotheses")
 
-hypotheses = api.list_hypotheses(case_id)
+hypotheses = api.list_hypotheses(case_id) or []
 
 if hypotheses:
-    # Build evolution data for all hypotheses
-    all_evolution_data = []
+    # Score bars
+    for h in sorted(hypotheses, key=lambda x: x.get("current_score", 0), reverse=True):
+        score = h.get("current_score", 50)
+        title = h.get("title", "?")
+        status_h = h.get("status", "active")
+        color = "#4ecdc4" if status_h == "active" else "#95a5a6"
+        st.markdown(
+            f'<div style="margin:4px 0">'
+            f'<span style="font-weight:bold">{title}</span> '
+            f'<span style="color:{color}">({status_h})</span>'
+            f'</div>'
+            f'<div style="background:#2d2d2d;border-radius:4px;height:24px;width:100%">'
+            f'<div style="background:{color};width:{score}%;height:100%;border-radius:4px;'
+            f'text-align:right;padding-right:8px;color:white;font-size:13px;line-height:24px">'
+            f'{score:.0f}%</div></div>',
+            unsafe_allow_html=True,
+        )
 
+    # Evolution chart
+    all_evo = []
     for h in hypotheses:
-        hyp_id = h.get("id", "")
-        hyp_title = h.get("title", "?")
-        # Truncate title for legend readability
-        short_title = hyp_title[:50] + "..." if len(hyp_title) > 50 else hyp_title
-
-        evolution = api.get_hypothesis_evolution(hyp_id)
-        if evolution:
-            for point in evolution:
-                all_evolution_data.append({
-                    "Date": point.get("date", ""),
-                    "Score": point.get("score", 50),
-                    "Hypothese": short_title,
-                    "Trigger": point.get("trigger", "?"),
-                })
-
-    if all_evolution_data:
-        df_evo = pd.DataFrame(all_evolution_data)
+        evo = api.get_hypothesis_evolution(h["id"]) or []
+        for p in evo:
+            all_evo.append({
+                "Date": p.get("date", ""),
+                "Score": p.get("score", 50),
+                "Hypothese": h.get("title", "?")[:40],
+            })
+    if all_evo:
+        df_evo = pd.DataFrame(all_evo)
         try:
             df_evo["Date"] = pd.to_datetime(df_evo["Date"])
-            df_evo = df_evo.sort_values("Date")
-
-            # Use Streamlit native line chart with multi-series via pivot
-            pivot = df_evo.pivot_table(
-                index="Date",
-                columns="Hypothese",
-                values="Score",
-                aggfunc="last",
-            )
-            pivot = pivot.ffill()
-            st.line_chart(pivot, height=350)
+            pivot = df_evo.pivot_table(index="Date", columns="Hypothese", values="Score", aggfunc="last").ffill()
+            st.line_chart(pivot, height=300)
         except Exception:
-            # Fallback: show raw data
-            st.dataframe(df_evo, use_container_width=True, hide_index=True)
-    else:
-        st.caption("Pas encore de donnees d'evolution.")
-
-    # Current scores summary
-    st.markdown("**Scores actuels:**")
-    score_cols = st.columns(min(len(hypotheses), 4))
-    for i, h in enumerate(hypotheses[:4]):
-        title = h.get("title", "?")
-        short = title[:30] + "..." if len(title) > 30 else title
-        score_cols[i].metric(
-            short,
-            f"{h.get('current_score', 50):.0f}%",
-        )
-
-    if len(hypotheses) > 4:
-        with st.expander(f"+ {len(hypotheses) - 4} autres hypotheses"):
-            for h in hypotheses[4:]:
-                st.markdown(
-                    f"- **{h.get('title', '?')}**: "
-                    f"{h.get('current_score', 50):.0f}%"
-                )
+            pass
 else:
-    st.info(
-        "Aucune hypothese generee. L'investigation autonome en "
-        "generera automatiquement lorsque suffisamment de preuves "
-        "seront disponibles."
-    )
-
-
-# ------------------------------------------------------------------
-# Autonomous action log
-# ------------------------------------------------------------------
+    st.info("Aucune hypothese. Le systeme en generera automatiquement.")
 
 st.markdown("---")
-st.subheader("Journal des actions autonomes")
 
-log_entries = api.get_investigation_log(case_id, limit=30)
 
-if log_entries:
-    STATUS_ICONS = {
-        "completed": "[OK]",
-        "running": "[...]",
-        "failed": "[ERREUR]",
-    }
+# ------------------------------------------------------------------
+# 4. JOURNAL D'AUDIT IMMUTABLE (hash chain)
+# ------------------------------------------------------------------
 
-    rows = []
-    self_questioning_entries = []
+st.subheader("Journal d'investigation (immutable)")
 
-    for entry in log_entries:
-        run_type = entry.get("run_type", "?")
-        entry_status = entry.get("status", "?")
-        icon = STATUS_ICONS.get(entry_status, "?")
+# Integrity check
+col_verify, col_status_v = st.columns([1, 3])
+with col_verify:
+    if st.button("Verifier l'integrite"):
+        verify = api._request("GET", f"/api/cases/{case_id}/audit/verify")
+        if verify and verify.get("valid"):
+            st.success(f"Chaine intacte ({verify['entries_checked']} entrees verifiees)")
+        elif verify:
+            st.error(f"FALSIFICATION DETECTEE a l'entree {verify.get('broken_at')}")
+        else:
+            st.warning("Verification impossible")
 
-        rows.append({
-            "Date": _format_datetime(entry.get("started_at")),
-            "Type": run_type,
-            "Statut": f"{icon} {entry_status}",
-            "Duree": _format_duration(entry.get("duration_sec")),
-            "Resume": (entry.get("input_summary") or "")[:80],
-        })
+# Filters
+f1, f2, f3 = st.columns(3)
+action_filter = f1.selectbox("Action", [
+    "Toutes", "evidence_added", "evidence_ingested_auto", "entity_discovered",
+    "hypothesis_created", "hypothesis_scored", "contradiction_found",
+    "monitoring_result", "query_generated", "self_questioning",
+    "analysis_completed",
+], index=0)
+actor_filter = f2.selectbox("Acteur", [
+    "Tous", "autonomous_loop", "system", "user", "monitoring",
+], index=0)
+page_size = f3.number_input("Entrees", min_value=10, max_value=500, value=50)
 
-        if run_type == "self_questioning":
-            self_questioning_entries.append(entry)
+# Fetch
+audit_params = {"limit": page_size}
+if action_filter != "Toutes":
+    audit_params["action"] = action_filter
+if actor_filter != "Tous":
+    audit_params["actor"] = actor_filter
 
-    df_log = pd.DataFrame(rows)
-    st.dataframe(df_log, use_container_width=True, hide_index=True)
+audit_entries = api.list_audit_log(case_id, **audit_params) or []
 
-    # ------------------------------------------------------------------
-    # Self-questioning results
-    # ------------------------------------------------------------------
+if audit_entries:
+    for entry in audit_entries:
+        action = entry.get("action", "?")
+        actor = entry.get("actor", "?")
+        icon = ACTION_ICONS.get(action, "📌")
+        actor_color = ACTOR_COLORS.get(actor, "#999")
+        ts = _ts(entry.get("timestamp"))
+        summary = entry.get("summary", "")
+        entry_hash = (entry.get("entry_hash") or "")[:12]
 
-    if self_questioning_entries:
-        st.markdown("---")
-        st.subheader("Auto-questionnement")
+        # Compact display
         st.markdown(
-            "La boucle autonome s'auto-questionne de maniere adversariale "
-            "a chaque cycle pour challenger ses propres conclusions."
+            f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
+            f'border-bottom:1px solid #333;font-size:14px">'
+            f'<span style="font-size:18px">{icon}</span>'
+            f'<span style="color:#888;min-width:110px">{ts}</span>'
+            f'<span style="background:{actor_color};color:white;padding:1px 6px;'
+            f'border-radius:3px;font-size:11px">{actor}</span>'
+            f'<span style="flex:1">{summary}</span>'
+            f'<span style="color:#555;font-family:monospace;font-size:10px">{entry_hash}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
         )
 
-        for i, sq in enumerate(self_questioning_entries[:5]):
-            cycle_info = sq.get("input_summary", "")
-            output = sq.get("output_summary", "")
-            date = _format_datetime(sq.get("started_at"))
-
-            with st.expander(f"Cycle -- {date}", expanded=(i == 0)):
-                if cycle_info:
-                    st.caption(cycle_info)
-                if output:
-                    st.markdown(output)
-                else:
-                    st.caption("Pas de resultat disponible.")
-
+    # Expandable details for last entries
+    with st.expander("Details JSON des dernieres entrees"):
+        for entry in audit_entries[:5]:
+            details = entry.get("details")
+            if details:
+                try:
+                    parsed = json.loads(details) if isinstance(details, str) else details
+                    st.json(parsed)
+                except Exception:
+                    st.text(str(details)[:500])
+            st.markdown("---")
 else:
-    st.info(
-        "Aucune action autonome enregistree. "
-        "Demarrez l'investigation pour commencer."
-    )
-
-
-# ------------------------------------------------------------------
-# Auto-generated monitoring queries
-# ------------------------------------------------------------------
+    st.info("Aucune entree dans le journal. Demarrez l'investigation.")
 
 st.markdown("---")
-st.subheader("Requetes de monitoring")
 
-jobs = api.list_monitoring_jobs(case_id)
+
+# ------------------------------------------------------------------
+# 5. AUTO-QUESTIONNEMENT
+# ------------------------------------------------------------------
+
+st.subheader("Pensee adversariale (auto-questionnement)")
+
+sq_entries = api.list_audit_log(case_id, action="self_questioning", limit=5) or []
+
+if sq_entries:
+    for i, sq in enumerate(sq_entries):
+        ts = _ts(sq.get("timestamp"))
+        details = sq.get("details")
+        summary_text = ""
+        if details:
+            try:
+                parsed = json.loads(details) if isinstance(details, str) else details
+                summary_text = parsed.get("summary", "")
+            except Exception:
+                summary_text = str(details)[:1000]
+
+        with st.expander(f"🧠 {ts} — {sq.get('summary', '')[:80]}", expanded=(i == 0)):
+            if summary_text:
+                st.markdown(summary_text)
+            else:
+                st.caption("Pas de details disponibles.")
+else:
+    st.caption("Aucun auto-questionnement enregistre.")
+
+st.markdown("---")
+
+
+# ------------------------------------------------------------------
+# 6. REQUETES DE MONITORING AUTO-GENEREES
+# ------------------------------------------------------------------
+
+st.subheader("Requetes de recherche")
+
+jobs = api.list_monitoring_jobs(case_id) or []
 
 if jobs:
-    auto_jobs = [
-        j for j in jobs
-        if "[AUTO-" in (j.get("query") or "")
-        or j.get("interval_hours", 24) == 12  # Auto-generated jobs use 12h interval
-    ]
+    tab_auto, tab_manual = st.tabs(["Auto-generees", "Manuelles"])
+
+    auto_jobs = [j for j in jobs if j.get("interval_hours", 24) == 12]
     manual_jobs = [j for j in jobs if j not in auto_jobs]
 
-    if auto_jobs:
-        st.markdown(f"**Requetes auto-generees** ({len(auto_jobs)})")
-        auto_rows = []
-        for j in auto_jobs:
-            auto_rows.append({
-                "Requete": j.get("query", "?"),
-                "Type": j.get("job_type", "?"),
-                "Intervalle": f"{j.get('interval_hours', '?')}h",
-                "Resultats": j.get("results_count", 0),
-                "Active": "Oui" if j.get("is_active") else "Non",
-            })
-        st.dataframe(
-            pd.DataFrame(auto_rows),
-            use_container_width=True,
-            hide_index=True,
-        )
+    with tab_auto:
+        if auto_jobs:
+            for j in auto_jobs:
+                active = "🟢" if j.get("is_active") else "🔴"
+                st.markdown(
+                    f"{active} **{j.get('query', '?')}** — "
+                    f"{j.get('results_count', 0)} resultats — "
+                    f"toutes les {j.get('interval_hours', '?')}h"
+                )
+        else:
+            st.caption("Le systeme generera des requetes automatiquement.")
 
-    if manual_jobs:
-        st.markdown(f"**Requetes manuelles** ({len(manual_jobs)})")
-        manual_rows = []
-        for j in manual_jobs:
-            manual_rows.append({
-                "Requete": j.get("query", "?"),
-                "Type": j.get("job_type", "?"),
-                "Intervalle": f"{j.get('interval_hours', '?')}h",
-                "Resultats": j.get("results_count", 0),
-                "Active": "Oui" if j.get("is_active") else "Non",
-            })
-        st.dataframe(
-            pd.DataFrame(manual_rows),
-            use_container_width=True,
-            hide_index=True,
-        )
+    with tab_manual:
+        if manual_jobs:
+            for j in manual_jobs:
+                active = "🟢" if j.get("is_active") else "🔴"
+                st.markdown(
+                    f"{active} **{j.get('query', '?')}** — "
+                    f"{j.get('results_count', 0)} resultats — "
+                    f"toutes les {j.get('interval_hours', '?')}h"
+                )
+        else:
+            st.caption("Aucune requete manuelle.")
 else:
-    st.info(
-        "Aucune requete de monitoring. L'investigation autonome "
-        "en creera automatiquement."
-    )
+    st.info("Aucune requete de monitoring.")
+
+st.markdown("---")
 
 
 # ------------------------------------------------------------------
-# Global investigations overview
+# 7. ALERTES RECENTES
+# ------------------------------------------------------------------
+
+st.subheader("Alertes")
+
+alerts = api.list_alerts(case_id, unread_only=True) or []
+if alerts:
+    SEVERITY_STYLE = {
+        "critical": ("🔴", "#e74c3c"),
+        "warning": ("⚠️", "#f39c12"),
+        "info": ("ℹ️", "#3498db"),
+    }
+    for a in alerts[:10]:
+        sev = a.get("severity", "info")
+        icon, color = SEVERITY_STYLE.get(sev, ("📌", "#999"))
+        st.markdown(
+            f'{icon} <span style="color:{color};font-weight:bold">{a.get("title", "?")}</span>'
+            f' — {a.get("message", "")[:150]} '
+            f'<span style="color:#888">({_ts(a.get("created_at"))})</span>',
+            unsafe_allow_html=True,
+        )
+    unread = api.get_unread_count(case_id)
+    if unread and unread > len(alerts):
+        st.caption(f"... et {unread - len(alerts)} autres alertes non lues.")
+else:
+    st.caption("Aucune alerte non lue.")
+
+
+# ------------------------------------------------------------------
+# 8. CONTRADICTIONS
 # ------------------------------------------------------------------
 
 st.markdown("---")
-st.subheader("Vue globale des investigations")
+st.subheader("Contradictions detectees")
 
-all_investigations = api.list_investigations()
+contradiction_entries = api.list_audit_log(case_id, action="contradiction_found", limit=10) or []
 
-if all_investigations and all_investigations.get("investigations"):
-    inv_map = all_investigations["investigations"]
-    st.metric("Investigations actives", all_investigations.get("active_count", 0))
-
-    inv_rows = []
-    for cid, inv_status in inv_map.items():
-        inv_rows.append({
-            "Case ID": cid[:12] + "...",
-            "Cycles": inv_status.get("cycle_count", 0),
-            "Phase": PHASE_ICONS.get(
-                inv_status.get("last_action", ""),
-                inv_status.get("last_action") or "---",
-            ),
-            "Dernier cycle": _format_datetime(inv_status.get("last_cycle_at")),
-        })
-
-    st.dataframe(
-        pd.DataFrame(inv_rows),
-        use_container_width=True,
-        hide_index=True,
-    )
+if contradiction_entries:
+    for c in contradiction_entries:
+        details = c.get("details")
+        desc = ""
+        if details:
+            try:
+                parsed = json.loads(details) if isinstance(details, str) else details
+                desc = parsed.get("description", "")
+            except Exception:
+                desc = str(details)[:300]
+        st.markdown(f'⚡ **{_ts(c.get("timestamp"))}** — {desc[:300]}')
 else:
-    st.caption("Aucune investigation autonome active dans le systeme.")
+    st.caption("Aucune contradiction detectee.")
+
+
+# ------------------------------------------------------------------
+# 9. EXPORT
+# ------------------------------------------------------------------
+
+st.markdown("---")
+
+col_exp1, col_exp2 = st.columns(2)
+
+with col_exp1:
+    if st.button("Exporter le journal (JSON)"):
+        timeline = api.get_audit_timeline(case_id) or []
+        if timeline:
+            json_str = json.dumps(timeline, ensure_ascii=False, indent=2, default=str)
+            st.download_button(
+                "Telecharger JSON",
+                data=json_str,
+                file_name=f"nexus_audit_{case_id[:8]}.json",
+                mime="application/json",
+            )
+
+with col_exp2:
+    if st.button("Exporter le journal (Markdown)"):
+        timeline = api.get_audit_timeline(case_id) or []
+        if timeline:
+            lines = [f"# Journal d'investigation — {case_name}\n"]
+            for e in timeline:
+                icon = ACTION_ICONS.get(e.get("action", ""), "")
+                lines.append(
+                    f"- **{_ts(e.get('timestamp'))}** {icon} "
+                    f"[{e.get('actor', '?')}] {e.get('summary', '')}"
+                )
+            md = "\n".join(lines)
+            st.download_button(
+                "Telecharger Markdown",
+                data=md,
+                file_name=f"nexus_audit_{case_id[:8]}.md",
+                mime="text/markdown",
+            )

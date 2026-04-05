@@ -24,6 +24,7 @@ from typing import Any
 from loguru import logger
 
 from nexus.config import settings
+from nexus.core.audit import AuditService
 from nexus.db.sqlite_db import Database, get_db
 from nexus.llm.prompts import ADAPTIVE_QUERY_PROMPT, SELF_QUESTIONING_PROMPT
 from nexus.llm.router import LLMRouter, TaskType
@@ -102,11 +103,31 @@ class AutonomousInvestigator:
             "started_at": self._started_at,
         }
 
+    async def _audit_log(self, actor, action, summary, **kwargs):
+        """Fire-and-forget audit log via a fresh DB connection."""
+        try:
+            async with get_db() as conn:
+                audit = AuditService(Database(conn))
+                await audit.log(
+                    case_id=self._case_id,
+                    actor=actor,
+                    action=action,
+                    summary=summary,
+                    **kwargs,
+                )
+        except Exception as exc:
+            logger.warning("Audit log failed (non-blocking): {}", exc)
+
     async def run(self) -> None:
         """Main investigation loop -- runs until stopped."""
         self._running = True
         self._started_at = datetime.utcnow().isoformat()
         logger.info("Autonomous investigator STARTED for case {}", self._case_id)
+
+        await self._audit_log(
+            "autonomous_loop", "investigation_started",
+            "Boucle autonome demarree",
+        )
 
         while self._running:
             try:
@@ -166,6 +187,10 @@ class AutonomousInvestigator:
                 await asyncio.sleep(300)
 
         self._running = False
+        await self._audit_log(
+            "autonomous_loop", "investigation_stopped",
+            f"Boucle autonome arretee apres {self._cycle_count} cycles",
+        )
         logger.info(
             "Autonomous investigator STOPPED for case {} after {} cycles",
             self._case_id,
@@ -207,6 +232,17 @@ class AutonomousInvestigator:
                 len(new_results),
                 self._case_id,
             )
+            # Audit: log each observed result
+            for r in high_relevance:
+                await self._audit_log(
+                    "autonomous_loop", "monitoring_result",
+                    f"Resultat observe: {(r.get('title') or 'N/A')[:100]} "
+                    f"(pertinence: {r.get('relevance_score', 0):.0f}%)",
+                    target_type="monitoring_result",
+                    target_id=r.get("id"),
+                    details={"title": r.get("title"), "relevance": r.get("relevance_score")},
+                    cycle_number=self._cycle_count,
+                )
         else:
             logger.debug(
                 "OBSERVE: No new relevant results for case {} ({} unreviewed below threshold)",
@@ -270,6 +306,16 @@ class AutonomousInvestigator:
                         result["id"], reviewed=True
                     )
 
+                    # Audit: log auto-ingestion
+                    audit = AuditService(db)
+                    await audit.log_auto_ingest(
+                        case_id=self._case_id,
+                        result_id=result["id"],
+                        evidence_id=evidence.id,
+                        title=title,
+                        cycle=self._cycle_count,
+                    )
+
                     logger.info(
                         "ORIENT: Auto-ingested monitoring result {} -> evidence {}",
                         result["id"][:8],
@@ -329,6 +375,15 @@ class AutonomousInvestigator:
                             "id": run.id,
                             "status": run.status,
                         }
+                        # Audit: log analysis completed
+                        audit = AuditService(db)
+                        await audit.log_analysis(
+                            case_id=self._case_id,
+                            run_id=run.id,
+                            run_type="incremental",
+                            status=run.status,
+                            actor="autonomous_loop",
+                        )
                         logger.info(
                             "DECIDE: Incremental analysis completed for evidence {}",
                             ev_id[:8],
@@ -368,6 +423,20 @@ class AutonomousInvestigator:
                         for s in snapshots
                         if abs(s.get("delta", 0)) > 15
                     ]
+                    # Audit: log each significant score shift
+                    audit = AuditService(db)
+                    for s in snapshots:
+                        if abs(s.get("delta", 0)) > 5:
+                            hyp = await db.get_hypothesis(s.get("hypothesis_id", ""))
+                            hyp_title = hyp.get("title", "?") if hyp else "?"
+                            await audit.log_hypothesis_scored(
+                                case_id=self._case_id,
+                                hyp_id=s.get("hypothesis_id", ""),
+                                title=hyp_title,
+                                old_score=s.get("previous_score", 0),
+                                new_score=s.get("score", 0),
+                                actor="autonomous_loop",
+                            )
                     logger.info(
                         "DECIDE: Re-evaluated {} hypotheses",
                         len(snapshots),
@@ -397,10 +466,17 @@ class AutonomousInvestigator:
                         len(contradictions),
                     )
                     alert_mgr = AlertManager(db)
+                    audit = AuditService(db)
                     for c in contradictions:
                         await alert_mgr.create_contradiction_alert(
                             case_id=self._case_id,
                             details=c.get("description", str(c)),
+                        )
+                        # Audit: log each contradiction
+                        await audit.log_contradiction_found(
+                            case_id=self._case_id,
+                            description=c.get("description", str(c)),
+                            actor="autonomous_loop",
                         )
         except Exception as e:
             logger.error("DECIDE: Contradiction detection failed: {}", e)
@@ -491,6 +567,13 @@ class AutonomousInvestigator:
                         interval_hours=12,
                     )
                     created_count += 1
+                    # Audit: log query generation
+                    audit = AuditService(db)
+                    await audit.log_query_generated(
+                        case_id=self._case_id,
+                        query=query_text,
+                        cycle=self._cycle_count,
+                    )
                     logger.info(
                         "ACT: New monitoring job created: '{}'",
                         query_text[:60],
@@ -581,6 +664,15 @@ class AutonomousInvestigator:
                         f"Top hypothesis: {top['title']} ({top['current_score']}%)"
                     ),
                     output_summary=response[:2000],
+                )
+
+                # Audit: log self-questioning
+                audit = AuditService(db)
+                await audit.log_self_questioning(
+                    case_id=self._case_id,
+                    top_hypothesis=top["title"],
+                    summary=response,
+                    cycle=self._cycle_count,
                 )
 
                 logger.info(

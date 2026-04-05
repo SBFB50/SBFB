@@ -26,6 +26,7 @@ from typing import Any
 
 from loguru import logger
 
+from nexus.core.audit import AuditService
 from nexus.db.sqlite_db import Database
 from nexus.llm.parsers import parse_hypothesis_score, parse_json_safe, parse_verification
 from nexus.llm.prompts import (
@@ -46,6 +47,7 @@ class HypothesisEngine:
     def __init__(self, db: Database, router: LLMRouter) -> None:
         self._db = db
         self._router = router
+        self._audit = AuditService(db)
 
     # ==================================================================
     # generate_hypotheses
@@ -140,6 +142,12 @@ class HypothesisEngine:
                 )
 
                 created.append(hyp_row)
+
+                # Audit: log hypothesis created
+                await self._audit.log_hypothesis_created(
+                    case_id, hyp_row["id"], full_title, initial_score,
+                )
+
                 logger.info(
                     "Created hypothesis '{}' (score={:.1f}) for case {}",
                     full_title[:40], initial_score, case_id,
@@ -334,6 +342,15 @@ class HypothesisEngine:
                 ),
                 related_id=hypothesis_id,
             )
+
+        # Audit: log score change
+        await self._audit.log_hypothesis_scored(
+            case_id,
+            hypothesis_id,
+            hypothesis.get("title", "?"),
+            previous_score,
+            final_score,
+        )
 
         logger.info(
             "Hypothesis {} evaluated: {:.1f} -> {:.1f} (delta={:+.1f}, trigger={})",

@@ -420,3 +420,49 @@ class Report(ReportBase):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+# ============================================================================
+# Audit Log
+# ============================================================================
+
+AuditAction = Literal[
+    "evidence_added",
+    "hypothesis_scored",
+    "entity_discovered",
+    "contradiction_found",
+    "monitoring_result",
+    "query_generated",
+    "analysis_started",
+    "analysis_completed",
+    "alert_created",
+    "hypothesis_created",
+    "hypothesis_refuted",
+    "hypothesis_confirmed",
+    "evidence_ingested_auto",
+    "self_questioning",
+    "investigation_started",
+    "investigation_stopped",
+    "case_created",
+    "case_updated",
+]
+
+AuditActor = Literal["system", "user", "autonomous_loop", "monitoring"]
+
+
+class AuditEntryBase(BaseModel):
+    case_id: str
+    actor: str
+    action: str
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    summary: str
+    details: Optional[Any] = None
+    cycle_number: Optional[int] = None
+
+
+class AuditEntry(AuditEntryBase):
+    id: str
+    timestamp: datetime
+
+    model_config = {"from_attributes": True}

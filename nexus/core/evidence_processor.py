@@ -25,6 +25,7 @@ from typing import Any, BinaryIO
 
 from loguru import logger
 
+from nexus.core.audit import AuditService
 from nexus.core.entity_extractor import EntityExtractor
 from nexus.core.image_analyzer import ImageAnalyzer
 from nexus.db.models import Evidence, Entity
@@ -75,6 +76,7 @@ class EvidenceProcessor:
         self._entity_extractor = EntityExtractor(router)
         self._neo4j = neo4j   # Optional Neo4jClient
         self._chroma = chroma  # Optional ChromaClient
+        self._audit = AuditService(db)
 
     # ==================================================================
     # Public API
@@ -182,6 +184,10 @@ class EvidenceProcessor:
                     "Image evidence {} processed via visual pipeline",
                     evidence_id,
                 )
+                # Audit: log evidence added (image pipeline)
+                await self._audit.log_evidence_added(
+                    case_id, evidence_id, title, source,
+                )
                 updated = await self._db.get_evidence(evidence_id)
                 return Evidence(**updated)
             except Exception as exc:
@@ -227,6 +233,11 @@ class EvidenceProcessor:
         # 9. Sync to Neo4j + ChromaDB (Phase 2)
         # ----------------------------------------------------------
         await self._sync_to_graph_and_vectors(case_id, evidence_id, raw_text or "", summary)
+
+        # Audit: log evidence added (upload pipeline)
+        await self._audit.log_evidence_added(
+            case_id, evidence_id, title, source,
+        )
 
         logger.info("Evidence {} processing complete", evidence_id)
         return Evidence(**updated)
@@ -292,6 +303,11 @@ class EvidenceProcessor:
         # Sync to Neo4j + ChromaDB
         await self._sync_to_graph_and_vectors(case_id, evidence_id, cleaned, summary)
 
+        # Audit: log evidence added (text pipeline)
+        await self._audit.log_evidence_added(
+            case_id, evidence_id, title, source,
+        )
+
         logger.info("Text evidence {} processing complete", evidence_id)
         return Evidence(**updated)
 
@@ -338,6 +354,11 @@ class EvidenceProcessor:
             )
             entity = Entity(**entity_row)
             created.append(entity)
+
+            # Audit: log entity discovered
+            await self._audit.log_entity_discovered(
+                case_id, entity.id, ent["name"], ent["type"],
+            )
 
             # Create a mention linking entity <-> evidence
             await self._db.create_entity_mention(

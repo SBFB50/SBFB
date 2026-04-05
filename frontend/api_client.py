@@ -795,6 +795,44 @@ class NexusAPIClient:
         )
 
     # ================================================================
+    # Audit Trail
+    # ================================================================
+
+    def list_audit_log(
+        self,
+        case_id: str,
+        action: Optional[str] = None,
+        actor: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict]:
+        return (
+            self._request(
+                "GET",
+                f"/api/cases/{case_id}/audit",
+                params={
+                    "action": action,
+                    "actor": actor,
+                    "limit": limit,
+                    "offset": offset,
+                },
+            )
+            or []
+        )
+
+    def get_audit_summary(self, case_id: str) -> Optional[Dict]:
+        return self._request("GET", f"/api/cases/{case_id}/audit/summary")
+
+    def get_audit_timeline(self, case_id: str) -> List[Dict]:
+        return (
+            self._request("GET", f"/api/cases/{case_id}/audit/timeline")
+            or []
+        )
+
+    def get_audit_entry(self, audit_id: str) -> Optional[Dict]:
+        return self._request("GET", f"/api/audit/{audit_id}")
+
+    # ================================================================
     # Health
     # ================================================================
 
