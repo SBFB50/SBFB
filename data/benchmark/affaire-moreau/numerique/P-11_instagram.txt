@@ -1,0 +1,57 @@
+EXTRACTION DONNEES INSTAGRAM
+Requisition judiciaire a Meta Platforms Ireland Ltd
+Compte : @elise_pharma_lyon (MOREAU Elise)
+Periode extraite : 1er septembre -- 15 septembre 2019
+---
+
+=== POSTS PUBLICS ===
+
+10/09/2019 14:22
+Type : Photo
+Contenu : Photo de la pharmacie avec nouvelle devanture renovee
+Legende : "Nouveau chapitre pour la Pharmacie du Parc ! Fiere de cette renovation."
+Likes : 127
+Commentaires : 8 (felicitations diverses)
+
+=== STORIES (expirees, extraites du serveur) ===
+
+08/09/2019 21:14
+Type : Story photo
+Contenu : Photo d'un livre titre "Recommencer sa vie" de Marc Levy, pose sur une table avec une tasse de the
+Emoji : coeur rouge
+Vues : 43
+
+12/09/2019 23:01
+Type : Story texte
+Contenu : Citation sur fond noir : "Ce qui ne nous tue pas nous rend plus fort"
+Vues : 38
+
+=== MESSAGES PRIVES (DM) ===
+
+11/09/2019 19:47
+DE : @elise_pharma_lyon
+A : @sophie_lrt (LAURENT Sophie)
+Message : "Il faut que je te parle de quelque chose samedi. Important."
+
+11/09/2019 19:52
+DE : @sophie_lrt
+A : @elise_pharma_lyon
+Message : "OK pas de souci, on en parle samedi alors ! Ca va ?"
+
+11/09/2019 19:55
+DE : @elise_pharma_lyon
+A : @sophie_lrt
+Message : "Oui oui ca va. C'est juste... je t'expliquerai de vive voix."
+
+13/09/2019 09:14
+DE : @romain.fabre.lyon (FABRE Romain)
+A : @elise_pharma_lyon
+Message : "On peut parler samedi ? J'ai besoin de comprendre pour le licenciement."
+
+13/09/2019 09:31
+DE : @elise_pharma_lyon
+A : @romain.fabre.lyon
+Message : "Oui, viens a la soiree chez Sophie. On discutera."
+
+=== DERNIERE ACTIVITE ===
+14/09/2019 19:42 -- Like sur un post de @sophie_lrt

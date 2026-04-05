@@ -1,0 +1,341 @@
+{
+  "case": {
+    "name": "Affaire KULIK",
+    "reference": "#2002-PER-0011",
+    "description": "Meurtre d'Elodie Kulik, 24 ans, chargee de clientele au CIC Peronne. Corps retrouve le 11 janvier 2002 sur un chemin rural a Cartigny (Somme), a cote de son vehicule calcine. Agression sexuelle et strangulation. ADN masculin recupere mais aucune correspondance dans les fichiers. Appel au 18 enregistre avec voix de la victime et de deux agresseurs masculins. Cold case non resolu."
+  },
+  "evidence": [
+    {
+      "id": "P-01",
+      "title": "Rapport initial -- decouverte de corps",
+      "type": "text",
+      "source": "Brigade de gendarmerie de Peronne",
+      "reliability": 85,
+      "source_date": "2002-01-11",
+      "file": "police/P-01_rapport-initial.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-02",
+      "title": "Proces-verbal de constatations scene de crime",
+      "type": "text",
+      "source": "Section de Recherches d'Amiens",
+      "reliability": 90,
+      "source_date": "2002-01-11",
+      "file": "police/P-02_proces-verbal-scene.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-03",
+      "title": "Temoignage amis de Ham (DELATTRE)",
+      "type": "text",
+      "source": "Audition gendarmerie, PV 2002/01/041",
+      "reliability": 80,
+      "source_date": "2002-01-12",
+      "file": "temoignages/P-03_amis-ham.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-04",
+      "title": "Temoignage voisin Cartigny (LEFEBVRE)",
+      "type": "text",
+      "source": "Audition gendarmerie, PV 2002/01/043",
+      "reliability": 65,
+      "source_date": "2002-01-12",
+      "file": "temoignages/P-04_voisin-cartigny.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-05",
+      "title": "Temoignages collegues CIC Peronne",
+      "type": "text",
+      "source": "Section de Recherches d'Amiens, PV 2002/01/052",
+      "reliability": 75,
+      "source_date": "2002-01-14",
+      "file": "temoignages/P-05_collegues-cic.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-06",
+      "title": "Rapport d'autopsie",
+      "type": "text",
+      "source": "IML Amiens, Dr. Charlet",
+      "reliability": 95,
+      "source_date": "2002-01-12",
+      "file": "forensique/P-06_autopsie.txt",
+      "wave": 2
+    },
+    {
+      "id": "P-07",
+      "title": "Resultats ADN et campagne de prelevements",
+      "type": "text",
+      "source": "Laboratoire Police Scientifique Lyon",
+      "reliability": 95,
+      "source_date": "2002-03-15",
+      "file": "forensique/P-07_adn-resultats.txt",
+      "wave": 2
+    },
+    {
+      "id": "P-08",
+      "title": "Expertise vehicule incendie",
+      "type": "text",
+      "source": "IRCGN Rosny-sous-Bois",
+      "reliability": 90,
+      "source_date": "2002-01-28",
+      "file": "forensique/P-08_vehicule-expertise.txt",
+      "wave": 2
+    },
+    {
+      "id": "P-09",
+      "title": "Transcription appel au 18 (SDIS)",
+      "type": "text",
+      "source": "Section de Recherches d'Amiens",
+      "reliability": 90,
+      "source_date": "2002-01-11",
+      "file": "numerique/P-09_appel-18.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-10",
+      "title": "Releves telephoniques victime",
+      "type": "text",
+      "source": "Requisition SFR, PV 2002/01/058",
+      "reliability": 90,
+      "source_date": "2002-01-18",
+      "file": "numerique/P-10_telephonie.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-11",
+      "title": "Analyse bornes-relais zone Cartigny",
+      "type": "text",
+      "source": "Section de Recherches d'Amiens",
+      "reliability": 90,
+      "source_date": "2002-01-22",
+      "file": "numerique/P-11_bornes-relais.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-12",
+      "title": "Note de contexte environnement local",
+      "type": "text",
+      "source": "Section de Recherches d'Amiens",
+      "reliability": 70,
+      "source_date": "2002-01-15",
+      "file": "contexte/P-12_environnement.txt",
+      "wave": 4
+    },
+    {
+      "id": "P-13",
+      "title": "Profil de la victime",
+      "type": "text",
+      "source": "Section de Recherches d'Amiens",
+      "reliability": 80,
+      "source_date": "2002-01-16",
+      "file": "contexte/P-13_profil-victime.txt",
+      "wave": 4
+    },
+    {
+      "id": "P-14",
+      "title": "Note geographique lieux et trajets",
+      "type": "text",
+      "source": "Section de Recherches d'Amiens",
+      "reliability": 85,
+      "source_date": "2002-01-14",
+      "file": "geo/P-14_lieux-trajets.txt",
+      "wave": 4
+    }
+  ],
+  "waves": {
+    "1": {
+      "name": "Dossier initial",
+      "description": "Rapport de police, constatations scene, premiers temoignages",
+      "evidence_ids": ["P-01", "P-02", "P-03", "P-04", "P-05"]
+    },
+    "2": {
+      "name": "Forensique",
+      "description": "Autopsie, ADN, expertise vehicule",
+      "evidence_ids": ["P-06", "P-07", "P-08"]
+    },
+    "3": {
+      "name": "Numerique",
+      "description": "Appel au 18, telephonie, bornes-relais",
+      "evidence_ids": ["P-09", "P-10", "P-11"]
+    },
+    "4": {
+      "name": "Contexte et geographie",
+      "description": "Environnement local, profil victime, analyse des trajets",
+      "evidence_ids": ["P-12", "P-13", "P-14"]
+    }
+  },
+  "expected_contradictions": [
+    {
+      "id": "C1",
+      "description": "L'appel au 18 fait entendre DEUX voix masculines mais un seul profil ADN retrouve sur la victime",
+      "evidence": ["P-09", "P-06"],
+      "keywords": ["voix", "masculin", "deux", "adn", "unique", "seul"]
+    },
+    {
+      "id": "C2",
+      "description": "Le voisin LEFEBVRE dit avoir entendu UN vehicule arriver mais un bruit 'different' au retour -- les traces de pneus montrent DEUX vehicules distincts",
+      "evidence": ["P-04", "P-02"],
+      "keywords": ["vehicule", "pneus", "traces", "deux", "different", "lefebvre"]
+    },
+    {
+      "id": "C3",
+      "description": "Les collegues decrivent Elodie nerveuse et inquiete les jours precedents (retard, changement de serrure) mais les amis la trouvent detendue et de bonne humeur le soir meme",
+      "evidence": ["P-05", "P-03"],
+      "keywords": ["nerveuse", "inquiete", "detendue", "humeur", "serrure", "retard"]
+    },
+    {
+      "id": "C4",
+      "description": "Un telephone prepaye inconnu borne a Cartigny a 01h30 et a appele la victime le soir meme, mais ne correspond a aucun profil FNAEG",
+      "evidence": ["P-11", "P-10", "P-07"],
+      "keywords": ["prepaye", "cartigny", "telephone", "inconnu", "fnaeg", "borne"]
+    },
+    {
+      "id": "C5",
+      "description": "La victime borne a Peronne-Sud (P-3) a 00h12 puis a Cartigny (C-1) a 00h19, suggerant un demi-tour inexplique sur son trajet de retour",
+      "evidence": ["P-10", "P-14"],
+      "keywords": ["peronne", "cartigny", "demi-tour", "borne", "trajet", "00h12", "00h19"]
+    }
+  ],
+  "expected_hypotheses": [
+    {
+      "id": "H1",
+      "title": "Agression par inconnu(s) de passage -- crime opportuniste",
+      "expected_final_score_range": [30, 50]
+    },
+    {
+      "id": "H2",
+      "title": "Crime lie a l'entourage professionnel ou personnel",
+      "expected_final_score_range": [10, 20]
+    },
+    {
+      "id": "H3",
+      "title": "Crime sexuel en reunion par individus locaux connaissant la zone",
+      "expected_final_score_range": [50, 70]
+    },
+    {
+      "id": "H4",
+      "title": "Crime passionnel lie a la vie privee (ex-petit ami, admirateur)",
+      "expected_final_score_range": [15, 25]
+    }
+  ],
+  "expected_entities": {
+    "persons": [
+      "Elodie Kulik",
+      "Jacqueline Kulik",
+      "Thierry Delattre",
+      "Valerie Delattre",
+      "Gerard Lefebvre",
+      "Isabelle Martin",
+      "David Fouquet",
+      "Catherine Roger",
+      "Philippe Charlet",
+      "Bruno Remy",
+      "Christophe Vasseur"
+    ],
+    "locations": [
+      "Cartigny",
+      "Peronne",
+      "Ham",
+      "Amiens",
+      "D44"
+    ],
+    "vehicles": [
+      "VW Polo bleue 738 BFN 80",
+      "Vehicule inconnu (traces pneus 205mm)"
+    ],
+    "phones": [
+      "06 72 88 41 33",
+      "06 81 XX XX 07"
+    ]
+  },
+  "ground_truth": {
+    "perpetrators": [
+      {
+        "name": "Gregory Wiart",
+        "role": "Agresseur principal -- ADN concordant",
+        "method_of_identification": "ADN de parentele (2012)",
+        "status": "Decede en 2003 (accident de la route)"
+      },
+      {
+        "name": "Willy Bardon",
+        "role": "Complice -- voix sur l'enregistrement de l'appel au 18",
+        "method_of_identification": "Reconnaissance vocale + temoignages",
+        "status": "Condamne a 30 ans de reclusion criminelle (2020, confirme en appel 2022)"
+      }
+    ],
+    "key_facts": [
+      "Deux agresseurs, pas un seul (crime en reunion)",
+      "L'ADN appartenait a Wiart, identifie post-mortem par ADN de parentele",
+      "La voix sur l'appel au 18 appartenait a Bardon, identifie par reconnaissance vocale",
+      "Le telephone prepaye appartenait a l'un des agresseurs",
+      "Wiart et Bardon se connaissaient et vivaient dans la region de Peronne",
+      "Les agresseurs connaissaient les routes locales et la zone isolee de Cartigny"
+    ],
+    "target_hypothesis_keywords": [
+      "reunion", "deux", "agresseurs", "locaux", "zone", "connaissance",
+      "voix", "adn", "parentele", "prepaye", "telephone"
+    ]
+  },
+  "scoring": {
+    "total_points": 100,
+    "categories": {
+      "entities": {
+        "points": 20,
+        "description": "Entites cles extraites des pieces d'enquete",
+        "required_persons": ["Elodie Kulik", "Jacqueline Kulik", "Thierry Delattre", "Valerie Delattre", "Gerard Lefebvre"],
+        "required_locations": ["Cartigny", "Peronne", "Ham"],
+        "required_other": ["VW Polo", "06 81 XX XX 07"]
+      },
+      "hypothesis_ranking": {
+        "points": 20,
+        "description": "L'hypothese correcte (H3 -- crime en reunion par locaux) doit etre dans le top 3",
+        "target_hypothesis_id": "H3",
+        "max_rank": 3
+      },
+      "contradictions": {
+        "points": 20,
+        "description": "Contradictions detectees parmi les 5 attendues",
+        "minimum_found": 3
+      },
+      "hypothesis_score": {
+        "points": 20,
+        "description": "Le score de l'hypothese correcte doit depasser 40%",
+        "target_hypothesis_id": "H3",
+        "minimum_score": 40
+      },
+      "timeline_and_geo": {
+        "points": 20,
+        "description": "Timeline correcte et localisation geographique des evenements",
+        "required_timeline_events": [
+          "Depart Ham vers minuit",
+          "Bornage Peronne-Sud 00h12",
+          "Bornage Cartigny 00h19",
+          "Appel 18 a 00h28",
+          "Incendie vehicule vers 3h00"
+        ],
+        "required_geo_links": [
+          "Ham - D44 - Cartigny - Peronne",
+          "Chemin rural 300m de la D44"
+        ]
+      }
+    }
+  },
+  "monitoring_jobs": [
+    {
+      "type": "searxng",
+      "query": "\"Elodie Kulik\" Cartigny Peronne",
+      "interval_hours": 6,
+      "entity": "Kulik"
+    },
+    {
+      "type": "searxng",
+      "query": "crime Cartigny Somme 2002",
+      "interval_hours": 24,
+      "entity": null
+    }
+  ]
+}

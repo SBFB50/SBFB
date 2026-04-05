@@ -1,0 +1,67 @@
+RELEVES TELEPHONIQUES -- REQUISITION JUDICIAIRE
+Operateurs : Orange, SFR, Free
+Periode : 14 septembre 2019 18h00 -- 15 septembre 2019 12h00
+---
+
+== LIGNE 1 : MOREAU Elise -- 06 72 41 88 03 (Orange) ==
+14/09 20:18  APPEL SORTANT vers 06 91 33 74 16 (LAURENT Sophie) -- duree 42s
+             Borne : Lyon-1-CroixRousse-2
+14/09 23:47  SMS SORTANT vers 06 83 19 57 22 (DUVAL Marc)
+             Contenu : "je rentre bientot, bisous"
+             Borne : Lyon-1-CroixRousse-3
+15/09 00:12  DERNIERE LOCALISATION
+             Borne : Lyon-1-CroixRousse-3 (meme secteur que precedent)
+             Telephone eteint ou hors reseau. Plus aucune activite.
+
+== LIGNE 2 : DUVAL Marc -- 06 83 19 57 22 (SFR) ==
+14/09 22:45  DATA mobile (application Spotify, streaming)
+             Borne : Lyon-1-CroixRousse-1
+14/09 23:18  FIN data mobile
+             Borne : Lyon-1-CroixRousse-1
+14/09 23:48  SMS ENTRANT de 06 72 41 88 03 (MOREAU Elise)
+             Reponse envoyee : "ok a tout de suite"
+             Borne : Lyon-6-Garibaldi-1  [Domicile -- coherent]
+14/09 23:52  DATA mobile (breve, 4 secondes)
+             Borne : Villeurbanne-Republique-2  [ANOMALIE -- pas sur le trajet domicile]
+15/09 07:34  APPEL SORTANT vers 06 72 41 88 03 (MOREAU Elise) -- pas de reponse
+             Borne : Lyon-6-Garibaldi-1
+15/09 09:51  APPEL SORTANT vers 06 91 33 74 16 (LAURENT Sophie) -- duree 3m12s
+             Borne : Lyon-6-Garibaldi-1
+
+== LIGNE 3 : FABRE Romain -- 07 68 42 11 90 (Free) ==
+14/09 23:41  DATA mobile
+             Borne : Lyon-1-CroixRousse-3
+15/09 00:19  DATA mobile
+             Borne : Lyon-3-PartDieu-1
+15/09 00:31  DATA mobile
+             Borne : Lyon-3-PaulBert-2  [Domicile -- coherent]
+
+== LIGNE 4 : TESSIER Julien -- 06 44 72 19 85 (Orange) ==
+14/09 21:30  APPEL SORTANT vers 07 81 55 23 07 (numero prepaye -- identite inconnue)
+             Duree : 2m47s
+             Borne : Grenoble-Centre-4
+14/09 22:15  DATA mobile
+             Borne : A48-Voiron  [Autoroute Grenoble -> Lyon]
+14/09 23:05  DATA mobile
+             Borne : A43-LaVerpilliere  [Approche Lyon par l'est]
+14/09 23:38  DATA mobile
+             Borne : Lyon-Est-Bron-2  [Peripherie est de Lyon]
+15/09 00:22  DATA mobile
+             Borne : Lyon-1-CroixRousse-5  [SUSPECT -- meme quartier qu'Elise]
+15/09 01:15  DATA mobile
+             Borne : Miribel-Jonage-Nord-1  [TRES SUSPECT -- lieu de decouverte du corps]
+15/09 02:48  DATA mobile
+             Borne : A43-Bourgoin  [Autoroute retour vers Grenoble]
+15/09 04:12  DATA mobile
+             Borne : Grenoble-Centre-4  [Retour domicile]
+
+== LIGNE 5 : NUMERO PREPAYE -- 07 81 55 23 07 (SFR prepaye) ==
+Titulaire : Carte prepaye, identite non verifiee
+14/09 21:28  SMS ENTRANT de 06 44 72 19 85 (TESSIER Julien)
+             Borne : Villeurbanne-Republique-1
+15/09 01:58  DATA mobile
+             Borne : Miribel-Jonage-Nord-1  [SYNCHRONE avec TESSIER -- meme lieu]
+15/09 03:14  DATA mobile
+             Borne : Villeurbanne-Republique-1  [Retour]
+
+NOTE ANALYSTE : Le numero prepaye 07 81 55 23 07 n'a pas ete identifie dans l'enquete initiale. L'appareil borne systematiquement a Villeurbanne-Republique, suggerant un domicile dans ce secteur.

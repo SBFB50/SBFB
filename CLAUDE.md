@@ -50,6 +50,44 @@ Ne PAS utiliser un seul LLM pour tout. Router les taches :
 L'utilisateur est francophone. Repondre en francais. Les prompts systeme des LLMs sont en francais.
 Le code et les commentaires peuvent etre en anglais.
 
+## Benchmarking
+
+### Real Cold Cases Benchmark
+Deux affaires reelles resolues, utilisees comme ground truth pour evaluer NEXUS.
+Le systeme recoit les pieces d'enquete brutes (SANS la solution) et doit converger vers la bonne reponse.
+
+**Affaires:**
+- `data/benchmark/kulik/` — Affaire Elodie Kulik (14 pieces, 4 vagues)
+  - Verite: Gregory Wiart (ADN) + Willy Bardon (voix)
+  - Hypothese cible: crime sexuel en reunion par individus locaux
+- `data/benchmark/golden-state-killer/` — Golden State Killer (13 pieces, 4 vagues)
+  - Verite: Joseph DeAngelo, ex-policier Auburn PD
+  - Hypothese cible: tueur avec formation forces de l'ordre
+
+**Scoring (/100 par case):**
+- Entites cles trouvees: /20
+- Hypothese correcte dans le top 3: /20
+- Contradictions detectees: /20
+- Score hypothese correcte > 40%: /20
+- Timeline + geographie: /20
+
+**Execution:**
+```bash
+python tests/bench_real_cases.py              # les 2 cases
+python tests/bench_real_cases.py --case kulik  # Kulik seul
+python tests/bench_real_cases.py --case gsk    # GSK seul
+python tests/bench_real_cases.py --no-analyze  # injection seule, sans LLM
+```
+
+**Resultats:** `docs/BENCHMARK-REAL-CASES.md` + `docs/BENCHMARK-REAL-CASES.json`
+
+**Fichiers:**
+- `data/benchmark/kulik/manifest.json` — Manifest avec scoring, verite, contradictions attendues
+- `data/benchmark/golden-state-killer/manifest.json` — Idem pour GSK
+- `tests/bench_real_cases.py` — Script de benchmark complet
+- `tests/bench_kulik_progressive.py` — Benchmark progressif Kulik (par dates)
+- `tests/run_benchmark.py` — Benchmark affaire fictive Moreau
+
 ## Ce qui est deja operationnel
 - Ollama + nexus (Gemma 4 26B Heretic) ✅
 - Open WebUI (port 3000) ✅

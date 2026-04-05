@@ -1,0 +1,68 @@
+REPUBLIQUE FRANCAISE
+GENDARMERIE NATIONALE
+SECTION DE RECHERCHES D'AMIENS
+---
+ANALYSE DES BORNES-RELAIS -- ZONE DE CARTIGNY
+PV n 2002/01/065 -- 22 janvier 2002
+
+OBJET : Identification de tous les telephones ayant borne dans le secteur de Cartigny entre 00h00 et 02h00 le 11 janvier 2002.
+
+ANTENNE ANALYSEE : Antenne-relais C-1 (Cartigny), operateurs SFR, Orange, Bouygues Telecom.
+RAYON DE COUVERTURE ESTIME : 3 a 5 km (zone rurale, faible densite d'antennes)
+
+=== TELEPHONES IDENTIFIES ===
+
+1. 06 72 88 41 33 (SFR) -- KULIK Elodie (victime)
+   - 00:19 : borne C-1 (derniere localisation sur le reseau)
+   - 00:28 : appel 18 via borne C-1
+   - 00:30 : derniere activite
+   Statut : VICTIME
+
+2. 06 81 XX XX 07 (prepaye Orange) -- INCONNU
+   - 00:15 : borne C-1
+   - 01:30 : borne C-1
+   - 02:04 : borne P-3 (Peronne-Sud) -- quitte la zone
+   Statut : SUSPECT PRIORITAIRE. Telephone prepaye, acheteur non identifie. Voir P-10.
+
+3. 06 45 XX XX 22 (Bouygues) -- LEFEBVRE Marcel, 67 ans, agriculteur, domicilie a Cartigny
+   - 00:00 a 06:00 : borne C-1 en continu (domicile dans la zone de couverture)
+   Statut : HABITANT LOCAL. Verifie -- domicile a 800m de la scene. N'a rien entendu. Elimine.
+
+4. 06 88 XX XX 91 (SFR) -- INCONNU
+   - 01:18 : borne C-1 (passage ponctuel)
+   - 01:22 : borne vers Roisel (direction nord)
+   Statut : PASSAGE EN TRANSIT. Probablement un vehicule sur la D44. Non identifie mais la brievete du passage (4 minutes) et la direction (nord, opposee a Peronne) suggerent un simple automobiliste de passage.
+
+5. 06 33 XX XX 58 (Orange) -- DUMOULIN Robert, 52 ans, chauffeur routier, en deplacement
+   - 00:45 : borne C-1
+   - 00:52 : borne vers Ham (direction sud)
+   Statut : EN TRANSIT. Verifie -- livraison de nuit attestee par son employeur. Elimine.
+
+=== TELEPHONE PREPAYE 06 81 XX XX 07 -- ANALYSE APPROFONDIE ===
+
+Ce numero est le SEUL telephone non identifie present dans la zone de Cartigny pendant la fenetre temporelle des faits (00h00-02h00) et qui y reste de maniere prolongee (au moins 1h45).
+
+Historique complet de ce numero (22/12/2001 -- 15/01/2002) :
+- 22/12/2001 : activation de la ligne (Amiens)
+- 28/12/2001 : appel sortant vers un numero fixe a Peronne (pizzeria "Le Vesuvio") -- 1 min
+- 03/01/2002 : appel sortant vers un numero fixe non attribue -- 30 s (erreur ?)
+- 07/01/2002 : borne a Peronne (pas d'appel, juste presence reseau)
+- 10/01/2002, 19h42 : borne a Peronne
+- 10/01/2002, 19h48 : appel sortant vers 06 72 88 41 33 (KULIK Elodie) -- 47 s
+- 11/01/2002, 00h15 : borne a Cartigny (C-1)
+- 11/01/2002, 01h30 : borne a Cartigny (C-1)
+- 11/01/2002, 02h04 : borne Peronne-Sud (P-3)
+- Apres le 11/01/2002 : AUCUNE activite. Telephone eteint ou detruit.
+
+CONCLUSIONS :
+- Ce telephone prepaye a ete utilise quasi-exclusivement dans le secteur de Peronne
+- Il a contacte la victime quelques heures avant l'agression
+- Il etait present sur les lieux au moment des faits
+- Il n'a plus jamais ete utilise apres les faits
+- Son proprietaire reste NON IDENTIFIE
+
+ELEMENT IMPORTANT :
+Ce telephone ne correspond a aucun profil du FNAEG (base ADN). Mais cette information est logique puisque les fichiers telephoniques et genetiques ne sont pas croises. Le proprietaire de ce telephone pourrait ou non etre l'auteur du profil ADN SCELLE-ADN-001.
+
+Le Lieutenant Bruno GARCIA
+Section de Recherches d'Amiens

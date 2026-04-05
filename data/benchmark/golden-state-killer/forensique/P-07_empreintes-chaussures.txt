@@ -1,0 +1,69 @@
+CALIFORNIA DEPARTMENT OF JUSTICE
+BUREAU OF FORENSIC SERVICES
+---
+RAPPORT CONSOLIDE -- EMPREINTES DE CHAUSSURES
+Reference : DOJ-SHOE-2002-0091
+Date : 12 juin 2002
+
+OBJET :
+Synthese des empreintes de chaussures relevees sur les scenes de crimes des series EAR et ONS.
+
+=== RESULTATS PAR SCENE ===
+
+SERIE EAR (Sacramento, 1976-1979) :
+
+Scene 14 (EAR-1977-SAC-028) :
+- Empreinte dans la terre meuble du jardin arriere
+- Pointure : 43-44 (US 10-10.5)
+- Type : semelle crantee, compatible avec chaussure de sport / sneaker
+- Marque non determinable
+
+Scene 23 (EAR-1977-SAC-055) :
+- Empreinte sur le plancher de la buanderie (trace boueuse)
+- Pointure : 44 (US 10.5)
+- Type : semelle plate, motif type "waffle" (gaufre)
+- Compatible avec chaussure de type running / jogging militaire (modele PX)
+- NOTE : ce type de chaussure est couramment vendu dans les magasins militaires (PX stores) des bases des forces armees
+
+Scene 31 (EAR-1978-SAC-072) :
+- Empreinte dans le jardin
+- Pointure : 43-44
+- Type : semelle lisse, chaussure de type tennis ou plimsoll
+
+SERIE ONS (sud Californie, 1979-1986) :
+
+Crime 3 (Ventura, 1980) :
+- Empreinte dans la plate-bande du jardin
+- Pointure : 44 (US 10.5)
+- Type : semelle crantee profonde, chaussure de type randonnee ou travail
+- Marque non determinable
+
+Crime 5 (Irvine, 1981) :
+- Empreinte sur le sol de la cuisine (trace humide)
+- Pointure : 44
+- Type : semelle plate, usure irreguliere (pied pronateur)
+
+Crime 7 (Irvine, 1986) :
+- Empreinte dans la terre du jardin arriere
+- Pointure : 44 (US 10.5)
+- Type : semelle sport, motif compatible avec Nike ou marque similaire de l'epoque
+
+=== ANALYSE CONSOLIDEE ===
+
+1. POINTURE CONSTANTE :
+   Sur l'ensemble des scenes (EAR + ONS), la pointure est remarquablement constante : 43-44 (US 10-10.5). Cela correspond a un homme d'environ 1m75-1m82, ce qui est coherent avec les descriptions physiques.
+
+2. TYPES DE CHAUSSURES VARIES :
+   Le sujet utilise des chaussures differentes d'une scene a l'autre, ce qui demontre une conscience forensique avancee. Il evite de porter les memes chaussures pour ne pas permettre une correspondance entre les scenes.
+
+3. ELEMENT NOTABLE -- CHAUSSURE MILITAIRE :
+   Sur la scene EAR-1977-SAC-055, le motif de semelle est tres compatible avec un modele de chaussure vendu exclusivement dans les PX (Post Exchange) des bases militaires americaines. Ce detail renforce l'hypothese d'un lien entre le suspect et le milieu militaire ou paramilitaire (police, reserves).
+
+4. USURE :
+   L'analyse de l'usure sur la scene Crime 5 (Irvine, 1981) revele un schema de pronation du pied droit, suggerant une legere asymetrie de demarche. Ce detail pourrait etre utile pour l'identification si un suspect est un jour compare.
+
+=== CONCLUSION ===
+Les empreintes de chaussures confirment un sujet de taille moyenne-grande (1m75-1m82), utilisant systematiquement des chaussures differentes (conscience forensique), avec une preference pour les chaussures de type sport/militaire. La pointure 44 (US 10.5) est un element constant et fiable pour l'elimination de suspects.
+
+Expert Jennifer WALSH
+Bureau of Forensic Services, Sacramento

@@ -1,0 +1,94 @@
+CALIFORNIA DEPARTMENT OF JUSTICE
+TASK FORCE EAR/ONS
+---
+ANALYSE DES ZONES GEOGRAPHIQUES D'ACTIVITE
+Reference : EARONS-GEO-ZONES-2004-002
+Date : Aout 2004
+
+=== ZONE 1 : SACRAMENTO -- QUARTIERS EST (1976-1979) ===
+
+Centre d'activite : Rancho Cordova / Carmichael / Citrus Heights
+Coordonnees centrales : 38.6270 N, 121.3275 W
+Rayon d'activite : 15 km
+
+Quartiers specifiquement cibles :
+- Rancho Cordova (9 attaques) : quartier residentiel de classe moyenne, maisons des annees 1950-60 avec grands jardins
+- Carmichael (7 attaques) : similaire, un peu plus aise
+- Citrus Heights (6 attaques) : banlieue plus recente, lotissements des annees 1970
+- Orangevale (4 attaques) : zone rurale/periurbaine
+- La Riviera / Arden (plusieurs attaques) : quartier central-est
+
+Points d'interet a proximite :
+- Mather Air Force Base (base aerienne, fermee en 1993) : a 5 km du centre de Rancho Cordova
+- American River (riviere) : utilisee comme axe de fuite dans plusieurs attaques (piste cyclable longeant la riviere)
+- Sacramento Executive Airport : a 10 km a l'ouest
+- Auburn (Placer County) : a 50 km au nord-est de Sacramento. Siege d'Auburn PD (voir timeline P-10 -- policier licencie en 1979)
+
+NOTE SUR AUBURN :
+Auburn est situe a l'extremite nord de la zone d'activite EAR. Un trajet quotidien Auburn -> Sacramento est de 50 km (45 min). Un officier de police d'Auburn aurait pu connaitre intimement les quartiers est de Sacramento par des activites de formation, de cooperation inter-agences, ou simplement par frequentation personnelle. La zone d'Auburn n'a pas ete directement ciblee par l'EAR, mais se trouve dans le "halo" geographique.
+
+=== ZONE 2 : GOLETA / SANTA BARBARA (1979-1981) ===
+
+Centre d'activite : Goleta
+Coordonnees centrales : 34.4370 N, 119.8260 W
+Rayon d'activite : 5 km
+
+3 crimes commis a Goleta (Crimes 1, 2 et 6 de la serie ONS)
+Le retour a Goleta pour le Crime 6 (juillet 1981) apres des crimes a Ventura et Orange County suggere un attachement particulier a cette zone (ancienne residence ? famille ?).
+
+Points d'interet :
+- Vandenberg Air Force Base : a 100 km au nord-ouest
+- UC Santa Barbara : a 3 km (campus universitaire)
+- Quartiers residentiels aises avec maisons individuelles et grands jardins
+
+=== ZONE 3 : VENTURA (1980) ===
+
+1 crime (Crime 3)
+Coordonnees : 34.2783 N, 119.2293 W
+Zone de transition entre Santa Barbara et Orange County
+Quartier residentiel calme
+
+Points d'interet :
+- Naval Base Ventura County (Point Mugu) : a 30 km au sud
+- Base militaire active a l'epoque
+
+=== ZONE 4 : ORANGE COUNTY (1980-1986) ===
+
+Sous-zones :
+- Dana Point (Crime 4) : 33.4669 N, 117.6981 W
+- Irvine (Crimes 5 et 7) : 33.6820 N, 117.8100 W
+
+Points d'interet :
+- Camp Pendleton (base des Marines) : a 40 km au sud
+- El Toro Marine Corps Air Station : a 5 km d'Irvine (fermee en 1999)
+- Tustin Marine Corps Air Station : a 10 km au nord d'Irvine (fermee en 1999)
+- Quartiers residentiels haut de gamme en pleine expansion dans les annees 1980
+
+=== SYNTHESE GEOGRAPHIQUE ===
+
+Axe d'activite total : Sacramento (nord) -> Orange County (sud) = 750 km
+
+Le sujet a couvert une distance considerable sur une periode de 10 ans. Le pattern geographique est coherent avec :
+
+1. Un DEPLACEMENT de residence (Sacramento -> sud CA) en 1979
+   - Compatible avec mutation professionnelle, licenciement, ou changement de vie
+   - La coincidence avec le licenciement d'un policier a Auburn en 1979 est notable
+
+2. Une MOBILITE professionnelle dans le sud de la Californie (1979-1986)
+   - Les crimes sont espaces de 25 a 300 km les uns des autres
+   - Compatible avec un emploi necessitant des deplacements (commercial, technicien itinerant, forces de l'ordre)
+   - OU un individu qui voyage deliberement pour commettre ses crimes loin de son domicile
+
+3. Proximite de BASES MILITAIRES
+   - Mather AFB (Sacramento), Vandenberg AFB (Santa Barbara), NB Ventura, Camp Pendleton, El Toro MCAS (Irvine)
+   - Chaque zone d'activite est a proximite d'une installation militaire
+   - Coincidence ? Ou indicateur d'un lien avec l'armee/la defense ?
+
+=== HYPOTHESE DE RESIDENCE DU SUJET ===
+
+- 1976-1979 : probablement resident de la zone est de Sacramento (Auburn, Rancho Cordova, ou environs)
+- 1979-1986 : probablement resident du sud de la Californie, possiblement dans la zone de Goleta/Santa Barbara (3 crimes) ou Orange County (3 crimes)
+- Apres 1986 : localisation inconnue. Possiblement reste dans le sud de la CA, ou demenage ailleurs.
+
+Analyste Karen PARKER
+California DOJ, Crime Analysis Unit

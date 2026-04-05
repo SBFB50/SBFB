@@ -1,0 +1,49 @@
+REPUBLIQUE FRANCAISE
+LABORATOIRE DE POLICE SCIENTIFIQUE DE LYON
+---
+RAPPORT D'ANALYSE GENETIQUE
+Reference dossier : 2002-PER-0011 (Affaire KULIK)
+Date du rapport : 15 mars 2002 (rapport initial)
+Mise a jour : 22 septembre 2003, 14 juin 2005, 30 novembre 2008
+
+PRELEVEMENT ANALYSE :
+Scelle SCELLE-ADN-001 : echantillon seminal preleve sur la victime KULIK Elodie lors de l'autopsie du 12/01/2002.
+
+RESULTAT :
+Profil ADN masculin complet exploitable obtenu (16 marqueurs STR).
+Profil integre dans la base FNAEG sous reference FNAEG-INC-2002-0834.
+
+RECHERCHES DE CORRESPONDANCE :
+
+1. Base FNAEG (Fichier National Automatise des Empreintes Genetiques) :
+   - Recherche initiale (fevrier 2002) : AUCUNE correspondance
+   - Mise a jour septembre 2003 : AUCUNE correspondance
+   - Mise a jour juin 2005 : AUCUNE correspondance
+   - Mise a jour novembre 2008 : AUCUNE correspondance
+   Le profil ne correspond a aucun individu enregistre dans la base.
+
+2. Campagne de prelevements volontaires (2002-2003) :
+   Operation "Appel a temoins genetique" lancee par la gendarmerie de Peronne.
+   - Phase 1 (fevrier-avril 2002) : 487 hommes preleves dans un rayon de 10 km autour de Cartigny. AUCUNE correspondance.
+   - Phase 2 (mai-aout 2002) : extension a 25 km, 1 842 prelevements supplementaires. AUCUNE correspondance.
+   - Phase 3 (2003) : prelevements cibles sur frequentations et connaissances de la victime, 312 prelevements. AUCUNE correspondance.
+   - Total : 2 641 prelevements individuels, ZERO correspondance.
+
+3. Prelevements cibles suspects nommes :
+   - Ensemble des hommes presents a la soiree du 10/01/2002 : negatif
+   - Ex-petit ami de la victime (B. Remy) : negatif
+   - Voisins du domicile de la victime : negatif
+   - Collegues masculins de la victime au CIC : negatif
+
+4. Recherche elargie (2005-2008) :
+   - Comparaison avec affaires similaires regionales : aucune correspondance
+   - Interrogation bases internationales (Interpol) : aucune correspondance
+
+CONCLUSION :
+Le profil ADN de l'agresseur ne correspond a aucun individu connu des fichiers a la date de la derniere mise a jour. L'auteur n'a jamais ete condamne pour une infraction necessitant un prelevement FNAEG, ou n'a tout simplement jamais ete preleve.
+
+NOTE TECHNIQUE :
+La qualite du profil est excellente (16 marqueurs complets). Ce profil est compatible avec une recherche de parentele (recherche dans le FNAEG de profils partiellement concordants pouvant designer un parent biologique de l'auteur). Cette technique, autorisee par la loi depuis 2003, pourrait etre envisagee si les recherches classiques restent infructueuses.
+
+Dr. Martine VIDAL
+Laboratoire de Police Scientifique de Lyon

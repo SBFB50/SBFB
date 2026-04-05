@@ -1,0 +1,58 @@
+CALIFORNIA DEPARTMENT OF JUSTICE
+BUREAU OF FORENSIC SERVICES
+---
+RAPPORT D'ANALYSE GENETIQUE -- SYNTHESE MULTI-SCENES
+Reference : DOJ-DNA-2001-0834
+Date initiale du rapport : 14 mars 2001
+Mises a jour : juin 2004, septembre 2011, mars 2016
+
+OBJET :
+Ce rapport consolide les resultats d'analyses ADN effectuees sur les prelevements issus de plusieurs scenes de crimes attribuees a la serie EAR (East Area Rapist, Sacramento, 1976-1979) et ONS (Original Night Stalker, sud Californie, 1979-1986).
+
+=== RESULTATS PRINCIPAUX ===
+
+1. PROFIL ADN UNIQUE :
+Un profil ADN masculin complet a ete etabli a partir de traces biologiques (sperme) recuperees sur plusieurs scenes :
+- Scene du 13 mars 1980 (Ventura, Crime 3 ONS) -- profil de reference
+- Scene du 5 mai 1986 (Irvine, Crime 7 ONS) -- concordance confirmee
+- Multiples scenes EAR (Sacramento, 1976-1979) -- concordance confirmee
+
+CONCLUSION MAJEURE (2001) : Les series EAR et ONS sont l'oeuvre du MEME INDIVIDU.
+Ce resultat met fin a 20 ans de debat sur un eventuel lien entre les deux series.
+
+2. CARACTERISTIQUES DU PROFIL :
+- 16 marqueurs STR complets
+- Chromosome Y : haplogroupe typique d'Europe occidentale
+- Sexe : masculin (confirme)
+- Le profil est de qualite suffisante pour une correspondance formelle
+
+3. RECHERCHES DE CORRESPONDANCE :
+
+a) Base CODIS (Combined DNA Index System) :
+   - Recherche initiale (2001) : AUCUNE correspondance
+   - Mises a jour regulieres (2004, 2008, 2011, 2016) : AUCUNE correspondance
+   - Le suspect n'est PAS dans CODIS (jamais arrete pour une infraction qualifiante)
+
+b) Suspects nommes investigues et ELIMINES par ADN :
+   - Total de suspects testes au fil des annees : 197
+   - AUCUNE correspondance
+
+c) Base FBI (national) : AUCUNE correspondance
+d) Bases Interpol : AUCUNE correspondance
+
+4. RECHERCHE DE PARENTELE :
+A la date du dernier rapport (2016), une recherche de parentele dans CODIS a ete envisagee mais n'a pas donne de resultat exploitable. Les techniques de genealogie genetique via des bases de donnees commerciales (type 23andMe, AncestryDNA) n'ont pas encore ete deployees dans cette affaire.
+
+=== PRELEVEMENTS SUPPLEMENTAIRES ===
+
+Scene du Crime 4 (Dana Point, 1980) : Traces biologiques partiellement degradees. Profil partiel obtenu, COMPATIBLE avec le profil de reference (12 marqueurs concordants sur 16).
+
+Scene du Crime 1 (Goleta, 1979) : Pas de trace biologique exploitable (scene ancienne, technologie de l'epoque insuffisante).
+
+=== AUTRES TRACES ===
+- Empreintes digitales : AUCUNE empreinte digitale exploitable n'a ete retrouvee sur l'ensemble des scenes. Le sujet portait systematiquement des gants.
+- Fibres textiles : fibres de laine et de coton retrouvees sur plusieurs scenes, non specifiques
+- Poils : quelques poils non pubiens retrouves sur 2 scenes, profil mitochondrial obtenu mais insuffisant pour identification formelle
+
+Dr. Steven MYERS
+Bureau of Forensic Services, Sacramento

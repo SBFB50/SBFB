@@ -1,0 +1,100 @@
+SACRAMENTO COUNTY SHERIFF'S DEPARTMENT
+SPECIAL INVESTIGATIONS DIVISION
+---
+ANALYSE DU MODUS OPERANDI -- EAR/ONS
+Reference : EAR-ONS-MO-ANALYSIS-2003
+Date : Septembre 2003
+
+OBJET :
+Analyse detaillee du mode operatoire du tueur EAR/ONS, basee sur l'ensemble des crimes attribues (50+ viols EAR, 10 meurtres ONS).
+
+=== PHASE 1 : REPERAGE (jours/semaines avant l'agression) ===
+
+Le sujet effectue une reconnaissance approfondie avant chaque crime :
+- Il observe les maisons cibles pendant plusieurs jours
+- Il note les habitudes des residents (horaires de travail, sorties)
+- Il s'introduit parfois dans les maisons en l'absence des occupants :
+  * Deverrouille des fenetres pour faciliter l'entree ulterieure
+  * Repere la disposition des pieces (chambres, cuisine, sorties)
+  * Deplace parfois des objets pour tester si les residents le remarquent
+- Il identifie les chemins de fuite (jardins, clotures, ruelles, canaux)
+- Sur certaines scenes, des traces montrent qu'il avait cache du materiel a l'avance (lacets, arme) dans les buissons du jardin
+
+PREUVE DE REPERAGE :
+Scene EAR-1978-SAC-072 : des traces de semelles identiques a celles retrouvees la nuit de l'agression ont ete trouvees dans le jardin voisin, datant de 2 a 3 jours avant le crime (confirmation par etat de la terre). Le sujet etait venu reperer les lieux.
+
+=== PHASE 2 : INTRUSION ===
+
+Methode d'entree :
+- Fenetre coulissante du salon ou de la chambre d'amis (methode preferee)
+- Porte arriere non verrouillee (quand disponible)
+- Fenetre de salle de bain
+- JAMAIS de porte principale (trop visible)
+- Le sujet force rarement l'entree : il exploite des ouvertures deja deverrouillees, souvent par ses propres soins lors du reperage
+
+Timing :
+- Toujours entre minuit et 4h du matin
+- Nuits sans lune preferees (EAR)
+- Week-ends plus frequents que les jours de semaine
+
+=== PHASE 3 : CONTROLE ===
+
+Immediatement apres l'intrusion :
+- Lampe torche braquee dans les yeux des victimes
+- Ordres brefs et agressifs ("ne bougez pas", "fermez-la")
+- Arme visible (revolver ou couteau)
+- Ligotage des victimes avec des lacets PRE-COUPES (toujours prepares a l'avance)
+- Si un couple : l'homme est ligote en premier, assiettes empilees sur son dos comme "alarme"
+- Le sujet separe ensuite les victimes (femme dans une autre piece)
+
+Comportement verbal :
+- Murmures quasi-constants, souvent inaudibles
+- Alternance entre voix calme/controlee et explosions de rage
+- Mentions repetees de "Bonnie" (nom d'une personne ? nom de code ?)
+- Ordres de type militaire (confirme par plusieurs survivantes)
+- "Je vais tous les tuer" (phrase recurrente)
+
+=== PHASE 4 : AGRESSION ===
+
+- Violences sexuelles systematiques sur les femmes
+- Parfois interruption pour fouiller la maison (nourriture, biere)
+- Duree moyenne de presence sur les lieux : 1h30 a 3h (remarquablement long)
+- Le sujet prend son temps, ne montre aucun signe de precipitation
+
+=== PHASE 5 : FUITE ===
+
+- Sortie par le jardin arriere (jamais par l'entree principale)
+- Fuite a pied ou a velo (serie EAR -- Sacramento)
+- Utilisation d'un vehicule gare a distance (serie ONS -- sud Californie)
+- Itineraire de fuite pre-planifie (canaux, voies de chemin de fer, ruelles)
+- Aucun temoin direct de la fuite dans la serie ONS
+
+=== EVOLUTION ENTRE EAR ET ONS ===
+
+| Element | EAR (Sacramento) | ONS (Sud Californie) |
+|---------|------------------|---------------------|
+| Periode | 1976-1979 | 1979-1986 |
+| Victimes | Femmes seules ou couples | Couples principalement |
+| Issue | Viol, pas de meurtre | Meurtre systematique |
+| Fuite | A pied/velo | En vehicule |
+| Arme | Couteau | Arme a feu + outil contondant |
+| Frequence | Tres haute (50+ en 3 ans) | Basse (10 en 7 ans) |
+| Zone | Quartiers residentiels est Sacramento | Santa Barbara, Ventura, Orange County |
+
+=== ELEMENT CLE : CONNAISSANCE DES LIEUX ===
+
+Le sujet connait intimement les quartiers ou il agit. Cette connaissance va au-dela d'un simple reperage :
+- Il connait les chemins de fuite cachees (canaux d'irrigation, passages entre jardins)
+- Il sait quelles maisons ont des chiens et les evite
+- Il connait les rythmes de patrouille des polices locales (plusieurs agressions ont eu lieu juste apres le passage d'une patrouille)
+
+Cette connaissance est compatible avec :
+a) Un resident de longue date de ces quartiers
+b) Un professionnel dont le travail l'amenait a patrouiller/visiter ces quartiers (policier, facteur, livreur, agent d'entretien)
+c) Une combinaison des deux
+
+=== NOTE FINALE ===
+Le niveau de planification, la conscience forensique (gants, chaussures changees, pas d'empreintes), la connaissance des procedures policieres et le ton "militaire" des ordres pointent de maniere convergente vers un individu ayant un lien professionnel avec les forces de l'ordre ou l'armee.
+
+Detective Paul HOLES
+Contra Costa County District Attorney's Office

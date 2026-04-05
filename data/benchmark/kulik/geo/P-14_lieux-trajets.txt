@@ -1,0 +1,75 @@
+REPUBLIQUE FRANCAISE
+GENDARMERIE NATIONALE
+SECTION DE RECHERCHES D'AMIENS
+---
+NOTE GEOGRAPHIQUE -- LIEUX ET TRAJETS
+Ref : 2002/01/NC-005 -- 14 janvier 2002
+
+=== LIEUX CLES ===
+
+1. DOMICILE VICTIME
+   Adresse : 12 rue de la Gare, 80200 Peronne
+   Coordonnees : 49.9296 N, 2.9342 E
+   Description : Appartement T2, premier etage, rue calme pres de la gare SNCF
+
+2. LIEU DE TRAVAIL
+   Adresse : CIC Peronne, 14 place Louis Daudre, 80200 Peronne
+   Coordonnees : 49.9312 N, 2.9375 E
+   Distance du domicile : 800m (2 min en voiture, 10 min a pied)
+
+3. DOMICILE AMIS (DELATTRE)
+   Adresse : 8 rue des Marronniers, 80400 Ham
+   Coordonnees : 49.7476 N, 3.0706 E
+   Distance de Peronne : 15 km par la D44 (environ 18 min en voiture)
+
+4. SCENE DE CRIME (vehicule)
+   Localisation : Chemin rural de Cartigny, 300m a l'ouest de la D44
+   Coordonnees approximatives : 49.8645 N, 2.9580 E
+   Distance de la D44 : 300m par le chemin de terre
+   Distance de Peronne : 5 km (direction sud)
+   Distance de Ham : 10 km (direction nord)
+
+5. SCENE DE CRIME (corps)
+   Localisation : Fosse d'irrigation, 150m au sud du vehicule
+   Coordonnees approximatives : 49.8632 N, 2.9575 E
+
+6. INTERSECTION D44 / CHEMIN RURAL
+   Coordonnees approximatives : 49.8652 N, 2.9612 E
+   Description : Intersection non signalee, le chemin part sur la gauche en venant de Ham
+
+=== TRAJET RECONSTITUE DE LA VICTIME ===
+
+Ham (depart ~23h50) → D44 direction nord → Peronne
+Distance totale : 15 km
+Duree estimee : 15-20 minutes (route departementale, conditions nocturnes, janvier)
+Dernier bornage telephonique sur le trajet : Peronne-Sud (antenne P-3) a 00h12
+
+Le chemin rural de Cartigny se situe a environ 10 km de Ham et 5 km de Peronne, soit aux deux tiers du trajet. C'est un croisement discret, non eclaire, facile a manquer de nuit.
+
+=== HYPOTHESES DE TRAJET ===
+
+Hypothese A -- Interception sur la D44 :
+La victime roulait normalement sur la D44 et a ete forcee de quitter la route au niveau du chemin rural de Cartigny. Un ou plusieurs vehicules l'ont interceptee (barrage, signaux lumineux, simulation de panne).
+Probleme : La victime aurait du passer le croisement de Cartigny AVANT d'atteindre l'antenne Peronne-Sud. Or, elle borne a Peronne-Sud a 00h12, PUIS a Cartigny a 00h19. Cela signifie qu'elle a d'abord depasse Cartigny, puis est REVENUE en arriere.
+
+Hypothese B -- Demi-tour volontaire :
+La victime a depasse Cartigny, a atteint les abords de Peronne (bornage P-3 a 00h12), puis a fait demi-tour pour une raison inconnue et est revenue vers Cartigny (bornage C-1 a 00h19). L'appel recu a 19h48 depuis le telephone prepaye pourrait avoir donne rendez-vous a la victime a un point specifique.
+Probleme : Pourquoi revenir en arriere si elle rentrait chez elle ?
+
+Hypothese C -- Trajet alternatif :
+L'antenne P-3 couvre une large zone. Il est possible que la victime n'ait pas atteint Peronne meme mais se trouvait dans la zone sud de couverture de P-3, et que son trajet de retour vers Cartigny n'ait pas necessite de demi-tour mais plutot un detour par une route secondaire.
+
+=== DISTANCES ENTRE POINTS ===
+
+Ham → Cartigny (D44) : 10 km (12 min)
+Cartigny → Peronne (D44) : 5 km (6 min)
+Ham → Peronne (D44) : 15 km (18 min)
+Peronne → Amiens (A29) : 50 km (40 min)
+Peronne → Saint-Quentin (N29) : 30 km (30 min)
+Cartigny → Autoroute A1 (acces Peronne) : 10 km
+
+=== NOTE IMPORTANTE ===
+Le chemin rural de Cartigny n'est PAS sur le trajet normal Ham-Peronne. Il faut volontairement quitter la D44 pour l'emprunter. Soit la victime y a ete conduite de force, soit elle s'y est rendue volontairement (rendez-vous ?), soit elle a ete poursuivie et a tente de fuir par ce chemin.
+
+Le Lieutenant Bruno GARCIA
+Section de Recherches d'Amiens

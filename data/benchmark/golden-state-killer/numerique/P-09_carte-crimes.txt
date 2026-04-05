@@ -1,0 +1,108 @@
+CALIFORNIA DEPARTMENT OF JUSTICE
+TASK FORCE EAR/ONS
+---
+ANALYSE GEOGRAPHIQUE DES SCENES DE CRIMES
+Reference : EARONS-GEO-2004-001
+Date : Juin 2004
+
+OBJET :
+Cartographie et analyse spatiale de l'ensemble des scenes de crimes attribuees a l'EAR/ONS.
+
+=== COORDONNEES DES SCENES (MEURTRES ONS) ===
+
+Crime 1 -- 02/10/1979 : Goleta, Santa Barbara County
+Coordonnees : 34.4358 N, 119.8275 W
+Quartier residentiel, maisons individuelles avec jardin
+
+Crime 2 -- 30/12/1979 : Goleta, Santa Barbara County
+Coordonnees : 34.4321 N, 119.8198 W
+Meme ville que Crime 1, a 800m de distance
+NOTE : Deux crimes dans le meme secteur en 3 mois
+
+Crime 3 -- 13/03/1980 : Ventura, Ventura County
+Coordonnees : 34.2783 N, 119.2293 W
+Quartier residentiel, 100 km au sud-est de Goleta
+
+Crime 4 -- 19/08/1980 : Dana Point, Orange County
+Coordonnees : 33.4669 N, 117.6981 W
+Quartier residentiel en bord de mer, 250 km au sud-est de Ventura
+
+Crime 5 -- 06/02/1981 : Irvine, Orange County
+Coordonnees : 33.6846 N, 117.8265 W
+Quartier residentiel, 25 km au nord de Dana Point
+
+Crime 6 -- 28/07/1981 : Goleta, Santa Barbara County
+Coordonnees : 34.4401 N, 119.8312 W
+RETOUR a Goleta -- meme zone que Crimes 1 et 2
+
+Crime 7 -- 05/05/1986 : Irvine, Orange County
+Coordonnees : 33.6792 N, 117.7945 W
+Quartier residentiel, proche de la scene du Crime 5
+NOTE : 5 ans d'interruption entre Crime 6 et Crime 7
+
+=== SCENES EAR (VIOLS -- SACRAMENTO, 1976-1979) ===
+
+Concentration : Quartiers est de Sacramento
+Zones principales : Rancho Cordova, Carmichael, Citrus Heights, Orangevale
+Rayon d'action : environ 15 km d'est en ouest, 10 km du nord au sud
+Centre approximatif : 38.6270 N, 121.3275 W
+
+Total : 50+ attaques reparties sur environ 20 km2 dans les banlieues est de Sacramento
+
+=== PATTERN SPATIAL ===
+
+1. PHASE EAR (1976-1979) :
+   - Toutes les attaques dans un rayon de 15 km dans l'est de Sacramento
+   - Le sujet connait intimement cette zone
+   - La densite des attaques suggere qu'il RESIDE dans ce secteur
+   - Les quartiers cibles sont des zones residentielles de classe moyenne
+   - Proximite de la base aerienne de Mather (US Air Force) et du depot militaire de Sacramento
+
+2. TRANSITION (1979) :
+   - Derniere attaque EAR a Sacramento : juillet 1979
+   - Premier meurtre ONS a Goleta : octobre 1979
+   - GAP de 3 mois entre les deux series dans deux zones geographiques differentes
+   - Distance Sacramento -> Goleta : 530 km (5h30 de route)
+   - Le deplacement vers le sud est BRUSQUE, pas progressif
+
+3. PHASE ONS (1979-1986) :
+   - Axe Santa Barbara / Ventura / Orange County (environ 300 km de cote)
+   - Le sujet se deplace sur de longues distances entre les scenes
+   - Pas de concentration aussi etroite qu'a Sacramento
+   - Suggerent soit un sujet mobile professionnellement, soit un sujet qui voyage pour commettre ses crimes
+
+4. RETOURS :
+   - Le sujet revient a Goleta (Crimes 1, 2, 6) a trois reprises
+   - Il revient a Irvine (Crimes 5, 7)
+   - Cela indique une familiarite avec ces villes specifiques
+
+=== ANALYSE DE DISTANCE ===
+
+Sacramento -> Goleta : 530 km
+Goleta -> Ventura : 100 km
+Ventura -> Dana Point : 250 km
+Dana Point -> Irvine : 25 km
+Irvine -> Goleta : 300 km
+
+Le rayon d'action total (Sacramento + sud CA) couvre environ 750 km de long.
+
+=== HYPOTHESE GEOPROFILAGE ===
+
+Le deplacement brusque de Sacramento vers le sud en 1979 est un element majeur. Hypotheses :
+a) Mutation professionnelle (si policier, militaire, ou emploi similaire)
+b) Fuite apres avoir failli etre identifie a Sacramento
+c) Changement de situation personnelle (divorce, separation)
+
+Le profil geographique suggere que le sujet residait dans la zone de Sacramento jusqu'en 1979, puis s'est installe dans le sud de la Californie. La coincidence temporelle avec un eventuel changement professionnel est a explorer.
+
+=== ELEMENT CLE : INTERRUPTION 1981-1986 ===
+
+Entre le Crime 6 (juillet 1981) et le Crime 7 (mai 1986), il y a un SILENCE de pres de 5 ans. Cet arret prolonge est inhabituel pour un tueur en serie de ce profil. Hypotheses :
+- Emprisonnement pour un autre crime (non confirme)
+- Maladie / blessure
+- Mariage / naissance d'un enfant (evenement stabilisateur)
+- Activite criminelle non detectee
+- Deplacement temporaire hors de Californie
+
+Analyste Karen PARKER
+California DOJ, Crime Analysis Unit

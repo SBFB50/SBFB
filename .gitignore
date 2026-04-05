@@ -34,3 +34,6 @@ Thumbs.db
 
 # Models (large GGUF files)
 models/*.gguf
+
+# Exception: benchmark data (no secrets)
+!data/benchmark/

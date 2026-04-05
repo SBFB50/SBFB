@@ -1,0 +1,79 @@
+CALIFORNIA DEPARTMENT OF JUSTICE
+TASK FORCE EAR/ONS
+---
+SYNTHESE DES SUSPECTS INVESTIGUES ET ELIMINES
+Reference : EARONS-SUSPECTS-2016-001
+Date : Mars 2016
+
+OBJET :
+Ce document resume les principaux suspects investigues au fil des annees et les raisons de leur elimination. Plus de 197 individus ont ete testes par ADN. Ce document ne couvre que les 3 suspects les plus serieusement investigues.
+
+=== SUSPECT 1 : Brett GLASBY ===
+
+Identite : GLASBY Brett Thomas, ne en 1954 a Sacramento
+Profession : Ouvrier du batiment, puis gardien de nuit
+Residence : Sacramento (1970-1985), puis Oregon
+
+Raisons de la suspicion :
+- Correspondait au signalement physique (homme blanc, 1m78, athletique)
+- Residait dans l'est de Sacramento pendant la periode EAR
+- Arrete en 1982 pour tentative de cambriolage a Portland, Oregon
+- Avait des antecedents de voyeurisme (arrete en 1980 pour observation de domiciles)
+- Un voisin de l'une des victimes EAR a declare l'avoir vu dans le quartier la semaine precedant une agression
+- Possedait un vehicule sombre type van
+
+Elimination :
+- Prelevement ADN effectue en 2001 : ADN NON CONCORDANT
+- L'ADN de Glasby ne correspond PAS au profil EAR/ONS
+- Glasby a ete formellement elimine en 2001
+- NOTE : Glasby avait un alibi partiel pour certaines attaques EAR (fiches de paie montrant un emploi de nuit), mais l'elimination repose sur l'ADN, pas sur les alibis
+
+=== SUSPECT 2 : Morris KOBB ===
+
+Identite : KOBB Morris Peter, ne en 1950 a San Jose
+Profession : Agent de securite prive, ancien militaire (US Army, 1968-1972, Vietnam)
+Residence : Sacramento (1974-1980), puis Ventura (1980-1988)
+
+Raisons de la suspicion :
+- Ancien militaire -- correspondait au profil "ordres militaires"
+- A reside a Sacramento pendant la periode EAR, puis a demenage vers Ventura au moment de la transition EAR -> ONS
+- Son demenagement en 1980 coincide avec le debut des meurtres dans le sud de la Californie
+- Connu pour des comportements agressifs envers les femmes (plainte de son ex-epouse)
+- Agent de securite : connaissance des systemes de surveillance et des procedures
+- Physiquement compatible : 1m80, athletique dans les annees 1970-80
+
+Elimination :
+- Prelevement ADN effectue en 2004 : ADN NON CONCORDANT
+- Kobb a ete formellement elimine en 2004
+- De plus, des recherches approfondies ont montre que Kobb etait en service de nuit (gardiennage) les nuits de 3 attaques EAR confirmees, avec des registres de pointage a l'appui
+
+=== SUSPECT 3 : Oscar CLIFTON ===
+
+Identite : CLIFTON Oscar Wayne, ne en 1952 a Fresno
+Profession : Plombier, puis agent immobilier
+Residence : Sacramento (1975-1979), puis Santa Barbara (1980-1990)
+
+Raisons de la suspicion :
+- Profil geographique quasi-parfait : Sacramento puis Santa Barbara, aux memes periodes que EAR -> ONS
+- Plombier puis agent immobilier : deux professions donnant acces a l'interieur des domiciles residentiels
+- Physiquement compatible : 1m78, mince
+- Arrete en 1991 pour agression sexuelle (non liee) : deja dans les fichiers criminels
+- Un temoin de la serie ONS a identifie sa photo parmi un album de portraits (identification non formelle)
+
+Elimination :
+- Prelevement ADN effectue en 2011 : ADN NON CONCORDANT
+- Clifton a ete formellement elimine en 2011
+- L'identification par temoin s'est averee non fiable (la photo de Clifton etait parmi les plus recentes de l'album, biais de selection)
+
+=== BILAN ===
+
+Total de suspects investigues par ADN : 197
+Total de suspects ELIMINES par ADN : 197
+Correspondances trouvees : ZERO
+
+Le profil ADN EAR/ONS ne correspond a AUCUN suspect identifie a ce jour. L'auteur de ces crimes n'a jamais ete arrete pour une infraction ayant conduit a un prelevement ADN, et n'a jamais ete serieusement suspecte dans cette affaire.
+
+Les techniques d'investigation classiques (temoignages, profil geographique, profil comportemental) ont genere de nombreuses pistes, mais toutes ont ete infirmees par l'ADN. La seule voie d'identification restante semble etre soit une avancee technologique (genealogie genetique, bases de donnees commerciales), soit une information provenant du public (denonciation).
+
+Lieutenant James HOLDEN
+Task Force EAR/ONS, Sacramento

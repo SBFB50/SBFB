@@ -1,0 +1,70 @@
+CALIFORNIA DEPARTMENT OF JUSTICE
+BUREAU OF FORENSIC SERVICES
+---
+NOTE DE LIAISON -- CONFIRMATION ADN EAR = ONS
+Reference : DOJ-LIAISON-2001-0412
+Date : 14 mars 2001
+
+OBJET :
+Ce document officialise la decouverte majeure suivante : les series criminelles connues sous les noms de "East Area Rapist" (EAR) et "Original Night Stalker" (ONS) sont l'oeuvre du MEME INDIVIDU.
+
+=== CONTEXTE ===
+
+Depuis les annees 1980, deux series criminelles distinctes etaient investiguees separement par des juridictions differentes :
+
+1. "East Area Rapist" (EAR) :
+   - Zone : Sacramento et banlieues est (1976-1979)
+   - Crimes : 50+ viols avec intrusion nocturne
+   - Juridiction : Sacramento County Sheriff's Department
+   - Pas de meurtre confirme dans cette serie (a l'epoque)
+
+2. "Original Night Stalker" (ONS) :
+   - Zone : Sud de la Californie -- Santa Barbara, Ventura, Orange County (1979-1986)
+   - Crimes : 10 meurtres avec violences sexuelles
+   - Juridiction : Multiple (sherifs des differents counties)
+   - Pas de lien formel avec l'EAR avant 2001
+
+Les deux series partageaient des similitudes de mode operatoire (intrusion nocturne, ligatures pre-coupees, ciblage de quartiers residentiels), mais les differences (pas de meurtre dans la serie EAR, zones geographiques distinctes, armes differentes) avaient conduit les enqueteurs a les traiter comme des affaires independantes.
+
+=== DECOUVERTE ===
+
+En 2000-2001, le Bureau of Forensic Services de Californie a entrepris une campagne de reanalyse des prelevements biologiques des scenes de crimes anciennes en utilisant les techniques STR (Short Tandem Repeat) de derniere generation.
+
+Resultats :
+- Profil ADN complet obtenu a partir de traces seminales de la scene ONS Crime 3 (Ventura, 1980)
+- Ce profil a ete compare aux traces biologiques archivees des scenes EAR de Sacramento
+
+RESULTAT : CONCORDANCE A 16 MARQUEURS STR
+La probabilite de correspondance fortuite est de 1 sur 1.1 quintillion (1.1 x 10^18).
+
+=== IMPLICATIONS ===
+
+1. L'EAR et l'ONS sont le MEME HOMME
+   - Ce resultat est definitif et irrefutable (concordance ADN complete)
+   - Le sujet a ete actif pendant au moins 10 ans (1976-1986) et possiblement 12 ans (si la serie Visalia de 1974-75 est incluse)
+   - Le nombre total de victimes identifiees depasse 60 (50+ viols + 10 meurtres)
+
+2. Le sujet a EVOLUE
+   - Phase 1 (Visalia ?) : cambriolages avec composante fétichiste
+   - Phase 2 (Sacramento) : viols sans meurtre
+   - Phase 3 (sud CA) : viols avec meurtre systematique
+   - Cette escalade est coherente avec les theories criminologiques sur l'evolution des tueurs en serie
+
+3. Le sujet s'est DEPLACE
+   - Sacramento -> sud de la Californie entre juillet et octobre 1979
+   - Ce deplacement est un element crucial pour l'identification
+   - Tout suspect doit pouvoir expliquer ce deplacement geographique
+
+4. Le sujet a ARRETE
+   - Aucun crime attribue apres mai 1986
+   - Le sujet serait age de 50 a 60 ans aujourd'hui (estimation basee sur l'age au moment des crimes)
+   - Il est probablement toujours en vie
+
+=== UNIFICATION DES ENQUETES ===
+
+Suite a cette decouverte, les enquetes EAR et ONS sont desormais fusionnees. Une task force inter-juridictions est constituee, coordonnee par le California DOJ.
+
+Designation unifiee : EAR/ONS (aussi connu du public sous le nom de "Golden State Killer" depuis 2004)
+
+Dr. Steven MYERS
+Bureau of Forensic Services, Sacramento

@@ -1,0 +1,330 @@
+{
+  "case": {
+    "name": "Affaire MOREAU",
+    "reference": "#2019-4472-LY",
+    "description": "Disparition et meurtre d'Elise Moreau, 34 ans, pharmacienne a Lyon. Corps retrouve 11 jours plus tard a Miribel-Jonage. Strangulation manuelle. Affaire classee en mars 2021, reinvestigation ouverte en avril 2026."
+  },
+  "evidence": [
+    {
+      "id": "P-01",
+      "title": "Rapport de police initial",
+      "type": "pdf",
+      "source": "SRPJ Lyon",
+      "reliability": 85,
+      "source_date": "2019-09-15",
+      "file": "police/P-01_rapport-initial.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-02",
+      "title": "Temoignage Sophie Laurent",
+      "type": "text",
+      "source": "Audition SRPJ, PV 2019/09/152",
+      "reliability": 70,
+      "source_date": "2019-09-16",
+      "file": "temoignages/P-02_sophie-laurent.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-03",
+      "title": "Temoignage Marc Duval",
+      "type": "text",
+      "source": "Audition SRPJ, PV 2019/09/153",
+      "reliability": 60,
+      "source_date": "2019-09-16",
+      "file": "temoignages/P-03_marc-duval.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-04",
+      "title": "Temoignage Romain Fabre",
+      "type": "text",
+      "source": "Audition SRPJ, PV 2019/09/161",
+      "reliability": 65,
+      "source_date": "2019-09-18",
+      "file": "temoignages/P-04_romain-fabre.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-05",
+      "title": "Temoignage Karim Belhadj (2 versions)",
+      "type": "text",
+      "source": "Audition SRPJ, PV 2019/09/168",
+      "reliability": 45,
+      "source_date": "2019-09-18",
+      "file": "temoignages/P-05_karim-belhadj.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-06",
+      "title": "Rapport autopsie",
+      "type": "pdf",
+      "source": "IML Lyon, Dr Perrin",
+      "reliability": 95,
+      "source_date": "2019-09-26",
+      "file": "forensique/P-06_autopsie.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-07",
+      "title": "Releves telephoniques (5 lignes)",
+      "type": "text",
+      "source": "Requisition Orange/SFR/Free",
+      "reliability": 90,
+      "source_date": "2019-10-01",
+      "file": "numerique/P-07_telephonie.txt",
+      "wave": 2
+    },
+    {
+      "id": "P-08",
+      "title": "Transactions bancaires Elise Moreau",
+      "type": "text",
+      "source": "LCL, requisition judiciaire",
+      "reliability": 90,
+      "source_date": "2019-10-01",
+      "file": "numerique/P-08_banque-elise.txt",
+      "wave": 2
+    },
+    {
+      "id": "P-09",
+      "title": "Photos scene de decouverte (descriptions)",
+      "type": "image",
+      "source": "PTS Lyon",
+      "reliability": 90,
+      "source_date": "2019-09-25",
+      "file": "photos/P-09_scene-descriptions.txt",
+      "wave": 4
+    },
+    {
+      "id": "P-10",
+      "title": "Releve assurance-vie AXA",
+      "type": "pdf",
+      "source": "AXA Assurances, requisition",
+      "reliability": 95,
+      "source_date": "2019-11-01",
+      "file": "osint/P-10_assurance-vie.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-11",
+      "title": "Historique Instagram Elise Moreau",
+      "type": "text",
+      "source": "Extraction Meta/Instagram",
+      "reliability": 80,
+      "source_date": "2019-10-01",
+      "file": "numerique/P-11_instagram.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-12",
+      "title": "Extrait Kbis SARL WEBCRAFT",
+      "type": "text",
+      "source": "Infogreffe",
+      "reliability": 95,
+      "source_date": "2026-04-01",
+      "file": "osint/P-12_kbis-webcraft.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-13",
+      "title": "Main courante Moreau contre Tessier",
+      "type": "text",
+      "source": "Commissariat Lyon 6e",
+      "reliability": 85,
+      "source_date": "2017-03-08",
+      "file": "police/P-13_main-courante.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-14",
+      "title": "Casier judiciaire Yann Chevalier",
+      "type": "text",
+      "source": "Casier judiciaire national (B2)",
+      "reliability": 95,
+      "source_date": "2026-04-01",
+      "file": "osint/P-14_casier-chevalier.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-15",
+      "title": "Analyse ADN megot (correspondance 2026)",
+      "type": "pdf",
+      "source": "Labo PTS Lyon",
+      "reliability": 85,
+      "source_date": "2026-04-03",
+      "file": "forensique/P-15_adn-megot.txt",
+      "wave": 4
+    }
+  ],
+  "waves": {
+    "1": {
+      "name": "Dossier initial",
+      "description": "Ouverture cold case -- pieces de l'enquete initiale",
+      "evidence_ids": [
+        "P-01",
+        "P-02",
+        "P-03",
+        "P-04",
+        "P-05",
+        "P-06"
+      ]
+    },
+    "2": {
+      "name": "Donnees numeriques",
+      "description": "Requisitions telephonie + banque",
+      "evidence_ids": [
+        "P-07",
+        "P-08"
+      ]
+    },
+    "3": {
+      "name": "OSINT + complementaires",
+      "description": "Resultats recherche OSINT automatique + pieces administratives",
+      "evidence_ids": [
+        "P-10",
+        "P-11",
+        "P-12",
+        "P-13",
+        "P-14"
+      ]
+    },
+    "4": {
+      "name": "Percee forensique",
+      "description": "Photos scene + correspondance ADN tardive",
+      "evidence_ids": [
+        "P-09",
+        "P-15"
+      ]
+    }
+  },
+  "expected_contradictions": [
+    {
+      "id": "C1",
+      "description": "Sophie dit Elise partie 'vers minuit' vs SMS 'je rentre bientot' a 23h47",
+      "evidence": [
+        "P-02",
+        "P-01"
+      ]
+    },
+    {
+      "id": "C2",
+      "description": "Marc dit 'rentre directement' vs borne Villeurbanne a 23h52",
+      "evidence": [
+        "P-03",
+        "P-07"
+      ]
+    },
+    {
+      "id": "C3",
+      "description": "Romain dit 'parti juste apres Marc ~23h45' vs Sophie implique decalage > 45 min",
+      "evidence": [
+        "P-04",
+        "P-02"
+      ]
+    },
+    {
+      "id": "C4",
+      "description": "Karim change d'heure, de comportement observe, et ajoute un detail (conducteur)",
+      "evidence": [
+        "P-05"
+      ]
+    },
+    {
+      "id": "C5",
+      "description": "Tessier dit 'aucun contact depuis 2018' vs bornes telephoniques a Lyon + SMS a Chevalier",
+      "evidence": [
+        "P-13",
+        "P-07"
+      ]
+    },
+    {
+      "id": "C6",
+      "description": "Sophie omet le DM 'il faut que je te parle de quelque chose. Important.'",
+      "evidence": [
+        "P-02",
+        "P-11"
+      ]
+    },
+    {
+      "id": "C7",
+      "description": "Ecchymoses anterieures (3-5 jours avant deces) non expliquees par aucun temoin",
+      "evidence": [
+        "P-06"
+      ]
+    }
+  ],
+  "expected_hypotheses": [
+    {
+      "id": "H1",
+      "title": "Marc Duval (compagnon) -- auteur",
+      "expected_final_score_range": [
+        30,
+        40
+      ]
+    },
+    {
+      "id": "H2",
+      "title": "Julien Tessier + Yann Chevalier -- auteurs (duo)",
+      "expected_final_score_range": [
+        75,
+        85
+      ]
+    },
+    {
+      "id": "H3",
+      "title": "Romain Fabre (collegue licencie) -- auteur",
+      "expected_final_score_range": [
+        15,
+        25
+      ]
+    },
+    {
+      "id": "H4",
+      "title": "Inconnu / agression aleatoire",
+      "expected_final_score_range": [
+        5,
+        10
+      ]
+    },
+    {
+      "id": "H5",
+      "title": "Marc Duval -- commanditaire via Chevalier",
+      "expected_final_score_range": [
+        20,
+        30
+      ]
+    }
+  ],
+  "monitoring_jobs": [
+    {
+      "type": "searxng",
+      "query": "\"Julien Tessier\" Grenoble",
+      "interval_hours": 6,
+      "entity": "Tessier"
+    },
+    {
+      "type": "searxng",
+      "query": "\"Yann Chevalier\" Villeurbanne",
+      "interval_hours": 6,
+      "entity": "Chevalier"
+    },
+    {
+      "type": "searxng",
+      "query": "\"pharmacie du parc\" lyon moreau",
+      "interval_hours": 24,
+      "entity": "Elise"
+    },
+    {
+      "type": "robin",
+      "query": "chevalier OR tessier lyon meurtre",
+      "interval_hours": 24,
+      "entity": null
+    },
+    {
+      "type": "searxng",
+      "query": "WEBCRAFT SARL Villeurbanne",
+      "interval_hours": 24,
+      "entity": "WEBCRAFT"
+    }
+  ]
+}

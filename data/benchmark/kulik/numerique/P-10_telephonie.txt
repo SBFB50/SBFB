@@ -1,0 +1,49 @@
+REPUBLIQUE FRANCAISE
+GENDARMERIE NATIONALE
+SECTION DE RECHERCHES D'AMIENS
+---
+EXPLOITATION DES RELEVES TELEPHONIQUES -- VICTIME KULIK Elodie
+PV n 2002/01/058 -- 18 janvier 2002
+
+LIGNE ANALYSEE : 06 72 88 41 33 (operateur SFR) -- titulaire KULIK Elodie
+
+=== ACTIVITE DU 10 JANVIER 2002 ===
+
+08:32 -- SMS sortant vers 06 XX XX 14 (Mme DELATTRE Valerie) : "Coucou ca tient toujours ce soir ?"
+08:35 -- SMS entrant de 06 XX XX 14 (Mme DELATTRE) : "Oui bien sur ! Viens pour 20h. Bisous"
+12:15 -- Appel entrant de 03 22 XX XX XX (CIC Peronne, ligne fixe) -- duree 2 min
+14:41 -- Appel sortant vers 06 XX XX 92 (M. VASSEUR Christophe, ami) -- duree 4 min
+17:22 -- SMS sortant vers mere (KULIK Jacqueline) : "Je mange chez Thierry et Val ce soir, bisous maman"
+17:25 -- SMS entrant de mere : "Ok ma cherie fais attention sur la route"
+19:48 -- Appel entrant de NUMERO INCONNU (06 81 XX XX 07, non attribue dans les fichiers) -- duree 47 secondes
+20:02 -- Telephone borne a Ham (antenne H-1), compatible avec le trajet vers le domicile des DELATTRE
+
+=== ACTIVITE DU 10-11 JANVIER 2002 (soiree et nuit) ===
+
+20:14 -- Telephone borne a Ham (antenne H-1)
+23:51 -- SMS sortant vers mere : "Bonne nuit maman, je rentre"
+23:53 -- Telephone borne a Ham (antenne H-1) -- depart estime du domicile DELATTRE peu apres
+00:12 -- Telephone borne a Peronne-Sud (antenne P-3), compatible avec trajet D44 direction Peronne
+00:19 -- Telephone borne a Cartigny (antenne C-1) -- derniere borne avant l'agression
+00:28 -- APPEL SORTANT vers le 18 (SDIS) -- duree 1 min 42 s -- borne Cartigny (antenne C-1)
+00:30 -- Derniere activite reseau enregistree
+
+Apres 00h30, AUCUNE activite. Le telephone est considere comme eteint ou detruit.
+
+=== NUMERO INCONNU : 06 81 XX XX 07 ===
+
+Ce numero a appele la victime le 10 janvier a 19h48 (47 secondes). Investigations :
+- Ligne prepayee, achetee en especes dans un tabac-presse d'Amiens le 22/12/2001
+- Pas de carte d'identite enregistree a l'achat (conforme a la legislation de l'epoque)
+- Activite de ce numero : tres faible (7 appels sortants sur la periode dec 2001 - jan 2002)
+- Ce numero a borne a Peronne le 10 janvier a 19h42 (6 minutes avant l'appel a Elodie)
+- Ce numero a borne dans le secteur de Cartigny le 11 janvier a 00h15 et 01h30
+
+Le fait que ce telephone prepaye non identifie se trouvait dans le secteur de Cartigny au moment des faits est un element majeur. L'appel a Elodie le soir meme pourrait indiquer que l'auteur connaissait les plans de la victime.
+
+=== TELEPHONE DE L'APPEL AU 18 ===
+
+L'appel au 18 a 00h28 a ete passe depuis le telephone d'Elodie (06 72 88 41 33), confirmant qu'elle avait encore son telephone en sa possession a ce moment-la.
+
+Le Lieutenant Bruno GARCIA
+Section de Recherches d'Amiens

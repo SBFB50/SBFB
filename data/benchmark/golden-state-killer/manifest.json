@@ -1,0 +1,320 @@
+{
+  "case": {
+    "name": "Golden State Killer (EAR/ONS)",
+    "reference": "#EARONS-TASK-FORCE-1986",
+    "description": "Serie de 50+ viols (East Area Rapist, Sacramento, 1976-1979) et 10 meurtres (Original Night Stalker, sud Californie, 1979-1986) attribues au meme individu par ADN. Profil ADN complet disponible mais aucune correspondance dans les fichiers. Tueur organise avec connaissance probable des procedures policieres. Cold case non resolu depuis 1986."
+  },
+  "evidence": [
+    {
+      "id": "P-01",
+      "title": "Synthese des 10 meurtres ONS",
+      "type": "text",
+      "source": "Task Force ONS, Bureau of Investigation",
+      "reliability": 90,
+      "source_date": "1986-03-15",
+      "file": "police/P-01_synthese-crimes.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-02",
+      "title": "Profil criminel FBI (BAU)",
+      "type": "text",
+      "source": "FBI Behavioral Analysis Unit, Quantico",
+      "reliability": 75,
+      "source_date": "2001-04-01",
+      "file": "police/P-02_profil-criminel.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-03",
+      "title": "Deposition survivante EAR (1977)",
+      "type": "text",
+      "source": "Sacramento County Sheriff, EAR-1977-SAC-042",
+      "reliability": 70,
+      "source_date": "1977-03-19",
+      "file": "temoignages/P-03_survivante-1.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-04",
+      "title": "Deposition survivante EAR (1978)",
+      "type": "text",
+      "source": "Sacramento County Sheriff, EAR-1978-SAC-089",
+      "reliability": 70,
+      "source_date": "1978-11-08",
+      "file": "temoignages/P-04_survivante-2.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-05",
+      "title": "Deposition voisin Sacramento",
+      "type": "text",
+      "source": "Sacramento County Sheriff, EAR-1978-SAC-077",
+      "reliability": 65,
+      "source_date": "1978-09-15",
+      "file": "temoignages/P-05_voisin-sacramento.txt",
+      "wave": 1
+    },
+    {
+      "id": "P-06",
+      "title": "Profil ADN consolide multi-scenes",
+      "type": "text",
+      "source": "California DOJ, Bureau of Forensic Services",
+      "reliability": 95,
+      "source_date": "2001-03-14",
+      "file": "forensique/P-06_adn-profil.txt",
+      "wave": 2
+    },
+    {
+      "id": "P-07",
+      "title": "Rapport consolide empreintes de chaussures",
+      "type": "text",
+      "source": "California DOJ, Bureau of Forensic Services",
+      "reliability": 80,
+      "source_date": "2002-06-12",
+      "file": "forensique/P-07_empreintes-chaussures.txt",
+      "wave": 2
+    },
+    {
+      "id": "P-08",
+      "title": "Analyse du modus operandi EAR/ONS",
+      "type": "text",
+      "source": "Contra Costa County DA, Detective Holes",
+      "reliability": 85,
+      "source_date": "2003-09-01",
+      "file": "forensique/P-08_modus-operandi.txt",
+      "wave": 2
+    },
+    {
+      "id": "P-09",
+      "title": "Analyse geographique des scenes de crimes",
+      "type": "text",
+      "source": "California DOJ, Crime Analysis Unit",
+      "reliability": 85,
+      "source_date": "2004-06-01",
+      "file": "numerique/P-09_carte-crimes.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-10",
+      "title": "Chronologie detaillee EAR/ONS",
+      "type": "text",
+      "source": "California DOJ, Crime Analysis Unit",
+      "reliability": 85,
+      "source_date": "2004-06-01",
+      "file": "numerique/P-10_timeline.txt",
+      "wave": 3
+    },
+    {
+      "id": "P-11",
+      "title": "Suspects investigues et elimines",
+      "type": "text",
+      "source": "Task Force EAR/ONS, Sacramento",
+      "reliability": 90,
+      "source_date": "2016-03-01",
+      "file": "contexte/P-11_suspects-elimines.txt",
+      "wave": 4
+    },
+    {
+      "id": "P-12",
+      "title": "Note de liaison ADN -- confirmation EAR = ONS",
+      "type": "text",
+      "source": "California DOJ, Bureau of Forensic Services",
+      "reliability": 95,
+      "source_date": "2001-03-14",
+      "file": "contexte/P-12_lien-series.txt",
+      "wave": 4
+    },
+    {
+      "id": "P-13",
+      "title": "Analyse des zones geographiques d'activite",
+      "type": "text",
+      "source": "California DOJ, Crime Analysis Unit",
+      "reliability": 85,
+      "source_date": "2004-08-01",
+      "file": "geo/P-13_zones-geographiques.txt",
+      "wave": 4
+    }
+  ],
+  "waves": {
+    "1": {
+      "name": "Dossier initial",
+      "description": "Synthese des crimes, profil FBI, temoignages de survivantes",
+      "evidence_ids": ["P-01", "P-02", "P-03", "P-04", "P-05"]
+    },
+    "2": {
+      "name": "Forensique",
+      "description": "ADN, empreintes de chaussures, analyse du modus operandi",
+      "evidence_ids": ["P-06", "P-07", "P-08"]
+    },
+    "3": {
+      "name": "Analyse spatio-temporelle",
+      "description": "Carte des crimes, chronologie detaillee",
+      "evidence_ids": ["P-09", "P-10"]
+    },
+    "4": {
+      "name": "Contexte et synthese",
+      "description": "Suspects elimines, confirmation EAR=ONS, zones geographiques",
+      "evidence_ids": ["P-11", "P-12", "P-13"]
+    }
+  },
+  "expected_contradictions": [
+    {
+      "id": "C1",
+      "description": "Le sujet porte systematiquement des gants (zero empreinte) et change de chaussures, suggerant une conscience forensique avancee, mais laisse des traces biologiques (sperme) sur les scenes de viols",
+      "evidence": ["P-06", "P-07", "P-08"],
+      "keywords": ["gants", "empreinte", "chaussures", "conscience", "forensique", "sperme", "traces", "biologique"]
+    },
+    {
+      "id": "C2",
+      "description": "La mention de 'Bonnie' par le sujet pendant les agressions suggere une colere dirigee vers une personne specifique, mais le profil FBI decrit un tueur a motivation sexuelle/pouvoir sans cible personnelle",
+      "evidence": ["P-04", "P-02"],
+      "keywords": ["bonnie", "colere", "motivation", "sexuelle", "pouvoir", "personnelle", "cible"]
+    },
+    {
+      "id": "C3",
+      "description": "Le deplacement brusque Sacramento -> sud Californie en 1979 coincide avec le licenciement d'un policier a Auburn PD, mais ce policier n'a jamais ete compare au profil ADN",
+      "evidence": ["P-10", "P-09"],
+      "keywords": ["deplacement", "sacramento", "californie", "1979", "licenciement", "policier", "auburn", "adn"]
+    },
+    {
+      "id": "C4",
+      "description": "Toutes les zones d'activite sont proches de bases militaires, suggerant un lien militaire, mais le profil FBI privilegie l'hypothese policiere",
+      "evidence": ["P-13", "P-02"],
+      "keywords": ["militaire", "base", "policiere", "hypothese", "zones", "activite", "proximite"]
+    }
+  ],
+  "expected_hypotheses": [
+    {
+      "id": "H1",
+      "title": "Tueur avec formation ou emploi dans les forces de l'ordre (police)",
+      "expected_final_score_range": [60, 80]
+    },
+    {
+      "id": "H2",
+      "title": "Tueur local de Sacramento ayant demenage vers le sud de la Californie en 1979",
+      "expected_final_score_range": [40, 60]
+    },
+    {
+      "id": "H3",
+      "title": "Suspect elimine Brett Glasby -- fausse piste",
+      "expected_final_score_range": [10, 20]
+    }
+  ],
+  "expected_entities": {
+    "persons": [
+      "Robert Offerman",
+      "Charlene Smith",
+      "Lyman Smith",
+      "Keith Harrington",
+      "Patrice Harrington",
+      "Manuela Witthuhn",
+      "Janelle Cruz",
+      "Brett Glasby",
+      "Morris Kobb",
+      "Oscar Clifton",
+      "Bonnie"
+    ],
+    "locations": [
+      "Sacramento",
+      "Rancho Cordova",
+      "Goleta",
+      "Ventura",
+      "Dana Point",
+      "Irvine",
+      "Auburn",
+      "Santa Barbara"
+    ],
+    "organizations": [
+      "Sacramento County Sheriff",
+      "FBI BAU",
+      "Auburn PD",
+      "California DOJ"
+    ]
+  },
+  "ground_truth": {
+    "perpetrator": {
+      "name": "Joseph James DeAngelo",
+      "profession": "Policier (Auburn PD 1973-1979, Exeter PD avant)",
+      "military": "US Navy, service au Vietnam",
+      "method_of_identification": "Genealogie genetique via GEDmatch (2018)",
+      "status": "Arrete le 24 avril 2018, condamne a perpetuite sans liberation conditionnelle (2020)",
+      "age_at_arrest": 72
+    },
+    "key_facts": [
+      "DeAngelo etait policier a Auburn PD de 1973 a 1979",
+      "Licencie pour vol a l'etalage en 1979 -- coincide avec la fin de la serie EAR a Sacramento",
+      "A demenage dans le sud de la Californie apres son licenciement",
+      "Identifie en 2018 par genealogie genetique (GEDmatch + ADN des scenes)",
+      "Vivait dans la banlieue de Sacramento au moment de son arrestation",
+      "Ex-militaire (US Navy, Vietnam) expliquant le ton 'militaire' des ordres",
+      "L'arret en 1986 coincide avec la naissance de sa fille"
+    ],
+    "target_hypothesis_keywords": [
+      "police", "policier", "forces", "ordre", "law enforcement",
+      "militaire", "armee", "navy", "vietnam",
+      "auburn", "licenciement", "1979",
+      "genealogie", "gedmatch", "familial",
+      "sacramento", "deplacement", "sud", "californie"
+    ]
+  },
+  "scoring": {
+    "total_points": 100,
+    "categories": {
+      "entities": {
+        "points": 20,
+        "description": "Entites cles extraites des pieces d'enquete",
+        "required_persons": ["Robert Offerman", "Charlene Smith", "Lyman Smith", "Keith Harrington", "Manuela Witthuhn", "Janelle Cruz", "Bonnie"],
+        "required_locations": ["Sacramento", "Goleta", "Ventura", "Irvine", "Auburn"],
+        "required_other": ["Auburn PD", "FBI BAU"]
+      },
+      "hypothesis_ranking": {
+        "points": 20,
+        "description": "L'hypothese correcte (H1 -- forces de l'ordre) doit etre dans le top 3",
+        "target_hypothesis_id": "H1",
+        "max_rank": 3
+      },
+      "contradictions": {
+        "points": 20,
+        "description": "Contradictions detectees parmi les 4 attendues",
+        "minimum_found": 2
+      },
+      "hypothesis_score": {
+        "points": 20,
+        "description": "Le score de l'hypothese correcte doit depasser 40%",
+        "target_hypothesis_id": "H1",
+        "minimum_score": 40
+      },
+      "timeline_and_geo": {
+        "points": 20,
+        "description": "Timeline correcte et analyse geographique",
+        "required_timeline_events": [
+          "Debut EAR Sacramento 1976",
+          "Transition Sacramento -> sud CA 1979",
+          "Licenciement policier Auburn 1979",
+          "Dernier crime ONS mai 1986",
+          "Confirmation ADN EAR=ONS 2001"
+        ],
+        "required_geo_links": [
+          "Sacramento - quartiers est - Rancho Cordova",
+          "Axe Goleta - Ventura - Orange County",
+          "Proximite bases militaires"
+        ]
+      }
+    }
+  },
+  "monitoring_jobs": [
+    {
+      "type": "searxng",
+      "query": "\"Golden State Killer\" EAR ONS cold case",
+      "interval_hours": 24,
+      "entity": "EAR/ONS"
+    },
+    {
+      "type": "searxng",
+      "query": "\"East Area Rapist\" Sacramento genealogy DNA",
+      "interval_hours": 24,
+      "entity": null
+    }
+  ]
+}
