@@ -1,6 +1,7 @@
 interface ScoreBarProps {
-  label: string;
+  label?: string;
   score: number; // 0-100
+  height?: number;
   sublabel?: string;
   className?: string;
 }
@@ -11,19 +12,21 @@ function getScoreColor(score: number): string {
   return 'var(--accent-red)';
 }
 
-export default function ScoreBar({ label, score, sublabel, className = '' }: ScoreBarProps) {
+export default function ScoreBar({ label, score, height = 8, sublabel, className = '' }: ScoreBarProps) {
   const color = getScoreColor(score);
   const clampedScore = Math.max(0, Math.min(100, score));
 
   return (
     <div className={`${className}`}>
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-sm text-[var(--text-primary)] font-medium truncate pr-3">{label}</span>
-        <span className="text-sm font-bold shrink-0" style={{ color }}>
-          {Math.round(clampedScore)}%
-        </span>
-      </div>
-      <div className="w-full h-2 bg-[var(--bg-primary)] rounded-full overflow-hidden">
+      {label && (
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-sm text-[var(--text-primary)] font-medium truncate pr-3">{label}</span>
+          <span className="text-sm font-bold shrink-0" style={{ color }}>
+            {Math.round(clampedScore)}%
+          </span>
+        </div>
+      )}
+      <div className="w-full bg-[var(--bg-primary)] rounded-full overflow-hidden" style={{ height }}>
         <div
           className="h-full rounded-full transition-all duration-500"
           style={{ width: `${clampedScore}%`, backgroundColor: color }}
