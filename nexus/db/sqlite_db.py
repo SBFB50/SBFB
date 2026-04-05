@@ -174,6 +174,21 @@ CREATE TABLE IF NOT EXISTS locations (
     metadata TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    summary TEXT NOT NULL,
+    details TEXT,
+    cycle_number INTEGER,
+    entry_hash TEXT,
+    previous_hash TEXT
+);
 """
 
 _CREATE_INDEXES = """
@@ -187,6 +202,9 @@ CREATE INDEX IF NOT EXISTS idx_analysis_case ON analysis_runs(case_id);
 CREATE INDEX IF NOT EXISTS idx_reports_case ON reports(case_id);
 CREATE INDEX IF NOT EXISTS idx_locations_case ON locations(case_id);
 CREATE INDEX IF NOT EXISTS idx_locations_entity ON locations(entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_case ON audit_log(case_id);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 """
 
 
@@ -327,6 +345,9 @@ class Database:
     async def delete_case(self, case_id: str) -> bool:
         """Delete a case and all its dependent rows (cascade)."""
         # Delete children in dependency order (leaves first)
+        await self._conn.execute(
+            "DELETE FROM audit_log WHERE case_id = ?", (case_id,)
+        )
         await self._conn.execute(
             "DELETE FROM locations WHERE case_id = ?", (case_id,)
         )
@@ -1053,3 +1074,116 @@ class Database:
         )
         await self._conn.commit()
         return cursor.rowcount
+
+    # ------------------------------------------------------------------
+    # Audit Log
+    # ------------------------------------------------------------------
+
+    async def create_audit_entry(
+        self,
+        *,
+        case_id: str,
+        actor: str,
+        action: str,
+        target_type: Optional[str] = None,
+        target_id: Optional[str] = None,
+        summary: str,
+        details: Optional[str] = None,
+        cycle_number: Optional[int] = None,
+        entry_hash: Optional[str] = None,
+        previous_hash: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        row_id = _new_id()
+        now = _now_iso()
+        await self._conn.execute(
+            """INSERT INTO audit_log
+               (id, case_id, timestamp, actor, action, target_type,
+                target_id, summary, details, cycle_number,
+                entry_hash, previous_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                row_id, case_id, now, actor, action,
+                target_type, target_id, summary, details, cycle_number,
+                entry_hash, previous_hash,
+            ),
+        )
+        await self._conn.commit()
+        return await self.get_audit_entry(row_id)  # type: ignore[return-value]
+
+    async def get_audit_entry(self, audit_id: str) -> Optional[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM audit_log WHERE id = ?", (audit_id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        d = _row_to_dict(row)
+        d["details"] = _json_loads(d.get("details"))
+        return d
+
+    async def list_audit_log(
+        self,
+        case_id: str,
+        *,
+        action: Optional[str] = None,
+        actor: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        conditions = ["case_id = ?"]
+        params: list[Any] = [case_id]
+        if action:
+            conditions.append("action = ?")
+            params.append(action)
+        if actor:
+            conditions.append("actor = ?")
+            params.append(actor)
+        where = " AND ".join(conditions)
+        params.extend([limit, offset])
+        cursor = await self._conn.execute(
+            f"SELECT * FROM audit_log WHERE {where} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+            params,
+        )
+        rows = await cursor.fetchall()
+        result = []
+        for r in rows:
+            d = _row_to_dict(r)
+            d["details"] = _json_loads(d.get("details"))
+            result.append(d)
+        return result
+
+    async def count_audit_entries(
+        self,
+        case_id: str,
+        *,
+        action: Optional[str] = None,
+    ) -> int:
+        if action:
+            cursor = await self._conn.execute(
+                "SELECT COUNT(*) FROM audit_log WHERE case_id = ? AND action = ?",
+                (case_id, action),
+            )
+        else:
+            cursor = await self._conn.execute(
+                "SELECT COUNT(*) FROM audit_log WHERE case_id = ?",
+                (case_id,),
+            )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    async def get_investigation_timeline(
+        self,
+        case_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Return the full audit log sorted chronologically (oldest first)."""
+        cursor = await self._conn.execute(
+            "SELECT * FROM audit_log WHERE case_id = ? ORDER BY timestamp ASC",
+            (case_id,),
+        )
+        rows = await cursor.fetchall()
+        result = []
+        for r in rows:
+            d = _row_to_dict(r)
+            d["details"] = _json_loads(d.get("details"))
+            result.append(d)
+        return result
