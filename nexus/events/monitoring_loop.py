@@ -500,7 +500,6 @@ class MonitoringLoop:
                     pub_date = None
 
             if pub_date:
-                # Normalize to YYYY-MM-DD string for comparison
                 date_str = str(pub_date)[:10]
                 if date_str > before_date:
                     logger.debug(
@@ -511,18 +510,12 @@ class MonitoringLoop:
                 filtered.append(r)
                 continue
 
-            # No date detected — try to extract year from title/snippet
-            before_year = int(before_date[:4])
-            text_to_scan = f"{r.get('title', '')} {r.get('snippet', '')}"
-            years_found = [int(y) for y in re.findall(r'\b(19\d{2}|20\d{2})\b', text_to_scan)]
-            if years_found and max(years_found) >= before_year:
-                logger.debug(
-                    "MonitoringLoop: REJECTED (year {} in text > {}): {}",
-                    max(years_found), before_year, r.get("title", "?")[:50],
-                )
-                continue
-
-            filtered.append(r)
+            # No date detected → reject. No guessing.
+            logger.debug(
+                "MonitoringLoop: REJECTED (no date detected): {}",
+                r.get("title", "?")[:50],
+            )
+            continue
 
         rejected = len(results) - len(filtered)
         if rejected > 0:
