@@ -33,10 +33,12 @@ class InvestigationManager:
         router: LLMRouter,
         chroma: Any,
         neo4j: Any,
+        entity_extractor: Any = None,
     ) -> None:
         self._router = router
         self._chroma = chroma
         self._neo4j = neo4j
+        self._entity_extractor = entity_extractor
         self._investigators: dict[str, AutonomousInvestigator] = {}
         self._tasks: dict[str, asyncio.Task] = {}
 
@@ -84,6 +86,7 @@ class InvestigationManager:
             router=self._router,
             chroma=self._chroma,
             neo4j=self._neo4j,
+            entity_extractor=self._entity_extractor,
         )
 
         self._investigators[case_id] = investigator

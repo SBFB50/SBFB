@@ -24,7 +24,7 @@ Usage::
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from loguru import logger
@@ -166,7 +166,7 @@ class AnalysisPipeline:
                 status="completed",
                 output_summary=output_summary,
                 duration_sec=round(duration, 2),
-                completed_at=datetime.utcnow().isoformat(),
+                completed_at=datetime.now(timezone.utc).isoformat(),
             )
 
             # 9. Create alerts for significant changes
@@ -186,7 +186,7 @@ class AnalysisPipeline:
                 status="failed",
                 output_summary=f"Pipeline failed: {exc}",
                 duration_sec=round(duration, 2),
-                completed_at=datetime.utcnow().isoformat(),
+                completed_at=datetime.now(timezone.utc).isoformat(),
             )
             return AnalysisRun(**failed_row)
 
@@ -319,7 +319,7 @@ class AnalysisPipeline:
                 status="completed",
                 output_summary=output_summary,
                 duration_sec=round(duration, 2),
-                completed_at=datetime.utcnow().isoformat(),
+                completed_at=datetime.now(timezone.utc).isoformat(),
             )
 
             # Alerts
@@ -338,7 +338,7 @@ class AnalysisPipeline:
                 status="failed",
                 output_summary=f"Pipeline failed: {exc}",
                 duration_sec=round(duration, 2),
-                completed_at=datetime.utcnow().isoformat(),
+                completed_at=datetime.now(timezone.utc).isoformat(),
             )
             return AnalysisRun(**failed_row)
 

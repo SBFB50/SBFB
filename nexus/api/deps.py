@@ -68,6 +68,7 @@ def get_evidence_processor(
         upload_dir=settings.upload_dir,
         neo4j=getattr(request.app.state, "neo4j", None),
         chroma=getattr(request.app.state, "chroma", None),
+        entity_extractor=getattr(request.app.state, "entity_extractor", None),
     )
 
 
@@ -91,7 +92,10 @@ def get_analysis_pipeline(
 
 
 def get_entity_extractor(request: Request) -> EntityExtractor:
-    """Return a shared EntityExtractor (stateless, only needs router)."""
+    """Return the pre-loaded EntityExtractor singleton, or create one."""
+    extractor = getattr(request.app.state, "entity_extractor", None)
+    if extractor is not None:
+        return extractor
     return EntityExtractor(request.app.state.router)
 
 

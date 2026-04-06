@@ -6,7 +6,7 @@ so tests run with zero external services.
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -159,7 +159,7 @@ def test_get_evidence_not_found(client):
 
 def test_get_evidence_found(client):
     tc, db, _ = client
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     db.get_evidence.return_value = {
         "id": "ev-1",
         "case_id": "case-1",
@@ -219,7 +219,7 @@ def test_get_entity_not_found(client):
 
 def test_get_entity_found(client):
     tc, db, _ = client
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     db.get_entity.return_value = {
         "id": "ent-1",
         "case_id": "case-1",
@@ -240,7 +240,7 @@ def test_get_entity_found(client):
 
 def test_list_entity_mentions(client):
     tc, db, _ = client
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     db.get_entity.return_value = {
         "id": "ent-1",
         "case_id": "case-1",

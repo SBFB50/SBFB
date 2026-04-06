@@ -70,13 +70,14 @@ class EvidenceProcessor:
         upload_dir: Path,
         neo4j=None,
         chroma=None,
+        entity_extractor: EntityExtractor | None = None,
     ) -> None:
         self._db = db
         self._router = router
         self._upload_dir = Path(upload_dir)
         self._pdf_parser = PDFParser()
         self._text_parser = TextParser()
-        self._entity_extractor = EntityExtractor(router)
+        self._entity_extractor = entity_extractor or EntityExtractor(router)
         self._neo4j = neo4j   # Optional Neo4jClient
         self._chroma = chroma  # Optional ChromaClient
         self._audit = AuditService(db)
@@ -201,71 +202,76 @@ class EvidenceProcessor:
                 )
                 # Fall through to the standard text pipeline
 
-        # ----------------------------------------------------------
-        # 6. Entity extraction + save (text pipeline)
-        # ----------------------------------------------------------
         try:
-            entities = await self._extract_and_save_entities(
-                case_id, evidence_id, raw_text or ""
-            )
-            logger.info("Saved {} entities for evidence {}", len(entities), evidence_id)
-        except Exception as exc:
-            logger.error("Entity extraction failed for {}: {}", evidence_id, exc)
-            # Non-fatal: we continue to summary
+            # ----------------------------------------------------------
+            # 6. Entity extraction + save (text pipeline)
+            # ----------------------------------------------------------
+            try:
+                entities = await self._extract_and_save_entities(
+                    case_id, evidence_id, raw_text or ""
+                )
+                logger.info("Saved {} entities for evidence {}", len(entities), evidence_id)
+            except Exception as exc:
+                logger.error("Entity extraction failed for {}: {}", evidence_id, exc)
+                # Non-fatal: we continue to summary
 
-        # ----------------------------------------------------------
-        # 7. Generate summary
-        # ----------------------------------------------------------
-        summary = ""
-        try:
-            if raw_text:
-                summary = await self._generate_summary(raw_text)
-        except Exception as exc:
-            logger.error("Summary generation failed for {}: {}", evidence_id, exc)
+            # ----------------------------------------------------------
+            # 7. Generate summary
+            # ----------------------------------------------------------
+            summary = ""
+            try:
+                if raw_text:
+                    summary = await self._generate_summary(raw_text)
+            except Exception as exc:
+                logger.error("Summary generation failed for {}: {}", evidence_id, exc)
 
-        # ----------------------------------------------------------
-        # 8. Update evidence (summary + status)
-        # ----------------------------------------------------------
-        updated = await self._db.update_evidence(
-            evidence_id,
-            summary=summary,
-            status="processed",
-        )
-
-        # ----------------------------------------------------------
-        # 9. Sync to Neo4j + ChromaDB (Phase 2)
-        # ----------------------------------------------------------
-        await self._sync_to_graph_and_vectors(case_id, evidence_id, raw_text or "", summary)
-
-        # ----------------------------------------------------------
-        # 10. Chunk and embed for RAG
-        # ----------------------------------------------------------
-        try:
-            await self._chunk_and_embed(updated)
-        except Exception as exc:
-            logger.error(
-                "RAG chunk+embed failed for evidence {} (non-blocking): {}",
-                evidence_id, exc,
+            # ----------------------------------------------------------
+            # 8. Update evidence (summary + status)
+            # ----------------------------------------------------------
+            updated = await self._db.update_evidence(
+                evidence_id,
+                summary=summary,
+                status="processed",
             )
 
-        # ----------------------------------------------------------
-        # 11. Update summary tree (RAPTOR hierarchical summaries)
-        # ----------------------------------------------------------
-        try:
-            from nexus.core.summary_tree import SummaryTree
+            # ----------------------------------------------------------
+            # 9. Sync to Neo4j + ChromaDB (Phase 2)
+            # ----------------------------------------------------------
+            await self._sync_to_graph_and_vectors(case_id, evidence_id, raw_text or "", summary)
 
-            tree = SummaryTree(self._db, self._router, self._chroma)
-            await tree.update_for_new_evidence(case_id, evidence_id)
-        except Exception as exc:
-            logger.warning(
-                "Summary tree update failed for evidence {} (non-blocking): {}",
-                evidence_id, exc,
+            # ----------------------------------------------------------
+            # 10. Chunk and embed for RAG
+            # ----------------------------------------------------------
+            try:
+                await self._chunk_and_embed(updated)
+            except Exception as exc:
+                logger.error(
+                    "RAG chunk+embed failed for evidence {} (non-blocking): {}",
+                    evidence_id, exc,
+                )
+
+            # ----------------------------------------------------------
+            # 11. Update summary tree (RAPTOR hierarchical summaries)
+            # ----------------------------------------------------------
+            try:
+                from nexus.core.summary_tree import SummaryTree
+
+                tree = SummaryTree(self._db, self._router, self._chroma)
+                await tree.update_for_new_evidence(case_id, evidence_id)
+            except Exception as exc:
+                logger.warning(
+                    "Summary tree update failed for evidence {} (non-blocking): {}",
+                    evidence_id, exc,
+                )
+
+            # Audit: log evidence added (upload pipeline)
+            await self._audit.log_evidence_added(
+                case_id, evidence_id, title, source,
             )
-
-        # Audit: log evidence added (upload pipeline)
-        await self._audit.log_evidence_added(
-            case_id, evidence_id, title, source,
-        )
+        except Exception as exc:
+            logger.error("Evidence processing failed for {}: {}", evidence_id, exc)
+            await self._db.update_evidence(evidence_id, status="error")
+            raise
 
         logger.info("Evidence {} processing complete", evidence_id)
         return Evidence(**updated)
@@ -304,58 +310,63 @@ class EvidenceProcessor:
         # Mark as processing
         await self._db.update_evidence(evidence_id, status="processing")
 
-        # Entity extraction
         try:
-            entities = await self._extract_and_save_entities(
-                case_id, evidence_id, cleaned
-            )
-            logger.info("Saved {} entities for text evidence {}", len(entities), evidence_id)
-        except Exception as exc:
-            logger.error("Entity extraction failed for {}: {}", evidence_id, exc)
+            # Entity extraction
+            try:
+                entities = await self._extract_and_save_entities(
+                    case_id, evidence_id, cleaned
+                )
+                logger.info("Saved {} entities for text evidence {}", len(entities), evidence_id)
+            except Exception as exc:
+                logger.error("Entity extraction failed for {}: {}", evidence_id, exc)
 
-        # Summary
-        summary = ""
-        try:
-            if cleaned:
-                summary = await self._generate_summary(cleaned)
-        except Exception as exc:
-            logger.error("Summary generation failed for {}: {}", evidence_id, exc)
+            # Summary
+            summary = ""
+            try:
+                if cleaned:
+                    summary = await self._generate_summary(cleaned)
+            except Exception as exc:
+                logger.error("Summary generation failed for {}: {}", evidence_id, exc)
 
-        # Finalise
-        updated = await self._db.update_evidence(
-            evidence_id,
-            summary=summary,
-            status="processed",
-        )
-
-        # Sync to Neo4j + ChromaDB
-        await self._sync_to_graph_and_vectors(case_id, evidence_id, cleaned, summary)
-
-        # Chunk and embed for RAG
-        try:
-            await self._chunk_and_embed(updated)
-        except Exception as exc:
-            logger.error(
-                "RAG chunk+embed failed for text evidence {} (non-blocking): {}",
-                evidence_id, exc,
+            # Finalise
+            updated = await self._db.update_evidence(
+                evidence_id,
+                summary=summary,
+                status="processed",
             )
 
-        # Update summary tree (RAPTOR hierarchical summaries)
-        try:
-            from nexus.core.summary_tree import SummaryTree
+            # Sync to Neo4j + ChromaDB
+            await self._sync_to_graph_and_vectors(case_id, evidence_id, cleaned, summary)
 
-            tree = SummaryTree(self._db, self._router, self._chroma)
-            await tree.update_for_new_evidence(case_id, evidence_id)
-        except Exception as exc:
-            logger.warning(
-                "Summary tree update failed for text evidence {} (non-blocking): {}",
-                evidence_id, exc,
+            # Chunk and embed for RAG
+            try:
+                await self._chunk_and_embed(updated)
+            except Exception as exc:
+                logger.error(
+                    "RAG chunk+embed failed for text evidence {} (non-blocking): {}",
+                    evidence_id, exc,
+                )
+
+            # Update summary tree (RAPTOR hierarchical summaries)
+            try:
+                from nexus.core.summary_tree import SummaryTree
+
+                tree = SummaryTree(self._db, self._router, self._chroma)
+                await tree.update_for_new_evidence(case_id, evidence_id)
+            except Exception as exc:
+                logger.warning(
+                    "Summary tree update failed for text evidence {} (non-blocking): {}",
+                    evidence_id, exc,
+                )
+
+            # Audit: log evidence added (text pipeline)
+            await self._audit.log_evidence_added(
+                case_id, evidence_id, title, source,
             )
-
-        # Audit: log evidence added (text pipeline)
-        await self._audit.log_evidence_added(
-            case_id, evidence_id, title, source,
-        )
+        except Exception as exc:
+            logger.error("Evidence processing failed for {}: {}", evidence_id, exc)
+            await self._db.update_evidence(evidence_id, status="error")
+            raise
 
         logger.info("Text evidence {} processing complete", evidence_id)
         return Evidence(**updated)
@@ -417,23 +428,67 @@ class EvidenceProcessor:
                 confidence=ent.get("confidence", 0.8),
             )
 
+        # 4b. Embed new entities into ChromaDB entity_contexts
+        if self._chroma is not None:
+            for entity in created:
+                try:
+                    embed_text = f"{entity.name} ({entity.entity_type}): {entity.description or ''}"
+                    embedding = await self._router.embed(embed_text)
+                    self._chroma.add_entity(
+                        entity_id=entity.id,
+                        case_id=case_id,
+                        text=embed_text,
+                        embedding=embedding,
+                        metadata={
+                            "entity_type": entity.entity_type,
+                            "name": entity.name,
+                        },
+                    )
+                except Exception as exc:
+                    logger.debug("Entity embedding failed for {}: {}", entity.name, exc)
+
         # 5. For duplicates that already exist, still create mentions
+        #    Uses fuzzy matching (same as deduplicate_entities) to find
+        #    the existing entity that caused the dedup rejection.
+        from rapidfuzz import fuzz
+
         for ent in raw_entities:
             if ent in new_entities:
                 continue  # already handled above
-            # Find the matching existing entity
+            # Find the matching existing entity via fuzzy match (same threshold as dedup)
             norm_name = self._entity_extractor.normalize_entity_name(ent["name"])
+            best_match_id = None
+            best_score = 0.0
             for ex in existing:
-                ex_norm = self._entity_extractor.normalize_entity_name(ex.get("name", ""))
                 ex_type = ex.get("entity_type", "")
-                if ex_norm == norm_name and ex_type == ent.get("type", ""):
-                    await self._db.create_entity_mention(
-                        entity_id=ex["id"],
-                        evidence_id=evidence_id,
-                        context=ent.get("context", ""),
-                        confidence=ent.get("confidence", 0.8),
-                    )
-                    break
+                if ex_type != ent.get("type", ""):
+                    continue
+                ex_norm = self._entity_extractor.normalize_entity_name(ex.get("name", ""))
+                score = fuzz.WRatio(norm_name, ex_norm)
+                if score > best_score:
+                    best_score = score
+                    best_match_id = ex["id"]
+            # Also check against newly created entities from this batch
+            for entity in created:
+                if entity.entity_type != ent.get("type", ""):
+                    continue
+                cr_norm = self._entity_extractor.normalize_entity_name(entity.name)
+                score = fuzz.WRatio(norm_name, cr_norm)
+                if score > best_score:
+                    best_score = score
+                    best_match_id = entity.id
+            if best_match_id and best_score >= 82:
+                await self._db.create_entity_mention(
+                    entity_id=best_match_id,
+                    evidence_id=evidence_id,
+                    context=ent.get("context", ""),
+                    confidence=ent.get("confidence", 0.8),
+                )
+            elif best_match_id is None:
+                logger.debug(
+                    "No match found for duplicate entity '{}' (type={})",
+                    ent["name"], ent.get("type"),
+                )
 
         return created
 
@@ -497,21 +552,25 @@ class EvidenceProcessor:
                         reliability=ev.get("reliability", 50),
                     )
 
-                # Sync entities to Neo4j + link to evidence
+                # Sync only entities MENTIONED in this evidence + link them
+                mentions = await self._db.list_mentions_by_evidence(evidence_id)
+                mentioned_entity_ids = {m["entity_id"] for m in mentions}
                 entities = await self._db.list_entities_by_case(case_id)
-                for ent in entities:
+                mentioned_entities = [e for e in entities if e["id"] in mentioned_entity_ids]
+
+                for ent in mentioned_entities:
                     await self._neo4j.sync_entity(ent, case_id)
                     await self._neo4j.link_evidence_to_entity(evidence_id, ent["id"])
 
-                # Extract and sync relations between entities
+                # Extract and sync relations between mentioned entities
                 try:
-                    ent_dicts = [{"name": e["name"], "type": e["entity_type"]} for e in entities]
+                    ent_dicts = [{"name": e["name"], "type": e["entity_type"]} for e in mentioned_entities]
                     if len(ent_dicts) >= 2:
                         relations = await self._entity_extractor.extract_relations(ent_dicts)
                         if relations:
                             # Map relation entity names to IDs
                             name_to_id = {}
-                            for e in entities:
+                            for e in mentioned_entities:
                                 norm = self._entity_extractor.normalize_entity_name(e["name"])
                                 name_to_id[norm] = e["id"]
 
@@ -536,24 +595,10 @@ class EvidenceProcessor:
             except Exception as exc:
                 logger.error("Neo4j sync failed for evidence {}: {}", evidence_id, exc)
 
-        # --- ChromaDB: embed evidence text ---
-        if self._chroma is not None and raw_text:
-            try:
-                text_to_embed = summary if summary else raw_text[:4000]
-                embedding = await self._router.embed(text_to_embed)
-                self._chroma.add_evidence(
-                    evidence_id=evidence_id,
-                    case_id=case_id,
-                    text=text_to_embed,
-                    embedding=embedding,
-                    metadata={
-                        "case_id": case_id,
-                        "evidence_id": evidence_id,
-                    },
-                )
-                logger.info("ChromaDB embedding added for evidence {}", evidence_id)
-            except Exception as exc:
-                logger.error("ChromaDB sync failed for evidence {}: {}", evidence_id, exc)
+        # --- ChromaDB: legacy evidence_texts collection removed ---
+        # Evidence embeddings are now handled by _chunk_and_embed()
+        # which writes to the modern evidence_chunks collection via
+        # EmbeddingStore.index_evidence().
 
     def _extract_text(self, file_path: Path, evidence_type: str) -> str | None:
         """Synchronous text extraction based on evidence type.

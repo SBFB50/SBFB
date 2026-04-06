@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from loguru import logger
 
 from nexus.api.deps import get_database, get_evidence_processor
@@ -54,6 +54,7 @@ async def list_available() -> list[dict[str, Any]]:
 @router.post("/launch/{bench_key}")
 async def launch_benchmark(
     bench_key: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
@@ -75,10 +76,18 @@ async def launch_benchmark(
     )
     case_id = case["id"]
 
-    # Start FULL benchmark pipeline in background:
-    # inject all waves → analyze → hypotheses → suspects → contradictions
+    # Capture app state singletons NOW (background tasks can't access request)
+    app_state = {
+        "router": getattr(request.app.state, "router", None),
+        "neo4j": getattr(request.app.state, "neo4j", None),
+        "chroma": getattr(request.app.state, "chroma", None),
+        "entity_extractor": getattr(request.app.state, "entity_extractor", None),
+        "investigation_manager": getattr(request.app.state, "investigation_manager", None),
+    }
+
+    # Start FULL benchmark pipeline in background
     background_tasks.add_task(
-        _run_full_benchmark, case_id, bench_key
+        _run_full_benchmark, case_id, bench_key, app_state
     )
 
     return {
@@ -94,6 +103,7 @@ async def inject_wave(
     case_id: str,
     bench_key: str,
     wave: int,
+    request: Request,
     background_tasks: BackgroundTasks,
 ) -> dict[str, Any]:
     """Inject a specific wave of evidence in background."""
@@ -101,22 +111,38 @@ async def inject_wave(
         from fastapi import HTTPException
         raise HTTPException(404, f"Benchmark '{bench_key}' not found")
 
-    background_tasks.add_task(_inject_wave, case_id, bench_key, wave)
+    app_state = {
+        "router": getattr(request.app.state, "router", None),
+        "neo4j": getattr(request.app.state, "neo4j", None),
+        "chroma": getattr(request.app.state, "chroma", None),
+        "entity_extractor": getattr(request.app.state, "entity_extractor", None),
+    }
+    background_tasks.add_task(_inject_wave, case_id, bench_key, wave, app_state)
     return {"status": "injecting", "wave": wave}
 
 
-async def _inject_wave(case_id: str, bench_key: str, wave: int) -> None:
+async def _inject_wave(case_id: str, bench_key: str, wave: int, app_state: dict | None = None) -> None:
     """Background task: inject all evidence for a wave.
 
     Serialised via ``_INJECT_LOCK`` so that only one wave runs at a
     time, preventing VRAM saturation from parallel LLM calls.
+    Reuses shared singletons passed from the endpoint via app_state.
     """
     async with _INJECT_LOCK:
         from nexus.db.sqlite_db import get_db, Database
         from nexus.core.evidence_processor import EvidenceProcessor
-        from nexus.llm.ollama_client import OllamaClient
-        from nexus.llm.router import LLMRouter
         from nexus.config import settings
+
+        app_state = app_state or {}
+        router = app_state.get("router")
+        if router is None:
+            from nexus.llm.ollama_client import OllamaClient
+            from nexus.llm.router import LLMRouter
+            router = LLMRouter(OllamaClient())
+
+        entity_extractor = app_state.get("entity_extractor")
+        neo4j = app_state.get("neo4j")
+        chroma = app_state.get("chroma")
 
         info = KNOWN_BENCHMARKS[bench_key]
         manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
@@ -126,9 +152,6 @@ async def _inject_wave(case_id: str, bench_key: str, wave: int) -> None:
 
         logger.info("Benchmark inject: case={} bench={} wave={} evidence={}",
                     case_id[:8], bench_key, wave, len(wave_evidence))
-
-        ollama = OllamaClient()
-        router = LLMRouter(ollama)
 
         for ev in wave_evidence:
             file_path = BENCHMARK_DIR / info["dir"] / ev.get("file", "")
@@ -141,7 +164,14 @@ async def _inject_wave(case_id: str, bench_key: str, wave: int) -> None:
             try:
                 async with get_db() as conn:
                     db = Database(conn)
-                    processor = EvidenceProcessor(db=db, router=router, upload_dir=settings.upload_dir)
+                    processor = EvidenceProcessor(
+                        db=db,
+                        router=router,
+                        upload_dir=settings.upload_dir,
+                        neo4j=neo4j,
+                        chroma=chroma,
+                        entity_extractor=entity_extractor,
+                    )
                     await processor.process_text_input(
                         case_id=case_id,
                         title=ev.get("title", file_path.stem),
@@ -158,12 +188,24 @@ async def _inject_wave(case_id: str, bench_key: str, wave: int) -> None:
         logger.info("Benchmark wave {} complete for case {}", wave, case_id[:8])
 
 
-async def _run_full_benchmark(case_id: str, bench_key: str) -> None:
-    """Full benchmark pipeline: inject all waves → analyze → hypotheses → suspects."""
+async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | None = None) -> None:
+    """Full benchmark pipeline: inject all waves → analyze → hypotheses → suspects.
+
+    Reuses shared singletons passed from the endpoint via app_state
+    to respect VRAM serialization and avoid redundant connections.
+    """
     from nexus.db.sqlite_db import get_db, Database
-    from nexus.llm.ollama_client import OllamaClient
-    from nexus.llm.router import LLMRouter
-    from nexus.db.neo4j_db import Neo4jClient
+
+    app_state = app_state or {}
+    router = app_state.get("router")
+    if router is None:
+        from nexus.llm.ollama_client import OllamaClient
+        from nexus.llm.router import LLMRouter
+        router = LLMRouter(OllamaClient())
+
+    neo4j = app_state.get("neo4j")
+    chroma = app_state.get("chroma")
+    entity_extractor = app_state.get("entity_extractor")
 
     info = KNOWN_BENCHMARKS[bench_key]
     manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
@@ -173,19 +215,17 @@ async def _run_full_benchmark(case_id: str, bench_key: str) -> None:
     # 1. Inject all waves sequentially
     for wave in waves:
         logger.info("Benchmark full: injecting wave {} for case {}", wave, case_id[:8])
-        await _inject_wave(case_id, bench_key, wave)
+        await _inject_wave(case_id, bench_key, wave, app_state)
         await asyncio.sleep(3)
 
     logger.info("Benchmark full: all waves injected for case {}", case_id[:8])
 
     # 2. Analyze
     try:
-        ollama = OllamaClient()
-        router = LLMRouter(ollama)
         async with get_db() as conn:
             db = Database(conn)
             from nexus.core.analysis_pipeline import AnalysisPipeline
-            pipeline = AnalysisPipeline(db=db, router=router)
+            pipeline = AnalysisPipeline(db=db, router=router, chroma=chroma, neo4j=neo4j)
             logger.info("Benchmark full: running analysis...")
             await pipeline.run_full_analysis(case_id)
     except Exception as exc:
@@ -198,7 +238,7 @@ async def _run_full_benchmark(case_id: str, bench_key: str) -> None:
         async with get_db() as conn:
             db = Database(conn)
             from nexus.core.hypothesis_engine import HypothesisEngine
-            engine = HypothesisEngine(db=db, router=router)
+            engine = HypothesisEngine(db=db, router=router, chroma=chroma, neo4j=neo4j)
             logger.info("Benchmark full: generating hypotheses...")
             await engine.generate_hypotheses(case_id)
     except Exception as exc:
@@ -224,49 +264,54 @@ async def _run_full_benchmark(case_id: str, bench_key: str) -> None:
         async with get_db() as conn:
             db = Database(conn)
             from nexus.core.suspect_scorer import SuspectScorer
-            scorer = SuspectScorer(db=db, router=router)
+            scorer = SuspectScorer(db=db, router=router, neo4j=neo4j)
             logger.info("Benchmark full: scoring suspects...")
-            await scorer.score_all_suspects(case_id)
+            await scorer.score_all_suspects(case_id, trigger="benchmark")
     except Exception as exc:
         logger.error("Benchmark suspect scoring failed: {}", exc)
 
-    # 6. Sync Neo4j
-    try:
-        neo4j = Neo4jClient()
-        await neo4j.init_constraints()
-        async with get_db() as conn:
-            db = Database(conn)
-            entities = await db.list_entities_by_case(case_id)
-            evidence = await db.list_evidence_by_case(case_id)
-            for ent in entities:
-                await neo4j.sync_entity(ent, case_id)
-            for ev in evidence:
-                await neo4j.sync_evidence(ev["id"], case_id, ev["title"], ev["evidence_type"], ev.get("reliability", 50))
-            for ent in entities:
-                mentions = await db.list_mentions_by_entity(ent["id"])
-                for m in mentions:
-                    await neo4j.link_evidence_to_entity(m["evidence_id"], ent["id"])
-        await neo4j.close()
-        logger.info("Benchmark full: Neo4j synced")
-    except Exception as exc:
-        logger.error("Benchmark Neo4j sync failed: {}", exc)
-
-    # 7. Start autonomous investigation loop (runs until stopped)
-    try:
-        from nexus.core.investigation_manager import InvestigationManager
-        from nexus.db.chroma_db import ChromaClient
-
-        neo4j = Neo4jClient()
-        chroma = None
+    # 6. Neo4j sync (uses shared neo4j client)
+    if neo4j is not None:
         try:
-            chroma = ChromaClient()
-            chroma.init_collections()
-        except Exception:
-            pass
+            async with get_db() as conn:
+                db = Database(conn)
+                evidence = await db.list_evidence_by_case(case_id)
+                entities = await db.list_entities_by_case(case_id)
+                for ev in evidence:
+                    if ev.get("status") == "processed":
+                        await neo4j.sync_evidence(
+                            ev["id"], case_id, ev["title"],
+                            ev["evidence_type"], ev.get("reliability", 50),
+                        )
+                for ent in entities:
+                    await neo4j.sync_entity(ent, case_id)
+                # Link only via actual mentions
+                for ent in entities:
+                    mentions = await db.list_mentions_by_entity(ent["id"])
+                    for m in mentions:
+                        await neo4j.link_evidence_to_entity(m["evidence_id"], ent["id"])
+            logger.info("Benchmark full: Neo4j synced")
+        except Exception as exc:
+            logger.error("Benchmark Neo4j sync failed: {}", exc)
 
-        manager = InvestigationManager(router=router, chroma=chroma, neo4j=neo4j)
-        await manager.start_investigation(case_id)
-        logger.info("Benchmark full: autonomous investigation STARTED — runs until stopped")
+    # 7. Start autonomous investigation loop via shared manager
+    try:
+        inv_manager = app_state.get("investigation_manager")
+        if inv_manager is not None:
+            started = await inv_manager.start_investigation(case_id)
+            if started:
+                logger.info("Benchmark full: autonomous investigation STARTED via shared manager")
+            else:
+                logger.info("Benchmark full: investigation already running for case {}", case_id[:8])
+        else:
+            # Fallback: create a standalone manager
+            from nexus.core.investigation_manager import InvestigationManager
+            manager = InvestigationManager(
+                router=router, chroma=chroma, neo4j=neo4j,
+                entity_extractor=entity_extractor,
+            )
+            await manager.start_investigation(case_id)
+            logger.info("Benchmark full: autonomous investigation STARTED (standalone manager)")
     except Exception as exc:
         logger.error("Benchmark autonomous loop start failed: {}", exc)
 

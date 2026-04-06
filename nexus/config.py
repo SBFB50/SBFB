@@ -6,36 +6,8 @@ Utilise pydantic-settings pour la validation typee.
 """
 
 from pathlib import Path
-from typing import Dict
 
 from pydantic_settings import BaseSettings
-
-
-# ---------------------------------------------------------------------------
-# Model routing constants
-# ---------------------------------------------------------------------------
-# Maps task types to the appropriate Ollama model.
-# Used by nexus.llm.router to dispatch requests.
-
-MODEL_ROUTING: Dict[str, str] = {
-    # Mechanical tasks: entity extraction, filtering, JSON formatting
-    "extract": "gemma4:e4b",
-    "filter": "gemma4:e4b",
-    "format": "gemma4:e4b",
-    "summarize": "gemma4:e4b",
-    # Chain-of-thought reasoning: contradiction detection, logic verification
-    "reason": "huihui_ai/deepseek-r1-abliterated:14b",
-    "verify": "huihui_ai/deepseek-r1-abliterated:14b",
-    "contradict": "huihui_ai/deepseek-r1-abliterated:14b",
-    # Deep analysis: hypotheses, scoring, reports
-    "analyze": "nexus",
-    "hypothesize": "nexus",
-    "report": "nexus",
-    # Embeddings
-    "embed": "nomic-embed-text",
-    # Audio / video transcription
-    "transcribe": "voxtral-mini:4b",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +79,8 @@ class Settings(BaseSettings):
     auto_visual_embeddings: bool = True      # Index images in DINOv2/CLIP automatically
     auto_domain_recon: bool = True           # WHOIS/DNS recon on email domains
     auto_timeline_rebuild: bool = True       # Rebuild timeline each DECIDE phase
+    auto_suspect_scoring: bool = True        # Score suspects each DECIDE phase
+    auto_suspect_profile_every_n_cycles: int = 3  # LLM profile eval every N cycles
     auto_report_every_n_cycles: int = 12     # Report every 6h (12 cycles * 30min)
     auto_backup_every_n_cycles: int = 24     # Backup every 12h (24 cycles * 30min)
     auto_recon_rate_limit: float = 2.0       # Seconds between OSINT recon calls

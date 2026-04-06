@@ -193,6 +193,34 @@ class HypothesisEngine:
 
                 created.append(hyp_row)
 
+                # Sync hypothesis to Neo4j graph
+                if self._neo4j:
+                    try:
+                        await self._neo4j.sync_hypothesis(
+                            hyp_row["id"], case_id, full_title, initial_score, "active",
+                        )
+                    except Exception as exc:
+                        logger.debug("Hypothesis Neo4j sync failed: {}", exc)
+
+                # Embed hypothesis in ChromaDB for semantic retrieval
+                if self._chroma is not None:
+                    try:
+                        embed_text = f"{full_title}. {description}"
+                        embedding = await self._router.embed(embed_text)
+                        self._chroma.add_hypothesis_snapshot(
+                            snapshot_id=hyp_row["id"],
+                            case_id=case_id,
+                            text=embed_text,
+                            embedding=embedding,
+                            metadata={
+                                "hypothesis_id": hyp_row["id"],
+                                "title": full_title,
+                                "score": initial_score,
+                            },
+                        )
+                    except Exception as embed_exc:
+                        logger.debug("Hypothesis embedding failed: {}", embed_exc)
+
                 # Track newly created title to avoid intra-batch duplicates
                 existing_titles.append(full_title)
 
@@ -425,6 +453,19 @@ class HypothesisEngine:
 
         await self._db.update_hypothesis(hypothesis_id, **update_fields)
 
+        # Sync updated score to Neo4j graph
+        if self._neo4j:
+            try:
+                await self._neo4j.sync_hypothesis(
+                    hypothesis_id,
+                    case_id,
+                    hypothesis.get("title", ""),
+                    final_score,
+                    update_fields.get("status", hypothesis.get("status", "active")),
+                )
+            except Exception as exc:
+                logger.debug("Hypothesis Neo4j sync failed: {}", exc)
+
         # Create alert if significant shift
         if significant_shift:
             direction = "renforce" if delta > 0 else "affaibli"
@@ -455,6 +496,31 @@ class HypothesisEngine:
             "Hypothesis {} evaluated: {:.1f} -> {:.1f} (delta={:+.1f}, trigger={})",
             hypothesis_id[:8], previous_score, final_score, delta, trigger,
         )
+
+        # Update hypothesis embedding in ChromaDB
+        if self._chroma is not None:
+            try:
+                embed_text = (
+                    f"{hypothesis.get('title', '')}. "
+                    f"{hypothesis.get('description', '')}. "
+                    f"Score: {final_score:.0f}. "
+                    f"{scoring_result.get('reasoning', '')[:500]}"
+                )
+                embedding = await self._router.embed(embed_text)
+                self._chroma.add_hypothesis_snapshot(
+                    snapshot_id=hypothesis_id,
+                    case_id=case_id,
+                    text=embed_text,
+                    embedding=embedding,
+                    metadata={
+                        "hypothesis_id": hypothesis_id,
+                        "title": hypothesis.get("title", ""),
+                        "score": final_score,
+                        "trigger": trigger,
+                    },
+                )
+            except Exception as embed_exc:
+                logger.debug("Hypothesis embedding update failed: {}", embed_exc)
 
         # Enrich snapshot with evaluation metadata
         snapshot["delta"] = delta

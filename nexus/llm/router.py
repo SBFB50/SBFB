@@ -14,6 +14,7 @@ VRAM Management (RTX 5080, 16 GB partagee):
 from __future__ import annotations
 
 import asyncio
+import time
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,9 @@ from loguru import logger
 
 from nexus.config import settings
 from nexus.llm.ollama_client import OllamaClient
+
+# Threshold (seconds) after which we warn about lock contention.
+_LOCK_WAIT_WARN_SECONDS = 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +130,35 @@ class LLMRouter:
         self._heavy_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
+    # Lock helper
+    # ------------------------------------------------------------------
+
+    async def _acquire_heavy_lock(self, task_label: str) -> None:
+        """Acquire the heavy-model lock, logging if the wait is long.
+
+        The caller MUST still use ``async with self._heavy_lock:`` (which
+        handles release on CancelledError).  This helper is only used to
+        emit a warning when another heavy call is already in progress.
+        """
+        if self._heavy_lock.locked():
+            logger.warning(
+                "VRAM lock contention: {} waiting -- another heavy model call in progress",
+                task_label,
+            )
+            t0 = time.monotonic()
+            # We don't actually acquire here; the ``async with`` block does.
+            # But we record the wait start so we can log duration afterwards.
+            while self._heavy_lock.locked():
+                await asyncio.sleep(0.25)
+                elapsed = time.monotonic() - t0
+                if elapsed > _LOCK_WAIT_WARN_SECONDS and int(elapsed) % 30 == 0:
+                    logger.warning(
+                        "VRAM lock: {} still waiting after {:.0f}s",
+                        task_label,
+                        elapsed,
+                    )
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -149,6 +182,7 @@ class LLMRouter:
         )
 
         if heavy:
+            await self._acquire_heavy_lock(f"route({task_type.value})")
             async with self._heavy_lock:
                 return await self.client.generate(
                     model=model,
@@ -183,6 +217,7 @@ class LLMRouter:
         )
 
         if heavy:
+            await self._acquire_heavy_lock(f"route_json({task_type.value})")
             async with self._heavy_lock:
                 return await self.client.generate_json(
                     model=model,
@@ -218,6 +253,7 @@ class LLMRouter:
         )
 
         if heavy:
+            await self._acquire_heavy_lock(f"route_vision({task_type.value})")
             async with self._heavy_lock:
                 return await self.client.generate_with_image(
                     model=model,

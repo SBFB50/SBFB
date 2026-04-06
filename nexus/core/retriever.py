@@ -17,7 +17,7 @@ Usage::
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from loguru import logger
@@ -30,9 +30,10 @@ from nexus.llm.router import LLMRouter, TaskType
 
 
 # Weight constants for hybrid reranking
-_SEMANTIC_WEIGHT = 0.6
-_GRAPH_WEIGHT = 0.3
-_RECENCY_WEIGHT = 0.1
+_SEMANTIC_WEIGHT = 0.50
+_GRAPH_WEIGHT = 0.25
+_FTS_WEIGHT = 0.15
+_RECENCY_WEIGHT = 0.10
 
 # How many days count as "recent" for recency boosting
 _RECENCY_HORIZON_DAYS = 30
@@ -86,7 +87,7 @@ class InvestigationRetriever:
         2. Graph search: find entities in query, traverse Neo4j,
            get connected evidence
         3. Merge + deduplicate by evidence_id + chunk_text
-        4. Rerank by (semantic * 0.6 + graph * 0.3 + recency * 0.1)
+        4. Rerank by (semantic * 0.50 + graph * 0.25 + fts * 0.15 + recency * 0.10)
 
         Args:
             include_hypotheses: When True, also search hypothesis_reasoning
@@ -104,6 +105,11 @@ class InvestigationRetriever:
         if strategy in ("graph", "hybrid") and self._neo4j:
             graph = await self._graph_search(query, case_id, n_results)
             results.extend(graph)
+
+        # FTS5 lexical search (catches exact keywords semantic may miss)
+        if strategy in ("hybrid",):
+            fts = await self._fts_search(query, case_id, n_results)
+            results.extend(fts)
 
         # Deduplicate by evidence_id + chunk_text prefix, keep best score
         deduped = self._deduplicate(results)
@@ -211,6 +217,31 @@ class InvestigationRetriever:
             context_parts.append(f"\nHYPOTHESES ACTIVES:\n{hyp_summary}")
         if ent_summary:
             context_parts.append(f"\nENTITES PRINCIPALES:\n{ent_summary}")
+
+        # Add RAPTOR case summary if available
+        try:
+            case_summary_row = await self._db.get_case_summary(case_id)
+            if case_summary_row and case_summary_row.get("summary"):
+                context_parts.append(
+                    f"\nRESUME GLOBAL DU DOSSIER:\n{case_summary_row['summary']}"
+                )
+        except Exception:
+            pass
+
+        # Add latest timeline from analysis runs if available
+        try:
+            runs = await self._db.list_runs_by_case(
+                case_id, status="completed", limit=5
+            )
+            for run in runs:
+                if run.get("run_type") == "timeline_rebuild":
+                    output = run.get("output_summary", "")
+                    if output and "CHRONOLOGIE" in output:
+                        context_parts.append(f"\n{output[:2000]}")
+                    break  # only include the most recent timeline
+        except Exception:
+            pass
+
         context_parts.append("\nPREUVES PERTINENTES:")
 
         # Add chunks until token budget is reached
@@ -532,6 +563,89 @@ class InvestigationRetriever:
         return results[:n]
 
     # ==================================================================
+    # FTS5 lexical search (private)
+    # ==================================================================
+
+    @staticmethod
+    def _sanitize_fts_query(query: str) -> str:
+        """Sanitize a user query for FTS5 MATCH.
+
+        Wraps each word in double quotes to force literal matching,
+        stripping any embedded quotes and FTS5 operators.
+        """
+        # Remove FTS5 special characters
+        cleaned = (
+            query.replace('"', " ").replace("*", " ").replace("^", " ")
+            .replace("(", " ").replace(")", " ").replace(":", " ")
+        )
+        words = [w.strip() for w in cleaned.split() if len(w.strip()) >= 2]
+        # Skip FTS5 boolean operators
+        fts_operators = {"AND", "OR", "NOT", "NEAR"}
+        words = [w for w in words if w.upper() not in fts_operators]
+        if not words:
+            return ""
+        # Wrap each word in double quotes for literal matching
+        return " ".join(f'"{w}"' for w in words)
+
+    async def _fts_search(
+        self,
+        query: str,
+        case_id: str,
+        n: int,
+    ) -> list[dict]:
+        """Full-text search via SQLite FTS5.
+
+        Catches exact keyword matches that semantic search may miss
+        (proper names, case numbers, dates, technical terms).
+        Uses a dedicated _fts_score field for independent weight tuning.
+        """
+        try:
+            fts_query = self._sanitize_fts_query(query)
+            if not fts_query:
+                return []
+
+            raw = await self._db.search_evidence_fts(
+                case_id=case_id,
+                query=fts_query,
+                limit=n,
+            )
+        except Exception as exc:
+            logger.debug("FTS5 search failed (non-blocking): {}", exc)
+            return []
+
+        results: list[dict] = []
+        n_results = max(len(raw), 1)
+        for i, ev in enumerate(raw):
+            # BM25-ranked results: assign decaying score based on position
+            fts_score = max(0.1, 1.0 - (i / n_results))
+            text = ev.get("summary") or (ev.get("raw_text", "")[:2000])
+            entry = {
+                "chunk_text": text,
+                "evidence_id": ev.get("id", ""),
+                "title": ev.get("title", ""),
+                "source": ev.get("source", ""),
+                "metadata": {
+                    "evidence_type": ev.get("evidence_type", ""),
+                    "reliability": ev.get("reliability", 50),
+                    "created_at": ev.get("created_at", ""),
+                },
+                "_semantic_score": 0.0,
+                "_graph_score": 0.0,
+                "_fts_score": fts_score,
+                "_recency_score": self._compute_recency_score({
+                    "created_at": ev.get("created_at", ""),
+                }),
+                "_source": "fts5",
+            }
+            results.append(entry)
+
+        if results:
+            logger.debug(
+                "FTS5 search for case {}: {} results", case_id, len(results)
+            )
+        return results
+
+    # ==================================================================
     # Entity extraction from query (private)
     # ==================================================================
 
@@ -612,18 +726,11 @@ class InvestigationRetriever:
                 seen[key] = dict(r)
             else:
                 # Merge: keep the maximum of each score component
-                existing["_semantic_score"] = max(
-                    existing.get("_semantic_score", 0.0),
-                    r.get("_semantic_score", 0.0),
-                )
-                existing["_graph_score"] = max(
-                    existing.get("_graph_score", 0.0),
-                    r.get("_graph_score", 0.0),
-                )
-                existing["_recency_score"] = max(
-                    existing.get("_recency_score", 0.0),
-                    r.get("_recency_score", 0.0),
-                )
+                for score_key in ("_semantic_score", "_graph_score", "_fts_score", "_recency_score"):
+                    existing[score_key] = max(
+                        existing.get(score_key, 0.0),
+                        r.get(score_key, 0.0),
+                    )
                 # Track combined source
                 existing["_source"] = "hybrid"
 
@@ -636,12 +743,13 @@ class InvestigationRetriever:
     def _rerank(self, results: list[dict], n: int) -> list[dict]:
         """Rerank results by composite score and return top n.
 
-        composite = semantic * 0.6 + graph * 0.3 + recency * 0.1
+        composite = semantic * 0.50 + graph * 0.25 + fts * 0.15 + recency * 0.10
         """
         for r in results:
             composite = (
                 r.get("_semantic_score", 0.0) * _SEMANTIC_WEIGHT
                 + r.get("_graph_score", 0.0) * _GRAPH_WEIGHT
+                + r.get("_fts_score", 0.0) * _FTS_WEIGHT
                 + r.get("_recency_score", 0.0) * _RECENCY_WEIGHT
             )
             r["_composite_score"] = composite
@@ -678,7 +786,7 @@ class InvestigationRetriever:
         except (ValueError, TypeError):
             return 0.0
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         age = now - created
         horizon = timedelta(days=_RECENCY_HORIZON_DAYS)
 

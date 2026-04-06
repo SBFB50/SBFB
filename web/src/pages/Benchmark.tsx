@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Play, RefreshCw, Trash2, BarChart3, Users, FileText, Brain, AlertTriangle, Network } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Play, RefreshCw, Trash2, BarChart3, Users, FileText, Brain, AlertTriangle, Network, Clock } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -8,7 +8,10 @@ import Card from '../components/Card';
 import ScoreBar from '../components/ScoreBar';
 import Badge from '../components/Badge';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PipelineTools from '../components/PipelineTools';
+import InvestigationMap from '../components/InvestigationMap';
 import { api } from '../api/client';
+import { showToast } from '../components/Toast';
 
 interface CaseData {
   id: string;
@@ -34,6 +37,13 @@ export default function Benchmark() {
   const [showLauncher, setShowLauncher] = useState(false);
   const [entityFilter, setEntityFilter] = useState('all');
   const [entities, setEntities] = useState<any[]>([]);
+  const [benchProgress, setBenchProgress] = useState<{
+    caseId: string;
+    lastAction: string;
+    status: string;
+    elapsed: number;
+  } | null>(null);
+  const benchStartRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -86,17 +96,56 @@ export default function Benchmark() {
     api.get('/benchmark/available').then(r => setAvailableBenches(r.data || [])).catch(() => {});
   }, []);
 
+  // Poll investigation status for benchmark progress
+  useEffect(() => {
+    if (!benchProgress?.caseId) return;
+    const caseId = benchProgress.caseId;
+    let active = true;
+
+    const poll = async () => {
+      try {
+        const status = await api.get(`/cases/${caseId}/investigation/status`).then(r => r.data);
+        if (!active) return;
+
+        const elapsed = benchStartRef.current ? Math.floor((Date.now() - benchStartRef.current) / 1000) : 0;
+        const invStatus = status?.status || status?.state || 'idle';
+        const lastAction = status?.last_action || status?.current_task || '';
+
+        if (invStatus === 'idle' && elapsed > 10) {
+          // Investigation finished
+          setBenchProgress(null);
+          benchStartRef.current = null;
+          return;
+        }
+
+        setBenchProgress(prev => prev ? { ...prev, lastAction, status: invStatus, elapsed } : null);
+      } catch {
+        // Backend not reachable, keep polling
+      }
+    };
+
+    const interval = setInterval(poll, 2000);
+    poll();
+    return () => { active = false; clearInterval(interval); };
+  }, [benchProgress?.caseId]);
+
   const launchBench = async (key: string) => {
     setLaunching(key);
     try {
       const resp = await api.post(`/benchmark/launch/${key}`, {}, { timeout: 15000 });
       setShowLauncher(false);
+      const caseId = resp.data?.case_id;
+      if (caseId) {
+        benchStartRef.current = Date.now();
+        setBenchProgress({ caseId, lastAction: 'Demarrage...', status: 'starting', elapsed: 0 });
+      }
     } catch (e: any) {
-      // Timeout is OK — the backend launched the task in background
+      // Timeout is OK -- the backend launched the task in background
       if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout')) {
         setShowLauncher(false);
+        showToast('info', `Benchmark ${key} lance en arriere-plan`);
       } else {
-        console.error('Launch failed:', e);
+        showToast('error', `Echec du lancement: ${e?.response?.data?.detail || e?.message || 'Erreur inconnue'}`);
       }
     }
     setLaunching(null);
@@ -106,8 +155,11 @@ export default function Benchmark() {
   const injectWave = async (caseId: string, benchKey: string, wave: number) => {
     try {
       await api.post(`/benchmark/inject/${caseId}/${benchKey}/wave/${wave}`);
+      showToast('success', `Vague ${wave} injectee`);
       setTimeout(refresh, 3000);
-    } catch {}
+    } catch (e: any) {
+      showToast('error', `Injection vague ${wave} echouee: ${e?.response?.data?.detail || e?.message || 'Erreur'}`);
+    }
   };
 
   const deleteCase = async (caseId: string) => {
@@ -115,7 +167,10 @@ export default function Benchmark() {
       await api.delete(`/cases/${caseId}`);
       setCases(prev => prev.filter(c => c.id !== caseId));
       if (selectedCase === caseId) setSelectedCase(null);
-    } catch {}
+      showToast('info', 'Dossier supprime');
+    } catch (e: any) {
+      showToast('error', `Suppression echouee: ${e?.response?.data?.detail || e?.message || 'Erreur'}`);
+    }
   };
 
   // Load details for selected case
@@ -270,6 +325,25 @@ export default function Benchmark() {
         </Card>
       )}
 
+      {/* Benchmark progress */}
+      {benchProgress && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-[var(--bg-card)] border border-[var(--accent)]/30 rounded-lg animate-pulse">
+          <LoadingSpinner size={16} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-[var(--text-primary)] truncate">
+              {benchProgress.lastAction || 'Traitement en cours...'}
+            </p>
+            <p className="text-[10px] text-[var(--text-muted)]">
+              Statut: {benchProgress.status}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 text-xs text-[var(--text-muted)] font-mono shrink-0">
+            <Clock size={11} />
+            {Math.floor(benchProgress.elapsed / 60)}:{String(benchProgress.elapsed % 60).padStart(2, '0')}
+          </div>
+        </div>
+      )}
+
       {/* Cases overview cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {cases.map((c, i) => (
@@ -339,6 +413,12 @@ export default function Benchmark() {
           </ResponsiveContainer>
         </Card>
       )}
+
+      {/* Pipeline tools — real-time status of each investigation module */}
+      {selectedCase && <PipelineTools caseId={selectedCase} />}
+
+      {/* Investigation map — geocoded locations */}
+      {selectedCase && <InvestigationMap caseId={selectedCase} />}
 
       {/* Investigation Timeline — chronological progression */}
       {auditLog.length > 0 && (

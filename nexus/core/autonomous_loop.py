@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -82,16 +82,20 @@ class AutonomousInvestigator:
         router: LLMRouter,
         chroma: Any,
         neo4j: Any,
+        entity_extractor: Any = None,
     ) -> None:
         self._case_id = case_id
         self._router = router
         self._chroma = chroma
         self._neo4j = neo4j
+        self._entity_extractor = entity_extractor
         self._running = False
         self._cycle_count = 0
         self._last_action: str | None = None
         self._last_cycle_at: str | None = None
         self._started_at: str | None = None
+        # Per-tool status tracking for the UI
+        self._tool_status: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Public interface
@@ -121,6 +125,16 @@ class AutonomousInvestigator:
     def started_at(self) -> str | None:
         return self._started_at
 
+    def _track_tool(self, name: str, status: str, detail: str = "", file: str = "") -> None:
+        """Update per-tool status for the investigation UI."""
+        self._tool_status[name] = {
+            "status": status,  # idle, running, done, error
+            "detail": detail,
+            "file": file,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "cycle": self._cycle_count,
+        }
+
     def get_status(self) -> dict[str, Any]:
         """Return a status dict for the API."""
         return {
@@ -130,6 +144,7 @@ class AutonomousInvestigator:
             "last_action": self._last_action,
             "last_cycle_at": self._last_cycle_at,
             "started_at": self._started_at,
+            "tools": self._tool_status,
         }
 
     async def _audit_log(self, actor, action, summary, **kwargs):
@@ -150,7 +165,7 @@ class AutonomousInvestigator:
     async def run(self) -> None:
         """Main investigation loop -- runs until stopped."""
         self._running = True
-        self._started_at = datetime.utcnow().isoformat()
+        self._started_at = datetime.now(timezone.utc).isoformat()
         logger.info("Autonomous investigator STARTED for case {}", self._case_id)
 
         await self._audit_log(
@@ -161,7 +176,7 @@ class AutonomousInvestigator:
         while self._running:
             try:
                 self._cycle_count += 1
-                self._last_cycle_at = datetime.utcnow().isoformat()
+                self._last_cycle_at = datetime.now(timezone.utc).isoformat()
                 logger.info(
                     "=== Case {} -- OODA Cycle {} ===",
                     self._case_id,
@@ -174,7 +189,9 @@ class AutonomousInvestigator:
 
                     # PHASE 1: OBSERVE -- What's new?
                     self._last_action = "OBSERVE"
+                    self._track_tool("monitoring", "running", "Recherche nouveaux resultats", "monitoring/scheduler.py")
                     new_results = await self._observe(db)
+                    self._track_tool("monitoring", "done", f"{len(new_results)} resultats pertinents")
 
                     # PHASE 2: ORIENT -- Ingest, recon, geocode, image analysis
                     self._last_action = "ORIENT"
@@ -292,23 +309,39 @@ class AutonomousInvestigator:
         new_evidence_ids: list[str] = []
 
         # --- 2a. Auto-ingest monitoring results as evidence ---
+        self._track_tool("evidence_processor", "running", f"Ingestion de {len(new_results)} resultats", "core/evidence_processor.py")
         new_evidence_ids = await self._orient_ingest(db, new_results)
+        self._track_tool("evidence_processor", "done", f"{len(new_evidence_ids)} preuves ingerees")
 
-        # --- 2b. OSINT recon on new entities (email/username) ---
+        # --- 2b. Periodic Neo4j re-sync (catches failed syncs) ---
+        if self._neo4j and self._cycle_count % 3 == 0:
+            self._track_tool("neo4j_sync", "running", "Re-sync graphe", "db/neo4j_db.py")
+            await self._orient_neo4j_resync(db)
+            self._track_tool("neo4j_sync", "done", "Graphe synchronise")
+
+        # --- 2c. OSINT recon on new entities (email/username) ---
         if settings.auto_osint_recon:
+            self._track_tool("osint_recon", "running", "Holehe + social scan", "recon/")
             await self._orient_osint_recon(db)
+            self._track_tool("osint_recon", "done", "Scan OSINT termine")
 
-        # --- 2c. Geocode location entities ---
+        # --- 2d. Geocode location entities ---
         if settings.auto_geocode:
+            self._track_tool("geo_mapper", "running", "Geocodage lieux", "core/geo_mapper.py")
             await self._orient_geocode(db)
+            self._track_tool("geo_mapper", "done", "Lieux geocodes")
 
-        # --- 2d. Analyse image evidence (VLM) ---
+        # --- 2e. Analyse image evidence (VLM) ---
         if settings.auto_image_analysis:
+            self._track_tool("image_analyzer", "running", "Analyse VLM images", "core/image_analyzer.py")
             await self._orient_image_analysis(db)
+            self._track_tool("image_analyzer", "done", "Images analysees")
 
-        # --- 2e. Index images in DINOv2/CLIP ---
+        # --- 2f. Index images in DINOv2/CLIP ---
         if settings.auto_visual_embeddings:
+            self._track_tool("visual_embedder", "running", "Indexation DINOv2/CLIP", "vision/embeddings.py")
             await self._orient_visual_embeddings(db)
+            self._track_tool("visual_embedder", "done", "Embeddings visuels indexes")
 
         return new_evidence_ids
 
@@ -317,17 +350,20 @@ class AutonomousInvestigator:
         new_evidence_ids: list[str] = []
         max_ingest = settings.max_auto_ingest_per_cycle
 
+        # Create processor once for all results (reuses GLiNER singleton)
+        from nexus.core.evidence_processor import EvidenceProcessor
+
+        processor = EvidenceProcessor(
+            db=db,
+            router=self._router,
+            upload_dir=settings.upload_dir,
+            neo4j=self._neo4j,
+            chroma=self._chroma,
+            entity_extractor=self._entity_extractor,
+        )
+
         for result in new_results[:max_ingest]:
             try:
-                from nexus.core.evidence_processor import EvidenceProcessor
-
-                processor = EvidenceProcessor(
-                    db=db,
-                    router=self._router,
-                    upload_dir=settings.upload_dir,
-                    neo4j=self._neo4j,
-                    chroma=self._chroma,
-                )
 
                 # Build text from monitoring result
                 text = (
@@ -382,6 +418,84 @@ class AutonomousInvestigator:
                 )
 
         return new_evidence_ids
+
+    async def _orient_neo4j_resync(self, db: Database) -> None:
+        """Re-sync evidence and entities to Neo4j for any items not yet synced.
+
+        Catches evidence that was ingested but whose Neo4j sync failed.
+        Runs every 3 cycles to avoid excessive load. Uses MERGE (idempotent).
+        """
+        try:
+            evidence_list = await db.list_evidence_by_case(self._case_id)
+            entities = await db.list_entities_by_case(self._case_id)
+            processed = [ev for ev in evidence_list if ev.get("status") == "processed"]
+
+            ev_ok, ev_fail = 0, 0
+            ent_ok, ent_fail = 0, 0
+            link_ok, link_fail = 0, 0
+
+            # Sync evidence nodes
+            for ev in processed:
+                try:
+                    await self._neo4j.sync_evidence(
+                        evidence_id=ev["id"],
+                        case_id=self._case_id,
+                        title=ev["title"],
+                        evidence_type=ev["evidence_type"],
+                        reliability=ev.get("reliability", 50),
+                    )
+                    ev_ok += 1
+                except Exception:
+                    ev_fail += 1
+
+            # Sync entity nodes
+            for ent in entities:
+                try:
+                    await self._neo4j.sync_entity(ent, self._case_id)
+                    ent_ok += 1
+                except Exception:
+                    ent_fail += 1
+
+            # Link evidence to entities via mentions (only processed evidence)
+            for ev in processed:
+                mentions = await db.list_mentions_by_evidence(ev["id"])
+                for m in mentions:
+                    try:
+                        await self._neo4j.link_evidence_to_entity(
+                            ev["id"], m["entity_id"]
+                        )
+                        link_ok += 1
+                    except Exception:
+                        link_fail += 1
+
+            logger.info(
+                "ORIENT: Neo4j re-sync for case {} — "
+                "evidence: {}/{}, entities: {}/{}, links: {}/{}",
+                self._case_id,
+                ev_ok, ev_ok + ev_fail,
+                ent_ok, ent_ok + ent_fail,
+                link_ok, link_ok + link_fail,
+            )
+            if ev_fail or ent_fail or link_fail:
+                logger.warning(
+                    "ORIENT: Neo4j re-sync had failures — "
+                    "ev_fail={}, ent_fail={}, link_fail={}",
+                    ev_fail, ent_fail, link_fail,
+                )
+            await self._audit_log(
+                "autonomous_loop", "neo4j_resync",
+                f"Re-sync Neo4j: {ev_ok} preuves, {ent_ok} entites, {link_ok} liens"
+                f" (echecs: {ev_fail + ent_fail + link_fail})",
+                details={
+                    "evidence": {"ok": ev_ok, "fail": ev_fail},
+                    "entities": {"ok": ent_ok, "fail": ent_fail},
+                    "links": {"ok": link_ok, "fail": link_fail},
+                },
+                cycle_number=self._cycle_count,
+            )
+
+        except Exception as e:
+            logger.warning("ORIENT: Neo4j re-sync failed: {}", e)
 
     async def _orient_osint_recon(self, db: Database) -> None:
         """OSINT recon: for each new email/account entity, run holehe + social_recon."""
@@ -481,6 +595,17 @@ class AutonomousInvestigator:
                     self._case_id,
                 )
                 for r in newly_geocoded:
+                    # Enrich entity description with GPS coordinates so retriever sees them
+                    entity_id = r.get("entity_id")
+                    if entity_id:
+                        try:
+                            ent = await db.get_entity(entity_id)
+                            if ent:
+                                geo_info = f" [GPS: {r['lat']:.4f},{r['lon']:.4f}]"
+                                desc = (ent.get("description") or "") + geo_info
+                                await db.update_entity(entity_id, description=desc)
+                        except Exception as ge:
+                            logger.debug("ORIENT: Could not enrich entity {}: {}", entity_id[:8], ge)
                     await self._audit_log(
                         "autonomous_loop", "geocode",
                         f"Lieu geocode: {r['name']} -> {r['lat']},{r['lon']}",
@@ -638,6 +763,7 @@ class AutonomousInvestigator:
 
         # --- 3a. Incremental analysis for new evidence ---
         if new_evidence_ids:
+            self._track_tool("analysis_pipeline", "running", f"Analyse de {len(new_evidence_ids)} preuves", "core/analysis_pipeline.py")
             from nexus.core.analysis_pipeline import AnalysisPipeline
 
             for ev_id in new_evidence_ids:
@@ -677,7 +803,11 @@ class AutonomousInvestigator:
                         e,
                     )
 
+        if new_evidence_ids:
+            self._track_tool("analysis_pipeline", "done", "Analyse incrementale terminee")
+
         # --- 3b. Re-evaluate ALL hypotheses ---
+        self._track_tool("hypothesis_engine", "running", "Generation/evaluation hypotheses", "core/hypothesis_engine.py")
         try:
             from nexus.core.hypothesis_engine import HypothesisEngine
 
@@ -728,8 +858,12 @@ class AutonomousInvestigator:
                 )
         except Exception as e:
             logger.error("DECIDE: Hypothesis evaluation failed: {}", e)
+            self._track_tool("hypothesis_engine", "error", str(e))
+        else:
+            self._track_tool("hypothesis_engine", "done", f"{len(snapshots) if 'snapshots' in dir() else 0} hypotheses evaluees")
 
         # --- 3c. Detect contradictions ---
+        self._track_tool("contradiction_detector", "running", "Detection contradictions", "core/contradiction_detector.py")
         try:
             from nexus.core.contradiction_detector import (
                 ContradictionDetector,
@@ -761,18 +895,69 @@ class AutonomousInvestigator:
                         description=c.get("description", str(c)),
                         actor="autonomous_loop",
                     )
+
+                # --- Auto-adjust hypothesis scores based on contradictions ---
+                hypotheses = await db.list_hypotheses_by_case(
+                    self._case_id, status="active"
+                )
+                for c in contradictions:
+                    c_text = (
+                        c.get("description", "")
+                        + " " + str(c.get("evidence_a_title", ""))
+                        + " " + str(c.get("evidence_b_title", ""))
+                    ).lower()
+                    c_words = {w for w in c_text.split() if len(w) > 3}
+                    for h in hypotheses:
+                        h_text = (
+                            h.get("title", "") + " " + h.get("description", "")
+                        ).lower()
+                        h_words = {w for w in h_text.split() if len(w) > 3}
+                        overlap = c_words & h_words
+                        if len(overlap) >= 2:
+                            current_score = h.get("current_score", 50.0)
+                            new_score = max(0.0, current_score - 5.0)
+                            if new_score != current_score:
+                                await db.update_hypothesis(
+                                    h["id"], current_score=new_score
+                                )
+                                await db.create_hypothesis_snapshot(
+                                    hypothesis_id=h["id"],
+                                    score=new_score,
+                                    contradicting=[c.get("description", "")],
+                                    reasoning=(
+                                        f"Auto-downgrade: contradiction overlap "
+                                        f"({', '.join(sorted(overlap)[:5])})"
+                                    ),
+                                    trigger="contradiction_auto_adjust",
+                                )
+                                logger.info(
+                                    "DECIDE: Hypothesis '{}' score adjusted {:.0f} -> {:.0f} due to contradiction",
+                                    h.get("title", "?")[:30],
+                                    current_score,
+                                    new_score,
+                                )
         except Exception as e:
             logger.error("DECIDE: Contradiction detection failed: {}", e)
+            self._track_tool("contradiction_detector", "error", str(e))
 
-        # --- 3d. Forensic analysis on image evidence ---
+        # --- 3d. Score all suspects ---
+        if settings.auto_suspect_scoring:
+            self._track_tool("suspect_scorer", "running", "Scoring suspects 5 facteurs", "core/suspect_scorer.py")
+            await self._decide_suspect_scoring(db)
+
+        # --- 3e. Forensic analysis on image evidence ---
         if settings.auto_forensic_analysis:
+            self._track_tool("forensics", "running", "BPA + traces + acoustique", "forensics/")
             await self._decide_forensic_analysis(db)
+            self._track_tool("forensics", "done", "Analyse forensique terminee")
 
-        # --- 3e. Rebuild timeline ---
+        # --- 3f. Rebuild timeline ---
         if settings.auto_timeline_rebuild:
+            self._track_tool("timeline_builder", "running", "Reconstruction chronologique", "core/timeline_builder.py")
             await self._decide_timeline(db)
+            self._track_tool("timeline_builder", "done", "Timeline reconstruite")
 
-        # --- 3f. Rebuild summary tree periodically (every 3 cycles) ---
+        # --- 3g. Rebuild summary tree periodically (every 3 cycles) ---
         if self._cycle_count % 3 == 0:
             try:
                 from nexus.core.summary_tree import SummaryTree
@@ -793,6 +978,71 @@ class AutonomousInvestigator:
                 logger.warning("DECIDE: Summary tree rebuild failed: {}", e)
 
         return decisions
+
+    async def _decide_suspect_scoring(self, db: Database) -> None:
+        """Score all person entities as suspects and evaluate profiles."""
+        try:
+            from nexus.core.suspect_scorer import SuspectScorer
+
+            scorer = SuspectScorer(
+                db=db, router=self._router, neo4j=self._neo4j
+            )
+            results = await scorer.score_all_suspects(
+                self._case_id, trigger="autonomous_loop"
+            )
+
+            if results:
+                logger.info(
+                    "DECIDE: Scored {} suspects for case {}",
+                    len(results), self._case_id,
+                )
+                # Log top suspects
+                for r in results[:3]:
+                    f = r.get("factors", {})
+                    await self._audit_log(
+                        "autonomous_loop", "suspect_scored",
+                        f"Suspect {r.get('name', '?')}: {r.get('score', 0):.1f} "
+                        f"(G={f.get('graph', 0):.0f} E={f.get('evidence', 0):.0f} "
+                        f"C={f.get('contradiction', 0):.0f} P={f.get('profile', 0):.0f} "
+                        f"H={f.get('hypothesis', 0):.0f})",
+                        target_type="suspect",
+                        target_id=r.get("suspect_id"),
+                        details=r,
+                        cycle_number=self._cycle_count,
+                    )
+
+            # Evaluate profiles via LLM periodically
+            if (
+                settings.auto_suspect_profile_every_n_cycles > 0
+                and self._cycle_count % settings.auto_suspect_profile_every_n_cycles == 0
+                and results  # Only if there are suspects to profile
+            ):
+                for r in results:
+                    entity_id = r.get("entity_id", "")
+                    name = r.get("name", "?")
+                    profile_score = r.get("factors", {}).get("profile", 0)
+                    # Evaluate if never profiled (0) or periodically refresh (every 9 cycles)
+                    needs_profile = (
+                        profile_score == 0
+                        or self._cycle_count % (settings.auto_suspect_profile_every_n_cycles * 3) == 0
+                    )
+                    if entity_id and needs_profile:
+                        try:
+                            await scorer.evaluate_profile(
+                                self._case_id, entity_id
+                            )
+                            logger.info(
+                                "DECIDE: Profile evaluated for suspect {} ({})",
+                                entity_id[:8], name,
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "DECIDE: Profile evaluation failed for {}: {}",
+                                name, exc,
+                            )
+
+        except Exception as e:
+            logger.error("DECIDE: Suspect scoring failed: {}", e)
 
     async def _decide_forensic_analysis(self, db: Database) -> None:
         """Run forensic analysis (blood pattern, traces) on image evidence."""
@@ -834,6 +1084,13 @@ class AutonomousInvestigator:
                         bpa = BloodPatternAnalyzer(self._router)
                         result = await bpa.classify_pattern(file_path)
                         metadata["bpa_result"] = result
+                        # Append BPA findings to evidence summary so retriever can find them
+                        bpa_summary = (
+                            f"\n[FORENSIQUE BPA]: {result.get('pattern_type', 'inconnu')}"
+                            f" — {(result.get('description') or '')[:300]}"
+                        )
+                        current_summary = ev.get("summary") or ""
+                        await db.update_evidence(ev["id"], summary=current_summary + bpa_summary)
                         await self._audit_log(
                             "autonomous_loop", "forensic_bpa",
                             f"Analyse BPA: {ev.get('title', '?')} -> {result.get('pattern_type', 'inconnu')}",
@@ -865,6 +1122,13 @@ class AutonomousInvestigator:
                         tracer = TraceAnalyzer(self._router)
                         result = await tracer.analyze_trace(file_path, trace_type="auto")
                         metadata["trace_result"] = result
+                        # Append trace findings to evidence summary so retriever can find them
+                        trace_summary = (
+                            f"\n[FORENSIQUE TRACE]: type={result.get('type', 'auto')}"
+                            f" — {(result.get('description') or result.get('analysis') or '')[:300]}"
+                        )
+                        current_summary = ev.get("summary") or ""
+                        await db.update_evidence(ev["id"], summary=current_summary + trace_summary)
                         await self._audit_log(
                             "autonomous_loop", "forensic_trace",
                             f"Analyse trace: {ev.get('title', '?')} -> type={result.get('type', 'auto')}",
@@ -920,11 +1184,21 @@ class AutonomousInvestigator:
                     # If transcription was produced, store it as raw_text
                     transcription = result.get("transcription", "")
                     if transcription and not ev.get("raw_text"):
-                        await db.update_evidence(
-                            ev["id"],
-                            raw_text=transcription,
-                            summary=result.get("forensic_analysis", "")[:500],
-                        )
+                        await db.update_evidence(ev["id"], raw_text=transcription)
+
+                    # Append acoustic findings to evidence summary so retriever can find them
+                    forensic_text = result.get("forensic_analysis") or ""
+                    events = result.get("events", [])
+                    events_desc = ", ".join(
+                        e.get("description", "") for e in events[:5]
+                    ) if events else ""
+                    acoustic_summary = (
+                        f"\n[FORENSIQUE ACOUSTIQUE]: {forensic_text[:300]}"
+                    )
+                    if events_desc:
+                        acoustic_summary += f" Evenements: {events_desc[:200]}"
+                    current_summary = ev.get("summary") or ""
+                    await db.update_evidence(ev["id"], summary=current_summary + acoustic_summary)
 
                     await self._audit_log(
                         "autonomous_loop", "forensic_acoustic",
@@ -957,7 +1231,24 @@ class AutonomousInvestigator:
             timeline = await builder.build_timeline(self._case_id)
 
             if timeline:
-                # Store timeline as an analysis run for record-keeping
+                # Build a detailed timeline summary for the analysis context
+                timeline_lines = []
+                for evt in timeline[:30]:  # cap at 30 events
+                    date = evt.get("date", "?")
+                    desc = (evt.get("description") or evt.get("event") or "")[:120]
+                    source = evt.get("source", "")
+                    line = f"  - [{date}] {desc}"
+                    if source:
+                        line += f" (source: {source})"
+                    timeline_lines.append(line)
+                timeline_text = "\n".join(timeline_lines)
+                output_summary = (
+                    f"CHRONOLOGIE ({len(timeline)} evenements, "
+                    f"du {timeline[0].get('date', '?')} au {timeline[-1].get('date', '?')}):\n"
+                    f"{timeline_text}"
+                )
+
+                # Store timeline as analysis run — output_summary readable by retriever
                 await db.create_analysis_run(
                     case_id=self._case_id,
                     run_type="timeline_rebuild",
@@ -965,11 +1256,7 @@ class AutonomousInvestigator:
                     status="completed",
                     model_used="N/A",
                     input_summary=f"Timeline cycle {self._cycle_count}",
-                    output_summary=(
-                        f"{len(timeline)} evenements, "
-                        f"du {timeline[0].get('date', '?')} "
-                        f"au {timeline[-1].get('date', '?')}"
-                    ),
+                    output_summary=output_summary[:4000],
                 )
                 await self._audit_log(
                     "autonomous_loop", "timeline_rebuilt",

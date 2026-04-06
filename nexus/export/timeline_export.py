@@ -9,7 +9,7 @@ Produces:
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -64,7 +64,7 @@ class TimelineExporter:
         events_json = json.dumps(events, ensure_ascii=False, default=str)
         case_name = (case_info or {}).get("name", "")
         case_ref = (case_info or {}).get("reference", "")
-        generated_at = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
+        generated_at = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
 
         html = _TIMELINE_HTML_TEMPLATE.format(
             title=_escape_html(title),

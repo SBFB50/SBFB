@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 import aiosqlite
@@ -269,6 +269,7 @@ CREATE INDEX IF NOT EXISTS idx_evidence_case_type ON evidence(case_id, evidence_
 CREATE INDEX IF NOT EXISTS idx_evidence_case_status ON evidence(case_id, status);
 CREATE INDEX IF NOT EXISTS idx_entities_case_type ON entities(case_id, entity_type);
 CREATE INDEX IF NOT EXISTS idx_mentions_evidence ON entity_mentions(evidence_id);
+CREATE INDEX IF NOT EXISTS idx_mentions_entity ON entity_mentions(entity_id);
 CREATE INDEX IF NOT EXISTS idx_monitoring_results_job ON monitoring_results(job_id);
 CREATE INDEX IF NOT EXISTS idx_monitoring_results_case ON monitoring_results(case_id);
 """
@@ -311,7 +312,7 @@ def _new_id() -> str:
 
 def _now_iso() -> str:
     """Current UTC timestamp in ISO-8601."""
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _json_dumps(obj: Any) -> Optional[str]:

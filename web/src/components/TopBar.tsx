@@ -31,6 +31,8 @@ interface SystemStats {
   gpu_temp: number;
 }
 
+const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL || '/ollama';
+
 function useSystemStats() {
   const [stats, setStats] = useState<SystemStats | null>(null);
 
@@ -41,7 +43,7 @@ function useSystemStats() {
         // Use Ollama ps as a proxy for GPU usage
         const [health, ollama] = await Promise.all([
           api.get('/health').then(r => r.data).catch(() => null),
-          fetch('http://localhost:11434/api/ps').then(r => r.json()).catch(() => null),
+          fetch(`${OLLAMA_URL}/api/ps`).then(r => r.json()).catch(() => null),
         ]);
 
         if (!active) return;
@@ -129,13 +131,14 @@ export default function TopBar() {
                 await api.post(`/cases/${c.id}/investigation/stop`).catch(() => {});
               }
               // Unload all LLMs
-              await fetch('http://localhost:11434/api/generate', {
+              const ollamaGen = `${OLLAMA_URL}/api/generate`;
+              await fetch(ollamaGen, {
                 method: 'POST', body: JSON.stringify({ model: 'nexus', prompt: '', keep_alive: 0 })
               }).catch(() => {});
-              await fetch('http://localhost:11434/api/generate', {
+              await fetch(ollamaGen, {
                 method: 'POST', body: JSON.stringify({ model: 'gemma4:e4b', prompt: '', keep_alive: 0 })
               }).catch(() => {});
-              await fetch('http://localhost:11434/api/generate', {
+              await fetch(ollamaGen, {
                 method: 'POST', body: JSON.stringify({ model: 'huihui_ai/deepseek-r1-abliterated:14b', prompt: '', keep_alive: 0 })
               }).catch(() => {});
             } catch {}

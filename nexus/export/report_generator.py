@@ -7,7 +7,7 @@ and uses the nexus 26B model to produce structured investigation reports.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -80,7 +80,7 @@ class ReportGenerator:
         # Build timeline entries
         timeline = self._build_timeline_entries(evidence, entities)
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         return {
             "case_info": {
@@ -210,7 +210,7 @@ class ReportGenerator:
             if a["severity"] in ("warning", "critical")
         ]
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         return {
             "case_info": {
@@ -296,7 +296,7 @@ class ReportGenerator:
         # Sort chronologically
         events.sort(key=lambda e: e.get("date") or "9999-12-31")
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         return {
             "case_info": {

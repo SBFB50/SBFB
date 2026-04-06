@@ -105,6 +105,15 @@ export default function Investigation() {
               </p>
             )}
 
+            {status.cycle_count !== undefined && status.cycle_count > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-primary)] rounded-lg">
+                <RefreshCw size={12} className="text-[var(--accent)]" />
+                <p className="text-xs text-[var(--text-muted)]">
+                  Cycles OODA: <span className="font-mono text-[var(--text-primary)]">{status.cycle_count}</span>
+                </p>
+              </div>
+            )}
+
             {status.last_action && (
               <div className="px-3 py-2 bg-[var(--bg-primary)] rounded-lg">
                 <p className="text-xs text-[var(--text-muted)] mb-1">Last Action</p>

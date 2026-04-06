@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -97,7 +97,7 @@ def _new_id() -> str:
 
 def _now_iso() -> str:
     """Current UTC timestamp in ISO-8601."""
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ============================================================================
@@ -714,6 +714,29 @@ class Neo4jClient:
         await self.create_relation(evidence_id, case_id, "BELONGS_TO")
 
         logger.debug("Synced evidence id={} title={}", evidence_id, title)
+
+    async def sync_hypothesis(
+        self,
+        hypothesis_id: str,
+        case_id: str,
+        title: str,
+        score: float,
+        status: str,
+    ) -> None:
+        """Create or update a Hypothesis node and link to Case."""
+        properties = {
+            "id": hypothesis_id,
+            "case_id": case_id,
+            "title": title,
+            "score": score,
+            "status": status,
+        }
+        await self.create_or_update_node("Hypothesis", properties)
+
+        # Link hypothesis to the case
+        await self.create_relation(hypothesis_id, case_id, "BELONGS_TO")
+
+        logger.debug("Synced hypothesis id={} title={}", hypothesis_id, title)
 
     async def link_evidence_to_entity(
         self,

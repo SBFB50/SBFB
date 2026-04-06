@@ -52,11 +52,16 @@ _GLINER_LABEL_DESCRIPTIONS = list(_GLINER_LABELS.keys())
 class EntityExtractor:
     """Hybrid NER: GLiNER (primary, CPU) + LLM (fallback, relations)."""
 
-    def __init__(self, router: LLMRouter) -> None:
+    def __init__(self, router: LLMRouter, gliner_model=None) -> None:
         self._router = router
-        self._gliner = None
-        self._gliner_loaded = False
+        self._gliner = gliner_model
+        self._gliner_loaded = gliner_model is not None
         self._gliner_failed = False
+
+    def preload(self) -> bool:
+        """Eagerly load GLiNER model. Returns True if successful."""
+        self._load_gliner()
+        return self._gliner_loaded
 
     def _load_gliner(self):
         """Lazy-load GLiNER model on first use."""

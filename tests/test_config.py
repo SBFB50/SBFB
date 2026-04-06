@@ -2,7 +2,7 @@
 
 import pytest
 
-from nexus.config import Settings, MODEL_ROUTING
+from nexus.config import Settings
 
 
 # =====================================================================
@@ -81,38 +81,3 @@ class TestSettingsDefaults:
         assert str(s.data_dir).endswith("data")
         assert str(s.upload_dir).endswith("uploads")
         assert str(s.sqlite_path).endswith("nexus.db")
-
-
-# =====================================================================
-# Model routing table
-# =====================================================================
-
-
-class TestModelRouting:
-
-    def test_mechanical_tasks_use_fast_model(self):
-        for task in ("extract", "filter", "format", "summarize"):
-            assert MODEL_ROUTING[task] == "gemma4:e4b"
-
-    def test_reasoning_tasks_use_deepseek(self):
-        for task in ("reason", "verify", "contradict"):
-            assert MODEL_ROUTING[task] == "huihui_ai/deepseek-r1-abliterated:14b"
-
-    def test_deep_analysis_tasks_use_nexus(self):
-        for task in ("analyze", "hypothesize", "report"):
-            assert MODEL_ROUTING[task] == "nexus"
-
-    def test_embed_task(self):
-        assert MODEL_ROUTING["embed"] == "nomic-embed-text"
-
-    def test_transcribe_task(self):
-        assert MODEL_ROUTING["transcribe"] == "voxtral-mini:4b"
-
-    def test_all_routing_keys(self):
-        expected_keys = {
-            "extract", "filter", "format", "summarize",
-            "reason", "verify", "contradict",
-            "analyze", "hypothesize", "report",
-            "embed", "transcribe",
-        }
-        assert set(MODEL_ROUTING.keys()) == expected_keys

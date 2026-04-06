@@ -152,6 +152,20 @@ async def lifespan(app: FastAPI):
             exc,
         )
 
+    # Pre-load GLiNER entity extractor (CPU, avoids VRAM conflicts with Ollama)
+    app.state.entity_extractor = None
+    try:
+        from nexus.core.entity_extractor import EntityExtractor
+
+        entity_extractor = EntityExtractor(app.state.router)
+        if entity_extractor.preload():
+            app.state.entity_extractor = entity_extractor
+            logger.info("GLiNER entity extractor pre-loaded (CPU singleton)")
+        else:
+            logger.warning("GLiNER pre-load failed — will use LLM fallback")
+    except Exception as exc:
+        logger.warning("GLiNER pre-load skipped: {}", exc)
+
     # Monitoring scheduler (APScheduler)
     app.state.monitoring_scheduler = None
     try:
@@ -174,6 +188,7 @@ async def lifespan(app: FastAPI):
             router=app.state.router,
             chroma=app.state.chroma,
             neo4j=app.state.neo4j,
+            entity_extractor=app.state.entity_extractor,
         )
         await inv_manager.start()
         app.state.investigation_manager = inv_manager

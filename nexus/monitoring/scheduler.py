@@ -11,7 +11,7 @@ on startup and executes them at their configured interval.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -128,7 +128,7 @@ class MonitoringScheduler:
         try:
             self._scheduler.modify_job(
                 scheduler_id,
-                next_run_time=datetime.utcnow(),
+                next_run_time=datetime.now(timezone.utc),
             )
             logger.info("Scheduler: triggered immediate run for job {}", job_id)
         except Exception:
@@ -249,9 +249,9 @@ class MonitoringScheduler:
 
                 if not raw_results:
                     logger.info("No results for job {} -- updating timestamps", job_id)
-                    now = datetime.utcnow().isoformat()
+                    now = datetime.now(timezone.utc).isoformat()
                     next_run = (
-                        datetime.utcnow() + timedelta(hours=job["interval_hours"])
+                        datetime.now(timezone.utc) + timedelta(hours=job["interval_hours"])
                     ).isoformat()
                     await db.update_job(job_id, last_run=now, next_run=next_run)
                     return
@@ -357,9 +357,9 @@ class MonitoringScheduler:
                             )
 
                 # 7. Update job timestamps
-                now = datetime.utcnow().isoformat()
+                now = datetime.now(timezone.utc).isoformat()
                 next_run = (
-                    datetime.utcnow() + timedelta(hours=job["interval_hours"])
+                    datetime.now(timezone.utc) + timedelta(hours=job["interval_hours"])
                 ).isoformat()
                 await db.update_job(job_id, last_run=now, next_run=next_run)
 

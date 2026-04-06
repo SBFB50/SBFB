@@ -13,7 +13,7 @@ import json
 import shutil
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -50,7 +50,7 @@ class BackupManager:
         then zipped.
         """
         backup_id = str(uuid.uuid4())
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         zip_name = f"nexus_backup_{timestamp}_{backup_id[:8]}.zip"
         zip_path = self._backup_dir / zip_name
 
@@ -82,7 +82,7 @@ class BackupManager:
             db_size = temp_db.stat().st_size
             metadata = {
                 "backup_id": backup_id,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "nexus_version": "0.1.0",
                 "sqlite_path": str(db_path),
                 "db_size_bytes": db_size,
@@ -193,7 +193,7 @@ class BackupManager:
         # Create an automatic backup of the current DB before restoring
         if db_path.exists():
             safety_backup = db_path.with_suffix(
-                f".pre_restore_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.db"
+                f".pre_restore_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.db"
             )
             shutil.copy2(str(db_path), str(safety_backup))
             logger.info("Safety backup created: {}", safety_backup)

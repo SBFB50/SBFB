@@ -59,7 +59,7 @@ async def _generate_report_task(
     from nexus.llm.router import LLMRouter
     from nexus.export.report_generator import ReportGenerator
     from nexus.export.pdf_export import PDFExporter
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     try:
         async with get_db() as conn:
@@ -86,7 +86,7 @@ async def _generate_report_task(
             reports_dir = settings.data_dir / "reports"
             reports_dir.mkdir(parents=True, exist_ok=True)
 
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             filename = f"nexus_{report_type}_{case_id[:8]}_{timestamp}.pdf"
             output_path = reports_dir / filename
 
@@ -98,7 +98,7 @@ async def _generate_report_task(
             )
 
             file_size = output_path.stat().st_size
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
 
             await db.update_report(
                 report_id,
