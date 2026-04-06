@@ -83,16 +83,13 @@ class OllamaClient:
             keep_alive or "10m",
         )
         try:
-            response = await asyncio.wait_for(
-                self._client.generate(
-                    model=model,
-                    prompt=prompt,
-                    system=system or "",
-                    format=format or "",
-                    options={"num_ctx": 8192},
-                    keep_alive=keep_alive or "10m",
-                ),
-                timeout=timeout,
+            response = await self._client.generate(
+                model=model,
+                prompt=prompt,
+                system=system or "",
+                format=format or "",
+                options={"num_ctx": 16384},
+                keep_alive=keep_alive or "10m",
             )
             text: str = response.response or ""
             logger.debug(
@@ -103,13 +100,6 @@ class OllamaClient:
             )
             return text
 
-        except asyncio.TimeoutError:
-            logger.error(
-                "Ollama generate timeout after {}s (model={})", timeout, model,
-            )
-            raise httpx.TimeoutException(
-                f"Ollama generate timed out after {timeout}s for model {model}"
-            )
         except ResponseError as exc:
             self._handle_response_error(exc, model)
             raise
@@ -185,14 +175,11 @@ class OllamaClient:
         })
 
         try:
-            response = await asyncio.wait_for(
-                self._client.chat(
-                    model=model,
-                    messages=messages,
-                    options={"num_ctx": 8192},
-                    keep_alive=keep_alive or "10m",
-                ),
-                timeout=timeout,
+            response = await self._client.chat(
+                model=model,
+                messages=messages,
+                options={"num_ctx": 16384},
+                keep_alive=keep_alive or "10m",
             )
             text: str = response.message.content or ""
             logger.debug(
@@ -202,13 +189,6 @@ class OllamaClient:
             )
             return text
 
-        except asyncio.TimeoutError:
-            logger.error(
-                "Ollama vision timeout after {}s (model={})", timeout, model,
-            )
-            raise httpx.TimeoutException(
-                f"Ollama vision timed out after {timeout}s for model {model}"
-            )
         except ResponseError as exc:
             self._handle_response_error(exc, model)
             raise
@@ -242,24 +222,12 @@ class OllamaClient:
             model, len(text), keep_alive or "30m",
         )
         try:
-            response = await asyncio.wait_for(
-                self._client.embed(
-                    model=model,
-                    input=text,
-                    keep_alive=keep_alive or "30m",
-                ),
-                timeout=timeout,
+            response = await self._client.embed(
+                model=model,
+                input=text,
+                keep_alive=keep_alive or "30m",
             )
-            # embed() returns EmbedResponse with `.embeddings` -- list of vectors
-            # For a single input, take the first vector.
             return list(response.embeddings[0])
-        except asyncio.TimeoutError:
-            logger.error(
-                "Ollama embed timeout after {}s (model={})", timeout, model,
-            )
-            raise httpx.TimeoutException(
-                f"Ollama embed timed out after {timeout}s for model {model}"
-            )
         except ResponseError as exc:
             self._handle_response_error(exc, model)
             raise
@@ -290,23 +258,12 @@ class OllamaClient:
             model, len(texts), keep_alive or "30m",
         )
         try:
-            response = await asyncio.wait_for(
-                self._client.embed(
-                    model=model,
-                    input=texts,
-                    keep_alive=keep_alive or "30m",
-                ),
-                timeout=timeout,
+            response = await self._client.embed(
+                model=model,
+                input=texts,
+                keep_alive=keep_alive or "30m",
             )
             return [list(v) for v in response.embeddings]
-        except asyncio.TimeoutError:
-            logger.error(
-                "Ollama embed_batch timeout after {}s (model={}, count={})",
-                timeout, model, len(texts),
-            )
-            raise httpx.TimeoutException(
-                f"Ollama embed_batch timed out after {timeout}s for model {model}"
-            )
         except ResponseError as exc:
             self._handle_response_error(exc, model)
             raise
