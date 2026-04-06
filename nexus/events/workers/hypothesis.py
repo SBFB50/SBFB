@@ -22,7 +22,7 @@ class HypothesisWorker(ReactiveWorker):
     """Generates or re-evaluates hypotheses after analysis completes."""
 
     name = "hypothesis_engine"
-    subscriptions = [EventType.ANALYSIS_COMPLETED]
+    subscriptions = [EventType.ANALYSIS_COMPLETED, EventType.EVIDENCE_PROCESSED]
 
     def __init__(
         self,
@@ -50,6 +50,12 @@ class HypothesisWorker(ReactiveWorker):
     async def handle(self, event: NexusEvent) -> list[NexusEvent]:
         engine = self._get_engine()
         output: list[NexusEvent] = []
+
+        # For EVIDENCE_PROCESSED: only trigger if enough evidence (≥3)
+        if event.event_type == EventType.EVIDENCE_PROCESSED:
+            evidence = await self._db.list_evidence_by_case(event.case_id)
+            if len(evidence) < 3:
+                return []
 
         # Check if hypotheses already exist
         existing = await self._db.list_hypotheses_by_case(event.case_id)
