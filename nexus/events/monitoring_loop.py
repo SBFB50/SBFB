@@ -471,6 +471,24 @@ class MonitoringLoop:
             url = r.get("url", "")
             # Check SearXNG-provided published_date first
             pub_date = r.get("published_date") or r.get("publishedDate")
+
+            # YouTube/video: use yt-dlp for upload date (fast, no download)
+            if not pub_date and url and ("youtube.com" in url or "youtu.be" in url):
+                try:
+                    import yt_dlp
+                    opts = {"quiet": True, "skip_download": True, "no_warnings": True}
+                    info = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            lambda: yt_dlp.YoutubeDL(opts).extract_info(url, download=False)
+                        ),
+                        timeout=8.0,
+                    )
+                    raw_date = (info or {}).get("upload_date", "")
+                    if raw_date and len(raw_date) == 8:
+                        pub_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+                except Exception:
+                    pass
+
             if not pub_date and url and htmldate_calls < _MAX_HTMLDATE:
                 try:
                     pub_date = await asyncio.wait_for(

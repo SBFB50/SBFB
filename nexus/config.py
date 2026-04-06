@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # -- Models (overridable via env) --
     model_fast: str = "gemma4:e4b"
     model_reasoning: str = "huihui_ai/deepseek-r1-abliterated:14b"
-    model_deep: str = "nexus"
+    model_deep: str = "huihui_ai/deepseek-r1-abliterated:14b"
     model_embedding: str = "nomic-embed-text"
     model_audio: str = "voxtral-mini:4b"
     model_vision: str = "gemma4:e4b"  # VLM pour analyse de photos (supporte images)

@@ -54,7 +54,7 @@ class Case(CaseBase):
 # ============================================================================
 
 EvidenceType = Literal["pdf", "image", "text", "audio", "url", "manual"]
-EvidenceStatus = Literal["pending", "processed", "error"]
+EvidenceStatus = Literal["pending", "processing", "processed", "error"]
 
 
 class EvidenceBase(BaseModel):
