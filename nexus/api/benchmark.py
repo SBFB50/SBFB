@@ -64,6 +64,7 @@ KNOWN_BENCHMARKS = {
     "kulik": {"dir": "kulik", "name": "Affaire Elodie Kulik (2002)"},
     "gsk": {"dir": "golden-state-killer", "name": "Golden State Killer (1974-86)"},
     "moreau": {"dir": "affaire-moreau", "name": "Affaire Moreau (fictif)"},
+    "jubillar": {"dir": "jubillar", "name": "Affaire Delphine Jubillar (2020)"},
 }
 
 
@@ -367,6 +368,89 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         all_evidence = manifest.get("evidence", [])
         waves = sorted(set(e.get("wave", 1) for e in all_evidence))
+
+        # ==============================================================
+        # 0. Check for OSINT mode (briefing only, no evidence files)
+        # ==============================================================
+        briefing_text = manifest.get("briefing")
+        monitoring_queries = manifest.get("monitoring_queries", [])
+
+        if briefing_text and not all_evidence:
+            # OSINT mode: inject briefing + create monitoring jobs + start
+            prog["status"] = "osint_briefing"
+            prog["total_evidence"] = 1
+            prog["current_step"] = "Injecting briefing..."
+
+            async with get_db() as conn:
+                db = Database(conn)
+                from nexus.core.evidence_processor import EvidenceProcessor
+                from nexus.config import settings as _settings
+
+                router = app_state.get("router")
+                if router is None:
+                    from nexus.llm.ollama_client import OllamaClient
+                    from nexus.llm.router import LLMRouter
+                    router = LLMRouter(OllamaClient())
+
+                processor = EvidenceProcessor(
+                    db=db, router=router,
+                    upload_dir=_settings.upload_dir,
+                    neo4j=app_state.get("neo4j"),
+                    chroma=app_state.get("chroma"),
+                    entity_extractor=app_state.get("entity_extractor"),
+                )
+                ev = await asyncio.wait_for(
+                    processor.process_text_input(
+                        case_id=case_id,
+                        title="Briefing initial",
+                        text=briefing_text,
+                        source="Benchmark briefing",
+                    ),
+                    timeout=_EVIDENCE_TIMEOUT,
+                )
+                prog["current_evidence"] = 1
+                await _publish_evidence_added(app_state, case_id, ev.id, "Briefing initial")
+
+            # Create monitoring jobs
+            prog["current_step"] = "Creating monitoring jobs..."
+            async with get_db() as conn:
+                db = Database(conn)
+                for q in monitoring_queries:
+                    await db.create_monitoring_job(
+                        case_id=case_id, job_type="searxng",
+                        query=q, interval_hours=1,
+                    )
+                logger.info("Benchmark OSINT: created {} monitoring jobs", len(monitoring_queries))
+
+            # Start investigation — workers + monitoring loop take over
+            prog["current_step"] = "Starting autonomous investigation..."
+            inv_manager = app_state.get("investigation_manager")
+            if inv_manager:
+                await inv_manager.start_investigation(case_id)
+
+            # Poll for results (max 15 min for OSINT mode)
+            prog["status"] = "osint_running"
+            _OSINT_POLL_MAX = 90  # 90 * 10s = 15 min
+            for i in range(_OSINT_POLL_MAX):
+                await asyncio.sleep(10)
+                async with get_db() as conn:
+                    db = Database(conn)
+                    ev_count = len(await db.list_evidence_by_case(case_id))
+                    ent_count = len(await db.list_entities_by_case(case_id))
+                    hyp_list = await db.list_hypotheses_by_case(case_id)
+
+                elapsed = time.monotonic() - t0
+                prog["current_step"] = f"OSINT running... {ev_count} ev, {ent_count} ent, {len(hyp_list)} hyp ({elapsed:.0f}s)"
+                prog["stats"] = {"evidence": ev_count, "entities": ent_count, "hypotheses": len(hyp_list)}
+
+                if len(hyp_list) > 0 and ev_count >= 3:
+                    prog["current_step"] = "OSINT analysis complete"
+                    break
+
+            prog["status"] = "completed"
+            prog["finished_at"] = time.time()
+            logger.info("Benchmark OSINT complete for case {} in {:.0f}s", case_id[:8], time.monotonic() - t0)
+            return
 
         prog["status"] = "injecting"
         prog["total_waves"] = len(waves)
