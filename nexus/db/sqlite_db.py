@@ -257,6 +257,22 @@ CREATE TABLE IF NOT EXISTS event_log (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     processed_at DATETIME
 );
+
+CREATE TABLE IF NOT EXISTS contradictions (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    evidence_1_id TEXT REFERENCES evidence(id),
+    evidence_2_id TEXT REFERENCES evidence(id),
+    evidence_1_title TEXT,
+    evidence_2_title TEXT,
+    contradiction_type TEXT DEFAULT 'factual',
+    severity TEXT DEFAULT 'medium',
+    description TEXT NOT NULL,
+    likely_correct TEXT,
+    reasoning TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(case_id, evidence_1_id, evidence_2_id, contradiction_type)
+);
 """
 
 _CREATE_INDEXES = """
@@ -290,6 +306,10 @@ CREATE INDEX IF NOT EXISTS idx_monitoring_results_case ON monitoring_results(cas
 CREATE INDEX IF NOT EXISTS idx_event_log_status ON event_log(status);
 CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(event_type);
 CREATE INDEX IF NOT EXISTS idx_event_log_case ON event_log(case_id);
+
+-- Contradictions indexes
+CREATE INDEX IF NOT EXISTS idx_contradictions_case ON contradictions(case_id);
+CREATE INDEX IF NOT EXISTS idx_contradictions_evidence ON contradictions(evidence_1_id, evidence_2_id);
 """
 
 _CREATE_FTS = """
@@ -513,6 +533,12 @@ class Database:
         )
         await self._conn.execute(
             "DELETE FROM entities WHERE case_id = ?", (case_id,)
+        )
+        await self._conn.execute(
+            "DELETE FROM contradictions WHERE case_id = ?", (case_id,)
+        )
+        await self._conn.execute(
+            "DELETE FROM event_log WHERE case_id = ?", (case_id,)
         )
         await self._conn.execute(
             "DELETE FROM evidence WHERE case_id = ?", (case_id,)
@@ -898,9 +924,10 @@ class Database:
         now = _now_iso()
         await self._conn.execute(
             """INSERT INTO monitoring_jobs
-               (id, case_id, job_type, query, entity_id, interval_hours, is_active, results_count, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?)""",
-            (row_id, case_id, job_type, query, entity_id, interval_hours, now),
+               (id, case_id, job_type, query, entity_id, interval_hours, is_active,
+                last_run, next_run, results_count, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, NULL, ?, 0, ?)""",
+            (row_id, case_id, job_type, query, entity_id, interval_hours, now, now),
         )
         await self._conn.commit()
         return await self._get_monitoring_job(row_id)  # type: ignore[return-value]
@@ -1668,3 +1695,69 @@ class Database:
             (case_id,),
         )
         return {row[0]: row[1] for row in await cursor.fetchall()}
+
+    # ------------------------------------------------------------------
+    # Contradictions
+    # ------------------------------------------------------------------
+
+    async def create_contradiction(
+        self,
+        *,
+        case_id: str,
+        evidence_1_id: str | None = None,
+        evidence_2_id: str | None = None,
+        evidence_1_title: str | None = None,
+        evidence_2_title: str | None = None,
+        contradiction_type: str = "factual",
+        severity: str = "medium",
+        description: str,
+        likely_correct: str | None = None,
+        reasoning: str | None = None,
+    ) -> Dict[str, Any]:
+        row_id = _new_id()
+        now = _now_iso()
+        try:
+            await self._conn.execute(
+                """INSERT INTO contradictions
+                   (id, case_id, evidence_1_id, evidence_2_id,
+                    evidence_1_title, evidence_2_title,
+                    contradiction_type, severity, description,
+                    likely_correct, reasoning, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    row_id, case_id, evidence_1_id, evidence_2_id,
+                    evidence_1_title, evidence_2_title,
+                    contradiction_type, severity, description,
+                    likely_correct, reasoning, now,
+                ),
+            )
+            await self._conn.commit()
+        except Exception:
+            # UNIQUE constraint violation — contradiction already exists
+            await self._conn.rollback()
+            return {}
+        cursor = await self._conn.execute(
+            "SELECT * FROM contradictions WHERE id = ?", (row_id,)
+        )
+        row = await cursor.fetchone()
+        return _row_to_dict(row) if row else {}
+
+    async def list_contradictions_by_case(
+        self,
+        case_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM contradictions WHERE case_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (case_id, limit, offset),
+        )
+        return [_row_to_dict(r) for r in await cursor.fetchall()]
+
+    async def count_contradictions(self, case_id: str) -> int:
+        cursor = await self._conn.execute(
+            "SELECT COUNT(*) FROM contradictions WHERE case_id = ?", (case_id,)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0

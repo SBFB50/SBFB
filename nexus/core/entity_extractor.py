@@ -121,6 +121,11 @@ class EntityExtractor:
                     # Skip very short or generic entities
                     if len(name) < 2:
                         continue
+                    # Skip time-only values detected as "date" (e.g. "0 h 21", "14h30")
+                    if nexus_type == "date":
+                        import re as _re
+                        if _re.match(r'^(?:\d{1,2}\s*h(?:eure)?(?:\s*\d{1,2})?|\d{1,2}[h:]\d{0,2})$', name, _re.IGNORECASE):
+                            continue
                     # Skip generic words that aren't real entities
                     GENERIC_WORDS = {
                         "telephone", "portable", "vehicule", "voiture", "victime",

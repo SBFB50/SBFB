@@ -1,0 +1,38 @@
+{
+  "case": {
+    "name": "Affaire KULIK (OSINT)",
+    "reference": "#2002-PER-0011-OSINT",
+    "description": "Meurtre d'Elodie Kulik, Cartigny (Somme), janvier 2002. Cold case. Mode OSINT. before:2012-01-01"
+  },
+  "briefing": "HOMICIDE NON RESOLU\n\nLe 11 janvier 2002, le corps d'Elodie Kulik, 24 ans, est retrouve sur un chemin rural a Cartigny (Somme), pres de son vehicule calcine. Agression sexuelle et strangulation. ADN masculin preleve, aucune correspondance fichiers. Un appel au 18 enregistre fait entendre deux voix masculines.",
+  "ground_truth": {
+    "perpetrators": [
+      {
+        "name": "Gregory Wiart",
+        "role": "Agresseur principal -- ADN concordant",
+        "method_of_identification": "ADN de parentele (2012)",
+        "status": "Decede en 2003 (accident de la route)"
+      },
+      {
+        "name": "Willy Bardon",
+        "role": "Complice -- voix sur l'enregistrement de l'appel au 18",
+        "method_of_identification": "Reconnaissance vocale + temoignages",
+        "status": "Condamne a 30 ans de reclusion criminelle (2020, confirme en appel 2022)"
+      }
+    ],
+    "key_facts": [
+      "Deux agresseurs, pas un seul (crime en reunion)",
+      "L'ADN appartenait a Wiart, identifie post-mortem par ADN de parentele",
+      "La voix sur l'appel au 18 appartenait a Bardon, identifie par reconnaissance vocale",
+      "Wiart et Bardon se connaissaient et vivaient dans la region de Peronne"
+    ],
+    "target_hypothesis_keywords": [
+      "reunion", "deux", "agresseurs", "locaux", "voix", "adn", "parentele", "prepaye"
+    ]
+  },
+  "monitoring_queries": [
+    "\"Elodie Kulik\" meurtre Cartigny 2002",
+    "affaire Kulik Somme cold case",
+    "meurtre Cartigny Somme janvier 2002"
+  ]
+}

@@ -95,6 +95,10 @@ class EventBus:
         self._events_dropped = 0
         self._events_replayed = 0
 
+    @property
+    def published_count(self) -> int:
+        return self._events_published
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------

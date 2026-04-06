@@ -228,13 +228,65 @@ class SuspectScorer:
             logger.info("No person entities found for case {}", case_id)
             return []
 
+        # Filter out victims and witnesses — check description and mentions
+        case = await self._db.get_case(case_id)
+        case_desc = (case.get("description", "") or "").lower() if case else ""
+        filtered = []
+        for ent in entities:
+            name_lower = ent["name"].lower()
+            # Check if entity is explicitly the victim in the case description
+            is_victim = False
+            desc_lower = (ent.get("description") or "").lower()
+            if "victime" in desc_lower or "decede" in desc_lower or "corps" in desc_lower:
+                is_victim = True
+            # Check suspect table for relationship_to_victim = 'victim'
+            existing_suspect = await self._db.get_suspect_by_entity(case_id, ent["id"])
+            if existing_suspect and existing_suspect.get("relationship_to_victim") == "victim":
+                is_victim = True
+            # Check if the person's name appears in case description as victim
+            if name_lower in case_desc and ("victime" in case_desc or "corps" in case_desc):
+                # Heuristic: if person name + "victime" both in case desc, likely victim
+                for marker in ("victime", "corps retrouve", "meurtre de", "meurtre d'", "assassinat de"):
+                    if marker in case_desc and name_lower in case_desc:
+                        is_victim = True
+                        break
+            if is_victim:
+                logger.info("Excluding victim '{}' from suspect scoring", ent["name"])
+                continue
+            filtered.append(ent)
+        entities = filtered
+
+        excluded_count = len([e for e in [ent for ent in await self._db.list_entities_by_case(case_id, entity_type="person")] if e not in entities]) if entities else 0
+
+        if not entities:
+            logger.info("No non-victim person entities found for case {}", case_id)
+            return []
+
         logger.info(
             "Scoring {} person entities for case {}",
             len(entities), case_id,
         )
 
-        results: list[dict[str, Any]] = []
+        # Filter entities with fewer than 2 evidence mentions (noise reduction)
+        qualified = []
         for ent in entities:
+            mentions = await self._db.list_mentions_by_entity(ent["id"])
+            if len(mentions) >= 2:
+                qualified.append(ent)
+            else:
+                logger.debug("Skipping '{}' — only {} mention(s)", ent["name"], len(mentions))
+
+        if not qualified:
+            logger.info("No person entities with 2+ mentions for case {}", case_id)
+            return []
+
+        logger.info(
+            "Scoring {}/{} qualified entities for case {} (filtered {} with <2 mentions)",
+            len(qualified), len(entities), case_id, len(entities) - len(qualified),
+        )
+
+        results: list[dict[str, Any]] = []
+        for ent in qualified:
             try:
                 result = await self.score_suspect(
                     case_id,
@@ -312,6 +364,7 @@ class SuspectScorer:
             graph_score=round(g, 1),
             evidence_score=round(e, 1),
             contradiction_score=round(c, 1),
+            profile_score=round(p, 1),
             hypothesis_score=round(h, 1),
         )
 

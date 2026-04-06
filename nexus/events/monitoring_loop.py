@@ -90,6 +90,14 @@ class MonitoringLoop:
         self._jobs_executed = 0
         self._results_stored = 0
 
+        # Progressive time window: advances before_date adaptively
+        self._time_window_start: float | None = None  # monotonic timestamp of first sweep
+        self._base_before_date: str | None = None      # original before: from case desc
+        self._crime_year: int | None = None             # extracted from case dates
+        self._current_window_year: int | None = None    # current simulated year
+        self._dry_sweeps: int = 0                       # consecutive sweeps with 0 new results
+        self._last_advance_time: float = 0              # when we last advanced
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -187,6 +195,7 @@ class MonitoringLoop:
             self._case_id[:8],
         )
 
+        events_before = self._bus.published_count if hasattr(self._bus, 'published_count') else 0
         for job in due_jobs:
             if not self._running:
                 break
@@ -201,6 +210,12 @@ class MonitoringLoop:
                 )
             # Rate-limit between jobs
             await asyncio.sleep(self._rate_limit)
+
+        # Adaptive time window: count only events published (= valuable results that
+        # passed relevance threshold), not all monitoring_results stored
+        events_after = self._bus.published_count if hasattr(self._bus, 'published_count') else 0
+        valuable_count = events_after - events_before
+        self.notify_results_found(valuable_count)
 
     # ------------------------------------------------------------------
     # Job execution (ported from MonitoringScheduler)
@@ -243,23 +258,30 @@ class MonitoringLoop:
             except Exception:
                 logger.exception("Robin search failed for job {}", job_id[:8])
 
-        # Wayback Machine: search archived pages when date filter is active
-        if before_date:
+        # Wayback Machine: only on first sweep per job (slow, usually low value)
+        if before_date and not job.get("last_run"):
             try:
-                wayback_results = await self._wayback.search(
-                    query=query,
-                    max_results=10,
-                    before_date=before_date,
+                wayback_results = await asyncio.wait_for(
+                    self._wayback.search(
+                        query=query,
+                        max_results=5,
+                        before_date=before_date,
+                    ),
+                    timeout=15.0,
                 )
                 raw_results.extend(wayback_results)
+            except asyncio.TimeoutError:
+                logger.warning("Wayback search timed out for job {}", job_id[:8])
             except Exception:
-                logger.exception("Wayback search failed for job {}", job_id[:8])
+                logger.debug("Wayback search failed for job {}", job_id[:8])
 
         # 2. Update timestamps regardless of results
         now = datetime.now(timezone.utc).isoformat()
         interval_hours = job.get("interval_hours", 6)
+        # Minimum 2 minutes between re-runs to avoid spamming search engines
+        interval_delta = max(timedelta(hours=interval_hours), timedelta(minutes=2))
         next_run = (
-            datetime.now(timezone.utc) + timedelta(hours=interval_hours)
+            datetime.now(timezone.utc) + interval_delta
         ).isoformat()
 
         async with get_db() as conn:
@@ -442,16 +464,20 @@ class MonitoringLoop:
             return results
 
         filtered: list[dict[str, Any]] = []
+        htmldate_calls = 0
+        _MAX_HTMLDATE = 5  # limit slow HTTP fetches per batch
+
         for r in results:
             url = r.get("url", "")
             # Check SearXNG-provided published_date first
             pub_date = r.get("published_date") or r.get("publishedDate")
-            if not pub_date and url:
+            if not pub_date and url and htmldate_calls < _MAX_HTMLDATE:
                 try:
-                    # htmldate extracts date from the actual page
-                    pub_date = await asyncio.to_thread(
-                        find_date, url, extensive_search=False
+                    pub_date = await asyncio.wait_for(
+                        asyncio.to_thread(find_date, url, extensive_search=False),
+                        timeout=5.0,
                     )
+                    htmldate_calls += 1
                 except Exception:
                     pub_date = None
 
@@ -464,6 +490,19 @@ class MonitoringLoop:
                         date_str, before_date, r.get("title", "?")[:50],
                     )
                     continue
+                filtered.append(r)
+                continue
+
+            # No date detected — try to extract year from title/snippet
+            before_year = int(before_date[:4])
+            text_to_scan = f"{r.get('title', '')} {r.get('snippet', '')}"
+            years_found = [int(y) for y in re.findall(r'\b(19\d{2}|20\d{2})\b', text_to_scan)]
+            if years_found and max(years_found) >= before_year:
+                logger.debug(
+                    "MonitoringLoop: REJECTED (year {} in text > {}): {}",
+                    max(years_found), before_year, r.get("title", "?")[:50],
+                )
+                continue
 
             filtered.append(r)
 
@@ -475,17 +514,108 @@ class MonitoringLoop:
             )
         return filtered
 
+    # ------------------------------------------------------------------
+    # Adaptive progressive time window
+    # ------------------------------------------------------------------
+    # Simulates passage of time adaptively:
+    #   - Starts at crime_year + 1
+    #   - If a sweep finds 0 new results → advance faster (dry streak)
+    #   - If results found → hold the window to let NEXUS process them
+    #   - Advances by 1 year per step, speed depends on findings
+    #
+    # Dry sweeps needed to advance:
+    #   0-1 dry sweeps → hold (just checked, wait)
+    #   2 dry sweeps   → advance 1 year (nothing here)
+    #   After 3+ consecutive dry at same year → advance 2 years (skip)
+
+    def notify_results_found(self, count: int) -> None:
+        """Called after a sweep produces new ingested results."""
+        if count > 0:
+            self._dry_sweeps = 0
+        else:
+            self._dry_sweeps += 1
+            self._maybe_advance_window()
+
+    def _maybe_advance_window(self) -> None:
+        """Advance the time window if we've had enough dry sweeps."""
+        if self._current_window_year is None or self._base_before_date is None:
+            return
+        ceiling = int(self._base_before_date[:4])
+        if self._current_window_year >= ceiling:
+            return
+
+        if self._dry_sweeps >= 3:
+            step = 2  # skip faster — nothing interesting in this era
+        elif self._dry_sweeps >= 2:
+            step = 1
+        else:
+            return  # too early to advance
+
+        old = self._current_window_year
+        self._current_window_year = min(self._current_window_year + step, ceiling)
+        self._dry_sweeps = 0
+
+        if self._current_window_year != old:
+            logger.info(
+                "MonitoringLoop: TIME ADVANCE %d → %d (ceiling %d, after %d dry sweeps)",
+                old, self._current_window_year, ceiling, self._dry_sweeps + 2,
+            )
+
     async def _get_before_date(self, case_id: str) -> str | None:
-        """Extract ``before:YYYY-MM-DD`` from case description if present."""
-        try:
-            async with get_db() as conn:
-                db = Database(conn)
-                case = await db.get_case(case_id)
-                if case:
-                    desc = case.get("description", "")
-                    m = re.search(r"before:(\d{4}-\d{2}-\d{2})", desc)
-                    if m:
-                        return m.group(1)
-        except Exception:
-            pass
-        return None
+        """Get the current adaptive before-date for this case."""
+        # Lazy init: read ceiling from case description once
+        if self._base_before_date is None:
+            try:
+                async with get_db() as conn:
+                    db = Database(conn)
+                    case = await db.get_case(case_id)
+                    if case:
+                        desc = case.get("description", "") or ""
+                        m = re.search(r"before:(\d{4}-\d{2}-\d{2})", desc)
+                        if m:
+                            self._base_before_date = m.group(1)
+                        else:
+                            self._base_before_date = ""
+                            return None
+
+                        # Extract crime year from earliest dates
+                        entities = await db.list_entities_by_case(case_id, entity_type="date")
+                        years = []
+                        for e in entities:
+                            fs = e.get("first_seen") or ""
+                            if fs and len(fs) >= 4:
+                                try:
+                                    years.append(int(fs[:4]))
+                                except ValueError:
+                                    pass
+                        for y in re.findall(r'\b(19\d{2}|20\d{2})\b', desc):
+                            years.append(int(y))
+
+                        self._crime_year = min(years) if years else int(self._base_before_date[:4]) - 10
+                        self._current_window_year = self._crime_year + 1
+                        self._dry_sweeps = 0
+
+                        logger.info(
+                            "MonitoringLoop: adaptive time window — start=%d ceiling=%s",
+                            self._current_window_year, self._base_before_date,
+                        )
+            except Exception:
+                self._base_before_date = ""
+                return None
+
+        if not self._base_before_date:
+            return None
+
+        ceiling_year = int(self._base_before_date[:4])
+        current = self._current_window_year or (self._crime_year or 2002) + 1
+
+        if current >= ceiling_year:
+            current_date = self._base_before_date
+        else:
+            current_date = f"{current}-01-01"
+
+        logger.info(
+            "MonitoringLoop: window={} (dry_sweeps={}, ceiling={})",
+            current_date, self._dry_sweeps, self._base_before_date,
+        )
+        return current_date

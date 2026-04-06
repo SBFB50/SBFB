@@ -246,6 +246,15 @@ def _normalize_date(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, str):
-        # Already ISO-ish — return as-is
-        return value
+        s = value.strip()
+        # Already ISO-like (YYYY-MM-DD...) — return as-is
+        if len(s) >= 10 and s[4] == "-":
+            return s
+        # Try common date formats
+        for fmt in ("%d/%m/%Y", "%d.%m.%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(s, fmt).isoformat()
+            except ValueError:
+                continue
+        return s
     return str(value)

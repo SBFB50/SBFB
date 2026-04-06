@@ -28,6 +28,9 @@ class SuspectScorerWorker(ReactiveWorker):
         EventType.CONTRADICTION_FOUND,
     ]
 
+    # Debounce: only score once per case within this window
+    _DEBOUNCE_SECONDS = 5.0
+
     def __init__(
         self,
         bus: EventBus,
@@ -40,6 +43,7 @@ class SuspectScorerWorker(ReactiveWorker):
         self._router = router
         self._neo4j = neo4j
         self._scorer = None
+        self._last_scored: dict[str, float] = {}  # case_id -> timestamp
 
     def _get_scorer(self):
         if self._scorer is None:
@@ -50,6 +54,17 @@ class SuspectScorerWorker(ReactiveWorker):
         return self._scorer
 
     async def handle(self, event: NexusEvent) -> list[NexusEvent]:
+        import time
+        now = time.monotonic()
+        last = self._last_scored.get(event.case_id, 0)
+        if now - last < self._DEBOUNCE_SECONDS:
+            logger.debug(
+                "SuspectScorer: debounce skip for case %s (%.1fs since last)",
+                event.case_id, now - last,
+            )
+            return []
+        self._last_scored[event.case_id] = now
+
         trigger = (
             "hypothesis_scored"
             if event.event_type == EventType.HYPOTHESIS_SCORED

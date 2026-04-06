@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # -- Autonomous investigation loop --
     investigation_cycle_minutes: int = 30
-    auto_ingest_relevance_threshold: float = 50.0
+    auto_ingest_relevance_threshold: float = 70.0
     full_reevaluation_every_n_cycles: int = 6
     max_auto_ingest_per_cycle: int = 5
     max_new_queries_per_cycle: int = 3

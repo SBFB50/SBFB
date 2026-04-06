@@ -62,6 +62,7 @@ BENCHMARK_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "benchm
 
 KNOWN_BENCHMARKS = {
     "kulik": {"dir": "kulik", "name": "Affaire Elodie Kulik (2002)"},
+    "kulik-osint": {"dir": "kulik", "name": "Kulik OSINT (2002)", "manifest": "manifest-osint.json"},
     "gsk": {"dir": "golden-state-killer", "name": "Golden State Killer (1974-86)"},
     "moreau": {"dir": "affaire-moreau", "name": "Affaire Moreau (fictif)"},
     "jubillar": {"dir": "jubillar", "name": "Affaire Delphine Jubillar (2020)"},
@@ -73,7 +74,7 @@ async def list_available() -> list[dict[str, Any]]:
     """List available benchmark cases with their evidence counts."""
     result = []
     for key, info in KNOWN_BENCHMARKS.items():
-        manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
+        manifest_path = BENCHMARK_DIR / info["dir"] / info.get("manifest", "manifest.json")
         if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             evidence = manifest.get("evidence", [])
@@ -109,7 +110,7 @@ async def launch_benchmark(
         raise HTTPException(404, f"Benchmark '{bench_key}' not found")
 
     info = KNOWN_BENCHMARKS[bench_key]
-    manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
+    manifest_path = BENCHMARK_DIR / info["dir"] / info.get("manifest", "manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     case_data = manifest.get("case", {})
 
@@ -262,7 +263,7 @@ async def _inject_wave(
         chroma = app_state.get("chroma")
 
         info = KNOWN_BENCHMARKS[bench_key]
-        manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
+        manifest_path = BENCHMARK_DIR / info["dir"] / info.get("manifest", "manifest.json")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         wave_evidence = [e for e in manifest.get("evidence", []) if e.get("wave", 1) == wave]
@@ -308,6 +309,8 @@ async def _inject_wave(
                             title=ev.get("title", file_path.stem),
                             text=text,
                             source=ev.get("source", "Benchmark"),
+                            source_date=ev.get("source_date"),
+                            reliability=ev.get("reliability", 50),
                         ),
                         timeout=_EVIDENCE_TIMEOUT,
                     )
@@ -364,7 +367,7 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
         app_state = app_state or {}
 
         info = KNOWN_BENCHMARKS[bench_key]
-        manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
+        manifest_path = BENCHMARK_DIR / info["dir"] / info.get("manifest", "manifest.json")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         all_evidence = manifest.get("evidence", [])
         waves = sorted(set(e.get("wave", 1) for e in all_evidence))
@@ -415,10 +418,11 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
             prog["current_step"] = "Creating monitoring jobs..."
             async with get_db() as conn:
                 db = Database(conn)
+                # Use short interval for fast iteration — re-search every 2 minutes
                 for q in monitoring_queries:
                     await db.create_monitoring_job(
                         case_id=case_id, job_type="searxng",
-                        query=q, interval_hours=1,
+                        query=q, interval_hours=0,
                     )
                 logger.info("Benchmark OSINT: created {} monitoring jobs", len(monitoring_queries))
 
@@ -428,9 +432,9 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
             if inv_manager:
                 await inv_manager.start_investigation(case_id)
 
-            # Poll for results (max 15 min for OSINT mode)
+            # Poll for results (indefinite for OSINT mode — monitoring loop keeps searching)
             prog["status"] = "osint_running"
-            _OSINT_POLL_MAX = 90  # 90 * 10s = 15 min
+            _OSINT_POLL_MAX = 10800  # 10800 * 10s = 30 hours
             for i in range(_OSINT_POLL_MAX):
                 await asyncio.sleep(10)
                 async with get_db() as conn:

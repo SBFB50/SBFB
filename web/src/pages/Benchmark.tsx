@@ -317,7 +317,12 @@ function DatabaseExplorer({ caseId }: { caseId: string }) {
 
         const chromaArr = Array.isArray(chroma)
           ? chroma
-          : Object.entries(chroma).map(([name, count]) => ({ name, count }));
+          : Object.entries(chroma)
+              .filter(([k]) => !k.startsWith('_'))
+              .map(([name, val]) => ({
+                name,
+                count: typeof val === 'object' && val !== null ? (val as any).count ?? 0 : val,
+              }));
 
         setData({ evidence: ev || [], entities: ent || [], monitoring: mon || [], events: aud || [], chroma: chromaArr });
         setMonResults(monRes || []);

@@ -26,6 +26,7 @@ class QueryGeneratorWorker(ReactiveWorker):
     subscriptions = [
         EventType.HYPOTHESIS_CREATED,
         EventType.ENTITY_ENRICHED,
+        EventType.ENTITY_DISCOVERED,
     ]
 
     def __init__(
@@ -43,6 +44,8 @@ class QueryGeneratorWorker(ReactiveWorker):
             await self._generate_from_hypothesis(event)
         elif event.event_type == EventType.ENTITY_ENRICHED:
             await self._generate_from_entity(event)
+        elif event.event_type == EventType.ENTITY_DISCOVERED:
+            await self._generate_from_discovered_entity(event)
 
         # This worker creates DB jobs, does not emit events
         return []
@@ -127,6 +130,57 @@ class QueryGeneratorWorker(ReactiveWorker):
             len(queries), name,
         )
 
+    async def _generate_from_discovered_entity(self, event: NexusEvent) -> None:
+        """Generate cross-entity monitoring queries when a new entity is discovered.
+
+        Combines new entity with existing key entities (victim, locations)
+        to generate targeted search queries.
+        """
+        name = event.payload.get("name", "")
+        entity_type = event.payload.get("entity_type", "")
+
+        if not name or entity_type not in ("person", "location"):
+            return
+
+        # Get case context for cross-referencing
+        try:
+            case = await self._db.get_case(event.case_id)
+            case_name = case.get("name", "") if case else ""
+
+            # Get existing person entities (for cross-queries with locations)
+            persons = await self._db.list_entities_by_case(event.case_id, entity_type="person")
+            locations = await self._db.list_entities_by_case(event.case_id, entity_type="location")
+
+            # Avoid creating too many jobs
+            existing_jobs = await self._db.list_jobs_by_case(event.case_id)
+            existing_queries = {j.get("query", "").lower() for j in existing_jobs}
+
+            queries = []
+            if entity_type == "location":
+                # Combine location with known persons
+                for p in persons[:3]:  # limit to top 3 persons
+                    q = f'"{p["name"]}" "{name}"'
+                    if q.lower() not in existing_queries:
+                        queries.append(q)
+            elif entity_type == "person":
+                # Combine person with known locations
+                for loc in locations[:3]:
+                    q = f'"{name}" "{loc["name"]}"'
+                    if q.lower() not in existing_queries:
+                        queries.append(q)
+
+            for q in queries[:3]:  # max 3 new queries per entity
+                await self._create_monitoring_job(event.case_id, q, "entity_cross_query")
+
+            if queries:
+                logger.info(
+                    "QueryGenerator: created %d cross-entity queries from %s '%s'",
+                    min(len(queries), 3), entity_type, name,
+                )
+
+        except Exception as exc:
+            logger.warning("QueryGenerator: cross-entity generation failed: %s", exc)
+
     async def _create_monitoring_job(
         self, case_id: str, query: str, trigger: str
     ) -> None:
@@ -134,11 +188,11 @@ class QueryGeneratorWorker(ReactiveWorker):
         try:
             await self._db.create_monitoring_job(
                 case_id=case_id,
+                job_type="searxng",
                 query=query,
-                source_engine="searxng",
-                interval_minutes=120,
-                metadata={"trigger": trigger, "auto_generated": True},
+                interval_hours=0,  # immediate re-run
             )
+            logger.debug("QueryGenerator: created job '%s' (trigger=%s)", query[:50], trigger)
         except Exception as exc:
             logger.debug("QueryGenerator: job creation failed: %s", exc)
 

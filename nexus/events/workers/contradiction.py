@@ -61,6 +61,23 @@ class ContradictionWorker(ReactiveWorker):
 
         output: list[NexusEvent] = []
         for c in contradictions:
+            # Persist to contradictions table (dedup via UNIQUE constraint)
+            try:
+                await self._db.create_contradiction(
+                    case_id=event.case_id,
+                    evidence_1_id=c.get("evidence_1_id"),
+                    evidence_2_id=c.get("evidence_2_id"),
+                    evidence_1_title=c.get("evidence_1_title"),
+                    evidence_2_title=c.get("evidence_2_title"),
+                    contradiction_type=c.get("type", "factual"),
+                    severity=c.get("severity", "medium"),
+                    description=c.get("description", ""),
+                    likely_correct=c.get("likely_correct"),
+                    reasoning=c.get("reasoning"),
+                )
+            except Exception as exc:
+                logger.debug("ContradictionWorker: persist failed: %s", exc)
+
             output.append(NexusEvent(
                 event_type=EventType.CONTRADICTION_FOUND,
                 case_id=event.case_id,

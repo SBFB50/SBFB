@@ -17,7 +17,7 @@ from nexus.events.worker import ReactiveWorker
 
 logger = logging.getLogger(__name__)
 
-_RELEVANCE_THRESHOLD = 50
+_RELEVANCE_THRESHOLD = 70
 
 
 class EvidenceIngestWorker(ReactiveWorker):
@@ -46,23 +46,39 @@ class EvidenceIngestWorker(ReactiveWorker):
             return []
 
         title = payload.get("title", "Monitoring result")
-        text = payload.get("snippet", "") or payload.get("raw_text", "")
-        source = payload.get("url", payload.get("source", "monitoring"))
+        url = payload.get("url", payload.get("source", "monitoring"))
+        snippet = payload.get("snippet", "") or payload.get("raw_text", "")
 
-        if not text.strip():
+        if not snippet.strip():
             logger.debug("EvidenceIngest: empty text, skipping")
             return []
 
+        # Fetch full page content when URL is available
+        text = snippet
+        if url and url.startswith("http"):
+            try:
+                import trafilatura
+                downloaded = trafilatura.fetch_url(url)
+                if downloaded:
+                    extracted = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+                    if extracted and len(extracted) > len(snippet):
+                        text = extracted[:8000]  # Cap at 8K chars
+                        logger.info("EvidenceIngest: fetched full page (%d chars) for '%s'", len(text), title[:40])
+            except ImportError:
+                pass  # trafilatura not installed, use snippet
+            except Exception as exc:
+                logger.debug("EvidenceIngest: full page fetch failed for %s: %s", url[:50], exc)
+
         logger.info(
-            "EvidenceIngest: ingesting '%s' (relevance=%s) for case %s",
-            title[:60], relevance, event.case_id,
+            "EvidenceIngest: ingesting '%s' (relevance=%s, %d chars) for case %s",
+            title[:60], relevance, len(text), event.case_id,
         )
 
         evidence = await self._processor.process_text_input(
             case_id=event.case_id,
             title=title,
             text=text,
-            source=source,
+            source=url,
         )
 
         return [NexusEvent(

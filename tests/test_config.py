@@ -61,7 +61,7 @@ class TestSettingsDefaults:
     def test_investigation_loop_defaults(self):
         s = Settings()
         assert s.investigation_cycle_minutes == 30
-        assert s.auto_ingest_relevance_threshold == 50.0
+        assert s.auto_ingest_relevance_threshold == 70.0
         assert s.full_reevaluation_every_n_cycles == 6
         assert s.max_auto_ingest_per_cycle == 5
         assert s.max_new_queries_per_cycle == 3

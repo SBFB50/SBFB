@@ -112,20 +112,39 @@ class HypothesisEngine:
             logger.warning("No data available to generate hypotheses for case {}", case_id)
             return []
 
-        # 2. Call nexus 26B
+        # 2. Call LLM with JSON format enforcement
         prompt = HYPOTHESIS_GENERATION_PROMPT.format(facts=facts_text)
-        logger.info("Calling nexus 26B for hypothesis generation ({} chars)", len(prompt))
-        raw_response = await self._router.route(TaskType.DEEP_ANALYSIS, prompt)
+        logger.info("Calling LLM for hypothesis generation ({} chars)", len(prompt))
 
-        # 4. Parse
-        parsed = parse_json_safe(raw_response)
-        if not parsed or "hypotheses" not in parsed:
-            logger.error("Failed to parse hypothesis generation response")
+        try:
+            parsed = await self._router.route_json(TaskType.DEEP_ANALYSIS, prompt)
+        except Exception as exc:
+            logger.error("Hypothesis generation LLM call failed: {}", exc)
+            # Fallback: try without JSON enforcement
+            try:
+                raw_response = await self._router.route(TaskType.DEEP_ANALYSIS, prompt)
+                logger.debug("Fallback raw response (first 500): {}", str(raw_response)[:500])
+                parsed = parse_json_safe(raw_response)
+            except Exception as exc2:
+                logger.error("Fallback also failed: {}", exc2)
+                return []
+
+        if not parsed:
+            logger.error("Failed to parse hypothesis response")
             return []
 
-        raw_hypotheses = parsed["hypotheses"]
-        if not isinstance(raw_hypotheses, list):
-            logger.error("'hypotheses' field is not a list")
+        # Normalize: find the hypotheses list under various possible keys
+        raw_hypotheses = None
+        if isinstance(parsed, list):
+            raw_hypotheses = parsed
+        else:
+            for key in ("hypotheses", "hypothèses", "hypothesis", "results", "liste"):
+                if key in parsed and isinstance(parsed[key], list):
+                    raw_hypotheses = parsed[key]
+                    break
+
+        if not raw_hypotheses:
+            logger.error("No hypothesis list found in response. Keys={}", list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__)
             return []
 
         # Load existing hypotheses to detect duplicates
@@ -138,9 +157,10 @@ class HypothesisEngine:
             if not isinstance(h, dict):
                 continue
 
-            title = h.get("id", f"H{i + 1}")
-            description = h.get("description", "")
+            title = h.get("id") or h.get("title") or f"H{i + 1}"
+            description = h.get("description") or h.get("desc") or h.get("explication") or ""
             if not description:
+                logger.debug("Hypothesis {} has no description, skipping: {}", i, h)
                 continue
 
             # Plausibility is 0-1 in the prompt, we store 0-100

@@ -27,6 +27,9 @@ from loguru import logger
 
 from nexus.config import settings
 from nexus.core.audit import AuditService
+import re
+from datetime import datetime
+
 from nexus.core.chunker import TextChunker
 from nexus.core.embedding_store import EmbeddingStore
 from nexus.core.entity_extractor import EntityExtractor
@@ -58,6 +61,40 @@ _MIME_TO_EVIDENCE_TYPE: dict[str, str] = {
     "video/mp4": "audio",
     "video/webm": "audio",
 }
+
+
+# French month names for date parsing
+_MONTH_FR = {
+    "janvier": 1, "fevrier": 2, "février": 2, "mars": 3, "avril": 4,
+    "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "août": 8,
+    "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12, "décembre": 12,
+}
+
+_DATE_PATTERNS = [
+    # ISO: 2002-01-11
+    (r"(\d{4})-(\d{1,2})-(\d{1,2})", lambda m: (int(m[1]), int(m[2]), int(m[3]))),
+    # French: 11 janvier 2002
+    (r"(\d{1,2})\s+(" + "|".join(_MONTH_FR) + r")\s+(\d{4})",
+     lambda m: (int(m[3]), _MONTH_FR[m[2].lower()], int(m[1]))),
+    # DD/MM/YYYY
+    (r"(\d{1,2})/(\d{1,2})/(\d{4})", lambda m: (int(m[3]), int(m[2]), int(m[1]))),
+    # DD.MM.YYYY
+    (r"(\d{1,2})\.(\d{1,2})\.(\d{4})", lambda m: (int(m[3]), int(m[2]), int(m[1]))),
+]
+
+
+def _parse_date_string(text: str) -> str | None:
+    """Try to parse a date string into ISO-8601 format. Returns None if unparseable."""
+    text = text.strip()
+    for pattern, extractor in _DATE_PATTERNS:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            try:
+                year, month, day = extractor(m)
+                return datetime(year, month, day).isoformat()
+            except (ValueError, KeyError):
+                continue
+    return None
 
 
 class EvidenceProcessor:
@@ -282,6 +319,8 @@ class EvidenceProcessor:
         title: str,
         text: str,
         source: str | None = None,
+        source_date: str | None = None,
+        reliability: int = 50,
     ) -> Evidence:
         """Pipeline for manually-entered text (no file upload).
 
@@ -301,6 +340,8 @@ class EvidenceProcessor:
             title=title,
             evidence_type="text",
             source=source,
+            source_date=source_date,
+            reliability=reliability,
             raw_text=cleaned,
             status="pending",
             metadata={"text_hash": text_hash},
@@ -406,11 +447,17 @@ class EvidenceProcessor:
 
         # 4. Save new entities + create mentions
         for ent in new_entities:
+            # For date entities, try to parse the name into an ISO datetime
+            first_seen = None
+            if ent["type"] == "date":
+                first_seen = _parse_date_string(ent["name"])
+
             entity_row = await self._db.create_entity(
                 case_id=case_id,
                 name=ent["name"],
                 entity_type=ent["type"],
                 description=ent.get("context"),
+                first_seen=first_seen,
             )
             entity = Entity(**entity_row)
             created.append(entity)

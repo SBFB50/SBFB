@@ -446,25 +446,44 @@ async def merge_hypotheses(
 @router.get(
     "/cases/{case_id}/contradictions",
 )
-async def detect_contradictions(
+async def list_contradictions(
     case_id: str,
-    request: Request,
     db: Database = Depends(get_database),
+    detect: bool = False,
+    request: Request = None,
 ) -> list[dict]:
-    """Detect contradictions between evidence in a case.
+    """List persisted contradictions for a case.
 
-    This is a synchronous call (not background) because results are
-    returned directly.  For very large cases, consider running via
-    a background task in future.
+    If ``detect=true`` query parameter is set, runs the LLM-based
+    contradiction detector first, then returns all persisted results.
     """
-    from nexus.core.contradiction_detector import ContradictionDetector
-
     case = await db.get_case(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail=f"Case not found: {case_id}")
 
-    detector = ContradictionDetector(db, request.app.state.router)
-    return await detector.detect_contradictions(case_id)
+    if detect and request is not None:
+        from nexus.core.contradiction_detector import ContradictionDetector
+        detector = ContradictionDetector(db, request.app.state.router)
+        results = await detector.detect_contradictions(case_id)
+        # Persist newly detected contradictions
+        for c in results:
+            try:
+                await db.create_contradiction(
+                    case_id=case_id,
+                    evidence_1_id=c.get("evidence_1_id"),
+                    evidence_2_id=c.get("evidence_2_id"),
+                    evidence_1_title=c.get("evidence_1_title"),
+                    evidence_2_title=c.get("evidence_2_title"),
+                    contradiction_type=c.get("type", "factual"),
+                    severity=c.get("severity", "medium"),
+                    description=c.get("description", ""),
+                    likely_correct=c.get("likely_correct"),
+                    reasoning=c.get("reasoning"),
+                )
+            except Exception:
+                pass
+
+    return await db.list_contradictions_by_case(case_id)
 
 
 # ------------------------------------------------------------------
