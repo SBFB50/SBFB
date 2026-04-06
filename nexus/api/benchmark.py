@@ -1,7 +1,11 @@
 """
-NEXUS -- Benchmark API.
+NEXUS -- Benchmark API (event-driven).
 
 Endpoints for listing available benchmarks and injecting evidence.
+The benchmark pipeline is now event-driven: inject evidence, publish
+EVIDENCE_ADDED events to the EventBus, and let the reactive workers
+handle analysis, hypotheses, contradictions, and suspect scoring
+automatically.
 """
 
 from __future__ import annotations
@@ -16,20 +20,21 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from loguru import logger
 
-from nexus.api.deps import get_database, get_evidence_processor
+from nexus.api.deps import get_database
 from nexus.db.sqlite_db import Database
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
-# Global lock to serialise wave injection — prevents VRAM saturation
+# Global lock to serialise wave injection -- prevents VRAM saturation
 _INJECT_LOCK = asyncio.Lock()
 
 # Timeout for a single evidence injection (seconds).
 # Covers GLiNER + summary + embed + RAPTOR. Generous but not infinite.
 _EVIDENCE_TIMEOUT = 300  # 5 minutes per evidence item
 
-# Timeout for post-injection pipeline steps (analysis, hypotheses, etc.)
-_PIPELINE_STEP_TIMEOUT = 600  # 10 minutes per step
+# Max time to wait for workers to produce hypotheses + suspects (seconds)
+_WORKER_POLL_TIMEOUT = 600  # 10 minutes
+_WORKER_POLL_INTERVAL = 10  # check every 10s
 
 # In-memory progress tracker so the frontend can poll status.
 # Keyed by case_id. Values are dicts with wave/step/status info.
@@ -51,6 +56,7 @@ def _progress(case_id: str) -> dict[str, Any]:
             "finished_at": None,
         }
     return _BENCHMARK_PROGRESS[case_id]
+
 
 BENCHMARK_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "benchmark"
 
@@ -154,9 +160,69 @@ async def inject_wave(
         "neo4j": getattr(request.app.state, "neo4j", None),
         "chroma": getattr(request.app.state, "chroma", None),
         "entity_extractor": getattr(request.app.state, "entity_extractor", None),
+        "investigation_manager": getattr(request.app.state, "investigation_manager", None),
     }
     background_tasks.add_task(_inject_wave, case_id, bench_key, wave, app_state)
     return {"status": "injecting", "wave": wave}
+
+
+def _get_event_bus(app_state: dict) -> Any | None:
+    """Try to get the EventBus from the investigation manager.
+
+    Returns the bus if the manager has one (ReactiveInvestigationManager),
+    or None if it's the legacy InvestigationManager or absent.
+    """
+    inv_manager = app_state.get("investigation_manager")
+    if inv_manager is None:
+        return None
+    # ReactiveInvestigationManager exposes .event_bus
+    bus = getattr(inv_manager, "event_bus", None)
+    if bus is not None:
+        return bus
+    # Also check ._bus (internal attribute)
+    return getattr(inv_manager, "_bus", None)
+
+
+async def _publish_evidence_added(
+    app_state: dict,
+    case_id: str,
+    evidence_id: str,
+    title: str,
+) -> bool:
+    """Publish an EVIDENCE_ADDED event to the EventBus if available.
+
+    Returns True if published, False if no bus available.
+    """
+    bus = _get_event_bus(app_state)
+    if bus is None:
+        return False
+
+    try:
+        from nexus.events.types import EventType, NexusEvent
+
+        event = NexusEvent(
+            event_type=EventType.EVIDENCE_ADDED,
+            case_id=case_id,
+            payload={
+                "evidence_id": evidence_id,
+                "title": title,
+                "source": "benchmark",
+            },
+            source_worker="benchmark",
+        )
+        accepted = await bus.publish(event)
+        if accepted:
+            logger.debug(
+                "Benchmark: published EVIDENCE_ADDED for {} ({})",
+                evidence_id[:8], title[:40],
+            )
+        return accepted
+    except Exception as exc:
+        logger.warning(
+            "Benchmark: failed to publish EVIDENCE_ADDED for {}: {}",
+            evidence_id[:8], exc,
+        )
+        return False
 
 
 async def _inject_wave(
@@ -170,6 +236,9 @@ async def _inject_wave(
     Serialised via ``_INJECT_LOCK`` so that only one wave runs at a
     time, preventing VRAM saturation from parallel LLM calls.
     Reuses shared singletons passed from the endpoint via app_state.
+
+    After each evidence is processed, publishes an EVIDENCE_ADDED event
+    to the EventBus so reactive workers can pick it up automatically.
 
     Returns a dict with ``ok`` count and ``failed`` list for reporting.
     """
@@ -232,7 +301,7 @@ async def _inject_wave(
                         entity_extractor=entity_extractor,
                     )
                     # Wrap with timeout so a hung LLM call doesn't block forever
-                    await asyncio.wait_for(
+                    evidence_obj = await asyncio.wait_for(
                         processor.process_text_input(
                             case_id=case_id,
                             title=ev.get("title", file_path.stem),
@@ -244,17 +313,22 @@ async def _inject_wave(
                 result["ok"] += 1
                 logger.info("Benchmark injected [{}/{}]: {}", idx, len(wave_evidence), title)
 
+                # Publish EVIDENCE_ADDED event for reactive workers
+                await _publish_evidence_added(
+                    app_state, case_id, evidence_obj.id, title,
+                )
+
             except asyncio.TimeoutError:
                 err = f"Timeout after {_EVIDENCE_TIMEOUT}s"
-                logger.error("Benchmark inject TIMEOUT: {} — {}", title, err)
+                logger.error("Benchmark inject TIMEOUT: {} -- {}", title, err)
                 result["failed"].append({"title": title, "error": err})
-                prog["errors"].append(f"wave {wave}: {title} — {err}")
+                prog["errors"].append(f"wave {wave}: {title} -- {err}")
 
             except Exception as exc:
                 err = f"{type(exc).__name__}: {exc}"
-                logger.error("Benchmark inject failed: {} — {}", title, err)
+                logger.error("Benchmark inject failed: {} -- {}", title, err)
                 result["failed"].append({"title": title, "error": err})
-                prog["errors"].append(f"wave {wave}: {title} — {err}")
+                prog["errors"].append(f"wave {wave}: {title} -- {err}")
 
             # Let the GPU breathe between evidence items
             await asyncio.sleep(2)
@@ -268,15 +342,17 @@ async def _inject_wave(
 
 
 async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | None = None) -> None:
-    """Full benchmark pipeline: inject all waves -> analyze -> hypotheses -> suspects.
+    """Full event-driven benchmark pipeline: inject all waves then let workers handle the rest.
 
-    Reuses shared singletons passed from the endpoint via app_state
-    to respect VRAM serialization and avoid redundant connections.
+    Flow:
+      1. Inject all waves sequentially (each publishes EVIDENCE_ADDED events)
+      2. Start investigation (reactive workers take over)
+      3. Poll for completion (hypotheses > 0 and suspects > 0, max 10 min)
+      4. Report results
 
-    This function is the TOP-LEVEL entry point for the background task.
-    It wraps everything in try/except so that no exception can escape
-    silently (FastAPI BackgroundTasks swallows exceptions to stderr,
-    bypassing loguru).
+    The old sequential approach (manually calling AnalysisPipeline,
+    HypothesisEngine, ContradictionDetector, SuspectScorer) is removed.
+    The EventBus + reactive workers handle everything automatically.
     """
     prog = _progress(case_id)
     t0 = time.monotonic()
@@ -285,15 +361,6 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
         from nexus.db.sqlite_db import get_db, Database
 
         app_state = app_state or {}
-        router = app_state.get("router")
-        if router is None:
-            from nexus.llm.ollama_client import OllamaClient
-            from nexus.llm.router import LLMRouter
-            router = LLMRouter(OllamaClient())
-
-        neo4j = app_state.get("neo4j")
-        chroma = app_state.get("chroma")
-        entity_extractor = app_state.get("entity_extractor")
 
         info = KNOWN_BENCHMARKS[bench_key]
         manifest_path = BENCHMARK_DIR / info["dir"] / "manifest.json"
@@ -336,119 +403,88 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
             await asyncio.sleep(3)
 
         logger.info(
-            "Benchmark full: all waves done for case {} — {}/{} ok, {} failed",
+            "Benchmark full: all waves done for case {} -- {}/{} ok, {} failed",
             case_id[:8], total_ok, len(all_evidence), total_failed,
         )
 
         # ==============================================================
-        # 2. Post-injection pipeline steps (each with timeout + catch)
+        # 2. Start investigation (workers take over)
         # ==============================================================
-
-        async def _run_step(step_name: str, coro):
-            """Run a pipeline step with timeout and error isolation."""
-            prog["current_step"] = step_name
-            prog["status"] = step_name
-            logger.info("Benchmark full: {} ...", step_name)
+        prog["current_step"] = "Starting investigation..."
+        inv_manager = app_state.get("investigation_manager")
+        if inv_manager is not None:
             try:
-                await asyncio.wait_for(coro, timeout=_PIPELINE_STEP_TIMEOUT)
-                logger.info("Benchmark full: {} OK", step_name)
-            except asyncio.TimeoutError:
-                err = f"{step_name} TIMEOUT after {_PIPELINE_STEP_TIMEOUT}s"
-                logger.error("Benchmark {}", err)
-                prog["errors"].append(err)
-            except Exception as exc:
-                err = f"{step_name} FAILED: {type(exc).__name__}: {exc}"
-                logger.error("Benchmark {}", err)
-                prog["errors"].append(err)
-
-        # 2a. Analyze
-        async def _do_analysis():
-            async with get_db() as conn:
-                db = Database(conn)
-                from nexus.core.analysis_pipeline import AnalysisPipeline
-                pipeline = AnalysisPipeline(db=db, router=router, chroma=chroma, neo4j=neo4j)
-                await pipeline.run_full_analysis(case_id)
-
-        await _run_step("analysis", _do_analysis())
-        await asyncio.sleep(2)
-
-        # 2b. Hypotheses
-        async def _do_hypotheses():
-            async with get_db() as conn:
-                db = Database(conn)
-                from nexus.core.hypothesis_engine import HypothesisEngine
-                engine = HypothesisEngine(db=db, router=router, chroma=chroma, neo4j=neo4j)
-                await engine.generate_hypotheses(case_id)
-
-        await _run_step("hypothesis_generation", _do_hypotheses())
-        await asyncio.sleep(2)
-
-        # 2c. Contradictions
-        async def _do_contradictions():
-            async with get_db() as conn:
-                db = Database(conn)
-                from nexus.core.contradiction_detector import ContradictionDetector
-                detector = ContradictionDetector(db=db, router=router)
-                await detector.detect_contradictions(case_id)
-
-        await _run_step("contradiction_detection", _do_contradictions())
-        await asyncio.sleep(2)
-
-        # 2d. Suspect scoring
-        async def _do_suspects():
-            async with get_db() as conn:
-                db = Database(conn)
-                from nexus.core.suspect_scorer import SuspectScorer
-                scorer = SuspectScorer(db=db, router=router, neo4j=neo4j)
-                await scorer.score_all_suspects(case_id, trigger="benchmark")
-
-        await _run_step("suspect_scoring", _do_suspects())
-        await asyncio.sleep(2)
-
-        # 2e. Neo4j sync
-        if neo4j is not None:
-            async def _do_neo4j_sync():
-                async with get_db() as conn:
-                    db = Database(conn)
-                    evidence = await db.list_evidence_by_case(case_id)
-                    entities = await db.list_entities_by_case(case_id)
-                    for ev in evidence:
-                        if ev.get("status") == "processed":
-                            await neo4j.sync_evidence(
-                                ev["id"], case_id, ev["title"],
-                                ev["evidence_type"], ev.get("reliability", 50),
-                            )
-                    for ent in entities:
-                        await neo4j.sync_entity(ent, case_id)
-                    for ent in entities:
-                        mentions = await db.list_mentions_by_entity(ent["id"])
-                        for m in mentions:
-                            await neo4j.link_evidence_to_entity(m["evidence_id"], ent["id"])
-
-            await _run_step("neo4j_sync", _do_neo4j_sync())
-
-        # 2f. Start autonomous investigation loop
-        try:
-            prog["current_step"] = "autonomous_loop_start"
-            inv_manager = app_state.get("investigation_manager")
-            if inv_manager is not None:
                 started = await inv_manager.start_investigation(case_id)
                 if started:
-                    logger.info("Benchmark full: autonomous investigation STARTED via shared manager")
+                    logger.info("Benchmark full: investigation STARTED for case {}", case_id[:8])
                 else:
                     logger.info("Benchmark full: investigation already running for case {}", case_id[:8])
-            else:
-                from nexus.core.investigation_manager import InvestigationManager
-                manager = InvestigationManager(
-                    router=router, chroma=chroma, neo4j=neo4j,
-                    entity_extractor=entity_extractor,
-                )
-                await manager.start_investigation(case_id)
-                logger.info("Benchmark full: autonomous investigation STARTED (standalone manager)")
-        except Exception as exc:
-            err = f"autonomous_loop_start FAILED: {type(exc).__name__}: {exc}"
-            logger.error("Benchmark {}", err)
-            prog["errors"].append(err)
+            except Exception as exc:
+                err = f"start_investigation FAILED: {type(exc).__name__}: {exc}"
+                logger.error("Benchmark {}", err)
+                prog["errors"].append(err)
+        else:
+            logger.warning("Benchmark full: no investigation_manager -- workers won't run")
+
+        # ==============================================================
+        # 3. Wait for workers to produce hypotheses + suspects
+        # ==============================================================
+        prog["status"] = "analyzing"
+        prog["current_step"] = "Waiting for analysis..."
+
+        max_polls = _WORKER_POLL_TIMEOUT // _WORKER_POLL_INTERVAL
+        analysis_complete = False
+
+        for i in range(max_polls):
+            await asyncio.sleep(_WORKER_POLL_INTERVAL)
+
+            try:
+                async with get_db() as conn:
+                    db = Database(conn)
+                    evidence_list = await db.list_evidence_by_case(case_id)
+                    entities_list = await db.list_entities_by_case(case_id)
+                    hypotheses_list = await db.list_hypotheses_by_case(case_id)
+                    suspects_list = await db.list_suspects_by_case(case_id)
+
+                    ev_count = len(evidence_list)
+                    ent_count = len(entities_list)
+                    hyp_count = len(hypotheses_list)
+                    sus_count = len(suspects_list)
+
+                    prog["current_step"] = (
+                        f"Analysis in progress... "
+                        f"({ev_count} ev, {ent_count} ent, {hyp_count} hyp, {sus_count} sus)"
+                    )
+                    prog["stats"] = {
+                        "evidence": ev_count,
+                        "entities": ent_count,
+                        "hypotheses": hyp_count,
+                        "suspects": sus_count,
+                    }
+
+                    if hyp_count > 0 and sus_count > 0:
+                        logger.info(
+                            "Benchmark full: analysis complete for case {} "
+                            "({} hyp, {} sus) after {}s",
+                            case_id[:8], hyp_count, sus_count,
+                            (i + 1) * _WORKER_POLL_INTERVAL,
+                        )
+                        analysis_complete = True
+                        break
+
+            except Exception as exc:
+                logger.warning("Benchmark poll error: {}", exc)
+
+        if not analysis_complete:
+            logger.warning(
+                "Benchmark full: analysis timed out after {}s for case {} "
+                "(workers may still be running)",
+                _WORKER_POLL_TIMEOUT, case_id[:8],
+            )
+            prog["errors"].append(
+                f"Analysis timed out after {_WORKER_POLL_TIMEOUT}s "
+                f"(workers may still be running in background)"
+            )
 
         # ==============================================================
         # Done
@@ -461,12 +497,12 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
 
         logger.info(
             "=== BENCHMARK PIPELINE COMPLETE for case {} in {:.0f}s "
-            "({} ok, {} failed, {} errors) — autonomous loop running ===",
+            "({} ok, {} failed, {} errors) ===",
             case_id[:8], elapsed, total_ok, total_failed, len(prog["errors"]),
         )
 
     except Exception as exc:
-        # ABSOLUTE LAST RESORT — this catches anything that slipped through:
+        # ABSOLUTE LAST RESORT -- catches anything that slipped through:
         # import errors, manifest parse failures, unexpected exceptions.
         elapsed = time.monotonic() - t0
         tb = traceback.format_exc()

@@ -7,22 +7,26 @@ nature (extraction legere, raisonnement, analyse profonde, embeddings).
 VRAM Management (RTX 5080, 16 GB partagee):
 - Un seul "gros" modele (nexus 26B, deepseek 14B) en VRAM a la fois.
 - Les modeles legers (gemma4:e4b, nomic-embed-text) coexistent.
-- Un ``asyncio.Lock`` serialise les appels aux gros modeles pour
-  eviter les OOM et les swaps GPU incessants.
+- VRAMScheduler provides priority-queue scheduling with model affinity.
+- Falls back to simple asyncio.Lock if no scheduler is provided.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import asynccontextmanager
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from loguru import logger
 
 from nexus.config import settings
 from nexus.llm.ollama_client import OllamaClient
+
+if TYPE_CHECKING:
+    from nexus.events.vram_scheduler import VRAMScheduler
 
 # Threshold (seconds) after which we warn about lock contention.
 _LOCK_WAIT_WARN_SECONDS = 30.0
@@ -86,12 +90,12 @@ _ROUTE_TABLE: dict[TaskType, tuple[str, int, bool]] = {
     # --- Embedding ---
     TaskType.EMBEDDING:            ("model_embedding", 10, False),
 
-    # --- Reasoning (deepseek-r1, 14B — heavy) ---
+    # --- Reasoning (deepseek-r1, 14B -- heavy) ---
     TaskType.LOGIC_VERIFICATION:   ("model_reasoning", 120, True),
     TaskType.CONTRADICTION_DETECTION: ("model_reasoning", 120, True),
     TaskType.TESTIMONY_COMPARISON: ("model_reasoning", 120, True),
 
-    # --- Deep analysis (nexus 26B — heavy) ---
+    # --- Deep analysis (nexus 26B -- heavy) ---
     TaskType.DEEP_ANALYSIS:        ("model_deep", 600, True),
     TaskType.HYPOTHESIS_SCORING:   ("model_deep", 600, True),
     TaskType.SUSPECT_PROFILE:      ("model_deep", 600, True),
@@ -111,26 +115,100 @@ _ROUTE_TABLE: dict[TaskType, tuple[str, int, bool]] = {
     TaskType.TRACE_ANALYSIS:           ("model_vision_deep", 180, True),
 }
 
+# Map model settings attributes to VRAMPriority for scheduler integration.
+# Only used when a VRAMScheduler is provided.
+_MODEL_ATTR_TO_PRIORITY: dict[str, str] = {
+    "model_embedding": "EMBEDDING",
+    "model_fast": "FAST_LLM",
+    "model_vision": "FAST_LLM",
+    "model_vision_deep": "VISION",
+    "model_reasoning": "REASONING",
+    "model_deep": "DEEP",
+    "model_audio": "VISION",
+}
+
 
 class LLMRouter:
     """Route task requests to the appropriate Ollama model.
 
+    Supports two VRAM management modes:
+
+    1. **VRAMScheduler mode** (recommended): Pass a ``VRAMScheduler`` instance.
+       Uses priority queues with model affinity for optimal GPU utilisation.
+
+    2. **Legacy lock mode** (backward compatible): No scheduler provided.
+       Falls back to a simple ``asyncio.Lock`` for heavy-model serialisation.
+
     Usage::
 
+        # With scheduler (recommended)
+        from nexus.events.vram_scheduler import VRAMScheduler
+        scheduler = VRAMScheduler()
+        router = LLMRouter(vram_scheduler=scheduler)
+
+        # Without scheduler (backward compatible)
         router = LLMRouter()
+
         text = await router.route(TaskType.ENTITY_EXTRACTION, prompt, system=...)
         data = await router.route_json(TaskType.ENTITY_EXTRACTION, prompt)
         vec  = await router.embed("some text")
     """
 
-    def __init__(self, client: OllamaClient | None = None) -> None:
+    def __init__(
+        self,
+        client: OllamaClient | None = None,
+        vram_scheduler: VRAMScheduler | None = None,
+    ) -> None:
         self.client = client or OllamaClient()
-        # Serialises heavy-model calls so only one large model occupies
-        # VRAM at a time (prevents OOM on the shared 16 GB pool).
+        self._vram_scheduler = vram_scheduler
+
+        # Legacy fallback: simple lock when no scheduler provided
         self._heavy_lock = asyncio.Lock()
 
+        if vram_scheduler:
+            logger.info("LLMRouter using VRAMScheduler (priority queue mode)")
+        else:
+            logger.info("LLMRouter using legacy asyncio.Lock (simple mode)")
+
     # ------------------------------------------------------------------
-    # Lock helper
+    # VRAM access helper
+    # ------------------------------------------------------------------
+
+    @asynccontextmanager
+    async def _gpu_context(
+        self, model_attr: str, model: str, heavy: bool, label: str,
+    ) -> AsyncIterator[None]:
+        """Unified GPU access gate.
+
+        When a VRAMScheduler is available, delegates to it.
+        Otherwise falls back to the legacy heavy lock.
+        """
+        if self._vram_scheduler:
+            from nexus.events.vram_scheduler import VRAMPriority
+            priority_name = _MODEL_ATTR_TO_PRIORITY.get(model_attr, "DEEP")
+            priority = VRAMPriority[priority_name]
+            async with self._vram_scheduler.gpu_access(priority, model, label):
+                yield
+        elif heavy:
+            await self._acquire_heavy_lock(label)
+            async with self._heavy_lock:
+                yield
+        else:
+            yield
+
+    def _get_keep_alive(self, model: str) -> str:
+        """Return the appropriate keep_alive for a model.
+
+        Only applies when VRAMScheduler is active (it manages VRAM lifetimes).
+        Without a scheduler, use the default "10m".
+        """
+        if self._vram_scheduler:
+            from nexus.events.vram_scheduler import get_keep_alive
+            return get_keep_alive(model)
+        return "10m"
+
+    # ------------------------------------------------------------------
+    # Legacy lock helper (used when no VRAMScheduler)
     # ------------------------------------------------------------------
 
     async def _acquire_heavy_lock(self, task_label: str) -> None:
@@ -146,8 +224,6 @@ class LLMRouter:
                 task_label,
             )
             t0 = time.monotonic()
-            # We don't actually acquire here; the ``async with`` block does.
-            # But we record the wait start so we can log duration afterwards.
             while self._heavy_lock.locked():
                 await asyncio.sleep(0.25)
                 elapsed = time.monotonic() - t0
@@ -172,30 +248,27 @@ class LLMRouter:
         """Route a text-generation task and return the raw response."""
         model_attr, timeout, heavy = _ROUTE_TABLE[task_type]
         model: str = getattr(settings, model_attr)
+        keep_alive = self._get_keep_alive(model)
 
         logger.info(
-            "Routing {} → {} (timeout={}s, heavy={})",
+            "Routing {} -> {} (timeout={}s, heavy={}, keep_alive={})",
             task_type.value,
             model,
             timeout,
             heavy,
+            keep_alive,
         )
 
-        if heavy:
-            await self._acquire_heavy_lock(f"route({task_type.value})")
-            async with self._heavy_lock:
-                return await self.client.generate(
-                    model=model,
-                    prompt=prompt,
-                    system=system,
-                    timeout=timeout,
-                )
-        return await self.client.generate(
-            model=model,
-            prompt=prompt,
-            system=system,
-            timeout=timeout,
-        )
+        async with self._gpu_context(
+            model_attr, model, heavy, f"route({task_type.value})",
+        ):
+            return await self.client.generate(
+                model=model,
+                prompt=prompt,
+                system=system,
+                timeout=timeout,
+                keep_alive=keep_alive,
+            )
 
     async def route_json(
         self,
@@ -207,30 +280,26 @@ class LLMRouter:
         """Route a task that must return structured JSON."""
         model_attr, timeout, heavy = _ROUTE_TABLE[task_type]
         model: str = getattr(settings, model_attr)
+        keep_alive = self._get_keep_alive(model)
 
         logger.info(
-            "Routing JSON {} → {} (timeout={}s, heavy={})",
+            "Routing JSON {} -> {} (timeout={}s, heavy={}, keep_alive={})",
             task_type.value,
             model,
             timeout,
             heavy,
+            keep_alive,
         )
 
-        if heavy:
-            await self._acquire_heavy_lock(f"route_json({task_type.value})")
-            async with self._heavy_lock:
-                return await self.client.generate_json(
-                    model=model,
-                    prompt=prompt,
-                    system=system,
-                    timeout=timeout,
-                )
-        return await self.client.generate_json(
-            model=model,
-            prompt=prompt,
-            system=system,
-            timeout=timeout,
-        )
+        async with self._gpu_context(
+            model_attr, model, heavy, f"route_json({task_type.value})",
+        ):
+            return await self.client.generate_json(
+                model=model,
+                prompt=prompt,
+                system=system,
+                timeout=timeout,
+            )
 
     async def route_vision(
         self,
@@ -243,37 +312,35 @@ class LLMRouter:
         """Route a vision task to the appropriate VLM model."""
         model_attr, timeout, heavy = _ROUTE_TABLE[task_type]
         model: str = getattr(settings, model_attr)
+        keep_alive = self._get_keep_alive(model)
 
         logger.info(
-            "Routing vision {} → {} (timeout={}s, heavy={})",
+            "Routing vision {} -> {} (timeout={}s, heavy={}, keep_alive={})",
             task_type.value,
             model,
             timeout,
             heavy,
+            keep_alive,
         )
 
-        if heavy:
-            await self._acquire_heavy_lock(f"route_vision({task_type.value})")
-            async with self._heavy_lock:
-                return await self.client.generate_with_image(
-                    model=model,
-                    prompt=prompt,
-                    image_path=image_path,
-                    system=system,
-                    timeout=timeout,
-                )
-        return await self.client.generate_with_image(
-            model=model,
-            prompt=prompt,
-            image_path=image_path,
-            system=system,
-            timeout=timeout,
-        )
+        async with self._gpu_context(
+            model_attr, model, heavy, f"route_vision({task_type.value})",
+        ):
+            return await self.client.generate_with_image(
+                model=model,
+                prompt=prompt,
+                image_path=image_path,
+                system=system,
+                timeout=timeout,
+                keep_alive=keep_alive,
+            )
 
     async def embed(self, text: str) -> list[float]:
         """Embed a single text using the configured embedding model."""
-        return await self.client.embed(text)
+        keep_alive = self._get_keep_alive(settings.model_embedding)
+        return await self.client.embed(text, keep_alive=keep_alive)
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts using the configured embedding model."""
-        return await self.client.embed_batch(texts)
+        keep_alive = self._get_keep_alive(settings.model_embedding)
+        return await self.client.embed_batch(texts, keep_alive=keep_alive)

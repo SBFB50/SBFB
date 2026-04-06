@@ -42,6 +42,13 @@ export default function Benchmark() {
     lastAction: string;
     status: string;
     elapsed: number;
+    wave?: number;
+    totalWaves?: number;
+    evidenceIndex?: number;
+    totalEvidence?: number;
+    step?: string;
+    percent?: number;
+    workers?: Record<string, { status: string; events_processed: number }>;
   } | null>(null);
   const benchStartRef = useRef<number | null>(null);
 
@@ -96,7 +103,7 @@ export default function Benchmark() {
     api.get('/benchmark/available').then(r => setAvailableBenches(r.data || [])).catch(() => {});
   }, []);
 
-  // Poll investigation status for benchmark progress
+  // Poll benchmark progress endpoint
   useEffect(() => {
     if (!benchProgress?.caseId) return;
     const caseId = benchProgress.caseId;
@@ -104,21 +111,49 @@ export default function Benchmark() {
 
     const poll = async () => {
       try {
-        const status = await api.get(`/cases/${caseId}/investigation/status`).then(r => r.data);
-        if (!active) return;
+        // Try dedicated benchmark progress endpoint first, fall back to investigation status
+        let data: Record<string, unknown> | null = null;
+        try {
+          data = await api.get(`/benchmark/progress/${caseId}`).then(r => r.data);
+        } catch {
+          data = await api.get(`/cases/${caseId}/investigation/status`).then(r => r.data);
+        }
+        if (!active || !data) return;
 
         const elapsed = benchStartRef.current ? Math.floor((Date.now() - benchStartRef.current) / 1000) : 0;
-        const invStatus = status?.status || status?.state || 'idle';
-        const lastAction = status?.last_action || status?.current_task || '';
+        const invStatus = String(data.status || data.state || 'idle');
+        const lastAction = String(data.last_action || data.current_task || data.step || '');
 
-        if (invStatus === 'idle' && elapsed > 10) {
+        // Extract wave/evidence progress from new endpoint
+        const wave = data.wave as number | undefined;
+        const totalWaves = data.total_waves as number | undefined;
+        const evidenceIndex = data.evidence_index as number | undefined;
+        const totalEvidence = data.total_evidence as number | undefined;
+        const step = data.step as string | undefined;
+        const percent = data.percent as number | undefined;
+        const workers = data.workers as Record<string, { status: string; events_processed: number }> | undefined;
+
+        if ((invStatus === 'idle' || invStatus === 'completed') && elapsed > 10) {
           // Investigation finished
           setBenchProgress(null);
           benchStartRef.current = null;
+          refresh();
           return;
         }
 
-        setBenchProgress(prev => prev ? { ...prev, lastAction, status: invStatus, elapsed } : null);
+        setBenchProgress(prev => prev ? {
+          ...prev,
+          lastAction,
+          status: invStatus,
+          elapsed,
+          wave,
+          totalWaves,
+          evidenceIndex,
+          totalEvidence,
+          step,
+          percent,
+          workers,
+        } : null);
       } catch {
         // Backend not reachable, keep polling
       }
@@ -327,20 +362,80 @@ export default function Benchmark() {
 
       {/* Benchmark progress */}
       {benchProgress && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-[var(--bg-card)] border border-[var(--accent)]/30 rounded-lg animate-pulse">
-          <LoadingSpinner size={16} />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-[var(--text-primary)] truncate">
-              {benchProgress.lastAction || 'Traitement en cours...'}
-            </p>
-            <p className="text-[10px] text-[var(--text-muted)]">
-              Statut: {benchProgress.status}
-            </p>
+        <div className="bg-[var(--bg-card)] border border-[var(--accent)]/30 rounded-lg p-4 space-y-3">
+          {/* Header row */}
+          <div className="flex items-center gap-3">
+            <LoadingSpinner size={16} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-[var(--text-primary)] truncate">
+                {benchProgress.step || benchProgress.lastAction || 'Traitement en cours...'}
+              </p>
+              <p className="text-[10px] text-[var(--text-muted)]">
+                Statut: {benchProgress.status}
+                {benchProgress.wave !== undefined && benchProgress.totalWaves !== undefined && (
+                  <> | Vague {benchProgress.wave}/{benchProgress.totalWaves}</>
+                )}
+                {benchProgress.evidenceIndex !== undefined && benchProgress.totalEvidence !== undefined && (
+                  <> | Preuve {benchProgress.evidenceIndex}/{benchProgress.totalEvidence}</>
+                )}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 text-xs text-[var(--text-muted)] font-mono shrink-0">
+              <Clock size={11} />
+              {Math.floor(benchProgress.elapsed / 60)}:{String(benchProgress.elapsed % 60).padStart(2, '0')}
+            </div>
           </div>
-          <div className="flex items-center gap-1 text-xs text-[var(--text-muted)] font-mono shrink-0">
-            <Clock size={11} />
-            {Math.floor(benchProgress.elapsed / 60)}:{String(benchProgress.elapsed % 60).padStart(2, '0')}
-          </div>
+
+          {/* Progress bar */}
+          {(() => {
+            const pct = benchProgress.percent ??
+              (benchProgress.totalEvidence && benchProgress.evidenceIndex
+                ? Math.round((benchProgress.evidenceIndex / benchProgress.totalEvidence) * 100)
+                : null);
+            if (pct === null) return null;
+            return (
+              <div>
+                <div className="flex justify-between text-[10px] text-[var(--text-muted)] mb-1">
+                  <span>Progression</span>
+                  <span>{pct}%</span>
+                </div>
+                <div className="w-full h-2 bg-[var(--bg-primary)] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[var(--accent)] rounded-full transition-all duration-700 ease-out"
+                    style={{ width: `${Math.min(pct, 100)}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Worker activity */}
+          {benchProgress.workers && Object.keys(benchProgress.workers).length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(benchProgress.workers).map(([name, w]) => (
+                <div
+                  key={name}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono ${
+                    w.status === 'processing' ? 'bg-blue-900/30 text-blue-400' :
+                    w.status === 'done' ? 'bg-green-900/20 text-green-400' :
+                    w.status === 'error' ? 'bg-red-900/20 text-red-400' :
+                    'bg-zinc-800 text-zinc-500'
+                  }`}
+                >
+                  <span className={`w-1 h-1 rounded-full ${
+                    w.status === 'processing' ? 'bg-blue-400 animate-pulse' :
+                    w.status === 'done' ? 'bg-green-400' :
+                    w.status === 'error' ? 'bg-red-400' :
+                    'bg-zinc-500'
+                  }`} />
+                  <span>{name.replace(/_/g, ' ')}</span>
+                  {w.events_processed > 0 && (
+                    <span className="text-[var(--text-muted)]">({w.events_processed})</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

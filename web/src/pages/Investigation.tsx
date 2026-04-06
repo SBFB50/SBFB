@@ -1,7 +1,8 @@
-import { Play, Square, RefreshCw, Search, AlertCircle } from 'lucide-react';
+import { Play, Square, RefreshCw, Search, AlertCircle, Activity } from 'lucide-react';
 import Card from '../components/Card';
 import Badge from '../components/Badge';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PipelineTools from '../components/PipelineTools';
 import { useCaseStore } from '../stores/caseStore';
 import {
   useInvestigationStatus,
@@ -10,6 +11,12 @@ import {
   useAlerts,
   useMonitoringJobs,
 } from '../hooks/useApi';
+
+interface WorkerEntry {
+  status: string;
+  events_processed: number;
+  queue_size: number;
+}
 
 export default function Investigation() {
   const { caseId } = useCaseStore();
@@ -33,12 +40,17 @@ export default function Investigation() {
   const alerts = Array.isArray(alertsQuery.data) ? alertsQuery.data : [];
   const jobs = Array.isArray(monitoringQuery.data) ? monitoringQuery.data : [];
 
+  // Event-driven stats
+  const busStats = status?.bus_stats as { total_published?: number; total_queues?: number; total_pending?: number } | undefined;
+  const totalEvents = (status?.total_events as number | undefined) || busStats?.total_published || 0;
+  const workers = (status?.workers || {}) as Record<string, WorkerEntry>;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-[var(--text-primary)]">Investigation Center</h2>
-          <p className="text-sm text-[var(--text-muted)]">Autonomous investigation management</p>
+          <p className="text-sm text-[var(--text-muted)]">Event-Driven autonomous investigation</p>
         </div>
         <div className="flex gap-2">
           {isRunning ? (
@@ -88,7 +100,7 @@ export default function Investigation() {
               <div>
                 <div className="flex justify-between text-xs text-[var(--text-muted)] mb-1">
                   <span>Progress</span>
-                  <span>{Math.round(status.progress)}%</span>
+                  <span>{Math.round(status.progress as number)}%</span>
                 </div>
                 <div className="w-full h-2 bg-[var(--bg-primary)] rounded-full overflow-hidden">
                   <div
@@ -105,14 +117,29 @@ export default function Investigation() {
               </p>
             )}
 
-            {status.cycle_count !== undefined && status.cycle_count > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-primary)] rounded-lg">
-                <RefreshCw size={12} className="text-[var(--accent)]" />
-                <p className="text-xs text-[var(--text-muted)]">
-                  Cycles OODA: <span className="font-mono text-[var(--text-primary)]">{status.cycle_count}</span>
-                </p>
-              </div>
-            )}
+            {/* Event-Driven mode indicator */}
+            <div className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-primary)] rounded-lg">
+              <Activity size={12} className="text-[var(--accent)]" />
+              <p className="text-xs text-[var(--text-muted)]">
+                Mode: <span className="font-medium text-[var(--text-primary)]">Event-Driven</span>
+              </p>
+              {totalEvents > 0 && (
+                <>
+                  <span className="text-[var(--border)]">|</span>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Events: <span className="font-mono text-[var(--text-primary)]">{totalEvents}</span>
+                  </p>
+                </>
+              )}
+              {busStats?.total_pending !== undefined && busStats.total_pending > 0 && (
+                <>
+                  <span className="text-[var(--border)]">|</span>
+                  <p className="text-xs text-yellow-400">
+                    En attente: <span className="font-mono">{busStats.total_pending}</span>
+                  </p>
+                </>
+              )}
+            </div>
 
             {status.last_action && (
               <div className="px-3 py-2 bg-[var(--bg-primary)] rounded-lg">
@@ -125,6 +152,48 @@ export default function Investigation() {
           <p className="text-sm text-[var(--text-muted)]">No investigation data</p>
         )}
       </Card>
+
+      {/* Worker Event Counts */}
+      {Object.keys(workers).length > 0 && (
+        <Card title="Worker Activity">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            {Object.entries(workers)
+              .sort(([, a], [, b]) => b.events_processed - a.events_processed)
+              .map(([name, w]) => (
+                <div
+                  key={name}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                    w.status === 'processing' ? 'bg-blue-900/20 border-blue-500/30' :
+                    w.status === 'done' ? 'bg-green-900/10 border-green-600/20' :
+                    w.status === 'error' ? 'bg-red-900/10 border-red-500/20' :
+                    'bg-[var(--bg-primary)] border-[var(--border)]'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    w.status === 'processing' ? 'bg-blue-400 animate-pulse' :
+                    w.status === 'done' ? 'bg-green-400' :
+                    w.status === 'error' ? 'bg-red-400' :
+                    'bg-zinc-500'
+                  }`} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-medium text-[var(--text-primary)] truncate">
+                      {name.replace(/_/g, ' ')}
+                    </p>
+                    <p className="text-[9px] text-[var(--text-muted)] font-mono">
+                      {w.events_processed} events
+                      {w.queue_size > 0 && (
+                        <span className="text-yellow-400"> +{w.queue_size}</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Pipeline Tools (event-driven view) */}
+      <PipelineTools caseId={caseId} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Monitoring Jobs */}

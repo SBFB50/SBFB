@@ -152,19 +152,26 @@ async def trigger_monitoring_job(
     request: Request,
     db: Database = Depends(get_database),
 ) -> dict:
-    """Force an immediate execution of a monitoring job."""
+    """Force an immediate execution of a monitoring job.
+
+    Sets next_run to now() so the MonitoringLoop picks it up
+    on its next 30-second sweep.  Also works with the legacy
+    APScheduler if it's still running.
+    """
     existing = await db._get_monitoring_job(job_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Monitoring job not found: {job_id}")
 
+    # Legacy path: APScheduler still running
     scheduler = getattr(request.app.state, "monitoring_scheduler", None)
-    if scheduler is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Monitoring scheduler not available",
-        )
+    if scheduler is not None:
+        scheduler.trigger_job(job_id)
+        return {"status": "triggered", "job_id": job_id}
 
-    scheduler.trigger_job(job_id)
+    # Reactive path: set next_run to now so MonitoringLoop picks it up
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    await db.update_job(job_id, next_run=now)
     return {"status": "triggered", "job_id": job_id}
 
 

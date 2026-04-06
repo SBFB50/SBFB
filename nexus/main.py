@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
     from nexus.db.chroma_db import ChromaClient
     from nexus.llm.ollama_client import OllamaClient
     from nexus.llm.router import LLMRouter
-    from nexus.monitoring.scheduler import MonitoringScheduler
+    from nexus.events.vram_scheduler import VRAMScheduler
 
     # -- Startup --------------------------------------------------------
     _setup_loguru_intercept()
@@ -124,7 +124,11 @@ async def lifespan(app: FastAPI):
     # Shared singletons -- these are stateless or internally locked,
     # so they can safely be shared across requests.
     app.state.ollama = OllamaClient()
-    app.state.router = LLMRouter(app.state.ollama)
+    app.state.vram_scheduler = VRAMScheduler()
+    app.state.router = LLMRouter(
+        app.state.ollama,
+        vram_scheduler=app.state.vram_scheduler,
+    )
 
     # Neo4j graph database (optional -- degraded mode if unavailable)
     app.state.neo4j = None
@@ -166,25 +170,14 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("GLiNER pre-load skipped: {}", exc)
 
-    # Monitoring scheduler (APScheduler)
-    app.state.monitoring_scheduler = None
-    try:
-        scheduler = MonitoringScheduler(
-            router=app.state.router,
-            chroma=app.state.chroma,
-        )
-        await scheduler.start()
-        app.state.monitoring_scheduler = scheduler
-        logger.info("Monitoring scheduler started")
-    except Exception:
-        logger.warning("Monitoring scheduler failed to start -- monitoring will be unavailable")
-
-    # Autonomous investigation manager
+    # Reactive investigation manager (replaces APScheduler + old InvestigationManager)
+    # MonitoringLoop is created per-case inside the manager -- no separate scheduler.
+    app.state.monitoring_scheduler = None  # Keep attr for backward compat with monitoring API
     app.state.investigation_manager = None
     try:
-        from nexus.core.investigation_manager import InvestigationManager
+        from nexus.events.manager import ReactiveInvestigationManager
 
-        inv_manager = InvestigationManager(
+        inv_manager = ReactiveInvestigationManager(
             router=app.state.router,
             chroma=app.state.chroma,
             neo4j=app.state.neo4j,
@@ -192,10 +185,10 @@ async def lifespan(app: FastAPI):
         )
         await inv_manager.start()
         app.state.investigation_manager = inv_manager
-        logger.info("Autonomous investigation manager started")
+        logger.info("Reactive investigation manager started")
     except Exception:
         logger.warning(
-            "Investigation manager failed to start -- autonomous loops will be unavailable"
+            "Investigation manager failed to start -- reactive pipeline will be unavailable"
         )
 
     logger.info("NEXUS started -- listening on {}:{}", settings.nexus_host, settings.nexus_port)
@@ -207,8 +200,7 @@ async def lifespan(app: FastAPI):
         logger.info("NEXUS shutting down")
         if app.state.investigation_manager is not None:
             await app.state.investigation_manager.stop_all()
-        if app.state.monitoring_scheduler is not None:
-            await app.state.monitoring_scheduler.stop()
+        # MonitoringLoop is stopped inside investigation_manager.stop_all()
         if app.state.neo4j is not None:
             await app.state.neo4j.close()
         if app.state.chroma is not None:

@@ -244,6 +244,19 @@ CREATE TABLE IF NOT EXISTS case_summaries (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS event_log (
+    id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    case_id TEXT NOT NULL,
+    payload TEXT,
+    source_worker TEXT,
+    parent_event_id TEXT,
+    status TEXT DEFAULT 'pending',
+    processed_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    processed_at DATETIME
+);
 """
 
 _CREATE_INDEXES = """
@@ -272,6 +285,11 @@ CREATE INDEX IF NOT EXISTS idx_mentions_evidence ON entity_mentions(evidence_id)
 CREATE INDEX IF NOT EXISTS idx_mentions_entity ON entity_mentions(entity_id);
 CREATE INDEX IF NOT EXISTS idx_monitoring_results_job ON monitoring_results(job_id);
 CREATE INDEX IF NOT EXISTS idx_monitoring_results_case ON monitoring_results(case_id);
+
+-- Event bus indexes
+CREATE INDEX IF NOT EXISTS idx_event_log_status ON event_log(status);
+CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_event_log_case ON event_log(case_id);
 """
 
 _CREATE_FTS = """
