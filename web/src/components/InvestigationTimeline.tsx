@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 // @ts-ignore — react-calendar-timeline types are incomplete
 import Timeline from 'react-calendar-timeline';
-import 'react-calendar-timeline/lib/Timeline.css';
+// CSS handled via inline styles (package doesn't export CSS in ESM mode)
 import moment from 'moment';
 import { api } from '../api/client';
 
