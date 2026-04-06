@@ -255,6 +255,10 @@ class MonitoringLoop:
         if not raw_results:
             return
 
+        # 2b. Post-filter by date if before_date is set
+        if before_date:
+            raw_results = await self._filter_by_date(raw_results, before_date)
+
         # 3. Process each result: dedup, score, store, publish
         async with get_db() as conn:
             db = Database(conn)
@@ -404,6 +408,58 @@ class MonitoringLoop:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _filter_by_date(
+        self,
+        results: list[dict[str, Any]],
+        before_date: str,
+    ) -> list[dict[str, Any]]:
+        """Post-filter results by publication date using htmldate.
+
+        For each result that has a URL, fetch the page and extract
+        the real publication date. Reject results published after
+        before_date. Results without a detectable date are kept
+        (benefit of the doubt).
+        """
+        try:
+            from htmldate import find_date
+        except ImportError:
+            logger.warning("htmldate not installed — skipping date post-filter")
+            return results
+
+        filtered: list[dict[str, Any]] = []
+        for r in results:
+            url = r.get("url", "")
+            # Check SearXNG-provided published_date first
+            pub_date = r.get("published_date") or r.get("publishedDate")
+            if not pub_date and url:
+                try:
+                    # htmldate extracts date from the actual page
+                    pub_date = await asyncio.to_thread(
+                        find_date, url, extensive_search=False
+                    )
+                except Exception:
+                    pub_date = None
+
+            if pub_date:
+                # Normalize to YYYY-MM-DD string for comparison
+                date_str = str(pub_date)[:10]
+                if date_str > before_date:
+                    logger.debug(
+                        "MonitoringLoop: REJECTED (date={} > {}): {}",
+                        date_str, before_date, r.get("title", "?")[:50],
+                    )
+                    continue
+
+            filtered.append(r)
+
+        rejected = len(results) - len(filtered)
+        if rejected > 0:
+            logger.info(
+                "MonitoringLoop: date filter rejected {}/{} results (before:{})",
+                rejected, len(results), before_date,
+            )
+        return filtered
 
     async def _get_before_date(self, case_id: str) -> str | None:
         """Extract ``before:YYYY-MM-DD`` from case description if present."""
