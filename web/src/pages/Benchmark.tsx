@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Play, RefreshCw, Trash2, Users, FileText, Brain, AlertTriangle,
   Network, Clock, Activity, Target, Shield, Eye, Search, Zap,
-  ChevronRight, Radio, Crosshair, Globe,
+  ChevronRight, Radio, Crosshair, Globe, Database, ChevronDown,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -13,6 +13,7 @@ import ScoreBar from '../components/ScoreBar';
 import Badge from '../components/Badge';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PipelineTools from '../components/PipelineTools';
+import InvestigationTimeline from '../components/InvestigationTimeline';
 import InvestigationMap from '../components/InvestigationMap';
 import { api } from '../api/client';
 import { showToast } from '../components/Toast';
@@ -269,6 +270,271 @@ function ActivityItem({ entry }: { entry: AuditEntry }) {
           }>{entry.action?.replace(/_/g, ' ')}</Badge>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Database Explorer                                                  */
+/* ------------------------------------------------------------------ */
+
+type DbTab = 'evidence' | 'entities' | 'monitoring' | 'events' | 'chroma';
+
+const DB_TABS: { key: DbTab; label: string }[] = [
+  { key: 'evidence', label: 'Evidence' },
+  { key: 'entities', label: 'Entites' },
+  { key: 'monitoring', label: 'Monitoring' },
+  { key: 'events', label: 'Events' },
+  { key: 'chroma', label: 'ChromaDB' },
+];
+
+function DatabaseExplorer({ caseId }: { caseId: string }) {
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<DbTab>('evidence');
+  const [data, setData] = useState<Record<DbTab, unknown[]>>({
+    evidence: [], entities: [], monitoring: [], events: [], chroma: [],
+  });
+  const [monResults, setMonResults] = useState<unknown[]>([]);
+  const [counts, setCounts] = useState<Record<DbTab, number>>({
+    evidence: 0, entities: 0, monitoring: 0, events: 0, chroma: 0,
+  });
+
+  useEffect(() => {
+    if (!open || !caseId) return;
+    let active = true;
+
+    const fetchAll = async () => {
+      try {
+        const [ev, ent, mon, monRes, aud, chroma] = await Promise.all([
+          api.get(`/cases/${caseId}/evidence`).then(r => r.data).catch(() => []),
+          api.get(`/cases/${caseId}/entities`).then(r => r.data).catch(() => []),
+          api.get(`/cases/${caseId}/monitoring`).then(r => r.data).catch(() => []),
+          api.get(`/cases/${caseId}/monitoring/results?limit=30`).then(r => r.data).catch(() => []),
+          api.get(`/cases/${caseId}/audit?limit=50`).then(r => r.data).catch(() => []),
+          api.get('/search/stats').then(r => r.data).catch(() => ({})),
+        ]);
+        if (!active) return;
+
+        const chromaArr = Array.isArray(chroma)
+          ? chroma
+          : Object.entries(chroma).map(([name, count]) => ({ name, count }));
+
+        setData({ evidence: ev || [], entities: ent || [], monitoring: mon || [], events: aud || [], chroma: chromaArr });
+        setMonResults(monRes || []);
+        setCounts({
+          evidence: (ev || []).length,
+          entities: (ent || []).length,
+          monitoring: (mon || []).length,
+          events: (aud || []).length,
+          chroma: chromaArr.length,
+        });
+      } catch { /* ignore */ }
+    };
+
+    fetchAll();
+    const interval = setInterval(fetchAll, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, [open, caseId]);
+
+  const truncate = (s: unknown, max: number) => {
+    const str = String(s || '');
+    return str.length > max ? str.slice(0, max) + '...' : str;
+  };
+
+  const fmtDate = (d: unknown) => {
+    const s = String(d || '');
+    return s.slice(0, 19).replace('T', ' ');
+  };
+
+  const thClass = 'px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] bg-[var(--bg-primary)] sticky top-0';
+  const tdClass = 'px-3 py-1.5 text-xs text-[var(--text-secondary)] font-mono whitespace-nowrap';
+
+  const renderTable = () => {
+    switch (tab) {
+      case 'evidence':
+        return (
+          <table className="w-full">
+            <thead><tr>
+              <th className={thClass}>Status</th><th className={thClass}>Title</th><th className={thClass}>Source</th>
+              <th className={thClass}>Type</th><th className={thClass}>Summary</th><th className={thClass}>Created</th>
+            </tr></thead>
+            <tbody>
+              {(data.evidence as Record<string, unknown>[]).map((e, i) => (
+                <tr key={i} className="border-b border-[var(--border)]/30 hover:bg-[var(--bg-hover)]">
+                  <td className={tdClass}><Badge variant={String(e.status || 'pending')}>{String(e.status || 'pending')}</Badge></td>
+                  <td className={`${tdClass} max-w-[200px] truncate`}>{truncate(e.title, 60)}</td>
+                  <td className={tdClass}>{truncate(e.source, 30)}</td>
+                  <td className={tdClass}>{String(e.evidence_type || e.type || '-')}</td>
+                  <td className={`${tdClass} max-w-[300px] truncate`}>{truncate(e.summary, 100)}</td>
+                  <td className={tdClass}>{fmtDate(e.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+
+      case 'entities':
+        return (
+          <table className="w-full">
+            <thead><tr>
+              <th className={thClass}>Type</th><th className={thClass}>Name</th>
+              <th className={thClass}>Description</th><th className={thClass}>Created</th>
+            </tr></thead>
+            <tbody>
+              {(data.entities as Record<string, unknown>[]).map((e, i) => (
+                <tr key={i} className="border-b border-[var(--border)]/30 hover:bg-[var(--bg-hover)]">
+                  <td className={tdClass}><Badge type={String(e.entity_type || 'other')}>{String(e.entity_type || 'other')}</Badge></td>
+                  <td className={`${tdClass} font-semibold text-[var(--text-primary)]`}>{String(e.name || e.entity_name || '-')}</td>
+                  <td className={`${tdClass} max-w-[300px] truncate`}>{truncate(e.description, 100)}</td>
+                  <td className={tdClass}>{fmtDate(e.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+
+      case 'monitoring': {
+        const jobs = data.monitoring as Record<string, unknown>[];
+        const results = monResults as Record<string, unknown>[];
+        return (
+          <div className="space-y-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-2 px-3 font-semibold">Jobs ({jobs.length})</p>
+              <table className="w-full">
+                <thead><tr>
+                  <th className={thClass}>Query</th><th className={thClass}>Type</th><th className={thClass}>Results</th>
+                  <th className={thClass}>Last Run</th><th className={thClass}>Active</th>
+                </tr></thead>
+                <tbody>
+                  {jobs.map((j, i) => (
+                    <tr key={i} className="border-b border-[var(--border)]/30 hover:bg-[var(--bg-hover)]">
+                      <td className={`${tdClass} max-w-[250px] truncate`}>{truncate(j.query, 60)}</td>
+                      <td className={tdClass}>{String(j.job_type || j.type || '-')}</td>
+                      <td className={tdClass}>{String(j.results_count ?? '-')}</td>
+                      <td className={tdClass}>{fmtDate(j.last_run)}</td>
+                      <td className={tdClass}>{j.is_active ? '✓' : '✗'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-2 px-3 font-semibold">Results ({results.length})</p>
+              <table className="w-full">
+                <thead><tr>
+                  <th className={thClass}>Title</th><th className={thClass}>URL</th><th className={thClass}>Score</th>
+                  <th className={thClass}>Dup</th><th className={thClass}>Found</th>
+                </tr></thead>
+                <tbody>
+                  {results.map((r, i) => (
+                    <tr key={i} className="border-b border-[var(--border)]/30 hover:bg-[var(--bg-hover)]">
+                      <td className={`${tdClass} max-w-[250px] truncate`}>{truncate(r.title, 60)}</td>
+                      <td className={tdClass}>
+                        {r.url ? <a href={String(r.url)} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{truncate(r.url, 40)}</a> : '-'}
+                      </td>
+                      <td className={tdClass}>{typeof r.relevance_score === 'number' ? (r.relevance_score as number).toFixed(2) : '-'}</td>
+                      <td className={tdClass}>{r.is_duplicate ? 'Yes' : 'No'}</td>
+                      <td className={tdClass}>{fmtDate(r.found_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      }
+
+      case 'events':
+        return (
+          <table className="w-full">
+            <thead><tr>
+              <th className={thClass}>Timestamp</th><th className={thClass}>Actor</th>
+              <th className={thClass}>Action</th><th className={thClass}>Summary</th>
+            </tr></thead>
+            <tbody>
+              {(data.events as Record<string, unknown>[]).map((e, i) => (
+                <tr key={i} className="border-b border-[var(--border)]/30 hover:bg-[var(--bg-hover)]">
+                  <td className={`${tdClass} text-[var(--text-muted)]`}>{fmtDate(e.timestamp)}</td>
+                  <td className={tdClass}><Badge variant="blue">{String(e.actor || '-')}</Badge></td>
+                  <td className={tdClass}><Badge variant={
+                    String(e.action || '').includes('evidence') ? 'blue' :
+                    String(e.action || '').includes('entity') ? 'green' :
+                    String(e.action || '').includes('hypothesis') ? 'purple' :
+                    String(e.action || '').includes('contradiction') ? 'red' : 'gray'
+                  }>{String(e.action || '-').replace(/_/g, ' ')}</Badge></td>
+                  <td className={`${tdClass} max-w-[400px] truncate`}>{truncate(e.summary, 120)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+
+      case 'chroma':
+        return (
+          <table className="w-full">
+            <thead><tr>
+              <th className={thClass}>Collection</th><th className={thClass}>Items</th>
+            </tr></thead>
+            <tbody>
+              {(data.chroma as Record<string, unknown>[]).map((c, i) => (
+                <tr key={i} className="border-b border-[var(--border)]/30 hover:bg-[var(--bg-hover)]">
+                  <td className={`${tdClass} font-semibold text-[var(--text-primary)]`}>{String(c.name || c.collection || '-')}</td>
+                  <td className={tdClass}>{String(c.count ?? c.items ?? c.num_items ?? '-')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+    }
+  };
+
+  return (
+    <div className="border border-[var(--border)] rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-4 py-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] transition-colors text-left"
+      >
+        <Database size={16} className="text-[var(--text-muted)]" />
+        <span className="text-sm font-semibold text-[var(--text-primary)] flex-1">Base de donnees</span>
+        <span className="text-[10px] text-[var(--text-muted)] font-mono">
+          {open ? Object.values(counts).reduce((a, b) => a + b, 0) + ' rows' : 'cliquer pour ouvrir'}
+        </span>
+        <ChevronDown size={14} className={`text-[var(--text-muted)] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="border-t border-[var(--border)]">
+          {/* Tab bar */}
+          <div className="flex gap-0 bg-[var(--bg-primary)] border-b border-[var(--border)] overflow-x-auto">
+            {DB_TABS.map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`px-4 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  tab === t.key
+                    ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--bg-card)]'
+                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                }`}
+              >
+                {t.label}
+                <span className="ml-1.5 text-[10px] font-mono opacity-60">{counts[t.key]}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Table content */}
+          <div className="max-h-96 overflow-auto bg-[var(--bg-card)]">
+            {counts[tab] === 0 && tab !== 'monitoring' ? (
+              <div className="text-center py-8 text-[var(--text-muted)]">
+                <Database size={24} className="mx-auto mb-2 opacity-30" />
+                <p className="text-xs">Aucune donnee</p>
+              </div>
+            ) : (
+              renderTable()
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -784,6 +1050,9 @@ export default function Benchmark() {
 
           {/* Investigation Map */}
           {selectedCase && <InvestigationMap caseId={selectedCase} />}
+
+          {/* Investigation Timeline */}
+          {selectedCase && <InvestigationTimeline caseId={selectedCase} />}
         </div>
       </div>
 
@@ -832,6 +1101,9 @@ export default function Benchmark() {
           </div>
         </div>
       </div>
+
+      {/* ============ DATABASE EXPLORER ============ */}
+      {selectedCase && <DatabaseExplorer caseId={selectedCase} />}
     </div>
   );
 }
