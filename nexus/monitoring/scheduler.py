@@ -157,6 +157,7 @@ class MonitoringScheduler:
             id=scheduler_id,
             args=[job_id],
             name=f"Monitor {job_id[:8]}...",
+            next_run_time=datetime.now(timezone.utc),  # Fire immediately on first add
         )
 
     # ------------------------------------------------------------------

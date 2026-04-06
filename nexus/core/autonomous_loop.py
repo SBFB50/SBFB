@@ -750,8 +750,13 @@ class AutonomousInvestigator:
         }
 
         if not new_evidence_ids:
+            # Always run DECIDE on cycle 1 (initial analysis of existing evidence)
+            if self._cycle_count == 1:
+                logger.info(
+                    "DECIDE: First cycle -- running initial analysis on existing evidence"
+                )
             # Even without new evidence, periodically re-evaluate
-            if self._cycle_count % settings.full_reevaluation_every_n_cycles != 0:
+            elif self._cycle_count % settings.full_reevaluation_every_n_cycles != 0:
                 logger.debug(
                     "DECIDE: No new evidence and not a re-evaluation cycle, skipping"
                 )
