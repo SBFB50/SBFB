@@ -172,15 +172,13 @@ class SummaryTree:
                 exc,
             )
 
-        # 4. Regenerate case summary
-        try:
-            await self._generate_case_summary(case_id)
-        except Exception as exc:
-            logger.error(
-                "SummaryTree: case summary generation failed for {}: {}",
-                case_id[:8],
-                exc,
-            )
+        # 4. Case summary deferred — too expensive to regenerate on every
+        #    new evidence (loads nexus 26B each time). Will be generated
+        #    by the SummaryTreeWorker on TICK_SUMMARY_TREE or via rebuild_tree().
+        logger.debug(
+            "SummaryTree: case summary deferred for {} (will rebuild on next tick)",
+            case_id[:8],
+        )
 
         logger.info(
             "SummaryTree: tree updated for evidence {} -> cluster {}",
