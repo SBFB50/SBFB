@@ -34,13 +34,11 @@ interface Suspect {
   entity_name?: string;
   name?: string;
   suspicion_score: number;
-  factors?: {
-    graph_score?: number;
-    evidence_score?: number;
-    contradiction_score?: number;
-    profile_score?: number;
-    hypothesis_score?: number;
-  };
+  graph_score?: number;
+  evidence_score?: number;
+  contradiction_score?: number;
+  profile_score?: number;
+  hypothesis_score?: number;
 }
 
 interface Hypothesis {
@@ -166,11 +164,17 @@ function SuspectCard({ suspect, rank }: { suspect: Suspect; rank: number }) {
   const name = suspect.entity_name || suspect.name || `Suspect #${suspect.id?.slice(0, 6)}`;
   const score = suspect.suspicion_score || 0;
   const isTop = rank === 1;
-  const factors = suspect.factors || {};
+  const factors: Record<string, number> = {
+    graph_score: suspect.graph_score || 0,
+    evidence_score: suspect.evidence_score || 0,
+    contradiction_score: suspect.contradiction_score || 0,
+    profile_score: suspect.profile_score || 0,
+    hypothesis_score: suspect.hypothesis_score || 0,
+  };
 
   const radarData = FACTOR_LABELS.map(f => ({
     factor: f.label,
-    value: ((factors as Record<string, number>)[f.key] || 0) * 100,
+    value: (factors as Record<string, number>)[f.key] || 0,
   }));
 
   return (
@@ -203,7 +207,7 @@ function SuspectCard({ suspect, rank }: { suspect: Suspect; rank: number }) {
       {/* Factor bars */}
       <div className="space-y-1.5 mb-3">
         {FACTOR_LABELS.map(f => {
-          const val = ((factors as Record<string, number>)[f.key] || 0) * 100;
+          const val = (factors as Record<string, number>)[f.key] || 0;
           return (
             <div key={f.key} className="flex items-center gap-2">
               <span className="text-[9px] text-[var(--text-muted)] w-20 shrink-0 text-right">{f.label}</span>
