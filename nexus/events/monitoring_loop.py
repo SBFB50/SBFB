@@ -28,6 +28,7 @@ from nexus.llm.router import LLMRouter, TaskType
 from nexus.monitoring.alert_manager import AlertManager
 from nexus.monitoring.robin_monitor import RobinMonitor
 from nexus.monitoring.searxng_monitor import SearXNGMonitor
+from nexus.monitoring.wayback_monitor import WaybackMonitor
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +80,7 @@ class MonitoringLoop:
 
         self._searxng = SearXNGMonitor()
         self._robin = RobinMonitor()
+        self._wayback = WaybackMonitor()
 
         self._running = False
         self._task: asyncio.Task | None = None
@@ -240,6 +242,18 @@ class MonitoringLoop:
                     raw_results.extend(robin_results)
             except Exception:
                 logger.exception("Robin search failed for job {}", job_id[:8])
+
+        # Wayback Machine: search archived pages when date filter is active
+        if before_date:
+            try:
+                wayback_results = await self._wayback.search(
+                    query=query,
+                    max_results=10,
+                    before_date=before_date,
+                )
+                raw_results.extend(wayback_results)
+            except Exception:
+                logger.exception("Wayback search failed for job {}", job_id[:8])
 
         # 2. Update timestamps regardless of results
         now = datetime.now(timezone.utc).isoformat()
