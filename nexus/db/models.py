@@ -462,6 +462,7 @@ AlibiStatus = Literal["none", "weak", "partial", "strong", "verified", "unknown"
 class SuspectBase(BaseModel):
     case_id: str
     entity_id: str
+    entity_name: Optional[str] = None
     suspicion_score: float = Field(default=0.0, ge=0.0, le=100.0)
     graph_score: float = Field(default=0.0, ge=0.0, le=100.0)
     evidence_score: float = Field(default=0.0, ge=0.0, le=100.0)

@@ -77,21 +77,25 @@ async def _evaluate_profile_bg(suspect_id: str, request_app) -> None:
 # LIST suspects by case
 # ====================================================================
 
-@router.get(
-    "/cases/{case_id}/suspects",
-    response_model=list[Suspect],
-)
+@router.get("/cases/{case_id}/suspects")
 async def list_suspects(
     case_id: str,
     db: Database = Depends(get_database),
-) -> list[Suspect]:
+):
     """List all suspects for a case, sorted by suspicion_score descending."""
     case = await db.get_case(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail=f"Case not found: {case_id}")
 
     rows = await db.list_suspects_by_case(case_id)
-    return [Suspect(**r) for r in rows]
+    # Enrich with entity name for display
+    enriched = []
+    for r in rows:
+        entity = await db.get_entity(r.get("entity_id", ""))
+        if entity:
+            r["entity_name"] = entity.get("name", "?")
+        enriched.append(r)
+    return enriched
 
 
 # ====================================================================
