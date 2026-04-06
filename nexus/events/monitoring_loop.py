@@ -575,9 +575,74 @@ class MonitoringLoop:
 
         if self._current_window_year != old:
             logger.info(
-                "MonitoringLoop: TIME ADVANCE %d → %d (ceiling %d, after %d dry sweeps)",
+                "MonitoringLoop: TIME ADVANCE {} → {} (ceiling {}, after {} dry sweeps)",
                 old, self._current_window_year, ceiling, self._dry_sweeps + 2,
             )
+            # Trigger reverse discovery on the new year range
+            asyncio.create_task(
+                self._reverse_discover_on_advance(old, self._current_window_year),
+                name=f"reverse-discover-{old}-{self._current_window_year}",
+            )
+
+    async def _reverse_discover_on_advance(self, from_year: int, to_year: int) -> None:
+        """Launch reverse discovery on key news domains when the time window advances."""
+        try:
+            # Get case keywords from entities
+            async with get_db() as conn:
+                db = Database(conn)
+                entities = await db.list_entities_by_case(self._case_id)
+                case = await db.get_case(self._case_id)
+
+            keywords = []
+            for e in entities:
+                if e.get("entity_type") in ("person", "location") and e.get("name"):
+                    keywords.append(e["name"].lower().split()[0])  # first word
+            # Add case name keywords
+            if case:
+                for w in (case.get("name", "") + " " + case.get("description", "")).split():
+                    w = w.strip().lower()
+                    if len(w) >= 4 and w not in ("mode", "osint", "cold", "case", "before"):
+                        keywords.append(w)
+            keywords = list(dict.fromkeys(keywords))[:6]  # dedup, max 6
+
+            if not keywords:
+                return
+
+            # Reverse discover on top 3 regional news domains
+            for domain in ["courrier-picard.fr", "lavoixdunord.fr", "francetvinfo.fr"]:
+                try:
+                    results = await self._wayback.reverse_discover(
+                        domain=domain,
+                        from_year=str(from_year),
+                        to_year=str(to_year),
+                        keywords=keywords,
+                        max_pages=100,
+                        max_results=5,
+                    )
+                    # Publish results as MONITORING_RESULT events
+                    for r in results:
+                        event = NexusEvent(
+                            event_type=EventType.MONITORING_RESULT,
+                            case_id=self._case_id,
+                            payload={
+                                "title": r.get("title", ""),
+                                "url": r.get("url", ""),
+                                "snippet": r.get("snippet", ""),
+                                "source_engine": "wayback_reverse",
+                                "relevance_score": 90.0,  # high relevance — content-matched
+                            },
+                            source_worker="monitoring_loop",
+                        )
+                        await self._bus.publish(event)
+                        logger.info(
+                            "MonitoringLoop: reverse discovery found '{}' on {}",
+                            r.get("title", "?")[:50], domain,
+                        )
+                except Exception as exc:
+                    logger.debug("Reverse discovery failed for {}: {}", domain, exc)
+
+        except Exception as exc:
+            logger.warning("Reverse discovery task failed: {}", exc)
 
     async def _get_before_date(self, case_id: str) -> str | None:
         """Get the current adaptive before-date for this case."""
