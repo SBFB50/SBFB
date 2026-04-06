@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Play, RefreshCw, Trash2, BarChart3, Users, FileText, Brain, AlertTriangle, Network, Clock } from 'lucide-react';
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
+  Play, RefreshCw, Trash2, Users, FileText, Brain, AlertTriangle,
+  Network, Clock, Activity, Target, Shield, Eye, Search, Zap,
+  ChevronRight, Radio, Crosshair, Globe,
+} from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts';
 import Card from '../components/Card';
@@ -13,44 +17,273 @@ import InvestigationMap from '../components/InvestigationMap';
 import { api } from '../api/client';
 import { showToast } from '../components/Toast';
 
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+interface CaseStats {
+  evidence: number;
+  entities: number;
+  hypotheses: number;
+  alerts: number;
+  monitoring_jobs: number;
+}
+
+interface Suspect {
+  id: string;
+  entity_name?: string;
+  name?: string;
+  suspicion_score: number;
+  factors?: {
+    graph_score?: number;
+    evidence_score?: number;
+    contradiction_score?: number;
+    profile_score?: number;
+    hypothesis_score?: number;
+  };
+}
+
+interface Hypothesis {
+  id: string;
+  title: string;
+  status: string;
+  current_score: number;
+  description?: string;
+}
+
 interface CaseData {
   id: string;
   name: string;
   reference: string;
   status: string;
-  stats: { evidence: number; entities: number; hypotheses: number; alerts: number; monitoring_jobs: number };
-  hypotheses: any[];
-  graphStats: any;
+  stats: CaseStats;
+  hypotheses: Hypothesis[];
+  suspects: Suspect[];
+  graphStats: Record<string, number> | null;
   entityTypes: Record<string, number>;
+  busStats?: { total_published: number; total_queues: number; total_pending: number };
 }
 
-const COLORS = ['#3b82f6', '#22c55e', '#a855f7', '#eab308', '#ef4444', '#06b6d4', '#f97316', '#ec4899'];
+interface AuditEntry {
+  timestamp: string;
+  action: string;
+  actor: string;
+  summary: string;
+}
+
+interface BenchProgress {
+  caseId: string;
+  lastAction: string;
+  status: string;
+  elapsed: number;
+  wave?: number;
+  totalWaves?: number;
+  evidenceIndex?: number;
+  totalEvidence?: number;
+  step?: string;
+  percent?: number;
+  workers?: Record<string, { status: string; events_processed: number }>;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
+
+const ACTION_ICONS: Record<string, typeof Activity> = {
+  evidence_added: FileText,
+  evidence_ingested_auto: FileText,
+  entity_discovered: Users,
+  hypothesis_created: Brain,
+  hypothesis_scored: Target,
+  contradiction_found: Zap,
+  monitoring_result: Search,
+  query_generated: Search,
+  self_questioning: Brain,
+  analysis_completed: Eye,
+  analysis_running: Activity,
+  investigation_started: Play,
+  investigation_stopped: Radio,
+  geocode: Globe,
+  osint_social: Globe,
+  osint_enrichment: Search,
+};
+
+const ACTION_COLORS: Record<string, string> = {
+  evidence_added: '#3b82f6',
+  evidence_ingested_auto: '#3b82f6',
+  entity_discovered: '#22c55e',
+  hypothesis_created: '#a855f7',
+  hypothesis_scored: '#a855f7',
+  contradiction_found: '#ef4444',
+  monitoring_result: '#06b6d4',
+  query_generated: '#06b6d4',
+  self_questioning: '#eab308',
+  analysis_completed: '#22c55e',
+  analysis_running: '#eab308',
+  investigation_started: '#22c55e',
+  investigation_stopped: '#ef4444',
+  geocode: '#22c55e',
+  osint_social: '#06b6d4',
+  osint_enrichment: '#06b6d4',
+};
+
+const BENCH_MODES: Record<string, { label: string; color: string }> = {
+  jubillar: { label: 'OSINT', color: '#06b6d4' },
+  kulik: { label: 'Evidence', color: '#3b82f6' },
+  'golden-state-killer': { label: 'Evidence', color: '#3b82f6' },
+  'affaire-moreau': { label: 'Evidence', color: '#a855f7' },
+};
+
+const FACTOR_LABELS: { key: string; label: string; color: string }[] = [
+  { key: 'graph_score', label: 'Graph', color: '#3b82f6' },
+  { key: 'evidence_score', label: 'Evidence', color: '#22c55e' },
+  { key: 'contradiction_score', label: 'Contradiction', color: '#ef4444' },
+  { key: 'profile_score', label: 'Profile', color: '#a855f7' },
+  { key: 'hypothesis_score', label: 'Hypothesis', color: '#eab308' },
+];
+
+/* ------------------------------------------------------------------ */
+/*  Sub-components                                                     */
+/* ------------------------------------------------------------------ */
+
+function StatBox({ value, label, color, icon: Icon }: {
+  value: number | string; label: string; color: string; icon: typeof Activity;
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl px-4 py-3 min-w-0">
+      <div className="p-2 rounded-lg shrink-0" style={{ backgroundColor: `${color}15` }}>
+        <Icon size={18} style={{ color }} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-2xl font-bold text-[var(--text-primary)] leading-tight">{value}</p>
+        <p className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wider">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function SuspectCard({ suspect, rank }: { suspect: Suspect; rank: number }) {
+  const name = suspect.entity_name || suspect.name || `Suspect #${suspect.id?.slice(0, 6)}`;
+  const score = suspect.suspicion_score || 0;
+  const isTop = rank === 1;
+  const factors = suspect.factors || {};
+
+  const radarData = FACTOR_LABELS.map(f => ({
+    factor: f.label,
+    value: ((factors as Record<string, number>)[f.key] || 0) * 100,
+  }));
+
+  return (
+    <div className={`bg-[var(--bg-card)] border rounded-xl p-4 transition-all ${
+      isTop ? 'border-red-500/50 ring-1 ring-red-500/20' : 'border-[var(--border)]'
+    }`}>
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+            isTop ? 'bg-red-500/20 text-red-400' : 'bg-zinc-700 text-zinc-400'
+          }`}>
+            #{rank}
+          </div>
+          <div className="min-w-0">
+            <p className={`text-sm font-semibold truncate ${isTop ? 'text-red-400' : 'text-[var(--text-primary)]'}`}>
+              {name}
+            </p>
+          </div>
+        </div>
+        <div className="text-right shrink-0 ml-2">
+          <p className={`text-lg font-bold ${
+            score > 60 ? 'text-red-400' : score > 30 ? 'text-yellow-400' : 'text-[var(--text-muted)]'
+          }`}>
+            {score.toFixed(0)}
+          </p>
+          <p className="text-[9px] text-[var(--text-muted)]">suspicion</p>
+        </div>
+      </div>
+
+      {/* Factor bars */}
+      <div className="space-y-1.5 mb-3">
+        {FACTOR_LABELS.map(f => {
+          const val = ((factors as Record<string, number>)[f.key] || 0) * 100;
+          return (
+            <div key={f.key} className="flex items-center gap-2">
+              <span className="text-[9px] text-[var(--text-muted)] w-20 shrink-0 text-right">{f.label}</span>
+              <div className="flex-1 h-1.5 bg-[var(--bg-primary)] rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(val, 100)}%`, backgroundColor: f.color }}
+                />
+              </div>
+              <span className="text-[9px] font-mono text-[var(--text-muted)] w-7 shrink-0">{val.toFixed(0)}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Mini radar */}
+      {Object.keys(factors).length > 0 && (
+        <div className="flex justify-center -mb-2">
+          <ResponsiveContainer width={140} height={100}>
+            <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
+              <PolarGrid stroke="var(--border)" />
+              <PolarAngleAxis dataKey="factor" tick={{ fill: 'var(--text-muted)', fontSize: 7 }} />
+              <Radar
+                dataKey="value"
+                stroke={isTop ? '#ef4444' : '#3b82f6'}
+                fill={isTop ? '#ef4444' : '#3b82f6'}
+                fillOpacity={0.15}
+                strokeWidth={1.5}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActivityItem({ entry }: { entry: AuditEntry }) {
+  const IconComp = ACTION_ICONS[entry.action] || Activity;
+  const color = ACTION_COLORS[entry.action] || '#6b7280';
+  const time = entry.timestamp?.slice(11, 19) || '';
+
+  return (
+    <div className="flex items-start gap-2.5 py-2 border-b border-[var(--border)]/20 last:border-0">
+      <div className="p-1 rounded shrink-0 mt-0.5" style={{ backgroundColor: `${color}15` }}>
+        <IconComp size={12} style={{ color }} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-[var(--text-secondary)] leading-snug truncate">{entry.summary}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[9px] font-mono text-[var(--text-muted)]">{time}</span>
+          <Badge variant={
+            entry.action?.includes('evidence') ? 'blue' :
+            entry.action?.includes('entity') || entry.action?.includes('geocode') ? 'green' :
+            entry.action?.includes('hypothesis') ? 'purple' :
+            entry.action?.includes('contradiction') ? 'red' :
+            entry.action?.includes('monitoring') || entry.action?.includes('osint') ? 'info' :
+            'gray'
+          }>{entry.action?.replace(/_/g, ' ')}</Badge>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Component                                                     */
+/* ------------------------------------------------------------------ */
 
 export default function Benchmark() {
   const [cases, setCases] = useState<CaseData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
-  const [auditLog, setAuditLog] = useState<any[]>([]);
-  const [evolution, setEvolution] = useState<any[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [availableBenches, setAvailableBenches] = useState<any[]>([]);
   const [launching, setLaunching] = useState<string | null>(null);
-  const [showLauncher, setShowLauncher] = useState(false);
-  const [entityFilter, setEntityFilter] = useState('all');
-  const [entities, setEntities] = useState<any[]>([]);
-  const [benchProgress, setBenchProgress] = useState<{
-    caseId: string;
-    lastAction: string;
-    status: string;
-    elapsed: number;
-    wave?: number;
-    totalWaves?: number;
-    evidenceIndex?: number;
-    totalEvidence?: number;
-    step?: string;
-    percent?: number;
-    workers?: Record<string, { status: string; events_processed: number }>;
-  } | null>(null);
+  const [benchProgress, setBenchProgress] = useState<BenchProgress | null>(null);
   const benchStartRef = useRef<number | null>(null);
+
+  /* ---- Data fetching ---- */
 
   const refresh = useCallback(async () => {
     try {
@@ -58,15 +291,19 @@ export default function Benchmark() {
       const enriched: CaseData[] = [];
 
       for (const c of rawCases) {
-        const [stats, hyps, ents, gs] = await Promise.all([
+        const [stats, hyps, suspects, ents, gs, invStatus] = await Promise.all([
           api.get(`/cases/${c.id}/stats`).then(r => r.data).catch(() => ({})),
           api.get(`/cases/${c.id}/hypotheses`).then(r => r.data).catch(() => []),
+          api.get(`/cases/${c.id}/suspects`).then(r => r.data).catch(() => []),
           api.get(`/cases/${c.id}/entities`).then(r => r.data).catch(() => []),
           api.get(`/cases/${c.id}/graph/stats`).then(r => r.data).catch(() => null),
+          api.get(`/cases/${c.id}/investigation/status`).then(r => r.data).catch(() => null),
         ]);
 
         const entityTypes: Record<string, number> = {};
-        (ents || []).forEach((e: any) => { entityTypes[e.entity_type] = (entityTypes[e.entity_type] || 0) + 1; });
+        (ents || []).forEach((e: any) => {
+          entityTypes[e.entity_type] = (entityTypes[e.entity_type] || 0) + 1;
+        });
 
         enriched.push({
           id: c.id,
@@ -75,8 +312,10 @@ export default function Benchmark() {
           status: c.status,
           stats: stats || {},
           hypotheses: (hyps || []).sort((a: any, b: any) => (b.current_score || 0) - (a.current_score || 0)),
+          suspects: (suspects || []).sort((a: any, b: any) => (b.suspicion_score || 0) - (a.suspicion_score || 0)),
           graphStats: gs,
           entityTypes,
+          busStats: invStatus?.bus_stats || undefined,
         });
       }
 
@@ -92,9 +331,9 @@ export default function Benchmark() {
 
   useEffect(() => { refresh(); }, []);
 
-  // Auto-refresh every 3s
+  // Auto-refresh every 4s
   useEffect(() => {
-    const interval = setInterval(refresh, 3000);
+    const interval = setInterval(refresh, 4000);
     return () => clearInterval(interval);
   }, [refresh]);
 
@@ -103,7 +342,22 @@ export default function Benchmark() {
     api.get('/benchmark/available').then(r => setAvailableBenches(r.data || [])).catch(() => {});
   }, []);
 
-  // Poll benchmark progress endpoint
+  // Load audit log for selected case
+  useEffect(() => {
+    if (!selectedCase) return;
+    let active = true;
+    const fetchAudit = async () => {
+      try {
+        const aud = await api.get(`/cases/${selectedCase}/audit?limit=20`).then(r => r.data).catch(() => []);
+        if (active) setAuditLog(aud || []);
+      } catch { /* ignore */ }
+    };
+    fetchAudit();
+    const interval = setInterval(fetchAudit, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, [selectedCase]);
+
+  // Poll benchmark progress
   useEffect(() => {
     if (!benchProgress?.caseId) return;
     const caseId = benchProgress.caseId;
@@ -111,7 +365,6 @@ export default function Benchmark() {
 
     const poll = async () => {
       try {
-        // Try dedicated benchmark progress endpoint first, fall back to investigation status
         let data: Record<string, unknown> | null = null;
         try {
           data = await api.get(`/benchmark/progress/${caseId}`).then(r => r.data);
@@ -124,17 +377,7 @@ export default function Benchmark() {
         const invStatus = String(data.status || data.state || 'idle');
         const lastAction = String(data.last_action || data.current_task || data.step || '');
 
-        // Extract wave/evidence progress from new endpoint
-        const wave = data.wave as number | undefined;
-        const totalWaves = data.total_waves as number | undefined;
-        const evidenceIndex = data.evidence_index as number | undefined;
-        const totalEvidence = data.total_evidence as number | undefined;
-        const step = data.step as string | undefined;
-        const percent = data.percent as number | undefined;
-        const workers = data.workers as Record<string, { status: string; events_processed: number }> | undefined;
-
         if ((invStatus === 'idle' || invStatus === 'completed') && elapsed > 10) {
-          // Investigation finished
           setBenchProgress(null);
           benchStartRef.current = null;
           refresh();
@@ -146,55 +389,42 @@ export default function Benchmark() {
           lastAction,
           status: invStatus,
           elapsed,
-          wave,
-          totalWaves,
-          evidenceIndex,
-          totalEvidence,
-          step,
-          percent,
-          workers,
+          wave: data!.wave as number | undefined,
+          totalWaves: data!.total_waves as number | undefined,
+          evidenceIndex: data!.evidence_index as number | undefined,
+          totalEvidence: data!.total_evidence as number | undefined,
+          step: data!.step as string | undefined,
+          percent: data!.percent as number | undefined,
+          workers: data!.workers as Record<string, { status: string; events_processed: number }> | undefined,
         } : null);
-      } catch {
-        // Backend not reachable, keep polling
-      }
+      } catch { /* keep polling */ }
     };
 
     const interval = setInterval(poll, 2000);
     poll();
     return () => { active = false; clearInterval(interval); };
-  }, [benchProgress?.caseId]);
+  }, [benchProgress?.caseId, refresh]);
+
+  /* ---- Actions ---- */
 
   const launchBench = async (key: string) => {
     setLaunching(key);
     try {
       const resp = await api.post(`/benchmark/launch/${key}`, {}, { timeout: 15000 });
-      setShowLauncher(false);
       const caseId = resp.data?.case_id;
       if (caseId) {
         benchStartRef.current = Date.now();
         setBenchProgress({ caseId, lastAction: 'Demarrage...', status: 'starting', elapsed: 0 });
       }
     } catch (e: any) {
-      // Timeout is OK -- the backend launched the task in background
       if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout')) {
-        setShowLauncher(false);
         showToast('info', `Benchmark ${key} lance en arriere-plan`);
       } else {
-        showToast('error', `Echec du lancement: ${e?.response?.data?.detail || e?.message || 'Erreur inconnue'}`);
+        showToast('error', `Echec: ${e?.response?.data?.detail || e?.message || 'Erreur'}`);
       }
     }
     setLaunching(null);
     setTimeout(refresh, 3000);
-  };
-
-  const injectWave = async (caseId: string, benchKey: string, wave: number) => {
-    try {
-      await api.post(`/benchmark/inject/${caseId}/${benchKey}/wave/${wave}`);
-      showToast('success', `Vague ${wave} injectee`);
-      setTimeout(refresh, 3000);
-    } catch (e: any) {
-      showToast('error', `Injection vague ${wave} echouee: ${e?.response?.data?.detail || e?.message || 'Erreur'}`);
-    }
   };
 
   const deleteCase = async (caseId: string) => {
@@ -208,162 +438,137 @@ export default function Benchmark() {
     }
   };
 
-  // Load details for selected case
-  useEffect(() => {
-    if (!selectedCase) return;
-    (async () => {
-      try {
-        const [aud, ents] = await Promise.all([
-          api.get(`/cases/${selectedCase}/audit?limit=30`).then(r => r.data).catch(() => []),
-          api.get(`/cases/${selectedCase}/entities`).then(r => r.data).catch(() => []),
-        ]);
-        setAuditLog(aud || []);
-        setEntities(ents || []);
-
-        // Evolution
-        const caseData = cases.find(c => c.id === selectedCase);
-        if (caseData && caseData.hypotheses.length > 0) {
-          const evoData: any[] = [];
-          for (const hyp of caseData.hypotheses.slice(0, 5)) {
-            try {
-              const evo = await api.get(`/hypotheses/${hyp.id}/evolution`).then(r => r.data);
-              if (evo) {
-                for (const p of evo) {
-                  evoData.push({ date: p.date?.slice(0, 16), score: p.score, hypothesis: hyp.title?.slice(0, 25) });
-                }
-              }
-            } catch {}
-          }
-          setEvolution(evoData);
-        } else {
-          setEvolution([]);
-        }
-      } catch {}
-    })();
-  }, [selectedCase, cases]);
-
+  /* ---- Render: Loading ---- */
   if (loading) return <LoadingSpinner text="Chargement des dossiers..." />;
 
-  // No cases → show launcher directly
+  /* ---- Render: No cases — Launcher ---- */
   if (cases.length === 0) {
     return (
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Benchmark NEXUS</h2>
-          <p className="text-sm text-[var(--text-muted)]">Evaluez le systeme sur des vrais cold cases resolus</p>
+      <div className="space-y-8 max-w-5xl mx-auto">
+        <div className="text-center pt-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[var(--accent)]/10 mb-4">
+            <Crosshair size={32} className="text-[var(--accent)]" />
+          </div>
+          <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">Benchmark NEXUS</h1>
+          <p className="text-sm text-[var(--text-muted)] max-w-lg mx-auto">
+            Evaluez le systeme sur des cold cases reels. NEXUS recoit les preuves brutes sans la solution
+            et doit converger vers la verite de maniere autonome.
+          </p>
         </div>
 
-        <Card title="Choisir un cold case">
-          <p className="text-sm text-[var(--text-secondary)] mb-4">
-            Le systeme recoit les pieces d'enquete brutes (sans la solution) et doit converger vers la verite.
-            Score /100 : entites, hypotheses, contradictions, timeline, geographie.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {availableBenches.map(b => (
-              <div key={b.key} className="bg-[var(--bg-primary)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--accent)] transition-colors">
-                <h3 className="text-base font-semibold text-[var(--text-primary)] mb-2">{b.name}</h3>
-                <div className="flex gap-3 text-xs text-[var(--text-muted)] mb-3">
-                  <span className="flex items-center gap-1"><FileText size={12} /> {b.evidence_count} preuves</span>
-                  <span>{b.waves} vagues</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {availableBenches.map(b => {
+            const mode = BENCH_MODES[b.key] || { label: 'Evidence', color: '#3b82f6' };
+            return (
+              <div key={b.key} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6 hover:border-[var(--accent)]/50 transition-all group">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
+                      {b.name}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span
+                        className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
+                        style={{ color: mode.color, backgroundColor: `${mode.color}15` }}
+                      >
+                        {mode.label}
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        {b.evidence_count} preuves | {b.waves} vagues
+                      </span>
+                    </div>
+                  </div>
+                  {b.has_ground_truth && (
+                    <Shield size={16} className="text-green-400 shrink-0 mt-1" title="Verite terrain disponible" />
+                  )}
                 </div>
+
                 {b.has_ground_truth && (
-                  <p className="text-xs text-green-400 mb-4">Verite connue — scoring automatique</p>
+                  <p className="text-xs text-green-400/80 mb-4">
+                    Verite connue -- scoring automatique
+                  </p>
                 )}
+
                 <button
                   onClick={() => launchBench(b.key)}
                   disabled={launching === b.key}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--accent)] text-white rounded-lg text-sm font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50 transition-colors"
                 >
                   {launching === b.key ? <LoadingSpinner size={14} /> : <Play size={14} />}
-                  {launching === b.key ? 'Creation en cours...' : 'Lancer le benchmark'}
+                  {launching === b.key ? 'Creation...' : 'Lancer le benchmark'}
                 </button>
               </div>
-            ))}
-          </div>
-          {availableBenches.length === 0 && (
-            <div className="text-center py-8">
-              <BarChart3 size={48} className="text-[var(--text-muted)] mx-auto mb-3" />
-              <p className="text-sm text-[var(--text-muted)]">Aucun benchmark disponible dans data/benchmark/</p>
-            </div>
-          )}
-        </Card>
-
-        <button onClick={refresh} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
-          <RefreshCw size={12} /> Rafraichir
-        </button>
-      </div>
-    );
-  }
-
-  const selected = cases.find(c => c.id === selectedCase) || cases[0];
-
-  // Comparison data for bar chart
-  const comparisonData = cases.map(c => ({
-    name: c.name.slice(0, 20),
-    Preuves: c.stats.evidence || 0,
-    Entites: c.stats.entities || 0,
-    Hypotheses: c.stats.hypotheses || 0,
-    Alertes: c.stats.alerts || 0,
-  }));
-
-  // Entity type radar for selected case
-  const radarData = Object.entries(selected.entityTypes).map(([type, count]) => ({
-    type: type.charAt(0).toUpperCase() + type.slice(1),
-    count,
-  }));
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Benchmark global</h2>
-          <p className="text-sm text-[var(--text-muted)]">{cases.length} dossier{cases.length > 1 ? 's' : ''} — vue comparative</p>
+            );
+          })}
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowLauncher(!showLauncher)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)]">
-            <Play size={12} /> Nouveau benchmark
-          </button>
+
+        {availableBenches.length === 0 && (
+          <div className="text-center py-12 text-[var(--text-muted)]">
+            <FileText size={48} className="mx-auto mb-3 opacity-30" />
+            <p className="text-sm">Aucun benchmark disponible dans data/benchmark/</p>
+          </div>
+        )}
+
+        <div className="flex justify-center">
           <button onClick={refresh} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
             <RefreshCw size={12} /> Rafraichir
           </button>
         </div>
       </div>
+    );
+  }
 
-      {/* Launch new benchmark */}
-      {showLauncher && (
-        <Card title="Lancer un nouveau benchmark">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {availableBenches.map(b => (
-              <div key={b.key} className="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-1">{b.name}</h4>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
-                  {b.evidence_count} preuves — {b.waves} vagues
-                  {b.has_ground_truth && ' — verite connue'}
-                </p>
-                <button
-                  onClick={() => launchBench(b.key)}
-                  disabled={launching === b.key}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-[var(--accent)] text-white rounded-lg text-xs font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                >
-                  {launching === b.key ? <LoadingSpinner size={12} /> : <Play size={12} />}
-                  {launching === b.key ? 'Lancement...' : 'Lancer'}
-                </button>
-              </div>
-            ))}
-            {availableBenches.length === 0 && (
-              <p className="text-sm text-[var(--text-muted)] col-span-3 text-center py-4">
-                Aucun benchmark disponible dans data/benchmark/
-              </p>
-            )}
-          </div>
-        </Card>
-      )}
+  /* ---- Render: Dashboard ---- */
+  const selected = cases.find(c => c.id === selectedCase) || cases[0];
+  const hypothesisWorkerBusy = selected.busStats?.total_pending
+    ? selected.busStats.total_pending > 0
+    : false;
 
-      {/* Benchmark progress */}
+  const sortedAudit = [...auditLog].sort((a, b) =>
+    (b.timestamp || '').localeCompare(a.timestamp || '')
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* ============ HEADER ============ */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-[var(--text-primary)]">
+            Investigation: {selected.name}
+          </h2>
+          <p className="text-xs text-[var(--text-muted)]">
+            {cases.length} dossier{cases.length > 1 ? 's' : ''} | ref: {selected.reference || selected.id.slice(0, 8)}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Case selector if multiple */}
+          {cases.length > 1 && (
+            <select
+              value={selectedCase || ''}
+              onChange={e => setSelectedCase(e.target.value)}
+              className="bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-primary)] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-[var(--accent)]"
+            >
+              {cases.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          )}
+          <button onClick={refresh} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
+            <RefreshCw size={12} />
+          </button>
+          <button
+            onClick={() => deleteCase(selected.id)}
+            className="p-1.5 text-[var(--text-muted)] hover:text-red-400 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg transition-colors"
+            title="Supprimer ce dossier"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* ============ BENCHMARK PROGRESS BANNER ============ */}
       {benchProgress && (
-        <div className="bg-[var(--bg-card)] border border-[var(--accent)]/30 rounded-lg p-4 space-y-3">
-          {/* Header row */}
+        <div className="bg-[var(--bg-card)] border border-[var(--accent)]/30 rounded-xl p-4 space-y-3">
           <div className="flex items-center gap-3">
             <LoadingSpinner size={16} />
             <div className="flex-1 min-w-0">
@@ -385,8 +590,6 @@ export default function Benchmark() {
               {Math.floor(benchProgress.elapsed / 60)}:{String(benchProgress.elapsed % 60).padStart(2, '0')}
             </div>
           </div>
-
-          {/* Progress bar */}
           {(() => {
             const pct = benchProgress.percent ??
               (benchProgress.totalEvidence && benchProgress.evidenceIndex
@@ -408,340 +611,222 @@ export default function Benchmark() {
               </div>
             );
           })()}
-
-          {/* Worker activity */}
-          {benchProgress.workers && Object.keys(benchProgress.workers).length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(benchProgress.workers).map(([name, w]) => (
-                <div
-                  key={name}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono ${
-                    w.status === 'processing' ? 'bg-blue-900/30 text-blue-400' :
-                    w.status === 'done' ? 'bg-green-900/20 text-green-400' :
-                    w.status === 'error' ? 'bg-red-900/20 text-red-400' :
-                    'bg-zinc-800 text-zinc-500'
-                  }`}
-                >
-                  <span className={`w-1 h-1 rounded-full ${
-                    w.status === 'processing' ? 'bg-blue-400 animate-pulse' :
-                    w.status === 'done' ? 'bg-green-400' :
-                    w.status === 'error' ? 'bg-red-400' :
-                    'bg-zinc-500'
-                  }`} />
-                  <span>{name.replace(/_/g, ' ')}</span>
-                  {w.events_processed > 0 && (
-                    <span className="text-[var(--text-muted)]">({w.events_processed})</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
-      {/* Cases overview cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {cases.map((c, i) => (
-          <div
-            key={c.id}
-            onClick={() => setSelectedCase(c.id)}
-            className={`bg-[var(--bg-card)] border rounded-lg p-4 cursor-pointer transition-all ${
-              c.id === selectedCase ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]/30' : 'border-[var(--border)] hover:border-[var(--text-muted)]'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)] truncate">{c.name}</h3>
-              <div className="flex items-center gap-1.5">
-                <Badge variant={c.status}>{c.status}</Badge>
-                <button
-                  onClick={(e) => { e.stopPropagation(); deleteCase(c.id); }}
-                  className="p-1 text-[var(--text-muted)] hover:text-red-400 transition-colors"
-                  title="Supprimer"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            </div>
-            <div className="grid grid-cols-4 gap-2 text-center">
-              <div>
-                <p className="text-lg font-bold text-[var(--text-primary)]">{c.stats.evidence || 0}</p>
-                <p className="text-[10px] text-[var(--text-muted)]">Preuves</p>
-              </div>
-              <div>
-                <p className="text-lg font-bold text-[var(--text-primary)]">{c.stats.entities || 0}</p>
-                <p className="text-[10px] text-[var(--text-muted)]">Entites</p>
-              </div>
-              <div>
-                <p className="text-lg font-bold text-[var(--text-primary)]">{c.stats.hypotheses || 0}</p>
-                <p className="text-[10px] text-[var(--text-muted)]">Hyp.</p>
-              </div>
-              <div>
-                <p className="text-lg font-bold text-[var(--text-primary)]">{c.stats.alerts || 0}</p>
-                <p className="text-[10px] text-[var(--text-muted)]">Alertes</p>
-              </div>
-            </div>
-            {c.hypotheses.length > 0 && (
-              <div className="mt-3">
-                <ScoreBar score={c.hypotheses[0].current_score || 0} height={4} />
-                <p className="text-[10px] text-[var(--text-muted)] mt-1 truncate">{c.hypotheses[0].title}</p>
-              </div>
-            )}
-          </div>
-        ))}
+      {/* ============ TOP STATS BAR ============ */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+        <StatBox value={selected.stats.evidence || 0} label="Preuves" color="#3b82f6" icon={FileText} />
+        <StatBox value={selected.stats.entities || 0} label="Entites" color="#22c55e" icon={Users} />
+        <StatBox value={selected.stats.hypotheses || 0} label="Hypotheses" color="#a855f7" icon={Brain} />
+        <StatBox value={selected.suspects.length} label="Suspects" color="#ef4444" icon={Target} />
+        <StatBox value={selected.stats.alerts || 0} label="Alertes" color="#eab308" icon={AlertTriangle} />
+        <StatBox
+          value={selected.busStats?.total_published || 0}
+          label="Events"
+          color="#06b6d4"
+          icon={Activity}
+        />
       </div>
 
-      {/* Comparison chart */}
-      {cases.length > 1 && (
-        <Card title="Comparaison des dossiers">
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={comparisonData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
-              <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
-              <Tooltip contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }} />
-              <Legend />
-              <Bar dataKey="Preuves" fill="#3b82f6" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="Entites" fill="#22c55e" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="Hypotheses" fill="#a855f7" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="Alertes" fill="#eab308" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
+      {/* ============ MAIN 2-COLUMN LAYOUT ============ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-      {/* Pipeline tools — real-time status of each investigation module */}
-      {selectedCase && <PipelineTools caseId={selectedCase} />}
+        {/* ---- LEFT COLUMN (2/3) ---- */}
+        <div className="lg:col-span-2 space-y-4">
 
-      {/* Investigation map — geocoded locations */}
-      {selectedCase && <InvestigationMap caseId={selectedCase} />}
-
-      {/* Investigation Timeline — chronological progression */}
-      {auditLog.length > 0 && (
-        <Card title="Timeline de l'investigation" className="mb-4">
-          {(() => {
-            // Group audit entries by minute
-            const ACTION_ICONS: Record<string, string> = {
-              evidence_added: '📄', evidence_ingested_auto: '🤖',
-              entity_discovered: '👤', hypothesis_created: '💡',
-              hypothesis_scored: '📊', contradiction_found: '⚡',
-              monitoring_result: '🔍', query_generated: '🔎',
-              self_questioning: '🧠', analysis_completed: '✅',
-              analysis_running: '⏳', investigation_started: '▶️',
-              investigation_stopped: '⏹️', geocode: '🗺️',
-              osint_social: '🌐', osint_enrichment: '🔎',
-            };
-
-            const sorted = [...auditLog].sort((a, b) =>
-              (a.timestamp || '').localeCompare(b.timestamp || '')
-            );
-
-            // Timeline bar: show when each type of event happened
-            const firstTs = sorted[0]?.timestamp ? new Date(sorted[0].timestamp).getTime() : 0;
-            const lastTs = sorted[sorted.length - 1]?.timestamp ? new Date(sorted[sorted.length - 1].timestamp).getTime() : 0;
-            const span = Math.max(lastTs - firstTs, 1000);
-
-            return (
-              <div>
-                {/* Visual timeline bar */}
-                <div className="relative h-8 bg-[var(--bg-primary)] rounded-lg overflow-hidden mb-4 border border-[var(--border)]">
-                  {sorted.map((e, i) => {
-                    const ts = e.timestamp ? new Date(e.timestamp).getTime() : 0;
-                    const pct = ((ts - firstTs) / span) * 100;
-                    const color =
-                      e.action?.includes('evidence') ? '#3b82f6' :
-                      e.action?.includes('entity') || e.action?.includes('geocode') ? '#22c55e' :
-                      e.action?.includes('hypothesis') ? '#a855f7' :
-                      e.action?.includes('analysis') ? '#eab308' :
-                      e.action?.includes('monitoring') || e.action?.includes('osint') ? '#06b6d4' :
-                      '#6b7280';
-                    return (
-                      <div
-                        key={i}
-                        className="absolute top-0 h-full w-1 opacity-80 hover:opacity-100 transition-opacity"
-                        style={{ left: `${pct}%`, backgroundColor: color }}
-                        title={`${e.timestamp?.slice(11, 19)} ${e.action}: ${e.summary?.slice(0, 60)}`}
-                      />
-                    );
-                  })}
-                </div>
-                <div className="flex gap-4 text-[10px] text-[var(--text-muted)] mb-4">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> Preuves</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> Entites</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500" /> Hypotheses</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" /> Analyses</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-500" /> OSINT</span>
-                </div>
-
-                {/* Event list */}
-                <div className="space-y-0.5 max-h-72 overflow-auto">
-                  {sorted.map((e, i) => {
-                    const icon = ACTION_ICONS[e.action] || '📌';
-                    const time = e.timestamp?.slice(11, 19) || '';
-                    return (
-                      <div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-[var(--border)]/20">
-                        <span className="text-base">{icon}</span>
-                        <span className="text-[var(--text-muted)] font-mono w-14 shrink-0">{time}</span>
-                        <span className="text-[var(--text-secondary)] truncate">{e.summary}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+          {/* Suspects */}
+          <Card title="Suspects" action={
+            <span className="text-[10px] text-[var(--text-muted)]">
+              {selected.suspects.length} identifie{selected.suspects.length !== 1 ? 's' : ''}
+            </span>
+          }>
+            {selected.suspects.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {selected.suspects.slice(0, 6).map((s, i) => (
+                  <SuspectCard key={s.id || i} suspect={s} rank={i + 1} />
+                ))}
               </div>
-            );
-          })()}
-        </Card>
-      )}
+            ) : (
+              <div className="text-center py-8 text-[var(--text-muted)]">
+                <Target size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">Aucun suspect identifie</p>
+                <p className="text-xs mt-1">Les suspects apparaitront apres l'analyse</p>
+              </div>
+            )}
+          </Card>
 
-      {/* Selected case detail */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Hypotheses */}
-        <Card title={`Hypotheses — ${selected.name.slice(0, 25)}`}>
-          {selected.hypotheses.length > 0 ? (
-            <div className="space-y-3">
-              {selected.hypotheses.map((h: any) => (
-                <div key={h.id}>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-[var(--text-primary)] font-medium truncate mr-2">{h.title}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant={h.status}>{h.status}</Badge>
-                      <span className="font-bold" style={{ color: h.current_score > 50 ? '#22c55e' : h.current_score > 25 ? '#eab308' : '#ef4444' }}>
-                        {h.current_score?.toFixed(0)}%
-                      </span>
+          {/* Hypotheses */}
+          <Card title="Hypotheses" action={
+            selected.hypotheses.length > 0 ? (
+              <span className="text-[10px] text-[var(--text-muted)]">
+                {selected.hypotheses.length} hypothese{selected.hypotheses.length !== 1 ? 's' : ''}
+              </span>
+            ) : null
+          }>
+            {selected.hypotheses.length > 0 ? (
+              <div className="space-y-3">
+                {selected.hypotheses.map((h, i) => (
+                  <div key={h.id} className={`p-3 rounded-lg border transition-all ${
+                    i === 0
+                      ? 'bg-purple-500/5 border-purple-500/20'
+                      : 'bg-[var(--bg-primary)] border-[var(--border)]'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {i === 0 && <ChevronRight size={14} className="text-purple-400 shrink-0" />}
+                        <p className="text-sm font-medium text-[var(--text-primary)] truncate">{h.title}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant={h.status}>{h.status}</Badge>
+                        <span className="text-sm font-bold" style={{
+                          color: h.current_score > 50 ? '#22c55e' : h.current_score > 25 ? '#eab308' : '#ef4444'
+                        }}>
+                          {h.current_score?.toFixed(0)}%
+                        </span>
+                      </div>
                     </div>
+                    <ScoreBar score={h.current_score || 0} height={5} />
                   </div>
-                  <ScoreBar score={h.current_score || 0} height={6} />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-[var(--text-muted)] text-center py-6">Aucune hypothese</p>
-          )}
-        </Card>
-
-        {/* Entity table + radar */}
-        <Card title={`Entites (${entities.length})`} className="col-span-2">
-          {entities.length > 0 ? (() => {
-            const types = ['all', ...Object.keys(selected.entityTypes).sort((a, b) => (selected.entityTypes[b] || 0) - (selected.entityTypes[a] || 0))];
-            return (
-              <div>
-                {/* Type filter */}
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {types.map(t => (
-                    <button key={t} onClick={() => setEntityFilter(t)}
-                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${entityFilter === t ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-primary)] text-[var(--text-muted)] border border-[var(--border)]'}`}>
-                      {t === 'all' ? `Tous (${entities.length})` : `${t} (${selected.entityTypes[t] || 0})`}
-                    </button>
-                  ))}
-                </div>
-                {/* Table */}
-                <div className="max-h-80 overflow-auto">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-[var(--bg-card)]">
-                      <tr className="border-b border-[var(--border)]">
-                        <th className="py-1.5 px-2 text-left text-[var(--text-muted)] font-medium w-24">Type</th>
-                        <th className="py-1.5 px-2 text-left text-[var(--text-muted)] font-medium">Nom</th>
-                        <th className="py-1.5 px-2 text-left text-[var(--text-muted)] font-medium">Contexte</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {entities
-                        .filter(e => entityFilter === 'all' || e.entity_type === entityFilter)
-                        .map((e: any, i: number) => (
-                        <tr key={i} className="border-b border-[var(--border)]/30 hover:bg-[var(--bg-primary)]">
-                          <td className="py-1 px-2"><Badge variant={e.entity_type}>{e.entity_type}</Badge></td>
-                          <td className="py-1 px-2 text-[var(--text-primary)] font-medium">{e.name}</td>
-                          <td className="py-1 px-2 text-[var(--text-muted)] truncate max-w-xs">{(e.description || '').slice(0, 80)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {/* Radar below */}
-                {radarData.length > 0 && (
-                  <div className="mt-4 flex justify-center">
-                    <ResponsiveContainer width="50%" height={200}>
-                      <RadarChart data={radarData}>
-                        <PolarGrid stroke="var(--border)" />
-                        <PolarAngleAxis dataKey="type" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
-                        <PolarRadiusAxis tick={{ fill: 'var(--text-muted)', fontSize: 9 }} />
-                        <Radar name="Entites" dataKey="count" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} />
-                      </RadarChart>
-                    </ResponsiveContainer>
-                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-[var(--text-muted)]">
+                {hypothesisWorkerBusy ? (
+                  <>
+                    <LoadingSpinner size={24} className="mb-2" />
+                    <p className="text-sm">Generation en cours...</p>
+                    <p className="text-xs mt-1">Le moteur d'hypotheses traite les preuves</p>
+                  </>
+                ) : (
+                  <>
+                    <Brain size={32} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">Aucune hypothese</p>
+                    <p className="text-xs mt-1">Les hypotheses seront generees apres l'analyse des preuves</p>
+                  </>
                 )}
               </div>
-            );
-          })() : (
-            <p className="text-sm text-[var(--text-muted)] text-center py-6">Aucune entite</p>
-          )}
-        </Card>
-
-        {/* Evolution chart */}
-        {evolution.length > 0 && (
-          <Card title="Evolution des scores" className="col-span-2">
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={evolution}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
-                <YAxis domain={[0, 100]} tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
-                <Tooltip contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }} />
-                <Legend />
-                {[...new Set(evolution.map(e => e.hypothesis))].map((name, i) => (
-                  <Line key={name} type="monotone" dataKey="score" data={evolution.filter(e => e.hypothesis === name)} name={name} stroke={COLORS[i % COLORS.length]} dot={false} strokeWidth={2} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </Card>
-        )}
-
-        {/* Graph stats */}
-        {selected.graphStats && (
-          <Card title="Graphe Neo4j">
-            <div className="grid grid-cols-3 gap-3">
-              {Object.entries(selected.graphStats).map(([label, count]) => (
-                <div key={label} className="bg-[var(--bg-primary)] rounded-lg p-3 text-center border border-[var(--border)]">
-                  <p className="text-xl font-bold text-[var(--text-primary)]">{count as number}</p>
-                  <p className="text-[10px] text-[var(--text-muted)]">{label}</p>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-
-        {/* Audit log */}
-        <Card title="Journal d'audit">
-          <div className="space-y-1 max-h-64 overflow-auto">
-            {auditLog.length > 0 ? auditLog.map((e: any, i: number) => (
-              <div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-[var(--border)]/30">
-                <span className="text-[var(--text-muted)] font-mono w-14 shrink-0">{e.timestamp?.slice(11, 19)}</span>
-                <Badge variant={e.actor === 'autonomous_loop' ? 'red' : e.actor === 'system' ? 'blue' : 'green'}>{e.actor}</Badge>
-                <span className="text-[var(--text-secondary)] truncate">{e.summary}</span>
-              </div>
-            )) : (
-              <p className="text-sm text-[var(--text-muted)] text-center py-4">Aucune entree</p>
             )}
-          </div>
-        </Card>
+          </Card>
+
+          {/* Entity type distribution */}
+          {Object.keys(selected.entityTypes).length > 0 && (
+            <Card title="Distribution des entites">
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart
+                  data={Object.entries(selected.entityTypes)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([type, count]) => ({ type, count }))}
+                  layout="vertical"
+                  margin={{ left: 80, right: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                  <YAxis type="category" dataKey="type" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} width={75} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                  <Bar dataKey="count" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          )}
+
+          {/* Graph stats */}
+          {selected.graphStats && Object.keys(selected.graphStats).length > 0 && (
+            <Card title="Graphe Neo4j">
+              <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+                {Object.entries(selected.graphStats).map(([label, count]) => (
+                  <div key={label} className="bg-[var(--bg-primary)] rounded-lg p-3 text-center border border-[var(--border)]">
+                    <p className="text-xl font-bold text-[var(--text-primary)]">{count as number}</p>
+                    <p className="text-[10px] text-[var(--text-muted)] truncate">{label}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* ---- RIGHT COLUMN (1/3) ---- */}
+        <div className="space-y-4">
+
+          {/* Pipeline Workers */}
+          {selectedCase && <PipelineTools caseId={selectedCase} />}
+
+          {/* Activity Feed */}
+          <Card title="Activite recente" action={
+            <span className="text-[10px] text-[var(--text-muted)]">
+              {sortedAudit.length} event{sortedAudit.length !== 1 ? 's' : ''}
+            </span>
+          }>
+            {sortedAudit.length > 0 ? (
+              <div className="max-h-96 overflow-auto -mx-1 px-1">
+                {sortedAudit.slice(0, 20).map((e, i) => (
+                  <ActivityItem key={i} entry={e} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-[var(--text-muted)]">
+                <Activity size={24} className="mx-auto mb-2 opacity-30" />
+                <p className="text-xs">En attente d'activite...</p>
+              </div>
+            )}
+          </Card>
+
+          {/* Investigation Map */}
+          {selectedCase && <InvestigationMap caseId={selectedCase} />}
+        </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex gap-2">
-        <button onClick={() => { api.post(`/cases/${selected.id}/analyze`, { trigger: 'benchmark' }); setTimeout(refresh, 3000); }}
-          className="flex items-center gap-1.5 px-4 py-2 bg-[var(--accent)] text-white rounded-lg text-sm font-medium hover:bg-[var(--accent-hover)]">
-          <Play size={14} /> Analyser
-        </button>
-        <button onClick={() => { api.post(`/cases/${selected.id}/hypotheses/generate`); setTimeout(refresh, 3000); }}
-          className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700">
-          <Brain size={14} /> Generer hypotheses
-        </button>
-        <button onClick={() => { api.post(`/cases/${selected.id}/evaluate-all`); setTimeout(refresh, 3000); }}
-          className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">
-          <RefreshCw size={14} /> Re-evaluer
-        </button>
+      {/* ============ ACTIONS BAR ============ */}
+      <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
         <button onClick={() => { api.post(`/cases/${selected.id}/investigation/start`); setTimeout(refresh, 3000); }}
-          className="flex items-center gap-1.5 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700">
+          className="flex items-center gap-1.5 px-4 py-2 bg-[var(--accent)] text-white rounded-lg text-sm font-medium hover:bg-[var(--accent-hover)]">
           <Network size={14} /> Investigation autonome
         </button>
+        <button onClick={() => { api.post(`/cases/${selected.id}/analyze`, { trigger: 'benchmark' }); setTimeout(refresh, 3000); }}
+          className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
+          <Play size={12} /> Analyser
+        </button>
+        <button onClick={() => { api.post(`/cases/${selected.id}/hypotheses/generate`); setTimeout(refresh, 3000); }}
+          className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
+          <Brain size={12} /> Generer hypotheses
+        </button>
+        <button onClick={() => { api.post(`/cases/${selected.id}/evaluate-all`); setTimeout(refresh, 3000); }}
+          className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
+          <RefreshCw size={12} /> Re-evaluer
+        </button>
+
+        {/* New benchmark button */}
+        <div className="ml-auto relative group">
+          <button
+            className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]"
+          >
+            <Play size={12} /> Nouveau benchmark
+          </button>
+          {/* Dropdown */}
+          <div className="absolute bottom-full right-0 mb-2 w-64 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+            {availableBenches.map(b => (
+              <button
+                key={b.key}
+                onClick={() => launchBench(b.key)}
+                disabled={launching === b.key}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--bg-hover)] transition-colors first:rounded-t-xl last:rounded-b-xl"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-[var(--text-primary)]">{b.name}</p>
+                  <p className="text-[10px] text-[var(--text-muted)]">{b.evidence_count} preuves | {b.waves} vagues</p>
+                </div>
+                {launching === b.key ? <LoadingSpinner size={12} /> : <ChevronRight size={12} className="text-[var(--text-muted)]" />}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
