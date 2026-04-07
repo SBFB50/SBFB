@@ -25,7 +25,10 @@ class WikiCompilerWorker(ReactiveWorker):
     subscriptions = [
         EventType.EVIDENCE_PROCESSED,
         EventType.ENTITY_ENRICHED,
+        EventType.HYPOTHESIS_CREATED,   # compile new hypotheses immediately
         EventType.HYPOTHESIS_SCORED,
+        EventType.CONTRADICTION_FOUND,  # update wiki with contradictions
+        EventType.SUSPECT_SCORED,       # compile suspect pages
     ]
 
     def __init__(self, bus: EventBus, db: Any, router: Any) -> None:
@@ -55,12 +58,22 @@ class WikiCompilerWorker(ReactiveWorker):
                 if page:
                     updated_pages = [page]
 
+            elif event.event_type == EventType.HYPOTHESIS_CREATED:
+                page = await compiler.compile_hypothesis_update(event.case_id)
+                if page:
+                    updated_pages = [page]
+
+            elif event.event_type in (EventType.CONTRADICTION_FOUND, EventType.SUSPECT_SCORED):
+                # Recompile hypotheses page (contradictions/suspects affect analysis)
+                page = await compiler.compile_hypothesis_update(event.case_id)
+                if page:
+                    updated_pages = [page]
+
             elif event.event_type == EventType.ENTITY_ENRICHED:
-                # Re-compile any evidence that mentions this entity
                 entity_id = event.payload.get("entity_id", "")
                 if entity_id:
                     mentions = await self._db.list_mentions_by_entity(entity_id)
-                    for m in mentions[:3]:  # limit to 3 evidence items
+                    for m in mentions[:3]:
                         pages = await compiler.compile_evidence(event.case_id, m["evidence_id"])
                         updated_pages.extend(pages)
 

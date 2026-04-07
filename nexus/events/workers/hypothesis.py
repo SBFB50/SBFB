@@ -22,7 +22,12 @@ class HypothesisWorker(ReactiveWorker):
     """Generates or re-evaluates hypotheses after analysis completes."""
 
     name = "hypothesis_engine"
-    subscriptions = [EventType.ANALYSIS_COMPLETED, EventType.EVIDENCE_CHUNKED]
+    subscriptions = [
+        EventType.ANALYSIS_COMPLETED,
+        EventType.EVIDENCE_CHUNKED,
+        EventType.CONTRADICTION_FOUND,  # contradictions invalidate hypotheses
+        EventType.SUSPECT_SCORED,       # suspect shifts → re-evaluate
+    ]
 
     def __init__(
         self,
@@ -60,6 +65,11 @@ class HypothesisWorker(ReactiveWorker):
             evidence = await self._db.list_evidence_by_case(event.case_id)
             if len(evidence) < 3:
                 return []
+
+        # For CONTRADICTION_FOUND / SUSPECT_SCORED: only re-evaluate if hypotheses exist
+        if event.event_type in (EventType.CONTRADICTION_FOUND, EventType.SUSPECT_SCORED):
+            if not existing:
+                return []  # nothing to re-evaluate yet
 
         if not existing:
             # Generate initial hypotheses

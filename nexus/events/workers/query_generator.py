@@ -25,8 +25,10 @@ class QueryGeneratorWorker(ReactiveWorker):
     name = "query_generator"
     subscriptions = [
         EventType.HYPOTHESIS_CREATED,
+        EventType.HYPOTHESIS_SCORED,   # score shifts → refine search queries
         EventType.ENTITY_ENRICHED,
         EventType.ENTITY_DISCOVERED,
+        EventType.CONTRADICTION_FOUND, # contradictions → search for resolution
     ]
 
     def __init__(
@@ -42,10 +44,19 @@ class QueryGeneratorWorker(ReactiveWorker):
     async def handle(self, event: NexusEvent) -> list[NexusEvent]:
         if event.event_type == EventType.HYPOTHESIS_CREATED:
             await self._generate_from_hypothesis(event)
+        elif event.event_type == EventType.HYPOTHESIS_SCORED:
+            await self._generate_from_hypothesis(event)  # refine queries on score shift
         elif event.event_type == EventType.ENTITY_ENRICHED:
             await self._generate_from_entity(event)
         elif event.event_type == EventType.ENTITY_DISCOVERED:
             await self._generate_from_discovered_entity(event)
+        elif event.event_type == EventType.CONTRADICTION_FOUND:
+            # Generate queries to resolve contradiction
+            desc = event.payload.get("description", "")
+            if desc:
+                await self._create_monitoring_job(
+                    event.case_id, desc[:80], "contradiction_resolution"
+                )
 
         # This worker creates DB jobs, does not emit events
         return []

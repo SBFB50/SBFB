@@ -447,8 +447,13 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
                 prog["current_step"] = f"OSINT running... {ev_count} ev, {ent_count} ent, {len(hyp_list)} hyp ({elapsed:.0f}s)"
                 prog["stats"] = {"evidence": ev_count, "entities": ent_count, "hypotheses": len(hyp_list)}
 
-                if len(hyp_list) > 0 and ev_count >= 3:
-                    prog["current_step"] = "OSINT analysis complete"
+                # Completion requires quality gates, not just counts:
+                # 1. Hypotheses exist with meaningful scores
+                # 2. Enough evidence diversity
+                # 3. System has stabilized (not in first 5 minutes)
+                has_strong_hyp = any(h.get("current_score", 0) >= 50 for h in hyp_list)
+                if has_strong_hyp and ev_count >= 3 and elapsed > 300:
+                    prog["current_step"] = "OSINT analysis complete — reactive loop continues"
                     break
 
             prog["status"] = "completed"
