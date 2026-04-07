@@ -60,7 +60,13 @@ class EvidenceIngestWorker(ReactiveWorker):
                 import trafilatura
                 downloaded = trafilatura.fetch_url(url)
                 if downloaded:
-                    extracted = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+                    extracted = trafilatura.extract(
+                        downloaded,
+                        favor_precision=True,
+                        include_comments=False,
+                        include_tables=False,
+                        include_links=False,
+                    )
                     if extracted and len(extracted) > len(snippet):
                         text = extracted[:8000]  # Cap at 8K chars
                         logger.info("EvidenceIngest: fetched full page (%d chars) for '%s'", len(text), title[:40])
@@ -83,8 +89,9 @@ class EvidenceIngestWorker(ReactiveWorker):
                 except Exception as exc:
                     logger.debug("EvidenceIngest: Arquivo.pt text fetch failed: %s", exc)
 
-        # Content quality gate: verify this is a real article, not a homepage,
-        # subscription page, or navigation page. Uses jusText (trafilatura dep).
+        # Content quality gate (2 layers):
+        # Layer 1: jusText — reject pages without real article content
+        # Layer 2: entity keywords — reject articles about wrong subject
         if len(text) > 50:
             try:
                 import justext
@@ -98,7 +105,32 @@ class EvidenceIngestWorker(ReactiveWorker):
                     )
                     return []
             except Exception:
-                pass  # justext failed, proceed
+                pass
+
+            # Layer 2: case entity keyword check
+            try:
+                from nexus.db.sqlite_db import get_db, Database
+                async with get_db() as conn:
+                    db = Database(conn)
+                    case_ents = await db.list_entities_by_case(event.case_id)
+                    keywords = []
+                    for e in case_ents:
+                        if e.get("entity_type") in ("person", "location"):
+                            for part in e["name"].lower().split():
+                                if len(part) >= 3:
+                                    keywords.append(part)
+                    keywords = list(dict.fromkeys(keywords))[:20]
+                    if keywords:
+                        text_lower = text.lower()
+                        matches = sum(1 for kw in keywords if kw in text_lower)
+                        if matches < 2:
+                            logger.info(
+                                "EvidenceIngest: REJECTED '%s' — off-topic (%d/%d case keywords)",
+                                title[:40], matches, len(keywords),
+                            )
+                            return []
+            except Exception:
+                pass
 
         logger.info(
             "EvidenceIngest: ingesting '%s' (relevance=%s, %d chars) for case %s",
