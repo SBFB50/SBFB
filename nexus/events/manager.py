@@ -267,6 +267,8 @@ class ReactiveInvestigationManager:
         from nexus.events.workers.summary_tree import SummaryTreeWorker
         from nexus.events.workers.timeline import TimelineWorker
         from nexus.events.workers.memory import MemoryWorker
+        from nexus.events.workers.wiki_compiler import WikiCompilerWorker
+        from nexus.events.workers.wiki_lint import WikiLintWorker
 
         workers: list[ReactiveWorker] = [
             # 1. Neo4j sync
@@ -305,6 +307,10 @@ class ReactiveInvestigationManager:
             TimelineWorker(bus, db_proxy, self._neo4j),
             # 18. Memory worker (investigation insights)
             MemoryWorker(bus, db_proxy, self._router, self._chroma),
+            # 19. Wiki compiler (live Markdown wiki)
+            WikiCompilerWorker(bus, db_proxy, self._router),
+            # 20. Wiki lint (periodic health checks)
+            WikiLintWorker(bus, db_proxy),
         ]
 
         return workers

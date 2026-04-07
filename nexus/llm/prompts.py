@@ -810,3 +810,111 @@ REPONDS EN JSON STRICT :
   "additional_tests_needed": ["<test supplementaire>", "..."]
 }}
 """
+
+
+# ============================================================================
+# Wiki Compiler prompts
+# ============================================================================
+
+WIKI_COMPILE_EVIDENCE_PROMPT = """\
+Tu es un compilateur de dossier d'enquete. A partir de la preuve ci-dessous,
+genere une page wiki Markdown concise et factuelle.
+
+PREUVE:
+Titre: {title}
+Source: {source}
+Date: {source_date}
+Fiabilite: {reliability}/100
+
+CONTENU:
+{content}
+
+ENTITES EXTRAITES:
+{entities}
+
+PAGE EXISTANTE (si mise a jour):
+{existing_page}
+
+INSTRUCTIONS:
+- Ecris en Markdown avec des titres ##
+- Utilise des [[wikilinks]] pour referencer les entites (ex: [[Elodie Kulik]], [[Cartigny]])
+- Separe les FAITS des INTERPRETATIONS
+- Inclus la source et la fiabilite
+- Si une page existante est fournie, ENRICHIS-la sans perdre d'information
+- Sois factuel, concis, sans speculation
+
+Reponds UNIQUEMENT avec le contenu Markdown de la page.
+"""
+
+WIKI_UPDATE_ENTITY_PROMPT = """\
+Tu es un compilateur de dossier d'enquete. Met a jour la page wiki d'une entite
+avec les nouvelles informations.
+
+ENTITE: {entity_name} ({entity_type})
+DESCRIPTION: {description}
+
+NOUVELLES INFORMATIONS:
+{new_info}
+
+PAGE EXISTANTE:
+{existing_page}
+
+INSTRUCTIONS:
+- Enrichis la page existante avec les nouvelles informations
+- Utilise des [[wikilinks]] pour les references croisees
+- Structure: ## Identite, ## Liens, ## Chronologie, ## Sources
+- Si la page est vide, cree-la de zero
+- Sois factuel et concis
+
+Reponds UNIQUEMENT avec le contenu Markdown.
+"""
+
+WIKI_COMPILE_HYPOTHESES_PROMPT = """\
+Tu es un compilateur de dossier d'enquete. Synthetise l'etat des hypotheses
+en une page wiki.
+
+HYPOTHESES ACTIVES:
+{hypotheses}
+
+CONTRADICTIONS DETECTEES:
+{contradictions}
+
+SUSPECTS:
+{suspects}
+
+PAGE EXISTANTE:
+{existing_page}
+
+INSTRUCTIONS:
+- Pour chaque hypothese: titre, score, elements pour/contre
+- Classe par score decroissant
+- Utilise des [[wikilinks]] pour les entites et preuves
+- Section "Contradictions cles" en bas
+- Sois analytique et factuel
+
+Reponds UNIQUEMENT avec le contenu Markdown.
+"""
+
+WIKI_INDEX_TEMPLATE = """\
+# {case_name}
+
+> Reference: {reference}
+> Derniere compilation: {last_compiled}
+
+## Preuves ({evidence_count})
+{evidence_links}
+
+## Entites ({entity_count})
+{entity_links}
+
+## Lieux ({location_count})
+{location_links}
+
+## Analyse
+- [[hypotheses|Hypotheses actives]]
+- [[contradictions|Contradictions]]
+- [[timeline|Chronologie]]
+
+## Journal
+Voir [[log|Journal de compilation]]
+"""

@@ -274,6 +274,19 @@ CREATE TABLE IF NOT EXISTS contradictions (
     UNIQUE(case_id, evidence_1_id, evidence_2_id, contradiction_type)
 );
 
+CREATE TABLE IF NOT EXISTS wiki_pages (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    page_path TEXT NOT NULL,
+    page_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content_hash TEXT,
+    last_compiled DATETIME,
+    source_ids TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(case_id, page_path)
+);
+
 CREATE TABLE IF NOT EXISTS investigation_memory (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL REFERENCES cases(id),
@@ -326,6 +339,10 @@ CREATE INDEX IF NOT EXISTS idx_contradictions_evidence ON contradictions(evidenc
 
 -- Investigation memory indexes
 CREATE INDEX IF NOT EXISTS idx_memory_case ON investigation_memory(case_id);
+
+-- Wiki indexes
+CREATE INDEX IF NOT EXISTS idx_wiki_pages_case ON wiki_pages(case_id);
+CREATE INDEX IF NOT EXISTS idx_wiki_pages_path ON wiki_pages(case_id, page_path);
 """
 
 _CREATE_FTS = """
@@ -559,6 +576,12 @@ class Database:
         try:
             await self._conn.execute(
                 "DELETE FROM investigation_memory WHERE case_id = ?", (case_id,)
+            )
+        except Exception:
+            pass  # table may not exist on older DBs
+        try:
+            await self._conn.execute(
+                "DELETE FROM wiki_pages WHERE case_id = ?", (case_id,)
             )
         except Exception:
             pass  # table may not exist on older DBs
@@ -1845,3 +1868,58 @@ class Database:
         )
         row = await cursor.fetchone()
         return row[0] if row else 0
+
+    # ------------------------------------------------------------------
+    # Wiki Pages
+    # ------------------------------------------------------------------
+
+    async def upsert_wiki_page(
+        self,
+        *,
+        case_id: str,
+        page_path: str,
+        page_type: str,
+        title: str,
+        content_hash: Optional[str] = None,
+        source_ids: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Insert or update a wiki page record."""
+        now = _now_iso()
+        existing = await self.get_wiki_page(case_id, page_path)
+        if existing:
+            await self._conn.execute(
+                "UPDATE wiki_pages SET title=?, content_hash=?, last_compiled=?, source_ids=? WHERE id=?",
+                (title, content_hash, now, _json_dumps(source_ids), existing["id"]),
+            )
+            await self._conn.commit()
+            return await self.get_wiki_page(case_id, page_path)
+        row_id = _new_id()
+        await self._conn.execute(
+            """INSERT INTO wiki_pages (id, case_id, page_path, page_type, title, content_hash, last_compiled, source_ids, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (row_id, case_id, page_path, page_type, title, content_hash, now, _json_dumps(source_ids), now),
+        )
+        await self._conn.commit()
+        return await self.get_wiki_page(case_id, page_path)
+
+    async def get_wiki_page(self, case_id: str, page_path: str) -> Optional[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            "SELECT * FROM wiki_pages WHERE case_id = ? AND page_path = ?", (case_id, page_path),
+        )
+        row = await cursor.fetchone()
+        return _dict_with_json_fields(_row_to_dict(row), "source_ids") if row else None
+
+    async def list_wiki_pages(
+        self, case_id: str, page_type: Optional[str] = None, limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        if page_type:
+            cursor = await self._conn.execute(
+                "SELECT * FROM wiki_pages WHERE case_id = ? AND page_type = ? ORDER BY page_path LIMIT ?",
+                (case_id, page_type, limit),
+            )
+        else:
+            cursor = await self._conn.execute(
+                "SELECT * FROM wiki_pages WHERE case_id = ? ORDER BY page_path LIMIT ?",
+                (case_id, limit),
+            )
+        return [_dict_with_json_fields(_row_to_dict(r), "source_ids") for r in await cursor.fetchall()]

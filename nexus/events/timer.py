@@ -43,6 +43,7 @@ class PeriodicTimer:
             EventType.TICK_REPORT: report_interval,
             EventType.TICK_BACKUP: backup_interval,
             EventType.TICK_SUMMARY_TREE: summary_interval,
+            EventType.TICK_WIKI_LINT: 7200.0,  # every 2 hours
         }
         self._running = False
         self._tasks: list[asyncio.Task] = []

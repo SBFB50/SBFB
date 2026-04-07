@@ -243,7 +243,7 @@ from nexus.api import (  # noqa: E402
     cases, evidence, entities, analysis, graph, search,
     monitoring, alerts, hypotheses, reports, timeline, geo,
     recon, image_search, vision, forensics, physics_sim_api,
-    investigation, audit, benchmark, suspects,
+    investigation, audit, benchmark, suspects, wiki,
 )
 
 app.include_router(cases.router)
@@ -267,6 +267,7 @@ app.include_router(investigation.router)
 app.include_router(benchmark.router)
 app.include_router(audit.router)
 app.include_router(suspects.router)
+app.include_router(wiki.router)
 
 
 # ============================================================================

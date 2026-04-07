@@ -24,6 +24,8 @@ from nexus.events.workers.alert import AlertWorker
 from nexus.events.workers.summary_tree import SummaryTreeWorker
 from nexus.events.workers.timeline import TimelineWorker
 from nexus.events.workers.memory import MemoryWorker
+from nexus.events.workers.wiki_compiler import WikiCompilerWorker
+from nexus.events.workers.wiki_lint import WikiLintWorker
 
 __all__ = [
     "EvidenceIngestWorker",
@@ -44,4 +46,6 @@ __all__ = [
     "SummaryTreeWorker",
     "TimelineWorker",
     "MemoryWorker",
+    "WikiCompilerWorker",
+    "WikiLintWorker",
 ]

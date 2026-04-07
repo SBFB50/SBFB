@@ -56,6 +56,10 @@ class EventType(str, Enum):
     TICK_BACKUP = "tick_backup"
     TICK_SUMMARY_TREE = "tick_summary_tree"
 
+    # Wiki
+    WIKI_UPDATED = "wiki_updated"
+    TICK_WIKI_LINT = "tick_wiki_lint"
+
 
 @dataclass(frozen=True, slots=True)
 class NexusEvent:
