@@ -447,18 +447,17 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
                 prog["current_step"] = f"OSINT running... {ev_count} ev, {ent_count} ent, {len(hyp_list)} hyp ({elapsed:.0f}s)"
                 prog["stats"] = {"evidence": ev_count, "entities": ent_count, "hypotheses": len(hyp_list)}
 
-                # Completion requires quality gates, not just counts:
-                # 1. Hypotheses exist with meaningful scores
-                # 2. Enough evidence diversity
-                # 3. System has stabilized (not in first 5 minutes)
-                has_strong_hyp = any(h.get("current_score", 0) >= 50 for h in hyp_list)
-                if has_strong_hyp and ev_count >= 3 and elapsed > 300:
-                    prog["current_step"] = "OSINT analysis complete — reactive loop continues"
-                    break
+                # Never stop the OSINT investigation — let reactive loops compound.
+                # The monitoring loop + workers keep running as long as the server is up.
+                # The poll just reports progress, it doesn't control the investigation.
 
-            prog["status"] = "completed"
-            prog["finished_at"] = time.time()
-            logger.info("Benchmark OSINT complete for case {} in {:.0f}s", case_id[:8], time.monotonic() - t0)
+            # Mark progress but investigation continues in background
+            prog["status"] = "running"
+            prog["finished_at"] = None
+            logger.info(
+                "Benchmark OSINT poll ended for case {} after {:.0f}s — investigation continues",
+                case_id[:8], time.monotonic() - t0,
+            )
             return
 
         prog["status"] = "injecting"
