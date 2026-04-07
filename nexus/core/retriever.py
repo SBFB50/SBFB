@@ -879,6 +879,9 @@ class InvestigationRetriever:
             return 0.0
 
         now = datetime.now(timezone.utc)
+        # Ensure both are offset-aware for subtraction
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
         age = now - created
         horizon = timedelta(days=_RECENCY_HORIZON_DAYS)
 
