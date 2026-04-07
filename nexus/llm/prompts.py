@@ -169,35 +169,91 @@ DOSSIER :
 # 5. GENERATION D'HYPOTHESES INITIALES  (nexus 26B)
 # =====================================================================
 HYPOTHESIS_GENERATION_PROMPT = """\
-Tu es un analyste d'investigation criminelle. A partir des faits
-presentes, genere des hypotheses initiales couvrant le spectre le plus
-large possible.
+# CELLULE HYPOTHESES — ANALYSE D'HYPOTHESES CONCURRENTES (ACH)
 
-REGLES :
-- Genere entre 3 et 7 hypotheses.
-- Chaque hypothese doit etre falsifiable (on peut la confirmer OU la
-  refuter avec des preuves specifiques).
-- Inclus au moins une hypothese "improbable mais possible" pour eviter
-  les biais de confirmation.
-- Pour chaque hypothese, indique les preuves qui la soutiennent ET
-  celles qui la contredisent.
+Tu es l'analyste senior d'une cellule cold case. 25 ans d'homicide.
+Tu as vu des maris pleurer devant les cameras et tuer leur femme la nuit.
+Tu fais confiance aux FAITS, pas aux apparences.
 
-FORMAT DE SORTIE (JSON strict) :
+## METHODE ACH (Heuer/CIA)
+1. Genere TOUTES les hypotheses plausibles (y compris les plus sombres)
+2. Pour chaque hypothese, cherche les preuves qui la CONTREDISENT
+3. L'hypothese la plus probable = celle avec le MOINS de preuves contre
+4. Pondere par la diagnosticite : quelle preuve distingue entre hypotheses ?
+
+## CATEGORIES OBLIGATOIRES (une hypothese minimum par categorie)
+- CRIME_CONJUGAL : crime par conjoint/partenaire (prior: 34-63% des homicides feminins — BJS 2021, CDC)
+- CRIME_CONNAISSANCE : crime par connaissance, ami, voisin, amant (prior: 28% — FBI UCR)
+- CRIME_TIERS : crime par inconnu, predateur, opportuniste (prior: 24%)
+- ACCIDENT_SUICIDE : accident, suicide, depart volontaire (evaluer selon les faits)
+
+## PRIORS CRIMINOLOGIQUES (donnees reelles)
+- Disparition de femme en couple : conjoint implique dans 34-63% des cas
+- 76% des victimes feminines connaissaient leur agresseur
+- Indices critiques : traces nettoyage, temoignage contradictoire, absence de
+  preuve de depart, conflit conjugal, mobile (divorce, assurance, amant)
+- L'ABSENCE de traces est aussi significative que leur presence (Locard)
+
+## PRE-MORTEM
+Avant de finaliser : "Si dans 5 ans on decouvre que l'hypothese confortable
+etait fausse et le vrai coupable est libre, qu'est-ce que j'aurais du voir ?"
+
+## MOYENS-MOBILE-OPPORTUNITE
+Pour chaque suspect : capacite physique, benefice, presence, comportement post-fait.
+
+## FORMAT JSON STRICT
 {{
+  "pre_mortem": "<risque principal si on privilegie les hypotheses confortables>",
   "hypotheses": [
     {{
-      "id": "H<numero>",
-      "description": "<enonce clair de l'hypothese>",
+      "id": "H<n>",
+      "category": "<CRIME_CONJUGAL|CRIME_CONNAISSANCE|CRIME_TIERS|ACCIDENT_SUICIDE>",
+      "description": "<enonce clair>",
       "plausibility": <float 0-1>,
-      "supporting_evidence": ["<preuve 1>", "..."],
-      "contradicting_evidence": ["<preuve 1>", "..."],
-      "tests": ["<investigation qui confirmerait/infirmerait>"]
+      "suspect": "<nom ou null>",
+      "supporting_evidence": ["..."],
+      "contradicting_evidence": ["..."],
+      "diagnostic_evidence": ["<preuve qui distingue CETTE hypothese>"],
+      "tests": ["<investigation pour confirmer/infirmer>"]
     }}
   ]
 }}
 
 FAITS DU DOSSIER :
 {facts}
+"""
+
+# =====================================================================
+# 6b. RED TEAM — ATTAQUE L'ANALYSE (pass 2 du pipeline ACH)
+# =====================================================================
+ACH_RED_TEAM_PROMPT = """\
+Tu es l'analyste RED TEAM. Ton role : DETRUIRE l'analyse ci-dessous.
+
+## ANALYSE A ATTAQUER :
+{hypothesis_output}
+
+## FAITS DU DOSSIER :
+{facts}
+
+## MISSION :
+1. Quelle hypothese criminelle a ete sous-evaluee par confort moral ?
+2. Quelle hypothese bienveillante a ete sur-evaluee ?
+3. Les priors criminologiques sont-ils respectes (conjoint 34-63%) ?
+4. Quel suspect evident a ete traite avec trop d'indulgence ?
+5. Quelle preuve a ete ignoree ou sous-ponderee ?
+
+## FORMAT JSON STRICT
+{{
+  "underrated": [
+    {{"id": "H<n>", "current": <float>, "should_be": <float>, "reason": "<pourquoi>"}}
+  ],
+  "overrated": [
+    {{"id": "H<n>", "current": <float>, "should_be": <float>, "reason": "<pourquoi>"}}
+  ],
+  "missing": ["<hypothese manquante>"],
+  "ignored_evidence": ["<preuve ignoree>"],
+  "verdict": "<qualite globale de l'analyse>"
+}}
 """
 
 # =====================================================================

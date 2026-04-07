@@ -112,28 +112,30 @@ class HypothesisEngine:
             logger.warning("No data available to generate hypotheses for case {}", case_id)
             return []
 
-        # 2. Call LLM with JSON format enforcement
+        # ===============================================================
+        # PASS 1: ACH Hypothesis Generation
+        # ===============================================================
+        from nexus.llm.prompts import ACH_RED_TEAM_PROMPT
+
         prompt = HYPOTHESIS_GENERATION_PROMPT.format(facts=facts_text)
-        logger.info("Calling LLM for hypothesis generation ({} chars)", len(prompt))
+        logger.info("ACH Pass 1: generating hypotheses ({} chars)", len(prompt))
 
         try:
             parsed = await self._router.route_json(TaskType.DEEP_ANALYSIS, prompt)
         except Exception as exc:
-            logger.error("Hypothesis generation LLM call failed: {}", exc)
-            # Fallback: try without JSON enforcement
+            logger.error("ACH Pass 1 LLM call failed: {}", exc)
             try:
                 raw_response = await self._router.route(TaskType.DEEP_ANALYSIS, prompt)
-                logger.debug("Fallback raw response (first 500): {}", str(raw_response)[:500])
                 parsed = parse_json_safe(raw_response)
             except Exception as exc2:
-                logger.error("Fallback also failed: {}", exc2)
+                logger.error("ACH Pass 1 fallback failed: {}", exc2)
                 return []
 
         if not parsed:
-            logger.error("Failed to parse hypothesis response")
+            logger.error("ACH Pass 1: failed to parse response")
             return []
 
-        # Normalize: find the hypotheses list under various possible keys
+        # Normalize hypothesis list
         raw_hypotheses = None
         if isinstance(parsed, list):
             raw_hypotheses = parsed
@@ -144,8 +146,72 @@ class HypothesisEngine:
                     break
 
         if not raw_hypotheses:
-            logger.error("No hypothesis list found in response. Keys={}", list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__)
+            logger.error("ACH Pass 1: no hypothesis list. Keys={}", list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__)
             return []
+
+        logger.info("ACH Pass 1: {} hypotheses generated", len(raw_hypotheses))
+
+        # ===============================================================
+        # PASS 2: Red Team Challenge
+        # ===============================================================
+        try:
+            import json as _json
+            hyp_summary = _json.dumps(parsed, ensure_ascii=False, indent=2)[:4000]
+            red_team_prompt = ACH_RED_TEAM_PROMPT.format(
+                hypothesis_output=hyp_summary,
+                facts=facts_text[:3000],
+            )
+            logger.info("ACH Pass 2: Red Team challenge ({} chars)", len(red_team_prompt))
+
+            red_team = await self._router.route_json(TaskType.LOGIC_VERIFICATION, red_team_prompt)
+
+            if red_team and isinstance(red_team, dict):
+                # ===============================================================
+                # PASS 3: Reconciliation (programmatic score blending)
+                # ===============================================================
+                underrated = {u["id"]: u for u in red_team.get("underrated", []) if isinstance(u, dict) and "id" in u}
+                overrated = {o["id"]: o for o in red_team.get("overrated", []) if isinstance(o, dict) and "id" in o}
+
+                for h in raw_hypotheses:
+                    if not isinstance(h, dict):
+                        continue
+                    hid = h.get("id", "")
+                    original = h.get("plausibility", 0.5)
+                    try:
+                        original = float(original)
+                    except (ValueError, TypeError):
+                        original = 0.5
+
+                    if hid in underrated:
+                        adj = float(underrated[hid].get("should_be", original))
+                        h["plausibility"] = round(0.6 * original + 0.4 * adj, 2)
+                        logger.info("ACH Pass 3: {} adjusted UP {:.0f}→{:.0f} (red team)",
+                                    hid, original * 100, h["plausibility"] * 100)
+                    elif hid in overrated:
+                        adj = float(overrated[hid].get("should_be", original))
+                        h["plausibility"] = round(0.6 * original + 0.4 * adj, 2)
+                        logger.info("ACH Pass 3: {} adjusted DOWN {:.0f}→{:.0f} (red team)",
+                                    hid, original * 100, h["plausibility"] * 100)
+
+                # Add missing hypotheses from red team
+                for missing_desc in red_team.get("missing", []):
+                    if isinstance(missing_desc, str) and missing_desc.strip():
+                        raw_hypotheses.append({
+                            "id": f"H{len(raw_hypotheses) + 1}",
+                            "category": "RED_TEAM",
+                            "description": missing_desc,
+                            "plausibility": 0.5,
+                        })
+                        logger.info("ACH Pass 3: added missing hypothesis from red team: {}",
+                                    missing_desc[:60])
+
+                logger.info("ACH Pass 3: reconciliation complete ({} underrated, {} overrated, {} missing)",
+                            len(underrated), len(overrated), len(red_team.get("missing", [])))
+            else:
+                logger.warning("ACH Pass 2: red team returned invalid response, skipping reconciliation")
+
+        except Exception as exc:
+            logger.warning("ACH Pass 2-3 failed (non-fatal, using Pass 1 results): {}", exc)
 
         # Load existing hypotheses to detect duplicates
         existing_hyps = await self._db.list_hypotheses_by_case(case_id)
