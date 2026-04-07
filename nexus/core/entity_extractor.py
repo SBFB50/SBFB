@@ -83,22 +83,65 @@ class EntityExtractor:
     # Entity extraction (GLiNER primary, LLM fallback)
     # ------------------------------------------------------------------
 
+    # Regex patterns for contact info (deterministic, <1ms, no model)
+    _EMAIL_RE = re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Z|a-z]{2,}\b')
+    _SOCIAL_HANDLE_RE = re.compile(r'(?<!\w)@([A-Za-z0-9_]{2,30})(?!\w)')
+    _SOCIAL_URL_RE = re.compile(
+        r'https?://(?:www\.)?'
+        r'(?:facebook\.com|instagram\.com|twitter\.com|x\.com|linkedin\.com|tiktok\.com|youtube\.com|vk\.com)'
+        r'/[A-Za-z0-9_.%/\-]+'
+    )
+
+    def _extract_contact_patterns(self, text: str) -> list[dict[str, Any]]:
+        """Extract emails, phones, social handles via regex + phonenumbers."""
+        entities: list[dict[str, Any]] = []
+
+        for email in set(self._EMAIL_RE.findall(text)):
+            entities.append({"name": email, "type": "email",
+                            "context": self._get_context(text, email), "confidence": 0.99})
+
+        try:
+            import phonenumbers
+            for match in phonenumbers.PhoneNumberMatcher(text, "FR"):
+                formatted = phonenumbers.format_number(match.number, phonenumbers.PhoneNumberFormat.E164)
+                entities.append({"name": formatted, "type": "phone",
+                                "context": self._get_context(text, match.raw_string), "confidence": 0.95})
+        except ImportError:
+            pass
+
+        for handle in set(self._SOCIAL_HANDLE_RE.findall(text)):
+            entities.append({"name": f"@{handle}", "type": "social_handle",
+                            "context": self._get_context(text, f"@{handle}"), "confidence": 0.90})
+
+        for url in set(self._SOCIAL_URL_RE.findall(text)):
+            entities.append({"name": url, "type": "social_url",
+                            "context": self._get_context(text, url), "confidence": 0.95})
+
+        if entities:
+            logger.info("Contact patterns extracted: {} items", len(entities))
+        return entities
+
     async def extract_entities(self, text: str) -> list[dict[str, Any]]:
         """Extract named entities from text.
 
-        Uses GLiNER (fast, CPU) as primary extractor.
-        Falls back to LLM (gemma4:e4b) if GLiNER is unavailable.
+        1. Pattern extraction (emails, phones, handles — deterministic, instant)
+        2. GLiNER NER (persons, locations, dates — CPU, ~0.08s)
+        3. LLM fallback if GLiNER unavailable
         """
         if not text or not text.strip():
             return []
 
-        # Try GLiNER first
+        # 1. Contact pattern extraction (regex + phonenumbers)
+        pattern_entities = self._extract_contact_patterns(text)
+
+        # 2. Try GLiNER
         self._load_gliner()
         if self._gliner is not None:
-            return self._extract_gliner(text)
+            ner_entities = self._extract_gliner(text)
+        else:
+            ner_entities = await self._extract_llm(text)
 
-        # Fallback: LLM extraction
-        return await self._extract_llm(text)
+        return pattern_entities + ner_entities
 
     def _extract_gliner(self, text: str) -> list[dict[str, Any]]:
         """Extract entities using GLiNER (CPU, ~0.08s)."""
