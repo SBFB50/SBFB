@@ -45,7 +45,7 @@ engines:
   - name: reddit
     engine: reddit
     shortcut: re
-    disabled: false
+    disabled: true
 
 general:
   instance_name: "NEXUS Search"

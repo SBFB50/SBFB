@@ -51,14 +51,15 @@ class HypothesisWorker(ReactiveWorker):
         engine = self._get_engine()
         output: list[NexusEvent] = []
 
-        # For EVIDENCE_CHUNKED: only trigger if enough evidence (≥3) and chunks indexed
-        if event.event_type == EventType.EVIDENCE_CHUNKED:
+        # Check if hypotheses already exist
+        existing = await self._db.list_hypotheses_by_case(event.case_id)
+
+        # For EVIDENCE_CHUNKED: require ≥3 evidence for re-evaluation,
+        # but always allow initial generation when no hypotheses exist
+        if event.event_type == EventType.EVIDENCE_CHUNKED and existing:
             evidence = await self._db.list_evidence_by_case(event.case_id)
             if len(evidence) < 3:
                 return []
-
-        # Check if hypotheses already exist
-        existing = await self._db.list_hypotheses_by_case(event.case_id)
 
         if not existing:
             # Generate initial hypotheses
