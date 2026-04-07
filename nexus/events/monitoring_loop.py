@@ -28,6 +28,7 @@ from nexus.llm.router import LLMRouter, TaskType
 from nexus.monitoring.alert_manager import AlertManager
 from nexus.monitoring.robin_monitor import RobinMonitor
 from nexus.monitoring.searxng_monitor import SearXNGMonitor
+from nexus.monitoring.arquivo_monitor import ArquivoMonitor
 from nexus.monitoring.wayback_monitor import WaybackMonitor
 
 
@@ -81,6 +82,7 @@ class MonitoringLoop:
         self._searxng = SearXNGMonitor()
         self._robin = RobinMonitor()
         self._wayback = WaybackMonitor()
+        self._arquivo = ArquivoMonitor()
 
         self._running = False
         self._task: asyncio.Task | None = None
@@ -235,6 +237,27 @@ class MonitoringLoop:
 
         # 1. Search
         raw_results: list[dict] = []
+
+        # Arquivo.pt: primary source when date filter is active (guaranteed dates)
+        if before_date:
+            try:
+                arquivo_results = await asyncio.wait_for(
+                    self._arquivo.search(
+                        query=query,
+                        max_results=15,
+                        before_date=before_date,
+                    ),
+                    timeout=30.0,
+                )
+                raw_results.extend(arquivo_results)
+                logger.info(
+                    "MonitoringLoop: Arquivo.pt returned {} results for job {}",
+                    len(arquivo_results), job_id[:8],
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Arquivo.pt timeout for job {}", job_id[:8])
+            except Exception:
+                logger.debug("Arquivo.pt search failed for job {}", job_id[:8])
 
         if job_type in ("searxng", "both"):
             try:
@@ -422,8 +445,13 @@ class MonitoringLoop:
                     "Alert creation failed for result {}", db_result["id"]
                 )
 
+        # Results without detected date need higher relevance to pass
+        threshold = settings.auto_ingest_relevance_threshold
+        if result.get("_needs_relevance_gate"):
+            threshold = max(threshold, 80.0)
+
         # Publish event so workers can react
-        if not is_dup and relevance_score is not None and relevance_score >= settings.auto_ingest_relevance_threshold:
+        if not is_dup and relevance_score is not None and relevance_score >= threshold:
             event = NexusEvent(
                 event_type=EventType.MONITORING_RESULT,
                 case_id=case_id,
@@ -434,6 +462,7 @@ class MonitoringLoop:
                     "snippet": result.get("snippet", ""),
                     "relevance_score": relevance_score,
                     "source_engine": result.get("engine") or result.get("source"),
+                    "text_url": result.get("text_url"),
                 },
                 source_worker="MonitoringLoop",
             )
@@ -465,7 +494,7 @@ class MonitoringLoop:
 
         filtered: list[dict[str, Any]] = []
         htmldate_calls = 0
-        _MAX_HTMLDATE = 5  # limit slow HTTP fetches per batch
+        _MAX_HTMLDATE = 10  # limit slow HTTP fetches per batch
 
         for r in results:
             url = r.get("url", "")
@@ -510,12 +539,8 @@ class MonitoringLoop:
                 filtered.append(r)
                 continue
 
-            # No date detected → let through but flag it.
-            # The relevance scoring + LLM will filter junk downstream.
-            logger.debug(
-                "MonitoringLoop: PASSED (no date, unverified): {}",
-                r.get("title", "?")[:50],
-            )
+            # No date detected → mark for LLM relevance gate (only high-relevance passes)
+            r["_needs_relevance_gate"] = True
             filtered.append(r)
 
         rejected = len(results) - len(filtered)

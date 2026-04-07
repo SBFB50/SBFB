@@ -69,6 +69,20 @@ class EvidenceIngestWorker(ReactiveWorker):
             except Exception as exc:
                 logger.debug("EvidenceIngest: full page fetch failed for %s: %s", url[:50], exc)
 
+        # Arquivo.pt: fetch full text via dedicated API
+        if not text or len(text) < 100:
+            text_url = payload.get("text_url")
+            if text_url:
+                try:
+                    from nexus.monitoring.arquivo_monitor import ArquivoMonitor
+                    arquivo = ArquivoMonitor()
+                    full_text = await arquivo.fetch_full_text(text_url)
+                    if full_text and len(full_text) > len(snippet):
+                        text = full_text[:8000]
+                        logger.info("EvidenceIngest: fetched Arquivo.pt full text (%d chars)", len(text))
+                except Exception as exc:
+                    logger.debug("EvidenceIngest: Arquivo.pt text fetch failed: %s", exc)
+
         logger.info(
             "EvidenceIngest: ingesting '%s' (relevance=%s, %d chars) for case %s",
             title[:60], relevance, len(text), event.case_id,
