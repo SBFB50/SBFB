@@ -66,6 +66,7 @@ KNOWN_BENCHMARKS = {
     "gsk": {"dir": "golden-state-killer", "name": "Golden State Killer (1974-86)"},
     "moreau": {"dir": "affaire-moreau", "name": "Affaire Moreau (fictif)"},
     "jubillar": {"dir": "jubillar", "name": "Affaire Delphine Jubillar (2020)"},
+    "mccann": {"dir": "mccann", "name": "Affaire Maddie McCann (2007)"},
 }
 
 
