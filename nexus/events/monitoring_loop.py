@@ -259,12 +259,15 @@ class MonitoringLoop:
             except Exception:
                 logger.debug("Arquivo.pt search failed for job {}", job_id[:8])
 
-        if job_type in ("searxng", "both"):
+        # SearXNG: ONLY when no date filter (current web search).
+        # When before: is active, SearXNG is disabled — it returns modern
+        # articles with unreliable dates. Only archive sources (Arquivo.pt,
+        # Wayback CDX) have guaranteed timestamps.
+        if job_type in ("searxng", "both") and not before_date:
             try:
                 searxng_results = await self._searxng.search(
                     query=query,
                     max_results=20,
-                    before_date=before_date,
                 )
                 raw_results.extend(searxng_results)
             except Exception:
@@ -281,16 +284,16 @@ class MonitoringLoop:
             except Exception:
                 logger.exception("Robin search failed for job {}", job_id[:8])
 
-        # Wayback Machine: only on first sweep per job (slow, usually low value)
-        if before_date and not job.get("last_run"):
+        # Wayback Machine CDX: guaranteed archive dates, use on every sweep when before: active
+        if before_date:
             try:
                 wayback_results = await asyncio.wait_for(
                     self._wayback.search(
                         query=query,
-                        max_results=5,
+                        max_results=10,
                         before_date=before_date,
                     ),
-                    timeout=15.0,
+                    timeout=20.0,
                 )
                 raw_results.extend(wayback_results)
             except asyncio.TimeoutError:
