@@ -83,6 +83,23 @@ class EvidenceIngestWorker(ReactiveWorker):
                 except Exception as exc:
                     logger.debug("EvidenceIngest: Arquivo.pt text fetch failed: %s", exc)
 
+        # Content quality gate: verify this is a real article, not a homepage,
+        # subscription page, or navigation page. Uses jusText (trafilatura dep).
+        if len(text) > 50:
+            try:
+                import justext
+                paragraphs = justext.justext(text, justext.get_stoplist("French"))
+                good = [p for p in paragraphs if p.class_type == "good"]
+                good_len = sum(len(p.text) for p in good)
+                if good_len < 200:
+                    logger.info(
+                        "EvidenceIngest: REJECTED '%s' — not article content (good_text=%d chars)",
+                        title[:40], good_len,
+                    )
+                    return []
+            except Exception:
+                pass  # justext failed, proceed
+
         logger.info(
             "EvidenceIngest: ingesting '%s' (relevance=%s, %d chars) for case %s",
             title[:60], relevance, len(text), event.case_id,

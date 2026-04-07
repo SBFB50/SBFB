@@ -329,6 +329,23 @@ class MonitoringLoop:
             for result in raw_results:
                 if not self._running:
                     break
+                # Pre-filter: reject homepages, pagination, login pages
+                url = result.get("url", "")
+                if url:
+                    try:
+                        from courlan import is_navigation_page
+                        if is_navigation_page(url):
+                            logger.debug("MonitoringLoop: skip navigation page: {}", url[:60])
+                            continue
+                        # Reject homepages and shallow paths
+                        from urllib.parse import urlparse
+                        path = urlparse(url).path.rstrip("/")
+                        segments = [s for s in path.split("/") if s]
+                        if len(segments) == 0:
+                            logger.debug("MonitoringLoop: skip homepage: {}", url[:60])
+                            continue
+                    except Exception:
+                        pass
                 try:
                     stored = await self._process_result(
                         db, alert_mgr, job_id, case_id, query, result
