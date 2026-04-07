@@ -120,19 +120,32 @@ class HypothesisEngine:
         prompt = HYPOTHESIS_GENERATION_PROMPT.format(facts=facts_text)
         logger.info("ACH Pass 1: generating hypotheses ({} chars)", len(prompt))
 
-        try:
-            parsed = await self._router.route_json(TaskType.DEEP_ANALYSIS, prompt)
-        except Exception as exc:
-            logger.error("ACH Pass 1 LLM call failed: {}", exc)
+        parsed = None
+        # Try route_json first, fallback to route + parse
+        for attempt, method in enumerate(["json", "raw"], 1):
             try:
-                raw_response = await self._router.route(TaskType.DEEP_ANALYSIS, prompt)
-                parsed = parse_json_safe(raw_response)
-            except Exception as exc2:
-                logger.error("ACH Pass 1 fallback failed: {}", exc2)
-                return []
+                if method == "json":
+                    parsed = await self._router.route_json(TaskType.DEEP_ANALYSIS, prompt)
+                else:
+                    raw = await self._router.route(TaskType.DEEP_ANALYSIS, prompt)
+                    logger.debug("ACH Pass 1 raw (500): {}", str(raw)[:500])
+                    parsed = parse_json_safe(raw)
+
+                if parsed and isinstance(parsed, dict) and any(
+                    k in parsed for k in ("hypotheses", "hypothèses", "hypothesis")
+                ):
+                    break  # good response
+                elif parsed and isinstance(parsed, list) and len(parsed) > 0:
+                    break  # direct list
+                else:
+                    logger.warning("ACH Pass 1 attempt {}: response has no hypothesis key, retrying", attempt)
+                    parsed = None
+            except Exception as exc:
+                logger.warning("ACH Pass 1 attempt {} failed: {}", attempt, exc)
+                parsed = None
 
         if not parsed:
-            logger.error("ACH Pass 1: failed to parse response")
+            logger.error("ACH Pass 1: all attempts failed")
             return []
 
         # Normalize hypothesis list
