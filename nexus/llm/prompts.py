@@ -842,6 +842,16 @@ INSTRUCTIONS:
 - Inclus la source et la fiabilite
 - Si une page existante est fournie, ENRICHIS-la sans perdre d'information
 - Sois factuel, concis, sans speculation
+- NE genere PAS de frontmatter YAML (il sera ajoute automatiquement)
+
+PROVENANCE:
+- Les faits directement extraits des preuves: texte normal
+- Les syntheses que tu inferes: prefixe [inferred]
+- Les points ou les sources se contredisent: prefixe [ambiguous]
+- Cite la source apres chaque fait: [source: {title}]
+
+COUVERTURE:
+- Indique apres chaque section si elle est basee sur 1, 2 ou 3+ sources
 
 Reponds UNIQUEMENT avec le contenu Markdown de la page.
 """
@@ -865,6 +875,16 @@ INSTRUCTIONS:
 - Structure: ## Identite, ## Liens, ## Chronologie, ## Sources
 - Si la page est vide, cree-la de zero
 - Sois factuel et concis
+- NE genere PAS de frontmatter YAML (il sera ajoute automatiquement)
+
+PROVENANCE:
+- Les faits directement extraits des preuves: texte normal
+- Les syntheses que tu inferes: prefixe [inferred]
+- Les points ou les sources se contredisent: prefixe [ambiguous]
+- Cite la source apres chaque fait: [source: titre_preuve]
+
+COUVERTURE:
+- Indique apres chaque section si elle est basee sur 1, 2 ou 3+ sources
 
 Reponds UNIQUEMENT avec le contenu Markdown.
 """
@@ -891,6 +911,16 @@ INSTRUCTIONS:
 - Utilise des [[wikilinks]] pour les entites et preuves
 - Section "Contradictions cles" en bas
 - Sois analytique et factuel
+- NE genere PAS de frontmatter YAML (il sera ajoute automatiquement)
+
+PROVENANCE:
+- Les faits directement extraits des preuves: texte normal
+- Les syntheses que tu inferes: prefixe [inferred]
+- Les points ou les sources se contredisent: prefixe [ambiguous]
+- Cite la source apres chaque fait: [source: titre_preuve]
+
+COUVERTURE:
+- Indique apres chaque section si elle est basee sur 1, 2 ou 3+ sources
 
 Reponds UNIQUEMENT avec le contenu Markdown.
 """
@@ -900,6 +930,18 @@ WIKI_INDEX_TEMPLATE = """\
 
 > Reference: {reference}
 > Derniere compilation: {last_compiled}
+
+## Couverture
+
+| Niveau | Pages |
+|--------|-------|
+| HIGH (3+ sources) | {coverage_high} |
+| MEDIUM (2 sources) | {coverage_medium} |
+| LOW (1 source) | {coverage_low} |
+
+**Contradictions detectees:** {contradictions_count}
+
+**Provenance:** {provenance_extracted} extraites | {provenance_inferred} inferees | {provenance_ambiguous} ambigues
 
 ## Preuves ({evidence_count})
 {evidence_links}

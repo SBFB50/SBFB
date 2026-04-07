@@ -68,6 +68,13 @@ class WikiCompilerWorker(ReactiveWorker):
             logger.error("WikiCompiler failed for case %s: %s", event.case_id, exc)
             return []
 
+        # Cross-link all pages after compilation
+        if updated_pages:
+            try:
+                await compiler.cross_link_pages(event.case_id)
+            except Exception as exc:
+                logger.debug("WikiCompiler: cross-linking failed: %s", exc)
+
         if not updated_pages:
             return []
 
