@@ -57,6 +57,7 @@ class VRAMPriority(IntEnum):
 KEEP_ALIVE_MAP: dict[str, str] = {
     "nomic-embed-text": "30m",
     "gemma4:e4b": "10m",
+    "aratan/gemma-4-E4B-it-heretic": "10m",
     "nexus": "3m",
     "huihui_ai/deepseek-r1-abliterated:14b": "3m",
     "qwen3-vl:8b": "5m",

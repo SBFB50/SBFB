@@ -20,11 +20,11 @@ class TestSettingsDefaults:
 
     def test_model_defaults(self):
         s = Settings()
-        assert s.model_fast == "gemma4:e4b"
-        assert s.model_reasoning == "huihui_ai/deepseek-r1-abliterated:14b"
-        assert s.model_deep == "huihui_ai/deepseek-r1-abliterated:14b"
+        assert s.model_fast == "aratan/gemma-4-E4B-it-heretic"
+        assert s.model_reasoning == "nexus"
+        assert s.model_deep == "nexus"
         assert s.model_embedding == "nomic-embed-text"
-        assert s.model_audio == "voxtral-mini:4b"
+        assert s.model_audio == "faster-whisper"
 
     def test_neo4j_defaults(self):
         s = Settings()

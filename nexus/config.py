@@ -26,13 +26,17 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
 
     # -- Models (overridable via env) --
-    model_fast: str = "gemma4:e4b"
-    model_reasoning: str = "huihui_ai/deepseek-r1-abliterated:14b"
-    model_deep: str = "huihui_ai/deepseek-r1-abliterated:14b"
+    # nexus = deepseek-r1-abliterated 14B + NEXUS system prompt (Modelfile)
+    #   → abliterated = zero refus sur contenu criminel
+    #   → deep analysis, hypotheses ACH, contradictions, logic verification
+    # gemma4:e4b = fast + vision (summaries, filtering, wiki, image analysis)
+    model_fast: str = "aratan/gemma-4-E4B-it-heretic"
+    model_reasoning: str = "nexus"
+    model_deep: str = "nexus"
     model_embedding: str = "nomic-embed-text"
-    model_audio: str = "voxtral-mini:4b"
-    model_vision: str = "gemma4:e4b"  # VLM pour analyse de photos (supporte images)
-    model_vision_deep: str = "qwen3-vl:8b"  # VLM avance pour analyse approfondie
+    model_audio: str = "faster-whisper"  # Python lib, not Ollama
+    model_vision: str = "aratan/gemma-4-E4B-it-heretic"
+    model_vision_deep: str = "aratan/gemma-4-E4B-it-heretic"
 
     # -- Neo4j --
     neo4j_uri: str = "bolt://localhost:7687"
