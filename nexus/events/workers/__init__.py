@@ -23,6 +23,7 @@ from nexus.events.workers.self_questioning import SelfQuestioningWorker
 from nexus.events.workers.alert import AlertWorker
 from nexus.events.workers.summary_tree import SummaryTreeWorker
 from nexus.events.workers.timeline import TimelineWorker
+from nexus.events.workers.memory import MemoryWorker
 
 __all__ = [
     "EvidenceIngestWorker",
@@ -42,4 +43,5 @@ __all__ = [
     "AlertWorker",
     "SummaryTreeWorker",
     "TimelineWorker",
+    "MemoryWorker",
 ]

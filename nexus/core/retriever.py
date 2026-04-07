@@ -154,6 +154,82 @@ class InvestigationRetriever:
         }
 
     # ==================================================================
+    # Case memory retrieval
+    # ==================================================================
+
+    async def retrieve_case_memories(
+        self,
+        case_id: str,
+        query: str | None = None,
+        n_results: int = 5,
+        min_importance: float = 0.4,
+    ) -> list[dict]:
+        """Retrieve investigation memories for a case.
+
+        Combines semantic search (ChromaDB case_memory collection) with
+        SQLite lookup, deduplicates by memory id, and returns sorted by
+        importance DESC.
+
+        Gracefully returns [] if the memory table does not exist yet.
+        """
+        memories_by_id: dict[str, dict] = {}
+
+        # --- ChromaDB semantic search (if query provided) ---
+        if query and self._chroma is not None:
+            try:
+                query_embedding = await self._router.embed(query)
+                raw = await self._chroma.unified_search(
+                    query_embedding=query_embedding,
+                    case_id=case_id,
+                    collections=["case_memory"],
+                    n_per_collection=n_results,
+                )
+                for r in raw:
+                    meta = r.get("metadata") or {}
+                    mid = meta.get("memory_id") or r.get("id", "")
+                    importance = float(meta.get("importance", 0.5))
+                    if importance < min_importance:
+                        continue
+                    memories_by_id[mid] = {
+                        "id": mid,
+                        "insight_type": meta.get("insight_type", "unknown"),
+                        "importance": importance,
+                        "confidence": float(meta.get("confidence", 0.5)),
+                        "summary": r.get("text", ""),
+                        "source": "chroma",
+                    }
+            except Exception as exc:
+                logger.debug("Case memory ChromaDB search failed (non-blocking): {}", exc)
+
+        # --- SQLite lookup ---
+        try:
+            rows = await self._db.list_memories_by_case(
+                case_id, min_importance=min_importance, limit=n_results
+            )
+            for row in rows:
+                mid = row.get("id", "")
+                if mid not in memories_by_id:
+                    memories_by_id[mid] = {
+                        "id": mid,
+                        "insight_type": row.get("insight_type", "unknown"),
+                        "importance": float(row.get("importance", 0.5)),
+                        "confidence": float(row.get("confidence", 0.5)),
+                        "summary": row.get("summary", ""),
+                        "source": "sqlite",
+                    }
+        except Exception as exc:
+            # Table may not exist yet — perfectly fine
+            logger.debug("Case memory SQLite lookup failed (non-blocking): {}", exc)
+
+        # Sort by importance DESC, return top n
+        result = sorted(
+            memories_by_id.values(),
+            key=lambda m: m["importance"],
+            reverse=True,
+        )
+        return result[:n_results]
+
+    # ==================================================================
     # Context builder for LLM
     # ==================================================================
 
@@ -239,6 +315,22 @@ class InvestigationRetriever:
                     if output and "CHRONOLOGIE" in output:
                         context_parts.append(f"\n{output[:2000]}")
                     break  # only include the most recent timeline
+        except Exception:
+            pass
+
+        # Add investigation memories if available
+        try:
+            memories = await self.retrieve_case_memories(
+                case_id, query=focus, n_results=5, min_importance=0.4
+            )
+            if memories:
+                mem_lines = ["\nMEMOIRES D'INVESTIGATION:"]
+                for m in memories:
+                    mem_lines.append(
+                        f"- [{m['insight_type']}] (importance: {m['importance']:.2f}) "
+                        f"{m['summary']}"
+                    )
+                context_parts.append("\n".join(mem_lines))
         except Exception:
             pass
 

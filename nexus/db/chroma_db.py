@@ -37,6 +37,7 @@ _EVIDENCE_CHUNKS_COLLECTION = "evidence_chunks"
 _ENTITY_COLLECTION = "entity_contexts"
 _MONITORING_COLLECTION = "monitoring_results"
 _HYPOTHESIS_COLLECTION = "hypothesis_reasoning"
+_CASE_MEMORY_COLLECTION = "case_memory"
 
 # DEPRECATED: replaced by evidence_chunks (managed via EmbeddingStore)
 _EVIDENCE_COLLECTION_LEGACY = "evidence_texts"
@@ -46,6 +47,7 @@ _ALL_COLLECTIONS = (
     _ENTITY_COLLECTION,
     _MONITORING_COLLECTION,
     _HYPOTHESIS_COLLECTION,
+    _CASE_MEMORY_COLLECTION,
 )
 
 # All collections including image (for stats/diagnostics)
@@ -61,6 +63,7 @@ _DEFAULT_SEARCH_COLLECTIONS = (
     _EVIDENCE_CHUNKS_COLLECTION,
     _ENTITY_COLLECTION,
     _MONITORING_COLLECTION,
+    _CASE_MEMORY_COLLECTION,
 )
 
 
@@ -442,6 +445,33 @@ class ChromaClient:
             return self._format_results(raw)
         except ChromaError as exc:
             logger.error("Entity search failed (case={}): {}", case_id, exc)
+            raise
+
+    # ==================================================================
+    # Case memory collection
+    # ==================================================================
+
+    def add_memory(
+        self,
+        memory_id: str,
+        case_id: str,
+        text: str,
+        embedding: list[float],
+        metadata: Optional[dict] = None,
+    ) -> None:
+        """Store an investigation memory embedding."""
+        meta = dict(metadata or {})
+        meta["case_id"] = case_id
+        try:
+            self._col(_CASE_MEMORY_COLLECTION).add(
+                ids=[memory_id],
+                documents=[text],
+                embeddings=[embedding],
+                metadatas=[meta],
+            )
+            logger.debug("Added memory '{}' to ChromaDB", memory_id)
+        except ChromaError as exc:
+            logger.error("Failed to add memory '{}': {}", memory_id, exc)
             raise
 
     def delete_entity(self, entity_id: str) -> None:

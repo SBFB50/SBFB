@@ -266,6 +266,7 @@ class ReactiveInvestigationManager:
         from nexus.events.workers.alert import AlertWorker
         from nexus.events.workers.summary_tree import SummaryTreeWorker
         from nexus.events.workers.timeline import TimelineWorker
+        from nexus.events.workers.memory import MemoryWorker
 
         workers: list[ReactiveWorker] = [
             # 1. Neo4j sync
@@ -302,6 +303,8 @@ class ReactiveInvestigationManager:
             SummaryTreeWorker(bus, db_proxy, self._router, self._chroma),
             # 17. Timeline builder
             TimelineWorker(bus, db_proxy, self._neo4j),
+            # 18. Memory worker (investigation insights)
+            MemoryWorker(bus, db_proxy, self._router, self._chroma),
         ]
 
         return workers

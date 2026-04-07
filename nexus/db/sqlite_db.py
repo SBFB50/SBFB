@@ -273,6 +273,19 @@ CREATE TABLE IF NOT EXISTS contradictions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(case_id, evidence_1_id, evidence_2_id, contradiction_type)
 );
+
+CREATE TABLE IF NOT EXISTS investigation_memory (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    insight_type TEXT NOT NULL,
+    source_event_type TEXT NOT NULL,
+    importance REAL DEFAULT 0.5,
+    confidence REAL DEFAULT 0.7,
+    summary TEXT NOT NULL,
+    full_context TEXT,
+    related_entities TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 _CREATE_INDEXES = """
@@ -310,6 +323,9 @@ CREATE INDEX IF NOT EXISTS idx_event_log_case ON event_log(case_id);
 -- Contradictions indexes
 CREATE INDEX IF NOT EXISTS idx_contradictions_case ON contradictions(case_id);
 CREATE INDEX IF NOT EXISTS idx_contradictions_evidence ON contradictions(evidence_1_id, evidence_2_id);
+
+-- Investigation memory indexes
+CREATE INDEX IF NOT EXISTS idx_memory_case ON investigation_memory(case_id);
 """
 
 _CREATE_FTS = """
@@ -539,6 +555,9 @@ class Database:
         )
         await self._conn.execute(
             "DELETE FROM event_log WHERE case_id = ?", (case_id,)
+        )
+        await self._conn.execute(
+            "DELETE FROM investigation_memory WHERE case_id = ?", (case_id,)
         )
         await self._conn.execute(
             "DELETE FROM evidence WHERE case_id = ?", (case_id,)
@@ -1758,6 +1777,68 @@ class Database:
     async def count_contradictions(self, case_id: str) -> int:
         cursor = await self._conn.execute(
             "SELECT COUNT(*) FROM contradictions WHERE case_id = ?", (case_id,)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    # ------------------------------------------------------------------
+    # Investigation Memory
+    # ------------------------------------------------------------------
+
+    async def create_investigation_memory(
+        self,
+        case_id: str,
+        insight_type: str,
+        source_event_type: str,
+        summary: str,
+        importance: float = 0.5,
+        confidence: float = 0.7,
+        full_context: Optional[str] = None,
+        related_entities: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        mem_id = _new_id()
+        now = _now_iso()
+        related_json = _json_dumps(related_entities)
+        await self._conn.execute(
+            """INSERT INTO investigation_memory
+               (id, case_id, insight_type, source_event_type, importance,
+                confidence, summary, full_context, related_entities, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (mem_id, case_id, insight_type, source_event_type, importance,
+             confidence, summary, full_context, related_json, now),
+        )
+        await self._conn.commit()
+        return {
+            "id": mem_id,
+            "case_id": case_id,
+            "insight_type": insight_type,
+            "source_event_type": source_event_type,
+            "importance": importance,
+            "confidence": confidence,
+            "summary": summary,
+            "full_context": full_context,
+            "related_entities": related_entities,
+            "created_at": now,
+        }
+
+    async def list_memories_by_case(
+        self,
+        case_id: str,
+        min_importance: float = 0.0,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        cursor = await self._conn.execute(
+            """SELECT * FROM investigation_memory
+               WHERE case_id = ? AND importance >= ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (case_id, min_importance, limit),
+        )
+        return [_row_to_dict(r) for r in await cursor.fetchall()]
+
+    async def count_memories(self, case_id: str) -> int:
+        cursor = await self._conn.execute(
+            "SELECT COUNT(*) FROM investigation_memory WHERE case_id = ?",
+            (case_id,),
         )
         row = await cursor.fetchone()
         return row[0] if row else 0

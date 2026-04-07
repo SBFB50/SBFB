@@ -327,6 +327,27 @@ class HypothesisEngine:
             if _shared_context:
                 new_evidence_context += f"\n\nCONTEXTE GENERAL:\n{_shared_context}"
 
+            # Retrieve memories related to this specific hypothesis
+            try:
+                hyp_memories = await retriever.retrieve_case_memories(
+                    case_id,
+                    query=hypothesis.get("title", ""),
+                    n_results=3,
+                    min_importance=0.4,
+                )
+                if hyp_memories:
+                    mem_lines = [
+                        f"- [{m['insight_type']}] (importance: {m['importance']:.2f}) "
+                        f"{m['summary']}"
+                        for m in hyp_memories
+                    ]
+                    new_evidence_context += (
+                        "\n\nMEMOIRES LIEES A CETTE HYPOTHESE:\n"
+                        + "\n".join(mem_lines)
+                    )
+            except Exception as exc:
+                logger.debug("Memory retrieval for hypothesis failed (non-blocking): {}", exc)
+
             # Add other hypotheses for cross-reference
             other_hypotheses = await self._db.list_hypotheses_by_case(case_id)
             other_hyps_text = "\n".join(
