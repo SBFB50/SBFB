@@ -510,12 +510,13 @@ class MonitoringLoop:
                 filtered.append(r)
                 continue
 
-            # No date detected → reject. No guessing.
+            # No date detected → let through but flag it.
+            # The relevance scoring + LLM will filter junk downstream.
             logger.debug(
-                "MonitoringLoop: REJECTED (no date detected): {}",
+                "MonitoringLoop: PASSED (no date, unverified): {}",
                 r.get("title", "?")[:50],
             )
-            continue
+            filtered.append(r)
 
         rejected = len(results) - len(filtered)
         if rejected > 0:
