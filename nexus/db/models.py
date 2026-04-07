@@ -239,7 +239,7 @@ class HypothesisSnapshot(HypothesisSnapshotBase):
 # ============================================================================
 
 AnalysisRunType = Literal["full", "incremental", "verification", "extraction", "self_questioning"]
-AnalysisTrigger = Literal["manual", "new_evidence", "monitoring", "scheduled", "autonomous_loop"]
+AnalysisTrigger = Literal["manual", "new_evidence", "monitoring", "scheduled", "autonomous_loop", "reactive_pipeline"]
 AnalysisStatus = Literal["running", "completed", "failed"]
 
 
