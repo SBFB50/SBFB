@@ -556,9 +556,12 @@ class Database:
         await self._conn.execute(
             "DELETE FROM event_log WHERE case_id = ?", (case_id,)
         )
-        await self._conn.execute(
-            "DELETE FROM investigation_memory WHERE case_id = ?", (case_id,)
-        )
+        try:
+            await self._conn.execute(
+                "DELETE FROM investigation_memory WHERE case_id = ?", (case_id,)
+            )
+        except Exception:
+            pass  # table may not exist on older DBs
         await self._conn.execute(
             "DELETE FROM evidence WHERE case_id = ?", (case_id,)
         )
