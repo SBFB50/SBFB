@@ -4,7 +4,7 @@ NEXUS -- ReactiveInvestigationManager.
 Replaces the old InvestigationManager + AutonomousInvestigator.
 For each active case:
   - Creates an EventBus
-  - Instantiates all 17 workers
+  - Instantiates all 20 workers
   - Starts MonitoringLoop + PeriodicTimer
   - Runs everything as asyncio tasks
 
@@ -243,7 +243,7 @@ class ReactiveInvestigationManager:
         case_id: str,
         db_proxy: DatabaseProxy,
     ) -> list[ReactiveWorker]:
-        """Instantiate all 17 workers for one case.
+        """Instantiate all 20 workers for one case.
 
         The order matters only for documentation. All workers run
         concurrently and communicate via events.

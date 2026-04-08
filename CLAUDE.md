@@ -5,7 +5,7 @@ Systeme d'investigation AUTONOME et PERSISTANT pour cold cases. Pas un chatbot �
 
 ## Architecture (v2 — Event-Driven Reactive)
 - **Backend**: FastAPI (port 8000) — 115+ endpoints REST
-- **Event System**: EventBus pub/sub + 17 ReactiveWorkers + VRAMScheduler
+- **Event System**: EventBus pub/sub + 20 ReactiveWorkers + VRAMScheduler
 - **Frontend React**: Vite + TypeScript + Tailwind (port 3002) — 9 pages, dark theme pro
 - **LLMs**: Ollama (port 11434)
   - `nexus` (deepseek-r1-abliterated 14B + system prompt custom) — analyse profonde, hypotheses, rapports
@@ -48,7 +48,7 @@ nexus/
     monitoring_loop.py    # Continuous monitoring (replaces APScheduler)
     timer.py              # Periodic events (reports, backups)
     db_proxy.py           # DB connection proxy for long-lived workers
-    workers/              # 17 reactive workers (13 core + 4 auxiliary)
+    workers/              # 20 reactive workers (13 core + 7 auxiliary)
   db/
     sqlite_db.py          # 16 tables (incl event_log), FTS5, WAL, 23+ index
     neo4j_db.py           # 20+ methodes + sync_hypothesis
@@ -65,7 +65,7 @@ nexus/
   vision/                 # DINOv2 + CLIP embeddings, image search
 web/                      # Frontend React
   src/components/
-    PipelineTools.tsx      # 17 workers real-time status (INGEST/ENRICH/ANALYZE/SCORE)
+    PipelineTools.tsx      # 20 workers real-time status (INGEST/ENRICH/ANALYZE/SCORE)
     InvestigationMap.tsx   # Leaflet dark tiles + geocoded locations
     Toast.tsx              # Notification system
 tests/                    # 261 tests (pytest)
@@ -81,7 +81,7 @@ evidence_added -> EntityExtractor + Summarizer + Chunker (parallel)
   -> analysis_completed -> HypothesisWorker -> hypothesis_scored -> SuspectScorer
   -> monitoring_result -> EvidenceIngestWorker -> evidence_added (LOOP)
 ```
-- 20 event types, 17 workers, EventBus with SQLite persistence + circuit breaker
+- 20 event types, 20 workers, EventBus with SQLite persistence + circuit breaker
 - VRAMScheduler: embedding bypass + light lock + heavy priority queue + model affinity
 - MonitoringLoop: continuous 30s sweep (replaces APScheduler)
 - No fixed cycles — each tool reacts immediately to changes

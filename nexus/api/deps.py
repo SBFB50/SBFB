@@ -226,10 +226,6 @@ def get_contradiction_detector(
 
 
 # ------------------------------------------------------------------
-# Forensic analyzers (request-scoped, only need the LLMRouter)
-# ------------------------------------------------------------------
-
-# ------------------------------------------------------------------
 # Pagination helper (shared by all list endpoints)
 # ------------------------------------------------------------------
 
@@ -269,6 +265,11 @@ def paginated_response(
     response = JSONResponse(content=content)
     response.headers["X-Total-Count"] = str(total)
     return response
+
+
+# ------------------------------------------------------------------
+# Forensic analyzers (request-scoped, only need the LLMRouter)
+# ------------------------------------------------------------------
 
 
 def get_bpa_analyzer(request: Request):
