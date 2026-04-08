@@ -28,13 +28,13 @@ router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 # Global lock to serialise wave injection -- prevents VRAM saturation
 _INJECT_LOCK = asyncio.Lock()
 
-# Timeout for a single evidence injection (seconds).
-# Covers GLiNER + summary + embed + RAPTOR. Generous but not infinite.
-_EVIDENCE_TIMEOUT = 300  # 5 minutes per evidence item
+# No timeout on evidence processing -- the system runs continuously 24/7.
+# LLM calls (summary, entity extraction) can take 5-15 min per evidence
+# on large documents with a 14B model. Time is not a constraint.
 
 # Max time to wait for workers to produce hypotheses + suspects (seconds)
-_WORKER_POLL_TIMEOUT = 600  # 10 minutes
-_WORKER_POLL_INTERVAL = 10  # check every 10s
+_WORKER_POLL_TIMEOUT = 3600  # 1 hour -- workers debounce + LLM calls are slow
+_WORKER_POLL_INTERVAL = 15  # check every 15s
 
 # In-memory progress tracker so the frontend can poll status.
 # Keyed by case_id. Values are dicts with wave/step/status info.
@@ -300,17 +300,13 @@ async def _inject_wave(
                         chroma=chroma,
                         entity_extractor=entity_extractor,
                     )
-                    # Wrap with timeout so a hung LLM call doesn't block forever
-                    evidence_obj = await asyncio.wait_for(
-                        processor.process_text_input(
-                            case_id=case_id,
-                            title=ev.get("title", file_path.stem),
-                            text=text,
-                            source=ev.get("source", "Benchmark"),
-                            source_date=ev.get("source_date"),
-                            reliability=ev.get("reliability", 50),
-                        ),
-                        timeout=_EVIDENCE_TIMEOUT,
+                    evidence_obj = await processor.process_text_input(
+                        case_id=case_id,
+                        title=ev.get("title", file_path.stem),
+                        text=text,
+                        source=ev.get("source", "Benchmark"),
+                        source_date=ev.get("source_date"),
+                        reliability=ev.get("reliability", 50),
                     )
                 result["ok"] += 1
                 logger.info("Benchmark injected [{}/{}]: {}", idx, len(wave_evidence), title)
@@ -319,12 +315,6 @@ async def _inject_wave(
                 await _publish_evidence_added(
                     app_state, case_id, evidence_obj.id, title,
                 )
-
-            except asyncio.TimeoutError:
-                err = f"Timeout after {_EVIDENCE_TIMEOUT}s"
-                logger.error("Benchmark inject TIMEOUT: {} -- {}", title, err)
-                result["failed"].append({"title": title, "error": err})
-                prog["errors"].append(f"wave {wave}: {title} -- {err}")
 
             except Exception as exc:
                 err = f"{type(exc).__name__}: {exc}"
@@ -400,14 +390,11 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
                     chroma=app_state.get("chroma"),
                     entity_extractor=app_state.get("entity_extractor"),
                 )
-                ev = await asyncio.wait_for(
-                    processor.process_text_input(
-                        case_id=case_id,
-                        title="Briefing initial",
-                        text=briefing_text,
-                        source="Benchmark briefing",
-                    ),
-                    timeout=_EVIDENCE_TIMEOUT,
+                ev = await processor.process_text_input(
+                    case_id=case_id,
+                    title="Briefing initial",
+                    text=briefing_text,
+                    source="Benchmark briefing",
                 )
                 prog["current_evidence"] = 1
                 await _publish_evidence_added(app_state, case_id, ev.id, "Briefing initial")

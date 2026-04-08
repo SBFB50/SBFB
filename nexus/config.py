@@ -26,17 +26,18 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
 
     # -- Models (overridable via env) --
-    # nexus = deepseek-r1-abliterated 14B + NEXUS system prompt (Modelfile)
-    #   → abliterated = zero refus sur contenu criminel
-    #   → deep analysis, hypotheses ACH, contradictions, logic verification
-    # gemma4:e4b = fast + vision (summaries, filtering, wiki, image analysis)
+    # gemma-4-E4B heretic = fast + vision (summaries, filtering, wiki, basic images)
+    # gemma-4-26B-A4B heretic = heavy reasoning + deep vision (MoE 26B, 4B active)
+    #   → heretic ARA+EGA abliteration = zero refus, lossless quality
+    #   → replaces both deepseek-r1 models: better MMLU (82.6%), AIME (88.3%)
+    #   → native thinking mode, 256K context, multimodal
     model_fast: str = "aratan/gemma-4-E4B-it-heretic"
-    model_reasoning: str = "nexus"
-    model_deep: str = "nexus"
+    model_reasoning: str = "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
+    model_deep: str = "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
     model_embedding: str = "nomic-embed-text"
     model_audio: str = "faster-whisper"  # Python lib, not Ollama
     model_vision: str = "aratan/gemma-4-E4B-it-heretic"
-    model_vision_deep: str = "aratan/gemma-4-E4B-it-heretic"
+    model_vision_deep: str = "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
 
     # -- Neo4j --
     neo4j_uri: str = "bolt://localhost:7687"

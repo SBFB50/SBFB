@@ -81,38 +81,39 @@ class TaskType(Enum):
 # Each entry: (settings attribute for model name, timeout in seconds, heavy?)
 _ROUTE_TABLE: dict[TaskType, tuple[str, int, bool]] = {
     # --- Light / fast (gemma4:e4b) ---
-    TaskType.ENTITY_EXTRACTION:    ("model_fast", 30, False),
-    TaskType.QUERY_REFORMULATION:  ("model_fast", 15, False),
-    TaskType.RESULT_FILTERING:     ("model_fast", 20, False),
-    TaskType.JSON_STRUCTURING:     ("model_fast", 20, False),
-    TaskType.EVIDENCE_SUMMARY:     ("model_fast", 30, False),
+    # Generous timeouts: system runs 24/7, time is not a constraint.
+    TaskType.ENTITY_EXTRACTION:    ("model_fast", 300, False),
+    TaskType.QUERY_REFORMULATION:  ("model_fast", 120, False),
+    TaskType.RESULT_FILTERING:     ("model_fast", 120, False),
+    TaskType.JSON_STRUCTURING:     ("model_fast", 120, False),
+    TaskType.EVIDENCE_SUMMARY:     ("model_fast", 300, False),
 
     # --- Embedding ---
-    TaskType.EMBEDDING:            ("model_embedding", 10, False),
+    TaskType.EMBEDDING:            ("model_embedding", 120, False),
 
     # --- Reasoning (deepseek-r1, 14B -- heavy) ---
-    TaskType.LOGIC_VERIFICATION:   ("model_reasoning", 120, True),
-    TaskType.CONTRADICTION_DETECTION: ("model_reasoning", 120, True),
-    TaskType.TESTIMONY_COMPARISON: ("model_reasoning", 120, True),
+    TaskType.LOGIC_VERIFICATION:   ("model_reasoning", 900, True),
+    TaskType.CONTRADICTION_DETECTION: ("model_reasoning", 900, True),
+    TaskType.TESTIMONY_COMPARISON: ("model_reasoning", 900, True),
 
-    # --- Deep analysis (nexus 26B -- heavy) ---
-    TaskType.DEEP_ANALYSIS:        ("model_deep", 600, True),
-    TaskType.HYPOTHESIS_SCORING:   ("model_deep", 600, True),
-    TaskType.SUSPECT_PROFILE:      ("model_deep", 600, True),
-    TaskType.FINAL_REPORT:         ("model_deep", 600, True),
-    TaskType.INCREMENTAL_REEVAL:   ("model_deep", 600, True),
+    # --- Deep analysis (nexus 14B -- heavy) ---
+    TaskType.DEEP_ANALYSIS:        ("model_deep", 1800, True),
+    TaskType.HYPOTHESIS_SCORING:   ("model_deep", 1800, True),
+    TaskType.SUSPECT_PROFILE:      ("model_deep", 1800, True),
+    TaskType.FINAL_REPORT:         ("model_deep", 1800, True),
+    TaskType.INCREMENTAL_REEVAL:   ("model_deep", 1800, True),
 
     # --- Vision (gemma4:e4b fast, qwen3-vl:8b deep) ---
-    TaskType.IMAGE_DESCRIPTION:        ("model_vision", 60, False),
-    TaskType.IMAGE_ENTITY_EXTRACTION:  ("model_vision", 60, False),
-    TaskType.IMAGE_SCENE_ANALYSIS:     ("model_vision_deep", 180, True),
-    TaskType.IMAGE_COMPARISON:         ("model_vision_deep", 180, True),
+    TaskType.IMAGE_DESCRIPTION:        ("model_vision", 300, False),
+    TaskType.IMAGE_ENTITY_EXTRACTION:  ("model_vision", 300, False),
+    TaskType.IMAGE_SCENE_ANALYSIS:     ("model_vision_deep", 600, True),
+    TaskType.IMAGE_COMPARISON:         ("model_vision_deep", 600, True),
 
-    # --- Audio (voxtral-mini:4b) ---
-    TaskType.AUDIO_TRANSCRIPTION:      ("model_audio", 180, True),
+    # --- Audio ---
+    TaskType.AUDIO_TRANSCRIPTION:      ("model_audio", 600, True),
 
     # --- Forensic traces (qwen3-vl:8b deep vision) ---
-    TaskType.TRACE_ANALYSIS:           ("model_vision_deep", 180, True),
+    TaskType.TRACE_ANALYSIS:           ("model_vision_deep", 600, True),
 }
 
 # Map model settings attributes to VRAMPriority for scheduler integration.

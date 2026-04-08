@@ -6,8 +6,8 @@ that batches same-model calls and respects GPU memory constraints.
 RTX 5080 16GB VRAM constraints:
 - nomic-embed-text (137MB) -- ALWAYS co-resident, bypasses queue
 - gemma4:e4b (9.6GB) -- light tasks, medium priority
-- nexus 26B (15GB) -- heavy analysis, low priority
-- deepseek-r1 14B (8.5GB) -- reasoning, medium-low priority
+- gemma-4-26B-A4B heretic (MoE, 4B active) -- reasoning + deep analysis + vision deep
+- nexus (legacy deepseek-r1 14B) -- kept for backward compat
 - qwen3-vl:8b (5GB) -- vision, medium-low priority
 
 Architecture:
@@ -44,9 +44,9 @@ class VRAMPriority(IntEnum):
     """
     EMBEDDING = 10    # nomic-embed-text -- always co-resident, no queue
     FAST_LLM = 20     # gemma4:e4b -- light model, separate lock
-    VISION = 30       # qwen3-vl:8b -- heavy, queued
-    REASONING = 40    # deepseek-r1 14B -- heavy, queued
-    DEEP = 50         # nexus 26B -- heaviest, queued
+    VISION = 30       # gemma-4-26B-A4B heretic (vision deep) -- heavy, queued
+    REASONING = 40    # gemma-4-26B-A4B heretic (reasoning) -- heavy, queued
+    DEEP = 50         # gemma-4-26B-A4B heretic (deep analysis) -- heaviest, queued
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +58,7 @@ KEEP_ALIVE_MAP: dict[str, str] = {
     "nomic-embed-text": "30m",
     "gemma4:e4b": "10m",
     "aratan/gemma-4-E4B-it-heretic": "10m",
+    "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m": "5m",
     "nexus": "3m",
     "huihui_ai/deepseek-r1-abliterated:14b": "3m",
     "qwen3-vl:8b": "5m",

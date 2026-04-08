@@ -21,8 +21,8 @@ class TestSettingsDefaults:
     def test_model_defaults(self):
         s = Settings()
         assert s.model_fast == "aratan/gemma-4-E4B-it-heretic"
-        assert s.model_reasoning == "nexus"
-        assert s.model_deep == "nexus"
+        assert s.model_reasoning == "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
+        assert s.model_deep == "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
         assert s.model_embedding == "nomic-embed-text"
         assert s.model_audio == "faster-whisper"
 
