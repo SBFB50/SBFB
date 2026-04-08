@@ -1,11 +1,18 @@
 # === NEXUS .gitignore ===
 
-# Data & databases
+# Data & databases (runtime state — never commit)
 data/
 *.db
+*.db-wal
+*.db-shm
 
-# Environment
+# Exception: benchmark data is version-controlled (text only, no secrets)
+!data/benchmark/
+
+# Environment files (use .env.example as reference)
 .env
+.env.local
+robin.env
 
 # Python
 __pycache__/
@@ -16,10 +23,24 @@ dist/
 build/
 *.egg
 
+# Python dev caches
+.mypy_cache/
+.ruff_cache/
+
+# Test / CI artifacts
+.coverage
+htmlcov/
+.deepeval/
+.pytest_cache/
+
 # Virtual environments
 .venv/
 venv/
 env/
+
+# Node.js
+web/node_modules/
+web/.env.local
 
 # IDE
 .idea/
@@ -35,5 +56,5 @@ Thumbs.db
 # Models (large GGUF files)
 models/*.gguf
 
-# Exception: benchmark data (no secrets)
-!data/benchmark/
+# Logs
+*.log
