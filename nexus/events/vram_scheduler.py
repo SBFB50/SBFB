@@ -160,6 +160,14 @@ class VRAMScheduler:
         self._heavy_active: _QueueEntry | None = None
         self._current_heavy_model: str | None = None
 
+        # --- Light/Heavy mutual exclusion ---
+        # Prevents VRAM overflow: E4B (10GB) + 26B (15GB) = 25GB > 16GB VRAM.
+        # Light must wait for heavy to finish and vice-versa.
+        self._heavy_idle = asyncio.Event()
+        self._heavy_idle.set()  # Initially no heavy model active
+        self._light_idle = asyncio.Event()
+        self._light_idle.set()  # Initially no light model active
+
         # Metrics
         self._total_requests: int = 0
         self._total_swaps: int = 0
@@ -234,6 +242,7 @@ class VRAMScheduler:
                 yield
             finally:
                 self._light_lock.release()
+                self._light_idle.set()  # Signal: light model done
             return
 
         # --- Heavy model: priority queue with model affinity ---
@@ -254,13 +263,30 @@ class VRAMScheduler:
     # ------------------------------------------------------------------
 
     async def _acquire_light(self, model: str, label: str) -> None:
-        """Acquire the light model lock, logging contention."""
+        """Acquire the light model lock, waiting for heavy to finish first.
+
+        Light and heavy models cannot coexist in VRAM (E4B 10GB + 26B 15GB
+        = 25GB > 16GB). The light caller must wait until no heavy model is
+        active before acquiring the light lock.
+        """
+        t0 = time.monotonic()
+
+        # Wait for heavy model to finish (mutual exclusion)
+        if not self._heavy_idle.is_set():
+            logger.info(
+                "VRAM light waiting for heavy to finish: {} ({}) | heavy={}",
+                model, label, self._current_heavy_model,
+            )
+            await self._heavy_idle.wait()
+
         if self._light_lock.locked():
             logger.debug(
                 "VRAM light lock contention: {} ({}) waiting", model, label,
             )
-        t0 = time.monotonic()
+
         await self._light_lock.acquire()
+        self._light_idle.clear()  # Signal: light model now active
+
         wait = time.monotonic() - t0
         if wait > 1.0:
             logger.info(
@@ -277,9 +303,9 @@ class VRAMScheduler:
         """Add a request to the heavy queue and wait for its turn."""
         async with self._heavy_lock:
             if self._heavy_active is None:
-                # No one active -- run immediately
+                # No one active -- wait for light to finish, then run
                 self._heavy_active = entry
-                self._activate_heavy(entry)
+                await self._wait_light_idle_and_activate(entry)
                 return
             else:
                 # Someone active -- queue up
@@ -303,6 +329,17 @@ class VRAMScheduler:
                 entry.model, entry.label, wait,
             )
 
+    async def _wait_light_idle_and_activate(self, entry: _QueueEntry) -> None:
+        """Wait for light model to finish, then activate heavy model."""
+        if not self._light_idle.is_set():
+            logger.info(
+                "VRAM heavy waiting for light to finish: {} ({}) | light_lock={}",
+                entry.model, entry.label, self._light_lock.locked(),
+            )
+            await self._light_idle.wait()
+        self._heavy_idle.clear()  # Signal: heavy model now active
+        self._activate_heavy(entry)
+
     def _release_heavy(self, entry: _QueueEntry) -> None:
         """Release the heavy slot and promote the next queued request.
 
@@ -320,6 +357,7 @@ class VRAMScheduler:
         async with self._heavy_lock:
             if not self._heavy_queue:
                 self._heavy_active = None
+                self._heavy_idle.set()  # Signal: heavy slot is free
                 logger.debug(
                     "VRAM heavy slot freed: {} ({}) | no pending requests",
                     finished.model, finished.label,
@@ -328,10 +366,11 @@ class VRAMScheduler:
 
             # Model affinity: find next request wanting the SAME model
             next_entry = self._pick_next_with_affinity(finished.model)
-
             self._heavy_active = next_entry
-            self._activate_heavy(next_entry)
-            next_entry.ready.set()
+
+        # Wait for light outside the lock (light must finish before heavy starts)
+        await self._wait_light_idle_and_activate(next_entry)
+        next_entry.ready.set()
 
     def _pick_next_with_affinity(self, current_model: str) -> _QueueEntry:
         """Pick the next entry from the queue, preferring same-model requests.
