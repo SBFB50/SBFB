@@ -43,6 +43,9 @@ class Neo4jSyncWorker(ReactiveWorker):
             logger.debug("Neo4jSync: no Neo4j client, skipping")
             return []
 
+        # Neo4j sync is idempotent by design: all Cypher queries use MERGE
+        # (not CREATE), so re-syncing the same data is a safe no-op.
+        # No additional idempotency guard needed.
         if event.event_type == EventType.ENTITY_DISCOVERED:
             return await self._sync_entity(event)
         elif event.event_type == EventType.EVIDENCE_PROCESSED:

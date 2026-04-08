@@ -5,7 +5,10 @@ The EventBus is the backbone of the reactive architecture:
 - Publish/subscribe via asyncio.Queue per subscriber
 - Every event persisted to the ``event_log`` table before fan-out
 - Circuit breaker: max events per type per minute to prevent storms
-- Replay: unprocessed events re-delivered on startup
+  Events are always persisted BEFORE the circuit breaker check so that
+  rate-limited events are preserved (status='rate_limited') and can be
+  replayed on restart instead of being permanently lost.
+- Replay: unprocessed and rate-limited events re-delivered on startup
 """
 
 from __future__ import annotations
@@ -157,27 +160,35 @@ class EventBus:
 
         Returns ``True`` if the event was accepted, ``False`` if the
         circuit breaker tripped (rate limit exceeded).
+
+        Events are **always** persisted to SQLite before the circuit
+        breaker is checked.  Rate-limited events are marked
+        ``'rate_limited'`` so they can be replayed on restart instead
+        of being lost permanently.
         """
         if not self._running:
             logger.warning("EventBus not running -- dropping %s", event.event_type.value)
             self._events_dropped += 1
             return False
 
-        # Circuit breaker check
+        # 1. Persist FIRST -- the event is never lost from this point
+        await self._persist(event)
+
+        # 2. Circuit breaker check (after persistence)
         if self._is_rate_limited(event.event_type):
             logger.warning(
-                "Circuit breaker tripped for %s (%d events in last %ds)",
+                "Circuit breaker tripped for %s (%d events in last %ds) "
+                "-- event %s persisted as 'rate_limited'",
                 event.event_type.value,
                 _CIRCUIT_BREAKER_MAX,
                 int(_CIRCUIT_BREAKER_WINDOW),
+                event.event_id,
             )
+            await self._update_event_status(event.event_id, "rate_limited")
             self._events_dropped += 1
             return False
 
-        # Persist
-        await self._persist(event)
-
-        # Fan-out
+        # 3. Fan-out to subscribers
         await self._fan_out(event)
 
         self._events_published += 1
@@ -250,22 +261,33 @@ class EventBus:
             )
             await db.commit()
 
+    async def _update_event_status(self, event_id: str, status: str) -> None:
+        """Update the status of a persisted event (e.g. 'rate_limited')."""
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "UPDATE event_log SET status = ? WHERE id = ?",
+                (status, event_id),
+            )
+            await db.commit()
+
     # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------
 
     async def _cleanup_event_log(self) -> None:
-        """Delete old processed events to prevent unbounded table growth.
+        """Delete old processed/rate_limited events to prevent unbounded growth.
 
-        Keeps pending/failed events (needed for replay) and recent
-        processed events (last 7 days, useful for debugging).
+        Keeps pending events (needed for replay) and recent
+        processed/rate_limited events (last 7 days, useful for debugging).
+        Old rate_limited events beyond 7 days are cleaned up because they
+        would have been replayed on startup already.
         """
         cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         async with aiosqlite.connect(self._db_path) as db:
             cursor = await db.execute(
                 """
                 DELETE FROM event_log
-                 WHERE status = 'processed'
+                 WHERE status IN ('processed', 'rate_limited')
                    AND created_at < ?
                 """,
                 (cutoff,),
@@ -273,15 +295,15 @@ class EventBus:
             deleted = cursor.rowcount
             await db.commit()
         if deleted:
-            logger.info("Event log cleanup: deleted %d old processed events", deleted)
+            logger.info("Event log cleanup: deleted %d old processed/rate_limited events", deleted)
 
     # ------------------------------------------------------------------
     # Replay
     # ------------------------------------------------------------------
 
     async def _replay_pending(self) -> None:
-        """Re-deliver unprocessed events from previous runs."""
-        # Prune old processed events before replaying
+        """Re-deliver unprocessed and rate-limited events from previous runs."""
+        # Prune old processed/rate_limited events before replaying
         await self._cleanup_event_log()
 
         total_replayed = 0
@@ -292,7 +314,7 @@ class EventBus:
                 SELECT id, event_type, case_id, payload,
                        source_worker, parent_event_id, created_at
                   FROM event_log
-                 WHERE status = 'pending'
+                 WHERE status IN ('pending', 'rate_limited')
                  ORDER BY created_at ASC
                  LIMIT ?
                 """,

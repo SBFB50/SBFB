@@ -6,12 +6,14 @@ Upload files (multipart), submit text evidence, list/get/update/delete.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
+from loguru import logger
 from pydantic import BaseModel
 from typing import Optional
 
 from nexus.db.models import Evidence, EvidenceUpdate
 from nexus.db.sqlite_db import Database
+from nexus.events.types import EventType, NexusEvent
 
 from nexus.api.deps import get_database, get_evidence_processor, paginated_response
 
@@ -29,6 +31,69 @@ class TextEvidenceInput(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Helper: notify reactive workers after synchronous processing
+# ------------------------------------------------------------------
+
+async def _notify_reactive_workers(
+    request: Request,
+    case_id: str,
+    evidence: Evidence,
+) -> None:
+    """Publish events to the EventBus so downstream workers react to new evidence.
+
+    EvidenceProcessor already handles entity extraction, summarisation,
+    chunking, embeddings, and Neo4j sync.  We emit:
+      - EVIDENCE_ADDED     -> ForensicRouterWorker (image/audio routing)
+      - EVIDENCE_PROCESSED -> ContradictionWorker, TimelineWorker, WikiCompilerWorker
+      - EVIDENCE_CHUNKED   -> AnalysisPipelineWorker, HypothesisWorker
+    """
+    inv_mgr = getattr(request.app.state, "investigation_manager", None)
+    if inv_mgr is None:
+        return
+
+    bus = inv_mgr.get_event_bus(case_id)
+    if bus is None:
+        return
+
+    base_payload = {
+        "evidence_id": evidence.id,
+        "title": evidence.title,
+        "evidence_type": evidence.evidence_type,
+        "source": "user_upload",
+    }
+
+    try:
+        await bus.publish(NexusEvent(
+            event_type=EventType.EVIDENCE_ADDED,
+            case_id=case_id,
+            payload=base_payload,
+            source_worker="api.evidence",
+        ))
+        await bus.publish(NexusEvent(
+            event_type=EventType.EVIDENCE_PROCESSED,
+            case_id=case_id,
+            payload=base_payload,
+            source_worker="api.evidence",
+        ))
+        await bus.publish(NexusEvent(
+            event_type=EventType.EVIDENCE_CHUNKED,
+            case_id=case_id,
+            payload={**base_payload, "chunk_count": -1},
+            source_worker="api.evidence",
+        ))
+        logger.info(
+            "Evidence upload: published EVIDENCE_ADDED/PROCESSED/CHUNKED "
+            "for {} ({}) on case {}",
+            evidence.id[:8], evidence.title[:40], case_id[:8],
+        )
+    except Exception as exc:
+        logger.warning(
+            "Evidence upload: failed to publish events for {}: {}",
+            evidence.id[:8], exc,
+        )
+
+
+# ------------------------------------------------------------------
 # POST /api/cases/{case_id}/evidence  (file upload)
 # ------------------------------------------------------------------
 
@@ -39,6 +104,7 @@ class TextEvidenceInput(BaseModel):
 )
 async def upload_evidence(
     case_id: str,
+    request: Request,
     file: UploadFile = File(...),
     title: str = Form(...),
     source: str | None = Form(default=None),
@@ -48,15 +114,18 @@ async def upload_evidence(
     """Upload a file as evidence (multipart/form-data).
 
     The EvidenceProcessor handles file storage, text extraction,
-    and initial processing.
+    and initial processing.  After processing completes, events are
+    published to the EventBus to trigger downstream reactive workers.
     """
-    return await processor.process_upload(
+    evidence = await processor.process_upload(
         case_id=case_id,
         file=file,
         title=title,
         source=source,
         evidence_type=evidence_type,
     )
+    await _notify_reactive_workers(request, case_id, evidence)
+    return evidence
 
 
 # ------------------------------------------------------------------
@@ -70,16 +139,19 @@ async def upload_evidence(
 )
 async def submit_text_evidence(
     case_id: str,
+    request: Request,
     body: TextEvidenceInput,
     processor=Depends(get_evidence_processor),
 ) -> Evidence:
     """Submit text evidence (copy-pasted notes, transcripts, etc.)."""
-    return await processor.process_text_input(
+    evidence = await processor.process_text_input(
         case_id=case_id,
         title=body.title,
         text=body.text,
         source=body.source,
     )
+    await _notify_reactive_workers(request, case_id, evidence)
+    return evidence
 
 
 # ------------------------------------------------------------------

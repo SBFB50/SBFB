@@ -169,21 +169,18 @@ async def inject_wave(
     return {"status": "injecting", "wave": wave}
 
 
-def _get_event_bus(app_state: dict) -> Any | None:
-    """Try to get the EventBus from the investigation manager.
+def _get_event_bus(app_state: dict, case_id: str | None = None) -> Any | None:
+    """Get the EventBus for a case from the investigation manager.
 
-    Returns the bus if the manager has one (ReactiveInvestigationManager),
-    or None if it's the legacy InvestigationManager or absent.
+    Returns the per-case bus if the manager has one running for *case_id*,
+    or None if no investigation is active (or no manager at all).
     """
     inv_manager = app_state.get("investigation_manager")
     if inv_manager is None:
         return None
-    # ReactiveInvestigationManager exposes .event_bus
-    bus = getattr(inv_manager, "event_bus", None)
-    if bus is not None:
-        return bus
-    # Also check ._bus (internal attribute)
-    return getattr(inv_manager, "_bus", None)
+    if case_id is not None and hasattr(inv_manager, "get_event_bus"):
+        return inv_manager.get_event_bus(case_id)
+    return None
 
 
 async def _publish_evidence_added(
@@ -196,7 +193,7 @@ async def _publish_evidence_added(
 
     Returns True if published, False if no bus available.
     """
-    bus = _get_event_bus(app_state)
+    bus = _get_event_bus(app_state, case_id)
     if bus is None:
         return False
 

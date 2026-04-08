@@ -28,10 +28,19 @@ class EntityExtractorWorker(ReactiveWorker):
     def __init__(self, bus: EventBus, db: Any) -> None:
         super().__init__(bus)
         self._db = db
+        self._processed_evidence: set[str] = set()
 
     async def handle(self, event: NexusEvent) -> list[NexusEvent]:
         evidence_id = event.payload.get("evidence_id")
         if not evidence_id:
+            return []
+
+        # Idempotency guard: skip if we already emitted events for this evidence
+        if evidence_id in self._processed_evidence:
+            logger.debug(
+                "Entities already extracted for evidence %s, skipping",
+                evidence_id,
+            )
             return []
 
         # Read mentions created by EvidenceProcessor
@@ -70,6 +79,8 @@ class EntityExtractorWorker(ReactiveWorker):
                 source_worker=self.name,
                 parent_event_id=event.event_id,
             ))
+
+        self._processed_evidence.add(evidence_id)
 
         logger.info(
             "EntityExtractor: emitted %d ENTITY_DISCOVERED for evidence %s",

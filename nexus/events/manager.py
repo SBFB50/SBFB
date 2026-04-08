@@ -223,6 +223,13 @@ class ReactiveInvestigationManager:
             },
         }
 
+    def get_event_bus(self, case_id: str) -> EventBus | None:
+        """Return the EventBus for a running investigation, or None."""
+        ctx = self._cases.get(case_id)
+        if ctx is None:
+            return None
+        return ctx.bus
+
     def get_investigation_status(self, case_id: str) -> dict[str, Any] | None:
         """Return detailed status for a specific case.
 

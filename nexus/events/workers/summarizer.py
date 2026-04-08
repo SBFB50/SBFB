@@ -28,10 +28,19 @@ class SummarizerWorker(ReactiveWorker):
     def __init__(self, bus: EventBus, db: Any) -> None:
         super().__init__(bus)
         self._db = db
+        self._processed_evidence: set[str] = set()
 
     async def handle(self, event: NexusEvent) -> list[NexusEvent]:
         evidence_id = event.payload.get("evidence_id")
         if not evidence_id:
+            return []
+
+        # Idempotency guard: skip if we already emitted EVIDENCE_PROCESSED for this evidence
+        if evidence_id in self._processed_evidence:
+            logger.debug(
+                "Summary already exists for evidence %s, skipping",
+                evidence_id,
+            )
             return []
 
         evidence = await self._db.get_evidence(evidence_id)
@@ -48,6 +57,8 @@ class SummarizerWorker(ReactiveWorker):
                 evidence_id, status,
             )
             return []
+
+        self._processed_evidence.add(evidence_id)
 
         logger.info(
             "Summarizer: evidence %s processed (summary=%d chars)",
