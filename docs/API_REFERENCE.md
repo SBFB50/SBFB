@@ -1,4 +1,4 @@
-# NEXUS -- Reference API (115+ endpoints)
+# NEXUS -- Reference API (133+ endpoints)
 
 **Version :** 0.2.0
 **Date :** 2026-04-06
@@ -29,6 +29,7 @@
 19. [Audit](#19-audit)
 20. [Benchmark](#20-benchmark)
 21. [Suspects](#21-suspects)
+22. [Server-Sent Events (SSE)](#22-server-sent-events-sse)
 
 ---
 
@@ -409,8 +410,8 @@
 | Methode | Endpoint | Description |
 |---------|----------|-------------|
 | GET | `/api/investigations` | Lister les investigations actives |
-| POST | `/api/cases/{case_id}/investigation/start` | Demarrer la boucle autonome |
-| POST | `/api/cases/{case_id}/investigation/stop` | Arreter la boucle autonome |
+| POST | `/api/cases/{case_id}/investigation/start` | Demarrer l'investigation reactive |
+| POST | `/api/cases/{case_id}/investigation/stop` | Arreter l'investigation reactive |
 | GET | `/api/cases/{case_id}/investigation/status` | Statut detaille (cycle, outils, derniere action) |
 | GET | `/api/cases/{case_id}/investigation/log` | Journal de l'investigation |
 
@@ -491,6 +492,20 @@
 
 ---
 
+## 22. Server-Sent Events (SSE)
+
+**Fichier :** `nexus/api/events.py`
+**Prefix :** `/api`
+
+| Methode | Endpoint | Description |
+|---------|----------|-------------|
+| GET | `/api/cases/{case_id}/events` | SSE stream pour les evenements d'une investigation |
+| GET | `/api/system/events` | SSE stream pour les evenements systeme globaux |
+
+Les endpoints SSE utilisent le standard `text/event-stream`. Le client recoit les evenements en temps reel (evidence_added, entity_discovered, analysis_completed, hypothesis_scored, etc.) pour mettre a jour l'UI sans polling.
+
+---
+
 ## Notes techniques
 
 ### Authentification
@@ -503,7 +518,7 @@ Les endpoints retournant HTTP 202 executent des taches lourdes en `BackgroundTas
 
 ### Serialisation VRAM
 
-Les operations utilisant des modeles lourds (26B, 14B) sont serialisees via `asyncio.Lock`. Les appels simultanees a ces endpoints seront mis en file d'attente.
+Les operations utilisant le modele lourd (gemma-4-26B-A4B) sont serialisees via le VRAMScheduler (priority queue + model affinity). Les appels simultanees a ces endpoints seront mis en file d'attente.
 
 ### Pagination
 

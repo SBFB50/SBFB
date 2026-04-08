@@ -14,7 +14,7 @@
 4. [Couche de stockage](#4-couche-de-stockage)
 5. [Routage LLM et gestion VRAM](#5-routage-llm-et-gestion-vram)
 6. [Retriever hybride 4 sources](#6-retriever-hybride-4-sources)
-7. [Boucle autonome OODA](#7-boucle-autonome-ooda)
+7. [Architecture event-driven reactive](#7-architecture-event-driven-reactive)
 8. [Scoring des suspects](#8-scoring-des-suspects)
 9. [Frontend React](#9-frontend-react)
 
@@ -150,7 +150,7 @@ Fichier/Texte
    + ChromaDB entity_contexts
      |
      v
-6. Resume LLM (gemma4:e4b)
+6. Resume LLM (gemma-4-26B-A4B)
      |
      v
 7. UPDATE status='processed'
@@ -236,7 +236,7 @@ Expose dans le retriever hybride (poids 0.15) et les endpoints `/fts` et `/hybri
 
 **Methodes principales** : sync_entity, sync_evidence, link_evidence_to_entity, get_neighbors, find_shortest_path, get_central_entities, get_entity_importance, detect_communities, get_temporal_graph, get_evidence_matrix
 
-**Synchronisation** : Depuis SQLite via `MERGE` (idempotent). Resync periodique tous les 3 cycles OODA.
+**Synchronisation** : Depuis SQLite via `MERGE` (idempotent). Sync reactive via `entity_discovered` events.
 
 ### 4.3 ChromaDB (7 collections vectorielles)
 
@@ -338,7 +338,7 @@ composite = semantic * 0.50 + graph * 0.25 + fts * 0.15 + recency * 0.10
 
 - **Backend** : Neo4j traversal
 - **Processus** :
-  1. Extraction d'entites de la query (match DB ou LLM gemma4:e4b)
+  1. Extraction d'entites de la query (match DB ou LLM gemma-4-26B-A4B)
   2. Match des noms sur les noeuds Neo4j (exact + partiel)
   3. Traversal 1-2 hops pour trouver les noeuds Evidence
   4. Chargement du texte depuis SQLite
@@ -366,69 +366,98 @@ composite = semantic * 0.50 + graph * 0.25 + fts * 0.15 + recency * 0.10
 
 ---
 
-## 7. Boucle autonome OODA
+## 7. Architecture event-driven reactive
 
-### Fichier : `nexus/core/autonomous_loop.py` (1600+ lignes)
+### Fichiers : `nexus/events/` (bus.py, worker.py, manager.py, vram_scheduler.py, monitoring_loop.py, timer.py)
 
-La boucle tourne en continu pour chaque case active, geree par `InvestigationManager` (`nexus/core/investigation_manager.py`).
+L'ancienne boucle OODA monolithique (`autonomous_loop.py`) a ete remplacee par une architecture event-driven reactive. Chaque outil reagit immediatement aux changements via des evenements, sans cycles fixes.
 
-### 5 phases, 18 sous-etapes
+### EventBus pub/sub
+
+Le `EventBus` (`nexus/events/bus.py`) est le coeur du systeme :
+- Publication d'evenements typos (20 `EventType` dans `nexus/events/types.py`)
+- Souscription par les workers via pattern matching sur le type d'evenement
+- Persistance SQLite dans `event_log` pour replay et audit
+- Circuit breaker integre pour isoler les workers defaillants
+
+### 20 ReactiveWorkers (4 categories)
 
 ```
-OBSERVE (Phase 1)
-  1a. Filtrer monitoring_results non-reviewed + relevance >= seuil
+INGEST (ingestion)
+  - EvidenceIngestWorker : monitoring_result -> evidence_added
+  - EntityExtractorWorker : evidence_added -> entity_discovered
+  - SummarizerWorker : evidence_added -> evidence_processed
 
-ORIENT (Phase 2)
-  2a. Auto-ingestion des resultats monitoring -> EvidenceProcessor
-  2b. Re-sync Neo4j periodique (tous les 3 cycles)
-  2c. OSINT recon (holehe email + social username)
-  2d. Geocodage des entites location (Nominatim)
-  2e. Analyse VLM des images non-traitees (qwen3-vl)
-  2f. Indexation DINOv2/CLIP des images
+ENRICH (enrichissement)
+  - ChunkerEmbedWorker : evidence_processed -> embeddings indexes
+  - Neo4jSyncWorker : entity_discovered -> graphe mis a jour
+  - GeoMapperWorker : entity_discovered -> locations geocodees
+  - OSINTReconWorker : entity_discovered -> monitoring jobs
+  - QueryGeneratorWorker : entity_discovered -> queries de recherche
+  - ImageAnalyzerWorker : evidence_added (image) -> description + entites
 
-DECIDE (Phase 3)
-  3a. Analyse incrementale des nouvelles preuves (AnalysisPipeline)
-  3b. Generation/evaluation des hypotheses (HypothesisEngine)
-  3c. Detection des contradictions (ContradictionDetector -> deepseek-r1)
-  3d. Scoring des suspects (SuspectScorer, 5 facteurs)
-  3e. Analyse forensique (BPA sang + traces + acoustique)
-  3f. Reconstruction chronologique (TimelineBuilder)
-  3g. Reconstruction arbre RAPTOR (tous les 3 cycles)
+ANALYZE (analyse)
+  - AnalysisPipelineWorker : evidence_processed -> analysis_completed
+  - ContradictionWorker : evidence_processed -> contradictions detectees
+  - HypothesisWorker : analysis_completed -> hypothesis_scored
+  - SuspectScorerWorker : hypothesis_scored -> suspects scores
 
-ACT (Phase 4)
-  4a. Generation adaptative de queries de recherche (LLM)
-  4b. Enrichissement OSINT (jobs monitoring depuis recon)
-  4c. Domain recon WHOIS/DNS (emails non-freemail)
-
-QUESTION (Phase 5)
-  5a. Auto-questionnement adversarial (challenge hypothese top)
-  5b. Generation de rapports periodiques
-  5c. Backups automatises
+SCORE (evaluation)
+  - TimelineWorker, ForensicsWorker, RAPTORWorker, etc.
 ```
+
+### Flux d'evenements
+
+```
+evidence_added -> EntityExtractor + Summarizer (parallel)
+  -> entity_discovered -> Neo4j + GeoMapper + OSINT Recon + QueryGenerator
+  -> evidence_processed -> ChunkerEmbed + ContradictionDetector + AnalysisPipeline
+  -> analysis_completed -> HypothesisWorker -> hypothesis_scored -> SuspectScorer
+  -> monitoring_result -> EvidenceIngestWorker -> evidence_added (BOUCLE)
+```
+
+### MonitoringLoop
+
+Le `MonitoringLoop` (`nexus/events/monitoring_loop.py`) remplace APScheduler :
+- Sweep continu toutes les 30 secondes
+- Execute les jobs de surveillance (SearXNG, Robin, Wayback) pour chaque case active
+- Publie `monitoring_result` dans l'EventBus
+
+### VRAMScheduler
+
+Le `VRAMScheduler` (`nexus/events/vram_scheduler.py`) orchestre l'acces GPU :
+- Embedding bypass : `nomic-embed-text` passe sans lock (137MB, coexiste)
+- Light lock + Heavy lock : exclusion mutuelle pour eviter le swap GPU
+- Priority queue : les taches lourdes sont priorisees
+- Model affinity batching : regroupe les taches consecutives du meme modele
+
+### Server-Sent Events (SSE)
+
+Deux endpoints SSE permettent au frontend de recevoir les evenements en temps reel :
+- `GET /api/cases/{case_id}/events` : evenements d'une investigation specifique
+- `GET /api/system/events` : evenements systeme globaux
 
 ### Cycle de vie
 
 ```
-InvestigationManager.start_investigation(case_id)
+ReactiveInvestigationManager.start_investigation(case_id)
     |
     v
-AutonomousInvestigator(case_id, router, chroma, neo4j)
+EventBus.publish(investigation_started, case_id)
     |
     v
-while running:
-    async with get_db() as conn:
-        OBSERVE -> ORIENT -> DECIDE -> ACT -> QUESTION
-    sleep(investigation_cycle_minutes * 60)
+20 ReactiveWorkers ecoutent et reagissent aux evenements
+MonitoringLoop sweep toutes les 30s
     |
     v
-InvestigationManager.stop_investigation(case_id)
+ReactiveInvestigationManager.stop_investigation(case_id)
 ```
 
-**Resilience** : Chaque sous-etape est wrappee dans try/except. Un echec ne bloque pas le cycle. Apres une erreur de cycle, wait 5 minutes avant retry.
+**Resilience** : Chaque worker est isole par un circuit breaker. Un echec d'un worker n'affecte pas les autres. Les evenements non traites sont persistes dans SQLite pour replay.
 
-**Audit** : Chaque action est loguee via `AuditService` dans les 3 couches (SQLite hash chain, JSONL, Git).
+**Audit** : Chaque evenement est persiste dans `event_log` (SQLite) avec timestamp et metadata.
 
-**Tracking UI** : `_track_tool()` met a jour un dict `_tool_status` consulte par l'endpoint `/investigation/status`.
+**Tracking UI** : `PipelineTools.tsx` affiche le statut en temps reel des 20 workers (INGEST/ENRICH/ANALYZE/SCORE) via SSE.
 
 ---
 
@@ -481,7 +510,7 @@ Chaque scoring cree un `suspect_snapshot` pour suivre l'evolution temporelle. Le
 | Hypotheses | `/hypotheses` | Hypotheses, scores, evolution graphique |
 | Graph | `/graph` | Graphe Neo4j interactif (noeuds + aretes) |
 | Timeline | `/timeline` | Chronologie des evenements |
-| Investigation | `/investigation` | Controle boucle autonome, statut des 13 outils |
+| Investigation | `/investigation` | Controle investigation, statut des 20 workers reactifs |
 | Benchmark | `/benchmark` | Lancement et suivi des benchmarks |
 | Suspects | `/suspects` | Classement, 5 facteurs, evolution |
 
@@ -502,7 +531,11 @@ Chaque scoring cree un `suspect_snapshot` pour suivre l'evolution temporelle. Le
 |--------|---------|
 | Backend entrypoint | `nexus/main.py` |
 | Configuration | `nexus/config.py` |
-| Boucle autonome | `nexus/core/autonomous_loop.py` |
+| Event manager | `nexus/events/manager.py` |
+| EventBus | `nexus/events/bus.py` |
+| ReactiveWorker ABC | `nexus/events/worker.py` |
+| VRAMScheduler | `nexus/events/vram_scheduler.py` |
+| MonitoringLoop | `nexus/events/monitoring_loop.py` |
 | Evidence processor | `nexus/core/evidence_processor.py` |
 | Entity extractor | `nexus/core/entity_extractor.py` |
 | Hypothesis engine | `nexus/core/hypothesis_engine.py` |

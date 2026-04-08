@@ -209,7 +209,7 @@ Avant de lancer un benchmark, verifier :
 
 1. **Ollama** : tous les modeles charges
    ```bash
-   ollama list  # Doit montrer: nexus, deepseek-r1, gemma4:e4b, nomic-embed-text
+   ollama list  # Doit montrer: juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m, nomic-embed-text
    ```
 
 2. **Docker** : Neo4j et ChromaDB en cours
@@ -250,21 +250,21 @@ Etape 2 : Injection des preuves (toutes les vagues, sequentiellement)
 Etape 3 : Analyse complete (AnalysisPipeline.run_full_analysis)
     |       - Resume des preuves non-resumees
     |       - Contexte RAG
-    |       - Analyse profonde (nexus 26B)
+    |       - Analyse profonde (gemma-4-26B-A4B)
     |       - Re-scoring hypotheses
-    |       - Verification logique (deepseek-r1)
+    |       - Verification logique (gemma-4-26B-A4B)
     |
     v
 Etape 4 : Generation d'hypotheses (HypothesisEngine.generate_hypotheses)
     |       - Contexte RAG
-    |       - nexus 26B genere 3-6 hypotheses
+    |       - gemma-4-26B-A4B genere 3-6 hypotheses
     |       - Scoring initial
     |       - Snapshots
     |
     v
 Etape 5 : Detection des contradictions (ContradictionDetector)
     |       - Paires d'evidence par entites communes
-    |       - deepseek-r1 analyse chaque paire
+    |       - gemma-4-26B-A4B analyse chaque paire
     |       - Deduplication
     |
     v
@@ -279,10 +279,10 @@ Etape 7 : Synchronisation Neo4j (final pass)
     |       - Liens evidence <-> entity via mentions
     |
     v
-Etape 8 : Demarrage boucle autonome (via InvestigationManager)
-          - La boucle OODA continue a tourner
-          - Le monitoring cherche de nouvelles informations
-          - Les hypotheses sont re-evaluees periodiquement
+Etape 8 : Demarrage investigation reactive (via ReactiveInvestigationManager)
+          - Les 20 workers reactifs ecoutent les evenements
+          - Le MonitoringLoop cherche de nouvelles informations (30s sweep)
+          - Les hypotheses sont re-evaluees a chaque analysis_completed
 ```
 
 **Serialisation VRAM :** Chaque etape utilise le `_INJECT_LOCK` global + le `_heavy_lock` du LLMRouter pour eviter la saturation GPU. Un seul modele lourd en VRAM a la fois.
@@ -306,7 +306,7 @@ Apres le benchmark, consulter :
 | **Suspects** | Classement des suspects avec breakdown 5 facteurs |
 | **Graph** | Graphe de connaissances -- verifier les connexions |
 | **Timeline** | Chronologie des evenements |
-| **Investigation** | Statut de la boucle autonome, outils actifs/en erreur |
+| **Investigation** | Statut des 20 workers reactifs, outils actifs/en erreur |
 
 ### Via l'API
 
@@ -339,7 +339,7 @@ curl http://localhost:8000/api/cases/{id}/graph | jq '.nodes | length, .edges | 
 | Hypotheses absentes | Pas assez de preuves processed | Attendre la fin de l'injection des 4 vagues |
 | Contradictions nulles | Pas assez de paires d'evidence avec entites communes | Verifier que l'extraction d'entites a fonctionne |
 | Suspects tous a 0 | Neo4j non connecte ou pas d'entites person | Verifier Docker + Neo4j sync |
-| Neo4j vide | Sync echouee silencieusement | Relancer via `/api/cases/{id}/investigation/start` (resync tous les 3 cycles) |
+| Neo4j vide | Sync echouee silencieusement | Relancer via `/api/cases/{id}/investigation/start` (resync reactive via events) |
 
 ---
 

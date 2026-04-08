@@ -220,7 +220,7 @@ Contrainte : `score` entre 0.0 et 100.0.
 
 ```
 AnalysisRunType = Literal["full", "incremental", "verification", "extraction", "self_questioning"]
-AnalysisTrigger = Literal["manual", "new_evidence", "monitoring", "scheduled", "autonomous_loop"]
+AnalysisTrigger = Literal["manual", "new_evidence", "monitoring", "scheduled", "evaluate_all"]
 AnalysisStatus = Literal["running", "completed", "failed"]
 ```
 
@@ -347,7 +347,7 @@ AuditAction = Literal[
     "case_created", "case_updated"
 ]
 
-AuditActor = Literal["system", "user", "autonomous_loop", "monitoring"]
+AuditActor = Literal["system", "user", "worker", "monitoring"]
 ```
 
 | Modele | Champs | Type | Defaut | Requis |
@@ -1903,7 +1903,7 @@ Definies dans `nexus/api/deps.py`. Chaque requete HTTP obtient ses propres insta
 **Background :** Non
 
 #### GET /api/cases/{case_id}/investigation/log
-**Description :** Journal des actions autonomes pour un dossier. Filtre les analysis_runs avec `trigger='autonomous_loop'` ou `run_type='self_questioning'`.
+**Description :** Journal des actions pour un dossier. Filtre les analysis_runs avec `trigger='evaluate_all'` ou `run_type='self_questioning'`.
 **Path params :** `case_id` (str)
 **Query params :**
 | Param | Type | Requis | Defaut |

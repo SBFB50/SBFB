@@ -4,9 +4,9 @@
 Systeme d'investigation AUTONOME et PERSISTANT pour cold cases. Pas un chatbot — un investigateur qui tourne 24/7, cherche, raisonne, et converge vers la verite.
 
 ## Architecture (v2 — Event-Driven Reactive)
-- **Backend**: FastAPI (port 8000) — 131 endpoints REST
-- **Event System**: EventBus pub/sub + 20 ReactiveWorkers + VRAMScheduler
-- **Frontend React**: Vite + TypeScript + Tailwind (port 3002) — 9 pages, dark theme pro
+- **Backend**: FastAPI (port 8000) — 133 endpoints REST + 2 SSE
+- **Event System**: EventBus pub/sub + 20 ReactiveWorkers + VRAMScheduler + SSE bridge
+- **Frontend React**: Vite + TypeScript + Tailwind (port 3002) — 12 pages, dark theme pro
 - **LLMs**: Ollama (port 11434)
   - `juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m` (MoE 26B, 4B actifs) — ALL tasks: resume, analyse, hypotheses ACH, contradictions, vision, filtering (single model, zero swap VRAM)
   - `nomic-embed-text` — embeddings vectoriels RAG (137MB, coexiste via bypass)
@@ -26,8 +26,8 @@ Systeme d'investigation AUTONOME et PERSISTANT pour cold cases. Pas un chatbot �
 ## Structure du code (~32K lignes)
 ```
 nexus/
-  api/                    # 22 routers FastAPI
-  core/                   # Logique metier (legacy OODA loop preserved)
+  api/                    # 24 routers FastAPI (incl. SSE)
+  core/                   # Logique metier
     evidence_processor.py # Ingestion: parse -> GLiNER -> resume -> chunk -> embed -> Neo4j
     analysis_pipeline.py  # Pipeline multi-modeles (RAG-powered)
     hypothesis_engine.py  # Generation + scoring + snapshots + Neo4j sync
@@ -65,7 +65,7 @@ web/                      # Frontend React
     PipelineTools.tsx      # 20 workers real-time status (INGEST/ENRICH/ANALYZE/SCORE)
     InvestigationMap.tsx   # Leaflet dark tiles + geocoded locations
     Toast.tsx              # Notification system
-tests/                    # 261 tests (pytest)
+tests/                    # 367 tests (pytest)
 data/benchmark/           # 5 cold cases
 docs/                     # ARCHITECTURE.md, PIPELINE.md, TOOLS_MATRIX.md, API_REFERENCE.md, BENCHMARK.md
 ```
@@ -90,10 +90,9 @@ evidence_added -> EntityExtractor + Summarizer (parallel)
 - Recency x 0.10
 
 ## Problemes connus
-1. **Hypotheses generation vide** — generate_hypotheses retourne [] quand le contexte RAG est insuffisant (chunks pas encore indexes au moment de l'appel)
-2. **Timeline vide** — dates extraites pas parsees en datetime
-3. **RAPTOR case summary desactive** — deferred pour eviter nexus 26B a chaque evidence
-4. **before: filter SearXNG unreliable** — Google before: operator still in beta, htmldate can't detect dates on Wikipedia
+1. **RAPTOR case summary desactive** — deferred pour eviter LLM 26B a chaque evidence
+2. **before: filter SearXNG unreliable** — Google before: operator still in beta, htmldate can't detect dates on Wikipedia
+3. **ImageSearch thumbnails** — frontend placeholder icons (needs file serving endpoint for actual images)
 
 ## Benchmarking
 5 cold cases:
@@ -120,9 +119,6 @@ docker compose up -d
 
 # Tests
 python -m pytest tests/ -v
-
-# Recreer le modele nexus
-ollama create nexus -f Modelfile
 
 # Ollama optimisation
 set OLLAMA_FLASH_ATTENTION=1

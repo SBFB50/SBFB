@@ -28,7 +28,7 @@ L'ingestion transforme un fichier brut ou un texte en une preuve completement in
 | `EvidenceProcessor.process_upload()` | Upload via API `/api/cases/{id}/evidence/upload` | `evidence_processor.py:89` |
 | `EvidenceProcessor.process_text_input()` | Saisie texte via API `/api/cases/{id}/evidence/text` | `evidence_processor.py:279` |
 | `_inject_wave()` | Benchmark automatise | `api/benchmark.py:108` |
-| `_orient_ingest()` | Boucle autonome (auto-ingestion monitoring) | `autonomous_loop.py:348` |
+| `EvidenceIngestWorker.handle()` | Event-driven (auto-ingestion monitoring) | `events/workers/evidence_ingest.py` |
 
 ### Statuts de progression
 
@@ -124,7 +124,7 @@ raw_text
      Modele: urchade/gliner_multi-v2.1
     |
     v
-[5b] Fallback LLM (gemma4:e4b) si GLiNER indisponible
+[5b] Fallback LLM (gemma-4-26B-A4B) si GLiNER indisponible
     |
     v
 [5c] Deduplication RapidFuzz (Jaro-Winkler, seuil 82%)
@@ -171,7 +171,7 @@ prompt = EVIDENCE_SUMMARY_PROMPT.format(evidence=truncated)
 summary = await self._router.route(TaskType.EVIDENCE_SUMMARY, prompt)
 ```
 
-**Modele :** gemma4:e4b (rapide, ~80 tok/s)
+**Modele :** gemma-4-26B-A4B (rapide, ~80 tok/s)
 **Timeout :** 30 secondes
 **Heavy :** Non (pas de lock VRAM)
 
@@ -259,7 +259,7 @@ raw_text
       - Sinon : creation d'un nouveau cluster
       |
       v
-[10d] Regeneration du resume du cluster (gemma4:e4b)
+[10d] Regeneration du resume du cluster (gemma-4-26B-A4B)
       |
       v
 [10e] Mise a jour du resume global du case (si assez de clusters)
@@ -306,15 +306,15 @@ image file
     v
 ImageAnalyzer.process_evidence_image(case_id, evidence_id, path)
     |
-    +---> [A] describe_image() -- gemma4:e4b (rapide)
+    +---> [A] describe_image() -- gemma-4-26B-A4B (rapide)
     |     Prompt: IMAGE_DESCRIPTION_PROMPT
     |     -> raw_text de la preuve
     |
-    +---> [B] extract_entities_from_image() -- gemma4:e4b
+    +---> [B] extract_entities_from_image() -- gemma-4-26B-A4B
     |     Prompt: IMAGE_ENTITY_EXTRACTION_PROMPT
     |     -> creation entites + mentions
     |
-    +---> [C] analyze_scene() -- qwen3-vl:8b (profond)
+    +---> [C] analyze_scene() -- gemma-4-26B-A4B (profond)
     |     Prompt: IMAGE_SCENE_ANALYSIS_PROMPT
     |     -> summary detaille
     |
@@ -430,8 +430,8 @@ Etape 11 (audit) -----------> necessite self._db
 | 2 | compute_file_hash | - |
 | 3 | Database.create_evidence | - |
 | 5 | EntityExtractor (GLiNER), ChromaClient | nomic-embed-text (embedding entites) |
-| 6 | LLMRouter | gemma4:e4b |
-| 8 | Neo4jClient | gemma4:e4b (relations optionnel) |
+| 6 | LLMRouter | gemma-4-26B-A4B |
+| 8 | Neo4jClient | gemma-4-26B-A4B (relations optionnel) |
 | 9 | TextChunker, EmbeddingStore | nomic-embed-text |
-| 10 | SummaryTree | gemma4:e4b + nomic-embed-text |
+| 10 | SummaryTree | gemma-4-26B-A4B + nomic-embed-text |
 | 11 | AuditService | - |

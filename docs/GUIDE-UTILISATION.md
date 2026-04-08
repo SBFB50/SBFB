@@ -401,7 +401,7 @@ Chaque evaluation cree un **snapshot** qui enregistre :
 - Les elements supportant (JSON)
 - Les elements contredisant (JSON)
 - Le raisonnement complet du LLM
-- Ce qui a declenche l'evaluation (manual, new_evidence, autonomous_loop)
+- Ce qui a declenche l'evaluation (manual, new_evidence, evaluate_all, monitoring)
 - Le modele utilise
 
 La page "Hypotheses" affiche un **graphique d'evolution** montrant comment les scores changent au fil du temps.
@@ -825,7 +825,7 @@ NEXUS maintient un journal d'audit **immutable** (chaine de hash) de toutes les 
 
 Le journal est accessible depuis la page **"Centre de commande"** ou la page **"Audit"** :
 - Chaque entree affiche : horodatage, acteur, action, resume
-- Les acteurs possibles : `user`, `system`, `autonomous_loop`, `monitoring`
+- Les acteurs possibles : `user`, `system`, `worker`, `monitoring`
 - Les actions incluent : evidence_added, hypothesis_scored, entity_discovered, contradiction_found, monitoring_result, etc.
 
 ### Filtrage
