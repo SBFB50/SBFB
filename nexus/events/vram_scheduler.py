@@ -56,9 +56,11 @@ class VRAMPriority(IntEnum):
 # Expensive models should free VRAM quickly; cheap ones can stay resident.
 KEEP_ALIVE_MAP: dict[str, str] = {
     "nomic-embed-text": "30m",
+    # Single LLM model — keep loaded permanently (no swap needed)
+    "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m": "30m",
+    # Legacy models (kept for backward compat if overridden via env)
     "gemma4:e4b": "10m",
     "aratan/gemma-4-E4B-it-heretic": "10m",
-    "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m": "5m",
     "nexus": "3m",
     "huihui_ai/deepseek-r1-abliterated:14b": "3m",
     "qwen3-vl:8b": "5m",
@@ -78,11 +80,15 @@ def get_keep_alive(model: str) -> str:
 # Model classification helpers
 # ---------------------------------------------------------------------------
 
-# Models that are small enough to co-reside with the embedding model.
-# They only need mutual exclusion among themselves (light lock).
+# Models that use the light lock (simple serialization, no priority queue).
+# When all LLM models are the same (single-model stack), everything is "light"
+# and stays permanently loaded — zero model swaps, max GPU utilization.
 _LIGHT_MODELS: frozenset[str] = frozenset({
-    settings.model_fast,      # gemma4:e4b
-    settings.model_vision,    # gemma4:e4b (same model, VLM mode)
+    settings.model_fast,
+    settings.model_vision,
+    settings.model_reasoning,
+    settings.model_deep,
+    settings.model_vision_deep,
 })
 
 # The embedding model bypasses all queues.

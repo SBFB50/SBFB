@@ -67,7 +67,7 @@ export function useUnreadCount() {
     queryKey: ['unreadCount', caseId],
     queryFn: () => api.getUnreadCount(caseId!),
     enabled: !!caseId,
-    refetchInterval: 5000,
+    refetchInterval: 30000,  // SSE handles real-time; this is a fallback
   });
 }
 
@@ -86,7 +86,7 @@ export function useInvestigationStatus() {
     queryKey: ['investigationStatus', caseId],
     queryFn: () => api.getInvestigationStatus(caseId!),
     enabled: !!caseId,
-    refetchInterval: 5000,
+    refetchInterval: 30000,  // SSE handles real-time; this is a fallback
   });
 }
 
@@ -175,5 +175,71 @@ export function useEvaluateHypotheses() {
   return useMutation({
     mutationFn: () => api.evaluateHypotheses(caseId!),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hypotheses', caseId] }),
+  });
+}
+
+// -- Wiki --
+
+export function useWikiPages() {
+  const { caseId } = useCaseStore();
+  return useQuery({
+    queryKey: ['wiki', caseId],
+    queryFn: () => api.getWikiPages(caseId!),
+    enabled: !!caseId,
+  });
+}
+
+export function useWikiPage(pagePath: string | null) {
+  const { caseId } = useCaseStore();
+  return useQuery({
+    queryKey: ['wikiPage', caseId, pagePath],
+    queryFn: () => api.getWikiPage(caseId!, pagePath!),
+    enabled: !!caseId && !!pagePath,
+  });
+}
+
+export function useRebuildWiki() {
+  const { caseId } = useCaseStore();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.rebuildWiki(caseId!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['wiki', caseId] }),
+  });
+}
+
+// -- Reports --
+
+export function useReports() {
+  const { caseId } = useCaseStore();
+  return useQuery({
+    queryKey: ['reports', caseId],
+    queryFn: () => api.getReports(caseId!),
+    enabled: !!caseId,
+  });
+}
+
+export function useGenerateReport() {
+  const { caseId } = useCaseStore();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reportType: string) => api.generateReport(caseId!, reportType),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reports', caseId] }),
+  });
+}
+
+// -- Image Search --
+
+export function useSearchImagesByText() {
+  const { caseId } = useCaseStore();
+  return useMutation({
+    mutationFn: (data: { query: string; nResults?: number }) =>
+      api.searchImagesByText(caseId!, data.query, data.nResults),
+  });
+}
+
+export function useIndexCaseImages() {
+  const { caseId } = useCaseStore();
+  return useMutation({
+    mutationFn: () => api.indexCaseImages(caseId!),
   });
 }

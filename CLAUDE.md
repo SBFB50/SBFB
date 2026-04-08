@@ -8,9 +8,8 @@ Systeme d'investigation AUTONOME et PERSISTANT pour cold cases. Pas un chatbot �
 - **Event System**: EventBus pub/sub + 20 ReactiveWorkers + VRAMScheduler
 - **Frontend React**: Vite + TypeScript + Tailwind (port 3002) — 9 pages, dark theme pro
 - **LLMs**: Ollama (port 11434)
-  - `juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m` (MoE 26B, 4B actifs) — reasoning, deep analysis, hypotheses ACH, contradictions, vision deep
-  - `aratan/gemma-4-E4B-it-heretic` (MoE 8B, 4.5B actifs) — fast tasks: resume, filtering, wiki, basic vision
-  - `nomic-embed-text` — embeddings vectoriels RAG
+  - `juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m` (MoE 26B, 4B actifs) — ALL tasks: resume, analyse, hypotheses ACH, contradictions, vision, filtering (single model, zero swap VRAM)
+  - `nomic-embed-text` — embeddings vectoriels RAG (137MB, coexiste via bypass)
 - **NER**: GLiNER (urchade/gliner_multi-v2.1) — CPU, 0.08s, zero VRAM, singleton pre-charge
 - **Entity Resolution**: RapidFuzz (Jaro-Winkler, threshold 78%)
 - **Search**: SearXNG clearweb (port 8888) + Robin dark web/Tor (port 8502) + Wayback Machine CDX API

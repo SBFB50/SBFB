@@ -90,6 +90,7 @@ class MonitoringLoop:
         # Stats
         self._sweeps = 0
         self._jobs_executed = 0
+        self._jobs_timed_out = 0
         self._results_stored = 0
 
         # Progressive time window: advances before_date adaptively
@@ -143,6 +144,7 @@ class MonitoringLoop:
             "case_id": self._case_id,
             "sweeps": self._sweeps,
             "jobs_executed": self._jobs_executed,
+            "jobs_timed_out": self._jobs_timed_out,
             "results_stored": self._results_stored,
         }
 
@@ -177,14 +179,18 @@ class MonitoringLoop:
             db = Database(conn)
 
             # Find jobs for this case that are due or never run
+            # LIMIT ensures we don't process unbounded jobs per sweep;
+            # ORDER BY prioritises never-run jobs, then oldest.
             cursor = await conn.execute(
                 """
                 SELECT * FROM monitoring_jobs
                  WHERE case_id = ?
                    AND is_active = 1
                    AND (last_run IS NULL OR next_run <= ?)
+                 ORDER BY last_run ASC NULLS FIRST
+                 LIMIT ?
                 """,
-                (self._case_id, now_iso),
+                (self._case_id, now_iso, settings.monitoring_max_jobs_per_sweep),
             )
             due_jobs = [dict(r) for r in await cursor.fetchall()]
 
@@ -198,20 +204,38 @@ class MonitoringLoop:
         )
 
         events_before = self._bus.published_count if hasattr(self._bus, 'published_count') else 0
-        for job in due_jobs:
-            if not self._running:
-                break
-            try:
-                await self._execute_job(job)
-                self._jobs_executed += 1
-            except Exception as exc:
-                logger.error(
-                    "MonitoringLoop: job {} failed: {}",
-                    job["id"][:8],
-                    exc,
-                )
-            # Rate-limit between jobs
-            await asyncio.sleep(self._rate_limit)
+
+        # Bounded parallelism: run up to max_concurrent_jobs at once,
+        # with per-job timeout and rate limiting between launches.
+        sem = asyncio.Semaphore(settings.monitoring_max_concurrent_jobs)
+
+        async def _run_limited(job: dict) -> None:
+            async with sem:
+                if not self._running:
+                    return
+                try:
+                    await asyncio.wait_for(
+                        self._execute_job(job),
+                        timeout=settings.monitoring_job_timeout,
+                    )
+                    self._jobs_executed += 1
+                except asyncio.TimeoutError:
+                    self._jobs_timed_out += 1
+                    logger.warning(
+                        "MonitoringLoop: job {} timed out after {:.0f}s",
+                        job["id"][:8],
+                        settings.monitoring_job_timeout,
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "MonitoringLoop: job {} failed: {}",
+                        job["id"][:8],
+                        exc,
+                    )
+                # Rate-limit between job completions
+                await asyncio.sleep(self._rate_limit)
+
+        await asyncio.gather(*[_run_limited(job) for job in due_jobs])
 
         # Adaptive time window: count only events published (= valuable results that
         # passed relevance threshold), not all monitoring_results stored

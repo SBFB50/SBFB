@@ -54,3 +54,19 @@ async def db(memory_conn):
     from nexus.db.sqlite_db import Database
 
     return Database(memory_conn)
+
+
+@pytest_asyncio.fixture
+async def bus(tmp_path):
+    """Yield an EventBus backed by a temporary SQLite file.
+
+    Uses a file (not :memory:) because EventBus opens multiple
+    connections internally via aiosqlite.connect(db_path).
+    """
+    from nexus.events.bus import EventBus
+
+    db_file = str(tmp_path / "bus_test.db")
+    b = EventBus(db_path=db_file)
+    await b.start()
+    yield b
+    await b.stop()

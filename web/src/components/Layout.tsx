@@ -2,8 +2,12 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import ToastContainer from './Toast';
+import { useCaseSSE } from '../hooks/useSSE';
 
 export default function Layout() {
+  // Establish SSE connection for the active case (app-wide)
+  useCaseSSE();
+
   return (
     <div className="flex h-screen bg-[var(--bg-primary)]">
       <Sidebar />

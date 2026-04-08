@@ -78,7 +78,9 @@ export default function PipelineTools({ caseId }: { caseId: string }) {
       }
     };
     fetchStatus();
-    const interval = setInterval(fetchStatus, 2000);
+    // SSE events invalidate React Query caches which trigger re-renders.
+    // This interval is a slow fallback for resilience (was 2s, now 30s).
+    const interval = setInterval(fetchStatus, 30000);
     return () => clearInterval(interval);
   }, [caseId]);
 

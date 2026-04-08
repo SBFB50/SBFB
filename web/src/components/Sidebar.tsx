@@ -9,6 +9,9 @@ import {
   Search,
   UserSearch,
   Gauge,
+  BookOpen,
+  FileOutput,
+  Image,
   ChevronDown,
   Plus,
   Heart,
@@ -30,6 +33,9 @@ const navItems = [
   { to: '/timeline', icon: Clock, label: 'Timeline' },
   { to: '/investigation', icon: Search, label: 'Investigation' },
   { to: '/suspects', icon: UserSearch, label: 'Suspects' },
+  { to: '/wiki', icon: BookOpen, label: 'Wiki' },
+  { to: '/reports', icon: FileOutput, label: 'Reports' },
+  { to: '/images', icon: Image, label: 'Image Search' },
   { to: '/benchmark', icon: Gauge, label: 'Benchmark' },
 ];
 

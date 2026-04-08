@@ -26,17 +26,17 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
 
     # -- Models (overridable via env) --
-    # gemma-4-E4B heretic = fast + vision (summaries, filtering, wiki, basic images)
-    # gemma-4-26B-A4B heretic = heavy reasoning + deep vision (MoE 26B, 4B active)
+    # Single LLM: gemma-4-26B-A4B heretic for ALL tasks (MoE 26B, 4B active)
     #   → heretic ARA+EGA abliteration = zero refus, lossless quality
-    #   → replaces both deepseek-r1 models: better MMLU (82.6%), AIME (88.3%)
-    #   → native thinking mode, 256K context, multimodal
-    model_fast: str = "aratan/gemma-4-E4B-it-heretic"
+    #   → MMLU 82.6%, AIME 88.3%, 256K context, multimodal (text+vision)
+    #   → stays permanently loaded in VRAM — zero model swaps
+    #   → nomic-embed-text (137MB) coexists via VRAM bypass
+    model_fast: str = "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
     model_reasoning: str = "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
     model_deep: str = "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
     model_embedding: str = "nomic-embed-text"
     model_audio: str = "faster-whisper"  # Python lib, not Ollama
-    model_vision: str = "aratan/gemma-4-E4B-it-heretic"
+    model_vision: str = "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
     model_vision_deep: str = "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
 
     # -- Neo4j --
@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     # -- Entity resolution --
     entity_fuzzy_threshold: int = 78      # RapidFuzz WRatio threshold for dedup
     gliner_confidence_threshold: float = 0.35  # GLiNER prediction threshold
+
+    # -- Monitoring execution limits --
+    monitoring_max_jobs_per_sweep: int = 10       # max jobs executed per 30s sweep
+    monitoring_job_timeout: float = 60.0          # seconds per individual job
+    monitoring_max_concurrent_jobs: int = 3       # parallel jobs per sweep
 
     # -- Contradiction detection limits --
     contradiction_max_evidence_pairs: int = 20    # max entity-based pairs

@@ -11,6 +11,9 @@ import Timeline from './pages/Timeline';
 import Investigation from './pages/Investigation';
 import Benchmark from './pages/Benchmark';
 import Suspects from './pages/Suspects';
+import Wiki from './pages/Wiki';
+import Reports from './pages/Reports';
+import ImageSearch from './pages/ImageSearch';
 
 export default function App() {
   return (
@@ -26,6 +29,9 @@ export default function App() {
             <Route path="/timeline" element={<Timeline />} />
             <Route path="/investigation" element={<Investigation />} />
             <Route path="/suspects" element={<Suspects />} />
+            <Route path="/wiki" element={<Wiki />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/images" element={<ImageSearch />} />
             <Route path="/benchmark" element={<Benchmark />} />
           </Route>
         </Routes>

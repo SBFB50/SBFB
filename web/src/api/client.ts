@@ -131,3 +131,31 @@ export const updateSuspect = (suspectId: string, data: Record<string, unknown>) 
 // Health
 export const getHealth = () => api.get('/health').then(r => r.data);
 export const getSystemStats = () => api.get('/system/stats').then(r => r.data);
+
+// Wiki
+export const getWikiPages = (caseId: string) =>
+  api.get(`/cases/${caseId}/wiki`).then(r => r.data);
+export const getWikiPage = (caseId: string, pagePath: string) =>
+  api.get(`/cases/${caseId}/wiki/read/${pagePath}`).then(r => r.data);
+export const rebuildWiki = (caseId: string) =>
+  api.post(`/cases/${caseId}/wiki/rebuild`).then(r => r.data);
+
+// Reports
+export const generateReport = (caseId: string, reportType: string = 'full') =>
+  api.post(`/cases/${caseId}/reports/generate`, { report_type: reportType }).then(r => r.data);
+export const getReport = (reportId: string) =>
+  api.get(`/reports/${reportId}`).then(r => r.data);
+export const downloadReport = (reportId: string) =>
+  api.get(`/reports/${reportId}/download`, { responseType: 'blob' }).then(r => r.data);
+export const getReports = (caseId: string) =>
+  api.get(`/cases/${caseId}/reports`).then(r => r.data);
+
+// Image Search
+export const searchImagesByText = (caseId: string, query: string, nResults = 5) =>
+  api.post(`/cases/${caseId}/images/search-by-text`, { query, n_results: nResults }).then(r => r.data);
+export const searchImagesByImage = (caseId: string, evidenceId: string, nResults = 5) =>
+  api.post(`/cases/${caseId}/images/search-by-image`, { evidence_id: evidenceId, n_results: nResults }).then(r => r.data);
+export const getSimilarImages = (caseId: string, evidenceId: string, nResults = 5) =>
+  api.get(`/cases/${caseId}/images/similar/${evidenceId}?n_results=${nResults}`).then(r => r.data);
+export const indexCaseImages = (caseId: string) =>
+  api.post(`/cases/${caseId}/images/index`).then(r => r.data);
