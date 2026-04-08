@@ -53,7 +53,8 @@ class ChunkerEmbedWorker(ReactiveWorker):
                 limit=1,
             )
             return bool(result and result.get("ids"))
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Idempotency check failed for evidence %s: %s", evidence_id, exc)
             # On error, assume not indexed — let the normal path handle it
             return False
 

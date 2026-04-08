@@ -463,7 +463,30 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
         prog["total_evidence"] = len(all_evidence)
 
         # ==============================================================
-        # 1. Inject all waves sequentially
+        # 1. Start investigation FIRST so workers are ready for events
+        # ==============================================================
+        # Workers must be running BEFORE injection so that EVIDENCE_ADDED
+        # events published by _inject_wave are received.  Workers have
+        # built-in debounce (AnalysisPipeline: 10s) and idempotency
+        # guards, so concurrent processing during injection is safe.
+        prog["current_step"] = "Starting investigation workers..."
+        inv_manager = app_state.get("investigation_manager")
+        if inv_manager is not None:
+            try:
+                started = await inv_manager.start_investigation(case_id)
+                if started:
+                    logger.info("Benchmark full: investigation STARTED for case {}", case_id[:8])
+                else:
+                    logger.info("Benchmark full: investigation already running for case {}", case_id[:8])
+            except Exception as exc:
+                err = f"start_investigation FAILED: {type(exc).__name__}: {exc}"
+                logger.error("Benchmark {}", err)
+                prog["errors"].append(err)
+        else:
+            logger.warning("Benchmark full: no investigation_manager -- workers won't run")
+
+        # ==============================================================
+        # 2. Inject all waves sequentially
         # ==============================================================
         total_ok = 0
         total_failed = 0
@@ -496,25 +519,6 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
             "Benchmark full: all waves done for case {} -- {}/{} ok, {} failed",
             case_id[:8], total_ok, len(all_evidence), total_failed,
         )
-
-        # ==============================================================
-        # 2. Start investigation (workers take over)
-        # ==============================================================
-        prog["current_step"] = "Starting investigation..."
-        inv_manager = app_state.get("investigation_manager")
-        if inv_manager is not None:
-            try:
-                started = await inv_manager.start_investigation(case_id)
-                if started:
-                    logger.info("Benchmark full: investigation STARTED for case {}", case_id[:8])
-                else:
-                    logger.info("Benchmark full: investigation already running for case {}", case_id[:8])
-            except Exception as exc:
-                err = f"start_investigation FAILED: {type(exc).__name__}: {exc}"
-                logger.error("Benchmark {}", err)
-                prog["errors"].append(err)
-        else:
-            logger.warning("Benchmark full: no investigation_manager -- workers won't run")
 
         # ==============================================================
         # 3. Wait for workers to produce hypotheses + suspects

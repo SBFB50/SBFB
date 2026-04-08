@@ -39,13 +39,23 @@ async def _notify_reactive_workers(
     case_id: str,
     evidence: Evidence,
 ) -> None:
-    """Publish events to the EventBus so downstream workers react to new evidence.
+    """Publish EVIDENCE_ADDED to the EventBus so downstream workers react.
 
     EvidenceProcessor already handles entity extraction, summarisation,
-    chunking, embeddings, and Neo4j sync.  We emit:
-      - EVIDENCE_ADDED     -> ForensicRouterWorker (image/audio routing)
-      - EVIDENCE_PROCESSED -> ContradictionWorker, TimelineWorker, WikiCompilerWorker
-      - EVIDENCE_CHUNKED   -> AnalysisPipelineWorker, HypothesisWorker
+    chunking, embeddings, and Neo4j sync synchronously.  We only emit
+    EVIDENCE_ADDED -- the reactive chain handles the rest:
+
+      EVIDENCE_ADDED
+        -> EntityExtractorWorker -> ENTITY_DISCOVERED (reads existing mentions)
+        -> SummarizerWorker      -> EVIDENCE_PROCESSED (confirms status=processed)
+           -> ChunkerEmbedWorker -> EVIDENCE_CHUNKED (detects existing chunks)
+           -> ContradictionWorker, TimelineWorker, WikiCompilerWorker, Neo4jSync
+              -> AnalysisPipelineWorker, HypothesisWorker
+
+    We must NOT emit EVIDENCE_PROCESSED or EVIDENCE_CHUNKED directly here,
+    because the workers that bridge EVIDENCE_ADDED -> EVIDENCE_PROCESSED
+    and EVIDENCE_PROCESSED -> EVIDENCE_CHUNKED would also emit them,
+    causing double-processing of LLM-heavy downstream workers.
     """
     inv_mgr = getattr(request.app.state, "investigation_manager", None)
     if inv_mgr is None:
@@ -55,40 +65,26 @@ async def _notify_reactive_workers(
     if bus is None:
         return
 
-    base_payload = {
-        "evidence_id": evidence.id,
-        "title": evidence.title,
-        "evidence_type": evidence.evidence_type,
-        "source": "user_upload",
-    }
-
     try:
         await bus.publish(NexusEvent(
             event_type=EventType.EVIDENCE_ADDED,
             case_id=case_id,
-            payload=base_payload,
-            source_worker="api.evidence",
-        ))
-        await bus.publish(NexusEvent(
-            event_type=EventType.EVIDENCE_PROCESSED,
-            case_id=case_id,
-            payload=base_payload,
-            source_worker="api.evidence",
-        ))
-        await bus.publish(NexusEvent(
-            event_type=EventType.EVIDENCE_CHUNKED,
-            case_id=case_id,
-            payload={**base_payload, "chunk_count": -1},
+            payload={
+                "evidence_id": evidence.id,
+                "title": evidence.title,
+                "evidence_type": evidence.evidence_type,
+                "source": "user_upload",
+            },
             source_worker="api.evidence",
         ))
         logger.info(
-            "Evidence upload: published EVIDENCE_ADDED/PROCESSED/CHUNKED "
+            "Evidence upload: published EVIDENCE_ADDED "
             "for {} ({}) on case {}",
             evidence.id[:8], evidence.title[:40], case_id[:8],
         )
     except Exception as exc:
         logger.warning(
-            "Evidence upload: failed to publish events for {}: {}",
+            "Evidence upload: failed to publish event for {}: {}",
             evidence.id[:8], exc,
         )
 

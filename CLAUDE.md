@@ -4,7 +4,7 @@
 Systeme d'investigation AUTONOME et PERSISTANT pour cold cases. Pas un chatbot — un investigateur qui tourne 24/7, cherche, raisonne, et converge vers la verite.
 
 ## Architecture (v2 — Event-Driven Reactive)
-- **Backend**: FastAPI (port 8000) — 115+ endpoints REST
+- **Backend**: FastAPI (port 8000) — 131 endpoints REST
 - **Event System**: EventBus pub/sub + 20 ReactiveWorkers + VRAMScheduler
 - **Frontend React**: Vite + TypeScript + Tailwind (port 3002) — 9 pages, dark theme pro
 - **LLMs**: Ollama (port 11434)
@@ -14,7 +14,7 @@ Systeme d'investigation AUTONOME et PERSISTANT pour cold cases. Pas un chatbot �
   - `nomic-embed-text` — embeddings vectoriels RAG
   - `qwen3-vl:8b` — analyse d'images (VLM)
 - **NER**: GLiNER (urchade/gliner_multi-v2.1) — CPU, 0.08s, zero VRAM, singleton pre-charge
-- **Entity Resolution**: RapidFuzz (Jaro-Winkler, threshold 82%)
+- **Entity Resolution**: RapidFuzz (Jaro-Winkler, threshold 78%)
 - **Search**: SearXNG clearweb (port 8888) + Robin dark web/Tor (port 8502) + Wayback Machine CDX API
 - **Storage**: SQLite (FTS5+WAL+event_log) + Neo4j (graphe, port 7474) + ChromaDB (vecteurs, port 8100)
 - **Docker**: Neo4j + ChromaDB + Robin (docker-compose.yml)
@@ -26,10 +26,10 @@ Systeme d'investigation AUTONOME et PERSISTANT pour cold cases. Pas un chatbot �
 - Docker Desktop
 - Ollama (num_ctx=16384)
 
-## Structure du code (~50K lignes)
+## Structure du code (~32K lignes)
 ```
 nexus/
-  api/                    # 21 routers FastAPI
+  api/                    # 22 routers FastAPI
   core/                   # Logique metier (legacy OODA loop preserved)
     evidence_processor.py # Ingestion: parse -> GLiNER -> resume -> chunk -> embed -> Neo4j
     analysis_pipeline.py  # Pipeline multi-modeles (RAG-powered)
@@ -69,15 +69,15 @@ web/                      # Frontend React
     InvestigationMap.tsx   # Leaflet dark tiles + geocoded locations
     Toast.tsx              # Notification system
 tests/                    # 261 tests (pytest)
-data/benchmark/           # 4 cold cases
+data/benchmark/           # 5 cold cases
 docs/                     # ARCHITECTURE.md, PIPELINE.md, TOOLS_MATRIX.md, API_REFERENCE.md, BENCHMARK.md
 ```
 
 ## Event-Driven Architecture
 ```
-evidence_added -> EntityExtractor + Summarizer + Chunker (parallel)
-  -> entities_extracted -> Neo4j + GeoMapper + OSINT Recon
-  -> evidence_processed -> AnalysisPipeline + ContradictionDetector + HypothesisEngine
+evidence_added -> EntityExtractor + Summarizer (parallel)
+  -> entity_discovered -> Neo4j + GeoMapper + OSINT Recon + QueryGenerator
+  -> evidence_processed -> ChunkerEmbed + ContradictionDetector + AnalysisPipeline
   -> analysis_completed -> HypothesisWorker -> hypothesis_scored -> SuspectScorer
   -> monitoring_result -> EvidenceIngestWorker -> evidence_added (LOOP)
 ```
@@ -95,19 +95,19 @@ evidence_added -> EntityExtractor + Summarizer + Chunker (parallel)
 ## Problemes connus
 1. **Hypotheses generation vide** — generate_hypotheses retourne [] quand le contexte RAG est insuffisant (chunks pas encore indexes au moment de l'appel)
 2. **Timeline vide** — dates extraites pas parsees en datetime
-3. **Suspect names pas affiches** — l'API /suspects ne retourne pas entity_name
-4. **RAPTOR case summary desactive** — deferred pour eviter nexus 26B a chaque evidence
-5. **before: filter SearXNG unreliable** — Google before: operator still in beta, htmldate can't detect dates on Wikipedia
+3. **RAPTOR case summary desactive** — deferred pour eviter nexus 26B a chaque evidence
+4. **before: filter SearXNG unreliable** — Google before: operator still in beta, htmldate can't detect dates on Wikipedia
 
 ## Benchmarking
-4 cold cases:
+5 cold cases:
 - `data/benchmark/kulik/` — Affaire Elodie Kulik 2002 (14 pieces, verite: Wiart+Bardon)
 - `data/benchmark/golden-state-killer/` — GSK (13 pieces, verite: DeAngelo)
 - `data/benchmark/affaire-moreau/` — Fictif (15 pieces, 7 contradictions)
 - `data/benchmark/jubillar/` — Affaire Delphine Jubillar 2020 (OSINT mode: briefing only + monitoring)
+- `data/benchmark/mccann/` — Affaire Madeleine McCann (cold case, unsolved, before:2020)
 
 Modes:
-- **Evidence mode** (Kulik, GSK, Moreau): 14 pieces fournies, analyse par les 13 outils
+- **Evidence mode** (Kulik, GSK, Moreau, McCann): pieces fournies, analyse par les 20 workers
 - **OSINT mode** (Jubillar): 1 briefing + monitoring SearXNG/Wayback, NEXUS cherche seul
 
 ## Commandes
