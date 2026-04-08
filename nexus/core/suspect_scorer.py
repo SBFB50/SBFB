@@ -246,7 +246,8 @@ class SuspectScorer:
             # Check if the person's name appears in case description as victim
             if name_lower in case_desc and ("victime" in case_desc or "corps" in case_desc):
                 # Heuristic: if person name + "victime" both in case desc, likely victim
-                for marker in ("victime", "corps retrouve", "meurtre de", "meurtre d'", "assassinat de"):
+                for marker in ("victime", "corps retrouve", "meurtre de", "meurtre d'", "assassinat de",
+                               "disparu", "disparition", "disparue", "enlevee", "enlevement"):
                     if marker in case_desc and name_lower in case_desc:
                         is_victim = True
                         break

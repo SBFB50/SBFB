@@ -269,7 +269,7 @@ class EntityExtractor:
     # ------------------------------------------------------------------
 
     # Fuzzy threshold for entity resolution (0-100)
-    FUZZY_THRESHOLD = 82
+    FUZZY_THRESHOLD = 78
 
     def deduplicate_entities(
         self,
