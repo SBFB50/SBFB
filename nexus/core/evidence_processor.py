@@ -475,24 +475,25 @@ class EvidenceProcessor:
                 confidence=ent.get("confidence", 0.8),
             )
 
-        # 4b. Embed new entities into ChromaDB entity_contexts
-        if self._chroma is not None:
-            for entity in created:
-                try:
-                    embed_text = f"{entity.name} ({entity.entity_type}): {entity.description or ''}"
-                    embedding = await self._router.embed(embed_text)
+        # 4b. Batch-embed new entities into ChromaDB entity_contexts
+        if self._chroma is not None and created:
+            try:
+                embed_texts = [
+                    f"{entity.name} ({entity.entity_type}): {entity.description or ''}"
+                    for entity in created
+                ]
+                embeddings = await self._router.embed_batch(embed_texts)
+                for entity, text, embedding in zip(created, embed_texts, embeddings):
                     self._chroma.add_entity(
                         entity_id=entity.id,
                         case_id=case_id,
-                        text=embed_text,
+                        text=text,
                         embedding=embedding,
-                        metadata={
-                            "entity_type": entity.entity_type,
-                            "name": entity.name,
-                        },
+                        metadata={"entity_type": entity.entity_type, "name": entity.name},
                     )
-                except Exception as exc:
-                    logger.debug("Entity embedding failed for {}: {}", entity.name, exc)
+                logger.info("Batch-embedded {} entities for case {}", len(created), case_id[:8])
+            except Exception as exc:
+                logger.warning("Batch entity embedding failed: {}", exc)
 
         # 5. For duplicates that already exist, still create mentions
         #    Uses fuzzy matching (same as deduplicate_entities) to find
@@ -611,7 +612,7 @@ class EvidenceProcessor:
 
                 # Extract and sync relations between mentioned entities
                 try:
-                    ent_dicts = [{"name": e["name"], "type": e["entity_type"]} for e in mentioned_entities]
+                    ent_dicts = [{"name": e["name"], "type": e["entity_type"], "context": e.get("description", "")} for e in mentioned_entities]
                     if len(ent_dicts) >= 2:
                         relations = await self._entity_extractor.extract_relations(ent_dicts)
                         if relations:
@@ -623,8 +624,8 @@ class EvidenceProcessor:
 
                             mapped_relations = []
                             for rel in relations:
-                                from_name = self._entity_extractor.normalize_entity_name(rel.get("from", ""))
-                                to_name = self._entity_extractor.normalize_entity_name(rel.get("to", ""))
+                                from_name = self._entity_extractor.normalize_entity_name(rel.get("source", ""))
+                                to_name = self._entity_extractor.normalize_entity_name(rel.get("target", ""))
                                 if from_name in name_to_id and to_name in name_to_id:
                                     mapped_relations.append({
                                         "from_id": name_to_id[from_name],

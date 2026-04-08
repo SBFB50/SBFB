@@ -1,7 +1,7 @@
 """
 NEXUS -- AnalysisPipelineWorker.
 
-Subscribes to EVIDENCE_CHUNKED.  Implements a 10-second debounce
+Subscribes to EVIDENCE_CHUNKED.  Implements a 30-second debounce
 to collect multiple chunk events before running a single incremental
 analysis.  Emits ANALYSIS_COMPLETED when the analysis pipeline finishes.
 """
@@ -19,7 +19,7 @@ from nexus.events.worker import ReactiveWorker
 
 logger = logging.getLogger(__name__)
 
-_DEBOUNCE_SECONDS = 10.0
+_DEBOUNCE_SECONDS = 30.0
 
 
 class AnalysisPipelineWorker(ReactiveWorker):

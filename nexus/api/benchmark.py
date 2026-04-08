@@ -349,10 +349,23 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
     prog = _progress(case_id)
     t0 = time.monotonic()
 
+    # Suspend monitoring for other cases during benchmark to free GPU
+    suspended_cases: list[str] = []
+    inv_mgr = None
+
     try:
         from nexus.db.sqlite_db import get_db, Database
 
         app_state = app_state or {}
+
+        inv_mgr = app_state.get("investigation_manager")
+        if inv_mgr:
+            for cid, ctx in list(inv_mgr._cases.items()):
+                if cid != case_id and ctx.monitoring_loop is not None:
+                    await ctx.monitoring_loop.stop()
+                    suspended_cases.append(cid)
+            if suspended_cases:
+                logger.info("Benchmark: suspended monitoring for {} other cases", len(suspended_cases))
 
         info = KNOWN_BENCHMARKS[bench_key]
         manifest_path = BENCHMARK_DIR / info["dir"] / info.get("manifest", "manifest.json")
@@ -595,3 +608,12 @@ async def _run_full_benchmark(case_id: str, bench_key: str, app_state: dict | No
         prog["finished_at"] = time.time()
         prog["elapsed_seconds"] = round(elapsed, 1)
         prog["errors"].append(f"PIPELINE CRASH: {type(exc).__name__}: {exc}")
+
+    finally:
+        # Resume monitoring for suspended cases
+        if inv_mgr and suspended_cases:
+            for cid in suspended_cases:
+                ctx = inv_mgr._cases.get(cid)
+                if ctx and ctx.monitoring_loop is not None:
+                    await ctx.monitoring_loop.start()
+            logger.info("Benchmark: resumed monitoring for {} cases", len(suspended_cases))

@@ -102,18 +102,30 @@ class ReactiveInvestigationManager:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def start(self) -> None:
-        """Start investigations for all active cases in the database."""
+    async def start(self, max_concurrent: int = 2) -> None:
+        """Start investigations for the N most recent active cases.
+
+        Limits GPU saturation at startup by only resuming *max_concurrent*
+        investigations instead of every active case in the database.
+        """
         async with get_db() as conn:
             db = Database(conn)
             cases = await db.list_cases(status="active")
 
+        # Sort by most recent first
+        cases.sort(key=lambda c: c.get("updated_at", c.get("created_at", "")), reverse=True)
+
+        started = 0
         for case in cases:
+            if started >= max_concurrent:
+                logger.info("Skipped investigation {} (max_concurrent={})", case["id"][:8], max_concurrent)
+                continue
             await self.start_investigation(case["id"])
+            started += 1
 
         logger.info(
-            "ReactiveInvestigationManager started: {} active investigations",
-            len(self._cases),
+            "ReactiveInvestigationManager started: {} active investigations (max={})",
+            started, max_concurrent,
         )
 
     async def start_investigation(self, case_id: str) -> bool:
@@ -442,6 +454,7 @@ class ReactiveInvestigationManager:
             "last_cycle_at": None,
             "started_at": ctx.started_at,
             "tools": tools,
+            "workers": tools,
             "event_bus": bus_stats,
             "monitoring": monitoring_stats,
             "workers_alive": alive_workers,

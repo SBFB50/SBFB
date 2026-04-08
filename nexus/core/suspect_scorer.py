@@ -272,17 +272,17 @@ class SuspectScorer:
         qualified = []
         for ent in entities:
             mentions = await self._db.list_mentions_by_entity(ent["id"])
-            if len(mentions) >= 2:
+            if len(mentions) >= 1:
                 qualified.append(ent)
             else:
                 logger.debug("Skipping '{}' — only {} mention(s)", ent["name"], len(mentions))
 
         if not qualified:
-            logger.info("No person entities with 2+ mentions for case {}", case_id)
+            logger.info("No person entities with 1+ mentions for case {}", case_id)
             return []
 
         logger.info(
-            "Scoring {}/{} qualified entities for case {} (filtered {} with <2 mentions)",
+            "Scoring {}/{} qualified entities for case {} (filtered {} with <1 mention)",
             len(qualified), len(entities), case_id, len(entities) - len(qualified),
         )
 
