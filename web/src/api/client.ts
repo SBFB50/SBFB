@@ -1,7 +1,25 @@
-import axios from 'axios';
-import { QueryClient } from '@tanstack/react-query';
+import axios, { AxiosError } from 'axios';
+import { QueryClient, QueryCache, MutationCache } from '@tanstack/react-query';
+import { showToast } from '../components/Toast';
 
 export const api = axios.create({ baseURL: '/api' });
+
+/** Extract a human-readable message from an API error. */
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof AxiosError) {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (error.response?.status === 404) return 'Resource not found';
+    if (error.response?.status === 422) return 'Invalid request data';
+    if (error.response?.status === 500) return 'Internal server error';
+    if (error.code === 'ECONNABORTED') return 'Request timed out';
+    if (error.code === 'ERR_NETWORK') return 'Network error — is the backend running?';
+    return error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return 'Unknown error';
+}
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -10,6 +28,24 @@ export const queryClient = new QueryClient({
       retry: 1,
     },
   },
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      // Skip toasts for background refetches (only show on first failure)
+      if (query.state.data !== undefined) return;
+      // Skip toasts for queries that opt out via meta
+      if (query.meta?.silent) return;
+      const msg = extractErrorMessage(error);
+      showToast('error', msg);
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      // Skip toasts for mutations that handle errors themselves via onError
+      if (mutation.options.onError) return;
+      const msg = extractErrorMessage(error);
+      showToast('error', msg);
+    },
+  }),
 });
 
 // Cases
@@ -24,7 +60,11 @@ export const deleteCase = (id: string) => api.delete(`/cases/${id}`);
 export const getEvidence = (caseId: string) =>
   api.get(`/cases/${caseId}/evidence`).then(r => r.data);
 export const submitTextEvidence = (caseId: string, data: { content: string; source?: string }) =>
-  api.post(`/cases/${caseId}/evidence/text`, data).then(r => r.data);
+  api.post(`/cases/${caseId}/evidence/text`, {
+    title: data.source || 'Manual input',
+    text: data.content,
+    source: data.source,
+  }).then(r => r.data);
 
 // Entities
 export const getEntities = (caseId: string) =>
@@ -38,7 +78,7 @@ export const getHypothesisEvolution = (hypId: string) =>
 export const generateHypotheses = (caseId: string) =>
   api.post(`/cases/${caseId}/hypotheses/generate`).then(r => r.data);
 export const evaluateHypotheses = (caseId: string) =>
-  api.post(`/cases/${caseId}/hypotheses/evaluate`).then(r => r.data);
+  api.post(`/cases/${caseId}/evaluate-all`).then(r => r.data);
 
 // Graph
 export const getGraph = (caseId: string) =>
@@ -75,12 +115,6 @@ export const getAuditLog = (caseId: string, limit = 50) =>
 // Timeline
 export const getTimeline = (caseId: string) =>
   api.get(`/cases/${caseId}/timeline`).then(r => r.data);
-
-// Benchmark
-export const runBenchmark = (data: { models?: string[] }) =>
-  api.post('/benchmark/run', data).then(r => r.data);
-export const getBenchmarkResults = () =>
-  api.get('/benchmark/results').then(r => r.data);
 
 // Suspects
 export const getSuspects = (caseId: string) => api.get(`/cases/${caseId}/suspects`).then(r => r.data);

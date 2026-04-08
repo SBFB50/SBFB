@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 import aiosqlite
+from loguru import logger
 
 from nexus.config import settings
 
@@ -394,13 +395,23 @@ def _json_dumps(obj: Any) -> Optional[str]:
 
 
 def _json_loads(raw: Optional[str]) -> Any:
-    """Deserialize from JSON string or return None."""
+    """Deserialize from JSON string, returning {} on corrupt data.
+
+    NEVER returns the raw string — callers expect dict/list, not str.
+    On failure: logs a warning and returns {} (the most common expected
+    type across NEXUS columns like metadata, details, aliases, etc.).
+    """
     if raw is None:
         return None
     try:
         return json.loads(raw)
     except (json.JSONDecodeError, TypeError):
-        return raw
+        truncated = raw[:200] if isinstance(raw, str) else repr(raw)[:200]
+        logger.warning(
+            "Corrupt JSON in DB column — returning empty dict. Raw value (truncated): {}",
+            truncated,
+        )
+        return {}
 
 
 def _row_to_dict(row: aiosqlite.Row) -> Dict[str, Any]:
@@ -577,14 +588,14 @@ class Database:
             await self._conn.execute(
                 "DELETE FROM investigation_memory WHERE case_id = ?", (case_id,)
             )
-        except Exception:
-            pass  # table may not exist on older DBs
+        except Exception as exc:
+            logger.debug("delete_case: investigation_memory cleanup skipped (table may not exist): %s", exc)
         try:
             await self._conn.execute(
                 "DELETE FROM wiki_pages WHERE case_id = ?", (case_id,)
             )
-        except Exception:
-            pass  # table may not exist on older DBs
+        except Exception as exc:
+            logger.debug("delete_case: wiki_pages cleanup skipped (table may not exist): %s", exc)
         await self._conn.execute(
             "DELETE FROM evidence WHERE case_id = ?", (case_id,)
         )
@@ -1777,8 +1788,9 @@ class Database:
                 ),
             )
             await self._conn.commit()
-        except Exception:
+        except Exception as exc:
             # UNIQUE constraint violation — contradiction already exists
+            logger.debug("create_contradiction: insert failed (likely duplicate): %s", exc)
             await self._conn.rollback()
             return {}
         cursor = await self._conn.execute(

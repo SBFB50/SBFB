@@ -24,6 +24,7 @@ from typing import Any
 
 from loguru import logger
 
+from nexus.config import settings
 from nexus.db.sqlite_db import Database
 from nexus.llm.parsers import parse_json_safe
 from nexus.llm.prompts import (
@@ -67,9 +68,9 @@ class ContradictionDetector:
 
         if not pairs:
             # Fallback: if no entity-based pairing, compare all pairs (up to a limit)
-            logger.info("No entity-based pairs found, comparing all pairs (up to 15)")
+            logger.info("No entity-based pairs found, comparing all pairs (up to {})", settings.contradiction_max_fallback_pairs)
             all_pairs = list(combinations(evidence_list, 2))
-            pairs = all_pairs[:15]
+            pairs = all_pairs[:settings.contradiction_max_fallback_pairs]
 
         logger.info("Analysing {} evidence pairs for contradictions", len(pairs))
 
@@ -184,7 +185,7 @@ class ContradictionDetector:
 
         pairs = list(combinations(hypotheses, 2))
         # Limit to avoid excessive LLM calls
-        pairs = pairs[:10]
+        pairs = pairs[:settings.contradiction_max_hypothesis_pairs]
 
         logger.info(
             "Checking consistency between {} hypothesis pairs for case {}",
@@ -273,7 +274,7 @@ class ContradictionDetector:
                         pairs.append((ev_by_id[eid_a], ev_by_id[eid_b]))
 
         # Limit the number of pairs to avoid excessive LLM calls
-        max_pairs = 20
+        max_pairs = settings.contradiction_max_evidence_pairs
         if len(pairs) > max_pairs:
             logger.info("Limiting from {} to {} pairs", len(pairs), max_pairs)
             pairs = pairs[:max_pairs]
@@ -287,8 +288,8 @@ class ContradictionDetector:
     ) -> list[dict[str, Any]]:
         """Analyse a single evidence pair for contradictions using deepseek-r1."""
         # Build elements text
-        text_a = ev_a.get("summary") or (ev_a.get("raw_text", "")[:2000]) or "(pas de contenu)"
-        text_b = ev_b.get("summary") or (ev_b.get("raw_text", "")[:2000]) or "(pas de contenu)"
+        text_a = ev_a.get("summary") or (ev_a.get("raw_text", "")[:settings.text_truncation_short]) or "(pas de contenu)"
+        text_b = ev_b.get("summary") or (ev_b.get("raw_text", "")[:settings.text_truncation_short]) or "(pas de contenu)"
 
         elements_text = (
             f"ELEMENT A — {ev_a.get('title', 'N/A')} "
@@ -359,7 +360,7 @@ class ContradictionDetector:
         for i, ev in enumerate(testimonies, 1):
             title = ev.get("title", f"Temoignage {i}")
             source = ev.get("source") or "source inconnue"
-            text = ev.get("summary") or ev.get("raw_text", "")[:3000] or "(pas de contenu)"
+            text = ev.get("summary") or ev.get("raw_text", "")[:settings.text_truncation_medium] or "(pas de contenu)"
             source_date = ev.get("source_date") or "date inconnue"
 
             parts.append(

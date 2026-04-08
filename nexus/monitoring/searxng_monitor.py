@@ -96,8 +96,8 @@ class SearXNGMonitor:
                 "SearXNG HTTP error {}: {}", exc.response.status_code, exc
             )
             return []
-        except Exception:
-            logger.exception("SearXNG unexpected error for query '{}'", query)
+        except Exception as exc:
+            logger.exception("SearXNG unexpected error for query '{}': {}", query, exc)
             return []
 
         raw_results = data.get("results", [])
@@ -113,7 +113,8 @@ class SearXNGMonitor:
                     pub_str = published[:10]  # "YYYY-MM-DD"
                     if pub_str > before_date:
                         continue  # Skip — article is after the cutoff
-                except Exception:
+                except Exception as exc:
+                    logger.debug("SearXNG date parse failed for '{}': {}", published[:20], exc)
                     pass  # Can't parse date, keep the result
 
             results.append({

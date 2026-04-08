@@ -70,16 +70,23 @@ class PeriodicTimer:
         )
 
     async def stop(self) -> None:
-        """Cancel all tick loops."""
+        """Cancel all tick loops and await them with a timeout."""
         self._running = False
         for task in self._tasks:
             if not task.done():
                 task.cancel()
-        for task in self._tasks:
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
+        if self._tasks:
+            # Gather with a hard timeout so shutdown is never blocked
+            _, pending = await asyncio.wait(self._tasks, timeout=10.0)
+            if pending:
+                logger.warning(
+                    "PeriodicTimer: {} tasks still pending after timeout, "
+                    "forcing cancel for case {}",
+                    len(pending),
+                    self._case_id[:8],
+                )
+                for task in pending:
+                    task.cancel()
         self._tasks.clear()
         logger.info("PeriodicTimer stopped for case {}", self._case_id[:8])
 

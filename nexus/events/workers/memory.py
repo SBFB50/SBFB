@@ -108,9 +108,9 @@ class MemoryWorker(ReactiveWorker):
                 TaskType.EVIDENCE_SUMMARY,
                 prompt,
             )
-        except Exception:
-            logger.exception(
-                "MemoryWorker: LLM call failed for %s", event.event_type.value
+        except Exception as exc:
+            logger.error(
+                "MemoryWorker: LLM call failed for %s: %s", event.event_type.value, exc
             )
             return []
 
@@ -146,8 +146,8 @@ class MemoryWorker(ReactiveWorker):
                     full_context=context,
                     related_entities=related_entities,
                 )
-        except Exception:
-            logger.exception("MemoryWorker: failed to store memory in SQLite")
+        except Exception as exc:
+            logger.error("MemoryWorker: failed to store memory in SQLite: %s", exc)
             return []
 
         # Embed in ChromaDB
@@ -165,9 +165,9 @@ class MemoryWorker(ReactiveWorker):
                         "source_event_type": event.event_type.value,
                     },
                 )
-            except Exception:
-                logger.exception(
-                    "MemoryWorker: failed to embed memory in ChromaDB"
+            except Exception as exc:
+                logger.error(
+                    "MemoryWorker: failed to embed memory in ChromaDB: %s", exc
                 )
                 # Non-fatal: SQLite record already saved
 

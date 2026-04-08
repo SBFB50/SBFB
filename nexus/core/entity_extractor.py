@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from nexus.config import settings
 from nexus.llm.parsers import parse_entities, parse_relations
 from nexus.llm.prompts import (
     ENTITY_EXTRACTION_PROMPT,
@@ -98,24 +99,24 @@ class EntityExtractor:
 
         for email in set(self._EMAIL_RE.findall(text)):
             entities.append({"name": email, "type": "email",
-                            "context": self._get_context(text, email), "confidence": 0.99})
+                            "context": self._get_context(text, email), "confidence": settings.entity_confidence_high})
 
         try:
             import phonenumbers
             for match in phonenumbers.PhoneNumberMatcher(text, "FR"):
                 formatted = phonenumbers.format_number(match.number, phonenumbers.PhoneNumberFormat.E164)
                 entities.append({"name": formatted, "type": "phone",
-                                "context": self._get_context(text, match.raw_string), "confidence": 0.95})
+                                "context": self._get_context(text, match.raw_string), "confidence": settings.entity_confidence_medium})
         except ImportError:
             pass
 
         for handle in set(self._SOCIAL_HANDLE_RE.findall(text)):
             entities.append({"name": f"@{handle}", "type": "social_handle",
-                            "context": self._get_context(text, f"@{handle}"), "confidence": 0.90})
+                            "context": self._get_context(text, f"@{handle}"), "confidence": settings.entity_confidence_low})
 
         for url in set(self._SOCIAL_URL_RE.findall(text)):
             entities.append({"name": url, "type": "social_url",
-                            "context": self._get_context(text, url), "confidence": 0.95})
+                            "context": self._get_context(text, url), "confidence": settings.entity_confidence_medium})
 
         if entities:
             logger.info("Contact patterns extracted: {} items", len(entities))
@@ -153,7 +154,7 @@ class EntityExtractor:
 
             for chunk in chunks:
                 raw = self._gliner.predict_entities(
-                    chunk, _GLINER_LABEL_DESCRIPTIONS, threshold=0.35
+                    chunk, _GLINER_LABEL_DESCRIPTIONS, threshold=settings.gliner_confidence_threshold
                 )
                 for ent in raw:
                     name = ent["text"].strip()
@@ -202,7 +203,7 @@ class EntityExtractor:
 
     async def _extract_llm(self, text: str) -> list[dict[str, Any]]:
         """Fallback: extract entities using LLM (gemma4:e4b)."""
-        truncated = text[:12_000] if len(text) > 12_000 else text
+        truncated = text[:settings.text_truncation_llm_extract] if len(text) > settings.text_truncation_llm_extract else text
         prompt = ENTITY_EXTRACTION_PROMPT.format(text=truncated)
 
         logger.info("LLM extracting entities from {} chars", len(truncated))
@@ -269,7 +270,7 @@ class EntityExtractor:
     # ------------------------------------------------------------------
 
     # Fuzzy threshold for entity resolution (0-100)
-    FUZZY_THRESHOLD = 78
+    FUZZY_THRESHOLD = settings.entity_fuzzy_threshold
 
     def deduplicate_entities(
         self,

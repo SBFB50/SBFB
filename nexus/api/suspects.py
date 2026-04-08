@@ -8,13 +8,13 @@ run as BackgroundTasks to avoid blocking the HTTP response.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from loguru import logger
 
 from nexus.db.models import Suspect, SuspectCreate, SuspectSnapshot, SuspectUpdate
 from nexus.db.sqlite_db import Database, get_db
 
-from nexus.api.deps import get_database
+from nexus.api.deps import get_database, paginated_response
 
 router = APIRouter(prefix="/api", tags=["suspects"])
 
@@ -80,22 +80,30 @@ async def _evaluate_profile_bg(suspect_id: str, request_app) -> None:
 @router.get("/cases/{case_id}/suspects")
 async def list_suspects(
     case_id: str,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: Database = Depends(get_database),
 ):
-    """List all suspects for a case, sorted by suspicion_score descending."""
+    """List suspects for a case, sorted by suspicion_score descending, with pagination."""
     case = await db.get_case(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail=f"Case not found: {case_id}")
 
-    rows = await db.list_suspects_by_case(case_id)
-    # Enrich with entity name for display
-    enriched = []
-    for r in rows:
-        entity = await db.get_entity(r.get("entity_id", ""))
+    all_rows = await db.list_suspects_by_case(case_id, limit=100_000)
+
+    # Batch-load all entities for this case to avoid N+1 queries
+    entities = await db.list_entities_by_case(case_id, limit=100_000)
+    entity_map = {e["id"]: e for e in entities}
+
+    for r in all_rows:
+        entity = entity_map.get(r.get("entity_id", ""))
         if entity:
             r["entity_name"] = entity.get("name", "?")
-        enriched.append(r)
-    return enriched
+
+    return paginated_response(
+        all_rows, offset, limit,
+        serializer=lambda r: Suspect(**r).model_dump(mode="json"),
+    )
 
 
 # ====================================================================

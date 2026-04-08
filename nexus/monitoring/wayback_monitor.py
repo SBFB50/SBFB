@@ -87,7 +87,14 @@ class WaybackMonitor:
                 tasks.append(self._cdx_search_domain(
                     client, domain, keywords, from_ts, to_ts, max_results=3,
                 ))
-            domain_results = await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                domain_results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=60.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Wayback CDX domain search timed out after 60s, returning partial results")
+                domain_results = []
             for res in domain_results:
                 if isinstance(res, list):
                     all_results.extend(res)
@@ -102,8 +109,8 @@ class WaybackMonitor:
                     )
                     seen = {r["url"] for r in all_results}
                     all_results.extend(r for r in wild if r["url"] not in seen)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Wayback wildcard search failed: {}", exc)
 
         filtered = [r for r in all_results if not _JUNK_RE.search(r.get("original_url", ""))]
         logger.info("Wayback CDX search '{}': {} results before={}", query[:40], len(filtered), before_date)
@@ -184,10 +191,20 @@ class WaybackMonitor:
             if len(results) >= max_results:
                 break
             batch = urls[i:i+10]
-            batch_results = await asyncio.gather(
-                *(check_url(u) for u in batch),
-                return_exceptions=True,
-            )
+            try:
+                batch_results = await asyncio.wait_for(
+                    asyncio.gather(
+                        *(check_url(u) for u in batch),
+                        return_exceptions=True,
+                    ),
+                    timeout=120.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Wayback reverse discovery batch {}-{} timed out after 120s, skipping",
+                    i, i + len(batch),
+                )
+                continue
             for r in batch_results:
                 if isinstance(r, dict):
                     results.append(r)
@@ -219,8 +236,8 @@ class WaybackMonitor:
             try:
                 resp = await client.get(_CC_INDEX_LIST)
                 indexes = resp.json()
-            except Exception:
-                logger.debug("Common Crawl index list unavailable")
+            except Exception as exc:
+                logger.debug("Common Crawl index list unavailable: {}", exc)
                 return []
 
         # Filter indexes by year range
@@ -276,7 +293,8 @@ class WaybackMonitor:
                                 "source": "commoncrawl",
                                 "published_date": date_str,
                             })
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug("Failed to parse Common Crawl entry: {}", exc)
                             continue
                 except Exception as exc:
                     logger.debug("Common Crawl search failed for {}: {}", idx.get("id"), exc)

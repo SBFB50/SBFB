@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+from nexus.config import settings
+
 
 class DomainRecon:
     """WHOIS and DNS lookup tools for domain investigation.
@@ -46,8 +48,8 @@ class DomainRecon:
         try:
             result = await loop.run_in_executor(None, self._whois_sync, domain)
             return result
-        except Exception:
-            logger.exception("DomainRecon: WHOIS lookup failed for {}", domain)
+        except Exception as exc:
+            logger.error("DomainRecon: WHOIS lookup failed for {}: {}", domain, exc)
             return {
                 "domain": domain,
                 "error": "WHOIS lookup failed",
@@ -88,7 +90,7 @@ class DomainRecon:
             "name_servers": sorted(set(name_servers)),
             "registrant_name": getattr(w, "name", None),
             "registrant_email": getattr(w, "emails", None),
-            "raw": str(w.text)[:2000] if hasattr(w, "text") and w.text else None,
+            "raw": str(w.text)[:settings.text_truncation_short] if hasattr(w, "text") and w.text else None,
         }
 
     # ------------------------------------------------------------------
@@ -137,8 +139,8 @@ class DomainRecon:
         except socket.gaierror:
             logger.debug("DomainRecon: no A records for {}", domain)
             return []
-        except Exception:
-            logger.debug("DomainRecon: A record lookup failed for {}", domain)
+        except Exception as exc:
+            logger.debug("DomainRecon: A record lookup failed for {}: {}", domain, exc)
             return []
 
     async def _nslookup(
@@ -162,9 +164,9 @@ class DomainRecon:
                 "DomainRecon: nslookup timed out for {} {}", record_type, domain
             )
             return []
-        except Exception:
+        except Exception as exc:
             logger.debug(
-                "DomainRecon: nslookup error for {} {}", record_type, domain
+                "DomainRecon: nslookup error for {} {}: {}", record_type, domain, exc
             )
             return []
 

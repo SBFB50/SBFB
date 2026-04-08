@@ -86,6 +86,9 @@ class ChromaClient:
     ) -> None:
         self._host = host or settings.chroma_host
         self._port = port or settings.chroma_port
+        self._healthy: bool = True
+        self._last_error: str | None = None
+
         try:
             self._client = chromadb.HttpClient(
                 host=self._host,
@@ -95,6 +98,8 @@ class ChromaClient:
                 "ChromaClient initialised (host={}:{})", self._host, self._port
             )
         except Exception as exc:
+            self._healthy = False
+            self._last_error = str(exc)
             logger.error(
                 "Failed to connect to ChromaDB at {}:{} — {}",
                 self._host,
@@ -150,8 +155,8 @@ class ChromaClient:
                     legacy.count(),
                     _EVIDENCE_CHUNKS_COLLECTION,
                 )
-        except Exception:
-            pass  # not critical
+        except Exception as exc:
+            logger.debug("Legacy collection init skipped (not critical): {}", exc)
 
         logger.info(
             "All {} ChromaDB collections initialised", len(self._collections)
@@ -175,6 +180,59 @@ class ChromaClient:
                 f"Call init_collections() first."
             )
         return self._collections[name]
+
+    def _mark_healthy(self) -> None:
+        """Mark ChromaDB as healthy after a successful operation."""
+        if not self._healthy:
+            logger.info("ChromaDB recovered — marking as healthy")
+        self._healthy = True
+        self._last_error = None
+
+    def _mark_unhealthy(self, exc: Exception) -> None:
+        """Mark ChromaDB as unhealthy after a failed operation."""
+        self._healthy = False
+        self._last_error = str(exc)
+        logger.warning("ChromaDB marked unhealthy: {}", exc)
+
+    def _try_reconnect(self) -> bool:
+        """Attempt to reconnect to ChromaDB when unhealthy.
+
+        Returns True if reconnection succeeded, False otherwise.
+        """
+        try:
+            self._client = chromadb.HttpClient(
+                host=self._host,
+                port=self._port,
+            )
+            # Verify the connection with a heartbeat
+            self._client.heartbeat()
+            self._mark_healthy()
+            # Re-initialize collection handles
+            for name in list(self._collections.keys()):
+                try:
+                    self._collections[name] = self._client.get_or_create_collection(
+                        name=name,
+                        embedding_function=None,
+                        metadata={"hnsw:space": "cosine"},
+                    )
+                except Exception as exc:
+                    logger.debug("ChromaDB reconnection: collection '{}' re-init failed: {}", name, exc)
+            logger.info("ChromaDB reconnection successful")
+            return True
+        except Exception as exc:
+            self._mark_unhealthy(exc)
+            logger.error("ChromaDB reconnection failed: {}", exc)
+            return False
+
+    def _ensure_healthy(self) -> bool:
+        """Check health, attempt reconnect if needed.
+
+        Returns True if ChromaDB is usable, False otherwise.
+        """
+        if self._healthy:
+            return True
+        logger.debug("ChromaDB is unhealthy — attempting reconnection")
+        return self._try_reconnect()
 
     @staticmethod
     def _format_results(raw: dict, single_query: bool = True) -> List[Dict[str, Any]]:
@@ -257,6 +315,10 @@ class ChromaClient:
 
         Returns [{id, text, distance, metadata}, ...] sorted by relevance.
         """
+        if not self._ensure_healthy():
+            logger.warning("ChromaDB down — search_evidence returning empty for case {}", case_id)
+            return []
+
         # Prefer evidence_chunks (the modern RAG collection)
         chunks_col = self._collections.get(_EVIDENCE_CHUNKS_COLLECTION)
         if chunks_col is not None:
@@ -269,9 +331,14 @@ class ChromaClient:
                 )
                 results = self._format_results(raw)
                 if results:
+                    self._mark_healthy()
                     return results
-            except ChromaError:
-                pass  # fall through to legacy
+            except ChromaError as exc:
+                logger.warning(
+                    "ChromaDB search_evidence failed on evidence_chunks for case {}: {} — falling back to legacy",
+                    case_id, exc,
+                )
+                self._mark_unhealthy(exc)
 
         # Fallback: legacy evidence_texts collection
         try:
@@ -281,8 +348,10 @@ class ChromaClient:
                 where={"case_id": case_id},
                 include=["documents", "distances", "metadatas"],
             )
+            self._mark_healthy()
             return self._format_results(raw)
         except ChromaError as exc:
+            self._mark_unhealthy(exc)
             logger.error("Evidence search failed (case={}): {}", case_id, exc)
             raise
 
@@ -299,6 +368,10 @@ class ChromaClient:
 
         Searches evidence_chunks first, falls back to evidence_texts.
         """
+        if not self._ensure_healthy():
+            logger.warning("ChromaDB down — find_similar_evidence returning empty for '{}'", evidence_id)
+            return []
+
         # Try evidence_chunks first
         for col_name in (_EVIDENCE_CHUNKS_COLLECTION, _EVIDENCE_COLLECTION_LEGACY):
             col = self._collections.get(col_name)
@@ -330,8 +403,14 @@ class ChromaClient:
                     include=["documents", "distances", "metadatas"],
                 )
                 results = self._format_results(raw)
+                self._mark_healthy()
                 return [r for r in results if r["id"] != evidence_id][:n_results]
-            except ChromaError:
+            except ChromaError as exc:
+                logger.warning(
+                    "ChromaDB find_similar_evidence failed on '{}' (collection={}): {}",
+                    evidence_id, col_name, exc,
+                )
+                self._mark_unhealthy(exc)
                 continue
 
         logger.warning("Evidence '{}' not found in any collection", evidence_id)
@@ -397,8 +476,11 @@ class ChromaClient:
                 continue
             try:
                 col.delete(ids=[evidence_id])
-            except ChromaError:
-                pass
+            except ChromaError as exc:
+                logger.warning(
+                    "ChromaDB delete_evidence failed for '{}' in collection '{}': {}",
+                    evidence_id, col_name, exc,
+                )
         logger.debug("Deleted evidence '{}' from ChromaDB", evidence_id)
 
     # ==================================================================
@@ -435,6 +517,10 @@ class ChromaClient:
         n_results: int = 10,
     ) -> List[Dict[str, Any]]:
         """Semantic search over entities for a given case."""
+        if not self._ensure_healthy():
+            logger.warning("ChromaDB down — search_entities returning empty for case {}", case_id)
+            return []
+
         try:
             raw = self._col(_ENTITY_COLLECTION).query(
                 query_embeddings=[query_embedding],
@@ -442,8 +528,10 @@ class ChromaClient:
                 where={"case_id": case_id},
                 include=["documents", "distances", "metadatas"],
             )
+            self._mark_healthy()
             return self._format_results(raw)
         except ChromaError as exc:
+            self._mark_unhealthy(exc)
             logger.error("Entity search failed (case={}): {}", case_id, exc)
             raise
 
@@ -623,6 +711,10 @@ class ChromaClient:
         n_results: int = 10,
     ) -> List[Dict[str, Any]]:
         """Semantic search over hypothesis snapshots for a given case."""
+        if not self._ensure_healthy():
+            logger.warning("ChromaDB down — search_hypotheses returning empty for case {}", case_id)
+            return []
+
         try:
             raw = self._col(_HYPOTHESIS_COLLECTION).query(
                 query_embeddings=[query_embedding],
@@ -630,8 +722,10 @@ class ChromaClient:
                 where={"case_id": case_id},
                 include=["documents", "distances", "metadatas"],
             )
+            self._mark_healthy()
             return self._format_results(raw)
         except ChromaError as exc:
+            self._mark_unhealthy(exc)
             logger.error(
                 "Hypothesis search failed (case={}): {}", case_id, exc
             )
@@ -664,10 +758,15 @@ class ChromaClient:
             Merged list of dicts sorted by distance, each containing:
             collection, id, text, distance, metadata.
         """
+        if not self._ensure_healthy():
+            logger.warning("ChromaDB down — unified_search returning empty for case {}", case_id)
+            return []
+
         if collections is None:
             collections = list(_DEFAULT_SEARCH_COLLECTIONS)
 
         all_results: List[Dict[str, Any]] = []
+        errors = 0
 
         for col_name in collections:
             try:
@@ -696,6 +795,7 @@ class ChromaClient:
                     include=["documents", "metadatas", "distances"],
                 )
             except ChromaError as exc:
+                errors += 1
                 logger.warning(
                     "unified_search: query failed on '{}' (case={}): {}",
                     col_name,
@@ -722,14 +822,21 @@ class ChromaClient:
                     else {},
                 })
 
+        # Track health based on overall success/failure
+        if errors == len(collections):
+            self._mark_unhealthy(RuntimeError(f"All {errors} collections failed"))
+        elif all_results:
+            self._mark_healthy()
+
         # Sort by distance (ascending = most similar for cosine)
         all_results.sort(key=lambda x: x.get("distance") or float("inf"))
 
         logger.debug(
-            "unified_search: {} total results across {} collections for case {}",
+            "unified_search: {} total results across {} collections for case {} ({} errors)",
             len(all_results),
             len(collections),
             case_id,
+            errors,
         )
         return all_results
 

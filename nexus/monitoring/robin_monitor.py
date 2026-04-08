@@ -51,8 +51,13 @@ class RobinMonitor:
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
             return stdout.decode().strip() == "true"
-        except Exception:
-            logger.debug("Robin container '{}' not available", self._container)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()  # Ensure zombie is reaped
+            logger.debug("Robin container '{}' check timed out", self._container)
+            return False
+        except Exception as exc:
+            logger.debug("Robin container '{}' not available: {}", self._container, exc)
             return False
 
     # ------------------------------------------------------------------
@@ -98,13 +103,15 @@ class RobinMonitor:
                 proc.communicate(), timeout=300,
             )
         except asyncio.TimeoutError:
-            logger.error("Robin timeout searching '{}' (Tor slow)", query)
+            proc.kill()
+            await proc.wait()  # Ensure zombie is reaped
+            logger.error("Robin timeout searching '{}' (killed subprocess)", query)
             return []
         except FileNotFoundError:
             logger.error("docker command not found")
             return []
-        except Exception:
-            logger.exception("Robin unexpected error for query '{}'", query)
+        except Exception as exc:
+            logger.exception("Robin unexpected error for query '{}': {}", query, exc)
             return []
 
         if proc.returncode != 0:
@@ -140,10 +147,12 @@ class RobinMonitor:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
             return stdout.decode(errors="replace")
         except asyncio.TimeoutError:
-            logger.error("Robin fetch timeout for '{}'", url[:100])
+            proc.kill()
+            await proc.wait()  # Ensure zombie is reaped
+            logger.error("Robin fetch timeout for '{}' (killed subprocess)", url[:100])
             return ""
-        except Exception:
-            logger.exception("Robin fetch failed for '{}'", url[:100])
+        except Exception as exc:
+            logger.exception("Robin fetch failed for '{}': {}", url[:100], exc)
             return ""
 
     # ------------------------------------------------------------------

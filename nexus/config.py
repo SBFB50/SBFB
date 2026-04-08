@@ -89,6 +89,32 @@ class Settings(BaseSettings):
     auto_backup_every_n_cycles: int = 24     # Backup every 12h (24 cycles * 30min)
     auto_recon_rate_limit: float = 2.0       # Seconds between OSINT recon calls
 
+    # -- Text processing truncation limits --
+    text_truncation_short: int = 2000     # contradiction detector pair text
+    text_truncation_medium: int = 3000    # testimony text, red-team facts
+    text_truncation_long: int = 4000      # evidence content, analysis context
+    text_truncation_summary: int = 8000   # evidence summary input
+    text_truncation_verification: int = 10000  # logic verification input
+    text_truncation_llm_extract: int = 12000   # LLM entity extraction input
+    text_truncation_deep_analysis: int = 20000  # deep analysis dossier input
+
+    # -- Score shift threshold (alerts for hypothesis score changes) --
+    score_shift_threshold: float = 15.0   # |delta| above which an alert is created
+
+    # -- Entity resolution --
+    entity_fuzzy_threshold: int = 78      # RapidFuzz WRatio threshold for dedup
+    gliner_confidence_threshold: float = 0.35  # GLiNER prediction threshold
+
+    # -- Contradiction detection limits --
+    contradiction_max_evidence_pairs: int = 20    # max entity-based pairs
+    contradiction_max_fallback_pairs: int = 15    # max pairs when no entity overlap
+    contradiction_max_hypothesis_pairs: int = 10  # max hypothesis consistency pairs
+
+    # -- Entity confidence thresholds (contact pattern extraction) --
+    entity_confidence_high: float = 0.99    # email (deterministic regex)
+    entity_confidence_medium: float = 0.95  # phone numbers, social URLs
+    entity_confidence_low: float = 0.90     # social handles (@user)
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

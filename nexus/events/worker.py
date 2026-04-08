@@ -2,10 +2,10 @@
 NEXUS -- ReactiveWorker abstract base class.
 
 Every worker in the reactive pipeline inherits from ReactiveWorker:
-- Owns an asyncio.Queue (bounded, maxsize=100)
+- Owns an asyncio.Queue (bounded, maxsize=500)
 - run() loop: pull event -> handle() -> publish output events
 - handle() is abstract -- subclasses implement domain logic
-- Built-in error handling, status tracking, and metrics
+- Built-in error handling, status tracking, metrics, and circuit breaker
 """
 
 from __future__ import annotations
@@ -30,8 +30,14 @@ STATUS_IDLE = "idle"
 STATUS_PROCESSING = "processing"
 STATUS_ERROR = "error"
 STATUS_STOPPED = "stopped"
+STATUS_CIRCUIT_OPEN = "circuit_open"
 
-_DEFAULT_QUEUE_SIZE = 100
+_DEFAULT_QUEUE_SIZE = 500
+
+# Circuit breaker thresholds
+_CB_CONSECUTIVE_FAILURES = 5
+_CB_INITIAL_BACKOFF_S = 30.0
+_CB_EXTENDED_BACKOFF_S = 60.0
 
 
 class ReactiveWorker(ABC):
@@ -78,6 +84,10 @@ class ReactiveWorker(ABC):
         self._last_error: str | None = None
         self._started_at: str | None = None
         self._total_processing_ms: float = 0.0
+
+        # Circuit breaker state
+        self._consecutive_errors: int = 0
+        self._events_dropped: int = 0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -129,8 +139,52 @@ class ReactiveWorker(ABC):
     # ------------------------------------------------------------------
 
     async def _run(self) -> None:
-        """Main loop: pull events, handle, publish outputs."""
+        """Main loop: pull events, handle, publish outputs.
+
+        Includes a circuit breaker: after ``_CB_CONSECUTIVE_FAILURES``
+        errors in a row the worker enters ``STATUS_CIRCUIT_OPEN``, pauses
+        for a backoff period, then retries a single event (half-open).
+        """
         while True:
+            # ---- Circuit breaker: open state ----
+            if self._consecutive_errors >= _CB_CONSECUTIVE_FAILURES:
+                backoff = (
+                    _CB_INITIAL_BACKOFF_S
+                    if self._consecutive_errors == _CB_CONSECUTIVE_FAILURES
+                    else _CB_EXTENDED_BACKOFF_S
+                )
+                self._status = STATUS_CIRCUIT_OPEN
+                logger.warning(
+                    "Worker [%s] circuit breaker OPEN after %d consecutive errors "
+                    "-- backing off %.0fs",
+                    self.name,
+                    self._consecutive_errors,
+                    backoff,
+                )
+                # Sleep but remain responsive to shutdown signals:
+                # peek into the queue for a sentinel None during backoff.
+                try:
+                    peek = await asyncio.wait_for(
+                        self._queue.get(), timeout=backoff,
+                    )
+                    if peek is None:
+                        self._queue.task_done()
+                        break
+                    # Got a real event during backoff -- mark the get() as
+                    # done, then put the event back for normal processing.
+                    self._queue.task_done()
+                    try:
+                        self._queue.put_nowait(peek)
+                    except asyncio.QueueFull:
+                        self._events_dropped += 1
+                        logger.warning(
+                            "Worker [%s] dropped event during circuit breaker backoff "
+                            "(queue full)",
+                            self.name,
+                        )
+                except asyncio.TimeoutError:
+                    pass  # Backoff elapsed normally
+
             self._status = STATUS_IDLE
             event = await self._queue.get()
 
@@ -157,6 +211,15 @@ class ReactiveWorker(ABC):
                 self._events_processed += 1
                 self._last_event_at = datetime.now(timezone.utc).isoformat()
 
+                # Success: reset circuit breaker
+                if self._consecutive_errors > 0:
+                    logger.info(
+                        "Worker [%s] circuit breaker CLOSED (recovered after %d errors)",
+                        self.name,
+                        self._consecutive_errors,
+                    )
+                    self._consecutive_errors = 0
+
                 logger.debug(
                     "Worker [%s] handled %s in %.1fms",
                     self.name,
@@ -164,15 +227,18 @@ class ReactiveWorker(ABC):
                     elapsed_ms,
                 )
 
-            except Exception:
+            except Exception as exc:
                 self._events_errored += 1
+                self._consecutive_errors += 1
                 self._status = STATUS_ERROR
                 self._last_error = f"{event.event_type.value} @ {event.event_id}"
-                logger.exception(
-                    "Worker [%s] error handling %s (event=%s)",
+                logger.error(
+                    "Worker [%s] error handling %s (event=%s, consecutive_errors=%d): %s",
                     self.name,
                     event.event_type.value,
                     event.event_id,
+                    self._consecutive_errors,
+                    exc,
                 )
             finally:
                 self._queue.task_done()
@@ -208,6 +274,7 @@ class ReactiveWorker(ABC):
             "queue_maxsize": self._queue.maxsize,
             "events_processed": self._events_processed,
             "events_errored": self._events_errored,
+            "consecutive_errors": self._consecutive_errors,
             "avg_processing_ms": round(avg_ms, 1),
             "last_event_at": self._last_event_at,
             "last_error": self._last_error,

@@ -15,7 +15,7 @@ import json
 import logging
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiosqlite
@@ -98,6 +98,10 @@ class EventBus:
     @property
     def published_count(self) -> int:
         return self._events_published
+
+    @property
+    def dropped_count(self) -> int:
+        return self._events_dropped
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -247,11 +251,39 @@ class EventBus:
             await db.commit()
 
     # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
+
+    async def _cleanup_event_log(self) -> None:
+        """Delete old processed events to prevent unbounded table growth.
+
+        Keeps pending/failed events (needed for replay) and recent
+        processed events (last 7 days, useful for debugging).
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                DELETE FROM event_log
+                 WHERE status = 'processed'
+                   AND created_at < ?
+                """,
+                (cutoff,),
+            )
+            deleted = cursor.rowcount
+            await db.commit()
+        if deleted:
+            logger.info("Event log cleanup: deleted %d old processed events", deleted)
+
+    # ------------------------------------------------------------------
     # Replay
     # ------------------------------------------------------------------
 
     async def _replay_pending(self) -> None:
         """Re-deliver unprocessed events from previous runs."""
+        # Prune old processed events before replaying
+        await self._cleanup_event_log()
+
         total_replayed = 0
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -302,16 +334,28 @@ class EventBus:
     # ------------------------------------------------------------------
 
     async def _fan_out(self, event: NexusEvent) -> None:
-        """Deliver event to every queue subscribed to its type."""
+        """Deliver event to every queue subscribed to its type.
+
+        Uses put_nowait for non-blocking fan-out.  If a subscriber queue
+        is full the event is dropped for that subscriber and logged.
+        The event is already persisted in SQLite so it can be replayed
+        on restart.
+        """
         queues = self._subscriptions.get(event.event_type, [])
         for q in queues:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
-                logger.warning(
-                    "Queue full for %s -- event %s dropped from that subscriber",
+                self._events_dropped += 1
+                logger.error(
+                    "Event DROPPED (queue full, put_nowait) "
+                    "event_type=%s  case_id=%s  event_id=%s  "
+                    "queue_size=%d/%d",
                     event.event_type.value,
+                    event.case_id,
                     event.event_id,
+                    q.qsize(),
+                    q.maxsize,
                 )
 
     # ------------------------------------------------------------------

@@ -256,8 +256,8 @@ class MonitoringLoop:
                 )
             except asyncio.TimeoutError:
                 logger.warning("Arquivo.pt timeout for job {}", job_id[:8])
-            except Exception:
-                logger.debug("Arquivo.pt search failed for job {}", job_id[:8])
+            except Exception as exc:
+                logger.debug("Arquivo.pt search failed for job {}: {}", job_id[:8], exc)
 
         # SearXNG: ONLY when no date filter (current web search).
         # When before: is active, SearXNG is disabled — it returns modern
@@ -270,8 +270,8 @@ class MonitoringLoop:
                     max_results=20,
                 )
                 raw_results.extend(searxng_results)
-            except Exception:
-                logger.exception("SearXNG search failed for job {}", job_id[:8])
+            except Exception as exc:
+                logger.warning("SearXNG search failed for job {}: {}", job_id[:8], exc)
 
         if job_type in ("robin", "both"):
             try:
@@ -281,8 +281,8 @@ class MonitoringLoop:
                         max_results=10,
                     )
                     raw_results.extend(robin_results)
-            except Exception:
-                logger.exception("Robin search failed for job {}", job_id[:8])
+            except Exception as exc:
+                logger.warning("Robin search failed for job {}: {}", job_id[:8], exc)
 
         # Wayback Machine CDX: guaranteed archive dates, use on every sweep when before: active
         if before_date:
@@ -298,8 +298,8 @@ class MonitoringLoop:
                 raw_results.extend(wayback_results)
             except asyncio.TimeoutError:
                 logger.warning("Wayback search timed out for job {}", job_id[:8])
-            except Exception:
-                logger.debug("Wayback search failed for job {}", job_id[:8])
+            except Exception as exc:
+                logger.debug("Wayback search failed for job {}: {}", job_id[:8], exc)
 
         # 2. Update timestamps regardless of results
         now = datetime.now(timezone.utc).isoformat()
@@ -344,8 +344,8 @@ class MonitoringLoop:
                         if len(segments) == 0:
                             logger.debug("MonitoringLoop: skip homepage: {}", url[:60])
                             continue
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("MonitoringLoop: URL pre-filter error: {}", exc)
                 try:
                     stored = await self._process_result(
                         db, alert_mgr, job_id, case_id, query, result
@@ -383,8 +383,8 @@ class MonitoringLoop:
         # Compute embedding for deduplication
         try:
             embedding = await self._router.embed(text_for_embed)
-        except Exception:
-            logger.warning("Embedding failed for result: {}", result.get("url"))
+        except Exception as exc:
+            logger.warning("Embedding failed for result {}: {}", result.get("url"), exc)
             return False
 
         # Check semantic duplicate in ChromaDB
@@ -396,8 +396,8 @@ class MonitoringLoop:
                     embedding=embedding,
                     threshold=0.92,
                 )
-            except Exception:
-                logger.warning("Duplicate check failed, treating as new")
+            except Exception as exc:
+                logger.warning("Duplicate check failed, treating as new: {}", exc)
 
         # Relevance scoring via LLM
         relevance_score: float | None = None
@@ -415,8 +415,8 @@ class MonitoringLoop:
             raw_score = filter_resp.get("relevance_score")
             if isinstance(raw_score, (int, float)):
                 relevance_score = round(float(raw_score) * 100, 1)
-        except Exception:
-            logger.warning("Relevance filtering failed for {}", result.get("url"))
+        except Exception as exc:
+            logger.warning("Relevance filtering failed for {}: {}", result.get("url"), exc)
 
         # Store result in SQLite
         db_result = await db.create_monitoring_result(
@@ -444,9 +444,9 @@ class MonitoringLoop:
                         "url": result.get("url", ""),
                     },
                 )
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "Failed to store embedding for result {}", db_result["id"]
+                    "Failed to store embedding for result {}: {}", db_result["id"], exc
                 )
 
         # Create alert for high-relevance, non-duplicate results
@@ -460,9 +460,9 @@ class MonitoringLoop:
                     case_id=case_id,
                     result=db_result,
                 )
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "Alert creation failed for result {}", db_result["id"]
+                    "Alert creation failed for result {}: {}", db_result["id"], exc
                 )
 
         # Results without detected date need higher relevance to pass
@@ -535,8 +535,8 @@ class MonitoringLoop:
                     raw_date = (info or {}).get("upload_date", "")
                     if raw_date and len(raw_date) == 8:
                         pub_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("MonitoringLoop: yt-dlp date extraction failed: {}", exc)
 
             if not pub_date and url and htmldate_calls < _MAX_HTMLDATE:
                 try:
@@ -545,7 +545,8 @@ class MonitoringLoop:
                         timeout=5.0,
                     )
                     htmldate_calls += 1
-                except Exception:
+                except Exception as exc:
+                    logger.debug("MonitoringLoop: htmldate extraction failed for {}: {}", url[:60], exc)
                     pub_date = None
 
             if pub_date:
@@ -721,7 +722,8 @@ class MonitoringLoop:
                             "MonitoringLoop: adaptive time window — start=%d ceiling=%s",
                             self._current_window_year, self._base_before_date,
                         )
-            except Exception:
+            except Exception as exc:
+                logger.debug("MonitoringLoop: before-date extraction failed: {}", exc)
                 self._base_before_date = ""
                 return None
 

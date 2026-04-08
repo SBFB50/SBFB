@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 
-from nexus.api.deps import get_database
+from nexus.api.deps import get_database, paginated_response
 from nexus.db.sqlite_db import Database
 from nexus.recon.domain_recon import DomainRecon
 from nexus.recon.holehe_recon import HoleheRecon
@@ -94,9 +94,11 @@ async def recon_domain(domain: str) -> Dict[str, Any]:
 @router.get("/cases/{case_id}/recon")
 async def get_case_recon(
     case_id: str,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: Database = Depends(get_database),
-) -> List[Dict[str, Any]]:
-    """Return all entities with recon metadata for a given case.
+):
+    """Return entities with recon metadata for a given case, with pagination.
 
     Filters entities of type ``email`` or ``account`` that have a
     non-null ``metadata`` field containing recon results.
@@ -105,7 +107,7 @@ async def get_case_recon(
     if not case:
         raise HTTPException(status_code=404, detail="Dossier introuvable")
 
-    entities = await db.list_entities_by_case(case_id)
+    entities = await db.list_entities_by_case(case_id, limit=100_000)
 
     recon_entities = []
     for entity in entities:
@@ -114,7 +116,7 @@ async def get_case_recon(
             if meta and isinstance(meta, dict) and meta.get("recon"):
                 recon_entities.append(entity)
 
-    return recon_entities
+    return paginated_response(recon_entities, offset, limit)
 
 
 # ====================================================================

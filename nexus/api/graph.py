@@ -21,7 +21,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from nexus.api.deps import get_neo4j
+from nexus.api.deps import get_neo4j_or_503
 from nexus.db.neo4j_db import Neo4jClient
 
 router = APIRouter(prefix="/api", tags=["graph"])
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api", tags=["graph"])
 @router.get("/cases/{case_id}/graph")
 async def get_full_graph(
     case_id: str,
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Return the entire graph for a case (nodes + edges).
 
@@ -53,7 +53,7 @@ async def get_neighbors(
     case_id: str,
     node_id: str,
     depth: int = Query(default=1, ge=1, le=5),
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Return the sub-graph around a node up to *depth* hops."""
     subgraph = await neo4j.get_neighbors(node_id, depth=depth)
@@ -74,7 +74,7 @@ async def find_shortest_path(
     case_id: str,
     from_id: str,
     to_id: str,
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Find the shortest path between two nodes.
 
@@ -97,7 +97,7 @@ async def find_shortest_path(
 @router.get("/cases/{case_id}/graph/clusters")
 async def find_clusters(
     case_id: str,
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Detect connected components within a case's sub-graph.
 
@@ -117,7 +117,7 @@ async def find_clusters(
 @router.get("/cases/{case_id}/graph/stats")
 async def get_node_stats(
     case_id: str,
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, int]:
     """Return the count of nodes per label for a given case."""
     return await neo4j.get_node_stats(case_id)
@@ -131,7 +131,7 @@ async def get_node_stats(
 async def get_central_entities(
     case_id: str,
     limit: int = Query(default=10, ge=1, le=50),
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Return the most connected entities using degree centrality.
 
@@ -153,7 +153,7 @@ async def get_central_entities(
 async def get_entity_importance(
     case_id: str,
     limit: int = Query(default=20, ge=1, le=50),
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Return entities ranked by betweenness / bridge importance.
 
@@ -174,7 +174,7 @@ async def get_entity_importance(
 @router.get("/cases/{case_id}/graph/communities")
 async def detect_communities(
     case_id: str,
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Detect communities / clusters of related entities.
 
@@ -200,7 +200,7 @@ async def find_indirect_connections(
     id1: str,
     id2: str,
     max_hops: int = Query(default=4, ge=1, le=6),
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Find all paths between two entities up to max_hops.
 
@@ -227,7 +227,7 @@ async def find_indirect_connections(
 @router.get("/cases/{case_id}/graph/temporal")
 async def get_temporal_graph(
     case_id: str,
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Return a temporal view of the knowledge graph.
 
@@ -248,7 +248,7 @@ async def get_temporal_graph(
 @router.get("/cases/{case_id}/graph/evidence-matrix")
 async def get_evidence_matrix(
     case_id: str,
-    neo4j: Neo4jClient = Depends(get_neo4j),
+    neo4j: Neo4jClient = Depends(get_neo4j_or_503),
 ) -> Dict[str, Any]:
     """Build a matrix of which entities appear in which evidence.
 

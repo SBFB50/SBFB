@@ -62,8 +62,8 @@ class HoleheRecon:
         except asyncio.TimeoutError:
             logger.error("HoleheRecon: holehe timed out after 120s for {}", email)
             return []
-        except Exception:
-            logger.exception("HoleheRecon: unexpected error running holehe")
+        except Exception as exc:
+            logger.error("HoleheRecon: unexpected error running holehe: {}", exc)
             return []
 
         if proc.returncode != 0:

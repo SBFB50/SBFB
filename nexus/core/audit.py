@@ -46,6 +46,7 @@ class AuditService:
     def __init__(self, db: Database) -> None:
         self._db = db
         self._last_hash: dict[str, str] = {}  # case_id → last hash
+        self._pending_tasks: set[asyncio.Task] = set()
         AUDIT_LOG_DIR.mkdir(parents=True, exist_ok=True)
         self._init_git_repo()
 
@@ -72,6 +73,47 @@ class AuditService:
                 logger.info("Audit git repo initialized at {}", AUDIT_LOG_DIR)
             except Exception as exc:
                 logger.warning("Could not init audit git repo: {}", exc)
+
+    def _safe_create_task(self, coro, name: str) -> asyncio.Task:
+        """Create an asyncio task with error logging and lifecycle tracking.
+
+        - Names the task for debuggability
+        - Logs exceptions via a done_callback (prevents silent failures)
+        - Tracks the task in _pending_tasks so flush() can await them
+        """
+        task = asyncio.create_task(coro, name=name)
+        self._pending_tasks.add(task)
+
+        def _on_done(t: asyncio.Task) -> None:
+            self._pending_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.error(
+                    "Audit task '{}' failed: {}: {}",
+                    t.get_name(),
+                    type(exc).__name__,
+                    exc,
+                )
+
+        task.add_done_callback(_on_done)
+        return task
+
+    async def flush(self) -> None:
+        """Await all pending audit tasks. Useful for graceful shutdown."""
+        if not self._pending_tasks:
+            return
+        tasks = list(self._pending_tasks)
+        logger.debug("Flushing {} pending audit tasks", len(tasks))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "Audit flush: task '{}' had error: {}",
+                    tasks[i].get_name(),
+                    result,
+                )
 
     def _compute_hash(self, previous_hash: str, entry_data: str) -> str:
         """Compute SHA-256 hash linking to the previous entry."""
@@ -128,25 +170,30 @@ class AuditService:
             self._last_hash[case_id] = entry_hash
 
             # Layer 2: Append-only JSONL file (background, non-blocking)
-            asyncio.create_task(self._write_jsonl(case_id, {
-                "id": row["id"] if row else "unknown",
-                "timestamp": timestamp,
-                "case_id": case_id,
-                "actor": actor,
-                "action": action,
-                "target_type": target_type,
-                "target_id": target_id,
-                "summary": summary,
-                "details": details,
-                "cycle_number": cycle_number,
-                "hash": entry_hash,
-                "previous_hash": prev_hash,
-            }))
+            entry_id = row["id"] if row else "unknown"
+            self._safe_create_task(
+                self._write_jsonl(case_id, {
+                    "id": entry_id,
+                    "timestamp": timestamp,
+                    "case_id": case_id,
+                    "actor": actor,
+                    "action": action,
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "summary": summary,
+                    "details": details,
+                    "cycle_number": cycle_number,
+                    "hash": entry_hash,
+                    "previous_hash": prev_hash,
+                }),
+                name=f"audit-jsonl-{case_id}-{entry_id}",
+            )
 
             # Layer 3: Git commit (background, non-blocking)
-            asyncio.create_task(self._git_commit(
-                case_id, action, summary, entry_hash,
-            ))
+            self._safe_create_task(
+                self._git_commit(case_id, action, summary, entry_hash),
+                name=f"audit-git-{case_id}-{entry_hash[:12]}",
+            )
 
             return row
 
@@ -159,12 +206,13 @@ class AuditService:
         try:
             log_file = AUDIT_LOG_DIR / f"{case_id}.jsonl"
             line = json.dumps(entry, ensure_ascii=False, default=str) + "\n"
-            # Append mode — never overwrites
+
+            def _append() -> None:
+                with log_file.open("a", encoding="utf-8") as fh:
+                    fh.write(line)
+
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: log_file.open("a", encoding="utf-8").write(line),
-            )
+            await loop.run_in_executor(None, _append)
         except Exception as exc:
             logger.warning("Audit JSONL write failed: {}", exc)
 
@@ -327,7 +375,7 @@ class AuditService:
         await self.log(
             case_id, actor, "self_questioning",
             f"Auto-questionnement -- hypothese principale: {top_hypothesis[:80]}",
-            details={"summary": summary[:2000]}, cycle_number=cycle,
+            details={"summary": summary[:settings.text_truncation_short]}, cycle_number=cycle,
         )
 
     async def log_analysis(

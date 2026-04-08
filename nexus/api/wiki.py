@@ -9,9 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from nexus.api.deps import get_database
+from nexus.api.deps import get_database, paginated_response
 from nexus.config import settings
 from nexus.db.sqlite_db import Database
 
@@ -22,13 +22,19 @@ router = APIRouter(prefix="/api", tags=["wiki"])
 async def list_wiki_pages(
     case_id: str,
     page_type: str | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: Database = Depends(get_database),
-) -> list[dict[str, Any]]:
-    """List all wiki pages for a case."""
+):
+    """List wiki pages for a case, with pagination."""
     case = await db.get_case(case_id)
     if not case:
         raise HTTPException(404, f"Case not found: {case_id}")
-    return await db.list_wiki_pages(case_id, page_type=page_type)
+
+    # DB method does not support offset, so paginate in-memory
+    all_rows = await db.list_wiki_pages(case_id, page_type=page_type, limit=100_000)
+
+    return paginated_response(all_rows, offset, limit)
 
 
 @router.get("/cases/{case_id}/wiki/read/{page_path:path}")

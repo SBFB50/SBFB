@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator
 from loguru import logger
 
 from nexus.config import settings
-from nexus.llm.ollama_client import OllamaClient
+from nexus.llm.ollama_client import OllamaClient, _OOMError
 
 if TYPE_CHECKING:
     from nexus.events.vram_scheduler import VRAMScheduler
@@ -190,8 +190,23 @@ class LLMRouter:
             async with self._vram_scheduler.gpu_access(priority, model, label):
                 yield
         elif heavy:
-            await self._acquire_heavy_lock(label)
+            if self._heavy_lock.locked():
+                logger.warning(
+                    "VRAM lock contention: {} waiting -- another heavy model call in progress",
+                    label,
+                )
+                t0 = time.monotonic()
+            else:
+                t0 = None
             async with self._heavy_lock:
+                if t0 is not None:
+                    waited = time.monotonic() - t0
+                    if waited > _LOCK_WAIT_WARN_SECONDS:
+                        logger.warning(
+                            "VRAM lock: {} acquired after {:.1f}s wait",
+                            label,
+                            waited,
+                        )
                 yield
         else:
             yield
@@ -208,33 +223,6 @@ class LLMRouter:
         return "10m"
 
     # ------------------------------------------------------------------
-    # Legacy lock helper (used when no VRAMScheduler)
-    # ------------------------------------------------------------------
-
-    async def _acquire_heavy_lock(self, task_label: str) -> None:
-        """Acquire the heavy-model lock, logging if the wait is long.
-
-        The caller MUST still use ``async with self._heavy_lock:`` (which
-        handles release on CancelledError).  This helper is only used to
-        emit a warning when another heavy call is already in progress.
-        """
-        if self._heavy_lock.locked():
-            logger.warning(
-                "VRAM lock contention: {} waiting -- another heavy model call in progress",
-                task_label,
-            )
-            t0 = time.monotonic()
-            while self._heavy_lock.locked():
-                await asyncio.sleep(0.25)
-                elapsed = time.monotonic() - t0
-                if elapsed > _LOCK_WAIT_WARN_SECONDS and int(elapsed) % 30 == 0:
-                    logger.warning(
-                        "VRAM lock: {} still waiting after {:.0f}s",
-                        task_label,
-                        elapsed,
-                    )
-
-    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -245,7 +233,11 @@ class LLMRouter:
         *,
         system: str | None = None,
     ) -> str:
-        """Route a text-generation task and return the raw response."""
+        """Route a text-generation task and return the raw response.
+
+        Returns an empty string on unrecoverable OOM (after VRAM recovery
+        attempt) rather than crashing the caller.
+        """
         model_attr, timeout, heavy = _ROUTE_TABLE[task_type]
         model: str = getattr(settings, model_attr)
         keep_alive = self._get_keep_alive(model)
@@ -259,16 +251,24 @@ class LLMRouter:
             keep_alive,
         )
 
-        async with self._gpu_context(
-            model_attr, model, heavy, f"route({task_type.value})",
-        ):
-            return await self.client.generate(
-                model=model,
-                prompt=prompt,
-                system=system,
-                timeout=timeout,
-                keep_alive=keep_alive,
+        try:
+            async with self._gpu_context(
+                model_attr, model, heavy, f"route({task_type.value})",
+            ):
+                return await self.client.generate(
+                    model=model,
+                    prompt=prompt,
+                    system=system,
+                    timeout=timeout,
+                    keep_alive=keep_alive,
+                )
+        except _OOMError:
+            logger.error(
+                "route({}): unrecoverable OOM on model '{}' — returning empty string",
+                task_type.value,
+                model,
             )
+            return ""
 
     async def route_json(
         self,
@@ -277,7 +277,12 @@ class LLMRouter:
         *,
         system: str | None = None,
     ) -> dict[str, Any]:
-        """Route a task that must return structured JSON."""
+        """Route a task that must return structured JSON.
+
+        If the model returns unparsable JSON (generate_json falls back to
+        ``{}``), a warning is logged but no exception is raised — callers
+        receive the empty dict and can decide how to proceed.
+        """
         model_attr, timeout, heavy = _ROUTE_TABLE[task_type]
         model: str = getattr(settings, model_attr)
         keep_alive = self._get_keep_alive(model)
@@ -291,15 +296,33 @@ class LLMRouter:
             keep_alive,
         )
 
-        async with self._gpu_context(
-            model_attr, model, heavy, f"route_json({task_type.value})",
-        ):
-            return await self.client.generate_json(
-                model=model,
-                prompt=prompt,
-                system=system,
-                timeout=timeout,
+        try:
+            async with self._gpu_context(
+                model_attr, model, heavy, f"route_json({task_type.value})",
+            ):
+                result = await self.client.generate_json(
+                    model=model,
+                    prompt=prompt,
+                    system=system,
+                    timeout=timeout,
+                )
+        except _OOMError:
+            logger.error(
+                "route_json({}): unrecoverable OOM on model '{}' — returning {{}}",
+                task_type.value,
+                model,
             )
+            return {}
+
+        if not result:
+            logger.warning(
+                "route_json({}): model '{}' returned empty/unparsable JSON — "
+                "returning {{}} to caller",
+                task_type.value,
+                model,
+            )
+
+        return result
 
     async def route_vision(
         self,
@@ -323,17 +346,25 @@ class LLMRouter:
             keep_alive,
         )
 
-        async with self._gpu_context(
-            model_attr, model, heavy, f"route_vision({task_type.value})",
-        ):
-            return await self.client.generate_with_image(
-                model=model,
-                prompt=prompt,
-                image_path=image_path,
-                system=system,
-                timeout=timeout,
-                keep_alive=keep_alive,
+        try:
+            async with self._gpu_context(
+                model_attr, model, heavy, f"route_vision({task_type.value})",
+            ):
+                return await self.client.generate_with_image(
+                    model=model,
+                    prompt=prompt,
+                    image_path=image_path,
+                    system=system,
+                    timeout=timeout,
+                    keep_alive=keep_alive,
+                )
+        except _OOMError:
+            logger.error(
+                "route_vision({}): unrecoverable OOM on model '{}' — returning empty string",
+                task_type.value,
+                model,
             )
+            return ""
 
     async def embed(self, text: str) -> list[float]:
         """Embed a single text using the configured embedding model."""

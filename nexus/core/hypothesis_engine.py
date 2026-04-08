@@ -27,6 +27,7 @@ from typing import Any
 from loguru import logger
 from rapidfuzz import fuzz
 
+from nexus.config import settings
 from nexus.core.audit import AuditService
 from nexus.db.sqlite_db import Database
 from nexus.llm.parsers import parse_hypothesis_score, parse_json_safe, parse_verification
@@ -38,8 +39,6 @@ from nexus.llm.prompts import (
 from nexus.llm.router import LLMRouter, TaskType
 
 
-# Score delta above which we flag a significant shift.
-_SCORE_SHIFT_THRESHOLD = 15.0
 
 
 class HypothesisEngine:
@@ -96,7 +95,7 @@ class HypothesisEngine:
         retriever = self._get_retriever()
         if retriever is not None:
             facts_text = await retriever.build_analysis_context(
-                case_id, max_tokens=4000
+                case_id, max_tokens=settings.text_truncation_long
             )
             logger.info(
                 "Built RAG context for hypothesis generation ({} chars)",
@@ -169,10 +168,10 @@ class HypothesisEngine:
         # ===============================================================
         try:
             import json as _json
-            hyp_summary = _json.dumps(parsed, ensure_ascii=False, indent=2)[:4000]
+            hyp_summary = _json.dumps(parsed, ensure_ascii=False, indent=2)[:settings.text_truncation_long]
             red_team_prompt = ACH_RED_TEAM_PROMPT.format(
                 hypothesis_output=hyp_summary,
-                facts=facts_text[:3000],
+                facts=facts_text[:settings.text_truncation_medium],
             )
             logger.info("ACH Pass 2: Red Team challenge ({} chars)", len(red_team_prompt))
 
@@ -502,7 +501,7 @@ class HypothesisEngine:
         if reasoning_to_verify.strip():
             logger.info("Calling deepseek-r1 for logic verification")
             verification_prompt = LOGIC_VERIFICATION_PROMPT.format(
-                reasoning=reasoning_to_verify[:10_000],
+                reasoning=reasoning_to_verify[:settings.text_truncation_verification],
             )
             raw_verification = await self._router.route(
                 TaskType.LOGIC_VERIFICATION, verification_prompt
@@ -549,7 +548,7 @@ class HypothesisEngine:
         update_fields: dict[str, Any] = {"current_score": final_score}
 
         # 7. Flag significant shift
-        significant_shift = abs(delta) > _SCORE_SHIFT_THRESHOLD
+        significant_shift = abs(delta) > settings.score_shift_threshold
 
         # 8. Suggest "refuted" if score < 10 and was > 50
         suggested_status = None
@@ -676,7 +675,7 @@ class HypothesisEngine:
         retriever = self._get_retriever()
         if retriever is not None:
             shared_context = await retriever.build_analysis_context(
-                case_id, max_tokens=2000
+                case_id, max_tokens=settings.text_truncation_short
             )
             logger.info(
                 "Built shared RAG context for evaluate_all ({} chars)",

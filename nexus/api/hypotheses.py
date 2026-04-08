@@ -25,7 +25,7 @@ from nexus.db.models import (
 )
 from nexus.db.sqlite_db import Database, get_db
 
-from nexus.api.deps import get_database
+from nexus.api.deps import get_database, paginated_response
 
 router = APIRouter(prefix="/api", tags=["hypotheses"])
 
@@ -171,16 +171,21 @@ async def create_hypothesis(
 
 @router.get(
     "/cases/{case_id}/hypotheses",
-    response_model=list[Hypothesis],
 )
 async def list_hypotheses(
     case_id: str,
     status: Optional[str] = Query(default=None, description="Filter by status"),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: Database = Depends(get_database),
-) -> list[Hypothesis]:
-    """List all hypotheses for a case, optionally filtered by status."""
-    rows = await db.list_hypotheses_by_case(case_id, status=status)
-    return [Hypothesis(**r) for r in rows]
+):
+    """List hypotheses for a case, optionally filtered by status, with pagination."""
+    all_rows = await db.list_hypotheses_by_case(case_id, status=status, limit=100_000)
+
+    return paginated_response(
+        all_rows, offset, limit,
+        serializer=lambda r: Hypothesis(**r).model_dump(mode="json"),
+    )
 
 
 # ------------------------------------------------------------------

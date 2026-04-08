@@ -29,6 +29,7 @@ from typing import Any
 
 from loguru import logger
 
+from nexus.config import settings
 from nexus.db.models import AnalysisRun
 from nexus.db.sqlite_db import Database
 from nexus.llm.parsers import parse_hypothesis_score, parse_verification
@@ -41,8 +42,6 @@ from nexus.llm.prompts import (
 from nexus.llm.router import LLMRouter, TaskType
 
 
-# Score delta above which we create an alert.
-_SCORE_SHIFT_THRESHOLD = 15.0
 
 
 class AnalysisPipeline:
@@ -123,7 +122,7 @@ class AnalysisPipeline:
             retriever = self._get_retriever()
             if retriever is not None:
                 dossier_text = await retriever.build_analysis_context(
-                    case_id, max_tokens=4000
+                    case_id, max_tokens=settings.text_truncation_long
                 )
                 logger.info(
                     "Built RAG context for full analysis ({} chars)",
@@ -250,7 +249,7 @@ class AnalysisPipeline:
                     new_evidence_text = (
                         f"NOUVELLE PREUVE:\n"
                         f"Titre: {ev.get('title', 'N/A')}\n"
-                        f"Contenu: {ev.get('raw_text', '')[:4000]}\n"
+                        f"Contenu: {ev.get('raw_text', '')[:settings.text_truncation_long]}\n"
                         f"Resume: {ev.get('summary', 'N/A')}\n"
                     )
                     # Use the new evidence title + summary as focus for RAG
@@ -266,7 +265,7 @@ class AnalysisPipeline:
             retriever = self._get_retriever()
             if retriever is not None:
                 context = await retriever.build_analysis_context(
-                    case_id, focus=focus_query, max_tokens=4000
+                    case_id, focus=focus_query, max_tokens=settings.text_truncation_long
                 )
                 if new_evidence_text:
                     dossier_text = (
@@ -372,13 +371,13 @@ class AnalysisPipeline:
 
     async def _generate_single_summary(self, raw_text: str) -> str:
         """Call the fast model to produce a factual summary."""
-        truncated = raw_text[:8_000] if len(raw_text) > 8_000 else raw_text
+        truncated = raw_text[:settings.text_truncation_summary] if len(raw_text) > settings.text_truncation_summary else raw_text
         prompt = EVIDENCE_SUMMARY_PROMPT.format(evidence=truncated)
         return (await self._router.route(TaskType.EVIDENCE_SUMMARY, prompt)).strip()
 
     async def _run_deep_analysis(self, dossier_text: str) -> str:
         """[nexus 26B] Run the deep analysis prompt."""
-        truncated = dossier_text[:20_000] if len(dossier_text) > 20_000 else dossier_text
+        truncated = dossier_text[:settings.text_truncation_deep_analysis] if len(dossier_text) > settings.text_truncation_deep_analysis else dossier_text
         prompt = DEEP_ANALYSIS_PROMPT.format(dossier=truncated)
 
         logger.info("Running deep analysis ({} chars of dossier)", len(truncated))
@@ -507,7 +506,7 @@ class AnalysisPipeline:
         if not reasoning.strip():
             return {}
 
-        truncated = reasoning[:10_000] if len(reasoning) > 10_000 else reasoning
+        truncated = reasoning[:settings.text_truncation_verification] if len(reasoning) > settings.text_truncation_verification else reasoning
         prompt = LOGIC_VERIFICATION_PROMPT.format(reasoning=truncated)
 
         logger.info("Running logic verification")
@@ -575,7 +574,7 @@ class AnalysisPipeline:
 
         # Deep analysis (truncated for storage)
         if deep_analysis:
-            truncated = deep_analysis[:4_000] if len(deep_analysis) > 4_000 else deep_analysis
+            truncated = deep_analysis[:settings.text_truncation_long] if len(deep_analysis) > settings.text_truncation_long else deep_analysis
             parts.append(f"=== ANALYSE PROFONDE ===\n{truncated}")
 
         # Score changes
@@ -617,7 +616,7 @@ class AnalysisPipeline:
         """Create alerts for hypothesis score shifts exceeding the threshold."""
         for sr in score_results:
             delta = abs(sr.get("delta", 0))
-            if delta >= _SCORE_SHIFT_THRESHOLD:
+            if delta >= settings.score_shift_threshold:
                 direction = "renforce" if sr.get("delta", 0) > 0 else "affaibli"
                 severity = "critical" if delta >= 30 else "warning"
 

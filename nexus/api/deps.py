@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 
 from nexus.config import settings
 from nexus.core.audit import AuditService
@@ -129,8 +129,24 @@ def get_image_analyzer(
 # ------------------------------------------------------------------
 
 def get_neo4j(request: Request) -> Neo4jClient:
-    """Return the shared Neo4jClient from app.state."""
+    """Return the shared Neo4jClient from app.state (may be None)."""
     return request.app.state.neo4j
+
+
+def get_neo4j_or_503(request: Request) -> Neo4jClient:
+    """Return the shared Neo4jClient, or raise 503 if unavailable.
+
+    Use this dependency for endpoints that *require* Neo4j (e.g. graph
+    exploration).  Endpoints that merely *benefit* from Neo4j should
+    keep using ``get_neo4j()`` which may return None.
+    """
+    neo4j = request.app.state.neo4j
+    if neo4j is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Neo4j unavailable — graph features disabled",
+        )
+    return neo4j
 
 
 # ------------------------------------------------------------------
@@ -212,6 +228,48 @@ def get_contradiction_detector(
 # ------------------------------------------------------------------
 # Forensic analyzers (request-scoped, only need the LLMRouter)
 # ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# Pagination helper (shared by all list endpoints)
+# ------------------------------------------------------------------
+
+def paginated_response(
+    rows: list,
+    offset: int,
+    limit: int,
+    *,
+    serializer=None,
+) -> "JSONResponse":
+    """Build a paginated JSONResponse with X-Total-Count header.
+
+    Parameters
+    ----------
+    rows : list
+        The full result set (already filtered).
+    offset / limit : int
+        Pagination window.
+    serializer : callable, optional
+        A function ``row -> dict`` applied to each row in the page.
+        When *None*, rows are assumed to be JSON-serializable dicts.
+
+    Returns
+    -------
+    JSONResponse with body = list[dict] and header X-Total-Count.
+    """
+    from fastapi.responses import JSONResponse
+
+    total = len(rows)
+    page = rows[offset:offset + limit]
+
+    if serializer is not None:
+        content = [serializer(r) for r in page]
+    else:
+        content = page
+
+    response = JSONResponse(content=content)
+    response.headers["X-Total-Count"] = str(total)
+    return response
+
 
 def get_bpa_analyzer(request: Request):
     """Return a BloodPatternAnalyzer using the shared LLMRouter."""

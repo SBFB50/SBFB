@@ -104,10 +104,10 @@ class SocialRecon:
                         "exists": False,
                         "status_code": 0,
                     }
-                except Exception:
+                except Exception as exc:
                     logger.debug(
-                        "SocialRecon: error checking {} for '{}'",
-                        platform, username,
+                        "SocialRecon: error checking {} for '{}': {}",
+                        platform, username, exc,
                     )
                     return {
                         "platform": platform,

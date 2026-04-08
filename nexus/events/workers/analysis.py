@@ -67,10 +67,11 @@ class AnalysisPipelineWorker(ReactiveWorker):
         if self._debounce_task and not self._debounce_task.done():
             self._debounce_task.cancel()
 
-        # Start a new debounce timer
+        # Start a new debounce timer with error tracking callback
         self._debounce_task = asyncio.create_task(
             self._debounced_analysis(event.case_id, event.event_id)
         )
+        self._debounce_task.add_done_callback(self._on_debounce_done)
 
         # Return empty here; the debounce task will publish directly
         return []
@@ -124,4 +125,25 @@ class AnalysisPipelineWorker(ReactiveWorker):
             # Debounce was reset by a newer event -- expected
             pass
         except Exception:
+            self._last_error = "debounced_analysis failed"
+            self._events_errored += 1
             logger.exception("AnalysisPipeline: debounced analysis failed")
+
+    def _on_debounce_done(self, task: asyncio.Task) -> None:
+        """Done-callback for the debounce task.
+
+        Catches exceptions that propagated out of _debounced_analysis
+        (should not happen given the try/except there, but acts as a
+        safety net for truly unexpected errors like KeyboardInterrupt
+        subclasses or framework bugs).
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            self._last_error = f"debounce task exception: {exc!r}"
+            self._events_errored += 1
+            logger.error(
+                "AnalysisPipeline: debounce task died with unhandled exception: %r",
+                exc,
+            )

@@ -333,7 +333,7 @@ function DatabaseExplorer({ caseId }: { caseId: string }) {
           events: (aud || []).length,
           chroma: chromaArr.length,
         });
-      } catch { /* ignore */ }
+      } catch (e) { console.warn('[DatabaseExplorer] fetch error:', e); }
     };
 
     fetchAll();
@@ -614,7 +614,7 @@ export default function Benchmark() {
 
   // Load available benchmarks
   useEffect(() => {
-    api.get('/benchmark/available').then(r => setAvailableBenches(r.data || [])).catch(() => {});
+    api.get('/benchmark/available').then(r => setAvailableBenches(r.data || [])).catch(e => console.warn('[Benchmark] failed to load available benchmarks:', e));
   }, []);
 
   // Load audit log for selected case
@@ -625,7 +625,7 @@ export default function Benchmark() {
       try {
         const aud = await api.get(`/cases/${selectedCase}/audit?limit=20`).then(r => r.data).catch(() => []);
         if (active) setAuditLog(aud || []);
-      } catch { /* ignore */ }
+      } catch (e) { console.warn('[Benchmark] audit fetch error:', e); }
     };
     fetchAudit();
     const interval = setInterval(fetchAudit, 5000);
@@ -643,7 +643,8 @@ export default function Benchmark() {
         let data: Record<string, unknown> | null = null;
         try {
           data = await api.get(`/benchmark/progress/${caseId}`).then(r => r.data);
-        } catch {
+        } catch (e) {
+          console.warn('[Benchmark] progress endpoint unavailable, falling back:', e);
           data = await api.get(`/cases/${caseId}/investigation/status`).then(r => r.data);
         }
         if (!active || !data) return;
@@ -672,7 +673,7 @@ export default function Benchmark() {
           percent: data!.percent as number | undefined,
           workers: data!.workers as Record<string, { status: string; events_processed: number }> | undefined,
         } : null);
-      } catch { /* keep polling */ }
+      } catch (e) { console.warn('[Benchmark] progress poll error:', e); }
     };
 
     const interval = setInterval(poll, 2000);

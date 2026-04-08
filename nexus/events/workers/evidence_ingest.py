@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from nexus.config import settings
 from nexus.events.bus import EventBus
 from nexus.events.types import EventType, NexusEvent
 from nexus.events.worker import ReactiveWorker
@@ -68,7 +69,7 @@ class EvidenceIngestWorker(ReactiveWorker):
                         include_links=False,
                     )
                     if extracted and len(extracted) > len(snippet):
-                        text = extracted[:8000]  # Cap at 8K chars
+                        text = extracted[:settings.text_truncation_summary]  # Cap at summary limit
                         logger.info("EvidenceIngest: fetched full page (%d chars) for '%s'", len(text), title[:40])
             except ImportError:
                 pass  # trafilatura not installed, use snippet
@@ -84,7 +85,7 @@ class EvidenceIngestWorker(ReactiveWorker):
                     arquivo = ArquivoMonitor()
                     full_text = await arquivo.fetch_full_text(text_url)
                     if full_text and len(full_text) > len(snippet):
-                        text = full_text[:8000]
+                        text = full_text[:settings.text_truncation_summary]
                         logger.info("EvidenceIngest: fetched Arquivo.pt full text (%d chars)", len(text))
                 except Exception as exc:
                     logger.debug("EvidenceIngest: Arquivo.pt text fetch failed: %s", exc)
@@ -104,8 +105,8 @@ class EvidenceIngestWorker(ReactiveWorker):
                         title[:40], good_len,
                     )
                     return []
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("EvidenceIngest: jusText quality check failed: %s", exc)
 
             # Layer 2: case entity keyword check
             try:
@@ -129,8 +130,8 @@ class EvidenceIngestWorker(ReactiveWorker):
                                 title[:40], matches, len(keywords),
                             )
                             return []
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("EvidenceIngest: entity keyword check failed: %s", exc)
 
         logger.info(
             "EvidenceIngest: ingesting '%s' (relevance=%s, %d chars) for case %s",

@@ -7,12 +7,12 @@ across evidence.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from nexus.db.models import Entity, EntityMention
 from nexus.db.sqlite_db import Database
 
-from nexus.api.deps import get_database
+from nexus.api.deps import get_database, paginated_response
 
 router = APIRouter(tags=["entities"])
 
@@ -21,15 +21,21 @@ router = APIRouter(tags=["entities"])
 # GET /api/cases/{case_id}/entities
 # ------------------------------------------------------------------
 
-@router.get("/api/cases/{case_id}/entities", response_model=list[Entity])
+@router.get("/api/cases/{case_id}/entities")
 async def list_entities(
     case_id: str,
     entity_type: str | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: Database = Depends(get_database),
-) -> list[Entity]:
-    """List all entities for a case, optionally filtered by type."""
-    rows = await db.list_entities_by_case(case_id, entity_type=entity_type)
-    return [Entity(**r) for r in rows]
+):
+    """List entities for a case, optionally filtered by type, with pagination."""
+    all_rows = await db.list_entities_by_case(case_id, entity_type=entity_type, limit=100_000)
+
+    return paginated_response(
+        all_rows, offset, limit,
+        serializer=lambda r: Entity(**r).model_dump(mode="json"),
+    )
 
 
 # ------------------------------------------------------------------

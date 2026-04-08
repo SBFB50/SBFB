@@ -2,8 +2,9 @@
 NEXUS -- SelfQuestioningWorker.
 
 Subscribes to HYPOTHESIS_SCORED.  When a top hypothesis score shifts
-by more than 15 points, challenges it using adversarial self-questioning
-via the nexus 26B model.  Creates alerts with the critique results.
+by more than settings.score_shift_threshold points, challenges it using
+adversarial self-questioning via the nexus 26B model.  Creates alerts
+with the critique results.
 """
 
 from __future__ import annotations
@@ -11,13 +12,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from nexus.config import settings
 from nexus.events.bus import EventBus
 from nexus.events.types import EventType, NexusEvent
 from nexus.events.worker import ReactiveWorker
 
 logger = logging.getLogger(__name__)
-
-_SCORE_SHIFT_THRESHOLD = 15.0
 
 
 class SelfQuestioningWorker(ReactiveWorker):
@@ -38,7 +38,7 @@ class SelfQuestioningWorker(ReactiveWorker):
 
     async def handle(self, event: NexusEvent) -> list[NexusEvent]:
         delta = abs(event.payload.get("delta", 0))
-        if delta < _SCORE_SHIFT_THRESHOLD:
+        if delta < settings.score_shift_threshold:
             return []
 
         hypothesis_id = event.payload.get("hypothesis_id", "")
@@ -106,7 +106,7 @@ class SelfQuestioningWorker(ReactiveWorker):
                 alert_type="self_questioning",
                 severity="info",
                 title=f"Auto-critique: {top_hyp.get('title', '?')[:60]}",
-                message=critique.strip()[:2000],
+                message=critique.strip()[:settings.text_truncation_short],
                 related_id=hypothesis_id,
             )
 

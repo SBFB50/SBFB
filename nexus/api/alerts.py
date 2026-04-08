@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from nexus.db.models import Alert
 from nexus.db.sqlite_db import Database
 
-from nexus.api.deps import get_database
+from nexus.api.deps import get_database, paginated_response
 
 router = APIRouter(tags=["alerts"])
 
@@ -24,23 +24,27 @@ router = APIRouter(tags=["alerts"])
 
 @router.get(
     "/api/cases/{case_id}/alerts",
-    response_model=list[Alert],
 )
 async def list_alerts(
     case_id: str,
     severity: Optional[str] = None,
     unread_only: bool = False,
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: Database = Depends(get_database),
-) -> list[Alert]:
-    """List alerts for a case, optionally filtered by severity and read status."""
-    rows = await db.list_alerts_by_case(
+):
+    """List alerts for a case, optionally filtered by severity and read status, with pagination."""
+    all_rows = await db.list_alerts_by_case(
         case_id,
         unread_only=unread_only,
         severity=severity,
-        limit=limit,
+        limit=100_000,
     )
-    return [Alert(**r) for r in rows]
+
+    return paginated_response(
+        all_rows, offset, limit,
+        serializer=lambda r: Alert(**r).model_dump(mode="json"),
+    )
 
 
 # ------------------------------------------------------------------
@@ -79,7 +83,8 @@ async def unread_alert_count(
     if case_id:
         count = await db.count_unread_alerts(case_id)
     else:
-        # Count across all cases -- use a direct query
+        # TODO: add a db.count_all_unread_alerts() method to avoid raw SQL
+        # For now, access the connection directly as no public method exists
         cursor = await db._conn.execute(
             "SELECT COUNT(*) FROM alerts WHERE is_read = 0"
         )

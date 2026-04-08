@@ -80,8 +80,8 @@ class WikiLintWorker(ReactiveWorker):
                         title=f"Wiki lint: {len(issues)} probleme(s)",
                         message="\n".join(issues[:20]),
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("WikiLint: failed to create alert: %s", exc)
 
             return []
 

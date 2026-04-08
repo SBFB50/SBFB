@@ -291,7 +291,7 @@ class WikiCompiler:
             source=ev.get("source", "inconnu"),
             source_date=ev.get("source_date", "inconnue"),
             reliability=ev.get("reliability", 50),
-            content=(ev.get("summary") or ev.get("raw_text", ""))[:3000],
+            content=(ev.get("summary") or ev.get("raw_text", ""))[:settings.text_truncation_medium],
             entities=entities_text,
             existing_page=existing_body or "(nouvelle page)",
         )

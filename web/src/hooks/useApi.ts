@@ -108,13 +108,6 @@ export function useMonitoringJobs() {
   });
 }
 
-export function useBenchmarkResults() {
-  return useQuery({
-    queryKey: ['benchmarkResults'],
-    queryFn: api.getBenchmarkResults,
-  });
-}
-
 export function useSubmitEvidence() {
   const { caseId } = useCaseStore();
   const qc = useQueryClient();

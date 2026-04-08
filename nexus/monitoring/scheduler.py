@@ -102,8 +102,8 @@ class MonitoringScheduler:
         try:
             self._scheduler.remove_job(scheduler_id)
             logger.info("Scheduler: removed job {}", job_id)
-        except Exception:
-            logger.warning("Scheduler: job {} not found for removal", job_id)
+        except Exception as exc:
+            logger.warning("Scheduler: job {} not found for removal: {}", job_id, exc)
 
     def update_job_interval(self, job_id: str, interval_hours: int) -> None:
         """Reschedule an existing job with a new interval."""
@@ -118,8 +118,9 @@ class MonitoringScheduler:
                 job_id,
                 interval_hours,
             )
-        except Exception:
+        except Exception as exc:
             # Job not found -- add it fresh
+            logger.debug("Scheduler: reschedule failed for job {}, re-adding: {}", job_id, exc)
             self._add_scheduler_job(job_id, interval_hours)
 
     def trigger_job(self, job_id: str) -> None:
@@ -131,10 +132,10 @@ class MonitoringScheduler:
                 next_run_time=datetime.now(timezone.utc),
             )
             logger.info("Scheduler: triggered immediate run for job {}", job_id)
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "Scheduler: job {} not found for trigger, running directly",
-                job_id,
+                "Scheduler: job {} not found for trigger, running directly: {}",
+                job_id, exc,
             )
             # Schedule a one-off run directly
             asyncio.ensure_future(self._execute_monitoring_job(job_id))
@@ -149,8 +150,8 @@ class MonitoringScheduler:
         # Remove if already exists (idempotent add)
         try:
             self._scheduler.remove_job(scheduler_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Scheduler: no existing job {} to remove: {}", scheduler_id, exc)
         self._scheduler.add_job(
             self._execute_monitoring_job,
             trigger=IntervalTrigger(hours=interval_hours),
@@ -204,8 +205,8 @@ class MonitoringScheduler:
                         m = re.search(r"before:(\d{4}-\d{2}-\d{2})", desc)
                         if m:
                             before_date = m.group(1)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to extract before_date for case {}: {}", case_id, exc)
 
                 # 2. Search
                 raw_results: list[dict] = []
@@ -223,9 +224,9 @@ class MonitoringScheduler:
                             len(searxng_results),
                             job_id,
                         )
-                    except Exception:
+                    except Exception as exc:
                         logger.exception(
-                            "SearXNG search failed for job {}", job_id
+                            "SearXNG search failed for job {}: {}", job_id, exc
                         )
 
                 if job_type in ("robin", "both"):
@@ -243,9 +244,9 @@ class MonitoringScheduler:
                             )
                         else:
                             logger.warning("Robin unavailable for job {}", job_id)
-                    except Exception:
+                    except Exception as exc:
                         logger.exception(
-                            "Robin search failed for job {}", job_id
+                            "Robin search failed for job {}: {}", job_id, exc
                         )
 
                 if not raw_results:
@@ -267,8 +268,8 @@ class MonitoringScheduler:
                     # Compute embedding for deduplication
                     try:
                         embedding = await self._router.embed(text_for_embed)
-                    except Exception:
-                        logger.exception("Embedding failed for result: {}", result.get("url"))
+                    except Exception as exc:
+                        logger.exception("Embedding failed for result {}: {}", result.get("url"), exc)
                         continue
 
                     # Check semantic duplicate in ChromaDB
@@ -279,8 +280,8 @@ class MonitoringScheduler:
                             embedding=embedding,
                             threshold=0.92,
                         )
-                    except Exception:
-                        logger.warning("Duplicate check failed, treating as new")
+                    except Exception as exc:
+                        logger.warning("Duplicate check failed, treating as new: {}", exc)
 
                     # Relevance scoring via LLM
                     relevance_score: Optional[float] = None
@@ -301,9 +302,9 @@ class MonitoringScheduler:
                             relevance_score = round(float(relevance_score) * 100, 1)
                         else:
                             relevance_score = None
-                    except Exception:
+                    except Exception as exc:
                         logger.warning(
-                            "Relevance filtering failed for {}", result.get("url")
+                            "Relevance filtering failed for {}: {}", result.get("url"), exc
                         )
 
                     # 4. Store result in SQLite
@@ -332,10 +333,10 @@ class MonitoringScheduler:
                                     "url": result.get("url", ""),
                                 },
                             )
-                        except Exception:
+                        except Exception as exc:
                             logger.warning(
-                                "Failed to store embedding for result {}",
-                                db_result["id"],
+                                "Failed to store embedding for result {}: {}",
+                                db_result["id"], exc,
                             )
 
                     stored_count += 1
@@ -351,10 +352,10 @@ class MonitoringScheduler:
                                 case_id=case_id,
                                 result=db_result,
                             )
-                        except Exception:
+                        except Exception as exc:
                             logger.warning(
-                                "Alert creation failed for result {}",
-                                db_result["id"],
+                                "Alert creation failed for result {}: {}",
+                                db_result["id"], exc,
                             )
 
                 # 7. Update job timestamps
@@ -371,5 +372,5 @@ class MonitoringScheduler:
                     len(raw_results),
                 )
 
-        except Exception:
-            logger.exception("Monitoring job {} FAILED", job_id)
+        except Exception as exc:
+            logger.exception("Monitoring job {} FAILED: {}", job_id, exc)

@@ -26,9 +26,23 @@ from tenacity import (
 
 from nexus.config import settings
 
+
+# ---------------------------------------------------------------------------
+# OOM sentinel — raised internally to short-circuit retries
+# ---------------------------------------------------------------------------
+
+class _OOMError(Exception):
+    """Raised when Ollama reports out-of-memory so retry logic can fast-fail."""
+
+    def __init__(self, model: str, message: str) -> None:
+        self.model = model
+        super().__init__(message)
+
+
 # ---------------------------------------------------------------------------
 # Retry policy — 3 attempts, exponential backoff (1s → 2s → 4s)
 # Retries on transient network / timeout errors only.
+# Does NOT retry on _OOMError (handled inline via _oom_retried flag).
 # ---------------------------------------------------------------------------
 _RETRY_KWARGS: dict[str, Any] = dict(
     stop=stop_after_attempt(3),
@@ -42,6 +56,41 @@ _RETRY_KWARGS: dict[str, Any] = dict(
         rs.outcome.exception(),
     ),
 )
+
+
+def _extract_balanced(text: str, open_ch: str, close_ch: str) -> str | None:
+    """Extract the first balanced ``open_ch … close_ch`` block from *text*.
+
+    Handles arbitrary nesting depth (unlike a one-level regex).
+    Respects JSON string literals so braces inside quotes are skipped.
+    Returns ``None`` if no balanced block is found.
+    """
+    start = text.find(open_ch)
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
 
 
 class OllamaClient:
@@ -66,6 +115,7 @@ class OllamaClient:
         format: str | None = None,
         timeout: float = 300,
         keep_alive: str | None = None,
+        _oom_retried: bool = False,
     ) -> str:
         """Generate a text completion.
 
@@ -101,6 +151,28 @@ class OllamaClient:
             return text
 
         except ResponseError as exc:
+            if self._is_oom(exc):
+                if _oom_retried:
+                    logger.error(
+                        "OOM on model '{}' after VRAM recovery — "
+                        "failing fast, no more retries.",
+                        model,
+                    )
+                    raise _OOMError(model, str(exc)) from exc
+                logger.warning(
+                    "OOM on model '{}'. Unloading other models and retrying once...",
+                    model,
+                )
+                await self._unload_all_except(model)
+                return await self.generate(
+                    model=model,
+                    prompt=prompt,
+                    system=system,
+                    format=format,
+                    timeout=timeout,
+                    keep_alive=keep_alive,
+                    _oom_retried=True,
+                )
             self._handle_response_error(exc, model)
             raise
         except RequestError as exc:
@@ -118,8 +190,9 @@ class OllamaClient:
     ) -> dict:
         """Generate a response and force JSON output format.
 
-        Returns the parsed dict.  Raises ``json.JSONDecodeError`` if the
-        model returns invalid JSON despite the format constraint.
+        Returns the parsed dict.  If the model returns invalid JSON,
+        attempts regex extraction of ``{...}`` / ``[...]`` blocks.
+        Returns ``{}`` as a last resort (never raises on parse failure).
         """
         raw = await self.generate(
             model=model,
@@ -128,7 +201,7 @@ class OllamaClient:
             format="json",
             timeout=timeout,
         )
-        return json.loads(raw)
+        return self._safe_parse_json(raw, model)
 
     # ------------------------------------------------------------------
     # Vision (image + text)
@@ -144,11 +217,13 @@ class OllamaClient:
         system: str | None = None,
         timeout: float = 120,
         keep_alive: str | None = None,
+        _oom_retried: bool = False,
     ) -> str:
         """Generate text from a prompt + image using a vision-capable model.
 
         Reads the image file, encodes it as base64, and sends it via
         the Ollama chat endpoint with the ``images`` field.
+        The *timeout* parameter is enforced via ``asyncio.wait_for``.
 
         Args:
             keep_alive: How long to keep the model loaded (e.g., "10m", "5m").
@@ -158,10 +233,11 @@ class OllamaClient:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
         logger.debug(
-            "generate_with_image | model={} prompt_len={} image={} keep_alive={}",
+            "generate_with_image | model={} prompt_len={} image={} timeout={}s keep_alive={}",
             model,
             len(prompt),
             Path(image_path).name,
+            timeout,
             keep_alive or "10m",
         )
 
@@ -175,11 +251,14 @@ class OllamaClient:
         })
 
         try:
-            response = await self._client.chat(
-                model=model,
-                messages=messages,
-                options={"num_ctx": 16384},
-                keep_alive=keep_alive or "10m",
+            response = await asyncio.wait_for(
+                self._client.chat(
+                    model=model,
+                    messages=messages,
+                    options={"num_ctx": 16384},
+                    keep_alive=keep_alive or "10m",
+                ),
+                timeout=timeout,
             )
             text: str = response.message.content or ""
             logger.debug(
@@ -189,7 +268,38 @@ class OllamaClient:
             )
             return text
 
+        except asyncio.TimeoutError:
+            logger.error(
+                "Vision timeout: model='{}' exceeded {}s for image '{}'",
+                model,
+                timeout,
+                Path(image_path).name,
+            )
+            return ""
         except ResponseError as exc:
+            if self._is_oom(exc):
+                if _oom_retried:
+                    logger.error(
+                        "OOM on vision model '{}' after VRAM recovery — "
+                        "failing fast, no more retries.",
+                        model,
+                    )
+                    raise _OOMError(model, str(exc)) from exc
+                logger.warning(
+                    "OOM on vision model '{}'. Unloading other models "
+                    "and retrying once...",
+                    model,
+                )
+                await self._unload_all_except(model)
+                return await self.generate_with_image(
+                    model=model,
+                    prompt=prompt,
+                    image_path=image_path,
+                    system=system,
+                    timeout=timeout,
+                    keep_alive=keep_alive,
+                    _oom_retried=True,
+                )
             self._handle_response_error(exc, model)
             raise
         except RequestError as exc:
@@ -326,6 +436,12 @@ class OllamaClient:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _is_oom(exc: ResponseError) -> bool:
+        """Return True if the ResponseError indicates an out-of-memory condition."""
+        msg = str(exc).lower()
+        return "out of memory" in msg or "oom" in msg
+
+    @staticmethod
     def _handle_response_error(exc: ResponseError, model: str) -> None:
         """Log structured information about Ollama response errors."""
         msg = str(exc).lower()
@@ -343,3 +459,72 @@ class OllamaClient:
             )
         else:
             logger.error("Ollama ResponseError (model={}): {}", model, exc)
+
+    async def _unload_all_except(self, keep_model: str) -> None:
+        """Unload every loaded model except *keep_model* to reclaim VRAM."""
+        try:
+            response = await self._client.ps()
+            loaded = [m.model for m in response.models if m.model != keep_model]
+        except Exception as exc:
+            logger.warning("Could not list running models for VRAM recovery: {}", exc)
+            return
+
+        if not loaded:
+            logger.info("No other models loaded — nothing to unload for VRAM recovery.")
+            return
+
+        logger.info("VRAM recovery: unloading {} model(s): {}", len(loaded), loaded)
+        for m in loaded:
+            await self.unload_model(m)
+
+    @staticmethod
+    def _safe_parse_json(raw: str, model: str) -> dict:
+        """Parse *raw* as JSON, falling back to brace-matching extraction.
+
+        Returns ``{}`` if all parsing attempts fail (never raises).
+        """
+        if not raw or not raw.strip():
+            logger.warning(
+                "generate_json: empty response from model '{}', returning {{}}",
+                model,
+            )
+            return {}
+
+        # --- Attempt 1: direct parse ---
+        try:
+            result = json.loads(raw)
+            if isinstance(result, dict):
+                return result
+            if isinstance(result, list):
+                # Wrap bare list so callers always get a dict
+                return {"items": result}
+            # Scalar — wrap it
+            return {"value": result}
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # --- Attempt 2: brace-matched extraction of first JSON object ---
+        extracted = _extract_balanced(raw, "{", "}")
+        if extracted:
+            try:
+                return json.loads(extracted)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # --- Attempt 3: bracket-matched extraction of first JSON array ---
+        extracted = _extract_balanced(raw, "[", "]")
+        if extracted:
+            try:
+                result = json.loads(extracted)
+                return {"items": result} if isinstance(result, list) else {}
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # --- All attempts failed ---
+        logger.warning(
+            "generate_json: could not parse JSON from model '{}'. "
+            "Raw response (first 500 chars): {}",
+            model,
+            raw[:500],
+        )
+        return {}

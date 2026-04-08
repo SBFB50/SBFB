@@ -228,10 +228,16 @@ app.add_middleware(ProcessTimeMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],        # Streamlit dashboard + dev
+    allow_origins=[
+        "http://localhost:3002",
+        "http://localhost:8501",
+        "http://127.0.0.1:3002",
+        "http://127.0.0.1:8501",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count", "X-Process-Time"],
 )
 
 

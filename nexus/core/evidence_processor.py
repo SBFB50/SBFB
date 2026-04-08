@@ -542,7 +542,7 @@ class EvidenceProcessor:
     async def _generate_summary(self, text: str) -> str:
         """Generate a factual summary of the evidence text via LLM."""
         # Truncate for the summary prompt
-        truncated = text[:8_000] if len(text) > 8_000 else text
+        truncated = text[:settings.text_truncation_summary] if len(text) > settings.text_truncation_summary else text
         prompt = EVIDENCE_SUMMARY_PROMPT.format(evidence=truncated)
 
         logger.debug("Generating summary for {} chars of text", len(truncated))

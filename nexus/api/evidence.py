@@ -6,14 +6,14 @@ Upload files (multipart), submit text evidence, list/get/update/delete.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Optional
 
 from nexus.db.models import Evidence, EvidenceUpdate
 from nexus.db.sqlite_db import Database
 
-from nexus.api.deps import get_database, get_evidence_processor
+from nexus.api.deps import get_database, get_evidence_processor, paginated_response
 
 router = APIRouter(tags=["evidence"])
 
@@ -86,21 +86,28 @@ async def submit_text_evidence(
 # GET /api/cases/{case_id}/evidence
 # ------------------------------------------------------------------
 
-@router.get("/api/cases/{case_id}/evidence", response_model=list[Evidence])
+@router.get("/api/cases/{case_id}/evidence")
 async def list_evidence(
     case_id: str,
     status: str | None = None,
     evidence_type: str | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: Database = Depends(get_database),
-) -> list[Evidence]:
-    """List all evidence for a case, with optional filters."""
-    rows = await db.list_evidence_by_case(case_id, status=status)
+):
+    """List evidence for a case, with optional filters and pagination."""
+    # Fetch all matching rows (DB already supports limit/offset but we need
+    # to apply evidence_type filter in-memory, so fetch a large set first)
+    all_rows = await db.list_evidence_by_case(case_id, status=status, limit=100_000)
 
     # The DB method only filters by status; apply evidence_type in-memory
     if evidence_type:
-        rows = [r for r in rows if r.get("evidence_type") == evidence_type]
+        all_rows = [r for r in all_rows if r.get("evidence_type") == evidence_type]
 
-    return [Evidence(**r) for r in rows]
+    return paginated_response(
+        all_rows, offset, limit,
+        serializer=lambda r: Evidence(**r).model_dump(mode="json"),
+    )
 
 
 # ------------------------------------------------------------------

@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from nexus.config import settings
 from nexus.core.embedding_store import EmbeddingStore
 from nexus.db.chroma_db import ChromaClient
 from nexus.db.neo4j_db import Neo4jClient
@@ -313,7 +314,7 @@ class InvestigationRetriever:
                 if run.get("run_type") == "timeline_rebuild":
                     output = run.get("output_summary", "")
                     if output and "CHRONOLOGIE" in output:
-                        context_parts.append(f"\n{output[:2000]}")
+                        context_parts.append(f"\n{output[:settings.text_truncation_short]}")
                     break  # only include the most recent timeline
         except Exception:
             pass
@@ -622,7 +623,7 @@ class InvestigationRetriever:
                     multi_entity_bonus = 0.1 * min(len(source_nodes) - 1, 3)
                     graph_score = min(1.0, graph_score + multi_entity_bonus)
 
-                text = evidence.get("summary") or (evidence.get("raw_text", "")[:2000])
+                text = evidence.get("summary") or (evidence.get("raw_text", "")[:settings.text_truncation_short])
                 entry = {
                     "chunk_text": text,
                     "evidence_id": eid,
@@ -710,7 +711,7 @@ class InvestigationRetriever:
         for i, ev in enumerate(raw):
             # BM25-ranked results: assign decaying score based on position
             fts_score = max(0.1, 1.0 - (i / n_results))
-            text = ev.get("summary") or (ev.get("raw_text", "")[:2000])
+            text = ev.get("summary") or (ev.get("raw_text", "")[:settings.text_truncation_short])
             entry = {
                 "chunk_text": text,
                 "evidence_id": ev.get("id", ""),
@@ -777,7 +778,7 @@ class InvestigationRetriever:
             "Extrais UNIQUEMENT les noms propres (personnes, lieux, organisations, "
             "vehicules, telephones) mentionnes dans ce texte. "
             "Reponds avec une liste simple, un nom par ligne, RIEN d'autre.\n\n"
-            f"Texte: {query[:2000]}"
+            f"Texte: {query[:settings.text_truncation_short]}"
         )
         try:
             raw = await self._router.route(
