@@ -1,0 +1,19 @@
+[project]
+name = "nexus"
+version = "0.2.0"
+description = "Cold Case Investigation System — autonomous, persistent, event-driven"
+requires-python = ">=3.13"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+timeout = 30
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # line length handled by formatter

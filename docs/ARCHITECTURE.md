@@ -30,7 +30,7 @@ NEXUS est un systeme d'investigation persistant et autonome concu pour les cold 
 - **Extraction automatique d'entites** via GLiNER (CPU, zero VRAM)
 - **Monitoring continu** multi-sources (clearweb via SearXNG + dark web via Robin/Tor)
 - **Evaluation d'hypotheses evolutives** avec scoring multi-modeles
-- **Boucle autonome d'investigation** basee sur le modele OODA etendu (Observe-Orient-Decide-Act-Question)
+- **Architecture event-driven reactive** avec EventBus pub/sub + 20 ReactiveWorkers + VRAMScheduler
 
 Le systeme est entierement local (aucune donnee ne quitte la machine) et utilise des modeles LLM uncensored/abliterated pour analyser du contenu sensible lie a des affaires criminelles.
 
@@ -40,8 +40,7 @@ Le systeme est entierement local (aucune donnee ne quitte la machine) et utilise
 |-----------|-------------|------|
 | Backend | FastAPI (Python 3.13) | 8000 |
 | Frontend React | Vite + TypeScript + Tailwind | 3002 |
-| Frontend legacy | Streamlit | 8501 |
-| LLMs | Ollama (6 modeles) | 11434 |
+| LLMs | Ollama (1 modele + embeddings) | 11434 |
 | Recherche clearweb | SearXNG | 8888 |
 | Recherche dark web | Robin (Tor) | 8502 |
 | Graphe | Neo4j | 7474 |
@@ -70,8 +69,8 @@ Le systeme est entierement local (aucune donnee ne quitte la machine) et utilise
            +------------------------+------------------------+
            |                        |                        |
   +--------v--------+    +---------v---------+    +---------v---------+
-  | EvidenceProcessor|    | AutonomousLoop    |    | API Routers (21)  |
-  | (ingestion)      |    | (boucle OODA)     |    | (115+ endpoints)  |
+  | EvidenceProcessor|    | EventBus +        |    | API Routers (22)  |
+  | (ingestion)      |    | 20 ReactiveWorkers|    | (133+ endpoints)  |
   +---------+--------+    +----+----+----+----+    +-------------------+
             |                  |    |    |    |
    +--------+--------+        |    |    |    |
@@ -83,9 +82,9 @@ Le systeme est entierement local (aucune donnee ne quitte la machine) et utilise
    |                                |    |                                 |
    v                                v    v                                 v
 +--+---+  +----------+  +----------+  +----------+  +----------+  +------+-----+
-|Analy-|  |Hypothesis|  |Contradic-|  |Suspect   |  |Forensics |  |Investigation|
+|Analy-|  |Hypothesis|  |Contradic-|  |Suspect   |  |Forensics |  |ReactiveInv. |
 |sis   |  |Engine    |  |tion      |  |Scorer    |  |(BPA,trace|  |Manager      |
-|Pipe  |  |(gen+eval)|  |Detector  |  |(5 factors)|  |acoustic) |  |(daemon mgr) |
+|Pipe  |  |(gen+eval)|  |Detector  |  |(5 factors)|  |acoustic) |  |(event mgr)  |
 +--+---+  +----+-----+  +----+-----+  +----+-----+  +----+-----+  +------+-----+
    |           |              |             |              |               |
    +-----+----+----+---------+------+------+--------------+               |
@@ -107,21 +106,21 @@ Le systeme est entierement local (aucune donnee ne quitte la machine) et utilise
 
 ### Interconnexions cles
 
-| Outil | Recoit de | Alimente |
-|-------|-----------|----------|
-| EvidenceProcessor | API upload, monitoring auto | EntityExtractor, ChromaDB, Neo4j, SummaryTree |
-| EntityExtractor | EvidenceProcessor, AutonomousLoop | SQLite entities, Neo4j nodes, ChromaDB entity_contexts |
-| AnalysisPipeline | AutonomousLoop, API | HypothesisEngine (re-scoring) |
-| HypothesisEngine | AnalysisPipeline, AutonomousLoop | SQLite hypotheses, ChromaDB hypothesis_reasoning |
-| ContradictionDetector | AutonomousLoop | AlertManager, audit_log, SuspectScorer |
-| SuspectScorer | AutonomousLoop (DECIDE) | SQLite suspects, suspect_snapshots |
+| Outil | Recoit de (event) | Alimente |
+|-------|-------------------|----------|
+| EvidenceProcessor | API upload, monitoring_result | EntityExtractor, ChromaDB, Neo4j, SummaryTree |
+| EntityExtractor | evidence_added | SQLite entities, Neo4j nodes, ChromaDB entity_contexts |
+| AnalysisPipeline | evidence_processed | HypothesisEngine (re-scoring) |
+| HypothesisEngine | analysis_completed | SQLite hypotheses, ChromaDB hypothesis_reasoning |
+| ContradictionDetector | evidence_processed | AlertManager, audit_log, SuspectScorer |
+| SuspectScorer | hypothesis_scored | SQLite suspects, suspect_snapshots |
 | Retriever | AnalysisPipeline, HypothesisEngine | Contexte LLM (prompt injection) |
-| SummaryTree | EvidenceProcessor | SQLite summary_clusters, case_summaries |
-| TimelineBuilder | AutonomousLoop (DECIDE) | SQLite analysis_runs |
-| GeoMapper | AutonomousLoop (ORIENT) | SQLite locations |
-| ImageAnalyzer | AutonomousLoop (ORIENT) | SQLite evidence, ChromaDB |
-| ImageSearchEngine | AutonomousLoop (ORIENT) | ChromaDB image_dinov2, image_clip |
-| MonitoringScheduler | AutonomousLoop (OBSERVE) | SQLite monitoring_results |
+| SummaryTree | evidence_added | SQLite summary_clusters, case_summaries |
+| TimelineBuilder | evidence_processed | SQLite analysis_runs |
+| GeoMapper | entity_discovered | SQLite locations |
+| ImageAnalyzer | evidence_added (image) | SQLite evidence, ChromaDB |
+| ImageSearchEngine | evidence_added (image) | ChromaDB image_dinov2, image_clip |
+| MonitoringLoop | MonitoringLoop (30s sweep) | SQLite monitoring_results |
 
 ---
 
@@ -263,61 +262,58 @@ Expose dans le retriever hybride (poids 0.15) et les endpoints `/fts` et `/hybri
 
 ### Fichier : `nexus/llm/router.py`
 
-### 6 modeles Ollama
+### 2 modeles Ollama (single model + embeddings)
 
 | Modele | Taille | Role | VRAM | Exemples de taches |
 |--------|--------|------|------|--------------------|
-| `nexus` (Gemma 4 26B Heretic) | 26B Q4_K_S | Analyse profonde | ~14 GB | DEEP_ANALYSIS, HYPOTHESIS_SCORING, SUSPECT_PROFILE, FINAL_REPORT |
-| `huihui_ai/deepseek-r1-abliterated:14b` | 14B | Raisonnement CoT | ~10 GB | CONTRADICTION_DETECTION, LOGIC_VERIFICATION, TESTIMONY_COMPARISON |
-| `gemma4:e4b` | 4B | Leger, rapide | ~3 GB | ENTITY_EXTRACTION, EVIDENCE_SUMMARY, QUERY_REFORMULATION, IMAGE_DESCRIPTION |
-| `nomic-embed-text` | 137M | Embeddings | ~0.5 GB | EMBEDDING (768 dim) |
-| `qwen3-vl:8b` | 8B | Vision profonde | ~6 GB | IMAGE_SCENE_ANALYSIS, IMAGE_COMPARISON, TRACE_ANALYSIS |
-| `voxtral-mini:4b` | 4B | Audio | ~3 GB | AUDIO_TRANSCRIPTION |
+| `juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m` | MoE 26B (4B actifs) | ALL tasks | ~14 GB | DEEP_ANALYSIS, HYPOTHESIS_SCORING, CONTRADICTION_DETECTION, EVIDENCE_SUMMARY, IMAGE_DESCRIPTION, RESULT_FILTERING, etc. |
+| `nomic-embed-text` | 137M | Embeddings | ~0.5 GB | EMBEDDING (768 dim), coexiste via bypass |
 
 ### Taxonomie des taches (20 TaskTypes)
 
 ```python
-# Leger (gemma4:e4b, ~80 tok/s)
+# Light tasks (gemma-4-26B-A4B, rapides grace a MoE 4B actifs)
 ENTITY_EXTRACTION, QUERY_REFORMULATION, RESULT_FILTERING,
 JSON_STRUCTURING, EVIDENCE_SUMMARY
 
-# Embeddings (nomic-embed-text)
+# Embeddings (nomic-embed-text, bypass VRAM lock)
 EMBEDDING
 
-# Raisonnement (deepseek-r1, CoT)
-LOGIC_VERIFICATION, CONTRADICTION_DETECTION, TESTIMONY_COMPARISON
-
-# Analyse profonde (nexus 26B)
+# Heavy tasks (gemma-4-26B-A4B, single model for all)
+LOGIC_VERIFICATION, CONTRADICTION_DETECTION, TESTIMONY_COMPARISON,
 DEEP_ANALYSIS, HYPOTHESIS_SCORING, SUSPECT_PROFILE,
 FINAL_REPORT, INCREMENTAL_REEVAL
 
-# Vision (gemma4:e4b rapide, qwen3-vl:8b profonde)
+# Vision (gemma-4-26B-A4B, native multimodal)
 IMAGE_DESCRIPTION, IMAGE_ENTITY_EXTRACTION,
 IMAGE_SCENE_ANALYSIS, IMAGE_COMPARISON
 
-# Audio (voxtral-mini:4b)
+# Audio
 AUDIO_TRANSCRIPTION
 
-# Forensique (qwen3-vl:8b)
+# Forensique
 TRACE_ANALYSIS
 ```
 
-### Serialisation VRAM
+### Serialisation VRAM (VRAMScheduler)
 
 ```
-asyncio.Lock (_heavy_lock)
+VRAMScheduler (nexus/events/vram_scheduler.py)
      |
-     +-- Tout appel "heavy=True" acquiert le lock
-     |   avant d'envoyer la requete a Ollama
+     +-- embedding bypass : nomic-embed-text passe sans lock
      |
-     +-- Modeles legers (gemma4:e4b, nomic) passent sans lock
+     +-- light lock : taches legeres serialisees entre elles
      |
-     +-- Warning log si attente > 30 secondes
+     +-- heavy lock : taches lourdes serialisees (priority queue)
+     |
+     +-- light/heavy mutual exclusion : prevent GPU swap
+     |
+     +-- model affinity batching : regroupe les taches du meme modele
 ```
 
-**Fichier :** `nexus/llm/router.py`, lignes 116-200
+**Fichiers :** `nexus/events/vram_scheduler.py`, `nexus/llm/router.py`
 
-**Principe** : Un seul modele lourd (>8B params) en VRAM a la fois. Les modeles legers coexistent. Le `asyncio.Lock` serialise les appels lourds pour eviter les OOM.
+**Principe** : Un seul modele (gemma-4-26B-A4B) pour toutes les taches. Le VRAMScheduler gere l'exclusion mutuelle light/heavy et le batching par affinite modele. `nomic-embed-text` (137MB) coexiste via bypass.
 
 ---
 
