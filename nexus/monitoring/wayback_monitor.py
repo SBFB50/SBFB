@@ -82,19 +82,26 @@ class WaybackMonitor:
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             # CDX search on news domains
-            tasks = []
-            for domain in _NEWS_DOMAINS_FR[:6]:
-                tasks.append(self._cdx_search_domain(
+            tasks = [
+                asyncio.create_task(self._cdx_search_domain(
                     client, domain, keywords, from_ts, to_ts, max_results=3,
                 ))
+                for domain in _NEWS_DOMAINS_FR[:6]
+            ]
             try:
                 domain_results = await asyncio.wait_for(
                     asyncio.gather(*tasks, return_exceptions=True),
                     timeout=60.0,
                 )
             except asyncio.TimeoutError:
-                logger.warning("Wayback CDX domain search timed out after 60s, returning partial results")
+                logger.warning("Wayback CDX domain search timed out after 60s, cancelling remaining tasks")
+                for t in tasks:
+                    t.cancel()
+                # Collect partial results from already-finished tasks
                 domain_results = []
+                for t in tasks:
+                    if t.done() and not t.cancelled() and t.exception() is None:
+                        domain_results.append(t.result())
             for res in domain_results:
                 if isinstance(res, list):
                     all_results.extend(res)
@@ -191,20 +198,24 @@ class WaybackMonitor:
             if len(results) >= max_results:
                 break
             batch = urls[i:i+10]
+            batch_tasks = [asyncio.create_task(check_url(u)) for u in batch]
             try:
                 batch_results = await asyncio.wait_for(
-                    asyncio.gather(
-                        *(check_url(u) for u in batch),
-                        return_exceptions=True,
-                    ),
+                    asyncio.gather(*batch_tasks, return_exceptions=True),
                     timeout=120.0,
                 )
             except asyncio.TimeoutError:
                 logger.warning(
-                    "Wayback reverse discovery batch {}-{} timed out after 120s, skipping",
+                    "Wayback reverse discovery batch {}-{} timed out after 120s, cancelling",
                     i, i + len(batch),
                 )
-                continue
+                for t in batch_tasks:
+                    t.cancel()
+                # Collect partial results from completed tasks
+                batch_results = []
+                for t in batch_tasks:
+                    if t.done() and not t.cancelled() and t.exception() is None:
+                        batch_results.append(t.result())
             for r in batch_results:
                 if isinstance(r, dict):
                     results.append(r)

@@ -321,7 +321,7 @@ function DatabaseExplorer({ caseId }: { caseId: string }) {
               .filter(([k]) => !k.startsWith('_'))
               .map(([name, val]) => ({
                 name,
-                count: typeof val === 'object' && val !== null ? (val as any).count ?? 0 : val,
+                count: typeof val === 'object' && val !== null ? (val as Record<string, unknown>).count ?? 0 : val,
               }));
 
         setData({ evidence: ev || [], entities: ent || [], monitoring: mon || [], events: aud || [], chroma: chromaArr });
@@ -553,7 +553,7 @@ export default function Benchmark() {
   const [loading, setLoading] = useState(true);
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
-  const [availableBenches, setAvailableBenches] = useState<any[]>([]);
+  const [availableBenches, setAvailableBenches] = useState<{ key: string; name: string; evidence_count: number; waves: number; has_ground_truth: boolean }[]>([]);
   const [launching, setLaunching] = useState<string | null>(null);
   const [benchProgress, setBenchProgress] = useState<BenchProgress | null>(null);
   const benchStartRef = useRef<number | null>(null);
@@ -576,8 +576,9 @@ export default function Benchmark() {
         ]);
 
         const entityTypes: Record<string, number> = {};
-        (ents || []).forEach((e: any) => {
-          entityTypes[e.entity_type] = (entityTypes[e.entity_type] || 0) + 1;
+        (ents || []).forEach((e: { entity_type?: string }) => {
+          const t = e.entity_type || 'unknown';
+          entityTypes[t] = (entityTypes[t] || 0) + 1;
         });
 
         enriched.push({
@@ -586,8 +587,8 @@ export default function Benchmark() {
           reference: c.reference || '',
           status: c.status,
           stats: stats || {},
-          hypotheses: (hyps || []).sort((a: any, b: any) => (b.current_score || 0) - (a.current_score || 0)),
-          suspects: (suspects || []).sort((a: any, b: any) => (b.suspicion_score || 0) - (a.suspicion_score || 0)),
+          hypotheses: (hyps || []).sort((a: Hypothesis, b: Hypothesis) => (b.current_score || 0) - (a.current_score || 0)),
+          suspects: (suspects || []).sort((a: Suspect, b: Suspect) => (b.suspicion_score || 0) - (a.suspicion_score || 0)),
           graphStats: gs,
           entityTypes,
           busStats: invStatus?.bus_stats || undefined,
@@ -692,11 +693,13 @@ export default function Benchmark() {
         benchStartRef.current = Date.now();
         setBenchProgress({ caseId, lastAction: 'Demarrage...', status: 'starting', elapsed: 0 });
       }
-    } catch (e: any) {
-      if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout')) {
+    } catch (e: unknown) {
+      const axErr = e instanceof Error && 'code' in e ? e as import('axios').AxiosError<{ detail?: string }> : null;
+      if (axErr?.code === 'ECONNABORTED' || (e instanceof Error && e.message?.includes('timeout'))) {
         showToast('info', `Benchmark ${key} lance en arriere-plan`);
       } else {
-        showToast('error', `Echec: ${e?.response?.data?.detail || e?.message || 'Erreur'}`);
+        const detail = axErr?.response?.data?.detail || (e instanceof Error ? e.message : 'Erreur');
+        showToast('error', `Echec: ${detail}`);
       }
     }
     setLaunching(null);
@@ -709,8 +712,10 @@ export default function Benchmark() {
       setCases(prev => prev.filter(c => c.id !== caseId));
       if (selectedCase === caseId) setSelectedCase(null);
       showToast('info', 'Dossier supprime');
-    } catch (e: any) {
-      showToast('error', `Suppression echouee: ${e?.response?.data?.detail || e?.message || 'Erreur'}`);
+    } catch (e: unknown) {
+      const axErr = e instanceof Error && 'code' in e ? e as import('axios').AxiosError<{ detail?: string }> : null;
+      const detail = axErr?.response?.data?.detail || (e instanceof Error ? e.message : 'Erreur');
+      showToast('error', `Suppression echouee: ${detail}`);
     }
   };
 
@@ -1064,19 +1069,19 @@ export default function Benchmark() {
 
       {/* ============ ACTIONS BAR ============ */}
       <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
-        <button onClick={() => { api.post(`/cases/${selected.id}/investigation/start`); setTimeout(refresh, 3000); }}
+        <button onClick={() => { api.post(`/cases/${selected.id}/investigation/start`).catch(() => showToast('error', 'Echec du lancement de l\'investigation')); setTimeout(refresh, 3000); }}
           className="flex items-center gap-1.5 px-4 py-2 bg-[var(--accent)] text-white rounded-lg text-sm font-medium hover:bg-[var(--accent-hover)]">
           <Network size={14} /> Investigation autonome
         </button>
-        <button onClick={() => { api.post(`/cases/${selected.id}/analyze`, { trigger: 'benchmark' }); setTimeout(refresh, 3000); }}
+        <button onClick={() => { api.post(`/cases/${selected.id}/analyze`, { trigger: 'benchmark' }).catch(() => showToast('error', 'Echec du lancement de l\'analyse')); setTimeout(refresh, 3000); }}
           className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
           <Play size={12} /> Analyser
         </button>
-        <button onClick={() => { api.post(`/cases/${selected.id}/hypotheses/generate`); setTimeout(refresh, 3000); }}
+        <button onClick={() => { api.post(`/cases/${selected.id}/hypotheses/generate`).catch(() => showToast('error', 'Echec de la generation d\'hypotheses')); setTimeout(refresh, 3000); }}
           className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
           <Brain size={12} /> Generer hypotheses
         </button>
-        <button onClick={() => { api.post(`/cases/${selected.id}/evaluate-all`); setTimeout(refresh, 3000); }}
+        <button onClick={() => { api.post(`/cases/${selected.id}/evaluate-all`).catch(() => showToast('error', 'Echec de la re-evaluation')); setTimeout(refresh, 3000); }}
           className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs hover:bg-[var(--bg-hover)]">
           <RefreshCw size={12} /> Re-evaluer
         </button>

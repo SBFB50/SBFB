@@ -121,8 +121,8 @@ async def _generate_report_task(
             async with get_db() as conn:
                 db = Database(conn)
                 await db.update_report(report_id, status="error")
-        except Exception:
-            logger.error("Failed to update report status to error")
+        except Exception as exc:
+            logger.error("Failed to update report status to error: {}", exc)
 
 
 # ------------------------------------------------------------------

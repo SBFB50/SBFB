@@ -40,8 +40,8 @@ async def _score_all_suspects_bg(case_id: str, request_app) -> None:
                 "Background suspect scoring completed for case {} ({} suspects)",
                 case_id, len(results),
             )
-    except Exception:
-        logger.exception("Background suspect scoring FAILED for case {}", case_id)
+    except Exception as exc:
+        logger.exception("Background suspect scoring FAILED for case {}: {}", case_id, exc)
 
 
 async def _evaluate_profile_bg(suspect_id: str, request_app) -> None:
@@ -69,8 +69,8 @@ async def _evaluate_profile_bg(suspect_id: str, request_app) -> None:
                 "Background profile evaluation completed for suspect {} (profile_score={})",
                 suspect_id[:8], result.get("profile_score", "?"),
             )
-    except Exception:
-        logger.exception("Background profile evaluation FAILED for suspect {}", suspect_id)
+    except Exception as exc:
+        logger.exception("Background profile evaluation FAILED for suspect {}: {}", suspect_id[:8], exc)
 
 
 # ====================================================================

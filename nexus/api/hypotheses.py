@@ -72,8 +72,8 @@ async def _generate_hypotheses_bg(case_id: str, request_app) -> None:
                 "Background hypothesis generation completed for case {} ({} hypotheses)",
                 case_id, len(results),
             )
-    except Exception:
-        logger.exception("Background hypothesis generation FAILED for case {}", case_id)
+    except Exception as exc:
+        logger.exception("Background hypothesis generation FAILED for case {}: {}", case_id, exc)
 
 
 async def _evaluate_hypothesis_bg(hypothesis_id: str, request_app) -> None:
@@ -94,8 +94,8 @@ async def _evaluate_hypothesis_bg(hypothesis_id: str, request_app) -> None:
                 "Background evaluation completed for hypothesis {} (score={:.1f})",
                 hypothesis_id[:8], snapshot.get("score", 0),
             )
-    except Exception:
-        logger.exception("Background evaluation FAILED for hypothesis {}", hypothesis_id)
+    except Exception as exc:
+        logger.exception("Background evaluation FAILED for hypothesis {}: {}", hypothesis_id[:8], exc)
 
 
 async def _evaluate_all_bg(case_id: str, request_app) -> None:
@@ -116,8 +116,8 @@ async def _evaluate_all_bg(case_id: str, request_app) -> None:
                 "Background evaluate-all completed for case {} ({} snapshots)",
                 case_id, len(snapshots),
             )
-    except Exception:
-        logger.exception("Background evaluate-all FAILED for case {}", case_id)
+    except Exception as exc:
+        logger.exception("Background evaluate-all FAILED for case {}: {}", case_id, exc)
 
 
 # ====================================================================
@@ -485,8 +485,8 @@ async def list_contradictions(
                     likely_correct=c.get("likely_correct"),
                     reasoning=c.get("reasoning"),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Contradiction storage skipped (duplicate?): {}", exc)
 
     return await db.list_contradictions_by_case(case_id)
 

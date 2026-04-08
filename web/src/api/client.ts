@@ -9,11 +9,16 @@ function extractErrorMessage(error: unknown): string {
   if (error instanceof AxiosError) {
     const detail = error.response?.data?.detail;
     if (typeof detail === 'string') return detail;
-    if (error.response?.status === 404) return 'Resource not found';
-    if (error.response?.status === 422) return 'Invalid request data';
-    if (error.response?.status === 500) return 'Internal server error';
-    if (error.code === 'ECONNABORTED') return 'Request timed out';
-    if (error.code === 'ERR_NETWORK') return 'Network error — is the backend running?';
+    const status = error.response?.status;
+    if (status === 401) return 'Non autorise (401)';
+    if (status === 403) return 'Acces interdit (403)';
+    if (status === 404) return 'Ressource introuvable (404)';
+    if (status === 422) return 'Donnees invalides (422)';
+    if (status === 500) return 'Erreur interne du serveur (500)';
+    if (status === 502) return 'Passerelle indisponible (502)';
+    if (status === 503) return 'Service indisponible (503) — Neo4j ou Ollama hors-ligne ?';
+    if (error.code === 'ECONNABORTED') return 'Requete expirée (timeout)';
+    if (error.code === 'ERR_NETWORK') return 'Erreur reseau — le backend tourne-t-il ?';
     return error.message;
   }
   if (error instanceof Error) return error.message;

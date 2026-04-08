@@ -302,8 +302,8 @@ class InvestigationRetriever:
                 context_parts.append(
                     f"\nRESUME GLOBAL DU DOSSIER:\n{case_summary_row['summary']}"
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("build_analysis_context: case summary unavailable for {}: {}", case_id[:8], exc)
 
         # Add latest timeline from analysis runs if available
         try:
@@ -316,8 +316,8 @@ class InvestigationRetriever:
                     if output and "CHRONOLOGIE" in output:
                         context_parts.append(f"\n{output[:settings.text_truncation_short]}")
                     break  # only include the most recent timeline
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("build_analysis_context: timeline unavailable for {}: {}", case_id[:8], exc)
 
         # Add investigation memories if available
         try:
@@ -332,8 +332,8 @@ class InvestigationRetriever:
                         f"{m['summary']}"
                     )
                 context_parts.append("\n".join(mem_lines))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("build_analysis_context: memories unavailable for {}: {}", case_id[:8], exc)
 
         context_parts.append("\nPREUVES PERTINENTES:")
 

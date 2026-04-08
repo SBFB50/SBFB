@@ -262,12 +262,12 @@ class ImageSearchEngine:
         """Remove an image from both collections."""
         try:
             self._dinov2_col.delete(ids=[evidence_id])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("delete_image: DINOv2 deletion failed for '{}': {}", evidence_id, exc)
         try:
             self._clip_col.delete(ids=[evidence_id])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("delete_image: CLIP deletion failed for '{}': {}", evidence_id, exc)
         logger.debug("Deleted image '{}' from search index", evidence_id)
 
     def delete_case_images(self, case_id: str) -> None:

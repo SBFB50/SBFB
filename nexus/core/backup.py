@@ -222,7 +222,8 @@ class BackupManager:
 
                 logger.info("Database restored from backup {}", backup_id)
 
-            except Exception:
+            except Exception as exc:
+                logger.error("Database restore failed for backup {}: {}", backup_id, exc)
                 # Clean up on failure
                 if temp_restore.exists():
                     temp_restore.unlink()

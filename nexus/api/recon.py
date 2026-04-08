@@ -197,11 +197,11 @@ async def auto_recon(
                 "Recon auto: scanned entity '{}' ({})", entity_name, entity_type
             )
 
-        except Exception:
+        except Exception as exc:
             errors += 1
             logger.exception(
-                "Recon auto: error scanning entity '{}' ({})",
-                entity_name, entity_type,
+                "Recon auto: error scanning entity '{}' ({}): {}",
+                entity_name, entity_type, exc,
             )
 
     logger.info(

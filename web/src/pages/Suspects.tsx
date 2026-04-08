@@ -83,7 +83,7 @@ export default function Suspects() {
         setSelectedId(list[0].id);
       }
     } catch (e) {
-      showToast('error', 'Failed to load suspects');
+      showToast('error', 'Echec du chargement des suspects');
       console.error('Failed to load suspects:', e);
     }
     setLoading(false);
@@ -111,7 +111,7 @@ export default function Suspects() {
       await scoreAllSuspects(caseId);
       await refresh();
     } catch (e) {
-      showToast('error', 'Failed to score suspects');
+      showToast('error', 'Echec du scoring des suspects');
       console.error('Score all failed:', e);
     }
     setScoring(false);
@@ -123,7 +123,7 @@ export default function Suspects() {
       await evaluateSuspectProfile(suspectId);
       await refresh();
     } catch (e) {
-      showToast('error', 'Failed to evaluate suspect profile');
+      showToast('error', 'Echec de l\'evaluation du profil suspect');
       console.error('Evaluate failed:', e);
     }
     setEvaluating(null);

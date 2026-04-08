@@ -186,9 +186,10 @@ async def lifespan(app: FastAPI):
         await inv_manager.start()
         app.state.investigation_manager = inv_manager
         logger.info("Reactive investigation manager started")
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "Investigation manager failed to start -- reactive pipeline will be unavailable"
+            "Investigation manager failed to start -- reactive pipeline will be unavailable: {}",
+            exc,
         )
 
     logger.info("NEXUS started -- listening on {}:{}", settings.nexus_host, settings.nexus_port)

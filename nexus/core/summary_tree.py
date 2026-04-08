@@ -557,7 +557,8 @@ class SummaryTree:
             )
             title = result.get("title", "Groupe thematique")
             summary = result.get("summary", "")
-        except Exception:
+        except Exception as exc:
+            logger.debug("SummaryTree: JSON cluster summary failed, falling back to plain text: {}", exc)
             # Fallback: use plain text generation
             try:
                 raw = await self._router.route(

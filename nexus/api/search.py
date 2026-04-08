@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from nexus.api.deps import get_chroma, get_database, get_llm_router
@@ -172,7 +173,8 @@ async def hybrid_search(
             query_embedding=query_embedding,
             n_results=body.n_semantic,
         )
-    except Exception:
+    except Exception as exc:
+        logger.debug("Semantic search failed for case {}: {}", case_id, exc)
         semantic_results = []
 
     # FTS5 search (sanitize query to prevent FTS5 syntax injection)
@@ -185,7 +187,8 @@ async def hybrid_search(
             query=sanitized or body.query,
             limit=body.n_fts,
         ) if sanitized else []
-    except Exception:
+    except Exception as exc:
+        logger.debug("FTS5 search failed for case {}: {}", case_id, exc)
         fts_results = []
 
     # Merge: deduplicate by evidence_id across both sources

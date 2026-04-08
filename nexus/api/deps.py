@@ -128,7 +128,7 @@ def get_image_analyzer(
 # Neo4j (singleton on app.state)
 # ------------------------------------------------------------------
 
-def get_neo4j(request: Request) -> Neo4jClient:
+def get_neo4j(request: Request) -> Neo4jClient | None:
     """Return the shared Neo4jClient from app.state (may be None)."""
     return request.app.state.neo4j
 

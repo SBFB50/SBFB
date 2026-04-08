@@ -124,8 +124,8 @@ class AnalysisPipelineWorker(ReactiveWorker):
         except asyncio.CancelledError:
             # Debounce was reset by a newer event -- expected
             pass
-        except Exception:
-            self._last_error = "debounced_analysis failed"
+        except Exception as exc:
+            self._last_error = f"debounced_analysis failed: {exc}"
             self._events_errored += 1
             logger.exception("AnalysisPipeline: debounced analysis failed")
 

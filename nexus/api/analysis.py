@@ -69,8 +69,8 @@ async def _run_analysis_in_background(
                 )
 
         logger.info("Background analysis completed for case {}", case_id)
-    except Exception:
-        logger.exception("Background analysis FAILED for case {}", case_id)
+    except Exception as exc:
+        logger.exception("Background analysis FAILED for case {}: {}", case_id, exc)
 
 
 # ------------------------------------------------------------------
