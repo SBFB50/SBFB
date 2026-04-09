@@ -1016,3 +1016,32 @@ WIKI_INDEX_TEMPLATE = """\
 ## Journal
 Voir [[log|Journal de compilation]]
 """
+
+# =====================================================================
+# 22. POLITICAL CONTRADICTION DETECTION  (government monitoring)
+# =====================================================================
+
+POLITICAL_CONTRADICTION_PROMPT = """\
+Tu es un analyste factuel specialise dans le suivi de l'activite parlementaire francaise.
+
+Compare ces deux positions du meme politicien et identifie toute contradiction factuelle.
+
+POSITION A ({date_a}, {type_a}):
+Sujet: {subject}
+Contenu: {text_a}
+Source: {source_a}
+
+POSITION B ({date_b}, {type_b}):
+Sujet: {subject}
+Contenu: {text_b}
+Source: {source_b}
+
+INSTRUCTIONS:
+- Identifie si ces positions sont contradictoires
+- Decris factuellement la contradiction sans opinion ni jugement
+- Une evolution de position n'est pas forcement une contradiction
+- Seules les incoherences factuelles comptent
+
+Reponds en JSON strict:
+{{"contradictions": [{{"description": "description factuelle", "severity": "low|medium|high"}}]}}
+Si pas de contradiction: {{"contradictions": []}}"""

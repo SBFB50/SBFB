@@ -268,6 +268,17 @@ def paginated_response(
 
 
 # ------------------------------------------------------------------
+# Government Database (request-scoped)
+# ------------------------------------------------------------------
+
+async def get_government_database() -> AsyncIterator["GovernmentDatabase"]:
+    """Yield a GovernmentDatabase bound to a fresh connection."""
+    from nexus.gov.db import GovernmentDatabase
+    async with get_db() as conn:
+        yield GovernmentDatabase(conn)
+
+
+# ------------------------------------------------------------------
 # Forensic analyzers (request-scoped, only need the LLMRouter)
 # ------------------------------------------------------------------
 

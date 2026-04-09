@@ -165,6 +165,22 @@ class Neo4jClient:
         logger.info("All Neo4j uniqueness constraints initialized")
 
     # ------------------------------------------------------------------
+    # Generic query helper
+    # ------------------------------------------------------------------
+
+    async def run_query(
+        self, query: str, params: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Run an arbitrary Cypher query and return a list of record dicts.
+
+        Useful for Gov workers and other callers that build their own Cypher.
+        """
+        async with self._driver.session() as session:
+            result = await session.run(query, parameters=params or {})
+            records = await result.data()
+            return records
+
+    # ------------------------------------------------------------------
     # Node CRUD
     # ------------------------------------------------------------------
 

@@ -116,6 +116,10 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("SQLite database initialised at {}", settings.sqlite_path)
 
+    from nexus.db.government_db import init_government_db
+    await init_government_db()
+    logger.info("Government monitoring tables initialised")
+
     # Ensure required directories exist
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     (settings.data_dir / "reports").mkdir(parents=True, exist_ok=True)
@@ -192,6 +196,29 @@ async def lifespan(app: FastAPI):
             exc,
         )
 
+    # Government autonomous investigation (auto-starts on boot)
+    app.state.gov_case_id = None
+    app.state.gov_manager = None
+    try:
+        from nexus.core.government_bootstrap import bootstrap_government
+
+        case_id, gov_manager = await bootstrap_government(app.state.investigation_manager)
+        app.state.gov_case_id = case_id
+        app.state.gov_manager = gov_manager
+    except Exception as exc:
+        logger.warning("Government bootstrap skipped: {}", exc)
+
+    # Source health monitor (resilience layer)
+    app.state.gov_health_monitor = None
+    try:
+        from nexus.gov.resilience import SourceHealthMonitor
+
+        health_monitor = SourceHealthMonitor()
+        await health_monitor.start()
+        app.state.gov_health_monitor = health_monitor
+    except Exception as exc:
+        logger.warning("Source health monitor skipped: {}", exc)
+
     logger.info("NEXUS started -- listening on {}:{}", settings.nexus_host, settings.nexus_port)
 
     try:
@@ -199,6 +226,10 @@ async def lifespan(app: FastAPI):
     finally:
         # -- Shutdown ---------------------------------------------------
         logger.info("NEXUS shutting down")
+        if getattr(app.state, "gov_health_monitor", None) is not None:
+            await app.state.gov_health_monitor.stop()
+        if getattr(app.state, "gov_manager", None) is not None:
+            await app.state.gov_manager.stop()
         if app.state.investigation_manager is not None:
             await app.state.investigation_manager.stop_all()
         # MonitoringLoop is stopped inside investigation_manager.stop_all()
@@ -251,6 +282,7 @@ from nexus.api import (  # noqa: E402
     monitoring, alerts, hypotheses, reports, timeline, geo,
     recon, image_search, vision, forensics, physics_sim_api,
     investigation, audit, benchmark, suspects, wiki, sse,
+    government,
 )
 
 app.include_router(cases.router)
@@ -276,6 +308,11 @@ app.include_router(audit.router)
 app.include_router(suspects.router)
 app.include_router(wiki.router)
 app.include_router(sse.router)
+app.include_router(government.router)
+
+from nexus.gov.public_api import router as gov_public_router  # noqa: E402
+
+app.include_router(gov_public_router)
 
 
 # ============================================================================

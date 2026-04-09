@@ -14,6 +14,7 @@ import Suspects from './pages/Suspects';
 import Wiki from './pages/Wiki';
 import Reports from './pages/Reports';
 import ImageSearch from './pages/ImageSearch';
+import GovernmentPage from './pages/GovernmentPage';
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/reports" element={<Reports />} />
             <Route path="/images" element={<ImageSearch />} />
             <Route path="/benchmark" element={<Benchmark />} />
+            <Route path="/government" element={<GovernmentPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

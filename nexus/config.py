@@ -121,6 +121,14 @@ class Settings(BaseSettings):
     entity_confidence_medium: float = 0.95  # phone numbers, social URLs
     entity_confidence_low: float = 0.90     # social handles (@user)
 
+    # -- Government monitoring (autonomous) --
+    auto_government_monitoring: bool = True  # auto-start gov investigation on boot
+    gov_scan_rate_limit: float = 2.0        # seconds between parliamentary API calls
+    gov_scan_max_pages: int = 10            # max pagination depth per scan
+    gov_contradiction_max_pairs: int = 30   # max position pairs for LLM analysis
+    gov_monitoring_interval_hours: int = 6  # SearXNG sweep interval per politician
+    gov_database_url: str = ""              # PostgreSQL URL (empty = use SQLite)
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

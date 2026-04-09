@@ -18,6 +18,7 @@ import {
   Cpu,
   HardDrive,
   Thermometer,
+  Landmark,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useCaseStore } from '../stores/caseStore';
@@ -162,6 +163,26 @@ export default function Sidebar() {
               )}
             </NavLink>
           ))}
+        </div>
+
+        {/* Government Section */}
+        <div className="mt-4 pt-4 border-t border-[var(--border)]">
+          <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2 px-3">
+            Gouvernement
+          </p>
+          <NavLink
+            to="/government"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-cyan-500/10 text-cyan-400'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+              }`
+            }
+          >
+            <Landmark size={18} />
+            <span>Gouvernement</span>
+          </NavLink>
         </div>
       </nav>
 
