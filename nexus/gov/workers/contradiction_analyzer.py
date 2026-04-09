@@ -6,10 +6,16 @@ The brain of NEXUS GOV. Detects contradictions across ALL sources:
 - Interview 2020 <-> Declaration 2026 (position reversal)
 - Promise <-> Actual vote
 - TV statement <-> Written declaration
+- Press article content <-> Prior stated positions
 
 Subscribes to every new data event. For each new item, searches for
 prior positions from the same politician on similar subjects, then
 uses LLM to analyze pairs for factual contradictions.
+
+Features:
+- Fuzzy subject matching (keyword overlap) for broader candidate selection
+- Temporal awareness (dates included in LLM prompt for evolution detection)
+- Press article support (extracts per-politician content, limit 3 politicians)
 """
 
 from __future__ import annotations
@@ -21,6 +27,26 @@ from loguru import logger
 
 from nexus.engine import NexusEvent, ReactiveWorker
 from nexus.gov.events import GovEventType
+
+
+def _subject_keywords(subject: str) -> set[str]:
+    """Extract meaningful keywords from a subject string (lowercase, 3+ chars)."""
+    if not subject:
+        return set()
+    # Split on whitespace and common separators, keep words >= 3 chars
+    words = subject.lower().replace(",", " ").replace("/", " ").replace("-", " ").split()
+    # Filter out short stopwords
+    stopwords = {"les", "des", "une", "que", "qui", "par", "sur", "pour", "dans", "avec", "est", "pas"}
+    return {w for w in words if len(w) >= 3 and w not in stopwords}
+
+
+def _subjects_overlap(subject_a: str, subject_b: str) -> bool:
+    """Return True if two subjects share at least one meaningful keyword."""
+    kw_a = _subject_keywords(subject_a)
+    kw_b = _subject_keywords(subject_b)
+    if not kw_a or not kw_b:
+        return False
+    return bool(kw_a & kw_b)
 
 
 class GovContradictionAnalyzer(ReactiveWorker):
@@ -42,6 +68,10 @@ class GovContradictionAnalyzer(ReactiveWorker):
         output: list[NexusEvent] = []
         event_type = event.event_type
         payload = event.payload
+
+        # --- Press articles need per-politician handling ---
+        if event_type == GovEventType.GOV_PRESS_ADDED:
+            return await self._handle_press(event)
 
         # Determine politician_id and the new text to compare
         politician_id = payload.get("politician_id")
@@ -91,12 +121,6 @@ class GovContradictionAnalyzer(ReactiveWorker):
                     new_subject = title
                     break
 
-        elif event_type == GovEventType.GOV_PRESS_ADDED:
-            item_id = payload.get("article_id", "")
-            # Press articles mention multiple politicians
-            # For now, skip (would need per-politician extraction)
-            return []
-
         if not politician_id or not new_text:
             return []
 
@@ -104,11 +128,102 @@ class GovContradictionAnalyzer(ReactiveWorker):
         if item_id in self._processed:
             return []
         self._processed.add(item_id)
-        # Keep cache bounded
-        if len(self._processed) > 10000:
-            self._processed = set(list(self._processed)[-5000:])
+        self._trim_cache()
 
-        # Fetch all prior positions from this politician
+        # Detect contradictions for this single politician
+        return await self._compare_against_prior(
+            politician_id=politician_id,
+            item_id=item_id,
+            new_text=new_text,
+            new_subject=new_subject,
+            new_source=new_source,
+            new_date=new_date,
+            event_type_label=event_type.value,
+            parent_event_id=event.event_id,
+        )
+
+    # ------------------------------------------------------------------
+    # Press article handler: iterate over mentioned politicians
+    # ------------------------------------------------------------------
+
+    async def _handle_press(self, event: NexusEvent) -> list[NexusEvent]:
+        """Handle GOV_PRESS_ADDED by checking each mentioned politician."""
+        output: list[NexusEvent] = []
+        payload = event.payload
+        item_id = payload.get("article_id", "")
+
+        if not item_id:
+            return []
+
+        # Idempotency
+        if item_id in self._processed:
+            return []
+        self._processed.add(item_id)
+        self._trim_cache()
+
+        # Fetch full article
+        article = await self._db.get_press_article(item_id)
+        if not article:
+            return []
+
+        article_text = article.get("summary", "") or article.get("title", "")
+        article_source = article.get("url", "")
+        article_date = article.get("published_at", "")
+
+        if not article_text:
+            return []
+
+        # Extract politician IDs from the payload (list) or DB field (comma-separated)
+        politician_ids: list[str] = payload.get("politicians", [])
+        if not politician_ids:
+            mentioned_str = article.get("politicians_mentioned", "")
+            if mentioned_str:
+                politician_ids = [pid.strip() for pid in mentioned_str.split(",") if pid.strip()]
+
+        if not politician_ids:
+            return []
+
+        # Limit to first 3 politicians to avoid overloading LLM
+        for pol_id in politician_ids[:3]:
+            try:
+                results = await self._compare_against_prior(
+                    politician_id=pol_id,
+                    item_id=item_id,
+                    new_text=article_text[:1000],
+                    new_subject=article.get("subjects", "") or article.get("title", ""),
+                    new_source=article_source,
+                    new_date=article_date,
+                    event_type_label="press",
+                    parent_event_id=event.event_id,
+                )
+                output.extend(results)
+            except Exception as exc:
+                logger.debug("Press contradiction check failed for {}: {}", pol_id, exc)
+
+            await asyncio.sleep(0)  # Yield between politicians
+
+        return output
+
+    # ------------------------------------------------------------------
+    # Core comparison logic (shared by all event types)
+    # ------------------------------------------------------------------
+
+    async def _compare_against_prior(
+        self,
+        *,
+        politician_id: str,
+        item_id: str,
+        new_text: str,
+        new_subject: str,
+        new_source: str,
+        new_date: str,
+        event_type_label: str,
+        parent_event_id: str,
+    ) -> list[NexusEvent]:
+        """Compare new content against prior positions/social posts for contradictions."""
+        output: list[NexusEvent] = []
+
+        # Fetch prior positions (increased limit for fuzzy subject matching)
         prior_positions = await self._db.list_positions_by_politician(
             politician_id, limit=200
         )
@@ -155,9 +270,8 @@ class GovContradictionAnalyzer(ReactiveWorker):
         if not candidates:
             return []
 
-        # Select top candidates for comparison (limit LLM calls)
-        # Priority: same subject > different type > recent
-        top = candidates[:10]  # Max 10 comparisons per new item
+        # Rank candidates: fuzzy subject match first, then recent
+        top = self._rank_candidates(candidates, new_subject)
 
         # Use LLM to detect contradictions
         if not self._router:
@@ -175,7 +289,7 @@ class GovContradictionAnalyzer(ReactiveWorker):
                     text_a=cand["text"],
                     source_a=cand["source"],
                     date_b=new_date,
-                    type_b=event_type.value,
+                    type_b=event_type_label,
                     text_b=new_text[:1000],
                     source_b=new_source,
                 )
@@ -215,7 +329,7 @@ class GovContradictionAnalyzer(ReactiveWorker):
                                     "severity": severity,
                                 },
                                 source_worker=self.name,
-                                parent_event_id=event.event_id,
+                                parent_event_id=parent_event_id,
                             )
                         )
                         logger.info(
@@ -232,3 +346,38 @@ class GovContradictionAnalyzer(ReactiveWorker):
             await asyncio.sleep(0)  # Yield for cancellation
 
         return output
+
+    # ------------------------------------------------------------------
+    # Candidate ranking with fuzzy subject matching
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _rank_candidates(
+        candidates: list[dict[str, str]],
+        new_subject: str,
+    ) -> list[dict[str, str]]:
+        """Rank candidates by subject relevance. Fuzzy keyword overlap first, then rest.
+
+        Returns at most 10 candidates (max LLM calls per item).
+        """
+        matching: list[dict[str, str]] = []
+        non_matching: list[dict[str, str]] = []
+
+        for cand in candidates:
+            if _subjects_overlap(cand.get("subject", ""), new_subject):
+                matching.append(cand)
+            else:
+                non_matching.append(cand)
+
+        # Subject matches first, then remaining candidates (already date-sorted from DB)
+        ranked = matching + non_matching
+        return ranked[:10]  # Max 10 comparisons per new item
+
+    # ------------------------------------------------------------------
+    # Cache management
+    # ------------------------------------------------------------------
+
+    def _trim_cache(self) -> None:
+        """Keep the idempotency cache bounded."""
+        if len(self._processed) > 10000:
+            self._processed = set(list(self._processed)[-5000:])
