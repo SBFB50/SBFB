@@ -355,6 +355,11 @@ CREATE INDEX IF NOT EXISTS idx_gov_external_ids_politician ON gov_external_ids(p
 CREATE INDEX IF NOT EXISTS idx_gov_external_ids_source ON gov_external_ids(source, external_id);
 CREATE INDEX IF NOT EXISTS idx_gov_alerts_type ON gov_alerts(alert_type);
 CREATE INDEX IF NOT EXISTS idx_gov_alerts_read ON gov_alerts(is_read);
+
+-- Full-text search indexes (French)
+CREATE INDEX IF NOT EXISTS idx_gov_positions_fts ON gov_positions USING GIN (to_tsvector('french', subject || ' ' || position_text));
+CREATE INDEX IF NOT EXISTS idx_gov_press_fts ON gov_press USING GIN (to_tsvector('french', title || ' ' || COALESCE(summary, '')));
+CREATE INDEX IF NOT EXISTS idx_gov_transcriptions_fts ON gov_transcriptions USING GIN (to_tsvector('french', COALESCE(title, '') || ' ' || COALESCE(transcription, '')));
 """
 
 
@@ -1309,6 +1314,369 @@ class PostgresGovernmentDatabase:
         if row is None:
             return None
         return _dict_with_json_fields(row, "metadata")
+
+    # ------------------------------------------------------------------
+    # Alerts
+    # ------------------------------------------------------------------
+
+    async def create_alert(
+        self,
+        *,
+        alert_type: str,
+        title: str,
+        description: Optional[str] = None,
+        severity: str = "info",
+        politician_id: Optional[str] = None,
+        event_id: Optional[str] = None,
+        is_read: bool = False,
+    ) -> Dict[str, Any]:
+        """Create a new alert."""
+        row_id = _new_id()
+        await self._execute(
+            """INSERT INTO gov_alerts
+               (id, alert_type, title, description, severity,
+                politician_id, event_id, is_read)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+            row_id, alert_type, title, description, severity,
+            politician_id, event_id, is_read,
+        )
+        return await self.get_alert(row_id) or {
+            "id": row_id, "alert_type": alert_type, "title": title,
+        }
+
+    async def get_alert(self, alert_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single alert by ID."""
+        return await self._fetchrow(
+            "SELECT * FROM gov_alerts WHERE id = $1", alert_id
+        )
+
+    async def list_alerts(
+        self,
+        *,
+        alert_type: Optional[str] = None,
+        severity: Optional[str] = None,
+        is_read: Optional[bool] = None,
+        politician_id: Optional[str] = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List alerts with optional filters."""
+        conditions: List[str] = []
+        params: List[Any] = []
+        idx = 1
+        if alert_type is not None:
+            conditions.append(f"alert_type = ${idx}")
+            params.append(alert_type)
+            idx += 1
+        if severity is not None:
+            conditions.append(f"severity = ${idx}")
+            params.append(severity)
+            idx += 1
+        if is_read is not None:
+            conditions.append(f"is_read = ${idx}")
+            params.append(is_read)
+            idx += 1
+        if politician_id is not None:
+            conditions.append(f"politician_id = ${idx}")
+            params.append(politician_id)
+            idx += 1
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        params.extend([limit, offset])
+        query = f"SELECT * FROM gov_alerts {where} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx + 1}"
+        return await self._fetch(query, *params)
+
+    async def mark_alert_read(
+        self, alert_id: str, *, is_read: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """Mark an alert as read (or unread)."""
+        await self._execute(
+            "UPDATE gov_alerts SET is_read = $1 WHERE id = $2",
+            is_read, alert_id,
+        )
+        return await self.get_alert(alert_id)
+
+    async def count_alerts(self, *, is_read: Optional[bool] = None) -> int:
+        """Count alerts, optionally filtered by read status."""
+        if is_read is not None:
+            row = await self._fetchrow(
+                "SELECT COUNT(*) AS cnt FROM gov_alerts WHERE is_read = $1",
+                is_read,
+            )
+        else:
+            row = await self._fetchrow(
+                "SELECT COUNT(*) AS cnt FROM gov_alerts"
+            )
+        return row["cnt"] if row else 0
+
+    # ------------------------------------------------------------------
+    # Count methods
+    # ------------------------------------------------------------------
+
+    async def count_politicians(self, *, active: Optional[bool] = None) -> int:
+        """Count politicians, optionally filtered by active status."""
+        if active is not None:
+            row = await self._fetchrow(
+                "SELECT COUNT(*) AS cnt FROM gov_politicians WHERE active = $1",
+                active,
+            )
+        else:
+            row = await self._fetchrow(
+                "SELECT COUNT(*) AS cnt FROM gov_politicians"
+            )
+        return row["cnt"] if row else 0
+
+    async def count_press(self) -> int:
+        """Count total press articles."""
+        row = await self._fetchrow("SELECT COUNT(*) AS cnt FROM gov_press")
+        return row["cnt"] if row else 0
+
+    async def count_social_posts(
+        self, politician_id: Optional[str] = None
+    ) -> int:
+        """Count social posts, optionally filtered by politician."""
+        if politician_id:
+            row = await self._fetchrow(
+                "SELECT COUNT(*) AS cnt FROM gov_social_posts WHERE politician_id = $1",
+                politician_id,
+            )
+        else:
+            row = await self._fetchrow(
+                "SELECT COUNT(*) AS cnt FROM gov_social_posts"
+            )
+        return row["cnt"] if row else 0
+
+    async def count_laws(self) -> int:
+        """Count total laws."""
+        row = await self._fetchrow("SELECT COUNT(*) AS cnt FROM gov_laws")
+        return row["cnt"] if row else 0
+
+    # ------------------------------------------------------------------
+    # Existence checks
+    # ------------------------------------------------------------------
+
+    async def position_exists_by_url(self, source_url: str) -> bool:
+        """Check if a position with this source_url already exists."""
+        row = await self._fetchrow(
+            "SELECT 1 FROM gov_positions WHERE source_url = $1 LIMIT 1",
+            source_url,
+        )
+        return row is not None
+
+    async def position_exists_by_key(
+        self, politician_id: str, subject: str, date: Optional[str]
+    ) -> bool:
+        """Check if a position with this (politician_id, subject, date) exists."""
+        if date:
+            row = await self._fetchrow(
+                "SELECT 1 FROM gov_positions"
+                " WHERE politician_id = $1 AND subject = $2 AND date = $3"
+                " LIMIT 1",
+                politician_id, subject, date,
+            )
+        else:
+            row = await self._fetchrow(
+                "SELECT 1 FROM gov_positions"
+                " WHERE politician_id = $1 AND subject = $2"
+                " AND date IS NULL LIMIT 1",
+                politician_id, subject,
+            )
+        return row is not None
+
+    async def declaration_exists_by_url(self, url: str) -> bool:
+        """Check if a declaration with this url already exists."""
+        row = await self._fetchrow(
+            "SELECT 1 FROM gov_declarations WHERE url = $1 LIMIT 1",
+            url,
+        )
+        return row is not None
+
+    # ------------------------------------------------------------------
+    # Press getters
+    # ------------------------------------------------------------------
+
+    async def get_press_article(
+        self, article_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a single press article by ID."""
+        row = await self._fetchrow(
+            "SELECT * FROM gov_press WHERE id = $1", article_id
+        )
+        if row is None:
+            return None
+        return _dict_with_json_fields(row, "metadata")
+
+    async def get_press_article_by_url(
+        self, url: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a press article by its unique URL."""
+        row = await self._fetchrow(
+            "SELECT * FROM gov_press WHERE url = $1", url
+        )
+        if row is None:
+            return None
+        return _dict_with_json_fields(row, "metadata")
+
+    async def list_press(
+        self, *, limit: int = 200, offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """List all press articles with pagination."""
+        rows = await self._fetch(
+            "SELECT * FROM gov_press ORDER BY published_at DESC, created_at DESC LIMIT $1 OFFSET $2",
+            limit, offset,
+        )
+        return [_dict_with_json_fields(r, "metadata") for r in rows]
+
+    # ------------------------------------------------------------------
+    # Social post getters
+    # ------------------------------------------------------------------
+
+    async def get_social_post(
+        self, social_post_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a single social post by ID."""
+        row = await self._fetchrow(
+            "SELECT * FROM gov_social_posts WHERE id = $1", social_post_id
+        )
+        if row is None:
+            return None
+        return _dict_with_json_fields(row, "metadata")
+
+    async def get_social_post_by_platform_id(
+        self, platform: str, post_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a social post by its unique (platform, post_id) pair."""
+        row = await self._fetchrow(
+            "SELECT * FROM gov_social_posts WHERE platform = $1 AND post_id = $2",
+            platform, post_id,
+        )
+        if row is None:
+            return None
+        return _dict_with_json_fields(row, "metadata")
+
+    # ------------------------------------------------------------------
+    # Batch inserts
+    # ------------------------------------------------------------------
+
+    async def batch_create_positions(self, positions: list[dict]) -> int:
+        """Insert multiple positions in one transaction. Returns count inserted."""
+        if not positions:
+            return 0
+        count = 0
+        for pos in positions:
+            try:
+                await self.create_position(**pos)
+                count += 1
+            except Exception:
+                logger.debug("batch_create_positions: skipped one (duplicate or error)")
+        return count
+
+    async def batch_create_social_posts(self, posts: list[dict]) -> int:
+        """Insert multiple social posts in one transaction. Returns count inserted."""
+        if not posts:
+            return 0
+        count = 0
+        for post in posts:
+            try:
+                await self.create_social_post(**post)
+                count += 1
+            except Exception:
+                logger.debug("batch_create_social_posts: skipped one (duplicate or error)")
+        return count
+
+    async def batch_create_press_articles(self, articles: list[dict]) -> int:
+        """Insert multiple press articles in one transaction. Returns count inserted."""
+        if not articles:
+            return 0
+        count = 0
+        for article in articles:
+            try:
+                await self.create_press_article(**article)
+                count += 1
+            except Exception:
+                logger.debug("batch_create_press_articles: skipped one (duplicate or error)")
+        return count
+
+    # ------------------------------------------------------------------
+    # Theme query
+    # ------------------------------------------------------------------
+
+    async def list_positions_by_theme(
+        self,
+        theme: str,
+        *,
+        politician_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List positions classified under a specific theme.
+
+        Themes are stored in the JSONB metadata column:
+        ``{"theme": "Securite et Justice", ...}``.
+        Uses PostgreSQL JSONB containment operator for efficient lookup.
+        """
+        conditions = ["metadata @> $1::jsonb"]
+        params: List[Any] = [json.dumps({"theme": theme})]
+        idx = 2
+        if politician_id:
+            conditions.append(f"politician_id = ${idx}")
+            params.append(politician_id)
+            idx += 1
+        where = "WHERE " + " AND ".join(conditions)
+        params.extend([limit, offset])
+        query = f"SELECT * FROM gov_positions {where} ORDER BY date DESC, created_at DESC LIMIT ${idx} OFFSET ${idx + 1}"
+        rows = await self._fetch(query, *params)
+        return [_dict_with_json_fields(r, "metadata") for r in rows]
+
+    # ------------------------------------------------------------------
+    # Full-text search (French)
+    # ------------------------------------------------------------------
+
+    async def search_fulltext(
+        self,
+        query: str,
+        table: str = "gov_positions",
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Full-text search using PostgreSQL tsvector with French config.
+
+        Supported tables: gov_positions, gov_press, gov_transcriptions.
+        Returns rows ranked by ts_rank.
+        """
+        # Map table name to its tsvector expression
+        fts_expressions = {
+            "gov_positions": "to_tsvector('french', subject || ' ' || position_text)",
+            "gov_press": "to_tsvector('french', title || ' ' || COALESCE(summary, ''))",
+            "gov_transcriptions": "to_tsvector('french', COALESCE(title, '') || ' ' || COALESCE(transcription, ''))",
+        }
+        if table not in fts_expressions:
+            raise ValueError(
+                f"Unsupported table '{table}'. Must be one of: {', '.join(fts_expressions)}"
+            )
+
+        tsvec = fts_expressions[table]
+        # Sanitize the query for tsquery: replace spaces with & for AND matching
+        ts_query_str = " & ".join(
+            word for word in query.strip().split() if word
+        )
+        if not ts_query_str:
+            return []
+
+        sql = f"""
+            SELECT *, ts_rank({tsvec}, to_tsquery('french', $1)) AS rank
+            FROM {table}
+            WHERE {tsvec} @@ to_tsquery('french', $1)
+            ORDER BY rank DESC
+            LIMIT $2
+        """
+        rows = await self._fetch(sql, ts_query_str, limit)
+        result = []
+        for r in rows:
+            d = dict(r)
+            d.pop("rank", None)
+            if "metadata" in d:
+                d = _dict_with_json_fields(d, "metadata")
+            result.append(d)
+        return result
 
     # ------------------------------------------------------------------
     # Stats
