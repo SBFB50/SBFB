@@ -93,8 +93,18 @@ def _reset_detect_status() -> None:
 # Background scan -- real implementation with cancellation support
 # ------------------------------------------------------------------
 
-async def _run_scan_bg() -> None:
-    """Run a full government data scan using PoliGraph API."""
+async def _run_scan_bg(
+    resume_scan_id: str | None = None,
+    resume_phase: str = "",
+    resume_offset: int = 0,
+) -> None:
+    """Run a full government data scan using PoliGraph API.
+
+    Args:
+        resume_scan_id: If set, resume an interrupted scan instead of creating a new one.
+        resume_phase: Phase name to resume from (skip earlier phases).
+        resume_offset: Offset within the resume phase (e.g. politician index).
+    """
     from nexus.gov.scraper import ParliamentScraper
 
     _scan_status["running"] = True
@@ -115,11 +125,22 @@ async def _run_scan_bg() -> None:
 
         async with get_db() as conn:
             gov = GovernmentDatabase(conn)
-            scan = await gov.create_scan_log(scan_type="poligraph_full")
-            scan_id = scan["id"]
+
+            if resume_scan_id:
+                scan_id = resume_scan_id
+                await gov.update_scan_log(scan_id, status="running")
+            else:
+                scan = await gov.create_scan_log(scan_type="poligraph_full")
+                scan_id = scan["id"]
 
             _scan_status["phase"] = "Scan PoliGraph en cours..."
-            stats = await scraper.scan_all(gov, on_progress=_on_progress)
+            stats = await scraper.scan_all(
+                gov,
+                on_progress=_on_progress,
+                scan_id=scan_id,
+                resume_phase=resume_phase,
+                resume_offset=resume_offset,
+            )
 
             _scan_status["phase"] = "Scan termine"
             _scan_status["progress"] = (
@@ -138,13 +159,13 @@ async def _run_scan_bg() -> None:
 
     except asyncio.CancelledError:
         logger.info("Government scan CANCELLED by user")
-        _scan_status["phase"] = "Annule"
-        _scan_status["error"] = "cancelled"
+        _scan_status["phase"] = "Interrompu"
+        _scan_status["error"] = "interrupted"
         if scan_id:
             try:
                 async with get_db() as conn:
                     await GovernmentDatabase(conn).update_scan_log(
-                        scan_id, status="error", error_message="Cancelled"
+                        scan_id, status="interrupted", error_message="Interrupted by user"
                     )
             except Exception:
                 pass
@@ -493,12 +514,36 @@ async def get_subject_graph(
 # ====================================================================
 
 @router.post("/scan", status_code=202)
-async def trigger_scan() -> dict:
-    """Launch a government data scan. Returns 202. Cancel with DELETE /scan."""
+async def trigger_scan(resume: bool = False) -> dict:
+    """Launch a government data scan. Returns 202. Cancel with DELETE /scan.
+
+    Pass ``?resume=true`` to resume the last interrupted scan from its
+    checkpoint instead of starting a fresh scan.
+    """
     global _scan_task
     if _scan_status["running"]:
         raise HTTPException(409, "Un scan est deja en cours")
     _reset_scan_status()
+
+    if resume:
+        # Check for a resumable (interrupted/running) scan
+        async with get_db() as conn:
+            gov = GovernmentDatabase(conn)
+            last = await gov.get_resumable_scan()
+            if last:
+                _scan_task = asyncio.create_task(_run_scan_bg(
+                    resume_scan_id=last["id"],
+                    resume_phase=last.get("current_phase", ""),
+                    resume_offset=last.get("phase_offset", 0),
+                ))
+                return {
+                    "status": "scan_resumed",
+                    "message": (
+                        f"Scan repris depuis {last.get('current_phase', 'debut')}, "
+                        f"offset {last.get('phase_offset', 0)}"
+                    ),
+                }
+
     _scan_task = asyncio.create_task(_run_scan_bg())
     return {"status": "scan_started", "message": "Scan parlementaire lance"}
 
@@ -847,11 +892,20 @@ async def list_factchecks_by_politician(
 
 @router.get("/health")
 async def get_gov_health(request: Request):
-    """Health status of all government data sources."""
+    """Health status of all government data sources (list format)."""
     monitor = getattr(request.app.state, "gov_health_monitor", None)
     if not monitor:
         return {"sources": [], "message": "Health monitor not started"}
     return {"sources": monitor.get_status()}
+
+
+@router.get("/sources/health")
+async def get_source_health(request: Request):
+    """Per-source health keyed by name (dict format for dashboards)."""
+    monitor = getattr(request.app.state, "gov_health_monitor", None)
+    if not monitor:
+        return {"status": "monitor_not_running"}
+    return monitor.get_all_health()
 
 
 @router.get("/search")

@@ -24,6 +24,7 @@ Uses the same helpers and connection management as sqlite_db.py.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from collections import defaultdict
@@ -103,7 +104,10 @@ CREATE TABLE IF NOT EXISTS gov_scan_log (
     items_new INTEGER DEFAULT 0,
     error_message TEXT,
     started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    completed_at DATETIME
+    completed_at DATETIME,
+    current_phase TEXT DEFAULT '',
+    phase_offset INTEGER DEFAULT 0,
+    checkpoint_data TEXT DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS gov_mandates (
@@ -416,6 +420,20 @@ async def init_government_db() -> None:
         await conn.executescript(_GOV_CREATE_TABLES)
         await conn.executescript(_GOV_CREATE_INDEXES)
         await conn.executescript(_GOV_CREATE_FTS)
+
+        # -- Backward-compatible migration: add checkpoint columns if missing
+        try:
+            cursor = await conn.execute("PRAGMA table_info(gov_scan_log)")
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+            if "current_phase" not in existing_cols:
+                await conn.execute("ALTER TABLE gov_scan_log ADD COLUMN current_phase TEXT DEFAULT ''")
+            if "phase_offset" not in existing_cols:
+                await conn.execute("ALTER TABLE gov_scan_log ADD COLUMN phase_offset INTEGER DEFAULT 0")
+            if "checkpoint_data" not in existing_cols:
+                await conn.execute("ALTER TABLE gov_scan_log ADD COLUMN checkpoint_data TEXT DEFAULT '{}'")
+        except Exception as exc:
+            logger.debug("gov_scan_log migration check: {}", exc)
+
         await conn.commit()
     logger.info("Government monitoring tables initialised")
 
@@ -705,6 +723,34 @@ class GovernmentDatabase:
             )
         return (await cursor.fetchone()) is not None
 
+    async def list_positions_by_theme(
+        self,
+        theme: str,
+        *,
+        politician_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List positions classified under a specific theme.
+
+        Themes are stored as JSON in the metadata column:
+        ``{"theme": "Securite et Justice", ...}``.
+        """
+        sql = (
+            "SELECT * FROM gov_positions "
+            "WHERE metadata LIKE ? "
+        )
+        # Match the JSON key precisely; handle both compact and spaced JSON
+        params: List[Any] = [f'%"theme":%"{theme}"%']
+        if politician_id:
+            sql += "AND politician_id = ? "
+            params.append(politician_id)
+        sql += "ORDER BY date DESC, created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        cursor = await self._conn.execute(sql, params)
+        rows = await cursor.fetchall()
+        return [_dict_with_json_fields(_row_to_dict(r), "metadata") for r in rows]
+
     async def declaration_exists_by_url(self, url: str) -> bool:
         """Check if a declaration with this url already exists."""
         cursor = await self._conn.execute(
@@ -885,6 +931,34 @@ class GovernmentDatabase:
         cursor = await self._conn.execute("SELECT COUNT(*) FROM gov_scan_log")
         row = await cursor.fetchone()
         return row[0] if row else 0
+
+    async def update_scan_checkpoint(
+        self, scan_id: str, phase: str, offset: int, data: dict | None = None
+    ) -> None:
+        """Update checkpoint progress for a running scan (resumable on crash)."""
+        await self._conn.execute(
+            "UPDATE gov_scan_log SET current_phase = ?, phase_offset = ?, checkpoint_data = ? WHERE id = ?",
+            [phase, offset, json.dumps(data or {}), scan_id],
+        )
+        await self._conn.commit()
+
+    async def get_resumable_scan(self, scan_type: str = "poligraph_full") -> dict | None:
+        """Get the last incomplete scan that can be resumed."""
+        row = await self._conn.execute(
+            "SELECT * FROM gov_scan_log WHERE scan_type = ? AND status IN ('running', 'interrupted') ORDER BY started_at DESC LIMIT 1",
+            [scan_type],
+        )
+        r = await row.fetchone()
+        if not r:
+            return None
+        d = _row_to_dict(r)
+        # Parse checkpoint_data JSON field
+        raw = d.get("checkpoint_data", "{}")
+        try:
+            d["checkpoint_data"] = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            d["checkpoint_data"] = {}
+        return d
 
     # ------------------------------------------------------------------
     # Mandates

@@ -135,6 +135,9 @@ class ScanLog(BaseModel):
     error_message: Optional[str] = None
     started_at: datetime
     completed_at: Optional[datetime] = None
+    current_phase: str = ""
+    phase_offset: int = 0
+    checkpoint_data: Any = None
 
     model_config = {"from_attributes": True}
 

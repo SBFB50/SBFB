@@ -22,7 +22,9 @@ import csv
 import io
 import json
 import zipfile
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from sqlite3 import IntegrityError
 from typing import Any, Callable, Optional
 
 import httpx
@@ -60,8 +62,26 @@ _RETRY_BACKOFF = 2.0  # seconds, doubled each retry
 class ParliamentScraper:
     """Async scraper pulling from official French government open data."""
 
-    def __init__(self) -> None:
+    def __init__(self, health_monitor: Any = None) -> None:
         self._rate_limit = getattr(settings, "gov_scan_rate_limit", 2.0)
+        self._health_monitor = health_monitor
+
+    # ------------------------------------------------------------------
+    # Source health check (integrates with resilience.SourceHealthMonitor)
+    # ------------------------------------------------------------------
+
+    def check_source_health(self, source_name: str) -> bool:
+        """Check if a source is available via the health monitor.
+
+        Returns True (assume healthy) if the monitor is not configured
+        or the source is not tracked -- never blocks a scrape.
+        """
+        try:
+            if self._health_monitor is not None:
+                return self._health_monitor.is_healthy(source_name)
+        except Exception:
+            pass
+        return True  # assume healthy if can't check
 
     # ------------------------------------------------------------------
     # Cancellation check
@@ -667,6 +687,9 @@ class ParliamentScraper:
         gov_db: Any,
         *,
         on_progress: Callable | None = None,
+        scan_id: str | None = None,
+        resume_phase: str = "",
+        resume_offset: int = 0,
     ) -> dict[str, int]:
         """Full autonomous scan from official sources.
 
@@ -679,6 +702,11 @@ class ParliamentScraper:
         7. La Fabrique de la Loi -> enrich gov_laws
         8. Wikidata enrichment (photos, biographies)
         9. (Optional) PoliGraph affairs
+
+        Args:
+            scan_id: If provided, checkpoints are saved to this scan log entry.
+            resume_phase: Phase name to resume from (skip earlier phases).
+            resume_offset: Offset within the resume phase (e.g. politician index).
 
         Returns stats dict.
         """
@@ -697,370 +725,502 @@ class ParliamentScraper:
             if on_progress:
                 on_progress(phase, progress, stats)
 
+        # -- Phase ordering for checkpoint/resume support ------------------
+        phases = [
+            "politicians", "poligraph_votes", "an_scrutins",
+            "hatvp", "dossiers", "fabrique", "wikidata", "affairs",
+        ]
+        start_phase_idx = phases.index(resume_phase) if resume_phase in phases else 0
+
+        def _should_run(phase_name: str) -> bool:
+            """Return True if this phase should execute (not skipped by resume)."""
+            return phases.index(phase_name) >= start_phase_idx
+
+        async def _checkpoint(phase_name: str, offset: int = 0) -> None:
+            """Persist checkpoint after completing a phase or batch."""
+            if scan_id:
+                await gov_db.update_scan_checkpoint(scan_id, phase_name, offset)
+
         # -- Phase 1: Politicians ------------------------------------------
-        self._check_cancelled()
-        _p("Recuperation des deputes (data.gouv.fr)...")
-        deputies = await self.fetch_deputies()
-        await asyncio.sleep(self._rate_limit)
+        if _should_run("politicians"):
+            self._check_cancelled()
+            _p("Recuperation des deputes (data.gouv.fr)...")
+            deputies = await self.fetch_deputies()
 
-        self._check_cancelled()
-        _p("Recuperation des senateurs (senat.fr)...")
-        senators = await self.fetch_senators()
-        await asyncio.sleep(self._rate_limit)
+            self._check_cancelled()
+            _p("Recuperation des senateurs (senat.fr)...")
+            senators = await self.fetch_senators()
 
-        all_members = deputies + senators
-        stats["politicians_found"] = len(all_members)
+            all_members = deputies + senators
+            stats["politicians_found"] = len(all_members)
 
-        # -- Phase 2: Upsert politicians -----------------------------------
-        self._check_cancelled()
-        _p(f"Enregistrement de {len(all_members)} politiciens...")
-        existing = await gov_db.list_politicians(limit=100_000)
-        existing_names = {p["name"].lower(): p for p in existing}
+            # Upsert politicians
+            self._check_cancelled()
+            _p(f"Enregistrement de {len(all_members)} politiciens...")
+            existing = await gov_db.list_politicians(limit=100_000)
+            existing_names = {p["name"].lower(): p for p in existing}
 
-        for m in all_members:
-            name = m["name"]
-            if name.lower() not in existing_names:
-                try:
-                    created = await gov_db.create_politician(
-                        name=name,
-                        chamber=m.get("chamber", "assemblee"),
-                        party=m.get("party"),
-                        role=m.get("role"),
-                        constituency=m.get("constituency"),
-                        photo_url=m.get("photo_url"),
-                        official_url=m.get("official_url"),
-                    )
-                    existing_names[name.lower()] = created
-                    stats["politicians_new"] += 1
-                except Exception as exc:
-                    logger.debug("Create politician '{}': {}", name, exc)
+            for m in all_members:
+                name = m["name"]
+                if name.lower() not in existing_names:
+                    try:
+                        created = await gov_db.create_politician(
+                            name=name,
+                            chamber=m.get("chamber", "assemblee"),
+                            party=m.get("party"),
+                            role=m.get("role"),
+                            constituency=m.get("constituency"),
+                            photo_url=m.get("photo_url"),
+                            official_url=m.get("official_url"),
+                        )
+                        existing_names[name.lower()] = created
+                        stats["politicians_new"] += 1
+                    except Exception as exc:
+                        logger.debug("Create politician '{}': {}", name, exc)
 
-        # Build name->id and slug->id mappings
+            await _checkpoint("politicians")
+        else:
+            _p("Skip politicians (deja termine)")
+
+        # Build name->id and slug->id mappings (always needed for later phases)
         all_pols = await gov_db.list_politicians(limit=100_000)
         name_to_id = {p["name"].lower(): p["id"] for p in all_pols}
         slug_to_pol = {p.get("slug", ""): p for p in all_pols if p.get("slug")}
+        stats["politicians_found"] = stats.get("politicians_found") or len(all_pols)
 
-        # -- Phase 3: PoliGraph votes per politician (most reliable) --------
-        self._check_cancelled()
-        _p("Recuperation des votes via PoliGraph...")
-
-        vote_stored = 0
-        for i, pol in enumerate(all_pols):
-            slug = pol.get("slug", "")
-            if not slug:
-                continue
-
+        # -- Phase 2: PoliGraph votes per politician (most reliable) --------
+        if _should_run("poligraph_votes"):
             self._check_cancelled()
-            _p("Votes PoliGraph...", f"{pol['name']} ({i+1}/{len(all_pols)})")
+            _p("Recuperation des votes via PoliGraph...")
 
-            await asyncio.sleep(self._rate_limit)
-            votes = await self.fetch_politician_votes(slug, max_pages=2)
-            stats["votes_found"] += len(votes)
+            # Pre-compute politicians scanned in the last 24 hours (smart skip)
+            recently_scanned: set[str] = set()
+            try:
+                recent_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+                rows = await gov_db._conn.execute(
+                    """SELECT DISTINCT politician_id FROM gov_positions
+                       WHERE position_type = 'vote' AND source_type = 'assemblee_nationale'
+                       AND created_at > ?""",
+                    [recent_cutoff],
+                )
+                recently_scanned = {r[0] for r in await rows.fetchall()}
+            except Exception:
+                pass
 
-            for v in votes:
-                url = v.get("source_url", "")
-                if not url:
+            vote_stored = 0
+            skipped = 0
+            # Resume offset for PoliGraph loop
+            poligraph_start = resume_offset if resume_phase == "poligraph_votes" else 0
+
+            for i, pol in enumerate(all_pols[poligraph_start:], start=poligraph_start):
+                slug = pol.get("slug", "")
+                if not slug:
                     continue
-                # Dedup by URL
-                try:
-                    exists = await gov_db.position_exists_by_url(url)
-                except AttributeError:
-                    # Method might not exist yet — fallback
-                    exists = False
-                if exists:
+
+                # Skip politicians scanned recently (last 24h)
+                if pol["id"] in recently_scanned:
+                    skipped += 1
+                    if skipped % 100 == 0:
+                        _p("Votes PoliGraph...", f"Skip {skipped} recemment scannes, {pol['name']} ({i+1}/{len(all_pols)})")
                     continue
 
-                try:
-                    await gov_db.create_position(
-                        politician_id=pol["id"],
-                        subject=v.get("subject", "Vote")[:200],
-                        position_type="vote",
-                        position_text=v.get("position_text", "")[:500],
-                        stance=v.get("stance"),
-                        source_url=url,
-                        source_type="assemblee_nationale",
-                        date=v.get("date", ""),
-                    )
-                    vote_stored += 1
-                    stats["votes_new"] += 1
-                except Exception as exc:
-                    logger.debug("Vote store: {}", exc)
+                self._check_cancelled()
+                _p("Votes PoliGraph...", f"{pol['name']} ({i+1 - skipped}/{len(all_pols) - len(recently_scanned)})")
 
-        logger.info("PoliGraph votes: {} found, {} new", stats["votes_found"], vote_stored)
+                await asyncio.sleep(self._rate_limit)
+                votes = await self.fetch_politician_votes(slug, max_pages=2)
+                stats["votes_found"] += len(votes)
 
-        # -- Phase 4: AN Scrutins ZIP (acteurRef mapping — bonus) -----------
-        self._check_cancelled()
-        scrutins, votes_by_ref = await self.fetch_an_scrutins(
-            on_progress=lambda msg: _p("Scrutins AN", msg)
-        )
-        stats["votes_found"] = sum(len(v) for v in votes_by_ref.values())
-
-        # -- Phase 3b: Resolve acteurRef -> politician via IdentityResolver --
-        self._check_cancelled()
-        _p("Resolution des identites acteurRef -> politiciens...")
-
-        resolver = IdentityResolver(gov_db)
-        await resolver.build_cache()
-
-        # Build acteurRef -> politician_id mapping
-        # Each acteurRef like "PA842279" is unique to the AN data
-        acteur_ref_to_pol_id: dict[str, str] = {}
-        unique_refs = list(votes_by_ref.keys())
-        resolved_count = 0
-        unresolved_refs: list[str] = []
-
-        # First: check if any refs are already linked as external IDs
-        for ref in unique_refs:
-            existing_pol = await gov_db.find_politician_by_external_id("assemblee_nationale", ref)
-            if existing_pol:
-                acteur_ref_to_pol_id[ref] = existing_pol["id"]
-                resolved_count += 1
-
-        # For unresolved refs: we can't fuzzy-match a code like "PA842279" to a name.
-        # But we can look at the vote data to extract names from the scrutin JSON.
-        # The ZIP embeds acteur names in the decompteNominatif votant entries.
-        # Since we already parsed that, let's use a second pass to extract names.
-        # For now, store aggregate scrutin data for unresolved refs.
-
-        logger.info(
-            "acteurRef resolution: {}/{} resolved via external IDs",
-            resolved_count, len(unique_refs),
-        )
-
-        # -- Phase 3c: Store individual vote positions ---------------------
-        self._check_cancelled()
-        _p("Enregistrement des votes...", f"{stats['votes_found']} votes individuels")
-
-        vote_stored = 0
-        for ref, ref_votes in votes_by_ref.items():
-            pol_id = acteur_ref_to_pol_id.get(ref)
-            if not pol_id:
-                continue  # Can't link this acteurRef to a politician yet
-
-            for vote in ref_votes:
-                url = vote.get("source_url", "")
-                subject = vote.get("title", "")[:200]
-                date = vote.get("date", "")
-                stance = vote.get("stance", "")
-
-                # Dedup: check by source_url first, then by (politician_id, subject, date)
-                if url:
-                    if await gov_db.position_exists_by_url(url + f"#{pol_id}"):
+                for v in votes:
+                    url = v.get("source_url", "")
+                    if not url:
                         continue
-                else:
-                    if subject and await gov_db.position_exists_by_key(pol_id, subject, date or None):
-                        continue
+                    try:
+                        await gov_db.create_position(
+                            politician_id=pol["id"],
+                            subject=v.get("subject", "Vote")[:200],
+                            position_type="vote",
+                            position_text=v.get("position_text", "")[:500],
+                            stance=v.get("stance"),
+                            source_url=url,
+                            source_type="assemblee_nationale",
+                            date=v.get("date", ""),
+                        )
+                        vote_stored += 1
+                        stats["votes_new"] += 1
+                    except IntegrityError:
+                        pass  # Duplicate — expected
+                    except Exception as exc:
+                        logger.debug("Vote store for {}: {}", pol["name"], exc)
 
-                try:
-                    await gov_db.create_position(
-                        politician_id=pol_id,
-                        subject=subject,
-                        position_type="vote",
-                        position_text=f"Vote {stance} — {subject}",
-                        stance=stance,
-                        source_url=f"{url}#{pol_id}" if url else f"an:scrutin:{vote.get('scrutin_id', '')}:{pol_id}",
-                        source_type="assemblee_nationale",
-                        date=date,
-                    )
-                    vote_stored += 1
-                except Exception as exc:
-                    logger.debug("Vote position: {}", exc)
+                # Checkpoint + commit every 50 politicians
+                if (i + 1) % 50 == 0:
+                    await gov_db._conn.commit()
+                    await _checkpoint("poligraph_votes", i + 1)
+                    await asyncio.sleep(0)  # yield
 
-            # Yield control every 50 politicians to avoid blocking
-            if vote_stored % 200 == 0:
-                await asyncio.sleep(0)
+            logger.info("PoliGraph votes: {} found, {} new, {} skipped (recently scanned)", stats["votes_found"], vote_stored, skipped)
+            await _checkpoint("poligraph_votes")
+        else:
+            _p("Skip poligraph_votes (deja termine)")
 
-        stats["votes_new"] = vote_stored
-        logger.info("Stored {} individual vote positions", vote_stored)
+        # -- Phase 3: AN Scrutins ZIP (acteurRef mapping — bonus) -----------
+        if _should_run("an_scrutins"):
+            self._check_cancelled()
+            scrutins, votes_by_ref = await self.fetch_an_scrutins(
+                on_progress=lambda msg: _p("Scrutins AN", msg)
+            )
+            stats["votes_found"] = sum(len(v) for v in votes_by_ref.values())
 
-        # -- Phase 4: HATVP ------------------------------------------------
-        self._check_cancelled()
-        _p("Recuperation HATVP...")
-        hatvp = await self.fetch_hatvp()
-        stats["hatvp_found"] = len(hatvp)
+            # Resolve acteurRef -> politician via IdentityResolver
+            self._check_cancelled()
+            _p("Resolution des identites acteurRef -> politiciens...")
 
-        hatvp_stored = 0
-        for decl in hatvp:
-            name = decl["name"]
-            pol_id = name_to_id.get(name.lower())
-            if not pol_id:
-                continue
+            resolver = IdentityResolver(gov_db)
+            await resolver.build_cache()
 
-            url = (
-                f"https://www.hatvp.fr{decl['url_dossier']}"
-                if decl.get("url_dossier")
-                else ""
+            acteur_ref_to_pol_id: dict[str, str] = {}
+            unique_refs = list(votes_by_ref.keys())
+            resolved_count = 0
+
+            for ref in unique_refs:
+                existing_pol = await gov_db.find_politician_by_external_id("assemblee_nationale", ref)
+                if existing_pol:
+                    acteur_ref_to_pol_id[ref] = existing_pol["id"]
+                    resolved_count += 1
+
+            logger.info(
+                "acteurRef resolution: {}/{} resolved via external IDs",
+                resolved_count, len(unique_refs),
             )
 
-            # Dedup: check by URL if available, else by (politician_id, type_doc, date)
-            if url:
-                if await gov_db.declaration_exists_by_url(url):
-                    continue
-            else:
-                type_doc = decl.get("type_document", "patrimoine")
-                date_pub = decl.get("date_publication", decl.get("date_depot", ""))
-                subject = f"Declaration {type_doc}"
-                if await gov_db.position_exists_by_key(pol_id, subject, date_pub or None):
+            # Store individual vote positions
+            self._check_cancelled()
+            _p("Enregistrement des votes...", f"{stats['votes_found']} votes individuels")
+
+            vote_stored = 0
+            for ref, ref_votes in votes_by_ref.items():
+                pol_id = acteur_ref_to_pol_id.get(ref)
+                if not pol_id:
                     continue
 
-            try:
-                date_pub = decl.get("date_publication", "")
-                date_depot = decl.get("date_depot", "")
-                await gov_db.create_declaration(
-                    politician_id=pol_id,
-                    type=decl.get("type_document", "patrimoine"),
-                    qualite=decl.get("qualite", ""),
-                    departement=decl.get("departement", ""),
-                    date_publication=date_pub or None,
-                    date_depot=date_depot or None,
-                    url=url or None,
-                    status=decl.get("statut", ""),
+                for vote in ref_votes:
+                    url = vote.get("source_url", "")
+                    subject = vote.get("title", "")[:200]
+                    date = vote.get("date", "")
+                    stance = vote.get("stance", "")
+
+                    if url:
+                        if await gov_db.position_exists_by_url(url + f"#{pol_id}"):
+                            continue
+                    else:
+                        if subject and await gov_db.position_exists_by_key(pol_id, subject, date or None):
+                            continue
+
+                    try:
+                        await gov_db.create_position(
+                            politician_id=pol_id,
+                            subject=subject,
+                            position_type="vote",
+                            position_text=f"Vote {stance} — {subject}",
+                            stance=stance,
+                            source_url=f"{url}#{pol_id}" if url else f"an:scrutin:{vote.get('scrutin_id', '')}:{pol_id}",
+                            source_type="assemblee_nationale",
+                            date=date,
+                        )
+                        vote_stored += 1
+                    except Exception as exc:
+                        logger.debug("Vote position: {}", exc)
+
+                if vote_stored % 200 == 0:
+                    await asyncio.sleep(0)
+
+            stats["votes_new"] = vote_stored
+            logger.info("Stored {} individual vote positions", vote_stored)
+            await _checkpoint("an_scrutins")
+        else:
+            _p("Skip an_scrutins (deja termine)")
+
+        # -- Phase 4: HATVP ------------------------------------------------
+        if _should_run("hatvp"):
+            self._check_cancelled()
+            _p("Recuperation HATVP...")
+            hatvp = await self.fetch_hatvp()
+            stats["hatvp_found"] = len(hatvp)
+
+            hatvp_stored = 0
+            for decl in hatvp:
+                name = decl["name"]
+                pol_id = name_to_id.get(name.lower())
+                if not pol_id:
+                    continue
+
+                url = (
+                    f"https://www.hatvp.fr{decl['url_dossier']}"
+                    if decl.get("url_dossier")
+                    else ""
                 )
-                hatvp_stored += 1
-            except Exception as exc:
-                logger.debug("HATVP declaration: {}", exc)
 
-        stats["hatvp_new"] = hatvp_stored
+                if url:
+                    if await gov_db.declaration_exists_by_url(url):
+                        continue
+                else:
+                    type_doc = decl.get("type_document", "patrimoine")
+                    date_pub = decl.get("date_publication", decl.get("date_depot", ""))
+                    subject = f"Declaration {type_doc}"
+                    if await gov_db.position_exists_by_key(pol_id, subject, date_pub or None):
+                        continue
+
+                try:
+                    date_pub = decl.get("date_publication", "")
+                    date_depot = decl.get("date_depot", "")
+                    await gov_db.create_declaration(
+                        politician_id=pol_id,
+                        type=decl.get("type_document", "patrimoine"),
+                        qualite=decl.get("qualite", ""),
+                        departement=decl.get("departement", ""),
+                        date_publication=date_pub or None,
+                        date_depot=date_depot or None,
+                        url=url or None,
+                        status=decl.get("statut", ""),
+                    )
+                    hatvp_stored += 1
+                except Exception as exc:
+                    logger.debug("HATVP declaration: {}", exc)
+
+            stats["hatvp_new"] = hatvp_stored
+            await _checkpoint("hatvp")
+        else:
+            _p("Skip hatvp (deja termine)")
 
         # -- Phase 5: Dossiers legislatifs ---------------------------------
-        self._check_cancelled()
-        _p("Dossiers legislatifs (AN)...")
-        dossiers = await self.fetch_dossiers_legislatifs(
-            on_progress=lambda msg: _p("Dossiers legislatifs", msg)
-        )
-        stats["dossiers_found"] = len(dossiers)
+        if _should_run("dossiers"):
+            self._check_cancelled()
+            _p("Dossiers legislatifs (AN)...")
+            dossiers = await self.fetch_dossiers_legislatifs(
+                on_progress=lambda msg: _p("Dossiers legislatifs", msg)
+            )
+            stats["dossiers_found"] = len(dossiers)
 
-        dossiers_stored = 0
-        for dl in dossiers:
-            titre = dl.get("titre", "")
-            uid = dl.get("uid", "")
-            if not titre or not uid:
-                continue
+            dossiers_stored = 0
+            for dl in dossiers:
+                titre = dl.get("titre", "")
+                uid = dl.get("uid", "")
+                if not titre or not uid:
+                    continue
 
-            # Dedup by uid (UNIQUE constraint on gov_laws.uid)
-            existing_law = await gov_db.get_law_by_uid(uid)
-            if existing_law:
-                continue
-
-            try:
-                await gov_db.create_law(
-                    uid=uid,
-                    title=titre,
-                    procedure=dl.get("procedure", ""),
-                    initiator_ref=dl.get("initiateur_ref"),
-                    date_initial=dl.get("date"),
-                    legislature=dl.get("legislature", "17"),
-                    source_url=f"https://www.assemblee-nationale.fr/dyn/17/dossiers/{uid}",
-                )
-                dossiers_stored += 1
-            except Exception as exc:
-                logger.debug("Dossier law: {}", exc)
-
-            # Yield control periodically
-            if dossiers_stored % 500 == 0:
-                await asyncio.sleep(0)
-
-        stats["dossiers_new"] = dossiers_stored
-
-        # -- Phase 6: La Fabrique de la Loi --------------------------------
-        self._check_cancelled()
-        _p("La Fabrique de la Loi (stats lois)...")
-        loi_stats = await self.fetch_fabrique_loi_stats()
-        stats["lois_found"] = len(loi_stats)
-
-        # Enrich existing laws with La Fabrique stats (amendments, duration, etc.)
-        lois_enriched = 0
-        for loi in loi_stats:
-            titre = loi.get("Titre court", loi.get("Titre", ""))
-            if not titre:
-                continue
-            url_jo = loi.get("URL JO", "")
-            num = loi.get("Numero de la loi", "")
-            if not url_jo:
-                continue
-
-            # Try to find matching law by uid or by similar title
-            # La Fabrique uses its own numbering, cross-ref is best-effort
-            amendements = loi.get("Nombre d'amendements", "0")
-            duree = loi.get("Duree d'adoption (jours)", "")
-
-            try:
-                amendements_count = int(amendements) if amendements else 0
-            except (ValueError, TypeError):
-                amendements_count = 0
-            try:
-                duration_days = int(duree) if duree else 0
-            except (ValueError, TypeError):
-                duration_days = 0
-
-            # Store as a new law record if no matching uid exists
-            fabrique_uid = f"fabrique:{num}" if num else None
-            if fabrique_uid:
-                existing_law = await gov_db.get_law_by_uid(fabrique_uid)
+                existing_law = await gov_db.get_law_by_uid(uid)
                 if existing_law:
                     continue
 
                 try:
                     await gov_db.create_law(
-                        uid=fabrique_uid,
-                        title=titre[:500],
-                        short_title=titre[:200],
-                        jo_url=url_jo,
-                        amendments_count=amendements_count,
-                        duration_days=duration_days,
+                        uid=uid,
+                        title=titre,
+                        procedure=dl.get("procedure", ""),
+                        initiator_ref=dl.get("initiateur_ref"),
+                        date_initial=dl.get("date"),
+                        legislature=dl.get("legislature", "17"),
+                        source_url=f"https://www.assemblee-nationale.fr/dyn/17/dossiers/{uid}",
                     )
-                    lois_enriched += 1
+                    dossiers_stored += 1
                 except Exception as exc:
-                    logger.debug("Fabrique loi: {}", exc)
+                    logger.debug("Dossier law: {}", exc)
 
-        stats["lois_enriched"] = lois_enriched
+                if dossiers_stored % 500 == 0:
+                    await asyncio.sleep(0)
+
+            stats["dossiers_new"] = dossiers_stored
+            await _checkpoint("dossiers")
+        else:
+            _p("Skip dossiers (deja termine)")
+
+        # -- Phase 6: La Fabrique de la Loi --------------------------------
+        if _should_run("fabrique"):
+            self._check_cancelled()
+            _p("La Fabrique de la Loi (stats lois)...")
+            loi_stats = await self.fetch_fabrique_loi_stats()
+            stats["lois_found"] = len(loi_stats)
+
+            lois_enriched = 0
+            for loi in loi_stats:
+                titre = loi.get("Titre court", loi.get("Titre", ""))
+                if not titre:
+                    continue
+                url_jo = loi.get("URL JO", "")
+                num = loi.get("Numero de la loi", "")
+                if not url_jo:
+                    continue
+
+                amendements = loi.get("Nombre d'amendements", "0")
+                duree = loi.get("Duree d'adoption (jours)", "")
+
+                try:
+                    amendements_count = int(amendements) if amendements else 0
+                except (ValueError, TypeError):
+                    amendements_count = 0
+                try:
+                    duration_days = int(duree) if duree else 0
+                except (ValueError, TypeError):
+                    duration_days = 0
+
+                fabrique_uid = f"fabrique:{num}" if num else None
+                if fabrique_uid:
+                    existing_law = await gov_db.get_law_by_uid(fabrique_uid)
+                    if existing_law:
+                        continue
+
+                    try:
+                        await gov_db.create_law(
+                            uid=fabrique_uid,
+                            title=titre[:500],
+                            short_title=titre[:200],
+                            jo_url=url_jo,
+                            amendments_count=amendements_count,
+                            duration_days=duration_days,
+                        )
+                        lois_enriched += 1
+                    except Exception as exc:
+                        logger.debug("Fabrique loi: {}", exc)
+
+            stats["lois_enriched"] = lois_enriched
+            await _checkpoint("fabrique")
+        else:
+            _p("Skip fabrique (deja termine)")
 
         # -- Phase 7: Wikidata enrichment ----------------------------------
-        self._check_cancelled()
-        _p("Wikidata (biographies + affaires)...")
-        try:
-            wiki_deputies = await self.fetch_wikidata_deputies()
-            stats["wikidata_deputies"] = len(wiki_deputies)
-            await asyncio.sleep(self._rate_limit)
-
+        if _should_run("wikidata"):
             self._check_cancelled()
-            wiki_senators = await self.fetch_wikidata_senators()
-            stats["wikidata_senators"] = len(wiki_senators)
-            await asyncio.sleep(self._rate_limit)
 
-            self._check_cancelled()
-            wiki_affairs = await self.fetch_wikidata_affairs()
-            stats["wikidata_affairs"] = len(wiki_affairs)
+            # Skip if Wikidata was refreshed recently (< 24h)
+            skip_wikidata = False
+            try:
+                last_wikidata = await gov_db._conn.execute(
+                    "SELECT MAX(completed_at) FROM gov_scan_log WHERE scan_type = 'wikidata_enrichment' AND status = 'completed'"
+                )
+                last_row = await last_wikidata.fetchone()
+                if last_row and last_row[0]:
+                    last_dt = datetime.fromisoformat(last_row[0])
+                    if datetime.now(timezone.utc) - last_dt < timedelta(hours=24):
+                        skip_wikidata = True
+                        _p("Wikidata skip (< 24h depuis dernier enrichissement)")
+            except (ValueError, TypeError, Exception):
+                pass
 
-            # Enrich existing politicians with Wikidata data
-            for wp in wiki_deputies + wiki_senators:
-                wname = wp.get("personLabel", "").strip()
-                if not wname:
-                    continue
-                pol_id = name_to_id.get(wname.lower())
-                if not pol_id:
-                    continue
-                # Update photo if we have a better one from Wikidata
-                image = wp.get("image", "")
-                if image:
+            if not skip_wikidata:
+                _p("Wikidata (biographies + affaires)...")
+                try:
+                    wiki_deputies = await self.fetch_wikidata_deputies()
+                    stats["wikidata_deputies"] = len(wiki_deputies)
+                    await asyncio.sleep(self._rate_limit)
+
+                    self._check_cancelled()
+                    wiki_senators = await self.fetch_wikidata_senators()
+                    stats["wikidata_senators"] = len(wiki_senators)
+                    await asyncio.sleep(self._rate_limit)
+
+                    self._check_cancelled()
+                    wiki_affairs = await self.fetch_wikidata_affairs()
+                    stats["wikidata_affairs"] = len(wiki_affairs)
+
+                    for wp in wiki_deputies + wiki_senators:
+                        wname = wp.get("personLabel", "").strip()
+                        if not wname:
+                            continue
+                        pol_id = name_to_id.get(wname.lower())
+                        if not pol_id:
+                            continue
+                        image = wp.get("image", "")
+                        if image:
+                            try:
+                                await gov_db.update_politician(pol_id, photo_url=image)
+                            except Exception:
+                                pass
+
                     try:
-                        await gov_db.update_politician(pol_id, photo_url=image)
-                    except Exception:
-                        pass
+                        wk_scan = await gov_db.create_scan_log(scan_type="wikidata_enrichment")
+                        await gov_db.update_scan_log(
+                            wk_scan["id"],
+                            status="completed",
+                            completed_at=datetime.now(timezone.utc).isoformat(),
+                        )
+                    except Exception as exc:
+                        logger.debug("Wikidata scan log: {}", exc)
 
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("Wikidata enrichment failed: {}", exc)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("Wikidata enrichment failed: {}", exc)
+
+            await _checkpoint("wikidata")
+        else:
+            _p("Skip wikidata (deja termine)")
 
         # -- Phase 8: PoliGraph affairs (optional enrichment) --------------
-        self._check_cancelled()
-        _p("Affaires judiciaires (PoliGraph)...")
-        try:
-            affairs = await self.fetch_poligraph_affairs(max_pages=5)
-            stats["affairs_found"] = len(affairs)
-        except Exception:
-            affairs = []
+        if _should_run("affairs"):
+            self._check_cancelled()
+            _p("Affaires judiciaires (PoliGraph)...")
+            try:
+                affairs = await self.fetch_poligraph_affairs(max_pages=5)
+                stats["affairs_found"] = len(affairs)
+            except Exception:
+                affairs = []
+
+            affairs_stored = 0
+            for affair in affairs:
+                title = (affair.get("title", affair.get("nom", "")) or "").strip()
+                if not title:
+                    continue
+                title = title[:200]
+
+                politician_name = affair.get("politician", affair.get("politicien", ""))
+                if isinstance(politician_name, dict):
+                    politician_name = politician_name.get("nom", "")
+                politician_name = str(politician_name).strip()
+                if not politician_name:
+                    continue
+
+                pol_id = name_to_id.get(politician_name.lower())
+                if not pol_id:
+                    continue
+
+                try:
+                    existing = await gov_db._conn.execute(
+                        "SELECT id FROM gov_affairs WHERE politician_id = ? AND title = ?",
+                        [pol_id, title],
+                    )
+                    if await existing.fetchone():
+                        continue
+                except Exception:
+                    pass
+
+                description = affair.get("description", affair.get("resume", ""))
+                status = affair.get("status", affair.get("statut", "enquete"))
+                category = affair.get("category", affair.get("categorie", ""))
+                source_url = affair.get("url", affair.get("source_url", ""))
+                date_start = affair.get("date_start", affair.get("date", ""))
+
+                try:
+                    await gov_db.create_affair(
+                        politician_id=pol_id,
+                        title=title,
+                        description=str(description)[:2000] if description else None,
+                        status=str(status) if status else "enquete",
+                        category=str(category) if category else None,
+                        source_url=str(source_url) if source_url else None,
+                        date_start=str(date_start)[:10] if date_start else None,
+                    )
+                    affairs_stored += 1
+                except IntegrityError:
+                    pass  # Duplicate — expected
+                except Exception as exc:
+                    logger.debug("Affair store for '{}': {}", politician_name, exc)
+
+            stats["affairs_new"] = affairs_stored
+            logger.info("PoliGraph affairs: {} found, {} new", stats["affairs_found"], affairs_stored)
+            await _checkpoint("affairs")
+        else:
+            _p("Skip affairs (deja termine)")
 
         _p("Scan termine", (
             f"{stats['politicians_found']} politiciens, "
@@ -1069,7 +1229,7 @@ class ParliamentScraper:
             f"{stats.get('dossiers_found', 0)} dossiers ({stats.get('dossiers_new', 0)} nouveaux), "
             f"{stats.get('lois_found', 0)} lois, "
             f"{stats.get('wikidata_deputies', 0)}+{stats.get('wikidata_senators', 0)} Wikidata, "
-            f"{stats.get('affairs_found', 0)} affaires"
+            f"{stats.get('affairs_found', 0)} affaires ({stats.get('affairs_new', 0)} nouvelles)"
         ))
 
         logger.info("Full government scan complete: {}", stats)
