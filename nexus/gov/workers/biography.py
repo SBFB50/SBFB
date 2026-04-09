@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from loguru import logger
@@ -37,7 +38,7 @@ class GovBiographyWorker(ReactiveWorker):
         politicians = await self._db.list_politicians(limit=100_000)
         generated = 0
 
-        for pol in politicians[:50]:  # Limit per run
+        for pol in politicians[:100]:  # Limit per run
             pol_id = pol["id"]
             name = pol["name"]
 
@@ -50,8 +51,16 @@ class GovBiographyWorker(ReactiveWorker):
                     existing_meta = {}
 
             bio = existing_meta.get("biography", "")
-            if bio and len(bio) > 100:
-                continue  # Already has a biography
+            bio_date = existing_meta.get("biography_generated_at", "")
+
+            # Skip if biography is fresh (< 7 days old)
+            if bio and len(bio) > 100 and bio_date:
+                try:
+                    bio_ts = datetime.fromisoformat(bio_date)
+                    if datetime.now(timezone.utc) - bio_ts < timedelta(days=7):
+                        continue  # still fresh
+                except (ValueError, TypeError):
+                    pass  # regenerate if date is invalid
 
             # Collect data
             positions = await self._db.list_positions_by_politician(pol_id, limit=50)
@@ -106,7 +115,9 @@ class GovBiographyWorker(ReactiveWorker):
                 biography = await self._router.route(TaskType.SUMMARIZE, prompt)
                 if biography and len(biography) > 50:
                     existing_meta["biography"] = biography
-                    existing_meta["biography_generated_at"] = event.timestamp
+                    existing_meta["biography_generated_at"] = datetime.now(
+                        timezone.utc
+                    ).isoformat()
                     await self._db.update_politician(pol_id, metadata=existing_meta)
                     generated += 1
                     logger.debug("Biography generated for {}", name)
