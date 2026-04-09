@@ -14,8 +14,7 @@ import asyncio
 
 from loguru import logger
 
-from nexus.events.types import NexusEvent
-from nexus.events.worker import ReactiveWorker
+from nexus.engine import NexusEvent, ReactiveWorker
 from nexus.gov.events import GovEventType
 from nexus.gov.scraper import ParliamentScraper
 

@@ -19,8 +19,7 @@ from typing import Any
 
 from loguru import logger
 
-from nexus.events.types import NexusEvent
-from nexus.events.worker import ReactiveWorker
+from nexus.engine import NexusEvent, ReactiveWorker
 from nexus.gov.events import GovEventType
 
 
@@ -165,8 +164,7 @@ class GovContradictionAnalyzer(ReactiveWorker):
             # No LLM available -- skip
             return []
 
-        from nexus.llm.prompts import POLITICAL_CONTRADICTION_PROMPT
-        from nexus.llm.router import TaskType
+        from nexus.engine import POLITICAL_CONTRADICTION_PROMPT, TaskType
 
         for cand in top:
             try:

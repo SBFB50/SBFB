@@ -14,8 +14,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from nexus.events.bus import EventBus
-from nexus.events.types import NexusEvent
+from nexus.engine import EventBus, NexusEvent
 
 
 class GovEventType(str, Enum):
@@ -59,7 +58,7 @@ class GovDatabaseProxy:
     """
 
     def __getattr__(self, name: str) -> Any:
-        from nexus.db.sqlite_db import get_db
+        from nexus.engine import get_db
         from nexus.gov.db import GovernmentDatabase
 
         async def _method_proxy(*args: Any, **kwargs: Any) -> Any:
@@ -90,6 +89,7 @@ class GovManager:
         self._bus: Optional[EventBus] = None
         self._workers: list = []
         self._timer_task: Optional[asyncio.Task] = None
+        self._initial_tick_task: Optional[asyncio.Task] = None
         self._running = False
 
     @property
@@ -160,6 +160,7 @@ class GovManager:
 
         import importlib
 
+        failed_workers = []
         for mod_path, cls_name, extra_args in _worker_specs:
             try:
                 mod = importlib.import_module(mod_path)
@@ -167,16 +168,26 @@ class GovManager:
                 worker = cls(self._bus, db_proxy, *extra_args)
                 self._workers.append(worker)
             except Exception as exc:
+                failed_workers.append(f"{cls_name}")
                 logger.error(
                     "Failed to load gov worker {}.{}: {}",
                     mod_path, cls_name, exc,
                 )
+
+        if failed_workers:
+            logger.warning(
+                "⚠ {} gov workers failed to load: {}",
+                len(failed_workers), ", ".join(failed_workers),
+            )
 
         # Register and start all workers
         for worker in self._workers:
             worker.register()
             worker.start()
             logger.info("Gov worker started: {}", worker.name)
+
+        # Let workers enter their run loops before firing events
+        await asyncio.sleep(0.5)
 
         # Start periodic timer
         self._timer_task = asyncio.create_task(self._periodic_timer())
@@ -185,7 +196,7 @@ class GovManager:
         logger.info("GovManager started — {} workers active", len(self._workers))
 
         # Trigger initial daily sync after a short delay to let workers settle
-        asyncio.create_task(self._initial_tick())
+        self._initial_tick_task = asyncio.create_task(self._initial_tick())
 
     async def stop(self) -> None:
         """Stop all government workers and timers."""
@@ -194,6 +205,14 @@ class GovManager:
 
         logger.info("GovManager stopping...")
         self._running = False
+
+        # Cancel initial tick task
+        if self._initial_tick_task and not self._initial_tick_task.done():
+            self._initial_tick_task.cancel()
+            try:
+                await self._initial_tick_task
+            except asyncio.CancelledError:
+                pass
 
         # Cancel timer
         if self._timer_task and not self._timer_task.done():

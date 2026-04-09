@@ -14,8 +14,7 @@ from typing import Any
 
 from loguru import logger
 
-from nexus.events.types import NexusEvent
-from nexus.events.worker import ReactiveWorker
+from nexus.engine import NexusEvent, ReactiveWorker
 from nexus.gov.events import GovEventType
 
 
@@ -32,7 +31,7 @@ class GovBiographyWorker(ReactiveWorker):
         if not self._router:
             return []
 
-        from nexus.llm.router import TaskType
+        from nexus.engine import TaskType
 
         # Get politicians needing biography update
         politicians = await self._db.list_politicians(limit=100_000)

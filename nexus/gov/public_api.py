@@ -154,7 +154,7 @@ async def public_list_votes(
     gov: GovernmentDatabase = Depends(get_government_database),
 ):
     _check_rate_limit(request)
-    from nexus.db.sqlite_db import _row_to_dict, get_db
+    from nexus.engine import _row_to_dict, get_db
 
     async with get_db() as conn:
         cursor = await conn.execute(
@@ -187,7 +187,7 @@ async def public_list_affairs(
     gov: GovernmentDatabase = Depends(get_government_database),
 ):
     _check_rate_limit(request)
-    from nexus.db.sqlite_db import _row_to_dict, get_db
+    from nexus.engine import _row_to_dict, get_db
 
     async with get_db() as conn:
         cursor = await conn.execute(

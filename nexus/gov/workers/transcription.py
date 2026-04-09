@@ -12,8 +12,7 @@ from typing import Any
 
 from loguru import logger
 
-from nexus.events.worker import ReactiveWorker
-from nexus.events.types import NexusEvent
+from nexus.engine import ReactiveWorker, NexusEvent
 from nexus.gov.events import GovEventType
 
 

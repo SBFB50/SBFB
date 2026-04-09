@@ -34,7 +34,7 @@ import aiosqlite
 from loguru import logger
 from sqlite3 import IntegrityError
 
-from nexus.db.sqlite_db import (
+from nexus.engine import (
     get_db,
     _new_id,
     _now_iso,
@@ -312,6 +312,73 @@ CREATE INDEX IF NOT EXISTS idx_gov_alerts_type ON gov_alerts(alert_type);
 CREATE INDEX IF NOT EXISTS idx_gov_alerts_read ON gov_alerts(is_read);
 """
 
+_GOV_CREATE_FTS = """
+-- FTS5 virtual tables for full-text search on gov content
+CREATE VIRTUAL TABLE IF NOT EXISTS gov_positions_fts USING fts5(
+    subject, position_text, content=gov_positions, content_rowid=rowid
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS gov_press_fts USING fts5(
+    title, summary, content=gov_press, content_rowid=rowid
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS gov_transcriptions_fts USING fts5(
+    title, transcription, content=gov_transcriptions, content_rowid=rowid
+);
+
+-- Triggers to keep FTS indexes in sync
+CREATE TRIGGER IF NOT EXISTS gov_positions_ai AFTER INSERT ON gov_positions BEGIN
+    INSERT INTO gov_positions_fts(rowid, subject, position_text)
+    VALUES (new.rowid, new.subject, new.position_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS gov_positions_ad AFTER DELETE ON gov_positions BEGIN
+    INSERT INTO gov_positions_fts(gov_positions_fts, rowid, subject, position_text)
+    VALUES ('delete', old.rowid, old.subject, old.position_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS gov_positions_au AFTER UPDATE ON gov_positions BEGIN
+    INSERT INTO gov_positions_fts(gov_positions_fts, rowid, subject, position_text)
+    VALUES ('delete', old.rowid, old.subject, old.position_text);
+    INSERT INTO gov_positions_fts(rowid, subject, position_text)
+    VALUES (new.rowid, new.subject, new.position_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS gov_press_ai AFTER INSERT ON gov_press BEGIN
+    INSERT INTO gov_press_fts(rowid, title, summary)
+    VALUES (new.rowid, new.title, new.summary);
+END;
+
+CREATE TRIGGER IF NOT EXISTS gov_press_ad AFTER DELETE ON gov_press BEGIN
+    INSERT INTO gov_press_fts(gov_press_fts, rowid, title, summary)
+    VALUES ('delete', old.rowid, old.title, old.summary);
+END;
+
+CREATE TRIGGER IF NOT EXISTS gov_press_au AFTER UPDATE ON gov_press BEGIN
+    INSERT INTO gov_press_fts(gov_press_fts, rowid, title, summary)
+    VALUES ('delete', old.rowid, old.title, old.summary);
+    INSERT INTO gov_press_fts(rowid, title, summary)
+    VALUES (new.rowid, new.title, new.summary);
+END;
+
+CREATE TRIGGER IF NOT EXISTS gov_transcriptions_ai AFTER INSERT ON gov_transcriptions BEGIN
+    INSERT INTO gov_transcriptions_fts(rowid, title, transcription)
+    VALUES (new.rowid, new.title, new.transcription);
+END;
+
+CREATE TRIGGER IF NOT EXISTS gov_transcriptions_ad AFTER DELETE ON gov_transcriptions BEGIN
+    INSERT INTO gov_transcriptions_fts(gov_transcriptions_fts, rowid, title, transcription)
+    VALUES ('delete', old.rowid, old.title, old.transcription);
+END;
+
+CREATE TRIGGER IF NOT EXISTS gov_transcriptions_au AFTER UPDATE ON gov_transcriptions BEGIN
+    INSERT INTO gov_transcriptions_fts(gov_transcriptions_fts, rowid, title, transcription)
+    VALUES ('delete', old.rowid, old.title, old.transcription);
+    INSERT INTO gov_transcriptions_fts(rowid, title, transcription)
+    VALUES (new.rowid, new.title, new.transcription);
+END;
+"""
+
 
 # ============================================================================
 # Slug helper
@@ -342,8 +409,13 @@ def _slugify(name: str) -> str:
 async def init_government_db() -> None:
     """Create government monitoring tables and indexes (idempotent)."""
     async with get_db() as conn:
+        # Ensure WAL mode, FK enforcement, and sync pragmas on this connection
+        await conn.execute("PRAGMA journal_mode = WAL")
+        await conn.execute("PRAGMA foreign_keys = ON")
+        await conn.execute("PRAGMA synchronous = NORMAL")
         await conn.executescript(_GOV_CREATE_TABLES)
         await conn.executescript(_GOV_CREATE_INDEXES)
+        await conn.executescript(_GOV_CREATE_FTS)
         await conn.commit()
     logger.info("Government monitoring tables initialised")
 
@@ -2222,3 +2294,46 @@ class GovernmentDatabase:
                     })
 
         return {"nodes": nodes, "edges": edges}
+
+    # ------------------------------------------------------------------
+    # Batch inserts
+    # ------------------------------------------------------------------
+
+    async def batch_create_positions(self, positions: list[dict]) -> int:
+        """Insert multiple positions in one transaction. Returns count inserted."""
+        if not positions:
+            return 0
+        count = 0
+        for pos in positions:
+            try:
+                await self.create_position(**pos)
+                count += 1
+            except Exception:
+                logger.debug("batch_create_positions: skipped one (duplicate or error)")
+        return count
+
+    async def batch_create_social_posts(self, posts: list[dict]) -> int:
+        """Insert multiple social posts in one transaction. Returns count inserted."""
+        if not posts:
+            return 0
+        count = 0
+        for post in posts:
+            try:
+                await self.create_social_post(**post)
+                count += 1
+            except Exception:
+                logger.debug("batch_create_social_posts: skipped one (duplicate or error)")
+        return count
+
+    async def batch_create_press_articles(self, articles: list[dict]) -> int:
+        """Insert multiple press articles in one transaction. Returns count inserted."""
+        if not articles:
+            return 0
+        count = 0
+        for article in articles:
+            try:
+                await self.create_press_article(**article)
+                count += 1
+            except Exception:
+                logger.debug("batch_create_press_articles: skipped one (duplicate or error)")
+        return count

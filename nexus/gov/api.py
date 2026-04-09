@@ -27,7 +27,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from loguru import logger
 
-from nexus.db.sqlite_db import _row_to_dict, _dict_with_json_fields
+from nexus.engine import _row_to_dict, _dict_with_json_fields
 from nexus.gov.db import GovernmentDatabase, get_db
 from nexus.gov.models import (
     Contradiction,

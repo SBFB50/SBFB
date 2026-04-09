@@ -95,7 +95,7 @@ QUESTION: {question}
 REPONSE (factuelle, sourcee):"""
 
         if self._router:
-            from nexus.llm.router import TaskType
+            from nexus.engine import TaskType
             answer = await self._router.route(TaskType.SUMMARIZE, prompt)
         else:
             answer = "LLM non disponible."

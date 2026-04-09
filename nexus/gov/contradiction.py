@@ -25,9 +25,7 @@ from typing import Any
 from loguru import logger
 
 from nexus.config import settings
-from nexus.llm.parsers import parse_json_safe
-from nexus.llm.prompts import POLITICAL_CONTRADICTION_PROMPT
-from nexus.llm.router import LLMRouter, TaskType
+from nexus.engine import parse_json_safe, POLITICAL_CONTRADICTION_PROMPT, LLMRouter, TaskType
 
 
 class PoliticalContradictionDetector:

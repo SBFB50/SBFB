@@ -45,7 +45,7 @@ async def get_gov_database() -> Any:
         return PostgresGovernmentDatabase(pool)
 
     # Default: SQLite
-    from nexus.db.sqlite_db import get_db
+    from nexus.engine import get_db
     from nexus.gov.db import GovernmentDatabase
 
     conn = await get_db().__aenter__()

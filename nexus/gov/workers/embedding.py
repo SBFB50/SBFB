@@ -5,8 +5,7 @@ from typing import Any
 
 from loguru import logger
 
-from nexus.events.worker import ReactiveWorker
-from nexus.events.types import NexusEvent
+from nexus.engine import ReactiveWorker, NexusEvent
 from nexus.gov.events import GovEventType
 
 GOV_COLLECTION = "gov_corpus"
@@ -106,7 +105,7 @@ class GovEmbedWorker(ReactiveWorker):
         # Generate embedding via Ollama
         try:
             if self._router:
-                from nexus.llm.router import TaskType
+                from nexus.engine import TaskType
                 embedding = await self._router.route_embedding(text[:1000])
             else:
                 embedding = None

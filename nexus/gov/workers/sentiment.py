@@ -11,8 +11,7 @@ from typing import Any
 
 from loguru import logger
 
-from nexus.events.types import NexusEvent
-from nexus.events.worker import ReactiveWorker
+from nexus.engine import NexusEvent, ReactiveWorker
 from nexus.gov.events import GovEventType
 
 
@@ -36,7 +35,7 @@ class GovSentimentAnalyzer(ReactiveWorker):
             return []
 
         # Simple LLM sentiment analysis
-        from nexus.llm.router import TaskType
+        from nexus.engine import TaskType
 
         prompt = (
             "Analyse le ton de cet article de presse politique francais.\n"
@@ -58,7 +57,7 @@ class GovSentimentAnalyzer(ReactiveWorker):
                 sentiment = "negative"
 
             # Update press article with sentiment
-            from nexus.db.sqlite_db import get_db
+            from nexus.engine import get_db
             from nexus.gov.db import GovernmentDatabase
 
             async with get_db() as conn:

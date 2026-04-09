@@ -23,7 +23,7 @@ from typing import Any
 from loguru import logger
 
 from nexus.config import settings
-from nexus.db.sqlite_db import Database, get_db
+from nexus.engine import Database, get_db
 
 GOV_CASE_NAME = "Gouvernement Francais"
 GOV_CASE_REF = "GOV-FR-AUTO"
@@ -37,7 +37,7 @@ _QUERY_TEMPLATES = [
 ]
 
 
-async def bootstrap_government(inv_manager: Any) -> tuple[str | None, Any]:
+async def bootstrap_government(inv_manager: Any, neo4j: Any = None, chroma: Any = None) -> tuple[str | None, Any]:
     """Bootstrap the autonomous government investigation.
 
     Idempotent -- safe to call on every startup. Returns a tuple of
@@ -81,6 +81,8 @@ async def bootstrap_government(inv_manager: Any) -> tuple[str | None, Any]:
 
             gov_manager = GovManager(
                 router=getattr(inv_manager, "_router", None) if inv_manager else None,
+                neo4j=neo4j,
+                chroma=chroma,
             )
             await gov_manager.start()
             logger.info("GovManager started with {} workers", len(gov_manager._workers))

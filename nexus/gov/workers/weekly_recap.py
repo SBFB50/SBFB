@@ -18,9 +18,7 @@ from typing import Any
 
 from loguru import logger
 
-from nexus.db.sqlite_db import _new_id, _now_iso, _row_to_dict, get_db
-from nexus.events.types import NexusEvent
-from nexus.events.worker import ReactiveWorker
+from nexus.engine import _new_id, _now_iso, _row_to_dict, get_db, NexusEvent, ReactiveWorker
 from nexus.gov.events import GovEventType
 
 THEMES = [
@@ -107,7 +105,7 @@ class GovWeeklyRecapWorker(ReactiveWorker):
 
         # If LLM available, generate a summary
         if self._router and (contradictions or affairs):
-            from nexus.llm.router import TaskType
+            from nexus.engine import TaskType
 
             try:
                 prompt = (
@@ -168,7 +166,7 @@ class GovWeeklyRecapWorker(ReactiveWorker):
                     )
                     unclassified = [_row_to_dict(r) for r in await cursor.fetchall()]
 
-                from nexus.llm.router import TaskType
+                from nexus.engine import TaskType
 
                 for pos in unclassified[:10]:
                     subject = pos.get("subject", "")
