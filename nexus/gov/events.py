@@ -139,8 +139,11 @@ class GovManager:
             ("nexus.gov.workers.facebook_sync", "GovFacebookSyncWorker", []),
             ("nexus.gov.workers.instagram_sync", "GovInstagramSyncWorker", []),
             ("nexus.gov.workers.youtube_sync", "GovYouTubeSyncWorker", []),
+            ("nexus.gov.workers.tiktok_sync", "GovTikTokSyncWorker", []),
             # --- Transcription worker (event-based: GOV_VIDEO_DOWNLOADED) ---
             ("nexus.gov.workers.transcription", "GovTranscriptionWorker", []),
+            # --- Vision worker (event-based: GOV_VIDEO_DOWNLOADED) ---
+            ("nexus.gov.workers.vision", "GovVisionWorker", []),
             # --- Analysis workers (event-based: need LLM router) ---
             ("nexus.gov.workers.contradiction_analyzer", "GovContradictionAnalyzer", [self._router]),
             ("nexus.gov.workers.sentiment", "GovSentimentAnalyzer", [self._router]),
@@ -156,6 +159,14 @@ class GovManager:
             ("nexus.gov.workers.biography", "GovBiographyWorker", [self._router]),
             # --- Weekly recap + thematic classification (weekly tick, LLM-based) ---
             ("nexus.gov.workers.weekly_recap", "GovWeeklyRecapWorker", [self._router]),
+            # --- Vote/law impact analyzer (daily tick, LLM-based) ---
+            ("nexus.gov.workers.vote_impact", "GovVoteImpactWorker", [self._router]),
+            # --- Press affair detector (event-based: detects judicial affairs from press) ---
+            ("nexus.gov.workers.press_affair_detector", "GovPressAffairDetector", [self._router]),
+            # --- Newsletter worker (weekly tick: email digest) ---
+            ("nexus.gov.workers.newsletter", "GovNewsletterWorker", []),
+            # --- Social publish worker (event-based: auto-publish contradiction posts) ---
+            ("nexus.gov.workers.social_publish", "GovSocialPublishWorker", [self._router]),
         ]
 
         import importlib
