@@ -60,19 +60,26 @@ class GovTranscriptionWorker(ReactiveWorker):
             # Run transcription in thread (CPU/GPU intensive)
             import asyncio
             segments, info = await asyncio.to_thread(
-                model.transcribe, audio_path, language="fr", beam_size=5
+                model.transcribe, audio_path, language="fr", beam_size=5, word_timestamps=True
             )
 
             # Build timestamped text
             full_text = []
             timestamped = []
             for segment in segments:
-                full_text.append(segment.text.strip())
-                timestamped.append({
+                seg_data = {
                     "start": round(segment.start, 2),
                     "end": round(segment.end, 2),
                     "text": segment.text.strip(),
-                })
+                }
+                # Add word-level timestamps if available
+                if hasattr(segment, 'words') and segment.words:
+                    seg_data["words"] = [
+                        {"word": w.word, "start": round(w.start, 2), "end": round(w.end, 2), "probability": round(w.probability, 3)}
+                        for w in segment.words
+                    ]
+                full_text.append(segment.text.strip())
+                timestamped.append(seg_data)
 
             transcription_text = " ".join(full_text)
             duration = int(info.duration) if info.duration else 0
@@ -102,6 +109,28 @@ class GovTranscriptionWorker(ReactiveWorker):
                 Path(audio_path).unlink(missing_ok=True)
             except Exception:
                 pass
+
+            # --- NER extraction on transcription text ---
+            try:
+                from nexus.core.entity_extractor import EntityExtractor
+                extractor = EntityExtractor(router=None)  # GLiNER runs on CPU, no LLM router needed
+                # Extract entities from the full transcription text
+                entities = await extractor.extract_entities(transcription_text[:5000])  # limit to 5000 chars
+                if entities:
+                    # Store entities in transcription metadata
+                    entity_summary = [
+                        {"text": e.get("name", ""), "type": e.get("type", ""), "score": round(e.get("confidence", 0), 2)}
+                        for e in entities[:50]  # top 50 entities
+                    ]
+                    # Update the transcription record with entities
+                    await self._db._conn.execute(
+                        "UPDATE gov_transcriptions SET metadata = ? WHERE id = ?",
+                        [json.dumps({"entities": entity_summary, "model": "gliner-multi-v2.1"}, ensure_ascii=False), record["id"]]
+                    )
+                    await self._db._conn.commit()
+                    logger.info("Extracted {} entities from transcription {}", len(entity_summary), record["id"])
+            except Exception as exc:
+                logger.debug("NER extraction skipped: {}", exc)
 
             return [NexusEvent(
                 event_type=GovEventType.GOV_TRANSCRIPTION_READY,
