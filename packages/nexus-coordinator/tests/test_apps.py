@@ -66,11 +66,13 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_app_tab_descriptor_endpoint_invokes_tab(nexus_grid_tmp: Path) -> None:
-    """Sprint 5 Phase B: ``GET /app/{name}/tabs/{tab_name}/descriptor``
-    invokes the tab fn (sync or async) and returns its value.
+    """Sprint 5 Phase B + Sprint 6 Phase A: ``GET /app/{name}/
+    tabs/{tab_name}/descriptor`` invokes the tab fn (sync or
+    async) and returns a ``{descriptor, legacy_descriptor}`` body.
 
-    Uses the hello-world app's "Hello" tab which is a sync
-    function returning ``{"description": "Hello world"}``.
+    Exercises the hello-world app's "Hello" tab which is a sync
+    function returning a valid :class:`TabView` (post Phase B
+    port), so ``legacy_descriptor`` is ``False``.
     """
     coord = Coordinator(project_name="demo-tab-desc")
     await coord.start()
@@ -81,7 +83,11 @@ async def test_app_tab_descriptor_endpoint_invokes_tab(nexus_grid_tmp: Path) -> 
             assert r.status_code == 200
             body = r.json()
             assert "descriptor" in body
-            assert body["descriptor"] == {"description": "Hello world"}
+            assert body.get("legacy_descriptor") is False
+            desc = body["descriptor"]
+            assert desc["schema_version"] == 1
+            assert desc["tab_name"] == "hello"
+            assert isinstance(desc["blocks"], list)
 
             # Unknown app → 404
             r = client.get("/app/does-not-exist/tabs/X/descriptor")
@@ -90,5 +96,100 @@ async def test_app_tab_descriptor_endpoint_invokes_tab(nexus_grid_tmp: Path) -> 
             # Unknown tab on known app → 404
             r = client.get("/app/hello/tabs/Nope/descriptor")
             assert r.status_code == 404
+    finally:
+        await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_schema_driven_descriptor_validates(nexus_grid_tmp: Path) -> None:
+    """Sprint 6 D3: a valid TabView returned by a tab round-trips
+    through the coordinator with ``legacy_descriptor: false`` and
+    a normalised payload that the React renderer can consume."""
+    from nexus_sdk import (  # local import — avoids cross-test fixture loading
+        AppContext,
+        AppManifest,
+        NexusApp,
+        nexus_tab,
+    )
+    from nexus_sdk.view import TabView, heading, metric, section
+
+    class SchemaDrivenApp(NexusApp):
+        manifest = AppManifest(name="schema-driven", version="0.1.0")
+
+        async def on_start(self, ctx: AppContext) -> None:
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+        @nexus_tab(name="Dash", icon="activity")
+        def dash(self) -> dict:
+            return TabView(
+                tab_name="dash",
+                title="Dashboard",
+                blocks=[
+                    heading(level=1, text="Metrics"),
+                    metric(label="Total", value=42, tone="ok"),
+                    section(title="Empty", blocks=[]),
+                ],
+            ).model_dump()
+
+    coord = Coordinator(project_name="demo-schema-driven")
+    await coord.start()
+    try:
+        coord.apps["schema-driven"] = SchemaDrivenApp()
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.get("/app/schema-driven/tabs/Dash/descriptor")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["legacy_descriptor"] is False
+            desc = body["descriptor"]
+            assert desc["schema_version"] == 1
+            assert desc["tab_name"] == "dash"
+            assert desc["title"] == "Dashboard"
+            assert len(desc["blocks"]) == 3
+            assert desc["blocks"][0]["kind"] == "heading"
+            assert desc["blocks"][1]["kind"] == "metric"
+            assert desc["blocks"][1]["tone"] == "ok"
+            assert desc["blocks"][2]["kind"] == "section"
+    finally:
+        await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_legacy_descriptor_falls_back(nexus_grid_tmp: Path) -> None:
+    """Sprint 6 D3 fallback: a non-TabView descriptor is preserved
+    verbatim with ``legacy_descriptor: true`` so unported apps
+    keep working through one release."""
+    from nexus_sdk import AppContext, AppManifest, NexusApp, nexus_tab
+
+    class LegacyApp(NexusApp):
+        manifest = AppManifest(name="legacy-app", version="0.1.0")
+
+        async def on_start(self, ctx: AppContext) -> None:
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+        @nexus_tab(name="Old", icon="archive")
+        def old(self) -> dict:
+            return {"description": "legacy free-form dict", "rows": [1, 2, 3]}
+
+    coord = Coordinator(project_name="demo-legacy")
+    await coord.start()
+    try:
+        coord.apps["legacy-app"] = LegacyApp()
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.get("/app/legacy-app/tabs/Old/descriptor")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["legacy_descriptor"] is True
+            assert body["descriptor"] == {
+                "description": "legacy free-form dict",
+                "rows": [1, 2, 3],
+            }
     finally:
         await coord.stop()

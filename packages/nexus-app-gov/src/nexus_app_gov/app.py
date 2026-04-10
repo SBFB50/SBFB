@@ -24,6 +24,7 @@ from nexus_sdk import (
     nexus_tab,
     nexus_worker,
 )
+from nexus_sdk.view import TabView, empty, heading, metric, text
 
 from nexus_app_gov.prompts import POLITICAL_CONTRADICTION_PROMPT
 
@@ -93,7 +94,19 @@ class GovApp(NexusApp):
 
     @nexus_tab(name="Contradictions", icon="alert-octagon")
     def contradictions_tab(self) -> dict[str, Any]:
-        return {
-            "description": "Review detected contradictions across political statements.",
-            "route": "/statements",
-        }
+        return TabView(
+            tab_name="contradictions",
+            title="Détection de contradictions",
+            blocks=[
+                heading(level=1, text="Analyse de cohérence politique"),
+                text(
+                    text=POLITICAL_CONTRADICTION_PROMPT.splitlines()[0],
+                    muted=True,
+                ),
+                metric(label="Déclarations analysées", value=0),
+                metric(label="Contradictions détectées", value=0, tone="warn"),
+                empty(
+                    text="Aucune analyse en cours — soumettre un lot via /statements",
+                ),
+            ],
+        ).model_dump()

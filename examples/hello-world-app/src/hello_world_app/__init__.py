@@ -1,4 +1,11 @@
-"""Minimal nexus-sdk example app — 1 route, 1 worker, 1 tab."""
+"""Minimal nexus-sdk example app — 1 route, 1 worker, 1 tab.
+
+Sprint 6 Phase A port: the ``Hello`` tab returns a TabView v1
+schema payload so the React shell renders it via the schema-
+driven renderer instead of dumping raw JSON.
+"""
+
+from typing import Any
 
 from nexus_sdk import (
     AppContext,
@@ -8,6 +15,7 @@ from nexus_sdk import (
     nexus_tab,
     nexus_worker,
 )
+from nexus_sdk.view import TabView, heading, metric, text
 
 
 class HelloApp(NexusApp):
@@ -41,5 +49,13 @@ class HelloApp(NexusApp):
         return {"task_id": task.task_id}
 
     @nexus_tab(name="Hello", icon="wave")
-    def tab(self) -> dict[str, str]:
-        return {"description": "Hello world"}
+    def tab(self) -> dict[str, Any]:
+        return TabView(
+            tab_name="hello",
+            title="Hello World",
+            blocks=[
+                heading(level=1, text="Bienvenue sur hello-world-app"),
+                text(text="Première app nexus-grid portée sur le schéma TabView v1."),
+                metric(label="Tâches soumises", value=0),
+            ],
+        ).model_dump()

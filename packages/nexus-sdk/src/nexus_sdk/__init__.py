@@ -12,10 +12,27 @@ Core public API:
   coordinator calls at boot.
 """
 
+from nexus_sdk import view
 from nexus_sdk.app import AppContext, AppManifest, NexusApp, TabDescriptor, WorkerDescriptor
 from nexus_sdk.compute_client import ComputeClient
 from nexus_sdk.decorators import nexus_route, nexus_tab, nexus_worker
 from nexus_sdk.loader import discover_apps
+from nexus_sdk.view import (
+    TabBlock,
+    TabView,
+    badge_list,
+    button_route,
+    button_task,
+    chart_bar,
+    chart_line,
+    empty,
+    heading,
+    kv,
+    metric,
+    section,
+    table_,
+    text,
+)
 
 __version__ = "0.1.0"
 
@@ -24,11 +41,26 @@ __all__ = [
     "AppManifest",
     "ComputeClient",
     "NexusApp",
+    "TabBlock",
     "TabDescriptor",
+    "TabView",
     "WorkerDescriptor",
     "__version__",
+    "badge_list",
+    "button_route",
+    "button_task",
+    "chart_bar",
+    "chart_line",
     "discover_apps",
+    "empty",
+    "heading",
+    "kv",
+    "metric",
     "nexus_route",
     "nexus_tab",
     "nexus_worker",
+    "section",
+    "table_",
+    "text",
+    "view",
 ]

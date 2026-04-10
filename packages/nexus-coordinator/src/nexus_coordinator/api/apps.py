@@ -9,19 +9,26 @@ Mounts every :class:`nexus_sdk.NexusApp` discovered through the
 - Every ``@nexus_route(path)`` on an app is reachable at
   ``/app/{name}{path}`` with the declared HTTP methods.
 
-Sprint 5 will add streaming (SSE/WS) and frontend manifest
-synthesis for the React sidebar.
+Sprint 6 Phase A adds :class:`nexus_sdk.view.TabView` validation
+on ``GET /app/{name}/tabs/{tab}/descriptor`` so schema-driven
+tabs ship a well-formed payload. Legacy dicts are still accepted
+with ``legacy_descriptor: true`` flag for one release.
 """
 
 from __future__ import annotations
 
 import inspect
+import logging
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Request
+from nexus_sdk.view import TabView
+from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from nexus_sdk import NexusApp
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/app", tags=["apps"])
 
@@ -111,7 +118,31 @@ async def app_tab_descriptor(request: Request, name: str, tab_name: str) -> dict
             detail=f"tab descriptor raised: {type(e).__name__}: {e}",
         ) from e
 
-    return {"descriptor": descriptor}
+    return _coerce_tab_view(descriptor, name, tab_name)
+
+
+def _coerce_tab_view(descriptor: Any, app_name: str, tab_name: str) -> dict[str, Any]:
+    """Validate ``descriptor`` against the Sprint 6 TabView schema.
+
+    When the descriptor validates, return ``{"descriptor": <dumped>,
+    "legacy_descriptor": false}``. When it fails to validate, log a
+    warning and return the original ``{"descriptor": <raw>,
+    "legacy_descriptor": true}`` so pre-Sprint-6 apps keep working
+    for one release while they are ported.
+    """
+    if isinstance(descriptor, TabView):
+        return {"descriptor": descriptor.model_dump(), "legacy_descriptor": False}
+    try:
+        validated = TabView.model_validate(descriptor)
+    except ValidationError as exc:
+        logger.warning(
+            "tab descriptor for app=%r tab=%r is legacy (not a TabView): %s",
+            app_name,
+            tab_name,
+            exc.errors(include_url=False),
+        )
+        return {"descriptor": descriptor, "legacy_descriptor": True}
+    return {"descriptor": validated.model_dump(), "legacy_descriptor": False}
 
 
 def _maybe_call(fn: Any, app: Any) -> Any:
