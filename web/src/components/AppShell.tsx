@@ -59,7 +59,13 @@ import {
 } from "@/stores/projectStore";
 import { getHealth } from "@/api/coordinator";
 import { AddCoordinatorDialog } from "@/components/AddCoordinatorDialog";
+import { CommandPalette } from "@/components/command-palette/CommandPalette";
+import { useCommandPalette } from "@/components/command-palette/useCommandPalette";
 import { cn } from "@/lib/utils";
+
+const IS_MAC =
+  typeof navigator !== "undefined" &&
+  /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
 
 type NavEntry = {
   to: string;
@@ -76,6 +82,7 @@ const NAV_ENTRIES: NavEntry[] = [
 
 export function AppShell() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const palette = useCommandPalette();
 
   return (
     <SidebarProvider>
@@ -143,6 +150,20 @@ export function AppShell() {
           <div className="ml-auto flex items-center gap-2">
             <Button
               size="sm"
+              variant="ghost"
+              onClick={palette.toggle}
+              aria-label="Ouvrir la palette de commandes"
+              data-testid="command-palette-trigger"
+              className="gap-2 text-xs text-muted-foreground"
+            >
+              <span>Commandes</span>
+              <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+                {IS_MAC ? "⌘" : "Ctrl"}
+                <span>K</span>
+              </kbd>
+            </Button>
+            <Button
+              size="sm"
               variant="outline"
               onClick={() => setAddDialogOpen(true)}
             >
@@ -159,6 +180,11 @@ export function AppShell() {
       <AddCoordinatorDialog
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
+      />
+
+      <CommandPalette
+        palette={palette}
+        onAddCoordinator={() => setAddDialogOpen(true)}
       />
     </SidebarProvider>
   );
