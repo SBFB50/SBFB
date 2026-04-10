@@ -5,8 +5,11 @@ requires-python = ">=3.13"
 [manifest]
 members = [
     "nexus",
+    "nexus-app-gov",
     "nexus-coordinator",
     "nexus-core-py",
+    "nexus-hello-world-app",
+    "nexus-sdk",
 ]
 
 [[package]]
@@ -252,6 +255,28 @@ version = "0.2.0"
 source = { virtual = "." }
 
 [[package]]
+name = "nexus-app-gov"
+version = "0.1.0"
+source = { editable = "packages/nexus-app-gov" }
+dependencies = [
+    { name = "nexus-sdk" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "nexus-sdk", editable = "packages/nexus-sdk" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
+]
+provides-extras = ["test"]
+
+[[package]]
 name = "nexus-coordinator"
 version = "0.1.0"
 source = { editable = "packages/nexus-coordinator" }
@@ -261,6 +286,7 @@ dependencies = [
     { name = "httpx" },
     { name = "jcs" },
     { name = "nexus-core-py" },
+    { name = "nexus-sdk" },
     { name = "platformdirs" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -274,6 +300,8 @@ dependencies = [
 
 [package.optional-dependencies]
 test = [
+    { name = "nexus-app-gov" },
+    { name = "nexus-hello-world-app" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-timeout" },
@@ -285,7 +313,10 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.111" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "jcs", specifier = ">=0.2.1" },
+    { name = "nexus-app-gov", marker = "extra == 'test'", editable = "packages/nexus-app-gov" },
     { name = "nexus-core-py", editable = "crates/nexus-core-py" },
+    { name = "nexus-hello-world-app", marker = "extra == 'test'", editable = "examples/hello-world-app" },
+    { name = "nexus-sdk", editable = "packages/nexus-sdk" },
     { name = "platformdirs", specifier = ">=4.3" },
     { name = "pydantic", specifier = ">=2.6" },
     { name = "pydantic-settings", specifier = ">=2.13" },
@@ -305,6 +336,43 @@ provides-extras = ["test"]
 name = "nexus-core-py"
 version = "0.1.0"
 source = { editable = "crates/nexus-core-py" }
+
+[[package]]
+name = "nexus-hello-world-app"
+version = "0.1.0"
+source = { editable = "examples/hello-world-app" }
+dependencies = [
+    { name = "nexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "nexus-sdk", editable = "packages/nexus-sdk" }]
+
+[[package]]
+name = "nexus-sdk"
+version = "0.1.0"
+source = { editable = "packages/nexus-sdk" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.111" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.6" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
+]
+provides-extras = ["test"]
 
 [[package]]
 name = "packaging"

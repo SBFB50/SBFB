@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nexus-hello-world-app"
+version = "0.1.0"
+description = "Minimal nexus-sdk example — the Sprint 4 Phase D <100 LOC demo"
+requires-python = ">=3.13"
+license = { text = "AGPL-3.0" }
+dependencies = ["nexus-sdk"]
+
+[project.entry-points."nexus.apps"]
+hello = "hello_world_app:HelloApp"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hello_world_app"]
+
+[tool.uv.sources]
+nexus-sdk = { workspace = true }

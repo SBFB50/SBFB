@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 
 import nexus_core
 import structlog
+from nexus_sdk import AppContext, ComputeClient, NexusApp, discover_apps
 
 from nexus_coordinator.config import CoordinatorConfig
 from nexus_coordinator.dispatcher import Dispatcher
@@ -113,6 +114,7 @@ class Coordinator:
         self.kudos_ledger: KudosLedger | None = None
         self.validator: Validator | None = None
         self.invite_ledger: InviteLedger | None = None
+        self.apps: dict[str, NexusApp] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -243,11 +245,49 @@ class Coordinator:
         )
         await self.invite_ledger.init()
 
+        # 9. Phase D: discover SDK apps via entry_points and run
+        #    each app's on_start with a ComputeClient bound to
+        #    this coordinator's local API. The FastAPI factory
+        #    mounts /app/{name}/... routes from self.apps; a
+        #    failing app is logged and skipped so a single broken
+        #    third-party plugin cannot block boot.
+        loopback_url = f"http://{self.config.network.api_host}:{self.config.network.api_port}"
+        compute = ComputeClient(loopback_url)
+        self.apps = {}
+        for app in discover_apps():
+            try:
+                ctx = AppContext(compute=compute, project_name=self.project_name)
+                await app.on_start(ctx)
+            except Exception as e:  # noqa: BLE001
+                _log.warning(
+                    "app on_start failed, skipping",
+                    app=app.manifest.name,
+                    error=str(e),
+                )
+                continue
+            self.apps[app.manifest.name] = app
+            _log.info(
+                "app mounted",
+                name=app.manifest.name,
+                version=app.manifest.version,
+                routes=len(app.routes()),
+                workers=len(app.workers()),
+                tabs=len(app.tabs()),
+            )
+
     async def stop(self) -> None:
         """Shut down the iroh node and cancel any background tasks.
 
         Safe to call multiple times; a second call is a no-op.
         """
+        if self.apps:
+            for app in list(self.apps.values()):
+                try:
+                    await app.on_stop()
+                except Exception as e:  # noqa: BLE001
+                    _log.warning("app on_stop raised", app=app.manifest.name, error=str(e))
+            self.apps = {}
+
         if self.state.validator_task is not None:
             self.state.validator_task.cancel()
             try:

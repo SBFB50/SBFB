@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nexus-app-gov"
+version = "0.1.0"
+description = "Gov app for nexus-grid: political contradiction detection via LLM (Sprint 4 minimal migration)"
+requires-python = ">=3.13"
+license = { text = "AGPL-3.0" }
+authors = [{ name = "FlowUP" }]
+readme = "README.md"
+dependencies = [
+    "nexus-sdk",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+
+[project.entry-points."nexus.apps"]
+gov = "nexus_app_gov.app:GovApp"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nexus_app_gov"]
+
+[tool.uv.sources]
+nexus-sdk = { workspace = true }

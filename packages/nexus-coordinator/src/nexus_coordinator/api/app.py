@@ -25,6 +25,7 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     manages its own iroh Node lifecycle — we don't want uvicorn to
     spin a second one up.
     """
+    from nexus_coordinator.api.apps import router as apps_router
     from nexus_coordinator.api.health import router as health_router
     from nexus_coordinator.api.invites import router as invites_router
     from nexus_coordinator.api.kudos import router as kudos_router
@@ -50,4 +51,5 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     app.include_router(tasks_router)
     app.include_router(kudos_router)
     app.include_router(invites_router)
+    app.include_router(apps_router)
     return app

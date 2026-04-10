@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nexus-sdk"
+version = "0.1.0"
+description = "SDK for building apps that run on a nexus-grid coordinator"
+requires-python = ">=3.13"
+license = { text = "AGPL-3.0" }
+authors = [{ name = "FlowUP" }]
+readme = "README.md"
+keywords = ["p2p", "llm", "sbfb", "sdk", "plugin"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Distributed Computing",
+]
+dependencies = [
+    "pydantic>=2.6",
+    "fastapi>=0.111",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nexus_sdk"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

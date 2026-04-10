@@ -22,6 +22,7 @@ readme = "README.md"
 members = [
     "crates/nexus-core-py",
     "packages/*",
+    "examples/hello-world-app",
 ]
 
 [tool.pytest.ini_options]
