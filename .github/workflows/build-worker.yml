@@ -1,0 +1,191 @@
+name: Build worker binaries
+
+# Cross-compile the `nexus-worker` binary for every target the
+# SBFB v1.0 distribution needs. Uploads one artifact per target so
+# a future release workflow can download them, sign them, and
+# attach them to a GitHub Release.
+#
+# Targets (7 total):
+#
+#   | Target                         | Runner         | Tool     |
+#   |--------------------------------|----------------|----------|
+#   | x86_64-unknown-linux-gnu       | ubuntu-latest  | cargo    |
+#   | x86_64-unknown-linux-musl      | ubuntu-latest  | cross    |
+#   | aarch64-unknown-linux-gnu      | ubuntu-latest  | cross    |
+#   | aarch64-unknown-linux-musl     | ubuntu-latest  | cross    |
+#   | x86_64-pc-windows-msvc         | windows-latest | cargo    |
+#   | x86_64-apple-darwin            | macos-13       | cargo    |
+#   | aarch64-apple-darwin           | macos-14       | cargo    |
+#
+# Linux musl builds produce fully static binaries (no libc
+# dependency) — that's the "single-file download" UX promise for
+# v1.0. Native `cargo` is used where possible; `cross` handles the
+# targets that need a different libc or a foreign architecture.
+#
+# Runs on:
+#   - push to master/main (validates every merge)
+#   - push tags v*        (release builds)
+#   - pull_request        (only when crates/Cargo.* change)
+#   - workflow_dispatch   (manual re-run)
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+    paths:
+      - 'crates/nexus-worker/**'
+      - 'crates/nexus-worker-core/**'
+      - 'crates/nexus-core-rs/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/build-worker.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'crates/nexus-worker/**'
+      - 'crates/nexus-worker-core/**'
+      - 'crates/nexus-core-rs/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/build-worker.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+  BINARY_NAME: nexus-worker
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---- Linux glibc (native) -------------------------------
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+            bin_ext: ''
+
+          # ---- Linux glibc (ARM64) --------------------------------
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+            bin_ext: ''
+
+          # ---- Linux musl (static, single-file distribution) -----
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+            bin_ext: ''
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+            bin_ext: ''
+
+          # ---- Windows --------------------------------------------
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+            bin_ext: '.exe'
+
+          # ---- macOS Intel ----------------------------------------
+          - target: x86_64-apple-darwin
+            os: macos-13
+            use_cross: false
+            bin_ext: ''
+
+          # ---- macOS Apple Silicon --------------------------------
+          - target: aarch64-apple-darwin
+            os: macos-14
+            use_cross: false
+            bin_ext: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable + target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          # Per-target cache key: each target has its own compiled
+          # std and dep set, so sharing would cause constant cache
+          # invalidation instead of speeding anything up.
+          shared-key: "worker-${{ matrix.target }}"
+          save-if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+          cache-on-failure: "true"
+
+      - name: Install cross (for foreign-libc / foreign-arch targets)
+        if: matrix.use_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: cargo build --release (native)
+        if: ${{ !matrix.use_cross }}
+        run: cargo build --release --locked -p nexus-worker --target ${{ matrix.target }}
+
+      - name: cross build --release (foreign target)
+        if: matrix.use_cross
+        run: cross build --release --locked -p nexus-worker --target ${{ matrix.target }}
+
+      - name: Package binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          src="target/${{ matrix.target }}/release/${BINARY_NAME}${{ matrix.bin_ext }}"
+          dst="dist/${BINARY_NAME}-${{ matrix.target }}${{ matrix.bin_ext }}"
+          if [ ! -f "$src" ]; then
+            echo "::error::expected binary at $src but did not find it"
+            ls -la "target/${{ matrix.target }}/release/" || true
+            exit 1
+          fi
+          cp "$src" "$dst"
+          echo "Packaged:"
+          ls -la dist/
+          echo "Binary size:"
+          du -h "$dst"
+
+      - name: Verify binary is static (Linux musl targets only)
+        if: contains(matrix.target, 'musl')
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="dist/${BINARY_NAME}-${{ matrix.target }}${{ matrix.bin_ext }}"
+          # Only verify on x86_64 musl — aarch64 musl binaries
+          # can't be introspected with `file` without binfmt on
+          # the x86_64 runner, so we just trust cross for that
+          # case. The x86_64 musl check is the canary: if static
+          # linking breaks for one it breaks for both.
+          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
+            file "$bin"
+            if file "$bin" | grep -q "statically linked"; then
+              echo "musl binary is statically linked"
+            else
+              echo "::warning::musl binary does not report 'statically linked'; verify manually"
+            fi
+          fi
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-worker-${{ matrix.target }}
+          path: dist/nexus-worker-${{ matrix.target }}${{ matrix.bin_ext }}
+          if-no-files-found: error
+          retention-days: 14

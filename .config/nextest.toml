@@ -1,0 +1,53 @@
+# cargo-nextest configuration.
+#
+# The `ci` profile is what `.github/workflows/rust-ci.yml` runs.
+# Keep the defaults tight: we want CI to surface flakes loudly
+# instead of hiding them under silent retries, but we also allow a
+# single retry to absorb truly transient network hiccups around the
+# iroh relay handshake in `blobs::tests::two_nodes_fetch_blob_via_ticket`
+# and `docs::tests::two_nodes_sync_via_share_import`.
+#
+# If a test retries successfully, the `status-level = "retry"` line
+# makes nextest print the retry as "PASS (retry N)" in the summary,
+# so reviewers can tell the difference between "first-try green" and
+# "flaked once, recovered".
+#
+# Schema reference: https://nexte.st/book/configuration.html
+
+[profile.default]
+# Local dev: no retries, fail fast on first failure. This keeps
+# `cargo nextest run` on a developer laptop as loud as possible.
+retries = 0
+slow-timeout = { period = "30s", terminate-after = 3 }
+failure-output = "immediate"
+status-level = "pass"
+
+[profile.ci]
+# CI: do not stop the whole run on the first failure — we want the
+# matrix run to surface every broken test at once, not just the
+# first one.
+fail-fast = false
+
+# Single retry for the two iroh 2-node tests that depend on the
+# public n0 relay. Anything that still fails after one retry is a
+# real bug and must be fixed, not hidden behind more retries.
+retries = 1
+
+# Tests should complete within 30s each. If one runs slower, warn
+# (keeps running), and if it blows past 90s (3 × 30s) nextest
+# terminates it and records a failure. This bounds CI time even if
+# a test hangs on a disconnected socket.
+slow-timeout = { period = "30s", terminate-after = 3 }
+
+# Print each failing test's output in full at the end of the run
+# so CI log readers can scroll to "immediate-final" and see
+# everything without expanding collapsed groups.
+failure-output = "immediate-final"
+status-level = "retry"
+
+# Emit a JUnit XML report at `target/nextest/ci/junit.xml` so the
+# workflow can upload it as an artifact and (later) feed it to
+# result dashboards.
+[profile.ci.junit]
+path = "junit.xml"
+report-name = "nexus-core-rs"

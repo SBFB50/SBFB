@@ -1,0 +1,174 @@
+name: Rust CI
+
+# Fast feedback loop for the Rust workspace: formatting check,
+# clippy lints, and cross-OS test matrix.
+#
+# Scope:
+#   - Runs on every push and pull request that touches Rust code
+#     (path filter avoids burning CI minutes on Python / docs / web
+#     changes — those are handled by the legacy ci.yml).
+#   - Three-OS test matrix (Linux / Windows / macOS Apple Silicon)
+#     catches OS-specific breakage early. The iroh stack compiles
+#     and runs cleanly on all three; any failure here is a bug to
+#     fix, not a platform to drop.
+#   - Binary release matrix and wheel builds live in separate
+#     workflows (build-worker.yml / build-wheels.yml) to keep this
+#     loop under 10 minutes wall-clock.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.config/nextest.toml'
+      - '.github/workflows/rust-ci.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.config/nextest.toml'
+      - '.github/workflows/rust-ci.yml'
+  workflow_dispatch:
+
+# Cancel stale runs for the same branch to save CI minutes when
+# someone pushes multiple times in quick succession.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege token — this workflow only reads the repository.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Disable incremental compilation in CI: it trades cold-build
+  # time for warm-build time, and CI runs are mostly cold. Matches
+  # the rust-lang/rust and tokio-rs defaults.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ---------------------------------------------------------------
+  # Formatting — one job, ubuntu only, no build. Fails the whole
+  # workflow before the expensive jobs run so a missing `cargo fmt`
+  # doesn't burn 10 minutes of matrix time.
+  # ---------------------------------------------------------------
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  # ---------------------------------------------------------------
+  # Clippy — one job, ubuntu only, full workspace with all targets.
+  # `-D warnings` promotes every lint to a hard error. The Python
+  # toolchain is installed because clippy on `nexus-core-py` needs
+  # `pyo3` to resolve the Python library at check time.
+  # ---------------------------------------------------------------
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python 3.13 (needed by pyo3 on nexus-core-py)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Rust toolchain (stable + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          shared-key: "clippy-ubuntu"
+          # Only save the cache when running on master: PRs read
+          # from the existing cache but never overwrite it, so
+          # badly behaving PRs can't poison the shared cache.
+          save-if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
+
+      - name: cargo clippy --workspace --all-targets
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # ---------------------------------------------------------------
+  # Test matrix — Ubuntu / Windows / macOS (aarch64 Apple Silicon).
+  # Uses cargo-nextest for speed and the `ci` profile defined in
+  # `.config/nextest.toml` (retries = 1, slow-timeout = 30s,
+  # fail-fast = false, junit output).
+  #
+  # nextest does not run doctests, so `cargo test --doc` is added
+  # as a separate step. nexus-core-py is excluded from both
+  # because it compiles only as a Python extension module — it's
+  # validated separately by `cargo check -p nexus-core-py` above
+  # (via the clippy job which already runs `--workspace`) and
+  # fully by the build-wheels.yml workflow.
+  # ---------------------------------------------------------------
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python 3.13 (needed by pyo3 on nexus-core-py)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          shared-key: "test-${{ matrix.os }}"
+          save-if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
+      - name: cargo check -p nexus-core-py
+        run: cargo check -p nexus-core-py --locked
+
+      - name: cargo nextest run (workspace, excluding nexus-core-py)
+        run: cargo nextest run --workspace --exclude nexus-core-py --profile ci --locked
+
+      - name: cargo test --doc (workspace, excluding nexus-core-py)
+        run: cargo test --workspace --exclude nexus-core-py --doc --locked
+
+      - name: Upload nextest junit.xml
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.os }}
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7

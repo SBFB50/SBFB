@@ -99,11 +99,7 @@ async fn handle_start(tui: bool, headless: bool) -> Result<()> {
 }
 
 async fn handle_join(invite: String) -> Result<()> {
-    print_stub(
-        "join",
-        "W8 (invite tokens)",
-        &[("invite", invite.as_str())],
-    );
+    print_stub("join", "W8 (invite tokens)", &[("invite", invite.as_str())]);
     Ok(())
 }
 
@@ -120,10 +116,7 @@ async fn handle_projects(cmd: ProjectsCommand) -> Result<()> {
             "W7 (allowlist SQLite)",
             &[("project_id", project_id.as_str())],
         ),
-        ProjectsCommand::Budget {
-            project_id,
-            joules,
-        } => {
+        ProjectsCommand::Budget { project_id, joules } => {
             let joules_str = joules.to_string();
             print_stub(
                 "projects budget",
@@ -139,30 +132,20 @@ async fn handle_projects(cmd: ProjectsCommand) -> Result<()> {
 }
 
 async fn handle_browse() -> Result<()> {
-    print_stub(
-        "browse",
-        "post-W9 (curator list discovery)",
-        &[],
-    );
+    print_stub("browse", "post-W9 (curator list discovery)", &[]);
     Ok(())
 }
 
 async fn handle_stats() -> Result<()> {
-    print_stub(
-        "stats",
-        "W4 (GPU) + W6 (state) + W7 (allowlist)",
-        &[],
-    );
+    print_stub("stats", "W4 (GPU) + W6 (state) + W7 (allowlist)", &[]);
     Ok(())
 }
 
 async fn handle_config(cmd: ConfigCommand) -> Result<()> {
     match cmd {
-        ConfigCommand::Get { key } => print_stub(
-            "config get",
-            "W3 (config)",
-            &[("key", key.as_str())],
-        ),
+        ConfigCommand::Get { key } => {
+            print_stub("config get", "W3 (config)", &[("key", key.as_str())])
+        }
         ConfigCommand::Set { key, value } => print_stub(
             "config set",
             "W3 (config)",

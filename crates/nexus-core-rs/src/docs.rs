@@ -178,9 +178,7 @@ impl<'a> DocsClient<'a> {
         tokio::pin!(stream);
         let mut out = Vec::new();
         while let Some(res) = stream.next().await {
-            out.push(
-                res.map_err(|e| NexusError::Docs(format!("author_list stream error: {e}")))?,
-            );
+            out.push(res.map_err(|e| NexusError::Docs(format!("author_list stream error: {e}")))?);
         }
         Ok(out)
     }
@@ -294,9 +292,7 @@ impl DocHandle {
         tokio::pin!(stream);
         let mut out = Vec::new();
         while let Some(res) = stream.next().await {
-            out.push(
-                res.map_err(|e| NexusError::Docs(format!("get_many stream error: {e}")))?,
-            );
+            out.push(res.map_err(|e| NexusError::Docs(format!("get_many stream error: {e}")))?);
         }
         Ok(out)
     }

@@ -262,8 +262,7 @@ mod tests {
 
     #[test]
     fn parses_projects_enable() {
-        let cli =
-            Cli::try_parse_from(["nexus-worker", "projects", "enable", "proj-123"]).unwrap();
+        let cli = Cli::try_parse_from(["nexus-worker", "projects", "enable", "proj-123"]).unwrap();
         match cli.command {
             Command::Projects(ProjectsCommand::Enable { project_id }) => {
                 assert_eq!(project_id, "proj-123");
@@ -274,19 +273,11 @@ mod tests {
 
     #[test]
     fn parses_projects_budget_with_numeric_value() {
-        let cli = Cli::try_parse_from([
-            "nexus-worker",
-            "projects",
-            "budget",
-            "proj-123",
-            "1800000",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["nexus-worker", "projects", "budget", "proj-123", "1800000"])
+                .unwrap();
         match cli.command {
-            Command::Projects(ProjectsCommand::Budget {
-                project_id,
-                joules,
-            }) => {
+            Command::Projects(ProjectsCommand::Budget { project_id, joules }) => {
                 assert_eq!(project_id, "proj-123");
                 assert_eq!(joules, 1_800_000);
             }
@@ -322,15 +313,12 @@ mod tests {
 
     #[test]
     fn global_config_flag_attaches_to_any_subcommand() {
-        let cli = Cli::try_parse_from([
-            "nexus-worker",
-            "--config",
-            "/tmp/fixture.toml",
-            "stats",
-        ])
-        .unwrap();
+        let cli = Cli::try_parse_from(["nexus-worker", "--config", "/tmp/fixture.toml", "stats"])
+            .unwrap();
         assert_eq!(
-            cli.config.as_deref().map(|p| p.to_string_lossy().into_owned()),
+            cli.config
+                .as_deref()
+                .map(|p| p.to_string_lossy().into_owned()),
             Some("/tmp/fixture.toml".to_string())
         );
         assert!(matches!(cli.command, Command::Stats));

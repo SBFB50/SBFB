@@ -1,0 +1,221 @@
+name: Build wheels
+
+# Build Python wheels for `nexus-core-py` (the PyO3 bindings that
+# expose the nexus-core-rs stack to Python). Uses the official
+# PyO3/maturin-action, which handles the manylinux / musllinux /
+# macOS / Windows specifics transparently.
+#
+# Matrix (6 wheel flavours):
+#
+#   | OS      | Arch    | Python tag     | Container         |
+#   |---------|---------|----------------|-------------------|
+#   | Linux   | x86_64  | manylinux2014  | docker (auto)     |
+#   | Linux   | aarch64 | manylinux2014  | docker + qemu     |
+#   | Linux   | x86_64  | musllinux_1_2  | docker (auto)     |
+#   | Linux   | aarch64 | musllinux_1_2  | docker + qemu     |
+#   | Windows | x64     | (native)       | windows-latest    |
+#   | macOS   | x86_64  | (native)       | macos-13          |
+#   | macOS   | aarch64 | (native)       | macos-14          |
+#
+# The pyproject.toml at crates/nexus-core-py/pyproject.toml is the
+# single source of truth for the wheel metadata. Everything this
+# workflow does is "run maturin from that directory with the right
+# target and platform tag".
+#
+# sccache is enabled for every job — maturin-action knows how to
+# wire sccache inside its build container, and caching the Rust
+# intermediate objects cuts wheel rebuild time roughly in half on
+# warm runs.
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+    paths:
+      - 'crates/nexus-core-py/**'
+      - 'crates/nexus-core-rs/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/build-wheels.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'crates/nexus-core-py/**'
+      - 'crates/nexus-core-rs/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/build-wheels.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # maturin-action respects this when building inside a manylinux
+  # container. We require 3.10+ per crates/nexus-core-py/pyproject.toml
+  # but build against 3.13 (the SBFB reference version) on every
+  # runner. abi3 is NOT enabled on the crate yet — once it is, this
+  # workflow won't need to rebuild per Python minor version.
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  # ---------------------------------------------------------------
+  # Linux — both manylinux2014 (glibc, widest PyPI compatibility)
+  # and musllinux_1_2 (Alpine / musl distributions).
+  # ---------------------------------------------------------------
+  linux:
+    name: linux ${{ matrix.target }} ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            platform: manylinux2014
+          - target: aarch64
+            platform: manylinux2014
+          - target: x86_64
+            platform: musllinux_1_2
+          - target: aarch64
+            platform: musllinux_1_2
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build wheel via maturin-action
+        uses: PyO3/maturin-action@v1
+        with:
+          # The SBFB workspace is a monorepo; maturin reads its
+          # config from crates/nexus-core-py/pyproject.toml.
+          working-directory: crates/nexus-core-py
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.platform }}
+          # --release: optimized wheel
+          # --out ../../dist: relative to working-directory, so
+          #   wheels land at <repo-root>/dist/*.whl regardless of
+          #   which Linux flavour built them.
+          args: --release --out ../../dist --interpreter python${{ env.PYTHON_VERSION }}
+          sccache: 'true'
+
+      - name: Inspect wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la dist/
+          for whl in dist/*.whl; do
+            echo "=== $whl ==="
+            unzip -l "$whl" | head -30
+          done
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}-${{ matrix.platform }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------
+  # Windows — x86_64 only. ARM64 Windows builds are deferred until
+  # the SBFB user base asks for them (GitHub-hosted ARM Windows
+  # runners are still preview as of 2026-04).
+  # ---------------------------------------------------------------
+  windows:
+    name: windows ${{ matrix.target }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          architecture: ${{ matrix.target }}
+
+      - name: Build wheel via maturin-action
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: crates/nexus-core-py
+          target: ${{ matrix.target }}
+          args: --release --out ../../dist --interpreter python${{ env.PYTHON_VERSION }}
+          sccache: 'true'
+
+      - name: Inspect wheels
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\
+          Get-ChildItem dist\*.whl | ForEach-Object {
+            Write-Host "=== $($_.Name) ==="
+          }
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------
+  # macOS — two architectures on two runners. macos-13 is the last
+  # Intel runner GitHub provides; macos-14 is native Apple Silicon.
+  # ---------------------------------------------------------------
+  macos:
+    name: macos ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            runner: macos-13
+          - target: aarch64
+            runner: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build wheel via maturin-action
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: crates/nexus-core-py
+          target: ${{ matrix.target }}
+          args: --release --out ../../dist --interpreter python${{ env.PYTHON_VERSION }}
+          sccache: 'true'
+
+      - name: Inspect wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la dist/
+          for whl in dist/*.whl; do
+            echo "=== $whl ==="
+            unzip -l "$whl" | head -30
+          done
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
