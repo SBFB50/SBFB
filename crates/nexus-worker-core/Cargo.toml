@@ -87,6 +87,10 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+# Sprint 5 Phase A: RFC 3339 timestamps in the worker state
+# snapshot that the shell polls via the coordinator proxy.
+time = { workspace = true }
+
 # Deliberately excluded: clap, ratatui, crossterm, dialoguer.
 # This crate is UI-free by design (see the 2026-04-10 Sprint 3
 # headless-first decision in the plan). Anything user-facing lives

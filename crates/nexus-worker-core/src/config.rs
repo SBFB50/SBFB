@@ -277,6 +277,17 @@ pub struct Engine {
     /// Maximum number of tasks running concurrently. Bounded in
     /// practice by VRAM and Ollama's own concurrency limits.
     pub max_concurrent_tasks: usize,
+    /// Sprint 5 Phase A: how often to flush the shell-facing
+    /// `state.json` snapshot, in seconds. The shell polls the
+    /// coordinator proxy every 2s by default so 5s here gives
+    /// a responsive display without thrashing the SSD. Clamped
+    /// to a minimum of 1s at load time.
+    #[serde(default = "default_state_flush_secs")]
+    pub state_flush_secs: u64,
+}
+
+fn default_state_flush_secs() -> u64 {
+    5
 }
 
 impl Default for Engine {
@@ -284,6 +295,7 @@ impl Default for Engine {
         Self {
             task_poll_interval_ms: 2000,
             max_concurrent_tasks: 1,
+            state_flush_secs: default_state_flush_secs(),
         }
     }
 }
@@ -399,6 +411,9 @@ impl WorkerConfig {
         if self.engine.task_poll_interval_ms < 100 {
             self.engine.task_poll_interval_ms = 100;
         }
+        if self.engine.state_flush_secs == 0 {
+            self.engine.state_flush_secs = 1;
+        }
         self
     }
 
@@ -439,6 +454,7 @@ mod tests {
         assert_eq!(cfg.gpu.max_vram_fraction, 0.9);
         assert_eq!(cfg.engine.task_poll_interval_ms, 2000);
         assert_eq!(cfg.engine.max_concurrent_tasks, 1);
+        assert_eq!(cfg.engine.state_flush_secs, 5);
         assert_eq!(cfg.logging.level, "info");
         assert_eq!(cfg.identity.name, "unnamed-worker");
         assert_eq!(cfg.identity.secret_key_path, None);
@@ -446,6 +462,17 @@ mod tests {
 
     #[test]
     fn save_then_load_preserves_values() {
+        // This test reads `ollama.endpoint` through WorkerConfig::load,
+        // which honours NEXUS_WORKER__OLLAMA__ENDPOINT. The
+        // env_var_overrides_file_value test below briefly sets that
+        // variable; if cargo schedules the two in parallel this test
+        // can observe the leaked value. Hold the shared lock and
+        // defensively clear the var before loading.
+        let _guard = env_var_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("NEXUS_WORKER__OLLAMA__ENDPOINT");
+
         let dir = tempdir().unwrap();
         let path = dir.path().join("worker.toml");
 
@@ -501,6 +528,15 @@ mod tests {
 
     #[test]
     fn partial_toml_falls_back_to_defaults_per_section() {
+        // Same rationale as save_then_load_preserves_values:
+        // reads through WorkerConfig::load which is sensitive to
+        // a leaked NEXUS_WORKER__OLLAMA__ENDPOINT from a parallel
+        // test. Hold the shared lock and clear the var first.
+        let _guard = env_var_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("NEXUS_WORKER__OLLAMA__ENDPOINT");
+
         let dir = tempdir().unwrap();
         let path = dir.path().join("partial.toml");
 
@@ -536,6 +572,7 @@ max_vram_fraction = 5.0
 [engine]
 task_poll_interval_ms = 10
 max_concurrent_tasks = 0
+state_flush_secs = 0
 "#,
         )
         .unwrap();
@@ -547,6 +584,10 @@ max_concurrent_tasks = 0
             "clamped to minimum interval"
         );
         assert_eq!(loaded.engine.max_concurrent_tasks, 1, "zero clamped to one");
+        assert_eq!(
+            loaded.engine.state_flush_secs, 1,
+            "zero flush interval clamped to 1s minimum"
+        );
     }
 
     #[test]

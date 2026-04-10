@@ -105,6 +105,13 @@ tracing-appender = "0.2"
 hex = "0.4"
 data-encoding = "2.6"
 
+# Sprint 5: ISO-8601 / RFC 3339 timestamps for the worker state
+# snapshot that the shell reads via the coordinator proxy. The
+# `time` crate is small, well-maintained, and strictly typed —
+# preferred over chrono for new code. `formatting` gives the
+# `format_into` machinery; `macros` gives `format_description!`.
+time = { version = "0.3", features = ["formatting", "macros"] }
+
 [profile.release]
 # Standard release profile for the worker binary. Stripping and LTO cut
 # the binary size roughly in half, which matters for the "single-file

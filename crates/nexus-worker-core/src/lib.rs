@@ -47,6 +47,7 @@ pub mod engine;
 pub mod gpu;
 pub mod invite;
 pub mod ollama;
+pub mod paths;
 
 /// Version of the `nexus-worker-core` crate, taken from
 /// `CARGO_PKG_VERSION` at compile time. The `nexus-worker` binary

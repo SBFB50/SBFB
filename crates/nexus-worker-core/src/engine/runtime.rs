@@ -43,7 +43,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsClient, DocsTicket};
 use nexus_core_rs::task::{
@@ -56,8 +56,10 @@ use tracing::{debug, error, info, warn};
 use crate::allowlist::Allowlist;
 use crate::config::WorkerConfig;
 use crate::engine::state::{StateMachine, WorkerEvent, WorkerState};
+use crate::engine::state_writer::{self, LastTask, SnapshotInputs};
 use crate::gpu::{create_monitor, GpuInfo, GpuMonitor};
 use crate::ollama::{GenerateParams, HealthCheck, OllamaClient, OllamaHttpClient};
+use crate::paths::worker_state_file;
 
 // =================================================================
 // Boot-time configuration
@@ -138,6 +140,20 @@ pub struct Engine {
     /// task_ids already processed in this process instance,
     /// used to dedupe within a single tick and across ticks.
     completed_task_ids: HashSet<String>,
+    /// Sprint 5 Phase A: wall-clock time the engine was
+    /// constructed, used by the state_writer to compute
+    /// `uptime_secs` and `started_at` for the shell snapshot.
+    boot_time: SystemTime,
+    /// Sprint 5 Phase A: most recent task observed in the
+    /// completion path, reported in the shell snapshot so the
+    /// user sees a "Last task" card in /my-network. Updated
+    /// every time `scan_and_execute_tasks` writes a result.
+    last_task: Option<LastTask>,
+    /// Sprint 5 Phase A: override for the state flush destination,
+    /// used by integration tests that cannot write to the default
+    /// `~/.nexus-grid/worker/state.json` path. `None` means use
+    /// [`crate::paths::worker_state_file`] at flush time.
+    state_flush_path_override: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -317,7 +333,17 @@ impl Engine {
             task_docs,
             worker_author,
             completed_task_ids: HashSet::new(),
+            boot_time: SystemTime::now(),
+            last_task: None,
+            state_flush_path_override: None,
         })
+    }
+
+    /// Test helper: redirect the state_writer flush destination
+    /// to a caller-supplied path so integration tests don't
+    /// clobber the real `~/.nexus-grid/worker/state.json`.
+    pub fn set_state_flush_path(&mut self, path: PathBuf) {
+        self.state_flush_path_override = Some(path);
     }
 
     /// Test helper: register a doc directly on the engine without
@@ -415,9 +441,16 @@ impl Engine {
             .expect("engine shutdown receiver already taken");
 
         let poll_interval = Duration::from_millis(self.worker_config.engine.task_poll_interval_ms);
+        let flush_interval = Duration::from_secs(self.worker_config.engine.state_flush_secs);
 
         // The cached initial state after Start.
         let mut shutdown_rx = shutdown_rx;
+
+        // Sprint 5 Phase A: flush a first snapshot immediately so
+        // the shell has something to read before the first
+        // flush_interval elapses.
+        self.flush_state_snapshot();
+        let mut last_flush = Instant::now();
 
         loop {
             // React to shutdown signal OR the poll interval
@@ -438,12 +471,26 @@ impl Engine {
 
                 _ = tokio::time::sleep(poll_interval) => {
                     self.tick().await;
+
+                    // Sprint 5 Phase A: flush a shell snapshot
+                    // every `state_flush_secs`. Runs after the
+                    // tick so the snapshot reflects any task
+                    // completion we just recorded.
+                    if last_flush.elapsed() >= flush_interval {
+                        self.flush_state_snapshot();
+                        last_flush = Instant::now();
+                    }
+
                     if self.state_rx.borrow().is_terminal() {
                         break;
                     }
                 }
             }
         }
+
+        // Sprint 5 Phase A: one last flush on the way out so the
+        // shell's last view of the worker reflects the shutdown.
+        self.flush_state_snapshot();
 
         info!("engine loop exited, shutting down iroh node");
         // Best-effort shutdown; log on failure but do not
@@ -740,10 +787,68 @@ impl Engine {
                 if let Err(e) = self.allowlist.record_task(&project_id, 0) {
                     debug!(error = %e, "allowlist.record_task failed (non-fatal)");
                 }
+
+                // Sprint 5 Phase A: record this as the "last
+                // task" for the shell snapshot. Uses the project
+                // id as the project_name because the allowlist
+                // row is keyed by id — the shell can resolve the
+                // human-readable project_name through /project.
+                self.last_task = Some(LastTask {
+                    task_id: task_entry.task.task_id.clone(),
+                    project_name: project_id.clone(),
+                    prompt_preview: preview_prompt(&task_entry.task.prompt, 120),
+                    status: "completed".to_string(),
+                    completed_at: rfc3339_now(),
+                });
             }
         }
 
         Ok(())
+    }
+
+    /// Sprint 5 Phase A: build a snapshot from the live engine
+    /// state and flush it to disk. Called once at loop start,
+    /// once per `state_flush_secs` thereafter, and once on
+    /// graceful shutdown. Errors are logged inside
+    /// [`state_writer::flush`] and never propagate.
+    fn flush_state_snapshot(&self) {
+        let dest = match self.state_flush_path_override.clone() {
+            Some(p) => p,
+            None => match worker_state_file() {
+                Some(p) => p,
+                None => {
+                    debug!("no BaseDirs available; skipping worker state flush");
+                    return;
+                }
+            },
+        };
+
+        // Best-effort probe of the first GPU device so the
+        // snapshot carries a live VRAM / utilization reading.
+        // A probe failure collapses both fields to None — the
+        // plan §2.3 explicitly allows `gpu: null`.
+        let (gpu_info, gpu_stats) = match self.gpu_info.first() {
+            Some(info) => match self.gpu.snapshot(info.index) {
+                Ok(stats) => (Some(info), Some(stats)),
+                Err(e) => {
+                    debug!(error = %e, "gpu snapshot failed; reporting null gpu");
+                    (None, None)
+                }
+            },
+            None => (None, None),
+        };
+
+        let inputs = SnapshotInputs {
+            node_id: self.node.node_id(),
+            worker_version: crate::VERSION,
+            boot_time: self.boot_time,
+            gpu_info,
+            gpu_stats: gpu_stats.as_ref(),
+            allowlist: &self.allowlist,
+            last_task: self.last_task.clone(),
+        };
+
+        state_writer::flush(inputs, &dest);
     }
 
     /// Returns true if the doc already has a `claim:<id>` or
@@ -780,6 +885,36 @@ fn now_unix_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Sprint 5 Phase A: RFC 3339 "now" for the shell snapshot's
+/// `last_task.completed_at` field. Falls back to the Unix epoch
+/// on a clock failure — the shell tolerates "1970" better than a
+/// missing field.
+fn rfc3339_now() -> String {
+    use time::format_description::well_known::Rfc3339;
+    use time::OffsetDateTime;
+
+    let secs = now_unix_secs() as i64;
+    OffsetDateTime::from_unix_timestamp(secs)
+        .ok()
+        .and_then(|dt| dt.format(&Rfc3339).ok())
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
+}
+
+/// Sprint 5 Phase A: truncate a prompt to a UTF-8-safe preview
+/// of at most `max_chars` characters, appending `…` if the
+/// prompt was longer.
+fn preview_prompt(prompt: &str, max_chars: usize) -> String {
+    let mut out = String::with_capacity(max_chars + 3);
+    for (i, c) in prompt.chars().enumerate() {
+        if i >= max_chars {
+            out.push('…');
+            return out;
+        }
+        out.push(c);
+    }
+    out
 }
 
 // =================================================================
@@ -865,6 +1000,7 @@ mod tests {
             engine: crate::config::Engine {
                 task_poll_interval_ms: 100,
                 max_concurrent_tasks: 1,
+                state_flush_secs: 5,
             },
             ..WorkerConfig::default()
         };
@@ -931,6 +1067,7 @@ mod tests {
             engine: crate::config::Engine {
                 task_poll_interval_ms: 100,
                 max_concurrent_tasks: 1,
+                state_flush_secs: 5,
             },
             ..WorkerConfig::default()
         };
