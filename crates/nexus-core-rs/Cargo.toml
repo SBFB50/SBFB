@@ -1,0 +1,38 @@
+[package]
+name = "nexus-core-rs"
+description = "SBFB nexus-core: iroh wrapper for distributed P2P compute (Rust library)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[lib]
+name = "nexus_core_rs"
+# Standard `rlib` library consumed by nexus-core-py (via path dep) and
+# by nexus-worker (also via path dep). When Sprint 2 adds PyO3 bindings
+# the library stays a regular rlib — only nexus-core-py is cdylib.
+
+[dependencies]
+iroh = { workspace = true }
+iroh-docs = { workspace = true }
+iroh-gossip = { workspace = true }
+iroh-blobs = { workspace = true }
+iroh-pkarr-node-discovery = { workspace = true }
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+ed25519-dalek = { workspace = true }
+blake3 = { workspace = true }
+
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tracing-subscriber = { workspace = true }

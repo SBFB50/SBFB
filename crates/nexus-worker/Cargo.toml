@@ -1,0 +1,42 @@
+[package]
+name = "nexus-worker"
+description = "SBFB nexus-worker: single-binary GPU contributor for the P2P compute network"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[[bin]]
+name = "nexus-worker"
+path = "src/main.rs"
+
+[dependencies]
+nexus-core-rs = { path = "../nexus-core-rs" }
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+clap = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+
+# Ollama client for local LLM inference
+ollama-rs = { workspace = true }
+
+# NVIDIA GPU detection (optional — gracefully degrades without it)
+nvml-wrapper = { workspace = true }
+
+config = { workspace = true }
+directories = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+ed25519-dalek = { workspace = true }

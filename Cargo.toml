@@ -1,0 +1,81 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nexus-core-rs",
+    "crates/nexus-core-py",
+    "crates/nexus-worker",
+]
+
+# Shared package metadata. Individual crates override name/description.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+license = "AGPL-3.0"
+authors = ["FlowUP"]
+repository = "https://github.com/FlowUP/nexus"
+readme = "README.md"
+
+# Shared dependency versions. Crates inherit with
+# `iroh = { workspace = true }` etc. so version bumps live in one place.
+#
+# iroh stack: pinned to the 0.97.x line (published March 2026). iroh-blobs
+# uses independent versioning and is at 0.99.x for that release train.
+# See the SBFB plan section "Contraintes techniques confirmées" for why
+# these exact versions were chosen.
+[workspace.dependencies]
+iroh = "0.97"
+iroh-docs = "0.97"
+iroh-gossip = "0.97"
+iroh-blobs = "0.99"
+iroh-pkarr-node-discovery = "0.97"
+
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Crypto (Ed25519 signatures, BLAKE3 content hashes)
+ed25519-dalek = "2.1"
+blake3 = "1.5"
+
+# Error handling and observability
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# PyO3 — Python bindings for nexus-core-py
+pyo3 = { version = "0.22", features = ["extension-module"] }
+pyo3-asyncio = { version = "0.21", features = ["tokio-runtime"] }
+
+# Worker-specific deps
+clap = { version = "4.5", features = ["derive"] }
+ratatui = "0.28"
+crossterm = "0.28"
+ollama-rs = "0.2"
+nvml-wrapper = "0.10"
+config = "0.14"
+directories = "5.0"
+
+[profile.release]
+# Standard release profile for the worker binary. Stripping and LTO cut
+# the binary size roughly in half, which matters for the "single-file
+# download" UX goal of the SBFB v1.0 distribution.
+opt-level = 3
+lto = "thin"
+strip = "symbols"
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+# Faster incremental compile during Sprint 1 learning. Opt-level 1 on
+# dependencies keeps them fast to run without the full release cost.
+opt-level = 0
+debug = true
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 1

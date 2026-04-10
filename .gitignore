@@ -52,6 +52,19 @@ web/.env.local
 # Claude Code local settings
 .claude/
 
+# Rust / Cargo (SBFB monorepo, Sprint 1+)
+target/
+**/*.rs.bk
+Cargo.lock.bak
+.cargo/
+
+# Python build artifacts from maturin (nexus-core-py wheels)
+crates/nexus-core-py/target/
+wheels/
+
+# uv
+.uv/
+
 # OS
 Thumbs.db
 .DS_Store

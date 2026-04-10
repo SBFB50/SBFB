@@ -1,0 +1,31 @@
+[package]
+name = "nexus-core-py"
+description = "SBFB nexus-core Python bindings (PyO3 wheel, exposes `nexus_core` module)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[lib]
+name = "nexus_core"
+# cdylib for the Python extension module (shipped as a wheel via
+# maturin). rlib is kept so Rust integration tests can link against
+# the same crate.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+nexus-core-rs = { path = "../nexus-core-rs" }
+
+pyo3 = { workspace = true }
+pyo3-asyncio = { workspace = true }
+tokio = { workspace = true }
+
+tracing = { workspace = true }
+
+[build-dependencies]
+# maturin reads the Cargo.toml + the pyproject.toml next to it to
+# produce the Python wheel. No explicit build script needed for a
+# standard PyO3 extension.
