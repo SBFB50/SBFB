@@ -49,3 +49,12 @@ thiserror = { workspace = true }
 # W3: hex-encode the Ed25519 public key in `register` output so
 # users can copy-paste it into a coordinator allowlist.
 hex = { workspace = true }
+
+[dev-dependencies]
+# W12: end-to-end tests spawn the compiled binary with an
+# isolated --config path under a tempfile-managed fixture.
+tempfile = "3.12"
+# W12 unix-only test: SIGINT the running worker to prove
+# the start handler's ctrl-c hook works end-to-end.
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
