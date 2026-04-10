@@ -24,7 +24,7 @@
 
 use std::collections::BTreeSet;
 
-use iroh::{Endpoint, TransportAddr, Watcher as _};
+use iroh::{Endpoint, EndpointAddr, TransportAddr, Watcher as _};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{NexusError, Result};
@@ -69,15 +69,14 @@ impl<'a> DiscoveryClient<'a> {
     }
 
     /// Wait until the endpoint has a ready [`EndpointAddr`] and
-    /// return a [`NodeAddrInfo`] snapshot.
+    /// return the raw iroh [`EndpointAddr`] (with relay URL and
+    /// direct socket addresses populated).
     ///
-    /// In iroh 0.97 addressing is exposed as [`Endpoint::addr`]
-    /// (synchronous) and [`Endpoint::watch_addr`] (watcher). The
-    /// watcher's `initialized()` helper only works for Nullable
-    /// watcher values; `EndpointAddr` is not Nullable, so we poll
-    /// the watcher manually until its inner `addrs: BTreeSet<...>`
-    /// is non-empty, then convert to our serializable snapshot.
-    pub async fn my_addr(&self) -> Result<NodeAddrInfo> {
+    /// This is the primitive used by [`DiscoveryClient::my_addr`]
+    /// and by Sprint 3+ code that mints `BlobTicket` / `DocTicket`
+    /// values. Most SBFB code should prefer `my_addr()` which
+    /// returns a serializable snapshot.
+    pub async fn my_endpoint_addr(&self) -> Result<EndpointAddr> {
         let mut watcher = self.endpoint.watch_addr();
 
         // Grab the current snapshot. If iroh already has at least
@@ -103,6 +102,20 @@ impl<'a> DiscoveryClient<'a> {
                 "endpoint address set never populated after 20 update iterations".into(),
             ));
         }
+
+        Ok(ep_addr)
+    }
+
+    /// Wait until the endpoint has a ready [`EndpointAddr`] and
+    /// return a [`NodeAddrInfo`] snapshot.
+    ///
+    /// In iroh 0.97 addressing is exposed as [`Endpoint::addr`]
+    /// (synchronous) and [`Endpoint::watch_addr`] (watcher). This
+    /// helper delegates to [`DiscoveryClient::my_endpoint_addr`]
+    /// and then converts the raw `EndpointAddr` into our
+    /// serializable snapshot.
+    pub async fn my_addr(&self) -> Result<NodeAddrInfo> {
+        let ep_addr = self.my_endpoint_addr().await?;
 
         let node_id = ep_addr.id.to_string();
 

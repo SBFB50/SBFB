@@ -7,10 +7,12 @@
 //!   content hash (raw 32 bytes)
 //! - [`BlobsClient::get_bytes`] — fetch a blob by hash
 //! - [`BlobsClient::has`] — check whether a blob is present locally
+//! - [`BlobsClient::fetch_ticket`] — download a blob from a remote
+//!   peer via a [`iroh_blobs::ticket::BlobTicket`] string
 //!
 //! Curator lists flow through this layer: the curator publishes a
-//! signed JSON blob via `add_bytes`, announces the resulting hash
-//! on a gossip topic, and subscribers use `get_bytes` on receiving
+//! signed JSON blob via `add_bytes`, announces the resulting ticket
+//! on a gossip topic, and subscribers use `fetch_ticket` on receiving
 //! the announcement to pull the full list content.
 //!
 //! ## Example
@@ -29,10 +31,20 @@
 //! # }
 //! ```
 
+use std::str::FromStr;
+
+use iroh::address_lookup::memory::MemoryLookup;
+use iroh::Endpoint;
+use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::store::mem::MemStore;
+use iroh_blobs::ticket::BlobTicket;
 use iroh_blobs::Hash;
 
 use crate::error::{NexusError, Result};
+
+// Re-export BlobTicket so downstream callers (including the Python
+// bindings) don't need iroh-blobs as a direct dependency.
+pub use iroh_blobs::ticket::BlobTicket as BlobsTicket;
 
 /// Thin client around an iroh-blobs [`MemStore`].
 ///
@@ -95,6 +107,54 @@ impl<'a> BlobsClient<'a> {
             .await
             .map_err(|e| NexusError::Blobs(format!("has failed: {e}")))
     }
+
+    /// Download a blob from a remote peer using a [`BlobTicket`]
+    /// string.
+    ///
+    /// The ticket carries the provider's [`iroh_base::EndpointAddr`],
+    /// the content hash, and the blob format. This method:
+    ///
+    /// 1. Parses the ticket string.
+    /// 2. Seeds the provided [`MemoryLookup`] with the ticket's
+    ///    `EndpointAddr` so the endpoint can dial the peer without
+    ///    needing pkarr/DNS discovery.
+    /// 3. Spawns a [`Downloader`] against the given `endpoint` +
+    ///    this client's store, and runs the download to completion.
+    ///
+    /// On success the blob bytes are now present in the local store
+    /// and the returned `[u8; 32]` is the raw content hash (which
+    /// equals `ticket.hash()` for single-blob tickets). Feed the
+    /// hash back to [`BlobsClient::get_bytes`] to retrieve the
+    /// content.
+    ///
+    /// SBFB curator list flow: workers subscribe to a gossip topic,
+    /// receive a `BlobTicket` string in the next `GossipEvent`, call
+    /// `fetch_ticket(endpoint, memory_lookup, ticket_str)`, then
+    /// `get_bytes(hash)` to parse the curator list JSON.
+    pub async fn fetch_ticket(
+        &self,
+        endpoint: &Endpoint,
+        memory_lookup: &MemoryLookup,
+        ticket_str: &str,
+    ) -> Result<[u8; 32]> {
+        let ticket = BlobTicket::from_str(ticket_str)
+            .map_err(|e| NexusError::Blobs(format!("invalid blob ticket: {e}")))?;
+
+        let (addr, hash, _format) = ticket.into_parts();
+        let endpoint_id = addr.id;
+
+        // Seed the address lookup with the provider's addr so the
+        // downloader's dial attempt can resolve endpoint_id.
+        memory_lookup.add_endpoint_info(addr);
+
+        let downloader = Downloader::new(&self.inner, endpoint);
+        downloader
+            .download(hash, vec![endpoint_id])
+            .await
+            .map_err(|e| NexusError::Blobs(format!("download failed: {e}")))?;
+
+        Ok(*hash.as_bytes())
+    }
 }
 
 #[cfg(test)]
@@ -154,5 +214,54 @@ mod tests {
         assert_eq!(h1, h2, "content-addressed: same bytes -> same hash");
 
         node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn two_nodes_fetch_blob_via_ticket() {
+        // Regression test for Sprint 2 audit S7 finding: the
+        // wrapper had no way to fetch a blob announced on gossip
+        // by its ticket. This test exercises the full curator
+        // list flow: node A adds a blob and mints a ticket, node
+        // B parses the ticket and downloads the blob into its
+        // own store.
+        use iroh_blobs::BlobFormat;
+
+        let node_a = spawn_node().await;
+        let node_b = spawn_node().await;
+
+        // Node A stores the curator list payload locally.
+        let blobs_a = BlobsClient::new(node_a.blobs_store());
+        let payload = b"curator-list-content-v1".to_vec();
+        let hash_bytes = blobs_a.add_bytes(&payload).await.unwrap();
+
+        // Mint a BlobTicket that embeds node A's current
+        // EndpointAddr (relay + direct addrs) so node B can dial
+        // A without pkarr/DNS discovery. Wait until node A has at
+        // least one address registered before minting.
+        let my_addr = crate::discovery::DiscoveryClient::new(node_a.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("node A should publish its address");
+
+        let ticket = BlobTicket::new(my_addr, Hash::from_bytes(hash_bytes), BlobFormat::Raw);
+        let ticket_str = ticket.to_string();
+
+        // Node B fetches via the ticket.
+        let blobs_b = BlobsClient::new(node_b.blobs_store());
+        let fetched_hash = blobs_b
+            .fetch_ticket(node_b.endpoint(), node_b.memory_lookup(), &ticket_str)
+            .await
+            .expect("fetch_ticket should succeed on loopback");
+        assert_eq!(
+            fetched_hash, hash_bytes,
+            "returned hash must match ticket hash"
+        );
+
+        // The blob is now in node B's local store.
+        let got = blobs_b.get_bytes(fetched_hash).await.unwrap();
+        assert_eq!(got, payload, "downloaded content matches source");
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
     }
 }

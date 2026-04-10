@@ -39,6 +39,7 @@
 
 use std::fmt;
 
+use iroh::address_lookup::memory::MemoryLookup;
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
 use iroh::{Endpoint, SecretKey};
@@ -89,6 +90,7 @@ pub struct Node {
     gossip: Gossip,
     blobs_store: MemStore,
     router: Router,
+    memory_lookup: MemoryLookup,
 }
 
 impl Node {
@@ -128,6 +130,18 @@ impl Node {
         &self.blobs_store
     }
 
+    /// Access the in-memory address lookup registered on this
+    /// node's endpoint.
+    ///
+    /// Callers can seed it with `EndpointInfo` / `EndpointAddr`
+    /// entries learned out-of-band (typically from parsing a
+    /// [`iroh_blobs::ticket::BlobTicket`] or a [`iroh_docs::DocTicket`])
+    /// so the endpoint can dial peers whose relay / direct
+    /// addresses are not discoverable through pkarr.
+    pub fn memory_lookup(&self) -> &MemoryLookup {
+        &self.memory_lookup
+    }
+
     /// Gracefully shut down the node.
     ///
     /// Delegates to [`Router::shutdown`] which activates the
@@ -154,6 +168,7 @@ impl Node {
         drop(self.docs);
         drop(self.gossip);
         drop(self.blobs_store);
+        drop(self.memory_lookup);
         drop(self.endpoint);
         info!("SBFB node closed cleanly");
         Ok(())
@@ -189,7 +204,13 @@ pub async fn create_node() -> Result<Node> {
 pub async fn create_node_with_config(cfg: NodeConfig) -> Result<Node> {
     debug!("building iroh endpoint with the N0 preset");
 
-    let mut builder = Endpoint::builder(presets::N0);
+    // Attach a MemoryLookup to every node. Callers seed it with
+    // out-of-band peer addresses (e.g. parsed from blob tickets
+    // or doc tickets) so that Endpoint::connect / Downloader can
+    // resolve endpoint ids to dialable addrs without pkarr.
+    let memory_lookup = MemoryLookup::new();
+
+    let mut builder = Endpoint::builder(presets::N0).address_lookup(memory_lookup.clone());
     if let Some(sk_bytes) = cfg.secret_key_bytes {
         let sk = SecretKey::from_bytes(&sk_bytes);
         builder = builder.secret_key(sk);
@@ -229,6 +250,7 @@ pub async fn create_node_with_config(cfg: NodeConfig) -> Result<Node> {
         gossip,
         blobs_store,
         router,
+        memory_lookup,
     })
 }
 

@@ -42,6 +42,7 @@ use iroh_docs::api::protocol::{AddrInfoOptions, ShareMode};
 use iroh_docs::api::Doc as IrohDoc;
 use iroh_docs::engine::LiveEvent;
 use iroh_docs::protocol::Docs;
+use iroh_docs::store::Query;
 use iroh_docs::{AuthorId, DocTicket, NamespaceId};
 
 use crate::error::{NexusError, Result};
@@ -162,6 +163,49 @@ impl<'a> DocsClient<'a> {
             .await
             .map_err(|e| NexusError::Docs(format!("drop_doc failed: {e}")))
     }
+
+    /// List all document authors for which this node holds the
+    /// secret key (i.e. authors that can still produce writes).
+    ///
+    /// Collects the streaming response into a `Vec<AuthorId>` for
+    /// ergonomic consumption from Python.
+    pub async fn author_list(&self) -> Result<Vec<AuthorId>> {
+        let stream = self
+            .inner
+            .author_list()
+            .await
+            .map_err(|e| NexusError::Docs(format!("author_list failed: {e}")))?;
+        tokio::pin!(stream);
+        let mut out = Vec::new();
+        while let Some(res) = stream.next().await {
+            out.push(
+                res.map_err(|e| NexusError::Docs(format!("author_list stream error: {e}")))?,
+            );
+        }
+        Ok(out)
+    }
+
+    /// List every open document on this node (namespace ids only).
+    ///
+    /// The underlying iroh-docs stream also yields a
+    /// `CapabilityKind`, but the wrapper drops it because SBFB
+    /// callers only need to iterate namespaces. Use
+    /// [`DocsClient::open_doc`] on each id to get a handle.
+    pub async fn list_docs(&self) -> Result<Vec<NamespaceId>> {
+        let stream = self
+            .inner
+            .list()
+            .await
+            .map_err(|e| NexusError::Docs(format!("list failed: {e}")))?;
+        tokio::pin!(stream);
+        let mut out = Vec::new();
+        while let Some(res) = stream.next().await {
+            let (id, _cap) =
+                res.map_err(|e| NexusError::Docs(format!("list stream error: {e}")))?;
+            out.push(id);
+        }
+        Ok(out)
+    }
 }
 
 /// Handle to a single open document.
@@ -226,6 +270,35 @@ impl DocHandle {
             .get_exact(author, key.as_ref(), false)
             .await
             .map_err(|e| NexusError::Docs(format!("get_exact failed: {e}")))
+    }
+
+    /// Return every entry whose key starts with `prefix`, from
+    /// any author.
+    ///
+    /// Used by SBFB workers to scan task-doc entries by the
+    /// `"task:"` / `"claim:"` / `"result:"` prefixes. Collects
+    /// the streaming response into a `Vec<Entry>` so Python
+    /// callers can iterate ergonomically; for documents with
+    /// thousands of entries consider using `inner().get_many(...)`
+    /// directly for streaming.
+    pub async fn get_many_by_prefix(
+        &self,
+        prefix: impl AsRef<[u8]>,
+    ) -> Result<Vec<iroh_docs::Entry>> {
+        let query = Query::key_prefix(prefix);
+        let stream = self
+            .inner
+            .get_many(query)
+            .await
+            .map_err(|e| NexusError::Docs(format!("get_many failed: {e}")))?;
+        tokio::pin!(stream);
+        let mut out = Vec::new();
+        while let Some(res) = stream.next().await {
+            out.push(
+                res.map_err(|e| NexusError::Docs(format!("get_many stream error: {e}")))?,
+            );
+        }
+        Ok(out)
     }
 
     // ------------------------------------------------------------------
@@ -318,6 +391,75 @@ mod tests {
 
         let entry = doc.get_exact(author, b"k").await.unwrap();
         assert!(entry.is_some(), "entry must be retrievable");
+
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn get_many_by_prefix_returns_matching_entries_only() {
+        // Regression test for Sprint 2 audit S5 finding: the
+        // wrapper lacked a prefix-scan, which is a prerequisite
+        // for the Sprint 3 worker that iterates "task:*" /
+        // "claim:*" / "result:*" entries.
+        let node = spawn_node().await;
+        let docs = DocsClient::new(node.docs());
+
+        let author = docs.author_create().await.unwrap();
+        let doc = docs.create_doc().await.unwrap();
+
+        doc.set(author, b"task:001".to_vec(), b"payload-1".to_vec())
+            .await
+            .unwrap();
+        doc.set(author, b"task:002".to_vec(), b"payload-2".to_vec())
+            .await
+            .unwrap();
+        doc.set(author, b"result:001".to_vec(), b"done".to_vec())
+            .await
+            .unwrap();
+        doc.set(author, b"claim:001".to_vec(), b"claimed".to_vec())
+            .await
+            .unwrap();
+
+        let tasks = doc.get_many_by_prefix(b"task:").await.unwrap();
+        assert_eq!(
+            tasks.len(),
+            2,
+            "prefix scan should return exactly the two task: entries"
+        );
+        for entry in &tasks {
+            assert!(
+                entry.key().starts_with(b"task:"),
+                "entry key {:?} should start with task:",
+                entry.key()
+            );
+        }
+
+        let all = doc.get_many_by_prefix(b"").await.unwrap();
+        assert_eq!(all.len(), 4, "empty prefix matches all entries");
+
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn author_list_and_list_docs_report_local_state() {
+        let node = spawn_node().await;
+        let docs = DocsClient::new(node.docs());
+
+        let a1 = docs.author_create().await.unwrap();
+        let a2 = docs.author_create().await.unwrap();
+        let authors = docs.author_list().await.unwrap();
+        assert!(
+            authors.contains(&a1) && authors.contains(&a2),
+            "author_list must include every author_create result"
+        );
+
+        let doc_a = docs.create_doc().await.unwrap();
+        let doc_b = docs.create_doc().await.unwrap();
+        let listed = docs.list_docs().await.unwrap();
+        assert!(
+            listed.contains(&doc_a.id()) && listed.contains(&doc_b.id()),
+            "list_docs must include every locally-created namespace id"
+        );
 
         node.shutdown().await.ok();
     }
