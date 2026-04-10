@@ -29,6 +29,12 @@ tokio = { workspace = true }
 iroh-docs = { workspace = true }
 serde_json = { workspace = true }
 
+# Stream polling for Doc::subscribe binding. futures-lite is the
+# same dep nexus-core-rs already uses in its gossip/docs wrappers,
+# so we match the workspace choice rather than pulling futures
+# proper.
+futures-lite = "2.3"
+
 tracing = { workspace = true }
 
 [build-dependencies]

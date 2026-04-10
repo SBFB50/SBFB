@@ -34,6 +34,9 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyModule};
 use tokio::sync::Mutex;
 
+use futures_lite::StreamExt;
+use iroh_docs::engine::LiveEvent;
+use iroh_docs::NamespaceId;
 use nexus_core_rs::{
     blobs::BlobsClient as RsBlobsClient,
     create_node as rs_create_node, create_node_with_config,
@@ -43,9 +46,10 @@ use nexus_core_rs::{
     gossip::{
         GossipClient as RsGossipClient, GossipEvent as RsGossipEvent, TopicHandle as RsTopicHandle,
     },
-    task::{ResultEntry, ResultPayload, Task, TaskEntry},
+    task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry},
     Node, NodeConfig, VerificationReport, Verifier as RsVerifier,
 };
+use std::str::FromStr;
 
 fn py_err<E: std::fmt::Display>(label: &str, e: E) -> PyErr {
     PyRuntimeError::new_err(format!("{label}: {e}"))
@@ -142,6 +146,34 @@ impl PyNode {
             Ok(PyDoc {
                 inner: Arc::new(Mutex::new(Some(doc))),
             })
+        })
+    }
+
+    /// Re-open a locally-stored document by its namespace id.
+    ///
+    /// Used by the Sprint 4 coordinator on every boot after the
+    /// first: the project's doc is created once via `docs_create`,
+    /// its namespace id is persisted to `coordinator.toml`, and
+    /// subsequent boots call `docs_open` to re-attach without
+    /// producing a new namespace.
+    ///
+    /// Returns `None` if the document is not present on this node.
+    fn docs_open<'py>(&self, py: Python<'py>, namespace_id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = Arc::clone(&self.inner);
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let id = NamespaceId::from_str(&namespace_id)
+                .map_err(|e| PyValueError::new_err(format!("bad namespace id: {e}")))?;
+            let guard = inner.lock().await;
+            let n = guard
+                .as_ref()
+                .ok_or_else(|| PyRuntimeError::new_err("shut down"))?;
+            let maybe = RsDocsClient::new(n.docs())
+                .open_doc(id)
+                .await
+                .map_err(|e| py_err("open_doc", e))?;
+            Ok(maybe.map(|doc| PyDoc {
+                inner: Arc::new(Mutex::new(Some(doc))),
+            }))
         })
     }
 
@@ -346,6 +378,225 @@ impl PyDoc {
                 .map_err(|e| py_err("share_read", e))?;
             Ok(t.to_string())
         })
+    }
+
+    /// Return every entry whose key starts with `prefix`, from
+    /// any author, as a list of dicts with keys
+    /// `{author, key, hash, content_len, timestamp}`.
+    ///
+    /// Used by the coordinator dispatcher to scan `task:*` /
+    /// `claim:*` / `result:*` entries in the project doc. The
+    /// content bytes themselves are fetched via
+    /// [`PyDoc::content_bytes`] keyed on the returned `hash`.
+    fn get_many_by_prefix<'py>(
+        &self,
+        py: Python<'py>,
+        prefix: Vec<u8>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = Arc::clone(&self.inner);
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let guard = inner.lock().await;
+            let doc = guard
+                .as_ref()
+                .ok_or_else(|| PyRuntimeError::new_err("doc closed"))?;
+            let entries = doc
+                .get_many_by_prefix(&prefix)
+                .await
+                .map_err(|e| py_err("get_many_by_prefix", e))?;
+            let out: Vec<EntryDict> = entries.into_iter().map(EntryDict::from).collect();
+            Ok(out)
+        })
+    }
+
+    /// Read a single entry by `(author_hex, key)`.
+    ///
+    /// Returns `None` if the entry does not exist, otherwise a
+    /// dict matching the layout produced by
+    /// [`PyDoc::get_many_by_prefix`].
+    fn get_exact<'py>(
+        &self,
+        py: Python<'py>,
+        author_hex: String,
+        key: Vec<u8>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = Arc::clone(&self.inner);
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let author: iroh_docs::AuthorId = author_hex
+                .parse()
+                .map_err(|e| PyValueError::new_err(format!("bad author id: {e}")))?;
+            let guard = inner.lock().await;
+            let doc = guard
+                .as_ref()
+                .ok_or_else(|| PyRuntimeError::new_err("doc closed"))?;
+            let entry = doc
+                .get_exact(author, key)
+                .await
+                .map_err(|e| py_err("get_exact", e))?;
+            Ok(entry.map(EntryDict::from))
+        })
+    }
+
+    /// Subscribe to LiveEvents on this document.
+    ///
+    /// Returns a [`PyDocSubscription`] that the coordinator
+    /// validator polls in a loop via `await sub.next_event()`
+    /// to observe `InsertRemote` / `InsertLocal` / `SyncFinished`
+    /// events. The subscription holds a `Box<dyn Stream>` pinned
+    /// under a `Mutex<Option<...>>` so it can outlive the
+    /// originating `PyDoc`.
+    fn subscribe<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = Arc::clone(&self.inner);
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let guard = inner.lock().await;
+            let doc = guard
+                .as_ref()
+                .ok_or_else(|| PyRuntimeError::new_err("doc closed"))?;
+            let stream = doc.subscribe().await.map_err(|e| py_err("subscribe", e))?;
+            let boxed: LiveEventStream = Box::pin(stream);
+            Ok(PyDocSubscription {
+                inner: Arc::new(Mutex::new(Some(boxed))),
+            })
+        })
+    }
+}
+
+/// Dict-shaped view of an iroh-docs Entry. Used as the return of
+/// [`PyDoc::get_many_by_prefix`] and [`PyDoc::get_exact`].
+struct EntryDict {
+    author: String,
+    key: Vec<u8>,
+    hash: [u8; 32],
+    content_len: u64,
+    timestamp: u64,
+}
+
+impl From<iroh_docs::Entry> for EntryDict {
+    fn from(e: iroh_docs::Entry) -> Self {
+        EntryDict {
+            author: e.author().to_string(),
+            key: e.key().to_vec(),
+            hash: *e.content_hash().as_bytes(),
+            content_len: e.content_len(),
+            timestamp: e.timestamp(),
+        }
+    }
+}
+
+impl<'py> IntoPyObject<'py> for EntryDict {
+    type Target = PyDict;
+    type Output = Bound<'py, PyDict>;
+    type Error = PyErr;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let d = PyDict::new(py);
+        d.set_item("author", self.author)?;
+        d.set_item("key", PyBytes::new(py, &self.key))?;
+        d.set_item("hash", PyBytes::new(py, &self.hash))?;
+        d.set_item("content_len", self.content_len)?;
+        d.set_item("timestamp", self.timestamp)?;
+        Ok(d)
+    }
+}
+
+/// Type alias for the boxed LiveEvent stream used by
+/// [`PyDocSubscription`]. The alias keeps the long generic bound
+/// out of the field declaration.
+type LiveEventStream = std::pin::Pin<
+    Box<dyn futures_lite::Stream<Item = nexus_core_rs::Result<LiveEvent>> + Send + Unpin>,
+>;
+
+/// Live subscription to a document, created by
+/// [`PyDoc::subscribe`]. The coordinator validator polls
+/// `next_event` in a loop to observe new results arriving from
+/// workers.
+#[pyclass(name = "DocSubscription", module = "nexus_core")]
+pub struct PyDocSubscription {
+    inner: Arc<Mutex<Option<LiveEventStream>>>,
+}
+
+#[pymethods]
+impl PyDocSubscription {
+    /// Pull the next [`LiveEvent`] off the stream.
+    ///
+    /// Returns:
+    /// - A dict with `kind="insert_local"` / `"insert_remote"` /
+    ///   `"content_ready"` / `"pending_content_ready"` /
+    ///   `"neighbor_up"` / `"neighbor_down"` / `"sync_finished"`
+    ///   on a new event.
+    /// - `None` when the stream has ended (the doc was dropped or
+    ///   the underlying sync engine shut down).
+    fn next_event<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = Arc::clone(&self.inner);
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut guard = inner.lock().await;
+            let stream = guard
+                .as_mut()
+                .ok_or_else(|| PyRuntimeError::new_err("subscription closed"))?;
+            let next = stream.next().await;
+            match next {
+                None => Ok(None::<LiveEventDict>),
+                Some(Ok(ev)) => Ok(Some(LiveEventDict(ev))),
+                Some(Err(e)) => Err(py_err("live event stream error", e)),
+            }
+        })
+    }
+
+    /// Close the subscription, dropping the underlying stream.
+    /// Subsequent calls to `next_event` raise `RuntimeError`.
+    fn close<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = Arc::clone(&self.inner);
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            inner.lock().await.take();
+            Ok(())
+        })
+    }
+}
+
+/// Dict converter for [`LiveEvent`]. Used as the return type of
+/// [`PyDocSubscription::next_event`].
+struct LiveEventDict(LiveEvent);
+
+impl<'py> IntoPyObject<'py> for LiveEventDict {
+    type Target = PyDict;
+    type Output = Bound<'py, PyDict>;
+    type Error = PyErr;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let d = PyDict::new(py);
+        match self.0 {
+            LiveEvent::InsertLocal { entry } => {
+                d.set_item("kind", "insert_local")?;
+                d.set_item("entry", EntryDict::from(entry))?;
+            }
+            LiveEvent::InsertRemote {
+                from,
+                entry,
+                content_status,
+            } => {
+                d.set_item("kind", "insert_remote")?;
+                d.set_item("from", from.to_string())?;
+                d.set_item("entry", EntryDict::from(entry))?;
+                d.set_item("content_status", format!("{content_status:?}"))?;
+            }
+            LiveEvent::ContentReady { hash } => {
+                d.set_item("kind", "content_ready")?;
+                d.set_item("hash", PyBytes::new(py, hash.as_bytes()))?;
+            }
+            LiveEvent::PendingContentReady => {
+                d.set_item("kind", "pending_content_ready")?;
+            }
+            LiveEvent::NeighborUp(node_id) => {
+                d.set_item("kind", "neighbor_up")?;
+                d.set_item("node_id", node_id.to_string())?;
+            }
+            LiveEvent::NeighborDown(node_id) => {
+                d.set_item("kind", "neighbor_down")?;
+                d.set_item("node_id", node_id.to_string())?;
+            }
+            LiveEvent::SyncFinished(ev) => {
+                d.set_item("kind", "sync_finished")?;
+                d.set_item("summary", format!("{ev:?}"))?;
+            }
+        }
+        Ok(d)
     }
 }
 
@@ -607,6 +858,36 @@ fn verify_result_entry(entry_json: &str) -> PyResult<()> {
         .map_err(|e| py_err("verify_result_entry", e))
 }
 
+/// Sign a Claim with the worker's keypair.
+///
+/// Takes the claim as a JSON string (the Python side already has
+/// `jcs.canonicalize` for canonical bytes, but for ergonomic
+/// signing we accept a plain JSON that we'll deserialize here).
+/// Returns the signed [`ClaimEntry`] serialized as JSON for
+/// write-back into the tasks doc under `claim:<task_id>`.
+#[pyfunction]
+fn sign_claim(claim_json: &str, secret: &Bound<'_, PyBytes>) -> PyResult<String> {
+    let sk: [u8; SECRET_KEY_BYTES] = array32(secret, "secret")?;
+    let kp = KeyPair::from_secret_bytes(&sk);
+    let claim: Claim = serde_json::from_str(claim_json)
+        .map_err(|e| PyValueError::new_err(format!("bad claim json: {e}")))?;
+    let entry = ClaimEntry::sign(claim, &kp).map_err(|e| py_err("sign_claim", e))?;
+    serde_json::to_string(&entry).map_err(|e| py_err("serialize", e))
+}
+
+/// Verify a [`ClaimEntry`] JSON blob as produced by
+/// [`sign_claim`]. Raises `RuntimeError` on any failure
+/// (attribution mismatch, tampered claim, wrong signer, bad
+/// bytes).
+#[pyfunction]
+fn verify_claim_entry(entry_json: &str) -> PyResult<()> {
+    let entry: ClaimEntry = serde_json::from_str(entry_json)
+        .map_err(|e| PyValueError::new_err(format!("bad entry json: {e}")))?;
+    entry
+        .verify_signature()
+        .map_err(|e| py_err("verify_claim_entry", e))
+}
+
 // ======================================================================
 // Module entry point
 // ======================================================================
@@ -617,6 +898,7 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<PyNode>()?;
     m.add_class::<PyDoc>()?;
+    m.add_class::<PyDocSubscription>()?;
     m.add_class::<PyGossip>()?;
     m.add_class::<PyBlobs>()?;
     m.add_class::<PyVerifier>()?;
@@ -629,6 +911,8 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify_task_entry, m)?)?;
     m.add_function(wrap_pyfunction!(sign_result, m)?)?;
     m.add_function(wrap_pyfunction!(verify_result_entry, m)?)?;
+    m.add_function(wrap_pyfunction!(sign_claim, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_claim_entry, m)?)?;
 
     Ok(())
 }

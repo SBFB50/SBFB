@@ -2919,6 +2919,7 @@ dependencies = [
 name = "nexus-core-py"
 version = "0.1.0"
 dependencies = [
+ "futures-lite",
  "iroh-docs",
  "nexus-core-rs",
  "pyo3",
