@@ -14,29 +14,29 @@ name = "nexus-worker"
 path = "src/main.rs"
 
 [dependencies]
+# The headless engine lives in nexus-worker-core. This binary is a
+# thin CLI + TUI wrapper around it. See the 2026-04-10 Sprint 3
+# architecture decision in the SBFB plan for the split rationale.
+nexus-worker-core = { path = "../nexus-worker-core" }
+
+# We still depend on nexus-core-rs directly so the CLI stub (and
+# later the `stats` / `browse` commands) can reach the underlying
+# iroh wrapper without going through the engine loop.
 nexus-core-rs = { path = "../nexus-core-rs" }
 
 tokio = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 
+# W1: clap 4.5 derive CLI parser.
 clap = { workspace = true }
+
+# W10: ratatui + crossterm land only when the TUI layer arrives.
+# Listed here so the binary can unconditionally compile the TUI
+# path once it exists.
 ratatui = { workspace = true }
 crossterm = { workspace = true }
-
-# Ollama client for local LLM inference
-ollama-rs = { workspace = true }
-
-# NVIDIA GPU detection (optional — gracefully degrades without it)
-nvml-wrapper = { workspace = true }
-
-config = { workspace = true }
-directories = { workspace = true }
 
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 anyhow = { workspace = true }
 thiserror = { workspace = true }
-
-ed25519-dalek = { workspace = true }

@@ -147,7 +147,7 @@ impl<'a> BlobsClient<'a> {
         // downloader's dial attempt can resolve endpoint_id.
         memory_lookup.add_endpoint_info(addr);
 
-        let downloader = Downloader::new(&self.inner, endpoint);
+        let downloader = Downloader::new(self.inner, endpoint);
         downloader
             .download(hash, vec![endpoint_id])
             .await

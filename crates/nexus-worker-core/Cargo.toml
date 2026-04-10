@@ -1,0 +1,46 @@
+[package]
+name = "nexus-worker-core"
+description = "SBFB nexus-worker headless engine — UI-free library used by the nexus-worker binary and any alternative frontend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[lib]
+name = "nexus_worker_core"
+path = "src/lib.rs"
+
+[dependencies]
+# The worker engine is built on top of the SBFB core wrapper for
+# iroh. Every state change in the engine eventually reads or writes
+# something through this crate — docs for task/result entries,
+# gossip for curator lists, blobs for fetch-by-ticket, etc.
+nexus-core-rs = { path = "../nexus-core-rs" }
+
+# Async runtime. The engine's public API is async throughout so
+# the binary (and any alternative frontend) can spin it up on a
+# tokio runtime of its choice.
+tokio = { workspace = true }
+
+# Serialization used by the config file, the allowlist schema and
+# any cached state on disk.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Observability — the headless engine logs everything through
+# tracing. The binary configures the subscriber; this crate only
+# emits events so it stays agnostic to how they get consumed
+# (stdout, file, TUI widget, OTEL, ...).
+tracing = { workspace = true }
+
+# Error handling.
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Deliberately excluded: clap, ratatui, crossterm, dialoguer.
+# This crate is UI-free by design (see the 2026-04-10 Sprint 3
+# headless-first decision in the plan). Anything user-facing lives
+# in the nexus-worker binary crate.

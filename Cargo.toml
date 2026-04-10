@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/nexus-core-rs",
     "crates/nexus-core-py",
+    "crates/nexus-worker-core",
     "crates/nexus-worker",
 ]
 
