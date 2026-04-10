@@ -33,14 +33,33 @@ use std::path::PathBuf;
 
 use directories::BaseDirs;
 
+/// Environment variable honoured by [`nexus_grid_root`] so
+/// integration tests (the Sprint 5 Python test that spawns a
+/// real `nexus-worker start --stub-ollama`, Playwright
+/// globalSetup, future e2e harnesses) can redirect the whole
+/// nexus-grid tree at a hermetic throwaway dir without
+/// clobbering the developer's real user data. Matches the
+/// coordinator-side override in `nexus_coordinator.paths`.
+pub const NEXUS_GRID_ROOT_ENV: &str = "NEXUS_GRID_ROOT";
+
 /// Return `~/.nexus-grid/` — the shared nexus-grid root, matching
 /// the path the Python coordinator writes under.
 ///
+/// If [`NEXUS_GRID_ROOT_ENV`] is set in the environment, its
+/// value is used verbatim — this is the single override point
+/// for tests that need a hermetic tree. Otherwise falls back to
+/// the platform's `BaseDirs` user data directory.
+///
 /// Returns `None` on the rare platform where neither `HOME` nor
-/// `%APPDATA%` is set (CI sandboxes, embedded systems). Callers
-/// should degrade gracefully: the state writer simply skips the
-/// flush tick and logs a warning.
+/// `%APPDATA%` is set (CI sandboxes, embedded systems) AND the
+/// override is not set. Callers should degrade gracefully: the
+/// state writer simply skips the flush tick and logs a warning.
 pub fn nexus_grid_root() -> Option<PathBuf> {
+    if let Ok(override_dir) = std::env::var(NEXUS_GRID_ROOT_ENV) {
+        if !override_dir.is_empty() {
+            return Some(PathBuf::from(override_dir));
+        }
+    }
     BaseDirs::new().map(|b| b.data_dir().join("nexus-grid"))
 }
 
