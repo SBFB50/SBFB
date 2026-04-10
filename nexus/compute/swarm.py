@@ -89,13 +89,28 @@ class SwarmManager:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start swarm monitoring."""
+        """Start swarm monitoring.
+
+        When ``settings.petals_enabled`` is False (the default), the
+        manager stays inert: no DHT imports, no monitor loop, health
+        reported as OFFLINE. This keeps Petals off the critical path
+        until explicitly enabled.
+        """
         if self._running:
             return
         self._running = True
 
         # Set expected block count
         self._blocks_total = MODEL_BLOCKS.get(self._model, 80)
+
+        if not settings.petals_enabled:
+            self._health = SwarmHealth.OFFLINE
+            logger.info(
+                "SwarmManager inert (settings.petals_enabled=False, "
+                "model={}, monitor loop skipped)",
+                self._model,
+            )
+            return
 
         # Initial health check
         await self.check_health()
@@ -123,22 +138,24 @@ class SwarmManager:
     # ------------------------------------------------------------------
 
     async def check_health(self) -> SwarmHealth:
-        """Check Petals swarm health.
+        """Check Petals swarm health via a lightweight DHT probe.
 
-        Tries to query the Petals DHT for block availability.
-        Falls back to a simple connectivity check.
+        When ``settings.petals_enabled`` is False, returns OFFLINE
+        immediately without importing Petals or touching the DHT.
         """
-        try:
-            from petals.utils.dht import get_remote_module_infos
-        except ImportError:
+        if not settings.petals_enabled:
+            self._health = SwarmHealth.OFFLINE
+            return self._health
+
+        if not self._initial_peers:
+            logger.debug("Swarm health check skipped: no initial peers configured")
             self._health = SwarmHealth.OFFLINE
             return self._health
 
         try:
-            # Query DHT for block info (with timeout)
             infos = await asyncio.wait_for(
                 asyncio.to_thread(self._query_swarm_info),
-                timeout=30.0,
+                timeout=10.0,
             )
 
             if infos is None:
@@ -156,7 +173,7 @@ class SwarmManager:
                 self._health = SwarmHealth.OFFLINE
 
         except asyncio.TimeoutError:
-            logger.debug("Swarm health check timed out (30s)")
+            logger.debug("Swarm health check timed out (10s)")
             self._health = SwarmHealth.OFFLINE
         except Exception as exc:
             logger.debug("Swarm health check failed: {}", exc)
@@ -165,32 +182,73 @@ class SwarmManager:
         return self._health
 
     def _query_swarm_info(self) -> Optional[dict]:
-        """Synchronous swarm info query (run in thread).
+        """Lightweight DHT probe without loading any model.
 
-        Returns {"nodes": int, "blocks_covered": int} or None.
+        Connects to the configured initial peers via hivemind.DHT and
+        queries block availability through petals.utils.dht.get_remote_module_infos.
+        This is what the previous implementation pretended to do while
+        actually calling AutoDistributedModelForCausalLM.from_pretrained(),
+        which instantiated the full distributed model proxy and caused
+        VRAM/CPU spikes every monitor interval.
+
+        Returns ``{"nodes": int, "blocks_covered": int}`` on success,
+        or ``None`` if Petals/hivemind are missing, the DHT cannot be
+        reached, or any exception occurs.
         """
-        try:
-            from petals import AutoDistributedModelForCausalLM
+        if not self._initial_peers:
+            return None
 
-            # Try to get model info from DHT
-            # This is a lightweight query — doesn't load the full model
-            model_info = AutoDistributedModelForCausalLM.from_pretrained(
-                self._model,
-                # Only fetch DHT info, don't actually load
-                low_cpu_mem_usage=True,
+        try:
+            from hivemind import DHT
+            from petals.utils.dht import get_remote_module_infos
+        except ImportError:
+            return None
+
+        dht: Optional[Any] = None
+        try:
+            dht = DHT(
+                initial_peers=self._initial_peers,
+                start=True,
+                daemon=True,
             )
 
-            # Count active blocks from the model's DHT state
-            # This is implementation-specific to Petals internals
-            blocks = getattr(model_info, "num_blocks", self._blocks_total)
+            # Probe a small sample of block UIDs instead of the whole range.
+            probe_count = min(4, self._blocks_total)
+            module_uids = [f"{self._model}.{i}" for i in range(probe_count)]
+
+            infos = get_remote_module_infos(dht, module_uids, latest=True)
+
+            if not infos:
+                return {"nodes": 0, "blocks_covered": 0}
+
+            covered_probe = sum(
+                1 for info in infos
+                if info and getattr(info, "servers", None)
+            )
+            servers_union: set = set()
+            for info in infos:
+                servers = getattr(info, "servers", None) or {}
+                servers_union.update(servers.keys() if hasattr(servers, "keys") else servers)
+
+            # Extrapolate: (probed_covered / probed_total) * blocks_total
+            extrapolated = int(
+                (covered_probe / max(probe_count, 1)) * self._blocks_total
+            )
 
             return {
-                "nodes": 0,  # Petals doesn't expose node count easily
-                "blocks_covered": blocks,
+                "nodes": len(servers_union),
+                "blocks_covered": extrapolated,
             }
 
-        except Exception:
+        except Exception as exc:
+            logger.debug("DHT probe failed: {}", exc)
             return None
+        finally:
+            if dht is not None:
+                try:
+                    dht.shutdown()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # Monitor loop

@@ -103,6 +103,54 @@ class TestSwarmManager:
         assert "coverage_pct" in status
         assert "is_ready" in status
 
+    @pytest.mark.asyncio
+    async def test_start_skips_monitor_when_petals_disabled(self, monkeypatch):
+        """When petals_enabled=False, start() must not spawn the monitor
+        loop and must not import petals (regression guard for the
+        from_pretrained() bug that loaded the full model each tick)."""
+        from nexus.compute import swarm as swarm_mod
+
+        monkeypatch.setattr(swarm_mod.settings, "petals_enabled", False)
+
+        mgr = SwarmManager()
+        await mgr.start()
+
+        assert mgr._monitor_task is None
+        assert mgr.health == SwarmHealth.OFFLINE
+        await mgr.stop()
+
+    @pytest.mark.asyncio
+    async def test_check_health_offline_when_disabled(self, monkeypatch):
+        """check_health() must short-circuit to OFFLINE when disabled,
+        without touching the DHT or importing petals."""
+        from nexus.compute import swarm as swarm_mod
+
+        monkeypatch.setattr(swarm_mod.settings, "petals_enabled", False)
+
+        mgr = SwarmManager()
+        health = await mgr.check_health()
+
+        assert health == SwarmHealth.OFFLINE
+
+    @pytest.mark.asyncio
+    async def test_check_health_offline_without_peers(self, monkeypatch):
+        """Even when enabled, health stays OFFLINE if no initial peers
+        are configured (can't probe the DHT against nobody)."""
+        from nexus.compute import swarm as swarm_mod
+
+        monkeypatch.setattr(swarm_mod.settings, "petals_enabled", True)
+
+        mgr = SwarmManager(initial_peers=[])
+        health = await mgr.check_health()
+
+        assert health == SwarmHealth.OFFLINE
+
+    def test_query_swarm_info_no_peers_returns_none(self):
+        """_query_swarm_info() must return None when no peers are set,
+        without attempting any hivemind/petals import."""
+        mgr = SwarmManager(initial_peers=[])
+        assert mgr._query_swarm_info() is None
+
 
 # ===================================================================
 # SwarmHealth enum
