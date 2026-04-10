@@ -38,6 +38,11 @@ crossterm = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+# W11: rotating file appender + non-blocking writer. The
+# non-blocking wrapper ships log lines through a background
+# thread so the engine loop never blocks on disk I/O.
+tracing-appender = { workspace = true }
+
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 

@@ -24,6 +24,7 @@
 //! will assert the wiring.
 
 mod cli;
+mod logging;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -32,32 +33,34 @@ use nexus_worker_core::allowlist::{Allowlist, NewProject};
 use nexus_worker_core::config::{WorkerConfig, WorkerPaths};
 use nexus_worker_core::engine::{Engine, EngineBoot, WorkerState};
 use nexus_worker_core::invite::{current_unix_secs, Invite};
-use tracing_subscriber::{fmt, EnvFilter};
 
 use cli::{Cli, Command, ConfigCommand, ProjectsCommand};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // W11 will replace this with a richer subscriber (file
-    // appender, JSON mode, TUI widget sink). For W1 we just
-    // honour RUST_LOG and fall back to info.
-    fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
-
     let cli = Cli::parse();
-    tracing::debug!(
-        core_version = nexus_worker_core::VERSION,
-        "nexus-worker parsed CLI"
-    );
 
     // Every subcommand that touches disk state needs the resolved
     // WorkerPaths. Computing it once here keeps the `--config`
     // override consistent across subcommands.
     let paths = WorkerPaths::resolve(cli.config.clone())
         .context("could not resolve worker paths for this platform")?;
+
+    // Initialize structured logging. The config's log level is
+    // used when the file is readable; we fall back to "info"
+    // before the config exists (e.g. on the very first
+    // `register` call) so early errors still surface.
+    let level = match WorkerConfig::load_required(&paths.config_file) {
+        Ok(cfg) => cfg.logging.level,
+        Err(_) => "info".to_string(),
+    };
+    let _log_guard = logging::init_logging(&paths.log_dir, &level, cli.verbose)
+        .context("failed to initialize tracing subscriber")?;
+
+    tracing::debug!(
+        core_version = nexus_worker_core::VERSION,
+        "nexus-worker parsed CLI"
+    );
 
     match cli.command {
         Command::Register { name } => handle_register(&paths, name).await,
