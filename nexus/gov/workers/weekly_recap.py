@@ -155,20 +155,21 @@ class GovWeeklyRecapWorker(ReactiveWorker):
         except Exception as exc:
             logger.warning("Recap storage failed: {}", exc)
 
-        # Thematic classification of recent positions
+        # Thematic classification of ALL unclassified positions
         if self._router:
             try:
                 async with get_db() as conn:
                     cursor = await conn.execute(
                         """SELECT * FROM gov_positions
-                           WHERE metadata IS NULL OR metadata NOT LIKE '%theme%'
-                           ORDER BY created_at DESC LIMIT 30"""
+                           WHERE metadata IS NULL OR metadata NOT LIKE '%"theme"%'
+                           ORDER BY created_at DESC LIMIT 20"""
                     )
                     unclassified = [_row_to_dict(r) for r in await cursor.fetchall()]
 
                 from nexus.engine import TaskType
 
-                for pos in unclassified[:10]:
+                classified_count = 0
+                for pos in unclassified:
                     subject = pos.get("subject", "")
                     text = pos.get("position_text", "")
                     if not subject and not text:
@@ -207,8 +208,16 @@ class GovWeeklyRecapWorker(ReactiveWorker):
                                     (json.dumps(meta, ensure_ascii=False), pos["id"]),
                                 )
                                 await conn.commit()
+                            classified_count += 1
                     except Exception as exc:
                         logger.debug("Theme classification LLM failed: {}", exc)
+
+                if classified_count:
+                    logger.info(
+                        "Thematic classification: {}/{} positions classified",
+                        classified_count,
+                        len(unclassified),
+                    )
             except Exception as exc:
                 logger.debug("Thematic classification failed: {}", exc)
 

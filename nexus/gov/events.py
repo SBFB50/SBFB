@@ -253,70 +253,77 @@ class GovManager:
         logger.info("GovManager stopped")
 
     async def _periodic_timer(self) -> None:
-        """Emit periodic tick events for scheduled sync workers."""
-        hourly_counter = 0
+        """Smart continuous timer — only fires ticks when workers are ready.
+
+        Checks worker queue pressure before emitting. If workers are
+        overloaded (queue > 50%), skips the cycle to let them catch up.
+        """
+        cycle = 0
 
         while self._running:
             try:
-                await asyncio.sleep(3600)  # 1 hour
-                hourly_counter += 1
+                await asyncio.sleep(300)  # 5 minutes between cycles
+                cycle += 1
 
                 if not self._bus or not self._running:
                     break
 
-                # Hourly tick
-                await self._bus.publish(NexusEvent(
-                    event_type=GovEventType.TICK_HOURLY,
-                    case_id="gov",
-                    payload={"counter": hourly_counter},
-                    source_worker="gov_timer",
-                ))
+                # Check worker pressure — skip if overloaded
+                busy_count = 0
+                for w in self._workers:
+                    q = getattr(w, '_queue', None)
+                    if q and q.qsize() > q.maxsize * 0.3:
+                        busy_count += 1
 
-                # Daily tick (every 24 hours)
-                if hourly_counter % 24 == 0:
+                if busy_count > len(self._workers) * 0.5:
+                    logger.info(
+                        "Gov timer cycle {} SKIPPED — {}/{} workers busy, letting them catch up",
+                        cycle, busy_count, len(self._workers),
+                    )
+                    continue
+
+                payload = {"cycle": cycle, "mode": "continuous"}
+
+                for tick in (
+                    GovEventType.TICK_HOURLY,
+                    GovEventType.TICK_DAILY,
+                    GovEventType.TICK_WEEKLY,
+                    GovEventType.TICK_MONTHLY,
+                ):
                     await self._bus.publish(NexusEvent(
-                        event_type=GovEventType.TICK_DAILY,
+                        event_type=tick,
                         case_id="gov",
-                        payload={"counter": hourly_counter // 24},
+                        payload=payload,
                         source_worker="gov_timer",
                     ))
 
-                # Weekly tick (every 168 hours)
-                if hourly_counter % 168 == 0:
-                    await self._bus.publish(NexusEvent(
-                        event_type=GovEventType.TICK_WEEKLY,
-                        case_id="gov",
-                        payload={"counter": hourly_counter // 168},
-                        source_worker="gov_timer",
-                    ))
-
-                # Monthly tick (every 720 hours ~ 30 days)
-                if hourly_counter % 720 == 0:
-                    await self._bus.publish(NexusEvent(
-                        event_type=GovEventType.TICK_MONTHLY,
-                        case_id="gov",
-                        payload={"counter": hourly_counter // 720},
-                        source_worker="gov_timer",
-                    ))
+                logger.debug("Gov timer cycle {} — all ticks emitted", cycle)
 
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 logger.error("Gov timer error: {}", exc)
-                await asyncio.sleep(60)  # Retry after 1 min
+                await asyncio.sleep(30)
 
     async def _initial_tick(self) -> None:
-        """Emit a TICK_DAILY shortly after startup to trigger the first sync."""
+        """Emit ALL tick types on startup — but stagger them to avoid flooding."""
         try:
             await asyncio.sleep(5)  # Let workers settle
             if self._bus and self._running:
-                await self._bus.publish(NexusEvent(
-                    event_type=GovEventType.TICK_DAILY,
-                    case_id="gov",
-                    payload={"trigger": "startup"},
-                    source_worker="gov_manager",
-                ))
-                logger.info("GovManager emitted initial TICK_DAILY")
+                for tick in (
+                    GovEventType.TICK_HOURLY,
+                    GovEventType.TICK_DAILY,
+                    GovEventType.TICK_WEEKLY,
+                    GovEventType.TICK_MONTHLY,
+                ):
+                    await self._bus.publish(NexusEvent(
+                        event_type=tick,
+                        case_id="gov",
+                        payload={"trigger": "startup"},
+                        source_worker="gov_manager",
+                    ))
+                    await asyncio.sleep(2)  # 2s between each tick type to stagger
+                logger.info("GovManager emitted ALL initial ticks (staggered)")
         except Exception as exc:
             logger.warning("GovManager initial tick failed: {}", exc)
 

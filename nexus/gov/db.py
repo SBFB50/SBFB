@@ -1246,13 +1246,14 @@ class GovernmentDatabase:
         return _dict_with_json_fields(_row_to_dict(row), "metadata")
 
     async def list_affairs_by_politician(
-        self, politician_id: str
+        self, politician_id: str, limit: int = 100, offset: int = 0,
     ) -> List[Dict[str, Any]]:
         cursor = await self._conn.execute(
             """SELECT * FROM gov_affairs
                WHERE politician_id = ?
-               ORDER BY date_start DESC, created_at DESC""",
-            (politician_id,),
+               ORDER BY date_start DESC, created_at DESC
+               LIMIT ? OFFSET ?""",
+            (politician_id, limit, offset),
         )
         rows = await cursor.fetchall()
         return [_dict_with_json_fields(_row_to_dict(r), "metadata") for r in rows]
@@ -1311,13 +1312,14 @@ class GovernmentDatabase:
         return _dict_with_json_fields(_row_to_dict(row), "metadata")
 
     async def list_declarations_by_politician(
-        self, politician_id: str
+        self, politician_id: str, limit: int = 100, offset: int = 0,
     ) -> List[Dict[str, Any]]:
         cursor = await self._conn.execute(
             """SELECT * FROM gov_declarations
                WHERE politician_id = ?
-               ORDER BY date_publication DESC, created_at DESC""",
-            (politician_id,),
+               ORDER BY date_publication DESC, created_at DESC
+               LIMIT ? OFFSET ?""",
+            (politician_id, limit, offset),
         )
         rows = await cursor.fetchall()
         return [_dict_with_json_fields(_row_to_dict(r), "metadata") for r in rows]
@@ -1415,7 +1417,7 @@ class GovernmentDatabase:
         return _dict_with_json_fields(_row_to_dict(row), "metadata")
 
     async def list_laws(
-        self, *, status: Optional[str] = None, limit: int = 200
+        self, *, status: Optional[str] = None, limit: int = 200, offset: int = 0,
     ) -> List[Dict[str, Any]]:
         conditions: List[str] = []
         params: List[Any] = []
@@ -1423,8 +1425,8 @@ class GovernmentDatabase:
             conditions.append("status = ?")
             params.append(status)
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        query = f"SELECT * FROM gov_laws {where} ORDER BY date_initial DESC, created_at DESC LIMIT ?"
-        params.append(limit)
+        query = f"SELECT * FROM gov_laws {where} ORDER BY date_initial DESC, created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
         cursor = await self._conn.execute(query, params)
         rows = await cursor.fetchall()
         return [_dict_with_json_fields(_row_to_dict(r), "metadata") for r in rows]
@@ -2082,6 +2084,8 @@ class GovernmentDatabase:
         *,
         chamber: Optional[str] = None,
         min_positions: int = 0,
+        max_nodes: int = 200,
+        max_edges: int = 500,
     ) -> Dict[str, Any]:
         """Build a relationship graph of politicians.
 
@@ -2141,6 +2145,12 @@ class GovernmentDatabase:
                 "contradiction_count": con_count,
             })
             node_ids.add(d["id"])
+
+        # Cap node count to avoid browser crash
+        if len(nodes) > max_nodes:
+            nodes.sort(key=lambda n: n["position_count"], reverse=True)
+            nodes = nodes[:max_nodes]
+            node_ids = {n["id"] for n in nodes}
 
         if not node_ids:
             return {"nodes": [], "edges": []}
@@ -2212,22 +2222,32 @@ class GovernmentDatabase:
                 "label": r["subject"],
             }, "agreement")
 
-        # 3) Party edges (same party)
+        # 3) Party edges — limit to max 3 party-mates per politician to avoid N^2 mesh
         party_groups: Dict[str, List[str]] = defaultdict(list)
         for node in nodes:
             if node["party"]:
                 party_groups[node["party"]].append(node["id"])
         for party_name, members in party_groups.items():
-            for a, b in combinations(sorted(members), 2):
-                _maybe_add(a, b, {
-                    "id": str(uuid.uuid4()),
-                    "source": a,
-                    "target": b,
-                    "type": "party",
-                    "label": party_name,
-                }, "party")
+            sorted_members = sorted(members)
+            for i, a in enumerate(sorted_members):
+                # Connect to max 3 nearest party-mates (not full mesh)
+                for b in sorted_members[i + 1: i + 4]:
+                    _maybe_add(a, b, {
+                        "id": str(uuid.uuid4()),
+                        "source": a,
+                        "target": b,
+                        "type": "party",
+                        "label": party_name,
+                    }, "party")
 
         edges = [edge for _, edge in best_edges.values()]
+
+        # Cap total edges to prevent browser crash
+        if len(edges) > max_edges:
+            # Prioritize opposition > agreement > party
+            edges.sort(key=lambda e: edge_priority.get(e.get("type", "party"), 2))
+            edges = edges[:max_edges]
+
         return {"nodes": nodes, "edges": edges}
 
     async def get_politician_connections(

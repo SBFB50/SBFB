@@ -75,7 +75,7 @@
 - Recommendations: Add at minimum a static API key header check via middleware. For production use, implement JWT-based auth with role separation (viewer vs investigator vs admin).
 
 **Hardcoded Neo4j Password in Source Code:**
-- Risk: The default Neo4j password `nexus2026` is hardcoded in `nexus/config.py` (line 68) and `docker-compose.yml` (line 18). This is committed to the repository.
+- Risk: The default Neo4j password `changeme` is hardcoded in `nexus/config.py` (line 68) and `docker-compose.yml` (line 18). This is committed to the repository.
 - Files: `nexus/config.py` (line 68), `docker-compose.yml` (line 18)
 - Current mitigation: The password is overridable via `.env` file, but the default is in source.
 - Recommendations: Remove the default password. Require explicit configuration via `.env` and fail at startup if not set.

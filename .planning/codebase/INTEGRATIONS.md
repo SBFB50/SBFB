@@ -104,7 +104,7 @@
 - Driver: `neo4j` Python async driver (`AsyncGraphDatabase`)
 - Client: `nexus/db/neo4j_db.py`
 - Connection: `bolt://localhost:7687`
-- Auth: `neo4j/nexus2026` (in `docker-compose.yml` and `settings`)
+- Auth: `neo4j/changeme` (in `docker-compose.yml` and `settings`)
 - Plugins: APOC
 - Memory: heap 512m-1g
 - Node labels: Person, Location, Phone, Vehicle, Organization, Account, Event, Evidence, Money, Hypothesis, Case
@@ -204,7 +204,7 @@
 **Secrets location:**
 - `.env` file in project root (exists, not committed)
 - `robin.env` - Robin container environment (mounted as volume)
-- Neo4j password hardcoded in `docker-compose.yml` (`nexus2026`) and `nexus/config.py` default
+- Neo4j password hardcoded in `docker-compose.yml` (`changeme`) and `nexus/config.py` default
 
 ## Webhooks & Callbacks
 

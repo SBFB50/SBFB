@@ -49,6 +49,9 @@ web/.env.local
 *.swo
 *~
 
+# Claude Code local settings
+.claude/
+
 # OS
 Thumbs.db
 .DS_Store
@@ -57,4 +60,5 @@ Thumbs.db
 models/*.gguf
 
 # Logs
+logs/
 *.log

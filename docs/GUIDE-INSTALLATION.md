@@ -213,7 +213,7 @@ nexus-robin      apurvsg/robin:latest     Up              8502->8501
 Ouvrir dans le navigateur : http://localhost:7474
 
 - Interface : Neo4j Browser
-- Identifiants par defaut : `neo4j` / `nexus2026`
+- Identifiants par defaut : `neo4j` / `changeme`
 - Le plugin APOC est installe automatiquement via `NEO4J_PLUGINS='["apoc"]'`
 - La memoire heap est configuree : 512 MB initial, 1 GB max
 
@@ -385,7 +385,7 @@ OLLAMA_BASE_URL=http://localhost:11434  # URL du serveur Ollama
 # ---- Neo4j ----
 NEO4J_URI=bolt://localhost:7687      # Protocole Bolt pour les requetes
 NEO4J_USER=neo4j                     # Utilisateur Neo4j
-NEO4J_PASSWORD=nexus2026             # Mot de passe (changer en production)
+NEO4J_PASSWORD=changeme             # Mot de passe (changer en production)
 
 # ---- ChromaDB ----
 CHROMA_HOST=localhost                # Host ChromaDB

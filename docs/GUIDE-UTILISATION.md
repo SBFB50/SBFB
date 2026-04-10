@@ -613,7 +613,7 @@ ORDER BY connections DESC
 LIMIT 10
 ```
 
-Identifiants : `neo4j` / `nexus2026`
+Identifiants : `neo4j` / `changeme`
 
 ---
 

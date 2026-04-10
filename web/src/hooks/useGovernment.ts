@@ -5,7 +5,7 @@ export function useGovStats() {
   return useQuery({
     queryKey: ['gov-stats'],
     queryFn: gov.getGovStats,
-    refetchInterval: 30_000,
+    refetchInterval: 120_000, // SSE handles real-time invalidation
   });
 }
 
@@ -142,7 +142,7 @@ export function useGovAllTranscriptions() {
 
 // Alerts
 export function useGovAlerts() {
-  return useQuery({ queryKey: ['gov-alerts'], queryFn: () => gov.getGovAlerts(), refetchInterval: 10_000 });
+  return useQuery({ queryKey: ['gov-alerts'], queryFn: () => gov.getGovAlerts() }); // SSE invalidates on gov_alert_created / gov_contradiction_found
 }
 export function useMarkAlertRead() {
   const qc = useQueryClient();
@@ -207,9 +207,17 @@ export function useGovSearch(query: string) {
   });
 }
 
+export function useGovAsk(query: string) {
+  return useQuery({
+    queryKey: ['gov-ask', query],
+    queryFn: () => gov.askGov(query),
+    enabled: query.length >= 2,
+  });
+}
+
 // Pipeline
 export function useGovWorkers() {
-  return useQuery({ queryKey: ['gov-workers'], queryFn: gov.getGovWorkers, refetchInterval: 5_000 });
+  return useQuery({ queryKey: ['gov-workers'], queryFn: gov.getGovWorkers, refetchInterval: 30_000 }); // SSE covers most data updates; worker status is fallback
 }
 export function useGovPipeline() {
   return useQuery({ queryKey: ['gov-pipeline'], queryFn: gov.getGovPipeline, refetchInterval: 10_000 });

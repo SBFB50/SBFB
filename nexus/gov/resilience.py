@@ -166,6 +166,33 @@ class SourceHealthMonitor:
         s = self._sources.get(source_name)
         return s is not None and s.status in ("healthy", "degraded", "unknown")
 
+    def get_all_health(self) -> dict:
+        """Return all source health statuses as a JSON-serializable dict.
+
+        Complements ``get_status()`` (list format) with a keyed dict that
+        is easier to look up by source name in frontend dashboards.
+        """
+        from datetime import datetime, timezone
+
+        def _epoch_to_iso(ts: float) -> str | None:
+            if not ts:
+                return None
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+        return {
+            name: {
+                "status": s.status,
+                "response_time_ms": s.response_time_ms,
+                "consecutive_failures": s.consecutive_failures,
+                "last_check": _epoch_to_iso(s.last_check),
+                "last_success": _epoch_to_iso(s.last_success),
+                "total_checks": s.total_checks,
+                "total_failures": s.total_failures,
+                "error": s.error_message or None,
+            }
+            for name, s in self._sources.items()
+        }
+
     def get_fallback_order(self, primary: str, *fallbacks: str) -> list[str]:
         """Return sources in order of preference, healthy first."""
         all_sources = [primary] + list(fallbacks)

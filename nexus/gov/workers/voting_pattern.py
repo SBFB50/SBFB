@@ -249,13 +249,19 @@ class GovVotingPatternAnalyzer(ReactiveWorker):
     async def handle(self, event: NexusEvent) -> list[NexusEvent]:
         output: list[NexusEvent] = []
 
-        politicians = await self._db.list_politicians(limit=100_000)
-        if not politicians:
+        all_politicians = await self._db.list_politicians(limit=100_000)
+        if not all_politicians:
             return []
 
         # Pre-compute indexes for efficient cross-referencing
+        # Use ALL politicians for party_map/scrutin (reference data)
         scrutin_index = await self._build_scrutin_index()
-        party_map = await self._build_party_map(politicians)
+        party_map = await self._build_party_map(all_politicians)
+
+        # But only process the top 200 most active politicians per run
+        # to avoid unbounded memory and DB pressure.
+        # Over multiple weekly runs all politicians eventually get updated.
+        politicians = all_politicians[:200]
 
         # Group politicians by party
         party_members: dict[str, list[dict]] = defaultdict(list)

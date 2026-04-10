@@ -653,7 +653,7 @@ services:
       - "7474:7474"   # Interface web Neo4j Browser
       - "7687:7687"   # Bolt protocol
     environment:
-      NEO4J_AUTH: neo4j/nexus2026
+      NEO4J_AUTH: neo4j/changeme
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_server_memory_heap_initial__size: "512m"
       NEO4J_server_memory_heap_max__size: "1g"
@@ -725,7 +725,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 # Neo4j
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=nexus2026
+NEO4J_PASSWORD=changeme
 
 # ChromaDB
 CHROMA_HOST=localhost

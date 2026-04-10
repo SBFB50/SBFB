@@ -33,6 +33,10 @@ Jinja2>=3.1,<4
 python-whois>=0.9,<1
 holehe>=1.61,<2
 
+# -- GOV Social Media --
+twikit>=2.0
+instagrapi>=2.0
+
 # -- NER & Entity Resolution --
 gliner>=2.1,<3
 rapidfuzz>=3.0,<4
@@ -42,11 +46,18 @@ phonenumbers>=8.0,<9
 courlan>=1.0,<2
 htmldate>=1.0,<2
 yt-dlp>=2024.0
+faster-whisper>=1.0
 
 # -- Vision (DINOv2 + CLIP) --
 transformers>=4.46,<5
 torch>=2.5
 torchvision>=0.20
+
+# -- GOV Vision (GovVisionWorker: scene detect, OCR, object detection) --
+opencv-python-headless>=4.8
+scenedetect[opencv]>=0.6
+paddleocr>=3.0
+ultralytics>=8.0
 
 # -- Physics Simulation --
 scipy>=1.14,<2
@@ -56,3 +67,4 @@ scipy>=1.14,<2
 # -- Utils --
 loguru>=0.7,<1
 tenacity>=9.0,<10
+psutil>=6.0,<7

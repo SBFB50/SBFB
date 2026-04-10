@@ -21,6 +21,9 @@ import httpx
 
 EU_PARL_API = "https://data.europarl.europa.eu/api/v2/meps/show-current"
 
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 2.0  # seconds, doubled each retry
+
 
 class GovEUParliamentSyncWorker(ReactiveWorker):
     """Sync French MEPs from the European Parliament open data API weekly."""
@@ -32,21 +35,70 @@ class GovEUParliamentSyncWorker(ReactiveWorker):
         super().__init__(bus)
         self._db = db
 
+    # ------------------------------------------------------------------
+    # HTTP helper with retry + exponential backoff
+    # ------------------------------------------------------------------
+
+    async def _fetch_with_retry(
+        self,
+        url: str,
+        params: dict | None = None,
+        headers: dict | None = None,
+        *,
+        max_retries: int = _MAX_RETRIES,
+        timeout: float = 30.0,
+    ) -> dict | None:
+        """Fetch JSON with retry and exponential backoff."""
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.get(url, params=params, headers=headers)
+                    resp.raise_for_status()
+                    return resp.json()
+            except httpx.HTTPStatusError as exc:
+                # Don't retry 4xx client errors (except 429 Too Many Requests)
+                if exc.response.status_code < 500 and exc.response.status_code != 429:
+                    logger.warning(
+                        "[{}] HTTP {}: {}", self.name, exc.response.status_code, url[:80],
+                    )
+                    return None
+                if attempt < max_retries - 1:
+                    wait = _RETRY_BACKOFF * (2 ** attempt)
+                    logger.warning(
+                        "[{}] Fetch attempt {}/{} failed (HTTP {}), retrying in {:.0f}s",
+                        self.name, attempt + 1, max_retries, exc.response.status_code, wait,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error(
+                        "[{}] Fetch failed after {} attempts: {}", self.name, max_retries, exc,
+                    )
+                    return None
+            except Exception as exc:
+                if attempt < max_retries - 1:
+                    wait = _RETRY_BACKOFF * (2 ** attempt)
+                    logger.warning(
+                        "[{}] Fetch attempt {}/{} failed: {}, retrying in {:.0f}s",
+                        self.name, attempt + 1, max_retries, exc, wait,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error(
+                        "[{}] Fetch failed after {} attempts: {}", self.name, max_retries, exc,
+                    )
+                    return None
+        return None
+
     async def handle(self, event: NexusEvent) -> list[NexusEvent]:
         output: list[NexusEvent] = []
 
-        try:
-            logger.info("[gov_eu_parliament_sync] Starting French MEP sync from EU Parliament API...")
+        logger.info("[gov_eu_parliament_sync] Starting French MEP sync from EU Parliament API...")
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(EU_PARL_API, headers={"Accept": "application/json"})
-                if resp.status_code != 200:
-                    logger.warning("[gov_eu_parliament_sync] EU Parliament API returned {}", resp.status_code)
-                    return output
-                data = resp.json()
-
-        except Exception as exc:
-            logger.warning("[gov_eu_parliament_sync] EU Parliament API failed: {}", exc)
+        data = await self._fetch_with_retry(
+            EU_PARL_API, headers={"Accept": "application/json"},
+        )
+        if data is None:
+            logger.warning("[gov_eu_parliament_sync] EU Parliament API unavailable after retries")
             return output
 
         # Parse MEPs -- API structure varies, handle multiple formats

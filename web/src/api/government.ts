@@ -46,7 +46,7 @@ export const getGovSubjects = () => api.get('/government/subjects').then(r => r.
 
 // Graph
 export const getGovGraph = (params?: Record<string, string>) =>
-  api.get('/government/graph', { params: { ...params, min_positions: '1' } }).then(r => r.data);
+  api.get('/government/graph', { params: { ...params, min_positions: '5', max_nodes: '150', max_edges: '500' } }).then(r => r.data);
 export const getGovPoliticianGraph = (id: string) =>
   api.get(`/government/graph/politician/${id}`).then(r => r.data);
 export const getGovSubjectGraph = (subject: string) =>

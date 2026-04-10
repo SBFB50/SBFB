@@ -97,6 +97,7 @@ async def _run_scan_bg(
     resume_scan_id: str | None = None,
     resume_phase: str = "",
     resume_offset: int = 0,
+    bus: Any = None,
 ) -> None:
     """Run a full government data scan using PoliGraph API.
 
@@ -104,6 +105,7 @@ async def _run_scan_bg(
         resume_scan_id: If set, resume an interrupted scan instead of creating a new one.
         resume_phase: Phase name to resume from (skip earlier phases).
         resume_offset: Offset within the resume phase (e.g. politician index).
+        bus: Optional EventBus for emitting events to reactive workers.
     """
     from nexus.gov.scraper import ParliamentScraper
 
@@ -140,6 +142,7 @@ async def _run_scan_bg(
                 scan_id=scan_id,
                 resume_phase=resume_phase,
                 resume_offset=resume_offset,
+                bus=bus,
             )
 
             _scan_status["phase"] = "Scan termine"
@@ -156,6 +159,9 @@ async def _run_scan_bg(
             )
 
         logger.info("Government scan complete: {}", stats)
+
+        # Clean up the shared httpx client
+        await scraper.cleanup()
 
     except asyncio.CancelledError:
         logger.info("Government scan CANCELLED by user")
@@ -481,11 +487,16 @@ async def list_subjects(
 @router.get("/graph")
 async def get_government_graph(
     chamber: str | None = None,
-    min_positions: int = 0,
+    min_positions: int = 5,
+    max_nodes: int = 150,
+    max_edges: int = 500,
     gov_db: GovernmentDatabase = Depends(get_government_database),
 ):
-    """Full political network graph."""
-    return await gov_db.get_graph_data(chamber=chamber, min_positions=min_positions)
+    """Full political network graph (capped to prevent browser crash)."""
+    return await gov_db.get_graph_data(
+        chamber=chamber, min_positions=min_positions,
+        max_nodes=min(max_nodes, 300), max_edges=min(max_edges, 1000),
+    )
 
 
 @router.get("/graph/politician/{politician_id}")
@@ -514,7 +525,7 @@ async def get_subject_graph(
 # ====================================================================
 
 @router.post("/scan", status_code=202)
-async def trigger_scan(resume: bool = False) -> dict:
+async def trigger_scan(request: Request, resume: bool = False) -> dict:
     """Launch a government data scan. Returns 202. Cancel with DELETE /scan.
 
     Pass ``?resume=true`` to resume the last interrupted scan from its
@@ -524,6 +535,10 @@ async def trigger_scan(resume: bool = False) -> dict:
     if _scan_status["running"]:
         raise HTTPException(409, "Un scan est deja en cours")
     _reset_scan_status()
+
+    # Extract EventBus from GovManager (if running) so scan emits events
+    gov_manager = getattr(request.app.state, "gov_manager", None)
+    bus = getattr(gov_manager, "_bus", None) if gov_manager else None
 
     if resume:
         # Check for a resumable (interrupted/running) scan
@@ -535,6 +550,7 @@ async def trigger_scan(resume: bool = False) -> dict:
                     resume_scan_id=last["id"],
                     resume_phase=last.get("current_phase", ""),
                     resume_offset=last.get("phase_offset", 0),
+                    bus=bus,
                 ))
                 return {
                     "status": "scan_resumed",
@@ -544,7 +560,7 @@ async def trigger_scan(resume: bool = False) -> dict:
                     ),
                 }
 
-    _scan_task = asyncio.create_task(_run_scan_bg())
+    _scan_task = asyncio.create_task(_run_scan_bg(bus=bus))
     return {"status": "scan_started", "message": "Scan parlementaire lance"}
 
 

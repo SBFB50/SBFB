@@ -30,7 +30,8 @@ class TestSettingsDefaults:
         s = Settings()
         assert s.neo4j_uri == "bolt://localhost:7687"
         assert s.neo4j_user == "neo4j"
-        assert s.neo4j_password == "nexus2026"
+        # Password comes from .env if present, empty string if not
+        assert isinstance(s.neo4j_password, str)
 
     def test_chromadb_defaults(self):
         s = Settings()

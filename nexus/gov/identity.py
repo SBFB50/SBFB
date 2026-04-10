@@ -28,9 +28,11 @@ from loguru import logger
 
 try:
     from rapidfuzz import fuzz, process
+    from rapidfuzz.distance import JaroWinkler
 except ImportError:
     fuzz = None
     process = None
+    JaroWinkler = None  # type: ignore[assignment,misc]
 
 
 # French name particles to strip for matching
@@ -71,7 +73,9 @@ def normalize_name(name: str) -> str:
 def compute_similarity(name_a: str, name_b: str) -> float:
     """Compute similarity score (0.0-1.0) between two politician names.
 
-    Uses RapidFuzz WRatio if available, falls back to basic word overlap.
+    Uses RapidFuzz Jaro-Winkler similarity if available, falls back to basic
+    word overlap.  Jaro-Winkler is preferred over WRatio for person names
+    because it rewards matching prefixes (common in French names).
     """
     norm_a = normalize_name(name_a)
     norm_b = normalize_name(name_b)
@@ -79,8 +83,8 @@ def compute_similarity(name_a: str, name_b: str) -> float:
         return 0.0
     if norm_a == norm_b:
         return 1.0
-    if fuzz is not None:
-        return fuzz.WRatio(norm_a, norm_b) / 100.0
+    if JaroWinkler is not None:
+        return JaroWinkler.similarity(norm_a, norm_b)
     # Fallback: basic word overlap
     set_a, set_b = set(norm_a.split()), set(norm_b.split())
     if not set_a or not set_b:
@@ -91,11 +95,19 @@ def compute_similarity(name_a: str, name_b: str) -> float:
 class IdentityResolver:
     """Resolves politician identities across multiple data sources."""
 
+    # Class-level defaults (kept for backward compatibility)
     AUTO_LINK_THRESHOLD = 0.95
     REVIEW_THRESHOLD = 0.70
 
-    def __init__(self, gov_db: Any) -> None:
+    def __init__(
+        self,
+        gov_db: Any,
+        auto_threshold: float = 0.95,
+        review_threshold: float = 0.70,
+    ) -> None:
         self._db = gov_db
+        self.AUTO_LINK_THRESHOLD = auto_threshold
+        self.REVIEW_THRESHOLD = review_threshold
         self._cache: dict[str, str] = {}  # normalized_name -> politician_id
 
     async def build_cache(self) -> None:
@@ -139,17 +151,20 @@ class IdentityResolver:
             return {"politician_id": existing["id"], "confidence": 1.0, "action": "auto"}
 
         # Fuzzy match
-        if not self._cache or fuzz is None:
+        if not self._cache or JaroWinkler is None:
             return None
 
         candidates = list(self._cache.keys())
-        matches = process.extract(norm, candidates, scorer=fuzz.WRatio, limit=3)
+        matches = process.extract(
+            norm, candidates, scorer=JaroWinkler.similarity, limit=3,
+        )
 
         if not matches:
             return None
 
         best_name, best_score, _ = matches[0]
-        confidence = best_score / 100.0
+        # JaroWinkler.similarity already returns 0.0-1.0
+        confidence = best_score
         pol_id = self._cache[best_name]
 
         if confidence >= self.AUTO_LINK_THRESHOLD:
@@ -161,6 +176,8 @@ class IdentityResolver:
             return {"politician_id": pol_id, "confidence": confidence, "action": "auto"}
 
         if confidence >= self.REVIEW_THRESHOLD:
+            # Persist review items so they are not lost
+            await self._link(pol_id, source, external_id, confidence=confidence)
             logger.info(
                 "Identity needs review: '{}' ~ '{}' ({:.2f})",
                 name, best_name, confidence,
@@ -176,12 +193,19 @@ class IdentityResolver:
         source: str,
         name_key: str = "name",
         id_key: str = "id",
-    ) -> dict[str, str]:
-        """Resolve a batch of entries. Returns {external_id: politician_id} for resolved ones."""
+    ) -> dict[str, Any]:
+        """Resolve a batch of entries.
+
+        Returns a dict with:
+          - ``resolved``: ``{external_id: politician_id}`` for auto-linked items
+          - ``review``: list of ``{ext_id, politician_id, confidence, source}``
+          - ``stats``: ``{auto, review, unmatched}`` counts
+        """
         if not self._cache:
             await self.build_cache()
 
         resolved: dict[str, str] = {}
+        review_items: list[dict[str, Any]] = []
         auto_count = 0
         review_count = 0
 
@@ -196,13 +220,24 @@ class IdentityResolver:
                 resolved[str(ext_id)] = result["politician_id"]
                 auto_count += 1
             elif result and result["action"] == "review":
+                review_items.append({
+                    "ext_id": str(ext_id),
+                    "politician_id": result["politician_id"],
+                    "confidence": result["confidence"],
+                    "source": source,
+                })
                 review_count += 1
 
+        unmatched = len(entries) - auto_count - review_count
         logger.info(
             "Batch resolve ({}): {} auto-linked, {} need review, {} unmatched",
-            source, auto_count, review_count, len(entries) - auto_count - review_count,
+            source, auto_count, review_count, unmatched,
         )
-        return resolved
+        return {
+            "resolved": resolved,
+            "review": review_items,
+            "stats": {"auto": auto_count, "review": review_count, "unmatched": unmatched},
+        }
 
     async def _link(
         self, politician_id: str, source: str, external_id: str, confidence: float

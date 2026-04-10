@@ -31,6 +31,8 @@ import httpx
 from loguru import logger
 
 from nexus.config import settings
+from nexus.events.types import NexusEvent
+from nexus.gov.events import GovEventType
 
 # -- Official source URLs --------------------------------------------------
 AN_SCRUTINS_ZIP = (
@@ -65,6 +67,19 @@ class ParliamentScraper:
     def __init__(self, health_monitor: Any = None) -> None:
         self._rate_limit = getattr(settings, "gov_scan_rate_limit", 2.0)
         self._health_monitor = health_monitor
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Return a shared httpx client, creating one if needed."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+        return self._client
+
+    async def cleanup(self) -> None:
+        """Close the shared httpx client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     # ------------------------------------------------------------------
     # Source health check (integrates with resilience.SourceHealthMonitor)
@@ -101,12 +116,12 @@ class ParliamentScraper:
     async def _get_json(
         self, url: str, params: dict | None = None, *, timeout: float = 30.0
     ) -> Any | None:
+        client = await self._get_client()
         for attempt in range(_MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=timeout) as c:
-                    r = await c.get(url, params=params)
-                    r.raise_for_status()
-                    return r.json()
+                r = await client.get(url, params=params, timeout=timeout)
+                r.raise_for_status()
+                return r.json()
             except httpx.HTTPStatusError as exc:
                 # Don't retry 4xx client errors (except 429)
                 if exc.response.status_code < 500 and exc.response.status_code != 429:
@@ -130,12 +145,12 @@ class ParliamentScraper:
         return None
 
     async def _download_bytes(self, url: str, *, timeout: float = 120) -> bytes | None:
+        client = await self._get_client()
         for attempt in range(_MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=timeout) as c:
-                    r = await c.get(url)
-                    r.raise_for_status()
-                    return r.content
+                r = await client.get(url, timeout=timeout)
+                r.raise_for_status()
+                return r.content
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code < 500 and exc.response.status_code != 429:
                     logger.warning("Download HTTP {} {}: {}", exc.response.status_code, url[:80], exc)
@@ -159,12 +174,12 @@ class ParliamentScraper:
 
     async def _get_csv(self, url: str, *, delimiter: str = ";") -> list[dict]:
         """Fetch CSV with configurable delimiter (default semicolon for French gov data)."""
+        client = await self._get_client()
         for attempt in range(_MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=60.0) as c:
-                    r = await c.get(url)
-                    r.raise_for_status()
-                    text = r.text
+                r = await client.get(url, timeout=60.0)
+                r.raise_for_status()
+                text = r.text
                 reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
                 return list(reader)
             except Exception as exc:
@@ -637,19 +652,20 @@ class ParliamentScraper:
 
     async def _run_sparql(self, query: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against Wikidata with retry."""
+        client = await self._get_client()
         for attempt in range(_MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=90.0) as c:
-                    r = await c.get(
-                        WIKIDATA_SPARQL,
-                        params={"query": query},
-                        headers={
-                            "Accept": "application/json",
-                            "User-Agent": "NEXUS-Gov/1.0 (https://github.com/nexus; contact@nexus.dev)",
-                        },
-                    )
-                    r.raise_for_status()
-                    data = r.json()
+                r = await client.get(
+                    WIKIDATA_SPARQL,
+                    params={"query": query},
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "NEXUS-Gov/1.0 (https://github.com/nexus; contact@nexus.dev)",
+                    },
+                    timeout=90.0,
+                )
+                r.raise_for_status()
+                data = r.json()
 
                 results = []
                 for binding in data.get("results", {}).get("bindings", []):
@@ -690,6 +706,7 @@ class ParliamentScraper:
         scan_id: str | None = None,
         resume_phase: str = "",
         resume_offset: int = 0,
+        bus: Any = None,
     ) -> dict[str, int]:
         """Full autonomous scan from official sources.
 
@@ -808,58 +825,80 @@ class ParliamentScraper:
                 pass
 
             vote_stored = 0
-            skipped = 0
             # Resume offset for PoliGraph loop
             poligraph_start = resume_offset if resume_phase == "poligraph_votes" else 0
 
-            for i, pol in enumerate(all_pols[poligraph_start:], start=poligraph_start):
-                slug = pol.get("slug", "")
-                if not slug:
-                    continue
+            # Filter to scannable politicians (have slug, not recently scanned)
+            pols_to_scan = [
+                pol for pol in all_pols[poligraph_start:]
+                if pol.get("slug") and pol["id"] not in recently_scanned
+            ]
 
-                # Skip politicians scanned recently (last 24h)
-                if pol["id"] in recently_scanned:
-                    skipped += 1
-                    if skipped % 100 == 0:
-                        _p("Votes PoliGraph...", f"Skip {skipped} recemment scannes, {pol['name']} ({i+1}/{len(all_pols)})")
-                    continue
+            _p("Votes PoliGraph...", f"0/{len(pols_to_scan)} (5 concurrent)")
 
+            # Process in chunks of 5 (parallel fetch, sequential store)
+            chunk_size = 5
+            for chunk_start in range(0, len(pols_to_scan), chunk_size):
                 self._check_cancelled()
-                _p("Votes PoliGraph...", f"{pol['name']} ({i+1 - skipped}/{len(all_pols) - len(recently_scanned)})")
+                chunk = pols_to_scan[chunk_start:chunk_start + chunk_size]
 
-                await asyncio.sleep(self._rate_limit)
-                votes = await self.fetch_politician_votes(slug, max_pages=2)
-                stats["votes_found"] += len(votes)
-
-                for v in votes:
-                    url = v.get("source_url", "")
-                    if not url:
-                        continue
+                # Fetch votes for up to 5 politicians concurrently
+                async def _fetch(pol: dict) -> tuple[dict, list[dict]]:
                     try:
-                        await gov_db.create_position(
-                            politician_id=pol["id"],
-                            subject=v.get("subject", "Vote")[:200],
-                            position_type="vote",
-                            position_text=v.get("position_text", "")[:500],
-                            stance=v.get("stance"),
-                            source_url=url,
-                            source_type="assemblee_nationale",
-                            date=v.get("date", ""),
-                        )
-                        vote_stored += 1
-                        stats["votes_new"] += 1
-                    except IntegrityError:
-                        pass  # Duplicate — expected
-                    except Exception as exc:
-                        logger.debug("Vote store for {}: {}", pol["name"], exc)
+                        return pol, await self.fetch_politician_votes(pol["slug"], max_pages=2)
+                    except Exception:
+                        return pol, []
+
+                results = await asyncio.gather(*[_fetch(p) for p in chunk])
+
+                # Store results sequentially (SQLite is single-writer)
+                for pol, votes in results:
+                    stats["votes_found"] += len(votes)
+                    for v in votes:
+                        url = v.get("source_url", "")
+                        if not url:
+                            continue
+                        try:
+                            await gov_db.create_position(
+                                politician_id=pol["id"],
+                                subject=v.get("subject", "Vote")[:200],
+                                position_type="vote",
+                                position_text=v.get("position_text", "")[:500],
+                                stance=v.get("stance"),
+                                source_url=url,
+                                source_type="assemblee_nationale",
+                                date=v.get("date", ""),
+                            )
+                            vote_stored += 1
+                            stats["votes_new"] += 1
+                        except IntegrityError:
+                            pass  # Duplicate — expected
+                        except Exception as exc:
+                            logger.debug("Vote store for {}: {}", pol["name"], exc)
+
+                # Event emission moved to end of PoliGraph loop (single final emit)
 
                 # Checkpoint + commit every 50 politicians
-                if (i + 1) % 50 == 0:
+                abs_offset = poligraph_start + chunk_start + chunk_size
+                if abs_offset % 50 == 0:
                     await gov_db._conn.commit()
-                    await _checkpoint("poligraph_votes", i + 1)
-                    await asyncio.sleep(0)  # yield
+                    await _checkpoint("poligraph_votes", abs_offset)
 
-            logger.info("PoliGraph votes: {} found, {} new, {} skipped (recently scanned)", stats["votes_found"], vote_stored, skipped)
+                _p("Votes PoliGraph...", f"{min(chunk_start + chunk_size, len(pols_to_scan))}/{len(pols_to_scan)}")
+                await asyncio.sleep(self._rate_limit)  # rate limit between chunks
+
+            logger.info(
+                "PoliGraph votes: {} found, {} new, {} skipped (recently scanned)",
+                stats["votes_found"], vote_stored, len(recently_scanned),
+            )
+            # Final event emit for any remaining votes
+            if bus and vote_stored > 0:
+                await bus.publish(NexusEvent(
+                    event_type=GovEventType.GOV_POSITION_ADDED,
+                    case_id="gov",
+                    payload={"batch_size": vote_stored, "total": stats["votes_new"], "source": "scan_complete"},
+                    source_worker="parliament_scraper",
+                ))
             await _checkpoint("poligraph_votes")
         else:
             _p("Skip poligraph_votes (deja termine)")
@@ -1218,6 +1257,16 @@ class ParliamentScraper:
 
             stats["affairs_new"] = affairs_stored
             logger.info("PoliGraph affairs: {} found, {} new", stats["affairs_found"], affairs_stored)
+
+            # Emit event for reactive workers (contradiction analyzer, neo4j sync, etc.)
+            if bus and affairs_stored > 0:
+                await bus.publish(NexusEvent(
+                    event_type=GovEventType.GOV_AFFAIR_ADDED,
+                    case_id="gov",
+                    payload={"count": affairs_stored, "source": "scan"},
+                    source_worker="parliament_scraper",
+                ))
+
             await _checkpoint("affairs")
         else:
             _p("Skip affairs (deja termine)")

@@ -25,12 +25,30 @@ function extractErrorMessage(error: unknown): string {
   return 'Unknown error';
 }
 
+/** Check if error is a backend-not-ready issue (502/503/network). */
+function isBackendStarting(error: unknown): boolean {
+  if (error instanceof AxiosError) {
+    const status = error.response?.status;
+    return status === 502 || status === 503 || error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED';
+  }
+  return false;
+}
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5000,
       refetchInterval: 10000,
-      retry: 1,
+      retry: (failureCount, error) => {
+        // Retry more aggressively if backend is still starting up
+        if (isBackendStarting(error)) return failureCount < 20;
+        return failureCount < 2;
+      },
+      retryDelay: (attemptIndex, error) => {
+        // Wait longer between retries if backend is booting
+        if (isBackendStarting(error)) return Math.min(3000, 1000 * (attemptIndex + 1));
+        return 1000;
+      },
     },
   },
   queryCache: new QueryCache({
@@ -39,6 +57,8 @@ export const queryClient = new QueryClient({
       if (query.state.data !== undefined) return;
       // Skip toasts for queries that opt out via meta
       if (query.meta?.silent) return;
+      // Don't spam toasts while backend is starting
+      if (isBackendStarting(error)) return;
       const msg = extractErrorMessage(error);
       showToast('error', msg);
     },
