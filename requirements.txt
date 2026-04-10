@@ -21,6 +21,10 @@ aiosqlite>=0.21,<1
 # -- LLM --
 ollama>=0.4,<1
 
+# -- Compute (distributed GPU, Ed25519 signing, CLI dashboards) --
+cryptography>=43,<47
+rich>=13,<15
+
 # -- Ingestion --
 PyMuPDF>=1.25,<2
 Pillow>=11,<12
