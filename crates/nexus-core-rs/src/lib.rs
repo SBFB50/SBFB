@@ -31,8 +31,14 @@
 #![deny(rust_2018_idioms)]
 #![warn(missing_docs)]
 
+pub mod crypto;
 pub mod error;
 pub mod node;
+pub mod task;
+pub mod verification;
 
+pub use crypto::{blake3_hash, verify, Blake3Chain, KeyPair};
 pub use error::{NexusError, Result};
 pub use node::{create_node, Node};
+pub use task::{canonical_bytes, Claim, ResultEntry, ResultPayload, Task, TaskEntry};
+pub use verification::{spot_check_rate, CheckStatus, LayerResult, VerificationReport, Verifier};
