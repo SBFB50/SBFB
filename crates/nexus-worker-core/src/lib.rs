@@ -42,6 +42,7 @@
 #![deny(rust_2018_idioms)]
 
 pub mod config;
+pub mod gpu;
 
 /// Version of the `nexus-worker-core` crate, taken from
 /// `CARGO_PKG_VERSION` at compile time. The `nexus-worker` binary

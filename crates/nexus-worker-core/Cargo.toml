@@ -41,6 +41,12 @@ toml = { workspace = true }
 # CLI output so users can paste it into a coordinator ACL.
 hex = { workspace = true }
 
+# W4: NVIDIA GPU monitoring. nvml-wrapper loads libnvidia-ml.so
+# (or nvml.dll on Windows) via libloading at runtime, so the
+# crate can be unconditionally linked and falls back gracefully
+# to the NoopBackend on systems without an NVIDIA driver.
+nvml-wrapper = { workspace = true }
+
 # Observability — the headless engine logs everything through
 # tracing. The binary configures the subscriber; this crate only
 # emits events so it stays agnostic to how they get consumed
