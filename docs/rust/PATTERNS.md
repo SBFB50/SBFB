@@ -476,6 +476,173 @@ no more.
 
 ---
 
+## Sprint 2 audit (2026-04-10)
+
+Independent verification of 9 Sprint 2 modules by 9 parallel agents,
+after commit `626d7eb`. Each agent cross-checked the code against
+(a) the plan `magical-marinating-phoenix.md`, (b) Context7 docs,
+(c) the local `~/.cargo/registry/...` source for iroh 0.97 crates,
+and (d) ran `cargo test --lib <module>`. Reports stored in
+`.planning/audit_sprint2/S{1..9}_*.md`.
+
+### Scorecard
+
+| # | Module          | Tests | Plan conformance           | Severity |
+|---|-----------------|-------|----------------------------|----------|
+| 1 | crypto.rs       | 15/15 | 100% (bonus `load_or_generate`) | clean |
+| 2 | task.rs         | 10/10 | 100%                       | minor tech debt |
+| 3 | verification.rs | 8/8   | 100% numeric fidelity      | 1 low contract drift |
+| 4 | node.rs         | 4/4   | ALPN stack + stable id OK  | **1 critical** |
+| 5 | docs.rs         | 3/3 (2-node sync PASS) | scope gap | **1 blocker for S3** |
+| 6 | gossip.rs       | 2/2   | full API wrap              | 1 future bindings risk |
+| 7 | blobs.rs        | 4/4   | scope gap                  | **1 blocker for S3** |
+| 8 | discovery.rs    | 3/3   | scope gap (read-only)      | 1 scope, 1 quality |
+| 9 | pyo3 bindings   | smoke PASS + `cargo check` clean | 100% | 2 minor |
+
+Aggregate: **49 Rust unit tests + 1 Python smoke test green**. No
+compilation errors. No `.unwrap()` in production code anywhere in
+the stack.
+
+### Critical finding — Node shutdown race (S4)
+
+`crates/nexus-core-rs/src/node.rs:140` — `Node::shutdown` calls
+`drop(self.router)` and then `self.endpoint.close().await`. Per
+iroh 0.97 `protocol.rs:63-66`, `Router` carries an
+`AbortOnDropHandle`: dropping it aborts the run-loop task immediately
+and skips the graceful sequence (`protocols.shutdown()` →
+`handler_cancel_token.cancel()` → `endpoint.close()`). The outer
+`endpoint.close().await` then races with the router's own
+abort-path close, potentially double-closing the endpoint.
+
+**Correct pattern**:
+
+```rust
+pub async fn shutdown(self) -> Result<()> {
+    self.router.shutdown().await?; // drives graceful teardown,
+                                    // already closes endpoint
+    Ok(())
+}
+```
+
+The existing tests pass only because the loopback race window is
+tiny. Under real load this leaks in-flight streams. **Must be
+fixed before Sprint 3** because the worker binary will call
+`shutdown` on SIGINT regularly.
+
+### Scope gaps blocking Sprint 3
+
+Two modules built a strict subset of what the plan required. Both
+gaps block the Sprint 3 worker:
+
+**S5 docs.rs — missing `query_prefix`**
+: The plan Day 3 line is `"query par prefix, subscribe stream,
+  export/import tickets"`. `subscribe` and share/import tickets are
+  wrapped, but no prefix-scan method exists on `DocHandle`. The
+  Sprint 3 worker binary will need to scan task-doc entries by
+  prefix (`task:*`, `claim:*`, `result:*`) — without this, the
+  worker cannot iterate pending tasks. Also missing:
+  `author_list()`, `list()` for listing all docs on a node.
+
+**S7 blobs.rs — missing `fetch via ticket`, `unpin`, `list_pinned`**
+: The plan Day 5 line is
+  `"fetch via ticket, pin, unpin, list_pinned"`. The wrapper has
+  `add_bytes` / `get_bytes` / `has` only. The curator-list flow in
+  the architecture is "gossip announces a blob ticket → worker
+  fetches via ticket" — that whole code path has no wrapper yet.
+
+Both can be added in <1 day each, before Sprint 3 begins or as
+Sprint 3 Day 0.
+
+### Tech debt logged (not blocking Sprint 3)
+
+1. **S2 cross-language canonical bytes** —
+   `crates/nexus-core-rs/src/task.rs:309`, `canonical_bytes()` uses
+   `serde_json::to_vec` which emits **struct fields in declaration
+   order**. Python's `json.dumps(sort_keys=True)` sorts
+   **alphabetically**. `BTreeMap` keys inside `metadata` are fine,
+   but the top-level `Task` / `Result` field order is fragile. This
+   is NOT a bug today (Rust signs and verifies in a closed loop),
+   but **will silently break** the moment a Python coordinator in
+   Sprint 4 needs to produce canonical bytes for a `Task` and sign
+   it. Fix options: (a) use `#[serde(rename_all = ...)]` + custom
+   serializer that sorts keys, (b) define a canonical JSON writer
+   with explicit key order. Decide before Sprint 4 Day 1.
+
+2. **S2 missing Claim signed envelope** —
+   `task.rs:259` — `Claim` has `new()` but no `sign()` / `verify`
+   methods. The LWW race-condition described in the docstring
+   requires the coordinator to authenticate claims, but the type
+   system doesn't enforce it. Add `ClaimEntry { claim, pubkey, sig
+   }` in Sprint 3 when the worker actually writes claims.
+
+3. **S2 no domain-separation prefix** — canonical bytes carry no
+   type tag. A valid `canonical_bytes(&claim)` is structurally
+   similar to `canonical_bytes(&task)`. Prefix with e.g.
+   `b"nexus-task-v1:"` / `b"nexus-result-v1:"` / `b"nexus-claim-v1:"`.
+
+4. **S3 Layer 3 `passed` contract drift** —
+   `verification.rs:229` returns `passed_overall = false` when
+   logprobs check fails, but the Python reference
+   (`nexus/compute/verification.py:251`) returns `passed=True`
+   (only `trust_delta = -5` signals). Rust behavior is semantically
+   sounder but not a faithful port. If any Python caller keys
+   dispatch on `passed=True → keep dispatching`, it will incorrectly
+   halt. Decision: either align Rust to Python, or align Python to
+   Rust when the coordinator is ported.
+
+5. **S6 `GossipClient<'a>` lifetime** —
+   `gossip.rs:104-107` — `GossipClient` holds `&'a Gossip`. S9
+   bindings got away with this by never storing a `GossipClient`
+   across the FFI boundary, but any future binding that needs a
+   long-lived Python `Gossip` handle will hit the borrow checker.
+   Fix: change the field to owned `Gossip` (cheap clone via its
+   internal `Arc`).
+
+6. **S8 pkarr discovery not implemented** —
+   `discovery.rs` only wraps local-address read. The plan S8 line
+   also requires `publish pkarr record`, `resolve(node_id) →
+   endpoints`, `periodic refresh`. Module doc explicitly defers to
+   Sprint 4 — acceptable, but the plan's own acceptance criteria
+   for S8 are unmet. Flag as Sprint 4 Day 1.
+
+7. **S8 `my_addr()` no internal timeout** —
+   `discovery.rs:80-133` polls up to 20 `updated().await` cycles
+   without a wall-clock timeout. A Python caller without
+   `asyncio.wait_for` can hang if the n0 relay is unreachable. Add
+   `tokio::time::timeout` internally with a configurable duration.
+
+8. **S9 `generate_secret` swallows errors** —
+   `nexus-core-py/src/lib.rs:258-259` — `d.set_item(...).ok()` eats
+   OOM errors. Change to `?` and return `PyResult`.
+
+9. **S9 `Blobs::get_bytes` assumes 32-byte hash** —
+   `lib.rs:477` — `array32()` cast on the returned hash vec. True
+   for BLAKE3 today but not enforced in bindings.
+
+10. **S1 TOCTOU on key file perms** —
+    `crypto.rs:133-134` — `fs::write` then `set_owner_only_perms`.
+    Window is microseconds on `tempdir`, but noted for
+    high-sensitivity environments.
+
+### Conclusion / go-no-go for Sprint 3
+
+- 1 critical bug (S4 shutdown) → **fix in a dedicated commit** before
+  Sprint 3 begins.
+- 2 plan scope gaps (S5 query_prefix, S7 fetch-by-ticket) → **add in
+  a second dedicated commit** before Sprint 3 begins (or as Sprint 3
+  Day 0 — they're a prerequisite for the worker binary).
+- 10 tech-debt items → tracked here, fix opportunistically in
+  Sprint 3/4 when touched, with S2 canonical bytes and S6 lifetime
+  as the two "must address before Sprint 4 Day 1" items.
+
+Nothing in the audit invalidates the Sprint 2 architecture choices.
+iroh 0.97 is correctly wired; the Rust port of the Python verifier
+preserves all numeric deltas; PyO3 0.28 bindings smoke-test green
+end-to-end. Sprint 3 is clear to start once the 3 blockers above
+land as two clean commits.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

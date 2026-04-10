@@ -8,8 +8,9 @@
 //!
 //! All three protocols are wired through an iroh [`Router`] which
 //! multiplexes incoming connections by ALPN and dispatches them to
-//! the right handler. Dropping the `Router` via `Node::shutdown`
-//! cleanly closes all handlers.
+//! the right handler. `Node::shutdown` delegates to
+//! [`Router::shutdown`] which runs the graceful teardown sequence
+//! (cancel-token → protocol handlers drain → `Endpoint::close`).
 //!
 //! ## Creation
 //!
@@ -129,16 +130,31 @@ impl Node {
 
     /// Gracefully shut down the node.
     ///
-    /// Drops the Router (closing all protocol handlers), then
-    /// calls `Endpoint::close()` to drain in-flight QUIC streams.
-    /// Consumes `self` so the handle cannot be reused.
+    /// Delegates to [`Router::shutdown`] which activates the
+    /// router cancel token, drains every registered protocol
+    /// handler to completion, and then calls `Endpoint::close()`
+    /// internally. Consumes `self` so the handle cannot be reused.
+    ///
+    /// ## Why not `drop(router)` + `endpoint.close().await`?
+    ///
+    /// `Router` holds an `AbortOnDropHandle` on its run-loop task.
+    /// Dropping the router aborts that task immediately, skipping
+    /// the graceful sequence. Calling `endpoint.close().await`
+    /// afterwards then races with whatever cleanup the aborted
+    /// task had already started. Letting `Router::shutdown` drive
+    /// the whole sequence is the only ordering that is race-free.
     pub async fn shutdown(self) -> Result<()> {
         debug!("shutting down SBFB node");
-        // Shutdown the Router first — it owns protocol handler
-        // clones, so dropping it before close() lets them see the
-        // close and finish their work cleanly.
-        drop(self.router);
-        self.endpoint.close().await;
+        self.router
+            .shutdown()
+            .await
+            .map_err(|e| NexusError::Endpoint(format!("router shutdown failed: {e}")))?;
+        // Drop the remaining handles explicitly. Endpoint is
+        // already closed by Router::shutdown.
+        drop(self.docs);
+        drop(self.gossip);
+        drop(self.blobs_store);
+        drop(self.endpoint);
         info!("SBFB node closed cleanly");
         Ok(())
     }
@@ -282,5 +298,22 @@ mod tests {
         let _gossip: &Gossip = node.gossip();
         let _endpoint: &Endpoint = node.endpoint();
         node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn shutdown_closes_endpoint_without_race() {
+        // Regression test for the Sprint 2 audit finding S4: the
+        // old shutdown did `drop(router) + endpoint.close().await`
+        // which races because Router carries an AbortOnDropHandle.
+        // The new path calls `router.shutdown().await` exclusively,
+        // which drives the graceful sequence. After shutdown the
+        // endpoint must report itself as closed.
+        let node = create_node().await.expect("boot");
+        let ep = node.endpoint().clone();
+        node.shutdown().await.expect("graceful shutdown");
+        assert!(
+            ep.is_closed(),
+            "endpoint should be closed after Node::shutdown"
+        );
     }
 }
