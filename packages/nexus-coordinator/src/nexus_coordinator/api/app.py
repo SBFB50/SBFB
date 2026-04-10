@@ -26,6 +26,8 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     spin a second one up.
     """
     from nexus_coordinator.api.health import router as health_router
+    from nexus_coordinator.api.kudos import router as kudos_router
+    from nexus_coordinator.api.tasks import router as tasks_router
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -44,4 +46,6 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     # it via `request.app.state.coordinator` instead of a global.
     app.state.coordinator = coordinator  # type: ignore[attr-defined]
     app.include_router(health_router)
+    app.include_router(tasks_router)
+    app.include_router(kudos_router)
     return app

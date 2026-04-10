@@ -41,13 +41,16 @@ import nexus_core
 import structlog
 
 from nexus_coordinator.config import CoordinatorConfig
+from nexus_coordinator.dispatcher import Dispatcher
 from nexus_coordinator.keystore import LoadedKeypair, load_or_generate_keypair
+from nexus_coordinator.kudos import KudosLedger
 from nexus_coordinator.paths import (
     coord_config_path,
     coord_key_path,
     iroh_data_path,
     project_dir,
 )
+from nexus_coordinator.validator import Validator
 
 if TYPE_CHECKING:
     pass
@@ -71,6 +74,7 @@ class CoordinatorState:
     node_id: str | None = None
     tasks_doc_ticket: str | None = None
     api_server_task: asyncio.Task[None] | None = field(default=None)
+    validator_task: asyncio.Task[None] | None = field(default=None)
 
 
 class Coordinator:
@@ -104,6 +108,9 @@ class Coordinator:
 
         self.state = CoordinatorState()
         self._keypair: LoadedKeypair | None = None
+        self.dispatcher: Dispatcher | None = None
+        self.kudos_ledger: KudosLedger | None = None
+        self.validator: Validator | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -197,11 +204,50 @@ class Coordinator:
         # 6. Persist the (possibly updated) config.
         self.config.save(self.config_path)
 
+        # 7. Phase B: wire up the SQLite-backed dispatcher, kudos
+        #    ledger, and doc-subscription validator. The state.sqlite
+        #    file lives alongside the iroh-data directory in the
+        #    project root.
+        state_db = self.project_dir / "state.sqlite"
+        self.dispatcher = Dispatcher(
+            db_path=state_db,
+            doc=self.state.doc,
+            author_id=self.state.author_id,  # type: ignore[arg-type]
+            coord_secret=self._keypair.secret,
+        )
+        await self.dispatcher.init()
+
+        self.kudos_ledger = KudosLedger(
+            db_path=state_db,
+            coord_secret=self._keypair.secret,
+        )
+
+        self.validator = Validator(
+            doc=self.state.doc,
+            node=self.state.node,
+            dispatcher=self.dispatcher,
+            kudos=self.kudos_ledger,
+            db_path=state_db,
+        )
+        await self.validator.start()
+
     async def stop(self) -> None:
         """Shut down the iroh node and cancel any background tasks.
 
         Safe to call multiple times; a second call is a no-op.
         """
+        if self.state.validator_task is not None:
+            self.state.validator_task.cancel()
+            try:
+                await self.state.validator_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self.state.validator_task = None
+
+        if self.validator is not None:
+            await self.validator.stop()
+            self.validator = None
+
         if self.state.api_server_task is not None:
             self.state.api_server_task.cancel()
             try:

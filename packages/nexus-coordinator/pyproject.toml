@@ -58,6 +58,13 @@ dependencies = [
     # release (stable since 2022-04-10, RFC is frozen).
     "jcs>=0.2.1",
 
+    # PyNaCl for Ed25519 signing on the kudos ledger chain. The
+    # coordinator keypair is shared with nexus-core-py signing
+    # helpers, but pynacl gives us a pure-Python signing surface
+    # for the per-row chain signature so the ledger stays
+    # standalone and can be verified without a rust wheel.
+    "pynacl>=1.5",
+
     # Cross-platform user-config-dir resolver (~/.nexus-grid/... on
     # every platform via platformdirs.user_data_dir).
     "platformdirs>=4.3",
