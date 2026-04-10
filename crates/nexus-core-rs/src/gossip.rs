@@ -101,16 +101,27 @@ impl GossipEvent {
 }
 
 /// Thin client around an [`iroh_gossip::net::Gossip`] handle.
-#[derive(Debug, Clone, Copy)]
-pub struct GossipClient<'a> {
-    inner: &'a Gossip,
+///
+/// Owns a cheaply-cloned `Gossip` (internal `Arc<Inner>` in
+/// iroh-gossip 0.97), so the client can be stored long-lived in a
+/// struct or passed across an FFI boundary without a lifetime
+/// parameter. The Sprint 2 audit P1 lifetime concern (a
+/// `&'a Gossip` field would block the Sprint 4 coordinator from
+/// holding a persistent Python-side gossip handle) no longer
+/// applies.
+#[derive(Debug, Clone)]
+pub struct GossipClient {
+    inner: Gossip,
 }
 
-impl<'a> GossipClient<'a> {
+impl GossipClient {
     /// Wrap a `&Gossip` (typically obtained from
-    /// [`crate::Node::gossip`]).
-    pub fn new(inner: &'a Gossip) -> Self {
-        GossipClient { inner }
+    /// [`crate::Node::gossip`]). Clones the inner `Arc<Inner>`
+    /// so the resulting client has no borrow on the source.
+    pub fn new(inner: &Gossip) -> Self {
+        GossipClient {
+            inner: inner.clone(),
+        }
     }
 
     /// Subscribe to a topic and wait for at least one peer

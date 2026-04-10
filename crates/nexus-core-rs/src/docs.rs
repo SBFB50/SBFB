@@ -49,19 +49,27 @@ use crate::error::{NexusError, Result};
 
 /// Thin client around an [`iroh_docs::protocol::Docs`] handle.
 ///
-/// Construct via [`DocsClient::new`] from a borrowed `&Docs`. The
-/// client is `Copy`-ish (it only holds a reference), so pass it
-/// around freely.
-#[derive(Debug, Clone, Copy)]
-pub struct DocsClient<'a> {
-    inner: &'a Docs,
+/// Owns a cheaply-cloned `Docs` handle (iroh-docs 0.97 derives
+/// `Clone` with an internal `Arc`), so the client can be stored
+/// long-lived in a struct or passed across an FFI boundary without
+/// a lifetime parameter. This mirrors the Sprint 4 Day 0 change to
+/// [`crate::gossip::GossipClient`] and removes a symmetric
+/// footgun: a `&'a Docs` field would have blocked the Sprint 4
+/// coordinator from keeping a persistent docs client on the
+/// Python side.
+#[derive(Debug, Clone)]
+pub struct DocsClient {
+    inner: Docs,
 }
 
-impl<'a> DocsClient<'a> {
+impl DocsClient {
     /// Wrap a `&Docs` (typically obtained from
-    /// [`crate::Node::docs`]).
-    pub fn new(inner: &'a Docs) -> Self {
-        DocsClient { inner }
+    /// [`crate::Node::docs`]). Clones the inner `Arc` so the
+    /// resulting client has no borrow on the source.
+    pub fn new(inner: &Docs) -> Self {
+        DocsClient {
+            inner: inner.clone(),
+        }
     }
 
     // ------------------------------------------------------------------
