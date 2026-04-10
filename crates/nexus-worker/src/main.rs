@@ -25,6 +25,7 @@
 
 mod cli;
 mod logging;
+mod tui;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -131,13 +132,6 @@ async fn handle_register(paths: &WorkerPaths, name: Option<String>) -> Result<()
 }
 
 async fn handle_start(paths: &WorkerPaths, tui: bool, _headless: bool) -> Result<()> {
-    // W10 will add a real TUI frontend on top of the engine.
-    // Until then, --tui degrades to headless with a warning so
-    // users are not surprised when the switch does nothing.
-    if tui {
-        tracing::warn!("--tui is a no-op until Sprint 3 W10 lands; running headless");
-    }
-
     // Load config + keypair. Both are required — a missing
     // worker.toml means the user hasn't run `register` yet.
     let cfg = WorkerConfig::load_required(&paths.config_file).context(
@@ -153,74 +147,103 @@ async fn handle_start(paths: &WorkerPaths, tui: bool, _headless: bool) -> Result
     let allowlist = Allowlist::open(paths.default_allowlist_db())
         .context("failed to open allowlist database")?;
 
-    println!("nexus-worker v{}", env!("CARGO_PKG_VERSION"));
-    println!("  worker:  {}", cfg.identity.name);
-    println!("  pubkey:  {}", hex::encode(keypair.public_bytes()));
-    println!("  ollama:  {}", cfg.ollama.endpoint);
-    println!("  config:  {}", paths.config_file.display());
-    println!();
+    // In headless mode, print a banner + spawn a state
+    // observer. In TUI mode the ratatui dashboard owns the
+    // screen so we do neither.
+    if !tui {
+        println!("nexus-worker v{}", env!("CARGO_PKG_VERSION"));
+        println!("  worker:  {}", cfg.identity.name);
+        println!("  pubkey:  {}", hex::encode(keypair.public_bytes()));
+        println!("  ollama:  {}", cfg.ollama.endpoint);
+        println!("  config:  {}", paths.config_file.display());
+        println!();
+    }
 
-    // Build and run the engine.
+    // The TUI needs a fresh allowlist handle (because the
+    // engine consumes the one in EngineBoot). Open another
+    // one against the same on-disk file — SQLite WAL mode
+    // lets multiple connections coexist cleanly.
+    let tui_db = if tui {
+        Some(
+            Allowlist::open(paths.default_allowlist_db())
+                .context("failed to reopen allowlist for TUI")?,
+        )
+    } else {
+        None
+    };
+
+    // Build the engine.
     let boot = EngineBoot {
-        worker_config: cfg,
+        worker_config: cfg.clone(),
         keypair,
         allowlist,
     };
     let mut engine = Engine::new(boot).await.context("engine boot failed")?;
-    println!("  node id: {}", engine.node_id());
 
-    let gpus = engine.gpu_info();
-    if gpus.is_empty() {
-        println!("  gpu:     none visible (CPU-only mode)");
-    } else {
-        for g in gpus {
-            let vram_gib = g.vram_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
-            println!(
-                "  gpu:     [{}] {} ({:.1} GiB, backend={})",
-                g.index, g.name, vram_gib, g.backend
-            );
+    if !tui {
+        println!("  node id: {}", engine.node_id());
+        let gpus = engine.gpu_info();
+        if gpus.is_empty() {
+            println!("  gpu:     none visible (CPU-only mode)");
+        } else {
+            for g in gpus {
+                let vram_gib = g.vram_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+                println!(
+                    "  gpu:     [{}] {} ({:.1} GiB, backend={})",
+                    g.index, g.name, vram_gib, g.backend
+                );
+            }
         }
     }
 
-    // Wire graceful Ctrl+C → Engine shutdown.
-    let shutdown_tx = engine
-        .take_shutdown_sender()
-        .expect("engine shutdown sender available at first take");
-    tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            tracing::info!("ctrl+c received, sending engine shutdown signal");
-            let _ = shutdown_tx.send(());
-        }
-    });
+    if tui {
+        // TUI path: hand the engine off to the ratatui frontend.
+        let db = tui_db.expect("tui flag set but tui_db missing");
+        tui::run_tui(engine, cfg, db)
+            .await
+            .context("tui frontend exited with an error")?;
+    } else {
+        // Headless path: Ctrl+C → shutdown, stdout state observer,
+        // await engine.
+        let shutdown_tx = engine
+            .take_shutdown_sender()
+            .expect("engine shutdown sender available at first take");
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                tracing::info!("ctrl+c received, sending engine shutdown signal");
+                let _ = shutdown_tx.send(());
+            }
+        });
 
-    // Minimal state observer so the operator sees transitions
-    // live in the terminal without needing the W10 TUI.
-    let mut state_rx = engine.state_rx();
-    tokio::spawn(async move {
-        let mut last = state_rx.borrow().clone();
-        println!("  state:   {last}");
-        while state_rx.changed().await.is_ok() {
-            let current = state_rx.borrow().clone();
-            if current != last {
-                println!("  state:   {current}");
-                last = current.clone();
-                if matches!(current, WorkerState::Shutdown) {
-                    break;
+        let mut state_rx = engine.state_rx();
+        tokio::spawn(async move {
+            let mut last = state_rx.borrow().clone();
+            println!("  state:   {last}");
+            while state_rx.changed().await.is_ok() {
+                let current = state_rx.borrow().clone();
+                if current != last {
+                    println!("  state:   {current}");
+                    last = current.clone();
+                    if matches!(current, WorkerState::Shutdown) {
+                        break;
+                    }
                 }
             }
-        }
-    });
+        });
 
-    println!("  (press ctrl+c to shut down)");
-    println!();
+        println!("  (press ctrl+c to shut down)");
+        println!();
 
-    engine
-        .run_until_shutdown()
-        .await
-        .context("engine loop exited with an error")?;
+        engine
+            .run_until_shutdown()
+            .await
+            .context("engine loop exited with an error")?;
+    }
 
-    println!();
-    println!("nexus-worker exited cleanly.");
+    if !tui {
+        println!();
+        println!("nexus-worker exited cleanly.");
+    }
     Ok(())
 }
 
