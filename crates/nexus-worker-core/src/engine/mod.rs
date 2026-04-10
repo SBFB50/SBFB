@@ -14,6 +14,8 @@
 //! no disk — and means the behaviour contract is locked before
 //! any async plumbing is written.
 
+pub mod runtime;
 pub mod state;
 
+pub use runtime::{Engine, EngineBoot};
 pub use state::{StateMachine, TransitionError, WorkerEvent, WorkerState};

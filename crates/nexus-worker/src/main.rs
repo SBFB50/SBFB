@@ -30,6 +30,7 @@ use clap::Parser;
 use nexus_core_rs::KeyPair;
 use nexus_worker_core::allowlist::{Allowlist, NewProject};
 use nexus_worker_core::config::{WorkerConfig, WorkerPaths};
+use nexus_worker_core::engine::{Engine, EngineBoot, WorkerState};
 use nexus_worker_core::invite::{current_unix_secs, Invite};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -126,19 +127,16 @@ async fn handle_register(paths: &WorkerPaths, name: Option<String>) -> Result<()
     Ok(())
 }
 
-async fn handle_start(paths: &WorkerPaths, tui: bool, headless: bool) -> Result<()> {
-    let mode = if tui {
-        "tui"
-    } else if headless {
-        "headless"
-    } else {
-        "auto"
-    };
+async fn handle_start(paths: &WorkerPaths, tui: bool, _headless: bool) -> Result<()> {
+    // W10 will add a real TUI frontend on top of the engine.
+    // Until then, --tui degrades to headless with a warning so
+    // users are not surprised when the switch does nothing.
+    if tui {
+        tracing::warn!("--tui is a no-op until Sprint 3 W10 lands; running headless");
+    }
 
-    // W9 will replace this stub with the real engine boot. For
-    // now, make sure the worker is actually registered and that
-    // the keypair loads — any failure here surfaces a bad config
-    // before the engine-loop waves land.
+    // Load config + keypair. Both are required — a missing
+    // worker.toml means the user hasn't run `register` yet.
     let cfg = WorkerConfig::load_required(&paths.config_file).context(
         "worker not registered; run `nexus-worker register` first or pass --config <PATH>",
     )?;
@@ -146,25 +144,80 @@ async fn handle_start(paths: &WorkerPaths, tui: bool, headless: bool) -> Result<
     let keypair =
         KeyPair::load_or_generate(&key_path).context("failed to load worker keypair from disk")?;
 
-    print_stub(
-        "start",
-        "W9 (engine loop) + W10 (TUI) + W11 (logging)",
-        &[
-            ("mode", mode),
-            ("name", cfg.identity.name.as_str()),
-            ("ollama", cfg.ollama.endpoint.as_str()),
-        ],
-    );
+    // Allowlist is opened here so a broken DB surfaces before
+    // the engine starts touching the network.
+    paths.ensure_dirs()?;
+    let allowlist = Allowlist::open(paths.default_allowlist_db())
+        .context("failed to open allowlist database")?;
 
-    // Sanity check that the core-rs link still works with the
-    // persistent identity. Replaced in W9 by the full engine
-    // boot sequence via create_node_with_config.
-    let node = nexus_core_rs::create_node_with_config(
-        nexus_core_rs::NodeConfig::default().with_secret_key(keypair.secret_bytes()),
-    )
-    .await?;
-    println!("  iroh endpoint ready, node id: {}", node.node_id());
-    node.shutdown().await?;
+    println!("nexus-worker v{}", env!("CARGO_PKG_VERSION"));
+    println!("  worker:  {}", cfg.identity.name);
+    println!("  pubkey:  {}", hex::encode(keypair.public_bytes()));
+    println!("  ollama:  {}", cfg.ollama.endpoint);
+    println!("  config:  {}", paths.config_file.display());
+    println!();
+
+    // Build and run the engine.
+    let boot = EngineBoot {
+        worker_config: cfg,
+        keypair,
+        allowlist,
+    };
+    let mut engine = Engine::new(boot).await.context("engine boot failed")?;
+    println!("  node id: {}", engine.node_id());
+
+    let gpus = engine.gpu_info();
+    if gpus.is_empty() {
+        println!("  gpu:     none visible (CPU-only mode)");
+    } else {
+        for g in gpus {
+            let vram_gib = g.vram_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+            println!(
+                "  gpu:     [{}] {} ({:.1} GiB, backend={})",
+                g.index, g.name, vram_gib, g.backend
+            );
+        }
+    }
+
+    // Wire graceful Ctrl+C → Engine shutdown.
+    let shutdown_tx = engine
+        .take_shutdown_sender()
+        .expect("engine shutdown sender available at first take");
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            tracing::info!("ctrl+c received, sending engine shutdown signal");
+            let _ = shutdown_tx.send(());
+        }
+    });
+
+    // Minimal state observer so the operator sees transitions
+    // live in the terminal without needing the W10 TUI.
+    let mut state_rx = engine.state_rx();
+    tokio::spawn(async move {
+        let mut last = state_rx.borrow().clone();
+        println!("  state:   {last}");
+        while state_rx.changed().await.is_ok() {
+            let current = state_rx.borrow().clone();
+            if current != last {
+                println!("  state:   {current}");
+                last = current.clone();
+                if matches!(current, WorkerState::Shutdown) {
+                    break;
+                }
+            }
+        }
+    });
+
+    println!("  (press ctrl+c to shut down)");
+    println!();
+
+    engine
+        .run_until_shutdown()
+        .await
+        .context("engine loop exited with an error")?;
+
+    println!();
+    println!("nexus-worker exited cleanly.");
     Ok(())
 }
 
