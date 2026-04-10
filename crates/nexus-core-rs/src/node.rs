@@ -1,75 +1,146 @@
-//! iroh node lifecycle (Sprint 1 scope).
+//! iroh node lifecycle with full SBFB protocol stack.
 //!
-//! A `Node` is a handle to a running `iroh::Endpoint` — the top-level
-//! iroh object that owns the QUIC transport, the Ed25519 identity and
-//! the discovery services. The SBFB coordinator and workers each own
-//! exactly one `Node` for the life of their process.
+//! A `Node` is a handle to a running iroh [`Endpoint`] that also
+//! carries the three meta-protocols SBFB depends on: iroh-docs
+//! (replicated key/value logs for tasks and results), iroh-gossip
+//! (topic-based broadcast for curator lists and coordination), and
+//! iroh-blobs (content-addressed storage for curator list blobs).
 //!
-//! ## Sprint 1 minimal API
+//! All three protocols are wired through an iroh [`Router`] which
+//! multiplexes incoming connections by ALPN and dispatches them to
+//! the right handler. Dropping the `Router` via `Node::shutdown`
+//! cleanly closes all handlers.
 //!
-//! - [`create_node`] — boot a fresh anonymous node with a random key
-//! - [`Node::node_id`] — stable Ed25519 public key as a short string
-//! - [`Node::shutdown`] — graceful close of the endpoint
+//! ## Creation
 //!
-//! Sprint 2 will add persistent key loading, pkarr publishing,
-//! discovery config, custom ALPN protocols and a real-time observer
-//! of the subset of iroh events the coordinator cares about.
+//! - [`create_node`] — fresh random keypair, default config
+//! - [`create_node_with_config`] — supply a [`NodeConfig`] with
+//!   an optional persistent secret key and custom ALPNs
+//!
+//! Sprint 4 will add:
+//! - Persistent blob store backed by filesystem (we use MemStore now)
+//! - Custom relay configuration
+//! - ALPN registration for Sprint-4 app-specific protocols
+//!
+//! ## Example
+//!
+//! ```no_run
+//! # async fn example() -> nexus_core_rs::Result<()> {
+//! let node = nexus_core_rs::create_node().await?;
+//! tracing::info!("node id: {}", node.node_id());
+//! // access the protocol stack
+//! let _docs = node.docs();
+//! let _gossip = node.gossip();
+//! node.shutdown().await?;
+//! # Ok(())
+//! # }
+//! ```
 
 use std::fmt;
 
 use iroh::endpoint::presets;
-use iroh::Endpoint;
+use iroh::protocol::Router;
+use iroh::{Endpoint, SecretKey};
+use iroh_blobs::store::mem::MemStore;
+use iroh_blobs::{BlobsProtocol, ALPN as BLOBS_ALPN};
+use iroh_docs::protocol::Docs;
+use iroh_docs::ALPN as DOCS_ALPN;
+use iroh_gossip::net::Gossip;
+use iroh_gossip::ALPN as GOSSIP_ALPN;
 use tracing::{debug, info};
 
+use crate::crypto::SECRET_KEY_BYTES;
 use crate::error::{NexusError, Result};
 
-/// A handle to a running iroh endpoint.
+/// Configuration for booting a [`Node`].
 ///
-/// The node is alive as long as this struct is alive. Dropping it
-/// without calling [`Node::shutdown`] first still closes the endpoint
-/// but skips the graceful drain, which may leave in-flight QUIC
-/// streams unacknowledged. Callers that care should always
-/// `await node.shutdown()` before dropping.
+/// Use `NodeConfig::default()` for the simplest case (fresh
+/// random identity, default ALPNs). Call `with_secret_key` to
+/// supply a persistent identity loaded from disk.
+#[derive(Debug, Clone, Default)]
+pub struct NodeConfig {
+    /// If Some, the node boots with this Ed25519 secret key
+    /// (32 bytes). If None, a fresh random key is generated.
+    pub secret_key_bytes: Option<[u8; SECRET_KEY_BYTES]>,
+}
+
+impl NodeConfig {
+    /// Use this specific secret key instead of generating a random
+    /// one. Typical flow: call [`crate::KeyPair::load_or_generate`]
+    /// to get a stable key tied to a file on disk, then pass its
+    /// secret bytes here.
+    pub fn with_secret_key(mut self, secret: [u8; SECRET_KEY_BYTES]) -> Self {
+        self.secret_key_bytes = Some(secret);
+        self
+    }
+}
+
+/// A running iroh node with the full SBFB protocol stack.
+///
+/// Holds the endpoint, the Docs/Gossip/Blobs protocol handlers
+/// and the Router that dispatches incoming connections to them.
+/// Dropping the Node without calling [`Node::shutdown`] closes
+/// the endpoint non-gracefully; callers that care should always
+/// `await node.shutdown()` first.
 pub struct Node {
     endpoint: Endpoint,
+    docs: Docs,
+    gossip: Gossip,
+    blobs_store: MemStore,
+    router: Router,
 }
 
 impl Node {
-    /// Return the short textual form of this node's Ed25519 public
-    /// key (z-base32 encoded). This is the `EndpointId` that peers
-    /// use to look up the node via pkarr DHT.
-    ///
-    /// In iroh 0.97 the method on `Endpoint` is `id()`, returning
-    /// an `EndpointId`. We render it via its `Display` impl.
+    /// Return the short textual form of this node's Ed25519
+    /// public key as 64 hex chars.
     pub fn node_id(&self) -> String {
         self.endpoint.id().to_string()
     }
 
-    /// Gracefully shut down the underlying iroh endpoint.
-    ///
-    /// This drains in-flight QUIC connections, tears down the
-    /// discovery services, and releases the UDP sockets.
-    ///
-    /// `Endpoint::close()` in iroh 0.97 is infallible — it takes
-    /// `&self` and returns `()` after best-effort draining. Our
-    /// wrapper consumes `self` so the `Node` handle cannot be
-    /// accidentally reused after shutdown.
-    pub async fn shutdown(self) -> Result<()> {
-        debug!("shutting down iroh endpoint");
-        self.endpoint.close().await;
-        info!("iroh endpoint closed cleanly");
-        Ok(())
-    }
-
-    /// Access the underlying iroh [`Endpoint`] for advanced callers
-    /// that need features not yet wrapped by nexus-core-rs.
-    ///
-    /// Prefer the typed wrappers in this crate when available — this
-    /// escape hatch exists so Sprint 1 prototyping and the Rust
-    /// learning work can use the raw iroh API without having to
-    /// re-plumb everything through nexus-core-rs first.
+    /// Access the underlying iroh [`Endpoint`] for advanced
+    /// callers that need features not yet wrapped by
+    /// nexus-core-rs (e.g. direct connection dialing).
     pub fn endpoint(&self) -> &Endpoint {
         &self.endpoint
+    }
+
+    /// Access the Docs protocol handle.
+    ///
+    /// Use this to create/import documents, create authors and
+    /// manage replicated key/value logs. Sprint 2 will layer a
+    /// typed [`crate::docs`] wrapper on top of this raw handle.
+    pub fn docs(&self) -> &Docs {
+        &self.docs
+    }
+
+    /// Access the Gossip protocol handle.
+    ///
+    /// Use this to subscribe to topics and broadcast messages.
+    /// Sprint 2 will layer a typed [`crate::gossip`] wrapper on
+    /// top of this raw handle.
+    pub fn gossip(&self) -> &Gossip {
+        &self.gossip
+    }
+
+    /// Access the blobs content-addressed store.
+    pub fn blobs_store(&self) -> &MemStore {
+        &self.blobs_store
+    }
+
+    /// Gracefully shut down the node.
+    ///
+    /// Drops the Router (closing all protocol handlers), then
+    /// calls `Endpoint::close()` to drain in-flight QUIC streams.
+    /// Consumes `self` so the handle cannot be reused.
+    pub async fn shutdown(self) -> Result<()> {
+        debug!("shutting down SBFB node");
+        // Shutdown the Router first — it owns protocol handler
+        // clones, so dropping it before close() lets them see the
+        // close and finish their work cleanly.
+        drop(self.router);
+        self.endpoint.close().await;
+        info!("SBFB node closed cleanly");
+        Ok(())
     }
 }
 
@@ -81,47 +152,74 @@ impl fmt::Debug for Node {
     }
 }
 
-/// Boot a fresh anonymous iroh node with a random Ed25519 identity.
+/// Boot a fresh node with a random keypair and default config.
 ///
-/// The node binds on an OS-assigned UDP port, enables the default
-/// discovery services (local network multicast + pkarr DHT) and is
-/// ready to accept connections as soon as this function returns.
+/// Shortcut for `create_node_with_config(NodeConfig::default())`.
 ///
 /// ## Errors
 ///
-/// Returns [`NexusError::Endpoint`] if the iroh endpoint cannot bind
-/// (most commonly because the UDP socket is not allowed by the OS or
-/// the machine is offline).
-///
-/// ## Example
-///
-/// ```no_run
-/// # async fn example() -> nexus_core_rs::Result<()> {
-/// let node = nexus_core_rs::create_node().await?;
-/// println!("node id = {}", node.node_id());
-/// node.shutdown().await?;
-/// # Ok(())
-/// # }
-/// ```
+/// Returns [`NexusError::Endpoint`] if the iroh endpoint cannot
+/// bind. Returns [`NexusError::Docs`] if the Docs protocol
+/// handler fails to spawn.
 pub async fn create_node() -> Result<Node> {
-    debug!("building iroh endpoint with the N0 preset (pkarr + relay)");
+    create_node_with_config(NodeConfig::default()).await
+}
 
-    // iroh 0.97: the builder takes a `Preset` that bundles the
-    // default n0 discovery (pkarr DHT) and relay configuration.
-    // `presets::N0` is the canonical "just make it work" choice
-    // for volunteer compute networks like SBFB.
-    let endpoint = Endpoint::builder(presets::N0)
+/// Boot a node with an explicit configuration.
+///
+/// This is the general form. Use it when you need a persistent
+/// identity (loaded via [`crate::KeyPair::load_or_generate`]) or
+/// other non-default options.
+pub async fn create_node_with_config(cfg: NodeConfig) -> Result<Node> {
+    debug!("building iroh endpoint with the N0 preset");
+
+    let mut builder = Endpoint::builder(presets::N0);
+    if let Some(sk_bytes) = cfg.secret_key_bytes {
+        let sk = SecretKey::from_bytes(&sk_bytes);
+        builder = builder.secret_key(sk);
+    }
+
+    let endpoint = builder
         .bind()
         .await
         .map_err(|e| NexusError::Endpoint(format!("bind failed: {e}")))?;
 
     info!(node_id = %endpoint.id(), "iroh endpoint ready");
-    Ok(Node { endpoint })
+
+    // Spawn Blobs + Gossip + Docs protocol handlers and wire them
+    // into a Router that dispatches by ALPN. This is the full
+    // SBFB protocol stack every node carries.
+
+    let blobs_store = MemStore::default();
+    let gossip = Gossip::builder().spawn(endpoint.clone());
+    let docs = Docs::memory()
+        .spawn(endpoint.clone(), (*blobs_store).clone(), gossip.clone())
+        .await
+        .map_err(|e| NexusError::Docs(format!("Docs::memory spawn failed: {e}")))?;
+
+    let router = Router::builder(endpoint.clone())
+        .accept(BLOBS_ALPN, BlobsProtocol::new(&blobs_store, None))
+        .accept(GOSSIP_ALPN, gossip.clone())
+        .accept(DOCS_ALPN, docs.clone())
+        .spawn();
+
+    // `BlobsProtocol::new` borrowed `blobs_store`, so after the
+    // router is built we can move the original MemStore into the
+    // Node. Callers get at it via `node.blobs_store()`.
+
+    Ok(Node {
+        endpoint,
+        docs,
+        gossip,
+        blobs_store,
+        router,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::KeyPair;
 
     #[tokio::test]
     async fn create_node_returns_a_usable_handle() {
@@ -133,7 +231,7 @@ mod tests {
         assert!(!id.is_empty(), "node id must be non-empty");
         assert!(
             id.len() >= 32,
-            "node id should be ~52 chars of z-base32, got {} chars",
+            "node id should be ~64 chars hex, got {} chars",
             id.len()
         );
 
@@ -153,5 +251,36 @@ mod tests {
 
         a.shutdown().await.ok();
         b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn persistent_secret_key_reboots_with_same_id() {
+        let kp = KeyPair::generate();
+        let secret = kp.secret_bytes();
+
+        let cfg = NodeConfig::default().with_secret_key(secret);
+        let node_a = create_node_with_config(cfg.clone()).await.unwrap();
+        let id_a = node_a.node_id();
+        node_a.shutdown().await.ok();
+
+        let node_b = create_node_with_config(cfg).await.unwrap();
+        let id_b = node_b.node_id();
+        node_b.shutdown().await.ok();
+
+        assert_eq!(
+            id_a, id_b,
+            "booting twice with the same secret key must give the same node id"
+        );
+    }
+
+    #[tokio::test]
+    async fn node_exposes_protocol_stack_handles() {
+        let node = create_node().await.expect("boot");
+        // These are compile-time checks: the methods exist and
+        // return the expected types.
+        let _docs: &Docs = node.docs();
+        let _gossip: &Gossip = node.gossip();
+        let _endpoint: &Endpoint = node.endpoint();
+        node.shutdown().await.ok();
     }
 }

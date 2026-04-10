@@ -24,6 +24,10 @@
 //!
 //! 64 bytes (Ed25519 standard). Exposed as `[u8; 64]`.
 
+use std::fs;
+use std::io::ErrorKind;
+use std::path::Path;
+
 use blake3::Hasher as Blake3Hasher;
 use ed25519_dalek::{
     Signature as DalekSignature, Signer, SigningKey, Verifier, VerifyingKey, SECRET_KEY_LENGTH,
@@ -91,6 +95,63 @@ impl KeyPair {
     pub fn sign(&self, message: &[u8]) -> [u8; SIGNATURE_BYTES] {
         self.signing.sign(message).to_bytes()
     }
+
+    /// Load a keypair from a file, or generate a fresh one and
+    /// persist it if the file doesn't exist.
+    ///
+    /// The file format is a raw 32-byte binary blob — no ASCII
+    /// encoding, no newline, just the secret key bytes. The file
+    /// is created with 0600 permissions on Unix (owner read/write
+    /// only). On Windows the default ACL is used because Rust's
+    /// std `fs::Permissions` does not expose Windows ACLs.
+    ///
+    /// This is the canonical way for coordinators and workers to
+    /// maintain a stable Ed25519 identity across restarts.
+    pub fn load_or_generate(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        match fs::read(path) {
+            Ok(bytes) => {
+                if bytes.len() != SECRET_KEY_BYTES {
+                    return Err(NexusError::Crypto(format!(
+                        "key file {} has {} bytes, expected {}",
+                        path.display(),
+                        bytes.len(),
+                        SECRET_KEY_BYTES,
+                    )));
+                }
+                let mut secret = [0u8; SECRET_KEY_BYTES];
+                secret.copy_from_slice(&bytes);
+                Ok(KeyPair::from_secret_bytes(&secret))
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                let kp = KeyPair::generate();
+                if let Some(parent) = path.parent() {
+                    if !parent.as_os_str().is_empty() {
+                        fs::create_dir_all(parent).map_err(NexusError::Io)?;
+                    }
+                }
+                fs::write(path, kp.secret_bytes()).map_err(NexusError::Io)?;
+                set_owner_only_perms(path).ok(); // best-effort on Unix
+                Ok(kp)
+            }
+            Err(e) => Err(NexusError::Io(e)),
+        }
+    }
+}
+
+/// Tighten file permissions to owner-read/write on Unix. No-op on
+/// Windows (the default ACL inherits from the parent directory).
+#[cfg(unix)]
+fn set_owner_only_perms(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = fs::metadata(path)?.permissions();
+    perms.set_mode(0o600);
+    fs::set_permissions(path, perms)
+}
+
+#[cfg(not(unix))]
+fn set_owner_only_perms(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 /// Verify an Ed25519 signature against a public key and message.
@@ -296,5 +357,42 @@ mod tests {
         resumed.append(b"second");
 
         assert_eq!(resumed.head(), final_head);
+    }
+
+    #[test]
+    fn load_or_generate_creates_new_file_on_first_call() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("subdir").join("key.bin");
+        assert!(!path.exists());
+
+        let kp = KeyPair::load_or_generate(&path).expect("first call creates");
+        assert!(path.exists());
+        let written = fs::read(&path).unwrap();
+        assert_eq!(written.len(), SECRET_KEY_BYTES);
+        assert_eq!(written, kp.secret_bytes().as_ref());
+    }
+
+    #[test]
+    fn load_or_generate_reads_existing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("key.bin");
+
+        let first = KeyPair::load_or_generate(&path).unwrap();
+        let second = KeyPair::load_or_generate(&path).unwrap();
+
+        assert_eq!(first.public_bytes(), second.public_bytes());
+        // Deterministic Ed25519: same secret = same signatures.
+        let msg = b"persistence check";
+        assert_eq!(first.sign(msg), second.sign(msg));
+    }
+
+    #[test]
+    fn load_or_generate_rejects_wrong_size_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("bad.bin");
+        fs::write(&path, b"short").unwrap();
+
+        let err = KeyPair::load_or_generate(&path).unwrap_err();
+        matches!(err, NexusError::Crypto(_));
     }
 }

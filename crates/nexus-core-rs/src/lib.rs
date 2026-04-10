@@ -39,6 +39,6 @@ pub mod verification;
 
 pub use crypto::{blake3_hash, verify, Blake3Chain, KeyPair};
 pub use error::{NexusError, Result};
-pub use node::{create_node, Node};
+pub use node::{create_node, create_node_with_config, Node, NodeConfig};
 pub use task::{canonical_bytes, Claim, ResultEntry, ResultPayload, Task, TaskEntry};
 pub use verification::{spot_check_rate, CheckStatus, LayerResult, VerificationReport, Verifier};
