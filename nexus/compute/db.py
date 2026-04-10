@@ -162,17 +162,17 @@ CREATE INDEX IF NOT EXISTS idx_compute_uptime_connected ON compute_uptime_log(co
 # Auth helpers
 # ============================================================================
 
-def _generate_api_key() -> str:
+def generate_api_key() -> str:
     """Generate a secure API key for a compute node."""
     return secrets.token_urlsafe(32)
 
 
-def _hash_api_key(api_key: str) -> str:
+def hash_api_key(api_key: str) -> str:
     """SHA-256 hash of an API key for storage."""
     return hashlib.sha256(api_key.encode()).hexdigest()
 
 
-def _hash_ip(ip: str) -> str:
+def hash_ip(ip: str) -> str:
     """SHA-256 hash of an IP address (privacy: never store raw IP)."""
     return hashlib.sha256(ip.encode()).hexdigest()
 
@@ -258,9 +258,9 @@ class ComputeDatabase:
         never stored; only the hash is persisted.
         """
         node_id = _new_id()
-        api_key = _generate_api_key()
-        api_key_hash = _hash_api_key(api_key)
-        ip_hash = _hash_ip(ip)
+        api_key = generate_api_key()
+        api_key_hash = hash_api_key(api_key)
+        ip_hash = hash_ip(ip)
         now = _now_iso()
 
         await self._conn.execute(
@@ -291,7 +291,7 @@ class ComputeDatabase:
 
     async def get_node_by_api_key(self, api_key: str) -> Optional[dict]:
         """Look up a node by its raw API key (hashed for comparison)."""
-        key_hash = _hash_api_key(api_key)
+        key_hash = hash_api_key(api_key)
         cursor = await self._conn.execute(
             "SELECT * FROM compute_nodes WHERE api_key_hash = ?", (key_hash,)
         )

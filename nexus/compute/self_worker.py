@@ -28,7 +28,7 @@ from typing import Any, Optional
 import httpx
 from loguru import logger
 
-from nexus.compute.db import ComputeDatabase, _generate_api_key, _hash_api_key, _hash_ip, _new_id, _now_iso
+from nexus.compute.db import ComputeDatabase
 from nexus.config import settings
 from nexus.engine import get_db
 

@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import Response
 from loguru import logger
 
-from nexus.compute.db import ComputeDatabase, _hash_ip
+from nexus.compute.db import ComputeDatabase, hash_ip
 from nexus.compute.dispatcher import TaskDispatcher
 from nexus.compute.model_selector import ModelSelector
 from nexus.compute.models import (
@@ -66,7 +66,7 @@ _RATE_LIMIT_PER_MINUTE = 100
 def _check_rate_limit(request: Request) -> None:
     """Enforce rate limit per IP (100 requests/minute)."""
     ip = request.client.host if request.client else "unknown"
-    ip_hash = _hash_ip(ip)
+    ip_hash = hash_ip(ip)
     now = datetime.now(timezone.utc).timestamp()
 
     # Clean old entries (> 60s ago)

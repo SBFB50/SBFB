@@ -23,9 +23,9 @@ import pytest_asyncio
 
 from nexus.compute.db import (
     ComputeDatabase,
-    _generate_api_key,
-    _hash_api_key,
-    _hash_ip,
+    generate_api_key,
+    hash_api_key,
+    hash_ip,
     init_compute_db,
     _COMPUTE_CREATE_TABLES,
     _COMPUTE_CREATE_INDEXES,
@@ -74,32 +74,32 @@ class TestAuthHelpers:
     """Test API key and IP hashing utilities."""
 
     def test_generate_api_key_length(self):
-        key = _generate_api_key()
+        key = generate_api_key()
         assert len(key) >= 32  # token_urlsafe(32) produces ~43 chars
 
     def test_generate_api_key_unique(self):
-        keys = {_generate_api_key() for _ in range(100)}
+        keys = {generate_api_key() for _ in range(100)}
         assert len(keys) == 100  # all unique
 
     def test_hash_api_key_deterministic(self):
         key = "test-api-key-123"
-        h1 = _hash_api_key(key)
-        h2 = _hash_api_key(key)
+        h1 = hash_api_key(key)
+        h2 = hash_api_key(key)
         assert h1 == h2
         assert len(h1) == 64  # SHA-256 hex
 
     def test_hash_api_key_differs(self):
-        assert _hash_api_key("key1") != _hash_api_key("key2")
+        assert hash_api_key("key1") != hash_api_key("key2")
 
     def test_hash_ip_deterministic(self):
-        h1 = _hash_ip("192.168.1.1")
-        h2 = _hash_ip("192.168.1.1")
+        h1 = hash_ip("192.168.1.1")
+        h2 = hash_ip("192.168.1.1")
         assert h1 == h2
         assert len(h1) == 64
 
     def test_hash_ip_privacy(self):
         """IP hash should not be reversible to original IP."""
-        h = _hash_ip("10.0.0.1")
+        h = hash_ip("10.0.0.1")
         assert "10.0.0.1" not in h
 
 
@@ -129,7 +129,7 @@ class TestComputeNodes:
         assert len(api_key) >= 32
         # API key hash stored, not raw key
         assert "api_key_hash" in node
-        assert node["api_key_hash"] == _hash_api_key(api_key)
+        assert node["api_key_hash"] == hash_api_key(api_key)
 
     @pytest.mark.asyncio
     async def test_get_node(self, db: ComputeDatabase):
