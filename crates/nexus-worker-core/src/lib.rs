@@ -43,6 +43,7 @@
 
 pub mod config;
 pub mod gpu;
+pub mod ollama;
 
 /// Version of the `nexus-worker-core` crate, taken from
 /// `CARGO_PKG_VERSION` at compile time. The `nexus-worker` binary

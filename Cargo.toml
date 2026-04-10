@@ -52,6 +52,17 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Async primitives used by the worker engine (W5 Ollama client
+# retry logic and W9 state-machine transitions).
+async-trait = "0.1"
+futures = "0.3"
+
+# Used by nexus-worker-core::ollama to parse and validate the
+# endpoint URL at constructor time rather than on the first
+# request. url is already a transitive dep of reqwest/iroh so
+# this costs nothing at the binary level.
+url = "2.5"
+
 # PyO3 — Python bindings for nexus-core-py.
 # Plan originally pinned pyo3 0.22 + pyo3-asyncio 0.21, but the
 # ecosystem moved on: pyo3 is at 0.28 and the old pyo3-asyncio crate

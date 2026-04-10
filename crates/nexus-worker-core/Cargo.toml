@@ -47,6 +47,18 @@ hex = { workspace = true }
 # to the NoopBackend on systems without an NVIDIA driver.
 nvml-wrapper = { workspace = true }
 
+# W5: Ollama HTTP client. The healthcheck path uses
+# `list_local_models()` per Context7 `pepperoni21/ollama-rs`
+# docs; the generate path calls `ollama.generate(GenerationRequest)`.
+ollama-rs = { workspace = true }
+
+# W5: URL parsing for the Ollama endpoint validation.
+url = { workspace = true }
+
+# W5/W9: async traits for the OllamaClient abstraction and the
+# engine adapters.
+async-trait = { workspace = true }
+
 # Observability — the headless engine logs everything through
 # tracing. The binary configures the subscriber; this crate only
 # emits events so it stays agnostic to how they get consumed
