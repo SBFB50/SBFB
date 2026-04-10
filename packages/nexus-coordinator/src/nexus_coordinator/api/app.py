@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 if TYPE_CHECKING:
     from nexus_coordinator.coordinator import Coordinator
@@ -46,6 +47,24 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    # Sprint 5 Phase B: allow the local shell (Vite dev server at
+    # 127.0.0.1:5173, or any other loopback port while hacking
+    # on the web/ app) to hit the coordinator from a different
+    # origin than the API itself. This is strictly loopback —
+    # the coordinator defaults to `api_host=127.0.0.1` so an
+    # off-box request cannot reach it anyway, and tightening
+    # the allow list to regex `http://(127\.0\.0\.1|localhost):\d+`
+    # keeps the browser from exposing the endpoints to any
+    # malicious site the user might visit.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$",
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     # Stash the coordinator on the app state so routers can reach
     # it via `request.app.state.coordinator` instead of a global.
     app.state.coordinator = coordinator  # type: ignore[attr-defined]

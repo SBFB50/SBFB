@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Playwright — run artefacts and hermetic tmp tree
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/tests/.tmp/
+/tests/.playwright-state.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

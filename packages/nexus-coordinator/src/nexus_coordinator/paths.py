@@ -22,6 +22,7 @@ non-roaming read/write needs.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from platformdirs import user_data_dir
@@ -29,9 +30,26 @@ from platformdirs import user_data_dir
 _APP_NAME = "nexus-grid"
 _APP_AUTHOR = False  # disable the Windows "company\\product" nesting
 
+#: Environment variable honoured by :func:`nexus_grid_root` so
+#: integration tests (Python pytest fixtures, Playwright
+#: globalSetup, e2e scripts) can point the whole nexus-grid tree
+#: at a throw-away directory without touching the user's real
+#: data dir. Mirrors the Sprint 3 worker ``NEXUS_WORKER__*`` env
+#: override philosophy.
+_ROOT_OVERRIDE_ENV = "NEXUS_GRID_ROOT"
+
 
 def nexus_grid_root() -> Path:
-    """Return the nexus-grid root directory for the current user."""
+    """Return the nexus-grid root directory for the current user.
+
+    If ``NEXUS_GRID_ROOT`` is set in the environment, its value is
+    used verbatim — this is the single override point for tests
+    that need a hermetic tree. Otherwise falls back to the
+    platform's user data directory via ``platformdirs``.
+    """
+    override = os.environ.get(_ROOT_OVERRIDE_ENV)
+    if override:
+        return Path(override)
     return Path(user_data_dir(_APP_NAME, _APP_AUTHOR))
 
 

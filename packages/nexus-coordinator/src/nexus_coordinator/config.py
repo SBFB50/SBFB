@@ -134,9 +134,18 @@ class CoordinatorConfig(BaseSettings):
         file then ``replace``s it, so a crash mid-write leaves the
         previous version intact. Sufficient for coordinator state
         (never rewritten at high frequency).
+
+        ``exclude_none=True`` because ``tomli_w`` refuses to
+        serialize ``None`` — at ``init`` time ``identity.author_id``
+        and ``identity.doc_id`` are still None, and the model's
+        default-factory populates them again on the next
+        ``CoordinatorConfig.load`` via the field defaults. Sprint
+        5 Phase B discovered this when the Playwright globalSetup
+        invoked ``nexus-coordinator init`` for the first time in
+        a hermetic env.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        dumped = self.model_dump(mode="python")
+        dumped = self.model_dump(mode="python", exclude_none=True)
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_bytes(tomli_w.dumps(dumped).encode("utf-8"))
         tmp.replace(path)
