@@ -19,5 +19,16 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // shadcn components export cva variant constants
+      // (e.g. `buttonVariants`) alongside the component itself,
+      // which is the recommended shadcn v4 pattern. Enabling
+      // allowConstantExport keeps fast refresh working without
+      // forcing us to split every `*-variants.ts` file out.
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+    },
   },
 ])

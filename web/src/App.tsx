@@ -1,22 +1,36 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClient } from './api/client';
-import { TooltipProvider } from '@/components/ui/tooltip';
-import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import Evidence from './pages/Evidence';
-import Entities from './pages/Entities';
-import Hypotheses from './pages/Hypotheses';
-import Graph from './pages/Graph';
-import Timeline from './pages/Timeline';
-import Investigation from './pages/Investigation';
-import Benchmark from './pages/Benchmark';
-import Suspects from './pages/Suspects';
-import Wiki from './pages/Wiki';
-import Reports from './pages/Reports';
-import ImageSearch from './pages/ImageSearch';
-import GovernmentPage from './pages/GovernmentPage';
-import NetworkPage from './pages/NetworkPage';
+/**
+ * Sprint 5 shell root: 5 flat routes under a single shell layout.
+ *
+ * Routing stays declarative (`<BrowserRouter>` + `<Routes>`)
+ * rather than `createBrowserRouter` — we do not use route loaders
+ * in Sprint 5 because every page fetches its data through React
+ * Query directly, and the flat layout keeps Phase B's additions
+ * (tabbed `/project/:name`) trivial.
+ */
+
+import { Navigate, BrowserRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+import { AppShell } from "@/components/AppShell";
+import Projects from "@/pages/Projects";
+import ProjectDetail from "@/pages/ProjectDetail";
+import Network from "@/pages/Network";
+import Browse from "@/pages/Browse";
+import Curators from "@/pages/Curators";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Coordinator data is extremely dynamic but the shell is
+      // local-only, so 5s is a reasonable default that we override
+      // per-query where a tighter polling loop is needed
+      // (e.g. /worker-state in Phase C).
+      staleTime: 5_000,
+      retry: 1,
+    },
+  },
+});
 
 export default function App() {
   return (
@@ -24,21 +38,13 @@ export default function App() {
       <TooltipProvider>
         <BrowserRouter>
           <Routes>
-            <Route element={<Layout />}>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/evidence" element={<Evidence />} />
-              <Route path="/entities" element={<Entities />} />
-              <Route path="/hypotheses" element={<Hypotheses />} />
-              <Route path="/graph" element={<Graph />} />
-              <Route path="/timeline" element={<Timeline />} />
-              <Route path="/investigation" element={<Investigation />} />
-              <Route path="/suspects" element={<Suspects />} />
-              <Route path="/wiki" element={<Wiki />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/images" element={<ImageSearch />} />
-              <Route path="/benchmark" element={<Benchmark />} />
-              <Route path="/government" element={<GovernmentPage />} />
-              <Route path="/network" element={<NetworkPage />} />
+            <Route element={<AppShell />}>
+              <Route index element={<Navigate to="/my-projects" replace />} />
+              <Route path="/my-projects" element={<Projects />} />
+              <Route path="/project/:name" element={<ProjectDetail />} />
+              <Route path="/my-network" element={<Network />} />
+              <Route path="/browse" element={<Browse />} />
+              <Route path="/curators" element={<Curators />} />
             </Route>
           </Routes>
         </BrowserRouter>
