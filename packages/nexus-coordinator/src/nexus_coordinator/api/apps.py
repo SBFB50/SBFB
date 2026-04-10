@@ -73,6 +73,47 @@ async def app_manifest(request: Request, name: str) -> dict[str, Any]:
     }
 
 
+@router.get("/{name}/tabs/{tab_name}/descriptor")
+async def app_tab_descriptor(request: Request, name: str, tab_name: str) -> dict[str, Any]:
+    """Invoke a single tab descriptor function, awaiting if async.
+
+    Sprint 5 Phase B: the ``/manifest`` endpoint calls each tab's
+    descriptor synchronously via :func:`_maybe_call`, which
+    short-circuits async descriptors with a placeholder note so
+    the manifest response cannot hang. This endpoint exists so the
+    shell can *explicitly* invoke an async descriptor on demand
+    (user clicks "Invoquer" in the UI) and get the real result.
+
+    Returns ``{"descriptor": ...}`` on success. A missing app or
+    tab returns 404; descriptor exceptions propagate as 500 with
+    the exception message in the detail field.
+    """
+    apps = _apps(request)
+    app = apps.get(name)
+    if app is None:
+        raise HTTPException(status_code=404, detail=f"app {name!r} not installed")
+
+    tab = next((t for t in app.tabs() if t.name == tab_name), None)
+    if tab is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"tab {tab_name!r} not found on app {name!r}",
+        )
+
+    try:
+        if inspect.iscoroutinefunction(tab.fn):
+            descriptor = await tab.fn(app)
+        else:
+            descriptor = tab.fn(app)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"tab descriptor raised: {type(e).__name__}: {e}",
+        ) from e
+
+    return {"descriptor": descriptor}
+
+
 def _maybe_call(fn: Any, app: Any) -> Any:
     """Invoke a tab descriptor function if it's synchronous.
 

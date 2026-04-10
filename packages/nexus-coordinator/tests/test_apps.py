@@ -62,3 +62,33 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
             assert r.status_code == 404
     finally:
         await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_app_tab_descriptor_endpoint_invokes_tab(nexus_grid_tmp: Path) -> None:
+    """Sprint 5 Phase B: ``GET /app/{name}/tabs/{tab_name}/descriptor``
+    invokes the tab fn (sync or async) and returns its value.
+
+    Uses the hello-world app's "Hello" tab which is a sync
+    function returning ``{"description": "Hello world"}``.
+    """
+    coord = Coordinator(project_name="demo-tab-desc")
+    await coord.start()
+    try:
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.get("/app/hello/tabs/Hello/descriptor")
+            assert r.status_code == 200
+            body = r.json()
+            assert "descriptor" in body
+            assert body["descriptor"] == {"description": "Hello world"}
+
+            # Unknown app → 404
+            r = client.get("/app/does-not-exist/tabs/X/descriptor")
+            assert r.status_code == 404
+
+            # Unknown tab on known app → 404
+            r = client.get("/app/hello/tabs/Nope/descriptor")
+            assert r.status_code == 404
+    finally:
+        await coord.stop()
