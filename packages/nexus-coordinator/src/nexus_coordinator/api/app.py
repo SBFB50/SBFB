@@ -29,7 +29,9 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     from nexus_coordinator.api.health import router as health_router
     from nexus_coordinator.api.invites import router as invites_router
     from nexus_coordinator.api.kudos import router as kudos_router
+    from nexus_coordinator.api.shell import router as shell_router
     from nexus_coordinator.api.tasks import router as tasks_router
+    from nexus_coordinator.api.worker_state import router as worker_state_router
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -52,4 +54,6 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     app.include_router(kudos_router)
     app.include_router(invites_router)
     app.include_router(apps_router)
+    app.include_router(shell_router)
+    app.include_router(worker_state_router)
     return app

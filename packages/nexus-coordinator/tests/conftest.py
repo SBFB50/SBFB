@@ -50,11 +50,19 @@ def nexus_grid_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     def _iroh_data_path(project_name: str) -> Path:
         return _project_dir(project_name) / "iroh-data"
 
+    def _running_state_path(project_name: str) -> Path:
+        return _project_dir(project_name) / "running.json"
+
+    def _worker_state_path() -> Path:
+        return root / "worker" / "state.json"
+
     monkeypatch.setattr(_paths, "nexus_grid_root", _nexus_grid_root)
     monkeypatch.setattr(_paths, "projects_root", _projects_root)
     monkeypatch.setattr(_paths, "project_dir", _project_dir)
     monkeypatch.setattr(_paths, "coord_key_path", _coord_key_path)
     monkeypatch.setattr(_paths, "coord_config_path", _coord_config_path)
     monkeypatch.setattr(_paths, "iroh_data_path", _iroh_data_path)
+    monkeypatch.setattr(_paths, "running_state_path", _running_state_path)
+    monkeypatch.setattr(_paths, "worker_state_path", _worker_state_path)
 
     yield root

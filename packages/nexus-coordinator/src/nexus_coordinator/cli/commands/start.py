@@ -14,6 +14,7 @@ from rich.console import Console
 from nexus_coordinator.api.app import create_app
 from nexus_coordinator.coordinator import Coordinator
 from nexus_coordinator.paths import coord_config_path, project_dir
+from nexus_coordinator.registry import remove_running_state, write_running_state
 
 console = Console()
 
@@ -66,7 +67,22 @@ async def _run(name: str, *, port: int | None, host: str | None) -> None:
     if host is not None:
         coord.config.network.api_host = host
 
+    log = structlog.get_logger(__name__)
+
     await coord.start()
+
+    # Sprint 5 Phase A D1: write the shell-facing running.json
+    # entry. Removed in the `finally:` block below on clean
+    # shutdown; crashes leave the file behind, and the shell
+    # detects stale entries via the /health roundtrip.
+    try:
+        write_running_state(coord)
+    except Exception as e:  # noqa: BLE001
+        log.warning(
+            "failed to write running.json; shell discovery will skip this coordinator",
+            error=str(e),
+        )
+
     app = create_app(coord)
 
     # uvicorn.Server lets us run the server as a coroutine inside
@@ -117,6 +133,10 @@ async def _run(name: str, *, port: int | None, host: str | None) -> None:
         except (asyncio.TimeoutError, asyncio.CancelledError):
             server_task.cancel()
         await coord.stop()
+        # Sprint 5 Phase A D1: best-effort running.json removal.
+        # Crashes before this point leave the file behind; the
+        # shell detects those via /health roundtrip.
+        remove_running_state(name)
 
 
 def _configure_logging() -> None:

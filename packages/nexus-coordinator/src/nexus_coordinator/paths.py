@@ -63,3 +63,29 @@ def coord_config_path(project_name: str) -> Path:
 def iroh_data_path(project_name: str) -> Path:
     """Path to the iroh node storage directory for a project."""
     return project_dir(project_name) / "iroh-data"
+
+
+def running_state_path(project_name: str) -> Path:
+    """Path to the shell-facing ``running.json`` registry entry.
+
+    Sprint 5 Phase A decision D1: every coordinator that is
+    currently ``start``'d writes a tiny JSON file at this location
+    with its live node_id, port, pid, etc. The shell reads the
+    collection via the ``GET /shell/discover`` endpoint on any
+    connected coordinator, which globs
+    ``<projects_root>/*/running.json``. See
+    :mod:`nexus_coordinator.registry` for the schema.
+    """
+    return project_dir(project_name) / "running.json"
+
+
+def worker_state_path() -> Path:
+    """Path to the worker's shell-facing ``state.json`` snapshot.
+
+    Mirror of the Rust helper ``nexus_worker_core::paths::worker_state_file``
+    — both sides must resolve to the exact same file. The Rust
+    worker flushes this every ``state_flush_secs`` seconds, the
+    coordinator proxies it to the shell via
+    ``GET /worker-state``.
+    """
+    return nexus_grid_root() / "worker" / "state.json"
