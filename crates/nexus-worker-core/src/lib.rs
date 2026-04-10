@@ -41,8 +41,25 @@
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
 
+pub mod config;
+
 /// Version of the `nexus-worker-core` crate, taken from
 /// `CARGO_PKG_VERSION` at compile time. The `nexus-worker` binary
 /// re-exports this so `nexus-worker --version` matches the engine
 /// version exactly.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Reverse-DNS qualifier used by the `directories` crate to pick
+/// a platform-specific application directory (e.g.
+/// `com.Example.App` on macOS). See
+/// [`config::WorkerPaths::resolve`] for the resolved paths.
+pub const PROJECT_QUALIFIER: &str = "dev";
+
+/// Organization name used by the `directories` crate. Becomes
+/// part of the config/data directory path on every platform.
+pub const PROJECT_ORGANIZATION: &str = "FlowUP";
+
+/// Application name used by the `directories` crate. This is the
+/// last path component on Linux (`~/.config/nexus-grid/`) and the
+/// leaf directory on Windows / macOS alongside the organization.
+pub const PROJECT_APPLICATION: &str = "nexus-grid";

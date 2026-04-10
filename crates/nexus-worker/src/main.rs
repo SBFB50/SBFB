@@ -25,8 +25,10 @@
 
 mod cli;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
+use nexus_core_rs::KeyPair;
+use nexus_worker_core::config::{WorkerConfig, WorkerPaths};
 use tracing_subscriber::{fmt, EnvFilter};
 
 use cli::{Cli, Command, ConfigCommand, ProjectsCommand};
@@ -48,14 +50,20 @@ async fn main() -> Result<()> {
         "nexus-worker parsed CLI"
     );
 
+    // Every subcommand that touches disk state needs the resolved
+    // WorkerPaths. Computing it once here keeps the `--config`
+    // override consistent across subcommands.
+    let paths = WorkerPaths::resolve(cli.config.clone())
+        .context("could not resolve worker paths for this platform")?;
+
     match cli.command {
-        Command::Register { name } => handle_register(name).await,
-        Command::Start { tui, headless } => handle_start(tui, headless).await,
-        Command::Join { invite } => handle_join(invite).await,
-        Command::Projects(cmd) => handle_projects(cmd).await,
-        Command::Browse => handle_browse().await,
-        Command::Stats => handle_stats().await,
-        Command::Config(cmd) => handle_config(cmd).await,
+        Command::Register { name } => handle_register(&paths, name).await,
+        Command::Start { tui, headless } => handle_start(&paths, tui, headless).await,
+        Command::Join { invite } => handle_join(&paths, invite).await,
+        Command::Projects(cmd) => handle_projects(&paths, cmd).await,
+        Command::Browse => handle_browse(&paths).await,
+        Command::Stats => handle_stats(&paths).await,
+        Command::Config(cmd) => handle_config(&paths, cmd).await,
     }
 }
 
@@ -67,16 +75,56 @@ async fn main() -> Result<()> {
 // `nexus-worker-core` and call into it from these handlers.
 // -----------------------------------------------------------------
 
-async fn handle_register(name: Option<String>) -> Result<()> {
-    print_stub(
-        "register",
-        "W3 (config) + keypair persistence",
-        &[("name", name.as_deref().unwrap_or("<unset>"))],
-    );
+async fn handle_register(paths: &WorkerPaths, name: Option<String>) -> Result<()> {
+    // Refuse to clobber an existing registration — users that
+    // want to rotate keys must explicitly remove worker.toml
+    // first. This protects accidental loss of the Ed25519
+    // identity (and therefore any kudos associated with it).
+    if paths.config_file.exists() {
+        anyhow::bail!(
+            "worker already registered at {}\n\
+             delete it first if you really want to create a new identity",
+            paths.config_file.display()
+        );
+    }
+
+    paths
+        .ensure_dirs()
+        .context("failed to create worker data directories")?;
+
+    // Build a default config, then stamp the optional name into
+    // the identity section.
+    let mut cfg = WorkerConfig::default();
+    if let Some(name) = name {
+        cfg.identity.name = name;
+    }
+
+    // Generate (or load, if the key file exists independently
+    // of the config) the Ed25519 identity.
+    let key_path = cfg.resolve_secret_key_path(paths);
+    let keypair = KeyPair::load_or_generate(&key_path).context(format!(
+        "failed to load or generate worker keypair at {}",
+        key_path.display()
+    ))?;
+
+    cfg.save(&paths.config_file)
+        .context("failed to write worker.toml")?;
+
+    let pub_hex = hex::encode(keypair.public_bytes());
+    println!("nexus-worker v{}", env!("CARGO_PKG_VERSION"));
+    println!("  registered as:    {}", cfg.identity.name);
+    println!("  public key (hex): {pub_hex}");
+    println!("  config:           {}", paths.config_file.display());
+    println!("  secret key:       {}", key_path.display());
+    println!("  data dir:         {}", paths.data_dir.display());
+    println!();
+    println!("Next steps:");
+    println!("  nexus-worker join <invite>    enroll in a project");
+    println!("  nexus-worker start            begin serving tasks");
     Ok(())
 }
 
-async fn handle_start(tui: bool, headless: bool) -> Result<()> {
+async fn handle_start(paths: &WorkerPaths, tui: bool, headless: bool) -> Result<()> {
     let mode = if tui {
         "tui"
     } else if headless {
@@ -84,26 +132,46 @@ async fn handle_start(tui: bool, headless: bool) -> Result<()> {
     } else {
         "auto"
     };
+
+    // W9 will replace this stub with the real engine boot. For
+    // now, make sure the worker is actually registered and that
+    // the keypair loads — any failure here surfaces a bad config
+    // before the engine-loop waves land.
+    let cfg = WorkerConfig::load_required(&paths.config_file).context(
+        "worker not registered; run `nexus-worker register` first or pass --config <PATH>",
+    )?;
+    let key_path = cfg.resolve_secret_key_path(paths);
+    let keypair =
+        KeyPair::load_or_generate(&key_path).context("failed to load worker keypair from disk")?;
+
     print_stub(
         "start",
         "W9 (engine loop) + W10 (TUI) + W11 (logging)",
-        &[("mode", mode)],
+        &[
+            ("mode", mode),
+            ("name", cfg.identity.name.as_str()),
+            ("ollama", cfg.ollama.endpoint.as_str()),
+        ],
     );
 
-    // Sanity check that the core-rs link still works end-to-end.
-    // Replaced in W9 by the full engine boot sequence.
-    let node = nexus_core_rs::create_node().await?;
+    // Sanity check that the core-rs link still works with the
+    // persistent identity. Replaced in W9 by the full engine
+    // boot sequence via create_node_with_config.
+    let node = nexus_core_rs::create_node_with_config(
+        nexus_core_rs::NodeConfig::default().with_secret_key(keypair.secret_bytes()),
+    )
+    .await?;
     println!("  iroh endpoint ready, node id: {}", node.node_id());
     node.shutdown().await?;
     Ok(())
 }
 
-async fn handle_join(invite: String) -> Result<()> {
+async fn handle_join(_paths: &WorkerPaths, invite: String) -> Result<()> {
     print_stub("join", "W8 (invite tokens)", &[("invite", invite.as_str())]);
     Ok(())
 }
 
-async fn handle_projects(cmd: ProjectsCommand) -> Result<()> {
+async fn handle_projects(_paths: &WorkerPaths, cmd: ProjectsCommand) -> Result<()> {
     match cmd {
         ProjectsCommand::List => print_stub("projects list", "W7 (allowlist SQLite)", &[]),
         ProjectsCommand::Enable { project_id } => print_stub(
@@ -131,17 +199,46 @@ async fn handle_projects(cmd: ProjectsCommand) -> Result<()> {
     Ok(())
 }
 
-async fn handle_browse() -> Result<()> {
+async fn handle_browse(_paths: &WorkerPaths) -> Result<()> {
     print_stub("browse", "post-W9 (curator list discovery)", &[]);
     Ok(())
 }
 
-async fn handle_stats() -> Result<()> {
-    print_stub("stats", "W4 (GPU) + W6 (state) + W7 (allowlist)", &[]);
+async fn handle_stats(paths: &WorkerPaths) -> Result<()> {
+    // W4/W6/W7 will fill in real numbers. For W3 we at least
+    // report whether the worker is registered and where its
+    // identity lives.
+    match WorkerConfig::load_required(&paths.config_file) {
+        Ok(cfg) => {
+            let key_path = cfg.resolve_secret_key_path(paths);
+            let key_status = if key_path.exists() {
+                "present"
+            } else {
+                "missing"
+            };
+            print_stub(
+                "stats",
+                "W4 (GPU) + W6 (state) + W7 (allowlist)",
+                &[
+                    ("name", cfg.identity.name.as_str()),
+                    ("config", &paths.config_file.display().to_string()),
+                    ("secret_key", key_status),
+                    ("ollama", cfg.ollama.endpoint.as_str()),
+                ],
+            );
+        }
+        Err(e) => {
+            print_stub(
+                "stats",
+                "W4 (GPU) + W6 (state) + W7 (allowlist)",
+                &[("status", "not registered"), ("reason", &e.to_string())],
+            );
+        }
+    }
     Ok(())
 }
 
-async fn handle_config(cmd: ConfigCommand) -> Result<()> {
+async fn handle_config(_paths: &WorkerPaths, cmd: ConfigCommand) -> Result<()> {
     match cmd {
         ConfigCommand::Get { key } => {
             print_stub("config get", "W3 (config)", &[("key", key.as_str())])

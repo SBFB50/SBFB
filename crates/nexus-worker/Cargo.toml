@@ -40,3 +40,7 @@ tracing-subscriber = { workspace = true }
 
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+
+# W3: hex-encode the Ed25519 public key in `register` output so
+# users can copy-paste it into a coordinator allowlist.
+hex = { workspace = true }

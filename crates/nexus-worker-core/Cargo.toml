@@ -30,6 +30,17 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# W3: layered config loading (defaults + TOML + env vars) and
+# cross-platform application directory resolution. `toml` does
+# the write side (config-rs is read-only).
+config = { workspace = true }
+directories = { workspace = true }
+toml = { workspace = true }
+
+# Used for hex-encoding the Ed25519 public key in the `register`
+# CLI output so users can paste it into a coordinator ACL.
+hex = { workspace = true }
+
 # Observability — the headless engine logs everything through
 # tracing. The binary configures the subscriber; this crate only
 # emits events so it stays agnostic to how they get consumed
@@ -44,3 +55,9 @@ thiserror = { workspace = true }
 # This crate is UI-free by design (see the 2026-04-10 Sprint 3
 # headless-first decision in the plan). Anything user-facing lives
 # in the nexus-worker binary crate.
+
+[dev-dependencies]
+# Used by config::tests to produce isolated per-test directories
+# so that the save/load/env tests do not interfere with any real
+# worker.toml on the developer's machine.
+tempfile = "3.12"
