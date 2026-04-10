@@ -75,3 +75,8 @@ models/*.gguf
 # Logs
 logs/
 *.log
+
+# Sprint 2 audit shards — kept locally, not part of the repo
+# (9 .md files reviewing Sprint 2 crate-by-crate, inert outside
+# the cargo workspace).
+.planning/audit_sprint2/
