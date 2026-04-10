@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import typer
 
+from nexus_coordinator.cli.commands import invite as invite_cmds
 from nexus_coordinator.cli.commands.init import init_cmd
 from nexus_coordinator.cli.commands.start import start_cmd
 
@@ -27,6 +28,7 @@ app = typer.Typer(
 
 app.command("init", help="Create a new project directory, keypair, and config.")(init_cmd)
 app.command("start", help="Boot the coordinator and serve the local control API.")(start_cmd)
+app.add_typer(invite_cmds.app, name="invite")
 
 
 if __name__ == "__main__":

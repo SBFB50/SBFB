@@ -461,8 +461,25 @@ mod tests {
         assert_eq!(cfg, loaded);
     }
 
+    /// Serialize every test that touches
+    /// `NEXUS_WORKER__OLLAMA__ENDPOINT` so cargo's default
+    /// parallel test runner doesn't race them against each other.
+    /// Added in Sprint 4 Phase C after the env-var test caused
+    /// intermittent failures under parallel execution.
+    fn env_var_test_lock() -> &'static std::sync::Mutex<()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+    }
+
     #[test]
     fn load_missing_file_returns_defaults_plus_env() {
+        let _guard = env_var_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        // Paranoid cleanup so a leaked env var from a hypothetical
+        // third test cannot contaminate this one either.
+        std::env::remove_var("NEXUS_WORKER__OLLAMA__ENDPOINT");
+
         let dir = tempdir().unwrap();
         let path = dir.path().join("missing.toml");
         assert!(!path.exists());
@@ -603,6 +620,10 @@ max_concurrent_tasks = 0
 
     #[test]
     fn env_var_overrides_file_value() {
+        let _guard = env_var_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         let dir = tempdir().unwrap();
         let path = dir.path().join("env.toml");
 
@@ -615,9 +636,8 @@ endpoint = "http://from-file:11434"
         )
         .unwrap();
 
-        // SAFETY: env mutation is wrapped but only this one test
-        // uses NEXUS_WORKER__OLLAMA__ENDPOINT so there's no
-        // cross-test race on the same var.
+        // SAFETY: guarded by env_var_test_lock above so no
+        // parallel test can observe the transient mutation.
         std::env::set_var("NEXUS_WORKER__OLLAMA__ENDPOINT", "http://from-env:11434");
         let loaded = WorkerConfig::load(&path).unwrap();
         std::env::remove_var("NEXUS_WORKER__OLLAMA__ENDPOINT");

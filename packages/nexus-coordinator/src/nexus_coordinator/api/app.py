@@ -26,6 +26,7 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     spin a second one up.
     """
     from nexus_coordinator.api.health import router as health_router
+    from nexus_coordinator.api.invites import router as invites_router
     from nexus_coordinator.api.kudos import router as kudos_router
     from nexus_coordinator.api.tasks import router as tasks_router
 
@@ -48,4 +49,5 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     app.include_router(health_router)
     app.include_router(tasks_router)
     app.include_router(kudos_router)
+    app.include_router(invites_router)
     return app

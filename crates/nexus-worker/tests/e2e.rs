@@ -193,9 +193,11 @@ fn join_then_projects_list_shows_the_project() {
         "proj-e2e-001",
         "End-to-end fixture",
         Some("https://relay.example.org/".to_string()),
+        Some("fake-doc-ticket-e2e".to_string()),
         InviteScope::Worker,
         far_future_expiry,
-    );
+    )
+    .expect("well-formed Worker invite");
     let wire = invite.encode();
     assert!(wire.starts_with(INVITE_PREFIX));
 
@@ -230,9 +232,11 @@ fn join_expired_invite_is_refused() {
         "proj-expired",
         "Expired fixture",
         None,
+        Some("fake-doc-ticket-exp".to_string()),
         InviteScope::Worker,
         past_expiry,
-    );
+    )
+    .expect("well-formed Worker invite");
     let wire = invite.encode();
 
     let out = run_cli(&config_file, &["join", wire.as_str()]);
@@ -276,9 +280,11 @@ fn projects_enable_disable_and_budget_round_trip() {
         "proj-crud-001",
         "Crud fixture",
         None,
+        Some("fake-doc-ticket-crud".to_string()),
         InviteScope::Worker,
         2_500_000_000,
-    );
+    )
+    .expect("well-formed Worker invite");
     assert_success(
         &run_cli(&config_file, &["join", invite.encode().as_str()]),
         "join",

@@ -109,6 +109,21 @@ fn migrations() -> &'static Migrations<'static> {
                 CREATE INDEX projects_enabled_idx ON projects (enabled);
                 "#,
             ),
+            // ---- v2 (Sprint 4 Phase C) ----
+            //
+            // Add tasks_doc_ticket TEXT column. It carries the
+            // serialized iroh-docs write ticket that invite v2
+            // embedded at join time, so the W9.1 runtime drop-in
+            // (Phase D) can import the project doc without a
+            // separate out-of-band exchange. Existing v1 rows get
+            // NULL, which the engine interprets as "legacy v1
+            // enrollment, cannot claim tasks until a v2 invite
+            // rejoins the project" (Phase D drop-in).
+            M::up(
+                r#"
+                ALTER TABLE projects ADD COLUMN tasks_doc_ticket TEXT;
+                "#,
+            ),
         ])
     })
 }
@@ -140,6 +155,12 @@ pub struct NewProject {
     /// engine will serve the project until some other limit is
     /// hit).
     pub budget_joules: u64,
+    /// Serialized iroh-docs write ticket extracted from the
+    /// invite v2 payload. `None` for observer-scope enrolments
+    /// or for legacy records — the Phase D runtime drop-in
+    /// skips any project whose ticket is `None` when claiming
+    /// tasks.
+    pub tasks_doc_ticket: Option<String>,
 }
 
 /// A single row from the `projects` table, in the shape the
@@ -153,6 +174,7 @@ pub struct Project {
     pub joined_at: String,
     pub tasks_completed: u64,
     pub joules_used: u64,
+    pub tasks_doc_ticket: Option<String>,
 }
 
 impl Project {
@@ -192,6 +214,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
         joined_at: row.get(4)?,
         tasks_completed: row.get::<_, i64>(5)? as u64,
         joules_used: row.get::<_, i64>(6)? as u64,
+        tasks_doc_ticket: row.get(7)?,
     })
 }
 
@@ -294,14 +317,16 @@ impl Allowlist {
         self.with_conn(|conn| {
             let affected = conn
                 .execute(
-                    "INSERT OR IGNORE INTO projects (id, name, enabled, budget_joules, joined_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    "INSERT OR IGNORE INTO projects \
+                       (id, name, enabled, budget_joules, joined_at, tasks_doc_ticket) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     params![
                         project.id,
                         project.name,
                         project.enabled as i64,
                         project.budget_joules as i64,
                         joined_at,
+                        project.tasks_doc_ticket,
                     ],
                 )
                 .map_err(AllowlistError::from)?;
@@ -398,7 +423,7 @@ impl Allowlist {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, name, enabled, budget_joules, joined_at, \
-                        tasks_completed, joules_used \
+                        tasks_completed, joules_used, tasks_doc_ticket \
                  FROM projects WHERE id = ?1",
             )?;
             let result = stmt.query_row(params![id], project_from_row).optional()?;
@@ -412,7 +437,7 @@ impl Allowlist {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, name, enabled, budget_joules, joined_at, \
-                        tasks_completed, joules_used \
+                        tasks_completed, joules_used, tasks_doc_ticket \
                  FROM projects ORDER BY name COLLATE NOCASE",
             )?;
             let rows = stmt
@@ -430,7 +455,7 @@ impl Allowlist {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, name, enabled, budget_joules, joined_at, \
-                        tasks_completed, joules_used \
+                        tasks_completed, joules_used, tasks_doc_ticket \
                  FROM projects WHERE enabled = 1 ORDER BY name COLLATE NOCASE",
             )?;
             let rows = stmt
@@ -509,13 +534,16 @@ mod tests {
             name: format!("Project {id}"),
             enabled: true,
             budget_joules: 0,
+            tasks_doc_ticket: None,
         }
     }
 
     #[test]
     fn open_in_memory_applies_migrations() {
         let a = Allowlist::open_in_memory().unwrap();
-        assert_eq!(a.schema_version().unwrap(), 1);
+        // Sprint 4 Phase C bumps the schema to v2 (adds
+        // projects.tasks_doc_ticket).
+        assert_eq!(a.schema_version().unwrap(), 2);
         assert!(a.list().unwrap().is_empty());
     }
 
@@ -526,7 +554,20 @@ mod tests {
         let a = Allowlist::open(&db_path).unwrap();
         assert_eq!(a.path(), Some(db_path.as_path()));
         assert!(db_path.exists());
-        assert_eq!(a.schema_version().unwrap(), 1);
+        assert_eq!(a.schema_version().unwrap(), 2);
+    }
+
+    #[test]
+    fn enroll_persists_tasks_doc_ticket() {
+        let a = Allowlist::open_in_memory().unwrap();
+        let mut p = sample_project("proj-t");
+        p.tasks_doc_ticket = Some("nx-doc-ticket-fake".to_string());
+        a.enroll(p).unwrap();
+        let fetched = a.get("proj-t").unwrap().unwrap();
+        assert_eq!(
+            fetched.tasks_doc_ticket.as_deref(),
+            Some("nx-doc-ticket-fake")
+        );
     }
 
     #[test]
@@ -633,6 +674,7 @@ mod tests {
             joined_at: "2026-04-10T00:00:00Z".into(),
             tasks_completed: 3,
             joules_used: 500,
+            tasks_doc_ticket: None,
         };
         assert_eq!(p.budget_remaining_joules(), None);
         assert!(p.is_serveable());
@@ -648,6 +690,7 @@ mod tests {
             joined_at: "2026-04-10T00:00:00Z".into(),
             tasks_completed: 1,
             joules_used: 400,
+            tasks_doc_ticket: None,
         };
         assert_eq!(p.budget_remaining_joules(), Some(600));
         assert!(p.is_serveable());
@@ -667,6 +710,7 @@ mod tests {
             joined_at: "2026-04-10T00:00:00Z".into(),
             tasks_completed: 0,
             joules_used: 0,
+            tasks_doc_ticket: None,
         };
         assert!(!p.is_serveable());
     }

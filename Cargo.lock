@@ -2922,6 +2922,7 @@ dependencies = [
  "futures-lite",
  "iroh-docs",
  "nexus-core-rs",
+ "nexus-worker-core",
  "pyo3",
  "pyo3-async-runtimes",
  "serde_json",

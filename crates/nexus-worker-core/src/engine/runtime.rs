@@ -536,6 +536,7 @@ mod tests {
                 name: "X".into(),
                 enabled: true,
                 budget_joules: 0,
+                tasks_doc_ticket: None,
             })
             .unwrap();
 

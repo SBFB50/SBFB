@@ -49,6 +49,10 @@ use nexus_core_rs::{
     task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry},
     Node, NodeConfig, VerificationReport, Verifier as RsVerifier,
 };
+use nexus_worker_core::invite::{
+    current_unix_secs, Invite as RsInvite, InviteError as RsInviteError,
+    InviteScope as RsInviteScope,
+};
 use std::str::FromStr;
 
 fn py_err<E: std::fmt::Display>(label: &str, e: E) -> PyErr {
@@ -894,6 +898,122 @@ fn verify_claim_entry(entry_json: &str) -> PyResult<()> {
 }
 
 // ======================================================================
+// Invite v2 mint/decode
+// ======================================================================
+
+fn scope_from_str(s: &str) -> PyResult<RsInviteScope> {
+    match s {
+        "worker" => Ok(RsInviteScope::Worker),
+        "observer" => Ok(RsInviteScope::Observer),
+        other => Err(PyValueError::new_err(format!(
+            "invite scope must be 'worker' or 'observer', got {other:?}"
+        ))),
+    }
+}
+
+fn scope_to_str(s: RsInviteScope) -> &'static str {
+    match s {
+        RsInviteScope::Worker => "worker",
+        RsInviteScope::Observer => "observer",
+    }
+}
+
+/// Mint a new Sprint 4 Phase C invite (version 2) and return its
+/// `nx1...` wire form.
+///
+/// Parameters:
+///
+/// - `coord_secret`: 32-byte Ed25519 secret of the coordinator.
+/// - `project_id`: opaque project identifier (the iroh-docs
+///   NamespaceId as a hex string, or any stable token the
+///   coordinator uses).
+/// - `project_name`: human-readable project name for display.
+/// - `coordinator_addr`: optional compact EndpointAddr string
+///   that seeds the worker's memory_lookup so first contact
+///   bypasses pkarr discovery.
+/// - `tasks_doc_ticket`: serialized iroh-docs write ticket. MUST
+///   be provided when `scope == "worker"` — the mint function
+///   raises `ValueError` otherwise.
+/// - `scope`: `"worker"` or `"observer"`.
+/// - `expires_at_unix`: token expiry as a Unix timestamp.
+#[pyfunction]
+#[pyo3(signature = (
+    coord_secret,
+    project_id,
+    project_name,
+    coordinator_addr,
+    tasks_doc_ticket,
+    scope,
+    expires_at_unix,
+))]
+#[allow(clippy::too_many_arguments)]
+fn mint_invite(
+    coord_secret: &Bound<'_, PyBytes>,
+    project_id: String,
+    project_name: String,
+    coordinator_addr: Option<String>,
+    tasks_doc_ticket: Option<String>,
+    scope: String,
+    expires_at_unix: u64,
+) -> PyResult<String> {
+    let sk: [u8; SECRET_KEY_BYTES] = array32(coord_secret, "coord_secret")?;
+    let kp = KeyPair::from_secret_bytes(&sk);
+    let rs_scope = scope_from_str(&scope)?;
+    let invite = RsInvite::mint(
+        &kp,
+        project_id,
+        project_name,
+        coordinator_addr,
+        tasks_doc_ticket,
+        rs_scope,
+        expires_at_unix,
+    )
+    .map_err(|e| match e {
+        RsInviteError::MissingTasksDocTicket => {
+            PyValueError::new_err("tasks_doc_ticket is required when scope == 'worker'")
+        }
+        other => PyRuntimeError::new_err(format!("mint_invite: {other}")),
+    })?;
+    Ok(invite.encode())
+}
+
+/// Decode an `nx1...` invite, verify the signature, check the
+/// expiry (using ``now_unix`` if provided, else the system
+/// clock), and return its fields as a dict.
+///
+/// Raises `ValueError` on malformed / expired / signature-invalid
+/// invites so the Python caller can translate to a
+/// ``HTTPException`` at the API boundary.
+#[pyfunction]
+#[pyo3(signature = (wire, now_unix=None))]
+fn decode_invite<'py>(
+    py: Python<'py>,
+    wire: &str,
+    now_unix: Option<u64>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let invite =
+        RsInvite::decode(wire).map_err(|e| PyValueError::new_err(format!("decode_invite: {e}")))?;
+    let now = now_unix.unwrap_or_else(current_unix_secs);
+    invite
+        .ensure_not_expired(now)
+        .map_err(|e| PyValueError::new_err(format!("decode_invite: {e}")))?;
+
+    let d = PyDict::new(py);
+    d.set_item("version", invite.payload.version)?;
+    d.set_item("project_id", invite.payload.project_id.clone())?;
+    d.set_item("project_name", invite.payload.project_name.clone())?;
+    d.set_item(
+        "coordinator_pubkey",
+        PyBytes::new(py, &invite.payload.coordinator_pubkey),
+    )?;
+    d.set_item("coordinator_addr", invite.payload.coordinator_addr.clone())?;
+    d.set_item("tasks_doc_ticket", invite.payload.tasks_doc_ticket.clone())?;
+    d.set_item("scope", scope_to_str(invite.payload.scope))?;
+    d.set_item("expires_at_unix", invite.payload.expires_at_unix)?;
+    Ok(d)
+}
+
+// ======================================================================
 // Module entry point
 // ======================================================================
 
@@ -918,6 +1038,8 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify_result_entry, m)?)?;
     m.add_function(wrap_pyfunction!(sign_claim, m)?)?;
     m.add_function(wrap_pyfunction!(verify_claim_entry, m)?)?;
+    m.add_function(wrap_pyfunction!(mint_invite, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_invite, m)?)?;
 
     Ok(())
 }

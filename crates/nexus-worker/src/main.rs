@@ -277,6 +277,7 @@ async fn handle_join(paths: &WorkerPaths, invite: String) -> Result<()> {
         name: invite.payload.project_name.clone(),
         enabled: true,
         budget_joules: 0,
+        tasks_doc_ticket: invite.payload.tasks_doc_ticket.clone(),
     };
     match db.enroll(new) {
         Ok(()) => {

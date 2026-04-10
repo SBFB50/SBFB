@@ -29,6 +29,13 @@ tokio = { workspace = true }
 iroh-docs = { workspace = true }
 serde_json = { workspace = true }
 
+# nexus-worker-core owns the invite format; we depend on it only
+# for the mint/decode bindings exposed through PyO3 (pulling the
+# whole worker engine into a Python wheel is intentional — the
+# Rust types stay the single source of truth even for coordinator
+# writes).
+nexus-worker-core = { path = "../nexus-worker-core" }
+
 # Stream polling for Doc::subscribe binding. futures-lite is the
 # same dep nexus-core-rs already uses in its gossip/docs wrappers,
 # so we match the workspace choice rather than pulling futures

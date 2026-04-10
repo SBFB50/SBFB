@@ -63,7 +63,13 @@ use thiserror::Error;
 /// changes in a way that breaks backwards compatibility. Old
 /// workers must refuse to decode a newer version rather than
 /// guess.
-pub const INVITE_VERSION: u8 = 1;
+///
+/// Version 2 (Sprint 4 Phase C) adds `tasks_doc_ticket` so the
+/// worker can import the coordinator's task doc during `join`
+/// without a separate out-of-band ticket. Sprint 3 version 1
+/// invites are rejected (the Sprint 4 kickoff §2 decision C is a
+/// hard bump — no v1 was ever distributed).
+pub const INVITE_VERSION: u8 = 2;
 
 /// Human-readable prefix prepended to every invite string.
 /// Chosen so a paste-capture in a chat window is obviously a
@@ -127,6 +133,18 @@ pub struct InvitePayload {
     /// worker must resolve the coordinator through pkarr.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coordinator_addr: Option<String>,
+    /// **v2 field**: serialized iroh-docs write ticket for the
+    /// project's tasks doc. The worker imports the doc on `join`
+    /// via `DocsClient::import_and_subscribe(ticket)` so it can
+    /// scan `task:*` / `claim:*` / `result:*` entries without a
+    /// separate out-of-band exchange.
+    ///
+    /// Mandatory when `scope == Worker` (the `Invite::mint`
+    /// constructor enforces this); optional for `scope ==
+    /// Observer`, where a read-only worker can still function
+    /// without the ticket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks_doc_ticket: Option<String>,
     /// Permission level granted by this invite.
     pub scope: InviteScope,
     /// Token expiry in unix seconds. Workers reject tokens
@@ -195,6 +213,13 @@ pub enum InviteError {
     /// The token's `expires_at_unix` is in the past.
     #[error("invite expired at unix {expired_at} (now {now})")]
     Expired { expired_at: u64, now: u64 },
+
+    /// Invite v2 requires `tasks_doc_ticket` when
+    /// `scope == Worker`, but the caller left it `None`. Produced
+    /// at mint time; the decoder also refuses such a payload
+    /// because it would be impossible for a worker to act on.
+    #[error("Worker-scoped invite must carry a tasks_doc_ticket")]
+    MissingTasksDocTicket,
 }
 
 // =================================================================
@@ -206,29 +231,34 @@ impl Invite {
     /// keypair. Automatically fills `version`,
     /// `coordinator_pubkey`, and signs the canonical bytes.
     ///
-    /// Normally only the coordinator side calls this (Sprint 4).
-    /// The worker crate exposes it mostly so unit tests can
-    /// generate round-trip fixtures without pulling in a second
-    /// crate.
+    /// Returns [`InviteError::MissingTasksDocTicket`] if
+    /// `scope == Worker && tasks_doc_ticket.is_none()` — a
+    /// Worker-scoped invite is useless without the ticket and we
+    /// refuse to mint one in that state.
     pub fn mint(
         coordinator: &KeyPair,
         project_id: impl Into<String>,
         project_name: impl Into<String>,
         coordinator_addr: Option<String>,
+        tasks_doc_ticket: Option<String>,
         scope: InviteScope,
         expires_at_unix: u64,
-    ) -> Self {
+    ) -> Result<Self, InviteError> {
+        if matches!(scope, InviteScope::Worker) && tasks_doc_ticket.is_none() {
+            return Err(InviteError::MissingTasksDocTicket);
+        }
         let payload = InvitePayload {
             version: INVITE_VERSION,
             project_id: project_id.into(),
             project_name: project_name.into(),
             coordinator_pubkey: coordinator.public_bytes(),
             coordinator_addr,
+            tasks_doc_ticket,
             scope,
             expires_at_unix,
         };
         let signature = coordinator.sign(&payload.canonical_bytes());
-        Self { payload, signature }
+        Ok(Self { payload, signature })
     }
 
     /// Serialize to the wire format: `nx1` + Base32 of the
@@ -264,6 +294,15 @@ impl Invite {
 
         if invite.payload.version != INVITE_VERSION {
             return Err(InviteError::UnsupportedVersion(invite.payload.version));
+        }
+
+        // Enforce the Worker-requires-ticket rule on decode too,
+        // so a hand-crafted payload that bypassed `mint` still
+        // fails closed.
+        if matches!(invite.payload.scope, InviteScope::Worker)
+            && invite.payload.tasks_doc_ticket.is_none()
+        {
+            return Err(InviteError::MissingTasksDocTicket);
         }
 
         invite.verify_signature()?;
@@ -355,15 +394,22 @@ mod hex_bytes64 {
 mod tests {
     use super::*;
 
+    /// A handful of invite tests don't care what ticket string is
+    /// embedded, just that one is present. Use a recognisable
+    /// placeholder so test failures are easy to grep.
+    const FAKE_DOC_TICKET: &str = "fake-doc-ticket-bytes-AAAAAA";
+
     fn sample_invite(coord: &KeyPair, expires_at_unix: u64) -> Invite {
         Invite::mint(
             coord,
             "proj-abc".to_string(),
             "Test Project".to_string(),
             Some("https://relay.example.com/".to_string()),
+            Some(FAKE_DOC_TICKET.to_string()),
             InviteScope::Worker,
             expires_at_unix,
         )
+        .expect("sample mint is well-formed")
     }
 
     #[test]
@@ -505,6 +551,88 @@ mod tests {
     }
 
     #[test]
+    fn worker_scope_requires_tasks_doc_ticket() {
+        let coord = KeyPair::generate();
+        let err = Invite::mint(
+            &coord,
+            "proj-abc".to_string(),
+            "Test Project".to_string(),
+            None,
+            None, // tasks_doc_ticket deliberately missing
+            InviteScope::Worker,
+            2_000_000_000,
+        )
+        .unwrap_err();
+        assert!(matches!(err, InviteError::MissingTasksDocTicket));
+    }
+
+    #[test]
+    fn observer_scope_may_omit_tasks_doc_ticket() {
+        let coord = KeyPair::generate();
+        let invite = Invite::mint(
+            &coord,
+            "proj-abc".to_string(),
+            "Test Project".to_string(),
+            None,
+            None, // observers do not need a task doc
+            InviteScope::Observer,
+            2_000_000_000,
+        )
+        .expect("observer invite without ticket must mint successfully");
+        assert!(invite.payload.tasks_doc_ticket.is_none());
+        let wire = invite.encode();
+        let back = Invite::decode(&wire).unwrap();
+        assert_eq!(back.payload.scope, InviteScope::Observer);
+        assert!(back.payload.tasks_doc_ticket.is_none());
+    }
+
+    #[test]
+    fn tasks_doc_ticket_round_trips_through_wire_format() {
+        let coord = KeyPair::generate();
+        let invite = sample_invite(&coord, 2_000_000_000);
+        let wire = invite.encode();
+        let back = Invite::decode(&wire).unwrap();
+        assert_eq!(
+            back.payload.tasks_doc_ticket,
+            Some(FAKE_DOC_TICKET.to_string())
+        );
+    }
+
+    #[test]
+    fn decode_refuses_v1_after_hard_bump() {
+        // Hand-craft a v1 invite and confirm the Sprint 4 decoder
+        // refuses it as UnsupportedVersion.
+        let coord = KeyPair::generate();
+        let mut invite = sample_invite(&coord, 2_000_000_000);
+        invite.payload.version = 1;
+        // Re-sign so the bytes have a valid signature over the
+        // v1-numbered payload; the decoder must still reject on
+        // version mismatch before checking the sig.
+        invite.signature = coord.sign(&invite.payload.canonical_bytes());
+        let wire = invite.encode();
+        match Invite::decode(&wire).unwrap_err() {
+            InviteError::UnsupportedVersion(v) => assert_eq!(v, 1),
+            other => panic!("expected UnsupportedVersion, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_refuses_worker_without_ticket_even_when_hand_crafted() {
+        // Re-sign a payload where scope=Worker and ticket=None
+        // to prove the decode-side check is also active, not just
+        // the mint-side one.
+        let coord = KeyPair::generate();
+        let mut invite = sample_invite(&coord, 2_000_000_000);
+        invite.payload.tasks_doc_ticket = None;
+        invite.signature = coord.sign(&invite.payload.canonical_bytes());
+        let wire = invite.encode();
+        match Invite::decode(&wire).unwrap_err() {
+            InviteError::MissingTasksDocTicket => {}
+            other => panic!("expected MissingTasksDocTicket, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn invite_without_coordinator_addr_omits_field() {
         let coord = KeyPair::generate();
         let invite = Invite::mint(
@@ -512,9 +640,11 @@ mod tests {
             "proj-x".to_string(),
             "X".to_string(),
             None,
+            Some(FAKE_DOC_TICKET.to_string()),
             InviteScope::Worker,
             2_000_000_000,
-        );
+        )
+        .unwrap();
         let json = serde_json::to_string(&invite).unwrap();
         assert!(
             !json.contains("coordinator_addr"),

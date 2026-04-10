@@ -42,6 +42,7 @@ import structlog
 
 from nexus_coordinator.config import CoordinatorConfig
 from nexus_coordinator.dispatcher import Dispatcher
+from nexus_coordinator.invite import InviteLedger
 from nexus_coordinator.keystore import LoadedKeypair, load_or_generate_keypair
 from nexus_coordinator.kudos import KudosLedger
 from nexus_coordinator.paths import (
@@ -111,6 +112,7 @@ class Coordinator:
         self.dispatcher: Dispatcher | None = None
         self.kudos_ledger: KudosLedger | None = None
         self.validator: Validator | None = None
+        self.invite_ledger: InviteLedger | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -230,6 +232,16 @@ class Coordinator:
             db_path=state_db,
         )
         await self.validator.start()
+
+        # 8. Phase C: invite ledger for coordinator-issued invite
+        #    tokens (mint / list / revoke). Shares the state.sqlite
+        #    file with task_state + kudos_ledger; the table is
+        #    created lazily by InviteLedger.init().
+        self.invite_ledger = InviteLedger(
+            db_path=state_db,
+            coord_secret=self._keypair.secret,
+        )
+        await self.invite_ledger.init()
 
     async def stop(self) -> None:
         """Shut down the iroh node and cancel any background tasks.
