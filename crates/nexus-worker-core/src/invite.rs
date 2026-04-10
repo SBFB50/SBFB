@@ -54,6 +54,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use data_encoding::BASE32_NOPAD;
+use nexus_core_rs::canonical::{canonical_bytes, DOMAIN_INVITE_V1};
 use nexus_core_rs::{verify, KeyPair};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -134,20 +135,20 @@ pub struct InvitePayload {
 }
 
 impl InvitePayload {
-    /// Serialize the payload to the canonical bytes used as
-    /// the signature input.
+    /// Serialize the payload to the canonical bytes used as the
+    /// signature input.
     ///
-    /// Implementation note: `serde_json::to_vec` emits struct
-    /// fields in declaration order. The cross-language caveat
-    /// documented in the Sprint 2 audit (P1 canonical_bytes
-    /// tech-debt item) applies here — if a Python coordinator
-    /// ever signs an invite, it MUST use a matching
-    /// declaration-order serializer. Rust-to-Rust verification
-    /// is deterministic as long as this struct's field order
-    /// never changes, which is enforced by the `INVITE_VERSION`
-    /// bump rule.
+    /// Delegates to [`nexus_core_rs::canonical::canonical_bytes`]
+    /// with the [`DOMAIN_INVITE_V1`] domain tag, which gives us
+    /// RFC 8785 JCS output plus type-level separation from tasks,
+    /// results and claims. The call is infallible for a
+    /// well-formed `InvitePayload` (no NaN/Inf floats, no
+    /// non-string map keys), so we unwrap with an `expect` that
+    /// can only fire on a memory exhaustion or similar hard
+    /// failure in `serde_jcs`.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        serde_json::to_vec(self).expect("InvitePayload must be infallibly serializable")
+        canonical_bytes(self, DOMAIN_INVITE_V1)
+            .expect("InvitePayload must be infallibly JCS-serializable")
     }
 }
 

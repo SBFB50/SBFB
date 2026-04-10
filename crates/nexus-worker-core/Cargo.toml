@@ -29,6 +29,9 @@ tokio = { workspace = true }
 # any cached state on disk.
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Invite payloads sign their canonical bytes via `nexus_core_rs::canonical`
+# (RFC 8785 JCS). The crate itself is pulled in transitively through
+# nexus-core-rs, so we don't declare serde_jcs as a direct dep here.
 
 # W3: layered config loading (defaults + TOML + env vars) and
 # cross-platform application directory resolution. `toml` does

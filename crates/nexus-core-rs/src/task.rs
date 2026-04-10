@@ -2,37 +2,33 @@
 //!
 //! These are the canonical data structures that move through the
 //! iroh-docs replicas powering each project's task queue. A
-//! coordinator writes [`TaskEntry`] values into the tasks doc, and
-//! workers write [`ResultEntry`] values into the results doc after
-//! they finish their inference.
+//! coordinator writes [`TaskEntry`] values into the tasks doc,
+//! workers write [`ClaimEntry`] values to race for ownership, and
+//! once they finish inference they write [`ResultEntry`] values
+//! back into the same doc.
 //!
 //! ## Canonical serialization
 //!
 //! Signatures are computed over a **canonical byte representation**
-//! of the struct, so every peer that receives the entry can
-//! reproduce the exact same bytes and verify the signature against
-//! them. Canonicality is enforced by:
+//! produced by [`crate::canonical::canonical_bytes`]. That function
+//! uses RFC 8785 JSON Canonicalization Scheme (via the `serde_jcs`
+//! crate) plus a type-specific domain separation prefix, so every
+//! peer in every language reproduces the exact same bytes and
+//! verification is deterministic across the Rust worker and the
+//! Python coordinator.
 //!
-//! - Using `serde_json` with a `BTreeMap`-backed format (keys sorted
-//!   lexicographically)
-//! - Forbidding floating-point numbers in the payload (they don't
-//!   round-trip bit-identically on all platforms)
-//! - Including a `version: u16` field so we can evolve the format
-//!   without silently breaking old consumers
-//!
-//! The [`canonical_bytes`] function is the single source of truth.
-//! Nothing in this module — or in downstream verification code —
-//! should ever hand-roll its own serialization. If the signature
-//! bytes don't match, the first place to look is whether someone
-//! bypassed this function.
+//! The module doc on [`crate::canonical`] explains the prefix
+//! layout and the rationale; nothing in this module — or anywhere
+//! in the crate — should ever hand-roll its own signing bytes.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
+use crate::canonical::{canonical_bytes, DOMAIN_CLAIM_V1, DOMAIN_RESULT_V1, DOMAIN_TASK_V1};
 use crate::crypto::{KeyPair, PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
-use crate::error::{NexusError, Result};
+use crate::error::Result;
 
 /// Current on-wire version for Task and Result payloads.
 ///
@@ -136,9 +132,10 @@ pub struct TaskEntry {
     /// (32 bytes).
     pub author_pubkey: [u8; PUBLIC_KEY_LENGTH],
 
-    /// Ed25519 signature of [`canonical_bytes`] of the task
-    /// (64 bytes). serde-big-array is used because serde does not
-    /// derive Serialize/Deserialize for arrays > 32.
+    /// Ed25519 signature over the canonical bytes of the task
+    /// (64 bytes). See [`crate::canonical`] for the exact layout.
+    /// serde-big-array is used because serde does not derive
+    /// Serialize/Deserialize for arrays > 32.
     #[serde(with = "BigArray")]
     pub signature: [u8; SIGNATURE_BYTES],
 }
@@ -147,7 +144,7 @@ impl TaskEntry {
     /// Sign a Task with the given keypair and produce a signed
     /// entry ready to be written to the tasks doc.
     pub fn sign(task: Task, keypair: &KeyPair) -> Result<Self> {
-        let bytes = canonical_bytes(&task)?;
+        let bytes = canonical_bytes(&task, DOMAIN_TASK_V1)?;
         let signature = keypair.sign(&bytes);
         Ok(TaskEntry {
             task,
@@ -159,10 +156,10 @@ impl TaskEntry {
     /// Verify the signature on this entry.
     ///
     /// Returns `Ok(())` on valid signature, or
-    /// [`NexusError::Crypto`] on any failure (bad bytes, wrong key,
-    /// tampered task).
+    /// [`crate::error::NexusError::Crypto`] on any failure (bad
+    /// bytes, wrong key, tampered task).
     pub fn verify_signature(&self) -> Result<()> {
-        let bytes = canonical_bytes(&self.task)?;
+        let bytes = canonical_bytes(&self.task, DOMAIN_TASK_V1)?;
         crate::crypto::verify(&self.author_pubkey, &bytes, &self.signature)
     }
 }
@@ -226,7 +223,7 @@ pub struct ResultEntry {
     /// (32 bytes).
     pub worker_pubkey: [u8; PUBLIC_KEY_LENGTH],
 
-    /// Ed25519 signature of [`canonical_bytes`] of the payload
+    /// Ed25519 signature over the canonical bytes of the payload
     /// (64 bytes). See [`TaskEntry`] for the serde-big-array note.
     #[serde(with = "BigArray")]
     pub signature: [u8; SIGNATURE_BYTES],
@@ -235,7 +232,7 @@ pub struct ResultEntry {
 impl ResultEntry {
     /// Sign a ResultPayload with the worker's keypair.
     pub fn sign(payload: ResultPayload, keypair: &KeyPair) -> Result<Self> {
-        let bytes = canonical_bytes(&payload)?;
+        let bytes = canonical_bytes(&payload, DOMAIN_RESULT_V1)?;
         let signature = keypair.sign(&bytes);
         Ok(ResultEntry {
             payload,
@@ -246,20 +243,24 @@ impl ResultEntry {
 
     /// Verify the signature on this result.
     pub fn verify_signature(&self) -> Result<()> {
-        let bytes = canonical_bytes(&self.payload)?;
+        let bytes = canonical_bytes(&self.payload, DOMAIN_RESULT_V1)?;
         crate::crypto::verify(&self.worker_pubkey, &bytes, &self.signature)
     }
 }
 
 /// A worker's claim on a task. Written into the tasks doc as a
-/// sidecar entry to signal "I am working on this, please do not
-/// assign it again".
+/// sidecar entry (`claim:<task_id>`) to signal "I am working on
+/// this, please do not assign it again".
 ///
 /// Because iroh-docs is LWW (last-write-wins by timestamp), two
-/// workers can legitimately write a Claim for the same task at the
-/// same time. The coordinator breaks ties by keeping the
-/// earliest-timestamped Claim that carries a valid signature, and
-/// the loser discards its in-flight work.
+/// workers can legitimately write a [`ClaimEntry`] for the same
+/// task at the same time. The coordinator breaks ties by keeping
+/// the earliest-timestamped valid claim and the loser discards its
+/// in-flight work.
+///
+/// The claim is always wrapped in a [`ClaimEntry`] before hitting
+/// the doc — a raw `Claim` has no authenticity guarantee and the
+/// coordinator refuses to act on it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Claim {
     /// Canonical format version.
@@ -292,28 +293,66 @@ impl Claim {
     }
 }
 
-/// Produce the canonical byte representation of any serializable
-/// type for signing.
+/// A signed [`Claim`], ready to be written to the tasks doc under
+/// `claim:<task_id>`.
 ///
-/// This is intentionally wrapped in a single function so every
-/// signer and verifier in the system uses the exact same bytes.
-/// It uses `serde_json::to_vec` — which itself sorts struct fields
-/// in declaration order — plus a deterministic alphabetical sort
-/// via `BTreeMap` for any map-typed fields.
-///
-/// JSON is not the most compact format, but it is the simplest
-/// way to guarantee cross-language reproducibility (the Python
-/// coordinator and the Rust worker must produce byte-identical
-/// outputs, and `serde_json` + `json.dumps(sort_keys=True)` agree
-/// on the wire format).
-pub fn canonical_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>> {
-    // `serde_json::to_vec` preserves field declaration order for
-    // structs and sorts map keys alphabetically when the underlying
-    // map is a BTreeMap. Our Task/ResultPayload/Claim structs use
-    // BTreeMap for metadata and struct-order for everything else,
-    // so the output is reproducible.
-    serde_json::to_vec(value)
-        .map_err(|e| NexusError::Other(format!("canonical serialization failed: {e}")))
+/// Audit P2 item 2 (2026-04-10): prior to Sprint 4, `Claim` only
+/// had a `new()` constructor and no way to authenticate the
+/// claimant. The coordinator cannot safely break LWW ties without
+/// a signature, so [`ClaimEntry`] wraps the claim alongside the
+/// worker's public key and an Ed25519 signature over the canonical
+/// bytes (with domain prefix [`DOMAIN_CLAIM_V1`]).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ClaimEntry {
+    /// The claim itself.
+    pub claim: Claim,
+
+    /// Ed25519 public key of the worker that minted this claim.
+    /// Must equal [`Claim::claimed_by`] for the entry to verify;
+    /// the redundancy catches split-brain bugs where a forwarder
+    /// attributes a claim to a different key than the one that
+    /// signed it.
+    pub worker_pubkey: [u8; PUBLIC_KEY_LENGTH],
+
+    /// Ed25519 signature over the canonical bytes of the claim.
+    #[serde(with = "BigArray")]
+    pub signature: [u8; SIGNATURE_BYTES],
+}
+
+impl ClaimEntry {
+    /// Sign a Claim with the worker's keypair.
+    ///
+    /// The resulting entry carries `worker_pubkey =
+    /// keypair.public_bytes()`. [`ClaimEntry::verify_signature`]
+    /// additionally checks that `claim.claimed_by == worker_pubkey`
+    /// to prevent attribution mismatch.
+    pub fn sign(claim: Claim, keypair: &KeyPair) -> Result<Self> {
+        let bytes = canonical_bytes(&claim, DOMAIN_CLAIM_V1)?;
+        let signature = keypair.sign(&bytes);
+        Ok(ClaimEntry {
+            claim,
+            worker_pubkey: keypair.public_bytes(),
+            signature,
+        })
+    }
+
+    /// Verify the signature on this claim entry.
+    ///
+    /// Two checks:
+    ///
+    /// 1. `claim.claimed_by == worker_pubkey` (attribution
+    ///    consistency).
+    /// 2. Ed25519 signature is valid over
+    ///    `canonical_bytes(&claim, DOMAIN_CLAIM_V1)`.
+    pub fn verify_signature(&self) -> Result<()> {
+        if self.claim.claimed_by != self.worker_pubkey {
+            return Err(crate::error::NexusError::Crypto(
+                "claim.claimed_by does not match worker_pubkey".into(),
+            ));
+        }
+        let bytes = canonical_bytes(&self.claim, DOMAIN_CLAIM_V1)?;
+        crate::crypto::verify(&self.worker_pubkey, &bytes, &self.signature)
+    }
 }
 
 #[cfg(test)]
@@ -352,8 +391,8 @@ mod tests {
     #[test]
     fn task_canonical_bytes_is_deterministic() {
         let t = sample_task();
-        let a = canonical_bytes(&t).unwrap();
-        let b = canonical_bytes(&t).unwrap();
+        let a = canonical_bytes(&t, DOMAIN_TASK_V1).unwrap();
+        let b = canonical_bytes(&t, DOMAIN_TASK_V1).unwrap();
         assert_eq!(a, b, "same input must produce identical bytes");
     }
 
@@ -368,9 +407,13 @@ mod tests {
         t2.metadata.insert("b".into(), "2".into());
         t2.metadata.insert("a".into(), "1".into());
 
-        // BTreeMap guarantees alphabetical iteration so the
-        // canonical bytes must match regardless of insertion order.
-        assert_eq!(canonical_bytes(&t1).unwrap(), canonical_bytes(&t2).unwrap());
+        // BTreeMap guarantees alphabetical iteration and JCS
+        // sorts map keys at every level, so the canonical bytes
+        // must match regardless of insertion order.
+        assert_eq!(
+            canonical_bytes(&t1, DOMAIN_TASK_V1).unwrap(),
+            canonical_bytes(&t2, DOMAIN_TASK_V1).unwrap()
+        );
     }
 
     #[test]
@@ -415,30 +458,86 @@ mod tests {
 
     #[test]
     fn task_roundtrip_through_canonical_bytes() {
+        // Strip the domain prefix + null separator, then the
+        // remaining bytes are plain JCS JSON and can round-trip
+        // through serde_json::from_slice.
         let t = sample_task();
-        let bytes = canonical_bytes(&t).unwrap();
-        let restored: Task = serde_json::from_slice(&bytes).unwrap();
+        let bytes = canonical_bytes(&t, DOMAIN_TASK_V1).unwrap();
+        let body = &bytes[DOMAIN_TASK_V1.len() + 1..];
+        let restored: Task = serde_json::from_slice(body).unwrap();
         assert_eq!(t, restored);
     }
 
     #[test]
-    fn claim_sign_and_verify_via_canonical() {
+    fn claim_entry_sign_and_verify() {
         let kp = KeyPair::generate();
         let claim = Claim::new("task-001", kp.public_bytes(), 1_712_345_700);
-        let bytes = canonical_bytes(&claim).unwrap();
-        // Sign the canonical bytes directly and verify
-        let sig = kp.sign(&bytes);
-        crate::crypto::verify(&kp.public_bytes(), &bytes, &sig).unwrap();
+        let entry = ClaimEntry::sign(claim, &kp).unwrap();
+        entry
+            .verify_signature()
+            .expect("claim signature must verify");
+    }
+
+    #[test]
+    fn claim_entry_rejects_tampered_claim() {
+        let kp = KeyPair::generate();
+        let claim = Claim::new("task-001", kp.public_bytes(), 1_712_345_700);
+        let mut entry = ClaimEntry::sign(claim, &kp).unwrap();
+        entry.claim.task_id = "task-999".into();
+        assert!(entry.verify_signature().is_err());
+    }
+
+    #[test]
+    fn claim_entry_rejects_attribution_mismatch() {
+        // worker_pubkey on the envelope must match claim.claimed_by.
+        let kp_a = KeyPair::generate();
+        let kp_b = KeyPair::generate();
+        let claim = Claim::new("task-001", kp_a.public_bytes(), 1_712_345_700);
+        let mut entry = ClaimEntry::sign(claim, &kp_a).unwrap();
+        entry.worker_pubkey = kp_b.public_bytes();
+        assert!(entry.verify_signature().is_err());
+    }
+
+    #[test]
+    fn claim_entry_rejects_wrong_signer() {
+        let real = KeyPair::generate();
+        let impostor = KeyPair::generate();
+        let claim = Claim::new("task-001", real.public_bytes(), 1_712_345_700);
+        // Sign with real, then flip both the signer pubkey AND
+        // claim.claimed_by so the attribution check passes — the
+        // raw signature must still fail because it was produced
+        // by `real`, not `impostor`.
+        let mut entry = ClaimEntry::sign(claim, &real).unwrap();
+        entry.worker_pubkey = impostor.public_bytes();
+        entry.claim.claimed_by = impostor.public_bytes();
+        assert!(entry.verify_signature().is_err());
     }
 
     #[test]
     fn version_field_is_present_in_canonical_output() {
+        // JCS preserves all JSON content; after stripping the
+        // domain prefix + null separator the body must contain
+        // the exact key/value `"version":1`.
         let t = sample_task();
-        let bytes = canonical_bytes(&t).unwrap();
-        let text = std::str::from_utf8(&bytes).unwrap();
+        let bytes = canonical_bytes(&t, DOMAIN_TASK_V1).unwrap();
+        let body = &bytes[DOMAIN_TASK_V1.len() + 1..];
+        let text = std::str::from_utf8(body).unwrap();
         assert!(
             text.contains(&format!("\"version\":{TASK_FORMAT_VERSION}")),
             "version field missing from canonical output: {text}"
         );
+    }
+
+    #[test]
+    fn task_and_claim_canonical_bytes_do_not_collide() {
+        // Regression: a ResultPayload shaped enough like a Task
+        // must not share canonical bytes with a Task, thanks to
+        // the domain prefix. This protects against cross-type
+        // signature replay.
+        let kp = KeyPair::generate();
+        let claim = Claim::new("task-001", kp.public_bytes(), 1);
+        let claim_bytes = canonical_bytes(&claim, DOMAIN_CLAIM_V1).unwrap();
+        let task_bytes = canonical_bytes(&claim, DOMAIN_TASK_V1).unwrap();
+        assert_ne!(claim_bytes, task_bytes);
     }
 }

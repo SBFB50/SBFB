@@ -32,6 +32,7 @@
 #![warn(missing_docs)]
 
 pub mod blobs;
+pub mod canonical;
 pub mod crypto;
 pub mod discovery;
 pub mod docs;
@@ -42,11 +43,15 @@ pub mod task;
 pub mod verification;
 
 pub use blobs::BlobsClient;
+pub use canonical::{
+    canonical_bytes, DOMAIN_CLAIM_V1, DOMAIN_INVITE_V1, DOMAIN_KUDOS_V1, DOMAIN_RESULT_V1,
+    DOMAIN_TASK_V1,
+};
 pub use crypto::{blake3_hash, verify, Blake3Chain, KeyPair};
 pub use discovery::{DiscoveryClient, NodeAddrInfo};
 pub use docs::{DocHandle, DocsClient};
 pub use error::{NexusError, Result};
 pub use gossip::{GossipClient, GossipEvent, TopicHandle, TopicReceiver, TopicSender};
 pub use node::{create_node, create_node_with_config, Node, NodeConfig};
-pub use task::{canonical_bytes, Claim, ResultEntry, ResultPayload, Task, TaskEntry};
+pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry};
 pub use verification::{spot_check_rate, CheckStatus, LayerResult, VerificationReport, Verifier};
