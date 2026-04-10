@@ -1,0 +1,30 @@
+[
+  {
+    "name": "main",
+    "path": "dist/assets/index-*.js",
+    "limit": "475 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "vendor-react",
+    "path": "dist/assets/vendor-react-*.js",
+    "limit": "210 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "vendor-ui",
+    "path": "dist/assets/vendor-ui-*.js",
+    "limit": "110 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "css",
+    "path": "dist/assets/index-*.css",
+    "limit": "100 KB",
+    "brotli": false,
+    "gzip": false
+  }
+]

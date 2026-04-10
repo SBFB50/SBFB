@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'coverage']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -29,6 +29,32 @@ export default defineConfig([
         'warn',
         { allowConstantExport: true },
       ],
+    },
+  },
+  {
+    // Vitest globals (describe/it/expect/vi/beforeEach/afterEach)
+    // are injected via vitest.config.ts `test.globals=true`, so
+    // ESLint must know about them in test files.
+    files: ['**/*.{test,spec}.{ts,tsx}', 'src/test/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        describe: 'readonly',
+        it: 'readonly',
+        test: 'readonly',
+        expect: 'readonly',
+        vi: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        beforeAll: 'readonly',
+        afterAll: 'readonly',
+      },
+    },
+    rules: {
+      // Tests freely use `any` for mock shapes — relax here only.
+      '@typescript-eslint/no-explicit-any': 'off',
+      'react-refresh/only-export-components': 'off',
     },
   },
 ])

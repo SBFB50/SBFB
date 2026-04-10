@@ -19,6 +19,9 @@ dist-ssr
 /tests/.tmp/
 /tests/.playwright-state.json
 
+# Vitest coverage output
+/coverage/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
