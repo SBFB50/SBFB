@@ -9,6 +9,130 @@ while writing `nexus-core-rs`, `nexus-core-py` and `nexus-worker`.
 When something clicks or bites, note it here. When Sprint 2 starts
 you will come back to these notes instead of re-learning.
 
+## Sprint 1 compile-time lessons (already learned)
+
+Before Sprint 2 begins, here is the concrete drift between the
+SBFB plan (written from memory) and the actual crates as published
+on crates.io at the time of first compile. These were all fixed
+during Sprint 1 and the fixes are the best reference for what to
+expect when the next crate bump happens.
+
+### iroh 0.97 `Endpoint::builder(preset: impl Preset)`
+
+The plan's example was:
+
+```rust
+let endpoint = Endpoint::builder()
+    .discovery_n0()
+    .bind()
+    .await?;
+```
+
+The real iroh 0.97 API is:
+
+```rust
+use iroh::endpoint::presets;
+use iroh::Endpoint;
+
+let endpoint = Endpoint::builder(presets::N0)
+    .bind()
+    .await?;
+```
+
+- `builder()` takes a required `preset: impl Preset` argument
+- The preset bundles discovery (pkarr DHT) AND relay config
+- `presets::N0` lives at `iroh::endpoint::presets::N0`
+- There is no separate `iroh-pkarr-node-discovery` crate at 0.97 —
+  pkarr is folded into iroh core
+
+### `Endpoint::id()` returns `EndpointId`, not `node_id()`
+
+The plan assumed `endpoint.node_id() -> NodeId`. Real API:
+
+```rust
+// Method is id(), not node_id()
+let id: iroh::EndpointId = endpoint.id();
+let as_string = id.to_string(); // 64 hex chars, e.g. "66b1bc28..."
+```
+
+### `Endpoint::close()` is infallible (no `?`)
+
+```rust
+// Returns (), not Result<()>
+endpoint.close().await;
+```
+
+### PyO3 0.28 `Bound<'py, T>` replaces `&PyAny` / `&PyModule`
+
+This is a major migration from the plan's PyO3 0.22 assumption.
+Every legacy reference type has been replaced by `Bound<'py, T>`:
+
+| Old (pre-0.22)             | New (0.22+ and 0.28)              |
+|----------------------------|-----------------------------------|
+| `&PyAny`                   | `Bound<'py, PyAny>`               |
+| `&PyModule`                | `&Bound<'py, PyModule>`           |
+| `PyResult<&PyAny>`         | `PyResult<Bound<'py, PyAny>>`     |
+| `fn(py: Python<'_>, m: &PyModule)` | `fn(m: &Bound<'_, PyModule>)` |
+
+The `#[pymodule]` signature no longer takes a `Python<'_>`
+parameter at all — it is passed implicitly.
+
+```rust
+#[pymodule]
+fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(create_node, m)?)?;
+    m.add_class::<PyNode>()?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    Ok(())
+}
+```
+
+### `pyo3-asyncio` was renamed to `pyo3-async-runtimes`
+
+The plan pinned `pyo3-asyncio = "0.21"`. That crate name still
+exists on crates.io (capped at 0.20) but the canonical async bridge
+was absorbed into the PyO3 org as `pyo3-async-runtimes`. Current
+version is 0.28 matching pyo3 0.28.
+
+```toml
+# In Cargo.toml
+pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
+```
+
+```rust
+// In code — note the module name is pyo3_async_runtimes with
+// underscore, not hyphen
+pyo3_async_runtimes::tokio::future_into_py(py, async move {
+    // Return PyResult<T> where T: IntoPyObject
+})
+```
+
+### `future_into_py` now returns `PyResult<Bound<'py, PyAny>>`
+
+Old signature (pyo3-asyncio 0.21): `fn(...) -> PyResult<&PyAny>`
+New signature (pyo3-async-runtimes 0.28):
+
+```rust
+pub fn future_into_py<F, T>(
+    py: Python<'_>,
+    fut: F,
+) -> PyResult<Bound<'_, PyAny>>
+where
+    F: Future<Output = PyResult<T>> + Send + 'static,
+    T: for<'py> IntoPyObject<'py> + Send + 'static,
+```
+
+The wrapped function itself should return `PyResult<Bound<'py, PyAny>>`,
+not `PyResult<&PyAny>`.
+
+### General migration lesson
+
+When pinned versions in a plan don't match crates.io, don't
+pattern-match — open docs.rs/<crate>/<version> for the exact
+signatures. `cargo doc --open -p <crate>` does the same locally.
+The 6 drifts above were all caught in a single `cargo check`
+iteration once the docs were read, not by guessing.
+
 Sections below are intentionally empty except for prompts. Do not
 delete sections you cannot answer yet — leave them with a `TODO`
 and come back later.

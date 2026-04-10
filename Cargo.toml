@@ -28,7 +28,9 @@ iroh = "0.97"
 iroh-docs = "0.97"
 iroh-gossip = "0.97"
 iroh-blobs = "0.99"
-iroh-pkarr-node-discovery = "0.97"
+# iroh-pkarr-node-discovery: pkarr DHT discovery is built into iroh 0.97
+# via Endpoint::builder().discovery_n0(). No separate crate needed —
+# the SBFB plan's stack listing was out of date here.
 
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }
@@ -47,9 +49,13 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# PyO3 — Python bindings for nexus-core-py
-pyo3 = { version = "0.22", features = ["extension-module"] }
-pyo3-asyncio = { version = "0.21", features = ["tokio-runtime"] }
+# PyO3 — Python bindings for nexus-core-py.
+# Plan originally pinned pyo3 0.22 + pyo3-asyncio 0.21, but the
+# ecosystem moved on: pyo3 is at 0.28 and the old pyo3-asyncio crate
+# was rolled into the PyO3 org as pyo3-async-runtimes (same author,
+# same purpose, now maintained by PyO3 itself).
+pyo3 = { version = "0.28", features = ["extension-module"] }
+pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 
 # Worker-specific deps
 clap = { version = "4.5", features = ["derive"] }

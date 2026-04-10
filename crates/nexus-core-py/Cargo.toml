@@ -20,7 +20,7 @@ crate-type = ["cdylib", "rlib"]
 nexus-core-rs = { path = "../nexus-core-rs" }
 
 pyo3 = { workspace = true }
-pyo3-asyncio = { workspace = true }
+pyo3-async-runtimes = { workspace = true }
 tokio = { workspace = true }
 
 tracing = { workspace = true }

@@ -26,10 +26,18 @@
 //!
 //! ## Async bridge
 //!
-//! The function uses `pyo3-asyncio` with the tokio runtime to turn
-//! the `async fn` in `nexus-core-rs` into a Python awaitable. The
-//! tokio runtime is initialized lazily the first time a coroutine is
-//! awaited.
+//! The function uses `pyo3-async-runtimes` with the tokio runtime
+//! to turn the `async fn` in `nexus-core-rs` into a Python awaitable.
+//! The tokio runtime is initialized lazily the first time a coroutine
+//! is awaited.
+//!
+//! ## PyO3 0.28 Bound API
+//!
+//! This crate targets the current PyO3 API that uses
+//! `Bound<'py, T>` everywhere instead of the legacy `&PyAny` /
+//! `&PyModule` references. `pyo3-async-runtimes` 0.28 matches that
+//! migration and returns `PyResult<Bound<'_, PyAny>>` from
+//! `future_into_py`.
 
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
@@ -38,6 +46,7 @@ use std::sync::Arc;
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
 use tokio::sync::Mutex;
 
 use nexus_core_rs::{create_node as rs_create_node, Node};
@@ -67,11 +76,10 @@ impl PyNode {
     /// Graceful shutdown. Returns a Python awaitable.
     ///
     /// After `await node.shutdown()`, the node handle is consumed.
-    /// Further method calls on the same `PyNode` will raise
-    /// `RuntimeError("node already shut down")`.
-    fn shutdown<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
+    /// Further calls will raise `RuntimeError("node already shut down")`.
+    fn shutdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = Arc::clone(&self.inner);
-        pyo3_asyncio::tokio::future_into_py(py, async move {
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut guard = inner.lock().await;
             let node = guard
                 .take()
@@ -95,8 +103,8 @@ impl PyNode {
 /// bind (e.g. because the machine is offline or the UDP socket is
 /// blocked).
 #[pyfunction]
-fn create_node(py: Python<'_>) -> PyResult<&PyAny> {
-    pyo3_asyncio::tokio::future_into_py(py, async move {
+fn create_node(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let node = rs_create_node()
             .await
             .map_err(|e| PyRuntimeError::new_err(format!("create_node failed: {e}")))?;
@@ -112,8 +120,10 @@ fn create_node(py: Python<'_>) -> PyResult<&PyAny> {
 ///
 /// maturin calls this during wheel initialization. Adds every
 /// public-facing function and class to the `nexus_core` module.
+/// PyO3 0.28: the macro signature is `fn(&Bound<'_, PyModule>)` and
+/// the Python GIL guard is no longer passed explicitly.
 #[pymodule]
-fn nexus_core(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_node, m)?)?;
     m.add_class::<PyNode>()?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

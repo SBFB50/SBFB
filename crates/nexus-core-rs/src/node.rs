@@ -17,6 +17,7 @@
 
 use std::fmt;
 
+use iroh::endpoint::presets;
 use iroh::Endpoint;
 use tracing::{debug, info};
 
@@ -35,22 +36,27 @@ pub struct Node {
 
 impl Node {
     /// Return the short textual form of this node's Ed25519 public
-    /// key (z-base32 encoded, ~52 chars). This is what peers use to
-    /// look up the node via pkarr DHT.
+    /// key (z-base32 encoded). This is the `EndpointId` that peers
+    /// use to look up the node via pkarr DHT.
+    ///
+    /// In iroh 0.97 the method on `Endpoint` is `id()`, returning
+    /// an `EndpointId`. We render it via its `Display` impl.
     pub fn node_id(&self) -> String {
-        self.endpoint.node_id().to_string()
+        self.endpoint.id().to_string()
     }
 
     /// Gracefully shut down the underlying iroh endpoint.
     ///
     /// This drains in-flight QUIC connections, tears down the
     /// discovery services, and releases the UDP sockets.
+    ///
+    /// `Endpoint::close()` in iroh 0.97 is infallible — it takes
+    /// `&self` and returns `()` after best-effort draining. Our
+    /// wrapper consumes `self` so the `Node` handle cannot be
+    /// accidentally reused after shutdown.
     pub async fn shutdown(self) -> Result<()> {
         debug!("shutting down iroh endpoint");
-        self.endpoint
-            .close()
-            .await
-            .map_err(|e| NexusError::Endpoint(format!("close failed: {e}")))?;
+        self.endpoint.close().await;
         info!("iroh endpoint closed cleanly");
         Ok(())
     }
@@ -98,15 +104,18 @@ impl fmt::Debug for Node {
 /// # }
 /// ```
 pub async fn create_node() -> Result<Node> {
-    debug!("building iroh endpoint with default discovery");
+    debug!("building iroh endpoint with the N0 preset (pkarr + relay)");
 
-    let endpoint = Endpoint::builder()
-        .discovery_n0()
+    // iroh 0.97: the builder takes a `Preset` that bundles the
+    // default n0 discovery (pkarr DHT) and relay configuration.
+    // `presets::N0` is the canonical "just make it work" choice
+    // for volunteer compute networks like SBFB.
+    let endpoint = Endpoint::builder(presets::N0)
         .bind()
         .await
         .map_err(|e| NexusError::Endpoint(format!("bind failed: {e}")))?;
 
-    info!(node_id = %endpoint.node_id(), "iroh endpoint ready");
+    info!(node_id = %endpoint.id(), "iroh endpoint ready");
     Ok(Node { endpoint })
 }
 
