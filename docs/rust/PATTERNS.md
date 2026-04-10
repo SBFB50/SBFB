@@ -133,6 +133,102 @@ signatures. `cargo doc --open -p <crate>` does the same locally.
 The 6 drifts above were all caught in a single `cargo check`
 iteration once the docs were read, not by guessing.
 
+## Sprint 1 J9-J10 — iroh-docs setup recipe
+
+The full working pattern, validated by the
+`crates/nexus-core-rs/examples/two_nodes_docs_sync.rs` deliverable
+which runs two endpoints in the same process and observes a live
+`LiveEvent::InsertRemote` propagation. Key takeaways:
+
+### Docs is a "meta protocol"
+
+`iroh-docs` alone is not enough. You also need `iroh-blobs` (for
+the entry content store) and `iroh-gossip` (for peer neighborhood
+broadcast). All three must be registered on the endpoint's Router.
+
+```rust
+use iroh::{endpoint::presets, protocol::Router, Endpoint};
+use iroh_blobs::{store::mem::MemStore, BlobsProtocol, ALPN as BLOBS_ALPN};
+use iroh_docs::{protocol::Docs, ALPN as DOCS_ALPN};
+use iroh_gossip::{net::Gossip, ALPN as GOSSIP_ALPN};
+
+let endpoint = Endpoint::bind(presets::N0).await?;
+let blobs = MemStore::default();
+let gossip = Gossip::builder().spawn(endpoint.clone());
+let docs = Docs::memory()
+    .spawn(endpoint.clone(), (*blobs).clone(), gossip.clone())
+    .await?;
+
+let _router = Router::builder(endpoint.clone())
+    .accept(BLOBS_ALPN, BlobsProtocol::new(&blobs, None))
+    .accept(GOSSIP_ALPN, gossip)
+    .accept(DOCS_ALPN, docs.clone())
+    .spawn();
+```
+
+### Author creation
+
+Every write needs an `AuthorId`. The Docs client exposes
+`author_create()` to mint a fresh one. Persistent nodes get a
+default author automatically — `author_default()` returns it.
+
+```rust
+let author = docs.author_create().await?;
+```
+
+### Share / import flow
+
+```rust
+use iroh_docs::api::protocol::{AddrInfoOptions, ShareMode};
+
+// On the creator:
+let doc = docs.create().await?;
+let ticket = doc.share(ShareMode::Write, AddrInfoOptions::RelayAndAddresses).await?;
+
+// On the joiner (another machine or another process):
+let doc = docs.import(ticket).await?;
+```
+
+### Live sync observation
+
+`doc.subscribe()` returns a `Stream<Result<LiveEvent>>`. To observe
+a remote write you pattern-match on `LiveEvent::InsertRemote`:
+
+```rust
+use futures_lite::StreamExt;
+use iroh_docs::engine::LiveEvent;
+
+let mut events = doc.subscribe().await?;
+while let Some(ev) = events.next().await {
+    match ev? {
+        LiveEvent::InsertRemote { entry, .. } => {
+            // remote peer wrote `entry` and we just synced it
+            println!("key: {:?}", entry.key());
+        }
+        LiveEvent::SyncFinished(_) => { /* initial sync done */ }
+        LiveEvent::NeighborUp(_pk) => { /* new peer in swarm */ }
+        _ => {}
+    }
+}
+```
+
+### Subscribe BEFORE you write
+
+A subtle gotcha: call `doc.subscribe()` on the receiving peer
+**before** the writing peer issues `set_bytes`, otherwise you
+risk missing the first `InsertRemote` for entries that arrive
+while the subscription is still being wired up. The example
+sleeps 500 ms between subscribe and write so the two nodes have
+time to establish their QUIC connection before the first entry
+lands.
+
+### Local + remote = same stream
+
+`LiveEvent::InsertLocal` fires for writes YOU made, while
+`LiveEvent::InsertRemote` fires for writes that arrived via
+sync. Both go through the same subscribe stream, so filter on
+the variant if you only care about remote changes.
+
 Sections below are intentionally empty except for prompts. Do not
 delete sections you cannot answer yet — leave them with a `TODO`
 and come back later.

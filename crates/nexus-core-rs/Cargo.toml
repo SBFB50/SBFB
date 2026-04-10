@@ -22,6 +22,7 @@ iroh-gossip = { workspace = true }
 iroh-blobs = { workspace = true }
 
 tokio = { workspace = true }
+futures-lite = "2.3"
 serde = { workspace = true }
 serde_json = { workspace = true }
 

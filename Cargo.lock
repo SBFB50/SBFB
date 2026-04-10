@@ -2901,6 +2901,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "ed25519-dalek 2.2.0",
+ "futures-lite",
  "iroh",
  "iroh-blobs",
  "iroh-docs",
