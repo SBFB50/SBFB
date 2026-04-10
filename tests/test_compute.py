@@ -31,7 +31,8 @@ from nexus.compute.db import (
     _COMPUTE_CREATE_INDEXES,
 )
 from nexus.compute.events import ComputeEventType, ComputeDatabaseProxy
-from nexus.compute.dispatcher import TaskDispatcher
+from nexus.compute.dispatcher import SpotCheckCoordinator, TaskDispatcher
+from nexus.engine import NexusEvent
 from nexus.compute.model_selector import MODEL_TIERS
 from nexus.compute.models import (
     NodeRegisterRequest,
@@ -472,6 +473,267 @@ class TestTaskDispatcher:
     def test_spot_check_rate_suspect(self):
         assert TaskDispatcher._get_spot_check_rate(30) == 0.20  # 20%
         assert TaskDispatcher._get_spot_check_rate(49) == 0.20  # 20% (just below standard)
+
+
+# ===================================================================
+# SpotCheckCoordinator -- COMPUTE_SPOT_CHECK_NEEDED consumer
+# ===================================================================
+
+import contextlib
+
+
+@contextlib.asynccontextmanager
+async def _fake_get_db(conn):
+    """Yield a pre-existing connection as if `get_db()` opened a fresh one."""
+    yield conn
+
+
+class _FakeBus:
+    """Minimal bus stub capturing subscriptions and published events."""
+
+    def __init__(self) -> None:
+        self.subscriptions: dict = {}
+        self.published: list = []
+
+    def subscribe(self, event_type, queue):
+        self.subscriptions.setdefault(event_type, []).append(queue)
+
+    def unsubscribe(self, event_type, queue):
+        try:
+            self.subscriptions.get(event_type, []).remove(queue)
+        except ValueError:
+            pass
+
+    async def publish(self, event):
+        self.published.append(event)
+        return True
+
+
+class TestSpotCheckCoordinator:
+    """Verify the COMPUTE_SPOT_CHECK_NEEDED consumer path end to end."""
+
+    @pytest.mark.asyncio
+    async def test_handle_event_creates_duplicate_task(self, db: ComputeDatabase):
+        """A spot-check event must produce a duplicate task with linking metadata."""
+        from nexus.compute import dispatcher as disp_mod
+
+        # Original node (trust=50) + trusted verifier (trust=85)
+        original_node, _ = await db.register_node(
+            name="original", gpu_model="GPU-A", vram_mb=16000, ip="1.1.1.1",
+        )
+        verifier_node, _ = await db.register_node(
+            name="verifier", gpu_model="GPU-B", vram_mb=16000, ip="2.2.2.2",
+        )
+        await db.update_node_trust(verifier_node["id"], +35)  # 50 -> 85
+
+        original_task = await db.create_task(
+            task_type="analysis",
+            prompt="What is 2+2?",
+            system_prompt="Be concise.",
+            model="test-model",
+            priority=5,
+        )
+
+        bus = _FakeBus()
+        coordinator = SpotCheckCoordinator(bus=bus)
+
+        with patch.object(disp_mod, "get_db", lambda: _fake_get_db(db._conn)):
+            event = NexusEvent(
+                event_type=ComputeEventType.COMPUTE_SPOT_CHECK_NEEDED,
+                case_id="compute",
+                payload={
+                    "task_id": original_task["id"],
+                    "node_id": original_node["id"],
+                    "result_text": "4",
+                    "prompt": "What is 2+2?",
+                },
+                source_worker="task_dispatcher",
+            )
+            spot_task = await coordinator.handle_event(event)
+
+        assert spot_task is not None
+        assert spot_task["task_type"] == "spot_check"
+        assert spot_task["prompt"] == "What is 2+2?"
+        assert spot_task["system_prompt"] == "Be concise."
+        assert spot_task["parent_task_id"] == original_task["id"]
+        assert spot_task["priority"] == 3
+        assert spot_task["metadata"]["spot_check_for"] == original_task["id"]
+        assert spot_task["metadata"]["original_node_id"] == original_node["id"]
+        assert spot_task["metadata"]["original_result"] == "4"
+        assert coordinator.spot_checks_created == 1
+        assert coordinator.spot_checks_skipped == 0
+
+        # A COMPUTE_TASK_CREATED event must be published for the new task
+        created_events = [
+            e for e in bus.published
+            if e.event_type == ComputeEventType.COMPUTE_TASK_CREATED
+        ]
+        assert len(created_events) == 1
+        assert created_events[0].payload["parent_task_id"] == original_task["id"]
+
+    @pytest.mark.asyncio
+    async def test_handle_event_skips_without_trusted_verifier(self, db: ComputeDatabase):
+        """If no trusted node (trust>=80) is available, skip without creating a task."""
+        from nexus.compute import dispatcher as disp_mod
+
+        original_node, _ = await db.register_node(
+            name="original", gpu_model="GPU-A", vram_mb=16000, ip="1.1.1.1",
+        )
+        # Only a low-trust node available as potential verifier
+        low_trust_node, _ = await db.register_node(
+            name="low", gpu_model="GPU-B", vram_mb=16000, ip="2.2.2.2",
+        )
+        # Default trust is 50, below the 80 threshold
+
+        original_task = await db.create_task(
+            task_type="analysis", prompt="Q", model="m", priority=5,
+        )
+
+        coordinator = SpotCheckCoordinator(bus=None)
+
+        with patch.object(disp_mod, "get_db", lambda: _fake_get_db(db._conn)):
+            event = NexusEvent(
+                event_type=ComputeEventType.COMPUTE_SPOT_CHECK_NEEDED,
+                case_id="compute",
+                payload={
+                    "task_id": original_task["id"],
+                    "node_id": original_node["id"],
+                    "result_text": "result",
+                    "prompt": "Q",
+                },
+                source_worker="task_dispatcher",
+            )
+            spot_task = await coordinator.handle_event(event)
+
+        assert spot_task is None
+        assert coordinator.spot_checks_created == 0
+        assert coordinator.spot_checks_skipped == 1
+
+    @pytest.mark.asyncio
+    async def test_handle_event_skips_when_trusted_verifier_is_original_node(
+        self, db: ComputeDatabase,
+    ):
+        """The original node cannot verify its own result even if highly trusted."""
+        from nexus.compute import dispatcher as disp_mod
+
+        original_node, _ = await db.register_node(
+            name="original", gpu_model="GPU-A", vram_mb=16000, ip="1.1.1.1",
+        )
+        # Bump the original node's trust above the threshold
+        await db.update_node_trust(original_node["id"], +40)  # 50 -> 90
+
+        original_task = await db.create_task(
+            task_type="analysis", prompt="Q", model="m", priority=5,
+        )
+
+        coordinator = SpotCheckCoordinator(bus=None)
+
+        with patch.object(disp_mod, "get_db", lambda: _fake_get_db(db._conn)):
+            event = NexusEvent(
+                event_type=ComputeEventType.COMPUTE_SPOT_CHECK_NEEDED,
+                case_id="compute",
+                payload={
+                    "task_id": original_task["id"],
+                    "node_id": original_node["id"],
+                    "result_text": "result",
+                    "prompt": "Q",
+                },
+                source_worker="task_dispatcher",
+            )
+            spot_task = await coordinator.handle_event(event)
+
+        assert spot_task is None
+        assert coordinator.spot_checks_skipped == 1
+
+    @pytest.mark.asyncio
+    async def test_resolve_spot_check_match_bumps_trust(self, db: ComputeDatabase):
+        """A matching spot-check result must bump the original node's trust by +5
+        and publish COMPUTE_RESULT_VALIDATED."""
+        original_node, _ = await db.register_node(
+            name="original", gpu_model="GPU-A", vram_mb=16000, ip="1.1.1.1",
+        )
+        # Drop trust below 100 so we can observe the +5 delta
+        await db.update_node_trust(original_node["id"], -20)  # 50 -> 30
+        trust_before = (await db.get_node(original_node["id"]))["trust_score"]
+
+        bus = _FakeBus()
+        dispatcher = TaskDispatcher(bus=bus)
+
+        await dispatcher._resolve_spot_check(
+            db=db,
+            spot_task_id="spot-id",
+            spot_result_text="  Paris\n",
+            original_task_id="orig-id",
+            original_result="Paris",
+            original_node_id=original_node["id"],
+        )
+
+        trust_after = (await db.get_node(original_node["id"]))["trust_score"]
+        assert trust_after == trust_before + 5
+
+        validated = [
+            e for e in bus.published
+            if e.event_type == ComputeEventType.COMPUTE_RESULT_VALIDATED
+        ]
+        assert len(validated) == 1
+        assert validated[0].payload["method"] == "spot_check_matched"
+        assert validated[0].payload["spot_check_task_id"] == "spot-id"
+
+    @pytest.mark.asyncio
+    async def test_resolve_spot_check_mismatch_penalizes_and_rejects(
+        self, db: ComputeDatabase,
+    ):
+        """A mismatched spot-check result must penalize the original node
+        by -20 trust and publish COMPUTE_RESULT_REJECTED."""
+        original_node, _ = await db.register_node(
+            name="original", gpu_model="GPU-A", vram_mb=16000, ip="1.1.1.1",
+        )
+        trust_before = (await db.get_node(original_node["id"]))["trust_score"]  # 50
+
+        bus = _FakeBus()
+        dispatcher = TaskDispatcher(bus=bus)
+
+        await dispatcher._resolve_spot_check(
+            db=db,
+            spot_task_id="spot-id",
+            spot_result_text="Berlin",
+            original_task_id="orig-id",
+            original_result="Paris",
+            original_node_id=original_node["id"],
+        )
+
+        trust_after = (await db.get_node(original_node["id"]))["trust_score"]
+        assert trust_after == trust_before - 20
+
+        rejected = [
+            e for e in bus.published
+            if e.event_type == ComputeEventType.COMPUTE_RESULT_REJECTED
+        ]
+        assert len(rejected) == 1
+        assert rejected[0].payload["reason"] == "spot_check_mismatch"
+        assert rejected[0].payload["task_id"] == "orig-id"
+
+    @pytest.mark.asyncio
+    async def test_start_subscribes_to_bus_and_stop_unsubscribes(self):
+        """Lifecycle: start() subscribes a queue, stop() unsubscribes and cancels."""
+        bus = _FakeBus()
+        coordinator = SpotCheckCoordinator(bus=bus)
+
+        await coordinator.start()
+        assert coordinator.running is True
+        assert len(bus.subscriptions.get(ComputeEventType.COMPUTE_SPOT_CHECK_NEEDED, [])) == 1
+
+        await coordinator.stop()
+        assert coordinator.running is False
+        assert len(bus.subscriptions.get(ComputeEventType.COMPUTE_SPOT_CHECK_NEEDED, [])) == 0
+
+    @pytest.mark.asyncio
+    async def test_start_inert_without_bus(self):
+        """With no bus, start() must be a no-op (no crash, not running)."""
+        coordinator = SpotCheckCoordinator(bus=None)
+        await coordinator.start()
+        assert coordinator.running is False
+        await coordinator.stop()
 
 
 # ===================================================================

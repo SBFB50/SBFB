@@ -270,8 +270,22 @@ class TaskDispatcher:
             # Update node status back to idle
             await db.update_node_status(node_id, "idle")
 
-            # BOINC-style spot-checking
-            if verifier.spot_check_needed(node.get("trust_score", 50)) and self._bus:
+            # If this task IS itself a spot-check, resolve it against the
+            # original result stored in metadata. We do NOT re-spawn another
+            # spot-check on a spot-check, otherwise a single mismatch could
+            # spiral into an infinite chain.
+            task_metadata = task.get("metadata") or {}
+            if task.get("task_type") == "spot_check" and task_metadata.get("spot_check_for"):
+                await self._resolve_spot_check(
+                    db=db,
+                    spot_task_id=task_id,
+                    spot_result_text=result_text,
+                    original_task_id=task_metadata["spot_check_for"],
+                    original_result=task_metadata.get("original_result", ""),
+                    original_node_id=task_metadata.get("original_node_id"),
+                )
+            # BOINC-style spot-checking (only for regular tasks)
+            elif verifier.spot_check_needed(node.get("trust_score", 50)) and self._bus:
                 await self._bus.publish(NexusEvent(
                     event_type=ComputeEventType.COMPUTE_SPOT_CHECK_NEEDED,
                     case_id="compute",
@@ -413,6 +427,78 @@ class TaskDispatcher:
                 await asyncio.sleep(10)
 
     # ------------------------------------------------------------------
+    # Spot-check resolution (called from validate_result)
+    # ------------------------------------------------------------------
+
+    async def _resolve_spot_check(
+        self,
+        *,
+        db: ComputeDatabase,
+        spot_task_id: str,
+        spot_result_text: str,
+        original_task_id: str,
+        original_result: str,
+        original_node_id: Optional[str],
+    ) -> None:
+        """Compare a spot-check result against the original and apply
+        trust adjustments.
+
+        Comparison uses a normalized string equality (whitespace
+        collapsed, lowercased). Match: +5 trust on the original node
+        and mark the original result as spot-check validated.
+        Mismatch: -20 trust and a COMPUTE_RESULT_REJECTED event.
+        """
+        def _normalize(text: str) -> str:
+            return " ".join(text.strip().lower().split())
+
+        matched = _normalize(spot_result_text) == _normalize(original_result)
+
+        if matched:
+            if original_node_id:
+                await db.update_node_trust(original_node_id, +5)
+            logger.info(
+                "Spot-check PASS: task {} confirms original {} "
+                "(original node {}: +5 trust)",
+                spot_task_id[:8],
+                original_task_id[:8],
+                (original_node_id or "unknown")[:8],
+            )
+            if self._bus:
+                await self._bus.publish(NexusEvent(
+                    event_type=ComputeEventType.COMPUTE_RESULT_VALIDATED,
+                    case_id="compute",
+                    payload={
+                        "task_id": original_task_id,
+                        "node_id": original_node_id,
+                        "spot_check_task_id": spot_task_id,
+                        "method": "spot_check_matched",
+                    },
+                    source_worker="task_dispatcher",
+                ))
+        else:
+            if original_node_id:
+                await db.update_node_trust(original_node_id, -20)
+            logger.warning(
+                "Spot-check FAIL: task {} differs from original {} "
+                "(original node {}: -20 trust)",
+                spot_task_id[:8],
+                original_task_id[:8],
+                (original_node_id or "unknown")[:8],
+            )
+            if self._bus:
+                await self._bus.publish(NexusEvent(
+                    event_type=ComputeEventType.COMPUTE_RESULT_REJECTED,
+                    case_id="compute",
+                    payload={
+                        "task_id": original_task_id,
+                        "node_id": original_node_id,
+                        "spot_check_task_id": spot_task_id,
+                        "reason": "spot_check_mismatch",
+                    },
+                    source_worker="task_dispatcher",
+                ))
+
+    # ------------------------------------------------------------------
     # Public info
     # ------------------------------------------------------------------
 
@@ -425,3 +511,195 @@ class TaskDispatcher:
             "reaper_active": self._reaper_task is not None and not self._reaper_task.done() if self._reaper_task else False,
             "heartbeat_active": self._heartbeat_task is not None and not self._heartbeat_task.done() if self._heartbeat_task else False,
         }
+
+
+# ======================================================================
+# SpotCheckCoordinator
+# ======================================================================
+
+
+class SpotCheckCoordinator:
+    """Consumes COMPUTE_SPOT_CHECK_NEEDED events and creates duplicate
+    tasks for cross-verification.
+
+    When TaskDispatcher.validate_result() accepts a result but BOINC-style
+    spot-check flagging kicks in, it publishes COMPUTE_SPOT_CHECK_NEEDED.
+    This coordinator consumes that event and spawns a duplicate task
+    with the same prompt. The duplicate is marked with metadata
+    ``{spot_check_for, original_node_id, original_result}`` so that when
+    its result returns, ``TaskDispatcher._resolve_spot_check()`` can
+    compare the two and adjust the original node's trust accordingly.
+
+    The duplicate enters the normal queue and will be picked up by any
+    idle worker — in practice, the higher-trust workers naturally tend
+    to get more tasks first due to assignment ordering (trust DESC).
+    The coordinator refuses to create a spot-check if no trusted idle
+    node (trust >= 80) is currently available that is *different* from
+    the original node, so at least one honest cross-check is possible.
+    """
+
+    MIN_TRUST_FOR_VERIFIER = 80
+
+    def __init__(self, bus: Any = None) -> None:
+        self._bus = bus
+        self._queue: Optional[asyncio.Queue] = None
+        self._task: Optional[asyncio.Task] = None
+        self._running = False
+        self._spot_checks_created = 0
+        self._spot_checks_skipped = 0
+
+    @property
+    def running(self) -> bool:
+        return self._running
+
+    @property
+    def spot_checks_created(self) -> int:
+        return self._spot_checks_created
+
+    @property
+    def spot_checks_skipped(self) -> int:
+        return self._spot_checks_skipped
+
+    async def start(self) -> None:
+        """Subscribe to COMPUTE_SPOT_CHECK_NEEDED and start the consume loop."""
+        if self._running:
+            return
+        if self._bus is None:
+            logger.debug("SpotCheckCoordinator: no bus, staying inert")
+            return
+
+        self._running = True
+        self._queue = asyncio.Queue(maxsize=100)
+        self._bus.subscribe(ComputeEventType.COMPUTE_SPOT_CHECK_NEEDED, self._queue)
+        self._task = asyncio.create_task(self._consume_loop())
+        logger.info("SpotCheckCoordinator started")
+
+    async def stop(self) -> None:
+        """Unsubscribe and cancel the consume loop."""
+        if not self._running:
+            return
+        self._running = False
+
+        if self._queue is not None and self._bus is not None:
+            try:
+                self._bus.unsubscribe(
+                    ComputeEventType.COMPUTE_SPOT_CHECK_NEEDED, self._queue,
+                )
+            except Exception:
+                pass
+
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+
+        self._queue = None
+        self._task = None
+        logger.info(
+            "SpotCheckCoordinator stopped  created={} skipped={}",
+            self._spot_checks_created, self._spot_checks_skipped,
+        )
+
+    async def _consume_loop(self) -> None:
+        """Drain the subscription queue and dispatch each event."""
+        assert self._queue is not None
+        while self._running:
+            try:
+                event = await self._queue.get()
+                if event is None:  # shutdown sentinel
+                    break
+                await self.handle_event(event)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error("SpotCheckCoordinator error: {}", exc)
+                await asyncio.sleep(1)
+
+    async def handle_event(self, event: NexusEvent) -> Optional[dict]:
+        """Process a single COMPUTE_SPOT_CHECK_NEEDED event.
+
+        Returns the duplicate task dict on success, or None if the
+        event was skipped. Exposed publicly so tests can exercise the
+        handler without spinning the consume loop.
+        """
+        payload = event.payload or {}
+        original_task_id = payload.get("task_id")
+        original_node_id = payload.get("node_id")
+        original_result = payload.get("result_text", "")
+
+        if not original_task_id or not original_node_id:
+            self._spot_checks_skipped += 1
+            logger.debug("Spot-check event missing task_id/node_id, skipped")
+            return None
+
+        async with get_db() as conn:
+            db = ComputeDatabase(conn)
+
+            original_task = await db.get_task(original_task_id)
+            if not original_task:
+                self._spot_checks_skipped += 1
+                logger.debug(
+                    "Spot-check skipped: original task {} not found",
+                    original_task_id[:8],
+                )
+                return None
+
+            trusted_nodes = await db.list_nodes(
+                status="idle", min_trust=self.MIN_TRUST_FOR_VERIFIER,
+            )
+            trusted_nodes = [
+                n for n in trusted_nodes if n["id"] != original_node_id
+            ]
+            if not trusted_nodes:
+                self._spot_checks_skipped += 1
+                logger.debug(
+                    "Spot-check skipped: no trusted idle node available "
+                    "(task={}, original_node={})",
+                    original_task_id[:8],
+                    original_node_id[:8],
+                )
+                return None
+
+            spot_task = await db.create_task(
+                task_type="spot_check",
+                prompt=original_task.get("prompt", ""),
+                system_prompt=original_task.get("system_prompt", ""),
+                model=original_task.get("model", ""),
+                priority=3,
+                timeout_seconds=original_task.get("timeout_seconds", 300),
+                source_worker="spot_check_coordinator",
+                parent_task_id=original_task_id,
+                require_logprobs=bool(original_task.get("require_logprobs")),
+                metadata={
+                    "spot_check_for": original_task_id,
+                    "original_node_id": original_node_id,
+                    "original_result": original_result,
+                },
+            )
+
+        self._spot_checks_created += 1
+        logger.info(
+            "Spot-check task {} created for original {} "
+            "(original node {}, {} trusted verifiers available)",
+            spot_task["id"][:8],
+            original_task_id[:8],
+            original_node_id[:8],
+            len(trusted_nodes),
+        )
+
+        if self._bus is not None:
+            await self._bus.publish(NexusEvent(
+                event_type=ComputeEventType.COMPUTE_TASK_CREATED,
+                case_id="compute",
+                payload={
+                    "task_id": spot_task["id"],
+                    "task_type": "spot_check",
+                    "priority": 3,
+                    "parent_task_id": original_task_id,
+                },
+                source_worker="spot_check_coordinator",
+            ))
+
+        return spot_task

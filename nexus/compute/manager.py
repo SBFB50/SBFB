@@ -16,7 +16,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from nexus.compute.db import ComputeDatabase, init_compute_db
-from nexus.compute.dispatcher import TaskDispatcher
+from nexus.compute.dispatcher import SpotCheckCoordinator, TaskDispatcher
 from nexus.compute.events import ComputeEventType, ComputeDatabaseProxy
 from nexus.compute.model_selector import ModelSelector
 from nexus.compute.self_worker import SelfWorker
@@ -37,6 +37,7 @@ class ComputeManager:
         self._bus = bus
         self._model_selector: Optional[ModelSelector] = None
         self._dispatcher: Optional[TaskDispatcher] = None
+        self._spot_check_coordinator: Optional[SpotCheckCoordinator] = None
         self._self_worker: Optional[SelfWorker] = None
         self._db_proxy: Optional[ComputeDatabaseProxy] = None
         self._running = False
@@ -48,6 +49,10 @@ class ComputeManager:
     @property
     def dispatcher(self) -> Optional[TaskDispatcher]:
         return self._dispatcher
+
+    @property
+    def spot_check_coordinator(self) -> Optional[SpotCheckCoordinator]:
+        return self._spot_check_coordinator
 
     @property
     def self_worker(self) -> Optional[SelfWorker]:
@@ -86,6 +91,12 @@ class ComputeManager:
         )
         await self._dispatcher.start()
 
+        # Create and start the spot-check coordinator (consumes
+        # COMPUTE_SPOT_CHECK_NEEDED and creates duplicate tasks for
+        # cross-verification). Inert when no bus is wired.
+        self._spot_check_coordinator = SpotCheckCoordinator(bus=self._bus)
+        await self._spot_check_coordinator.start()
+
         # Auto-start self-worker (this server contributes its own GPU)
         self._self_worker = SelfWorker()
         await self._self_worker.start()
@@ -110,6 +121,10 @@ class ComputeManager:
             await self._self_worker.stop()
             self._self_worker = None
 
+        if self._spot_check_coordinator:
+            await self._spot_check_coordinator.stop()
+            self._spot_check_coordinator = None
+
         if self._dispatcher:
             await self._dispatcher.stop()
             self._dispatcher = None
@@ -127,5 +142,10 @@ class ComputeManager:
             "running": self._running,
             "model_selector": self._model_selector.get_status() if self._model_selector else {},
             "dispatcher": self._dispatcher.get_status() if self._dispatcher else {},
+            "spot_check": {
+                "running": self._spot_check_coordinator.running if self._spot_check_coordinator else False,
+                "created": self._spot_check_coordinator.spot_checks_created if self._spot_check_coordinator else 0,
+                "skipped": self._spot_check_coordinator.spot_checks_skipped if self._spot_check_coordinator else 0,
+            },
             "self_worker": self._self_worker.get_status() if self._self_worker else {},
         }
