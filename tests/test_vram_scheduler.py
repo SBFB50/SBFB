@@ -73,7 +73,8 @@ class TestModelClassification:
         assert _is_embedding_model("gemma4:e4b") is False
 
     def test_light_model_detected(self):
-        assert _is_light_model("aratan/gemma-4-E4B-it-heretic") is True
+        from nexus.config import settings
+        assert _is_light_model(settings.model_fast) is True
 
     def test_heavy_model_not_light(self):
         assert _is_light_model("nexus") is False
