@@ -8,13 +8,11 @@
 //! on any tokio runtime and so the W10 TUI layer can observe
 //! state from a different task.
 //!
-//! ## Scope for Sprint 3 W9
+//! ## Scope — Sprint 3 W9 boot shell + Sprint 4 Phase D task pump
 //!
-//! The W9 milestone targets the *boot* path and the *loop
-//! shell*:
+//! Sprint 3 W9 landed the boot path and the loop shell:
 //!
-//! - Construct the engine from a fully-populated
-//!   [`EngineConfig`]
+//! - Construct the engine from a fully-populated `EngineBoot`
 //! - Boot the iroh [`Node`] with the persistent worker keypair
 //! - Run an initial Ollama health-check and GPU probe (both
 //!   logged, neither fatal)
@@ -24,13 +22,14 @@
 //!   projects (so the TUI has something real to show)
 //! - Handle graceful shutdown via a `oneshot` channel
 //!
-//! The actual task claim / execute / result write-back flow is
-//! intentionally **not** in this commit. That code depends on
-//! the Sprint 4 coordinator writing `task:*` entries into a
-//! project doc and on the invite carrying a [`DocTicket`]
-//! string. Both arrive in a W9.1 follow-up. The engine here
-//! reserves a clean place for that code to drop in — search
-//! for the `TODO(W9.1)` markers in [`Engine::run_until_shutdown`].
+//! Sprint 4 Phase D replaced the placeholder TODO in the
+//! Processing branch with the real task pump in
+//! [`Engine::scan_and_execute_tasks`]. The pump imports
+//! coordinator docs (via the `tasks_doc_ticket` field on invite
+//! v2 or a test injection), scans `task:*` entries, verifies the
+//! coordinator signature, signs and writes a [`ClaimEntry`],
+//! calls [`OllamaClient::generate`], and writes the signed
+//! [`ResultEntry`] back.
 //!
 //! ## Channels
 //!
@@ -465,11 +464,12 @@ impl Engine {
     ///    the daemon just came back up, transition from
     ///    `Connecting` → `Processing`. If it just went down,
     ///    transition back to `Connecting`.
-    /// 2. List enabled projects from the allowlist. The W9.1
-    ///    follow-up will dial each project's coordinator and
-    ///    import the task doc here.
-    /// 3. Task claim / execute / result write-back — deferred
-    ///    to W9.1 (requires a DocTicket in the invite).
+    /// 2. List enabled projects from the allowlist. Imported
+    ///    docs are populated at boot from each project's
+    ///    `tasks_doc_ticket`.
+    /// 3. Task claim / execute / result write-back — handled by
+    ///    [`Engine::scan_and_execute_tasks`] when the state
+    ///    machine is in `Processing`.
     async fn tick(&mut self) {
         // Snapshot state before the tick so we can decide
         // transitions without holding the lock across awaits.
