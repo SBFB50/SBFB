@@ -59,6 +59,14 @@ url = { workspace = true }
 # engine adapters.
 async-trait = { workspace = true }
 
+# W7: embedded SQLite for the per-worker project allowlist.
+# `bundled` feature links sqlite3 statically so the binary has
+# zero system dependencies (matches the "single-file download"
+# UX goal). `rusqlite_migration` gives versioned schema
+# migrations on top.
+rusqlite = { workspace = true }
+rusqlite_migration = { workspace = true }
+
 # Observability — the headless engine logs everything through
 # tracing. The binary configures the subscriber; this crate only
 # emits events so it stays agnostic to how they get consumed
