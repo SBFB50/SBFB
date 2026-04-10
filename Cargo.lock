@@ -2976,6 +2976,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "config",
+ "data-encoding",
  "directories",
  "hex",
  "nexus-core-rs",

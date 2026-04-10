@@ -28,7 +28,9 @@ mod cli;
 use anyhow::{Context, Result};
 use clap::Parser;
 use nexus_core_rs::KeyPair;
+use nexus_worker_core::allowlist::{Allowlist, NewProject};
 use nexus_worker_core::config::{WorkerConfig, WorkerPaths};
+use nexus_worker_core::invite::{current_unix_secs, Invite};
 use tracing_subscriber::{fmt, EnvFilter};
 
 use cli::{Cli, Command, ConfigCommand, ProjectsCommand};
@@ -166,37 +168,131 @@ async fn handle_start(paths: &WorkerPaths, tui: bool, headless: bool) -> Result<
     Ok(())
 }
 
-async fn handle_join(_paths: &WorkerPaths, invite: String) -> Result<()> {
-    print_stub("join", "W8 (invite tokens)", &[("invite", invite.as_str())]);
+async fn handle_join(paths: &WorkerPaths, invite: String) -> Result<()> {
+    // Must be registered first — the join flow does not create
+    // a config on its own. Clear error points at `register`.
+    let _cfg = WorkerConfig::load_required(&paths.config_file).context(
+        "worker not registered; run `nexus-worker register` first or pass --config <PATH>",
+    )?;
+
+    // Decode + verify signature (decode calls verify_signature
+    // internally and refuses unsupported versions).
+    let invite = Invite::decode(invite.trim()).context("failed to decode invite token")?;
+
+    // Reject expired tokens with a dedicated error so the CLI
+    // shows "expired at X, now Y" instead of a generic decode
+    // failure.
+    invite
+        .ensure_not_expired(current_unix_secs())
+        .context("invite token is expired")?;
+
+    // Enroll in the allowlist. AlreadyEnrolled is downgraded to
+    // a friendly message because users frequently re-paste an
+    // invite to make sure it worked.
+    paths.ensure_dirs()?;
+    let db = Allowlist::open(paths.default_allowlist_db())
+        .context("failed to open allowlist database")?;
+
+    let new = NewProject {
+        id: invite.payload.project_id.clone(),
+        name: invite.payload.project_name.clone(),
+        enabled: true,
+        budget_joules: 0,
+    };
+    match db.enroll(new) {
+        Ok(()) => {
+            println!("nexus-worker v{}", env!("CARGO_PKG_VERSION"));
+            println!("  joined project:   {}", invite.payload.project_name);
+            println!("  project id:       {}", invite.payload.project_id);
+            println!(
+                "  coordinator pub:  {}",
+                hex::encode(invite.payload.coordinator_pubkey)
+            );
+            println!(
+                "  scope:            {}",
+                if invite.payload.scope.can_serve_tasks() {
+                    "worker (can serve tasks)"
+                } else {
+                    "observer (read-only)"
+                }
+            );
+            println!("  expires at (unix): {}", invite.payload.expires_at_unix);
+            println!();
+            println!("Next: `nexus-worker start` to begin serving tasks.");
+        }
+        Err(nexus_worker_core::allowlist::AllowlistError::AlreadyEnrolled(id)) => {
+            println!("already enrolled in project {id} — nothing to do");
+        }
+        Err(e) => return Err(e).context("failed to enroll project in allowlist"),
+    }
     Ok(())
 }
 
-async fn handle_projects(_paths: &WorkerPaths, cmd: ProjectsCommand) -> Result<()> {
+async fn handle_projects(paths: &WorkerPaths, cmd: ProjectsCommand) -> Result<()> {
+    // Every projects subcommand needs the allowlist. Open it
+    // once per invocation (no shared state — each CLI call is
+    // its own process).
+    paths.ensure_dirs()?;
+    let db = Allowlist::open(paths.default_allowlist_db())
+        .context("failed to open allowlist database")?;
+
     match cmd {
-        ProjectsCommand::List => print_stub("projects list", "W7 (allowlist SQLite)", &[]),
-        ProjectsCommand::Enable { project_id } => print_stub(
-            "projects enable",
-            "W7 (allowlist SQLite)",
-            &[("project_id", project_id.as_str())],
-        ),
-        ProjectsCommand::Disable { project_id } => print_stub(
-            "projects disable",
-            "W7 (allowlist SQLite)",
-            &[("project_id", project_id.as_str())],
-        ),
-        ProjectsCommand::Budget { project_id, joules } => {
-            let joules_str = joules.to_string();
-            print_stub(
-                "projects budget",
-                "W7 (allowlist SQLite)",
-                &[
-                    ("project_id", project_id.as_str()),
-                    ("joules", joules_str.as_str()),
-                ],
+        ProjectsCommand::List => {
+            let rows = db.list().context("failed to list projects")?;
+            if rows.is_empty() {
+                println!("no projects enrolled yet. use `nexus-worker join <invite>`.");
+                return Ok(());
+            }
+            println!(
+                "{:<24} {:<30} {:<10} {:<15} {:<10} {:<10}",
+                "ID", "NAME", "ENABLED", "BUDGET(J/day)", "TASKS", "USED(J)"
             );
+            for p in rows {
+                let budget = if p.budget_joules == 0 {
+                    "unlimited".to_string()
+                } else {
+                    p.budget_joules.to_string()
+                };
+                println!(
+                    "{:<24} {:<30} {:<10} {:<15} {:<10} {:<10}",
+                    truncate(&p.id, 24),
+                    truncate(&p.name, 30),
+                    p.enabled,
+                    budget,
+                    p.tasks_completed,
+                    p.joules_used,
+                );
+            }
+        }
+        ProjectsCommand::Enable { project_id } => {
+            db.enable(&project_id).context("failed to enable project")?;
+            println!("enabled: {project_id}");
+        }
+        ProjectsCommand::Disable { project_id } => {
+            db.disable(&project_id)
+                .context("failed to disable project")?;
+            println!("disabled: {project_id}");
+        }
+        ProjectsCommand::Budget { project_id, joules } => {
+            db.set_budget(&project_id, joules)
+                .context("failed to set project budget")?;
+            if joules == 0 {
+                println!("budget cleared (unlimited): {project_id}");
+            } else {
+                println!("budget set to {joules} J/day: {project_id}");
+            }
         }
     }
     Ok(())
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let trunc: String = s.chars().take(max.saturating_sub(1)).collect();
+        format!("{trunc}…")
+    }
 }
 
 async fn handle_browse(_paths: &WorkerPaths) -> Result<()> {

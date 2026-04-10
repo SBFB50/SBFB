@@ -45,6 +45,7 @@ pub mod allowlist;
 pub mod config;
 pub mod engine;
 pub mod gpu;
+pub mod invite;
 pub mod ollama;
 
 /// Version of the `nexus-worker-core` crate, taken from

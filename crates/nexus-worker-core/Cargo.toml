@@ -67,6 +67,13 @@ async-trait = { workspace = true }
 rusqlite = { workspace = true }
 rusqlite_migration = { workspace = true }
 
+# W8: base32 encoding for the `nx1...` invite tokens. The
+# canonical invite wire format is `nx1` + BASE32_NOPAD of the
+# JSON-encoded Invite; Base32 is chosen for paste-friendliness
+# (case-insensitive, no special characters that get stripped
+# by chat clients).
+data-encoding = { workspace = true }
+
 # Observability — the headless engine logs everything through
 # tracing. The binary configures the subscriber; this crate only
 # emits events so it stays agnostic to how they get consumed
