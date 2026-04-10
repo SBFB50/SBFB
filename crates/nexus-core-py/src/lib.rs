@@ -263,13 +263,18 @@ fn create_node(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
 }
 
 #[pyfunction]
+#[pyo3(signature = (secret, data_dir=None))]
 fn create_node_with_secret<'py>(
     py: Python<'py>,
     secret: &Bound<'_, PyBytes>,
+    data_dir: Option<String>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let sk: [u8; SECRET_KEY_BYTES] = array32(secret, "secret")?;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        let cfg = NodeConfig::default().with_secret_key(sk);
+        let mut cfg = NodeConfig::default().with_secret_key(sk);
+        if let Some(path) = data_dir {
+            cfg = cfg.with_data_dir(std::path::PathBuf::from(path));
+        }
         let node = create_node_with_config(cfg)
             .await
             .map_err(|e| py_err("create_node_with_secret", e))?;

@@ -38,6 +38,7 @@
 //! ```
 
 use std::fmt;
+use std::path::PathBuf;
 
 use iroh::address_lookup::memory::MemoryLookup;
 use iroh::endpoint::presets;
@@ -57,13 +58,33 @@ use crate::error::{NexusError, Result};
 /// Configuration for booting a [`Node`].
 ///
 /// Use `NodeConfig::default()` for the simplest case (fresh
-/// random identity, default ALPNs). Call `with_secret_key` to
-/// supply a persistent identity loaded from disk.
+/// random identity, in-memory stores, default ALPNs). Call
+/// [`NodeConfig::with_secret_key`] to supply a persistent
+/// identity loaded from disk, and [`NodeConfig::with_data_dir`]
+/// to persist the docs replica + default author across reboots.
+///
+/// Persistence scope (Sprint 4 Phase A):
+///
+/// - `data_dir` applies to the **iroh-docs** replica and default
+///   author. `docs.redb` is created inside the supplied directory
+///   along with the `default-author` key file.
+/// - Blobs currently still run on an in-memory [`MemStore`] —
+///   curator list persistence lands later with an `FsStore`
+///   wiring. The coordinator's Phase A doc flow does not rely on
+///   blobs.
 #[derive(Debug, Clone, Default)]
 pub struct NodeConfig {
     /// If Some, the node boots with this Ed25519 secret key
     /// (32 bytes). If None, a fresh random key is generated.
     pub secret_key_bytes: Option<[u8; SECRET_KEY_BYTES]>,
+
+    /// If Some, the docs replica and default author are stored on
+    /// disk under this directory. The directory is created on
+    /// demand; iroh-docs writes `docs.redb` and `default-author`
+    /// inside. Persistent mode is necessary for the coordinator
+    /// reboot flow (same author id + same namespace id across
+    /// process restarts).
+    pub data_dir: Option<PathBuf>,
 }
 
 impl NodeConfig {
@@ -73,6 +94,14 @@ impl NodeConfig {
     /// secret bytes here.
     pub fn with_secret_key(mut self, secret: [u8; SECRET_KEY_BYTES]) -> Self {
         self.secret_key_bytes = Some(secret);
+        self
+    }
+
+    /// Persist the iroh-docs replica and default author storage
+    /// under `path`. Without this, the node runs fully in-memory
+    /// and every reboot produces fresh author / namespace ids.
+    pub fn with_data_dir(mut self, path: impl Into<PathBuf>) -> Self {
+        self.data_dir = Some(path.into());
         self
     }
 }
@@ -229,10 +258,19 @@ pub async fn create_node_with_config(cfg: NodeConfig) -> Result<Node> {
 
     let blobs_store = MemStore::default();
     let gossip = Gossip::builder().spawn(endpoint.clone());
-    let docs = Docs::memory()
+    let docs_builder = match &cfg.data_dir {
+        Some(path) => {
+            std::fs::create_dir_all(path).map_err(|e| {
+                NexusError::Docs(format!("failed to create docs data_dir {path:?}: {e}"))
+            })?;
+            Docs::persistent(path.clone())
+        }
+        None => Docs::memory(),
+    };
+    let docs = docs_builder
         .spawn(endpoint.clone(), (*blobs_store).clone(), gossip.clone())
         .await
-        .map_err(|e| NexusError::Docs(format!("Docs::memory spawn failed: {e}")))?;
+        .map_err(|e| NexusError::Docs(format!("Docs spawn failed: {e}")))?;
 
     let router = Router::builder(endpoint.clone())
         .accept(BLOBS_ALPN, BlobsProtocol::new(&blobs_store, None))
@@ -309,6 +347,49 @@ mod tests {
             id_a, id_b,
             "booting twice with the same secret key must give the same node id"
         );
+    }
+
+    #[tokio::test]
+    async fn persistent_data_dir_reboots_with_same_doc_and_author() {
+        use crate::docs::DocsClient;
+
+        // Sprint 4 Phase A regression test: booting a Node with
+        // the same data_dir must reopen the previously-created
+        // iroh-docs namespaces and authors. Without the data_dir
+        // wiring, the second boot produces fresh in-memory ids
+        // and the coordinator's reboot flow breaks.
+        let tmp = tempfile::tempdir().unwrap();
+        let data_dir = tmp.path().to_path_buf();
+        let kp = KeyPair::generate();
+        let secret = kp.secret_bytes();
+
+        let cfg = NodeConfig::default()
+            .with_secret_key(secret)
+            .with_data_dir(data_dir.clone());
+
+        // Boot #1: create an author and a doc, remember their ids.
+        let node_a = create_node_with_config(cfg.clone()).await.unwrap();
+        let docs_a = DocsClient::new(node_a.docs());
+        let author_a = docs_a.author_create().await.unwrap();
+        let doc_a = docs_a.create_doc().await.unwrap();
+        let doc_a_id = doc_a.id();
+        node_a.shutdown().await.ok();
+
+        // Boot #2: reopen. The doc must be listed, the author
+        // must still be in author_list.
+        let node_b = create_node_with_config(cfg).await.unwrap();
+        let docs_b = DocsClient::new(node_b.docs());
+        let listed = docs_b.list_docs().await.unwrap();
+        assert!(
+            listed.contains(&doc_a_id),
+            "persistent doc_id {doc_a_id:?} must survive reboot, got listed={listed:?}"
+        );
+        let authors = docs_b.author_list().await.unwrap();
+        assert!(
+            authors.contains(&author_a),
+            "persistent author_id {author_a:?} must survive reboot, got authors={authors:?}"
+        );
+        node_b.shutdown().await.ok();
     }
 
     #[tokio::test]
