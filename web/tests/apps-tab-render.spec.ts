@@ -1,9 +1,10 @@
 /**
- * Sprint 5 Phase B — apps tab render.
+ * Sprint 5 Phase B / Sprint 6 Phase B — apps tab render.
  *
  * Expands the hello-world app row in the Apps tab, confirms the
- * manifest fetch happened, and asserts the JSON descriptor for
- * the "Hello" tab contains the expected `description` field.
+ * manifest fetch happened, clicks « Invoquer » on the Hello tab,
+ * and asserts the schema-driven renderer renders the ported
+ * heading block ("Bienvenue sur hello-world-app").
  */
 
 import { test, expect } from "@playwright/test";
@@ -45,10 +46,15 @@ test("apps tab renders the hello-world manifest and descriptor", async ({
     timeout: 5_000,
   });
 
-  // The hello tab descriptor JSON contains the literal string
-  // "Hello world" as its description. Playwright's getByText is
-  // substring by default.
-  await expect(page.getByText(/"description":\s*"Hello world"/)).toBeVisible({
-    timeout: 10_000,
-  });
+  // Sprint 6 Phase B: the Hello tab now returns a TabView. The
+  // descriptor is lazy-loaded when the user clicks « Invoquer ».
+  await page.getByRole("button", { name: /Invoquer|Recharger/ }).first().click();
+
+  // Renderer must show the ported heading block.
+  await expect(
+    page.getByText("Bienvenue sur hello-world-app"),
+  ).toBeVisible({ timeout: 10_000 });
+
+  // Sanity check: the raw JSON fallback is NOT shown.
+  await expect(page.getByText(/Descripteur legacy/)).toHaveCount(0);
 });

@@ -14,6 +14,8 @@
 
 import { z } from "zod";
 
+import { TabViewSchema, type TabView } from "@/components/app/tabview/schema";
+
 // =================================================================
 // Generic helpers
 // =================================================================
@@ -487,6 +489,69 @@ export function getAppManifest(
     `/app/${encodeURIComponent(name)}/manifest`,
     AppManifestSchema,
   );
+}
+
+/**
+ * Sprint 6 Phase B — schema-driven tab descriptor fetch.
+ *
+ * Returns one of three states:
+ *  - `{ kind: "schema", tabView }` — descriptor validated against
+ *    the v1 TabView Zod schema and is safe to render
+ *  - `{ kind: "legacy", raw, reason }` — coordinator reported
+ *    legacy_descriptor=true or the payload failed Zod validation;
+ *    callers fall back to raw JSON display
+ *  - `{ kind: "error", message }` — HTTP error
+ *
+ * Narrow exception to R1 (typed client only): the raw descriptor
+ * body is app-defined, so we parse it inline rather than adding
+ * a per-app schema registry.
+ */
+export const AppTabDescriptorEnvelopeSchema = z.object({
+  descriptor: z.unknown(),
+  legacy_descriptor: z.boolean(),
+});
+
+export type AppTabDescriptorResult =
+  | { kind: "schema"; tabView: TabView }
+  | { kind: "legacy"; raw: unknown; reason: string }
+  | { kind: "error"; message: string };
+
+export async function getAppTabDescriptor(
+  baseUrl: string,
+  appName: string,
+  tabName: string,
+): Promise<AppTabDescriptorResult> {
+  const path = `/app/${encodeURIComponent(appName)}/tabs/${encodeURIComponent(tabName)}/descriptor`;
+  try {
+    const envelope = await getJson(baseUrl, path, AppTabDescriptorEnvelopeSchema);
+    if (envelope.legacy_descriptor) {
+      return {
+        kind: "legacy",
+        raw: envelope.descriptor,
+        reason: "coordinator signalled legacy descriptor",
+      };
+    }
+    const parsed = TabViewSchema.safeParse(envelope.descriptor);
+    if (!parsed.success) {
+      return {
+        kind: "legacy",
+        raw: envelope.descriptor,
+        reason: parsed.error.issues
+          .slice(0, 2)
+          .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+          .join(" | "),
+      };
+    }
+    return { kind: "schema", tabView: parsed.data };
+  } catch (e) {
+    if (e instanceof CoordinatorHttpError || e instanceof CoordinatorProtocolError) {
+      return { kind: "error", message: e.message };
+    }
+    return {
+      kind: "error",
+      message: e instanceof Error ? e.message : "unknown error",
+    };
+  }
 }
 
 export function shellDiscover(baseUrl: string): Promise<ShellDiscoverResponse> {

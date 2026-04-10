@@ -1,14 +1,16 @@
 /**
- * Sprint 5 Phase B — project Apps tab.
+ * Sprint 5 Phase B / Sprint 6 Phase B — project Apps tab.
  *
  * Lists every app mounted on the coordinator (from `/app`) and
  * lets the user expand each one to see its manifest
- * (`/app/{name}/manifest`). Per decision D2, tab descriptors
- * are rendered as raw JSON in a `<pre>` block; async ones are
- * re-fetched via `/app/{name}/tabs/{tab_name}/descriptor` on
- * click ("Invoquer"). Sprint 6 will replace this raw rendering
- * with the schema-driven vocabulary listed in sprint5_plan.md
- * §2.2.
+ * (`/app/{name}/manifest`). Tab descriptors are fetched via
+ * `getAppTabDescriptor`, which returns a discriminated result:
+ * schema-driven (rendered via `<TabViewRenderer>`) or legacy
+ * (fallback to raw JSON in a collapsible details block).
+ *
+ * D3: this renderer applies ONLY to app-provided tabs. The five
+ * native tabs (Overview, Tasks, Kudos, Invites, Apps) remain
+ * hard-coded in `ProjectDetail.tsx`.
  */
 
 import { useState } from "react";
@@ -27,8 +29,11 @@ import { Badge } from "@/components/ui/badge";
 import {
   type AppManifest,
   type AppsList,
+  type AppTabDescriptorResult,
   getAppManifest,
+  getAppTabDescriptor,
 } from "@/api/coordinator";
+import { TabViewRenderer } from "@/components/app/tabview/TabViewRenderer";
 
 const ASYNC_NOTE_KIND = "async descriptor";
 
@@ -270,35 +275,21 @@ function TabRow({
   icon: string;
   initialDescriptor: unknown;
 }) {
-  const [invokedDescriptor, setInvokedDescriptor] = useState<unknown>(null);
+  const [result, setResult] = useState<AppTabDescriptorResult | null>(null);
   const [invoking, setInvoking] = useState(false);
-  const [invokeError, setInvokeError] = useState<string | null>(null);
 
   const isAsyncPlaceholder =
     typeof initialDescriptor === "object" &&
     initialDescriptor !== null &&
     "note" in initialDescriptor &&
     typeof (initialDescriptor as { note: unknown }).note === "string" &&
-    ((initialDescriptor as { note: string }).note.includes(ASYNC_NOTE_KIND));
-
-  const descriptor =
-    invokedDescriptor !== null ? invokedDescriptor : initialDescriptor;
+    (initialDescriptor as { note: string }).note.includes(ASYNC_NOTE_KIND);
 
   const onInvoke = async () => {
     setInvoking(true);
-    setInvokeError(null);
     try {
-      const res = await fetch(
-        `${url}/app/${encodeURIComponent(appName)}/tabs/${encodeURIComponent(tabName)}/descriptor`,
-        { headers: { accept: "application/json" } },
-      );
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const body = (await res.json()) as { descriptor: unknown };
-      setInvokedDescriptor(body.descriptor);
-    } catch (e) {
-      setInvokeError(e instanceof Error ? e.message : "erreur inconnue");
+      const r = await getAppTabDescriptor(url, appName, tabName);
+      setResult(r);
     } finally {
       setInvoking(false);
     }
@@ -311,25 +302,46 @@ function TabRow({
         <Badge variant="outline" className="text-[10px]">
           {icon}
         </Badge>
-        {isAsyncPlaceholder && (
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={onInvoke}
-            disabled={invoking}
-            className="ml-auto"
-          >
-            <Play className="h-3 w-3" />
-            {invoking ? "Invocation…" : "Invoquer"}
-          </Button>
-        )}
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={onInvoke}
+          disabled={invoking}
+          className="ml-auto"
+        >
+          <Play className="h-3 w-3" />
+          {invoking
+            ? "Invocation…"
+            : isAsyncPlaceholder
+              ? "Invoquer"
+              : "Recharger"}
+        </Button>
       </div>
-      {invokeError && (
-        <p className="mb-2 text-[11px] text-destructive">{invokeError}</p>
+      {result === null ? (
+        <p className="text-[11px] italic text-muted-foreground">
+          Cliquer « Invoquer » pour charger le descripteur.
+        </p>
+      ) : result.kind === "error" ? (
+        <p className="text-[11px] text-destructive">
+          Erreur : {result.message}
+        </p>
+      ) : result.kind === "schema" ? (
+        <TabViewRenderer tabView={result.tabView} />
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[11px] text-amber-400">
+            Descripteur legacy — {result.reason}
+          </p>
+          <details className="rounded border border-border bg-background/40">
+            <summary className="cursor-pointer px-2 py-1 text-[10px] text-muted-foreground">
+              Voir le JSON brut
+            </summary>
+            <pre className="max-h-60 overflow-auto p-2 text-[11px] leading-snug">
+              {JSON.stringify(result.raw, null, 2)}
+            </pre>
+          </details>
+        </div>
       )}
-      <pre className="max-h-60 overflow-auto rounded bg-background/70 p-2 text-[11px] leading-snug">
-        {JSON.stringify(descriptor, null, 2)}
-      </pre>
     </li>
   );
 }
