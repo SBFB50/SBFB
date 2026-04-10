@@ -112,6 +112,38 @@ change — bump `schema_version` in both.
 
 Reference: sprint5_plan.md §2.3.
 
+### P8 — TabView is the only contract for app-provided tabs
+
+Every `@nexus_tab`-decorated method on a `NexusApp` MUST
+return a `TabView` (schema_version=1) built via the
+`nexus_sdk.view` constructor helpers. The coordinator runs
+the return value through `TabView.model_validate` in
+`packages/nexus-coordinator/src/nexus_coordinator/api/apps.py`
+and the React shell parses the payload through the Zod
+mirror in `web/src/components/app/tabview/schema.ts` before
+the renderer walks the block tree.
+
+The Sprint 6 D3 fallback (`legacy_descriptor: true`) is a
+transition aid — it preserves an unported app's raw dict
+for one release only. It MUST be removed once
+`nexus-app-gov` lands its full 19-tab migration in
+Sprint 8.
+
+The five native tabs in `ProjectDetail.tsx` (Overview,
+Tasks, Kudos, Invites, Apps) stay out of scope: they
+consume coordinator-native APIs directly, not app
+descriptors.
+
+Cross-language schema stability: the Pydantic source of
+truth is `packages/nexus-sdk/src/nexus_sdk/view.py` and
+`packages/nexus-sdk/tests/snapshots/tabview_schema.json`
+is the frozen checkpoint. Any bump to `schema_version`
+must land in one commit that touches both the Pydantic
+model and the Zod schema at once, and must regenerate the
+snapshot explicitly.
+
+Reference: sprint6_plan.md §2 D1/D2/D3.
+
 ## Tech debt — queued for Phase D or later
 
 ### T1 — Fast refresh warnings on 5 shadcn ui primitives
@@ -134,18 +166,24 @@ Fix options if we want to silence the warnings:
 Current decision: accept the warning level (5 warnings, no
 errors), revisit if the shadcn team changes their convention.
 
-### T2 — Bundle size not tracked in CI
+### T2 — Bundle size not tracked in CI — CLOSED Sprint 6 Phase D
 
-`cd web && npm run build` produces a 425 KB main chunk + 190 KB
-vendor chunk (Phase C numbers). No CI check enforces an upper
-bound. Adding `vite-bundle-visualizer` or a size-limit check is
-queued for post-v1.0 when the shell stops growing rapidly.
+`web/.size-limit.json` enforces four raw-byte budgets on every
+`npm run size`: main ≤ 475 KB, vendor-react ≤ 210 KB,
+vendor-ui ≤ 110 KB, css ≤ 100 KB. The check is wired to the
+`size` npm script and runs right after `vite build`. CI
+integration: invoke `npm run build && npm run size` — a
+single non-zero exit fails the Sprint 6 checklist row 16.
 
-### T3 — No Vitest unit tests for format helpers
+Closed by commit `7a56828` (Sprint 6 Phase D).
 
-`src/lib/format.ts` and `src/stores/projectStore.ts` would
-benefit from a tiny unit-test file each. Sprint 5 relies on
-Playwright e2e coverage and manual type checking; the R4 rule
-("tests via real coordinator") made unit tests a secondary
-priority. Add with `vitest` if a regression lands in format
-helpers specifically.
+### T3 — No Vitest unit tests for format helpers — CLOSED Sprint 6 Phase D
+
+Vitest 4.1 + @testing-library/react + jsdom added to devDeps.
+`web/vitest.config.ts` restricts the coverage scope to
+`src/lib/format.ts`, `src/stores/projectStore.ts`, and
+`src/components/app/tabview/**`. Actual coverage after Phase D:
+97.34% lines / 98.18% functions / 88.67% branches / 97.59%
+statements across 77 unit tests in 3 files.
+
+Closed by commit `7a56828` (Sprint 6 Phase D).
