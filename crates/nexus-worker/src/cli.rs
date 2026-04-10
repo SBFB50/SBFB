@@ -43,6 +43,19 @@ pub struct Cli {
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
+    /// Run the engine with a deterministic no-network Ollama
+    /// stub. Sprint 4 Phase D added this for the hermetic
+    /// end-to-end test suite so the worker can execute tasks
+    /// on a CI host without a real Ollama install.
+    ///
+    /// When set, the engine's `OllamaClient` is replaced with
+    /// [`nexus_worker_core::ollama::StubOllama`], which
+    /// reports the daemon as "ready" and returns a canned
+    /// `STUB[model]: <prompt>` response for every generate
+    /// call.
+    #[arg(long, global = true, default_value_t = false)]
+    pub stub_ollama: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }

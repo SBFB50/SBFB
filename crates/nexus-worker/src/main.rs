@@ -65,7 +65,9 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::Register { name } => handle_register(&paths, name).await,
-        Command::Start { tui, headless } => handle_start(&paths, tui, headless).await,
+        Command::Start { tui, headless } => {
+            handle_start(&paths, tui, headless, cli.stub_ollama).await
+        }
         Command::Join { invite } => handle_join(&paths, invite).await,
         Command::Projects(cmd) => handle_projects(&paths, cmd).await,
         Command::Browse => handle_browse(&paths).await,
@@ -131,7 +133,12 @@ async fn handle_register(paths: &WorkerPaths, name: Option<String>) -> Result<()
     Ok(())
 }
 
-async fn handle_start(paths: &WorkerPaths, tui: bool, _headless: bool) -> Result<()> {
+async fn handle_start(
+    paths: &WorkerPaths,
+    tui: bool,
+    _headless: bool,
+    stub_ollama: bool,
+) -> Result<()> {
     // Load config + keypair. Both are required — a missing
     // worker.toml means the user hasn't run `register` yet.
     let cfg = WorkerConfig::load_required(&paths.config_file).context(
@@ -172,11 +179,22 @@ async fn handle_start(paths: &WorkerPaths, tui: bool, _headless: bool) -> Result
         None
     };
 
-    // Build the engine.
+    // Build the engine. Phase D adds a data_dir so the worker's
+    // iroh-docs replica + default author survive reboots, and a
+    // --stub-ollama override (resolved from the CLI flag) so
+    // hermetic e2e tests can run without an Ollama install.
+    let ollama_override: Option<Box<dyn nexus_worker_core::ollama::OllamaClient>> = if stub_ollama {
+        tracing::info!("--stub-ollama flag set; using StubOllama in place of the HTTP client");
+        Some(Box::new(nexus_worker_core::ollama::StubOllama::new()))
+    } else {
+        None
+    };
     let boot = EngineBoot {
         worker_config: cfg.clone(),
         keypair,
         allowlist,
+        data_dir: Some(paths.data_dir.clone()),
+        ollama_override,
     };
     let mut engine = Engine::new(boot).await.context("engine boot failed")?;
 

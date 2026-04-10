@@ -356,6 +356,80 @@ impl OllamaClient for OllamaHttpClient {
 }
 
 // =================================================================
+// Stub client (Sprint 4 Phase D `--stub-ollama` mode)
+// =================================================================
+
+/// Deterministic no-network Ollama client.
+///
+/// Behaves like a healthy Ollama that has exactly the models in
+/// `models` installed. `generate()` returns a predictable
+/// template string derived from the input prompt so the Sprint
+/// 4 end-to-end tests can assert on the response without running
+/// an actual LLM.
+///
+/// Used in two places:
+///
+/// 1. `#[cfg(test)]` engine tests that need a healthy Ollama
+///    without spinning up the real daemon.
+/// 2. The `nexus-worker --stub-ollama` flag, which swaps the
+///    engine's client at boot for hermetic e2e runs (no Ollama
+///    install needed on the test host).
+pub struct StubOllama {
+    pub models: Vec<String>,
+}
+
+impl StubOllama {
+    /// Construct a stub with the canonical Sprint 4 test model
+    /// list: a single `stub-model:latest` entry that matches the
+    /// model name every test fixture task submits.
+    pub fn new() -> Self {
+        Self {
+            models: vec!["stub-model:latest".to_string()],
+        }
+    }
+
+    /// Construct a stub with an explicit model list — useful for
+    /// tests that need to exercise the "multi-model installed"
+    /// path.
+    pub fn with_models(models: Vec<String>) -> Self {
+        Self { models }
+    }
+}
+
+impl Default for StubOllama {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl OllamaClient for StubOllama {
+    async fn healthcheck(&self) -> HealthCheck {
+        HealthCheck::Ready {
+            models: self.models.clone(),
+        }
+    }
+
+    async fn generate(&self, params: GenerateParams) -> OllamaResult<GenerateResponse> {
+        // Deterministic response shape: prefix with STUB so the
+        // e2e test can filter for it, and echo the first 64
+        // chars of the prompt so flaky signature issues surface
+        // as obvious content mismatches.
+        let text = format!(
+            "STUB[{}]: {}",
+            params.model,
+            params.prompt.chars().take(64).collect::<String>()
+        );
+        Ok(GenerateResponse {
+            text,
+            model: params.model.clone(),
+            prompt_tokens: Some((params.prompt.len() / 4).max(1) as u64),
+            completion_tokens: Some(16),
+        })
+    }
+}
+
+// =================================================================
 // Retry helper
 // =================================================================
 
