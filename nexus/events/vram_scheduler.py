@@ -140,6 +140,9 @@ class _QueueEntry:
 # VRAMScheduler
 # ---------------------------------------------------------------------------
 
+_MAX_HEAVY_QUEUE = 50  # Maximum pending heavy-model requests before rejecting
+
+
 class VRAMScheduler:
     """VRAM-aware priority scheduler for GPU model access.
 
@@ -314,6 +317,14 @@ class VRAMScheduler:
                 await self._wait_light_idle_and_activate(entry)
                 return
             else:
+                # Reject if queue is full (back-pressure)
+                if len(self._heavy_queue) >= _MAX_HEAVY_QUEUE:
+                    logger.warning(
+                        "VRAMScheduler heavy queue full ({}/{}), dropping: {} ({})",
+                        len(self._heavy_queue), _MAX_HEAVY_QUEUE,
+                        entry.model, entry.label,
+                    )
+                    raise RuntimeError("LLM queue full — try again later")
                 # Someone active -- queue up
                 self._heavy_queue.append(entry)
                 self._heavy_queue.sort()  # Sort by (priority, sequence)

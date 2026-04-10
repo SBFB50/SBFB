@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     # -- Neo4j --
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
-    neo4j_password: str = "nexus2026"
+    neo4j_password: str = ""
 
     # -- ChromaDB --
     chroma_host: str = "localhost"
@@ -121,9 +121,34 @@ class Settings(BaseSettings):
     entity_confidence_medium: float = 0.95  # phone numbers, social URLs
     entity_confidence_low: float = 0.90     # social handles (@user)
 
+    # -- Distributed GPU computing --
+    compute_enabled: bool = True              # auto-start compute system on boot
+    compute_heartbeat_timeout: int = 90       # seconds before marking node offline
+    compute_task_default_timeout: int = 300   # default task timeout in seconds
+    compute_reaper_interval: int = 60         # task reaper sweep interval (seconds)
+    compute_spot_check_rate: float = 0.05     # fraction of tasks to spot-check (5%)
+    compute_max_retries: int = 3              # max task retries before permanent fail
+    compute_rate_limit_per_minute: int = 100  # max requests per node per minute
+
+    # -- exo distributed mode (Phase 4) --
+    exo_enabled: bool = False                 # enable exo distributed inference
+    exo_url: str = "http://localhost:52415"   # exo OpenAI-compatible endpoint
+    exo_health_interval: int = 30             # seconds between exo health checks
+
+    # -- Petals swarm mode (Phase 7) --
+    petals_enabled: bool = False              # enable Petals distributed inference
+    petals_model: str = "meta-llama/Meta-Llama-3.1-405B"  # model to split across swarm
+    petals_initial_peers: list[str] = []      # initial DHT peers for swarm discovery
+    petals_health_interval: int = 60          # seconds between swarm health checks
+    petals_min_vram_gb: int = 150             # minimum total VRAM to activate Petals
+
+    # -- Real-time sync (Phase 9 — cr-sqlite) --
+    sync_enabled: bool = False                # enable WebSocket changeset sync
+    sync_poll_interval: float = 0.1           # seconds between changeset polls
+
     # -- Government monitoring (autonomous) --
     auto_government_monitoring: bool = True  # auto-start gov investigation on boot
-    gov_scan_rate_limit: float = 2.0        # seconds between parliamentary API calls
+    gov_scan_rate_limit: float = 0.5        # seconds between parliamentary API call chunks
     gov_scan_max_pages: int = 10            # max pagination depth per scan
     gov_contradiction_max_pairs: int = 30   # max position pairs for LLM analysis
     gov_monitoring_interval_hours: int = 6  # SearXNG sweep interval per politician
@@ -132,6 +157,7 @@ class Settings(BaseSettings):
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
+        "extra": "ignore",
     }
 
 

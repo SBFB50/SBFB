@@ -32,7 +32,7 @@ STATUS_ERROR = "error"
 STATUS_STOPPED = "stopped"
 STATUS_CIRCUIT_OPEN = "circuit_open"
 
-_DEFAULT_QUEUE_SIZE = 500
+_DEFAULT_QUEUE_SIZE = 2000
 
 # Circuit breaker thresholds
 _CB_CONSECUTIVE_FAILURES = 5
