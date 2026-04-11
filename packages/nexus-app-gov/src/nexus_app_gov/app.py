@@ -1,8 +1,8 @@
 """GovApp — nexus-grid port of the legacy government monitoring stack.
 
 Sprint 4 Phase D shipped a minimal stub (one route, one worker,
-one tab). Sprint 8 grows that stub to **thirteen tabs** across
-two batches:
+one tab). Sprint 8 grows that stub to **nineteen tabs** across
+three batches:
 
 Phase B — Batch 1 (read-only browse of the core gov schema)
     - **Dashboard**  — aggregate counts across the gov tables
@@ -28,6 +28,25 @@ Phase C — Batch 2 (operational + content tabs)
     - **Press** — recent ``gov_press`` entries with sentiment
     - **Transcriptions** — recent ``gov_transcriptions`` entries
       joined with politician names
+
+Phase D — Batch 3 (alerting + archives + RAG)
+    - **Alertes** — recent ``gov_alerts`` with severity chart
+      and three summary metrics (total / unread / high severity)
+    - **Affaires** — recent ``gov_affairs`` joined with
+      politician names with a status chart
+    - **Lois** — recent ``gov_laws`` with status chart and
+      summary metrics (total / promulgated / average duration)
+    - **Factchecks** — recent ``gov_factchecks`` joined with
+      politician names with a rating chart
+    - **Recherche** — RAG semantic search button that dispatches
+      an example query to the new ``rag_search`` worker via
+      :meth:`nexus_sdk.AppContext.submit_task`
+    - **Question** — RAG question-answering button that
+      dispatches a sample question to the ``rag_ask`` worker
+
+Phase D also registers two new ``@nexus_worker`` handlers
+(``rag_search`` and ``rag_ask``) that act as smoke handlers for
+the ``task_submit`` action wired from the TabView button blocks.
 
 Data plumbing
 -------------
@@ -57,6 +76,7 @@ from nexus_sdk import (
     AppDatabaseClient,
     AppManifest,
     NexusApp,
+    button_task,
     nexus_route,
     nexus_tab,
     nexus_worker,
@@ -75,7 +95,11 @@ from nexus_sdk.view import (
 )
 
 from nexus_app_gov import queries
-from nexus_app_gov.prompts import POLITICAL_CONTRADICTION_PROMPT
+from nexus_app_gov.prompts import (
+    POLITICAL_CONTRADICTION_PROMPT,
+    RAG_ASK_PROMPT,
+    RAG_SEARCH_PROMPT,
+)
 
 
 def _truncate(value: str, max_len: int) -> str:
@@ -109,10 +133,11 @@ class GovApp(NexusApp):
 
     manifest = AppManifest(
         name="gov",
-        version="0.2.0",
+        version="0.3.0",
         author="FlowUP",
         description="Government monitoring: politicians, positions, contradictions, "
-        "mandates and party history across the legacy gov SQLite schema.",
+        "laws, affairs, factchecks, alerts and RAG search across the legacy gov "
+        "SQLite schema.",
         license="AGPL-3.0",
     )
 
@@ -164,11 +189,65 @@ class GovApp(NexusApp):
         """Submit a contradiction-detection task via the
         coordinator's ``/tasks/submit`` endpoint. Retained from
         Sprint 4 so the existing regression baseline tests keep
-        passing; Phase D will add the RAG search/ask workers."""
+        passing; Phase D adds the RAG search/ask workers below."""
         task = await ctx.compute.submit_task(
             task_type="contradiction_check",
             prompt=POLITICAL_CONTRADICTION_PROMPT.format(statements="(example)"),
             model="stub-model:latest",
+            priority=5,
+        )
+        return {"task_id": task.task_id}
+
+    # ------------------------------------------------------------------
+    # Sprint 8 Phase D — RAG workers (rag_search + rag_ask)
+    # ------------------------------------------------------------------
+
+    @nexus_worker(name="rag_search", model="nomic-embed-text")
+    async def rag_search(self, ctx: AppContext) -> dict[str, Any]:
+        """Smoke handler for the ``gov.rag_search`` routing key.
+
+        The Search tab's ``task_submit`` button forwards its
+        payload through the coordinator's
+        ``POST /app/gov/tasks/submit`` route, which calls into
+        :meth:`nexus_sdk.AppContext.submit_task` — that path
+        resolves the worker by name, looks up the declared model
+        here (``nomic-embed-text``) and forwards the prompt to
+        the worker daemon via
+        :meth:`nexus_sdk.ComputeClient.submit_task`.
+
+        This handler is an admin smoke entry point only. Calling
+        it directly (e.g. from a test) submits an example task
+        using :data:`nexus_app_gov.prompts.RAG_SEARCH_PROMPT` so
+        the full compute plumbing can be exercised end-to-end
+        without a live Search tab click.
+        """
+        task = await ctx.compute.submit_task(
+            task_type="gov.rag_search",
+            prompt=RAG_SEARCH_PROMPT.format(query="(example)"),
+            model="nomic-embed-text",
+            priority=5,
+        )
+        return {"task_id": task.task_id}
+
+    @nexus_worker(
+        name="rag_ask",
+        model="juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m",
+    )
+    async def rag_ask(self, ctx: AppContext) -> dict[str, Any]:
+        """Smoke handler for the ``gov.rag_ask`` routing key.
+
+        Mirrors :meth:`rag_search` for open-ended question
+        answering: the coordinator resolves the worker name,
+        the declared model (``juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m``)
+        flows into the ``/tasks/submit`` body, and the worker
+        daemon routes the prompt to the local Ollama instance.
+        Direct invocation submits an example question built
+        from :data:`nexus_app_gov.prompts.RAG_ASK_PROMPT`.
+        """
+        task = await ctx.compute.submit_task(
+            task_type="gov.rag_ask",
+            prompt=RAG_ASK_PROMPT.format(question="(example)"),
+            model="juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m",
             priority=5,
         )
         return {"task_id": task.task_id}
@@ -1033,3 +1112,396 @@ class GovApp(NexusApp):
         ]
 
         return TabView(tab_name="sujets", blocks=blocks).model_dump()
+
+    # ------------------------------------------------------------------
+    # Sprint 8 Phase D — Batch 3 tabs (Alertes/Affaires/Lois/Factchecks
+    # + Recherche/Question RAG buttons)
+    # ------------------------------------------------------------------
+
+    @nexus_tab(name="Alertes", icon="bell")
+    async def alerts_tab(self) -> dict[str, Any]:
+        """Recent ``gov_alerts`` rows with severity chart and
+        three summary metrics (total / unread / high severity)."""
+        db = self._require_db()
+        title = "Alertes"
+        if db is None:
+            return self._empty_tab("alertes", title, "Base Gov indisponible.")
+
+        payload = await queries.alerts_overview_query(db, limit=50)
+        rows = payload["rows"]
+        by_severity = payload["by_severity"]
+        summary = payload["summary"]
+
+        if not rows and summary["total"] == 0:
+            return self._empty_tab(
+                "alertes",
+                title,
+                "Aucune alerte enregistrée. Les alertes apparaissent lorsque le moteur détecte un événement à remonter.",
+            )
+
+        blocks: list[TabBlock] = [
+            heading(level=1, text=title),
+            text(
+                text=f"{len(rows)} alertes listées (50 max).",
+                muted=True,
+            ),
+            section(
+                title="Résumé",
+                blocks=[
+                    metric(label="Alertes", value=summary["total"], tone="neutral"),
+                    metric(
+                        label="Non lues",
+                        value=summary["unread"],
+                        tone="warn" if summary["unread"] > 0 else "neutral",
+                    ),
+                    metric(
+                        label="Sévérité haute",
+                        value=summary["high"],
+                        tone="danger" if summary["high"] > 0 else "neutral",
+                    ),
+                ],
+            ),
+        ]
+
+        if by_severity:
+            blocks.append(
+                chart_bar(
+                    label="Alertes par sévérité",
+                    bars=[{"label": str(row["severity"]), "value": int(row["count"])} for row in by_severity],
+                )
+            )
+
+        blocks.append(
+            table_(
+                columns=[
+                    {"key": "alert_type", "label": "Type"},
+                    {"key": "title", "label": "Titre"},
+                    {"key": "severity", "label": "Sévérité"},
+                    {"key": "politician_name", "label": "Politicien"},
+                    {"key": "is_read", "label": "Lu", "align": "right"},
+                    {"key": "created_at", "label": "Créée"},
+                ],
+                rows=[
+                    {
+                        "alert_type": str(r.get("alert_type") or "—"),
+                        "title": _truncate(str(r.get("title") or "—"), 120),
+                        "severity": str(r.get("severity") or "—"),
+                        "politician_name": str(r.get("politician_name") or "—"),
+                        "is_read": int(r.get("is_read") or 0),
+                        "created_at": str(r.get("created_at") or "—"),
+                    }
+                    for r in rows
+                ],
+                empty_text="Aucune alerte.",
+            )
+        )
+
+        return TabView(tab_name="alertes", blocks=blocks).model_dump()
+
+    @nexus_tab(name="Affaires", icon="briefcase")
+    async def affairs_tab(self) -> dict[str, Any]:
+        """Recent ``gov_affairs`` rows joined with politician
+        names plus a status ``chart_bar``."""
+        db = self._require_db()
+        title = "Affaires"
+        if db is None:
+            return self._empty_tab("affaires", title, "Base Gov indisponible.")
+
+        payload = await queries.affairs_list_query(db, limit=50)
+        rows = payload["rows"]
+        by_status = payload["by_status"]
+
+        if not rows:
+            return self._empty_tab(
+                "affaires",
+                title,
+                "Aucune affaire enregistrée. Lancer un scrape dédié pour alimenter la liste.",
+            )
+
+        blocks: list[TabBlock] = [
+            heading(level=1, text=title),
+            text(
+                text=f"{len(rows)} affaires listées (50 max).",
+                muted=True,
+            ),
+        ]
+
+        if by_status:
+            blocks.append(
+                chart_bar(
+                    label="Affaires par statut",
+                    bars=[{"label": str(row["status"]), "value": int(row["count"])} for row in by_status],
+                )
+            )
+
+        blocks.append(
+            table_(
+                columns=[
+                    {"key": "politician_name", "label": "Politicien"},
+                    {"key": "title", "label": "Titre"},
+                    {"key": "category", "label": "Catégorie"},
+                    {"key": "status", "label": "Statut"},
+                    {"key": "involvement", "label": "Implication"},
+                    {"key": "date_start", "label": "Début"},
+                    {"key": "date_end", "label": "Fin"},
+                ],
+                rows=[
+                    {
+                        "politician_name": str(r.get("politician_name") or "—"),
+                        "title": _truncate(str(r.get("title") or "—"), 120),
+                        "category": str(r.get("category") or "—"),
+                        "status": str(r.get("status") or "—"),
+                        "involvement": str(r.get("involvement") or "—"),
+                        "date_start": str(r.get("date_start") or "—"),
+                        "date_end": str(r.get("date_end") or "—"),
+                    }
+                    for r in rows
+                ],
+                empty_text="Aucune affaire.",
+            )
+        )
+
+        return TabView(tab_name="affaires", blocks=blocks).model_dump()
+
+    @nexus_tab(name="Lois", icon="scale")
+    async def laws_tab(self) -> dict[str, Any]:
+        """Recent ``gov_laws`` rows with status chart and three
+        summary metrics (total / promulgated / average duration
+        in days)."""
+        db = self._require_db()
+        title = "Lois"
+        if db is None:
+            return self._empty_tab("lois", title, "Base Gov indisponible.")
+
+        payload = await queries.laws_list_query(db, limit=50)
+        rows = payload["rows"]
+        by_status = payload["by_status"]
+        summary = payload["summary"]
+
+        if not rows and summary["total"] == 0:
+            return self._empty_tab(
+                "lois",
+                title,
+                "Aucune loi référencée. Lancer un scrape dédié pour peupler la table.",
+            )
+
+        blocks: list[TabBlock] = [
+            heading(level=1, text=title),
+            text(
+                text=f"{len(rows)} lois listées (50 max).",
+                muted=True,
+            ),
+            section(
+                title="Résumé",
+                blocks=[
+                    metric(label="Lois", value=summary["total"], tone="neutral"),
+                    metric(
+                        label="Promulguées",
+                        value=summary["promulgated"],
+                        tone="ok" if summary["promulgated"] > 0 else "neutral",
+                    ),
+                    metric(
+                        label="Durée moyenne",
+                        value=summary["avg_duration"],
+                        unit="j",
+                        tone="neutral",
+                    ),
+                ],
+            ),
+        ]
+
+        if by_status:
+            blocks.append(
+                chart_bar(
+                    label="Lois par statut",
+                    bars=[{"label": str(row["status"]), "value": int(row["count"])} for row in by_status],
+                )
+            )
+
+        blocks.append(
+            table_(
+                columns=[
+                    {"key": "uid", "label": "Réf."},
+                    {"key": "title", "label": "Titre"},
+                    {"key": "procedure", "label": "Procédure"},
+                    {"key": "status", "label": "Statut"},
+                    {"key": "date_initial", "label": "Dépôt"},
+                    {"key": "date_promulgation", "label": "Promulgation"},
+                    {"key": "duration_days", "label": "Durée (j)", "align": "right"},
+                    {"key": "amendments_count", "label": "Amendements", "align": "right"},
+                ],
+                rows=[
+                    {
+                        "uid": str(r.get("uid") or "—"),
+                        "title": _truncate(str(r.get("title") or "—"), 120),
+                        "procedure": str(r.get("procedure") or "—"),
+                        "status": str(r.get("status") or "—"),
+                        "date_initial": str(r.get("date_initial") or "—"),
+                        "date_promulgation": str(r.get("date_promulgation") or "—"),
+                        "duration_days": int(r.get("duration_days") or 0),
+                        "amendments_count": int(r.get("amendments_count") or 0),
+                    }
+                    for r in rows
+                ],
+                empty_text="Aucune loi.",
+            )
+        )
+
+        return TabView(tab_name="lois", blocks=blocks).model_dump()
+
+    @nexus_tab(name="Factchecks", icon="check-circle")
+    async def factchecks_tab(self) -> dict[str, Any]:
+        """Recent ``gov_factchecks`` rows joined with politician
+        names and a rating ``chart_bar``."""
+        db = self._require_db()
+        title = "Factchecks"
+        if db is None:
+            return self._empty_tab("factchecks", title, "Base Gov indisponible.")
+
+        payload = await queries.factchecks_list_query(db, limit=50)
+        rows = payload["rows"]
+        by_rating = payload["by_rating"]
+
+        if not rows:
+            return self._empty_tab(
+                "factchecks",
+                title,
+                "Aucun factcheck enregistré. Lancer un scrape dédié pour alimenter la liste.",
+            )
+
+        blocks: list[TabBlock] = [
+            heading(level=1, text=title),
+            text(
+                text=f"{len(rows)} factchecks listés (50 max).",
+                muted=True,
+            ),
+        ]
+
+        if by_rating:
+            blocks.append(
+                chart_bar(
+                    label="Factchecks par verdict",
+                    bars=[{"label": str(row["rating"]), "value": int(row["count"])} for row in by_rating],
+                )
+            )
+
+        blocks.append(
+            table_(
+                columns=[
+                    {"key": "claim", "label": "Affirmation"},
+                    {"key": "politician_name", "label": "Politicien"},
+                    {"key": "claimant", "label": "Auteur"},
+                    {"key": "rating", "label": "Verdict"},
+                    {"key": "reviewer", "label": "Vérificateur"},
+                    {"key": "claim_date", "label": "Affirmée"},
+                    {"key": "review_date", "label": "Vérifiée"},
+                ],
+                rows=[
+                    {
+                        "claim": _truncate(str(r.get("claim") or "—"), 140),
+                        "politician_name": str(r.get("politician_name") or "—"),
+                        "claimant": str(r.get("claimant") or "—"),
+                        "rating": str(r.get("rating") or "—"),
+                        "reviewer": str(r.get("reviewer") or "—"),
+                        "claim_date": str(r.get("claim_date") or "—"),
+                        "review_date": str(r.get("review_date") or "—"),
+                    }
+                    for r in rows
+                ],
+                empty_text="Aucun factcheck.",
+            )
+        )
+
+        return TabView(tab_name="factchecks", blocks=blocks).model_dump()
+
+    @nexus_tab(name="Recherche", icon="search")
+    async def search_tab(self) -> dict[str, Any]:
+        """RAG semantic-search entry point.
+
+        v1 TabView has no free-form text input; the tab exposes
+        a single button that dispatches a canned query to the
+        ``gov.rag_search`` worker. A real search box lands in a
+        future SDK version that adds form-field block kinds.
+        """
+        example_query = "Quels politiciens se sont exprimés sur le climat ?"
+        return TabView(
+            tab_name="recherche",
+            blocks=[
+                heading(level=1, text="Recherche RAG"),
+                text(
+                    text="Recherche sémantique sur l'ensemble du corpus Gov "
+                    "(positions, lois, presse, transcriptions, factchecks).",
+                    muted=True,
+                ),
+                section(
+                    title="Exemple",
+                    blocks=[
+                        kv(
+                            items=[
+                                {"label": "Worker", "value": "gov.rag_search"},
+                                {"label": "Modèle", "value": "nomic-embed-text"},
+                                {"label": "Requête", "value": example_query},
+                            ]
+                        ),
+                        button_task(
+                            label="Lancer la recherche exemple",
+                            worker="gov.rag_search",
+                            payload={"query": example_query},
+                            tone="neutral",
+                        ),
+                    ],
+                ),
+                text(
+                    text="Le résultat sera visible dans l'onglet Tâches une fois la tâche traitée par un worker.",
+                    muted=True,
+                ),
+            ],
+        ).model_dump()
+
+    @nexus_tab(name="Question", icon="message-circle-question")
+    async def ask_tab(self) -> dict[str, Any]:
+        """RAG open-ended question entry point.
+
+        Mirrors :meth:`search_tab` for the question-answering
+        worker ``gov.rag_ask``. Same v1 limitation: the canned
+        question is hardcoded until TabView v1.1 exposes a form
+        block kind.
+        """
+        example_question = "Quelle est la position d'Alice Martin sur la loi climat ?"
+        return TabView(
+            tab_name="question",
+            blocks=[
+                heading(level=1, text="Question RAG"),
+                text(
+                    text="Question ouverte sur le corpus Gov — le worker "
+                    "``gov.rag_ask`` récupère les sources pertinentes et "
+                    "renvoie une réponse avec citations.",
+                    muted=True,
+                ),
+                section(
+                    title="Exemple",
+                    blocks=[
+                        kv(
+                            items=[
+                                {"label": "Worker", "value": "gov.rag_ask"},
+                                {
+                                    "label": "Modèle",
+                                    "value": "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m",
+                                },
+                                {"label": "Question", "value": example_question},
+                            ]
+                        ),
+                        button_task(
+                            label="Poser la question exemple",
+                            worker="gov.rag_ask",
+                            payload={"question": example_question},
+                            tone="neutral",
+                        ),
+                    ],
+                ),
+                text(
+                    text="Le résultat sera visible dans l'onglet Tâches une fois la tâche traitée par un worker.",
+                    muted=True,
+                ),
+            ],
+        ).model_dump()

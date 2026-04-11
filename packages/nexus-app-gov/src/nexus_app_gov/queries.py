@@ -614,10 +614,252 @@ async def transcriptions_list_query(db: AppDatabaseClient, *, limit: int = 50) -
         return []
 
 
+# ---------------------------------------------------------------------------
+# Sprint 8 Phase D — Batch 3 queries (Alerts/Affairs/Laws/Factchecks)
+# ---------------------------------------------------------------------------
+
+
+async def alerts_overview_query(db: AppDatabaseClient, *, limit: int = 50) -> dict[str, Any]:
+    """Alerts tab payload: the ``limit`` most recent alerts
+    joined with their politician name (when any), a severity
+    chart, and three summary metrics (total / unread / high
+    severity).
+
+    A missing ``gov_alerts`` table returns the empty-shape
+    payload (``rows=[]``, ``by_severity=[]``, zeros) so the tab
+    handler can render an empty state.
+    """
+    try:
+        rows = await db.fetchall(
+            """
+            SELECT a.id,
+                   a.alert_type,
+                   a.title,
+                   a.description,
+                   a.severity,
+                   a.is_read,
+                   a.created_at,
+                   pol.name AS politician_name
+            FROM gov_alerts a
+            LEFT JOIN gov_politicians pol ON pol.id = a.politician_id
+            ORDER BY COALESCE(a.created_at, '') DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    except DatabaseError:
+        rows = []
+
+    try:
+        by_severity = await db.fetchall(
+            """
+            SELECT severity, COUNT(*) AS count
+            FROM gov_alerts
+            GROUP BY severity
+            ORDER BY count DESC, severity
+            """
+        )
+    except DatabaseError:
+        by_severity = []
+
+    try:
+        summary_row = await db.fetchone(
+            """
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unread,
+                   SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END) AS high
+            FROM gov_alerts
+            """
+        )
+    except DatabaseError:
+        summary_row = None
+
+    if summary_row is None:
+        summary = {"total": 0, "unread": 0, "high": 0}
+    else:
+        summary = {
+            "total": int(summary_row.get("total") or 0),
+            "unread": int(summary_row.get("unread") or 0),
+            "high": int(summary_row.get("high") or 0),
+        }
+
+    return {"rows": rows, "by_severity": by_severity, "summary": summary}
+
+
+async def affairs_list_query(db: AppDatabaseClient, *, limit: int = 50) -> dict[str, Any]:
+    """Affairs tab payload: the ``limit`` most recent affairs
+    joined with their politician name plus a status breakdown
+    for the ``chart_bar`` block.
+
+    Returns a dict ``{rows, by_status}``. A missing table yields
+    empty slots.
+    """
+    try:
+        rows = await db.fetchall(
+            """
+            SELECT a.id,
+                   a.title,
+                   a.description,
+                   a.status,
+                   a.category,
+                   a.involvement,
+                   a.date_start,
+                   a.date_end,
+                   pol.name AS politician_name
+            FROM gov_affairs a
+            LEFT JOIN gov_politicians pol ON pol.id = a.politician_id
+            ORDER BY COALESCE(a.date_start, a.created_at, '') DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    except DatabaseError:
+        rows = []
+
+    try:
+        by_status = await db.fetchall(
+            """
+            SELECT status, COUNT(*) AS count
+            FROM gov_affairs
+            GROUP BY status
+            ORDER BY count DESC, status
+            """
+        )
+    except DatabaseError:
+        by_status = []
+
+    return {"rows": rows, "by_status": by_status}
+
+
+async def laws_list_query(db: AppDatabaseClient, *, limit: int = 50) -> dict[str, Any]:
+    """Laws tab payload: the ``limit`` most recent laws plus a
+    status breakdown for the ``chart_bar`` block and three
+    summary metrics (total / promulgated / average duration in
+    days).
+
+    The legacy schema tracks ``duration_days`` per law; the
+    summary averages the non-zero values to avoid skewing the
+    figure with in-flight proposals that have no final duration.
+    """
+    try:
+        rows = await db.fetchall(
+            """
+            SELECT id,
+                   uid,
+                   title,
+                   short_title,
+                   procedure,
+                   status,
+                   date_initial,
+                   date_promulgation,
+                   legislature,
+                   amendments_count,
+                   amendments_adopted,
+                   duration_days,
+                   source_url
+            FROM gov_laws
+            ORDER BY COALESCE(date_initial, '') DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    except DatabaseError:
+        rows = []
+
+    try:
+        by_status = await db.fetchall(
+            """
+            SELECT status, COUNT(*) AS count
+            FROM gov_laws
+            GROUP BY status
+            ORDER BY count DESC, status
+            """
+        )
+    except DatabaseError:
+        by_status = []
+
+    try:
+        summary_row = await db.fetchone(
+            """
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN date_promulgation IS NOT NULL
+                              AND date_promulgation != ''
+                            THEN 1 ELSE 0 END) AS promulgated,
+                   AVG(CASE WHEN duration_days > 0
+                            THEN duration_days ELSE NULL END) AS avg_duration
+            FROM gov_laws
+            """
+        )
+    except DatabaseError:
+        summary_row = None
+
+    if summary_row is None:
+        summary = {"total": 0, "promulgated": 0, "avg_duration": 0}
+    else:
+        avg_raw = summary_row.get("avg_duration")
+        summary = {
+            "total": int(summary_row.get("total") or 0),
+            "promulgated": int(summary_row.get("promulgated") or 0),
+            "avg_duration": int(round(float(avg_raw))) if avg_raw is not None else 0,
+        }
+
+    return {"rows": rows, "by_status": by_status, "summary": summary}
+
+
+async def factchecks_list_query(db: AppDatabaseClient, *, limit: int = 50) -> dict[str, Any]:
+    """Factchecks tab payload: the ``limit`` most recent
+    factchecks joined with their politician name plus a rating
+    breakdown (``true`` / ``mostly_true`` / ``false`` / ...) for
+    the ``chart_bar``.
+
+    Returns ``{rows, by_rating}``. Missing table yields empty
+    slots so the tab degrades to an empty state.
+    """
+    try:
+        rows = await db.fetchall(
+            """
+            SELECT f.id,
+                   f.claim,
+                   f.claim_date,
+                   f.claimant,
+                   f.rating,
+                   f.review_url,
+                   f.reviewer,
+                   f.review_date,
+                   pol.name AS politician_name
+            FROM gov_factchecks f
+            LEFT JOIN gov_politicians pol ON pol.id = f.politician_id
+            ORDER BY COALESCE(f.review_date, f.claim_date, '') DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    except DatabaseError:
+        rows = []
+
+    try:
+        by_rating = await db.fetchall(
+            """
+            SELECT rating, COUNT(*) AS count
+            FROM gov_factchecks
+            GROUP BY rating
+            ORDER BY count DESC, rating
+            """
+        )
+    except DatabaseError:
+        by_rating = []
+
+    return {"rows": rows, "by_rating": by_rating}
+
+
 __all__ = [
+    "affairs_list_query",
+    "alerts_overview_query",
     "biography_query",
     "contradictions_overview_query",
     "dashboard_stats_query",
+    "factchecks_list_query",
+    "laws_list_query",
     "pipeline_state_query",
     "politician_detail_query",
     "politicians_list_query",

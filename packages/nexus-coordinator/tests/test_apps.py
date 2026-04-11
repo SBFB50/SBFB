@@ -105,12 +105,24 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
             assert body["manifest"]["name"] == "gov"
             assert len(body["routes"]) == 1
             assert body["routes"][0]["path"] == "/statements"
-            assert len(body["workers"]) == 1
-            assert body["workers"][0]["name"] == "contradiction_detector"
-            # Sprint 8 Phase C: the gov manifest now ships thirteen
-            # tabs — six Batch 1 read-only tabs + Contradictions
-            # (upgraded in place from the Sprint 4 stub) + six
-            # Batch 2 operational/content tabs.
+            # Sprint 8 Phase D: the gov manifest now advertises
+            # three workers — the Sprint 4 contradiction_detector
+            # stub plus the two RAG workers rag_search (on
+            # nomic-embed-text) and rag_ask (on the heretic gemma
+            # model) introduced by Phase D.
+            worker_models = {w["name"]: w["model"] for w in body["workers"]}
+            assert set(worker_models.keys()) == {
+                "contradiction_detector",
+                "rag_search",
+                "rag_ask",
+            }
+            assert worker_models["contradiction_detector"] == "stub-model:latest"
+            assert worker_models["rag_search"] == "nomic-embed-text"
+            assert worker_models["rag_ask"] == "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
+            # Sprint 8 Phase D: the gov manifest now ships
+            # nineteen tabs — thirteen Batch 1+2 tabs carried over
+            # from Phase C plus six Batch 3 tabs (Alertes, Affaires,
+            # Lois, Factchecks, Recherche, Question).
             tab_names = {t["name"] for t in body["tabs"]}
             assert tab_names == {
                 "Contradictions",
@@ -126,6 +138,12 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
                 "Social",
                 "Presse",
                 "Transcriptions",
+                "Alertes",
+                "Affaires",
+                "Lois",
+                "Factchecks",
+                "Recherche",
+                "Question",
             }
             # Sprint 8 A: manifest endpoint now ships a `commands`
             # list (empty for the pre-Sprint-8 gov stub).

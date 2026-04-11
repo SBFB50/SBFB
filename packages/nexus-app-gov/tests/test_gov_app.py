@@ -1,11 +1,12 @@
 """Tests for the gov app — Sprint 4 regression baseline plus
-Sprint 8 Phase B Batch 1 and Phase C Batch 2 tab handlers.
+Sprint 8 Phase B Batch 1, Phase C Batch 2, and Phase D Batch 3
+tab handlers.
 
-The Batch 1 + Batch 2 tests build an on-disk SQLite fixture
-(a real file under ``tmp_path`` — SQLite shared in-memory DBs
-are awkward across aiosqlite connections) seeded with a
-miniature gov schema so the handler code runs end-to-end
-against real SQL.
+The Batch 1 + Batch 2 + Batch 3 tests build an on-disk SQLite
+fixture (a real file under ``tmp_path`` — SQLite shared
+in-memory DBs are awkward across aiosqlite connections) seeded
+with a miniature gov schema so the handler code runs
+end-to-end against real SQL.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from typing import Any
 
 import pytest
 from nexus_app_gov import POLITICAL_CONTRADICTION_PROMPT, GovApp
-from nexus_sdk import AppContext, AppDatabaseClient, ComputeClient
+from nexus_sdk import AppContext, AppDatabaseClient, ComputeClient, WorkerNotFound
 
 # ---------------------------------------------------------------------------
 # Legacy Sprint 4 regression baseline
@@ -24,17 +25,19 @@ from nexus_sdk import AppContext, AppDatabaseClient, ComputeClient
 
 
 def test_gov_app_manifest_and_descriptors() -> None:
-    """Sprint 8 Phase C brings gov to thirteen tabs (six Batch 1
-    read-only browse tabs + the Contradictions tab upgraded from
-    the Sprint 4 stub + six Batch 2 operational/content tabs).
-    The route + worker surfaces are unchanged: one
-    ``/statements`` route and one ``contradiction_detector``
-    worker — Phase D will add the RAG workers.
+    """Sprint 8 Phase D brings gov to nineteen tabs (thirteen
+    Batch 1+2 tabs from Phase B/C plus six Batch 3 tabs —
+    Alertes, Affaires, Lois, Factchecks, Recherche, Question).
+    The route surface is unchanged (one ``/statements`` route);
+    the worker surface grows to three — ``contradiction_detector``
+    retained from Sprint 4 plus the two RAG workers
+    (``rag_search`` on ``nomic-embed-text`` and ``rag_ask`` on
+    the heretic gemma model) introduced by Phase D.
     """
     app = GovApp()
     assert app.manifest.name == "gov"
-    # Sprint 8 Phase B bumps the package version to 0.2.0.
-    assert app.manifest.version == "0.2.0"
+    # Sprint 8 Phase D bumps the package version to 0.3.0.
+    assert app.manifest.version == "0.3.0"
 
     routes = app.routes()
     workers = app.workers()
@@ -43,12 +46,15 @@ def test_gov_app_manifest_and_descriptors() -> None:
     assert len(routes) == 1
     assert routes[0].path == "/statements"
 
-    assert len(workers) == 1
-    assert workers[0].name == "contradiction_detector"
-    assert workers[0].model == "stub-model:latest"
+    assert len(workers) == 3
+    workers_by_name = {w.name: w for w in workers}
+    assert workers_by_name["contradiction_detector"].model == "stub-model:latest"
+    assert workers_by_name["rag_search"].model == "nomic-embed-text"
+    assert workers_by_name["rag_ask"].model == "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
 
-    # Thirteen tabs: six Batch 1 tabs + Contradictions (upgraded
-    # in place from the Sprint 4 stub) + six Batch 2 tabs.
+    # Nineteen tabs: thirteen Batch 1+2 tabs + six Batch 3 tabs
+    # from Phase D (Alertes/Affaires/Lois/Factchecks/Recherche/
+    # Question).
     tab_names = {t.name for t in tabs}
     assert tab_names == {
         "Contradictions",
@@ -64,7 +70,45 @@ def test_gov_app_manifest_and_descriptors() -> None:
         "Social",
         "Presse",
         "Transcriptions",
+        "Alertes",
+        "Affaires",
+        "Lois",
+        "Factchecks",
+        "Recherche",
+        "Question",
     }
+
+
+def test_gov_resolve_worker_routes_rag_keys() -> None:
+    """Sprint 8 Phase D D1 — the ``gov.rag_search`` /
+    ``gov.rag_ask`` routing keys resolve to their respective
+    WorkerDescriptors via :meth:`NexusApp.resolve_worker`.
+
+    This is the contract the ``button_task`` action relies on:
+    the frontend sends ``worker="gov.rag_search"`` to the
+    coordinator, which calls into
+    :meth:`AppContext.submit_task` which in turn calls
+    ``resolve_worker`` to look up the model. A mis-wired
+    decorator would surface as a :class:`WorkerNotFound` here.
+    """
+    app = GovApp()
+
+    search = app.resolve_worker("gov.rag_search")
+    assert search.name == "rag_search"
+    assert search.model == "nomic-embed-text"
+
+    ask = app.resolve_worker("gov.rag_ask")
+    assert ask.name == "rag_ask"
+    assert ask.model == "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
+
+    # Bare form (no ``gov.`` prefix) also resolves — that's the
+    # in-app shorthand documented in resolve_worker's docstring.
+    assert app.resolve_worker("rag_search").name == "rag_search"
+
+    # A bogus prefix targets another app and must be refused by
+    # the resolver.
+    with pytest.raises(WorkerNotFound):
+        app.resolve_worker("other.rag_search")
 
 
 def test_political_contradiction_prompt_is_present() -> None:
@@ -212,6 +256,65 @@ CREATE TABLE gov_transcriptions (
     duration_seconds INTEGER,
     language TEXT DEFAULT 'fr',
     model_used TEXT,
+    created_at DATETIME
+);
+
+CREATE TABLE gov_alerts (
+    id TEXT PRIMARY KEY,
+    alert_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    severity TEXT DEFAULT 'info',
+    politician_id TEXT,
+    event_id TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME
+);
+
+CREATE TABLE gov_affairs (
+    id TEXT PRIMARY KEY,
+    politician_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'enquete',
+    category TEXT,
+    involvement TEXT DEFAULT 'direct',
+    source_url TEXT,
+    date_start DATE,
+    date_end DATE,
+    created_at DATETIME
+);
+
+CREATE TABLE gov_laws (
+    id TEXT PRIMARY KEY,
+    uid TEXT,
+    title TEXT NOT NULL,
+    short_title TEXT,
+    procedure TEXT,
+    status TEXT,
+    date_initial DATE,
+    date_promulgation DATE,
+    legislature TEXT,
+    amendments_count INTEGER DEFAULT 0,
+    amendments_adopted INTEGER DEFAULT 0,
+    articles_initial INTEGER DEFAULT 0,
+    articles_final INTEGER DEFAULT 0,
+    duration_days INTEGER DEFAULT 0,
+    source_url TEXT,
+    jo_url TEXT,
+    created_at DATETIME
+);
+
+CREATE TABLE gov_factchecks (
+    id TEXT PRIMARY KEY,
+    claim TEXT NOT NULL,
+    claim_date DATE,
+    claimant TEXT,
+    politician_id TEXT,
+    rating TEXT,
+    review_url TEXT,
+    reviewer TEXT,
+    review_date DATE,
     created_at DATETIME
 );
 """
@@ -510,6 +613,179 @@ def _seed_gov_db(db_path: Path) -> None:
                 ),
             ],
         )
+        # ------------------------------------------------------------
+        # Sprint 8 Phase D — Batch 3 fixtures
+        # ------------------------------------------------------------
+        conn.executemany(
+            "INSERT INTO gov_alerts "
+            "(id, alert_type, title, description, severity, "
+            " politician_id, event_id, is_read, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "al-1",
+                    "contradiction",
+                    "Contradiction détectée sur le climat",
+                    "Alice vote pour puis s'oppose à la loi climat.",
+                    "high",
+                    "p-alice",
+                    "ctr-1",
+                    0,
+                    "2025-12-01T08:10:00",
+                ),
+                (
+                    "al-2",
+                    "declaration_missing",
+                    "Déclaration d'intérêts manquante",
+                    "Aucun dépôt pour le mandat en cours.",
+                    "medium",
+                    "p-bob",
+                    None,
+                    1,
+                    "2025-11-20T09:00:00",
+                ),
+                (
+                    "al-3",
+                    "press_mention",
+                    "Mention presse négative",
+                    "Le Figaro critique l'intervention.",
+                    "info",
+                    "p-bob",
+                    None,
+                    0,
+                    "2025-11-29T09:30:00",
+                ),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO gov_affairs "
+            "(id, politician_id, title, description, status, "
+            " category, involvement, source_url, date_start, "
+            " date_end, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "af-1",
+                    "p-bob",
+                    "Enquête emplois fictifs",
+                    "Soupçon de rémunération sans contrepartie réelle.",
+                    "enquete",
+                    "financier",
+                    "direct",
+                    "https://mediapart.fr/affaire-1",
+                    "2025-09-01",
+                    None,
+                    "2025-09-01T10:00:00",
+                ),
+                (
+                    "af-2",
+                    "p-alice",
+                    "Déclaration d'intérêts incomplète",
+                    "Omission d'une participation minoritaire.",
+                    "classee",
+                    "probite",
+                    "direct",
+                    "https://hatvp.fr/affaire-2",
+                    "2024-05-01",
+                    "2024-07-15",
+                    "2024-05-01T08:00:00",
+                ),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO gov_laws "
+            "(id, uid, title, short_title, procedure, status, "
+            " date_initial, date_promulgation, legislature, "
+            " amendments_count, amendments_adopted, "
+            " articles_initial, articles_final, duration_days, "
+            " source_url, jo_url, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "law-1",
+                    "PL-2024-01",
+                    "Loi de programmation climat",
+                    "Loi climat",
+                    "ordinaire",
+                    "promulguee",
+                    "2024-01-15",
+                    "2024-07-20",
+                    "XVII",
+                    320,
+                    120,
+                    30,
+                    35,
+                    186,
+                    "https://assemblee.fr/law-1",
+                    "https://jo.fr/law-1",
+                    "2024-01-15T09:00:00",
+                ),
+                (
+                    "law-2",
+                    "PL-2025-12",
+                    "Loi de finances 2026",
+                    "Budget 2026",
+                    "finances",
+                    "en_cours",
+                    "2025-10-01",
+                    None,
+                    "XVII",
+                    450,
+                    0,
+                    40,
+                    0,
+                    0,
+                    "https://assemblee.fr/law-2",
+                    None,
+                    "2025-10-01T09:00:00",
+                ),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO gov_factchecks "
+            "(id, claim, claim_date, claimant, politician_id, "
+            " rating, review_url, reviewer, review_date, "
+            " created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "fc-1",
+                    "La loi climat réduira les émissions de 50%.",
+                    "2024-06-01",
+                    "Alice Martin",
+                    "p-alice",
+                    "mostly_true",
+                    "https://factcheck.fr/fc-1",
+                    "AFP Factuel",
+                    "2024-06-05",
+                    "2024-06-05T10:00:00",
+                ),
+                (
+                    "fc-2",
+                    "Le Sénat n'a jamais voté de hausse fiscale cette année.",
+                    "2025-11-20",
+                    "Bob Durand",
+                    "p-bob",
+                    "false",
+                    "https://factcheck.fr/fc-2",
+                    "Les Décodeurs",
+                    "2025-11-22",
+                    "2025-11-22T11:00:00",
+                ),
+                (
+                    "fc-3",
+                    "Les amendements au budget sont systématiquement rejetés.",
+                    "2025-11-15",
+                    None,
+                    None,
+                    "true",
+                    "https://factcheck.fr/fc-3",
+                    "CheckNews",
+                    "2025-11-16",
+                    "2025-11-16T12:00:00",
+                ),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()
@@ -712,8 +988,11 @@ async def test_subjects_tab_aggregates_by_count(tmp_path: Path) -> None:
 async def test_tabs_render_empty_state_when_db_missing(tmp_path: Path) -> None:
     """A client pointed at a file that doesn't yet contain the
     gov schema must fall back to the empty-state TabView for
-    every Batch 1 + Batch 2 tab — the shell still renders a
-    heading + an empty block instead of surfacing a 500."""
+    every Batch 1 + Batch 2 + Batch 3 DB-backed tab — the shell
+    still renders a heading + an empty block instead of
+    surfacing a 500. Recherche / Question are static TabViews
+    and do not depend on the DB, so they are excluded from this
+    list."""
     empty_db = tmp_path / "empty.sqlite"
     app = GovApp()
     app._ctx = AppContext(
@@ -737,6 +1016,10 @@ async def test_tabs_render_empty_state_when_db_missing(tmp_path: Path) -> None:
         app.social_tab,
         app.press_tab,
         app.transcriptions_tab,
+        app.alerts_tab,
+        app.affairs_tab,
+        app.laws_tab,
+        app.factchecks_tab,
     ):
         desc = await handler()
         assert desc["schema_version"] == 1
@@ -918,3 +1201,175 @@ async def test_transcriptions_tab_joins_politician_name(tmp_path: Path) -> None:
     assert table_block["rows"][0]["politician_name"] == "Alice Martin"
     # tr-2 has no politician_id → politician_name coerces to '—'.
     assert table_block["rows"][1]["politician_name"] == "—"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 8 Phase D — six Batch 3 tab handler tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_alerts_tab_renders_summary_and_severity_chart(tmp_path: Path) -> None:
+    """Alerts tab surfaces the three summary metrics, the
+    per-severity ``chart_bar``, and the table sorted by
+    created_at desc."""
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.alerts_tab()
+
+    assert desc["tab_name"] == "alertes"
+    kinds = _block_kinds(desc)
+    assert kinds[0] == "heading"
+    assert "section" in kinds
+    assert "chart_bar" in kinds
+    assert "table" in kinds
+
+    summary_section = next(b for b in desc["blocks"] if b["kind"] == "section" and b["title"] == "Résumé")
+    summary_metrics = {b["label"]: b for b in summary_section["blocks"]}
+    assert summary_metrics["Alertes"]["value"] == 3
+    # Two of the three seeded alerts are unread (al-1, al-3).
+    assert summary_metrics["Non lues"]["value"] == 2
+    assert summary_metrics["Non lues"]["tone"] == "warn"
+    # One alert carries severity 'high'.
+    high = summary_metrics["Sévérité haute"]
+    assert high["value"] == 1
+    assert high["tone"] == "danger"
+
+    chart = next(b for b in desc["blocks"] if b["kind"] == "chart_bar")
+    severities = {b["label"]: b["value"] for b in chart["bars"]}
+    assert severities == {"high": 1, "medium": 1, "info": 1}
+
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 3
+    # Most recent first (al-1 at 2025-12-01T08:10:00).
+    assert table_block["rows"][0]["alert_type"] == "contradiction"
+    assert table_block["rows"][0]["politician_name"] == "Alice Martin"
+    assert table_block["rows"][0]["severity"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_affairs_tab_joins_politician_and_charts_status(tmp_path: Path) -> None:
+    """Affaires tab exposes a status ``chart_bar`` and the two
+    seeded affairs joined with their politician names."""
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.affairs_tab()
+
+    assert desc["tab_name"] == "affaires"
+    chart = next(b for b in desc["blocks"] if b["kind"] == "chart_bar")
+    statuses = {b["label"]: b["value"] for b in chart["bars"]}
+    assert statuses == {"enquete": 1, "classee": 1}
+
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 2
+    # Most recent first (af-1 date_start 2025-09-01).
+    assert table_block["rows"][0]["politician_name"] == "Bob Durand"
+    assert table_block["rows"][0]["status"] == "enquete"
+    assert table_block["rows"][0]["category"] == "financier"
+    # Second row is the closed affair against Alice.
+    assert table_block["rows"][1]["politician_name"] == "Alice Martin"
+    assert table_block["rows"][1]["status"] == "classee"
+
+
+@pytest.mark.asyncio
+async def test_laws_tab_summary_metrics_and_avg_duration(tmp_path: Path) -> None:
+    """Lois tab exposes three summary metrics and a status
+    ``chart_bar``. ``avg_duration`` averages only non-zero
+    ``duration_days`` values — in the fixture law-1 has
+    duration=186 and law-2 has duration=0 (in-flight) so the
+    average is 186.
+    """
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.laws_tab()
+
+    assert desc["tab_name"] == "lois"
+    summary_section = next(b for b in desc["blocks"] if b["kind"] == "section" and b["title"] == "Résumé")
+    summary_metrics = {b["label"]: b for b in summary_section["blocks"]}
+    assert summary_metrics["Lois"]["value"] == 2
+    promulgated = summary_metrics["Promulguées"]
+    assert promulgated["value"] == 1
+    assert promulgated["tone"] == "ok"
+    avg = summary_metrics["Durée moyenne"]
+    assert avg["value"] == 186
+    assert avg["unit"] == "j"
+
+    chart = next(b for b in desc["blocks"] if b["kind"] == "chart_bar")
+    statuses = {b["label"]: b["value"] for b in chart["bars"]}
+    assert statuses == {"promulguee": 1, "en_cours": 1}
+
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    # law-2 has date_initial 2025-10-01 (most recent) → sorted first.
+    assert table_block["rows"][0]["uid"] == "PL-2025-12"
+    assert table_block["rows"][0]["status"] == "en_cours"
+    assert table_block["rows"][1]["uid"] == "PL-2024-01"
+    assert table_block["rows"][1]["duration_days"] == 186
+
+
+@pytest.mark.asyncio
+async def test_factchecks_tab_rates_and_joins_politician(tmp_path: Path) -> None:
+    """Factchecks tab groups by rating and joins the claimant
+    politician name via LEFT JOIN (fc-3 has no politician_id
+    and coerces to '—')."""
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.factchecks_tab()
+
+    assert desc["tab_name"] == "factchecks"
+    chart = next(b for b in desc["blocks"] if b["kind"] == "chart_bar")
+    ratings = {b["label"]: b["value"] for b in chart["bars"]}
+    assert ratings == {"mostly_true": 1, "false": 1, "true": 1}
+
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 3
+    # Most recent review_date first → fc-2 (2025-11-22).
+    first = table_block["rows"][0]
+    assert first["politician_name"] == "Bob Durand"
+    assert first["rating"] == "false"
+    assert first["reviewer"] == "Les Décodeurs"
+    # fc-3 has no politician_id → '—'.
+    politician_names = {row["politician_name"] for row in table_block["rows"]}
+    assert "—" in politician_names
+
+
+@pytest.mark.asyncio
+async def test_search_tab_renders_rag_button() -> None:
+    """Recherche tab is a static TabView that exposes a
+    ``task_submit`` button targeting ``gov.rag_search``. The tab
+    does not depend on the DB, so it renders consistently
+    whether or not the legacy file exists."""
+    app = GovApp()
+    desc = await app.search_tab()
+
+    assert desc["tab_name"] == "recherche"
+    assert desc["blocks"][0]["kind"] == "heading"
+    assert desc["blocks"][0]["text"] == "Recherche RAG"
+
+    # The button block sits inside the "Exemple" section.
+    section_block = next(b for b in desc["blocks"] if b["kind"] == "section" and b["title"] == "Exemple")
+    button = next(b for b in section_block["blocks"] if b["kind"] == "button")
+    assert button["label"] == "Lancer la recherche exemple"
+    assert button["action"]["kind"] == "task_submit"
+    assert button["action"]["worker"] == "gov.rag_search"
+    # Payload is a dict with a single 'query' key.
+    payload = button["action"]["payload"]
+    assert isinstance(payload, dict)
+    assert "query" in payload
+
+
+@pytest.mark.asyncio
+async def test_ask_tab_renders_rag_button() -> None:
+    """Question tab mirrors Recherche for the ``gov.rag_ask``
+    worker. Same static-TabView shape with a ``task_submit``
+    button that hardcodes an example question."""
+    app = GovApp()
+    desc = await app.ask_tab()
+
+    assert desc["tab_name"] == "question"
+    assert desc["blocks"][0]["kind"] == "heading"
+    assert desc["blocks"][0]["text"] == "Question RAG"
+
+    section_block = next(b for b in desc["blocks"] if b["kind"] == "section" and b["title"] == "Exemple")
+    button = next(b for b in section_block["blocks"] if b["kind"] == "button")
+    assert button["label"] == "Poser la question exemple"
+    assert button["action"]["kind"] == "task_submit"
+    assert button["action"]["worker"] == "gov.rag_ask"
+    payload = button["action"]["payload"]
+    assert isinstance(payload, dict)
+    assert "question" in payload
