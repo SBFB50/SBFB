@@ -34,6 +34,7 @@
 pub mod blobs;
 pub mod canonical;
 pub mod crypto;
+pub mod curator;
 pub mod discovery;
 pub mod docs;
 pub mod error;
@@ -44,10 +45,14 @@ pub mod verification;
 
 pub use blobs::BlobsClient;
 pub use canonical::{
-    canonical_bytes, DOMAIN_CLAIM_V1, DOMAIN_INVITE_V1, DOMAIN_KUDOS_V1, DOMAIN_RESULT_V1,
-    DOMAIN_TASK_V1,
+    canonical_bytes, DOMAIN_CLAIM_V1, DOMAIN_CURATOR_LIST_V1, DOMAIN_INVITE_V1, DOMAIN_KUDOS_V1,
+    DOMAIN_RESULT_V1, DOMAIN_TASK_V1,
 };
 pub use crypto::{blake3_hash, verify, Blake3Chain, KeyPair};
+pub use curator::{
+    CuratorList, CuratorListEntry, CuratorProjectRef, CURATOR_LIST_FORMAT_VERSION,
+    CURATOR_LIST_MAX_ENTRIES,
+};
 pub use discovery::{DiscoveryClient, NodeAddrInfo};
 pub use docs::{DocHandle, DocsClient};
 pub use error::{NexusError, Result};

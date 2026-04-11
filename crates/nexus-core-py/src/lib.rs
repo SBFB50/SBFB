@@ -46,6 +46,7 @@ use nexus_core_rs::{
     gossip::{
         GossipClient as RsGossipClient, GossipEvent as RsGossipEvent, TopicHandle as RsTopicHandle,
     },
+    curator::{CuratorList, CuratorListEntry},
     task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry},
     Node, NodeConfig, VerificationReport, Verifier as RsVerifier,
 };
@@ -897,6 +898,43 @@ fn verify_claim_entry(entry_json: &str) -> PyResult<()> {
         .map_err(|e| py_err("verify_claim_entry", e))
 }
 
+/// Sign a curator list JSON blob and return the signed
+/// [`CuratorListEntry`] as JSON.
+///
+/// Sprint 7 Phase B. Consumed by the Python SDK so coordinators
+/// and curators can mint lists without touching Rust, and
+/// consumed by the shell-daemon Phase C pipeline to verify lists
+/// that arrive over gossip.
+///
+/// Takes the list as a JSON string (the canonical bytes are
+/// recomputed Rust-side via RFC 8785 JCS; callers do not need to
+/// pre-canonicalize). Returns the signed entry as JSON. Raises
+/// `ValueError` on bad input or `RuntimeError` on a signing
+/// failure (mismatched pubkey in payload, oversized entries).
+#[pyfunction]
+fn sign_curator_list(list_json: &str, secret: &Bound<'_, PyBytes>) -> PyResult<String> {
+    let sk: [u8; SECRET_KEY_BYTES] = array32(secret, "secret")?;
+    let kp = KeyPair::from_secret_bytes(&sk);
+    let list: CuratorList = serde_json::from_str(list_json)
+        .map_err(|e| PyValueError::new_err(format!("bad curator list json: {e}")))?;
+    let entry = CuratorListEntry::sign(list, &kp).map_err(|e| py_err("sign_curator_list", e))?;
+    serde_json::to_string(&entry).map_err(|e| py_err("serialize", e))
+}
+
+/// Verify a [`CuratorListEntry`] JSON blob as produced by
+/// [`sign_curator_list`] or by a Rust signer. Raises
+/// `RuntimeError` on any failure (version mismatch, oversized
+/// entries, attribution split-brain, tampered payload, wrong
+/// signer, bad bytes).
+#[pyfunction]
+fn verify_curator_list_entry(entry_json: &str) -> PyResult<()> {
+    let entry: CuratorListEntry = serde_json::from_str(entry_json)
+        .map_err(|e| PyValueError::new_err(format!("bad entry json: {e}")))?;
+    entry
+        .verify_signature()
+        .map_err(|e| py_err("verify_curator_list_entry", e))
+}
+
 // ======================================================================
 // Invite v2 mint/decode
 // ======================================================================
@@ -1038,6 +1076,8 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify_result_entry, m)?)?;
     m.add_function(wrap_pyfunction!(sign_claim, m)?)?;
     m.add_function(wrap_pyfunction!(verify_claim_entry, m)?)?;
+    m.add_function(wrap_pyfunction!(sign_curator_list, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_curator_list_entry, m)?)?;
     m.add_function(wrap_pyfunction!(mint_invite, m)?)?;
     m.add_function(wrap_pyfunction!(decode_invite, m)?)?;
 

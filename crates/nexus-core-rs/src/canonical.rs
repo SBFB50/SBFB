@@ -46,13 +46,16 @@
 //!
 //! Each struct family has its own constant:
 //!
-//! - [`DOMAIN_TASK_V1`]   — [`crate::task::Task`]
-//! - [`DOMAIN_RESULT_V1`] — [`crate::task::ResultPayload`]
-//! - [`DOMAIN_CLAIM_V1`]  — [`crate::task::Claim`]
-//! - [`DOMAIN_INVITE_V1`] — invite payloads in
+//! - [`DOMAIN_TASK_V1`]         — [`crate::task::Task`]
+//! - [`DOMAIN_RESULT_V1`]       — [`crate::task::ResultPayload`]
+//! - [`DOMAIN_CLAIM_V1`]        — [`crate::task::Claim`]
+//! - [`DOMAIN_INVITE_V1`]       — invite payloads in
 //!   `nexus_worker_core::invite::InvitePayload`
-//! - [`DOMAIN_KUDOS_V1`]  — kudos ledger entries in the Python
+//! - [`DOMAIN_KUDOS_V1`]        — kudos ledger entries in the Python
 //!   coordinator (reserved here so both sides agree on the tag)
+//! - [`DOMAIN_CURATOR_LIST_V1`] — [`crate::curator::CuratorList`]
+//!   (Sprint 7 Phase B; consumed by the shell-daemon Phase C
+//!   gossip subscribe pipeline)
 //!
 //! The `v1` suffix is the domain version, independent from any
 //! struct version field. Bumping it changes the signature surface
@@ -80,6 +83,16 @@ pub const DOMAIN_INVITE_V1: &[u8] = b"nexus-invite-v1";
 /// themselves live in the Python coordinator (SQLite), but the tag
 /// is defined here so both sides use the same bytes.
 pub const DOMAIN_KUDOS_V1: &[u8] = b"nexus-kudos-v1";
+
+/// Domain separation tag for [`crate::curator::CuratorList`]
+/// canonical bytes.
+///
+/// Sprint 7 Phase B: the curator list flow is an independent
+/// signing surface with its own domain tag so a valid curator
+/// list signature can never be replayed as a Task / Result /
+/// Claim / Invite / Kudos signature — and vice versa. See
+/// [`crate::curator`] for the full signing + verification contract.
+pub const DOMAIN_CURATOR_LIST_V1: &[u8] = b"nexus-curator-list-v1";
 
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
