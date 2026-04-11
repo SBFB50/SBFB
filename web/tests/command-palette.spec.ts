@@ -56,9 +56,13 @@ test("Ctrl+K opens the command palette and navigates", async ({ page }) => {
   // event directly on document so it bypasses any focus routing
   // quirks in headless Chromium. This still exercises the real
   // useCommandPalette hook end-to-end.
+  //
+  // Sprint 6 audit F-1: the handler now matches `e.code === "KeyK"`
+  // (not `e.key`) so caps lock and non-QWERTY layouts still trip
+  // the binding. The synthetic event must supply `code`.
   await page.evaluate(() => {
     document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "k", ctrlKey: true }),
+      new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true }),
     );
   });
   await expect(page.getByPlaceholder(/Rechercher une action/)).toBeVisible({
