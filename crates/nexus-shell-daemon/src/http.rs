@@ -1,16 +1,20 @@
-//! Phase A HTTP surface for `nexus-shell-daemon`.
+//! HTTP surface for `nexus-shell-daemon`.
 //!
 //! The daemon's HTTP listener is loopback-only and reached by
 //! the React shell exclusively through the coordinator
-//! `/daemon/*` proxy (Sprint 7 D1). Phase A exposes two routes:
+//! `/daemon/*` proxy (Sprint 7 D1). Phase A exposed two routes
+//! (`/health`, `/info`); Phase C extends the surface with three
+//! more that operate on the shared [`CuratorRuntime`]:
 //!
-//! - `GET /health` — liveness probe, fixed body, no locks held
-//! - `GET /info`   — [`nexus_shell_daemon_core::state::DaemonStateSnapshot`]
+//! - `GET    /health`              — liveness probe (Phase A)
+//! - `GET    /info`                — daemon state snapshot (Phase A)
+//! - `GET    /curators`            — list every cached curator list
+//! - `POST   /curators/subscribe`  — add a curator to the attention set
+//! - `DELETE /curators/{pubkey}`   — remove a curator from the attention set
 //!
-//! Phase C will grow `/curators` (GET/POST/DELETE), Phase D will
-//! grow `/browse`. Those routes are deliberately **absent** here
-//! — the Phase A skeleton must stay minimal so the audit gate
-//! can isolate boot correctness from subscribe correctness.
+//! Phase D will grow `/browse`. That route is deliberately
+//! **absent** here so the Phase D audit can isolate pkarr
+//! resolution correctness from subscribe correctness.
 //!
 //! ## CORS
 //!
@@ -19,7 +23,6 @@
 //! - `http://127.0.0.1[:port]`
 //! - `http://localhost[:port]`
 //!
-//! Every other origin is rejected before the handler runs.
 //! Even though the shell is expected to talk through the
 //! coordinator proxy, we keep a strict loopback CORS layer on
 //! the daemon itself so a future direct-call path cannot
@@ -29,24 +32,24 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{HeaderValue, StatusCode},
     response::{IntoResponse, Json},
-    routing::get,
+    routing::{delete, get, post},
     Router,
 };
+use nexus_shell_daemon_core::iroh_runtime::{CuratorRuntimeError, CuratorRuntimeHandle};
 use nexus_shell_daemon_core::state::{DaemonStateSnapshot, StateInputs};
+use serde::{Deserialize, Serialize};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::debug;
 
 /// Shared state handed to every axum route.
 ///
-/// Kept intentionally small in Phase A — a boot timestamp, the
-/// iroh node id, the bound port, and the host. Phase C will add
-/// an `Arc<DashMap<...>>` for received curator lists; Phase D
-/// will add a browse aggregator. The fields added later must
-/// remain `Clone` and cheap to read under contention because
-/// `/info` is polled on every shell refresh.
+/// Holds the static fields needed by `/info` plus the
+/// [`CuratorRuntimeHandle`] that curator routes and `/info`'s
+/// subscribed-curators / known-lists / known-browse-entries
+/// counters read from.
 #[derive(Debug, Clone)]
 pub struct DaemonHttpState {
     pub node_id: String,
@@ -54,42 +57,50 @@ pub struct DaemonHttpState {
     pub boot_time: SystemTime,
     pub api_host: String,
     pub api_port: u16,
+    pub curator_runtime: CuratorRuntimeHandle,
 }
 
 impl DaemonHttpState {
     fn snapshot(&self) -> DaemonStateSnapshot {
+        // Read the live curator runtime counts rather than
+        // leaving the Phase A zero-fallback in place. This is
+        // additive — the snapshot schema stays at v1, only the
+        // populated values change.
+        let subscribed_curators = self.curator_runtime.subscribed_pubkeys_hex();
+        let known_lists = self.curator_runtime.known_list_count() as u32;
+        let known_browse_entries = self.curator_runtime.known_entry_count() as u32;
+
         DaemonStateSnapshot::from_inputs(StateInputs {
             node_id: self.node_id.clone(),
             daemon_version: self.daemon_version.clone(),
             boot_time: self.boot_time,
             api_host: self.api_host.clone(),
             api_port: self.api_port,
-            subscribed_curators: Vec::new(), // Phase C
-            known_lists: 0,                  // Phase C
-            known_browse_entries: 0,         // Phase D
+            subscribed_curators,
+            known_lists,
+            known_browse_entries,
         })
     }
 }
 
-/// Build the Phase A axum [`Router`].
-///
-/// Every Phase A integration test calls into this function,
-/// never into the concrete listener, so the router logic can be
-/// tested end-to-end via `tower::ServiceExt::oneshot` without
-/// ever binding a real TCP port.
+/// Build the axum [`Router`] carrying every Phase A + Phase C
+/// route. The caller hands us an [`Arc<DaemonHttpState>`]; the
+/// router clones it into each handler via the axum `State`
+/// extractor.
 pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/info", get(info))
+        .route("/curators", get(list_curators))
+        .route("/curators/subscribe", post(subscribe_curator))
+        .route("/curators/:pubkey", delete(unsubscribe_curator))
         .with_state(state)
         .layer(loopback_cors_layer())
 }
 
 /// The loopback-only CORS layer. Accepts exactly the origins
 /// `http://127.0.0.1[:PORT]` and `http://localhost[:PORT]`;
-/// refuses everything else, including HTTPS variants (the
-/// coordinator is HTTP loopback too, so HTTPS origins don't
-/// make sense here).
+/// refuses everything else, including HTTPS variants.
 fn loopback_cors_layer() -> CorsLayer {
     CorsLayer::new().allow_origin(AllowOrigin::predicate(
         |origin: &HeaderValue, _request_parts: &_| is_loopback_origin(origin),
@@ -98,9 +109,6 @@ fn loopback_cors_layer() -> CorsLayer {
 
 /// Return `true` iff `origin` is an HTTP loopback URL with an
 /// optional port and no path.
-///
-/// Kept as a pure function so the unit tests can exercise the
-/// predicate without spinning up a full axum service.
 pub fn is_loopback_origin(origin: &HeaderValue) -> bool {
     let Ok(s) = origin.to_str() else {
         return false;
@@ -110,9 +118,6 @@ pub fn is_loopback_origin(origin: &HeaderValue) -> bool {
         None => return false,
     };
 
-    // Split off an optional `:PORT` suffix. Paths are not
-    // allowed in an `Origin` header per RFC 6454, but strip
-    // defensively just in case.
     let host_port = rest.split('/').next().unwrap_or(rest);
     let (host, port_opt) = match host_port.rsplit_once(':') {
         Some((h, p)) => (h, Some(p)),
@@ -131,14 +136,73 @@ pub fn is_loopback_origin(origin: &HeaderValue) -> bool {
 }
 
 // =================================================================
+// Request / response DTOs
+// =================================================================
+
+/// Body of `POST /curators/subscribe`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscribeCuratorRequest {
+    /// Lowercase hex of the curator's Ed25519 public key (64 chars).
+    pub curator_pubkey_hex: String,
+}
+
+/// Body of both `POST /curators/subscribe` (success) and
+/// `DELETE /curators/{pubkey}` (success). Returns the current
+/// sorted list of subscribed curator pubkeys so the shell can
+/// refresh its UI in a single roundtrip.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscriptionsResponse {
+    pub subscribed_curators: Vec<String>,
+}
+
+/// Body of `GET /curators`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CuratorsListResponse {
+    /// Every signed curator list the daemon has cached, keyed
+    /// by curator pubkey (sorted ascending). Each entry is a
+    /// verbatim `CuratorListEntry` — the shell re-renders it
+    /// with the trust-by-construction invariant that any entry
+    /// in this array has already been verified.
+    pub entries: Vec<nexus_core_rs::CuratorListEntry>,
+    /// The current attention set (sorted hex pubkeys). The
+    /// shell compares this against `entries` to render "waiting
+    /// on first announcement" placeholders for subscribed
+    /// curators that have not yet broadcast.
+    pub subscribed_curators: Vec<String>,
+}
+
+/// Body returned when a curator runtime error must be surfaced
+/// as a 4xx/5xx response.
+#[derive(Debug, Clone, Serialize)]
+struct ErrorResponse {
+    error: String,
+}
+
+fn runtime_error_to_response(err: CuratorRuntimeError) -> (StatusCode, Json<ErrorResponse>) {
+    let status = match &err {
+        CuratorRuntimeError::BadPubkeyHex(_) => StatusCode::BAD_REQUEST,
+        CuratorRuntimeError::AnnouncementParse(_)
+        | CuratorRuntimeError::AnnouncementVersion { .. }
+        | CuratorRuntimeError::AnnouncementAttributionMismatch { .. }
+        | CuratorRuntimeError::EntryParse(_)
+        | CuratorRuntimeError::EntryVerify(_)
+        | CuratorRuntimeError::RevisionRollback { .. }
+        | CuratorRuntimeError::BlobFetch(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        CuratorRuntimeError::Persistence { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (
+        status,
+        Json(ErrorResponse {
+            error: err.to_string(),
+        }),
+    )
+}
+
+// =================================================================
 // Handlers
 // =================================================================
 
 /// `GET /health` — liveness probe.
-///
-/// Returns 200 with a fixed JSON body containing the schema
-/// version and the daemon's crate version. The shell uses this
-/// to distinguish a running daemon from a stale proxy path.
 async fn health(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
     debug!("GET /health");
     Json(serde_json::json!({
@@ -155,6 +219,56 @@ async fn info(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
     (StatusCode::OK, Json(state.snapshot()))
 }
 
+/// `GET /curators` — list every cached curator list + the
+/// current attention set.
+async fn list_curators(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    debug!("GET /curators");
+    let body = CuratorsListResponse {
+        entries: state.curator_runtime.list_snapshot(),
+        subscribed_curators: state.curator_runtime.subscribed_pubkeys_hex(),
+    };
+    (StatusCode::OK, Json(body))
+}
+
+/// `POST /curators/subscribe` — add a curator pubkey to the
+/// attention set. Idempotent: subscribing twice is a no-op that
+/// still returns 200.
+async fn subscribe_curator(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(req): Json<SubscribeCuratorRequest>,
+) -> impl IntoResponse {
+    debug!(curator = %req.curator_pubkey_hex, "POST /curators/subscribe");
+    match state.curator_runtime.subscribe(&req.curator_pubkey_hex) {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(SubscriptionsResponse {
+                subscribed_curators: state.curator_runtime.subscribed_pubkeys_hex(),
+            }),
+        )
+            .into_response(),
+        Err(e) => runtime_error_to_response(e).into_response(),
+    }
+}
+
+/// `DELETE /curators/{pubkey}` — remove a curator from the
+/// attention set and evict any cached list they had published.
+async fn unsubscribe_curator(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(pubkey): Path<String>,
+) -> impl IntoResponse {
+    debug!(curator = %pubkey, "DELETE /curators/{{pubkey}}");
+    match state.curator_runtime.unsubscribe(&pubkey) {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(SubscriptionsResponse {
+                subscribed_curators: state.curator_runtime.subscribed_pubkeys_hex(),
+            }),
+        )
+            .into_response(),
+        Err(e) => runtime_error_to_response(e).into_response(),
+    }
+}
+
 // =================================================================
 // Tests
 // =================================================================
@@ -164,6 +278,8 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use axum::http::{Method, Request};
+    use nexus_core_rs::KeyPair;
+    use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
     use tower::ServiceExt;
 
     fn mk_state() -> Arc<DaemonHttpState> {
@@ -173,6 +289,7 @@ mod tests {
             boot_time: SystemTime::now(),
             api_host: "127.0.0.1".to_string(),
             api_port: 12345,
+            curator_runtime: Arc::new(CuratorRuntime::new(None)),
         })
     }
 
@@ -219,7 +336,6 @@ mod tests {
         assert_eq!(snap.node_id.len(), 64);
         assert_eq!(snap.api_host, "127.0.0.1");
         assert_eq!(snap.api_port, 12345);
-        // Phase A always-zero curator/browse fields:
         assert!(snap.subscribed_curators.is_empty());
         assert_eq!(snap.known_lists, 0);
         assert_eq!(snap.known_browse_entries, 0);
@@ -241,6 +357,143 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
+    #[tokio::test]
+    async fn list_curators_returns_empty_when_nothing_cached() {
+        let app = build_router(mk_state());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/curators")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let list: CuratorsListResponse = serde_json::from_slice(&body).unwrap();
+        assert!(list.entries.is_empty());
+        assert!(list.subscribed_curators.is_empty());
+    }
+
+    #[tokio::test]
+    async fn subscribe_then_list_then_delete_happy_path() {
+        let state = mk_state();
+        let app = build_router(Arc::clone(&state));
+        let kp = KeyPair::generate();
+        let hex_key = hex::encode(kp.public_bytes());
+
+        // POST /curators/subscribe
+        let body = serde_json::to_vec(&SubscribeCuratorRequest {
+            curator_pubkey_hex: hex_key.clone(),
+        })
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/curators/subscribe")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let sub: SubscriptionsResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(sub.subscribed_curators, vec![hex_key.clone()]);
+
+        // GET /curators must now show the pubkey in the set.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/curators")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let list: CuratorsListResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(list.subscribed_curators, vec![hex_key.clone()]);
+        // No entries yet — no real gossip announcement received.
+        assert!(list.entries.is_empty());
+
+        // DELETE /curators/{pubkey}
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!("/curators/{hex_key}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let sub: SubscriptionsResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(sub.subscribed_curators.is_empty());
+    }
+
+    #[tokio::test]
+    async fn subscribe_rejects_bad_pubkey_hex_as_400() {
+        let app = build_router(mk_state());
+        let body = serde_json::to_vec(&SubscribeCuratorRequest {
+            curator_pubkey_hex: "not-hex".to_string(),
+        })
+        .unwrap();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/curators/subscribe")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn info_reflects_live_curator_runtime_counts() {
+        let state = mk_state();
+        let kp = KeyPair::generate();
+        state
+            .curator_runtime
+            .subscribe(&hex::encode(kp.public_bytes()))
+            .unwrap();
+
+        let app = build_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/info")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let snap: DaemonStateSnapshot =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(snap.subscribed_curators.len(), 1);
+    }
+
+    // ---------------------------------------------------------
+    // CORS helper unit tests (Phase A regression)
+    // ---------------------------------------------------------
+
     #[test]
     fn loopback_origin_accepts_127_0_0_1_with_port() {
         let h = HeaderValue::from_static("http://127.0.0.1:3000");
@@ -261,8 +514,6 @@ mod tests {
 
     #[test]
     fn loopback_origin_rejects_https_scheme() {
-        // Only http is allowed — an https origin on loopback
-        // would imply a TLS stack we don't ship.
         let h = HeaderValue::from_static("https://127.0.0.1");
         assert!(!is_loopback_origin(&h));
     }
@@ -275,8 +526,6 @@ mod tests {
 
     #[test]
     fn loopback_origin_rejects_suffix_trick() {
-        // `http://127.0.0.1.evil.com` must not pass as loopback
-        // just because it starts with the right bytes.
         let h = HeaderValue::from_static("http://127.0.0.1.evil.com");
         assert!(!is_loopback_origin(&h));
     }

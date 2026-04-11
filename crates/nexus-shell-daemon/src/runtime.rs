@@ -1,40 +1,50 @@
-//! Phase A runtime: boot, HTTP serve, graceful shutdown.
+//! Boot, HTTP serve, gossip subscribe, graceful shutdown.
 //!
 //! [`DaemonRuntime::start`] is the single entry point the binary
-//! uses to bring up the daemon. It performs the ordered Phase A
-//! boot sequence:
+//! uses to bring up the daemon. It performs the following ordered
+//! sequence (Phase A + Phase C):
 //!
 //! 1. [`nexus_shell_daemon_core::registry::check_stale_or_bail`]
 //!    — refuse to boot if a live daemon is already running.
 //! 2. `nexus_core_rs::create_node()` — spin up the iroh endpoint +
-//!    protocol router + blobs/docs/gossip stack. Phase A does not
-//!    consume any of those protocols, but the boot ordering (node
-//!    first, HTTP second) matches what Phase C will need.
+//!    protocol router + blobs/docs/gossip stack. Wrapped in
+//!    [`Arc`] so the gossip subscribe task can hold a second
+//!    reference for its whole lifetime.
 //! 3. Bind a TCP listener on `(api_host, 0)` so the OS picks an
-//!    ephemeral port. The real port is then written into
-//!    `running.json` alongside the pid.
-//! 4. Write `running.json`.
-//! 5. Spawn an axum `serve` task on a oneshot shutdown channel.
+//!    ephemeral port.
+//! 4. Write `running.json` (Phase A singleton marker).
+//! 5. Construct [`CuratorRuntime::with_persistence`] over
+//!    `<root>/shell-daemon/subscriptions.json` so the attention
+//!    set survives daemon restarts (R7 mitigation).
+//! 6. Build the shared HTTP state (carries the `Arc<CuratorRuntime>`)
+//!    and spawn the axum serve task on a oneshot shutdown channel.
+//! 7. Spawn the gossip subscribe task on a second oneshot
+//!    shutdown channel. The task joins the curator topic, pulls
+//!    events, and hands every message to
+//!    [`CuratorRuntime::process_announcement_bytes`].
 //!
-//! [`DaemonRuntime::wait_shutdown`] yields on ctrl+c via
-//! `tokio::signal::ctrl_c`. [`DaemonRuntime::shutdown`] drives
-//! the reverse order: stop HTTP → shutdown iroh → remove
-//! `running.json`.
+//! [`DaemonRuntime::shutdown`] drives the reverse order:
+//! stop gossip task → stop HTTP serve → shutdown iroh node
+//! (via `Arc::try_unwrap` once every task has dropped its clone)
+//! → remove `running.json`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::{anyhow, Context, Result};
-use nexus_core_rs::Node;
+use nexus_core_rs::{create_node, GossipClient, GossipEvent, Node};
 use nexus_shell_daemon_core::config::ShellDaemonPaths;
+use nexus_shell_daemon_core::iroh_runtime::{
+    curator_topic_id, CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle,
+};
 use nexus_shell_daemon_core::registry::{
     self, new_running_state, remove_running, write_running, StaleOutcome,
 };
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::http::{build_router, DaemonHttpState};
 
@@ -54,28 +64,35 @@ pub struct DaemonStartOptions {
 
 /// A live `nexus-shell-daemon` process.
 ///
-/// Owns the iroh `Node`, the running.json path (so it can
-/// remove it on shutdown), the HTTP serve task, and a oneshot
-/// sender that signals axum to stop accepting new connections.
+/// Owns the iroh [`Node`] (via an `Arc` so the gossip task can
+/// share it), the running.json path (so it can remove it on
+/// shutdown), the HTTP and gossip task handles, their oneshot
+/// shutdown senders, and the shared [`CuratorRuntime`] handle
+/// that HTTP routes read out of.
+///
+/// The `curator_runtime` field is cloned into both the HTTP
+/// state and the gossip task, so from the `cargo build` main
+/// binary's perspective it looks unused (the main code path
+/// only hands the clone off once and forgets about it). The
+/// test harness and Phase D browse path need access to it
+/// through [`DaemonRuntime::curator_runtime`], so the field is
+/// explicitly allowed as dead_code. Phase D will reach into it
+/// to filter browse entries by the current attention set.
 pub struct DaemonRuntime {
-    node: Option<Node>,
+    node: Option<Arc<Node>>,
+    #[allow(dead_code)]
+    curator_runtime: CuratorRuntimeHandle,
     running_json: PathBuf,
     http_handle: JoinHandle<()>,
     http_shutdown: Option<oneshot::Sender<()>>,
+    gossip_handle: JoinHandle<()>,
+    gossip_shutdown: Option<oneshot::Sender<()>>,
     bound_addr: std::net::SocketAddr,
 }
 
 impl DaemonRuntime {
-    /// Execute the Phase A boot sequence and return a live
+    /// Execute the full boot sequence and return a live
     /// [`DaemonRuntime`].
-    ///
-    /// The caller is expected to either:
-    /// - keep the returned handle and call
-    ///   [`DaemonRuntime::wait_shutdown`] + [`DaemonRuntime::shutdown`]
-    ///   in sequence (the binary's normal path), or
-    /// - drop it, which triggers `Drop` but cannot drive the
-    ///   graceful iroh shutdown — that only works through the
-    ///   async `shutdown()` method.
     pub async fn start(opts: DaemonStartOptions) -> Result<Self> {
         opts.paths
             .ensure_dirs()
@@ -111,21 +128,21 @@ impl DaemonRuntime {
             }
         }
 
-        // 2. Boot the iroh endpoint + protocol router.
-        //
-        // Phase A doesn't consume any of docs/gossip/blobs yet,
-        // but we still boot the full stack so Phase C can plug
-        // its curator pipeline in without a boot-order shuffle.
-        let node = nexus_core_rs::create_node()
+        // 2. Boot the iroh endpoint + protocol router. Arc so
+        //    the gossip task can hold a clone without fighting
+        //    with the shutdown path for ownership.
+        let node = create_node()
             .await
             .context("failed to boot iroh node for shell daemon")?;
         let node_id = node.node_id();
         info!(node_id = %node_id, "shell daemon iroh node ready");
+        let node = Arc::new(node);
 
         // 3. Bind the TCP listener. An empty host in the config
-        // was clamped to 127.0.0.1 at load time (see
-        // `ShellDaemonConfig::clamped`); defend-in-depth here
-        // too so a future bypass of `load` cannot slip through.
+        //    was clamped to 127.0.0.1 at load time (see
+        //    `ShellDaemonConfig::clamped`); defend-in-depth here
+        //    too so a future bypass of `load` cannot slip
+        //    through.
         let host = if opts.api_host.is_empty() {
             "127.0.0.1".to_string()
         } else {
@@ -151,23 +168,26 @@ impl DaemonRuntime {
         write_running(&running_state, &running_json_path)
             .with_context(|| format!("failed to write {}", running_json_path.display()))?;
 
-        // 5. Build the shared HTTP state + spawn the serve task.
+        // 5. Construct the curator runtime and pre-load any
+        //    previously persisted attention set.
+        let curator_runtime: CuratorRuntimeHandle = Arc::new(CuratorRuntime::with_persistence(
+            opts.paths.subscriptions_json.clone(),
+        ));
+
+        // 6. Build the shared HTTP state + spawn the serve task.
         let http_state = Arc::new(DaemonHttpState {
             node_id,
             daemon_version: opts.daemon_version.clone(),
             boot_time: SystemTime::now(),
             api_host: host,
             api_port: bound_addr.port(),
+            curator_runtime: Arc::clone(&curator_runtime),
         });
         let router = build_router(http_state);
 
         let (http_shutdown_tx, http_shutdown_rx) = oneshot::channel::<()>();
         let http_handle = tokio::spawn(async move {
             let serve = axum::serve(listener, router).with_graceful_shutdown(async move {
-                // On receiving the shutdown signal (or the sender
-                // being dropped, which `.await` also unblocks on)
-                // axum stops accepting new connections and lets
-                // in-flight ones drain.
                 let _ = http_shutdown_rx.await;
             });
             if let Err(e) = serve.await {
@@ -175,20 +195,43 @@ impl DaemonRuntime {
             }
         });
 
+        // 7. Spawn the gossip subscribe task. It joins the
+        //    curator topic, streams events, and forwards each
+        //    message body to the curator runtime. The oneshot
+        //    lets shutdown signal a clean exit.
+        let (gossip_shutdown_tx, gossip_shutdown_rx) = oneshot::channel::<()>();
+        let gossip_handle = spawn_gossip_subscribe_task(
+            Arc::clone(&node),
+            Arc::clone(&curator_runtime),
+            gossip_shutdown_rx,
+        );
+
         Ok(Self {
             node: Some(node),
+            curator_runtime,
             running_json: running_json_path,
             http_handle,
             http_shutdown: Some(http_shutdown_tx),
+            gossip_handle,
+            gossip_shutdown: Some(gossip_shutdown_tx),
             bound_addr,
         })
     }
 
     /// Return the real bound socket address. Exposed so the
-    /// binary's handler can print the listening port on
-    /// boot for operators.
+    /// binary's handler can print the listening port on boot
+    /// for operators.
     pub fn bound_addr(&self) -> std::net::SocketAddr {
         self.bound_addr
+    }
+
+    /// Return the shared curator runtime handle. Used by tests
+    /// that want to assert on the runtime state without an HTTP
+    /// roundtrip, and reserved for the Phase D browse path that
+    /// filters DHT resolutions by the live attention set.
+    #[allow(dead_code)]
+    pub fn curator_runtime(&self) -> &CuratorRuntimeHandle {
+        &self.curator_runtime
     }
 
     /// Block on ctrl+c, returning when the user (or the test
@@ -204,16 +247,28 @@ impl DaemonRuntime {
     /// Gracefully tear down the runtime.
     ///
     /// Order:
-    /// 1. Signal axum to stop + await the serve task.
-    /// 2. Shutdown the iroh node (drains router + closes
-    ///    endpoint, per the Sprint 2 audit fix).
-    /// 3. Remove `running.json`.
+    /// 1. Signal the gossip task to stop + join it. This drops
+    ///    the gossip task's `Arc<Node>` clone.
+    /// 2. Signal axum to stop + join the HTTP serve task.
+    /// 3. Reclaim ownership of the iroh `Node` via
+    ///    `Arc::try_unwrap` (succeeds iff every task has dropped
+    ///    its clone) and call the async `shutdown()`. If
+    ///    `try_unwrap` fails — meaning a task leaked a clone —
+    ///    we log and let the Arc fall off the stack so Drop runs.
+    /// 4. Remove `running.json`.
     ///
     /// Any individual step may fail; the function logs the
     /// failure and still runs the remaining steps so the user
     /// never sees a dangling `running.json` + dangling iroh
     /// endpoint combo from a half-executed shutdown.
     pub async fn shutdown(mut self) -> Result<()> {
+        if let Some(tx) = self.gossip_shutdown.take() {
+            let _ = tx.send(());
+        }
+        if let Err(e) = (&mut self.gossip_handle).await {
+            warn!(error = %e, "gossip subscribe task join failed");
+        }
+
         if let Some(tx) = self.http_shutdown.take() {
             let _ = tx.send(());
         }
@@ -221,9 +276,24 @@ impl DaemonRuntime {
             warn!(error = %e, "HTTP serve task join failed");
         }
 
-        if let Some(node) = self.node.take() {
-            if let Err(e) = node.shutdown().await {
-                warn!(error = %e, "iroh node shutdown returned an error");
+        if let Some(node_arc) = self.node.take() {
+            match Arc::try_unwrap(node_arc) {
+                Ok(node) => {
+                    if let Err(e) = node.shutdown().await {
+                        warn!(error = %e, "iroh node shutdown returned an error");
+                    }
+                }
+                Err(still_shared) => {
+                    // A task leaked a clone — extremely
+                    // unexpected but non-fatal. Log the strong
+                    // count so a bug report has enough
+                    // information, then drop the Arc and let the
+                    // non-graceful Drop path run.
+                    warn!(
+                        strong_count = Arc::strong_count(&still_shared),
+                        "iroh Node still shared at shutdown — cannot drive graceful close"
+                    );
+                }
             }
         }
 
@@ -247,12 +317,129 @@ impl Drop for DaemonRuntime {
 }
 
 // =================================================================
+// Gossip subscribe task
+// =================================================================
+
+/// Spawn the background task that joins the curator gossip
+/// topic and forwards every message body to the curator
+/// runtime.
+///
+/// Lives in its own function (rather than inlined into
+/// `DaemonRuntime::start`) so the long boot body stays readable
+/// and so the task's precise lifecycle is easy to audit.
+fn spawn_gossip_subscribe_task(
+    node: Arc<Node>,
+    curator_runtime: CuratorRuntimeHandle,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        // Step 1: derive the topic id and join. We do not pass
+        // any bootstrap peer ids — the daemon relies on pkarr
+        // discovery + already-open peer connections to find
+        // neighbours on the topic swarm. If `join_topic` hangs
+        // because there are zero peers reachable, the shutdown
+        // oneshot will wake us up.
+        let gossip = GossipClient::new(node.gossip());
+        let topic_id = curator_topic_id();
+
+        let topic = tokio::select! {
+            join = gossip.join_topic(topic_id, vec![]) => match join {
+                Ok(t) => t,
+                Err(e) => {
+                    warn!(error = %e, "curator gossip join_topic failed — subscribe task exits");
+                    return;
+                }
+            },
+            _ = &mut shutdown_rx => {
+                debug!("curator gossip task shut down before join_topic completed");
+                return;
+            }
+        };
+        info!("curator gossip topic joined");
+
+        let (_sender, mut receiver) = topic.split();
+
+        // Step 2: drain events until shutdown is signalled or
+        // the receiver stream ends.
+        loop {
+            tokio::select! {
+                ev = receiver.next_event() => {
+                    match ev {
+                        Ok(Some(GossipEvent::Message { content, delivered_from })) => {
+                            debug!(
+                                delivered_from = %delivered_from,
+                                bytes = content.len(),
+                                "curator gossip message received"
+                            );
+                            handle_announcement(&curator_runtime, &node, &content).await;
+                        }
+                        Ok(Some(GossipEvent::NeighborUp { node_id })) => {
+                            debug!(neighbor = %node_id, "curator gossip neighbor up");
+                        }
+                        Ok(Some(GossipEvent::NeighborDown { node_id })) => {
+                            debug!(neighbor = %node_id, "curator gossip neighbor down");
+                        }
+                        Ok(Some(GossipEvent::Lagged)) => {
+                            warn!("curator gossip receiver lagged — some messages dropped");
+                        }
+                        Ok(None) => {
+                            info!("curator gossip stream ended cleanly");
+                            break;
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "curator gossip next_event error");
+                            break;
+                        }
+                    }
+                }
+                _ = &mut shutdown_rx => {
+                    info!("curator gossip task shut down on signal");
+                    break;
+                }
+            }
+        }
+    })
+}
+
+/// Hand a raw gossip message body to the curator runtime and
+/// log the outcome. Non-subscribed-curator drops and
+/// attribution mismatches are logged at `debug` so they don't
+/// drown out the real warnings; hard errors (blob fetch
+/// failure, signature failure) log at `warn`.
+async fn handle_announcement(curator_runtime: &CuratorRuntimeHandle, node: &Node, content: &[u8]) {
+    match curator_runtime
+        .process_announcement_bytes(content, node)
+        .await
+    {
+        Ok(entry) => {
+            info!(
+                curator = %hex::encode(entry.curator_pubkey),
+                revision = entry.list.revision,
+                "curator list accepted via gossip"
+            );
+        }
+        Err(CuratorRuntimeError::AnnouncementAttributionMismatch { .. }) => {
+            // Non-subscribed curator and envelope-mismatch both
+            // map to this variant; silent drop.
+            debug!("dropped curator announcement (non-subscribed or mismatched attribution)");
+        }
+        Err(CuratorRuntimeError::RevisionRollback { new, stored }) => {
+            debug!(new, stored, "ignored revision rollback");
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to process curator announcement");
+        }
+    }
+}
+
+// =================================================================
 // Tests
 // =================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_shell_daemon_core::registry::write_running as raw_write_running;
     use tempfile::tempdir;
 
     fn mk_opts(root: &Path) -> DaemonStartOptions {
@@ -282,6 +469,8 @@ mod tests {
             0,
             "bound_addr must resolve to a real ephemeral port"
         );
+        // Curator runtime must be empty at boot.
+        assert_eq!(rt.curator_runtime().known_list_count(), 0);
 
         rt.shutdown().await.expect("shutdown succeeds");
         assert!(
@@ -305,9 +494,6 @@ mod tests {
             .await
             .expect("first start");
 
-        // `expect_err` would require `DaemonRuntime: Debug`;
-        // match on the Result directly instead so the Ok arm
-        // can panic cleanly on failure.
         match DaemonRuntime::start(mk_opts(tmp.path())).await {
             Ok(_) => panic!("second start must fail while the first is alive"),
             Err(err) => {
@@ -328,26 +514,49 @@ mod tests {
         let opts = mk_opts(tmp.path());
         let running_json = opts.paths.running_json.clone();
 
-        // Write a stale running.json with a pid that is
-        // guaranteed not to be our test binary.
+        // Write a stale running.json with a pid that cannot
+        // possibly be this test binary — pid 0 is either
+        // invalid or the scheduler idle task on every platform.
         opts.paths.ensure_dirs().unwrap();
-        let stale_state = new_running_state(
-            "0".repeat(64),
-            "127.0.0.1".to_string(),
-            1,
-            "0.0.0-stale".to_string(),
-        );
-        // Force pid 0 which is never a live shell daemon.
         let stale_state = nexus_shell_daemon_core::registry::RunningState {
+            schema_version: 1,
+            node_id: "0".repeat(64),
+            api_host: "127.0.0.1".to_string(),
+            api_port: 1,
             pid: 0,
-            ..stale_state
+            started_at: "2000-01-01T00:00:00Z".to_string(),
+            daemon_version: "0.0.0-stale".to_string(),
         };
-        write_running(&stale_state, &running_json).unwrap();
+        raw_write_running(&stale_state, &running_json).unwrap();
 
-        // A fresh start should overwrite the stale file and
-        // bring up a live daemon.
         let rt = DaemonRuntime::start(opts).await.expect("overwrite stale");
         assert!(running_json.exists());
         rt.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn curator_runtime_persists_subscriptions_across_restart() {
+        let tmp = tempdir().expect("tempdir");
+        let subscriptions_path = {
+            let opts = mk_opts(tmp.path());
+            opts.paths.subscriptions_json.clone()
+        };
+
+        // First boot — subscribe then shutdown.
+        let opts1 = mk_opts(tmp.path());
+        let rt1 = DaemonRuntime::start(opts1).await.unwrap();
+        let kp = nexus_core_rs::KeyPair::generate();
+        rt1.curator_runtime()
+            .subscribe(&hex::encode(kp.public_bytes()))
+            .unwrap();
+        assert!(subscriptions_path.exists());
+        rt1.shutdown().await.unwrap();
+
+        // Second boot against the same fixture — the attention
+        // set must be re-populated from the persistence file.
+        let opts2 = mk_opts(tmp.path());
+        let rt2 = DaemonRuntime::start(opts2).await.unwrap();
+        assert!(rt2.curator_runtime().is_subscribed(&kp.public_bytes()));
+        rt2.shutdown().await.unwrap();
     }
 }

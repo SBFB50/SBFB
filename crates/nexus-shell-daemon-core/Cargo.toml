@@ -62,6 +62,21 @@ sysinfo = { workspace = true }
 # doesn't have to churn the Cargo.toml.
 dashmap = { workspace = true }
 
+# Phase C gossip topic derivation: the curator-list topic id is
+# `blake3("nexus-grid/curator/v1")[..32]`, a single deterministic
+# topic every shell daemon in the network joins. The hash lives
+# in a const so the Sprint 7 verification can grep for the exact
+# seed string.
+blake3 = { workspace = true }
+
+# Phase C attention-set persistence (R7 mitigation): the set of
+# curator pubkeys the user has subscribed to is stored as hex
+# strings in `subscriptions.json`. Hex encoding matches the
+# coordinator / worker wire formats for crypto identities, so a
+# user copying a pubkey between subsystems sees the same
+# representation everywhere.
+hex = { workspace = true }
+
 # Observability — the headless engine logs everything through
 # tracing. The binary configures the subscriber; this crate only
 # emits events so it stays agnostic to how they get consumed
@@ -84,3 +99,25 @@ thiserror = { workspace = true }
 # never touches a real `~/.nexus-grid/` on the developer's
 # machine.
 tempfile = "3.12"
+
+# Phase C 2-node integration test: `iroh_runtime::tests::two_nodes_*`
+# spawn one publisher node + one subscriber daemon runtime in the
+# same process, mint a BlobTicket on the publisher, and assert the
+# subscriber's DashMap absorbs the signed entry end-to-end. Mirrors
+# the `nexus-core-rs/src/blobs.rs::tests::two_nodes_fetch_blob_via_ticket`
+# test that landed as a Sprint 2 audit fix; the ticket-minting
+# path requires the raw `iroh_blobs` types (`BlobTicket`, `Hash`,
+# `BlobFormat`) that are not re-exported through nexus-core-rs.
+iroh-blobs = { workspace = true }
+# The 2-node test needs `iroh::EndpointAddr` for the
+# `mint_ticket` helper signature — the raw type is returned by
+# `nexus_core_rs::DiscoveryClient::my_endpoint_addr` and
+# consumed by `iroh_blobs::ticket::BlobTicket::new`. Declared
+# as a dev-dep rather than a main dep to keep the production
+# surface going through the nexus-core-rs wrapper.
+iroh = { workspace = true }
+# `tokio::test` macro + the Phase C integration test wants access
+# to `tokio::time::timeout` to bound 2-node waits. `tokio` itself
+# is a non-dev workspace dep above, but the "macros" feature is
+# needed at test time.
+tokio = { workspace = true, features = ["macros", "time", "rt-multi-thread"] }

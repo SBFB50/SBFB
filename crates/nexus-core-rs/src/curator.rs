@@ -349,9 +349,9 @@ mod tests {
         let kp = KeyPair::generate();
         let mut list = sample_list(kp.public_bytes());
         list.version = 99; // future / unknown
-        // Re-sign with the bumped version so the signature is
-        // internally consistent — verify must still refuse based
-        // on the version field alone.
+                           // Re-sign with the bumped version so the signature is
+                           // internally consistent — verify must still refuse based
+                           // on the version field alone.
         let bytes = canonical_bytes(&list, DOMAIN_CURATOR_LIST_V1).unwrap();
         let signature = kp.sign(&bytes);
         let entry = CuratorListEntry {

@@ -3074,8 +3074,12 @@ name = "nexus-shell-daemon-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "dashmap",
  "directories",
+ "hex",
+ "iroh",
+ "iroh-blobs",
  "nexus-core-rs",
  "serde",
  "serde_json",

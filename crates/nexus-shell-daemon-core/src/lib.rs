@@ -49,6 +49,7 @@
 #![deny(rust_2018_idioms)]
 
 pub mod config;
+pub mod iroh_runtime;
 pub mod paths;
 pub mod registry;
 pub mod state;

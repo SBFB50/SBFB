@@ -102,6 +102,14 @@ pub fn log_dir() -> Option<PathBuf> {
     shell_daemon_dir().map(|d| d.join("logs"))
 }
 
+/// Return `<root>/shell-daemon/subscriptions.json` — the
+/// persistent attention set file the Phase C curator runtime
+/// rewrites on every subscribe / unsubscribe call (R7
+/// mitigation per `.planning/sprint7_plan.md` §13).
+pub fn subscriptions_json_path() -> Option<PathBuf> {
+    shell_daemon_dir().map(|d| d.join("subscriptions.json"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,6 +183,9 @@ mod tests {
 
         let logs = log_dir().expect("log_dir");
         assert_eq!(logs, dir.join("logs"));
+
+        let subscriptions = subscriptions_json_path().expect("subscriptions_json_path");
+        assert_eq!(subscriptions, dir.join("subscriptions.json"));
 
         std::env::remove_var(NEXUS_GRID_ROOT_ENV);
     }

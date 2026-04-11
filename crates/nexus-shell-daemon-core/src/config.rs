@@ -104,6 +104,10 @@ pub struct ShellDaemonPaths {
     /// The singleton marker file. See [`crate::registry`] for
     /// the writer / reader / stale-check semantics.
     pub running_json: PathBuf,
+    /// Phase C attention-set persistence file. Rewritten
+    /// atomically on every subscribe / unsubscribe call
+    /// (R7 mitigation).
+    pub subscriptions_json: PathBuf,
 }
 
 impl ShellDaemonPaths {
@@ -133,6 +137,7 @@ impl ShellDaemonPaths {
                 config_file,
                 log_dir: parent.join("logs"),
                 running_json: parent.join("running.json"),
+                subscriptions_json: parent.join("subscriptions.json"),
             });
         }
 
@@ -143,6 +148,7 @@ impl ShellDaemonPaths {
             config_file: root.join("config.toml"),
             log_dir: root.join("logs"),
             running_json: root.join("running.json"),
+            subscriptions_json: root.join("subscriptions.json"),
             root,
         })
     }

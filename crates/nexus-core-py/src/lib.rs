@@ -41,12 +41,12 @@ use nexus_core_rs::{
     blobs::BlobsClient as RsBlobsClient,
     create_node as rs_create_node, create_node_with_config,
     crypto::{KeyPair, SECRET_KEY_BYTES},
+    curator::{CuratorList, CuratorListEntry},
     discovery::DiscoveryClient as RsDiscoveryClient,
     docs::{DocHandle as RsDocHandle, DocsClient as RsDocsClient},
     gossip::{
         GossipClient as RsGossipClient, GossipEvent as RsGossipEvent, TopicHandle as RsTopicHandle,
     },
-    curator::{CuratorList, CuratorListEntry},
     task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry},
     Node, NodeConfig, VerificationReport, Verifier as RsVerifier,
 };
