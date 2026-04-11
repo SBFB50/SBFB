@@ -24,6 +24,7 @@ from nexus_sdk.app import (
 )
 from nexus_sdk.commands import CommandDescriptor
 from nexus_sdk.compute_client import ComputeClient
+from nexus_sdk.db import AppDatabaseClient, DatabaseError
 from nexus_sdk.decorators import nexus_command, nexus_route, nexus_tab, nexus_worker
 from nexus_sdk.loader import discover_apps
 from nexus_sdk.view import (
@@ -47,9 +48,11 @@ __version__ = "0.1.0"
 
 __all__ = [
     "AppContext",
+    "AppDatabaseClient",
     "AppManifest",
     "CommandDescriptor",
     "ComputeClient",
+    "DatabaseError",
     "NexusApp",
     "RouteDescriptor",
     "TabBlock",

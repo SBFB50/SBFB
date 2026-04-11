@@ -40,6 +40,45 @@ async def test_coordinator_discovers_gov_and_hello_apps(nexus_grid_tmp: Path) ->
         await coord.stop()
 
 
+def test_app_db_path_resolves_under_project_tree(nexus_grid_tmp: Path) -> None:
+    """Sprint 8 Phase B (D3 path helper): ``app_db_path`` lives at
+    ``<nexus-grid-root>/projects/<project>/apps/<app>/app.sqlite``
+    so the per-app SQLite file stays inside the per-project
+    directory tree the coordinator already owns."""
+    from nexus_coordinator.paths import app_db_path as _app_db_path
+
+    expected = nexus_grid_tmp / "projects" / "demo-project" / "apps" / "demo-app" / "app.sqlite"
+    assert _app_db_path("demo-project", "demo-app") == expected
+    # app_db_path must be a pure path computation — it must not
+    # create the parent directory at call time (that's the
+    # loader's job, not the helper's).
+    assert not expected.parent.exists()
+
+
+@pytest.mark.asyncio
+async def test_app_db_wired_in_loader(nexus_grid_tmp: Path) -> None:
+    """Sprint 8 Phase B (D3 wiring): every app_context gets an
+    :class:`AppDatabaseClient` instance wired by the coordinator
+    loader. The default path is the per-app SQLite under the
+    project tree; an app that overrides ``ctx.db`` in its
+    ``on_start`` hook can still do so (tested separately via
+    the gov app suite)."""
+    from nexus_sdk import AppDatabaseClient
+
+    coord = Coordinator(project_name="demo-db-wire")
+    await coord.start()
+    try:
+        for name, ctx in coord.app_contexts.items():
+            assert ctx.db is not None, f"app {name!r} got no AppContext.db"
+            assert isinstance(ctx.db, AppDatabaseClient)
+            # The default path resolves under the per-project
+            # tree; the parent directory exists (the loader
+            # mkdirs it before AppDatabaseClient construction).
+            assert ctx.db.db_path.parent.exists()
+    finally:
+        await coord.stop()
+
+
 @pytest.mark.asyncio
 async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
     coord = Coordinator(project_name="demo-apps-http")
@@ -68,8 +107,19 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
             assert body["routes"][0]["path"] == "/statements"
             assert len(body["workers"]) == 1
             assert body["workers"][0]["name"] == "contradiction_detector"
-            assert len(body["tabs"]) == 1
-            assert body["tabs"][0]["name"] == "Contradictions"
+            # Sprint 8 Phase B: the gov manifest now ships seven
+            # tabs — one legacy Contradictions stub (Phase C
+            # upgrades it) plus six Batch 1 read-only tabs.
+            tab_names = {t["name"] for t in body["tabs"]}
+            assert tab_names == {
+                "Contradictions",
+                "Dashboard",
+                "Politiciens",
+                "Politicien",
+                "Biographie",
+                "Positions",
+                "Sujets",
+            }
             # Sprint 8 A: manifest endpoint now ships a `commands`
             # list (empty for the pre-Sprint-8 gov stub).
             assert body["commands"] == []

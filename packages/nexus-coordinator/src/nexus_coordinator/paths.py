@@ -109,6 +109,23 @@ def worker_state_path() -> Path:
     return nexus_grid_root() / "worker" / "state.json"
 
 
+def app_db_path(project_name: str, app_name: str) -> Path:
+    """Path to the per-app SQLite file for ``app_name`` in ``project_name``.
+
+    Sprint 8 Phase B (D3 impl): the coordinator loader wires an
+    :class:`nexus_sdk.AppDatabaseClient` at this location to each
+    app's :attr:`nexus_sdk.AppContext.db` before calling ``on_start``.
+    An app that wants to read from an existing database — e.g.
+    ``nexus-app-gov`` pointing at the legacy ``nexus/gov/govdata.db``
+    — swaps ``ctx.db`` in its ``on_start`` hook.
+
+    Does not create the parent directory; the loader creates it
+    lazily so a read-only inspection of the path (tests, docs
+    tooling) cannot mutate the filesystem.
+    """
+    return project_dir(project_name) / "apps" / app_name / "app.sqlite"
+
+
 def shell_daemon_registry_path() -> Path:
     """Path to the ``nexus-shell-daemon`` singleton ``running.json``.
 

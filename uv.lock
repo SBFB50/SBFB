@@ -353,6 +353,7 @@ name = "nexus-sdk"
 version = "0.1.0"
 source = { editable = "packages/nexus-sdk" }
 dependencies = [
+    { name = "aiosqlite" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -366,6 +367,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.20" },
     { name = "fastapi", specifier = ">=0.111" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "pydantic", specifier = ">=2.6" },

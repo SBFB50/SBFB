@@ -47,8 +47,18 @@ test("gov Contradictions tab renders through the TabView renderer", async ({
     timeout: 5_000,
   });
 
-  // Invoke the Contradictions tab descriptor
-  await page.getByRole("button", { name: /Invoquer|Recharger/ }).first().click();
+  // Invoke the Contradictions tab descriptor. Sprint 8 Phase B
+  // rewrote the gov app with seven tabs — the coordinator sorts
+  // them by name for the manifest endpoint, so the first button
+  // in the list is Biographie, not Contradictions. Scope to the
+  // Contradictions row before clicking.
+  const contradictionsRow = page
+    .locator("li")
+    .filter({ hasText: /^Contradictions/ })
+    .first();
+  await contradictionsRow
+    .getByRole("button", { name: /Invoquer|Recharger/ })
+    .click();
 
   // Heading block
   await expect(

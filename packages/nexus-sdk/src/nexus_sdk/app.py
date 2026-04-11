@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from nexus_sdk.commands import CommandDescriptor
 from nexus_sdk.compute_client import ComputeClient
+from nexus_sdk.db import AppDatabaseClient
 from nexus_sdk.registry import collect_decorators
 
 
@@ -89,9 +90,10 @@ class AppContext:
     world: a :class:`ComputeClient` that forwards compute
     requests to the coordinator, the project the app is hosted
     in, the app's own name (used by :meth:`submit_task` for
-    routing), a Phase B database bridge (typed :class:`Any` for
-    the duration of Phase A — Phase B will swap it for a real
-    ``AppDatabaseClient``), and a free-form ``extras`` dict for
+    routing), an :class:`AppDatabaseClient` wired by the
+    coordinator loader at boot (Sprint 8 Phase B — apps may
+    swap the field in their ``on_start`` override to point at a
+    different SQLite file), and a free-form ``extras`` dict for
     future plumbing.
 
     The ``_app`` field is a backref to the :class:`NexusApp`
@@ -105,11 +107,7 @@ class AppContext:
     compute: ComputeClient
     project_name: str
     app_name: str = ""
-    # Phase B will replace `Any` with `AppDatabaseClient`. Left
-    # unconstrained in Phase A so the Sprint 8 kickoff's D3 field
-    # slot exists on the dataclass without forcing Phase B's
-    # aiosqlite wrapper into the Phase A commit.
-    db: Any = None
+    db: AppDatabaseClient | None = None
     extras: dict[str, Any] = field(default_factory=dict)
     # Back-reference to the NexusApp this context serves. Wired
     # by the coordinator loader in Sprint 8 Phase A; tests that

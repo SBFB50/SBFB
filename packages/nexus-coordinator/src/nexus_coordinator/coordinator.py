@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 
 import nexus_core
 import structlog
-from nexus_sdk import AppContext, ComputeClient, NexusApp, discover_apps
+from nexus_sdk import AppContext, AppDatabaseClient, ComputeClient, NexusApp, discover_apps
 
 from nexus_coordinator.config import CoordinatorConfig
 from nexus_coordinator.dispatcher import Dispatcher
@@ -47,6 +47,7 @@ from nexus_coordinator.invite import InviteLedger
 from nexus_coordinator.keystore import LoadedKeypair, load_or_generate_keypair
 from nexus_coordinator.kudos import KudosLedger
 from nexus_coordinator.paths import (
+    app_db_path,
     coord_config_path,
     coord_key_path,
     iroh_data_path,
@@ -263,10 +264,23 @@ class Coordinator:
         self.app_contexts: dict[str, AppContext] = {}
         for app in discover_apps():
             try:
+                # Sprint 8 Phase B (D3 impl): wire a default
+                # AppDatabaseClient pointing at the per-app
+                # SQLite file under the project tree. The app
+                # may swap this attribute in its on_start hook
+                # to point at an external file (that's how
+                # nexus-app-gov redirects to the legacy
+                # nexus/gov/govdata.db). The parent directory is
+                # created lazily so a pristine project doesn't
+                # accumulate empty app/*/ subtrees until the app
+                # actually writes to its SQLite file.
+                default_db_path = app_db_path(self.project_name, app.manifest.name)
+                default_db_path.parent.mkdir(parents=True, exist_ok=True)
                 ctx = AppContext(
                     compute=compute,
                     project_name=self.project_name,
                     app_name=app.manifest.name,
+                    db=AppDatabaseClient(default_db_path),
                     _app=app,
                 )
                 await app.on_start(ctx)
