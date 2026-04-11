@@ -1,11 +1,12 @@
 /**
- * Sprint 5 shell root: 5 flat routes under a single shell layout.
+ * Sprint 5 shell root — six flat routes under a single shell layout.
  *
  * Routing stays declarative (`<BrowserRouter>` + `<Routes>`)
  * rather than `createBrowserRouter` — we do not use route loaders
- * in Sprint 5 because every page fetches its data through React
- * Query directly, and the flat layout keeps Phase B's additions
- * (tabbed `/project/:name`) trivial.
+ * because every page fetches its data through React Query
+ * directly, and the flat layout keeps Sprint 6 Phase B
+ * (`/project/:name`) and Sprint 8 Phase E
+ * (`/app/:appName/tabs/:tabName`) additions trivial.
  */
 
 import { Navigate, BrowserRouter, Route, Routes } from "react-router-dom";
@@ -18,6 +19,7 @@ import ProjectDetail from "@/pages/ProjectDetail";
 import Network from "@/pages/Network";
 import Browse from "@/pages/Browse";
 import Curators from "@/pages/Curators";
+import AppTabPage from "@/pages/AppTabPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,6 +47,10 @@ export default function App() {
               <Route path="/my-network" element={<Network />} />
               <Route path="/browse" element={<Browse />} />
               <Route path="/curators" element={<Curators />} />
+              <Route
+                path="/app/:appName/tabs/:tabName"
+                element={<AppTabPage />}
+              />
             </Route>
           </Routes>
         </BrowserRouter>

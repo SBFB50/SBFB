@@ -152,6 +152,98 @@ describe("TabViewRenderer — each block kind", () => {
     expect(screen.getByText("aucune donnée")).toBeInTheDocument();
   });
 
+  it("Phase E polish — cycles column sort asc → desc → none on click", () => {
+    wrap(
+      make([
+        {
+          kind: "table",
+          columns: [
+            { key: "name", label: "Name", align: "left" },
+            { key: "score", label: "Score", align: "right" },
+          ],
+          rows: [
+            { name: "charlie", score: 30 },
+            { name: "alice", score: 10 },
+            { name: "bob", score: null },
+          ],
+        },
+      ]),
+    );
+
+    // Server order: charlie, alice, bob.
+    const bodyOrder = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((tr) => tr.textContent ?? "");
+    expect(bodyOrder()[0]).toMatch(/charlie/);
+    expect(bodyOrder()[1]).toMatch(/alice/);
+    expect(bodyOrder()[2]).toMatch(/bob/);
+
+    const nameHeader = screen.getByTestId("tableblock-sort-name");
+
+    // First click → ascending (alice, bob, charlie).
+    fireEvent.click(nameHeader);
+    expect(bodyOrder()[0]).toMatch(/alice/);
+    expect(bodyOrder()[1]).toMatch(/bob/);
+    expect(bodyOrder()[2]).toMatch(/charlie/);
+    expect(nameHeader.closest("th")).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+
+    // Second click → descending (charlie, bob, alice).
+    fireEvent.click(nameHeader);
+    expect(bodyOrder()[0]).toMatch(/charlie/);
+    expect(bodyOrder()[1]).toMatch(/bob/);
+    expect(bodyOrder()[2]).toMatch(/alice/);
+    expect(nameHeader.closest("th")).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+
+    // Third click → reset to server order.
+    fireEvent.click(nameHeader);
+    expect(bodyOrder()[0]).toMatch(/charlie/);
+    expect(bodyOrder()[1]).toMatch(/alice/);
+    expect(bodyOrder()[2]).toMatch(/bob/);
+    expect(nameHeader.closest("th")).toHaveAttribute("aria-sort", "none");
+  });
+
+  it("Phase E polish — numeric sort respects sign and keeps nulls at the bottom", () => {
+    wrap(
+      make([
+        {
+          kind: "table",
+          columns: [
+            { key: "name", label: "Name", align: "left" },
+            { key: "score", label: "Score", align: "right" },
+          ],
+          rows: [
+            { name: "alice", score: 10 },
+            { name: "charlie", score: null },
+            { name: "bob", score: -3 },
+            { name: "dave", score: 100 },
+          ],
+        },
+      ]),
+    );
+
+    const scoreHeader = screen.getByTestId("tableblock-sort-score");
+    fireEvent.click(scoreHeader); // ascending
+
+    const bodyOrder = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((tr) => tr.textContent ?? "");
+    // Ascending on a numeric column: -3 < 10 < 100 < null.
+    expect(bodyOrder()[0]).toMatch(/bob/);
+    expect(bodyOrder()[1]).toMatch(/alice/);
+    expect(bodyOrder()[2]).toMatch(/dave/);
+    expect(bodyOrder()[3]).toMatch(/charlie/);
+  });
+
   it("renders a badge list with tones", () => {
     wrap(
       make([

@@ -77,6 +77,7 @@ from nexus_sdk import (
     AppManifest,
     NexusApp,
     button_task,
+    nexus_command,
     nexus_route,
     nexus_tab,
     nexus_worker,
@@ -1457,6 +1458,60 @@ class GovApp(NexusApp):
                 ),
             ],
         ).model_dump()
+
+    # ------------------------------------------------------------------
+    # Sprint 8 Phase E — command palette entries (@nexus_command)
+    # ------------------------------------------------------------------
+
+    @nexus_command(
+        "new_scan",
+        description="Lancer un nouveau scan des politiciens",
+        icon="radar",
+        group="Gov",
+    )
+    async def cmd_new_scan(self) -> dict[str, Any]:
+        """Deep-link into the Scan tab.
+
+        Sprint 8 Phase E ships the first app-contributed command
+        palette entries. The handler returns a ``navigation``
+        payload that the shell forwards to React Router; the Scan
+        tab then shows the legacy scan log and (Sprint 9) a
+        button to trigger a fresh scrape. Keeping the handler
+        side-effect-free keeps Phase E free of any dispatcher
+        plumbing — the user still has to click the button inside
+        the tab to actually run a scan.
+        """
+        return {"navigation": {"path": "/app/gov/tabs/Scan"}}
+
+    @nexus_command(
+        "detect_contradictions",
+        description="Détecter les contradictions politiques",
+        icon="alert-octagon",
+        group="Gov",
+    )
+    async def cmd_detect_contradictions(self) -> dict[str, Any]:
+        """Deep-link into the Contradictions tab."""
+        return {"navigation": {"path": "/app/gov/tabs/Contradictions"}}
+
+    @nexus_command(
+        "search_factchecks",
+        description="Rechercher dans les fact-checks",
+        icon="check-circle",
+        group="Gov",
+    )
+    async def cmd_search_factchecks(self) -> dict[str, Any]:
+        """Deep-link into the Factchecks tab."""
+        return {"navigation": {"path": "/app/gov/tabs/Factchecks"}}
+
+    @nexus_command(
+        "view_alerts",
+        description="Consulter les alertes récentes",
+        icon="bell",
+        group="Gov",
+    )
+    async def cmd_view_alerts(self) -> dict[str, Any]:
+        """Deep-link into the Alertes tab."""
+        return {"navigation": {"path": "/app/gov/tabs/Alertes"}}
 
     @nexus_tab(name="Question", icon="message-circle-question")
     async def ask_tab(self) -> dict[str, Any]:

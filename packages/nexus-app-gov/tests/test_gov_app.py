@@ -1373,3 +1373,78 @@ async def test_ask_tab_renders_rag_button() -> None:
     payload = button["action"]["payload"]
     assert isinstance(payload, dict)
     assert "question" in payload
+
+
+# ---------------------------------------------------------------------------
+# Sprint 8 Phase E — @nexus_command palette entries
+# ---------------------------------------------------------------------------
+
+
+def test_gov_commands_registered() -> None:
+    """Sprint 8 Phase E ships the first four gov command palette
+    entries. ``GovApp.commands()`` lists them in the alphabetical
+    attribute order of :func:`nexus_sdk.registry.collect_decorators`
+    (``dir(cls)`` scan — source ordering is NOT a contract), each
+    must live under the ``Gov`` group, and every descriptor must
+    round-trip through :class:`nexus_sdk.commands.CommandDescriptor`.
+    """
+    app = GovApp()
+    commands = app.commands()
+    names = [c.name for c in commands]
+    # Alphabetical by Python method name:
+    # cmd_detect_contradictions < cmd_new_scan < cmd_search_factchecks < cmd_view_alerts.
+    assert names == [
+        "detect_contradictions",
+        "new_scan",
+        "search_factchecks",
+        "view_alerts",
+    ]
+    assert {c.group for c in commands} == {"Gov"}
+    # Every descriptor must expose the Sprint 8 Phase A frozen
+    # schema_version==1 surface.
+    assert all(c.schema_version == 1 for c in commands)
+
+
+@pytest.mark.asyncio
+async def test_cmd_new_scan_navigates_to_scan_tab() -> None:
+    """``new_scan`` returns a navigation payload pointing at the
+    canonical Scan tab descriptor path (exact ``@nexus_tab``
+    name), so ``getAppTabDescriptor`` in the shell resolves it
+    verbatim without a lowercase fallback."""
+    app = GovApp()
+    result = await app.cmd_new_scan()
+    assert result == {"navigation": {"path": "/app/gov/tabs/Scan"}}
+
+
+@pytest.mark.asyncio
+async def test_cmd_detect_contradictions_navigates_to_contradictions_tab() -> None:
+    app = GovApp()
+    result = await app.cmd_detect_contradictions()
+    assert result == {"navigation": {"path": "/app/gov/tabs/Contradictions"}}
+
+
+@pytest.mark.asyncio
+async def test_cmd_search_factchecks_navigates_to_factchecks_tab() -> None:
+    app = GovApp()
+    result = await app.cmd_search_factchecks()
+    assert result == {"navigation": {"path": "/app/gov/tabs/Factchecks"}}
+
+
+@pytest.mark.asyncio
+async def test_cmd_view_alerts_navigates_to_alertes_tab() -> None:
+    app = GovApp()
+    result = await app.cmd_view_alerts()
+    assert result == {"navigation": {"path": "/app/gov/tabs/Alertes"}}
+
+
+@pytest.mark.asyncio
+async def test_invoke_command_routes_through_registry() -> None:
+    """End-to-end: ``NexusApp.invoke_command`` (Sprint 8 Phase A
+    frozen API) dispatches to the underlying coroutine via the
+    command registry, so the shell's
+    ``POST /app/gov/commands/{name}/invoke`` path lands on the
+    expected handler without needing explicit wiring per
+    command."""
+    app = GovApp()
+    result = await app.invoke_command("detect_contradictions")
+    assert result == {"navigation": {"path": "/app/gov/tabs/Contradictions"}}

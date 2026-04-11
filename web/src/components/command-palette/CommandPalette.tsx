@@ -1,19 +1,20 @@
 /**
  * Sprint 6 Phase C — global Ctrl+K command palette.
  *
- * Three command groups:
+ * Four command groups:
  *  - Navigation: the four top-level routes
  *  - Projets: one entry per known coordinator from the Zustand
  *    store (each navigates to /project/{nickname})
+ *  - App: <name>: Sprint 8 Phase E — every app enrolled on the
+ *    active coordinator contributes its `@nexus_command`
+ *    entries here; selecting one invokes the handler and
+ *    forwards any returned `{navigation: {path}}` to React
+ *    Router.
  *  - Actions: Ajouter un coordinateur, Recharger
- *
- * Sprint 7 will extend with "Subscribe to curator list" and
- * "Browse DHT" entries once nexus-shell-daemon is wired.
- * Sprint 8 will allow apps to contribute command entries via a
- * SDK hook.
  */
 
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   FolderKanban,
   Cpu,
@@ -22,6 +23,7 @@ import {
   Plus,
   RefreshCw,
   Folder,
+  Sparkles,
 } from "lucide-react";
 
 import {
@@ -34,7 +36,17 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { useProjectStore } from "@/stores/projectStore";
+import {
+  type AppSummary,
+  invokeAppCommand,
+  listAppCommands,
+  listApps,
+} from "@/api/coordinator";
+import {
+  selectActiveCoordinator,
+  useProjectStore,
+} from "@/stores/projectStore";
+import { extractNavigationPath } from "./extractNavigationPath";
 import type { useCommandPalette } from "./useCommandPalette";
 
 interface Props {
@@ -45,6 +57,17 @@ interface Props {
 export function CommandPalette({ palette, onAddCoordinator }: Props) {
   const navigate = useNavigate();
   const knownCoordinators = useProjectStore((s) => s.knownCoordinators);
+  const active = useProjectStore(selectActiveCoordinator);
+
+  const appsQuery = useQuery({
+    queryKey: ["palette-apps", active?.url],
+    queryFn: () => {
+      if (!active) throw new Error("no active coordinator");
+      return listApps(active.url);
+    },
+    enabled: Boolean(active) && palette.open,
+    staleTime: 30_000,
+  });
 
   const go = (path: string) => {
     palette.setOpen(false);
@@ -60,6 +83,28 @@ export function CommandPalette({ palette, onAddCoordinator }: Props) {
     palette.setOpen(false);
     window.location.reload();
   };
+
+  const runAppCommand = async (appName: string, cmdName: string) => {
+    if (!active) return;
+    palette.setOpen(false);
+    try {
+      const envelope = await invokeAppCommand(active.url, appName, cmdName);
+      const path = extractNavigationPath(envelope.result);
+      if (path) navigate(path);
+    } catch (e) {
+      // The palette closes regardless of outcome — surfacing
+      // errors via a toast is deferred to a Sprint 9 polish
+      // pass. Logging here keeps the failure discoverable in
+      // devtools without breaking the UX flow.
+      console.error("[palette] invokeAppCommand failed", {
+        appName,
+        cmdName,
+        error: e,
+      });
+    }
+  };
+
+  const apps = appsQuery.data?.apps ?? [];
 
   return (
     <CommandDialog
@@ -126,6 +171,18 @@ export function CommandPalette({ palette, onAddCoordinator }: Props) {
           </>
         )}
 
+        {active &&
+          apps
+            .filter((app) => app.commands > 0)
+            .map((app) => (
+              <AppCommandsGroup
+                key={app.name}
+                baseUrl={active.url}
+                app={app}
+                onRun={(cmd) => runAppCommand(app.name, cmd)}
+              />
+            ))}
+
         <CommandSeparator />
         <CommandGroup heading="Actions">
           <CommandItem onSelect={triggerAdd}>
@@ -142,3 +199,52 @@ export function CommandPalette({ palette, onAddCoordinator }: Props) {
     </CommandDialog>
   );
 }
+
+/**
+ * One group per enrolled app with `commands > 0`. Split into its
+ * own component so we can `useQuery` per app without breaking
+ * the rules of hooks — the parent only renders the group when
+ * the app has at least one command, so mount / unmount is
+ * keyed on `app.name` and stable across re-renders.
+ */
+function AppCommandsGroup({
+  baseUrl,
+  app,
+  onRun,
+}: {
+  baseUrl: string;
+  app: AppSummary;
+  onRun: (cmdName: string) => void;
+}) {
+  const query = useQuery({
+    queryKey: ["palette-app-commands", baseUrl, app.name],
+    queryFn: () => listAppCommands(baseUrl, app.name),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
+
+  const commands = query.data ?? [];
+  if (commands.length === 0) return null;
+
+  return (
+    <>
+      <CommandSeparator />
+      <CommandGroup heading={`App : ${app.name}`}>
+        {commands.map((cmd) => (
+          <CommandItem
+            key={cmd.name}
+            value={`app ${app.name} ${cmd.name} ${cmd.description}`}
+            onSelect={() => onRun(cmd.name)}
+          >
+            <Sparkles className="size-4" />
+            <span>{cmd.description}</span>
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              {cmd.group}
+            </span>
+          </CommandItem>
+        ))}
+      </CommandGroup>
+    </>
+  );
+}
+

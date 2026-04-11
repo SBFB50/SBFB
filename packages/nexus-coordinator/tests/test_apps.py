@@ -145,9 +145,21 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
                 "Recherche",
                 "Question",
             }
-            # Sprint 8 A: manifest endpoint now ships a `commands`
-            # list (empty for the pre-Sprint-8 gov stub).
-            assert body["commands"] == []
+            # Sprint 8 Phase E: the gov manifest now advertises the
+            # four ``@nexus_command`` palette entries (new_scan,
+            # detect_contradictions, search_factchecks,
+            # view_alerts) under the ``Gov`` group. Order follows
+            # ``dir(cls)`` — alphabetical by method name —
+            # because :func:`nexus_sdk.registry.collect_decorators`
+            # walks ``dir(cls)`` rather than source order.
+            assert [c["name"] for c in body["commands"]] == [
+                "detect_contradictions",
+                "new_scan",
+                "search_factchecks",
+                "view_alerts",
+            ]
+            assert all(c["group"] == "Gov" for c in body["commands"])
+            assert all(c["schema_version"] == 1 for c in body["commands"])
 
             r = client.get("/app/hello/manifest")
             assert r.status_code == 200
