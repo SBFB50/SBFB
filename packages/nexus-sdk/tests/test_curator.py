@@ -27,7 +27,6 @@ import json
 import nexus_core  # provided by the nexus-core-py wheel (PyO3)
 import pytest
 
-
 # ---------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------

@@ -107,3 +107,25 @@ def worker_state_path() -> Path:
     ``GET /worker-state``.
     """
     return nexus_grid_root() / "worker" / "state.json"
+
+
+def shell_daemon_registry_path() -> Path:
+    """Path to the ``nexus-shell-daemon`` singleton ``running.json``.
+
+    Sprint 7 Phase E: the Rust shell daemon writes its
+    ``running.json`` atomically on boot at
+    ``<root>/shell-daemon/running.json`` (see
+    ``crates/nexus-shell-daemon-core/src/paths.rs::running_json_path``
+    and the Phase A + Phase C commits). The coordinator's new
+    ``/daemon/*`` proxy router reads that file on every request
+    to discover the live daemon's loopback port, then forwards
+    the call via ``httpx.AsyncClient``.
+
+    The schema carried by the file differs from the coordinator's
+    own ``running.json`` — the daemon is global per user (no
+    ``project_name``, no ``visibility``), and the file includes a
+    ``daemon_version`` field. See
+    ``crates/nexus-shell-daemon-core/src/registry.rs::RunningState``
+    for the exact shape.
+    """
+    return nexus_grid_root() / "shell-daemon" / "running.json"

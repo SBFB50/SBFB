@@ -41,8 +41,12 @@ export default defineConfig({
         "src/lib/format.ts",
         "src/stores/projectStore.ts",
         "src/components/app/tabview/**/*.{ts,tsx}",
+        "src/api/daemon.ts",
       ],
-      exclude: ["src/components/app/tabview/**/__tests__/**"],
+      exclude: [
+        "src/components/app/tabview/**/__tests__/**",
+        "src/api/__tests__/**",
+      ],
       thresholds: {
         lines: 90,
         functions: 90,
