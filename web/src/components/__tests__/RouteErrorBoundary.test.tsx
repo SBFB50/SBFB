@@ -77,9 +77,11 @@ describe("RouteErrorBoundary", () => {
     // React logs its own error first, then our componentDidCatch adds
     // a tagged log. Check that at least one of those calls mentions
     // our tag.
-    const calls = errorSpy.mock.calls.map((c) => String(c[0]));
+    const calls: string[] = errorSpy.mock.calls.map(
+      (c: unknown[]) => String(c[0]),
+    );
     expect(
-      calls.some((c) => c.includes("[RouteErrorBoundary]")),
+      calls.some((c: string) => c.includes("[RouteErrorBoundary]")),
     ).toBe(true);
   });
 
