@@ -61,6 +61,7 @@ import { getHealth } from "@/api/coordinator";
 import { AddCoordinatorDialog } from "@/components/AddCoordinatorDialog";
 import { CommandPalette } from "@/components/command-palette/CommandPalette";
 import { useCommandPalette } from "@/components/command-palette/useCommandPalette";
+import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { cn } from "@/lib/utils";
 
 const IS_MAC =
@@ -173,7 +174,9 @@ export function AppShell() {
         </header>
 
         <main className="flex-1 overflow-auto p-6">
-          <Outlet />
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
       </SidebarInset>
 
