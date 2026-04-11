@@ -231,6 +231,29 @@ export type TabBlock =
   | TabBlockChartBar
   | TabBlockEmpty;
 
+// Leaf kinds (everything except recursive section) — discriminated by
+// the literal `kind` field. Sprint 6 audit A-1: the original Phase B
+// implementation used a plain `z.union` over all 11 kinds, deviating
+// from the plan §3.2 which specified `z.discriminatedUnion`. The plain
+// union yields "no branch matched" errors on malformed payloads, while
+// the discriminated form says "in kind=metric, field `value` expected
+// string|number" — far better for Sprint 8 gov-tab debugging. The
+// section kind is kept out of the discriminated form because it is
+// recursive (needs z.lazy on TabBlockSchema) and Zod 3's
+// `discriminatedUnion` type signature doesn't accept lazy members.
+export const TabBlockLeafSchema = z.discriminatedUnion("kind", [
+  TabBlockHeadingSchema,
+  TabBlockTextSchema,
+  TabBlockKVSchema,
+  TabBlockMetricSchema,
+  TabBlockTableSchema,
+  TabBlockBadgeListSchema,
+  TabBlockButtonSchema,
+  TabBlockChartLineSchema,
+  TabBlockChartBarSchema,
+  TabBlockEmptySchema,
+]);
+
 // Section is recursive — declared via z.lazy referencing TabBlockSchema.
 // We use the 3-param ZodType<Output, Def, Input=unknown> form so the
 // input side of the recursion stays permissive; the runtime validator
@@ -249,22 +272,13 @@ export const TabBlockSectionSchema: z.ZodType<
     .strict() as unknown as z.ZodType<TabBlockSection, z.ZodTypeDef, unknown>,
 );
 
+// Top-level block: either a section (recursive, via z.lazy) or any of
+// the 10 leaf kinds (via discriminatedUnion, O(1) dispatch + readable
+// errors). Zod tries branches in order, so a section payload resolves
+// immediately and a non-section payload falls through to the fast
+// discriminated path.
 export const TabBlockSchema: z.ZodType<TabBlock, z.ZodTypeDef, unknown> =
-  z.lazy(() =>
-    z.union([
-      TabBlockSectionSchema,
-      TabBlockHeadingSchema,
-      TabBlockTextSchema,
-      TabBlockKVSchema,
-      TabBlockMetricSchema,
-      TabBlockTableSchema,
-      TabBlockBadgeListSchema,
-      TabBlockButtonSchema,
-      TabBlockChartLineSchema,
-      TabBlockChartBarSchema,
-      TabBlockEmptySchema,
-    ]),
-  );
+  z.lazy(() => z.union([TabBlockSectionSchema, TabBlockLeafSchema]));
 
 // ---------------------------------------------------------------------------
 // Top-level TabView
