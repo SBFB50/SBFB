@@ -5,6 +5,8 @@ members = [
     "crates/nexus-core-py",
     "crates/nexus-worker-core",
     "crates/nexus-worker",
+    "crates/nexus-shell-daemon-core",
+    "crates/nexus-shell-daemon",
 ]
 
 # Shared package metadata. Individual crates override name/description.
@@ -111,6 +113,34 @@ data-encoding = "2.6"
 # preferred over chrono for new code. `formatting` gives the
 # `format_into` machinery; `macros` gives `format_description!`.
 time = { version = "0.3", features = ["formatting", "macros"] }
+
+# Sprint 7 Phase A: nexus-shell-daemon HTTP layer.
+#
+# axum is pinned to the 0.7.x line deliberately. axum 0.8 introduced
+# `Handler` trait lifetime changes that break several compile-time
+# patterns we rely on (see `.planning/sprint7_plan.md` R2). When the
+# ecosystem pushes us to 0.8 we'll revisit in a dedicated sprint.
+#
+# tower-http is the CORS middleware source. `cors` is the only
+# feature we need — the daemon is loopback-only and does not need
+# compression, tracing, rate-limit, or auth layers from tower-http.
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# Sprint 7 Phase A: nexus-shell-daemon singleton enforcement
+# and concurrent data structures.
+#
+# sysinfo is used by `nexus_shell_daemon_core::registry` to decide
+# whether a `running.json` with a given pid represents a live
+# daemon or a stale entry left by a crashed previous run.
+#
+# dashmap is the concurrent hashmap the Phase C curator runtime
+# will store received curator lists in. Declared at workspace level
+# now so the Phase A skeleton can already depend on it without a
+# workspace churn commit in Phase C.
+sysinfo = "0.32"
+dashmap = "6"
 
 [profile.release]
 # Standard release profile for the worker binary. Stripping and LTO cut

@@ -1,0 +1,70 @@
+[package]
+name = "nexus-shell-daemon"
+description = "SBFB nexus-shell-daemon: long-lived P2P process backing the React shell's Browse / Curators pages"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[[bin]]
+name = "nexus-shell-daemon"
+path = "src/main.rs"
+
+[dependencies]
+# The headless engine lives in nexus-shell-daemon-core. This
+# binary is a thin CLI + HTTP wrapper around it, mirroring the
+# Sprint 3 worker split. See the Sprint 7 Phase A plan §4.1 for
+# the split rationale.
+nexus-shell-daemon-core = { path = "../nexus-shell-daemon-core" }
+
+# Direct dependency on nexus-core-rs so the runtime can call
+# `create_node()` at boot. Phase A only uses `create_node` and
+# `Node::shutdown`; Phase C will reach into `Node::gossip()` and
+# `Node::blobs_store()` for the curator subscribe pipeline.
+nexus-core-rs = { path = "../nexus-core-rs" }
+
+tokio = { workspace = true }
+
+# clap 4.5 derive CLI parser.
+clap = { workspace = true }
+
+# HTTP server layer. axum 0.7 is pinned at the workspace level —
+# see the workspace Cargo.toml for the R2 risk notes on 0.8.
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# Rotating file appender + non-blocking writer, identical to the
+# nexus-worker logging stack. The daemon writes `daemon.log` with
+# the date rotated daily.
+tracing-appender = { workspace = true }
+
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Serialization for HTTP response bodies and for reading
+# running.json through the core crate.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Hex-encode / decode helpers in case the `status` subcommand
+# ever needs to show a node_id in short form. Small, already in
+# the workspace, so no tree growth.
+hex = { workspace = true }
+
+[dev-dependencies]
+# End-to-end tests spawn the real compiled binary with an
+# isolated NEXUS_GRID_ROOT fixture directory, the same harness
+# the nexus-worker tests use.
+tempfile = "3.12"
+
+# Unix-only tests signal the running daemon with SIGINT to
+# prove the start handler's ctrl+c wiring works end-to-end.
+# Mirrors the worker's `tests/e2e.rs` guard.
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"

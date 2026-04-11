@@ -1,0 +1,86 @@
+[package]
+name = "nexus-shell-daemon-core"
+description = "SBFB nexus-shell-daemon headless engine — UI-free library used by the nexus-shell-daemon binary and any alternative frontend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[lib]
+name = "nexus_shell_daemon_core"
+path = "src/lib.rs"
+
+[dependencies]
+# The shell-daemon is the second user of nexus-core-rs after the
+# worker. In Phase A it only calls `create_node()` at boot so the
+# iroh endpoint is ready for the Phase C curator subscribe wiring,
+# but it does not yet consume any of the gossip / blobs / docs
+# APIs. The dep is pulled in now so the Phase A runtime already
+# owns a live `Node`.
+nexus-core-rs = { path = "../nexus-core-rs" }
+
+# Async runtime. The daemon runtime is async throughout so the
+# binary (and any alternative frontend) can spin it up on a tokio
+# runtime of its choice.
+tokio = { workspace = true }
+
+# Serialization for the running.json singleton file and the
+# DaemonStateSnapshot schema v1 exposed over HTTP in Phase A.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# TOML (de)serialization for the on-disk `config.toml` the shell
+# daemon reads / writes under `<root>/shell-daemon/`. Matches the
+# `toml = "0.8"` pin the worker-core Cargo.toml already uses.
+toml = { workspace = true }
+
+# Cross-platform application directory resolution. Shared with
+# `nexus_worker_core::paths` — we duplicate the tiny helper here
+# on purpose rather than creating a crate-level dependency between
+# two sibling crates that have no other reason to couple.
+directories = { workspace = true }
+
+# Sprint 5 Phase A pattern: RFC 3339 timestamps in the
+# running.json and DaemonStateSnapshot outputs so the shell
+# renderer can display a human-friendly "started at" / "last
+# updated" string without re-parsing epoch seconds.
+time = { workspace = true }
+
+# Singleton enforcement (D2). The registry module uses
+# `sysinfo::System` to ask whether the pid recorded in a
+# leftover running.json still belongs to a live
+# `nexus-shell-daemon` process. The process name comparison
+# mitigates R3 (pid recycled across reboots on Windows).
+sysinfo = { workspace = true }
+
+# The Phase C curator runtime stores in-memory curator lists in
+# a `DashMap<curator_pubkey, CuratorListEntry>`. Declared here so
+# the Phase A skeleton already pulls the crate in and Phase C
+# doesn't have to churn the Cargo.toml.
+dashmap = { workspace = true }
+
+# Observability — the headless engine logs everything through
+# tracing. The binary configures the subscriber; this crate only
+# emits events so it stays agnostic to how they get consumed
+# (stdout, file, future GUI widget, ...).
+tracing = { workspace = true }
+
+# Error handling.
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Deliberately excluded: clap, ratatui, crossterm, axum, tower,
+# tower-http. The shell-daemon has no TUI (headless-only per
+# Sprint 7 D1) and the HTTP server layer lives in the binary
+# crate alongside its subcommand dispatch. See the
+# Sprint 7 Phase A plan §4.1 for the split rationale.
+
+[dev-dependencies]
+# Used by the registry, config and paths tests to produce
+# isolated per-test filesystems so a save/load/stale test
+# never touches a real `~/.nexus-grid/` on the developer's
+# machine.
+tempfile = "3.12"
