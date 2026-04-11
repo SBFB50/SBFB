@@ -144,6 +144,62 @@ snapshot explicitly.
 
 Reference: sprint6_plan.md §2 D1/D2/D3.
 
+### P9 — nexus-shell-daemon reached exclusively through the coordinator proxy
+
+Sprint 7 D1 (frozen in `sprint7_kickoff.md` §4): the React shell
+NEVER fetches the `nexus-shell-daemon` HTTP surface directly.
+Every `/browse`, `/curators`, `/info` call goes
+
+```
+shell → coordinator /daemon/* → nexus-shell-daemon 127.0.0.1:<ephemeral>
+```
+
+Rationale (four independent reasons that reinforce each other):
+
+1. **Single trust boundary.** The coordinator already runs a
+   CORS regex that only accepts `http://(127.0.0.1|localhost):*`
+   origins. Routing daemon calls through the same process means
+   we never have to double-maintain that policy on the daemon
+   side. The daemon DOES ship its own loopback CORS layer
+   (`crates/nexus-shell-daemon/src/http.rs::loopback_cors_layer`)
+   as defense-in-depth, but the shell never triggers it.
+
+2. **Ephemeral port.** The daemon binds `127.0.0.1:0` and writes
+   the resolved port into `<root>/shell-daemon/running.json`. If
+   the shell talked to the daemon directly it would need to read
+   that file too — duplicating the singleton discovery across two
+   codebases. The coordinator does it once and forwards.
+
+3. **Daemon-offline UX.** When no daemon is running the coordinator
+   returns `{"kind": "unavailable", "reason": "..."}` at 503. The
+   shell's `DaemonResult<T>` union surfaces that as a first-class
+   render path (`DaemonOfflineBanner`), NOT as an error boundary
+   trip. Direct shell-to-daemon would have to re-invent this
+   envelope in TypeScript.
+
+4. **Proxy-side input validation.** `api/daemon.py::daemon_subscribe_curator`
+   rejects non-object POST bodies at 400 before even forwarding,
+   so a whole class of shell bugs lands in the test suite instead
+   of on the daemon logs.
+
+Contract shape — the discriminated envelope every `/daemon/*`
+route returns, mirrored in `web/src/api/daemon.ts::DaemonResult<T>`:
+
+```
+{"kind": "data",        "status": int, "body": <daemon body>}    (200)
+{"kind": "unavailable", "reason": "<transport / not-running>"}   (503)
+{"kind": "error",       "reason": "<proxy-level 400>"}           (400)
+```
+
+The `status` field carries the upstream HTTP status code (200,
+422, 500, …) so the shell can distinguish "daemon said no" from
+"daemon offline". The reference test suite is
+`packages/nexus-coordinator/tests/test_daemon_proxy.py` (10 tests,
+including the ones that swap the fake daemon for a closed
+ephemeral port to force a `httpx.ConnectError → 503`).
+
+Reference: sprint7_kickoff.md §4 D1, sprint7_plan.md §8.
+
 ## Tech debt — queued for Phase D or later
 
 ### T1 — Fast refresh warnings on 5 shadcn ui primitives
@@ -197,22 +253,42 @@ a `console.warn` placeholder. The schema exports the action type,
 button click. Sprint 6 audit coverage shows ButtonBlock at 57% lines
 / 0% branches because no test ever hits the second branch.
 
-**Decision deferred to Sprint 7 kickoff (phase 0)**. Two mutually
-exclusive options:
+**Status: signature frozen Sprint 7 Day 0, implementation Sprint 8
+Phase A.**
 
-- Option A — **Remove `ActionTaskSubmit` from v1 schema**, bump
-  `schema_version`, regenerate both snapshots + the cross-lang
-  canonical fixture, patch `button_task()`. Clean but breaking.
-- Option B — **Define the handler signature now** in Sprint 7:
-  add an `AppContext.submit_task(worker, payload)` SDK method +
-  a React context that the ButtonBlock reads to resolve the target
-  coordinator. Non-breaking, does real work.
+Sprint 7 kickoff §4 D4 tranched Option B: extend `AppContext` with
+a non-breaking `submit_task` method, keep `schema_version=1` intact.
+The full signature is frozen in `.planning/sprint7_kickoff.md` §D4
+and reproduced here for grep-ability:
 
-Either way, the decision MUST land in `sprint7_kickoff.md` §Day 0
-Decisions before Sprint 7 Phase A commits. Until then, tab authors
-that ship `button_task` expect it to work but get a silent no-op.
+```python
+# packages/nexus-sdk/src/nexus_sdk/app.py (extension Sprint 8)
 
-Audit reference: `.planning/sprint6_audit_findings.md` §G-1.
+class AppContext:
+    async def submit_task(
+        self,
+        worker: str,
+        payload: dict[str, Any],
+        *,
+        priority: int = 5,
+        parent_task_id: str | None = None,
+    ) -> str: ...
+```
+
+React side: `ButtonBlock.tsx` will read a `TabAppContext` React
+context carrying `{projectName, coordinatorUrl, appName}`, resolve
+the submit_task endpoint to `POST /app/{appName}/tasks/submit` on
+the active coordinator, body is the `ActionTaskSubmit` payload
+verbatim. Sprint 7 DID NOT touch `ButtonBlock.tsx` — the
+`console.warn` stub stays in place until Sprint 8 Phase A lands
+the full wiring.
+
+Implementation blocked on Sprint 8 Phase A (same chantier as the
+other `AppContext` extensions: `storage`, `events`, file upload,
+DB migration runner).
+
+Audit reference: `.planning/sprint6_audit_findings.md` §G-1,
+`sprint7_kickoff.md` §D4.
 
 ### T5 — No SDK hook for app-contributed command palette entries
 
@@ -222,20 +298,48 @@ to register commands ("Nouveau fact-check", "Rechercher dans les
 votes"). Sprint 8 gov v1.1 will want this. The SDK currently has
 `NexusApp.routes()`, `.workers()`, `.tabs()` but no `.commands()`.
 
-**Prerequisite for Sprint 8**. Design sketch: add a `@nexus_command`
-decorator in `packages/nexus-sdk/src/nexus_sdk/decorators.py`, a
-`commands()` method on `NexusApp`, and a coordinator route
-`GET /app/{name}/commands` that returns a list of
-`{name, description, icon, action}` entries. Mirror on the shell
-via a Zod-parsed `CommandDescriptor[]` and an `items.push(...)`
-loop in `CommandPalette.tsx` that merges app-provided commands
-into the existing groups.
+**Status: decorator + wire contract frozen Sprint 7 Day 0,
+implementation Sprint 8 Phase A.**
 
-Design spike belongs in `sprint7_kickoff.md` §Decisions so that
-Sprint 8 starts with the signature frozen. Implementation lands
-in Sprint 8 Phase A alongside the other `AppContext` extensions.
+Sprint 7 kickoff §4 D5 froze the full signature of
+`@nexus_command`, the `CommandDescriptor` Pydantic model, and the
+Zod mirror. Reproduced for grep-ability (but NOT implemented in
+Sprint 7 code):
 
-Audit reference: `.planning/sprint6_audit_findings.md` §G-2.
+```python
+# packages/nexus-sdk/src/nexus_sdk/decorators.py (extension Sprint 8)
+def nexus_command(
+    name: str,
+    *,
+    description: str,
+    icon: str = "sparkles",
+    group: str = "Actions",
+) -> Callable[[F], F]: ...
+```
+
+```python
+# packages/nexus-sdk/src/nexus_sdk/commands.py (new Sprint 8)
+class CommandDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal[1] = 1
+    name: str = Field(..., min_length=1, max_length=64)
+    description: str = Field(..., max_length=280)
+    icon: str = Field("sparkles", max_length=32)
+    group: str = Field("Actions", max_length=32)
+```
+
+Coordinator route (Sprint 8 Phase A): `GET /app/{name}/commands`
+returns `list[CommandDescriptor]`. The Zod mirror
+`CommandDescriptorSchema` in `web/src/api/coordinator.ts` will
+dispatch on `schema_version` like the existing TabView path.
+
+Sprint 7 DID NOT touch `CommandPalette.tsx` or the SDK — the
+three hardcoded groups stay in place. The 4th "App" group merges
+`listAppCommands()` results across every enrolled app in
+Sprint 8 Phase A.
+
+Audit reference: `.planning/sprint6_audit_findings.md` §G-2,
+`sprint7_kickoff.md` §D5.
 
 ### T6 — Renderer fuzz + chart edge-case tests
 

@@ -643,6 +643,221 @@ land as two clean commits.
 
 ---
 
+## Sprint 7 canonical patterns (2026-04-11)
+
+Sprint 7 shipped the `nexus-shell-daemon` P2P discovery layer
+(curator lists + pkarr browse) in 5 atomic phases
+(`2c896a8`..`6f32893`). The Rust-side patterns that differ from
+or extend Sprint 2 are documented here for the Sprint 8 audit
+gate to consume without reading every commit.
+
+### Sprint 7.1 — `DOMAIN_CURATOR_LIST_V1` joins the canonical tags
+
+`crates/nexus-core-rs/src/canonical.rs`:
+
+```rust
+pub const DOMAIN_CURATOR_LIST_V1: &[u8] = b"nexus-curator-list-v1";
+```
+
+The canonical bytes produced by `canonical_bytes(&list,
+DOMAIN_CURATOR_LIST_V1)` are the signing surface for every
+`CuratorListEntry`. The tag is independent from (and cannot
+collide with) `DOMAIN_TASK_V1`, `DOMAIN_RESULT_V1`,
+`DOMAIN_CLAIM_V1`, `DOMAIN_INVITE_V1`, `DOMAIN_KUDOS_V1` — a
+valid curator list signature can never be replayed as a task /
+result / claim / invite / kudos signature, and vice versa. The
+regression test
+`curator::tests::domain_separation_between_curator_and_task`
+locks this cross-type guarantee.
+
+Every new signed struct family MUST get its own
+`DOMAIN_<NAME>_V1` tag. Never reuse an existing tag for a new
+struct — the point of the prefix is to make cross-type replay
+structurally impossible.
+
+### Sprint 7.2 — `CuratorListEntry::verify_signature` check order
+
+Layered checks in `crates/nexus-core-rs/src/curator.rs`, executed
+in this exact order to make cheap-and-deterministic rejections
+fire before expensive ones:
+
+```
+1. version == CURATOR_LIST_FORMAT_VERSION   (reject future payloads)
+2. entries.len() <= CURATOR_LIST_MAX_ENTRIES (Sprint 7 plan R5 DoS cap)
+3. list.curator_pubkey == envelope curator_pubkey (attribution match)
+4. Ed25519 signature over canonical_bytes(&list, DOMAIN_CURATOR_LIST_V1)
+```
+
+`CURATOR_LIST_MAX_ENTRIES = 256` — conservative cap above which
+no realistic early-access curator list lives, and well below any
+RAM / gossip amplification threshold. The cap is enforced BOTH
+at sign time (`CuratorListEntry::sign` refuses oversized inputs
+so a curator cannot accidentally mint an unreadable list) AND at
+verify time (a hand-crafted attacker that bypasses sign still
+gets rejected).
+
+Revision rollback protection (Sprint 7 plan R6) is NOT in this
+module — it lives one layer up in
+`nexus_shell_daemon_core::iroh_runtime::CuratorRuntime::process_announcement_bytes`,
+which enforces `new.revision > stored.revision` on insert.
+Separating the "is this blob cryptographically valid?" check
+(curator.rs) from the "is this blob newer than what we have?"
+check (iroh_runtime.rs) keeps the crypto layer pure and the
+runtime layer testable with fake entries.
+
+### Sprint 7.3 — Attribution-match pattern extended
+
+The attribution-match pattern introduced in Sprint 2 audit fix
+`ed2ea76` for `ClaimEntry` (`claim.claimed_by == worker_pubkey`)
+is replicated **twice** in Sprint 7:
+
+1. **Crypto level** —
+   `CuratorListEntry::verify_signature` checks
+   `list.curator_pubkey == envelope.curator_pubkey` before
+   reaching the signature check. Catches a forwarder that
+   attributes a signed list to a different pubkey than the one
+   inside.
+
+2. **Gossip level** —
+   `CuratorRuntime::process_announcement_bytes` additionally
+   checks that the curator pubkey declared in the gossip
+   **announcement envelope** matches the one inside the fetched
+   `CuratorListEntry`. Catches an attacker that staples a
+   correctly-signed list from curator A onto an announcement
+   tagged with attacker B's pubkey — same legitimate signature,
+   wrong attribution on the wire.
+
+Both checks share the same rationale: a split-brain condition
+between the envelope and the payload is always a bug, never a
+feature. Treat them as hard errors and never try to "reconcile"
+them.
+
+### Sprint 7.4 — Gossip topic id derivation
+
+Curator list announcements live on a **single global topic** per
+Sprint 7 D3:
+
+```rust
+// crates/nexus-shell-daemon-core/src/iroh_runtime.rs
+pub const CURATOR_TOPIC_SEED: &[u8] = b"nexus-grid/curator/v1";
+
+pub fn curator_topic_id() -> [u8; 32] {
+    *blake3::hash(CURATOR_TOPIC_SEED).as_bytes()
+}
+```
+
+One seed string → one BLAKE3 → 32-byte topic id that every SBFB
+daemon joins on boot. Namespaced-per-curator topics
+(`"nexus-grid/curator/v1/<pubkey>"`) are deliberately deferred
+to Sprint 8+ : a fresh daemon with no curators known yet still
+needs to receive announcements from every active curator in the
+network, and that requires a global discovery channel.
+
+Test `curator_topic_id_is_deterministic_and_32_bytes` asserts the
+const bytes to catch anyone silently renaming the seed.
+
+### Sprint 7.5 — Pkarr reachability probe via `Endpoint::connect`
+
+Sprint 7 plan R1 acknowledged that iroh 0.97 ships no explicit
+`Endpoint::lookup(id)` wrapper. Phase D falls back on
+`Endpoint::connect(id, iroh_blobs::ALPN)` under a short wall-clock
+timeout:
+
+```rust
+// crates/nexus-core-rs/src/discovery.rs
+pub async fn probe_reachable(
+    &self,
+    endpoint_id_hex: &str,
+    timeout_duration: Duration,
+) -> Result<bool> {
+    let endpoint_id = EndpointId::from_str(endpoint_id_hex)
+        .map_err(|e| NexusError::Discovery(...))?;
+    let connect_fut = self.endpoint.connect(endpoint_id, BLOBS_ALPN);
+    match timeout(timeout_duration, connect_fut).await {
+        Ok(Ok(_conn)) => Ok(true),
+        Ok(Err(_dial_err)) => Ok(false),
+        Err(_elapsed) => Ok(false),
+    }
+}
+```
+
+Why `BLOBS_ALPN`: every SBFB node accepts the iroh-blobs protocol
+at boot (see `crates/nexus-core-rs/src/node.rs::create_node_with_config`),
+so a connect probe to this ALPN reaches every live SBFB peer
+regardless of role. The returned connection is immediately dropped
+— the probe is a pure liveness check, it never opens a bi stream.
+
+Error disambiguation: malformed hex is `Err(NexusError::Discovery)`
+(caller bug), dial error / timeout is `Ok(false)` (network
+condition). The browse aggregator collapses both buckets into
+`BrowseStatus::Unreachable` but the Result surface preserves the
+distinction for future tooling (CLI probe, metrics dashboard).
+
+### Sprint 7.6 — singleton registry + hyphen/underscore normalization
+
+`crates/nexus-shell-daemon-core/src/registry.rs`:
+
+- `RunningState` schema v1 (different shape from
+  `nexus_coordinator::registry::RunningState` — no `project_name`,
+  no `visibility`, + `daemon_version`)
+- atomic write via temp sibling + rename (same pattern Sprint 5
+  `state_writer.rs` uses for the worker state snapshot)
+- pid liveness check through `sysinfo::System::new_all()` +
+  `process_name_matches` (R3 mitigation for Windows pid recycling)
+
+`process_name_matches` normalizes both the observed and the
+expected process name by lowercasing + `replace('-', '_')` before
+a substring check. This bridges the hyphen-vs-underscore gap
+between the production binary (`nexus-shell-daemon[.exe]`, clap
+`[[bin]] name` convention) and the cargo test binary
+(`nexus_shell_daemon[_core]-<hash>[.exe]`, Rust crate name
+convention). Without this normalization the singleton enforcement
+would silently become a no-op inside `cargo test` because the
+test binary's name does not match the production substring.
+Regression test:
+`registry::tests::process_name_matches_handles_hyphen_underscore_drift`.
+
+### Sprint 7 tech debt (2026-04-11)
+
+None of the items below block Sprint 8 Phase A. They are the
+Phase F sortie notes the Sprint 8 audit gate should cross-check
+against the `sprint7_audit_plan.md` tracks of the same name.
+
+1. **Probe TTL vs real-world pkarr latency** —
+   `BrowseAggregator::DEFAULT_PROBE_TIMEOUT = 2s` and
+   `DEFAULT_PROBE_TTL = 60s` are calibrated on local-network tests.
+   Residential NAT + relay cold start can need 3-5 s for the first
+   resolution, which would misreport a reachable peer as
+   Unreachable for 60 s. Audit Track E1 will re-benchmark.
+
+2. **Gossip loop backpressure** — `process_announcement_bytes` runs
+   sequentially per message; a flood of 10 k announcements/s
+   serialises through a single iroh fetch chain. No backpressure /
+   rate limiter today. Sprint 8 or 9 can add a `tokio::sync::Semaphore`
+   guarding `process_announcement_bytes` concurrency. Audit Track C4.
+
+3. **`subscriptions.json` persistence order** — attention set is
+   updated in RAM BEFORE the `persist_subscriptions` write. If the
+   persist fails, the RAM and disk states diverge; at next boot
+   the missing subscription is silently lost. Safe but worth a
+   "try persist first, rollback RAM on failure" rewrite. Audit
+   Track D3.
+
+4. **`nexus_core` wheel editable install drift** — the Sprint 7
+   Phase E test run showed that the editable install of
+   `nexus-core-py` can get wiped by a `uv sync` somewhere in the
+   workflow. Not fatal (re-run `maturin develop --release` fixes
+   it) but a reproducibility hazard for CI. Audit Track H3 proposes
+   adding an explicit `scripts/setup.sh` or pinning the wheel via
+   `pyproject.toml`.
+
+Nothing in these notes invalidates the Sprint 7 architecture
+choices. The Phase F self-report fails fast on 32/32 checks at
+tip `6f32893` and every cross-cut Rust-Python-Web integration
+path is exercised by at least one test at some level.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13
