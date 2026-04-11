@@ -541,3 +541,61 @@ pick a fix path before any new feature commit lands.
 
 Audit reference: `.planning/sprint8_verification.md` §Notes
 row 24.
+
+### T11 — `CommandPalette` swallows `invokeAppCommand` errors — Sprint 9
+
+Sprint 9 Phase 0 audit gate finding C-FX-1.
+`web/src/components/command-palette/CommandPalette.tsx::runAppCommand`
+closes the palette before awaiting `invokeAppCommand` and
+catches the resulting promise into `console.error("[palette]
+invokeAppCommand failed", ...)`. The user sees nothing — no
+toast, no inline banner, no modal — and the palette stays
+closed as if the command had succeeded. A 500 from the
+coordinator vanishes into devtools.
+
+Fix options:
+- (a) keep the palette open in a `pending → error` state until
+  the user dismisses (mirrors `ButtonBlock.tsx` inline status
+  pattern from Sprint 8 Phase A)
+- (b) introduce sonner for a toast layer (new dep, but
+  shadcn-friendly and reusable for `submitAppTask` errors too)
+- (c) `react-hot-toast` (smaller footprint, but yet-another
+  dep)
+
+Sprint 9 polish — pick (a) if no other use case for toasts
+appears, otherwise (b). Track C-FX-1 of
+`.planning/sprint8_audit_findings.md`.
+
+Audit reference: `.planning/sprint8_audit_findings.md` §C-FX-1.
+
+### T12 — `NexusApp.commands()` order depends on `dir(cls)` — Sprint 9
+
+Sprint 9 Phase 0 audit gate finding C-FX-2. The Sprint 8
+implementation in
+`packages/nexus-sdk/src/nexus_sdk/registry.py::collect_decorators`
+walks `dir(cls)` and pushes decorated methods into the
+`commands` bucket in the order CPython returns them — which
+is **alphabetical by attribute name** as a documented but
+implementation-specific detail. The
+`test_list_app_commands_ordered` test passes because of this
+ordering, and the four gov commands `cmd_detect_contradictions`,
+`cmd_new_scan`, `cmd_search_factchecks`, `cmd_view_alerts`
+happen to sort the way the user wants.
+
+Risk: a renaming of a method, a CPython implementation
+change, or a switch to PyPy could silently scramble the
+order. The same fragility applies to `_workers` and `_tabs`.
+
+Fix: replace the implicit `dir()` ordering with an explicit
+`sorted(buckets["commands"], key=lambda d: d["name"])` at the
+top of `NexusApp.commands()` (and the matching helpers for
+`workers()` / `tabs()` for symmetry). One-liner change, but
+the test coverage needs updating to assert the sort key
+explicitly.
+
+Sprint 9 polish, low-effort. Same finding also notes that
+two commands with the same `name` should raise at decorator
+collection time (currently `first match wins` silently for
+`resolve_worker` too — see B-FX-1 in the same audit findings).
+
+Audit reference: `.planning/sprint8_audit_findings.md` §C-FX-2.

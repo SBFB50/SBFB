@@ -848,13 +848,26 @@ items after Sprint 8 Phase A (commit `d321021`).
    adopt a "try persist first, rollback RAM on failure" rewrite.
    Audit Track D3 / Sprint 7 audit findings §D-3.
 
-4. **`nexus_core` wheel editable install drift** — STILL OPEN —
-   the Sprint 7 Phase E test run showed that the editable install
-   of `nexus-core-py` can get wiped by a `uv sync` somewhere in
-   the workflow. Sprint 8 did NOT add `scripts/setup.sh` nor pin
-   the wheel via `pyproject.toml`. Sprint 9 should fix this
-   before the SDK gains its first non-test consumer outside the
-   loopback dev loop. Audit Track H3 / Sprint 7 audit findings §H-3.
+4. **`nexus_core` wheel editable install drift** — STILL OPEN,
+   **PROMOTED Sprint 9 P1** by Sprint 9 Phase 0 audit gate
+   finding H-FX-2. The Sprint 7 Phase E test run showed that the
+   editable install of `nexus-core-py` can get wiped by a
+   `uv sync` somewhere in the workflow. Sprint 8 did NOT add
+   `scripts/setup.sh` nor pin the wheel via `pyproject.toml`.
+   The Sprint 9 Phase 0 audit session **had to manually rebuild
+   the wheel** via
+   `unset CONDA_PREFIX && VIRTUAL_ENV=$PWD/.venv maturin develop --release`
+   to get `pytest packages/nexus-sdk/tests/test_curator.py` past
+   9 `AttributeError: module 'nexus_core' has no attribute 'sign_curator_list'`
+   failures — meaning the audit gate is **structurally blocked**
+   on a fresh checkout, not merely inconvenient.
+
+   Sprint 9 Day 0 should ship a `scripts/setup.sh` (or equivalent
+   `uv run` task) that encapsulates the maturin invocation and
+   document it in the README + Sprint 9 kickoff. This is now
+   **P1 for Sprint 9** (was P3 / nice-to-have for Sprint 8).
+   Audit reference: `.planning/sprint7_audit_findings.md` §H-3
+   + `.planning/sprint8_audit_findings.md` §H-FX-2.
 
 #### New items detected by Sprint 7 Phase 0 audit gate — CLOSED Sprint 8 Phase A
 
