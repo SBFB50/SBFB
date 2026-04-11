@@ -156,10 +156,17 @@ class GovApp(NexusApp):
         still have a live client to call against (their queries
         will hit ``DatabaseError`` on missing tables and fall
         back to empty state).
+
+        The legacy override is opened with ``read_only=True``
+        (Sprint 9 Phase 0 audit gate D-FX-1): the legacy file
+        carries four years of irreplaceable scraping data, and
+        every gov tab handler is a pure SELECT, so the SDK's
+        read-only guard prevents any future handler from
+        accidentally mutating the legacy schema.
         """
         legacy = _legacy_govdata_db_path()
         if legacy.exists():
-            ctx.db = AppDatabaseClient(legacy)
+            ctx.db = AppDatabaseClient(legacy, read_only=True)
         self._ctx = ctx
 
     async def on_stop(self) -> None:

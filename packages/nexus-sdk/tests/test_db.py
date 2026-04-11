@@ -165,3 +165,86 @@ async def test_bad_sql_raises_database_error(tmp_path: Path) -> None:
     client = AppDatabaseClient(db_file)
     with pytest.raises(DatabaseError):
         await client.fetchall("SELECT ** FROM t WHERE not valid sql")
+
+
+# ---------------------------------------------------------------------------
+# Sprint 9 Phase 0 audit gate (D-FX-1) — read-only enforcement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_readonly_blocks_execute(tmp_path: Path) -> None:
+    """A client constructed with ``read_only=True`` rejects every
+    :meth:`AppDatabaseClient.execute` call at the Python layer
+    BEFORE opening any connection.
+
+    Defense-in-depth: even if a future SQLite version loosened the
+    ``mode=ro`` URI semantics, this short-circuit still keeps
+    writes from reaching the legacy ``nexus/gov/govdata.db`` file.
+    """
+    db_file = tmp_path / "readonly_execute.sqlite"
+    _seed_schema(db_file)
+    client = AppDatabaseClient(db_file, read_only=True)
+    assert client.read_only is True
+
+    with pytest.raises(DatabaseError) as excinfo:
+        await client.execute(
+            "INSERT INTO t (id, name, score) VALUES (?, ?, ?)",
+            (3, "carol", 99),
+        )
+    assert "read-only" in str(excinfo.value)
+
+    # The original two rows must still be intact — the execute()
+    # call short-circuited before SQLite ever saw the statement.
+    rows = await client.fetchall("SELECT id FROM t ORDER BY id")
+    assert [r["id"] for r in rows] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_readonly_uri_blocks_kernel_level_writes(tmp_path: Path) -> None:
+    """A client constructed with ``read_only=True`` opens its
+    connection in SQLite ``mode=ro``, so even a write smuggled
+    through ``fetchall`` is rejected at the SQLite kernel level
+    with ``OperationalError`` wrapped as :class:`DatabaseError`.
+
+    This is the second layer of the defense-in-depth: the
+    Python-side guard in :meth:`execute` could be bypassed by a
+    caller that hand-crafts an ``INSERT`` and routes it through
+    ``fetchall``, but the URI mode means SQLite itself refuses.
+    """
+    db_file = tmp_path / "readonly_uri.sqlite"
+    _seed_schema(db_file)
+    client = AppDatabaseClient(db_file, read_only=True)
+
+    with pytest.raises(DatabaseError):
+        # fetchall is the read path — feeding it an INSERT is
+        # nonsensical but technically possible. The mode=ro URI
+        # makes SQLite reject it before the cursor materialises.
+        await client.fetchall(
+            "INSERT INTO t (id, name, score) VALUES (?, ?, ?)",
+            (4, "dave", 17),
+        )
+
+    # The original two rows must still be intact.
+    rows = await client.fetchall("SELECT id FROM t ORDER BY id")
+    assert [r["id"] for r in rows] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_readonly_refuses_missing_file(tmp_path: Path) -> None:
+    """``read_only=True`` on a non-existent file raises
+    :class:`DatabaseError` because SQLite ``mode=ro`` refuses to
+    materialise an empty database.
+
+    Pinned because the writable default DOES create the file
+    (`test_missing_file_raises_on_unknown_table` above) — the two
+    behaviours are intentionally different and the read-only
+    contract is the safer one for the legacy gov DB use case.
+    """
+    db_file = tmp_path / "readonly_missing.sqlite"
+    assert not db_file.exists()
+    client = AppDatabaseClient(db_file, read_only=True)
+    with pytest.raises(DatabaseError):
+        await client.fetchall("SELECT 1")
+    # The file must still NOT exist — mode=ro must not create it.
+    assert not db_file.exists()
