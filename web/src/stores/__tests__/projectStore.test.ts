@@ -49,6 +49,27 @@ describe("addCoordinator", () => {
     );
   });
 
+  it("preserves the active URL when a second coordinator is added (audit C-1)", () => {
+    // Regression guard: the Phase A implementation sets
+    // `activeCoordinatorUrl: s.activeCoordinatorUrl ?? url` when adding.
+    // A refactor that drops the `??` fallback would silently overwrite
+    // the user's chosen coordinator every time a new one joins via
+    // /shell/discover. The original Sprint 6 test suite did not cover
+    // this invariant — it was only caught by the audit mutation analysis.
+    useProjectStore.getState().addCoordinator("http://127.0.0.1:8765");
+    useProjectStore.getState().addCoordinator("http://127.0.0.1:8766");
+    expect(useProjectStore.getState().activeCoordinatorUrl).toBe(
+      "http://127.0.0.1:8765",
+    );
+    // And a third add (simulating the discover loop) must still not
+    // clobber the user's pick.
+    useProjectStore.getState().addCoordinator("http://127.0.0.1:8767");
+    expect(useProjectStore.getState().activeCoordinatorUrl).toBe(
+      "http://127.0.0.1:8765",
+    );
+    expect(useProjectStore.getState().knownCoordinators).toHaveLength(3);
+  });
+
   it("normalises trailing slashes", () => {
     const entry = useProjectStore
       .getState()
