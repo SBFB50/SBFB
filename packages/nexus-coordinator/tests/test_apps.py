@@ -193,3 +193,84 @@ async def test_legacy_descriptor_falls_back(nexus_grid_tmp: Path) -> None:
             }
     finally:
         await coord.stop()
+
+
+def test_legacy_descriptor_sweep_empty_apps() -> None:
+    """Sprint 6 audit D-3: sweep over an empty dict returns empty."""
+    from nexus_coordinator.api.apps import legacy_descriptor_sweep
+
+    assert legacy_descriptor_sweep({}) == {}
+
+
+def test_legacy_descriptor_sweep_mixed_apps() -> None:
+    """Sprint 6 audit D-3: sweep flags apps whose sync tabs return
+    non-TabView payloads and leaves ported apps alone."""
+    from nexus_coordinator.api.apps import legacy_descriptor_sweep
+    from nexus_sdk import AppContext, AppManifest, NexusApp, nexus_tab
+    from nexus_sdk.view import TabView, heading, metric
+
+    class PortedApp(NexusApp):
+        manifest = AppManifest(name="ported", version="0.1.0")
+
+        async def on_start(self, ctx: AppContext) -> None:  # noqa: ARG002
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+        @nexus_tab(name="Dashboard", icon="gauge")
+        def dash(self) -> dict:
+            return TabView(
+                tab_name="dash",
+                blocks=[
+                    heading(level=1, text="Ported"),
+                    metric(label="ok", value=1),
+                ],
+            ).model_dump()
+
+    class LegacyApp(NexusApp):
+        manifest = AppManifest(name="legacy", version="0.1.0")
+
+        async def on_start(self, ctx: AppContext) -> None:  # noqa: ARG002
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+        @nexus_tab(name="Old", icon="archive")
+        def old(self) -> dict:
+            return {"description": "raw dict, not TabView"}
+
+        @nexus_tab(name="Broken", icon="alert")
+        def broken(self) -> dict:
+            raise RuntimeError("descriptor raised at boot sweep")
+
+    class AsyncOnlyApp(NexusApp):
+        manifest = AppManifest(name="async-only", version="0.1.0")
+
+        async def on_start(self, ctx: AppContext) -> None:  # noqa: ARG002
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+        @nexus_tab(name="Slow", icon="clock")
+        async def slow(self) -> dict:
+            # Async tabs must be skipped by the sweep — they would
+            # otherwise hang a slow HTTP fetch during boot.
+            return {"not": "reached"}
+
+    apps: dict[str, NexusApp] = {
+        "ported": PortedApp(),
+        "legacy": LegacyApp(),
+        "async-only": AsyncOnlyApp(),
+    }
+    result = legacy_descriptor_sweep(apps)
+
+    # Ported app is not flagged
+    assert "ported" not in result
+    # Async-only app is not flagged (its sync tab count is zero)
+    assert "async-only" not in result
+    # Legacy app has both the raw-dict tab AND the raising tab
+    assert "legacy" in result
+    assert set(result["legacy"]) == {"Old", "Broken"}

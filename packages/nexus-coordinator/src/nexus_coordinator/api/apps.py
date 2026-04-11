@@ -165,3 +165,61 @@ def _maybe_call(fn: Any, app: Any) -> Any:
         return fn(app)
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
+
+
+def legacy_descriptor_sweep(
+    apps: dict[str, "NexusApp"],
+) -> dict[str, list[str]]:
+    """Sweep every sync tab descriptor and return the ones that still
+    fail TabView.model_validate.
+
+    Sprint 6 audit finding D-3: the coordinator used to have no
+    boot-time visibility into "N apps still returning legacy
+    descriptors". The warning logged per-request on first miss, but
+    an operator never saw the pending migration until a user
+    clicked around in the shell.
+
+    This helper is called from
+    :meth:`nexus_coordinator.coordinator.Coordinator.start` after
+    apps are mounted. It iterates each app's tabs, calls the
+    synchronous descriptor function (async ones are skipped — the
+    sweep must not block boot), and runs the result through
+    ``TabView.model_validate``. Tabs that fail are grouped per app
+    and returned as ``{app_name: [tab_name, ...]}``.
+
+    The caller logs a single INFO line with the aggregated count —
+    one log entry, not one per failing tab, so that a coordinator
+    with a heavily legacy app does not flood its start output.
+
+    Pure function: does not log, does not mutate. Caller owns the
+    presentation and log emission. This keeps the helper trivial to
+    unit-test without a structlog capture fixture.
+    """
+    legacy: dict[str, list[str]] = {}
+    for app_name, app in apps.items():
+        failing_tabs: list[str] = []
+        for tab in app.tabs():
+            if inspect.iscoroutinefunction(tab.fn):
+                # Async descriptors: skip. Calling them synchronously
+                # at boot would hang a real gov tab that fetches over
+                # HTTP. Async tabs are validated on their first
+                # /app/.../descriptor invocation via _coerce_tab_view.
+                continue
+            try:
+                descriptor = tab.fn(app)
+            except Exception:  # noqa: BLE001
+                # Descriptor raised — treat as legacy / broken so the
+                # operator sees it in the summary. A raising descriptor
+                # is not strictly "legacy" but it's still unreleasable,
+                # so surfacing it here is more useful than ignoring.
+                failing_tabs.append(tab.name)
+                continue
+            if isinstance(descriptor, TabView):
+                continue
+            try:
+                TabView.model_validate(descriptor)
+            except ValidationError:
+                failing_tabs.append(tab.name)
+        if failing_tabs:
+            legacy[app_name] = failing_tabs
+    return legacy
