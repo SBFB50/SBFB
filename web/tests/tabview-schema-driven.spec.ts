@@ -8,9 +8,14 @@
  *   → Zod parse on the client
  *   → TabViewRenderer
  *
- * Confirms that the gov Contradictions tab (ported to TabView
- * in Phase A) renders as heading + muted text + two metrics
- * + an empty block, with zero raw JSON visible on screen.
+ * Sprint 8 Phase C rewrote the gov Contradictions tab from a
+ * static Sprint 4 stub into a full TabView backed by
+ * ``contradictions_overview_query``. In the Playwright
+ * environment the legacy ``nexus/gov/govdata.db`` is absent,
+ * so the handler falls back to the shared empty-state — still
+ * a valid TabView that exercises the heading + empty blocks
+ * through the full renderer pipeline (which is what this
+ * regression test is here to guard).
  */
 
 import { test, expect } from "@playwright/test";
@@ -47,11 +52,11 @@ test("gov Contradictions tab renders through the TabView renderer", async ({
     timeout: 5_000,
   });
 
-  // Invoke the Contradictions tab descriptor. Sprint 8 Phase B
-  // rewrote the gov app with seven tabs — the coordinator sorts
-  // them by name for the manifest endpoint, so the first button
-  // in the list is Biographie, not Contradictions. Scope to the
-  // Contradictions row before clicking.
+  // Invoke the Contradictions tab descriptor. Sprint 8 Phase C
+  // keeps the tab name stable while rewriting the handler body,
+  // so the locator strategy inherited from Sprint 6 still works
+  // — scope to the Contradictions row to avoid picking the
+  // alphabetically-first "Biographie" button.
   const contradictionsRow = page
     .locator("li")
     .filter({ hasText: /^Contradictions/ })
@@ -60,18 +65,16 @@ test("gov Contradictions tab renders through the TabView renderer", async ({
     .getByRole("button", { name: /Invoquer|Recharger/ })
     .click();
 
-  // Heading block
+  // Heading block — Phase C title.
   await expect(
-    page.getByText("Analyse de cohérence politique"),
+    page.getByRole("heading", { name: "Détection de contradictions" }),
   ).toBeVisible({ timeout: 10_000 });
 
-  // Both metric labels render
-  await expect(page.getByText("Déclarations analysées")).toBeVisible();
-  await expect(page.getByText("Contradictions détectées")).toBeVisible();
-
   // The empty-state placeholder is rendered by <EmptyBlock>
+  // (legacy DB absent in CI → contradictions_overview_query
+  // reports zero rows → fallback message).
   await expect(
-    page.getByText(/Aucune analyse en cours/),
+    page.getByText(/Aucune contradiction détectée/),
   ).toBeVisible();
 
   // And crucially: no "legacy descriptor" warning, no raw JSON

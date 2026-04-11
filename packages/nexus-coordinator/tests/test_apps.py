@@ -107,9 +107,10 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
             assert body["routes"][0]["path"] == "/statements"
             assert len(body["workers"]) == 1
             assert body["workers"][0]["name"] == "contradiction_detector"
-            # Sprint 8 Phase B: the gov manifest now ships seven
-            # tabs — one legacy Contradictions stub (Phase C
-            # upgrades it) plus six Batch 1 read-only tabs.
+            # Sprint 8 Phase C: the gov manifest now ships thirteen
+            # tabs — six Batch 1 read-only tabs + Contradictions
+            # (upgraded in place from the Sprint 4 stub) + six
+            # Batch 2 operational/content tabs.
             tab_names = {t["name"] for t in body["tabs"]}
             assert tab_names == {
                 "Contradictions",
@@ -119,6 +120,12 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
                 "Biographie",
                 "Positions",
                 "Sujets",
+                "Scan",
+                "Workers",
+                "Pipeline",
+                "Social",
+                "Presse",
+                "Transcriptions",
             }
             # Sprint 8 A: manifest endpoint now ships a `commands`
             # list (empty for the pre-Sprint-8 gov stub).

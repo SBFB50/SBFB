@@ -1,19 +1,33 @@
 """GovApp — nexus-grid port of the legacy government monitoring stack.
 
 Sprint 4 Phase D shipped a minimal stub (one route, one worker,
-one tab). Sprint 8 Phase B grows that stub to **seven tabs**:
-the original ``Contradictions`` placeholder (Phase C will upgrade
-it to a real descriptor) plus six new read-only tabs that browse
-the legacy SQLite schema directly:
+one tab). Sprint 8 grows that stub to **thirteen tabs** across
+two batches:
 
-- **Dashboard** — aggregate counts across the gov tables
-- **Politiciens** — list of politicians (paginated to 50)
-- **Politicien** — detail view for the first politician (Sprint 9
-  polish will add a per-tab selector)
-- **Biographie** — mandates + party memberships chronology for
-  the first politician
-- **Positions** — recent positions across all politicians
-- **Sujets** — aggregate of ``gov_positions.subject`` by count
+Phase B — Batch 1 (read-only browse of the core gov schema)
+    - **Dashboard**  — aggregate counts across the gov tables
+    - **Politiciens** — list of politicians (paginated to 50)
+    - **Politicien** — detail view for the first politician
+    - **Biographie** — mandates + party memberships chronology
+    - **Positions** — recent positions across all politicians
+    - **Sujets** — aggregate of ``gov_positions.subject`` by count
+
+Phase C — Batch 2 (operational + content tabs)
+    - **Contradictions** — real TabView replacing the Sprint 4
+      stub: table joined with politician names, per-subject
+      chart_bar, summary metrics (total / high severity /
+      verified)
+    - **Scan** — most recent ``gov_scan_log`` rows
+    - **Workers** — ``gov_scan_log`` aggregated by ``scan_type``
+      (one row per legacy worker with its run stats)
+    - **Pipeline** — ETL snapshot (status distribution,
+      currently running scans with their current_phase, recent
+      tail)
+    - **Social** — recent ``gov_social_posts`` joined with
+      politician names + platform breakdown
+    - **Press** — recent ``gov_press`` entries with sentiment
+    - **Transcriptions** — recent ``gov_transcriptions`` entries
+      joined with politician names
 
 Data plumbing
 -------------
@@ -62,6 +76,18 @@ from nexus_sdk.view import (
 
 from nexus_app_gov import queries
 from nexus_app_gov.prompts import POLITICAL_CONTRADICTION_PROMPT
+
+
+def _truncate(value: str, max_len: int) -> str:
+    """Clip ``value`` to ``max_len`` characters with an ellipsis
+    suffix when clipped. Used by Phase C tabs to keep long
+    descriptions and social posts readable in the tabular view
+    without pushing the shell's renderer to overflow."""
+    if value is None:
+        return ""
+    if len(value) <= max_len:
+        return value
+    return value[: max(0, max_len - 1)].rstrip() + "…"
 
 
 def _legacy_govdata_db_path() -> Path:
@@ -183,32 +209,99 @@ class GovApp(NexusApp):
         ).model_dump()
 
     # ------------------------------------------------------------------
-    # Legacy Sprint 4 tab — kept as a stub, Phase C upgrades it
+    # Sprint 8 Phase C — Contradictions (upgrade of the Sprint 4 stub)
     # ------------------------------------------------------------------
 
     @nexus_tab(name="Contradictions", icon="alert-octagon")
-    def contradictions_tab(self) -> dict[str, Any]:
-        """Sprint 4 stub kept intact — Phase C of Sprint 8
-        upgrades this to a full table + chart descriptor. Don't
-        touch it yet: the regression test in
-        ``test_schema_driven_descriptor_validates`` still asserts
-        the legacy heading-only shape."""
-        return TabView(
-            tab_name="contradictions",
-            title="Détection de contradictions",
-            blocks=[
-                heading(level=1, text="Analyse de cohérence politique"),
-                text(
-                    text=POLITICAL_CONTRADICTION_PROMPT.splitlines()[0],
-                    muted=True,
-                ),
-                metric(label="Déclarations analysées", value=0),
-                metric(label="Contradictions détectées", value=0, tone="warn"),
-                empty(
-                    text="Aucune analyse en cours — soumettre un lot via /statements",
-                ),
-            ],
-        ).model_dump()
+    async def contradictions_tab(self) -> dict[str, Any]:
+        """Table of contradictions joined with politician names,
+        a ``chart_bar`` of contradictions per subject, and the
+        three summary metrics (total / high severity / verified).
+
+        Replaces the Sprint 4 placeholder — the tab is still
+        called ``Contradictions`` and returns a
+        ``tab_name="contradictions"`` TabView so the route
+        ``/app/gov/tabs/Contradictions/descriptor`` remains
+        stable. Falls back to the shared empty-state block when
+        the legacy DB is absent or empty.
+        """
+        db = self._require_db()
+        title = "Détection de contradictions"
+        if db is None:
+            return self._empty_tab("contradictions", title, "Base Gov indisponible.")
+
+        payload = await queries.contradictions_overview_query(db, limit=50)
+        rows = payload["rows"]
+        by_subject = payload["by_subject"]
+        summary = payload["summary"]
+
+        if not rows and summary["total"] == 0:
+            return self._empty_tab(
+                "contradictions",
+                title,
+                "Aucune contradiction détectée — lancer l'analyseur pour alimenter la table.",
+            )
+
+        blocks: list[TabBlock] = [
+            heading(level=1, text=title),
+            text(
+                text=POLITICAL_CONTRADICTION_PROMPT.splitlines()[0],
+                muted=True,
+            ),
+            section(
+                title="Résumé",
+                blocks=[
+                    metric(
+                        label="Contradictions détectées",
+                        value=summary["total"],
+                        tone="warn",
+                    ),
+                    metric(
+                        label="Sévérité haute",
+                        value=summary["high"],
+                        tone="danger" if summary["high"] > 0 else "neutral",
+                    ),
+                    metric(
+                        label="Sources vérifiées",
+                        value=summary["verified"],
+                        tone="ok",
+                    ),
+                ],
+            ),
+        ]
+
+        if by_subject:
+            blocks.append(
+                chart_bar(
+                    label="Contradictions par sujet",
+                    bars=[{"label": str(row["subject"]), "value": int(row["count"])} for row in by_subject],
+                )
+            )
+
+        blocks.append(
+            table_(
+                columns=[
+                    {"key": "politician_name", "label": "Politicien"},
+                    {"key": "subject", "label": "Sujet"},
+                    {"key": "severity", "label": "Sévérité"},
+                    {"key": "description", "label": "Description"},
+                    {"key": "detected_at", "label": "Détectée"},
+                ],
+                rows=[
+                    {
+                        "politician_name": str(row.get("politician_name") or "—"),
+                        "subject": str(row.get("subject") or "—"),
+                        "severity": str(row.get("severity") or "—"),
+                        "description": _truncate(str(row.get("description") or ""), 140),
+                        "detected_at": str(row.get("detected_at") or "—"),
+                    }
+                    for row in rows
+                ],
+                empty_text="Aucune contradiction.",
+            )
+        )
+
+        return TabView(tab_name="contradictions", blocks=blocks).model_dump()
 
     # ------------------------------------------------------------------
     # Sprint 8 Phase B — Batch 1 tabs
@@ -513,6 +606,392 @@ class GovApp(NexusApp):
                         for r in rows
                     ],
                     empty_text="Aucune position.",
+                ),
+            ],
+        ).model_dump()
+
+    # ------------------------------------------------------------------
+    # Sprint 8 Phase C — Batch 2 tabs (Scan/Workers/Pipeline/Social/
+    # Press/Transcriptions). Contradictions lives above under its
+    # Sprint 4 legacy section, rewritten in-place.
+    # ------------------------------------------------------------------
+
+    @nexus_tab(name="Scan", icon="radar")
+    async def scan_tab(self) -> dict[str, Any]:
+        """List the 50 most recent ``gov_scan_log`` rows."""
+        db = self._require_db()
+        title = "Journal des scans"
+        if db is None:
+            return self._empty_tab("scan", title, "Base Gov indisponible.")
+
+        rows = await queries.scan_log_recent_query(db, limit=50)
+        if not rows:
+            return self._empty_tab(
+                "scan",
+                title,
+                "Aucun scan enregistré. Le journal sera peuplé dès qu'un worker legacy démarrera.",
+            )
+
+        return TabView(
+            tab_name="scan",
+            blocks=[
+                heading(level=1, text=title),
+                text(
+                    text=f"{len(rows)} scans listés (50 max).",
+                    muted=True,
+                ),
+                table_(
+                    columns=[
+                        {"key": "scan_type", "label": "Type"},
+                        {"key": "status", "label": "Statut"},
+                        {"key": "items_found", "label": "Trouvés", "align": "right"},
+                        {"key": "items_new", "label": "Nouveaux", "align": "right"},
+                        {"key": "started_at", "label": "Démarré"},
+                        {"key": "completed_at", "label": "Terminé"},
+                    ],
+                    rows=[
+                        {
+                            "scan_type": str(r.get("scan_type") or "—"),
+                            "status": str(r.get("status") or "—"),
+                            "items_found": int(r.get("items_found") or 0),
+                            "items_new": int(r.get("items_new") or 0),
+                            "started_at": str(r.get("started_at") or "—"),
+                            "completed_at": str(r.get("completed_at") or "—"),
+                        }
+                        for r in rows
+                    ],
+                    empty_text="Aucun scan.",
+                ),
+            ],
+        ).model_dump()
+
+    @nexus_tab(name="Workers", icon="cpu")
+    async def workers_tab(self) -> dict[str, Any]:
+        """``gov_scan_log`` aggregated by ``scan_type`` — one row
+        per legacy worker module with its run statistics."""
+        db = self._require_db()
+        title = "Workers legacy"
+        if db is None:
+            return self._empty_tab("workers", title, "Base Gov indisponible.")
+
+        rows = await queries.workers_state_query(db)
+        if not rows:
+            return self._empty_tab(
+                "workers",
+                title,
+                "Aucun worker n'a encore produit de scan. Lancer un scrape pour peupler le journal.",
+            )
+
+        total_workers = len(rows)
+        failing = sum(1 for r in rows if int(r.get("failures") or 0) > 0)
+        idle = sum(1 for r in rows if (r.get("last_status") or "") != "running")
+
+        return TabView(
+            tab_name="workers",
+            blocks=[
+                heading(level=1, text=title),
+                text(
+                    text="Agrégation ``gov_scan_log`` par ``scan_type``. "
+                    "Le dernier statut reflète le dernier run observé.",
+                    muted=True,
+                ),
+                section(
+                    title="Synthèse",
+                    blocks=[
+                        metric(label="Workers distincts", value=total_workers),
+                        metric(
+                            label="Avec échecs",
+                            value=failing,
+                            tone="warn" if failing > 0 else "neutral",
+                        ),
+                        metric(label="Au repos", value=idle),
+                    ],
+                ),
+                table_(
+                    columns=[
+                        {"key": "scan_type", "label": "Worker"},
+                        {"key": "total_runs", "label": "Runs", "align": "right"},
+                        {"key": "successes", "label": "Succès", "align": "right"},
+                        {"key": "failures", "label": "Échecs", "align": "right"},
+                        {"key": "last_status", "label": "Dernier statut"},
+                        {"key": "last_run", "label": "Dernier run"},
+                        {"key": "items_new_total", "label": "Nouveaux cumul.", "align": "right"},
+                    ],
+                    rows=[
+                        {
+                            "scan_type": str(r.get("scan_type") or "—"),
+                            "total_runs": int(r.get("total_runs") or 0),
+                            "successes": int(r.get("successes") or 0),
+                            "failures": int(r.get("failures") or 0),
+                            "last_status": str(r.get("last_status") or "—"),
+                            "last_run": str(r.get("last_run") or "—"),
+                            "items_new_total": int(r.get("items_new_total") or 0),
+                        }
+                        for r in rows
+                    ],
+                    empty_text="Aucun worker.",
+                ),
+            ],
+        ).model_dump()
+
+    @nexus_tab(name="Pipeline", icon="workflow")
+    async def pipeline_tab(self) -> dict[str, Any]:
+        """Snapshot of the ETL pipeline: status distribution,
+        scans currently ``running`` with their ``current_phase``,
+        and a chronological tail."""
+        db = self._require_db()
+        title = "Pipeline ETL"
+        if db is None:
+            return self._empty_tab("pipeline", title, "Base Gov indisponible.")
+
+        payload = await queries.pipeline_state_query(db)
+        status_counts = payload["status_counts"]
+        running = payload["running"]
+        recent = payload["recent"]
+
+        if not status_counts and not recent:
+            return self._empty_tab(
+                "pipeline",
+                title,
+                "Aucune activité pipeline enregistrée. Lancer un scan pour voir le pipeline en action.",
+            )
+
+        blocks: list[TabBlock] = [
+            heading(level=1, text=title),
+            text(
+                text="Distribution des statuts de scan et suivi des scans en cours.",
+                muted=True,
+            ),
+        ]
+
+        if status_counts:
+            blocks.append(
+                chart_bar(
+                    label="Distribution des statuts",
+                    bars=[{"label": str(row["status"]), "value": int(row["count"])} for row in status_counts],
+                )
+            )
+
+        running_rows = [
+            {
+                "scan_type": str(r.get("scan_type") or "—"),
+                "current_phase": str(r.get("current_phase") or "—"),
+                "phase_offset": int(r.get("phase_offset") or 0),
+                "items_found": int(r.get("items_found") or 0),
+                "items_new": int(r.get("items_new") or 0),
+                "started_at": str(r.get("started_at") or "—"),
+            }
+            for r in running
+        ]
+        blocks.append(
+            section(
+                title="En cours",
+                blocks=[
+                    table_(
+                        columns=[
+                            {"key": "scan_type", "label": "Worker"},
+                            {"key": "current_phase", "label": "Phase"},
+                            {"key": "phase_offset", "label": "Offset", "align": "right"},
+                            {"key": "items_found", "label": "Trouvés", "align": "right"},
+                            {"key": "items_new", "label": "Nouveaux", "align": "right"},
+                            {"key": "started_at", "label": "Démarré"},
+                        ],
+                        rows=running_rows,
+                        empty_text="Aucun scan en cours.",
+                    )
+                ],
+            )
+        )
+
+        recent_rows = [
+            {
+                "scan_type": str(r.get("scan_type") or "—"),
+                "status": str(r.get("status") or "—"),
+                "items_new": int(r.get("items_new") or 0),
+                "started_at": str(r.get("started_at") or "—"),
+                "completed_at": str(r.get("completed_at") or "—"),
+            }
+            for r in recent
+        ]
+        blocks.append(
+            section(
+                title="Historique récent",
+                blocks=[
+                    table_(
+                        columns=[
+                            {"key": "scan_type", "label": "Worker"},
+                            {"key": "status", "label": "Statut"},
+                            {"key": "items_new", "label": "Nouveaux", "align": "right"},
+                            {"key": "started_at", "label": "Démarré"},
+                            {"key": "completed_at", "label": "Terminé"},
+                        ],
+                        rows=recent_rows,
+                        empty_text="Aucun historique.",
+                    )
+                ],
+            )
+        )
+
+        return TabView(tab_name="pipeline", blocks=blocks).model_dump()
+
+    @nexus_tab(name="Social", icon="share-2")
+    async def social_tab(self) -> dict[str, Any]:
+        """Recent social posts with per-platform chart_bar."""
+        db = self._require_db()
+        title = "Posts sociaux"
+        if db is None:
+            return self._empty_tab("social", title, "Base Gov indisponible.")
+
+        rows = await queries.social_posts_query(db, limit=50)
+        platforms = await queries.social_platform_breakdown_query(db)
+
+        if not rows:
+            return self._empty_tab(
+                "social",
+                title,
+                "Aucun post social enregistré. Lancer un scrape réseau social pour alimenter la liste.",
+            )
+
+        blocks: list[TabBlock] = [
+            heading(level=1, text=title),
+            text(
+                text=f"{len(rows)} posts listés (50 max).",
+                muted=True,
+            ),
+        ]
+
+        if platforms:
+            blocks.append(
+                chart_bar(
+                    label="Posts par plateforme",
+                    bars=[{"label": str(row["platform"]), "value": int(row["count"])} for row in platforms],
+                )
+            )
+
+        blocks.append(
+            table_(
+                columns=[
+                    {"key": "platform", "label": "Plateforme"},
+                    {"key": "politician_name", "label": "Politicien"},
+                    {"key": "content", "label": "Contenu"},
+                    {"key": "posted_at", "label": "Publié"},
+                    {"key": "likes", "label": "J'aime", "align": "right"},
+                    {"key": "shares", "label": "Partages", "align": "right"},
+                    {"key": "comments", "label": "Comm.", "align": "right"},
+                ],
+                rows=[
+                    {
+                        "platform": str(r.get("platform") or "—"),
+                        "politician_name": str(r.get("politician_name") or "—"),
+                        "content": _truncate(str(r.get("content") or ""), 160),
+                        "posted_at": str(r.get("posted_at") or "—"),
+                        "likes": int(r.get("likes") or 0),
+                        "shares": int(r.get("shares") or 0),
+                        "comments": int(r.get("comments") or 0),
+                    }
+                    for r in rows
+                ],
+                empty_text="Aucun post.",
+            )
+        )
+
+        return TabView(tab_name="social", blocks=blocks).model_dump()
+
+    @nexus_tab(name="Presse", icon="newspaper")
+    async def press_tab(self) -> dict[str, Any]:
+        """Recent press entries with their sentiment column."""
+        db = self._require_db()
+        title = "Revue de presse"
+        if db is None:
+            return self._empty_tab("presse", title, "Base Gov indisponible.")
+
+        rows = await queries.press_list_query(db, limit=50)
+        if not rows:
+            return self._empty_tab(
+                "presse",
+                title,
+                "Aucune entrée de presse. Lancer un scrape presse pour alimenter le flux.",
+            )
+
+        return TabView(
+            tab_name="presse",
+            blocks=[
+                heading(level=1, text=title),
+                text(
+                    text=f"{len(rows)} articles listés (50 max).",
+                    muted=True,
+                ),
+                table_(
+                    columns=[
+                        {"key": "title", "label": "Titre"},
+                        {"key": "source_name", "label": "Source"},
+                        {"key": "sentiment", "label": "Sentiment"},
+                        {"key": "published_at", "label": "Publié"},
+                        {"key": "summary", "label": "Résumé"},
+                    ],
+                    rows=[
+                        {
+                            "title": _truncate(str(r.get("title") or "—"), 120),
+                            "source_name": str(r.get("source_name") or "—"),
+                            "sentiment": str(r.get("sentiment") or "—"),
+                            "published_at": str(r.get("published_at") or "—"),
+                            "summary": _truncate(str(r.get("summary") or ""), 160),
+                        }
+                        for r in rows
+                    ],
+                    empty_text="Aucun article.",
+                ),
+            ],
+        ).model_dump()
+
+    @nexus_tab(name="Transcriptions", icon="file-audio")
+    async def transcriptions_tab(self) -> dict[str, Any]:
+        """Recent ``gov_transcriptions`` rows joined with
+        politician name when available."""
+        db = self._require_db()
+        title = "Transcriptions"
+        if db is None:
+            return self._empty_tab("transcriptions", title, "Base Gov indisponible.")
+
+        rows = await queries.transcriptions_list_query(db, limit=50)
+        if not rows:
+            return self._empty_tab(
+                "transcriptions",
+                title,
+                "Aucune transcription enregistrée. Lancer un worker de transcription pour alimenter la liste.",
+            )
+
+        return TabView(
+            tab_name="transcriptions",
+            blocks=[
+                heading(level=1, text=title),
+                text(
+                    text=f"{len(rows)} transcriptions listées (50 max).",
+                    muted=True,
+                ),
+                table_(
+                    columns=[
+                        {"key": "title", "label": "Titre"},
+                        {"key": "politician_name", "label": "Politicien"},
+                        {"key": "source_type", "label": "Source"},
+                        {"key": "duration_seconds", "label": "Durée (s)", "align": "right"},
+                        {"key": "language", "label": "Langue"},
+                        {"key": "model_used", "label": "Modèle"},
+                        {"key": "created_at", "label": "Créée"},
+                    ],
+                    rows=[
+                        {
+                            "title": _truncate(str(r.get("title") or "—"), 120),
+                            "politician_name": str(r.get("politician_name") or "—"),
+                            "source_type": str(r.get("source_type") or "—"),
+                            "duration_seconds": int(r.get("duration_seconds") or 0),
+                            "language": str(r.get("language") or "—"),
+                            "model_used": str(r.get("model_used") or "—"),
+                            "created_at": str(r.get("created_at") or "—"),
+                        }
+                        for r in rows
+                    ],
+                    empty_text="Aucune transcription.",
                 ),
             ],
         ).model_dump()

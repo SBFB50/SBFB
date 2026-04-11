@@ -1,5 +1,5 @@
-"""Read-only SQL queries backing the Sprint 8 Phase B Batch 1
-tabs for :class:`nexus_app_gov.app.GovApp`.
+"""Read-only SQL queries backing the Sprint 8 gov tabs for
+:class:`nexus_app_gov.app.GovApp`.
 
 Each function takes an :class:`nexus_sdk.AppDatabaseClient` and
 returns plain Python data (lists of dicts, a single dict, or
@@ -9,8 +9,8 @@ primitives) that the tab handler in ``app.py`` wraps into a
 Design notes
 ------------
 
-- **Read-only**: every query is a ``SELECT``. Sprint 8 Phase B
-  is strictly read-heavy — mutations through the gov tabs are
+- **Read-only**: every query is a ``SELECT``. Sprint 8 is
+  strictly read-heavy — mutations through the gov tabs are
   deferred to Sprint 9+.
 - **Graceful degradation**: if the legacy SQLite schema is
   missing a table (fresh install without a prior scrape), the
@@ -29,16 +29,21 @@ Legacy schema reference
 -----------------------
 
 The gov SQLite schema lives in ``nexus/gov/db.py``. Every table
-is prefixed ``gov_*``; the tables consumed by Batch 1 are:
+is prefixed ``gov_*``; tables consumed by the Sprint 8 tabs:
 
 - ``gov_politicians`` — Dashboard count, Politicians list,
   PoliticianDetail, Biography
 - ``gov_positions`` — Dashboard count, Positions list, Subjects
   aggregate
-- ``gov_contradictions`` — Dashboard count, PoliticianDetail
+- ``gov_contradictions`` — Dashboard count, PoliticianDetail,
+  Contradictions (Phase C upgrade)
 - ``gov_mandates`` — Biography chronology
 - ``gov_parties`` + ``gov_party_memberships`` — Biography party
   history
+- ``gov_scan_log`` — Scan list, Workers aggregate, Pipeline
+  chronology (Phase C)
+- ``gov_press`` / ``gov_social_posts`` / ``gov_transcriptions``
+  — Press / Social / Transcriptions tabs (Phase C)
 """
 
 from __future__ import annotations
@@ -296,11 +301,332 @@ async def subjects_aggregate_query(db: AppDatabaseClient, *, limit: int = 20) ->
         return []
 
 
+# ---------------------------------------------------------------------------
+# Sprint 8 Phase C — Batch 2 queries
+# ---------------------------------------------------------------------------
+
+
+async def contradictions_overview_query(db: AppDatabaseClient, *, limit: int = 50) -> dict[str, Any]:
+    """Full Contradictions tab payload: paginated list joined
+    with politician names, per-subject aggregate, and summary
+    counts (total / high severity / verified).
+
+    A missing ``gov_contradictions`` table returns ``None`` slots
+    so the tab handler can render an empty state.
+    """
+    try:
+        rows = await db.fetchall(
+            """
+            SELECT c.id,
+                   c.subject,
+                   c.severity,
+                   c.description,
+                   c.source_verified,
+                   c.detected_at,
+                   pol.name AS politician_name
+            FROM gov_contradictions c
+            LEFT JOIN gov_politicians pol ON pol.id = c.politician_id
+            ORDER BY COALESCE(c.detected_at, '') DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    except DatabaseError:
+        rows = []
+
+    try:
+        by_subject = await db.fetchall(
+            """
+            SELECT subject, COUNT(*) AS count
+            FROM gov_contradictions
+            GROUP BY subject
+            ORDER BY count DESC, subject
+            LIMIT 10
+            """
+        )
+    except DatabaseError:
+        by_subject = []
+
+    try:
+        summary_row = await db.fetchone(
+            """
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END) AS high,
+                   SUM(CASE WHEN source_verified = 1 THEN 1 ELSE 0 END) AS verified
+            FROM gov_contradictions
+            """
+        )
+    except DatabaseError:
+        summary_row = None
+
+    if summary_row is None:
+        summary = {"total": 0, "high": 0, "verified": 0}
+    else:
+        summary = {
+            "total": int(summary_row.get("total") or 0),
+            "high": int(summary_row.get("high") or 0),
+            "verified": int(summary_row.get("verified") or 0),
+        }
+
+    return {"rows": rows, "by_subject": by_subject, "summary": summary}
+
+
+async def scan_log_recent_query(db: AppDatabaseClient, *, limit: int = 50) -> list[dict[str, Any]]:
+    """Return the ``limit`` most recent ``gov_scan_log`` entries
+    ordered by ``started_at`` desc.
+
+    Columns projected: ``id``, ``scan_type``, ``status``,
+    ``items_found``, ``items_new``, ``started_at``,
+    ``completed_at``, ``error_message``.
+    """
+    try:
+        return await db.fetchall(
+            """
+            SELECT id,
+                   scan_type,
+                   status,
+                   items_found,
+                   items_new,
+                   started_at,
+                   completed_at,
+                   error_message
+            FROM gov_scan_log
+            ORDER BY COALESCE(started_at, '') DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    except DatabaseError:
+        return []
+
+
+async def workers_state_query(db: AppDatabaseClient) -> list[dict[str, Any]]:
+    """Aggregate ``gov_scan_log`` rows by ``scan_type`` to produce
+    a synthetic Workers view.
+
+    Each row describes one legacy worker module (``press_sync``,
+    ``senat_sync``, ``facebook_sync``, ...) as reflected by the
+    scan_log audit trail:
+
+    - ``scan_type``   — routing key
+    - ``total_runs``  — total scan_log rows for this type
+    - ``successes``   — rows with ``status = 'completed'``
+    - ``failures``    — rows with ``status = 'failed'``
+    - ``last_status`` — most recent scan's status
+    - ``last_run``    — most recent ``started_at``
+    - ``items_new_total`` — cumulative ``items_new``
+
+    Rows are ordered by ``last_run`` desc so the most active
+    workers appear first.
+    """
+    try:
+        return await db.fetchall(
+            """
+            SELECT scan_type,
+                   COUNT(*) AS total_runs,
+                   SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS successes,
+                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failures,
+                   MAX(started_at) AS last_run,
+                   (
+                       SELECT s2.status
+                       FROM gov_scan_log s2
+                       WHERE s2.scan_type = s1.scan_type
+                       ORDER BY COALESCE(s2.started_at, '') DESC
+                       LIMIT 1
+                   ) AS last_status,
+                   COALESCE(SUM(items_new), 0) AS items_new_total
+            FROM gov_scan_log s1
+            GROUP BY scan_type
+            ORDER BY COALESCE(last_run, '') DESC, scan_type
+            """
+        )
+    except DatabaseError:
+        return []
+
+
+async def pipeline_state_query(db: AppDatabaseClient) -> dict[str, Any]:
+    """Pipeline tab payload: status distribution, running scans
+    with their current phase, and a short chronological tail.
+
+    Returns a dict with:
+
+    - ``status_counts`` — list of ``{status, count}`` for the
+      chart_bar over all scan_log rows
+    - ``running``       — rows currently ``status = 'running'``
+      with their current_phase + phase_offset + items counts
+    - ``recent``        — last 10 scans of any status
+    """
+    try:
+        status_counts = await db.fetchall(
+            """
+            SELECT status, COUNT(*) AS count
+            FROM gov_scan_log
+            GROUP BY status
+            ORDER BY count DESC
+            """
+        )
+    except DatabaseError:
+        status_counts = []
+
+    try:
+        running = await db.fetchall(
+            """
+            SELECT scan_type,
+                   current_phase,
+                   phase_offset,
+                   items_found,
+                   items_new,
+                   started_at
+            FROM gov_scan_log
+            WHERE status = 'running'
+            ORDER BY COALESCE(started_at, '') DESC
+            LIMIT 20
+            """
+        )
+    except DatabaseError:
+        running = []
+
+    try:
+        recent = await db.fetchall(
+            """
+            SELECT scan_type,
+                   status,
+                   items_new,
+                   started_at,
+                   completed_at
+            FROM gov_scan_log
+            ORDER BY COALESCE(started_at, '') DESC
+            LIMIT 10
+            """
+        )
+    except DatabaseError:
+        recent = []
+
+    return {
+        "status_counts": status_counts,
+        "running": running,
+        "recent": recent,
+    }
+
+
+async def social_posts_query(db: AppDatabaseClient, *, limit: int = 50) -> list[dict[str, Any]]:
+    """Return the ``limit`` most recent social posts joined with
+    their politician's name.
+
+    Columns: ``platform``, ``politician_name``, ``content``
+    (truncated to 160 chars by the handler, not here), ``url``,
+    ``posted_at``, ``likes``, ``shares``, ``comments``.
+    """
+    try:
+        return await db.fetchall(
+            """
+            SELECT sp.platform,
+                   sp.content,
+                   sp.url,
+                   sp.posted_at,
+                   sp.likes,
+                   sp.shares,
+                   sp.comments,
+                   pol.name AS politician_name
+            FROM gov_social_posts sp
+            LEFT JOIN gov_politicians pol ON pol.id = sp.politician_id
+            ORDER BY COALESCE(sp.posted_at, '') DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    except DatabaseError:
+        return []
+
+
+async def social_platform_breakdown_query(
+    db: AppDatabaseClient,
+) -> list[dict[str, Any]]:
+    """Return ``{platform, count}`` rows for the Social tab
+    chart_bar. A missing table yields an empty list.
+    """
+    try:
+        return await db.fetchall(
+            """
+            SELECT platform, COUNT(*) AS count
+            FROM gov_social_posts
+            GROUP BY platform
+            ORDER BY count DESC, platform
+            """
+        )
+    except DatabaseError:
+        return []
+
+
+async def press_list_query(db: AppDatabaseClient, *, limit: int = 50) -> list[dict[str, Any]]:
+    """Return the ``limit`` most recent press entries ordered by
+    ``published_at`` desc.
+
+    Columns: ``title``, ``source_name``, ``published_at``,
+    ``sentiment``, ``url``, ``summary``.
+    """
+    try:
+        return await db.fetchall(
+            """
+            SELECT title,
+                   source_name,
+                   published_at,
+                   sentiment,
+                   url,
+                   summary
+            FROM gov_press
+            ORDER BY COALESCE(published_at, '') DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    except DatabaseError:
+        return []
+
+
+async def transcriptions_list_query(db: AppDatabaseClient, *, limit: int = 50) -> list[dict[str, Any]]:
+    """Return the ``limit`` most recent transcriptions joined
+    with their politician name when available.
+
+    Columns: ``title``, ``politician_name`` (or ``None``),
+    ``source_type``, ``duration_seconds``, ``language``,
+    ``model_used``, ``created_at``, ``source_url``.
+    """
+    try:
+        return await db.fetchall(
+            """
+            SELECT t.title,
+                   t.source_type,
+                   t.duration_seconds,
+                   t.language,
+                   t.model_used,
+                   t.created_at,
+                   t.source_url,
+                   pol.name AS politician_name
+            FROM gov_transcriptions t
+            LEFT JOIN gov_politicians pol ON pol.id = t.politician_id
+            ORDER BY COALESCE(t.created_at, '') DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    except DatabaseError:
+        return []
+
+
 __all__ = [
     "biography_query",
+    "contradictions_overview_query",
     "dashboard_stats_query",
+    "pipeline_state_query",
     "politician_detail_query",
     "politicians_list_query",
     "positions_list_query",
+    "press_list_query",
+    "scan_log_recent_query",
+    "social_platform_breakdown_query",
+    "social_posts_query",
     "subjects_aggregate_query",
+    "transcriptions_list_query",
+    "workers_state_query",
 ]

@@ -1,10 +1,11 @@
 """Tests for the gov app — Sprint 4 regression baseline plus
-Sprint 8 Phase B Batch 1 tab handlers.
+Sprint 8 Phase B Batch 1 and Phase C Batch 2 tab handlers.
 
-The Batch 1 tests build an in-memory-equivalent SQLite fixture
-(a real file under ``tmp_path`` — SQLite shared in-memory DBs are
-awkward across aiosqlite connections) seeded with a miniature
-gov schema so the handler code runs end-to-end against real SQL.
+The Batch 1 + Batch 2 tests build an on-disk SQLite fixture
+(a real file under ``tmp_path`` — SQLite shared in-memory DBs
+are awkward across aiosqlite connections) seeded with a
+miniature gov schema so the handler code runs end-to-end
+against real SQL.
 """
 
 from __future__ import annotations
@@ -23,11 +24,12 @@ from nexus_sdk import AppContext, AppDatabaseClient, ComputeClient
 
 
 def test_gov_app_manifest_and_descriptors() -> None:
-    """Sprint 8 Phase B bumps gov to seven tabs (one legacy +
-    six Batch 1). The route + worker surfaces are unchanged:
-    one ``/statements`` route and one
-    ``contradiction_detector`` worker — Phase D will add the
-    RAG workers.
+    """Sprint 8 Phase C brings gov to thirteen tabs (six Batch 1
+    read-only browse tabs + the Contradictions tab upgraded from
+    the Sprint 4 stub + six Batch 2 operational/content tabs).
+    The route + worker surfaces are unchanged: one
+    ``/statements`` route and one ``contradiction_detector``
+    worker — Phase D will add the RAG workers.
     """
     app = GovApp()
     assert app.manifest.name == "gov"
@@ -45,7 +47,8 @@ def test_gov_app_manifest_and_descriptors() -> None:
     assert workers[0].name == "contradiction_detector"
     assert workers[0].model == "stub-model:latest"
 
-    # Seven tabs: legacy Contradictions stub + six Batch 1 tabs.
+    # Thirteen tabs: six Batch 1 tabs + Contradictions (upgraded
+    # in place from the Sprint 4 stub) + six Batch 2 tabs.
     tab_names = {t.name for t in tabs}
     assert tab_names == {
         "Contradictions",
@@ -55,6 +58,12 @@ def test_gov_app_manifest_and_descriptors() -> None:
         "Biographie",
         "Positions",
         "Sujets",
+        "Scan",
+        "Workers",
+        "Pipeline",
+        "Social",
+        "Presse",
+        "Transcriptions",
     }
 
 
@@ -118,7 +127,9 @@ CREATE TABLE gov_contradictions (
     position_b_id TEXT NOT NULL,
     subject TEXT NOT NULL,
     description TEXT NOT NULL,
-    severity TEXT DEFAULT 'medium'
+    severity TEXT DEFAULT 'medium',
+    source_verified INTEGER DEFAULT 0,
+    detected_at DATETIME
 );
 
 CREATE TABLE gov_parties (
@@ -147,6 +158,61 @@ CREATE TABLE gov_party_memberships (
     start_date DATE,
     end_date DATE,
     is_current INTEGER DEFAULT 0
+);
+
+CREATE TABLE gov_scan_log (
+    id TEXT PRIMARY KEY,
+    scan_type TEXT NOT NULL,
+    status TEXT DEFAULT 'running',
+    items_found INTEGER DEFAULT 0,
+    items_new INTEGER DEFAULT 0,
+    error_message TEXT,
+    started_at DATETIME,
+    completed_at DATETIME,
+    current_phase TEXT DEFAULT '',
+    phase_offset INTEGER DEFAULT 0,
+    checkpoint_data TEXT DEFAULT '{}'
+);
+
+CREATE TABLE gov_press (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    url TEXT,
+    source_name TEXT,
+    published_at DATETIME,
+    summary TEXT,
+    sentiment TEXT,
+    politicians_mentioned TEXT,
+    subjects TEXT
+);
+
+CREATE TABLE gov_social_posts (
+    id TEXT PRIMARY KEY,
+    politician_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    post_id TEXT,
+    content TEXT,
+    url TEXT,
+    media_type TEXT,
+    media_url TEXT,
+    posted_at DATETIME,
+    likes INTEGER DEFAULT 0,
+    shares INTEGER DEFAULT 0,
+    comments INTEGER DEFAULT 0
+);
+
+CREATE TABLE gov_transcriptions (
+    id TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    source_url TEXT,
+    politician_id TEXT,
+    title TEXT,
+    transcription TEXT,
+    timestamped_text TEXT,
+    duration_seconds INTEGER,
+    language TEXT DEFAULT 'fr',
+    model_used TEXT,
+    created_at DATETIME
 );
 """
 
@@ -227,7 +293,7 @@ def _seed_gov_db(db_path: Path) -> None:
             ],
         )
         conn.execute(
-            "INSERT INTO gov_contradictions VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO gov_contradictions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "ctr-1",
                 "p-alice",
@@ -236,6 +302,8 @@ def _seed_gov_db(db_path: Path) -> None:
                 "climat",
                 "Pour puis contre la loi climat.",
                 "high",
+                1,
+                "2025-12-01T08:00:00",
             ),
         )
         conn.execute(
@@ -262,6 +330,185 @@ def _seed_gov_db(db_path: Path) -> None:
         conn.execute(
             "INSERT INTO gov_party_memberships VALUES (?, ?, ?, ?, ?, ?)",
             ("mb-alice-1", "p-alice", "party-ps", "2022-06-01", None, 1),
+        )
+        # ------------------------------------------------------------
+        # Sprint 8 Phase C — operational + content tables
+        # ------------------------------------------------------------
+        conn.executemany(
+            "INSERT INTO gov_scan_log "
+            "(id, scan_type, status, items_found, items_new, "
+            " error_message, started_at, completed_at, "
+            " current_phase, phase_offset, checkpoint_data) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "sc-1",
+                    "press_sync",
+                    "completed",
+                    42,
+                    12,
+                    None,
+                    "2025-11-30T08:00:00",
+                    "2025-11-30T08:04:00",
+                    "done",
+                    0,
+                    "{}",
+                ),
+                (
+                    "sc-2",
+                    "press_sync",
+                    "failed",
+                    0,
+                    0,
+                    "429 rate limit",
+                    "2025-12-01T08:00:00",
+                    "2025-12-01T08:00:30",
+                    "fetch",
+                    1,
+                    "{}",
+                ),
+                (
+                    "sc-3",
+                    "depute_sync",
+                    "running",
+                    100,
+                    25,
+                    None,
+                    "2025-12-01T09:30:00",
+                    None,
+                    "politicians",
+                    150,
+                    "{}",
+                ),
+                (
+                    "sc-4",
+                    "facebook_sync",
+                    "completed",
+                    18,
+                    18,
+                    None,
+                    "2025-12-01T10:00:00",
+                    "2025-12-01T10:02:00",
+                    "done",
+                    0,
+                    "{}",
+                ),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO gov_press "
+            "(id, title, url, source_name, published_at, summary, "
+            " sentiment, politicians_mentioned, subjects) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "pr-1",
+                    "Alice Martin défend la loi climat",
+                    "https://lemonde.fr/article-1",
+                    "Le Monde",
+                    "2025-11-29T18:00:00",
+                    "Prise de parole à l'Assemblée.",
+                    "positive",
+                    "p-alice",
+                    "climat",
+                ),
+                (
+                    "pr-2",
+                    "Bob Durand s'oppose à la hausse fiscale",
+                    "https://lefigaro.fr/article-2",
+                    "Le Figaro",
+                    "2025-11-28T09:00:00",
+                    "Intervention au Sénat.",
+                    "neutral",
+                    "p-bob",
+                    "fiscalite",
+                ),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO gov_social_posts "
+            "(id, politician_id, platform, post_id, content, url, "
+            " media_type, media_url, posted_at, likes, shares, comments) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "sp-1",
+                    "p-alice",
+                    "twitter",
+                    "t-1",
+                    "Oui à la loi climat #climat",
+                    "https://twitter.com/alice/status/1",
+                    "text",
+                    None,
+                    "2025-11-29T19:00:00",
+                    120,
+                    34,
+                    12,
+                ),
+                (
+                    "sp-2",
+                    "p-alice",
+                    "facebook",
+                    "fb-1",
+                    "Communiqué sur le climat",
+                    "https://facebook.com/alice/posts/1",
+                    "text",
+                    None,
+                    "2025-11-30T08:00:00",
+                    45,
+                    8,
+                    3,
+                ),
+                (
+                    "sp-3",
+                    "p-bob",
+                    "twitter",
+                    "t-2",
+                    "Non à la hausse fiscale",
+                    "https://twitter.com/bob/status/1",
+                    "text",
+                    None,
+                    "2025-11-28T10:00:00",
+                    80,
+                    20,
+                    5,
+                ),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO gov_transcriptions "
+            "(id, source_type, source_url, politician_id, title, "
+            " transcription, timestamped_text, duration_seconds, "
+            " language, model_used, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "tr-1",
+                    "youtube",
+                    "https://youtube.com/watch?v=abc",
+                    "p-alice",
+                    "Discours Alice au Parlement",
+                    "Mes chers collègues, aujourd'hui…",
+                    None,
+                    540,
+                    "fr",
+                    "whisper-large",
+                    "2025-11-29T19:30:00",
+                ),
+                (
+                    "tr-2",
+                    "podcast",
+                    "https://podcast.fm/ep-12",
+                    None,
+                    "Analyse budget 2026",
+                    "Le budget est marqué par…",
+                    None,
+                    1800,
+                    "fr",
+                    "whisper-medium",
+                    "2025-11-27T15:00:00",
+                ),
+            ],
         )
         conn.commit()
     finally:
@@ -465,8 +712,8 @@ async def test_subjects_tab_aggregates_by_count(tmp_path: Path) -> None:
 async def test_tabs_render_empty_state_when_db_missing(tmp_path: Path) -> None:
     """A client pointed at a file that doesn't yet contain the
     gov schema must fall back to the empty-state TabView for
-    every Batch 1 tab — the shell still renders a heading + an
-    empty block instead of surfacing a 500."""
+    every Batch 1 + Batch 2 tab — the shell still renders a
+    heading + an empty block instead of surfacing a 500."""
     empty_db = tmp_path / "empty.sqlite"
     app = GovApp()
     app._ctx = AppContext(
@@ -483,6 +730,13 @@ async def test_tabs_render_empty_state_when_db_missing(tmp_path: Path) -> None:
         app.biography_tab,
         app.positions_tab,
         app.subjects_tab,
+        app.contradictions_tab,
+        app.scan_tab,
+        app.workers_tab,
+        app.pipeline_tab,
+        app.social_tab,
+        app.press_tab,
+        app.transcriptions_tab,
     ):
         desc = await handler()
         assert desc["schema_version"] == 1
@@ -490,3 +744,177 @@ async def test_tabs_render_empty_state_when_db_missing(tmp_path: Path) -> None:
         # by an empty block.
         assert desc["blocks"][0]["kind"] == "heading"
         assert any(b["kind"] == "empty" for b in desc["blocks"])
+
+
+# ---------------------------------------------------------------------------
+# Sprint 8 Phase C — seven Batch 2 tab handler tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_contradictions_tab_upgrades_to_table_with_summary(tmp_path: Path) -> None:
+    """Phase C rewrite: the Contradictions tab returns a TabView
+    with summary metrics, a per-subject chart_bar, and the
+    paginated table joined with politician names.
+    """
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.contradictions_tab()
+
+    assert desc["tab_name"] == "contradictions"
+    kinds = _block_kinds(desc)
+    # heading + muted text + summary section + chart_bar + table.
+    assert kinds[0] == "heading"
+    assert "section" in kinds
+    assert "chart_bar" in kinds
+    assert "table" in kinds
+
+    summary_section = next(b for b in desc["blocks"] if b["kind"] == "section" and b["title"] == "Résumé")
+    metric_labels = {b["label"]: b["value"] for b in summary_section["blocks"]}
+    assert metric_labels["Contradictions détectées"] == 1
+    # ctr-1 has severity 'high' → high metric rings danger.
+    high_metric = next(b for b in summary_section["blocks"] if b["label"] == "Sévérité haute")
+    assert high_metric["value"] == 1
+    assert high_metric["tone"] == "danger"
+
+    chart = next(b for b in desc["blocks"] if b["kind"] == "chart_bar")
+    assert chart["bars"][0]["label"] == "climat"
+    assert chart["bars"][0]["value"] == 1
+
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 1
+    row = table_block["rows"][0]
+    assert row["politician_name"] == "Alice Martin"
+    assert row["subject"] == "climat"
+    assert row["severity"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_scan_tab_lists_recent_log_entries(tmp_path: Path) -> None:
+    """Scan tab surfaces the four seeded scan_log rows ordered by
+    started_at desc."""
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.scan_tab()
+
+    assert desc["tab_name"] == "scan"
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 4
+    # Most recent row first — sc-4 (facebook_sync 2025-12-01T10:00).
+    assert table_block["rows"][0]["scan_type"] == "facebook_sync"
+    assert table_block["rows"][0]["status"] == "completed"
+    statuses = {row["status"] for row in table_block["rows"]}
+    assert statuses == {"completed", "failed", "running"}
+
+
+@pytest.mark.asyncio
+async def test_workers_tab_aggregates_by_scan_type(tmp_path: Path) -> None:
+    """Workers tab groups scan_log rows by scan_type with per-worker
+    run stats and a summary section."""
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.workers_tab()
+
+    assert desc["tab_name"] == "workers"
+    summary_section = next(b for b in desc["blocks"] if b["kind"] == "section" and b["title"] == "Synthèse")
+    summary_metrics = {b["label"]: b["value"] for b in summary_section["blocks"]}
+    assert summary_metrics["Workers distincts"] == 3
+    # press_sync has one failed run → 1 worker flagged with failures.
+    assert summary_metrics["Avec échecs"] == 1
+
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    rows_by_name = {row["scan_type"]: row for row in table_block["rows"]}
+    assert set(rows_by_name) == {"press_sync", "depute_sync", "facebook_sync"}
+
+    press_row = rows_by_name["press_sync"]
+    assert press_row["total_runs"] == 2
+    assert press_row["successes"] == 1
+    assert press_row["failures"] == 1
+    # Most recent press_sync run is sc-2 (failed) by started_at desc.
+    assert press_row["last_status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_tab_exposes_running_scan_and_status_distribution(
+    tmp_path: Path,
+) -> None:
+    """Pipeline tab carries a chart_bar of statuses, a running
+    section with the one in-flight scan, and a historical tail."""
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.pipeline_tab()
+
+    assert desc["tab_name"] == "pipeline"
+
+    chart = next(b for b in desc["blocks"] if b["kind"] == "chart_bar")
+    statuses = {b["label"]: b["value"] for b in chart["bars"]}
+    assert statuses["completed"] == 2
+    assert statuses["failed"] == 1
+    assert statuses["running"] == 1
+
+    running_section = next(b for b in desc["blocks"] if b["kind"] == "section" and b["title"] == "En cours")
+    running_table = running_section["blocks"][0]
+    assert running_table["kind"] == "table"
+    assert len(running_table["rows"]) == 1
+    running_row = running_table["rows"][0]
+    assert running_row["scan_type"] == "depute_sync"
+    assert running_row["current_phase"] == "politicians"
+    assert running_row["phase_offset"] == 150
+
+    history_section = next(b for b in desc["blocks"] if b["kind"] == "section" and b["title"] == "Historique récent")
+    history_table = history_section["blocks"][0]
+    assert len(history_table["rows"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_social_tab_lists_posts_with_platform_chart(tmp_path: Path) -> None:
+    """Social tab lists the three seeded posts, ordered by
+    posted_at desc, and exposes a chart_bar of platform counts."""
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.social_tab()
+
+    assert desc["tab_name"] == "social"
+
+    chart = next(b for b in desc["blocks"] if b["kind"] == "chart_bar")
+    bars_by_platform = {b["label"]: b["value"] for b in chart["bars"]}
+    assert bars_by_platform["twitter"] == 2
+    assert bars_by_platform["facebook"] == 1
+
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 3
+    # Most recent first (sp-2 facebook 2025-11-30T08:00).
+    assert table_block["rows"][0]["platform"] == "facebook"
+    assert table_block["rows"][0]["politician_name"] == "Alice Martin"
+    # All three rows carry a politician_name via LEFT JOIN.
+    names = {row["politician_name"] for row in table_block["rows"]}
+    assert names == {"Alice Martin", "Bob Durand"}
+
+
+@pytest.mark.asyncio
+async def test_press_tab_lists_articles_sorted_by_date(tmp_path: Path) -> None:
+    """Presse tab lists the two seeded press entries ordered by
+    published_at desc, each with a sentiment column."""
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.press_tab()
+
+    assert desc["tab_name"] == "presse"
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 2
+    dates = [row["published_at"] for row in table_block["rows"]]
+    assert dates == sorted(dates, reverse=True)
+    # Most recent first (pr-1 Le Monde positive).
+    assert table_block["rows"][0]["source_name"] == "Le Monde"
+    assert table_block["rows"][0]["sentiment"] == "positive"
+
+
+@pytest.mark.asyncio
+async def test_transcriptions_tab_joins_politician_name(tmp_path: Path) -> None:
+    """Transcriptions tab ships the two seeded rows with the
+    politician_name column populated via LEFT JOIN when set."""
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.transcriptions_tab()
+
+    assert desc["tab_name"] == "transcriptions"
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 2
+    # tr-1 is the most recent (created_at 2025-11-29T19:30).
+    assert table_block["rows"][0]["title"] == "Discours Alice au Parlement"
+    assert table_block["rows"][0]["politician_name"] == "Alice Martin"
+    # tr-2 has no politician_id → politician_name coerces to '—'.
+    assert table_block["rows"][1]["politician_name"] == "—"
