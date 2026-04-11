@@ -129,6 +129,13 @@ def _coerce_tab_view(descriptor: Any, app_name: str, tab_name: str) -> dict[str,
     warning and return the original ``{"descriptor": <raw>,
     "legacy_descriptor": true}`` so pre-Sprint-6 apps keep working
     for one release while they are ported.
+
+    # TODO(Sprint 8): remove the legacy_descriptor fallback once the
+    # 19-tab nexus-app-gov migration lands. The fallback is a
+    # transition aid for ONE release only, per sprint6_plan.md §D3
+    # and docs/shell/PATTERNS.md §P8. This comment is the code-level
+    # sentinel the Sprint 6 audit finding D-1 asked for — grep for
+    # "Sprint 8" to find every such marker before cutting the release.
     """
     if isinstance(descriptor, TabView):
         return {"descriptor": descriptor.model_dump(), "legacy_descriptor": False}
