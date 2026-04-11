@@ -16,7 +16,7 @@
   {
     "name": "vendor-ui",
     "path": "dist/assets/vendor-ui-*.js",
-    "limit": "110 KB",
+    "limit": "50 KB",
     "brotli": false,
     "gzip": false
   },
