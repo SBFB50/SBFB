@@ -34,6 +34,7 @@ use std::time::SystemTime;
 
 use anyhow::{anyhow, Context, Result};
 use nexus_core_rs::{create_node, GossipClient, GossipEvent, Node};
+use nexus_shell_daemon_core::browse::{BrowseAggregator, BrowseAggregatorHandle};
 use nexus_shell_daemon_core::config::ShellDaemonPaths;
 use nexus_shell_daemon_core::iroh_runtime::{
     curator_topic_id, CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle,
@@ -174,6 +175,13 @@ impl DaemonRuntime {
             opts.paths.subscriptions_json.clone(),
         ));
 
+        // 5b. Construct the Phase D browse aggregator. It is
+        //     cheap (just a DashMap + two duration knobs) so
+        //     it is always instantiated at boot; GET /browse
+        //     reaches through this handle + the Arc<Node> to
+        //     probe each project's reachability on demand.
+        let browse_aggregator: BrowseAggregatorHandle = Arc::new(BrowseAggregator::new());
+
         // 6. Build the shared HTTP state + spawn the serve task.
         let http_state = Arc::new(DaemonHttpState {
             node_id,
@@ -182,6 +190,8 @@ impl DaemonRuntime {
             api_host: host,
             api_port: bound_addr.port(),
             curator_runtime: Arc::clone(&curator_runtime),
+            browse_aggregator: Arc::clone(&browse_aggregator),
+            node: Arc::clone(&node),
         });
         let router = build_router(http_state);
 

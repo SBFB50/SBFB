@@ -38,6 +38,8 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+use nexus_core_rs::Node;
+use nexus_shell_daemon_core::browse::{BrowseAggregatorHandle, BrowseEntry};
 use nexus_shell_daemon_core::iroh_runtime::{CuratorRuntimeError, CuratorRuntimeHandle};
 use nexus_shell_daemon_core::state::{DaemonStateSnapshot, StateInputs};
 use serde::{Deserialize, Serialize};
@@ -49,7 +51,9 @@ use tracing::debug;
 /// Holds the static fields needed by `/info` plus the
 /// [`CuratorRuntimeHandle`] that curator routes and `/info`'s
 /// subscribed-curators / known-lists / known-browse-entries
-/// counters read from.
+/// counters read from, the Phase D [`BrowseAggregatorHandle`],
+/// and an `Arc<Node>` so the browse handler can drive the
+/// [`nexus_core_rs::DiscoveryClient::probe_reachable`] path.
 #[derive(Debug, Clone)]
 pub struct DaemonHttpState {
     pub node_id: String,
@@ -58,6 +62,11 @@ pub struct DaemonHttpState {
     pub api_host: String,
     pub api_port: u16,
     pub curator_runtime: CuratorRuntimeHandle,
+    pub browse_aggregator: BrowseAggregatorHandle,
+    /// Shared iroh node handle. The browse route reaches
+    /// through the Arc to call `DiscoveryClient::probe_reachable`
+    /// on the endpoint.
+    pub node: Arc<Node>,
 }
 
 impl DaemonHttpState {
@@ -94,6 +103,7 @@ pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
         .route("/curators", get(list_curators))
         .route("/curators/subscribe", post(subscribe_curator))
         .route("/curators/:pubkey", delete(unsubscribe_curator))
+        .route("/browse", get(list_browse))
         .with_state(state)
         .layer(loopback_cors_layer())
 }
@@ -169,6 +179,16 @@ pub struct CuratorsListResponse {
     /// on first announcement" placeholders for subscribed
     /// curators that have not yet broadcast.
     pub subscribed_curators: Vec<String>,
+}
+
+/// Body of `GET /browse`.
+///
+/// Sorted flat list of every project entry across every cached
+/// curator list, each row carrying a reachability bucket the
+/// React shell renders as a coloured dot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowseListResponse {
+    pub entries: Vec<BrowseEntry>,
 }
 
 /// Body returned when a curator runtime error must be surfaced
@@ -269,6 +289,25 @@ async fn unsubscribe_curator(
     }
 }
 
+/// `GET /browse` — Phase D reachability-annotated view of every
+/// project across every cached curator list.
+///
+/// The aggregator flattens the Phase C curator runtime's list
+/// snapshot, probes each referenced project endpoint (honouring
+/// the TTL cache), and returns a sorted vector the React shell
+/// renders as a Browse page. If the curator runtime is empty
+/// (no subscribed curators, or no announcements received yet)
+/// this returns `{"entries": []}` at 200 rather than an error —
+/// the shell renders an empty-state card in that case.
+async fn list_browse(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    debug!("GET /browse");
+    let entries = state
+        .browse_aggregator
+        .aggregate(&state.curator_runtime, &state.node)
+        .await;
+    (StatusCode::OK, Json(BrowseListResponse { entries }))
+}
+
 // =================================================================
 // Tests
 // =================================================================
@@ -278,24 +317,35 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use axum::http::{Method, Request};
-    use nexus_core_rs::KeyPair;
+    use nexus_core_rs::{create_node, KeyPair};
+    use nexus_shell_daemon_core::browse::BrowseAggregator;
     use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
     use tower::ServiceExt;
 
-    fn mk_state() -> Arc<DaemonHttpState> {
+    /// Build a [`DaemonHttpState`] backed by a live iroh node.
+    /// Every HTTP test spins up a fresh node because the
+    /// browse route reaches through the Arc<Node> to probe
+    /// endpoints. The `_node_guard` return keeps the node
+    /// alive for the scope of the test; letting it drop
+    /// calls the synchronous Drop path which is fine for
+    /// unit tests.
+    async fn mk_state() -> Arc<DaemonHttpState> {
+        let node = create_node().await.expect("boot test node");
         Arc::new(DaemonHttpState {
-            node_id: "deadbeef".repeat(8),
+            node_id: node.node_id(),
             daemon_version: "0.1.0-test".to_string(),
             boot_time: SystemTime::now(),
             api_host: "127.0.0.1".to_string(),
             api_port: 12345,
             curator_runtime: Arc::new(CuratorRuntime::new(None)),
+            browse_aggregator: Arc::new(BrowseAggregator::new()),
+            node: Arc::new(node),
         })
     }
 
     #[tokio::test]
     async fn health_returns_200_with_fixed_shape() {
-        let app = build_router(mk_state());
+        let app = build_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -317,7 +367,7 @@ mod tests {
 
     #[tokio::test]
     async fn info_returns_full_snapshot() {
-        let app = build_router(mk_state());
+        let app = build_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -343,7 +393,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_route_returns_404() {
-        let app = build_router(mk_state());
+        let app = build_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -359,7 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_curators_returns_empty_when_nothing_cached() {
-        let app = build_router(mk_state());
+        let app = build_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -379,7 +429,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_then_list_then_delete_happy_path() {
-        let state = mk_state();
+        let state = mk_state().await;
         let app = build_router(Arc::clone(&state));
         let kp = KeyPair::generate();
         let hex_key = hex::encode(kp.public_bytes());
@@ -445,7 +495,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_rejects_bad_pubkey_hex_as_400() {
-        let app = build_router(mk_state());
+        let app = build_router(mk_state().await);
         let body = serde_json::to_vec(&SubscribeCuratorRequest {
             curator_pubkey_hex: "not-hex".to_string(),
         })
@@ -466,7 +516,7 @@ mod tests {
 
     #[tokio::test]
     async fn info_reflects_live_curator_runtime_counts() {
-        let state = mk_state();
+        let state = mk_state().await;
         let kp = KeyPair::generate();
         state
             .curator_runtime
@@ -488,6 +538,30 @@ mod tests {
         let snap: DaemonStateSnapshot =
             serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(snap.subscribed_curators.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn browse_returns_empty_list_when_no_curators_cached() {
+        // Phase D smoke test: with an empty curator runtime the
+        // aggregator has nothing to flatten, so /browse returns
+        // `{"entries": []}` at 200. The full Reachable/Unreachable
+        // behaviour is covered by the 2-node integration tests
+        // in `browse::tests::aggregate_probes_seeded_peer_*`.
+        let app = build_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/browse")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let list: BrowseListResponse = serde_json::from_slice(&body).unwrap();
+        assert!(list.entries.is_empty());
     }
 
     // ---------------------------------------------------------

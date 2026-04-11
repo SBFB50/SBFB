@@ -23,9 +23,13 @@
 //! - Curator list record publishing on top of pkarr signed packets
 
 use std::collections::BTreeSet;
+use std::str::FromStr;
+use std::time::Duration;
 
-use iroh::{Endpoint, EndpointAddr, TransportAddr, Watcher as _};
+use iroh::{Endpoint, EndpointAddr, EndpointId, TransportAddr, Watcher as _};
+use iroh_blobs::ALPN as BLOBS_ALPN;
 use serde::{Deserialize, Serialize};
+use tokio::time::timeout;
 
 use crate::error::{NexusError, Result};
 
@@ -144,14 +148,68 @@ impl<'a> DiscoveryClient<'a> {
             direct_addresses: direct_addresses.into_iter().collect(),
         })
     }
+
+    /// Probe whether a remote endpoint id is reachable **right
+    /// now** by attempting to dial it over the iroh-blobs ALPN
+    /// under a wall-clock timeout.
+    ///
+    /// Sprint 7 Phase D plan R1: `Endpoint::lookup(id)` is not
+    /// yet wrapped by this crate, so the browse reachability
+    /// check falls back on `Endpoint::connect(id, ALPN)` with a
+    /// short timeout. Because every SBFB node accepts the blobs
+    /// protocol at boot (see [`crate::node::create_node`]), a
+    /// connect probe to [`iroh_blobs::ALPN`] is the least
+    /// invasive liveness check — it triggers the full pkarr DHT
+    /// lookup + relay dial + direct-path race and reports back
+    /// whatever iroh comes up with.
+    ///
+    /// Arguments:
+    ///
+    /// - `endpoint_id_hex` — 64-char lowercase hex of the peer's
+    ///   Ed25519 public key. Accepted format is what
+    ///   [`crate::Node::node_id`] returns.
+    /// - `timeout_duration` — hard deadline. A 2 s probe is the
+    ///   right default: fast enough to keep the browse UI
+    ///   responsive, slow enough to absorb a pkarr round-trip
+    ///   under typical residential NAT conditions.
+    ///
+    /// Returns:
+    ///
+    /// - `Ok(true)` — `Endpoint::connect` returned a live
+    ///   connection before the deadline. The connection is
+    ///   immediately dropped; the probe does not keep any state
+    ///   and does not open any bi-directional stream.
+    /// - `Ok(false)` — `Endpoint::connect` returned an error
+    ///   (peer not found, relay refused, ALPN mismatch, …) OR
+    ///   the deadline elapsed. Both cases collapse to the same
+    ///   "unreachable" bucket because the shell's Browse page
+    ///   UX does not distinguish.
+    /// - `Err(NexusError::Discovery(..))` — the input hex could
+    ///   not be parsed as an `EndpointId`. A malformed input is
+    ///   a caller bug, not a network condition, so it surfaces
+    ///   as a hard error instead of collapsing to `false`.
+    pub async fn probe_reachable(
+        &self,
+        endpoint_id_hex: &str,
+        timeout_duration: Duration,
+    ) -> Result<bool> {
+        let endpoint_id = EndpointId::from_str(endpoint_id_hex).map_err(|e| {
+            NexusError::Discovery(format!("bad endpoint id hex {endpoint_id_hex}: {e}"))
+        })?;
+
+        let connect_fut = self.endpoint.connect(endpoint_id, BLOBS_ALPN);
+        match timeout(timeout_duration, connect_fut).await {
+            Ok(Ok(_conn)) => Ok(true),
+            Ok(Err(_dial_err)) => Ok(false),
+            Err(_elapsed) => Ok(false),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::create_node;
-    use std::time::Duration;
-    use tokio::time::timeout;
 
     #[tokio::test]
     async fn my_node_id_is_stable() {
@@ -199,5 +257,72 @@ mod tests {
         let json = serde_json::to_string(&info).unwrap();
         let back: NodeAddrInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(info, back);
+    }
+
+    #[tokio::test]
+    async fn probe_reachable_rejects_malformed_hex() {
+        // A bad hex string is a caller bug, not a network
+        // condition — surfaces as `Err`, not `Ok(false)`, so
+        // the browse aggregator can distinguish the two.
+        let node = create_node().await.unwrap();
+        let disco = DiscoveryClient::new(node.endpoint());
+        let err = disco
+            .probe_reachable("not-hex-at-all", Duration::from_millis(100))
+            .await;
+        assert!(err.is_err());
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn probe_reachable_returns_false_for_random_unknown_id() {
+        // A fresh node id we never publish anywhere will fail
+        // pkarr resolution. Depending on the iroh dialer the
+        // connect call may either error fast or hit the timeout
+        // — both collapse to `Ok(false)` here.
+        let node = create_node().await.unwrap();
+        let disco = DiscoveryClient::new(node.endpoint());
+        let unknown = "0".repeat(64); // never minted, never advertised
+        let reachable = disco
+            .probe_reachable(&unknown, Duration::from_millis(500))
+            .await
+            .expect("hex is well-formed so the call must return Ok");
+        assert!(
+            !reachable,
+            "an unadvertised node id must never be reachable"
+        );
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn probe_reachable_finds_a_seeded_local_peer() {
+        // Two nodes in the same process: node A exposes its
+        // EndpointAddr, we seed it into node B's address
+        // lookup, and then node B's probe_reachable must
+        // succeed because the dial can resolve A without
+        // needing pkarr.
+        let node_a = create_node().await.unwrap();
+        let node_b = create_node().await.unwrap();
+
+        // Publish A's address into B's memory_lookup — this is
+        // exactly the same trick `blobs.rs::fetch_ticket` uses
+        // to dial a peer off a BlobTicket without DHT traffic.
+        let a_addr = DiscoveryClient::new(node_a.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("node A must publish its address");
+        node_b.memory_lookup().add_endpoint_info(a_addr);
+
+        let disco_b = DiscoveryClient::new(node_b.endpoint());
+        let reachable = disco_b
+            .probe_reachable(&node_a.node_id(), Duration::from_secs(5))
+            .await
+            .expect("probe must not error when target is seeded");
+        assert!(
+            reachable,
+            "node A should be reachable from node B after seeding memory_lookup"
+        );
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
     }
 }
