@@ -23,9 +23,19 @@ active environment. The MEMORY note for this project records the
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import nexus_core  # provided by the nexus-core-py wheel (PyO3)
 import pytest
+
+# Sprint 8 audit A-3 — cross-language fixture seed. A single
+# 32-byte secret drives the deterministic keypair that signs
+# ``packages/nexus-sdk/tests/snapshots/curator_canonical.json``.
+# Both Python and the Vitest suite re-read the frozen JSON so
+# any drift (either side) surfaces as a test failure at the
+# next regeneration attempt.
+_A3_CANONICAL_SEED: bytes = b"sprint8-audit-a3-curator-fixture"
+_A3_CANONICAL_PATH: Path = Path(__file__).parent / "snapshots" / "curator_canonical.json"
 
 # ---------------------------------------------------------------
 # Fixtures
@@ -196,3 +206,99 @@ def test_verify_surfaces_bad_json_as_value_error() -> None:
     # callers can catch the two cases separately.
     with pytest.raises(ValueError):
         nexus_core.verify_curator_list_entry("not valid json")
+
+
+# ---------------------------------------------------------------
+# Sprint 8 audit A-3 — cross-language canonical fixture
+# ---------------------------------------------------------------
+
+
+def test_canonical_fixture_roundtrip() -> None:
+    """Bind Python sign → Rust verify to the frozen snapshot.
+
+    Sprint 7 audit A-3 surfaced that the Zod mirror in
+    ``web/src/api/daemon.ts`` is defined by hand and nothing
+    exercises it against a real signed blob. The fix: bake a
+    deterministic fixture that both the Python side (via this
+    test) and the Vitest side (via
+    ``web/src/api/__tests__/daemon.test.ts`` consuming the same
+    file with ``resolveJsonModule``) load, parse, and in the
+    web case feed through ``CuratorListEntrySchema.parse``.
+
+    If the fixture file needs to be regenerated (schema bump
+    or sign path change), run:
+
+    .. code-block:: python
+
+        import json, nexus_core
+        from pathlib import Path
+
+        seed = b"sprint8-audit-a3-curator-fixture"
+        pair = nexus_core.keypair_from_secret(seed)
+        secret, public = bytes(pair["secret"]), bytes(pair["public"])
+        list_dict = {
+            "version": 1,
+            "curator_pubkey": list(public),
+            "curator_name": "FlowUP Curation (A-3 fixture)",
+            "created_at": 1_712_345_678,
+            "revision": 1,
+            "entries": [
+                {"project_id": "a" * 64, "project_name": "gov",
+                 "category": "gov",
+                 "description": "Signal processing and intelligence tooling"},
+                {"project_id": "b" * 64, "project_name": "coldcase",
+                 "category": "investigation",
+                 "description": "Cold case investigation toolkit"},
+            ],
+        }
+        signed = nexus_core.sign_curator_list(
+            json.dumps(list_dict, sort_keys=True), secret
+        )
+        Path("packages/nexus-sdk/tests/snapshots/curator_canonical.json") \
+            .write_text(
+                json.dumps(json.loads(signed), indent=2, sort_keys=True) + "\\n",
+                encoding="utf-8",
+                newline="\\n",
+            )
+
+    And commit the resulting file. The Vitest suite picks it up
+    automatically through JSON import.
+    """
+    # The fixture must exist and parse as JSON.
+    raw = _A3_CANONICAL_PATH.read_text(encoding="utf-8")
+    entry = json.loads(raw)
+
+    # Shape invariants the Zod mirror relies on.
+    assert entry["list"]["version"] == 1
+    assert len(entry["curator_pubkey"]) == 32
+    assert len(entry["signature"]) == 64
+    assert entry["list"]["curator_pubkey"] == entry["curator_pubkey"]
+
+    # The frozen signature must still verify under the Rust
+    # crypto layer. A failure here means either the fixture
+    # drifted or the signing code changed — either way an
+    # operator must regenerate the snapshot and re-commit.
+    nexus_core.verify_curator_list_entry(raw)
+
+    # The seed that produced the fixture must still derive the
+    # same keypair. This catches a regression in
+    # ``keypair_from_secret`` or in ed25519-dalek's key
+    # derivation convention.
+    pair = nexus_core.keypair_from_secret(_A3_CANONICAL_SEED)
+    regenerated_public = list(bytes(pair["public"]))
+    assert regenerated_public == entry["curator_pubkey"]
+
+    # And signing the same payload with the same seed must
+    # reproduce the exact same signed blob (Ed25519 + sorted
+    # canonical bytes are deterministic by construction).
+    list_dict = entry["list"]
+    resigned = nexus_core.sign_curator_list(
+        json.dumps(list_dict, sort_keys=True),
+        bytes(pair["secret"]),
+    )
+    resigned_entry = json.loads(resigned)
+    assert resigned_entry["signature"] == entry["signature"], (
+        "Sign path drifted — regenerate the canonical fixture "
+        "and commit the new snapshot; see the docstring for the "
+        "exact snippet."
+    )

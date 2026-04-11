@@ -14,20 +14,33 @@ from typing import Any
 ROUTE_ATTR = "__nexus_route__"
 WORKER_ATTR = "__nexus_worker__"
 TAB_ATTR = "__nexus_tab__"
+COMMAND_ATTR = "__nexus_command__"
 
 
 def collect_decorators(
     cls: type,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
     """Scan ``cls`` (and its bases) for decorated methods.
 
-    Returns three lists: ``(routes, workers, tabs)``. Each entry
-    is a dict ready to feed into the matching dataclass
-    constructor (RouteDescriptor, WorkerDescriptor, TabDescriptor).
+    Returns four lists: ``(routes, workers, tabs, commands)``.
+    Each entry is a dict ready to feed into the matching
+    dataclass / Pydantic constructor (RouteDescriptor,
+    WorkerDescriptor, TabDescriptor, CommandDescriptor).
+
+    Sprint 8 Phase A adds the fourth bucket for
+    :func:`nexus_sdk.nexus_command`. Keeping it a positional
+    return tuple (rather than a named tuple or dict) matches the
+    existing unpacking convention in :class:`NexusApp.__init__`.
     """
     routes: list[dict[str, Any]] = []
     workers: list[dict[str, Any]] = []
     tabs: list[dict[str, Any]] = []
+    commands: list[dict[str, Any]] = []
 
     for name in dir(cls):
         try:
@@ -46,5 +59,16 @@ def collect_decorators(
         if hasattr(attr, TAB_ATTR):
             meta = getattr(attr, TAB_ATTR)
             tabs.append({"name": meta["name"], "icon": meta["icon"], "fn": attr})
+        if hasattr(attr, COMMAND_ATTR):
+            meta = getattr(attr, COMMAND_ATTR)
+            commands.append(
+                {
+                    "name": meta["name"],
+                    "description": meta["description"],
+                    "icon": meta["icon"],
+                    "group": meta["group"],
+                    "fn": attr,
+                }
+            )
 
-    return routes, workers, tabs
+    return routes, workers, tabs, commands

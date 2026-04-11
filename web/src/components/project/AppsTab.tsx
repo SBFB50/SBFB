@@ -1,12 +1,15 @@
 /**
- * Sprint 5 Phase B / Sprint 6 Phase B — project Apps tab.
+ * Sprint 5 Phase B / Sprint 6 Phase B / Sprint 8 Phase A —
+ * project Apps tab.
  *
  * Lists every app mounted on the coordinator (from `/app`) and
  * lets the user expand each one to see its manifest
  * (`/app/{name}/manifest`). Tab descriptors are fetched via
- * `getAppTabDescriptor`, which returns a discriminated result:
- * schema-driven (rendered via `<TabViewRenderer>`) or legacy
- * (fallback to raw JSON in a collapsible details block).
+ * `getAppTabDescriptor`, which after Sprint 8 D4 returns a
+ * two-state discriminated result (schema-driven ↔ error) —
+ * the previous Sprint 6 `legacy` branch is gone because the
+ * coordinator now fails validation loud (HTTP 422) instead of
+ * shipping a degraded payload under a legacy flag.
  *
  * D3: this renderer applies ONLY to app-provided tabs. The five
  * native tabs (Overview, Tasks, Kudos, Invites, Apps) remain
@@ -34,6 +37,7 @@ import {
   getAppTabDescriptor,
 } from "@/api/coordinator";
 import { TabViewRenderer } from "@/components/app/tabview/TabViewRenderer";
+import { TabAppContext } from "@/components/app/tabview/TabAppContext";
 
 const ASYNC_NOTE_KIND = "async descriptor";
 
@@ -325,22 +329,10 @@ function TabRow({
         <p className="text-[11px] text-destructive">
           Erreur : {result.message}
         </p>
-      ) : result.kind === "schema" ? (
-        <TabViewRenderer tabView={result.tabView} />
       ) : (
-        <div className="space-y-2">
-          <p className="text-[11px] text-amber-400">
-            Descripteur legacy — {result.reason}
-          </p>
-          <details className="rounded border border-border bg-background/40">
-            <summary className="cursor-pointer px-2 py-1 text-[10px] text-muted-foreground">
-              Voir le JSON brut
-            </summary>
-            <pre className="max-h-60 overflow-auto p-2 text-[11px] leading-snug">
-              {JSON.stringify(result.raw, null, 2)}
-            </pre>
-          </details>
-        </div>
+        <TabAppContext.Provider value={{ coordinatorUrl: url, appName }}>
+          <TabViewRenderer tabView={result.tabView} />
+        </TabAppContext.Provider>
       )}
     </li>
   );

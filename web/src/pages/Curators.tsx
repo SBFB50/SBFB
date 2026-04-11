@@ -18,7 +18,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookmarkPlus, Trash2 } from "lucide-react";
+import { BookmarkPlus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -143,7 +143,22 @@ function CuratorsContent({ coordUrl }: { coordUrl: string }) {
 
   return (
     <div className="space-y-4">
-      <PageHeader />
+      <div className="flex items-start justify-between gap-3">
+        <PageHeader />
+        {/* Sprint 8 audit F-1: mirror Browse's manual refresh so
+            the user can force a list re-fetch when they bring
+            the daemon up after the page is already open. */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => query.refetch()}
+          disabled={query.isFetching}
+          data-testid="curators-refresh"
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Rafraîchir
+        </Button>
+      </div>
 
       <Card>
         <CardHeader>

@@ -303,6 +303,29 @@ fn generate_secret<'py>(py: Python<'py>) -> Bound<'py, PyDict> {
     d
 }
 
+/// Derive the keypair materialized by a fixed 32-byte Ed25519
+/// secret seed. Mirrors [`generate_secret`] but produces a
+/// deterministic pair — same seed in, same keypair out.
+///
+/// Sprint 8 Phase A adds this primitive so the Sprint 7 audit
+/// finding A-3 cross-language fixture can be constructed from a
+/// known seed. Without a deterministic helper, the fixture file
+/// would have to be produced by an ad-hoc one-shot script and
+/// hand-edited into the tree, which defeats the purpose of the
+/// cross-language roundtrip test.
+#[pyfunction]
+fn keypair_from_secret<'py>(
+    py: Python<'py>,
+    secret: &Bound<'_, PyBytes>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let sk: [u8; SECRET_KEY_BYTES] = array32(secret, "secret")?;
+    let kp = KeyPair::from_secret_bytes(&sk);
+    let d = PyDict::new(py);
+    d.set_item("secret", PyBytes::new(py, &kp.secret_bytes()))?;
+    d.set_item("public", PyBytes::new(py, &kp.public_bytes()))?;
+    Ok(d)
+}
+
 /// Load or generate a persistent Ed25519 keypair at `path`.
 /// Returns (secret_bytes, public_bytes).
 #[pyfunction]
@@ -1069,6 +1092,7 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_node, m)?)?;
     m.add_function(wrap_pyfunction!(create_node_with_secret, m)?)?;
     m.add_function(wrap_pyfunction!(generate_secret, m)?)?;
+    m.add_function(wrap_pyfunction!(keypair_from_secret, m)?)?;
     m.add_function(wrap_pyfunction!(load_or_generate_secret, m)?)?;
     m.add_function(wrap_pyfunction!(sign_task, m)?)?;
     m.add_function(wrap_pyfunction!(verify_task_entry, m)?)?;

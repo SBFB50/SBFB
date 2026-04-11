@@ -192,15 +192,36 @@ pub enum CuratorRuntimeError {
     #[error("unknown announcement version {got} (expected {expected})")]
     AnnouncementVersion { got: u16, expected: u16 },
 
+    /// The announcement came from a curator the local attention
+    /// set does not include. Expected in a healthy gossip network
+    /// where many curators broadcast in parallel — the runtime
+    /// drops these silently before any blob fetch so they do not
+    /// waste bandwidth.
+    ///
+    /// Sprint 8 split (audit finding C-2): this variant replaces
+    /// one half of the former `AnnouncementAttributionMismatch`.
+    /// Splitting it lets the daemon's gossip handler log non-
+    /// subscribed drops at `debug` and genuine envelope-vs-entry
+    /// mismatches at `warn`, so a flood of routine drops does
+    /// not drown out an actual spoofing attempt.
+    #[error("dropped announcement from non-subscribed curator {curator}")]
+    NotSubscribed { curator: String },
+
     /// The curator pubkey declared in the announcement envelope
-    /// does not match the one inside the fetched entry — this
-    /// is the gossip-layer equivalent of the attribution
-    /// split-brain mitigation already enforced by
-    /// [`CuratorListEntry::verify_signature`]. Rejected here so
-    /// the daemon logs the incident before the hard crypto
-    /// error would fire.
+    /// does not match the one inside the fetched entry — this is
+    /// the gossip-layer equivalent of the attribution split-brain
+    /// mitigation already enforced by
+    /// [`CuratorListEntry::verify_signature`]. A peer reaching
+    /// this branch has stapled a legitimately-signed list to a
+    /// different pubkey, which is always a bug or a spoof
+    /// attempt; the daemon's gossip handler logs it at `warn`
+    /// with both hexes so the operator can act.
+    ///
+    /// Sprint 8 split (audit finding C-2): this variant replaces
+    /// the other half of the former
+    /// `AnnouncementAttributionMismatch`.
     #[error("announcement curator_pubkey {announcement} does not match fetched entry {entry}")]
-    AnnouncementAttributionMismatch { announcement: String, entry: String },
+    EnvelopeMismatch { announcement: String, entry: String },
 
     /// The fetched blob was not a valid [`CuratorListEntry`] in
     /// JSON form.
@@ -437,12 +458,14 @@ impl CuratorRuntime {
                 curator = %announcement.curator_pubkey_hex,
                 "ignoring announcement from non-subscribed curator"
             );
-            // Use a sentinel error distinct from the ones that
-            // indicate actual badness, so the gossip loop can
-            // silently drop these without noisy warn-level logs.
-            return Err(CuratorRuntimeError::AnnouncementAttributionMismatch {
-                announcement: announcement.curator_pubkey_hex.clone(),
-                entry: "<not subscribed>".into(),
+            // `NotSubscribed` is the benign sentinel — the
+            // gossip handler matches on this variant explicitly
+            // and silently drops at `debug!` without emitting a
+            // warning. Kept distinct from `EnvelopeMismatch`
+            // (audit C-2) so a flood of routine drops does not
+            // mask a real spoofing attempt.
+            return Err(CuratorRuntimeError::NotSubscribed {
+                curator: announcement.curator_pubkey_hex.clone(),
             });
         }
 
@@ -471,9 +494,13 @@ impl CuratorRuntime {
 
         // Step 7: cross-check the envelope pubkey against the
         // fetched entry's inner pubkey. Both must point at the
-        // same curator.
+        // same curator. A mismatch here means some peer is
+        // stapling a legitimately-signed list to a different
+        // pubkey — a genuine spoofing attempt or a broken
+        // forwarder. Emit the `EnvelopeMismatch` variant so the
+        // gossip handler can log it at `warn!` with both hexes.
         if entry.curator_pubkey != ann_pubkey {
-            return Err(CuratorRuntimeError::AnnouncementAttributionMismatch {
+            return Err(CuratorRuntimeError::EnvelopeMismatch {
                 announcement: announcement.curator_pubkey_hex,
                 entry: hex::encode(entry.curator_pubkey),
             });
@@ -980,7 +1007,9 @@ mod tests {
     async fn two_nodes_reject_attribution_mismatch_in_announcement() {
         // The announcement envelope claims curator A but the
         // fetched entry is signed by curator B. The runtime must
-        // catch this before the DashMap insert.
+        // catch this before the DashMap insert and surface the
+        // `EnvelopeMismatch` variant (audit C-2 split) so the
+        // gossip handler can log it at `warn!`.
         let node_a = spawn_node().await;
         let node_b = spawn_node().await;
 
@@ -1002,12 +1031,65 @@ mod tests {
         let result = runtime
             .process_announcement_bytes(&dishonest.to_bytes().unwrap(), &node_b)
             .await;
-        assert!(matches!(
-            result,
-            Err(CuratorRuntimeError::AnnouncementAttributionMismatch { .. })
-        ));
+        match result {
+            Err(CuratorRuntimeError::EnvelopeMismatch {
+                announcement,
+                entry,
+            }) => {
+                assert_eq!(announcement, hex::encode(kp_attacker.public_bytes()));
+                assert_eq!(entry, hex::encode(kp_real.public_bytes()));
+            }
+            other => panic!("expected EnvelopeMismatch, got {other:?}"),
+        }
 
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn not_subscribed_and_envelope_mismatch_are_distinct() {
+        // Sprint 8 audit C-2 regression guard: the two benign-vs-
+        // attack branches of step 4 (attention filter) and step 7
+        // (envelope vs entry crosscheck) must surface as distinct
+        // `CuratorRuntimeError` variants so the gossip handler
+        // can log them at different severities.
+        //
+        // Branch 1 — non-subscribed curator. No blob fetch, no
+        // network — the runtime bails at step 4 before touching
+        // iroh. A throwaway `create_node` still has to be passed
+        // in because the signature requires it; the handler
+        // never reaches the step 5 fetch, so the node is
+        // otherwise unused.
+        let node = create_node().await.expect("spawn node");
+        let kp_stranger = KeyPair::generate();
+        // A syntactically valid announcement pointing at a
+        // ticket nobody ever fetches.
+        let ann = CuratorAnnouncement::new(
+            kp_stranger.public_bytes(),
+            "fake-ticket-never-fetched".into(),
+        );
+
+        let runtime = CuratorRuntime::new(None);
+        // Attention set is empty → step 4 fires.
+        let result = runtime
+            .process_announcement_bytes(&ann.to_bytes().unwrap(), &node)
+            .await;
+        match result {
+            Err(CuratorRuntimeError::NotSubscribed { curator }) => {
+                assert_eq!(curator, hex::encode(kp_stranger.public_bytes()));
+            }
+            other => panic!("expected NotSubscribed, got {other:?}"),
+        }
+
+        // Branch 2 (envelope vs entry crosscheck) is covered by
+        // `two_nodes_reject_attribution_mismatch_in_announcement`
+        // which exercises the full fetch path. The variants are
+        // structurally distinct at the type level — a match arm
+        // that catches `NotSubscribed` will not catch
+        // `EnvelopeMismatch`, so a regression that collapsed them
+        // back into one would break either this test or the 2-node
+        // test.
+
+        node.shutdown().await.ok();
     }
 }

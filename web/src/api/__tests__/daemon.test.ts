@@ -247,7 +247,11 @@ describe("subscribeCurator", () => {
 
     // Assert the body the fetch wrapper actually sent.
     expect(spy).toHaveBeenCalledOnce();
-    const [urlArg, initArg] = spy.mock.calls[0];
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    const [urlArg, initArg] = calls[0];
     expect(String(urlArg)).toBe(`${COORD}/daemon/curators/subscribe`);
     expect(initArg?.method).toBe("POST");
     expect(initArg?.body).toBe(
@@ -290,7 +294,11 @@ describe("unsubscribeCurator", () => {
     if (result.kind !== "data") throw new Error("unreachable");
     expect(result.body.subscribed_curators).toEqual([]);
 
-    const [urlArg, initArg] = spy.mock.calls[0];
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    const [urlArg, initArg] = calls[0];
     expect(String(urlArg)).toBe(`${COORD}/daemon/curators/${"cc".repeat(32)}`);
     expect(initArg?.method).toBe("DELETE");
   });
@@ -373,5 +381,81 @@ describe("listBrowse", () => {
       },
     });
     await expect(listBrowse(COORD)).rejects.toThrow(/protocol error/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sprint 8 audit A-3 — cross-language canonical fixture
+// ---------------------------------------------------------------------------
+//
+// This block consumes the exact JSON file the Python side writes
+// in `packages/nexus-sdk/tests/snapshots/curator_canonical.json`.
+// The file is signed by a deterministic keypair derived from a
+// fixed 32-byte seed; any drift on either side fails one of:
+//
+// - the Python `test_canonical_fixture_roundtrip` (signature or
+//   keypair derivation regression), or
+// - this Vitest block (Zod shape regression or a silent schema
+//   drift the Rust audit wouldn't catch).
+
+import { readFileSync } from "fs";
+import { resolve } from "path";
+
+import { CuratorListEntrySchema } from "@/api/daemon";
+
+// Resolved at test import time. The snapshot lives under
+// `packages/nexus-sdk/tests/snapshots/curator_canonical.json` —
+// a sibling of the SDK test suite that writes the file via
+// Python sign_curator_list. Loading through `readFileSync`
+// (rather than a bundler-resolved `import ... from "*.json"`)
+// keeps the `web/tsconfig.app.json:include = ["src"]` scope
+// clean without adding the monorepo's SDK tests to the TS
+// project. Vitest runs tests from `web/` by default, so the
+// path resolves from there.
+const CURATOR_CANONICAL_PATH = resolve(
+  "../packages/nexus-sdk/tests/snapshots/curator_canonical.json",
+);
+const curatorCanonical = JSON.parse(
+  readFileSync(CURATOR_CANONICAL_PATH, "utf-8"),
+);
+
+describe("CuratorListEntrySchema cross-language fixture (A-3)", () => {
+  it("parses the Python-signed canonical fixture", () => {
+    // `resolveJsonModule` imports the JSON as a typed const;
+    // the schema accepts the numeric arrays verbatim.
+    const parsed = CuratorListEntrySchema.safeParse(curatorCanonical);
+    if (!parsed.success) {
+      // Print the Zod issues so a regression is diagnosable
+      // directly from the CI log without rerunning locally.
+      throw new Error(
+        "cross-lang fixture failed Zod: " +
+          JSON.stringify(parsed.error.issues, null, 2),
+      );
+    }
+    expect(parsed.data.list.version).toBe(1);
+    expect(parsed.data.curator_pubkey.length).toBe(32);
+    expect(parsed.data.signature.length).toBe(64);
+    expect(parsed.data.list.entries.length).toBe(2);
+    // The entry data must survive Zod verbatim.
+    expect(parsed.data.list.entries[0].project_name).toBe("gov");
+    expect(parsed.data.list.entries[1].project_name).toBe("coldcase");
+  });
+
+  it("enforces Sprint 8 A-4 project field length caps", () => {
+    // A clone that bumps `description` past the 280-char cap
+    // must fail Zod — mirrors the Rust verify_rejects_oversized_fields
+    // regression guard. The cap is the shell's second line of
+    // defense behind the Rust verifier.
+    const oversized = JSON.parse(JSON.stringify(curatorCanonical));
+    oversized.list.entries[0].description = "x".repeat(281);
+    const parsed = CuratorListEntrySchema.safeParse(oversized);
+    expect(parsed.success).toBe(false);
+  });
+
+  it("enforces category 64-char cap", () => {
+    const oversized = JSON.parse(JSON.stringify(curatorCanonical));
+    oversized.list.entries[0].category = "c".repeat(65);
+    const parsed = CuratorListEntrySchema.safeParse(oversized);
+    expect(parsed.success).toBe(false);
   });
 });

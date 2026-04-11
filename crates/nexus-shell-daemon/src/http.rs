@@ -150,7 +150,16 @@ pub fn is_loopback_origin(origin: &HeaderValue) -> bool {
 // =================================================================
 
 /// Body of `POST /curators/subscribe`.
+///
+/// `deny_unknown_fields` (Sprint 8 audit G-3): the previous
+/// definition silently ignored extra JSON fields because that is
+/// serde's default. Defense-in-depth demands that a future
+/// extension requiring a new field must be wired through on
+/// both ends at the same commit — an extra field in the body
+/// now fails loud with a 422 instead of being dropped on the
+/// floor and forgotten.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SubscribeCuratorRequest {
     /// Lowercase hex of the curator's Ed25519 public key (64 chars).
     pub curator_pubkey_hex: String,
@@ -161,12 +170,14 @@ pub struct SubscribeCuratorRequest {
 /// sorted list of subscribed curator pubkeys so the shell can
 /// refresh its UI in a single roundtrip.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SubscriptionsResponse {
     pub subscribed_curators: Vec<String>,
 }
 
 /// Body of `GET /curators`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CuratorsListResponse {
     /// Every signed curator list the daemon has cached, keyed
     /// by curator pubkey (sorted ascending). Each entry is a
@@ -187,6 +198,7 @@ pub struct CuratorsListResponse {
 /// curator list, each row carrying a reachability bucket the
 /// React shell renders as a coloured dot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BrowseListResponse {
     pub entries: Vec<BrowseEntry>,
 }
@@ -199,11 +211,17 @@ struct ErrorResponse {
 }
 
 fn runtime_error_to_response(err: CuratorRuntimeError) -> (StatusCode, Json<ErrorResponse>) {
+    // Sprint 8 audit C-2 split: `NotSubscribed` and
+    // `EnvelopeMismatch` inherit the legacy 422 mapping, so
+    // subscribe/unsubscribe callers (which never surface them in
+    // practice) continue to behave identically. The split
+    // matters to the gossip handler, not to the HTTP surface.
     let status = match &err {
         CuratorRuntimeError::BadPubkeyHex(_) => StatusCode::BAD_REQUEST,
         CuratorRuntimeError::AnnouncementParse(_)
         | CuratorRuntimeError::AnnouncementVersion { .. }
-        | CuratorRuntimeError::AnnouncementAttributionMismatch { .. }
+        | CuratorRuntimeError::NotSubscribed { .. }
+        | CuratorRuntimeError::EnvelopeMismatch { .. }
         | CuratorRuntimeError::EntryParse(_)
         | CuratorRuntimeError::EntryVerify(_)
         | CuratorRuntimeError::RevisionRollback { .. }
@@ -491,6 +509,45 @@ mod tests {
         let sub: SubscriptionsResponse =
             serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
         assert!(sub.subscribed_curators.is_empty());
+    }
+
+    #[tokio::test]
+    async fn subscribe_rejects_extra_fields() {
+        // Sprint 8 audit G-3: a body that carries an extra
+        // field on top of `curator_pubkey_hex` must be rejected
+        // by axum's JSON extractor because the DTO now carries
+        // `#[serde(deny_unknown_fields)]`. Axum surfaces the
+        // serde rejection as HTTP 422 Unprocessable Entity.
+        //
+        // This is defense-in-depth: it catches the case where a
+        // future shell extension starts sending a new field and
+        // forgets to update the daemon side. Silent drop used
+        // to mask those bugs for a full release cycle — the
+        // tightened contract turns them into a first-commit
+        // failure instead.
+        let app = build_router(mk_state().await);
+        let body: Vec<u8> = br#"{"curator_pubkey_hex":"aa","evil_field":"surprise"}"#.to_vec();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/curators/subscribe")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Axum maps `deny_unknown_fields` rejection to 422.
+        // Accept either 400 or 422 in case a future axum version
+        // changes the mapping — the important property is that
+        // the request is refused outright, not silently ignored.
+        assert!(
+            resp.status() == StatusCode::UNPROCESSABLE_ENTITY
+                || resp.status() == StatusCode::BAD_REQUEST,
+            "expected 4xx from deny_unknown_fields, got {}",
+            resp.status()
+        );
     }
 
     #[tokio::test]

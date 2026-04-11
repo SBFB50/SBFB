@@ -41,7 +41,6 @@ import nexus_core
 import structlog
 from nexus_sdk import AppContext, ComputeClient, NexusApp, discover_apps
 
-from nexus_coordinator.api.apps import legacy_descriptor_sweep
 from nexus_coordinator.config import CoordinatorConfig
 from nexus_coordinator.dispatcher import Dispatcher
 from nexus_coordinator.invite import InviteLedger
@@ -116,6 +115,7 @@ class Coordinator:
         self.validator: Validator | None = None
         self.invite_ledger: InviteLedger | None = None
         self.apps: dict[str, NexusApp] = {}
+        self.app_contexts: dict[str, AppContext] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -255,9 +255,20 @@ class Coordinator:
         loopback_url = f"http://{self.config.network.api_host}:{self.config.network.api_port}"
         compute = ComputeClient(loopback_url)
         self.apps = {}
+        # Sprint 8 Phase A (D1/D2): keep every app's AppContext
+        # around so the /app/{name}/tasks/submit and commands
+        # routes can delegate back through `ctx.submit_task(...)`
+        # / `app.invoke_command(...)` without reconstructing a
+        # fresh context per request.
+        self.app_contexts: dict[str, AppContext] = {}
         for app in discover_apps():
             try:
-                ctx = AppContext(compute=compute, project_name=self.project_name)
+                ctx = AppContext(
+                    compute=compute,
+                    project_name=self.project_name,
+                    app_name=app.manifest.name,
+                    _app=app,
+                )
                 await app.on_start(ctx)
             except Exception as e:  # noqa: BLE001
                 _log.warning(
@@ -267,6 +278,7 @@ class Coordinator:
                 )
                 continue
             self.apps[app.manifest.name] = app
+            self.app_contexts[app.manifest.name] = ctx
             _log.info(
                 "app mounted",
                 name=app.manifest.name,
@@ -274,27 +286,8 @@ class Coordinator:
                 routes=len(app.routes()),
                 workers=len(app.workers()),
                 tabs=len(app.tabs()),
+                commands=len(app.commands()),
             )
-
-        # 10. Sprint 6 audit D-3: log which apps still return legacy
-        #     (non-TabView) descriptors so the operator has one-glance
-        #     visibility into the Sprint 8 migration backlog. Only sync
-        #     descriptors are checked — async ones are validated on
-        #     first HTTP invocation via _coerce_tab_view. The sweep is
-        #     best-effort: a failing descriptor is flagged but does
-        #     not block boot.
-        legacy = legacy_descriptor_sweep(self.apps)
-        if legacy:
-            total_tabs = sum(len(tabs) for tabs in legacy.values())
-            _log.info(
-                "legacy descriptors still present",
-                apps=len(legacy),
-                tabs=total_tabs,
-                breakdown=legacy,
-                note="port before removing the legacy_descriptor fallback in Sprint 8",
-            )
-        else:
-            _log.info("all sync tab descriptors are schema-driven (TabView)")
 
     async def stop(self) -> None:
         """Shut down the iroh node and cancel any background tasks.
@@ -308,6 +301,7 @@ class Coordinator:
                 except Exception as e:  # noqa: BLE001
                     _log.warning("app on_stop raised", app=app.manifest.name, error=str(e))
             self.apps = {}
+            self.app_contexts = {}
 
         if self.state.validator_task is not None:
             self.state.validator_task.cancel()

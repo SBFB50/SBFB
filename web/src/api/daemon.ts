@@ -93,13 +93,20 @@ export type DaemonInfo = z.infer<typeof DaemonInfoSchema>;
 
 /**
  * Mirrors `nexus_core_rs::curator::CuratorProjectRef`.
+ *
+ * Sprint 8 audit A-4: per-field length caps mirror the Rust
+ * `CURATOR_*_MAX` constants so a curator pushing a pathological
+ * entry is rejected by the shell layer even before it hits the
+ * renderer. The values match the Rust side byte-for-byte:
+ * project_id ≤ 128, project_name ≤ 128, category ≤ 64,
+ * description ≤ 280.
  */
 export const CuratorProjectRefSchema = z
   .object({
-    project_id: z.string().min(1),
-    project_name: z.string(),
-    category: z.string(),
-    description: z.string(),
+    project_id: z.string().min(1).max(128),
+    project_name: z.string().max(128),
+    category: z.string().max(64),
+    description: z.string().max(280),
   })
   .strict();
 

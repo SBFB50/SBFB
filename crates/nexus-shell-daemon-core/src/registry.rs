@@ -338,17 +338,54 @@ pub fn check_stale_or_bail(path: &Path) -> StaleOutcome {
 ///   (`nexus-shell-daemon[.exe]`, hyphens: clap `[[bin]] name`)
 ///   and the cargo test binary (`nexus_shell_daemon-<hash>[.exe]`,
 ///   underscores: Rust crate name rule).
-/// - Then do a plain substring `contains`.
+/// - Strip a trailing `.exe` on the observed side (Windows).
+/// - Accept only one of the following exact shapes:
+///   1. `<expected>` (the production binary, sans extension).
+///   2. `<expected>_core` (sibling core crate in production —
+///      reserved for a future split, accepted pre-emptively so
+///      we don't revisit the rule).
+///   3. `<expected>_<hex hash>` — cargo test binary for the
+///      `nexus-shell-daemon` crate. The tail after the `_`
+///      must be non-empty and contain nothing but ASCII hex
+///      digits (`cargo test` names its test binaries
+///      `<crate>-<16-char hex hash>`, which normalizes to a
+///      `_hex` suffix after the hyphen→underscore pass).
+///   4. `<expected>_core_<hex hash>` — cargo test binary for
+///      `nexus-shell-daemon-core`, same pattern.
 ///
-/// Normalizing hyphens to underscores (rather than the other
-/// way round) keeps the rule robust against a future clap
-/// `[[bin]] name` edit: any name that differs only in the
-/// hyphen/underscore axis still compares equal.
+/// Sprint 7 audit finding D-1: the previous implementation did a
+/// naive `contains` substring check after normalization. That
+/// accepted legitimate cases (`nexus-shell-daemon`,
+/// `nexus_shell_daemon_core-abc123`) but also passed unrelated
+/// binaries that happened to embed the prefix
+/// (`nexus-shell-daemon-launcher.exe`,
+/// `my-nexus-shell-daemon-wrapper`). The boundary-aware version
+/// here refuses those while keeping every accepted case
+/// unchanged, which keeps the unit-test-inside-binary singleton
+/// enforcement working end-to-end.
 pub fn process_name_matches(observed: &str, expected: &str) -> bool {
     fn norm(s: &str) -> String {
         s.to_lowercase().replace('-', "_")
     }
-    norm(observed).contains(&norm(expected))
+    let observed_norm = norm(observed);
+    let expected_norm = norm(expected);
+
+    let observed_trimmed: &str = observed_norm
+        .strip_suffix(".exe")
+        .unwrap_or(observed_norm.as_str());
+
+    let roots = [expected_norm.clone(), format!("{expected_norm}_core")];
+    for root in &roots {
+        if observed_trimmed == root.as_str() {
+            return true;
+        }
+        if let Some(tail) = observed_trimmed.strip_prefix(&format!("{root}_")) {
+            if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_hexdigit()) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Return `true` iff `pid` currently maps to a process whose
@@ -610,6 +647,38 @@ mod tests {
         // truncation must not squeak through.
         assert!(!process_name_matches(
             "nexus-shell.exe",
+            EXPECTED_PROCESS_NAME
+        ));
+    }
+
+    #[test]
+    fn process_name_rejects_prefix_extension() {
+        // Sprint 7 audit finding D-1 regression guard.
+        //
+        // The previous `contains` substring check accepted any
+        // name that embedded `nexus_shell_daemon` anywhere —
+        // including a hypothetical launcher binary that just
+        // happens to share the prefix. The boundary-aware check
+        // refuses these because the tail after `_` contains
+        // non-hex characters, which cannot come from a cargo
+        // test hash suffix.
+        assert!(!process_name_matches(
+            "nexus-shell-daemon-launcher.exe",
+            EXPECTED_PROCESS_NAME
+        ));
+        assert!(!process_name_matches(
+            "nexus_shell_daemon_launcher",
+            EXPECTED_PROCESS_NAME
+        ));
+        assert!(!process_name_matches(
+            "my-nexus-shell-daemon-wrapper",
+            EXPECTED_PROCESS_NAME
+        ));
+        // Prefix match with a trailing non-hex word masquerading
+        // as a hash: the underscore boundary is not enough on
+        // its own — the whole tail must be hex.
+        assert!(!process_name_matches(
+            "nexus_shell_daemon_notahex",
             EXPECTED_PROCESS_NAME
         ));
     }

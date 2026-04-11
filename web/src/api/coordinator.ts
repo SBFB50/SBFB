@@ -284,8 +284,32 @@ export const AppSummarySchema = z.object({
   routes: z.number(),
   workers: z.number(),
   tabs: z.number(),
+  // Sprint 8 Phase A (D2): the coordinator always ships a
+  // `commands` count alongside the existing route/worker/tab
+  // counters. Kept required (not `.default(0)`) because the
+  // Sprint 8 Phase A coordinator always emits the field; an
+  // older coordinator without the field is not a supported
+  // pairing and would trip the schema validator loud.
+  commands: z.number(),
 });
 export type AppSummary = z.infer<typeof AppSummarySchema>;
+
+/**
+ * Zod mirror of :class:`nexus_sdk.commands.CommandDescriptor`.
+ *
+ * Frozen at v1 — the Python side is `extra="forbid"` + `frozen=True`
+ * so the shell never sees a field it doesn't know about.
+ */
+export const CommandDescriptorSchema = z
+  .object({
+    schema_version: z.literal(1),
+    name: z.string().min(1).max(64),
+    description: z.string().min(1).max(280),
+    icon: z.string().max(32),
+    group: z.string().max(32),
+  })
+  .strict();
+export type CommandDescriptor = z.infer<typeof CommandDescriptorSchema>;
 
 export const AppsListSchema = z.object({
   apps: z.array(AppSummarySchema),
@@ -321,6 +345,11 @@ export const AppManifestSchema = z.object({
       descriptor: z.unknown(),
     }),
   ),
+  // Sprint 8 Phase A (D2): full manifest always carries the
+  // command list. Required (not `.default([])`) for the same
+  // reason as `AppSummarySchema.commands` — the Sprint 8
+  // coordinator always emits it.
+  commands: z.array(CommandDescriptorSchema),
 });
 export type AppManifest = z.infer<typeof AppManifestSchema>;
 
@@ -494,26 +523,26 @@ export function getAppManifest(
 /**
  * Sprint 6 Phase B — schema-driven tab descriptor fetch.
  *
- * Returns one of three states:
+ * Sprint 8 Phase A (D4) retired the one-release
+ * `legacy_descriptor` fallback the Sprint 6 envelope used to
+ * carry. The coordinator now returns `{ descriptor: <TabView> }`
+ * on success or HTTP 422 on validation failure; the shell
+ * surfaces a 422 as a regular error state instead of rendering
+ * a degraded payload under a legacy flag.
+ *
+ * Return union shrinks to:
  *  - `{ kind: "schema", tabView }` — descriptor validated against
  *    the v1 TabView Zod schema and is safe to render
- *  - `{ kind: "legacy", raw, reason }` — coordinator reported
- *    legacy_descriptor=true or the payload failed Zod validation;
- *    callers fall back to raw JSON display
- *  - `{ kind: "error", message }` — HTTP error
- *
- * Narrow exception to R1 (typed client only): the raw descriptor
- * body is app-defined, so we parse it inline rather than adding
- * a per-app schema registry.
+ *  - `{ kind: "error", message }` — HTTP or protocol error (422
+ *    included — the coordinator surfaces its own TabView errors
+ *    as 422 with a structured detail)
  */
 export const AppTabDescriptorEnvelopeSchema = z.object({
   descriptor: z.unknown(),
-  legacy_descriptor: z.boolean(),
 });
 
 export type AppTabDescriptorResult =
   | { kind: "schema"; tabView: TabView }
-  | { kind: "legacy"; raw: unknown; reason: string }
   | { kind: "error"; message: string };
 
 export async function getAppTabDescriptor(
@@ -524,22 +553,16 @@ export async function getAppTabDescriptor(
   const path = `/app/${encodeURIComponent(appName)}/tabs/${encodeURIComponent(tabName)}/descriptor`;
   try {
     const envelope = await getJson(baseUrl, path, AppTabDescriptorEnvelopeSchema);
-    if (envelope.legacy_descriptor) {
-      return {
-        kind: "legacy",
-        raw: envelope.descriptor,
-        reason: "coordinator signalled legacy descriptor",
-      };
-    }
     const parsed = TabViewSchema.safeParse(envelope.descriptor);
     if (!parsed.success) {
       return {
-        kind: "legacy",
-        raw: envelope.descriptor,
-        reason: parsed.error.issues
-          .slice(0, 2)
-          .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
-          .join(" | "),
+        kind: "error",
+        message:
+          "Tab descriptor failed Zod validation: " +
+          parsed.error.issues
+            .slice(0, 2)
+            .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+            .join(" | "),
       };
     }
     return { kind: "schema", tabView: parsed.data };
@@ -552,6 +575,81 @@ export async function getAppTabDescriptor(
       message: e instanceof Error ? e.message : "unknown error",
     };
   }
+}
+
+// =================================================================
+// Sprint 8 Phase A — D1 submit_task + D2 commands
+// =================================================================
+
+export const SubmitAppTaskBodySchema = z.object({
+  worker: z.string().min(1).max(128),
+  payload: z.record(z.string(), z.unknown()).default({}),
+  priority: z.number().int().min(0).max(10).default(5),
+  parent_task_id: z.string().nullable().default(null),
+});
+export type SubmitAppTaskBody = z.infer<typeof SubmitAppTaskBodySchema>;
+
+export const SubmitAppTaskResponseSchema = z.object({
+  task_id: z.string(),
+});
+export type SubmitAppTaskResponse = z.infer<typeof SubmitAppTaskResponseSchema>;
+
+/**
+ * Submit a task via an app's :class:`AppContext.submit_task`
+ * helper. The coordinator resolves `worker` (a routing key) to
+ * a concrete ``WorkerDescriptor`` on the target app before
+ * forwarding to the dispatcher.
+ */
+export function submitAppTask(
+  baseUrl: string,
+  appName: string,
+  body: SubmitAppTaskBody,
+): Promise<SubmitAppTaskResponse> {
+  return postJson(
+    baseUrl,
+    `/app/${encodeURIComponent(appName)}/tasks/submit`,
+    body,
+    SubmitAppTaskResponseSchema,
+  );
+}
+
+/**
+ * Fetch an app's Sprint 8 D2 command palette descriptors.
+ */
+export function listAppCommands(
+  baseUrl: string,
+  appName: string,
+): Promise<CommandDescriptor[]> {
+  return getJson(
+    baseUrl,
+    `/app/${encodeURIComponent(appName)}/commands`,
+    z.array(CommandDescriptorSchema),
+  );
+}
+
+export const InvokeAppCommandResponseSchema = z.object({
+  result: z.unknown(),
+});
+export type InvokeAppCommandResponse = z.infer<typeof InvokeAppCommandResponseSchema>;
+
+/**
+ * Invoke an app-provided command palette entry. The returned
+ * ``result`` field is forwarded verbatim from the Python side;
+ * the caller is expected to narrow it (typically to a
+ * ``{navigation: {path: string}}`` shape for the command
+ * palette navigate flow).
+ */
+export function invokeAppCommand(
+  baseUrl: string,
+  appName: string,
+  cmdName: string,
+): Promise<InvokeAppCommandResponse> {
+  return postJson(
+    baseUrl,
+    `/app/${encodeURIComponent(appName)}/commands/${encodeURIComponent(cmdName)}/invoke`,
+    {},
+    InvokeAppCommandResponseSchema,
+  );
 }
 
 export function shellDiscover(baseUrl: string): Promise<ShellDiscoverResponse> {

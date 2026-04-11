@@ -412,10 +412,23 @@ fn spawn_gossip_subscribe_task(
 }
 
 /// Hand a raw gossip message body to the curator runtime and
-/// log the outcome. Non-subscribed-curator drops and
-/// attribution mismatches are logged at `debug` so they don't
-/// drown out the real warnings; hard errors (blob fetch
-/// failure, signature failure) log at `warn`.
+/// log the outcome.
+///
+/// Sprint 8 audit C-2 split: the legacy
+/// `AnnouncementAttributionMismatch` variant conflated two very
+/// different situations — a benign flood of non-subscribed
+/// announcements (expected in a healthy gossip network) and a
+/// genuine spoofing attempt where the envelope pubkey disagrees
+/// with the fetched entry. The gossip handler now logs each
+/// case at its own severity:
+///
+/// - `NotSubscribed` → `debug!`, silent drop.
+/// - `EnvelopeMismatch` → `warn!` with both hexes so an
+///   operator watching `warn` traffic can investigate the
+///   culprit.
+/// - `RevisionRollback` → `debug!`, expected in churny networks.
+/// - Everything else (blob fetch, parse, signature, persistence)
+///   → `warn!`.
 async fn handle_announcement(curator_runtime: &CuratorRuntimeHandle, node: &Node, content: &[u8]) {
     match curator_runtime
         .process_announcement_bytes(content, node)
@@ -428,10 +441,18 @@ async fn handle_announcement(curator_runtime: &CuratorRuntimeHandle, node: &Node
                 "curator list accepted via gossip"
             );
         }
-        Err(CuratorRuntimeError::AnnouncementAttributionMismatch { .. }) => {
-            // Non-subscribed curator and envelope-mismatch both
-            // map to this variant; silent drop.
-            debug!("dropped curator announcement (non-subscribed or mismatched attribution)");
+        Err(CuratorRuntimeError::NotSubscribed { curator }) => {
+            debug!(curator = %curator, "dropped announcement from non-subscribed curator");
+        }
+        Err(CuratorRuntimeError::EnvelopeMismatch {
+            announcement,
+            entry,
+        }) => {
+            warn!(
+                announcement = %announcement,
+                entry = %entry,
+                "gossip announcement attribution mismatch — a peer is stapling a signed list to a different pubkey"
+            );
         }
         Err(CuratorRuntimeError::RevisionRollback { new, stored }) => {
             debug!(new, stored, "ignored revision rollback");

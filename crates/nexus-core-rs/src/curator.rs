@@ -66,6 +66,27 @@ pub const CURATOR_LIST_FORMAT_VERSION: u16 = 1;
 /// threshold on the receiving shell-daemon.
 pub const CURATOR_LIST_MAX_ENTRIES: usize = 256;
 
+/// Per-field length caps on [`CuratorProjectRef`] strings.
+///
+/// Sprint 7 audit finding A-4: without these caps a single entry
+/// could carry a 10 MB `description`, bypassing the
+/// [`CURATOR_LIST_MAX_ENTRIES`] cap (which counts entries, not
+/// bytes). With 256 entries at the caps below, the worst-case
+/// serialized size stays well under 200 KB total, which keeps
+/// the shell-daemon's `DashMap<curator, CuratorListEntry>` cache
+/// and the `/curators` HTTP response bounded.
+///
+/// The values match the Sprint 8 plan:
+/// `project_id <= 128`, `project_name <= 128`,
+/// `category <= 64`, `description <= 280`.
+pub const CURATOR_PROJECT_ID_MAX: usize = 128;
+/// See [`CURATOR_PROJECT_ID_MAX`].
+pub const CURATOR_PROJECT_NAME_MAX: usize = 128;
+/// See [`CURATOR_PROJECT_ID_MAX`].
+pub const CURATOR_CATEGORY_MAX: usize = 64;
+/// See [`CURATOR_PROJECT_ID_MAX`].
+pub const CURATOR_DESCRIPTION_MAX: usize = 280;
+
 // =================================================================
 // Types
 // =================================================================
@@ -200,6 +221,7 @@ impl CuratorListEntry {
                 CURATOR_LIST_MAX_ENTRIES
             )));
         }
+        check_entry_field_caps(&list.entries)?;
         let bytes = canonical_bytes(&list, DOMAIN_CURATOR_LIST_V1)?;
         let signature = keypair.sign(&bytes);
         Ok(CuratorListEntry {
@@ -240,6 +262,7 @@ impl CuratorListEntry {
                 CURATOR_LIST_MAX_ENTRIES
             )));
         }
+        check_entry_field_caps(&self.list.entries)?;
         if self.list.curator_pubkey != self.curator_pubkey {
             return Err(NexusError::Crypto(
                 "list.curator_pubkey does not match envelope curator_pubkey".into(),
@@ -248,6 +271,44 @@ impl CuratorListEntry {
         let bytes = canonical_bytes(&self.list, DOMAIN_CURATOR_LIST_V1)?;
         crate::crypto::verify(&self.curator_pubkey, &bytes, &self.signature)
     }
+}
+
+/// Reject any [`CuratorProjectRef`] whose string fields exceed
+/// the Sprint 8 A-4 byte caps. Byte length is used (not char
+/// count) because the caps exist to bound the serialized blob
+/// size in memory and on the wire.
+fn check_entry_field_caps(entries: &[CuratorProjectRef]) -> Result<()> {
+    for (idx, entry) in entries.iter().enumerate() {
+        if entry.project_id.len() > CURATOR_PROJECT_ID_MAX {
+            return Err(NexusError::Crypto(format!(
+                "curator entry #{idx} project_id has {} bytes, exceeds CURATOR_PROJECT_ID_MAX={}",
+                entry.project_id.len(),
+                CURATOR_PROJECT_ID_MAX
+            )));
+        }
+        if entry.project_name.len() > CURATOR_PROJECT_NAME_MAX {
+            return Err(NexusError::Crypto(format!(
+                "curator entry #{idx} project_name has {} bytes, exceeds CURATOR_PROJECT_NAME_MAX={}",
+                entry.project_name.len(),
+                CURATOR_PROJECT_NAME_MAX
+            )));
+        }
+        if entry.category.len() > CURATOR_CATEGORY_MAX {
+            return Err(NexusError::Crypto(format!(
+                "curator entry #{idx} category has {} bytes, exceeds CURATOR_CATEGORY_MAX={}",
+                entry.category.len(),
+                CURATOR_CATEGORY_MAX
+            )));
+        }
+        if entry.description.len() > CURATOR_DESCRIPTION_MAX {
+            return Err(NexusError::Crypto(format!(
+                "curator entry #{idx} description has {} bytes, exceeds CURATOR_DESCRIPTION_MAX={}",
+                entry.description.len(),
+                CURATOR_DESCRIPTION_MAX
+            )));
+        }
+    }
+    Ok(())
 }
 
 // =================================================================
@@ -459,5 +520,69 @@ mod tests {
         let a = canonical_bytes(&list, DOMAIN_CURATOR_LIST_V1).unwrap();
         let b = canonical_bytes(&list, DOMAIN_CURATOR_LIST_V1).unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn verify_rejects_oversized_fields() {
+        // Sprint 8 A-4 tightening: per-field string caps must
+        // catch a single pathological entry that flooded one
+        // string, even when the total entry count stays within
+        // CURATOR_LIST_MAX_ENTRIES. Exercise every cap
+        // independently so a future regression that drops one
+        // check is caught by at least one of the four asserts.
+
+        let kp = KeyPair::generate();
+
+        // description over 280 bytes — the loudest failure mode
+        // called out by the audit finding.
+        let mut list = sample_list(kp.public_bytes());
+        list.entries[0].description = "x".repeat(CURATOR_DESCRIPTION_MAX + 1);
+        assert!(CuratorListEntry::sign(list, &kp).is_err());
+
+        // project_id over 128 bytes — keeping the pkarr node id
+        // bound prevents a UTF-8 balloon through the key field.
+        let mut list = sample_list(kp.public_bytes());
+        list.entries[0].project_id = "a".repeat(CURATOR_PROJECT_ID_MAX + 1);
+        assert!(CuratorListEntry::sign(list, &kp).is_err());
+
+        // project_name over 128 bytes.
+        let mut list = sample_list(kp.public_bytes());
+        list.entries[0].project_name = "n".repeat(CURATOR_PROJECT_NAME_MAX + 1);
+        assert!(CuratorListEntry::sign(list, &kp).is_err());
+
+        // category over 64 bytes.
+        let mut list = sample_list(kp.public_bytes());
+        list.entries[0].category = "c".repeat(CURATOR_CATEGORY_MAX + 1);
+        assert!(CuratorListEntry::sign(list, &kp).is_err());
+
+        // Defense in depth: a hand-signed envelope that bypasses
+        // the sign-side cap must still be refused at verify time.
+        let mut list = sample_list(kp.public_bytes());
+        list.entries[0].description = "y".repeat(CURATOR_DESCRIPTION_MAX + 1);
+        let bytes = canonical_bytes(&list, DOMAIN_CURATOR_LIST_V1).unwrap();
+        let signature = kp.sign(&bytes);
+        let entry = CuratorListEntry {
+            list,
+            curator_pubkey: kp.public_bytes(),
+            signature,
+        };
+        assert!(entry.verify_signature().is_err());
+    }
+
+    #[test]
+    fn cap_exactly_at_boundary_is_accepted() {
+        // Off-by-one regression guard: exactly at each cap must
+        // still sign + verify. The non-ascii boundary (`len()`
+        // counts bytes, not code points) is exercised for
+        // `description` which is the most likely field to carry
+        // multibyte characters.
+        let kp = KeyPair::generate();
+        let mut list = sample_list(kp.public_bytes());
+        list.entries[0].project_id = "a".repeat(CURATOR_PROJECT_ID_MAX);
+        list.entries[0].project_name = "n".repeat(CURATOR_PROJECT_NAME_MAX);
+        list.entries[0].category = "c".repeat(CURATOR_CATEGORY_MAX);
+        list.entries[0].description = "d".repeat(CURATOR_DESCRIPTION_MAX);
+        let entry = CuratorListEntry::sign(list, &kp).expect("cap boundary signs");
+        entry.verify_signature().expect("cap boundary verifies");
     }
 }

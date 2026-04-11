@@ -50,8 +50,9 @@ pub use canonical::{
 };
 pub use crypto::{blake3_hash, verify, Blake3Chain, KeyPair};
 pub use curator::{
-    CuratorList, CuratorListEntry, CuratorProjectRef, CURATOR_LIST_FORMAT_VERSION,
-    CURATOR_LIST_MAX_ENTRIES,
+    CuratorList, CuratorListEntry, CuratorProjectRef, CURATOR_CATEGORY_MAX,
+    CURATOR_DESCRIPTION_MAX, CURATOR_LIST_FORMAT_VERSION, CURATOR_LIST_MAX_ENTRIES,
+    CURATOR_PROJECT_ID_MAX, CURATOR_PROJECT_NAME_MAX,
 };
 pub use discovery::{DiscoveryClient, NodeAddrInfo};
 pub use docs::{DocHandle, DocsClient};

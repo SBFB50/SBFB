@@ -1,18 +1,23 @@
 """``/app/{app_name}`` routing for installed nexus-sdk apps.
 
 Mounts every :class:`nexus_sdk.NexusApp` discovered through the
-``nexus.apps`` entry points at coordinator boot. Phase D scope:
+``nexus.apps`` entry points at coordinator boot.
 
-- ``GET /app`` — list every installed app with its manifest.
-- ``GET /app/{name}/manifest`` — the full manifest + descriptor
-  counts for a single app.
-- Every ``@nexus_route(path)`` on an app is reachable at
-  ``/app/{name}{path}`` with the declared HTTP methods.
+Surface:
 
-Sprint 6 Phase A adds :class:`nexus_sdk.view.TabView` validation
-on ``GET /app/{name}/tabs/{tab}/descriptor`` so schema-driven
-tabs ship a well-formed payload. Legacy dicts are still accepted
-with ``legacy_descriptor: true`` flag for one release.
+- ``GET  /app``                                       — list installed apps
+- ``GET  /app/{name}/manifest``                       — full manifest
+- ``GET  /app/{name}/tabs/{tab_name}/descriptor``     — TabView descriptor
+- ``POST /app/{name}/tasks/submit``                   — Sprint 8 D1 task submit
+- ``GET  /app/{name}/commands``                       — Sprint 8 D2 palette
+- ``POST /app/{name}/commands/{cmd_name}/invoke``     — Sprint 8 D2 invoke
+
+Sprint 6 Phase A added :class:`nexus_sdk.view.TabView` validation
+on the descriptor route with a one-release ``legacy_descriptor``
+fallback. Sprint 8 Phase A (D4) retires that fallback entirely:
+a tab that cannot produce a valid TabView now fails the request
+with HTTP 422 and a structured error detail instead of silently
+shipping a degraded payload to the shell.
 """
 
 from __future__ import annotations
@@ -22,11 +27,12 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Request
+from nexus_sdk import CommandDescriptor, WorkerNotFound
 from nexus_sdk.view import TabView
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 if TYPE_CHECKING:
-    from nexus_sdk import NexusApp
+    from nexus_sdk import AppContext, NexusApp
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +42,11 @@ router = APIRouter(prefix="/app", tags=["apps"])
 def _apps(request: Request) -> dict[str, "NexusApp"]:
     coord = request.app.state.coordinator
     return getattr(coord, "apps", {})
+
+
+def _app_contexts(request: Request) -> dict[str, "AppContext"]:
+    coord = request.app.state.coordinator
+    return getattr(coord, "app_contexts", {})
 
 
 @router.get("")
@@ -51,6 +62,7 @@ async def list_apps(request: Request) -> dict[str, Any]:
                 "routes": len(app.routes()),
                 "workers": len(app.workers()),
                 "tabs": len(app.tabs()),
+                "commands": len(app.commands()),
             }
             for app in apps.values()
         ],
@@ -77,6 +89,7 @@ async def app_manifest(request: Request, name: str) -> dict[str, Any]:
             }
             for t in app.tabs()
         ],
+        "commands": [c.model_dump() for c in app.commands()],
     }
 
 
@@ -84,16 +97,18 @@ async def app_manifest(request: Request, name: str) -> dict[str, Any]:
 async def app_tab_descriptor(request: Request, name: str, tab_name: str) -> dict[str, Any]:
     """Invoke a single tab descriptor function, awaiting if async.
 
-    Sprint 5 Phase B: the ``/manifest`` endpoint calls each tab's
-    descriptor synchronously via :func:`_maybe_call`, which
-    short-circuits async descriptors with a placeholder note so
-    the manifest response cannot hang. This endpoint exists so the
-    shell can *explicitly* invoke an async descriptor on demand
-    (user clicks "Invoquer" in the UI) and get the real result.
+    Sprint 8 Phase A (D4): the previous one-release
+    ``legacy_descriptor`` fallback is retired. A descriptor that
+    does not produce a valid :class:`nexus_sdk.view.TabView`
+    fails the request with HTTP 422 and a structured detail
+    carrying the Pydantic error message — no silent degradation.
+    The shell side (``web/src/api/coordinator.ts::getAppTabDescriptor``)
+    surfaces the 422 as a visible error banner instead of
+    rendering the raw payload under a ``legacy`` flag.
 
     Returns ``{"descriptor": ...}`` on success. A missing app or
-    tab returns 404; descriptor exceptions propagate as 500 with
-    the exception message in the detail field.
+    tab returns 404; a descriptor exception propagates as 500
+    with the exception message in the detail field.
     """
     apps = _apps(request)
     app = apps.get(name)
@@ -118,38 +133,129 @@ async def app_tab_descriptor(request: Request, name: str, tab_name: str) -> dict
             detail=f"tab descriptor raised: {type(e).__name__}: {e}",
         ) from e
 
-    return _coerce_tab_view(descriptor, name, tab_name)
-
-
-def _coerce_tab_view(descriptor: Any, app_name: str, tab_name: str) -> dict[str, Any]:
-    """Validate ``descriptor`` against the Sprint 6 TabView schema.
-
-    When the descriptor validates, return ``{"descriptor": <dumped>,
-    "legacy_descriptor": false}``. When it fails to validate, log a
-    warning and return the original ``{"descriptor": <raw>,
-    "legacy_descriptor": true}`` so pre-Sprint-6 apps keep working
-    for one release while they are ported.
-
-    # TODO(Sprint 8): remove the legacy_descriptor fallback once the
-    # 19-tab nexus-app-gov migration lands. The fallback is a
-    # transition aid for ONE release only, per sprint6_plan.md §D3
-    # and docs/shell/PATTERNS.md §P8. This comment is the code-level
-    # sentinel the Sprint 6 audit finding D-1 asked for — grep for
-    # "Sprint 8" to find every such marker before cutting the release.
-    """
     if isinstance(descriptor, TabView):
-        return {"descriptor": descriptor.model_dump(), "legacy_descriptor": False}
+        return {"descriptor": descriptor.model_dump()}
     try:
         validated = TabView.model_validate(descriptor)
     except ValidationError as exc:
         logger.warning(
-            "tab descriptor for app=%r tab=%r is legacy (not a TabView): %s",
-            app_name,
+            "tab descriptor for app=%r tab=%r failed TabView validation: %s",
+            name,
             tab_name,
             exc.errors(include_url=False),
         )
-        return {"descriptor": descriptor, "legacy_descriptor": True}
-    return {"descriptor": validated.model_dump(), "legacy_descriptor": False}
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"tab {tab_name!r} on app {name!r} returned an invalid "
+                f"descriptor: {exc.error_count()} field error(s). The "
+                "Sprint 8 removal of the legacy fallback means every "
+                "tab must ship a schema-valid TabView."
+            ),
+        ) from exc
+    return {"descriptor": validated.model_dump()}
+
+
+# =================================================================
+# Sprint 8 Phase A — D1 submit_task + D2 commands routes
+# =================================================================
+
+
+class SubmitAppTaskRequest(BaseModel):
+    """Body of ``POST /app/{name}/tasks/submit``.
+
+    Sprint 7 D4 frozen signature: ``worker`` is a routing key,
+    ``payload`` is a free-form JSON dict that gets serialized
+    (sorted keys) into the coordinator dispatcher's ``prompt``
+    field, and optional ``priority`` / ``parent_task_id`` ride
+    through as metadata.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    worker: str = Field(..., min_length=1, max_length=128)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    priority: int = Field(5, ge=0, le=10)
+    parent_task_id: str | None = None
+
+
+@router.post("/{name}/tasks/submit")
+async def submit_app_task(request: Request, name: str, body: SubmitAppTaskRequest) -> dict[str, str]:
+    """Submit a task through an app's :class:`AppContext`.
+
+    The loader wires each app's backref into its context at
+    ``on_start`` time (Sprint 8 Phase A); this route simply
+    fetches the stored context and delegates. The routing key
+    is resolved via :meth:`NexusApp.resolve_worker` which raises
+    :class:`WorkerNotFound` if the string doesn't map to a
+    registered worker — the route surfaces that as HTTP 422.
+    """
+    apps = _apps(request)
+    if name not in apps:
+        raise HTTPException(status_code=404, detail=f"app {name!r} not installed")
+
+    ctx = _app_contexts(request).get(name)
+    if ctx is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"app {name!r} has no bound context — this is a coordinator "
+                "bug; the loader must set ctx in coord.app_contexts before "
+                "mounting routes."
+            ),
+        )
+
+    try:
+        task_id = await ctx.submit_task(
+            body.worker,
+            body.payload,
+            priority=body.priority,
+            parent_task_id=body.parent_task_id,
+        )
+    except WorkerNotFound as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {"task_id": task_id}
+
+
+@router.get("/{name}/commands", response_model=list[CommandDescriptor])
+async def list_app_commands(request: Request, name: str) -> list[CommandDescriptor]:
+    """Return every ``@nexus_command``-decorated entry on an app.
+
+    Sprint 8 Phase A (D2): the shell's Command Palette polls
+    this route for each enrolled app and merges the results
+    into a dedicated ``App: <name>`` group in the palette.
+    """
+    apps = _apps(request)
+    app = apps.get(name)
+    if app is None:
+        raise HTTPException(status_code=404, detail=f"app {name!r} not installed")
+    return app.commands()
+
+
+@router.post("/{name}/commands/{cmd_name}/invoke")
+async def invoke_app_command(request: Request, name: str, cmd_name: str) -> dict[str, Any]:
+    """Invoke a command palette entry on an app.
+
+    The returned value is passed straight through to the shell,
+    which expects either ``None`` (no-op) or a dict of the form
+    ``{"navigation": {"path": str}}`` to trigger a client-side
+    route change. Any other shape is treated as a no-op by the
+    palette client.
+    """
+    apps = _apps(request)
+    app = apps.get(name)
+    if app is None:
+        raise HTTPException(status_code=404, detail=f"app {name!r} not installed")
+    try:
+        result = await app.invoke_command(cmd_name)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"result": result}
+
+
+# =================================================================
+# Internal helpers
+# =================================================================
 
 
 def _maybe_call(fn: Any, app: Any) -> Any:
@@ -165,61 +271,3 @@ def _maybe_call(fn: Any, app: Any) -> Any:
         return fn(app)
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
-
-
-def legacy_descriptor_sweep(
-    apps: dict[str, "NexusApp"],
-) -> dict[str, list[str]]:
-    """Sweep every sync tab descriptor and return the ones that still
-    fail TabView.model_validate.
-
-    Sprint 6 audit finding D-3: the coordinator used to have no
-    boot-time visibility into "N apps still returning legacy
-    descriptors". The warning logged per-request on first miss, but
-    an operator never saw the pending migration until a user
-    clicked around in the shell.
-
-    This helper is called from
-    :meth:`nexus_coordinator.coordinator.Coordinator.start` after
-    apps are mounted. It iterates each app's tabs, calls the
-    synchronous descriptor function (async ones are skipped — the
-    sweep must not block boot), and runs the result through
-    ``TabView.model_validate``. Tabs that fail are grouped per app
-    and returned as ``{app_name: [tab_name, ...]}``.
-
-    The caller logs a single INFO line with the aggregated count —
-    one log entry, not one per failing tab, so that a coordinator
-    with a heavily legacy app does not flood its start output.
-
-    Pure function: does not log, does not mutate. Caller owns the
-    presentation and log emission. This keeps the helper trivial to
-    unit-test without a structlog capture fixture.
-    """
-    legacy: dict[str, list[str]] = {}
-    for app_name, app in apps.items():
-        failing_tabs: list[str] = []
-        for tab in app.tabs():
-            if inspect.iscoroutinefunction(tab.fn):
-                # Async descriptors: skip. Calling them synchronously
-                # at boot would hang a real gov tab that fetches over
-                # HTTP. Async tabs are validated on their first
-                # /app/.../descriptor invocation via _coerce_tab_view.
-                continue
-            try:
-                descriptor = tab.fn(app)
-            except Exception:  # noqa: BLE001
-                # Descriptor raised — treat as legacy / broken so the
-                # operator sees it in the summary. A raising descriptor
-                # is not strictly "legacy" but it's still unreleasable,
-                # so surfacing it here is more useful than ignoring.
-                failing_tabs.append(tab.name)
-                continue
-            if isinstance(descriptor, TabView):
-                continue
-            try:
-                TabView.model_validate(descriptor)
-            except ValidationError:
-                failing_tabs.append(tab.name)
-        if failing_tabs:
-            legacy[app_name] = failing_tabs
-    return legacy

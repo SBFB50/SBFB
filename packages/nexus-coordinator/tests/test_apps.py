@@ -3,11 +3,20 @@
 Phase D closure requires that ``nexus-coordinator start`` picks
 up the gov and hello-world apps via their entry_points and that
 their manifests are reachable through ``/app/{name}/manifest``.
+
+Sprint 8 Phase A updates this suite to:
+
+- remove the legacy_descriptor fallback assertions (D4)
+- exercise the new Sprint 8 D1 ``/tasks/submit`` route
+- exercise the new Sprint 8 D2 ``/commands`` + ``/commands/{cmd}/invoke`` routes
+- assert that a bad tab descriptor now raises HTTP 422 (no
+  silent legacy fallback anymore)
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,6 +32,10 @@ async def test_coordinator_discovers_gov_and_hello_apps(nexus_grid_tmp: Path) ->
         names = {app.manifest.name for app in coord.apps.values()}
         assert "gov" in names
         assert "hello" in names
+        # Sprint 8 Phase A: coord.app_contexts must carry a
+        # populated AppContext for every mounted app — the
+        # /tasks/submit route depends on this invariant.
+        assert set(coord.app_contexts.keys()) == set(coord.apps.keys())
     finally:
         await coord.stop()
 
@@ -41,6 +54,11 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
             names = {a["name"] for a in listed["apps"]}
             assert "gov" in names
             assert "hello" in names
+            # Sprint 8 A: the per-app summary gained a `commands`
+            # count. Zero for the pre-Sprint-8 apps; we just
+            # assert it exists as an int field.
+            for entry in listed["apps"]:
+                assert isinstance(entry.get("commands"), int)
 
             r = client.get("/app/gov/manifest")
             assert r.status_code == 200
@@ -52,6 +70,9 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
             assert body["workers"][0]["name"] == "contradiction_detector"
             assert len(body["tabs"]) == 1
             assert body["tabs"][0]["name"] == "Contradictions"
+            # Sprint 8 A: manifest endpoint now ships a `commands`
+            # list (empty for the pre-Sprint-8 gov stub).
+            assert body["commands"] == []
 
             r = client.get("/app/hello/manifest")
             assert r.status_code == 200
@@ -66,13 +87,16 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_app_tab_descriptor_endpoint_invokes_tab(nexus_grid_tmp: Path) -> None:
-    """Sprint 5 Phase B + Sprint 6 Phase A: ``GET /app/{name}/
-    tabs/{tab_name}/descriptor`` invokes the tab fn (sync or
-    async) and returns a ``{descriptor, legacy_descriptor}`` body.
+    """Sprint 5 Phase B + Sprint 6 Phase A + Sprint 8 Phase A (D4):
+    ``GET /app/{name}/tabs/{tab_name}/descriptor`` invokes the tab
+    fn (sync or async) and returns ``{descriptor: TabView}`` on
+    success. The Sprint 6 ``legacy_descriptor`` fallback is
+    retired: an invalid descriptor now fails the request with
+    HTTP 422 instead of shipping under a legacy flag.
 
     Exercises the hello-world app's "Hello" tab which is a sync
-    function returning a valid :class:`TabView` (post Phase B
-    port), so ``legacy_descriptor`` is ``False``.
+    function returning a valid :class:`TabView` (post Sprint 6
+    Phase B port).
     """
     coord = Coordinator(project_name="demo-tab-desc")
     await coord.start()
@@ -83,7 +107,8 @@ async def test_app_tab_descriptor_endpoint_invokes_tab(nexus_grid_tmp: Path) -> 
             assert r.status_code == 200
             body = r.json()
             assert "descriptor" in body
-            assert body.get("legacy_descriptor") is False
+            # Sprint 8 D4: the legacy_descriptor flag is gone.
+            assert "legacy_descriptor" not in body
             desc = body["descriptor"]
             assert desc["schema_version"] == 1
             assert desc["tab_name"] == "hello"
@@ -103,8 +128,8 @@ async def test_app_tab_descriptor_endpoint_invokes_tab(nexus_grid_tmp: Path) -> 
 @pytest.mark.asyncio
 async def test_schema_driven_descriptor_validates(nexus_grid_tmp: Path) -> None:
     """Sprint 6 D3: a valid TabView returned by a tab round-trips
-    through the coordinator with ``legacy_descriptor: false`` and
-    a normalised payload that the React renderer can consume."""
+    through the coordinator as ``{descriptor: <dumped>}`` (no
+    ``legacy_descriptor`` flag — Sprint 8 D4 removal)."""
     from nexus_sdk import (  # local import — avoids cross-test fixture loading
         AppContext,
         AppManifest,
@@ -143,7 +168,8 @@ async def test_schema_driven_descriptor_validates(nexus_grid_tmp: Path) -> None:
             r = client.get("/app/schema-driven/tabs/Dash/descriptor")
             assert r.status_code == 200
             body = r.json()
-            assert body["legacy_descriptor"] is False
+            # Sprint 8 D4: no more legacy_descriptor field.
+            assert "legacy_descriptor" not in body
             desc = body["descriptor"]
             assert desc["schema_version"] == 1
             assert desc["tab_name"] == "dash"
@@ -158,10 +184,13 @@ async def test_schema_driven_descriptor_validates(nexus_grid_tmp: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_legacy_descriptor_falls_back(nexus_grid_tmp: Path) -> None:
-    """Sprint 6 D3 fallback: a non-TabView descriptor is preserved
-    verbatim with ``legacy_descriptor: true`` so unported apps
-    keep working through one release."""
+async def test_tab_descriptor_raises_422_on_invalid_schema(nexus_grid_tmp: Path) -> None:
+    """Sprint 8 Phase A (D4): a tab that returns a non-TabView
+    payload used to trip the legacy_descriptor fallback. The
+    fallback is gone — the coordinator now fails the request
+    with HTTP 422 and a detail message carrying the TabView
+    error count, so the shell renders a visible error banner
+    instead of silently displaying degraded data."""
     from nexus_sdk import AppContext, AppManifest, NexusApp, nexus_tab
 
     class LegacyApp(NexusApp):
@@ -177,100 +206,260 @@ async def test_legacy_descriptor_falls_back(nexus_grid_tmp: Path) -> None:
         def old(self) -> dict:
             return {"description": "legacy free-form dict", "rows": [1, 2, 3]}
 
-    coord = Coordinator(project_name="demo-legacy")
+    coord = Coordinator(project_name="demo-legacy-422")
     await coord.start()
     try:
         coord.apps["legacy-app"] = LegacyApp()
         app = create_app(coord)
         with TestClient(app) as client:
             r = client.get("/app/legacy-app/tabs/Old/descriptor")
-            assert r.status_code == 200
-            body = r.json()
-            assert body["legacy_descriptor"] is True
-            assert body["descriptor"] == {
-                "description": "legacy free-form dict",
-                "rows": [1, 2, 3],
-            }
+            assert r.status_code == 422
+            detail = r.json()["detail"]
+            assert "Old" in detail
+            assert "legacy-app" in detail
+            assert "TabView" in detail
     finally:
         await coord.stop()
 
 
-def test_legacy_descriptor_sweep_empty_apps() -> None:
-    """Sprint 6 audit D-3: sweep over an empty dict returns empty."""
-    from nexus_coordinator.api.apps import legacy_descriptor_sweep
-
-    assert legacy_descriptor_sweep({}) == {}
+# ---------------------------------------------------------------------------
+# Sprint 8 Phase A — D1 submit_task route
+# ---------------------------------------------------------------------------
 
 
-def test_legacy_descriptor_sweep_mixed_apps() -> None:
-    """Sprint 6 audit D-3: sweep flags apps whose sync tabs return
-    non-TabView payloads and leaves ported apps alone."""
-    from nexus_coordinator.api.apps import legacy_descriptor_sweep
-    from nexus_sdk import AppContext, AppManifest, NexusApp, nexus_tab
-    from nexus_sdk.view import TabView, heading, metric
+class _FakeComputeClient:
+    """Stub ComputeClient that records the last submit_task call
+    and returns a deterministic task id. Bypasses the real
+    dispatcher so the route tests don't need a live project
+    doc / allowlist setup."""
 
-    class PortedApp(NexusApp):
-        manifest = AppManifest(name="ported", version="0.1.0")
+    def __init__(self) -> None:
+        self.last_kwargs: dict[str, Any] | None = None
 
-        async def on_start(self, ctx: AppContext) -> None:  # noqa: ARG002
+    async def submit_task(self, **kwargs: Any):  # type: ignore[no-untyped-def]
+        self.last_kwargs = kwargs
+
+        class _Submitted:
+            task_id = "task-sprint8-a"
+
+        return _Submitted()
+
+
+@pytest.mark.asyncio
+async def test_submit_app_task_happy_path(nexus_grid_tmp: Path) -> None:
+    """Sprint 8 D1: POST /app/{name}/tasks/submit delegates to
+    the app's bound AppContext and returns the task id the
+    dispatcher assigned."""
+    from nexus_sdk import AppContext, AppManifest, NexusApp, nexus_worker
+
+    class SubmitFixtureApp(NexusApp):
+        manifest = AppManifest(name="submitfx", version="0.1.0")
+
+        @nexus_worker(name="echo", model="stub-model:latest")
+        async def worker_echo(self, ctx):  # type: ignore[no-untyped-def]
+            return {}
+
+        async def on_start(self, ctx: AppContext) -> None:
             pass
 
         async def on_stop(self) -> None:
             pass
 
-        @nexus_tab(name="Dashboard", icon="gauge")
-        def dash(self) -> dict:
-            return TabView(
-                tab_name="dash",
-                blocks=[
-                    heading(level=1, text="Ported"),
-                    metric(label="ok", value=1),
-                ],
-            ).model_dump()
+    coord = Coordinator(project_name="demo-submit-a")
+    await coord.start()
+    try:
+        fake_app = SubmitFixtureApp()
+        fake_compute = _FakeComputeClient()
+        coord.apps["submitfx"] = fake_app
+        coord.app_contexts["submitfx"] = AppContext(
+            compute=fake_compute,  # type: ignore[arg-type]
+            project_name=coord.project_name,
+            app_name="submitfx",
+            _app=fake_app,
+        )
 
-    class LegacyApp(NexusApp):
-        manifest = AppManifest(name="legacy", version="0.1.0")
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.post(
+                "/app/submitfx/tasks/submit",
+                json={
+                    "worker": "echo",
+                    "payload": {"q": "hello", "n": 3},
+                    "priority": 7,
+                    "parent_task_id": "parent-9",
+                },
+            )
+            assert r.status_code == 200
+            assert r.json() == {"task_id": "task-sprint8-a"}
+            assert fake_compute.last_kwargs is not None
+            assert fake_compute.last_kwargs["task_type"] == "echo"
+            assert fake_compute.last_kwargs["model"] == "stub-model:latest"
+            assert fake_compute.last_kwargs["priority"] == 7
+            # Sorted JSON is a deterministic prompt contract.
+            assert fake_compute.last_kwargs["prompt"] == '{"n": 3, "q": "hello"}'
+            assert fake_compute.last_kwargs["metadata"] == {"parent_task_id": "parent-9"}
+    finally:
+        await coord.stop()
 
-        async def on_start(self, ctx: AppContext) -> None:  # noqa: ARG002
+
+@pytest.mark.asyncio
+async def test_submit_app_task_unknown_app_404(nexus_grid_tmp: Path) -> None:
+    coord = Coordinator(project_name="demo-submit-404")
+    await coord.start()
+    try:
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.post(
+                "/app/ghost/tasks/submit",
+                json={"worker": "x", "payload": {}},
+            )
+            assert r.status_code == 404
+    finally:
+        await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_submit_app_task_unknown_worker_422(nexus_grid_tmp: Path) -> None:
+    """Sprint 8 D1: a routing key that resolve_worker cannot
+    match surfaces as HTTP 422 with the WorkerNotFound message
+    in the detail — the shell can render it verbatim."""
+    from nexus_sdk import AppContext, AppManifest, NexusApp, nexus_worker
+
+    class SubmitFixtureApp(NexusApp):
+        manifest = AppManifest(name="submitfx2", version="0.1.0")
+
+        @nexus_worker(name="echo", model="stub-model")
+        async def worker_echo(self, ctx):  # type: ignore[no-untyped-def]
+            return {}
+
+        async def on_start(self, ctx: AppContext) -> None:
             pass
 
         async def on_stop(self) -> None:
             pass
 
-        @nexus_tab(name="Old", icon="archive")
-        def old(self) -> dict:
-            return {"description": "raw dict, not TabView"}
+    coord = Coordinator(project_name="demo-submit-badworker")
+    await coord.start()
+    try:
+        fake_app = SubmitFixtureApp()
+        coord.apps["submitfx2"] = fake_app
+        coord.app_contexts["submitfx2"] = AppContext(
+            compute=_FakeComputeClient(),  # type: ignore[arg-type]
+            project_name=coord.project_name,
+            app_name="submitfx2",
+            _app=fake_app,
+        )
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.post(
+                "/app/submitfx2/tasks/submit",
+                json={"worker": "ghost", "payload": {}},
+            )
+            assert r.status_code == 422
+            assert "ghost" in r.json()["detail"]
+    finally:
+        await coord.stop()
 
-        @nexus_tab(name="Broken", icon="alert")
-        def broken(self) -> dict:
-            raise RuntimeError("descriptor raised at boot sweep")
 
-    class AsyncOnlyApp(NexusApp):
-        manifest = AppManifest(name="async-only", version="0.1.0")
+# ---------------------------------------------------------------------------
+# Sprint 8 Phase A — D2 commands routes
+# ---------------------------------------------------------------------------
 
-        async def on_start(self, ctx: AppContext) -> None:  # noqa: ARG002
+
+@pytest.mark.asyncio
+async def test_list_app_commands_returns_descriptors(nexus_grid_tmp: Path) -> None:
+    from nexus_sdk import AppContext, AppManifest, NexusApp, nexus_command
+
+    class CmdApp(NexusApp):
+        manifest = AppManifest(name="cmdroute", version="0.1.0")
+
+        @nexus_command("detect", description="Détecter")
+        async def cmd_detect(self) -> None:
+            return None
+
+        @nexus_command("refresh", description="Rafraîchir", icon="refresh", group="Gov")
+        async def cmd_refresh(self) -> None:
+            return None
+
+        async def on_start(self, ctx: AppContext) -> None:
             pass
 
         async def on_stop(self) -> None:
             pass
 
-        @nexus_tab(name="Slow", icon="clock")
-        async def slow(self) -> dict:
-            # Async tabs must be skipped by the sweep — they would
-            # otherwise hang a slow HTTP fetch during boot.
-            return {"not": "reached"}
+    coord = Coordinator(project_name="demo-cmds-list")
+    await coord.start()
+    try:
+        coord.apps["cmdroute"] = CmdApp()
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.get("/app/cmdroute/commands")
+            assert r.status_code == 200
+            cmds = r.json()
+            assert len(cmds) == 2
+            names = {c["name"] for c in cmds}
+            assert names == {"detect", "refresh"}
+            # Schema version must be present in the serialized
+            # descriptor — the shell Zod mirror asserts on it.
+            assert all(c["schema_version"] == 1 for c in cmds)
+    finally:
+        await coord.stop()
 
-    apps: dict[str, NexusApp] = {
-        "ported": PortedApp(),
-        "legacy": LegacyApp(),
-        "async-only": AsyncOnlyApp(),
-    }
-    result = legacy_descriptor_sweep(apps)
 
-    # Ported app is not flagged
-    assert "ported" not in result
-    # Async-only app is not flagged (its sync tab count is zero)
-    assert "async-only" not in result
-    # Legacy app has both the raw-dict tab AND the raising tab
-    assert "legacy" in result
-    assert set(result["legacy"]) == {"Old", "Broken"}
+@pytest.mark.asyncio
+async def test_invoke_app_command_runs_method(nexus_grid_tmp: Path) -> None:
+    from nexus_sdk import AppContext, AppManifest, NexusApp, nexus_command
+
+    class CmdApp(NexusApp):
+        manifest = AppManifest(name="cmdinvoke", version="0.1.0")
+        called = False
+
+        @nexus_command("go", description="Go")
+        async def cmd_go(self) -> dict[str, Any]:
+            type(self).called = True
+            return {"navigation": {"path": "/app/cmdinvoke/tabs/home"}}
+
+        async def on_start(self, ctx: AppContext) -> None:
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+    coord = Coordinator(project_name="demo-cmd-invoke")
+    await coord.start()
+    try:
+        coord.apps["cmdinvoke"] = CmdApp()
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.post("/app/cmdinvoke/commands/go/invoke")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["result"] == {"navigation": {"path": "/app/cmdinvoke/tabs/home"}}
+            assert CmdApp.called is True
+    finally:
+        await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_invoke_app_command_unknown_raises_404(nexus_grid_tmp: Path) -> None:
+    from nexus_sdk import AppContext, AppManifest, NexusApp
+
+    class EmptyCmdApp(NexusApp):
+        manifest = AppManifest(name="emptycmd", version="0.1.0")
+
+        async def on_start(self, ctx: AppContext) -> None:
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+    coord = Coordinator(project_name="demo-cmd-unknown")
+    await coord.start()
+    try:
+        coord.apps["emptycmd"] = EmptyCmdApp()
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.post("/app/emptycmd/commands/ghost/invoke")
+            assert r.status_code == 404
+    finally:
+        await coord.stop()

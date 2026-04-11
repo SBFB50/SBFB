@@ -5,13 +5,19 @@
  * edge cases. Tests use @testing-library/react + jsdom. React
  * Router's <MemoryRouter> wraps renders that exercise the
  * <ButtonBlock> path (which calls useNavigate).
+ *
+ * Sprint 8 Phase A: adds coverage for the new `task_submit`
+ * wiring in ButtonBlock (D1 + D4) — asserts the context-less
+ * error path and the context-ful happy path with a stubbed
+ * submitAppTask.
  */
 
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { TabViewRenderer } from "../TabViewRenderer";
+import { TabAppContext } from "../TabAppContext";
 import { TabViewSchema, parseTabView, type TabView } from "../schema";
 
 function wrap(tabView: TabView) {
@@ -283,6 +289,102 @@ describe("TabViewRenderer — each block kind", () => {
       ]),
     );
     expect(screen.getByText(/section vide/)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sprint 8 Phase A — ButtonBlock task_submit wiring (D1 + D4)
+// ---------------------------------------------------------------------------
+
+// Mock the coordinator API module so the `submitAppTask` call
+// doesn't try to hit a real coordinator. The first two tests
+// assert the context-less error path and the wired happy path.
+vi.mock("@/api/coordinator", () => ({
+  submitAppTask: vi.fn(),
+}));
+
+import { submitAppTask } from "@/api/coordinator";
+
+const submitAppTaskMock = submitAppTask as unknown as ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  submitAppTaskMock.mockReset();
+});
+
+afterEach(() => {
+  submitAppTaskMock.mockReset();
+});
+
+describe("ButtonBlock task_submit wiring (Sprint 8 Phase A)", () => {
+  function renderButton(options: { withContext: boolean }) {
+    const tabView = make([
+      {
+        kind: "button",
+        label: "Lancer",
+        action: {
+          kind: "task_submit",
+          worker: "contradiction_detector",
+          payload: { query: "hello" },
+        },
+        tone: "warn",
+      },
+    ]);
+    const tree = <TabViewRenderer tabView={tabView} />;
+    return render(
+      <MemoryRouter>
+        {options.withContext ? (
+          <TabAppContext.Provider
+            value={{ coordinatorUrl: "http://127.0.0.1:8765", appName: "gov" }}
+          >
+            {tree}
+          </TabAppContext.Provider>
+        ) : (
+          tree
+        )}
+      </MemoryRouter>,
+    );
+  }
+
+  it("disables the task_submit button when rendered without TabAppContext", () => {
+    renderButton({ withContext: false });
+    const button = screen.getByRole("button", { name: "Lancer" });
+    // The ButtonBlock derives `disabled = (task_submit && tabApp
+    // === null)` so a stray click on a badly-placed tab renderer
+    // cannot fire submitAppTask with a null coordinator URL.
+    expect(button).toBeDisabled();
+    expect(submitAppTaskMock).not.toHaveBeenCalled();
+  });
+
+  it("calls submitAppTask with the wired coordinator + app + payload", async () => {
+    submitAppTaskMock.mockResolvedValue({ task_id: "task-123" });
+    renderButton({ withContext: true });
+    const button = screen.getByRole("button", { name: "Lancer" });
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(submitAppTaskMock).toHaveBeenCalledTimes(1);
+    });
+    expect(submitAppTaskMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8765",
+      "gov",
+      {
+        worker: "contradiction_detector",
+        payload: { query: "hello" },
+        priority: 5,
+        parent_task_id: null,
+      },
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/Tâche soumise \(task-123\)/)).toBeInTheDocument();
+    });
+  });
+
+  it("surfaces submit_task HTTP errors as inline destructive feedback", async () => {
+    submitAppTaskMock.mockRejectedValue(new Error("HTTP 422 ghost worker"));
+    renderButton({ withContext: true });
+    fireEvent.click(screen.getByRole("button", { name: "Lancer" }));
+    await waitFor(() => {
+      expect(screen.getByText(/HTTP 422 ghost worker/)).toBeInTheDocument();
+    });
   });
 });
 

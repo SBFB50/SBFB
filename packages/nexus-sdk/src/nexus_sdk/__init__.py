@@ -13,9 +13,18 @@ Core public API:
 """
 
 from nexus_sdk import view
-from nexus_sdk.app import AppContext, AppManifest, NexusApp, TabDescriptor, WorkerDescriptor
+from nexus_sdk.app import (
+    AppContext,
+    AppManifest,
+    NexusApp,
+    RouteDescriptor,
+    TabDescriptor,
+    WorkerDescriptor,
+    WorkerNotFound,
+)
+from nexus_sdk.commands import CommandDescriptor
 from nexus_sdk.compute_client import ComputeClient
-from nexus_sdk.decorators import nexus_route, nexus_tab, nexus_worker
+from nexus_sdk.decorators import nexus_command, nexus_route, nexus_tab, nexus_worker
 from nexus_sdk.loader import discover_apps
 from nexus_sdk.view import (
     TabBlock,
@@ -39,12 +48,15 @@ __version__ = "0.1.0"
 __all__ = [
     "AppContext",
     "AppManifest",
+    "CommandDescriptor",
     "ComputeClient",
     "NexusApp",
+    "RouteDescriptor",
     "TabBlock",
     "TabDescriptor",
     "TabView",
     "WorkerDescriptor",
+    "WorkerNotFound",
     "__version__",
     "badge_list",
     "button_route",
@@ -56,6 +68,7 @@ __all__ = [
     "heading",
     "kv",
     "metric",
+    "nexus_command",
     "nexus_route",
     "nexus_tab",
     "nexus_worker",

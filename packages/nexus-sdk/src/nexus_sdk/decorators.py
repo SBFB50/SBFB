@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from nexus_sdk.registry import ROUTE_ATTR, TAB_ATTR, WORKER_ATTR
+from nexus_sdk.registry import COMMAND_ATTR, ROUTE_ATTR, TAB_ATTR, WORKER_ATTR
 
 
 def nexus_route(
@@ -62,6 +62,53 @@ def nexus_tab(*, name: str, icon: str = "") -> Callable[[Callable[..., Any]], Ca
 
     def wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
         setattr(fn, TAB_ATTR, {"name": name, "icon": icon})
+        return fn
+
+    return wrap
+
+
+def nexus_command(
+    name: str,
+    *,
+    description: str,
+    icon: str = "sparkles",
+    group: str = "Actions",
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Mark a coroutine on a NexusApp as a command palette entry.
+
+    Sprint 7 D5 frozen signature. The decorator is a no-op wrapper
+    that attaches a ``__nexus_command__`` attribute; the
+    :class:`~nexus_sdk.NexusApp` base class's
+    :meth:`~nexus_sdk.NexusApp.commands` method collects these
+    into :class:`~nexus_sdk.commands.CommandDescriptor` instances
+    at construction time.
+
+    Example::
+
+        class GovApp(NexusApp):
+            manifest = AppManifest(name="gov", version="1.1.0")
+
+            @nexus_command(
+                "detect_contradictions",
+                description="Détecter les contradictions",
+                icon="sparkles",
+                group="Gov",
+            )
+            async def cmd_detect_contradictions(self):
+                return {"navigation": {"path": "/app/gov/tabs/contradictions"}}
+    """
+
+    def wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
+        setattr(
+            fn,
+            COMMAND_ATTR,
+            {
+                "name": name,
+                "description": description,
+                "icon": icon,
+                "group": group,
+            },
+        )
         return fn
 
     return wrap
