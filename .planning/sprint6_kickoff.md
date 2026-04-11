@@ -103,6 +103,17 @@ DHT. N'impacte pas la logique app côté Python. Risk iroh
 **Phases pressenties** (outline Sprint 7, à figer dans un
 kickoff dédié) :
 
+- **0 — Audit Sprint 6 (gate)** : **obligatoire avant toute
+  écriture de code Sprint 7**. Session Claude Code fraîche
+  (sans historique Sprint 6) qui joue
+  `.planning/sprint6_audit_plan.md` (9 tracks A..I) et produit
+  `.planning/sprint6_audit_findings.md`. Toute finding **P0 ou
+  P1** doit être fixée avant démarrage Phase A, en commits
+  dédiés `fix(sprint6): ...` atterissant sur master avant le
+  premier commit Sprint 7. Findings P2 sont loggées dans
+  `docs/shell/PATTERNS.md` comme nouvelle tech debt. P3 sont
+  optionnelles. **Goal check** : ne pas bâtir P2P sur une
+  fondation TabView dont l'audit n'a pas validé la solidité.
 - **A** : `crates/nexus-shell-daemon-core` + `crates/nexus-shell-daemon`
   (suivre le pattern `nexus-worker-core` / `nexus-worker`).
   Headless-first, tests sans terminal. Démarrage = load clé
@@ -126,6 +137,11 @@ kickoff dédié) :
 - **E** : Pages `Browse.tsx` + `Curators.tsx` câblées sur
   `GET /curator-lists`, `POST /curator-lists/subscribe`,
   `GET /dht/browse`. Playwright specs contre shell-daemon réel.
+- **F — Sortie de sprint** : écrire
+  `.planning/sprint7_verification.md` (self-report fail-fast)
+  **et** `.planning/sprint7_audit_plan.md` (plan d'audit pour
+  Sprint 8 Phase 0). La sortie d'un sprint prépare toujours
+  l'entrée du suivant.
 
 **Dépendances sur Sprint 6** : TabView vocabulary (pour
 afficher project cards dans Browse), Ctrl+K palette (pour
@@ -156,6 +172,13 @@ datasources externes.
 
 **Phases pressenties** :
 
+- **0 — Audit Sprint 7 (gate)** : même pattern que Sprint 7
+  Phase 0. Session fraîche qui joue
+  `.planning/sprint7_audit_plan.md` (livré en sortie Sprint 7)
+  et produit `.planning/sprint7_audit_findings.md`. P0/P1 fixés
+  avant Phase A, P2 loggés dans tech debt. Bloquant sur la
+  solidité du daemon + curator + DHT avant de bâtir 19 tabs
+  par-dessus.
 - **A** : SDK extension — `AppContext.storage` (namespaced
   SQLite per app), `AppContext.events` (pub/sub in-proc),
   file upload helper, DB migration runner. Ces primitives
@@ -311,9 +334,50 @@ Avant d'écrire le code Sprint 6 (commit de `d77f122`-style
 Les deux items "rejetés" restent rejetés — pas de revisite
 sans déclencheur externe.
 
+## 8. Audit gate pattern (convention permanente)
+
+À partir de Sprint 7, chaque sprint suit ce cycle **sans
+exception** :
+
+1. **Phase 0 — Audit du sprint précédent** (gate)
+   - Session Claude Code fraîche (sans historique du sprint
+     précédent) qui joue `.planning/sprint{N-1}_audit_plan.md`
+   - Produit `.planning/sprint{N-1}_audit_findings.md` avec
+     verdict PASS / CONDITIONAL PASS / FAIL et findings
+     P0..P3
+   - **P0 + P1 fixés en commits `fix(sprint{N-1}): ...` sur
+     master avant tout commit Phase A** du sprint en cours
+   - P2 loggés dans `docs/shell/PATTERNS.md` ou équivalent
+   - P3 optionnels
+2. **Phases A..E** — le vrai contenu du sprint
+3. **Phase de sortie** — deux livrables obligatoires côte à
+   côte :
+   - `.planning/sprint{N}_verification.md` — self-report
+     fail-fast checklist (comme aujourd'hui)
+   - `.planning/sprint{N}_audit_plan.md` — plan d'audit que
+     la session fraîche de Sprint{N+1} Phase 0 jouera
+
+**Pourquoi** : la vérification self-reportée d'un sprint par
+l'agent qui l'a écrit est une auto-attestation, pas une
+vérification. Seul le croisement avec un contexte frais
+indépendant produit une vraie garantie. Le pattern rend
+l'audit structurellement obligatoire au lieu de le laisser à
+la mémoire humaine — la phase 0 de chaque sprint bloque le
+code tant que l'audit du précédent n'est pas livré.
+
+**Sprint 6 rétro-pattern** : Sprint 6 n'a pas eu de Phase 0
+audit de Sprint 5 (le pattern n'existait pas encore). Le
+premier cycle complet est Sprint 7 (audite Sprint 6 en
+Phase 0, livre plan d'audit Sprint 7 en sortie). L'audit plan
+Sprint 6 est déjà écrit dans
+`.planning/sprint6_audit_plan.md`, donc Sprint 7 est prêt à
+démarrer dès que l'utilisateur lance la session fraîche.
+
 ---
 
 **État** : kickoff rédigé, décisions Day 0 gelées en attente
 de validation. Plan détaillé Sprint 6 proper dans
 `.planning/sprint6_plan.md`. Sprint 7 + 8 gardent le statut
-"outline" et auront leurs propres kickoff/plan dédiés.
+"outline" et auront leurs propres kickoff/plan dédiés. Le
+pattern Audit gate (§8) s'applique à tous les sprints à
+partir de Sprint 7.
