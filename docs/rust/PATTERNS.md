@@ -817,44 +817,125 @@ test binary's name does not match the production substring.
 Regression test:
 `registry::tests::process_name_matches_handles_hyphen_underscore_drift`.
 
-### Sprint 7 tech debt (2026-04-11)
+### Sprint 7 tech debt (2026-04-11) — Sprint 8 Phase A status update
 
-None of the items below block Sprint 8 Phase A. They are the
-Phase F sortie notes the Sprint 8 audit gate should cross-check
-against the `sprint7_audit_plan.md` tracks of the same name.
+Status of the 4 pre-confessed items + the 4 new audit-detected
+items after Sprint 8 Phase A (commit `d321021`).
 
-1. **Probe TTL vs real-world pkarr latency** —
+#### Pre-confessed items — STILL OPEN, deferred to Sprint 9
+
+1. **Probe TTL vs real-world pkarr latency** — STILL OPEN —
    `BrowseAggregator::DEFAULT_PROBE_TIMEOUT = 2s` and
    `DEFAULT_PROBE_TTL = 60s` are calibrated on local-network tests.
    Residential NAT + relay cold start can need 3-5 s for the first
    resolution, which would misreport a reachable peer as
-   Unreachable for 60 s. Audit Track E1 will re-benchmark.
+   Unreachable for 60 s. Sprint 8 did NOT touch this — audit
+   Track E1 / Sprint 7 audit findings §E-1 still applies.
 
-2. **Gossip loop backpressure** — `process_announcement_bytes` runs
-   sequentially per message; a flood of 10 k announcements/s
-   serialises through a single iroh fetch chain. No backpressure /
-   rate limiter today. Sprint 8 or 9 can add a `tokio::sync::Semaphore`
-   guarding `process_announcement_bytes` concurrency. Audit Track C4.
+2. **Gossip loop backpressure** — STILL OPEN —
+   `process_announcement_bytes` runs sequentially per message; a
+   flood of 10 k announcements/s serialises through a single iroh
+   fetch chain. No backpressure / rate limiter today. Sprint 9
+   can add a `tokio::sync::Semaphore` guarding
+   `process_announcement_bytes` concurrency. Audit Track C4 /
+   Sprint 7 audit findings §C-4.
 
-3. **`subscriptions.json` persistence order** — attention set is
-   updated in RAM BEFORE the `persist_subscriptions` write. If the
-   persist fails, the RAM and disk states diverge; at next boot
-   the missing subscription is silently lost. Safe but worth a
-   "try persist first, rollback RAM on failure" rewrite. Audit
-   Track D3.
+3. **`subscriptions.json` persistence order** — STILL OPEN —
+   `CuratorRuntime::subscribe` (`iroh_runtime.rs:321`) still does
+   `attention.insert(pk, ())` BEFORE `persist_subscriptions()?`.
+   If the persist fails, the RAM and disk states diverge; at next
+   boot the missing subscription is silently lost. Sprint 9 should
+   adopt a "try persist first, rollback RAM on failure" rewrite.
+   Audit Track D3 / Sprint 7 audit findings §D-3.
 
-4. **`nexus_core` wheel editable install drift** — the Sprint 7
-   Phase E test run showed that the editable install of
-   `nexus-core-py` can get wiped by a `uv sync` somewhere in the
-   workflow. Not fatal (re-run `maturin develop --release` fixes
-   it) but a reproducibility hazard for CI. Audit Track H3 proposes
-   adding an explicit `scripts/setup.sh` or pinning the wheel via
-   `pyproject.toml`.
+4. **`nexus_core` wheel editable install drift** — STILL OPEN —
+   the Sprint 7 Phase E test run showed that the editable install
+   of `nexus-core-py` can get wiped by a `uv sync` somewhere in
+   the workflow. Sprint 8 did NOT add `scripts/setup.sh` nor pin
+   the wheel via `pyproject.toml`. Sprint 9 should fix this
+   before the SDK gains its first non-test consumer outside the
+   loopback dev loop. Audit Track H3 / Sprint 7 audit findings §H-3.
+
+#### New items detected by Sprint 7 Phase 0 audit gate — CLOSED Sprint 8 Phase A
+
+These four items were uncovered by the Sprint 7 audit gate
+(session fraîche jouant `sprint7_audit_plan.md`, verdict PASS,
+findings in `.planning/sprint7_audit_findings.md`). They were
+treated as **Phase A hygiene** by Sprint 8, before the gov tab
+migration started, so Sprint 9 inherits a cleaner Rust crypto +
+runtime layer.
+
+5. **A-4 — `CuratorProjectRef` strings sans length cap** —
+   CLOSED Sprint 8 Phase A (commit `d321021`).
+   `crates/nexus-core-rs/src/curator.rs::verify_signature` now
+   enforces, in step 2 (right after the entries-count cap), that
+   every `CuratorProjectRef` has `project_id ≤ 128`,
+   `project_name ≤ 128`, `category ≤ 64`, `description ≤ 280`
+   characters. The Zod mirror in `web/src/api/daemon.ts` adds the
+   same `.max(...)` chain. Test:
+   `curator::tests::verify_rejects_oversized_fields`. The total
+   list size is now bounded `≤ ~150 KB` instead of unbounded.
+   Audit reference: `.planning/sprint7_audit_findings.md` §A-4.
+
+6. **C-2 — `AnnouncementAttributionMismatch` conflate two cases** —
+   CLOSED Sprint 8 Phase A (commit `d321021`). The variant
+   `CuratorRuntimeError::AnnouncementAttributionMismatch` is split
+   into two distinct variants in
+   `crates/nexus-shell-daemon-core/src/iroh_runtime.rs:208,224` :
+   `NotSubscribed { curator: String }` (benign, expected flood from
+   curators we don't follow, logged at `debug!` level) and
+   `EnvelopeMismatch { announcement: String, entry: String }` (real
+   spoofing attempt, logged at `warn!` with the attacker pubkey).
+   Operators can now distinguish a normal traffic burst from a
+   genuine attack via log filtering. Test:
+   `iroh_runtime::tests::not_subscribed_and_envelope_mismatch_are_distinct`.
+   Audit reference: `.planning/sprint7_audit_findings.md` §C-2.
+
+7. **D-1 — `process_name_matches` substring trop large** —
+   CLOSED Sprint 8 Phase A (commit `d321021`).
+   `crates/nexus-shell-daemon-core/src/registry.rs::process_name_matches`
+   no longer accepts arbitrary substrings: it requires either
+   exact equality, equality stripped of `.exe`, or
+   `<expected>-<hash>` / `<expected>_<hash>` (the cargo test binary
+   pattern). A renamed user binary like
+   `nexus_shell_daemon_launcher.exe` no longer falsely matches
+   the production daemon. Test:
+   `registry::tests::process_name_rejects_prefix_extension`.
+   Audit reference: `.planning/sprint7_audit_findings.md` §D-1.
+
+8. **G-3 — Daemon HTTP DTOs sans `#[serde(deny_unknown_fields)]`** —
+   CLOSED Sprint 8 Phase A (commit `d321021`).
+   `crates/nexus-shell-daemon/src/http.rs` now stamps
+   `#[serde(deny_unknown_fields)]` on `SubscribeCuratorRequest`
+   (line 162), `SubscriptionsResponse` (line 173),
+   `CuratorsListResponse` (line 180), and `BrowseListResponse`
+   (line 201). A POST body that carries an unknown field is now
+   rejected by axum at deserialization time with HTTP 422 instead
+   of being silently ignored — defense in depth against future
+   schema drift between the shell and the daemon. Test:
+   `http::tests::subscribe_rejects_extra_fields`.
+   Audit reference: `.planning/sprint7_audit_findings.md` §G-3.
+
+#### A-3 cross-language curator fixture — CLOSED Sprint 8 Phase A
+
+Not strictly Rust-side, but cross-cuts the curator crypto layer.
+`packages/nexus-sdk/tests/snapshots/curator_canonical.json` is a
+deterministic Ed25519-signed `CuratorListEntry` fixture committed
+in commit `d321021`. It is read by both
+`packages/nexus-sdk/tests/test_curator.py::test_canonical_fixture_roundtrip`
+(Python side, exercises PyO3 + Rust verify) AND
+`web/src/api/__tests__/daemon.test.ts` (Vitest side, exercises Zod
+parse). Any drift between Rust serde, Python signing, and Zod
+schema will fire one of the two tests. This closes the same
+"Python signs but Zod never validates the result" hole that
+Sprint 6 patched for TabView with `tabview_canonical.json`.
+Audit reference: `.planning/sprint7_audit_findings.md` §A-3.
 
 Nothing in these notes invalidates the Sprint 7 architecture
-choices. The Phase F self-report fails fast on 32/32 checks at
-tip `6f32893` and every cross-cut Rust-Python-Web integration
-path is exercised by at least one test at some level.
+choices. The Sprint 8 Phase F self-report fails fast on 32/32
+checks at tip `9339bb6` and every Sprint 7 P2 hygiene closure is
+locked by a regression test verified by an explicit fail-fast row
+(rows 5-8).
 
 ---
 

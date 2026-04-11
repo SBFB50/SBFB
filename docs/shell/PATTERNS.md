@@ -123,11 +123,20 @@ and the React shell parses the payload through the Zod
 mirror in `web/src/components/app/tabview/schema.ts` before
 the renderer walks the block tree.
 
-The Sprint 6 D3 fallback (`legacy_descriptor: true`) is a
-transition aid — it preserves an unported app's raw dict
-for one release only. It MUST be removed once
-`nexus-app-gov` lands its full 19-tab migration in
-Sprint 8.
+**Sprint 8 D4 retired the `legacy_descriptor` fallback**
+(commit `d321021`). The Sprint 6 D3 transition aid that
+preserved an unported app's raw dict under
+`{descriptor, legacy_descriptor: true}` is **gone**: a tab
+that returns a payload that does not pass
+`TabView.model_validate` now fails the request with
+`HTTPException(422, detail=<ValidationError>)`. The
+`_coerce_tab_view()` helper has been deleted from
+`apps.py`; the route handler calls `model_validate`
+directly. Test contract:
+`tests/test_apps.py::test_tab_descriptor_raises_422_on_invalid_schema`
+asserts the new behaviour, plus two
+`assert "legacy_descriptor" not in body` checks lock the
+field absence on every successful tab descriptor response.
 
 The five native tabs in `ProjectDetail.tsx` (Overview,
 Tasks, Kudos, Invites, Apps) stay out of scope: they
@@ -200,6 +209,118 @@ ephemeral port to force a `httpx.ConnectError → 503`).
 
 Reference: sprint7_kickoff.md §4 D1, sprint7_plan.md §8.
 
+### P10 — Command palette extends with app-contributed entries via `@nexus_command`
+
+Sprint 8 D2/D5 (frozen Sprint 7 D5, implemented commit
+`d321021`): the React shell command palette
+(`web/src/components/command-palette/CommandPalette.tsx`)
+exposes a 4th group « Apps » that merges entries declared
+by every enrolled `NexusApp` via the `@nexus_command`
+decorator. The first three groups (Navigation / Projets /
+Actions) stay hardcoded shell-side; the 4th is fully
+data-driven from the coordinator.
+
+Contract shape — the SDK side:
+
+```python
+# packages/nexus-sdk/src/nexus_sdk/decorators.py
+def nexus_command(
+    name: str,
+    *,
+    description: str,
+    icon: str = "sparkles",
+    group: str = "Actions",
+) -> Callable[[F], F]:
+    """Attach a CommandDescriptor to a NexusApp method."""
+```
+
+The decorator stamps a `CommandDescriptor` (frozen
+Pydantic, `extra="forbid"`, `schema_version=1`) on
+`__nexus_command__` of the wrapped method.
+`NexusApp.commands()` walks the class's methods and returns
+the descriptors sorted by `name` ascending so the route
+ordering is deterministic and the test
+`test_list_app_commands_ordered` is stable.
+
+Contract shape — the coordinator routes:
+
+```
+GET  /app/{name}/commands                     → list[CommandDescriptor]
+POST /app/{name}/commands/{cmd}/invoke        → command return value
+```
+
+The shell consumes both via `web/src/api/coordinator.ts`
+(`listAppCommands()`, `invokeAppCommand()`), with the Zod
+mirror `CommandDescriptorSchema` `.strict()` matching the
+Pydantic source-of-truth field-for-field. Polling cadence
+in `CommandPalette.tsx`: React Query
+`staleTime: 15_000`, `refetchInterval: 30_000` per the
+Sprint 8 R7 mitigation (the palette must not hammer the
+coordinator with N-app-many concurrent fetches every render).
+
+Click handling: a command can either deep-link into a tab
+(when its metadata declares a `target_tab` and
+`extractNavigationPath()` resolves it to
+`/app/{appName}/tab/{tabName}`) or fire a server-side
+`invoke_command` via the POST route. The
+`AppTabPage.tsx` route exists to receive the deep-link
+target without going through `ProjectDetail`'s tab strip.
+
+Loopback trust applies: `/commands/.../invoke` carries no
+auth header — same trust model as `/tasks/submit` Sprint 4.
+Adding auth here would mean adding auth to the whole
+coordinator surface, which is a Sprint 10+ release-prep
+task, not a Sprint 8 hygiene fix.
+
+Reference: sprint8_kickoff.md §4 D2, sprint8_plan.md §4
+Phase A, commit `d321021`.
+
+### P11 — `AppContext.db` is a read-only async wrapper, scope-cut from a writer
+
+Sprint 8 D3 (commit `d321021`): `AppContext.db` exposes a
+`AppDatabaseClient` that is **read-only by enforcement**,
+not by convention. Open path:
+
+```python
+# packages/nexus-sdk/src/nexus_sdk/db.py
+async def _connect(self) -> aiosqlite.Connection:
+    return await aiosqlite.connect(
+        f"file:{self.path}?mode=ro",
+        uri=True,
+    )
+```
+
+The SQLite URI `mode=ro` makes the connection refuse any
+INSERT / UPDATE / DELETE / DDL at the engine level — a
+write attempt raises `OperationalError: attempt to write
+a readonly database`, not silently lost. Test contract
+`test_db.py::test_readonly_enforced` asserts this.
+
+Concurrency: an internal `asyncio.Lock` serialises
+`fetchall` / `fetchone` calls per `AppDatabaseClient`
+instance to dodge aiosqlite's connection-not-thread-safe
+gotcha (Sprint 8 R9 mitigation). Test
+`test_concurrent_fetchall` covers it. Sprint 9 may bump
+to a per-tab connection pool if the lock contention bites
+gov tabs that issue 5+ queries on render.
+
+Path resolution: the coordinator computes the legacy DB
+path absolutely from `__file__` via
+`packages/nexus-coordinator/src/nexus_coordinator/paths.py::nexus_grid_repo_root()`,
+NEVER from a user-supplied string. An app cannot ask for
+an arbitrary file. The `NEXUS_GRID_ROOT` env override
+exists for tests and respects the same anchor.
+
+Read-only is a deliberate scope choice for Sprint 8: the
+gov v1.1 migration only reads the legacy `nexus/gov/govdata.db`
+(4 years of scraped data, treated as immutable input). The
+4 deferred infra primitives (`AppContext.storage`, `events`,
+file upload, migration runner) are the writer-side surface
+that Sprint 9 will introduce when there is a real consumer.
+
+Reference: sprint8_kickoff.md §4 D3, sprint8_plan.md §5
+Phase B, commit `6efda53`.
+
 ## Tech debt — queued for Phase D or later
 
 ### T1 — Fast refresh warnings on 5 shadcn ui primitives
@@ -244,7 +365,7 @@ statements across 77 unit tests in 3 files.
 
 Closed by commit `7a56828` (Sprint 6 Phase D).
 
-### T4 — TabView.button task_submit action needs a real consumer
+### T4 — TabView.button task_submit action needs a real consumer — CLOSED Sprint 8 Phase A
 
 Sprint 6 audit finding G-1 / B-1. The `action.kind === "task_submit"`
 branch in `web/src/components/app/tabview/blocks/ButtonBlock.tsx` is
@@ -253,44 +374,32 @@ a `console.warn` placeholder. The schema exports the action type,
 button click. Sprint 6 audit coverage shows ButtonBlock at 57% lines
 / 0% branches because no test ever hits the second branch.
 
-**Status: signature frozen Sprint 7 Day 0, implementation Sprint 8
-Phase A.**
+**Status: CLOSED Sprint 8 Phase A** (commit `d321021`).
 
-Sprint 7 kickoff §4 D4 tranched Option B: extend `AppContext` with
-a non-breaking `submit_task` method, keep `schema_version=1` intact.
-The full signature is frozen in `.planning/sprint7_kickoff.md` §D4
-and reproduced here for grep-ability:
+`ButtonBlock.tsx` now reads a `TabAppContext` provider
+(`web/src/components/app/tabview/TabAppContext.tsx`) that
+carries `{coordinatorUrl, projectName, appName}` from the
+parent `AppsTab` / `AppTabPage`, builds the body
+`{worker, payload, priority?, parent_task_id?}`, and POSTs
+to `/app/{appName}/tasks/submit` via
+`web/src/api/coordinator.ts::submitAppTask`. Success / error
+states are surfaced inline in the button row (no toast
+infrastructure introduced — kept consistent with Sprint 6
+inline form errors).
 
-```python
-# packages/nexus-sdk/src/nexus_sdk/app.py (extension Sprint 8)
+Coverage status post-Sprint 8: `ButtonBlock.tsx` at 77.77%
+lines / 76.47% branches (Vitest) plus the Playwright spec
+`gov-rag-search.spec.ts` exercises the button against a
+real coordinator. The remaining uncovered branches are
+HTTP 500 fall-through paths exercised through coverage of
+`coordinator.ts::submitAppTask` itself.
 
-class AppContext:
-    async def submit_task(
-        self,
-        worker: str,
-        payload: dict[str, Any],
-        *,
-        priority: int = 5,
-        parent_task_id: str | None = None,
-    ) -> str: ...
-```
+Reference: `.planning/sprint8_kickoff.md` §D1,
+`.planning/sprint8_plan.md` §4 Phase A, commit `d321021`.
+Audit history: `.planning/sprint6_audit_findings.md` §G-1,
+`sprint7_kickoff.md` §D4 (signature freeze).
 
-React side: `ButtonBlock.tsx` will read a `TabAppContext` React
-context carrying `{projectName, coordinatorUrl, appName}`, resolve
-the submit_task endpoint to `POST /app/{appName}/tasks/submit` on
-the active coordinator, body is the `ActionTaskSubmit` payload
-verbatim. Sprint 7 DID NOT touch `ButtonBlock.tsx` — the
-`console.warn` stub stays in place until Sprint 8 Phase A lands
-the full wiring.
-
-Implementation blocked on Sprint 8 Phase A (same chantier as the
-other `AppContext` extensions: `storage`, `events`, file upload,
-DB migration runner).
-
-Audit reference: `.planning/sprint6_audit_findings.md` §G-1,
-`sprint7_kickoff.md` §D4.
-
-### T5 — No SDK hook for app-contributed command palette entries
+### T5 — No SDK hook for app-contributed command palette entries — CLOSED Sprint 8 Phase A
 
 Sprint 6 audit finding G-2. The command palette hardcodes three
 groups (Navigation, Projets, Actions) with no mechanism for an app
@@ -298,48 +407,25 @@ to register commands ("Nouveau fact-check", "Rechercher dans les
 votes"). Sprint 8 gov v1.1 will want this. The SDK currently has
 `NexusApp.routes()`, `.workers()`, `.tabs()` but no `.commands()`.
 
-**Status: decorator + wire contract frozen Sprint 7 Day 0,
-implementation Sprint 8 Phase A.**
+**Status: CLOSED Sprint 8 Phase A** (commit `d321021`).
 
-Sprint 7 kickoff §4 D5 froze the full signature of
-`@nexus_command`, the `CommandDescriptor` Pydantic model, and the
-Zod mirror. Reproduced for grep-ability (but NOT implemented in
-Sprint 7 code):
+The full surface lives now in
+`packages/nexus-sdk/src/nexus_sdk/commands.py` (the
+`CommandDescriptor` Pydantic frozen model), `decorators.py`
+(the `@nexus_command` decorator that stamps
+`__nexus_command__` metadata), and `registry.py`
+(`NexusApp.commands()` collector). The coordinator routes
+`GET /app/{name}/commands` and
+`POST /app/{name}/commands/{cmd}/invoke` are wired in
+`packages/nexus-coordinator/src/nexus_coordinator/api/apps.py`,
+the React shell consumes them through
+`web/src/api/coordinator.ts::{listAppCommands, invokeAppCommand}`,
+and the 4th palette group lives in
+`web/src/components/command-palette/CommandPalette.tsx`.
+See **P10** above for the full pattern reference.
 
-```python
-# packages/nexus-sdk/src/nexus_sdk/decorators.py (extension Sprint 8)
-def nexus_command(
-    name: str,
-    *,
-    description: str,
-    icon: str = "sparkles",
-    group: str = "Actions",
-) -> Callable[[F], F]: ...
-```
-
-```python
-# packages/nexus-sdk/src/nexus_sdk/commands.py (new Sprint 8)
-class CommandDescriptor(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    schema_version: Literal[1] = 1
-    name: str = Field(..., min_length=1, max_length=64)
-    description: str = Field(..., max_length=280)
-    icon: str = Field("sparkles", max_length=32)
-    group: str = Field("Actions", max_length=32)
-```
-
-Coordinator route (Sprint 8 Phase A): `GET /app/{name}/commands`
-returns `list[CommandDescriptor]`. The Zod mirror
-`CommandDescriptorSchema` in `web/src/api/coordinator.ts` will
-dispatch on `schema_version` like the existing TabView path.
-
-Sprint 7 DID NOT touch `CommandPalette.tsx` or the SDK — the
-three hardcoded groups stay in place. The 4th "App" group merges
-`listAppCommands()` results across every enrolled app in
-Sprint 8 Phase A.
-
-Audit reference: `.planning/sprint6_audit_findings.md` §G-2,
-`sprint7_kickoff.md` §D5.
+Audit history: `.planning/sprint6_audit_findings.md` §G-2,
+`sprint7_kickoff.md` §D5 (signature freeze).
 
 ### T6 — Renderer fuzz + chart edge-case tests
 
@@ -380,3 +466,78 @@ Both are three-line tightenings with high return on reliability.
 Recommended for Sprint 7 cleanup phase.
 
 Audit reference: `.planning/sprint6_audit_findings.md` §C-3, §D-2.
+
+### T8 — `CardTitle` is a `<div>`, not an `<h2>`/`<h3>` (a11y) — Sprint 9
+
+Sprint 7 audit finding F-3. shadcn vendored
+`web/src/components/ui/card.tsx` ships `CardTitle` as a
+styled `<div>`, not a heading element. The Browse / Curators /
+gov tab pages use `CardTitle` for every card header, so a
+screen reader sees no `<h2>` / `<h3>` hierarchy beneath the
+top-of-page `<h1>` from `PageHeader`. Icon-only buttons
+(`<BookmarkPlus>`, `<Trash2>`) also lack `aria-label`s.
+
+Fix options:
+- (a) edit `card.tsx` once to render `<h3>` instead of `<div>`
+  (vendored file, audit-friendly diff)
+- (b) accept an `as` prop on `CardTitle` (intrusive vs
+  upstream shadcn shape)
+- (c) add file-level eslint a11y rules + fixup pass
+
+Sprint 8 Phase A intentionally **did not** touch this — it
+was scope-cut to Sprint 9 polish. Track G2 of
+`.planning/sprint8_audit_plan.md` cross-checks the deferral.
+
+Audit reference: `.planning/sprint7_audit_findings.md` §F-3.
+
+### T9 — Coordinator `httpx.AsyncClient` per-call, no `Limits` — Sprint 9
+
+Sprint 7 audit finding G-1.
+`packages/nexus-coordinator/src/nexus_coordinator/api/daemon.py::_forward`
+opens `async with httpx.AsyncClient(timeout=timeout)` on
+**every** call. For loopback this is trivially fast (~0 ms
+per handshake) but the absence of
+`httpx.Limits(max_connections=...)` means a burst of F5
+refreshes from the shell can accumulate clients without
+bound. No vulnerability today, but worth fixing before
+release.
+
+Fix options:
+- (a) module-level singleton
+  `httpx.AsyncClient(limits=httpx.Limits(max_connections=10))`
+  shared across requests, lifecycle managed by the FastAPI
+  app `lifespan`
+- (b) keep client-per-call but add explicit
+  `limits=httpx.Limits(max_connections=10)`
+
+Sprint 8 Phase A intentionally **did not** touch this. Track
+G2 of `sprint8_audit_plan.md` cross-checks the deferral.
+
+Audit reference: `.planning/sprint7_audit_findings.md` §G-1.
+
+### T10 — Main bundle 0.5 KB headroom under size-limit budget — Sprint 9
+
+Sprint 8 Phase E observed `main 474.49 kB / 475 budget` =
+**0.5 KB headroom**. The Sprint 8 surface added
+`AppTabPage.tsx`, `TabAppContext.tsx`,
+`extractNavigationPath.ts`, the rewritten `CommandPalette.tsx`
+4th group, the `submitAppTask` / `listAppCommands` /
+`invokeAppCommand` clients, and the rewritten `coordinator.ts`
+schemas. Net add ~3 KB.
+
+The next React component or coordinator route added Sprint 9
+**will** fail size-limit row 24 unless one of:
+- (a) bump the budget to 500-525 KB in `web/.size-limit.json`
+  with a documented rationale (commit body)
+- (b) tree-shake the unused `lucide-react` icon imports (a
+  Vitest spot-check shows ~30 icons imported, ~10 actually
+  rendered)
+- (c) split a heavy component out of the main chunk via
+  `React.lazy` + Suspense (e.g. `AppTabPage` → its own chunk)
+
+Track H3 of `sprint8_audit_plan.md` lists this as **P1**
+because it gates Sprint 9 commits. Sprint 9 Day 0 should
+pick a fix path before any new feature commit lands.
+
+Audit reference: `.planning/sprint8_verification.md` §Notes
+row 24.
