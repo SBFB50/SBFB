@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from nexus_sdk.view import (
@@ -42,6 +43,7 @@ from nexus_sdk.view import (
 from pydantic import ValidationError
 
 SNAPSHOT_PATH = Path(__file__).parent / "snapshots" / "tabview_schema.json"
+CANONICAL_FIXTURE_PATH = Path(__file__).parent / "snapshots" / "tabview_canonical.json"
 
 
 # ---------------------------------------------------------------------------
@@ -266,17 +268,28 @@ def test_chart_bar_default_tone() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Cross-language snapshot — must match web/src/components/app/tabview/schema.ts
+# Python snapshot — guards against drift in the Pydantic source of truth.
+# This is a SINGLE-LANGUAGE check. The cross-language guard is
+# tabview_canonical.json below, which is also parsed by Vitest.
 # ---------------------------------------------------------------------------
 
 
 def test_view_schema_stable_snapshot() -> None:
-    """Guard against accidental drift in the Python side.
+    """Python-side guard: TabView.model_json_schema() must stay
+    byte-stable across refactors that don't intentionally bump the
+    schema.
 
-    The snapshot captures Pydantic's JSON-schema dump of
-    :class:`TabView`. Any intentional schema change must (a)
-    bump ``schema_version``, (b) be mirrored in the Zod schema
-    on the frontend, and (c) regenerate this snapshot explicitly.
+    This does NOT by itself prove cross-language agreement with the
+    Zod schema in ``web/src/components/app/tabview/schema.ts``. The
+    real cross-language guard is
+    :func:`test_canonical_fixture_roundtrip` below, which shares
+    ``tabview_canonical.json`` with a Vitest test that calls
+    ``TabViewSchema.safeParse``.
+
+    Any intentional schema change must (a) bump ``schema_version``,
+    (b) be mirrored in the Zod schema on the frontend, (c)
+    regenerate this snapshot explicitly, and (d) regenerate the
+    canonical fixture.
     """
     actual = TabView.model_json_schema()
 
@@ -292,4 +305,85 @@ def test_view_schema_stable_snapshot() -> None:
         "TabView JSON schema drifted from snapshot. If this change is "
         "intentional, bump schema_version, update the Zod mirror, and "
         f"regenerate {SNAPSHOT_PATH} by deleting it and re-running."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cross-language canonical fixture — shared with the Vitest suite.
+# ---------------------------------------------------------------------------
+
+
+def test_canonical_fixture_roundtrip() -> None:
+    """Cross-language guard for the TabView contract.
+
+    Sprint 6 audit finding A-3 fix: the Python snapshot test above
+    only checks that Pydantic agrees with its own stored schema dump.
+    It did NOT check that the Zod mirror in
+    ``web/src/components/app/tabview/schema.ts`` still accepts the
+    same payloads.
+
+    This test pins a canonical JSON payload that exercises every
+    block kind (including edge cases — unicode, nested sections,
+    negative deltas, null table cells, string + numeric metrics,
+    button with task_submit + nested payload, chart with floats).
+    The same file is imported by
+    ``web/src/components/app/tabview/__tests__/cross_lang.test.ts``,
+    which calls ``TabViewSchema.safeParse`` and asserts success.
+
+    Both tests failing together signals a real cross-language drift;
+    only one failing flags which side broke.
+
+    Round-trip contract: ``TabView.model_validate(json).model_dump()``
+    must equal the original JSON byte-for-byte (minus JSON
+    whitespace).
+    """
+    assert CANONICAL_FIXTURE_PATH.exists(), (
+        f"canonical fixture missing at {CANONICAL_FIXTURE_PATH} — "
+        "regenerate via the helper invocation documented in the "
+        "Sprint 6 audit findings A-3"
+    )
+
+    raw = CANONICAL_FIXTURE_PATH.read_text(encoding="utf-8")
+    payload = json.loads(raw)
+
+    validated = TabView.model_validate(payload)
+    dumped = validated.model_dump()
+
+    assert dumped == payload, (
+        "canonical fixture failed Pydantic round-trip. A change in "
+        "view.py (field rename, default, new kind) drifts from the "
+        f"committed fixture at {CANONICAL_FIXTURE_PATH}. If "
+        "intentional, regenerate the fixture AND the Vitest snapshot "
+        "side so both languages stay aligned."
+    )
+
+    # Sanity check: the fixture actually exercises all 11 block kinds.
+    # If this assertion fails, someone edited the fixture and dropped
+    # coverage — regenerate with the full set.
+    def _collect_kinds(blocks: list[Any], acc: set[str]) -> None:
+        for block in blocks:
+            if isinstance(block, dict) and "kind" in block:
+                acc.add(block["kind"])
+                if block["kind"] == "section":
+                    _collect_kinds(block.get("blocks", []), acc)
+
+    kinds: set[str] = set()
+    _collect_kinds(payload["blocks"], kinds)
+    expected_kinds = {
+        "section",
+        "heading",
+        "text",
+        "kv",
+        "metric",
+        "table",
+        "badge_list",
+        "button",
+        "chart_line",
+        "chart_bar",
+        "empty",
+    }
+    assert kinds == expected_kinds, (
+        "canonical fixture must exercise every block kind exactly. "
+        f"Missing: {expected_kinds - kinds}. "
+        f"Unknown: {kinds - expected_kinds}."
     )
