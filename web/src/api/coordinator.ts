@@ -690,6 +690,20 @@ export function setAppState(
   );
 }
 
+/**
+ * Sprint 11 Phase C — determine if a browsed project is hosted on
+ * the local coordinator and, if so, return its app list. Returns
+ * `null` when the project lives on a different node.
+ */
+export async function getProjectApps(
+  baseUrl: string,
+  projectId: string,
+): Promise<AppsList | null> {
+  const health = await getHealth(baseUrl);
+  if (health.node_id !== projectId) return null;
+  return listApps(baseUrl);
+}
+
 export function shellDiscover(baseUrl: string): Promise<ShellDiscoverResponse> {
   return getJson(baseUrl, "/shell/discover", ShellDiscoverResponseSchema);
 }

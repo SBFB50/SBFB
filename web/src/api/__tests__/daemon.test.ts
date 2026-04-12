@@ -385,6 +385,64 @@ describe("listBrowse", () => {
   });
 });
 
+// ---------------------------------------------------------------
+// Sprint 11 Phase C — BrowseEntry source field
+// ---------------------------------------------------------------
+
+describe("BrowseEntry source field", () => {
+  it("accepts entries with source='direct'", async () => {
+    mockFetchOk({
+      kind: "data",
+      status: 200,
+      body: {
+        entries: [
+          {
+            project_id: "aa".repeat(32),
+            project_name: "gov",
+            category: "gov",
+            description: "desc",
+            curator_pubkey: "",
+            curator_name: "Self-published",
+            source: "direct",
+            status: "reachable",
+            last_probed_at: "2026-04-12T12:00:00Z",
+          },
+        ],
+      },
+    });
+    const result = await listBrowse(COORD);
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.entries[0].source).toBe("direct");
+  });
+
+  it("accepts entries without source (backward compat, defaults to undefined)", async () => {
+    mockFetchOk({
+      kind: "data",
+      status: 200,
+      body: {
+        entries: [
+          {
+            project_id: "aa".repeat(32),
+            project_name: "gov",
+            category: "gov",
+            description: "desc",
+            curator_pubkey: "bb".repeat(32),
+            curator_name: "FlowUP",
+            status: "reachable",
+            last_probed_at: "2026-04-12T12:00:00Z",
+          },
+        ],
+      },
+    });
+    const result = await listBrowse(COORD);
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    // source omitted → undefined (optional field)
+    expect(result.body.entries[0].source).toBeUndefined();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Sprint 8 audit A-3 — cross-language canonical fixture
 // ---------------------------------------------------------------------------

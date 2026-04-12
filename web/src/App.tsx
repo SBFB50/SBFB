@@ -58,6 +58,10 @@ const router = createBrowserRouter([
         lazy: () => import("@/pages/Browse"),
       },
       {
+        path: "/browse/:projectId",
+        lazy: () => import("@/pages/BrowsedProject"),
+      },
+      {
         path: "/curators",
         lazy: () => import("@/pages/Curators"),
       },

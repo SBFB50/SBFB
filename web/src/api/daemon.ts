@@ -176,6 +176,18 @@ export const BrowseStatusSchema = z.enum(["reachable", "unreachable", "unknown"]
 export type BrowseStatus = z.infer<typeof BrowseStatusSchema>;
 
 /**
+ * Mirrors `nexus_shell_daemon_core::browse::BrowseSource`.
+ *
+ * Sprint 11 Phase A: entries can be discovered via a signed
+ * curator list (`"curator"`) or directly via a gossip project
+ * announcement (`"direct"`). Defaults to `"curator"` for
+ * backward compat with daemons that predate Sprint 11.
+ */
+export const BrowseSourceSchema = z.enum(["curator", "direct"]);
+
+export type BrowseSource = z.infer<typeof BrowseSourceSchema>;
+
+/**
  * Mirrors `nexus_shell_daemon_core::browse::BrowseEntry`.
  */
 export const BrowseEntrySchema = z
@@ -186,6 +198,7 @@ export const BrowseEntrySchema = z
     description: z.string(),
     curator_pubkey: z.string(),
     curator_name: z.string(),
+    source: BrowseSourceSchema.optional(),
     status: BrowseStatusSchema,
     last_probed_at: z.string().nullable(),
   })

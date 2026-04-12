@@ -24,6 +24,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { BookmarkPlus, RefreshCw } from "lucide-react";
 
 import { listBrowse, type BrowseEntry, type BrowseStatus } from "@/api/daemon";
@@ -180,8 +181,13 @@ function BrowseResultView({
 }
 
 function BrowseCard({ entry }: { entry: BrowseEntry }) {
+  const navigate = useNavigate();
   return (
-    <Card data-testid="browse-card">
+    <Card
+      data-testid="browse-card"
+      className="cursor-pointer transition-colors hover:border-foreground/20"
+      onClick={() => navigate(`/browse/${entry.project_id}`)}
+    >
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -201,12 +207,25 @@ function BrowseCard({ entry }: { entry: BrowseEntry }) {
           {entry.description || "—"}
         </p>
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>
+          <span className="flex items-center gap-1">
             <Badge variant="outline">{entry.category}</Badge>
+            {(entry.source ?? "curator") === "direct" && (
+              <Badge variant="secondary" className="text-[10px]" data-testid="source-badge-direct">
+                Auto-publié
+              </Badge>
+            )}
           </span>
           <span>
-            vouché par{" "}
-            <strong className="text-foreground">{entry.curator_name}</strong>
+            {(entry.source ?? "curator") === "direct" ? (
+              "auto-publié"
+            ) : (
+              <>
+                vouché par{" "}
+                <strong className="text-foreground">
+                  {entry.curator_name}
+                </strong>
+              </>
+            )}
           </span>
         </div>
       </CardContent>
