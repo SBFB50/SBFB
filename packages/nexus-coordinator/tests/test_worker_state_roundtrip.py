@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 5 Phase C — end-to-end worker state roundtrip.
 
 Spawns a real ``nexus-worker start --stub-ollama`` subprocess in

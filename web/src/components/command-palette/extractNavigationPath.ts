@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 8 Phase E helper — narrow an `invokeAppCommand` result
  * to a `{navigation: {path}}` shape without pulling Zod into

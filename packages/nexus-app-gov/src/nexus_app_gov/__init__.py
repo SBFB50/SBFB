@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """nexus-app-gov — political contradiction detection as a nexus-grid app."""
 
 from nexus_app_gov.app import GovApp

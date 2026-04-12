@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Coordinator-side invite minting, tracking, and revocation.
 
 The wire format itself lives in the Rust crate

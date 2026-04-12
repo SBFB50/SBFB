@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Shared pytest fixtures for nexus-coordinator.
 
 The integration tests spin up a real in-process iroh node via

@@ -1064,3 +1064,149 @@ is still deferred — it's a separate audit finding and not
 part of this fix.
 
 Audit reference: `.planning/sprint8_audit_findings.md` §C-FX-2.
+
+### T13 — Size-limit headroom fragile on 3 vendor chunks
+
+Sprint 9 audit gate finding H1-A/B/C. Three size-limit budgets
+have less than 10% headroom after Sprint 9:
+
+- `vendor-react`: 274.69 / 290 KB = 5.3% headroom
+- `css`: 95.16 / 100 KB = 4.8% headroom
+- `vendor-ui`: 246.02 / 270 KB = 8.9% headroom
+
+Any new dependency or component that lands in these chunks will
+fail the size-limit check immediately. Before adding a dep that
+contributes to vendor-react, vendor-ui, or the CSS bundle, run
+`ANALYZE_MODE=true npm run build` and check `dist/stats.html`
+to verify the headroom is not exhausted. If it is, bump the
+budget with explicit justification in the commit body.
+
+Audit reference: `.planning/sprint9_audit_findings.md` §H1-A/B/C.
+
+### T14 — `FileUploadBlock.tsx` Vitest coverage below thresholds
+
+Sprint 9 audit gate finding A3-COV / G2-A. The Sprint 9
+`verify.sh` step 12 (`npm run test:coverage`) passes only
+because the coverage thresholds were temporarily relaxed to
+lines 85% / branches 78% (from the Sprint 6 baseline of
+90% / 85%). The main offender is `FileUploadBlock.tsx` at ~35%
+line coverage.
+
+Fix: write dedicated Vitest tests for `FileUploadBlock` (file
+selection, upload progress, error states, accept filter) and
+restore the thresholds to 90/85. Until then, the relaxed
+thresholds remain as a documented exception.
+
+Audit reference: `.planning/sprint9_audit_findings.md` §A3-COV,
+§G2-A.
+
+### T15 — SVG BOM UTF-8 false negative in magic bytes check
+
+Sprint 9 audit gate finding E3-A. The file upload magic bytes
+validation in `packages/nexus-coordinator/src/nexus_coordinator/
+api/files.py:234` uses `lstrip()` to strip whitespace before
+checking for `<svg`. However, `lstrip()` does not strip the
+UTF-8 BOM bytes `\xef\xbb\xbf`. An SVG file exported by
+Illustrator or Inkscape with a BOM prefix is rejected as
+"unsupported content type" — a false negative.
+
+Fix: strip BOM explicitly (`content.lstrip(b'\xef\xbb\xbf')`
+or decode + re-encode) before the `lstrip()` call.
+
+Audit reference: `.planning/sprint9_audit_findings.md` §E3-A.
+
+### T16 — CAS manifest `content_type` is client-controlled
+
+Sprint 9 audit gate finding E3-B. The `content_type` stored
+in the CAS file manifest is taken from
+`file.content_type` (the multipart `Content-Type` header),
+which is client-controlled. The real defense is the magic
+bytes validation on the written content, which works correctly.
+But the manifest stores whatever the client claims, not the
+canonicalized type from magic bytes.
+
+Fix: after magic bytes detection succeeds, overwrite
+`content_type` in the manifest with the detected type before
+writing. This closes the gap between "what we validated" and
+"what we stored".
+
+Audit reference: `.planning/sprint9_audit_findings.md` §E3-B.
+
+### T17 — `AppFileStore.open()` reads entire file into memory
+
+Sprint 9 audit gate finding E6-A.
+`packages/nexus-coordinator/src/nexus_coordinator/api/files.py`
+`AppFileStore.open()` calls `cas.read_bytes()` which reads the
+entire file content into memory before chunking it for the HTTP
+response. For a 50 MB file (the max_size_bytes limit), this
+means 50 MB of RAM per concurrent download.
+
+Risk is bounded by the E6-B fix (max_size_bytes is now enforced
+at upload time), so the worst case is 50 MB, not unlimited.
+For the loopback-only use case this is acceptable. A streaming
+`AsyncIterator[bytes]` read path is a nice-to-have for
+Sprint 11+ if large file handling becomes a real use case.
+
+Audit reference: `.planning/sprint9_audit_findings.md` §E6-A.
+
+### T18 — `test_concurrent_store_same_sha256_dedup_safe` flaky on Windows
+
+Sprint 9 audit gate finding E-FLAKY. The test spawns two
+concurrent uploads of the same SHA256 content. On Windows,
+`os.replace()` on the manifest file occasionally raises
+`PermissionError [WinError 5]` because the other task has the
+file open for writing. This is a Windows-specific race on
+`os.replace` that does not occur on Linux/macOS (where
+`rename(2)` is atomic even if the target is open).
+
+Fix: wrap the `os.replace` call in a retry loop with
+exponential backoff (3 attempts, 50ms base delay). The
+deduplication logic is correct — the race only affects the
+manifest write, not the blob content.
+
+Audit reference: `.planning/sprint9_audit_findings.md` §E-FLAKY.
+
+### T20 — `asyncio.wait_for()` in anyio-based SSE generator
+
+Sprint 9 audit gate finding C3-1. The SSE event streaming
+generator in `packages/nexus-coordinator/src/nexus_coordinator/
+api/events.py:86-89` uses `asyncio.wait_for()` for the receive
+timeout. This is an asyncio-specific API that would break if
+the coordinator ever ran on a Trio backend.
+
+Risk is nil in practice (FastAPI = uvicorn = asyncio), but it
+is an impurity in code that otherwise uses anyio primitives.
+
+Fix: replace with `anyio.fail_after()` or `anyio.move_on_after()`
+which work on both asyncio and Trio backends.
+
+Audit reference: `.planning/sprint9_audit_findings.md` §C3-1.
+
+### T21 — `useAppEvents` creates one EventSource per component mount
+
+Sprint 9 audit gate finding C4-1. The React hook
+`web/src/hooks/useAppEvents.ts` creates a new `EventSource`
+connection every time the `AppTabPage` component mounts. In
+the current SPA (one `AppTabPage` at a time), this is fine.
+But if multiple tab pages coexist in the future (e.g., split
+view), N simultaneous SSE connections will open.
+
+Fix: extract the EventSource into a singleton at the store
+level (similar to how `projectStore` works), shared across
+all mounted tab pages. Sprint 11+ if the use case materializes.
+
+Audit reference: `.planning/sprint9_audit_findings.md` §C4-1.
+
+### T22 — `test_gov_documents.py` schema diverges from `001_documents.sql`
+
+Sprint 9 audit gate finding D4-A. The test file
+`packages/nexus-app-gov/tests/test_gov_documents.py:37-45`
+defines a `_DOCUMENTS_SCHEMA` with column names `original_name`
+and `size` that do not match the real migration
+`001_documents.sql:8-18` which uses `filename` and `size_bytes`.
+The test assertions verify a phantom schema.
+
+Fix: align the test schema with the real migration column names
+and re-run assertions.
+
+Audit reference: `.planning/sprint9_audit_findings.md` §D4-A.

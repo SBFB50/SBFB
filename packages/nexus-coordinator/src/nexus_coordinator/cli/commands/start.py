@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``nexus-coordinator start <name>`` — boot the coordinator process."""
 
 from __future__ import annotations

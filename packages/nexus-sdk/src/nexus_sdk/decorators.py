@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Method decorators the SDK consumer uses to advertise features.
 
 Each decorator is a no-op wrapper that just tags the function

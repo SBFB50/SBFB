@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! # nexus-shell-daemon
 //!
 //! SBFB shell daemon: the long-lived P2P process that backs the

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! 3-layer proof-of-computation verification.
 //!
 //! Direct port of `nexus/compute/verification.py` to Rust, with

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! HTTP surface for `nexus-shell-daemon`.
 //!
 //! The daemon's HTTP listener is loopback-only and reached by

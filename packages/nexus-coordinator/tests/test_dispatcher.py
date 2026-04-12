@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Dispatcher tests: submit → doc write → task_state row.
 
 Uses a real in-process coordinator (via the nexus_grid_tmp

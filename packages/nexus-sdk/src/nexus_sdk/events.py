@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """AppContext.events — per-app in-process pub/sub over anyio memory streams.
 
 Sprint 9 Phase C (D2 impl). Every app gets a per-instance

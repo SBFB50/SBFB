@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! # nexus-core-rs
 //!
 //! Core Rust library for the SBFB P2P compute network. Wraps the iroh

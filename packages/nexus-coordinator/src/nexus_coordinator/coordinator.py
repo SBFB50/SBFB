@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """The Coordinator process.
 
 A coordinator is the long-lived Python process that owns a nexus-grid

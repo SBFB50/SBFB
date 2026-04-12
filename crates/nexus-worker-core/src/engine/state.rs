@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Worker finite state machine.
 //!
 //! The SBFB worker has a small but strict lifecycle:

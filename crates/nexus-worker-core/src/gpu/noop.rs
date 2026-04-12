@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! No-op GPU backend — always compiles, always works, always
 //! reports zero devices.
 //!

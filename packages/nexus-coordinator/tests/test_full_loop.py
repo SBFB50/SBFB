@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Full dispatcher → validator → kudos round-trip test.
 
 Simulates 10 tasks going through the complete Phase B pipeline

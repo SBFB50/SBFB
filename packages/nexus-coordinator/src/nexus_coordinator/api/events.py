@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``GET /app/{name}/events`` — Server-Sent Events bridge over :class:`AppEvents`.
 
 Sprint 9 Phase C (D2 SSE bridge). The route subscribes to the

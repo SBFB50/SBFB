@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pydantic filter models persisted via :class:`nexus_sdk.AppStorage`.
 
 Sprint 9 Phase B (D1 consumer). Each gov tab that surfaces a

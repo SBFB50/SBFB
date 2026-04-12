@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * `/app/:appName/tabs/:tabName` — deep-link target for
  * Sprint 8 Phase E command palette navigation.

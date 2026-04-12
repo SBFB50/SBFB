@@ -953,6 +953,24 @@ checks at tip `9339bb6` and every Sprint 7 P2 hygiene closure is
 locked by a regression test verified by an explicit fail-fast row
 (rows 5-8).
 
+### T19 — `unsubscribe` rollback test missing
+
+Sprint 9 audit gate finding I3-F2. The D-3 persist-first
+pattern was implemented for `subscribe` (with a rollback test
+`subscribe_persist_first_rollback_on_disk_failure`), but no
+matching test exists for `unsubscribe`. If
+`persist_subscriptions()` fails after removing from RAM in the
+`unsubscribe` path, the I3-F1 fix (landed in `48b332a`) does
+the rollback, but the test coverage gap means the rollback
+logic is untested.
+
+Fix: add `unsubscribe_persist_failure_rollback` test in
+`iroh_runtime.rs` that injects a disk write failure during
+unsubscribe and asserts the subscription is still present in
+RAM afterwards.
+
+Audit reference: `.planning/sprint9_audit_findings.md` §I3-F2.
+
 ---
 
 ## References

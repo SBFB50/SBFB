@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """NexusApp base class + manifest + descriptors.
 
 An *app* is a self-contained plugin that a coordinator hosts:

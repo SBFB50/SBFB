@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 9 Phase C — gov refresh_party_cache + party.refreshed.
 
 Three tests covering the publisher half of the AppContext.events

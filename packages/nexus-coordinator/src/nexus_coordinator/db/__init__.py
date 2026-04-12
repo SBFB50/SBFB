@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """SQLite-backed persistent state.
 
 Two tables, both scoped to a single project (one SQLite file per

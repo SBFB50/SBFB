@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """AppDatabaseClient — aiosqlite wrapper for per-app SQLite access.
 
 Sprint 8 Phase B (D3 impl): apps reach their private SQLite file

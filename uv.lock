@@ -251,12 +251,12 @@ wheels = [
 
 [[package]]
 name = "nexus"
-version = "0.2.0"
+version = "1.0.0"
 source = { virtual = "." }
 
 [[package]]
 name = "nexus-app-gov"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/nexus-app-gov" }
 dependencies = [
     { name = "nexus-sdk" },
@@ -278,7 +278,7 @@ provides-extras = ["test"]
 
 [[package]]
 name = "nexus-coordinator"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/nexus-coordinator" }
 dependencies = [
     { name = "aiosqlite" },
@@ -352,7 +352,7 @@ requires-dist = [{ name = "nexus-sdk", editable = "packages/nexus-sdk" }]
 
 [[package]]
 name = "nexus-sdk"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/nexus-sdk" }
 dependencies = [
     { name = "aiosqlite" },

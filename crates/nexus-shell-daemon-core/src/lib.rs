@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! # nexus-shell-daemon-core
 //!
 //! Headless engine for the SBFB shell daemon — the long-lived

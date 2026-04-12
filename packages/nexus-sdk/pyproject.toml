@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nexus-sdk"
-version = "0.1.0"
+version = "1.0.0"
 description = "SDK for building apps that run on a nexus-grid coordinator"
 requires-python = ">=3.13"
-license = { text = "AGPL-3.0" }
+license = { text = "AGPL-3.0-or-later" }
 authors = [{ name = "FlowUP" }]
 readme = "README.md"
 keywords = ["p2p", "llm", "sbfb", "sdk", "plugin"]

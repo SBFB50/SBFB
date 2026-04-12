@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Task queue domain types for SBFB.
 //!
 //! These are the canonical data structures that move through the

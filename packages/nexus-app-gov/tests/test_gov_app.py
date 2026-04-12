@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for the gov app — Sprint 4 regression baseline plus
 Sprint 8 Phase B Batch 1, Phase C Batch 2, and Phase D Batch 3
 tab handlers.

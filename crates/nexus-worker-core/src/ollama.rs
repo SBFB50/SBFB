@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Ollama HTTP client wrapper with healthcheck and retry.
 //!
 //! This module is the *only* place in `nexus-worker-core` that

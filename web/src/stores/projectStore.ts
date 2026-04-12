@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Zustand store for the shell's list of "known coordinators"
  * and the currently-active one. Persisted to localStorage so

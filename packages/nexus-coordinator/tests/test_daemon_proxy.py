@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 7 Phase E — ``/daemon/*`` proxy endpoint tests.
 
 These tests spin up a tiny stdlib ``http.server`` in a

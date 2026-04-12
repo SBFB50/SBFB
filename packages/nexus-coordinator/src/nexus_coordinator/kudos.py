@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Kudos ledger: append-only Ed25519-signed hash chain of credits.
 
 Formula::

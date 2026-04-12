@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for :class:`nexus_sdk.storage.AppStorage` (Sprint 9 Phase B).
 
 The 20 scenarios listed in ``.planning/sprint9_plan.md`` §5.2 are

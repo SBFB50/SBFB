@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """End-to-end boot test for the coordinator.
 
 Spins up a real iroh Node in-process via

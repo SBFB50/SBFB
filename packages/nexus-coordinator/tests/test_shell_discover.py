@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 5 Phase A — ``GET /shell/discover`` endpoint tests."""
 
 from __future__ import annotations

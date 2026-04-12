@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Invite v2 tests: mint → decode → persist → revoke roundtrip.
 
 Exercises the full coordinator invite layer (InviteLedger) on

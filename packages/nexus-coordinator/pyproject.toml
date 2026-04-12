@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nexus-coordinator"
-version = "0.1.0"
-description = "SBFB nexus-grid coordinator — signs and dispatches LLM tasks to P2P workers via iroh-docs"
+version = "1.0.0"
+description = "nexus-grid coordinator — signs and dispatches LLM tasks to P2P workers via iroh-docs"
 requires-python = ">=3.13"
-license = { text = "AGPL-3.0" }
+license = { text = "AGPL-3.0-or-later" }
 authors = [{ name = "FlowUP" }]
 readme = "README.md"
 keywords = ["p2p", "iroh", "llm", "distributed", "compute", "coordinator", "sbfb"]

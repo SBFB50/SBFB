@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """GovApp — nexus-grid port of the legacy government monitoring stack.
 
 Sprint 4 Phase D shipped a minimal stub (one route, one worker,

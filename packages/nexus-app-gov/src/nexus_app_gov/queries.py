@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Read-only SQL queries backing the Sprint 8 gov tabs for
 :class:`nexus_app_gov.app.GovApp`.
 

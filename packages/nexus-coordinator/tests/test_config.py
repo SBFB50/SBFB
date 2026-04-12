@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Config load/save and env-override roundtrip tests."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Command palette descriptors for nexus-grid apps.
 
 Sprint 7 D5 (frozen in the Sprint 7 kickoff) defined the

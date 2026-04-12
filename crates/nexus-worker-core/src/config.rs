@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Worker configuration: layered loading and TOML persistence.
 //!
 //! The worker keeps its full state on disk in three files:

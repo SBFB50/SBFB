@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Worker engine: state machine + (coming in W9) the loop that
 //! drives it.
 //!

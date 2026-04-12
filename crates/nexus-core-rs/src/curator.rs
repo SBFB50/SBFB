@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Curator list domain types for SBFB.
 //!
 //! A **curator list** is a signed collection of project endpoints a

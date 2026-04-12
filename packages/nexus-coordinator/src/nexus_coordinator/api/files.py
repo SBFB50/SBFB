@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``/app/{name}/files`` — CAS file upload and retrieval endpoints.
 
 Sprint 9 Phase E (D6 router). Provides three routes that sit on top of

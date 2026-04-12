@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Command-line interface for the `nexus-worker` binary.
 //!
 //! This module defines the entire public CLI surface using

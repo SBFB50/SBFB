@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Coordinator app-loader integration tests.
 
 Phase D closure requires that ``nexus-coordinator start`` picks

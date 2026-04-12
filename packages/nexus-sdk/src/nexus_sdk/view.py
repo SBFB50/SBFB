@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """TabView — schema-driven tab rendering vocabulary.
 
 Sprint 6 D1: every ``@nexus_tab`` descriptor returns a

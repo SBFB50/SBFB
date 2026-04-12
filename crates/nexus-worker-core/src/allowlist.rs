@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Per-worker project allowlist — the local SQLite database
 //! that records which projects this machine has opted into and
 //! how much compute it has burned on each one.

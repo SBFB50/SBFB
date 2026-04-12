@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Shell-daemon configuration: layered loading and TOML persistence.
 //!
 //! Phase A keeps the config surface minimal: a logging level, an

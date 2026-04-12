@@ -11,12 +11,12 @@ members = [
 
 # Shared package metadata. Individual crates override name/description.
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.78"
-license = "AGPL-3.0"
+license = "AGPL-3.0-or-later"
 authors = ["FlowUP"]
-repository = "https://github.com/FlowUP/nexus"
+repository = "https://github.com/SBFB50/SBFB"
 readme = "README.md"
 
 # Shared dependency versions. Crates inherit with

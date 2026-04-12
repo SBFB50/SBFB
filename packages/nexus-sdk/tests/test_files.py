@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for :class:`nexus_sdk.files.AppFileStore` (Sprint 9 Phase E).
 
 The 20 scenarios listed in ``.planning/sprint9_plan.md`` §5 Phase E are

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Unit tests for the Sprint 9 Phase E TabView v2 schema additions.
 
 Covers: TabViewV2, TabBlockFileUpload, AnyTabView discriminated union,

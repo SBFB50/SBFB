@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 7 Phase E — ``/daemon/*`` proxy endpoints.
 
 The React shell reaches into the local ``nexus-shell-daemon``

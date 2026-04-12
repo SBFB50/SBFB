@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * `/project/:name` — Sprint 5 Phase B rich view.
  *

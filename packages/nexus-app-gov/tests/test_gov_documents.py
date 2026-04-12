@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for the gov Documents tab — Sprint 9 Phase E (20th tab).
 
 Six scenarios verify the file upload + CAS listing surface introduced

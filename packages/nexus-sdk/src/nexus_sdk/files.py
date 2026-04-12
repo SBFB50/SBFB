@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """AppFileStore — SHA256-based content-addressable storage for app file uploads.
 
 Sprint 9 Phase E (D5 impl). Apps that need to persist user-supplied

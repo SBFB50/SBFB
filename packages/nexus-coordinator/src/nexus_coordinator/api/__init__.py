@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """FastAPI control plane for the coordinator.
 
 Phase A exposes :data:`/health` and :data:`/project` only. Phase

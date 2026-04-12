@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Cryptographic primitives for SBFB.
 //!
 //! This module wraps the raw `ed25519-dalek` and `blake3` crates

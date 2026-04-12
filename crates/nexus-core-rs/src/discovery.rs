@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Discovery helpers for SBFB.
 //!
 //! In iroh 0.97 the `presets::N0` preset wires pkarr DHT discovery

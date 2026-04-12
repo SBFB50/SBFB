@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Thin HTTP client for the coordinator's compute API.
 
 Apps reach the local coordinator through an instance of

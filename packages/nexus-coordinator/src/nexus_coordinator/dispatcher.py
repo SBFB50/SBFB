@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Task dispatcher.
 
 The dispatcher owns the write side of the project doc: it signs

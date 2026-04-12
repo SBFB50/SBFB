@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 import type { TabBlockHeading } from "../schema";
 
 const LEVEL_CLS: Record<1 | 2 | 3, string> = {

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for :class:`nexus_sdk.migrations.MigrationRunner` (Sprint 9 Phase D).
 
 The 18 scenarios listed in ``.planning/sprint9_plan.md`` §7.2 are

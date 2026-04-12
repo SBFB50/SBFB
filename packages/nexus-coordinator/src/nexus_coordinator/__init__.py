@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """nexus-coordinator — project-scoped coordinator for nexus-grid.
 
 Public entry points:

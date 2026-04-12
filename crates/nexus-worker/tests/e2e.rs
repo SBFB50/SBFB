@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! End-to-end tests for the `nexus-worker` binary.
 //!
 //! These tests spawn the real compiled binary (via

@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nexus-app-gov"
-version = "0.1.0"
-description = "Gov app for nexus-grid: political contradiction detection via LLM (Sprint 4 minimal migration)"
+version = "1.0.0"
+description = "Gov app for nexus-grid: political contradiction detection via LLM"
 requires-python = ">=3.13"
-license = { text = "AGPL-3.0" }
+license = { text = "AGPL-3.0-or-later" }
 authors = [{ name = "FlowUP" }]
 readme = "README.md"
 dependencies = [

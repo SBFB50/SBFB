@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * `/curators` — Sprint 7 Phase E curator management page.
  *

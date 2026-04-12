@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Cross-language tests for the Sprint 7 Phase B curator primitives.
 
 These tests exercise the Python ↔ Rust boundary of the new

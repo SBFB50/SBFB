@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """nexus-sdk — plugin SDK for nexus-grid apps.
 
 Core public API:

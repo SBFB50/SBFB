@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 6 Phase B — schema-driven tab renderer.
  *

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Keystore tests: generate, reload, and perm enforcement.
 
 These tests exercise the real nexus_core.load_or_generate_secret

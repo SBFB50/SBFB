@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Phase C curator runtime — the crypto + storage layer the
 //! shell-daemon uses to absorb signed curator lists announced
 //! over gossip.

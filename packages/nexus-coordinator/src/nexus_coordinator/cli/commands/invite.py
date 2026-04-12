@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``nexus-coordinator invite`` sub-app: create / list / revoke."""
 
 from __future__ import annotations

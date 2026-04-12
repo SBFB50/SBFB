@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """App discovery via ``importlib.metadata`` entry points.
 
 An app advertises itself on the ``nexus.apps`` entry point group.

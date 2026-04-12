@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Optional ratatui dashboard for the `nexus-worker` binary.
 //!
 //! The TUI is a *presentation layer* on top of the headless

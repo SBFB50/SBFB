@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 5 Phase A — ``/worker-state`` proxy endpoint.
 
 Decision D3 option (c): the Rust worker flushes a JSON snapshot

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """AppContext.storage — per-app per-project JSON KV with typed namespaces.
 
 Sprint 9 Phase B (D1 impl). Every app gets its own

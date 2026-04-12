@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """FastAPI application factory.
 
 The factory takes an already-started :class:`Coordinator` and

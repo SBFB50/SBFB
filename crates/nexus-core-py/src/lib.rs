@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! # nexus-core-py
 //!
 //! PyO3 bindings for [`nexus_core_rs`]. Exposes five Python

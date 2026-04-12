@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Typed client for the Sprint 7 Phase E coordinator
  * `/daemon/*` proxy. Every call in this module lives on top of

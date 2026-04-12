@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Phase D browse aggregator.
 //!
 //! The Phase C [`crate::iroh_runtime::CuratorRuntime`] caches

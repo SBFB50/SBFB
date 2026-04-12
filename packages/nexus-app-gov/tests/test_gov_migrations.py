@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for gov app migration consumer (Sprint 9 Phase D).
 
 The 4 scenarios listed in ``.planning/sprint9_plan.md`` §7.4 verify

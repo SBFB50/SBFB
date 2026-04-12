@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Prompts used by the gov app.
 
 Extracted from the legacy ``nexus/engine/__init__.py``

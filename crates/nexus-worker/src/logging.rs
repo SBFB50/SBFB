@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Tracing subscriber wiring for the `nexus-worker` binary.
 //!
 //! The worker emits tracing events from every `nexus_worker_core`

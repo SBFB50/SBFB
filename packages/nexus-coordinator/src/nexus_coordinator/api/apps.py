@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``/app/{app_name}`` routing for installed nexus-sdk apps.
 
 Mounts every :class:`nexus_sdk.NexusApp` discovered through the

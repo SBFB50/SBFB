@@ -3008,7 +3008,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-core-py"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "futures-lite",
  "iroh-docs",
@@ -3023,7 +3023,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-core-rs"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3048,7 +3048,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-shell-daemon"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-shell-daemon-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3094,7 +3094,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-worker"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3114,7 +3114,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-worker-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",

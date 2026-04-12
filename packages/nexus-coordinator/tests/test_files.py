@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """File upload router integration tests — Sprint 9 Phase E.
 
 Covers ``POST /app/{name}/files/upload``,

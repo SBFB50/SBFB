@@ -1,7 +1,7 @@
 [project]
 name = "nexus"
-version = "0.2.0"
-description = "Cold Case Investigation System — autonomous, persistent, event-driven"
+version = "1.0.0"
+description = "Decentralized P2P compute network for LLM apps"
 requires-python = ">=3.13"
 readme = "README.md"
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! NVIDIA NVML backend for [`GpuMonitor`].
 //!
 //! Uses the `nvml-wrapper` crate, which dynamically loads

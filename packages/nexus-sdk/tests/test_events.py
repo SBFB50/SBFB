@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 9 Phase C tests for :class:`nexus_sdk.AppEvents`.
 
 The 25 contracts listed in ``.planning/sprint9_plan.md`` §6.2.

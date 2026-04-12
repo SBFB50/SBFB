@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! # nexus-worker-core
 //!
 //! Headless worker engine for the SBFB P2P compute network.

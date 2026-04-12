@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 8 Phase E — CommandPalette component tests.
  *

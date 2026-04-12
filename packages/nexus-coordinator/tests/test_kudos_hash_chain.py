@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Kudos hash-chain integrity tests.
 
 These tests use the real SQLite + jcs + pynacl stack — no mocks.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``nexus-coordinator init <name>`` — bootstrap a new project directory."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! # nexus-worker
 //!
 //! SBFB single-binary GPU contributor for the P2P compute network.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for ``nexus-coordinator migrate`` CLI subcommand (Sprint 9 Phase D).
 
 The 5 scenarios listed in ``.planning/sprint9_plan.md`` §7.3 are

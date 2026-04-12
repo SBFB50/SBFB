@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 5 Phase B / Sprint 6 Phase B / Sprint 8 Phase A —
  * project Apps tab.

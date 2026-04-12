@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 import type { TabBlockChartLine } from "../schema";
 
 const W = 400;

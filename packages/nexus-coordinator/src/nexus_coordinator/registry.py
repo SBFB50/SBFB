@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 5 Phase A — local coordinator registry.
 
 Decision D1 of ``.planning/sprint5_plan.md`` §2.1: every

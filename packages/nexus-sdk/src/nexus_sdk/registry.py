@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Per-class decorator registry used by :mod:`nexus_sdk.decorators`.
 
 The decorators attach small metadata tuples to the wrapped

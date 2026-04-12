@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 6 Phase D — Vitest unit tests for the Zustand
  * projectStore. Covers add/remove/setActive/updateCoordinator/

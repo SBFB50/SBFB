@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Dialog for adding a new coordinator to the shell's known list.
  *

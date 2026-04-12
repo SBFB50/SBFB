@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! SBFB invite-token format and verification.
 //!
 //! An "invite" is a signed capability token the coordinator of

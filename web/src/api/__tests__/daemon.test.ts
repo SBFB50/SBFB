@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 7 Phase E — unit tests for the coordinator `/daemon/*`
  * proxy client (`src/api/daemon.ts`).

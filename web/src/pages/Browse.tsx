@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * `/browse` — Sprint 7 Phase E live view of every project any
  * subscribed curator vouches for, with a reachability dot next

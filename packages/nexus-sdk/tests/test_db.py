@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for :class:`nexus_sdk.db.AppDatabaseClient`.
 
 The client is a thin aiosqlite wrapper and these tests exercise

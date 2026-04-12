@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Canonical byte serialization for signing and verifying.
 //!
 //! All signed payloads in the nexus-grid system go through

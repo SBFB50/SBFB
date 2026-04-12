@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * `/my-projects` — list of the user's local coordinators.
  *

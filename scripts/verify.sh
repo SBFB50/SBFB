@@ -92,5 +92,8 @@ npm audit --audit-level=high
 
 cd "$REPO_ROOT"
 
+step 18 "bash scripts/check-spdx.sh"
+bash scripts/check-spdx.sh
+
 echo ""
 echo "==> verify.sh passed all steps"

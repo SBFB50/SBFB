@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Singleton registry: the `running.json` marker file.
 //!
 //! Sprint 7 D2 (frozen in the kickoff) picks a **strict

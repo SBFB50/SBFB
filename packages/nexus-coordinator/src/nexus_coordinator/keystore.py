@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Ed25519 keypair persistence for the coordinator.
 
 Wraps :func:`nexus_core.load_or_generate_secret` with the

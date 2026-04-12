@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Switch over TabBlock.kind — one case per block type. The
  * `never` branch guarantees at compile-time that every new kind

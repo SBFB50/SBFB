@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Entry point for the ``nexus-coordinator`` CLI.
 
 Commands (Phase A):

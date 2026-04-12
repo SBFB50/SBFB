@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 8 Phase A — unit tests for the new Sprint 8 helpers in
  * `src/api/coordinator.ts`:

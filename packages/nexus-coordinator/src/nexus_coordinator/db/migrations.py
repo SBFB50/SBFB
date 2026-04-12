@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Minimal in-process schema migrator.
 
 Sprint 4 Phase B only has a single schema version (1) so the

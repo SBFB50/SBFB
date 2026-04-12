@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! # Two-node iroh-docs live sync (Sprint 1 J9-J10 prototype)
 //!
 //! Runs two iroh endpoints in the same process, wires them both for

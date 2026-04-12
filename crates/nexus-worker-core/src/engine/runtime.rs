@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Async engine runtime: the loop that drives the state
 //! machine and talks to all the other worker-core modules.
 //!

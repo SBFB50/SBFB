@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Typed wrapper around iroh-gossip.
 //!
 //! Presents the topic pub/sub primitives as a thin SBFB-facing API:

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Filesystem layout helpers.
 
 The coordinator keeps every project isolated under its own

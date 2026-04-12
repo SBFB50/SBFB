@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Unit tests for the Sprint 8 Phase A ``@nexus_command`` surface.
 
 Covers:

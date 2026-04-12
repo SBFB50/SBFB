@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """MigrationRunner — forward-only SQL migration runner with SHA256 tamper detection.
 
 Sprint 9 Phase D (D4 impl). Every app that needs a mutable schema

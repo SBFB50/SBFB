@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use client"
 
 import { Toggle as TogglePrimitive } from "@base-ui/react/toggle"

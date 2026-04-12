@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Shell daemon state snapshot exposed via HTTP `/info`.
 //!
 //! The shell (via the coordinator proxy) polls the daemon's

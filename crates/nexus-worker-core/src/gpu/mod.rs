@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Cross-vendor GPU monitoring trait for the worker engine.
 //!
 //! The worker needs a small, stable surface for

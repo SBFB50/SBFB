@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``nexus-coordinator migrate`` — run the DB migration runner.
 
 Sprint 9 Phase D (D4 CLI). Provides ``--plan`` (dry-run list of

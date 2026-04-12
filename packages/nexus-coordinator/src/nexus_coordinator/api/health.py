@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """``/health`` and ``/project`` endpoints."""
 
 from __future__ import annotations

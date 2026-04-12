@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Typed wrapper around iroh-docs.
 //!
 //! Presents the `iroh_docs::protocol::Docs` and `iroh_docs::api::Doc`

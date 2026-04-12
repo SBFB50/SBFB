@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Command-line interface for the `nexus-shell-daemon` binary.
 //!
 //! Phase A locks the CLI shape so Phase C/D/E can plug their code

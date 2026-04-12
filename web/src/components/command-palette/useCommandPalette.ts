@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Global Ctrl+K / Cmd+K listener for the command palette.
  *

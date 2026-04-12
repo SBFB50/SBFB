@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Tracing subscriber wiring for the `nexus-shell-daemon` binary.
 //!
 //! Direct clone of `nexus-worker/src/logging.rs` adapted for the

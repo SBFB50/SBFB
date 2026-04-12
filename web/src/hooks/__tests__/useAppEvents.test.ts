@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 9 Phase C — `useAppEvents` Vitest contract tests.
  *

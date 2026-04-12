@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! iroh node lifecycle with full SBFB protocol stack.
 //!
 //! A `Node` is a handle to a running iroh [`Endpoint`] that also
