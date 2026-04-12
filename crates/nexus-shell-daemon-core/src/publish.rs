@@ -59,6 +59,9 @@ pub enum ProjectAnnouncementError {
     /// The `type` field is not `"project"`.
     #[error("wrong message type: {0} (expected \"project\")")]
     WrongType(String),
+    /// The `node_id` field is not a valid 64-char lowercase hex string.
+    #[error("invalid node_id: expected 64 hex chars, got {0:?}")]
+    InvalidNodeId(String),
 }
 
 impl ProjectAnnouncement {
@@ -108,6 +111,10 @@ impl ProjectAnnouncement {
         }
         if ann.msg_type != "project" {
             return Err(ProjectAnnouncementError::WrongType(ann.msg_type));
+        }
+        // T28: validate node_id is a 64-char lowercase hex string.
+        if ann.node_id.len() != 64 || !ann.node_id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(ProjectAnnouncementError::InvalidNodeId(ann.node_id));
         }
         Ok(ann)
     }
@@ -263,5 +270,56 @@ mod tests {
             !json_str.contains("archive_ticket"),
             "None archive_ticket should be omitted from JSON"
         );
+    }
+
+    // ---------------------------------------------------------
+    // T28 — node_id validation
+    // ---------------------------------------------------------
+
+    #[test]
+    fn rejects_empty_node_id() {
+        let json = serde_json::json!({
+            "v": 2,
+            "type": "project",
+            "node_id": "",
+            "project_name": "test",
+            "category": "misc",
+            "description": "bad",
+            "apps": []
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        let err = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap_err();
+        assert!(matches!(err, ProjectAnnouncementError::InvalidNodeId(_)));
+    }
+
+    #[test]
+    fn rejects_short_node_id() {
+        let json = serde_json::json!({
+            "v": 2,
+            "type": "project",
+            "node_id": "abcd",
+            "project_name": "test",
+            "category": "misc",
+            "description": "short",
+            "apps": []
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        assert!(ProjectAnnouncement::from_gossip_bytes(&bytes).is_err());
+    }
+
+    // ---------------------------------------------------------
+    // T29 — truncated gossip message
+    // ---------------------------------------------------------
+
+    #[test]
+    fn is_project_announcement_rejects_truncated_json() {
+        assert!(!is_project_announcement(b"{\"type\": \"project\""));
+    }
+
+    #[test]
+    fn from_gossip_bytes_rejects_truncated_json() {
+        let err = ProjectAnnouncement::from_gossip_bytes(b"{\"v\": 2, \"type\":")
+            .unwrap_err();
+        assert!(matches!(err, ProjectAnnouncementError::Parse(_)));
     }
 }

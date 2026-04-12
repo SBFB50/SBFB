@@ -303,6 +303,17 @@ impl ShellDaemonConfig {
         if self.network.api_host.is_empty() {
             self.network.api_host = "127.0.0.1".to_string();
         }
+        // T31: validate default_curators are 64-char hex strings.
+        self.curator.default_curators.retain(|hex| {
+            let valid = hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit());
+            if !valid {
+                tracing::warn!(
+                    curator = %hex,
+                    "dropping invalid default_curators entry (expected 64 hex chars)"
+                );
+            }
+            valid
+        });
         self
     }
 }
@@ -492,6 +503,31 @@ level = "debug"
         assert!(
             loaded.curator.default_curators.is_empty(),
             "absent [curator] section must yield empty default_curators"
+        );
+    }
+
+    #[test]
+    fn t31_invalid_hex_curator_dropped_at_load() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("bad-curator.toml");
+        std::fs::write(
+            &path,
+            r#"
+[curator]
+default_curators = ["not-hex", "ab112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", "short"]
+"#,
+        )
+        .unwrap();
+
+        let loaded = ShellDaemonConfig::load(&path).unwrap();
+        assert_eq!(
+            loaded.curator.default_curators.len(),
+            1,
+            "only the valid 64-char hex entry should survive"
+        );
+        assert_eq!(
+            loaded.curator.default_curators[0],
+            "ab112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
         );
     }
 

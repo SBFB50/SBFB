@@ -42,10 +42,12 @@ export default defineConfig({
         "src/stores/projectStore.ts",
         "src/components/app/tabview/**/*.{ts,tsx}",
         "src/api/daemon.ts",
+        "src/pages/BrowsedProject.tsx",
       ],
       exclude: [
         "src/components/app/tabview/**/__tests__/**",
         "src/api/__tests__/**",
+        "src/pages/__tests__/**",
       ],
       // Sprint 9 audit G2-A: thresholds temporarily lowered from
       // 90/90/85/90 to accommodate FileUploadBlock.tsx (35% lines).

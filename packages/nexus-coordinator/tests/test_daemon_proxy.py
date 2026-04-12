@@ -672,3 +672,31 @@ async def test_daemon_default_curators_returns_503_when_daemon_down(
             assert body["kind"] == "unavailable"
     finally:
         await coord.stop()
+
+
+# ---------------------------------------------------------------
+# T30 — daemon returns HTTP 500
+# ---------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_daemon_info_wraps_500_in_data_envelope(nexus_grid_tmp: Path) -> None:
+    """When the daemon returns HTTP 500, the proxy wraps it as
+    ``{kind: "data", status: 500, body: ...}`` so the shell can
+    distinguish 'daemon error' from 'daemon offline'."""
+    with _FakeDaemon() as fake:
+        fake.set_response("GET", "/info", 500, {"error": "internal crash"})
+        _write_running_json(nexus_grid_tmp, port=fake.port)
+
+        coord = Coordinator(project_name="daemon-500")
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                r = client.get("/daemon/info")
+                assert r.status_code == 200
+                body = r.json()
+                assert body["kind"] == "data"
+                assert body["status"] == 500
+                assert body["body"]["error"] == "internal crash"
+        finally:
+            await coord.stop()

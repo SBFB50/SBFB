@@ -579,62 +579,55 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn aggregate_flattens_curator_lists_with_cached_status() {
-        // Inject a fake curator list directly into the runtime
-        // so we don't need to exercise gossip here. Pre-fill
-        // the browse cache with Reachable so the aggregator
-        // never calls probe_reachable (→ no network).
+    async fn aggregate_flattens_direct_entries_with_cached_status() {
+        // T35: rewrite to actually exercise the flattening of
+        // direct entries. Direct entries are appended as-is (no
+        // probe cache lookup) — their status is whatever the
+        // caller set when calling add_direct_entry.
         let curator = CuratorRuntime::new(None);
-        let kp = KeyPair::generate();
-        let entry = mk_entry_with(
-            &kp,
-            1,
-            "FlowUP",
-            &[
-                ("a".repeat(64).as_str(), "gov", "gov", "desc-a"),
-                ("b".repeat(64).as_str(), "coldcase", "invest", "desc-b"),
-            ],
-        );
-        // Inject directly into the DashMap bypassing the normal
-        // ingest path; this is a pure unit test.
-        {
-            // SAFETY: DashMap is pub(crate) inside curator_runtime
-            // but we expose enough helpers to seed the attention
-            // set. For a pure aggregator test we use the public
-            // subscribe path and inject_cached for the browse
-            // cache, then reach into the curator runtime's list
-            // store via process_announcement_bytes. However the
-            // simplest pattern is to just test the cache path
-            // with an empty curator runtime (no browse entries)
-            // separately — see the next test for the fully
-            // isolated flow.
-        }
-
-        // Real flow: have the curator subscribe, then ingest a
-        // real 2-node announcement. That path is already
-        // exercised in `iroh_runtime::tests::two_nodes_*`, so
-        // here we cheat: inject the browse cache with entries
-        // for two project ids, and assert the cache path
-        // returns the injected status.
         let agg = BrowseAggregator::new();
-        agg.inject_cached(&"a".repeat(64), BrowseStatus::Reachable);
-        agg.inject_cached(&"b".repeat(64), BrowseStatus::Unreachable);
 
-        // With an empty curator runtime we get 0 entries,
-        // confirming the aggregator's flattening is
-        // list-driven.
+        let id_a = "a".repeat(64);
+        let id_b = "b".repeat(64);
+
+        // Add two direct entries with distinct statuses.
+        agg.add_direct_entry(BrowseEntry {
+            project_id: id_a.clone(),
+            project_name: "gov".into(),
+            category: "gov".into(),
+            description: "desc-a".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Reachable,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: None,
+        });
+        agg.add_direct_entry(BrowseEntry {
+            project_id: id_b.clone(),
+            project_name: "coldcase".into(),
+            category: "invest".into(),
+            description: "desc-b".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: None,
+        });
+
         let node = spawn_node().await;
         let out = agg.aggregate(&curator, &node).await;
-        assert!(out.is_empty());
 
-        // Now smuggle the signed entry into the runtime via the
-        // public test helper. The existing
-        // `process_announcement_bytes` method is the ingest
-        // path, but writing to the DashMap directly is out of
-        // scope for this unit. So we skip this scenario — the
-        // 2-node browse_with_seeded_peer test below covers it
-        // end-to-end instead.
-        let _ = entry;
+        // Both direct entries should appear, preserving their status.
+        assert_eq!(out.len(), 2, "expected 2 direct entries");
+        let gov = out.iter().find(|e| e.project_name == "gov").unwrap();
+        assert_eq!(gov.status, BrowseStatus::Reachable);
+        assert_eq!(gov.source, BrowseSource::Direct);
+        let cc = out.iter().find(|e| e.project_name == "coldcase").unwrap();
+        assert_eq!(cc.status, BrowseStatus::Unknown);
 
         node.shutdown().await.ok();
     }

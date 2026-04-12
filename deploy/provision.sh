@@ -39,36 +39,10 @@ fi
 # ── nginx (web shell) ──────────────────────────────────────
 echo "  [5/8] Installing nginx..."
 apt-get install -y -qq nginx
-cp /dev/stdin /etc/nginx/sites-available/nexus << 'NGINX_CONF'
-# Managed by provision.sh — edit deploy/nginx-nexus.conf upstream.
-server {
-    listen 80;
-    server_name _;
-    root /opt/nexus-grid/web;
-    index index.html;
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 30s;
-    }
-    location /daemon/ {
-        proxy_pass http://127.0.0.1:7000/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 30s;
-    }
-    location ~ /\. {
-        deny all;
-    }
-}
-NGINX_CONF
+# T32: single source of truth — copy from repo instead of inline heredoc.
+# T36: deploy/nginx-nexus.conf already has X-Forwarded-Proto on /daemon/.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cp "$SCRIPT_DIR/nginx-nexus.conf" /etc/nginx/sites-available/nexus
 ln -sf /etc/nginx/sites-available/nexus /etc/nginx/sites-enabled/nexus
 rm -f /etc/nginx/sites-enabled/default
 mkdir -p /opt/nexus-grid/web

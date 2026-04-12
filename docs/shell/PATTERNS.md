@@ -1315,7 +1315,7 @@ If the upload fails mid-way, the VPS serves a broken/empty site.
 Consider deploying to a timestamped directory and atomically
 swapping the symlink, or keeping the previous build as a backup.
 
-### T28 — `node_id` not validated in `ProjectAnnouncement::from_gossip_bytes()`
+### T28 — `node_id` not validated in `ProjectAnnouncement::from_gossip_bytes()` — CLOSED Sprint 12 Phase E
 
 Sprint 11 audit A-02. `publish.rs` validates `v` and `msg_type`
 but applies no length or hex-format check to `node_id`. A peer
@@ -1323,54 +1323,54 @@ can inject an announcement with `node_id: ""` that gets stored as
 a `BrowseEntry` with `project_id: ""` and surfaced in the UI as
 Unreachable. Add a 64-char hex validation in `from_gossip_bytes`.
 
-### T29 — No test for truncated gossip message
+### T29 — No test for truncated gossip message — CLOSED Sprint 12 Phase E
 
 Sprint 11 audit A-01. `is_project_announcement` and
 `from_gossip_bytes` handle truncated JSON correctly (serde returns
 Err), but no test exercises this path. Add
 `is_project_announcement(b"{\"type\": \"project\"")` test.
 
-### T30 — Missing coordinator tests (daemon 500 + auto-publish private)
+### T30 — Missing coordinator tests (daemon 500 + auto-publish private) — CLOSED Sprint 12 Phase E
 
 Sprint 11 audit B-01/B-02. No test when daemon returns HTTP 500
 (proxy wraps as `{kind: "data", status: 500}` — untested). No
 test asserting a private coordinator does NOT call publish at boot.
 
-### T31 — `default_curators` not validated as hex at config load
+### T31 — `default_curators` not validated as hex at config load — CLOSED Sprint 12 Phase E
 
 Sprint 11 audit C-01. `CuratorConfig.default_curators` is
 `Vec<String>` with no format constraint. Validation only fires at
 `subscribe()` time. Add hex validation at config parse with a
 descriptive error message.
 
-### T32 — DRY nginx config: `provision.sh` inline vs `nginx-nexus.conf`
+### T32 — DRY nginx config: `provision.sh` inline vs `nginx-nexus.conf` — CLOSED Sprint 12 Phase E
 
 Sprint 11 audit F-02. `provision.sh` embeds a full inline copy
 of the nginx config (lines 42-71) separately from
 `deploy/nginx-nexus.conf`. Replace the heredoc with
 `scp nginx-nexus.conf` or `cp` from the repo.
 
-### T33 — HTTPS/certbot for VPS
+### T33 — HTTPS/certbot for VPS — CLOSED Sprint 12 Phase E
 
 Sprint 11 audit F-05. Both nginx configs are HTTP-only
 (`listen 80`). No certbot/Let's Encrypt provisioning exists.
 Scope cut for Sprint 11 but needed for production.
 
-### T34 — `BrowsedProject.tsx` missing from vitest coverage.include
+### T34 — `BrowsedProject.tsx` missing from vitest coverage.include — CLOSED Sprint 12 Phase E
 
 Sprint 11 audit H-01. The primary Sprint 11 component (421 LOC)
 is excluded from `vitest.config.ts` coverage.include, so its
 branch/line coverage is invisible to the 85%/78% threshold gate.
 Add `src/pages/BrowsedProject.tsx` to the coverage scope.
 
-### T35 — `aggregate_flattens_curator_lists_with_cached_status` test is hollow
+### T35 — `aggregate_flattens_curator_lists_with_cached_status` test is hollow — CLOSED Sprint 12 Phase E
 
 Sprint 11 audit H-03. browse.rs test creates a curator list
 entry but discards it with `let _ = entry` and asserts
 `out.is_empty()` (same as the empty-curator test). Rewrite to
 actually exercise the flattening scenario.
 
-### T36 — `X-Forwarded-Proto` missing in `/daemon/` nginx location
+### T36 — `X-Forwarded-Proto` missing in `/daemon/` nginx location — CLOSED Sprint 12 Phase E
 
 Sprint 11 audit F-06. The `/api/` proxy block sets
 `X-Forwarded-Proto $scheme` but the `/daemon/` block does not,
