@@ -822,31 +822,29 @@ Regression test:
 Status of the 4 pre-confessed items + the 4 new audit-detected
 items after Sprint 8 Phase A (commit `d321021`).
 
-#### Pre-confessed items — STILL OPEN, deferred to Sprint 9
+#### Pre-confessed items — Sprint 9 Phase E closures
 
-1. **Probe TTL vs real-world pkarr latency** — STILL OPEN —
-   `BrowseAggregator::DEFAULT_PROBE_TIMEOUT = 2s` and
-   `DEFAULT_PROBE_TTL = 60s` are calibrated on local-network tests.
-   Residential NAT + relay cold start can need 3-5 s for the first
-   resolution, which would misreport a reachable peer as
-   Unreachable for 60 s. Sprint 8 did NOT touch this — audit
-   Track E1 / Sprint 7 audit findings §E-1 still applies.
+1. **Probe TTL vs real-world pkarr latency** —
+   **CLOSED Sprint 9 Phase E (E-1)**. `DEFAULT_PROBE_TIMEOUT`
+   is now overridable via `NEXUS_PROBE_TIMEOUT_MS` env var
+   (default 2000 ms unchanged). `probe_timeout_from_env()` in
+   `browse.rs` reads and parses the env at
+   `BrowseAggregator::new()`. Test
+   `browse::tests::probe_timeout_env_override_parses_valid_ms`.
 
-2. **Gossip loop backpressure** — STILL OPEN —
-   `process_announcement_bytes` runs sequentially per message; a
-   flood of 10 k announcements/s serialises through a single iroh
-   fetch chain. No backpressure / rate limiter today. Sprint 9
-   can add a `tokio::sync::Semaphore` guarding
-   `process_announcement_bytes` concurrency. Audit Track C4 /
-   Sprint 7 audit findings §C-4.
+2. **Gossip loop backpressure** —
+   **CLOSED Sprint 9 Phase E (C-4)**. `CuratorRuntime` now holds
+   a `tokio::sync::Semaphore(MAX_INFLIGHT_ANNOUNCEMENTS = 32)`.
+   Callers use `process_announcement_bytes_throttled()` which
+   acquires a permit before delegating. Test
+   `iroh_runtime::tests::gossip_semaphore_limits_inflight_announcements`.
 
-3. **`subscriptions.json` persistence order** — STILL OPEN —
-   `CuratorRuntime::subscribe` (`iroh_runtime.rs:321`) still does
-   `attention.insert(pk, ())` BEFORE `persist_subscriptions()?`.
-   If the persist fails, the RAM and disk states diverge; at next
-   boot the missing subscription is silently lost. Sprint 9 should
-   adopt a "try persist first, rollback RAM on failure" rewrite.
-   Audit Track D3 / Sprint 7 audit findings §D-3.
+3. **`subscriptions.json` persistence order** —
+   **CLOSED Sprint 9 Phase E (D-3)**. `CuratorRuntime::subscribe`
+   now does insert-then-persist with rollback: if
+   `persist_subscriptions()` fails, `attention.remove(&pubkey)`
+   is called so RAM and disk never diverge. Test
+   `iroh_runtime::tests::subscribe_persist_first_rollback_on_disk_failure`.
 
 4. **`nexus_core` wheel editable install drift** —
    **CLOSED Sprint 9 Phase A (H-3)**. The Sprint 7 Phase E test

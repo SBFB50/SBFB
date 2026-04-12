@@ -657,7 +657,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Top-level descriptor returned by a ``@nexus_tab`` method.",
+  "description": "Top-level v1 descriptor returned by a ``@nexus_tab`` method.\n\nKept as ``TabView`` (no ``V1`` suffix) for backward compat with\nexisting app code. The ``schema_version`` literal is ``1``.",
   "properties": {
     "blocks": {
       "items": {

@@ -79,6 +79,7 @@ from nexus_sdk import (
     DatabaseError,
     NexusApp,
     button_task,
+    nexus_app_files,
     nexus_command,
     nexus_route,
     nexus_tab,
@@ -87,8 +88,10 @@ from nexus_sdk import (
 from nexus_sdk.view import (
     TabBlock,
     TabView,
+    TabViewV2,
     chart_bar,
     empty,
+    file_upload_block,
     heading,
     kv,
     metric,
@@ -132,6 +135,7 @@ def _legacy_govdata_db_path() -> Path:
     return Path(__file__).resolve().parents[4] / "nexus" / "gov" / "govdata.db"
 
 
+@nexus_app_files(accept=["image/*", "application/pdf"])
 class GovApp(NexusApp):
     """Political monitoring — Sprint 8 Phase B gov migration Batch 1."""
 
@@ -1694,6 +1698,80 @@ class GovApp(NexusApp):
                 text(
                     text="Le résultat sera visible dans l'onglet Tâches une fois la tâche traitée par un worker.",
                     muted=True,
+                ),
+            ],
+        ).model_dump()
+
+    # ------------------------------------------------------------------
+    # Sprint 9 Phase E — 20th tab: Documents (file upload + CAS)
+    # ------------------------------------------------------------------
+
+    @nexus_tab(name="Documents", icon="file-text")
+    async def documents_tab(self) -> dict[str, Any]:
+        """List uploaded documents via ``ctx.dbs["app"]`` and render
+        a ``file_upload`` block (v2 TabView) for drag-and-drop uploads.
+
+        Sprint 9 Phase E (D3 consumer). The table reads from
+        ``gov_documents`` populated by migration ``001_documents.sql``.
+        The upload block posts to the coordinator's
+        ``POST /app/gov/files/upload`` route via the ``@nexus_app_files``
+        decorator on the class.
+        """
+        title = "Documents"
+        if self._ctx is None:
+            return self._empty_tab("documents", title, "Contexte non disponible.")
+
+        app_db = self._ctx.dbs.get("app")
+        rows: list[dict[str, Any]] = []
+        if app_db is not None:
+            try:
+                rows = await app_db.fetchall(
+                    "SELECT sha256, original_name, content_type, size, uploaded_at "
+                    "FROM gov_documents ORDER BY uploaded_at DESC LIMIT 50"
+                )
+            except DatabaseError:
+                rows = []
+
+        blocks: list[TabBlock] = [
+            heading(level=1, text=title),
+            text(
+                text="Documents PDF et images associés au dossier Gov. "
+                "Glisser un fichier dans la zone ci-dessous pour l'ajouter.",
+                muted=True,
+            ),
+        ]
+
+        if rows:
+            blocks.append(
+                table_(
+                    columns=[
+                        {"key": "original_name", "label": "Nom"},
+                        {"key": "content_type", "label": "Type"},
+                        {"key": "size", "label": "Taille"},
+                        {"key": "uploaded_at", "label": "Date"},
+                    ],
+                    rows=[
+                        {
+                            "original_name": str(r.get("original_name", "—")),
+                            "content_type": str(r.get("content_type", "—")),
+                            "size": str(r.get("size", 0)),
+                            "uploaded_at": str(r.get("uploaded_at", "—")),
+                        }
+                        for r in rows
+                    ],
+                    empty_text="Aucun document.",
+                )
+            )
+        else:
+            blocks.append(empty(text="Aucun document téléversé."))
+
+        return TabViewV2(
+            tab_name="documents",
+            blocks=[
+                *blocks,
+                file_upload_block(
+                    label="Déposer un document",
+                    accept=["image/*", "application/pdf"],
                 ),
             ],
         ).model_dump()

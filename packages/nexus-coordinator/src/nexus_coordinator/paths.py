@@ -145,6 +145,19 @@ def app_storage_path(project_name: str, app_name: str) -> Path:
     return project_dir(project_name) / "apps" / app_name / "storage.json"
 
 
+def app_uploads_path(project_name: str, app_name: str) -> Path:
+    """Path to the per-app CAS uploads directory.
+
+    Sprint 9 Phase E (D3 impl): the coordinator loader instantiates
+    an :class:`nexus_sdk.AppFileStore` at this location and assigns
+    it to :attr:`nexus_sdk.AppContext.files` BEFORE calling
+    :meth:`nexus_sdk.NexusApp.on_start`. The directory is created
+    lazily by ``AppFileStore`` on the first store — this helper does
+    not touch the filesystem.
+    """
+    return project_dir(project_name) / "apps" / app_name / "uploads"
+
+
 def shell_daemon_registry_path() -> Path:
     """Path to the ``nexus-shell-daemon`` singleton ``running.json``.
 

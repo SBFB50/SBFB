@@ -180,14 +180,13 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
             assert worker_models["rag_search"] == "nomic-embed-text"
             assert worker_models["rag_ask"] == "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
             assert worker_models["refresh_party_cache"] == "stub-model:latest"
-            # Sprint 8 Phase D: the gov manifest now ships
-            # nineteen tabs — thirteen Batch 1+2 tabs carried over
-            # from Phase C plus six Batch 3 tabs (Alertes, Affaires,
-            # Lois, Factchecks, Recherche, Question).
+            # Sprint 9 Phase E: twenty tabs — the original nineteen
+            # plus Documents (file upload + CAS).
             tab_names = {t["name"] for t in body["tabs"]}
             assert tab_names == {
                 "Contradictions",
                 "Dashboard",
+                "Documents",
                 "Politiciens",
                 "Politicien",
                 "Biographie",

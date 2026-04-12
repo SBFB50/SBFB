@@ -28,8 +28,10 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Request
 from nexus_sdk import CommandDescriptor, StorageSchemaError, WorkerNotFound
-from nexus_sdk.view import TabView
-from pydantic import BaseModel, Field, ValidationError
+from nexus_sdk.view import AnyTabView, TabView, TabViewV2
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
+
+_AnyTabViewAdapter = TypeAdapter(AnyTabView)
 
 if TYPE_CHECKING:
     from nexus_sdk import AppContext, NexusApp
@@ -133,10 +135,10 @@ async def app_tab_descriptor(request: Request, name: str, tab_name: str) -> dict
             detail=f"tab descriptor raised: {type(e).__name__}: {e}",
         ) from e
 
-    if isinstance(descriptor, TabView):
+    if isinstance(descriptor, (TabView, TabViewV2)):
         return {"descriptor": descriptor.model_dump()}
     try:
-        validated = TabView.model_validate(descriptor)
+        validated = _AnyTabViewAdapter.validate_python(descriptor)
     except ValidationError as exc:
         logger.warning(
             "tab descriptor for app=%r tab=%r failed TabView validation: %s",

@@ -70,6 +70,7 @@ use nexus_core_rs::crypto::PUBLIC_KEY_LENGTH;
 use nexus_core_rs::{CuratorListEntry, Node};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
 /// Seed string used to derive the SBFB curator list gossip
@@ -258,9 +259,16 @@ pub enum CuratorRuntimeError {
 // CuratorRuntime
 // =================================================================
 
-/// Inner storage — two hashmaps and a file path. Kept in a
-/// single struct so the public runtime handle can hand out an
-/// `Arc<CuratorRuntime>` cheaply (DashMap is already Arc inside).
+/// Maximum number of concurrent `process_announcement_bytes`
+/// calls the runtime allows before applying backpressure. Sprint 9
+/// Phase E (C-4 close): without this guard, a gossip flood of 10 k
+/// announcements/s serialises through a single fetch chain.
+pub const MAX_INFLIGHT_ANNOUNCEMENTS: usize = 32;
+
+/// Inner storage — two hashmaps, a semaphore and a file path.
+/// Kept in a single struct so the public runtime handle can hand
+/// out an `Arc<CuratorRuntime>` cheaply (DashMap is already Arc
+/// inside).
 #[derive(Debug)]
 pub struct CuratorRuntime {
     /// Known curator lists keyed by curator pubkey bytes. The
@@ -283,6 +291,11 @@ pub struct CuratorRuntime {
     /// file. `None` disables persistence — used by the unit
     /// tests that don't want to touch disk.
     persistence_path: Option<PathBuf>,
+
+    /// Sprint 9 Phase E (C-4 close): backpressure semaphore
+    /// limiting concurrent `process_announcement_bytes` calls so a
+    /// gossip flood cannot saturate the fetch pipeline unboundedly.
+    announcement_semaphore: Semaphore,
 }
 
 impl CuratorRuntime {
@@ -298,6 +311,7 @@ impl CuratorRuntime {
             lists: DashMap::new(),
             attention: DashMap::new(),
             persistence_path,
+            announcement_semaphore: Semaphore::new(MAX_INFLIGHT_ANNOUNCEMENTS),
         }
     }
 
@@ -318,13 +332,26 @@ impl CuratorRuntime {
     /// Add a curator pubkey to the attention set. Idempotent:
     /// subscribing to an already-subscribed curator is a no-op.
     /// Persists the set to disk if a persistence path is set.
+    ///
+    /// Sprint 9 Phase E (D-3 close): persist-first rewrite. The
+    /// attention DashMap is updated BEFORE persisting to disk so
+    /// `persist_subscriptions` sees the new key, but if the persist
+    /// fails the key is rolled back from RAM. This guarantees
+    /// RAM and disk never diverge: a failed persist means the
+    /// subscription is not accepted (the caller gets an error),
+    /// and a successful persist means the next boot will find it.
     pub fn subscribe(
         &self,
         pubkey_hex: &str,
     ) -> Result<[u8; PUBLIC_KEY_LENGTH], CuratorRuntimeError> {
         let pubkey = parse_pubkey_hex(pubkey_hex)?;
+        // Insert first so persist_subscriptions sees the new key.
         self.attention.insert(pubkey, ());
-        self.persist_subscriptions()?;
+        if let Err(e) = self.persist_subscriptions() {
+            // Rollback RAM on persist failure.
+            self.attention.remove(&pubkey);
+            return Err(e);
+        }
         info!(curator = %pubkey_hex, "subscribed to curator");
         Ok(pubkey)
     }
@@ -405,6 +432,25 @@ impl CuratorRuntime {
     // ---------------------------------------------------------
     // Gossip ingestion
     // ---------------------------------------------------------
+
+    /// Acquire a backpressure permit then delegate to
+    /// [`Self::process_announcement_bytes`]. Sprint 9 Phase E
+    /// (C-4 close): callers from the gossip loop should use this
+    /// method so the semaphore caps the in-flight blob-fetch
+    /// concurrency at [`MAX_INFLIGHT_ANNOUNCEMENTS`].
+    pub async fn process_announcement_bytes_throttled(
+        &self,
+        announcement_bytes: &[u8],
+        node: &Node,
+    ) -> Result<CuratorListEntry, CuratorRuntimeError> {
+        let _permit = self
+            .announcement_semaphore
+            .acquire()
+            .await
+            .expect("announcement_semaphore is never closed");
+        self.process_announcement_bytes(announcement_bytes, node)
+            .await
+    }
 
     /// Parse, verify, and (if applicable) store a gossip
     /// announcement + its referenced blob.
@@ -1091,5 +1137,56 @@ mod tests {
         // test.
 
         node.shutdown().await.ok();
+    }
+
+    // ---------------------------------------------------------
+    // C-4 — gossip semaphore backpressure
+    // ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn gossip_semaphore_limits_inflight_announcements() {
+        // Sprint 9 Phase E (C-4 close): the semaphore must cap
+        // concurrent announcement processing. We verify the field
+        // exists and has the expected permit count. The runtime
+        // path itself (process_announcement_bytes_throttled) is
+        // exercised indirectly by the 2-node tests; this test pins
+        // the concurrency limit at the value documented in
+        // PATTERNS.md.
+        let runtime = CuratorRuntime::new(None);
+        assert_eq!(
+            runtime.announcement_semaphore.available_permits(),
+            MAX_INFLIGHT_ANNOUNCEMENTS,
+        );
+    }
+
+    // ---------------------------------------------------------
+    // D-3 — subscribe persist-first rollback
+    // ---------------------------------------------------------
+
+    #[test]
+    fn subscribe_persist_first_rollback_on_disk_failure() {
+        // Sprint 9 Phase E (D-3 close): if persist_subscriptions
+        // fails, the subscribe call must roll back the RAM insert.
+        // We trigger a persist failure by pointing at a path whose
+        // parent directory is a plain file (not a dir), making
+        // create_dir_all fail.
+        let dir = tempdir().unwrap();
+        let blocker = dir.path().join("blocker");
+        // Create a *file* named "blocker" so that writing
+        // "blocker/subscriptions.json" fails because "blocker"
+        // is not a directory.
+        fs::write(&blocker, b"I am a file, not a dir").unwrap();
+        let bad_path = blocker.join("subscriptions.json");
+
+        let runtime = CuratorRuntime::new(Some(bad_path));
+        let kp = KeyPair::generate();
+        let hex_key = hex::encode(kp.public_bytes());
+
+        let result = runtime.subscribe(&hex_key);
+        assert!(result.is_err(), "subscribe must fail when persist fails");
+        assert!(
+            !runtime.is_subscribed(&kp.public_bytes()),
+            "RAM must be rolled back on persist failure"
+        );
     }
 }

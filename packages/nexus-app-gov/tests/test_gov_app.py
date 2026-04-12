@@ -55,13 +55,13 @@ def test_gov_app_manifest_and_descriptors() -> None:
     assert workers_by_name["rag_ask"].model == "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
     assert workers_by_name["refresh_party_cache"].model == "stub-model:latest"
 
-    # Nineteen tabs: thirteen Batch 1+2 tabs + six Batch 3 tabs
-    # from Phase D (Alertes/Affaires/Lois/Factchecks/Recherche/
-    # Question).
+    # Twenty tabs: nineteen Sprint 8 tabs + Documents (Sprint 9
+    # Phase E file upload + CAS).
     tab_names = {t.name for t in tabs}
     assert tab_names == {
         "Contradictions",
         "Dashboard",
+        "Documents",
         "Politiciens",
         "Politicien",
         "Biographie",

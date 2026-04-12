@@ -28,6 +28,7 @@ from nexus_sdk.commands import CommandDescriptor
 from nexus_sdk.compute_client import ComputeClient
 from nexus_sdk.db import AppDatabaseClient
 from nexus_sdk.events import AppEvents
+from nexus_sdk.files import AppFileStore
 from nexus_sdk.registry import collect_decorators
 from nexus_sdk.storage import AppStorage
 
@@ -124,6 +125,7 @@ class AppContext:
     db: AppDatabaseClient | None = None
     storage: AppStorage | None = None
     events: AppEvents | None = None
+    files: AppFileStore | None = None
     # Sprint 9 Phase B (D1 consumer wiring): apps register typed
     # storage namespaces here from their ``on_start`` hook so the
     # coordinator's generic ``POST /app/{name}/state/{ns_key}``

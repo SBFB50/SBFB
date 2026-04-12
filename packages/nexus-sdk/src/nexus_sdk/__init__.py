@@ -25,20 +25,26 @@ from nexus_sdk.app import (
 from nexus_sdk.commands import CommandDescriptor
 from nexus_sdk.compute_client import ComputeClient
 from nexus_sdk.db import AppDatabaseClient, DatabaseError
-from nexus_sdk.decorators import nexus_command, nexus_route, nexus_tab, nexus_worker
+from nexus_sdk.decorators import nexus_app_files, nexus_command, nexus_route, nexus_tab, nexus_worker
 from nexus_sdk.events import AppEvents, EventEnvelope, EventOverflowPolicy
+from nexus_sdk.files import AppFileStore, FileHandle, FileManifest, FileTypeError
 from nexus_sdk.loader import discover_apps
 from nexus_sdk.migrations import MigrationRunner, MigrationTamperedError, PendingMigration
 from nexus_sdk.storage import AppStorage, StorageSchemaError, TypedNamespace
 from nexus_sdk.view import (
+    AnyTabView,
     TabBlock,
+    TabBlockFileUpload,
     TabView,
+    TabViewV1,
+    TabViewV2,
     badge_list,
     button_route,
     button_task,
     chart_bar,
     chart_line,
     empty,
+    file_upload_block,
     heading,
     kv,
     metric,
@@ -50,9 +56,11 @@ from nexus_sdk.view import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "AnyTabView",
     "AppContext",
     "AppDatabaseClient",
     "AppEvents",
+    "AppFileStore",
     "AppManifest",
     "AppStorage",
     "CommandDescriptor",
@@ -60,6 +68,9 @@ __all__ = [
     "EventOverflowPolicy",
     "ComputeClient",
     "DatabaseError",
+    "FileHandle",
+    "FileManifest",
+    "FileTypeError",
     "MigrationRunner",
     "MigrationTamperedError",
     "NexusApp",
@@ -67,8 +78,11 @@ __all__ = [
     "RouteDescriptor",
     "StorageSchemaError",
     "TabBlock",
+    "TabBlockFileUpload",
     "TabDescriptor",
     "TabView",
+    "TabViewV1",
+    "TabViewV2",
     "TypedNamespace",
     "WorkerDescriptor",
     "WorkerNotFound",
@@ -80,9 +94,11 @@ __all__ = [
     "chart_line",
     "discover_apps",
     "empty",
+    "file_upload_block",
     "heading",
     "kv",
     "metric",
+    "nexus_app_files",
     "nexus_command",
     "nexus_route",
     "nexus_tab",

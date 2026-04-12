@@ -492,7 +492,7 @@ describe("parseTabView + TabViewSchema", () => {
 
   it("parseTabView rejects wrong schema_version", () => {
     const result = parseTabView({
-      schema_version: 2,
+      schema_version: 99,
       tab_name: "t",
       blocks: [],
     });
@@ -500,6 +500,17 @@ describe("parseTabView + TabViewSchema", () => {
     if (!result.ok) {
       expect(result.error).toContain("schema_version");
     }
+  });
+
+  it("parseTabView accepts schema_version 2", () => {
+    const result = parseTabView({
+      schema_version: 2,
+      tab_name: "t",
+      blocks: [
+        { kind: "file_upload", label: "Upload", accept: ["image/*"], max_size_bytes: 1024 },
+      ],
+    });
+    expect(result.ok).toBe(true);
   });
 
   it("parseTabView rejects unknown block kind", () => {

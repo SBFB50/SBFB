@@ -187,6 +187,16 @@ export const TabBlockEmptySchema = z
   })
   .strict();
 
+// Sprint 9 Phase E — v2 file upload block
+export const TabBlockFileUploadSchema = z
+  .object({
+    kind: z.literal("file_upload"),
+    label: z.string(),
+    accept: z.array(z.string()).default(["image/*", "application/pdf"]),
+    max_size_bytes: z.number().default(50 * 1024 * 1024),
+  })
+  .strict();
+
 // ---------------------------------------------------------------------------
 // Exported TS types (hand-written because of the recursive Section).
 // The Zod schema for recursive types works via z.lazy but TS
@@ -211,6 +221,7 @@ export type TabBlockButton = z.infer<typeof TabBlockButtonSchema>;
 export type TabBlockChartLine = z.infer<typeof TabBlockChartLineSchema>;
 export type TabBlockChartBar = z.infer<typeof TabBlockChartBarSchema>;
 export type TabBlockEmpty = z.infer<typeof TabBlockEmptySchema>;
+export type TabBlockFileUpload = z.infer<typeof TabBlockFileUploadSchema>;
 
 export type TabBlockSection = {
   kind: "section";
@@ -229,7 +240,8 @@ export type TabBlock =
   | TabBlockButton
   | TabBlockChartLine
   | TabBlockChartBar
-  | TabBlockEmpty;
+  | TabBlockEmpty
+  | TabBlockFileUpload;
 
 // Leaf kinds (everything except recursive section) — discriminated by
 // the literal `kind` field. Sprint 6 audit A-1: the original Phase B
@@ -252,6 +264,7 @@ export const TabBlockLeafSchema = z.discriminatedUnion("kind", [
   TabBlockChartLineSchema,
   TabBlockChartBarSchema,
   TabBlockEmptySchema,
+  TabBlockFileUploadSchema,
 ]);
 
 // Section is recursive — declared via z.lazy referencing TabBlockSchema.
@@ -284,7 +297,8 @@ export const TabBlockSchema: z.ZodType<TabBlock, z.ZodTypeDef, unknown> =
 // Top-level TabView
 // ---------------------------------------------------------------------------
 
-export const TabViewSchema = z
+// -- v1 TabView (backward compat) --
+export const TabViewV1Schema = z
   .object({
     schema_version: z.literal(1),
     tab_name: z.string(),
@@ -293,11 +307,27 @@ export const TabViewSchema = z
   })
   .strict();
 
+// -- v2 TabView (adds file_upload block) --
+export const TabViewV2Schema = z
+  .object({
+    schema_version: z.literal(2),
+    tab_name: z.string(),
+    title: z.string().nullable().optional(),
+    blocks: z.array(TabBlockSchema).default([]),
+  })
+  .strict();
+
+export const TabViewSchema = z.discriminatedUnion("schema_version", [
+  TabViewV1Schema,
+  TabViewV2Schema,
+]);
+
 export type TabView = z.infer<typeof TabViewSchema>;
 
 /**
- * Parse an unknown value into a TabView, returning a discriminated
- * result so callers can branch on success without catching.
+ * Parse an unknown value into a TabView (v1 or v2), returning a
+ * discriminated result so callers can branch on success without
+ * catching.
  */
 export function parseTabView(
   raw: unknown,

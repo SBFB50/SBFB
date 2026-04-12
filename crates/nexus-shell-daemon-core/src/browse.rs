@@ -55,7 +55,30 @@ pub const DEFAULT_PROBE_TTL: Duration = Duration::from_secs(60);
 
 /// Default timeout for a single reachability probe. Passed
 /// through to [`DiscoveryClient::probe_reachable`].
+///
+/// Sprint 9 Phase E (E-1 close): overridable at runtime via the
+/// `NEXUS_PROBE_TIMEOUT_MS` environment variable. The constant
+/// is the fallback when the env var is absent or unparseable.
 pub const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Read the probe timeout from the `NEXUS_PROBE_TIMEOUT_MS`
+/// environment variable, falling back to [`DEFAULT_PROBE_TIMEOUT`]
+/// if the variable is absent or not a valid u64.
+pub fn probe_timeout_from_env() -> Duration {
+    match std::env::var("NEXUS_PROBE_TIMEOUT_MS") {
+        Ok(val) => match val.parse::<u64>() {
+            Ok(ms) if ms > 0 => Duration::from_millis(ms),
+            _ => {
+                tracing::warn!(
+                    value = %val,
+                    "NEXUS_PROBE_TIMEOUT_MS is not a valid positive integer, using default"
+                );
+                DEFAULT_PROBE_TIMEOUT
+            }
+        },
+        Err(_) => DEFAULT_PROBE_TIMEOUT,
+    }
+}
 
 // =================================================================
 // Wire types
@@ -139,10 +162,11 @@ pub struct BrowseAggregator {
 }
 
 impl BrowseAggregator {
-    /// Create a new aggregator with the default TTL + probe
-    /// timeout.
+    /// Create a new aggregator with the default TTL and a probe
+    /// timeout read from the `NEXUS_PROBE_TIMEOUT_MS` env var
+    /// (falling back to [`DEFAULT_PROBE_TIMEOUT`]).
     pub fn new() -> Self {
-        Self::with_durations(DEFAULT_PROBE_TTL, DEFAULT_PROBE_TIMEOUT)
+        Self::with_durations(DEFAULT_PROBE_TTL, probe_timeout_from_env())
     }
 
     /// Create an aggregator with custom TTL / probe timeout.
@@ -604,5 +628,23 @@ mod tests {
         let _ = entry;
 
         node.shutdown().await.ok();
+    }
+
+    // ---------------------------------------------------------
+    // E-1 — probe_timeout_from_env
+    // ---------------------------------------------------------
+
+    #[test]
+    fn probe_timeout_env_override_parses_valid_ms() {
+        // Sprint 9 Phase E (E-1 close): verify that the env var
+        // override actually influences the timeout duration.
+        std::env::set_var("NEXUS_PROBE_TIMEOUT_MS", "5000");
+        let d = probe_timeout_from_env();
+        assert_eq!(d, Duration::from_millis(5000));
+        std::env::remove_var("NEXUS_PROBE_TIMEOUT_MS");
+
+        // Absent env var falls back to default.
+        let d2 = probe_timeout_from_env();
+        assert_eq!(d2, DEFAULT_PROBE_TIMEOUT);
     }
 }

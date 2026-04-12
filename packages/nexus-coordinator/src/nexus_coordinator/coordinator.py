@@ -43,6 +43,7 @@ from nexus_sdk import (
     AppContext,
     AppDatabaseClient,
     AppEvents,
+    AppFileStore,
     AppStorage,
     ComputeClient,
     MigrationRunner,
@@ -58,6 +59,7 @@ from nexus_coordinator.kudos import KudosLedger
 from nexus_coordinator.paths import (
     app_db_path,
     app_storage_path,
+    app_uploads_path,
     coord_config_path,
     coord_key_path,
     iroh_data_path,
@@ -305,6 +307,14 @@ class Coordinator:
                 # so the migration runner can target it after
                 # on_start, even if the app swaps ``ctx.db``.
                 default_db = AppDatabaseClient(default_db_path)
+                # Sprint 9 Phase E (D3 impl): wire a per-app
+                # AppFileStore at apps/<name>/uploads/. The dir
+                # is created lazily by AppFileStore.store(); the
+                # coordinator only supplies the path and the app
+                # name. Apps without @nexus_app_files still get
+                # the store wired — the files router checks the
+                # decorator separately before accepting uploads.
+                uploads_path = app_uploads_path(self.project_name, app.manifest.name)
                 ctx = AppContext(
                     compute=compute,
                     project_name=self.project_name,
@@ -312,6 +322,7 @@ class Coordinator:
                     db=default_db,
                     storage=AppStorage(storage_path),
                     events=AppEvents(),
+                    files=AppFileStore(uploads_path, app.manifest.name),
                     _app=app,
                 )
                 await app.on_start(ctx)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from nexus_sdk.registry import COMMAND_ATTR, ROUTE_ATTR, TAB_ATTR, WORKER_ATTR
+from nexus_sdk.registry import COMMAND_ATTR, FILES_ATTR, ROUTE_ATTR, TAB_ATTR, WORKER_ATTR
 
 
 def nexus_route(
@@ -112,3 +112,38 @@ def nexus_command(
         return fn
 
     return wrap
+
+
+def nexus_app_files(
+    *,
+    accept: list[str],
+    max_size_bytes: int = 50 * 1024 * 1024,
+) -> Callable[[type], type]:
+    """Class-level decorator that declares which file types an app accepts.
+
+    Sprint 9 Phase E (D3 impl). Marks the app class as file-upload
+    capable and stores the ``accept`` list (MIME patterns like
+    ``"image/*"``, ``"application/pdf"``) and a ``max_size_bytes``
+    cap on the class itself via :data:`FILES_ATTR`. The coordinator
+    file upload router reads these at request time to enforce the
+    allowlist before any bytes hit the CAS.
+
+    Example::
+
+        @nexus_app_files(accept=["image/*", "application/pdf"])
+        class GovApp(NexusApp):
+            ...
+    """
+
+    def wrap_cls(cls: type) -> type:
+        setattr(
+            cls,
+            FILES_ATTR,
+            {
+                "accept": list(accept),
+                "max_size_bytes": max_size_bytes,
+            },
+        )
+        return cls
+
+    return wrap_cls

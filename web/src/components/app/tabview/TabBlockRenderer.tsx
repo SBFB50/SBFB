@@ -16,6 +16,7 @@ import { ButtonBlock } from "./blocks/ButtonBlock";
 import { ChartLineBlock } from "./blocks/ChartLineBlock";
 import { ChartBarBlock } from "./blocks/ChartBarBlock";
 import { EmptyBlock } from "./blocks/EmptyBlock";
+import { FileUploadBlock } from "./blocks/FileUploadBlock";
 
 export function TabBlockRenderer({ block }: { block: TabBlock }) {
   switch (block.kind) {
@@ -41,6 +42,8 @@ export function TabBlockRenderer({ block }: { block: TabBlock }) {
       return <ChartBarBlock block={block} />;
     case "empty":
       return <EmptyBlock block={block} />;
+    case "file_upload":
+      return <FileUploadBlock block={block} />;
     default: {
       const _exhaustive: never = block;
       return _exhaustive;

@@ -15,6 +15,7 @@ ROUTE_ATTR = "__nexus_route__"
 WORKER_ATTR = "__nexus_worker__"
 TAB_ATTR = "__nexus_tab__"
 COMMAND_ATTR = "__nexus_command__"
+FILES_ATTR = "__nexus_app_files__"
 
 
 def collect_decorators(

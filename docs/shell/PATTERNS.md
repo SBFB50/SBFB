@@ -690,6 +690,51 @@ processed.
 Reference: sprint9_kickoff.md §4 D4, sprint9_plan.md §7 Phase
 D.
 
+### P16 — File upload + CAS with SHA256 sharding and magic bytes whitelist
+
+Sprint 9 Phase E (D3). Apps that accept file uploads declare
+`@nexus_app_files(accept=["image/*", "application/pdf"])` at
+class level. The coordinator wires an `AppFileStore` per app at
+`projects/<p>/apps/<a>/uploads/` before `on_start`.
+
+**CAS layout.** SHA256 sharding `<sha[:2]>/<sha[2:]>` mirrors git
+objects. Manifest JSON adjacent `<sha[:2]>/<sha>.json` carries
+metadata (size, content_type, original_name, uploaded_at,
+uploaded_by, app_name).
+
+**Magic bytes validation.** Five types whitelisted: PNG, JPEG,
+PDF, WebP, SVG. Validation runs after the full stream is
+consumed (the first 256 bytes are probed against known magic byte
+signatures). No `python-magic` dependency — portable Windows
+support.
+
+**Dedup pre-write.** If both CAS blob and manifest exist, the
+store returns the existing `FileHandle` without re-writing.
+Pattern from Restic.
+
+**Soft delete.** `AppFileStore.delete` removes the manifest only;
+the CAS blob stays for dedup integrity and audit trail.
+
+**TabView v2.** `schema_version: Literal[2]` discriminated union
+via `AnyTabView`. The `file_upload` block kind is v2-only; a v1
+parser rejects it via `extra="forbid"`. Constructor helper
+`file_upload_block()` builds the block. Cross-language fixture
+`tabview_v2_canonical.json` exercises Python + Zod roundtrip.
+
+Reference: sprint9_kickoff.md §4 D3, sprint9_plan.md §8 Phase E.
+
+### P17 — D2/D3 wiring via SSE progress events
+
+Sprint 9 Phase E. The coordinator file upload router publishes
+`file.upload.progress` events onto the per-app `AppEvents` bus
+(P14) after each successful store. The frontend can subscribe via
+the `GET /app/{name}/events?pattern=file.upload.*` SSE endpoint
+(Phase C) to show real-time progress. The current implementation
+fires a single completion event per upload; chunked progress
+streaming is deferred to Sprint 10+.
+
+Reference: sprint9_plan.md §8 Phase E, sprint9_kickoff.md §4 D3.
+
 ## Tech debt — queued for Phase D or later
 
 ### T1 — Fast refresh warnings on 5 shadcn ui primitives

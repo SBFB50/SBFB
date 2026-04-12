@@ -159,7 +159,25 @@ class TabBlockEmpty(_Block):
     text: str
 
 
-TabBlock = Annotated[
+class TabBlockFileUpload(_Block):
+    """File upload dropzone block — v2 only.
+
+    Sprint 9 Phase E (D3 impl). Renders a drag-and-drop zone that
+    posts to ``POST /app/{name}/files/upload`` and shows progress
+    via the D2 SSE bridge. Only valid inside a ``schema_version: 2``
+    :class:`TabViewV2` — a v1 parser will reject it via
+    ``extra="forbid"`` on the v1 discriminated union.
+    """
+
+    kind: Literal["file_upload"] = "file_upload"
+    label: str
+    accept: list[str] = Field(default_factory=lambda: ["image/*", "application/pdf"])
+    max_size_bytes: int = 50 * 1024 * 1024
+
+
+# -- v1 block union (excludes file_upload) --
+
+TabBlockV1 = Annotated[
     Union[
         TabBlockSection,
         TabBlockHeading,
@@ -176,12 +194,39 @@ TabBlock = Annotated[
     Field(discriminator="kind"),
 ]
 
+# -- v2 block union (includes file_upload) --
+
+TabBlockV2 = Annotated[
+    Union[
+        TabBlockSection,
+        TabBlockHeading,
+        TabBlockText,
+        TabBlockKV,
+        TabBlockMetric,
+        TabBlockTable,
+        TabBlockBadgeList,
+        TabBlockButton,
+        TabBlockChartLine,
+        TabBlockChartBar,
+        TabBlockEmpty,
+        TabBlockFileUpload,
+    ],
+    Field(discriminator="kind"),
+]
+
+# Backward compat alias — existing code uses ``TabBlock``
+TabBlock = TabBlockV1
+
 
 TabBlockSection.model_rebuild()
 
 
 class TabView(BaseModel):
-    """Top-level descriptor returned by a ``@nexus_tab`` method."""
+    """Top-level v1 descriptor returned by a ``@nexus_tab`` method.
+
+    Kept as ``TabView`` (no ``V1`` suffix) for backward compat with
+    existing app code. The ``schema_version`` literal is ``1``.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -189,6 +234,34 @@ class TabView(BaseModel):
     tab_name: str
     title: str | None = None
     blocks: list[TabBlock] = Field(default_factory=list)
+
+
+# Alias for explicit v1 references.
+TabViewV1 = TabView
+
+
+class TabViewV2(BaseModel):
+    """Top-level v2 descriptor — adds ``file_upload`` block kind.
+
+    Sprint 9 Phase E. Backward-compatible with v1: every v1
+    descriptor validates as v2 (the ``file_upload`` block is
+    optional), but a v2 descriptor with ``file_upload`` blocks
+    rejects under the v1 parser via ``extra="forbid"`` on block
+    discriminators.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    schema_version: Literal[2] = 2
+    tab_name: str
+    title: str | None = None
+    blocks: list[TabBlockV2] = Field(default_factory=list)
+
+
+AnyTabView = Annotated[
+    Union[TabViewV1, TabViewV2],
+    Field(discriminator="schema_version"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -280,9 +353,24 @@ def empty(*, text: str) -> TabBlockEmpty:  # noqa: A002
     return TabBlockEmpty(text=text)
 
 
+def file_upload_block(
+    *,
+    label: str,
+    accept: list[str] | None = None,
+    max_size_bytes: int = 50 * 1024 * 1024,
+) -> TabBlockFileUpload:
+    """Construct a ``file_upload`` block (v2 only)."""
+    return TabBlockFileUpload(
+        label=label,
+        accept=accept if accept is not None else ["image/*", "application/pdf"],
+        max_size_bytes=max_size_bytes,
+    )
+
+
 __all__ = [
     "ActionRoute",
     "ActionTaskSubmit",
+    "AnyTabView",
     "BadgeItem",
     "BlockTone",
     "ButtonAction",
@@ -296,21 +384,27 @@ __all__ = [
     "TabBlockChartBar",
     "TabBlockChartLine",
     "TabBlockEmpty",
+    "TabBlockFileUpload",
     "TabBlockHeading",
     "TabBlockKV",
     "TabBlockMetric",
     "TabBlockSection",
     "TabBlockTable",
     "TabBlockText",
+    "TabBlockV1",
+    "TabBlockV2",
     "TableAlign",
     "TableColumn",
     "TabView",
+    "TabViewV1",
+    "TabViewV2",
     "badge_list",
     "button_route",
     "button_task",
     "chart_bar",
     "chart_line",
     "empty",
+    "file_upload_block",
     "heading",
     "kv",
     "metric",
