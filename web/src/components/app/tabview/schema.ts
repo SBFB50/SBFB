@@ -253,7 +253,13 @@ export type TabBlock =
 // section kind is kept out of the discriminated form because it is
 // recursive (needs z.lazy on TabBlockSchema) and Zod 3's
 // `discriminatedUnion` type signature doesn't accept lazy members.
-export const TabBlockLeafSchema = z.discriminatedUnion("kind", [
+//
+// Sprint 9 audit F4-1 fix: split into v1 (10 base kinds) and v2
+// (adds file_upload). This mirrors the Python side where TabBlockV1
+// does NOT include file_upload in its union, preventing a v1
+// descriptor from silently accepting v2-only blocks.
+
+const _baseLeafSchemas = [
   TabBlockHeadingSchema,
   TabBlockTextSchema,
   TabBlockKVSchema,
@@ -264,8 +270,20 @@ export const TabBlockLeafSchema = z.discriminatedUnion("kind", [
   TabBlockChartLineSchema,
   TabBlockChartBarSchema,
   TabBlockEmptySchema,
+] as const;
+
+export const TabBlockLeafV1Schema = z.discriminatedUnion("kind", [
+  ..._baseLeafSchemas,
+]);
+
+export const TabBlockLeafV2Schema = z.discriminatedUnion("kind", [
+  ..._baseLeafSchemas,
   TabBlockFileUploadSchema,
 ]);
+
+// Keep the combined form for backward compat (used by TabBlockRenderer
+// which handles both versions after validation).
+export const TabBlockLeafSchema = TabBlockLeafV2Schema;
 
 // Section is recursive — declared via z.lazy referencing TabBlockSchema.
 // We use the 3-param ZodType<Output, Def, Input=unknown> form so the
@@ -286,10 +304,20 @@ export const TabBlockSectionSchema: z.ZodType<
 );
 
 // Top-level block: either a section (recursive, via z.lazy) or any of
-// the 10 leaf kinds (via discriminatedUnion, O(1) dispatch + readable
+// the leaf kinds (via discriminatedUnion, O(1) dispatch + readable
 // errors). Zod tries branches in order, so a section payload resolves
 // immediately and a non-section payload falls through to the fast
 // discriminated path.
+//
+// Sprint 9 audit F4-1: version-specific block schemas so v1 rejects
+// file_upload blocks at validation time (matching Python behavior).
+const TabBlockV1Schema: z.ZodType<TabBlock, z.ZodTypeDef, unknown> =
+  z.lazy(() => z.union([TabBlockSectionSchema, TabBlockLeafV1Schema]));
+
+const TabBlockV2Schema: z.ZodType<TabBlock, z.ZodTypeDef, unknown> =
+  z.lazy(() => z.union([TabBlockSectionSchema, TabBlockLeafV2Schema]));
+
+// Combined form for the renderer (accepts any valid block after validation).
 export const TabBlockSchema: z.ZodType<TabBlock, z.ZodTypeDef, unknown> =
   z.lazy(() => z.union([TabBlockSectionSchema, TabBlockLeafSchema]));
 
@@ -297,13 +325,13 @@ export const TabBlockSchema: z.ZodType<TabBlock, z.ZodTypeDef, unknown> =
 // Top-level TabView
 // ---------------------------------------------------------------------------
 
-// -- v1 TabView (backward compat) --
+// -- v1 TabView (backward compat — no file_upload) --
 export const TabViewV1Schema = z
   .object({
     schema_version: z.literal(1),
     tab_name: z.string(),
     title: z.string().nullable().optional(),
-    blocks: z.array(TabBlockSchema).default([]),
+    blocks: z.array(TabBlockV1Schema).default([]),
   })
   .strict();
 
@@ -313,7 +341,7 @@ export const TabViewV2Schema = z
     schema_version: z.literal(2),
     tab_name: z.string(),
     title: z.string().nullable().optional(),
-    blocks: z.array(TabBlockSchema).default([]),
+    blocks: z.array(TabBlockV2Schema).default([]),
   })
   .strict();
 

@@ -164,8 +164,27 @@ class MigrationRunner:
     ) -> None:
         """Check SHA256 of every applied migration against current
         files on disk. Raises :class:`MigrationTamperedError` on
-        mismatch or if a previously-applied file is missing."""
+        mismatch, if a previously-applied file is missing, or if a
+        tracking row has been deleted (gap detection)."""
         file_by_version = {m.version: m for m in all_files}
+
+        # --- Gap detection (Sprint 9 audit D1-A fix) ---
+        # If someone deletes a row from _nexus_migrations, that
+        # version would silently become "pending" again and be
+        # re-applied with potentially tampered content. Detect
+        # this by checking that every on-disk version <= max(applied)
+        # has a corresponding tracking row.
+        if applied:
+            max_applied = max(applied.keys())
+            for m in all_files:
+                if m.version <= max_applied and m.version not in applied:
+                    raise MigrationTamperedError(
+                        f"Migration version {m.version} ({m.path.name}) "
+                        f"was previously applied (versions up to "
+                        f"{max_applied} exist in tracking table) but its "
+                        f"tracking row has been deleted — possible tampering"
+                    )
+
         for version, info in applied.items():
             if version not in file_by_version:
                 raise MigrationTamperedError(

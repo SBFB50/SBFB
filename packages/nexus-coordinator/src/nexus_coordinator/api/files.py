@@ -55,9 +55,27 @@ def _app_contexts(request: Request) -> dict[str, "AppContext"]:
 # ---------------------------------------------------------------------------
 
 
-async def _upload_chunks(file: UploadFile) -> AsyncIterator[bytes]:
-    """Yield 8 KiB chunks from ``file`` for streaming directly into the CAS."""
+async def _upload_chunks(
+    file: UploadFile,
+    max_size_bytes: int = 0,
+) -> AsyncIterator[bytes]:
+    """Yield 8 KiB chunks from ``file`` for streaming directly into the CAS.
+
+    If ``max_size_bytes`` is positive, raises :class:`HTTPException` with
+    status 413 when the accumulated bytes exceed the limit.  Sprint 9
+    audit E6-B fix.
+    """
+    total = 0
     while chunk := await file.read(8192):
+        total += len(chunk)
+        if max_size_bytes > 0 and total > max_size_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Upload exceeds the maximum allowed size of "
+                    f"{max_size_bytes} bytes ({max_size_bytes // (1024 * 1024)} MB)"
+                ),
+            )
         yield chunk
 
 
@@ -163,9 +181,11 @@ async def upload_file(
         content_type,
     )
 
+    max_size: int = files_meta.get("max_size_bytes", 50 * 1024 * 1024)
+
     try:
         handle = await store.store(
-            _upload_chunks(file),
+            _upload_chunks(file, max_size_bytes=max_size),
             original_name=original_name,
             content_type=content_type or "",
             uploaded_by="",

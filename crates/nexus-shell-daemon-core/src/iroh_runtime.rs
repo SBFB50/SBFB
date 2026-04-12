@@ -359,14 +359,29 @@ impl CuratorRuntime {
     /// Remove a curator pubkey from the attention set. Also
     /// evicts any stored list from that curator so the shell
     /// stops showing its projects. Persists the set to disk.
+    ///
+    /// Sprint 9 audit I3-F1 fix: persist-first pattern — remove
+    /// from RAM only after the disk write succeeds, so a disk
+    /// failure does not leave RAM and disk diverged.
     pub fn unsubscribe(
         &self,
         pubkey_hex: &str,
     ) -> Result<[u8; PUBLIC_KEY_LENGTH], CuratorRuntimeError> {
         let pubkey = parse_pubkey_hex(pubkey_hex)?;
-        self.attention.remove(&pubkey);
-        self.lists.remove(&pubkey);
-        self.persist_subscriptions()?;
+        // Save current values for rollback.
+        let had_attention = self.attention.remove(&pubkey).is_some();
+        let saved_list = self.lists.remove(&pubkey);
+        // Persist the new state to disk.
+        if let Err(e) = self.persist_subscriptions() {
+            // Rollback RAM to the pre-unsubscribe state.
+            if had_attention {
+                self.attention.insert(pubkey, ());
+            }
+            if let Some((k, v)) = saved_list {
+                self.lists.insert(k, v);
+            }
+            return Err(e);
+        }
         info!(curator = %pubkey_hex, "unsubscribed from curator");
         Ok(pubkey)
     }

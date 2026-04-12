@@ -67,24 +67,27 @@ npm run lint
 step 11 "npm run test:unit"
 npm run test:unit
 
-step 12 "npm run build"
+step 12 "npm run test:coverage"
+npm run test:coverage
+
+step 13 "npm run build"
 npm run build
 
-step 13 "npm run size"
+step 14 "npm run size"
 npm run size
 
 if [[ "$QUICK" -eq 0 ]]; then
-  step 14 "npx playwright test"
+  step 15 "npx playwright test"
   npx playwright test
 else
   echo ""
-  echo "==> [14] SKIPPED Playwright (--quick mode)"
+  echo "==> [15] SKIPPED Playwright (--quick mode)"
 fi
 
-step 15 "bash scripts/scan-en-strings.sh"
+step 16 "bash scripts/scan-en-strings.sh"
 bash scripts/scan-en-strings.sh
 
-step 16 "npm audit --audit-level=high"
+step 17 "npm audit --audit-level=high"
 npm audit --audit-level=high
 
 cd "$REPO_ROOT"

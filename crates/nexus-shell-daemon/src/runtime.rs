@@ -430,8 +430,10 @@ fn spawn_gossip_subscribe_task(
 /// - Everything else (blob fetch, parse, signature, persistence)
 ///   → `warn!`.
 async fn handle_announcement(curator_runtime: &CuratorRuntimeHandle, node: &Node, content: &[u8]) {
+    // Sprint 9 audit I2-F2 fix: use the throttled variant so the
+    // C-4 semaphore actually caps in-flight blob fetches.
     match curator_runtime
-        .process_announcement_bytes(content, node)
+        .process_announcement_bytes_throttled(content, node)
         .await
     {
         Ok(entry) => {

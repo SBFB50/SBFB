@@ -47,6 +47,7 @@ from nexus_sdk import (
     AppStorage,
     ComputeClient,
     MigrationRunner,
+    MigrationTamperedError,
     NexusApp,
     discover_apps,
 )
@@ -347,6 +348,12 @@ class Coordinator:
                                 count=len(mig_applied),
                                 versions=[m.version for m in mig_applied],
                             )
+                    except MigrationTamperedError:
+                        _log.error(
+                            "FATAL: migration tampered, aborting coordinator boot",
+                            app=app.manifest.name,
+                        )
+                        raise
                     except Exception as e:  # noqa: BLE001
                         _log.warning(
                             "migration runner failed, skipping app",
