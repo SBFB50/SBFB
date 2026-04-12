@@ -230,6 +230,9 @@ impl DaemonRuntime {
             node: Arc::clone(&node),
             gossip_sender: Arc::clone(&gossip_sender),
             default_curators: opts.curator.default_curators.clone(),
+            blob_serve_cache: Arc::new(nexus_shell_daemon_core::blob_serve::BlobServeCache::new(
+                nexus_shell_daemon_core::blob_serve::DEFAULT_MAX_CACHE_ENTRIES,
+            )),
         });
         let router = build_router(http_state);
 
@@ -537,6 +540,7 @@ fn handle_project_announcement(browse_aggregator: &BrowseAggregatorHandle, conte
                 source: BrowseSource::Direct,
                 status: BrowseStatus::Unknown,
                 last_probed_at: None,
+                archive_ticket: ann.archive_ticket,
             };
             browse_aggregator.add_direct_entry(entry);
             info!(

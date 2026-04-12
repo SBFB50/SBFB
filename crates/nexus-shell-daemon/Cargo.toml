@@ -57,7 +57,12 @@ serde_json = { workspace = true }
 # the workspace, so no tree growth.
 hex = { workspace = true }
 
+# Sprint 12 Phase A: BlobTicket minting in the publish handler.
+iroh-blobs = { workspace = true }
+
 [dev-dependencies]
+# Sprint 12 Phase A: zip archive creation for blob-serve tests.
+zip = { workspace = true }
 # End-to-end tests spawn the real compiled binary with an
 # isolated NEXUS_GRID_ROOT fixture directory, the same harness
 # the nexus-worker tests use.

@@ -15,7 +15,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Wire format version for project announcements.
-pub const PROJECT_ANNOUNCEMENT_VERSION: u32 = 1;
+/// v2 adds `archive_ticket` (Sprint 12 Phase A).
+pub const PROJECT_ANNOUNCEMENT_VERSION: u32 = 2;
 
 /// The JSON payload broadcast on the curator gossip topic to
 /// announce a project directly (without a curator intermediary).
@@ -40,6 +41,10 @@ pub struct ProjectAnnouncement {
     /// List of app names available on this project.
     #[serde(default)]
     pub apps: Vec<String>,
+    /// BlobTicket of the zip archive for this project (Sprint 12).
+    /// `None` for v1 announcements from older daemons.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_ticket: Option<String>,
 }
 
 /// Error validating a project announcement.
@@ -73,7 +78,14 @@ impl ProjectAnnouncement {
             category,
             description,
             apps,
+            archive_ticket: None,
         }
+    }
+
+    /// Construct a v2 announcement with an archive ticket.
+    pub fn with_archive_ticket(mut self, ticket: String) -> Self {
+        self.archive_ticket = Some(ticket);
+        self
     }
 
     /// Serialize to JSON bytes for gossip broadcast.
@@ -82,9 +94,13 @@ impl ProjectAnnouncement {
     }
 
     /// Parse and validate a project announcement from gossip bytes.
+    ///
+    /// Accepts v1 (no archive_ticket) and v2 (with archive_ticket)
+    /// for backward compatibility with older daemons.
     pub fn from_gossip_bytes(bytes: &[u8]) -> Result<Self, ProjectAnnouncementError> {
         let ann: Self = serde_json::from_slice(bytes)?;
-        if ann.v != PROJECT_ANNOUNCEMENT_VERSION {
+        // Accept v1 and v2 for backward compatibility.
+        if ann.v != 1 && ann.v != 2 {
             return Err(ProjectAnnouncementError::Version {
                 got: ann.v,
                 expected: PROJECT_ANNOUNCEMENT_VERSION,
@@ -145,7 +161,7 @@ mod tests {
             err,
             ProjectAnnouncementError::Version {
                 got: 99,
-                expected: 1
+                expected: 2
             }
         ));
     }
@@ -188,5 +204,64 @@ mod tests {
     #[test]
     fn is_project_announcement_rejects_garbage() {
         assert!(!is_project_announcement(b"not json"));
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 12 Phase A — v2 with archive_ticket
+    // ---------------------------------------------------------
+
+    #[test]
+    fn v2_announcement_with_archive_ticket_round_trips() {
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "gov".into(),
+            "gov".into(),
+            "desc".into(),
+            vec!["gov".into()],
+        )
+        .with_archive_ticket("blobticket123abc".into());
+
+        assert_eq!(ann.v, 2);
+        assert_eq!(ann.archive_ticket.as_deref(), Some("blobticket123abc"));
+
+        let bytes = ann.to_gossip_bytes().unwrap();
+        let back = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(back, ann);
+        assert_eq!(back.archive_ticket.as_deref(), Some("blobticket123abc"));
+    }
+
+    #[test]
+    fn v1_announcement_parses_without_archive_ticket() {
+        // Simulate a v1 announcement from an older daemon.
+        let json = serde_json::json!({
+            "v": 1,
+            "type": "project",
+            "node_id": "a".repeat(64),
+            "project_name": "test",
+            "category": "misc",
+            "description": "old daemon",
+            "apps": []
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        let ann = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(ann.v, 1);
+        assert!(ann.archive_ticket.is_none());
+    }
+
+    #[test]
+    fn v2_announcement_without_archive_ticket_omits_field() {
+        // v2 with no archive_ticket should not serialize the field.
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "test".into(),
+            "misc".into(),
+            "test".into(),
+            vec![],
+        );
+        let json_str = serde_json::to_string(&ann).unwrap();
+        assert!(
+            !json_str.contains("archive_ticket"),
+            "None archive_ticket should be omitted from JSON"
+        );
     }
 }

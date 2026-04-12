@@ -158,6 +158,11 @@ pub struct BrowseEntry {
     /// RFC 3339 UTC timestamp of the last probe. `None` when
     /// `status == Unknown` (no probe has been attempted yet).
     pub last_probed_at: Option<String>,
+    /// BlobTicket of the zip archive for this project (Sprint 12).
+    /// `None` for entries from older daemons or curator lists that
+    /// predate v2 announcements.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_ticket: Option<String>,
 }
 
 // =================================================================
@@ -314,6 +319,7 @@ impl BrowseAggregator {
                     source: BrowseSource::Curator,
                     status,
                     last_probed_at: probed_at_opt.map(iso_utc),
+                    archive_ticket: None,
                 });
             }
         }
@@ -435,6 +441,7 @@ mod tests {
             source: BrowseSource::Curator,
             status: BrowseStatus::Reachable,
             last_probed_at: Some("2026-04-11T12:00:00Z".into()),
+            archive_ticket: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let back: BrowseEntry = serde_json::from_str(&json).unwrap();
@@ -458,6 +465,47 @@ mod tests {
         }"#;
         let entry: BrowseEntry = serde_json::from_str(json).unwrap();
         assert_eq!(entry.source, BrowseSource::Curator);
+    }
+
+    #[test]
+    fn browse_entry_with_archive_ticket_round_trips() {
+        let entry = BrowseEntry {
+            project_id: "a".repeat(64),
+            project_name: "web-app".into(),
+            category: "misc".into(),
+            description: "has archive".into(),
+            curator_pubkey: "b".repeat(64),
+            curator_name: "FlowUP".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Reachable,
+            last_probed_at: None,
+            archive_ticket: Some("blobticket_abc123".into()),
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("archive_ticket"));
+        let back: BrowseEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.archive_ticket.as_deref(), Some("blobticket_abc123"));
+    }
+
+    #[test]
+    fn browse_entry_without_archive_ticket_omits_field() {
+        let entry = BrowseEntry {
+            project_id: "a".repeat(64),
+            project_name: "old".into(),
+            category: "misc".into(),
+            description: "no archive".into(),
+            curator_pubkey: "b".repeat(64),
+            curator_name: "FlowUP".into(),
+            source: BrowseSource::Curator,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: None,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(
+            !json.contains("archive_ticket"),
+            "None archive_ticket should be omitted"
+        );
     }
 
     #[test]
@@ -730,6 +778,7 @@ mod tests {
             source: BrowseSource::Direct,
             status: BrowseStatus::Unknown,
             last_probed_at: None,
+            archive_ticket: None,
         };
         agg.add_direct_entry(entry);
         assert_eq!(agg.direct_entry_count(), 1);
@@ -749,6 +798,7 @@ mod tests {
             source: BrowseSource::Direct,
             status: BrowseStatus::Unknown,
             last_probed_at: None,
+            archive_ticket: None,
         };
         let entry2 = BrowseEntry {
             project_id: id.clone(),
@@ -759,6 +809,7 @@ mod tests {
             curator_name: "Self-published".into(),
             source: BrowseSource::Direct,
             status: BrowseStatus::Unknown,
+            archive_ticket: None,
             last_probed_at: None,
         };
         agg.add_direct_entry(entry1);
@@ -781,6 +832,7 @@ mod tests {
             source: BrowseSource::Direct,
             status: BrowseStatus::Unknown,
             last_probed_at: None,
+            archive_ticket: None,
         };
         agg.add_direct_entry(entry);
 

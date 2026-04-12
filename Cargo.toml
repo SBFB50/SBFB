@@ -142,6 +142,10 @@ tower-http = { version = "0.6", features = ["cors"] }
 sysinfo = "0.32"
 dashmap = "6"
 
+# Sprint 12 Phase A: zip archive decompression for blob-serve.
+# Read-only safe, deflate-only to minimize binary size.
+zip = { version = "8.5", default-features = false, features = ["deflate"] }
+
 [profile.release]
 # Standard release profile for the worker binary. Stripping and LTO cut
 # the binary size roughly in half, which matters for the "single-file

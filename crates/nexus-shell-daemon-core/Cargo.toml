@@ -87,6 +87,11 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+# Sprint 12 Phase A: zip archive decompression for the blob-serve
+# cache. Used by `blob_serve::BlobServeCache` to extract archived
+# web apps and serve them file-by-file.
+zip = { workspace = true }
+
 # Deliberately excluded: clap, ratatui, crossterm, axum, tower,
 # tower-http. The shell-daemon has no TUI (headless-only per
 # Sprint 7 D1) and the HTTP server layer lives in the binary

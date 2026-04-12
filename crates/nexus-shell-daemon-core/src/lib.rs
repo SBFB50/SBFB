@@ -49,6 +49,7 @@
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
 
+pub mod blob_serve;
 pub mod browse;
 pub mod config;
 pub mod iroh_runtime;

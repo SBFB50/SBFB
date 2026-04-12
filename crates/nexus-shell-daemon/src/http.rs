@@ -33,13 +33,15 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     http::{HeaderValue, StatusCode},
     response::{IntoResponse, Json},
     routing::{delete, get, post},
     Router,
 };
-use nexus_core_rs::{Node, TopicSender};
+use nexus_core_rs::{BlobsClient, Node, TopicSender};
+use nexus_shell_daemon_core::blob_serve::{self, BlobServeCache};
 use nexus_shell_daemon_core::browse::{
     BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
 };
@@ -49,7 +51,7 @@ use nexus_shell_daemon_core::state::{DaemonStateSnapshot, StateInputs};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Shared handle to the gossip topic sender. `None` until the
 /// gossip task has joined the curator topic. Sprint 11 Phase A.
@@ -83,6 +85,9 @@ pub struct DaemonHttpState {
     /// Default curator pubkeys from `[curator]` config section.
     /// Sprint 11 Phase B. Exposed via `GET /default-curators`.
     pub default_curators: Vec<String>,
+    /// Sprint 12 Phase A: LRU cache of decompressed zip archives
+    /// for the blob-serve endpoint.
+    pub blob_serve_cache: Arc<BlobServeCache>,
 }
 
 impl DaemonHttpState {
@@ -121,7 +126,9 @@ pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
         .route("/curators/:pubkey", delete(unsubscribe_curator))
         .route("/browse", get(list_browse))
         .route("/publish", post(publish_project))
+        .route("/publish-blob", post(publish_blob))
         .route("/default-curators", get(default_curators))
+        .route("/blob-serve/:hash/*path", get(blob_serve))
         .with_state(state)
         .layer(loopback_cors_layer())
 }
@@ -221,9 +228,8 @@ pub struct BrowseListResponse {
     pub entries: Vec<BrowseEntry>,
 }
 
-/// Body of `POST /publish`. Sprint 11 Phase A.
+/// Body of `POST /publish`. Sprint 11 Phase A, extended Sprint 12.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct PublishRequest {
     /// Project display name.
     pub project_name: String,
@@ -234,6 +240,11 @@ pub struct PublishRequest {
     /// List of app names available on this project.
     #[serde(default)]
     pub apps: Vec<String>,
+    /// Hex hash of a zip blob already stored via `POST /publish-blob`.
+    /// If present, the daemon mints a BlobTicket and includes it in
+    /// the gossip announcement (Sprint 12 Phase A).
+    #[serde(default)]
+    pub archive_hash: Option<String>,
 }
 
 /// Body of `POST /publish` (success). Sprint 11 Phase A.
@@ -248,6 +259,13 @@ pub struct PublishResponse {
 pub struct DefaultCuratorsResponse {
     /// Configured default curator Ed25519 public keys (hex).
     pub default_curators: Vec<String>,
+}
+
+/// Body of `POST /publish-blob` (success). Sprint 12 Phase A.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishBlobResponse {
+    /// Hex-encoded BLAKE3 hash of the stored blob.
+    pub hash: String,
 }
 
 /// Body returned when a curator runtime error must be surfaced
@@ -389,13 +407,26 @@ async fn publish_project(
 ) -> impl IntoResponse {
     debug!(project = %req.project_name, "POST /publish");
 
-    let announcement = ProjectAnnouncement::new(
+    let mut announcement = ProjectAnnouncement::new(
         state.node_id.clone(),
         req.project_name.clone(),
         req.category.clone(),
         req.description.clone(),
         req.apps.clone(),
     );
+
+    // Sprint 12: if archive_hash is provided, mint a BlobTicket.
+    if let Some(ref hash_hex) = req.archive_hash {
+        match mint_blob_ticket(&state, hash_hex).await {
+            Ok(ticket_str) => {
+                announcement = announcement.with_archive_ticket(ticket_str);
+            }
+            Err(e) => {
+                debug!(error = %e, "failed to mint BlobTicket for archive_hash");
+                // Non-fatal: publish without archive_ticket.
+            }
+        }
+    }
 
     // Broadcast via gossip if the sender is available.
     let sender_guard = state.gossip_sender.read().await;
@@ -429,6 +460,7 @@ async fn publish_project(
         source: BrowseSource::Direct,
         status: BrowseStatus::Reachable,
         last_probed_at: None,
+        archive_ticket: announcement.archive_ticket.clone(),
     };
     state.browse_aggregator.add_direct_entry(browse_entry);
 
@@ -448,6 +480,125 @@ async fn default_curators(State(state): State<Arc<DaemonHttpState>>) -> impl Int
     )
 }
 
+/// `POST /publish-blob` — store raw bytes as an iroh blob and
+/// return the hex hash. Sprint 12 Phase A.
+///
+/// Called by the coordinator to upload a zip archive before
+/// publishing. The coordinator then passes the hash to
+/// `POST /publish` as `archive_hash`.
+async fn publish_blob(State(state): State<Arc<DaemonHttpState>>, body: Bytes) -> impl IntoResponse {
+    debug!(size = body.len(), "POST /publish-blob");
+    let blobs = BlobsClient::new(state.node.blobs_store());
+    match blobs.add_bytes(body.to_vec()).await {
+        Ok(hash) => {
+            let hash_hex = hex::encode(hash);
+            (StatusCode::OK, Json(PublishBlobResponse { hash: hash_hex })).into_response()
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to store blob");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("blob store failed: {e}"),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `GET /blob-serve/:hash/*path` — serve a file from a cached
+/// zip archive with CSP headers. Sprint 12 Phase A.
+///
+/// If the archive is not in cache, attempts to load it from the
+/// local blob store. If not in the local store either, returns 404.
+async fn blob_serve(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path((hash, path)): Path<(String, String)>,
+) -> impl IntoResponse {
+    // Strip leading slash from wildcard capture.
+    let path = path.strip_prefix('/').unwrap_or(&path);
+    // Default to index.html if path is empty.
+    let path = if path.is_empty() { "index.html" } else { path };
+
+    debug!(hash = %hash, path = %path, "GET /blob-serve");
+
+    if !blob_serve::validate_zip_path(path) {
+        return (StatusCode::BAD_REQUEST, "invalid path").into_response();
+    }
+
+    // Load into cache if not already present.
+    if !state.blob_serve_cache.has(&hash) {
+        let blobs = BlobsClient::new(state.node.blobs_store());
+        let hash_bytes: [u8; 32] = match hex::decode(&hash).ok().and_then(|b| b.try_into().ok()) {
+            Some(h) => h,
+            None => return (StatusCode::BAD_REQUEST, "invalid hash hex").into_response(),
+        };
+        match blobs.get_bytes(hash_bytes).await {
+            Ok(zip_bytes) => {
+                if let Err(e) = state.blob_serve_cache.load(
+                    &hash,
+                    &zip_bytes,
+                    blob_serve::DEFAULT_MAX_DECOMPRESSED_BYTES,
+                ) {
+                    warn!(error = %e, "failed to decompress zip blob");
+                    return (StatusCode::BAD_REQUEST, format!("invalid archive: {e}"))
+                        .into_response();
+                }
+            }
+            Err(_) => {
+                return (StatusCode::NOT_FOUND, "blob not found").into_response();
+            }
+        }
+    }
+
+    // Serve the file from cache.
+    let file_bytes = match state.blob_serve_cache.get_file(&hash, path) {
+        Some(b) => b,
+        None => return (StatusCode::NOT_FOUND, "file not found in archive").into_response(),
+    };
+
+    let content_type = blob_serve::detect_content_type(path, &file_bytes);
+
+    (
+        StatusCode::OK,
+        [
+            ("Content-Type", content_type),
+            ("Content-Security-Policy", blob_serve::BLOB_SERVE_CSP),
+            ("X-Content-Type-Options", "nosniff"),
+            ("Cache-Control", "public, max-age=3600, immutable"),
+        ],
+        file_bytes,
+    )
+        .into_response()
+}
+
+/// Mint a BlobTicket from a hex hash in the local blob store.
+async fn mint_blob_ticket(
+    state: &DaemonHttpState,
+    hash_hex: &str,
+) -> Result<String, anyhow::Error> {
+    use iroh_blobs::ticket::BlobTicket;
+    use iroh_blobs::{BlobFormat, Hash};
+    use nexus_core_rs::DiscoveryClient;
+
+    let hash_bytes: [u8; 32] = hex::decode(hash_hex)?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("hash must be 32 bytes"))?;
+
+    // Verify the blob exists locally.
+    let blobs = BlobsClient::new(state.node.blobs_store());
+    if !blobs.has(hash_bytes).await? {
+        anyhow::bail!("blob {hash_hex} not in local store");
+    }
+
+    let addr = DiscoveryClient::new(state.node.endpoint())
+        .my_endpoint_addr()
+        .await?;
+    let ticket = BlobTicket::new(addr, Hash::from_bytes(hash_bytes), BlobFormat::Raw);
+    Ok(ticket.to_string())
+}
+
 // =================================================================
 // Tests
 // =================================================================
@@ -458,6 +609,7 @@ mod tests {
     use axum::body::to_bytes;
     use axum::http::{Method, Request};
     use nexus_core_rs::{create_node, KeyPair};
+    use nexus_shell_daemon_core::blob_serve::BlobServeCache;
     use nexus_shell_daemon_core::browse::BrowseAggregator;
     use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
     use tower::ServiceExt;
@@ -482,6 +634,7 @@ mod tests {
             node: Arc::new(node),
             gossip_sender: Arc::new(RwLock::new(None)),
             default_curators: vec![],
+            blob_serve_cache: Arc::new(BlobServeCache::new(8)),
         })
     }
 
@@ -758,6 +911,7 @@ mod tests {
             category: "gov".into(),
             description: "Le projet gouvernance".into(),
             apps: vec!["gov".into()],
+            archive_hash: None,
         })
         .unwrap();
 
@@ -878,6 +1032,7 @@ mod tests {
             node: Arc::new(node),
             gossip_sender: Arc::new(RwLock::new(None)),
             default_curators: vec![curator_hex.clone()],
+            blob_serve_cache: Arc::new(BlobServeCache::new(8)),
         });
         let app = build_router(state);
         let resp = app
@@ -894,5 +1049,159 @@ mod tests {
         let body = to_bytes(resp.into_body(), 4096).await.unwrap();
         let res: DefaultCuratorsResponse = serde_json::from_slice(&body).unwrap();
         assert_eq!(res.default_curators, vec![curator_hex]);
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 12 Phase A: blob-serve + publish-blob
+    // ---------------------------------------------------------
+
+    /// Helper: create a minimal zip archive in memory.
+    fn make_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let buf = Vec::new();
+        let cursor = std::io::Cursor::new(buf);
+        let mut writer = zip::ZipWriter::new(cursor);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, data) in files {
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(data).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[tokio::test]
+    async fn publish_blob_stores_and_returns_hash() {
+        let state = mk_state().await;
+        let app = build_router(Arc::clone(&state));
+        let zip_bytes = make_zip(&[("index.html", b"<h1>Hello</h1>")]);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/publish-blob")
+                    .header("content-type", "application/octet-stream")
+                    .body(axum::body::Body::from(zip_bytes))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let res: PublishBlobResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(res.hash.len(), 64, "hash should be 32 bytes hex-encoded");
+    }
+
+    #[tokio::test]
+    async fn blob_serve_returns_file_from_cached_zip() {
+        let state = mk_state().await;
+        let app = build_router(Arc::clone(&state));
+
+        // First, store a zip blob.
+        let zip_bytes = make_zip(&[
+            ("index.html", b"<h1>Hello SBFB</h1>"),
+            ("assets/main.js", b"console.log('ok')"),
+        ]);
+        let blobs = BlobsClient::new(state.node.blobs_store());
+        let hash = blobs.add_bytes(zip_bytes).await.unwrap();
+        let hash_hex = hex::encode(hash);
+
+        // GET /blob-serve/{hash}/index.html
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/blob-serve/{hash_hex}/index.html"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Check CSP header.
+        let csp = resp
+            .headers()
+            .get("Content-Security-Policy")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(csp.contains("connect-src 'none'"));
+
+        // Check X-Content-Type-Options.
+        assert_eq!(
+            resp.headers()
+                .get("X-Content-Type-Options")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "nosniff"
+        );
+
+        // Check content.
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        assert_eq!(&body[..], b"<h1>Hello SBFB</h1>");
+
+        // GET sub-resource.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/blob-serve/{hash_hex}/assets/main.js"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get("Content-Type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(ct.contains("javascript"));
+    }
+
+    #[tokio::test]
+    async fn blob_serve_returns_404_for_unknown_hash() {
+        let app = build_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/blob-serve/{}/index.html", "ab".repeat(32)))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn blob_serve_rejects_path_traversal() {
+        let app = build_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!(
+                        "/blob-serve/{}/..%2F..%2Fetc%2Fpasswd",
+                        "ab".repeat(32)
+                    ))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Either 400 (path validation) or 404 (hash not found first).
+        assert!(
+            resp.status() == StatusCode::BAD_REQUEST || resp.status() == StatusCode::NOT_FOUND,
+            "expected 400 or 404, got {}",
+            resp.status()
+        );
     }
 }
