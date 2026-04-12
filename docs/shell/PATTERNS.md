@@ -1211,6 +1211,62 @@ and re-run assertions.
 
 Audit reference: `.planning/sprint9_audit_findings.md` §D4-A.
 
+### P18 — Self-publish via gossip: coordinator → daemon → BrowseAggregator
+
+Sprint 11 Phase A (`65af280`). When a coordinator starts with
+`visibility = "public"`, it calls `POST /project/publish` on the
+shell daemon, which broadcasts a `ProjectAnnouncement` (v=1,
+type="project") on the curator gossip topic. Other daemons
+receive it via `process_project_announcement()` in
+`iroh_runtime.rs` and add it to `BrowseAggregator` as a
+`BrowseSource::Direct` entry (no curator intermediary).
+
+Key invariant: the gossip topic is shared between curator
+announcements and project announcements. The discriminator is
+the `"type"` field in the JSON payload. A message without
+`"type": "project"` falls through to the curator handler.
+
+Files: `publish.rs`, `browse.rs` (BrowseSource enum +
+add_direct_entry), `iroh_runtime.rs` (process_project_announcement),
+`http.rs` (POST /publish), coordinator `health.py` (POST
+/project/publish), coordinator `coordinator.py` (auto-publish
+step in start()).
+
+### P19 — Default curators via config, idempotent auto-subscription
+
+Sprint 11 Phase B (`e5cc165`). The daemon config gains a
+`[curator]` section with `default_curators: Vec<String>` (hex
+pubkeys). At boot, the daemon iterates these and calls
+`CuratorRuntime::subscribe()` for any not already present in
+`subscriptions.json`. This is idempotent: restarting the daemon
+does not duplicate subscriptions.
+
+The coordinator exposes `GET /daemon/default-curators` as a proxy
+for the shell web to display "default curators" in the Curators
+page.
+
+Files: `config.rs` (CuratorConfig), `runtime.rs` (auto-subscribe
+loop), `http.rs` (GET /default-curators), coordinator `daemon.py`
+(proxy), `deploy/config.toml.example`.
+
+### P20 — Browse → full-screen app rendering via `/browse/:projectId`
+
+Sprint 11 Phase C (`6bdd089`). Clicking a BrowseCard navigates to
+`/browse/:projectId` which renders `BrowsedProject.tsx`: sidebar
+with project metadata + TabView full-screen for local projects.
+Remote projects show a placeholder ("hosted on a remote node").
+
+The `WebAppFrame.tsx` component is a skeleton iframe sandbox for
+Sprint 12+ web app blob rendering. Currently shows a placeholder.
+
+The `BrowseEntry` Zod schema gains an optional `source` field
+(Curator | Direct) for backward compatibility with daemons that
+do not emit the field.
+
+Files: `BrowsedProject.tsx` (~421 LOC), `WebAppFrame.tsx` (~35
+LOC), `Browse.tsx` (clickable cards), `App.tsx` (lazy route),
+`daemon.ts` (source field), `coordinator.ts` (getProjectApps).
+
 ### T23 — SPDX scope excludes `nexus/` legacy Python files
 
 Sprint 10 audit gate finding A-1. The `scripts/check-spdx.sh` guard
@@ -1240,3 +1296,21 @@ procedure, identity key backup, log monitoring, SSH key management,
 health check endpoints. Enrich as real VPS operations begin.
 
 Audit reference: `.planning/sprint10_audit_findings.md` §E-2.
+
+### T26 — nginx config duplicated inline in `provision.sh`
+
+Sprint 11 Phase D (`999fec6`). The nginx site config is defined
+both in `deploy/nginx-nexus.conf` (canonical) and inline in
+`deploy/provision.sh` (heredoc). If one is updated without the
+other, the VPS config drifts from the reference file. Consider
+having `provision.sh` copy `nginx-nexus.conf` from repo instead
+of embedding. Requires the repo to be cloned on the VPS, which is
+not always the case for initial provisioning.
+
+### T27 — `deploy-web.sh` destructive `rm -rf` without rollback
+
+Sprint 11 Phase D (`999fec6`). `deploy-web.sh` runs
+`rm -rf /opt/nexus-grid/web/*` before uploading the new build.
+If the upload fails mid-way, the VPS serves a broken/empty site.
+Consider deploying to a timestamped directory and atomically
+swapping the symlink, or keeping the previous build as a backup.
