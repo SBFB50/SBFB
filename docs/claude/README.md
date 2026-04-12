@@ -469,13 +469,32 @@ un argument technique new qui les invalide, il le note comme
 « à rouvrir en Sprint N+1 Day 0 » mais ne bloque pas le
 sprint en cours.
 
-### 6.2 Scope cuts stricts
+### 6.2 Scope cuts — stricts DANS un sprint, reevalues ENTRE sprints
 
 Chaque sprint liste explicitement ce qu'il ne fera PAS, et
 pour quel sprint cet item est réservé. L'auditeur fait un
 `grep` pour vérifier qu'aucune ligne de code ne touche un
 scope cut. Un item qui fuite du scope cut est un **P1**
 (blocker sprint suivant).
+
+**Regle critique pour les sessions fraiches** : les scope
+cuts d'un sprint N sont des decisions de priorisation, pas
+des verites techniques. Au kickoff du sprint N+1, chaque
+item « differe a Sprint N+2+ » doit etre reevalue contre
+le code actuel. Lancer un agent Explore pour mesurer le gap
+reel en LOC avant de re-reporter l'item. Si le gap est
+< 500 LOC et que l'item sert le goal du sprint, l'inclure.
+
+Exemple reel : « blob web apps (iframe) » a ete scope-cut
+de Sprint 5 a Sprint 13+ sur 6 sprints consecutifs. A
+Sprint 12, 60% du code existait deja (WebAppFrame.tsx
+fonctionnel, CAS upload avec GET /files/{sha256}, BlobsClient
+complet). Le gap reel etait ~300 LOC, pas un sprint entier.
+
+**Ne jamais propager un scope cut sans verification.** C'est
+le pattern le plus couteux identifie dans le projet — il
+retarde des features quasi-pretes en les traitant comme des
+chantiers majeurs.
 
 ### 6.3 Pas de band-aid fixes
 

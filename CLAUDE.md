@@ -1,9 +1,14 @@
 # nexus-grid / SBFB
 
 ## Projet
-Réseau P2P de compute LLM distribué. "Decentralized P2P compute
-network for LLM apps. No central server. No admin. Just protocol."
-Pivot 2026-04-10 depuis l'ancien NEXUS cold-case (toujours présent
+Plateforme P2P universelle de compute et d'hebergement d'apps.
+"Decentralized P2P compute network for apps. No central server.
+No admin. Just protocol." N'importe qui publie une app (React,
+Python/Pyodide, WASM, HTML pur, notebook, etc.) sous forme
+d'archive web. Le reseau la distribue. Les clients la rendent
+dans un iframe sandboxe via le daemon Rust blob-serve.
+
+Pivot 2026-04-10 depuis l'ancien NEXUS cold-case (toujours present
 sous `nexus/` comme future app mais plus le projet principal).
 
 ## Source de vérité pour le workflow Claude
@@ -14,6 +19,19 @@ pattern entre sprints, commit discipline atomique, memory system
 externe, anti-patterns. Une session fraîche sans cette lecture
 ré-invente les règles et produit du code hors-convention.
 
+## Modele de rendu — plateforme universelle (Sprint 12+)
+Chaque projet publie une **archive web** (zip avec index.html).
+Le reseau distribue l'archive via iroh-blobs. Les clients la
+rendent via le **daemon Rust blob-serve** (`GET /blob-serve/{hash}/{path}`)
+qui decompresse le zip (crate `zip`), cache les fichiers en LRU memoire,
+et les sert dans un **iframe sandbox** (`sandbox="allow-scripts"` sans
+`allow-same-origin`, CSP `connect-src 'none'` pour contenu untrusted). Toute techno qui produit du HTML est supportee
+(React, Vue, Python/Pyodide, WASM, Jupyter/JupyterLite, HTML pur).
+Le shell React est un client parmi d'autres — un futur client
+mobile ou Electron utiliserait le meme chemin blob → iframe.
+Les apps TabView SDK existantes sont pre-rendues en HTML statique
+par le coordinator au moment du publish.
+
 ## Architecture Option G (hybride Rust + Python)
 - **Rust workspace** (`crates/`) : `nexus-core-rs` (iroh 0.97
   wrapper), `nexus-core-py` (PyO3 bindings), `nexus-worker-core`
@@ -21,13 +39,15 @@ ré-invente les règles et produit du code hors-convention.
   `nexus-shell-daemon-core` + `nexus-shell-daemon` (Sprint 7 —
   P2P discovery + curator pipeline + pkarr browse)
 - **Python workspace** (`packages/`) : `nexus-coordinator`
-  (FastAPI + dispatcher + kudos ledger), `nexus-sdk` (NexusApp
-  ABC + TabView), `nexus-app-gov` / `-coldcase` / `-forensics`
-  (apps officielles qui tournent sur le socle P2P)
+  (FastAPI + dispatcher + kudos ledger + TabView pre-render),
+  `nexus-sdk` (NexusApp ABC + TabView), `nexus-app-gov` /
+  `-coldcase` / `-forensics` (apps officielles)
 - **Frontend** (`web/`) : React + Vite + TypeScript + Tailwind
-  + shadcn/ui + Zustand + React Query. Pages : Browse, Curators,
-  Network, OnboardingEmpty, ProjectDetail, Projects
-- **iroh stack** pinné : iroh 0.97 / iroh-docs 0.97 / iroh-gossip
+  + shadcn/ui + Zustand + React Query.
+  Pages : Browse, Curators, Network, OnboardingEmpty,
+  ProjectDetail, Projects. Le shell est un **iframe host** pour
+  les apps distantes — il ne connait pas la techno de l'app.
+- **iroh stack** pinne : iroh 0.97 / iroh-docs 0.97 / iroh-gossip
   0.97 / iroh-blobs 0.99
 
 ## Stack
@@ -67,17 +87,16 @@ nexus-grid/
 └── examples/hello-world-app/
 ```
 
-## État actuel (2026-04-11, master tip `9cc0796`)
-- **Sprints 0-7 CLOSED**
-- **304 Rust tests** / 40 SDK / 57+1 coordinator / 3 app-gov
-  / 114 Vitest / 13 Playwright / 4/4 size-limit — tous verts
-- Sprint 7 a livré le nexus-shell-daemon P2P discovery layer
-  (curator list Ed25519 + gossip subscribe + pkarr browse +
-  coordinator proxy + React pages live)
-- **Prochain pas** : Sprint 8 Phase 0 audit gate joue
-  `.planning/sprint7_audit_plan.md` dans une session fraîche et
-  produit `sprint7_audit_findings.md` avant que Sprint 8 Phase A
-  puisse démarrer
+## Etat actuel (2026-04-12, master tip `31479fa`)
+- **Sprints 0-11 CLOSED** + audit gate Sprint 11 CONDITIONAL
+  PASS leve. v1.0.0 released.
+- **331 Rust** / 167 SDK / 89+1 coordinator / 46 app-gov
+  / 173 Vitest / 30 Playwright / 7/7 size-limit / 209 SPDX
+  (~837 tests total) — tous verts
+- Sprint 11 a livre le P2P end-to-end : self-publish gossip,
+  default curator FlowUP, Browse plein ecran, deploy VPS EU
+- **Sprint 12 EN COURS** : cross-node rendering universel
+  (archive zip → daemon blob-serve → iframe isolee) + tech debt T28-T36
 
 ## Commandes clés
 ```bash
@@ -106,14 +125,25 @@ cd web && npm install && npm run lint && \
   npx playwright test && bash scripts/scan-en-strings.sh
 ```
 
-## Décisions architecturales gelées
-Cf. `nexus_grid_pivot.md` (memory) §« Décisions actées (à ne PAS
-re-débattre) » — 12 items dont pivot P2P intégral, Option G
-hybride Rust+Python, iroh 0.97 pinné, visibilité 2 états
-public/privé, zéro modération centrale, curator lists
-Ed25519+gossip+blobs, kudos per-project, HTTP loopback via
-coordinator proxy (Sprint 7 D1), singleton strict shell daemon
-(Sprint 7 D2), AGPL-3.0 maintenue.
+## Decisions architecturales gelees
+Cf. `nexus_grid_pivot.md` (memory) §« Decisions actees (a ne PAS
+re-debattre) » — 12 items originaux + extensions Sprint 12 :
+- Pivot P2P integral, Option G hybride Rust+Python
+- iroh 0.97 pinne, visibilite 2 etats public/prive
+- Zero moderation centrale, curator lists Ed25519+gossip+blobs
+- Kudos per-project, HTTP loopback via coordinator proxy
+- Singleton strict shell daemon, AGPL-3.0 maintenue
+- **Sprint 12** : archive zip = format universel de publication,
+  daemon blob-serve = rendu universel (origin separee port 7000,
+  CSP `connect-src 'none'`), le shell est un iframe host
+  agnostique (ne connait pas la techno de l'app)
+
+## Principe de conception — sessions fraiches
+**Ne jamais propager les scope cuts des sprints precedents comme
+des verites techniques.** A chaque nouveau sprint, verifier dans
+le code actuel si un item "differe" est toujours un vrai gap.
+Lancer un agent Explore avant de declarer quelque chose "trop
+gros". Penser produit/plateforme d'abord, implementation ensuite.
 
 ## Discipline de travail
 **Tout est dans `docs/claude/README.md`.** Résumé ultra-court :
