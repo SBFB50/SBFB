@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from pydantic import BaseModel, Field
@@ -55,6 +56,14 @@ class AppManifest(BaseModel):
     description: str = ""
     dependencies: list[str] = Field(default_factory=list)
     license: str = "AGPL-3.0"
+    migrations_dir: Path | None = Field(
+        default=None,
+        description=(
+            "Absolute path to a directory containing NNN_slug.sql "
+            "migration files. When set, the coordinator runs the "
+            "MigrationRunner at boot after on_start."
+        ),
+    )
 
 
 @dataclass
@@ -124,11 +133,27 @@ class AppContext:
     # ``Any`` is used here because typing a homogenous dict over a
     # generic invariant class is unwieldy.
     namespaces: dict[str, Any] = field(default_factory=dict)
+    # Sprint 9 Phase D (D4 R6): named database clients. The
+    # coordinator wires ``dbs["default"]`` alongside ``db`` at
+    # boot; apps that own multiple SQLite files (e.g. gov with
+    # the legacy govdata.db read-only + a writable app.sqlite)
+    # populate additional keys from their ``on_start`` hook. The
+    # migration runner targets ``dbs["default"]`` unless the app
+    # provides a different key.
+    dbs: dict[str, AppDatabaseClient] = field(default_factory=dict)
     extras: dict[str, Any] = field(default_factory=dict)
     # Back-reference to the NexusApp this context serves. Wired
     # by the coordinator loader in Sprint 8 Phase A; tests that
     # skip the loader may leave it None.
     _app: "NexusApp | None" = None
+
+    def __post_init__(self) -> None:
+        # Sync the legacy ``db`` field into ``dbs["default"]`` so
+        # code that only passes ``db=...`` at construction time
+        # (all existing tests and the coordinator loader) gets the
+        # dict populated automatically.
+        if self.db is not None and "default" not in self.dbs:
+            self.dbs["default"] = self.db
 
     async def submit_task(
         self,

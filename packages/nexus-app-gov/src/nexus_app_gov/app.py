@@ -143,6 +143,7 @@ class GovApp(NexusApp):
         "laws, affairs, factchecks, alerts and RAG search across the legacy gov "
         "SQLite schema.",
         license="AGPL-3.0",
+        migrations_dir=Path(__file__).parent / "migrations",
     )
 
     def __init__(self) -> None:
@@ -150,36 +151,43 @@ class GovApp(NexusApp):
         self._ctx: AppContext | None = None
 
     async def on_start(self, ctx: AppContext) -> None:
-        """Swap ``ctx.db`` onto the legacy govdata.db file when
-        it exists, register the Sprint 9 Phase B typed storage
+        """Wire the two-client DB model, register typed storage
         namespaces, then keep the context for later tab handlers.
 
-        The loader pre-wires a default :class:`AppDatabaseClient`
-        at ``<project>/apps/gov/app.sqlite`` — we leave that in
-        place when the legacy file is absent so tab handlers
-        still have a live client to call against (their queries
-        will hit ``DatabaseError`` on missing tables and fall
-        back to empty state).
+        The coordinator loader pre-wires a default writable
+        :class:`AppDatabaseClient` at
+        ``<project>/apps/gov/app.sqlite`` and stores it in
+        ``ctx.dbs["default"]``. This hook adds:
 
-        The legacy override is opened with ``read_only=True``
-        (Sprint 9 Phase 0 audit gate D-FX-1): the legacy file
-        carries four years of irreplaceable scraping data, and
-        every gov tab handler is a pure SELECT, so the SDK's
-        read-only guard prevents any future handler from
-        accidentally mutating the legacy schema.
+        - ``ctx.db`` → legacy ``govdata.db`` (read-only) when the
+          file exists, so all 19 tab handlers that do SELECT-only
+          queries keep working unchanged.
+        - ``ctx.dbs["gov"]`` → same as ``ctx.db`` (named alias
+          for the legacy read-only client).
+        - ``ctx.dbs["app"]`` → the writable ``app.sqlite`` from
+          ``ctx.dbs["default"]`` (the migration runner targets
+          this client to apply ``001_documents.sql`` etc.).
 
         Sprint 9 Phase B (D1 consumer): registers the
         ``politicians_filter`` typed namespace on
         ``ctx.namespaces`` so the coordinator's generic
         ``POST /app/gov/state/politicians_filter`` route can
         validate writes against :class:`PoliticiansFilter`
-        without the coord having to import the schema. The
-        underlying :class:`nexus_sdk.AppStorage` was already
-        wired by the loader at this point.
+        without the coord having to import the schema.
         """
         legacy = _legacy_govdata_db_path()
         if legacy.exists():
             ctx.db = AppDatabaseClient(legacy, read_only=True)
+        # Sprint 9 Phase D (D4 R6 consumer): named DB aliases.
+        # "gov" is the read-only legacy client (or a fallback if
+        # the legacy file is missing and ctx.db was left as None).
+        # "app" is the writable per-app sqlite wired by the
+        # coordinator loader as dbs["default"]; when running in
+        # unit tests that skip the loader, "default" may be absent.
+        if ctx.db is not None:
+            ctx.dbs["gov"] = ctx.db
+        if "default" in ctx.dbs:
+            ctx.dbs["app"] = ctx.dbs["default"]
         if ctx.storage is not None:
             ctx.namespaces["politicians_filter"] = ctx.storage.namespace("filters.politicians", PoliticiansFilter)
         self._ctx = ctx

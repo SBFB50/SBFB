@@ -620,6 +620,76 @@ async-friendly), :mod:`aiopubsub` (peu maintained).
 Reference: sprint9_kickoff.md §4 D2, sprint9_plan.md §6 Phase
 C, commit `<SHA>`.
 
+### P15 — DB migration runner is forward-only with SHA256 tamper detection
+
+Sprint 9 Phase D (D4). Apps that need a mutable schema ship SQL
+files under `<app_package>/migrations/` and declare
+`AppManifest.migrations_dir` on their manifest. The coordinator
+runs :class:`nexus_sdk.MigrationRunner` at boot after each app's
+`on_start` hook, before the dispatcher starts accepting tasks.
+
+**Sqitch-inspired, not Alembic-inspired.** The runner scans
+`NNN_slug.sql` files in lexicographic order (no timestamp prefix,
+no DAG, no autogenerate-from-models). Each file is a plain SQL
+script split on `;` and executed statement-by-statement inside a
+`BEGIN IMMEDIATE` transaction. The choice is deliberate: Alembic's
+model-diffing magic adds a large dependency tree and breaks in
+subtle ways when the models are scattered across entry-point
+plugins. A simple lexico scanner with SHA256 tamper detection
+covers the Sprint 9 use case (a single `001_documents.sql` for
+gov) and scales to ~50 migrations before the O(n) re-hash at
+boot becomes measurable (each file < 10 KB, SHA256 ~10 µs/file).
+
+**Tracking table.** `_nexus_migrations(version INT PRIMARY KEY,
+slug TEXT, sha256 TEXT, applied_at TEXT)`. Created lazily on the
+first run via `CREATE TABLE IF NOT EXISTS`. The version is
+extracted from the filename prefix (`001` → 1).
+
+**SHA256 tamper detection.** At apply time, the SHA256 of the
+file content is stored in the tracking table. On every subsequent
+boot the runner re-hashes every applied migration and compares.
+If the hash diverges, a `MigrationTamperedError` is raised and
+the coordinator refuses to boot. This catches accidental edits
+to already-applied migrations. The fix is: revert the edit (the
+runner is forward-only), or write a new migration that undoes
+the effect.
+
+**Forward-only.** No down-migration. No `repair`. No manual
+hash override. The rollback pattern is `git revert` + a new
+migration. Flyway's `repair` command is explicitly rejected as
+an anti-pattern because it masks the root cause of a divergence.
+
+**BEGIN IMMEDIATE.** Each migration runs in a `BEGIN IMMEDIATE`
+transaction so a second concurrent coordinator boot on the same
+SQLite file is blocked (receives `OperationalError: database is
+locked`). This prevents double-apply in a race condition.
+
+**Opt-in per app.** An app without `migrations_dir` is silently
+skipped. The coordinator boot step checks
+`app.manifest.migrations_dir is not None` before constructing a
+runner.
+
+**AppContext.dbs dict (R6).** Sprint 9 Phase D adds
+`AppContext.dbs: dict[str, AppDatabaseClient]`. The coordinator
+wires `dbs["default"]` alongside the legacy `ctx.db` field at
+boot via `__post_init__` sync. The migration runner targets
+`dbs["default"]` — the writable per-app SQLite — regardless of
+what the app did to `ctx.db` in its `on_start` hook. This is
+the load-bearing contract: the gov app swaps `ctx.db` to
+point at the read-only legacy `govdata.db`, but `dbs["default"]`
+remains the writable `app.sqlite` that migrations run against.
+Gov additionally wires `dbs["gov"]` (read-only legacy alias) and
+`dbs["app"]` (writable alias for `dbs["default"]`).
+
+**CLI.** `nexus-coordinator migrate --project <name>
+[--app <app>] --plan|--apply`. `--plan` lists pending migrations
+without touching the database. `--apply` runs them. When `--app`
+is omitted, every discovered app with `migrations_dir` is
+processed.
+
+Reference: sprint9_kickoff.md §4 D4, sprint9_plan.md §7 Phase
+D.
+
 ## Tech debt — queued for Phase D or later
 
 ### T1 — Fast refresh warnings on 5 shadcn ui primitives

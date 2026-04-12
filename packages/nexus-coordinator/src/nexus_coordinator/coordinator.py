@@ -45,6 +45,7 @@ from nexus_sdk import (
     AppEvents,
     AppStorage,
     ComputeClient,
+    MigrationRunner,
     NexusApp,
     discover_apps,
 )
@@ -297,16 +298,51 @@ class Coordinator:
                 # coordinator restart and are not replicated
                 # cross-node — and the lifespan close in stop()
                 # below drains every subscriber gracefully.
+                #
+                # Sprint 9 Phase D (D4 R6): the default writable
+                # AppDatabaseClient is stored in both ``ctx.db``
+                # (backward compat) and ``ctx.dbs["default"]``
+                # so the migration runner can target it after
+                # on_start, even if the app swaps ``ctx.db``.
+                default_db = AppDatabaseClient(default_db_path)
                 ctx = AppContext(
                     compute=compute,
                     project_name=self.project_name,
                     app_name=app.manifest.name,
-                    db=AppDatabaseClient(default_db_path),
+                    db=default_db,
                     storage=AppStorage(storage_path),
                     events=AppEvents(),
                     _app=app,
                 )
                 await app.on_start(ctx)
+                # Sprint 9 Phase D (D4 impl): run the migration
+                # runner AFTER on_start (so the app can populate
+                # ctx.dbs with additional clients) but BEFORE
+                # the dispatcher tick. The runner targets
+                # dbs["default"] — the writable per-app SQLite
+                # wired above — regardless of what the app did
+                # to ctx.db in its on_start hook.
+                if app.manifest.migrations_dir is not None:
+                    try:
+                        mig_runner = MigrationRunner(
+                            ctx.dbs["default"],
+                            app.manifest.migrations_dir,
+                        )
+                        mig_applied = await mig_runner.apply()
+                        if mig_applied:
+                            _log.info(
+                                "migrations applied",
+                                app=app.manifest.name,
+                                count=len(mig_applied),
+                                versions=[m.version for m in mig_applied],
+                            )
+                    except Exception as e:  # noqa: BLE001
+                        _log.warning(
+                            "migration runner failed, skipping app",
+                            app=app.manifest.name,
+                            error=str(e),
+                        )
+                        continue
             except Exception as e:  # noqa: BLE001
                 _log.warning(
                     "app on_start failed, skipping",

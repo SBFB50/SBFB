@@ -28,6 +28,7 @@ from nexus_sdk.db import AppDatabaseClient, DatabaseError
 from nexus_sdk.decorators import nexus_command, nexus_route, nexus_tab, nexus_worker
 from nexus_sdk.events import AppEvents, EventEnvelope, EventOverflowPolicy
 from nexus_sdk.loader import discover_apps
+from nexus_sdk.migrations import MigrationRunner, MigrationTamperedError, PendingMigration
 from nexus_sdk.storage import AppStorage, StorageSchemaError, TypedNamespace
 from nexus_sdk.view import (
     TabBlock,
@@ -59,7 +60,10 @@ __all__ = [
     "EventOverflowPolicy",
     "ComputeClient",
     "DatabaseError",
+    "MigrationRunner",
+    "MigrationTamperedError",
     "NexusApp",
+    "PendingMigration",
     "RouteDescriptor",
     "StorageSchemaError",
     "TabBlock",
