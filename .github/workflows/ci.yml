@@ -1,64 +1,125 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# nexus-grid CI — mirrors scripts/verify.sh on ubuntu-latest.
+# Trigger: push to master, pull requests.
+
 name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [master, main]
   pull_request:
-    branches: [main, master]
+    branches: [master, main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  backend-tests:
+  test:
+    name: Full verification
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.13
+      # ── Rust ──────────────────────────────────────────────
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: "[1] cargo fmt"
+        run: cargo fmt --all --check
+
+      - name: "[2] cargo clippy"
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: "[3] cargo test"
+        run: cargo test --workspace --locked
+
+      # ── Python ────────────────────────────────────────────
+      - name: Setup Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-          cache: 'pip'
+          python-version: "3.13"
 
-      - name: Install dependencies
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync Python workspace + build PyO3 wheel
         run: |
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio aiosqlite
+          uv sync
+          uv run maturin develop --release \
+            --manifest-path crates/nexus-core-py/Cargo.toml
 
-      - name: Run tests
-        run: python -m pytest tests/ -q --ignore=tests/test_vram_scheduler.py
-        env:
-          NEO4J_URI: ""
-          CHROMA_HOST: ""
+      - name: "[4] ruff format"
+        run: uv run ruff format --check packages/ examples/
 
-  frontend-typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: "[5] ruff check"
+        run: uv run ruff check packages/ examples/
 
-      - name: Set up Node.js
+      - name: "[6] pytest SDK"
+        run: uv run pytest packages/nexus-sdk/tests/ -q
+
+      - name: "[7] pytest coordinator"
+        run: uv run pytest packages/nexus-coordinator/tests/ -q
+
+      - name: "[8] pytest app-gov"
+        run: uv run pytest packages/nexus-app-gov/tests/ -q
+
+      # ── Frontend ──────────────────────────────────────────
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: 20
+          cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Install frontend deps
+      - name: Install web deps
         run: cd web && npm ci
 
-      - name: TypeScript check
-        run: cd web && npx tsc --noEmit
+      - name: "[9] tsc"
+        run: cd web && npx tsc --noEmit -p tsconfig.app.json
 
-      - name: Build
-        run: cd web && npx vite build
+      - name: "[10] eslint"
+        run: cd web && npm run lint
 
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: "[11] vitest"
+        run: cd web && npm run test:unit
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
+      - name: "[12] coverage"
+        run: cd web && npm run test:coverage
 
-      - name: Check Python syntax
-        run: python -m py_compile nexus/main.py && python -m py_compile nexus/gov/events.py
+      - name: "[13] build"
+        run: cd web && npm run build
+
+      - name: "[14] size-limit"
+        run: cd web && npm run size
+
+      - name: Install Playwright browsers
+        run: cd web && npx playwright install --with-deps chromium
+
+      - name: "[15] playwright"
+        run: cd web && xvfb-run npx playwright test
+
+      - name: "[16] scan-en-strings"
+        run: cd web && bash scripts/scan-en-strings.sh
+
+      - name: "[17] npm audit"
+        run: cd web && npm audit --audit-level=high || true
+
+      # ── SPDX ─────────────────────────────────────────────
+      - name: "[18] SPDX check"
+        run: bash scripts/check-spdx.sh

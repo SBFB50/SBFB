@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# nexus-grid Deploy — manual VPS deployment via SSH.
+# Trigger: workflow_dispatch (manual).
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which VPS to deploy to"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - eu
+          - us
+          - asia
+      version:
+        description: "Release tag to deploy (e.g. v1.0.0)"
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy to ${{ matrix.region }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - region: eu
+            host_secret: VPS_EU_HOST
+            key_secret: VPS_EU_SSH_KEY
+            role: coordinator
+          - region: us
+            host_secret: VPS_US_HOST
+            key_secret: VPS_US_SSH_KEY
+            role: daemon
+          - region: asia
+            host_secret: VPS_ASIA_HOST
+            key_secret: VPS_ASIA_SSH_KEY
+            role: daemon
+      fail-fast: false
+
+    # Skip regions not selected
+    if: ${{ inputs.target == 'all' || inputs.target == matrix.region }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download "${{ inputs.version }}" \
+            -p "nexus-worker-linux-x86_64" \
+            -p "nexus-shell-daemon-linux-x86_64" \
+            -D dist/
+          chmod +x dist/*
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets[matrix.key_secret] }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets[matrix.host_secret] }}" >> ~/.ssh/known_hosts
+
+      - name: Upload binaries to VPS
+        run: |
+          scp -i ~/.ssh/deploy_key \
+            dist/nexus-shell-daemon-linux-x86_64 \
+            "nexus@${{ secrets[matrix.host_secret] }}:/opt/nexus-grid/bin/nexus-shell-daemon"
+
+          if [[ "${{ matrix.role }}" == "coordinator" ]]; then
+            scp -i ~/.ssh/deploy_key \
+              dist/nexus-worker-linux-x86_64 \
+              "nexus@${{ secrets[matrix.host_secret] }}:/opt/nexus-grid/bin/nexus-worker"
+          fi
+
+      - name: Restart services
+        run: |
+          ssh -i ~/.ssh/deploy_key "nexus@${{ secrets[matrix.host_secret] }}" \
+            "sudo systemctl restart nexus-daemon"
+
+          if [[ "${{ matrix.role }}" == "coordinator" ]]; then
+            ssh -i ~/.ssh/deploy_key "nexus@${{ secrets[matrix.host_secret] }}" \
+              "sudo systemctl restart nexus-coordinator || true"
+          fi
+
+      - name: Smoke test
+        run: |
+          sleep 5
+          ssh -i ~/.ssh/deploy_key "nexus@${{ secrets[matrix.host_secret] }}" \
+            "systemctl is-active nexus-daemon"
