@@ -1,54 +1,77 @@
-# Contribuer a NEXUS GOV
+# Contributing to nexus-grid
 
-Merci de votre interet pour NEXUS GOV. Ce projet est ouvert a toutes les contributions.
+Thank you for your interest in nexus-grid. This project is open to all
+contributions.
 
-## Comment contribuer
+## How to contribute
 
-### Signaler un bug
-1. Verifiez qu'il n'existe pas deja dans les [Issues](https://github.com/FlowUP/nexus-gov/issues)
-2. Creez une issue avec : description, etapes pour reproduire, comportement attendu vs observe
-3. Ajoutez les logs pertinents si possible
+### Report a bug
 
-### Proposer une fonctionnalite
-1. Ouvrez une [Discussion](https://github.com/FlowUP/nexus-gov/discussions)
-2. Decrivez le besoin, l'approche proposee, et l'impact attendu
-3. Attendez un retour avant de coder
+1. Check that it does not already exist in the
+   [Issues](https://github.com/SBFB50/SBFB/issues)
+2. Create an issue with: description, steps to reproduce, expected vs
+   observed behavior
+3. Add relevant logs if possible
 
-### Soumettre du code
-1. Forkez le repo
-2. Creez une branche depuis `main` : `git checkout -b feature/ma-feature`
-3. Codez, testez, commitez
-4. Ouvrez une Pull Request avec description claire
-5. Review sous 48h
+### Propose a feature
 
-## Standards de code
+1. Open a [Discussion](https://github.com/SBFB50/SBFB/discussions)
+2. Describe the need, proposed approach, and expected impact
+3. Wait for feedback before coding
+
+### Submit code
+
+1. Fork the repo
+2. Create a branch from `master`: `git checkout -b feature/my-feature`
+3. Code, test, commit
+4. Open a Pull Request with a clear description
+5. Review within 48h
+
+## Monorepo structure
+
+```
+nexus-grid/
+├── crates/          # Rust workspace (cargo)
+├── packages/        # Python workspace (uv)
+├── web/             # React frontend (npm)
+├── scripts/         # setup.sh, verify.sh, check-spdx.sh
+└── deploy/          # VPS provisioning scripts
+```
+
+## Code standards
+
+### Rust
+- `cargo fmt --all --check` — no exceptions
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- Tests: `cargo test --workspace --locked`
 
 ### Python
-- Formatter : black (ligne max 120)
-- Imports : isort
-- Types : annotations pour les fonctions publiques
-- Tests : pytest, meme repertoire `tests/`
+- Formatter: `ruff format`
+- Linter: `ruff check`
+- Tests: `pytest` per-package (`packages/nexus-sdk/tests/`, etc.)
 
 ### TypeScript/React
-- ESLint config du projet
-- Composants dans `web/src/components/gov/`
-- Types dans `types.ts`
-- Hooks dans `web/src/hooks/`
+- ESLint config from the project
+- `npx tsc --noEmit` strict mode
+- Vitest for unit tests, Playwright for e2e
+- French strings for user-facing text (`scripts/scan-en-strings.sh`)
 
 ### Commits
-- Format : `type(scope): description`
-- Types : feat, fix, docs, refactor, test, chore
-- Exemple : `feat(gov): add thematic classification worker`
+- Format: `type(scope): description`
+- Types: feat, fix, docs, refactor, test, chore
+- Example: `feat(sdk): add typed namespace for AppContext.storage`
 
-## Bonnes premieres contributions
+## Verification
 
-Cherchez les issues taggees `good-first-issue` :
-- Ajouter des tests pour un worker existant
-- Ameliorer la documentation d'une source de donnees
-- Corriger un bug d'affichage frontend
-- Ajouter une traduction
+Before submitting, run the full verification suite:
 
-## Code de conduite
+```bash
+./scripts/verify.sh
+```
 
-Ce projet suit le [Contributor Covenant](CODE_OF_CONDUCT.md).
-Respect, bienveillance, et constructivite sont attendus de tous les participants.
+This runs 18 steps covering Rust, Python, frontend, and SPDX license
+checks. All steps must pass.
+
+## Code of conduct
+
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).

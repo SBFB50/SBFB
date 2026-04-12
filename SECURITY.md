@@ -1,54 +1,40 @@
-# Politique de securite et de donnees
+# Security Policy
 
-## Donnees collectees
+## Reporting a vulnerability
 
-NEXUS GOV ne collecte QUE des donnees publiques :
-- Votes parlementaires (data.assemblee-nationale.fr, data.senat.fr)
-- Declarations de patrimoine (hatvp.fr, open data)
-- Posts reseaux sociaux publics (Twitter, Facebook, Instagram, TikTok, YouTube)
-- Articles de presse publics (RSS, SearXNG)
-- Dossiers legislatifs (data.gouv.fr)
-- Donnees Wikidata (open data)
+If you discover a security vulnerability in nexus-grid:
 
-## Ce que NEXUS GOV ne fait PAS
+1. **DO NOT** open a public issue
+2. Use [GitHub Security Advisories](https://github.com/SBFB50/SBFB/security/advisories/new)
+   to report privately
+3. Describe the vulnerability, reproduction steps, and potential impact
+4. We will respond within 48 hours
 
-- Aucune collecte de donnees privees
-- Aucune surveillance de citoyens
-- Aucun acces a des comptes prives
-- Aucun stockage de donnees biometriques
-- Aucune utilisation de cloud non-europeen pour le traitement
+## Scope
 
-## Presomption d'innocence
+nexus-grid is a P2P network. Security-relevant components include:
 
-Les contradictions detectees par NEXUS sont factuelles :
-"Le politicien X a dit Y le [date] mais a vote Z le [date]."
+- **Ed25519 signatures** — task, result, claim, curator list, kudos
+  signing and verification (`crates/nexus-core-rs/src/crypto.rs`)
+- **iroh QUIC transport** — peer-to-peer communication
+- **Coordinator loopback** — FastAPI runs on `127.0.0.1:8765` by
+  default, CORS restricted to loopback origins only
+- **Shell daemon** — loopback HTTP surface, accessed exclusively
+  through the coordinator proxy (Pattern P9)
+- **CAS file storage** — SHA256 content-addressed, magic bytes
+  validation on upload, max_size_bytes enforcement
+- **Migration runner** — SHA256 tamper detection on applied migrations
 
-Ce ne sont PAS des accusations. La presomption d'innocence s'applique
-a toutes les informations presentees par le systeme.
+## Trust model
 
-## Traitement local
+nexus-grid operates on a **zero-trust P2P model**:
 
-Toutes les analyses sont effectuees localement :
-- LLM : Ollama (modele local, zero envoi de donnees)
-- Transcription : faster-whisper (local)
-- OCR : PaddleOCR (local)
-- Embeddings : nomic-embed-text (local)
-- Base de donnees : SQLite/Neo4j/ChromaDB (local)
+- No central server, no admin, no moderation
+- Workers choose which projects they serve (allowlist)
+- Curator lists are Ed25519-signed and propagated via gossip
+- The coordinator is loopback-only by default — exposing it to the
+  network is the operator's responsibility
 
-Aucune donnee n'est envoyee a un service cloud tiers.
+## License
 
-## Signaler une vulnerabilite
-
-Si vous decouvrez une vulnerabilite de securite :
-1. NE PAS ouvrir une issue publique
-2. Envoyez un email a : security@nexusgov.fr (ou ouvrez un rapport prive sur GitHub)
-3. Decrivez la vulnerabilite, les etapes de reproduction, et l'impact potentiel
-4. Nous repondrons sous 48h
-
-## Droit applicable
-
-NEXUS GOV est un service d'information en ligne au sens de la loi du 29 juillet 1881
-sur la liberte de la presse et de la LCEN du 21 juin 2004.
-
-Les donnees sont traitees conformement au RGPD (Reglement UE 2016/679).
-Droit d'acces, de rectification et d'effacement : contact@nexusgov.fr
+AGPL-3.0-or-later — see [LICENSE](LICENSE)
