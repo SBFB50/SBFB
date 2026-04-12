@@ -477,3 +477,31 @@ async def test_missing_allowlist_decorator_raises(tmp_path: Path) -> None:
 
     with pytest.raises(FileTypeError, match="whitelist"):
         validate_magic_bytes(b"\x00\x00\x00\x18ftyp", unsupported)
+
+
+# ---------------------------------------------------------------------------
+# 21 — magic bytes: text/html accepted (Sprint 12 Phase B)
+# ---------------------------------------------------------------------------
+
+
+async def test_magic_bytes_html_accepted(tmp_path: Path) -> None:
+    """HTML data starting with '<!DOCTYPE html>' is accepted for 'text/html'."""
+    store = AppFileStore(tmp_path / "uploads", "gov")
+    html_data = b"<!DOCTYPE html><html><body>Hello</body></html>"
+    handle = await store.store(
+        html_data,
+        original_name="index.html",
+        content_type="text/html",
+    )
+    assert handle.content_type == "text/html"
+
+
+async def test_magic_bytes_html_rejected_bad_content(tmp_path: Path) -> None:
+    """Declaring 'text/html' but supplying non-HTML bytes raises FileTypeError."""
+    store = AppFileStore(tmp_path / "uploads", "gov")
+    with pytest.raises(FileTypeError, match="text/html"):
+        await store.store(
+            b"\x00\x01binary junk",
+            original_name="fake.html",
+            content_type="text/html",
+        )

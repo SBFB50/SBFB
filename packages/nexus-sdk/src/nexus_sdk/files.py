@@ -243,12 +243,22 @@ def _check_svg(data: bytes, _content_type: str) -> None:
 # Keys use the canonical MIME string; the lookup in validate_magic_bytes
 # normalises the declared content_type to lower-case and strips parameters
 # (e.g. "image/jpeg; charset=binary" → "image/jpeg") before the dict lookup.
+def _check_html(data: bytes, _content_type: str) -> None:
+    probe = data[:_MAGIC_PROBE_BYTES].lstrip()
+    lower = probe.lower()
+    if not (lower.startswith(b"<!doctype") or lower.startswith(b"<html")):
+        raise FileTypeError(
+            f"declared content_type 'text/html' but data does not start with '<!doctype' or '<html' (got {probe[:16]!r})"
+        )
+
+
 ALLOWED_MAGIC_BYTES: dict[str, object] = {
     "image/png": _check_png,
     "image/jpeg": _check_jpeg,
     "application/pdf": _check_pdf,
     "image/webp": _check_webp,
     "image/svg+xml": _check_svg,
+    "text/html": _check_html,
 }
 
 

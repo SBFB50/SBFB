@@ -390,10 +390,11 @@ class Coordinator:
     async def _auto_publish(self) -> None:
         """Announce this project on the P2P network via the daemon.
 
-        Sprint 11 Phase A. Calls the daemon's ``POST /publish``
-        directly via httpx (the FastAPI server is not started yet
-        at this point in the boot sequence). Non-fatal: a daemon
-        that is offline or unreachable is logged and ignored.
+        Sprint 11 Phase A + Sprint 12 Phase B extension: if the
+        project has TabView tabs, pre-render them to HTML, pack
+        into a zip, store as blob, and publish a v2 announcement
+        with ``archive_hash``. Non-fatal: a daemon that is offline
+        or unreachable is logged and ignored.
         """
         from nexus_coordinator.api.daemon import _daemon_base_url, _read_running_state
 
@@ -402,14 +403,23 @@ class Coordinator:
             _log.warning("auto-publish skipped: shell-daemon not running")
             return
 
-        url = f"{_daemon_base_url(state)}/publish"
-        payload = {
+        import httpx
+
+        base_url = _daemon_base_url(state)
+        archive_hash: str | None = None
+
+        # Sprint 12 Phase B: pre-render TabView tabs → zip → blob.
+        archive_hash = await self._build_and_store_archive(base_url)
+
+        url = f"{base_url}/publish"
+        payload: dict[str, object] = {
             "project_name": self.project_name,
             "category": self.config.identity.description or "general",
             "description": self.config.identity.description or self.project_name,
             "apps": list(self.apps.keys()),
         }
-        import httpx
+        if archive_hash is not None:
+            payload["archive_hash"] = archive_hash
 
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
@@ -418,6 +428,7 @@ class Coordinator:
                 _log.info(
                     "project published to P2P network",
                     project=self.project_name,
+                    archive_hash=archive_hash,
                 )
             else:
                 _log.warning(
@@ -427,6 +438,106 @@ class Coordinator:
                 )
         except httpx.HTTPError as e:
             _log.warning("auto-publish failed", error=str(e))
+
+    async def _build_and_store_archive(self, daemon_base_url: str) -> str | None:
+        """Pre-render TabView tabs to HTML, zip, store as blob.
+
+        Returns the hex hash of the stored blob, or ``None`` if
+        no tabs were rendered or the daemon is unreachable.
+        """
+        import inspect
+        import io
+        import zipfile
+
+        import httpx
+        from nexus_sdk.html_render import render_tabview_to_html
+        from nexus_sdk.view import TabView, TabViewV2
+
+        zip_buf = io.BytesIO()
+        file_count = 0
+
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for app_name, app in self.apps.items():
+                first_tab_name: str | None = None
+                for tab in app.tabs():
+                    try:
+                        if inspect.iscoroutinefunction(tab.fn):
+                            descriptor = await tab.fn(app)
+                        else:
+                            descriptor = tab.fn(app)
+                    except Exception as e:  # noqa: BLE001
+                        _log.warning(
+                            "tab descriptor failed during archive build",
+                            app=app_name,
+                            tab=tab.name,
+                            error=str(e),
+                        )
+                        continue
+
+                    # Normalize to dict
+                    if isinstance(descriptor, (TabView, TabViewV2)):
+                        desc_dict = descriptor.model_dump(mode="json")
+                    elif isinstance(descriptor, dict):
+                        desc_dict = descriptor
+                    else:
+                        continue
+
+                    html_str = render_tabview_to_html(
+                        desc_dict,
+                        title=f"{app_name} — {tab.name}",
+                    )
+                    zf.writestr(f"{app_name}/{tab.name}.html", html_str)
+                    file_count += 1
+
+                    if first_tab_name is None:
+                        first_tab_name = tab.name
+
+                # index.html per app = redirect to first tab
+                if first_tab_name is not None:
+                    zf.writestr(
+                        f"{app_name}/index.html",
+                        f'<meta http-equiv="refresh" content="0;url={first_tab_name}.html">',
+                    )
+                    file_count += 1
+
+            # Root index.html = redirect to first app
+            if self.apps:
+                first_app = next(iter(self.apps))
+                zf.writestr(
+                    "index.html",
+                    f'<meta http-equiv="refresh" content="0;url={first_app}/index.html">',
+                )
+                file_count += 1
+
+        if file_count == 0:
+            _log.info("archive build: no tabs to render, skipping")
+            return None
+
+        zip_bytes = zip_buf.getvalue()
+        _log.info("archive built", size=len(zip_bytes), files=file_count)
+
+        # Store as blob via daemon
+        url = f"{daemon_base_url}/publish-blob"
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                resp = await client.post(
+                    url,
+                    content=zip_bytes,
+                    headers={"Content-Type": "application/octet-stream"},
+                )
+            if resp.status_code == 200:
+                hash_hex = resp.json()["hash"]
+                _log.info("archive blob stored", hash=hash_hex)
+                return hash_hex
+            else:
+                _log.warning(
+                    "publish-blob returned non-200",
+                    status=resp.status_code,
+                )
+                return None
+        except httpx.HTTPError as e:
+            _log.warning("publish-blob failed", error=str(e))
+            return None
 
     async def stop(self) -> None:
         """Shut down the iroh node and cancel any background tasks.

@@ -29,6 +29,7 @@ from nexus_sdk.db import AppDatabaseClient, DatabaseError
 from nexus_sdk.decorators import nexus_app_files, nexus_command, nexus_route, nexus_tab, nexus_worker
 from nexus_sdk.events import AppEvents, EventEnvelope, EventOverflowPolicy
 from nexus_sdk.files import AppFileStore, FileHandle, FileManifest, FileTypeError
+from nexus_sdk.html_render import render_tabview_to_html
 from nexus_sdk.loader import discover_apps
 from nexus_sdk.migrations import MigrationRunner, MigrationTamperedError, PendingMigration
 from nexus_sdk.storage import AppStorage, StorageSchemaError, TypedNamespace
@@ -104,6 +105,7 @@ __all__ = [
     "nexus_route",
     "nexus_tab",
     "nexus_worker",
+    "render_tabview_to_html",
     "section",
     "table_",
     "text",
