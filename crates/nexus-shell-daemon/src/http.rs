@@ -1183,6 +1183,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn publish_with_archive_hash_populates_browse_entry() {
+        // Sprint 12 Phase D: POST /publish with archive_hash
+        // sets archive_hash on the browse entry visible in /browse.
+        let state = mk_state().await;
+        let app = build_router(Arc::clone(&state));
+
+        // Store a blob first.
+        let zip_bytes = make_zip(&[("index.html", b"<h1>Hi</h1>")]);
+        let blobs = BlobsClient::new(state.node.blobs_store());
+        let hash = blobs.add_bytes(zip_bytes).await.unwrap();
+        let hash_hex = hex::encode(hash);
+
+        // Publish with archive_hash.
+        let body = serde_json::to_vec(&PublishRequest {
+            project_name: "web-app".into(),
+            category: "misc".into(),
+            description: "test archive".into(),
+            apps: vec![],
+            archive_hash: Some(hash_hex.clone()),
+        })
+        .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/publish")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Verify /browse returns the entry with archive_hash.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/browse")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let browse: BrowseListResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 8192).await.unwrap()).unwrap();
+        assert_eq!(browse.entries.len(), 1);
+        assert_eq!(
+            browse.entries[0].archive_hash.as_deref(),
+            Some(hash_hex.as_str())
+        );
+        assert!(browse.entries[0].archive_ticket.is_some());
+    }
+
+    #[tokio::test]
     async fn blob_serve_rejects_path_traversal() {
         let app = build_router(mk_state().await);
         let resp = app
