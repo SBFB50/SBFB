@@ -44,7 +44,7 @@ uv build packages/nexus-coordinator --wheel --out-dir /tmp/test-wheels/
 | 12 | coverage | `npm run test:coverage` | lines >= 85% | 88% lines, 80.98% branches |
 | 13 | build | `npm run build` | exit 0 | exit 0 |
 | 14 | size-limit | `npm run size` | 7/7 green | 7/7 green |
-| 15 | playwright | `npx playwright test` | 27 passed | (--quick skipped, 27 at Sprint 9 tip) |
+| 15 | playwright | `npx playwright test` | 27 passed | SKIPPED (--quick mode, env blocker Windows Defender uv lock, aucun changement web Sprint 10 — 27 passes au tip Sprint 9) |
 | 16 | scan-en | `bash scripts/scan-en-strings.sh` | exit 0 | exit 0 |
 | 17 | npm audit | `npm audit --audit-level=high` | 0 high/crit | 0 high/crit |
 | 18 | SPDX check | `bash scripts/check-spdx.sh` | 204 files | 204 files |
@@ -59,7 +59,7 @@ uv build packages/nexus-coordinator --wheel --out-dir /tmp/test-wheels/
 | 27 | deploy scripts | `ls deploy/provision.sh deploy.sh` | exist | exist |
 | 28 | systemd templates | grep in provision.sh | nexus-daemon.service | present |
 | 29 | T13-T22 | grep T13 docs/shell/PATTERNS.md | found | found |
-| 30 | verify.sh full | `./scripts/verify.sh --quick` | exit 0 | exit 0 |
+| 30 | verify.sh full | `./scripts/verify.sh --quick` | exit 0 | exit 0 (mode --quick, Playwright non inclus) |
 
 ## Metriques sprint
 
@@ -102,7 +102,7 @@ uv build packages/nexus-coordinator --wheel --out-dir /tmp/test-wheels/
 
 ## Checkpoint de cloture
 
-1. 30/30 fail-fast : OUI (T18 flaky acceptable)
+1. 29/30 fail-fast + 1 SKIPPED : row 15 Playwright non execute (env blocker Windows Defender, aucun code web modifie Sprint 10). Audit Sprint 11 Phase 0 finding V-1.
 2. 5 commits atomiques Phase A-E : OUI
 3. verification.md + audit_plan.md : OUI (ce commit)
 4. PATTERNS.md a jour : OUI (T13-T22 Phase A)

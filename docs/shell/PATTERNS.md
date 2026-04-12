@@ -1210,3 +1210,33 @@ Fix: align the test schema with the real migration column names
 and re-run assertions.
 
 Audit reference: `.planning/sprint9_audit_findings.md` §D4-A.
+
+### T23 — SPDX scope excludes `nexus/` legacy Python files
+
+Sprint 10 audit gate finding A-1. The `scripts/check-spdx.sh` guard
+covers `crates/`, `packages/`, `web/src/` (204 files) but does not
+include `nexus/` (~30+ legacy .py files). D6 decision said "every
+source file" but the plan scoped it to active modules only. Since
+the project is AGPL-3.0, all distributed source should carry the
+header. Low priority — treat when `nexus/` code is next touched.
+
+Audit reference: `.planning/sprint10_audit_findings.md` §A-1.
+
+### T24 — `provision.sh` UDP firewall rule too broad
+
+Sprint 10 audit gate finding E-1. Line 47 of `deploy/provision.sh`
+runs `ufw allow proto udp from any to any`, opening ALL UDP ports.
+Required for iroh QUIC (ephemeral ports), but broader than ideal.
+Document rationale inline. If iroh supports a fixed port range in
+a future release, restrict the rule.
+
+Audit reference: `.planning/sprint10_audit_findings.md` §E-1.
+
+### T25 — `deploy/README.md` missing operational runbook
+
+Sprint 10 audit gate finding E-2. The deploy README covers initial
+provisioning and deployment but lacks operational sections: rollback
+procedure, identity key backup, log monitoring, SSH key management,
+health check endpoints. Enrich as real VPS operations begin.
+
+Audit reference: `.planning/sprint10_audit_findings.md` §E-2.
