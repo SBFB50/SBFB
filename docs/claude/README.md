@@ -667,7 +667,7 @@ de sprint) :
 | 8 | DONE + CONDITIONAL PASS levé | `9339bb6` | 7 | 4 docs + `audit_findings` |
 | 9 | DONE + CONDITIONAL PASS levé | `eb81c27` puis `48b332a` post-gate | 7 + 2 (gate) | 4 docs + `audit_findings` |
 | 10 | DONE | `d07bfcf` (pre-Phase F) | 5 | 4 docs (kickoff, plan, verification, audit_plan) |
-| 11 | DONE | `999fec6` | 6 | 4 docs + attend `audit_findings` du Sprint 12 Phase 0 |
+| 11 | DONE + CONDITIONAL PASS levé | `999fec6` puis `f2c94e3` post-gate | 6 + 2 (gate) | 4 docs + `audit_findings` |
 
 Sprint 6 est **le premier** à avoir les 4 docs planning
 complets dès le démarrage. Sprint 7 est **le premier cycle
