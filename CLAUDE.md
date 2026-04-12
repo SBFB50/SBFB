@@ -1,128 +1,137 @@
-# NEXUS — Cold Case Investigation System
+# nexus-grid / SBFB
 
 ## Projet
-Systeme d'investigation AUTONOME et PERSISTANT pour cold cases. Pas un chatbot — un investigateur qui tourne 24/7, cherche, raisonne, et converge vers la verite.
+Réseau P2P de compute LLM distribué. "Decentralized P2P compute
+network for LLM apps. No central server. No admin. Just protocol."
+Pivot 2026-04-10 depuis l'ancien NEXUS cold-case (toujours présent
+sous `nexus/` comme future app mais plus le projet principal).
 
-## Architecture (v2 — Event-Driven Reactive)
-- **Backend**: FastAPI (port 8000) — 133 endpoints REST + 2 SSE
-- **Event System**: EventBus pub/sub + 20 ReactiveWorkers + VRAMScheduler + SSE bridge
-- **Frontend React**: Vite + TypeScript + Tailwind (port 3002) — 12 pages, dark theme pro
-- **LLMs**: Ollama (port 11434)
-  - `juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m` (MoE 26B, 4B actifs) — ALL tasks: resume, analyse, hypotheses ACH, contradictions, vision, filtering (single model, zero swap VRAM)
-  - `nomic-embed-text` — embeddings vectoriels RAG (137MB, coexiste via bypass)
-- **NER**: GLiNER (urchade/gliner_multi-v2.1) — CPU, 0.08s, zero VRAM, singleton pre-charge
-- **Entity Resolution**: RapidFuzz (Jaro-Winkler, threshold 78%)
-- **Search**: SearXNG clearweb (port 8888) + Robin dark web/Tor (port 8502) + Wayback Machine CDX API
-- **Storage**: SQLite (FTS5+WAL+event_log) + Neo4j (graphe, port 7474) + ChromaDB (vecteurs, port 8100)
-- **Docker**: Neo4j + ChromaDB + Robin (docker-compose.yml)
+## Source de vérité pour le workflow Claude
+**Avant toute action, lire `docs/claude/README.md`.** Ce document
+capture le système de travail multi-sprint qu'on utilise : cycle
+kickoff → plan → code → verification → audit_plan, audit gate
+pattern entre sprints, commit discipline atomique, memory system
+externe, anti-patterns. Une session fraîche sans cette lecture
+ré-invente les règles et produit du code hors-convention.
+
+## Architecture Option G (hybride Rust + Python)
+- **Rust workspace** (`crates/`) : `nexus-core-rs` (iroh 0.97
+  wrapper), `nexus-core-py` (PyO3 bindings), `nexus-worker-core`
+  (headless engine lib) + `nexus-worker` (binary),
+  `nexus-shell-daemon-core` + `nexus-shell-daemon` (Sprint 7 —
+  P2P discovery + curator pipeline + pkarr browse)
+- **Python workspace** (`packages/`) : `nexus-coordinator`
+  (FastAPI + dispatcher + kudos ledger), `nexus-sdk` (NexusApp
+  ABC + TabView), `nexus-app-gov` / `-coldcase` / `-forensics`
+  (apps officielles qui tournent sur le socle P2P)
+- **Frontend** (`web/`) : React + Vite + TypeScript + Tailwind
+  + shadcn/ui + Zustand + React Query. Pages : Browse, Curators,
+  Network, OnboardingEmpty, ProjectDetail, Projects
+- **iroh stack** pinné : iroh 0.97 / iroh-docs 0.97 / iroh-gossip
+  0.97 / iroh-blobs 0.99
 
 ## Stack
 - Windows 11, RTX 5080 16GB VRAM
-- Python 3.13 + conda (env nexus)
-- Node.js (frontend React dans web/)
-- Docker Desktop
-- Ollama (num_ctx=16384)
+- Rust 1.94 (rustup / cargo), maturin 1.13
+- Python 3.13 (uv workspace `.venv/` + miniconda base pour
+  installation wheels via `maturin develop --release`)
+- Node.js (frontend React dans `web/`)
+- Ollama (worker-side LLM runtime)
 
-## Structure du code (~32K lignes)
+## Structure des crates / packages
 ```
-nexus/
-  api/                    # 24 routers FastAPI (incl. SSE)
-  core/                   # Logique metier
-    evidence_processor.py # Ingestion: parse -> GLiNER -> resume -> chunk -> embed -> Neo4j
-    analysis_pipeline.py  # Pipeline multi-modeles (RAG-powered)
-    hypothesis_engine.py  # Generation + scoring + snapshots + Neo4j sync
-    contradiction_detector.py
-    entity_extractor.py   # GLiNER + RapidFuzz dedup
-    suspect_scorer.py     # 5 facteurs: graph, evidence, contradiction, profile, hypothesis
-    retriever.py          # RAG hybride 4 sources (semantic + graph + FTS5 + recency)
-    summary_tree.py       # RAPTOR (case summary deferred to avoid VRAM thrash)
-  events/                 # NEW: Event-driven reactive architecture
-    types.py              # 20 EventTypes + NexusEvent dataclass
-    bus.py                # EventBus (pub/sub + SQLite persistence + circuit breaker)
-    worker.py             # ReactiveWorker ABC
-    vram_scheduler.py     # VRAMScheduler (priority queue + model affinity batching)
-    manager.py            # ReactiveInvestigationManager (replaces InvestigationManager)
-    monitoring_loop.py    # Continuous monitoring (replaces APScheduler)
-    timer.py              # Periodic events (reports, backups)
-    db_proxy.py           # DB connection proxy for long-lived workers
-    workers/              # 20 reactive workers (13 core + 7 auxiliary)
-  db/
-    sqlite_db.py          # 16 tables (incl event_log), FTS5, WAL, 23+ index
-    neo4j_db.py           # 20+ methodes + sync_hypothesis
-    chroma_db.py          # 7 collections, unified search cross-collection
-  llm/
-    router.py             # 20 TaskTypes, VRAMScheduler priority queue
-    ollama_client.py      # AsyncClient, no timeouts, num_ctx=16384
-  monitoring/
-    searxng_monitor.py    # SearXNG clearweb search
-    robin_monitor.py      # Dark web / Tor via Docker CLI
-    wayback_monitor.py    # Internet Archive CDX API (historical pages)
-  forensics/              # BPA sang, acoustique, traces, physique sim
-  recon/                  # holehe, social, domain (WHOIS/DNS)
-  vision/                 # DINOv2 + CLIP embeddings, image search
-web/                      # Frontend React
-  src/components/
-    PipelineTools.tsx      # 20 workers real-time status (INGEST/ENRICH/ANALYZE/SCORE)
-    InvestigationMap.tsx   # Leaflet dark tiles + geocoded locations
-    Toast.tsx              # Notification system
-tests/                    # 367 tests (pytest)
-data/benchmark/           # 5 cold cases
-docs/                     # ARCHITECTURE.md, PIPELINE.md, TOOLS_MATRIX.md, API_REFERENCE.md, BENCHMARK.md
+nexus-grid/
+├── Cargo.toml                         # workspace Rust
+├── crates/
+│   ├── nexus-core-rs/                 # iroh wrapper (docs, gossip, blobs,
+│   │                                  # discovery, curator crypto, canonical bytes JCS)
+│   ├── nexus-core-py/                 # PyO3 bindings (sign/verify task/result/claim/curator)
+│   ├── nexus-worker-core/             # engine lib headless (state machine,
+│   │                                  # allowlist SQLite, GPU monitor, Ollama client)
+│   ├── nexus-worker/                  # worker binary (CLI + TUI + state writer)
+│   ├── nexus-shell-daemon-core/       # P2P discovery lib (curator runtime,
+│   │                                  # browse aggregator, registry singleton)
+│   └── nexus-shell-daemon/            # shell daemon binary (HTTP + gossip subscribe)
+├── packages/
+│   ├── nexus-coordinator/             # FastAPI coord + dispatcher + kudos + /daemon proxy
+│   ├── nexus-sdk/                     # NexusApp ABC + TabView + decorators
+│   ├── nexus-app-gov/                 # gov app (WIP, 19 tabs migration Sprint 8)
+│   ├── nexus-app-coldcase/            # port de l'ancien NEXUS en tant qu'app
+│   └── nexus-app-forensics/           # BPA + acoustique + traces (legacy forensics)
+├── web/                               # shell React (Browse, Curators, Network, etc.)
+├── .planning/                         # sprint{N}_{kickoff,plan,verification,audit_plan,audit_findings}.md
+├── docs/
+│   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
+│   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
+│   └── shell/PATTERNS.md              # patterns shell/coordinator + T1..T7 tech debt
+└── examples/hello-world-app/
 ```
 
-## Event-Driven Architecture
-```
-evidence_added -> EntityExtractor + Summarizer (parallel)
-  -> entity_discovered -> Neo4j + GeoMapper + OSINT Recon + QueryGenerator
-  -> evidence_processed -> ChunkerEmbed + ContradictionDetector + AnalysisPipeline
-  -> analysis_completed -> HypothesisWorker -> hypothesis_scored -> SuspectScorer
-  -> monitoring_result -> EvidenceIngestWorker -> evidence_added (LOOP)
-```
-- 20 event types, 20 workers, EventBus with SQLite persistence + circuit breaker
-- VRAMScheduler: embedding bypass + light lock + heavy priority queue + model affinity
-- MonitoringLoop: continuous 30s sweep (replaces APScheduler)
-- No fixed cycles — each tool reacts immediately to changes
+## État actuel (2026-04-11, master tip `9cc0796`)
+- **Sprints 0-7 CLOSED**
+- **304 Rust tests** / 40 SDK / 57+1 coordinator / 3 app-gov
+  / 114 Vitest / 13 Playwright / 4/4 size-limit — tous verts
+- Sprint 7 a livré le nexus-shell-daemon P2P discovery layer
+  (curator list Ed25519 + gossip subscribe + pkarr browse +
+  coordinator proxy + React pages live)
+- **Prochain pas** : Sprint 8 Phase 0 audit gate joue
+  `.planning/sprint7_audit_plan.md` dans une session fraîche et
+  produit `sprint7_audit_findings.md` avant que Sprint 8 Phase A
+  puisse démarrer
 
-## Retriever hybride (4 sources)
-- Semantic (ChromaDB unified) x 0.50
-- Graph (Neo4j traversal) x 0.25
-- FTS5 (SQLite lexical, sanitized) x 0.15
-- Recency x 0.10
-
-## Problemes connus
-1. **RAPTOR case summary desactive** — deferred pour eviter LLM 26B a chaque evidence
-2. **before: filter SearXNG unreliable** — Google before: operator still in beta, htmldate can't detect dates on Wikipedia
-3. **ImageSearch thumbnails** — frontend placeholder icons (needs file serving endpoint for actual images)
-
-## Benchmarking
-5 cold cases:
-- `data/benchmark/kulik/` — Affaire Elodie Kulik 2002 (14 pieces, verite: Wiart+Bardon)
-- `data/benchmark/golden-state-killer/` — GSK (13 pieces, verite: DeAngelo)
-- `data/benchmark/affaire-moreau/` — Fictif (15 pieces, 7 contradictions)
-- `data/benchmark/jubillar/` — Affaire Delphine Jubillar 2020 (OSINT mode: briefing only + monitoring)
-- `data/benchmark/mccann/` — Affaire Madeleine McCann (cold case, unsolved, before:2020)
-
-Modes:
-- **Evidence mode** (Kulik, GSK, Moreau, McCann): pieces fournies, analyse par les 20 workers
-- **OSINT mode** (Jubillar): 1 briefing + monitoring SearXNG/Wayback, NEXUS cherche seul
-
-## Commandes
+## Commandes clés
 ```bash
-# Backend
-uvicorn nexus.main:app --host 0.0.0.0 --port 8000
+# Rust workspace
+cargo test --workspace --locked
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo build -p nexus-shell-daemon --release
 
-# Frontend React
-cd web && npx vite --host 0.0.0.0 --port 3002
+# Python (trois packages tournés séparément — collision de nom tests/)
+uv run ruff format --check packages/ && uv run ruff check packages/
+uv run pytest packages/nexus-sdk/tests/ -q
+uv run pytest packages/nexus-coordinator/tests/ -q
+uv run pytest packages/nexus-app-gov/tests/ -q
 
-# Docker
-docker compose up -d
+# Wheel PyO3 dans .venv uv (attention au conflit CONDA_PREFIX)
+unset CONDA_PREFIX CONDA_DEFAULT_ENV && \
+  VIRTUAL_ENV=$PWD/.venv maturin develop --release \
+    --manifest-path crates/nexus-core-py/Cargo.toml
 
-# Tests
-python -m pytest tests/ -v
-
-# Ollama optimisation
-set OLLAMA_FLASH_ATTENTION=1
+# Frontend
+cd web && npm install && npm run lint && \
+  npx tsc --noEmit -p tsconfig.app.json && \
+  npm run test:unit && npm run test:coverage && \
+  npm run build && npm run size && \
+  npx playwright test && bash scripts/scan-en-strings.sh
 ```
+
+## Décisions architecturales gelées
+Cf. `nexus_grid_pivot.md` (memory) §« Décisions actées (à ne PAS
+re-débattre) » — 12 items dont pivot P2P intégral, Option G
+hybride Rust+Python, iroh 0.97 pinné, visibilité 2 états
+public/privé, zéro modération centrale, curator lists
+Ed25519+gossip+blobs, kudos per-project, HTTP loopback via
+coordinator proxy (Sprint 7 D1), singleton strict shell daemon
+(Sprint 7 D2), AGPL-3.0 maintenue.
+
+## Discipline de travail
+**Tout est dans `docs/claude/README.md`.** Résumé ultra-court :
+- un sprint = kickoff + plan + 4-6 phases A-F + verification +
+  audit_plan, tous dans `.planning/`
+- un commit par phase (`feat(scope): Sprint N Phase X — titre`),
+  body riche avec delta de tests cumulé et scope cuts respectés
+- pas de band-aid fix — toujours root cause
+- pas d'emoji sauf demande explicite
+- Day 0 decisions figées, scope cuts stricts
+- memory system externe : lire MEMORY.md + nexus_grid_pivot.md
+  + sprint_audit_gate.md + feedback_approach.md au démarrage de
+  chaque session fraîche
 
 ## Langue
-Francophone. Repondre en francais. Prompts LLM en francais. Code/commentaires en anglais.
+Francophone. Réponses utilisateur, docs planning, commit bodies,
+commentaires dans `docs/claude/` → **français**. Code, identifiants,
+commit titles, logs, strings d'erreur → **anglais**. `PATTERNS.md`
+est majoritairement anglais (consommé par l'agent et futurs
+contributeurs externes). Le script `web/scripts/scan-en-strings.sh`
+garde le code React côté utilisateur en français.
