@@ -28,11 +28,13 @@ def test_gov_app_manifest_and_descriptors() -> None:
     """Sprint 8 Phase D brings gov to nineteen tabs (thirteen
     Batch 1+2 tabs from Phase B/C plus six Batch 3 tabs —
     Alertes, Affaires, Lois, Factchecks, Recherche, Question).
-    The route surface is unchanged (one ``/statements`` route);
-    the worker surface grows to three — ``contradiction_detector``
-    retained from Sprint 4 plus the two RAG workers
+    Sprint 9 Phase C adds the ``refresh_party_cache`` worker so
+    the worker surface is now four — ``contradiction_detector``
+    retained from Sprint 4, the two RAG workers from Phase D
     (``rag_search`` on ``nomic-embed-text`` and ``rag_ask`` on
-    the heretic gemma model) introduced by Phase D.
+    the heretic gemma model), and the new ``refresh_party_cache``
+    publisher that fans a ``party.refreshed`` envelope onto
+    :attr:`nexus_sdk.AppContext.events`.
     """
     app = GovApp()
     assert app.manifest.name == "gov"
@@ -46,11 +48,12 @@ def test_gov_app_manifest_and_descriptors() -> None:
     assert len(routes) == 1
     assert routes[0].path == "/statements"
 
-    assert len(workers) == 3
+    assert len(workers) == 4
     workers_by_name = {w.name: w for w in workers}
     assert workers_by_name["contradiction_detector"].model == "stub-model:latest"
     assert workers_by_name["rag_search"].model == "nomic-embed-text"
     assert workers_by_name["rag_ask"].model == "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
+    assert workers_by_name["refresh_party_cache"].model == "stub-model:latest"
 
     # Nineteen tabs: thirteen Batch 1+2 tabs + six Batch 3 tabs
     # from Phase D (Alertes/Affaires/Lois/Factchecks/Recherche/

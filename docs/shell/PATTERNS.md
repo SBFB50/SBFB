@@ -507,6 +507,119 @@ contract that handlers rely on.
 Reference: sprint9_kickoff.md §4 D1, sprint9_plan.md §5 Phase
 B, commit `<SHA>`.
 
+### P14 — `AppContext.events` is a per-app in-process anyio pub/sub bus
+
+Sprint 9 Phase C (D2). Every app gets a per-instance
+:class:`nexus_sdk.AppEvents` wired by the coordinator loader on
+:attr:`nexus_sdk.AppContext.events` BEFORE the app's
+``on_start`` hook runs. The bus is the asynchronous mirror of
+P13: P13 is the writable per-app KV, P14 is the in-process
+fan-out for "something happened" events that consumers want to
+react to in real time.
+
+**Wrapper around `anyio.create_memory_object_stream`.** Each
+``async with bus.subscribe(pattern)`` allocates its own
+``(send_stream, receive_stream)`` pair with the bus's
+``buffer_size`` (default 1024). The dispatcher iterates the
+matching subscribers and pushes the envelope onto every send
+stream — there is no shared queue and no clone-per-subscriber
+juggling, which sidesteps the only fragile spot of anyio's
+memory stream API and keeps the contract straightforward.
+
+**Frozen `EventEnvelope`.** The envelope shape is
+``{topic: str, payload: dict, timestamp: datetime, trace_id:
+str}`` with ``model_config={"frozen": True, "extra": "forbid"}``.
+``trace_id`` is ``uuid4().hex[:16]`` and ``timestamp`` is
+``datetime.now(UTC)`` at publish time. The ``payload`` field
+runs through a JSON-serializability validator at construction
+so the bus refuses an envelope the SSE bridge would later fail
+to ``json.dumps``.
+
+**Fnmatch glob matching.** Subscribers pass shell-style
+patterns (``politician.*``, ``*.refreshed``, ``file.upload.*``)
+that the bus checks via :func:`fnmatch.fnmatch`. The ``.``
+character is literal, not a delimiter, and ``**`` is NOT
+treated as a recursive wildcard — producers that need
+single-segment semantics use a more specific suffix.
+
+**Sync dispatch via `send_nowait`.** :meth:`AppEvents.publish`
+is ``async def`` so callers can await it like every other SDK
+helper, but the fan-out loop never awaits inside the body for
+the ``drop_oldest`` / ``drop_newest`` policies — every push is
+a ``send_nowait`` wrapped in ``except anyio.WouldBlock``. The
+``block`` policy is the only path that awaits a real ``send``
+and is documented as risky (a single slow consumer stalls every
+other subscriber that comes after it in the dispatch loop).
+
+**Overflow policy enum.** Three modes:
+
+- ``drop_oldest`` (default): drain one envelope from the
+  receive side via ``receive_nowait`` then retry the
+  ``send_nowait``. The drop is logged once per minute per
+  subscriber via a tiny throttle helper so a slow consumer
+  cannot flood the structlog stream.
+- ``drop_newest``: skip the publish for that subscriber and log
+  the throttled warning.
+- ``block``: ``await send_stream.send(envelope)``. Documented
+  as a foot-gun because a single slow consumer stalls the
+  whole bus.
+
+**Context manager subscribe.** ``async with
+events.subscribe(pattern) as stream:`` registers a fresh
+subscription on enter, yields the receive stream, and
+unregisters / closes both halves on exit — even when the body
+raises. Anti-pattern explicitly rejected: weak references to
+coroutines, which the GC tears down before the coroutine has a
+chance to run.
+
+**Per-app, in-process scope.** A given :class:`AppEvents`
+instance is bound to a single app. Cross-app and cross-node
+fan-out are explicitly out of scope for Sprint 9 (P1 Sprint 10+).
+Events do not survive a coordinator restart — there is no
+replay buffer.
+
+**Lifespan close via `aclose()`.** The coordinator's ``stop()``
+closes every app's bus alongside ``AppStorage.flush_on_shutdown``
+before the app's ``on_stop`` hook so any subscriber currently
+iterating its receive stream sees a clean ``EndOfStream``
+instead of a hung receive.
+
+**SSE bridge to the React shell.** A new
+:func:`nexus_coordinator.api.events.render_sse_stream`
+helper wraps the per-app bus inside an
+``async with bus.subscribe(pattern):`` and yields ``data:
+<json>\n\n`` envelopes plus ``: ping\n\n`` heartbeats every
+30 s. The route handler ``GET /app/{name}/events?pattern=…``
+returns a :class:`fastapi.responses.StreamingResponse` over
+this generator with ``content-type: text/event-stream``. The
+shell's :func:`useAppEvents` hook opens an :class:`EventSource`
+against this URL, parses each envelope through a Zod mirror of
+:class:`EventEnvelope`, and calls
+``queryClient.invalidateQueries({queryKey})`` so the live grids
+re-fetch without a manual refresh.
+
+**Cleanup on disconnect (R7).** The streaming generator is the
+load-bearing R7 mitigation: the
+``async with bus.subscribe(pattern):`` lives inside the body
+and its ``finally:`` aclose runs on every cancellation path —
+including the brutal-disconnect path Starlette translates into
+a :class:`asyncio.CancelledError` propagated into the
+generator. The dedicated
+``test_events_sse_disconnect_unregisters_subscriber`` test
+pins this contract by closing the generator manually and
+asserting ``bus.stats()['subscribers'] == 0``.
+
+**Anti-patterns explicitly rejected.** ``asyncio.Queue`` with
+weak refs (re-invents the wheel; weak refs on coroutines are GC
+footguns), iroh-gossip (cross-node, way too heavy for the
+in-process surface this primitive serves), MQTT topic
+``+`` / ``#`` (more expressive but adds a parser dependency
+for no Sprint 9 win), :mod:`blinker` (sync only, not
+async-friendly), :mod:`aiopubsub` (peu maintained).
+
+Reference: sprint9_kickoff.md §4 D2, sprint9_plan.md §6 Phase
+C, commit `<SHA>`.
+
 ## Tech debt — queued for Phase D or later
 
 ### T1 — Fast refresh warnings on 5 shadcn ui primitives

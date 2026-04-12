@@ -26,6 +26,7 @@ from nexus_sdk.commands import CommandDescriptor
 from nexus_sdk.compute_client import ComputeClient
 from nexus_sdk.db import AppDatabaseClient, DatabaseError
 from nexus_sdk.decorators import nexus_command, nexus_route, nexus_tab, nexus_worker
+from nexus_sdk.events import AppEvents, EventEnvelope, EventOverflowPolicy
 from nexus_sdk.loader import discover_apps
 from nexus_sdk.storage import AppStorage, StorageSchemaError, TypedNamespace
 from nexus_sdk.view import (
@@ -50,9 +51,12 @@ __version__ = "0.1.0"
 __all__ = [
     "AppContext",
     "AppDatabaseClient",
+    "AppEvents",
     "AppManifest",
     "AppStorage",
     "CommandDescriptor",
+    "EventEnvelope",
+    "EventOverflowPolicy",
     "ComputeClient",
     "DatabaseError",
     "NexusApp",

@@ -161,20 +161,25 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
             assert body["manifest"]["name"] == "gov"
             assert len(body["routes"]) == 1
             assert body["routes"][0]["path"] == "/statements"
-            # Sprint 8 Phase D: the gov manifest now advertises
-            # three workers — the Sprint 4 contradiction_detector
-            # stub plus the two RAG workers rag_search (on
-            # nomic-embed-text) and rag_ask (on the heretic gemma
-            # model) introduced by Phase D.
+            # Sprint 8 Phase D advertised three workers — the
+            # Sprint 4 contradiction_detector stub plus the two
+            # RAG workers (rag_search on nomic-embed-text and
+            # rag_ask on the heretic gemma model). Sprint 9
+            # Phase C adds the refresh_party_cache worker that
+            # publishes party.refreshed on AppContext.events for
+            # the SSE bridge consumer test, so the gov manifest
+            # now lists four workers.
             worker_models = {w["name"]: w["model"] for w in body["workers"]}
             assert set(worker_models.keys()) == {
                 "contradiction_detector",
                 "rag_search",
                 "rag_ask",
+                "refresh_party_cache",
             }
             assert worker_models["contradiction_detector"] == "stub-model:latest"
             assert worker_models["rag_search"] == "nomic-embed-text"
             assert worker_models["rag_ask"] == "juilpark/gemma-4-26B-A4B-it-heretic:q4_k_m"
+            assert worker_models["refresh_party_cache"] == "stub-model:latest"
             # Sprint 8 Phase D: the gov manifest now ships
             # nineteen tabs — thirteen Batch 1+2 tabs carried over
             # from Phase C plus six Batch 3 tabs (Alertes, Affaires,

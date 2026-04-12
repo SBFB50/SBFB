@@ -68,6 +68,7 @@ wrangle SQL.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,7 @@ from nexus_sdk import (
     AppContext,
     AppDatabaseClient,
     AppManifest,
+    DatabaseError,
     NexusApp,
     button_task,
     nexus_command,
@@ -249,6 +251,43 @@ class GovApp(NexusApp):
             priority=5,
         )
         return {"task_id": task.task_id}
+
+    # ------------------------------------------------------------------
+    # Sprint 9 Phase C — D2 consumer (refresh_party_cache + party.refreshed)
+    # ------------------------------------------------------------------
+
+    @nexus_worker(name="refresh_party_cache", model="stub-model:latest")
+    async def refresh_party_cache(self, ctx: AppContext) -> dict[str, Any]:
+        """Re-read the legacy ``gov_parties`` table and announce
+        the new count on :attr:`AppContext.events`.
+
+        Sprint 9 Phase C (D2 consumer): the worker is the
+        canonical "publisher" half of the AppContext.events
+        story. The Politiciens tab subscribes to ``party.refreshed``
+        through the SSE bridge and React Query invalidation,
+        so a manual `gov.refresh_party_cache` invocation
+        re-renders the live grid without a page reload.
+
+        The handler is intentionally tiny: counting parties is
+        cheap, the bus is in-process, and the only state the
+        worker mutates is the publish-side of the bus. A
+        missing ``gov_parties`` table degrades to ``count=0``
+        rather than raising — the consumer side renders an
+        empty grid in that case.
+        """
+        db = ctx.db
+        count = 0
+        if db is not None:
+            try:
+                row = await db.fetchone("SELECT COUNT(*) AS n FROM gov_parties")
+            except DatabaseError:
+                row = None
+            if row is not None:
+                count = int(row["n"])
+        payload = {"count": count, "refreshed_at": datetime.now(timezone.utc).isoformat()}
+        if ctx.events is not None:
+            await ctx.events.publish("party.refreshed", payload)
+        return payload
 
     @nexus_worker(
         name="rag_ask",

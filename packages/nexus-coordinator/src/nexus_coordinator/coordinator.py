@@ -42,6 +42,7 @@ import structlog
 from nexus_sdk import (
     AppContext,
     AppDatabaseClient,
+    AppEvents,
     AppStorage,
     ComputeClient,
     NexusApp,
@@ -290,12 +291,19 @@ class Coordinator:
                 # first flush; the parent directory already
                 # exists from the AppDatabaseClient mkdir above.
                 storage_path = app_storage_path(self.project_name, app.manifest.name)
+                # Sprint 9 Phase C (D2 impl): wire a per-app
+                # AppEvents bus alongside the storage. The bus is
+                # in-process only — events do not survive a
+                # coordinator restart and are not replicated
+                # cross-node — and the lifespan close in stop()
+                # below drains every subscriber gracefully.
                 ctx = AppContext(
                     compute=compute,
                     project_name=self.project_name,
                     app_name=app.manifest.name,
                     db=AppDatabaseClient(default_db_path),
                     storage=AppStorage(storage_path),
+                    events=AppEvents(),
                     _app=app,
                 )
                 await app.on_start(ctx)
@@ -340,6 +348,23 @@ class Coordinator:
                 except Exception as e:  # noqa: BLE001
                     _log.warning(
                         "app storage flush_on_shutdown raised",
+                        app=name,
+                        error=str(e),
+                    )
+            # Sprint 9 Phase C (D2 lifespan): close every app's
+            # AppEvents bus before its on_stop hook so any
+            # subscriber currently iterating its receive stream
+            # exits the async-for loop on a clean EndOfStream
+            # instead of hanging on a vanished sender. Failures
+            # are logged but never block the rest of teardown.
+            for name, ctx in list(self.app_contexts.items()):
+                if ctx.events is None:
+                    continue
+                try:
+                    await ctx.events.aclose()
+                except Exception as e:  # noqa: BLE001
+                    _log.warning(
+                        "app events aclose raised",
                         app=name,
                         error=str(e),
                     )

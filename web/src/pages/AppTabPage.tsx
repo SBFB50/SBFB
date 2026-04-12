@@ -38,6 +38,7 @@ import {
 import { getAppTabDescriptor } from "@/api/coordinator";
 import { TabViewRenderer } from "@/components/app/tabview/TabViewRenderer";
 import { TabAppContext } from "@/components/app/tabview/TabAppContext";
+import { useAppEvents } from "@/hooks/useAppEvents";
 import {
   selectActiveCoordinator,
   useProjectStore,
@@ -62,6 +63,20 @@ export default function AppTabPage() {
     enabled: Boolean(active && appName && tabName),
     staleTime: 5_000,
     retry: 0,
+  });
+
+  // Sprint 9 Phase C (D2 consumer): the gov Politiciens tab
+  // subscribes to ``party.refreshed`` so a worker that updates
+  // the party cache invalidates the descriptor query and
+  // re-renders the grid without a manual refresh. Other tabs
+  // are unaffected — the hook is a no-op when ``appName`` or
+  // ``tabName`` does not match the gov Politiciens combination.
+  const isGovPoliticiensTab = appName === "gov" && tabName === "Politiciens";
+  useAppEvents({
+    coordinatorUrl: isGovPoliticiensTab ? (active?.url ?? null) : null,
+    appName: isGovPoliticiensTab ? appName : null,
+    pattern: "party.refreshed",
+    invalidateQueryKey: ["app-tab", active?.url, appName, tabName],
   });
 
   if (!appName || !tabName) {

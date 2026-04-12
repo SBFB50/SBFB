@@ -29,6 +29,7 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     """
     from nexus_coordinator.api.apps import router as apps_router
     from nexus_coordinator.api.daemon import router as daemon_router
+    from nexus_coordinator.api.events import router as events_router
     from nexus_coordinator.api.health import router as health_router
     from nexus_coordinator.api.invites import router as invites_router
     from nexus_coordinator.api.kudos import router as kudos_router
@@ -90,6 +91,7 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     app.include_router(kudos_router)
     app.include_router(invites_router)
     app.include_router(apps_router)
+    app.include_router(events_router)
     app.include_router(shell_router)
     app.include_router(worker_state_router)
     app.include_router(daemon_router)

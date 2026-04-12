@@ -22,6 +22,12 @@ dependencies = [
     "fastapi>=0.111",
     "httpx>=0.27",
     "aiosqlite>=0.20",
+    # anyio is already transitive via FastAPI / Starlette, but
+    # the Sprint 9 Phase C `AppContext.events` primitive depends
+    # on it directly (`anyio.create_memory_object_stream`,
+    # `WouldBlock`, `EndOfStream`) so we pin it explicitly to
+    # surface the contract.
+    "anyio>=4.0",
 ]
 
 [project.optional-dependencies]

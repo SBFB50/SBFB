@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from nexus_sdk.commands import CommandDescriptor
 from nexus_sdk.compute_client import ComputeClient
 from nexus_sdk.db import AppDatabaseClient
+from nexus_sdk.events import AppEvents
 from nexus_sdk.registry import collect_decorators
 from nexus_sdk.storage import AppStorage
 
@@ -96,7 +97,9 @@ class AppContext:
     swap the field in their ``on_start`` override to point at a
     different SQLite file), an :class:`AppStorage` JSON KV with
     typed namespace support wired by the loader (Sprint 9 Phase B
-    — D1), and a free-form ``extras`` dict for future plumbing.
+    — D1), an :class:`AppEvents` per-app pub/sub bus wired by
+    the loader (Sprint 9 Phase C — D2), and a free-form
+    ``extras`` dict for future plumbing.
 
     The ``_app`` field is a backref to the :class:`NexusApp`
     instance that owns this context. The coordinator loader
@@ -111,6 +114,7 @@ class AppContext:
     app_name: str = ""
     db: AppDatabaseClient | None = None
     storage: AppStorage | None = None
+    events: AppEvents | None = None
     # Sprint 9 Phase B (D1 consumer wiring): apps register typed
     # storage namespaces here from their ``on_start`` hook so the
     # coordinator's generic ``POST /app/{name}/state/{ns_key}``
