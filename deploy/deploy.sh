@@ -5,8 +5,10 @@
 # Usage:
 #   ./deploy/deploy.sh --host <ip> --key <ssh_key> --role daemon
 #   ./deploy/deploy.sh --host <ip> --key <ssh_key> --role coordinator
+#   ./deploy/deploy.sh --host <ip> --key <ssh_key> --role web
 #
 # Prerequisites: VPS provisioned via provision.sh, binaries in dist/.
+# For --role web: Node.js + npm available locally, nginx on VPS.
 
 set -euo pipefail
 
@@ -24,7 +26,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$HOST" || -z "$KEY" ]]; then
-  echo "Usage: deploy.sh --host <ip> --key <ssh_key_path> --role daemon|coordinator"
+  echo "Usage: deploy.sh --host <ip> --key <ssh_key_path> --role daemon|coordinator|web"
   exit 1
 fi
 
@@ -36,6 +38,32 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST="$REPO_ROOT/dist"
 
 echo "==> Deploying to $HOST (role: $ROLE)"
+
+# ── Web-only deploy path ───────────────────────────────────
+if [[ "$ROLE" == "web" ]]; then
+  echo "  [1/3] Building web shell..."
+  cd "$REPO_ROOT/web"
+  npm ci --silent
+  npm run build
+
+  echo "  [2/3] Uploading to $HOST:/opt/nexus-grid/web/..."
+  $SSH "rm -rf /opt/nexus-grid/web/*"
+  $SCP -r dist/* "nexus@$HOST:/opt/nexus-grid/web/"
+
+  echo "  [3/3] Reloading nginx..."
+  $SSH "sudo systemctl reload nginx"
+
+  HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://$HOST/" 2>/dev/null || echo "000")
+  if [[ "$HTTP_CODE" == "200" ]]; then
+    echo "  Smoke test: HTTP $HTTP_CODE — OK"
+  else
+    echo "  Smoke test: HTTP $HTTP_CODE (VPS may not be reachable from here)"
+  fi
+
+  echo ""
+  echo "==> Web deploy to $HOST complete."
+  exit 0
+fi
 
 # ── Upload daemon binary ────────────────────────────────────
 echo "  [1/4] Uploading nexus-shell-daemon..."

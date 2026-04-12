@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Coordinator configuration for VPS bootstrap nodes.
+# Copy to /opt/nexus-grid/data/coordinator.toml and adjust.
+#
+# The coordinator manages one project and its apps. On the EU VPS
+# it runs nexus-app-gov as the first official public project.
+
+[identity]
+project_name = "gov-officiel"
+
+[network]
+# Public visibility — the coordinator will auto-publish to the
+# P2P network via daemon gossip at startup.
+visibility = "public"
+# Loopback only — nginx proxies external traffic via /api/.
+host = "127.0.0.1"
+port = 8000
