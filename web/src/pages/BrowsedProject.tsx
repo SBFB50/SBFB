@@ -30,7 +30,14 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { getDaemonInfo, listBrowse, type BrowseEntry } from "@/api/daemon";
+import {
+  blobServeUrl,
+  daemonBaseUrlFromInfo,
+  getDaemonInfo,
+  listBrowse,
+  type BrowseEntry,
+  type DaemonInfo,
+} from "@/api/daemon";
 import {
   getAppManifest,
   getAppTabDescriptor,
@@ -102,9 +109,11 @@ function BrowsedProjectContent({
   // returned by GET /daemon/info.  The previous check compared
   // against the coordinator's node_id (GET /health) which is a
   // *different* iroh node — always false in production.
-  const isLocal =
-    daemonInfoQuery.data?.kind === "data" &&
-    daemonInfoQuery.data.body.node_id === projectId;
+  const daemonInfo =
+    daemonInfoQuery.data?.kind === "data"
+      ? daemonInfoQuery.data.body
+      : null;
+  const isLocal = daemonInfo !== null && daemonInfo.node_id === projectId;
 
   if (browseQuery.isLoading || daemonInfoQuery.isLoading) {
     return (
@@ -146,7 +155,7 @@ function BrowsedProjectContent({
           {isLocal ? (
             <LocalProjectApps coordUrl={coordUrl} />
           ) : (
-            <RemoteProjectPlaceholder />
+            <RemoteProjectFrame entry={entry} daemonInfo={daemonInfo} />
           )}
         </div>
       </div>
@@ -395,22 +404,47 @@ function AppTabContent({
 }
 
 // =================================================================
-// Remote project placeholder
+// Remote project — iframe rendering or placeholder
 // =================================================================
 
-function RemoteProjectPlaceholder() {
+function RemoteProjectFrame({
+  entry,
+  daemonInfo,
+}: {
+  entry: BrowseEntry;
+  daemonInfo: DaemonInfo | null;
+}) {
+  if (!entry.archive_hash || !daemonInfo) {
+    return (
+      <Card data-testid="remote-placeholder">
+        <CardHeader>
+          <CardTitle>Projet distant</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Ce projet est hébergé sur un noeud distant. Aucune archive
+          n'est disponible pour le rendu local. Connectez-vous
+          directement au coordinateur du projet pour y accéder.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const daemonUrl = daemonBaseUrlFromInfo(daemonInfo);
+  const iframeSrc = blobServeUrl(daemonUrl, entry.archive_hash);
+
   return (
-    <Card data-testid="remote-placeholder">
-      <CardHeader>
-        <CardTitle>Projet distant</CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        Ce projet est hébergé sur un noeud distant. Le rendu
-        d'applications cross-node sera disponible dans une prochaine
-        version. Connectez-vous directement au coordinateur du projet
-        pour y accéder.
-      </CardContent>
-    </Card>
+    <div className="flex flex-col" data-testid="remote-iframe">
+      <div className="rounded-t-lg border border-b-0 border-amber-500/30 bg-amber-900/20 px-4 py-2 text-sm text-amber-200">
+        Contenu publié par un tiers — non vérifié par SBFB
+      </div>
+      <iframe
+        src={iframeSrc}
+        sandbox="allow-scripts"
+        className="min-h-[600px] w-full rounded-b-lg border border-border"
+        title={entry.project_name}
+        data-testid="remote-iframe-element"
+      />
+    </div>
   );
 }
 

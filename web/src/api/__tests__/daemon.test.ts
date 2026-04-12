@@ -33,12 +33,15 @@ import {
 } from "vitest";
 
 import {
+  blobServeUrl,
+  daemonBaseUrlFromInfo,
   getDaemonInfo,
   isValidCuratorPubkey,
   listBrowse,
   listCurators,
   subscribeCurator,
   unsubscribeCurator,
+  type DaemonInfo,
 } from "@/api/daemon";
 
 const COORD = "http://127.0.0.1:8765";
@@ -516,5 +519,88 @@ describe("CuratorListEntrySchema cross-language fixture (A-3)", () => {
     oversized.list.entries[0].category = "c".repeat(65);
     const parsed = CuratorListEntrySchema.safeParse(oversized);
     expect(parsed.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------
+// Sprint 12 Phase C — BrowseEntry archive fields + helpers
+// ---------------------------------------------------------------
+
+describe("BrowseEntry archive_ticket + archive_hash", () => {
+  it("accepts entries with archive_ticket and archive_hash", async () => {
+    mockFetchOk({
+      kind: "data",
+      status: 200,
+      body: {
+        entries: [
+          {
+            project_id: "aa".repeat(32),
+            project_name: "web-app",
+            category: "misc",
+            description: "has archive",
+            curator_pubkey: "",
+            curator_name: "Self-published",
+            source: "direct",
+            status: "reachable",
+            last_probed_at: null,
+            archive_ticket: "blobticket_abc123",
+            archive_hash: "ab".repeat(32),
+          },
+        ],
+      },
+    });
+    const result = await listBrowse(COORD);
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.entries[0].archive_ticket).toBe("blobticket_abc123");
+    expect(result.body.entries[0].archive_hash).toBe("ab".repeat(32));
+  });
+
+  it("accepts entries without archive fields (backward compat)", async () => {
+    mockFetchOk({
+      kind: "data",
+      status: 200,
+      body: {
+        entries: [
+          {
+            project_id: "aa".repeat(32),
+            project_name: "old",
+            category: "misc",
+            description: "no archive",
+            curator_pubkey: "bb".repeat(32),
+            curator_name: "FlowUP",
+            status: "reachable",
+            last_probed_at: null,
+          },
+        ],
+      },
+    });
+    const result = await listBrowse(COORD);
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.entries[0].archive_ticket).toBeUndefined();
+    expect(result.body.entries[0].archive_hash).toBeUndefined();
+  });
+});
+
+describe("blobServeUrl", () => {
+  it("constructs the correct URL with default path", () => {
+    const url = blobServeUrl("http://127.0.0.1:7000", "ab".repeat(32));
+    expect(url).toBe(`http://127.0.0.1:7000/blob-serve/${"ab".repeat(32)}/index.html`);
+  });
+
+  it("constructs the correct URL with custom path", () => {
+    const url = blobServeUrl("http://127.0.0.1:7000", "cd".repeat(32), "assets/main.js");
+    expect(url).toBe(`http://127.0.0.1:7000/blob-serve/${"cd".repeat(32)}/assets/main.js`);
+  });
+});
+
+describe("daemonBaseUrlFromInfo", () => {
+  it("builds http URL from host and port", () => {
+    const info = {
+      api_host: "127.0.0.1",
+      api_port: 7000,
+    } as DaemonInfo;
+    expect(daemonBaseUrlFromInfo(info)).toBe("http://127.0.0.1:7000");
   });
 });

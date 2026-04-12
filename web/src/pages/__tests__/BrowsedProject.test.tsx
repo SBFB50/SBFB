@@ -193,7 +193,7 @@ describe("BrowsedProject", () => {
     expect(screen.getByText("FlowUP")).toBeInTheDocument();
   });
 
-  it("renders remote placeholder for non-local project", async () => {
+  it("renders remote placeholder for non-local project without archive", async () => {
     mockFetch({
       "/daemon/browse": {
         kind: "data",
@@ -209,8 +209,61 @@ describe("BrowsedProject", () => {
       expect(screen.getByTestId("remote-placeholder")).toBeInTheDocument();
     });
     expect(screen.getByText(/Projet distant/)).toBeInTheDocument();
+  });
+
+  it("renders iframe for remote project with archive_hash", async () => {
+    mockFetch({
+      "/daemon/browse": {
+        kind: "data",
+        status: 200,
+        body: {
+          entries: [
+            makeBrowseEntry({
+              project_id: REMOTE_NODE_ID,
+              archive_ticket: "blobticket_abc123",
+              archive_hash: "ab".repeat(32),
+            }),
+          ],
+        },
+      },
+      "/daemon/info": makeDaemonInfo(),
+    });
+    renderPage(REMOTE_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("remote-iframe")).toBeInTheDocument();
+    });
+    const iframe = screen.getByTestId("remote-iframe-element");
+    expect(iframe).toBeInTheDocument();
+    expect(iframe.tagName).toBe("IFRAME");
+    expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
+    expect(iframe).toHaveAttribute(
+      "src",
+      expect.stringContaining("/blob-serve/"),
+    );
+  });
+
+  it("renders 'contenu tiers' warning banner above iframe", async () => {
+    mockFetch({
+      "/daemon/browse": {
+        kind: "data",
+        status: 200,
+        body: {
+          entries: [
+            makeBrowseEntry({
+              project_id: REMOTE_NODE_ID,
+              archive_hash: "ab".repeat(32),
+            }),
+          ],
+        },
+      },
+      "/daemon/info": makeDaemonInfo(),
+    });
+    renderPage(REMOTE_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("remote-iframe")).toBeInTheDocument();
+    });
     expect(
-      screen.getByText(/noeud distant/),
+      screen.getByText(/Contenu publié par un tiers/),
     ).toBeInTheDocument();
   });
 

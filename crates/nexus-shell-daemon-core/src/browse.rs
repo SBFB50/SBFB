@@ -163,6 +163,12 @@ pub struct BrowseEntry {
     /// predate v2 announcements.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_ticket: Option<String>,
+    /// Hex-encoded BLAKE3 hash of the zip blob (Sprint 12 Phase C).
+    /// The frontend uses this to construct blob-serve URLs since
+    /// `GET /blob-serve/:hash/*path` expects a hex hash, not the
+    /// opaque BlobTicket string. `None` when there is no archive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_hash: Option<String>,
 }
 
 // =================================================================
@@ -320,6 +326,7 @@ impl BrowseAggregator {
                     status,
                     last_probed_at: probed_at_opt.map(iso_utc),
                     archive_ticket: None,
+                    archive_hash: None,
                 });
             }
         }
@@ -442,6 +449,7 @@ mod tests {
             status: BrowseStatus::Reachable,
             last_probed_at: Some("2026-04-11T12:00:00Z".into()),
             archive_ticket: None,
+            archive_hash: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let back: BrowseEntry = serde_json::from_str(&json).unwrap();
@@ -480,11 +488,14 @@ mod tests {
             status: BrowseStatus::Reachable,
             last_probed_at: None,
             archive_ticket: Some("blobticket_abc123".into()),
+            archive_hash: Some("ab".repeat(32)),
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("archive_ticket"));
+        assert!(json.contains("archive_hash"));
         let back: BrowseEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(back.archive_ticket.as_deref(), Some("blobticket_abc123"));
+        assert_eq!(back.archive_hash.as_deref(), Some(&*"ab".repeat(32)));
     }
 
     #[test]
@@ -500,6 +511,7 @@ mod tests {
             status: BrowseStatus::Unknown,
             last_probed_at: None,
             archive_ticket: None,
+            archive_hash: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(
@@ -779,6 +791,7 @@ mod tests {
             status: BrowseStatus::Unknown,
             last_probed_at: None,
             archive_ticket: None,
+            archive_hash: None,
         };
         agg.add_direct_entry(entry);
         assert_eq!(agg.direct_entry_count(), 1);
@@ -799,6 +812,7 @@ mod tests {
             status: BrowseStatus::Unknown,
             last_probed_at: None,
             archive_ticket: None,
+            archive_hash: None,
         };
         let entry2 = BrowseEntry {
             project_id: id.clone(),
@@ -810,6 +824,7 @@ mod tests {
             source: BrowseSource::Direct,
             status: BrowseStatus::Unknown,
             archive_ticket: None,
+            archive_hash: None,
             last_probed_at: None,
         };
         agg.add_direct_entry(entry1);
@@ -833,6 +848,7 @@ mod tests {
             status: BrowseStatus::Unknown,
             last_probed_at: None,
             archive_ticket: None,
+            archive_hash: None,
         };
         agg.add_direct_entry(entry);
 

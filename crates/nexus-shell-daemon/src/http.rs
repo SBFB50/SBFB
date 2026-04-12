@@ -461,6 +461,7 @@ async fn publish_project(
         status: BrowseStatus::Reachable,
         last_probed_at: None,
         archive_ticket: announcement.archive_ticket.clone(),
+        archive_hash: req.archive_hash.clone(),
     };
     state.browse_aggregator.add_direct_entry(browse_entry);
 

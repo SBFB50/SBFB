@@ -201,6 +201,8 @@ export const BrowseEntrySchema = z
     source: BrowseSourceSchema.optional(),
     status: BrowseStatusSchema,
     last_probed_at: z.string().nullable(),
+    archive_ticket: z.string().optional(),
+    archive_hash: z.string().optional(),
   })
   .strict();
 
@@ -366,3 +368,29 @@ export function listBrowse(
 export function isValidCuratorPubkey(candidate: string): boolean {
   return /^[0-9a-f]{64}$/.test(candidate);
 }
+
+/**
+ * Build the daemon blob-serve URL for a file inside an archived
+ * web app. The daemon serves these at a separate origin (port 7000)
+ * so that `sandbox="allow-scripts"` without `allow-same-origin`
+ * gives the iframe an opaque origin.
+ *
+ * Sprint 12 Phase C.
+ */
+export function blobServeUrl(
+  daemonBaseUrl: string,
+  hash: string,
+  path: string = "index.html",
+): string {
+  return `${daemonBaseUrl}/blob-serve/${hash}/${path}`;
+}
+
+/**
+ * Extract the daemon's base URL from a `DaemonInfo` payload.
+ *
+ * Sprint 12 Phase C.
+ */
+export function daemonBaseUrlFromInfo(info: DaemonInfo): string {
+  return `http://${info.api_host}:${info.api_port}`;
+}
+

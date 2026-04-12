@@ -541,6 +541,7 @@ fn handle_project_announcement(browse_aggregator: &BrowseAggregatorHandle, conte
                 status: BrowseStatus::Unknown,
                 last_probed_at: None,
                 archive_ticket: ann.archive_ticket,
+                archive_hash: None, // Hash not available from gossip announcements; only from local publish
             };
             browse_aggregator.add_direct_entry(entry);
             info!(
