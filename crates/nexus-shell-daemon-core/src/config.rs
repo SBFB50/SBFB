@@ -178,15 +178,16 @@ impl ShellDaemonPaths {
 ///
 /// Every field has a `#[serde(default)]` so a partially populated
 /// `config.toml` still loads — only the overrides need to be
-/// specified. Phase A ships two sections; Phase C and later
-/// append `[curator]`, `[pkarr]`, etc. on top without breaking
-/// the existing shape.
+/// specified. Phase A shipped two sections; Sprint 11 Phase B
+/// adds `[curator]` for default curator auto-subscription.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ShellDaemonConfig {
     #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
     pub network: NetworkConfig,
+    #[serde(default)]
+    pub curator: CuratorConfig,
 }
 
 /// `[logging]` section: tracing-subscriber filter directive.
@@ -231,6 +232,21 @@ impl Default for NetworkConfig {
             api_port: 0,
         }
     }
+}
+
+/// `[curator]` section: default curator auto-subscription.
+///
+/// Sprint 11 Phase B. When the daemon boots, it auto-subscribes
+/// to every pubkey listed in `default_curators` that is not
+/// already in the persisted attention set. VPS deployments
+/// populate this with FlowUP's curator pubkey so fresh installs
+/// see the official project list without manual subscribe.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CuratorConfig {
+    /// Ed25519 public keys (hex, 64 chars lowercase) to
+    /// auto-subscribe at first boot. Empty by default.
+    #[serde(default)]
+    pub default_curators: Vec<String>,
 }
 
 // =================================================================
@@ -436,5 +452,55 @@ api_port = 0
         );
 
         std::env::remove_var(paths::NEXUS_GRID_ROOT_ENV);
+    }
+
+    #[test]
+    fn parse_curator_section() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[curator]
+default_curators = ["aa11bb22cc33dd44ee55ff6677889900aabbccddeeff00112233445566778899"]
+"#,
+        )
+        .unwrap();
+
+        let loaded = ShellDaemonConfig::load(&path).unwrap();
+        assert_eq!(loaded.curator.default_curators.len(), 1);
+        assert_eq!(
+            loaded.curator.default_curators[0],
+            "aa11bb22cc33dd44ee55ff6677889900aabbccddeeff00112233445566778899"
+        );
+    }
+
+    #[test]
+    fn default_curator_empty_when_section_absent() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("no-curator.toml");
+        std::fs::write(
+            &path,
+            r#"
+[logging]
+level = "debug"
+"#,
+        )
+        .unwrap();
+
+        let loaded = ShellDaemonConfig::load(&path).unwrap();
+        assert!(
+            loaded.curator.default_curators.is_empty(),
+            "absent [curator] section must yield empty default_curators"
+        );
+    }
+
+    #[test]
+    fn curator_config_round_trips_through_toml() {
+        let mut cfg = ShellDaemonConfig::default();
+        cfg.curator.default_curators = vec!["ab".repeat(32)];
+        let body = toml::to_string_pretty(&cfg).unwrap();
+        let back: ShellDaemonConfig = toml::from_str(&body).unwrap();
+        assert_eq!(cfg.curator, back.curator);
     }
 }

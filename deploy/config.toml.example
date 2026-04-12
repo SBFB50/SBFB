@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Shell daemon configuration for VPS bootstrap nodes.
+# Copy to /opt/nexus-grid/shell-daemon/config.toml and adjust.
+
+[logging]
+level = "info"
+
+[network]
+# Loopback only — nginx proxies external traffic.
+api_host = "127.0.0.1"
+# Fixed port so nginx and coordinator can find the daemon.
+# Use 0 for ephemeral (development).
+api_port = 7000
+
+[curator]
+# Ed25519 public keys (hex) to auto-subscribe at first boot.
+# Populated after first curator list creation on this VPS.
+# Other VPS nodes set this to the primary curator's pubkey.
+default_curators = []

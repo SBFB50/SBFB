@@ -80,6 +80,9 @@ pub struct DaemonHttpState {
     /// has joined the curator topic. Used by `POST /publish` to
     /// broadcast project announcements. Sprint 11 Phase A.
     pub gossip_sender: GossipSenderHandle,
+    /// Default curator pubkeys from `[curator]` config section.
+    /// Sprint 11 Phase B. Exposed via `GET /default-curators`.
+    pub default_curators: Vec<String>,
 }
 
 impl DaemonHttpState {
@@ -118,6 +121,7 @@ pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
         .route("/curators/:pubkey", delete(unsubscribe_curator))
         .route("/browse", get(list_browse))
         .route("/publish", post(publish_project))
+        .route("/default-curators", get(default_curators))
         .with_state(state)
         .layer(loopback_cors_layer())
 }
@@ -236,6 +240,14 @@ pub struct PublishRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublishResponse {
     pub published: bool,
+}
+
+/// Body of `GET /default-curators`. Sprint 11 Phase B.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DefaultCuratorsResponse {
+    /// Configured default curator Ed25519 public keys (hex).
+    pub default_curators: Vec<String>,
 }
 
 /// Body returned when a curator runtime error must be surfaced
@@ -423,6 +435,19 @@ async fn publish_project(
     (StatusCode::OK, Json(PublishResponse { published: true }))
 }
 
+/// `GET /default-curators` — return the daemon's configured
+/// default curator pubkeys from `[curator]` config section.
+/// Sprint 11 Phase B.
+async fn default_curators(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    debug!("GET /default-curators");
+    (
+        StatusCode::OK,
+        Json(DefaultCuratorsResponse {
+            default_curators: state.default_curators.clone(),
+        }),
+    )
+}
+
 // =================================================================
 // Tests
 // =================================================================
@@ -456,6 +481,7 @@ mod tests {
             browse_aggregator: Arc::new(BrowseAggregator::new()),
             node: Arc::new(node),
             gossip_sender: Arc::new(RwLock::new(None)),
+            default_curators: vec![],
         })
     }
 
@@ -812,5 +838,61 @@ mod tests {
     fn loopback_origin_rejects_suffix_trick() {
         let h = HeaderValue::from_static("http://127.0.0.1.evil.com");
         assert!(!is_loopback_origin(&h));
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 11 Phase B: default-curators endpoint
+    // ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn default_curators_returns_empty_when_unconfigured() {
+        let app = build_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/default-curators")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let res: DefaultCuratorsResponse = serde_json::from_slice(&body).unwrap();
+        assert!(res.default_curators.is_empty());
+    }
+
+    #[tokio::test]
+    async fn default_curators_returns_configured_list() {
+        let node = create_node().await.expect("boot test node");
+        let curator_hex = "ab".repeat(32);
+        let state = Arc::new(DaemonHttpState {
+            node_id: node.node_id(),
+            daemon_version: "0.1.0-test".to_string(),
+            boot_time: SystemTime::now(),
+            api_host: "127.0.0.1".to_string(),
+            api_port: 12345,
+            curator_runtime: Arc::new(CuratorRuntime::new(None)),
+            browse_aggregator: Arc::new(BrowseAggregator::new()),
+            node: Arc::new(node),
+            gossip_sender: Arc::new(RwLock::new(None)),
+            default_curators: vec![curator_hex.clone()],
+        });
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/default-curators")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let res: DefaultCuratorsResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(res.default_curators, vec![curator_hex]);
     }
 }

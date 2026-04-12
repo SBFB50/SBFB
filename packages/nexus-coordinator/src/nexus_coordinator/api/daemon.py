@@ -255,6 +255,17 @@ async def daemon_list_browse(request: Request) -> JSONResponse:
     return await _forward(request, "GET", "/browse")
 
 
+@router.get("/default-curators")
+async def daemon_default_curators(request: Request) -> JSONResponse:
+    """Proxy ``GET /default-curators`` on the shell daemon.
+
+    Sprint 11 Phase B. Returns the daemon's configured default
+    curator pubkeys so the shell can display them on the Curators
+    page.
+    """
+    return await _forward(request, "GET", "/default-curators")
+
+
 @router.post("/publish")
 async def daemon_publish_project(request: Request) -> JSONResponse:
     """Proxy ``POST /publish`` on the shell daemon.

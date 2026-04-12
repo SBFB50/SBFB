@@ -90,6 +90,7 @@ async fn handle_start(paths: ShellDaemonPaths, _headless: bool) -> Result<()> {
         api_host: cfg.network.api_host.clone(),
         api_port: cfg.network.api_port,
         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
+        curator: cfg.curator.clone(),
     };
 
     let runtime = DaemonRuntime::start(opts)

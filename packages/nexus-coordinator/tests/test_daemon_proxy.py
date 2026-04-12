@@ -625,3 +625,49 @@ async def test_auto_publish_called_for_public_coordinator(
             assert forwarded["project_name"] == "auto-pub-test"
         finally:
             await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_daemon_default_curators_forwards_upstream(
+    nexus_grid_tmp: Path,
+) -> None:
+    """GET /daemon/default-curators proxies to daemon GET /default-curators."""
+    curator_hex = "ab" * 32
+    with _FakeDaemon() as fake:
+        fake.set_response(
+            "GET",
+            "/default-curators",
+            200,
+            {"default_curators": [curator_hex]},
+        )
+        _write_running_json(nexus_grid_tmp, port=fake.port)
+
+        coord = Coordinator(project_name="default-curators-test")
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                r = client.get("/daemon/default-curators")
+                assert r.status_code == 200
+                body = r.json()
+                assert body["kind"] == "data"
+                assert body["status"] == 200
+                assert body["body"]["default_curators"] == [curator_hex]
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_daemon_default_curators_returns_503_when_daemon_down(
+    nexus_grid_tmp: Path,
+) -> None:
+    """GET /daemon/default-curators returns 503 when daemon is not running."""
+    coord = Coordinator(project_name="default-curators-503")
+    await coord.start()
+    try:
+        with TestClient(create_app(coord)) as client:
+            r = client.get("/daemon/default-curators")
+            assert r.status_code == 503
+            body = r.json()
+            assert body["kind"] == "unavailable"
+    finally:
+        await coord.stop()

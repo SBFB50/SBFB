@@ -38,7 +38,7 @@ use nexus_core_rs::{create_node, GossipClient, GossipEvent, Node};
 use nexus_shell_daemon_core::browse::{
     BrowseAggregator, BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
 };
-use nexus_shell_daemon_core::config::ShellDaemonPaths;
+use nexus_shell_daemon_core::config::{CuratorConfig, ShellDaemonPaths};
 use nexus_shell_daemon_core::iroh_runtime::{
     curator_topic_id, CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle,
 };
@@ -65,6 +65,8 @@ pub struct DaemonStartOptions {
     /// config default is `0` so most real runs let the OS pick.
     pub api_port: u16,
     pub daemon_version: String,
+    /// Sprint 11 Phase B: `[curator]` section from config.
+    pub curator: CuratorConfig,
 }
 
 /// A live `nexus-shell-daemon` process.
@@ -179,6 +181,32 @@ impl DaemonRuntime {
             opts.paths.subscriptions_json.clone(),
         ));
 
+        // 5a. Sprint 11 Phase B: auto-subscribe to default curators.
+        // Idempotent — curators already in the persisted attention
+        // set are silently skipped.
+        let mut auto_subscribed = 0u32;
+        for hex_key in &opts.curator.default_curators {
+            if curator_runtime.subscribed_pubkeys_hex().contains(hex_key) {
+                debug!(curator = %hex_key, "default curator already subscribed, skipping");
+                continue;
+            }
+            match curator_runtime.subscribe(hex_key) {
+                Ok(_) => {
+                    auto_subscribed += 1;
+                    debug!(curator = %hex_key, "auto-subscribed to default curator");
+                }
+                Err(e) => {
+                    warn!(curator = %hex_key, error = %e, "failed to auto-subscribe to default curator");
+                }
+            }
+        }
+        if auto_subscribed > 0 {
+            info!(
+                count = auto_subscribed,
+                "auto-subscribed to default curator(s)"
+            );
+        }
+
         // 5b. Construct the Phase D browse aggregator. It is
         //     cheap (just a DashMap + two duration knobs) so
         //     it is always instantiated at boot; GET /browse
@@ -201,6 +229,7 @@ impl DaemonRuntime {
             browse_aggregator: Arc::clone(&browse_aggregator),
             node: Arc::clone(&node),
             gossip_sender: Arc::clone(&gossip_sender),
+            default_curators: opts.curator.default_curators.clone(),
         });
         let router = build_router(http_state);
 
@@ -539,6 +568,7 @@ mod tests {
             api_host: "127.0.0.1".to_string(),
             api_port: 0,
             daemon_version: "0.1.0-test".to_string(),
+            curator: CuratorConfig::default(),
         }
     }
 
@@ -646,6 +676,46 @@ mod tests {
         let opts2 = mk_opts(tmp.path());
         let rt2 = DaemonRuntime::start(opts2).await.unwrap();
         assert!(rt2.curator_runtime().is_subscribed(&kp.public_bytes()));
+        rt2.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn auto_subscribe_default_curators_at_boot() {
+        let tmp = tempdir().expect("tempdir");
+        let kp = nexus_core_rs::KeyPair::generate();
+        let hex_key = hex::encode(kp.public_bytes());
+
+        let mut opts = mk_opts(tmp.path());
+        opts.curator.default_curators = vec![hex_key.clone()];
+
+        let rt = DaemonRuntime::start(opts).await.unwrap();
+        assert!(
+            rt.curator_runtime().is_subscribed(&kp.public_bytes()),
+            "default curator must be auto-subscribed at boot"
+        );
+        rt.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn auto_subscribe_is_idempotent() {
+        let tmp = tempdir().expect("tempdir");
+        let kp = nexus_core_rs::KeyPair::generate();
+        let hex_key = hex::encode(kp.public_bytes());
+
+        // First boot — manually subscribe.
+        let opts1 = mk_opts(tmp.path());
+        let rt1 = DaemonRuntime::start(opts1).await.unwrap();
+        rt1.curator_runtime().subscribe(&hex_key).unwrap();
+        rt1.shutdown().await.unwrap();
+
+        // Second boot — same key in default_curators. Must not
+        // double-subscribe or error.
+        let mut opts2 = mk_opts(tmp.path());
+        opts2.curator.default_curators = vec![hex_key.clone()];
+        let rt2 = DaemonRuntime::start(opts2).await.unwrap();
+        assert!(rt2.curator_runtime().is_subscribed(&kp.public_bytes()));
+        // Only one entry in the attention set, not two.
+        assert_eq!(rt2.curator_runtime().subscribed_pubkeys_hex().len(), 1);
         rt2.shutdown().await.unwrap();
     }
 }
