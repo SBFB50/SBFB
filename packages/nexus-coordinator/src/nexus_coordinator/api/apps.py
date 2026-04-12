@@ -27,7 +27,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Request
-from nexus_sdk import CommandDescriptor, WorkerNotFound
+from nexus_sdk import CommandDescriptor, StorageSchemaError, WorkerNotFound
 from nexus_sdk.view import TabView
 from pydantic import BaseModel, Field, ValidationError
 
@@ -230,6 +230,71 @@ async def list_app_commands(request: Request, name: str) -> list[CommandDescript
     if app is None:
         raise HTTPException(status_code=404, detail=f"app {name!r} not installed")
     return app.commands()
+
+
+# =================================================================
+# Sprint 9 Phase B — D1 typed namespace setter
+# =================================================================
+
+
+@router.post("/{name}/state/{ns_key}")
+async def set_app_state(
+    request: Request,
+    name: str,
+    ns_key: str,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist a value into one of an app's typed storage namespaces.
+
+    Sprint 9 Phase B (D1 consumer wiring): apps register typed
+    :class:`nexus_sdk.TypedNamespace` instances on
+    :attr:`nexus_sdk.AppContext.namespaces` from their
+    ``on_start`` hook. This route looks up the namespace by key,
+    forwards the JSON body through ``Schema.model_validate()``
+    via :meth:`TypedNamespace.set`, and writes the validated
+    value to the underlying :class:`nexus_sdk.AppStorage`. The
+    coordinator never imports the schema directly — the typed
+    namespace registration is the only contract — so adding a
+    new typed namespace consumer is a pure app-side change.
+
+    Returns ``{"ok": True}`` on success. Failure modes:
+
+    - 404 — unknown app or unknown namespace key.
+    - 422 — body fails the bound schema's
+      :class:`pydantic.ValidationError` (raised here as
+      :class:`nexus_sdk.StorageSchemaError`); the detail field
+      carries the underlying validation message.
+    - 503 — the app context exists but ``ctx.storage`` is
+      ``None``, which signals a coordinator bug because the
+      loader always wires it.
+    """
+    apps = _apps(request)
+    if name not in apps:
+        raise HTTPException(status_code=404, detail=f"app {name!r} not installed")
+    ctx = _app_contexts(request).get(name)
+    if ctx is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(f"app {name!r} has no bound context — coordinator loader bug"),
+        )
+    if ctx.storage is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"app {name!r} has no AppContext.storage wired",
+        )
+    namespace = ctx.namespaces.get(ns_key)
+    if namespace is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"app {name!r} has no typed namespace registered under {ns_key!r}; the app must register it on on_start"
+            ),
+        )
+    try:
+        await namespace.set(body)
+    except StorageSchemaError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @router.post("/{name}/commands/{cmd_name}/invoke")

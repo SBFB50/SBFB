@@ -652,6 +652,43 @@ export function invokeAppCommand(
   );
 }
 
+export const SetAppStateResponseSchema = z.object({
+  ok: z.literal(true),
+});
+export type SetAppStateResponse = z.infer<typeof SetAppStateResponseSchema>;
+
+/**
+ * Sprint 9 Phase B (D1 typed namespace setter). Push a JSON
+ * payload into one of an app's typed storage namespaces.
+ *
+ * The coordinator dispatches the body through the
+ * :class:`nexus_sdk.TypedNamespace` registered by the app on
+ * :attr:`AppContext.namespaces` at ``on_start`` time, validating
+ * against the bound Pydantic schema before persisting. The
+ * caller therefore does not need to know the schema — it only
+ * needs to send a JSON object that the app's namespace will
+ * accept. The route returns 422 with a structured detail when
+ * the body fails validation.
+ *
+ * Used by the gov Politiciens filter persist flow (Phase B
+ * consumer): the Playwright spec POSTs the active filter to
+ * ``namespaceKey="politicians_filter"`` then reloads the page
+ * to assert the descriptor still reflects the persisted state.
+ */
+export function setAppState(
+  baseUrl: string,
+  appName: string,
+  namespaceKey: string,
+  body: Record<string, unknown>,
+): Promise<SetAppStateResponse> {
+  return postJson(
+    baseUrl,
+    `/app/${encodeURIComponent(appName)}/state/${encodeURIComponent(namespaceKey)}`,
+    body,
+    SetAppStateResponseSchema,
+  );
+}
+
 export function shellDiscover(baseUrl: string): Promise<ShellDiscoverResponse> {
   return getJson(baseUrl, "/shell/discover", ShellDiscoverResponseSchema);
 }

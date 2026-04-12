@@ -113,24 +113,49 @@ async def dashboard_stats_query(db: AppDatabaseClient) -> dict[str, Any]:
     }
 
 
-async def politicians_list_query(db: AppDatabaseClient, *, limit: int = 50) -> list[dict[str, Any]]:
+async def politicians_list_query(
+    db: AppDatabaseClient,
+    *,
+    limit: int = 50,
+    chamber: str | None = None,
+    search: str | None = None,
+) -> list[dict[str, Any]]:
     """Return up to ``limit`` politicians sorted by name.
 
     Columns projected: ``id``, ``name``, ``chamber``, ``party``,
     ``role``, ``constituency``, ``active``. A fresh DB missing
     the table returns ``[]`` rather than raising — the caller
     decides whether to render an empty state.
+
+    Sprint 9 Phase B (D1 consumer): the optional ``chamber`` and
+    ``search`` parameters wire the persisted
+    :class:`nexus_app_gov.filters.PoliticiansFilter` into the
+    query. ``chamber`` is matched exactly; ``search`` is wrapped
+    in ``%search%`` for a case-insensitive substring match
+    against the politician name. Both arguments are passed as
+    SQL parameters — there is no string interpolation, so the
+    query is injection-safe even if the filter payload is
+    untrusted (it isn't — the filter passes through Pydantic
+    ``extra="forbid"`` validation before it reaches storage).
     """
+    sql_parts = [
+        "SELECT id, name, chamber, party, role, constituency, active",
+        "FROM gov_politicians",
+    ]
+    where_clauses: list[str] = []
+    params: list[Any] = []
+    if chamber is not None:
+        where_clauses.append("chamber = ?")
+        params.append(chamber)
+    if search:
+        where_clauses.append("name LIKE ?")
+        params.append(f"%{search}%")
+    if where_clauses:
+        sql_parts.append("WHERE " + " AND ".join(where_clauses))
+    sql_parts.append("ORDER BY name LIMIT ?")
+    params.append(limit)
     try:
-        return await db.fetchall(
-            """
-            SELECT id, name, chamber, party, role, constituency, active
-            FROM gov_politicians
-            ORDER BY name
-            LIMIT ?
-            """,
-            (limit,),
-        )
+        return await db.fetchall(" ".join(sql_parts), tuple(params))
     except DatabaseError:
         return []
 

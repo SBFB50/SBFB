@@ -405,6 +405,108 @@ build`, which activates `rollup-plugin-visualizer` and emits
 Reference: sprint9_kickoff.md §4 D6, sprint9_plan.md §4 Phase
 A, commit `<SHA>`.
 
+### P13 — `AppContext.storage` is per-app per-project JSON KV with typed namespaces
+
+Sprint 9 Phase B (D1). Every app gets a per-instance
+:class:`nexus_sdk.AppStorage` wired by the coordinator loader
+on :attr:`nexus_sdk.AppContext.storage` BEFORE the app's
+``on_start`` hook runs. The store persists a flat
+``str -> JSON`` map at
+``<projects_root>/<project>/apps/<app>/storage.json`` with
+this on-disk shape:
+
+```json
+{"schema": 1, "payload": {"filters.politicians": {"chamber": "AN"}}}
+```
+
+The mirror of P11 (``AppContext.db``): P11 is the read path
+on a precious external SQLite, P13 is the writable per-app
+state surface for soft UI / filter / preference data that
+the app owns end-to-end.
+
+**Atomic rename via tmpfile + os.replace.** Writes go through
+a sibling tmpfile created with ``tempfile.mkstemp(dir=parent)``
+so it lives on the same filesystem (cross-device
+``os.replace`` is unsupported on Linux), then swapped with
+``os.replace``. The pattern is canonical across diskcache,
+TinyDB and pydantic-settings — a partial write can never
+leave the storage file in a half-updated state, even on a
+crash.
+
+**Write coalescing via ``asyncio.call_later(0.5, flush)``.**
+Every mutation marks the in-memory state dirty and reschedules
+a single deferred flush 500 ms later. A burst of N writes
+collapses into one on-disk write, mirroring TinyDB's
+``CachingMiddleware``. The delay is configurable via the
+``flush_delay_seconds`` constructor kwarg for tests that need
+to drive the timer deterministically (the SDK suite mocks
+``_schedule_flush`` per-instance and ``os.replace`` to count
+flush invocations).
+
+**Per-instance ``asyncio.Lock``.** All mutators and accessors
+hold a single per-storage lock so the in-memory dict is never
+observed in a half-updated shape from a concurrent task. The
+lock is released between mutations so a tab handler that
+issues two sequential ``set`` calls in the same task does not
+deadlock — the lock is single-acquire-per-call, not reentrant.
+
+**Lifespan flush via :meth:`AppStorage.flush_on_shutdown`.**
+The coordinator's ``stop()`` drains every app's storage by
+awaiting the synchronous flush, which cancels the outstanding
+timer and writes pending state under the lock. The
+``test_lifespan_flushes_app_storage`` test pins this contract:
+mutate during the live coordinator, stop, then verify the
+on-disk file matches the in-memory state. After the call the
+instance is marked closed; subsequent mutations are accepted
+in memory but no new timer is scheduled — the host owns the
+next write decision.
+
+**Typed namespaces for drift detection.**
+:meth:`AppStorage.namespace(key, Schema)` returns a
+:class:`TypedNamespace` that wraps a single key with a
+Pydantic model. ``await ns.get()`` runs ``Schema.model_validate()``
+on the raw value and returns a model instance — or raises
+:class:`StorageSchemaError` with the key and schema name if
+the stored payload no longer matches. ``await ns.set(value)``
+validates the input and writes the dumped JSON form. The
+drift detection is the critical Sprint 9 promise: a future
+app version that opens an older storage file with an
+incompatible schema sees a structured error instead of a
+silently half-typed model. The ``TypedNamespace.set`` test
+asserts both the model-instance and dict-payload paths flow
+through ``model_validate`` so a malformed dict never reaches
+disk.
+
+**Consumer-side typed namespace registry on AppContext.**
+The coordinator route ``POST /app/{name}/state/{ns_key}``
+takes the ``ns_key`` and dispatches the JSON body through
+the namespace the app registered on
+``ctx.namespaces`` from its ``on_start`` hook. The coord
+never imports the schema directly — every typed namespace
+consumer is a pure app-side change (Sprint 9 nexus-app-gov
+registers ``politicians_filter`` for the Politiciens tab
+filter). Validation failures bubble up from
+:class:`StorageSchemaError` as HTTP 422 with the underlying
+``pydantic.ValidationError`` message in the detail field.
+
+**Anti-patterns explicitly rejected.** SQLite (redundant with
+P11), iroh-docs (cross-node replication is out of scope),
+file locking via ``fcntl``/``msvcrt`` (the coordinator is a
+strict singleton — Sprint 7 D1), pickle-backed stores like
+``shelve`` and ``sqlitedict`` (non-portable, security
+footgun). JSON is the only serialisation format on the
+storage surface.
+
+**Why not iroh-docs?** Storage is strictly local to the
+coordinator process. The Sprint 9 use case is per-app UI
+state (filters, last-selected items, feature flags) — adding
+a network replication layer would buy nothing and break the
+"writes return as soon as the in-memory dict is updated"
+contract that handlers rely on.
+
+Reference: sprint9_kickoff.md §4 D1, sprint9_plan.md §5 Phase
+B, commit `<SHA>`.
+
 ## Tech debt — queued for Phase D or later
 
 ### T1 — Fast refresh warnings on 5 shadcn ui primitives

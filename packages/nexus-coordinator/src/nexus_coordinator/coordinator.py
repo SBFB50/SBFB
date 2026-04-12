@@ -39,7 +39,14 @@ from typing import TYPE_CHECKING
 
 import nexus_core
 import structlog
-from nexus_sdk import AppContext, AppDatabaseClient, ComputeClient, NexusApp, discover_apps
+from nexus_sdk import (
+    AppContext,
+    AppDatabaseClient,
+    AppStorage,
+    ComputeClient,
+    NexusApp,
+    discover_apps,
+)
 
 from nexus_coordinator.config import CoordinatorConfig
 from nexus_coordinator.dispatcher import Dispatcher
@@ -48,6 +55,7 @@ from nexus_coordinator.keystore import LoadedKeypair, load_or_generate_keypair
 from nexus_coordinator.kudos import KudosLedger
 from nexus_coordinator.paths import (
     app_db_path,
+    app_storage_path,
     coord_config_path,
     coord_key_path,
     iroh_data_path,
@@ -276,11 +284,18 @@ class Coordinator:
                 # actually writes to its SQLite file.
                 default_db_path = app_db_path(self.project_name, app.manifest.name)
                 default_db_path.parent.mkdir(parents=True, exist_ok=True)
+                # Sprint 9 Phase B (D1 impl): wire a per-app
+                # AppStorage at apps/<name>/storage.json. The
+                # file is created lazily by AppStorage on the
+                # first flush; the parent directory already
+                # exists from the AppDatabaseClient mkdir above.
+                storage_path = app_storage_path(self.project_name, app.manifest.name)
                 ctx = AppContext(
                     compute=compute,
                     project_name=self.project_name,
                     app_name=app.manifest.name,
                     db=AppDatabaseClient(default_db_path),
+                    storage=AppStorage(storage_path),
                     _app=app,
                 )
                 await app.on_start(ctx)
@@ -309,6 +324,25 @@ class Coordinator:
         Safe to call multiple times; a second call is a no-op.
         """
         if self.apps:
+            # Sprint 9 Phase B (D1 lifespan): drain every app's
+            # AppStorage before its on_stop hook so any deferred
+            # coalesced flush lands on disk. The flush is
+            # synchronous under the storage lock — it cancels the
+            # outstanding timer and writes the current state.
+            # Failures are logged but do not prevent the rest of
+            # the teardown from running so a single broken app
+            # cannot leak the iroh node.
+            for name, ctx in list(self.app_contexts.items()):
+                if ctx.storage is None:
+                    continue
+                try:
+                    await ctx.storage.flush_on_shutdown()
+                except Exception as e:  # noqa: BLE001
+                    _log.warning(
+                        "app storage flush_on_shutdown raised",
+                        app=name,
+                        error=str(e),
+                    )
             for app in list(self.apps.values()):
                 try:
                     await app.on_stop()

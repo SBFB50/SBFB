@@ -96,6 +96,7 @@ from nexus_sdk.view import (
 )
 
 from nexus_app_gov import queries
+from nexus_app_gov.filters import PoliticiansFilter
 from nexus_app_gov.prompts import (
     POLITICAL_CONTRADICTION_PROMPT,
     RAG_ASK_PROMPT,
@@ -148,7 +149,8 @@ class GovApp(NexusApp):
 
     async def on_start(self, ctx: AppContext) -> None:
         """Swap ``ctx.db`` onto the legacy govdata.db file when
-        it exists, then keep the context for later tab handlers.
+        it exists, register the Sprint 9 Phase B typed storage
+        namespaces, then keep the context for later tab handlers.
 
         The loader pre-wires a default :class:`AppDatabaseClient`
         at ``<project>/apps/gov/app.sqlite`` — we leave that in
@@ -163,10 +165,21 @@ class GovApp(NexusApp):
         every gov tab handler is a pure SELECT, so the SDK's
         read-only guard prevents any future handler from
         accidentally mutating the legacy schema.
+
+        Sprint 9 Phase B (D1 consumer): registers the
+        ``politicians_filter`` typed namespace on
+        ``ctx.namespaces`` so the coordinator's generic
+        ``POST /app/gov/state/politicians_filter`` route can
+        validate writes against :class:`PoliticiansFilter`
+        without the coord having to import the schema. The
+        underlying :class:`nexus_sdk.AppStorage` was already
+        wired by the loader at this point.
         """
         legacy = _legacy_govdata_db_path()
         if legacy.exists():
             ctx.db = AppDatabaseClient(legacy, read_only=True)
+        if ctx.storage is not None:
+            ctx.namespaces["politicians_filter"] = ctx.storage.namespace("filters.politicians", PoliticiansFilter)
         self._ctx = ctx
 
     async def on_stop(self) -> None:
@@ -444,21 +457,87 @@ class GovApp(NexusApp):
 
         return TabView(tab_name="dashboard", blocks=blocks).model_dump()
 
+    async def _load_politicians_filter(self) -> PoliticiansFilter:
+        """Read the persisted Politiciens tab filter or return a
+        fresh empty filter when none has been written yet.
+
+        Sprint 9 Phase B (D1 consumer). The filter is stored at
+        the ``filters.politicians`` key inside the per-app
+        :class:`nexus_sdk.AppStorage` (registered as the
+        ``politicians_filter`` typed namespace in
+        :meth:`on_start`). A missing context, missing storage or
+        missing key all collapse to an empty default — the
+        Sprint 10 audit gate is the place to flag any of these
+        as a bug, not the tab handler.
+        """
+        if self._ctx is None or self._ctx.storage is None:
+            return PoliticiansFilter()
+        ns = self._ctx.namespaces.get("politicians_filter")
+        if ns is None:
+            return PoliticiansFilter()
+        return await ns.get(default=PoliticiansFilter())
+
+    def _format_filter_summary(self, filt: PoliticiansFilter) -> str:
+        """Render the active filter as a one-line French summary
+        for the Politiciens tab descriptor.
+
+        Empty filters become ``"Filtres : aucun"``; populated
+        filters list each non-empty field as
+        ``"Chambre = Assemblée · Recherche = Dupont"``. The
+        Playwright spec greps the rendered summary to assert the
+        filter survived a page reload, so the format is part of
+        the public surface and changes here must update
+        ``web/tests/gov-politicians-filter-persist.spec.ts``.
+        """
+        parts: list[str] = []
+        if filt.chamber:
+            parts.append(f"Chambre = {filt.chamber}")
+        if filt.date_range is not None:
+            start, end = filt.date_range
+            parts.append(f"Période = {start.isoformat()}…{end.isoformat()}")
+        if filt.search:
+            parts.append(f"Recherche = {filt.search}")
+        if not parts:
+            return "Filtres : aucun"
+        return "Filtres : " + " · ".join(parts)
+
     @nexus_tab(name="Politiciens", icon="users")
     async def politicians_tab(self) -> dict[str, Any]:
-        """Paginated table of politicians (50 rows max)."""
+        """Paginated table of politicians (50 rows max).
+
+        Sprint 9 Phase B (D1 consumer): reads the persisted
+        :class:`PoliticiansFilter` from
+        ``ctx.storage.namespace("filters.politicians", PoliticiansFilter)``
+        and applies the chamber + search components to the
+        underlying SQL query. The current filter state is also
+        rendered as a muted text block at the top of the
+        descriptor so the Playwright filter-persist spec can
+        assert the filter survived a page reload without tying
+        the test to internal storage paths.
+        """
         db = self._require_db()
         title = "Politiciens"
         if db is None:
             return self._empty_tab("politiciens", title, "Base Gov indisponible.")
 
-        rows = await queries.politicians_list_query(db, limit=50)
+        active_filter = await self._load_politicians_filter()
+        filter_summary = self._format_filter_summary(active_filter)
+
+        rows = await queries.politicians_list_query(
+            db,
+            limit=50,
+            chamber=active_filter.chamber,
+            search=active_filter.search,
+        )
         if not rows:
-            return self._empty_tab(
-                "politiciens",
-                title,
-                "Aucun politicien référencé. Lancer un scrape pour peupler la base.",
-            )
+            return TabView(
+                tab_name="politiciens",
+                blocks=[
+                    heading(level=1, text=title),
+                    text(text=filter_summary, muted=True),
+                    empty(text=("Aucun politicien référencé. Lancer un scrape pour peupler la base.")),
+                ],
+            ).model_dump()
 
         columns = [
             {"key": "name", "label": "Nom"},
@@ -484,7 +563,11 @@ class GovApp(NexusApp):
             tab_name="politiciens",
             blocks=[
                 heading(level=1, text=title),
-                text(text=f"{len(rows)} politiciens listés (max 50).", muted=True),
+                text(
+                    text=f"{len(rows)} politiciens listés (max 50).",
+                    muted=True,
+                ),
+                text(text=filter_summary, muted=True),
                 table_(columns=columns, rows=table_rows, empty_text="Aucun résultat."),
             ],
         ).model_dump()

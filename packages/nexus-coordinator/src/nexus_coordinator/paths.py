@@ -126,6 +126,25 @@ def app_db_path(project_name: str, app_name: str) -> Path:
     return project_dir(project_name) / "apps" / app_name / "app.sqlite"
 
 
+def app_storage_path(project_name: str, app_name: str) -> Path:
+    """Path to the per-app JSON storage file for ``app_name`` in ``project_name``.
+
+    Sprint 9 Phase B (D1 impl): the coordinator loader instantiates
+    a :class:`nexus_sdk.AppStorage` at this location and assigns it
+    to :attr:`nexus_sdk.AppContext.storage` BEFORE calling
+    :meth:`nexus_sdk.NexusApp.on_start`. The file is created lazily
+    by ``AppStorage`` on the first flush — this helper does not
+    touch the filesystem so a read-only inspection (tests, docs
+    tooling) cannot leave artefacts behind.
+
+    Lives next to ``app.sqlite`` under ``apps/<app>/`` so the per-app
+    state directory holds every persistence surface in one place.
+    Honours the ``NEXUS_GRID_ROOT`` env override transparently
+    via :func:`project_dir` (pattern P6).
+    """
+    return project_dir(project_name) / "apps" / app_name / "storage.json"
+
+
 def shell_daemon_registry_path() -> Path:
     """Path to the ``nexus-shell-daemon`` singleton ``running.json``.
 

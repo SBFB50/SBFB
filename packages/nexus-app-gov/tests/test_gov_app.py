@@ -795,22 +795,30 @@ async def _build_seeded_app(tmp_path: Path) -> GovApp:
     """Return a started :class:`GovApp` bound to a seeded SQLite
     fixture under ``tmp_path``. The app's internal ``_ctx`` has a
     real :class:`AppDatabaseClient` pointing at the fixture file
-    so every Batch 1 handler runs the real query path."""
+    AND a real :class:`AppStorage` pointing at a per-test JSON
+    file so the Sprint 9 Phase B filter persistence path runs
+    end-to-end. Calling :meth:`GovApp.on_start` here is what
+    registers the typed namespaces on ``ctx.namespaces``."""
+    from nexus_sdk import AppStorage
+
     db_file = tmp_path / "gov.sqlite"
     _seed_gov_db(db_file)
+    storage_file = tmp_path / "gov-storage.json"
     app = GovApp()
     ctx = AppContext(
         compute=ComputeClient("http://127.0.0.1:65500"),
         project_name="gov-batch1",
         app_name="gov",
         db=AppDatabaseClient(db_file),
+        storage=AppStorage(storage_file),
     )
-    # We bypass the on_start legacy redirection because the
-    # fixture file is already under tmp_path — the redirect
-    # would try to point at nexus/gov/govdata.db which does
-    # not exist in CI anyway. Assigning _ctx directly mirrors
-    # the effect of on_start when the legacy file is absent.
-    app._ctx = ctx
+    # GovApp.on_start would try to swap ctx.db onto the legacy
+    # file at nexus/gov/govdata.db (absent in CI). The redirect
+    # is conditional on the file existing, so we can call
+    # on_start safely — it leaves ctx.db pointing at the seeded
+    # fixture and registers the politicians_filter namespace
+    # under ctx.namespaces.
+    await app.on_start(ctx)
     return app
 
 
@@ -1453,3 +1461,104 @@ async def test_invoke_command_routes_through_registry() -> None:
     app = GovApp()
     result = await app.invoke_command("detect_contradictions")
     assert result == {"navigation": {"path": "/app/gov/tabs/Contradictions"}}
+
+
+# ---------------------------------------------------------------------------
+# Sprint 9 Phase B — Politiciens filter persist (D1 consumer)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_politicians_filter_loads_default_empty_state(tmp_path: Path) -> None:
+    """A pristine app with no persisted filter renders the
+    Politiciens tab with an empty filter summary and lists every
+    seeded row.
+
+    Pins two contracts:
+
+    1. The Sprint 9 Phase B filter helper falls back to a fresh
+       :class:`PoliticiansFilter` when the storage namespace is
+       empty (no leakage from previous test runs).
+    2. The descriptor includes a muted text block that reads
+       ``"Filtres : aucun"`` so the Playwright filter persist
+       spec can grep for it.
+    """
+    app = await _build_seeded_app(tmp_path)
+    desc = await app.politicians_tab()
+
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 2
+    text_blocks = [b for b in desc["blocks"] if b["kind"] == "text"]
+    assert any(b["text"] == "Filtres : aucun" for b in text_blocks)
+
+
+@pytest.mark.asyncio
+async def test_politicians_filter_set_persisted(tmp_path: Path) -> None:
+    """Writing a filter via the registered typed namespace
+    survives across :meth:`politicians_tab` invocations and
+    actually restricts the SQL query rows.
+
+    The seed fixture has Alice in ``assemblee`` and Bob in
+    ``senat``; setting ``chamber="senat"`` must yield exactly
+    one row (Bob) AND surface the filter summary as
+    ``"Filtres : Chambre = senat"`` for the Playwright spec
+    to assert against."""
+    from nexus_app_gov.filters import PoliticiansFilter
+
+    app = await _build_seeded_app(tmp_path)
+    ns = app._ctx.namespaces["politicians_filter"]  # type: ignore[union-attr]
+    await ns.set(PoliticiansFilter(chamber="senat"))
+
+    desc = await app.politicians_tab()
+    table_block = next(b for b in desc["blocks"] if b["kind"] == "table")
+    assert len(table_block["rows"]) == 1
+    assert table_block["rows"][0]["name"] == "Bob Durand"
+
+    text_blocks = [b for b in desc["blocks"] if b["kind"] == "text"]
+    assert any("Chambre = senat" in b["text"] for b in text_blocks)
+    # The filter must round-trip through the underlying storage
+    # without drift — a fresh ns.get() returns the same instance.
+    persisted = await ns.get()
+    assert persisted is not None
+    assert persisted.chamber == "senat"
+
+
+@pytest.mark.asyncio
+async def test_politicians_filter_roundtrip_via_app_context(tmp_path: Path) -> None:
+    """The filter survives a full storage round-trip through
+    :meth:`AppStorage.flush_on_shutdown` + a fresh
+    :class:`AppStorage` reopened on the same path.
+
+    Pins the lifecycle integration: the gov on_start hook
+    registers the namespace, a write goes through, the
+    coordinator-style flush persists the JSON file, and a
+    second :class:`GovApp` reopened on the same storage path
+    observes the same filter.
+    """
+    from nexus_app_gov.filters import PoliticiansFilter
+    from nexus_sdk import AppStorage
+
+    app1 = await _build_seeded_app(tmp_path)
+    ns1 = app1._ctx.namespaces["politicians_filter"]  # type: ignore[union-attr]
+    await ns1.set(PoliticiansFilter(chamber="assemblee", search="Alice"))
+    assert app1._ctx is not None and app1._ctx.storage is not None
+    await app1._ctx.storage.flush_on_shutdown()
+
+    # Second app instance reopens the same storage file — the
+    # registered namespace points at the persisted state.
+    storage_file = tmp_path / "gov-storage.json"
+    assert storage_file.exists()
+
+    app2 = GovApp()
+    ctx2 = AppContext(
+        compute=ComputeClient("http://127.0.0.1:65500"),
+        project_name="gov-batch1",
+        app_name="gov",
+        db=AppDatabaseClient(tmp_path / "gov.sqlite"),
+        storage=AppStorage(storage_file),
+    )
+    await app2.on_start(ctx2)
+    persisted = await ctx2.namespaces["politicians_filter"].get()
+    assert persisted is not None
+    assert persisted.chamber == "assemblee"
+    assert persisted.search == "Alice"

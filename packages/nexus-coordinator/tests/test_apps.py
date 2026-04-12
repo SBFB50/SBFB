@@ -80,6 +80,62 @@ async def test_app_db_wired_in_loader(nexus_grid_tmp: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_lifespan_flushes_app_storage(nexus_grid_tmp: Path) -> None:
+    """Sprint 9 Phase B (D1 lifecycle): the coordinator wires an
+    :class:`nexus_sdk.AppStorage` per app at boot and drains every
+    storage's :meth:`flush_on_shutdown` during teardown.
+
+    The test:
+
+    1. boots a coordinator,
+    2. asserts every app context has a live :class:`AppStorage`
+       attached at the per-app ``apps/<name>/storage.json``,
+    3. mutates one app's storage to leave a pending coalesced
+       write in flight,
+    4. stops the coordinator,
+    5. asserts the on-disk file now exists with the value the
+       test wrote — proving the lifespan tear-down flushed the
+       deferred write synchronously rather than losing it.
+    """
+    import json
+
+    from nexus_sdk import AppStorage
+
+    coord = Coordinator(project_name="demo-storage-lifespan")
+    await coord.start()
+    try:
+        # 1. Every app context exposes a live AppStorage at the
+        #    canonical apps/<name>/storage.json path under the
+        #    monkeypatched nexus-grid root.
+        for name, ctx in coord.app_contexts.items():
+            assert ctx.storage is not None, f"app {name!r} got no AppContext.storage"
+            assert isinstance(ctx.storage, AppStorage)
+            assert ctx.storage.path == (
+                nexus_grid_tmp / "projects" / "demo-storage-lifespan" / "apps" / name / "storage.json"
+            )
+            # The file is lazy: nothing exists until a flush.
+            assert not ctx.storage.path.exists()
+
+        # 2. Mutate one app's storage to leave a pending deferred
+        #    flush. We pick the gov app because we know it's
+        #    discoverable from entry_points.
+        gov_ctx = coord.app_contexts["gov"]
+        assert gov_ctx.storage is not None
+        await gov_ctx.storage.set("filters.test", {"chamber": "AN"})
+        assert not gov_ctx.storage.path.exists()
+    finally:
+        await coord.stop()
+
+    # 3. After stop(), the lifespan flush must have written the
+    #    pending state to disk. The file is now readable as the
+    #    canonical {schema:1, payload:{...}} envelope.
+    storage_file = nexus_grid_tmp / "projects" / "demo-storage-lifespan" / "apps" / "gov" / "storage.json"
+    assert storage_file.exists(), "lifespan flush must persist pending writes"
+    blob = json.loads(storage_file.read_text(encoding="utf-8"))
+    assert blob == {"schema": 1, "payload": {"filters.test": {"chamber": "AN"}}}
+
+
+@pytest.mark.asyncio
 async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
     coord = Coordinator(project_name="demo-apps-http")
     await coord.start()

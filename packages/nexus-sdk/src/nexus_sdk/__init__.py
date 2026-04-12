@@ -27,6 +27,7 @@ from nexus_sdk.compute_client import ComputeClient
 from nexus_sdk.db import AppDatabaseClient, DatabaseError
 from nexus_sdk.decorators import nexus_command, nexus_route, nexus_tab, nexus_worker
 from nexus_sdk.loader import discover_apps
+from nexus_sdk.storage import AppStorage, StorageSchemaError, TypedNamespace
 from nexus_sdk.view import (
     TabBlock,
     TabView,
@@ -50,14 +51,17 @@ __all__ = [
     "AppContext",
     "AppDatabaseClient",
     "AppManifest",
+    "AppStorage",
     "CommandDescriptor",
     "ComputeClient",
     "DatabaseError",
     "NexusApp",
     "RouteDescriptor",
+    "StorageSchemaError",
     "TabBlock",
     "TabDescriptor",
     "TabView",
+    "TypedNamespace",
     "WorkerDescriptor",
     "WorkerNotFound",
     "__version__",
