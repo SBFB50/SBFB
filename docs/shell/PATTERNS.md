@@ -321,6 +321,90 @@ that Sprint 9 will introduce when there is a real consumer.
 Reference: sprint8_kickoff.md §4 D3, sprint8_plan.md §5
 Phase B, commit `6efda53`.
 
+### P12 — Code splitting via `createBrowserRouter` lazy + manualChunks
+
+Sprint 9 Phase A (D6). The shell router migrated from the
+declarative `<BrowserRouter>` + `<Routes>` form to the
+`createBrowserRouter([...])` data router so that each page
+can be loaded through `lazy: () => import("@/pages/Page")`.
+React Router v7 keeps the lazy API introduced with v6.4: a
+lazy-loaded module exposes a named `Component` (and
+optionally `loader` / `action`) export which the router
+awaits on first navigation. Each page file therefore ends
+with:
+
+```tsx
+export default function Browse() { /* ... */ }
+// Sprint 9 Phase A (D6) — react-router lazy() Component export.
+export const Component = Browse;
+```
+
+The `default` export is kept so `import Browse from "@/pages/Browse"`
+still works from non-router callers (for example `Projects.tsx`
+renders `<OnboardingEmpty />` inline when the store is empty).
+
+**Vite `manualChunks` guards**. Rolldown conservatively hoists
+a user-land module into the main chunk whenever it is named by
+`manualChunks` while also being referenced from an implicit
+lazy route chunk. The Sprint 9 refactor adopts the canonical
+2025 pattern (lobe-chat, react.dev sunsetting-CRA guide):
+
+```ts
+manualChunks(id) {
+  // src-side feature chunks (evaluated first)
+  if (id.includes('/src/components/app/tabview/')) return 'tabview';
+  if (id.includes('/src/components/command-palette/')) return 'palette';
+
+  // Only split vendor code past this point.
+  if (!id.includes('node_modules')) return;
+
+  if (id.includes('node_modules/react/') || ...) return 'vendor-react';
+  if (id.includes('node_modules/@tanstack/') || ...) return 'vendor-query';
+  if (id.includes('node_modules/@radix-ui/')) return 'vendor-ui';
+}
+```
+
+The `if (!id.includes('node_modules')) return` guard is the
+critical line — without it, `manualChunks` returning `undefined`
+for a src-side module is fine (rolldown picks the per-page
+chunk), but as soon as a named chunk collides with a lazy
+route chunk, the lazy import evaporates.
+
+Sprint 5 left three dead chunks in `vite.config.ts` that
+referenced packages the legacy-UI removal had already dropped
+(`vendor-graph`, `vendor-charts`, `vendor-map`). Sprint 9
+Phase A deletes them.
+
+**size-limit budgets**. The 4 Sprint 6 budgets (main, vendor-
+react, vendor-ui, css) become 7 Sprint 9 budgets:
+
+| Chunk          | Budget | Rationale                                         |
+|----------------|--------|---------------------------------------------------|
+| `main`         | 350 KB | Shell chrome + providers + lazy-route bootstrap   |
+| `vendor-react` | 170 KB | react + react-dom + react-router + scheduler      |
+| `vendor-query` | 50 KB  | @tanstack/react-query + zustand                   |
+| `vendor-ui`    | 40 KB  | @radix-ui/* vendored primitives                   |
+| `tabview`      | 80 KB  | app/tabview/** renderer + 11 block components     |
+| `palette`      | 40 KB  | command-palette/**                                |
+| `css`          | 100 KB | tailwind-compiled stylesheet                      |
+
+If the main chunk cannot land under 350 KB in one refactor
+pass, the fallback is a documented `fix(sprint9): relax main
+budget to 425 KB pending tree-shake pass` commit with a
+`rollup-plugin-visualizer` screenshot in the body. **Never
+above 425 KB**. Sprint 9 Phase B will tree-shake `lucide-react`
+icon imports as a cheap follow-up lever.
+
+A 8th `upload` budget joins the set in Sprint 9 Phase E when
+the file upload renderer + CAS lands — not before.
+
+Bundle visualization is opt-in via `ANALYZE_MODE=true npm run
+build`, which activates `rollup-plugin-visualizer` and emits
+`dist/stats.html`.
+
+Reference: sprint9_kickoff.md §4 D6, sprint9_plan.md §4 Phase
+A, commit `<SHA>`.
+
 ## Tech debt — queued for Phase D or later
 
 ### T1 — Fast refresh warnings on 5 shadcn ui primitives
@@ -467,7 +551,7 @@ Recommended for Sprint 7 cleanup phase.
 
 Audit reference: `.planning/sprint6_audit_findings.md` §C-3, §D-2.
 
-### T8 — `CardTitle` is a `<div>`, not an `<h2>`/`<h3>` (a11y) — Sprint 9
+### T8 — `CardTitle` is a `<div>`, not an `<h2>`/`<h3>` (a11y) — CLOSED Sprint 9 Phase A
 
 Sprint 7 audit finding F-3. shadcn vendored
 `web/src/components/ui/card.tsx` ships `CardTitle` as a
@@ -488,9 +572,17 @@ Sprint 8 Phase A intentionally **did not** touch this — it
 was scope-cut to Sprint 9 polish. Track G2 of
 `.planning/sprint8_audit_plan.md` cross-checks the deferral.
 
+**Resolution (Sprint 9 Phase A)**: option (a) — edit
+`web/src/components/ui/card.tsx` once so `CardTitle` renders
+an `<h3>` with the same className. The `<h1>` still comes
+from `PageHeader`; `CardTitle` becomes the default `<h3>`
+beneath it. Callers that want a different level can pass a
+`className` override; a future `as` prop is not needed
+because no consumer has required it so far.
+
 Audit reference: `.planning/sprint7_audit_findings.md` §F-3.
 
-### T9 — Coordinator `httpx.AsyncClient` per-call, no `Limits` — Sprint 9
+### T9 — Coordinator `httpx.AsyncClient` per-call, no `Limits` — CLOSED Sprint 9 Phase A (as T10 in `sprint9_plan.md`)
 
 Sprint 7 audit finding G-1.
 `packages/nexus-coordinator/src/nexus_coordinator/api/daemon.py::_forward`
@@ -513,9 +605,20 @@ Fix options:
 Sprint 8 Phase A intentionally **did not** touch this. Track
 G2 of `sprint8_audit_plan.md` cross-checks the deferral.
 
+**Resolution (Sprint 9 Phase A)**: option (a) — the FastAPI
+`lifespan` in `packages/nexus-coordinator/src/nexus_coordinator/api/app.py`
+builds a singleton
+`httpx.AsyncClient(timeout=..., limits=httpx.Limits(max_connections=10, max_keepalive_connections=5))`
+and stashes it on `app.state.daemon_httpx_client`. Every
+handler in `api/daemon.py` reaches it via
+`request.app.state.daemon_httpx_client` instead of opening
+an ephemeral client per call. Regression guard
+`test_daemon_proxy_shares_httpx_client` asserts the instance
+reference is stable across two consecutive requests.
+
 Audit reference: `.planning/sprint7_audit_findings.md` §G-1.
 
-### T10 — Main bundle 0.5 KB headroom under size-limit budget — Sprint 9
+### T10 — Main bundle 0.5 KB headroom under size-limit budget — CLOSED Sprint 9 Phase A (D6)
 
 Sprint 8 Phase E observed `main 474.49 kB / 475 budget` =
 **0.5 KB headroom**. The Sprint 8 surface added
@@ -536,13 +639,17 @@ The next React component or coordinator route added Sprint 9
   `React.lazy` + Suspense (e.g. `AppTabPage` → its own chunk)
 
 Track H3 of `sprint8_audit_plan.md` lists this as **P1**
-because it gates Sprint 9 commits. Sprint 9 Day 0 should
-pick a fix path before any new feature commit lands.
+because it gates Sprint 9 commits. Sprint 9 Day 0 picked
+option (c) — split lazy route chunks + feature chunks — and
+Phase A ships it, see **P12** above for the full contract
+(createBrowserRouter lazy + feature chunks + 7 budgets). The
+0.5 KB headroom is gone because the main chunk target drops
+from 475 KB down to 350 KB after code splitting.
 
 Audit reference: `.planning/sprint8_verification.md` §Notes
 row 24.
 
-### T11 — `CommandPalette` swallows `invokeAppCommand` errors — Sprint 9
+### T11 — `CommandPalette` swallows `invokeAppCommand` errors — CLOSED Sprint 9 Phase A
 
 Sprint 9 Phase 0 audit gate finding C-FX-1.
 `web/src/components/command-palette/CommandPalette.tsx::runAppCommand`
@@ -566,9 +673,23 @@ Sprint 9 polish — pick (a) if no other use case for toasts
 appears, otherwise (b). Track C-FX-1 of
 `.planning/sprint8_audit_findings.md`.
 
+**Resolution (Sprint 9 Phase A)**: option (a). The palette no
+longer closes before awaiting the invocation. `runAppCommand`
+tracks a `pending` tuple (`{appName, cmdName}`) and an
+`errored` tuple (`{appName, cmdName, message}`). On success,
+`setPending(null)` + `palette.setOpen(false)` runs after the
+await. On error, `setErrored(...)` renders an inline
+`<span data-testid="palette-cmd-error-{app}-{cmd}">` beneath
+the row that failed, and the palette stays open so the user
+can retry or dismiss. No new dependency — sonner is not
+introduced until there is a second error surface that would
+benefit from a global toast layer. Regression guards:
+`CommandPalette.test.tsx::shows inline error state ...` and
+`... allows retrying an errored command`.
+
 Audit reference: `.planning/sprint8_audit_findings.md` §C-FX-1.
 
-### T12 — `NexusApp.commands()` order depends on `dir(cls)` — Sprint 9
+### T12 — `NexusApp.commands()` order depends on `dir(cls)` — CLOSED Sprint 9 Phase A
 
 Sprint 9 Phase 0 audit gate finding C-FX-2. The Sprint 8
 implementation in
@@ -597,5 +718,19 @@ Sprint 9 polish, low-effort. Same finding also notes that
 two commands with the same `name` should raise at decorator
 collection time (currently `first match wins` silently for
 `resolve_worker` too — see B-FX-1 in the same audit findings).
+
+**Resolution (Sprint 9 Phase A)**: explicit sort. At the end
+of `collect_decorators`, the function now calls
+`routes.sort(key=lambda d: d["path"])`,
+`workers.sort(key=lambda d: d["name"])`,
+`tabs.sort(key=lambda d: d["name"])`,
+`commands.sort(key=lambda d: d["name"])`. Regression guard
+`test_commands_ordered_by_name_explicitly` constructs an app
+whose method names do NOT sort the way the descriptor names
+should (`cmd_alpha` → `zeta`, `cmd_gamma` → `beta`,
+`cmd_zeta` → `alpha`) and asserts the descriptor output is
+`["alpha", "beta", "zeta"]`. The B-FX-1 duplicate-name raise
+is still deferred — it's a separate audit finding and not
+part of this fix.
 
 Audit reference: `.planning/sprint8_audit_findings.md` §C-FX-2.

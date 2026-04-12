@@ -1,25 +1,26 @@
 /**
- * Sprint 5 shell root — six flat routes under a single shell layout.
+ * Sprint 9 Phase A (D6) — shell root with code-split routes.
  *
- * Routing stays declarative (`<BrowserRouter>` + `<Routes>`)
- * rather than `createBrowserRouter` — we do not use route loaders
- * because every page fetches its data through React Query
- * directly, and the flat layout keeps Sprint 6 Phase B
- * (`/project/:name`) and Sprint 8 Phase E
- * (`/app/:appName/tabs/:tabName`) additions trivial.
+ * The six page components live behind `react-router` v6
+ * `lazy:` entries so the main bundle only ships the shell
+ * chrome (AppShell, CommandPalette, providers, shared
+ * components) and each page is fetched on first navigation.
+ * Each page module exports a named `Component` binding that
+ * `lazy()` resolves — see `P12` in `docs/shell/PATTERNS.md`
+ * for the convention.
+ *
+ * The `createBrowserRouter` factory is the 2025-canonical
+ * React Router shape (`<BrowserRouter>` + `<Routes>` was
+ * sunset in the v6 docs refresh alongside the CRA replacement
+ * guide). It enables the `lazy` key per route and the future
+ * `loader` / `action` surface without another migration.
  */
 
-import { Navigate, BrowserRouter, Route, Routes } from "react-router-dom";
+import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { AppShell } from "@/components/AppShell";
-import Projects from "@/pages/Projects";
-import ProjectDetail from "@/pages/ProjectDetail";
-import Network from "@/pages/Network";
-import Browse from "@/pages/Browse";
-import Curators from "@/pages/Curators";
-import AppTabPage from "@/pages/AppTabPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,26 +35,44 @@ const queryClient = new QueryClient({
   },
 });
 
+const router = createBrowserRouter([
+  {
+    element: <AppShell />,
+    children: [
+      { index: true, element: <Navigate to="/my-projects" replace /> },
+      {
+        path: "/my-projects",
+        lazy: () => import("@/pages/Projects"),
+      },
+      {
+        path: "/project/:name",
+        lazy: () => import("@/pages/ProjectDetail"),
+      },
+      {
+        path: "/my-network",
+        lazy: () => import("@/pages/Network"),
+      },
+      {
+        path: "/browse",
+        lazy: () => import("@/pages/Browse"),
+      },
+      {
+        path: "/curators",
+        lazy: () => import("@/pages/Curators"),
+      },
+      {
+        path: "/app/:appName/tabs/:tabName",
+        lazy: () => import("@/pages/AppTabPage"),
+      },
+    ],
+  },
+]);
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route element={<AppShell />}>
-              <Route index element={<Navigate to="/my-projects" replace />} />
-              <Route path="/my-projects" element={<Projects />} />
-              <Route path="/project/:name" element={<ProjectDetail />} />
-              <Route path="/my-network" element={<Network />} />
-              <Route path="/browse" element={<Browse />} />
-              <Route path="/curators" element={<Curators />} />
-              <Route
-                path="/app/:appName/tabs/:tabName"
-                element={<AppTabPage />}
-              />
-            </Route>
-          </Routes>
-        </BrowserRouter>
+        <RouterProvider router={router} />
       </TooltipProvider>
     </QueryClientProvider>
   );

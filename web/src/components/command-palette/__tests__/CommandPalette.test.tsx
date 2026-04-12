@@ -295,6 +295,125 @@ describe("CommandPalette — App group (Sprint 8 Phase E)", () => {
     expect(palette.setOpen).toHaveBeenCalledWith(false);
   });
 
+  it("shows inline error state and keeps palette open on invoke failure (T11)", async () => {
+    seedActiveCoordinator();
+    mockedListApps.mockResolvedValue({
+      count: 1,
+      apps: [
+        {
+          name: "gov",
+          version: "0.3.0",
+          description: "Gov app",
+          routes: 1,
+          workers: 3,
+          tabs: 19,
+          commands: 1,
+        },
+      ],
+    });
+    mockedListAppCommands.mockResolvedValue([
+      {
+        schema_version: 1,
+        name: "detect_contradictions",
+        description: "Détecter les contradictions politiques",
+        icon: "alert-octagon",
+        group: "Gov",
+      },
+    ]);
+    mockedInvokeAppCommand.mockRejectedValue(
+      new Error("coordinator 500: boom"),
+    );
+
+    const { palette } = renderPalette();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Détecter les contradictions politiques"),
+      ).toBeInTheDocument(),
+    );
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByText("Détecter les contradictions politiques"),
+    );
+
+    // Error branch: inline message renders next to the row,
+    // palette does NOT close (setOpen(false) is never called
+    // on error), and navigate is never fired.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("palette-cmd-error-gov-detect_contradictions"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId("palette-cmd-error-gov-detect_contradictions"),
+    ).toHaveTextContent("coordinator 500: boom");
+    expect(palette.setOpen).not.toHaveBeenCalledWith(false);
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows retrying an errored command (T11)", async () => {
+    seedActiveCoordinator();
+    mockedListApps.mockResolvedValue({
+      count: 1,
+      apps: [
+        {
+          name: "gov",
+          version: "0.3.0",
+          description: "Gov app",
+          routes: 1,
+          workers: 3,
+          tabs: 19,
+          commands: 1,
+        },
+      ],
+    });
+    mockedListAppCommands.mockResolvedValue([
+      {
+        schema_version: 1,
+        name: "detect_contradictions",
+        description: "Détecter les contradictions politiques",
+        icon: "alert-octagon",
+        group: "Gov",
+      },
+    ]);
+    // First call throws, second call succeeds.
+    mockedInvokeAppCommand
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce({
+        result: { navigation: { path: "/app/gov/tabs/Contradictions" } },
+      });
+
+    const { palette } = renderPalette();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Détecter les contradictions politiques"),
+      ).toBeInTheDocument(),
+    );
+    const user = userEvent.setup();
+
+    // First click → errors out, palette stays open with inline banner.
+    await user.click(
+      screen.getByText("Détecter les contradictions politiques"),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("palette-cmd-error-gov-detect_contradictions"),
+      ).toBeInTheDocument(),
+    );
+    expect(palette.setOpen).not.toHaveBeenCalledWith(false);
+
+    // Second click → mock resolves, palette closes, navigate fires.
+    await user.click(
+      screen.getByText("Détecter les contradictions politiques"),
+    );
+    await waitFor(() =>
+      expect(mockedInvokeAppCommand).toHaveBeenCalledTimes(2),
+    );
+    expect(navigateSpy).toHaveBeenCalledWith("/app/gov/tabs/Contradictions");
+    expect(palette.setOpen).toHaveBeenCalledWith(false);
+  });
+
   it("closes the palette without navigating when the handler returns no navigation", async () => {
     seedActiveCoordinator();
     mockedListApps.mockResolvedValue({

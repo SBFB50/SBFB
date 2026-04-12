@@ -11,8 +11,16 @@
  *    forwards any returned `{navigation: {path}}` to React
  *    Router.
  *  - Actions: Ajouter un coordinateur, Recharger
+ *
+ * Sprint 9 Phase A (T11) — `runAppCommand` now keeps the
+ * palette open until the invocation resolves. On success the
+ * palette closes (and optionally navigates); on error the
+ * palette stays open and renders an inline message on the
+ * row that failed, mirroring the `ButtonBlock` feedback
+ * pattern from Sprint 8 Phase A.
  */
 
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -54,10 +62,31 @@ interface Props {
   onAddCoordinator: () => void;
 }
 
+// A command is identified by the (appName, cmdName) tuple.
+// We store at most one pending entry and at most one error
+// entry at a time — the palette closes on success, so a second
+// click can only happen after the previous one has finished.
+interface CommandKey {
+  appName: string;
+  cmdName: string;
+}
+
+interface CommandError extends CommandKey {
+  message: string;
+}
+
+function keysEqual(a: CommandKey | null, b: CommandKey | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.appName === b.appName && a.cmdName === b.cmdName;
+}
+
 export function CommandPalette({ palette, onAddCoordinator }: Props) {
   const navigate = useNavigate();
   const knownCoordinators = useProjectStore((s) => s.knownCoordinators);
   const active = useProjectStore(selectActiveCoordinator);
+
+  const [pending, setPending] = useState<CommandKey | null>(null);
+  const [errored, setErrored] = useState<CommandError | null>(null);
 
   const appsQuery = useQuery({
     queryKey: ["palette-apps", active?.url],
@@ -86,20 +115,27 @@ export function CommandPalette({ palette, onAddCoordinator }: Props) {
 
   const runAppCommand = async (appName: string, cmdName: string) => {
     if (!active) return;
-    palette.setOpen(false);
+    // A second click on the same row while the first is still
+    // pending is a no-op — guards against double-firing under a
+    // slow network.
+    if (pending && keysEqual(pending, { appName, cmdName })) return;
+    setErrored(null);
+    setPending({ appName, cmdName });
     try {
       const envelope = await invokeAppCommand(active.url, appName, cmdName);
+      setPending(null);
+      palette.setOpen(false);
       const path = extractNavigationPath(envelope.result);
       if (path) navigate(path);
     } catch (e) {
-      // The palette closes regardless of outcome — surfacing
-      // errors via a toast is deferred to a Sprint 9 polish
-      // pass. Logging here keeps the failure discoverable in
-      // devtools without breaking the UX flow.
-      console.error("[palette] invokeAppCommand failed", {
+      setPending(null);
+      setErrored({
         appName,
         cmdName,
-        error: e,
+        message:
+          e instanceof Error && e.message
+            ? e.message
+            : "Échec de la commande, réessayez ou vérifiez le coordinateur.",
       });
     }
   };
@@ -180,6 +216,8 @@ export function CommandPalette({ palette, onAddCoordinator }: Props) {
                 baseUrl={active.url}
                 app={app}
                 onRun={(cmd) => runAppCommand(app.name, cmd)}
+                pending={pending}
+                errored={errored}
               />
             ))}
 
@@ -211,10 +249,14 @@ function AppCommandsGroup({
   baseUrl,
   app,
   onRun,
+  pending,
+  errored,
 }: {
   baseUrl: string;
   app: AppSummary;
   onRun: (cmdName: string) => void;
+  pending: CommandKey | null;
+  errored: CommandError | null;
 }) {
   const query = useQuery({
     queryKey: ["palette-app-commands", baseUrl, app.name],
@@ -230,19 +272,46 @@ function AppCommandsGroup({
     <>
       <CommandSeparator />
       <CommandGroup heading={`App : ${app.name}`}>
-        {commands.map((cmd) => (
-          <CommandItem
-            key={cmd.name}
-            value={`app ${app.name} ${cmd.name} ${cmd.description}`}
-            onSelect={() => onRun(cmd.name)}
-          >
-            <Sparkles className="size-4" />
-            <span>{cmd.description}</span>
-            <span className="ml-auto text-[10px] text-muted-foreground">
-              {cmd.group}
-            </span>
-          </CommandItem>
-        ))}
+        {commands.map((cmd) => {
+          const isPending =
+            pending !== null &&
+            pending.appName === app.name &&
+            pending.cmdName === cmd.name;
+          const errorForRow =
+            errored !== null &&
+            errored.appName === app.name &&
+            errored.cmdName === cmd.name
+              ? errored.message
+              : null;
+          return (
+            <CommandItem
+              key={cmd.name}
+              value={`app ${app.name} ${cmd.name} ${cmd.description}`}
+              onSelect={() => onRun(cmd.name)}
+              disabled={isPending}
+              data-testid={`palette-cmd-${app.name}-${cmd.name}`}
+            >
+              <Sparkles className="size-4" />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate">
+                  {cmd.description}
+                  {isPending ? " …" : ""}
+                </span>
+                {errorForRow && (
+                  <span
+                    className="text-[10px] text-destructive"
+                    data-testid={`palette-cmd-error-${app.name}-${cmd.name}`}
+                  >
+                    {errorForRow}
+                  </span>
+                )}
+              </div>
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                {cmd.group}
+              </span>
+            </CommandItem>
+          );
+        })}
       </CommandGroup>
     </>
   );

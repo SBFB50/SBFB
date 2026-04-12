@@ -1382,17 +1382,22 @@ async def test_ask_tab_renders_rag_button() -> None:
 
 def test_gov_commands_registered() -> None:
     """Sprint 8 Phase E ships the first four gov command palette
-    entries. ``GovApp.commands()`` lists them in the alphabetical
-    attribute order of :func:`nexus_sdk.registry.collect_decorators`
-    (``dir(cls)`` scan — source ordering is NOT a contract), each
-    must live under the ``Gov`` group, and every descriptor must
-    round-trip through :class:`nexus_sdk.commands.CommandDescriptor`.
+    entries. Sprint 9 Phase A (T12) makes the ordering explicit:
+    :func:`nexus_sdk.registry.collect_decorators` now sorts by
+    descriptor ``name`` rather than relying on the
+    implementation-specific alphabetical attribute order of
+    ``dir(cls)``. Each command must live under the ``Gov`` group,
+    and every descriptor must round-trip through
+    :class:`nexus_sdk.commands.CommandDescriptor`.
     """
     app = GovApp()
     commands = app.commands()
     names = [c.name for c in commands]
-    # Alphabetical by Python method name:
-    # cmd_detect_contradictions < cmd_new_scan < cmd_search_factchecks < cmd_view_alerts.
+    # Sprint 9 Phase A (T12) — sorted by descriptor name, which
+    # happens to coincide with the previous `dir(cls)` ordering
+    # for these four commands; locking it in explicitly means a
+    # method rename would no longer silently change the palette
+    # order.
     assert names == [
         "detect_contradictions",
         "new_scan",

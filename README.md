@@ -8,6 +8,50 @@
 
 ---
 
+## Quick start (SBFB / nexus-grid pivot 2026-04)
+
+Since the 2026-04 pivot, the primary project is **SBFB** — a P2P LLM
+compute network that now hosts the legacy NEXUS GOV as one of its apps.
+See `CLAUDE.md` and `docs/claude/README.md` for the full workflow.
+
+### First-time setup on a fresh checkout
+
+Sprint 9 Phase A ships two helper scripts under `scripts/` that
+encapsulate the install + verification ceremony so a brand-new
+clone can get to a green `verify.sh` in three commands:
+
+```bash
+# 1. Install Rust + Python toolchains:
+#    - Rust 1.94+   (via rustup or winget on Windows)
+#    - uv 0.5+      (Python workspace manager)
+#    - maturin 1.13 (PyO3 wheel builder, via uv)
+#    - Node 20+     (frontend)
+
+# 2. Build the nexus_core PyO3 wheel into .venv/ and sync Python deps.
+./scripts/setup.sh
+
+# 3. Run the full fail-fast verification suite (cargo + ruff + pytest
+#    + tsc + eslint + vitest + size-limit + playwright + npm audit).
+./scripts/verify.sh
+
+# For faster iteration during a phase, skip Playwright:
+./scripts/verify.sh --quick
+```
+
+`setup.sh` is idempotent: it hashes `Cargo.lock` +
+`crates/nexus-core-{rs,py}/src` into `.venv/.nexus-core-hash` and
+skips the maturin rebuild when the sources have not changed. Pass
+`--force` to rebuild unconditionally.
+
+Opt-in git hook to remind you after pulls that touched the Rust
+core crates:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+---
+
 <a id="fr"></a>
 
 ## FR -- Qu'est-ce que NEXUS GOV ?

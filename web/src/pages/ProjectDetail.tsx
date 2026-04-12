@@ -225,3 +225,6 @@ function ProjectDetailContent({ url }: { url: string }) {
     </div>
   );
 }
+
+// Sprint 9 Phase A (D6) — react-router lazy() Component export.
+export const Component = ProjectDetail;

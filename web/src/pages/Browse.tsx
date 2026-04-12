@@ -262,3 +262,7 @@ function truncateHex(hex: string): string {
   if (hex.length <= 16) return hex;
   return `${hex.slice(0, 8)}…${hex.slice(-8)}`;
 }
+
+// Sprint 9 Phase A (D6) — react-router lazy() looks up a named
+// `Component` export when a route uses `lazy: () => import(...)`.
+export const Component = Browse;

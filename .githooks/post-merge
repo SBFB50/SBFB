@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#
+# Sprint 9 Phase A (D5) — opt-in post-merge hook.
+#
+# Reminds the developer to re-run `./scripts/setup.sh` after a pull
+# that touched the Rust core crates. Catches the H-3 drift scenario
+# where `uv sync` ran after a `git pull` silently drops the
+# editable `nexus_core` wheel.
+#
+# Enable once per clone with:
+#   git config core.hooksPath .githooks
+#
+# The hook is a reminder only — it does NOT run setup.sh itself
+# because a post-merge hook that triggers a 30s cargo build on
+# every pull would be hostile to interactive workflows.
+
+set -euo pipefail
+
+# Only fire when the merge actually touched the core crates or
+# Cargo.lock. `git diff-tree` against ORIG_HEAD gives the set of
+# paths the merge brought in; we grep for the Rust core.
+CHANGED="$(git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD 2>/dev/null || true)"
+
+if echo "$CHANGED" | grep -qE '^(Cargo\.lock|crates/nexus-core-rs/|crates/nexus-core-py/)'; then
+  echo ""
+  echo "[post-merge] Rust core sources changed in this merge."
+  echo "[post-merge] Run ./scripts/setup.sh to rebuild the nexus_core wheel."
+  echo ""
+fi

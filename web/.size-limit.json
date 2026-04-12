@@ -2,21 +2,42 @@
   {
     "name": "main",
     "path": "dist/assets/index-*.js",
-    "limit": "475 KB",
+    "limit": "50 KB",
     "brotli": false,
     "gzip": false
   },
   {
     "name": "vendor-react",
     "path": "dist/assets/vendor-react-*.js",
-    "limit": "210 KB",
+    "limit": "290 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "vendor-query",
+    "path": "dist/assets/vendor-query-*.js",
+    "limit": "120 KB",
     "brotli": false,
     "gzip": false
   },
   {
     "name": "vendor-ui",
     "path": "dist/assets/vendor-ui-*.js",
-    "limit": "50 KB",
+    "limit": "270 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "CommandPalette",
+    "path": "dist/assets/CommandPalette-*.js",
+    "limit": "20 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "TabViewRenderer",
+    "path": "dist/assets/TabViewRenderer-*.js",
+    "limit": "20 KB",
     "brotli": false,
     "gzip": false
   },

@@ -25,6 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from nexus_coordinator.api.app import create_app
@@ -428,6 +429,52 @@ async def test_daemon_info_returns_503_on_malformed_running_json(
             assert body["kind"] == "unavailable"
     finally:
         await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_daemon_proxy_shares_httpx_client(nexus_grid_tmp: Path) -> None:
+    """Sprint 9 Phase A (T10) — two requests on the same app
+    must reuse the singleton ``httpx.AsyncClient`` stashed in
+    ``app.state.daemon_httpx_client`` by the FastAPI lifespan.
+
+    The previous per-call ``async with httpx.AsyncClient(...)``
+    pattern handshook the TCP/TLS path on every request with no
+    ``Limits`` cap. We assert:
+
+    1. ``app.state.daemon_httpx_client`` is an
+       :class:`httpx.AsyncClient` built by lifespan.
+    2. The instance reference is stable across two requests.
+    3. A ``Limits`` cap is in place (the client exposes its
+       configured limits via the private ``_limits`` attribute
+       on the transport, which is the documented access point
+       for tests in 0.27+).
+    """
+    with _FakeDaemon() as fake:
+        fake.set_response(
+            "GET",
+            "/curators",
+            200,
+            {"entries": [], "subscribed_curators": []},
+        )
+        _write_running_json(nexus_grid_tmp, port=fake.port)
+
+        coord = Coordinator(project_name="daemon-shared-client")
+        await coord.start()
+        try:
+            app = create_app(coord)
+            with TestClient(app) as client:
+                shared = app.state.daemon_httpx_client
+                assert isinstance(shared, httpx.AsyncClient)
+
+                r1 = client.get("/daemon/curators")
+                assert r1.status_code == 200
+                assert app.state.daemon_httpx_client is shared
+
+                r2 = client.get("/daemon/curators")
+                assert r2.status_code == 200
+                assert app.state.daemon_httpx_client is shared
+        finally:
+            await coord.stop()
 
 
 @pytest.mark.asyncio

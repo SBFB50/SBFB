@@ -33,9 +33,14 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+// Sprint 9 Phase A (T8) — Render a real `<h3>` so screen readers
+// see a heading hierarchy beneath the page-level `<h1>` from
+// `PageHeader`. Sprint 7 audit finding F-3, option (a) from
+// `docs/shell/PATTERNS.md` T8: single-line swap on the vendored
+// shadcn file rather than introducing an `as` prop.
+function CardTitle({ className, ...props }: React.ComponentProps<"h3">) {
   return (
-    <div
+    <h3
       data-slot="card-title"
       className={cn(
         "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",

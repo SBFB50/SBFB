@@ -11,6 +11,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -36,12 +37,27 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     from nexus_coordinator.api.worker_state import router as worker_state_router
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI):
+    async def lifespan(app: FastAPI):
         # The coordinator is started by the caller; we don't boot
         # or shut down iroh from the FastAPI lifespan because
         # `uv run nexus-coordinator start` owns the process and we
         # want tests to share a single instance across requests.
-        yield
+        #
+        # Sprint 9 Phase A (T10) — the shell-daemon proxy opens a
+        # module-level singleton `httpx.AsyncClient` here, keyed
+        # to the app instance via `app.state.daemon_httpx_client`.
+        # A `Limits(max_connections=10)` cap bounds bursts from
+        # rapid shell refreshes, and the `aclose()` on shutdown
+        # releases sockets cleanly. The per-call `async with
+        # httpx.AsyncClient(...)` pattern it replaces would
+        # re-handshake on every request.
+        timeout = httpx.Timeout(connect=2.0, read=10.0, write=2.0, pool=2.0)
+        limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
+        app.state.daemon_httpx_client = httpx.AsyncClient(timeout=timeout, limits=limits)
+        try:
+            yield
+        finally:
+            await app.state.daemon_httpx_client.aclose()
 
     app = FastAPI(
         title=f"nexus-coordinator[{coordinator.project_name}]",

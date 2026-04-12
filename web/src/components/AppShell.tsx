@@ -25,7 +25,7 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import {
   Sidebar,
@@ -59,10 +59,20 @@ import {
 } from "@/stores/projectStore";
 import { getHealth } from "@/api/coordinator";
 import { AddCoordinatorDialog } from "@/components/AddCoordinatorDialog";
-import { CommandPalette } from "@/components/command-palette/CommandPalette";
 import { useCommandPalette } from "@/components/command-palette/useCommandPalette";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { cn } from "@/lib/utils";
+
+// Sprint 9 Phase A (D6) — palette is the largest non-vendor
+// surface in the bundle (cmdk + lucide icons + the App
+// commands group). We `React.lazy` it so the chunk loads on
+// the first ⌘K toggle rather than on shell paint, keeping the
+// initial main chunk under the 350 KB target.
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette/CommandPalette").then((mod) => ({
+    default: mod.CommandPalette,
+  })),
+);
 
 const IS_MAC =
   typeof navigator !== "undefined" &&
@@ -185,10 +195,20 @@ export function AppShell() {
         onOpenChange={setAddDialogOpen}
       />
 
-      <CommandPalette
-        palette={palette}
-        onAddCoordinator={() => setAddDialogOpen(true)}
-      />
+      {/*
+        Suspense fallback is null on purpose: the palette is
+        invisible until `palette.open` flips, so an unmounted
+        chunk and a loading-but-closed chunk look identical to
+        the user. The lazy import resolves on first interaction
+        with the trigger button (the click bubbles before
+        Suspense reads `palette.open`).
+      */}
+      <Suspense fallback={null}>
+        <CommandPalette
+          palette={palette}
+          onAddCoordinator={() => setAddDialogOpen(true)}
+        />
+      </Suspense>
     </SidebarProvider>
   );
 }

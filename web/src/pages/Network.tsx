@@ -365,3 +365,6 @@ function LastTaskCard({ task }: { task: LastTask | null }) {
     </Card>
   );
 }
+
+// Sprint 9 Phase A (D6) — react-router lazy() Component export.
+export const Component = Network;

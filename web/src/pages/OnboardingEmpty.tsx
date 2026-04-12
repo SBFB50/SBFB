@@ -104,3 +104,6 @@ function CommandBlock({ step, command }: { step: string; command: string }) {
     </div>
   );
 }
+
+// Sprint 9 Phase A (D6) — react-router lazy() Component export.
+export const Component = OnboardingEmpty;

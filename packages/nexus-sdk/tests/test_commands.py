@@ -190,3 +190,54 @@ async def test_invoke_command_unknown_raises_lookup_error() -> None:
     app = _CmdFixtureApp()
     with pytest.raises(LookupError, match="unknown_cmd"):
         await app.invoke_command("unknown_cmd")
+
+
+# ---------------------------------------------------------------------------
+# Sprint 9 Phase A (T12) — commands() ordering is sorted explicitly
+# ---------------------------------------------------------------------------
+
+
+class _OrderingFixtureApp(NexusApp):
+    """Intentionally declare commands in an order whose method
+    names do NOT sort the way the descriptor names should, so a
+    regression to implicit ``dir(cls)`` ordering would return a
+    different tuple and the test would fail.
+
+    Method attribute names: ``cmd_alpha`` (descriptor "zeta"),
+    ``cmd_gamma`` (descriptor "beta"), ``cmd_zeta`` (descriptor
+    "alpha"). If the code walks ``dir(cls)``, we get the method
+    names in alphabetical order (``cmd_alpha`` → "zeta",
+    ``cmd_gamma`` → "beta", ``cmd_zeta`` → "alpha") which yields
+    descriptors in the order ["zeta", "beta", "alpha"]. With the
+    Sprint 9 explicit ``sorted(..., key=name)`` we instead get
+    ["alpha", "beta", "zeta"].
+    """
+
+    manifest = AppManifest(name="ordering", version="0.1.0")
+
+    @nexus_command("zeta", description="desc zeta")
+    async def cmd_alpha(self) -> None:
+        pass
+
+    @nexus_command("beta", description="desc beta")
+    async def cmd_gamma(self) -> None:
+        pass
+
+    @nexus_command("alpha", description="desc alpha")
+    async def cmd_zeta(self) -> None:
+        pass
+
+    async def on_start(self, ctx) -> None:  # type: ignore[no-untyped-def]
+        pass
+
+    async def on_stop(self) -> None:
+        pass
+
+
+def test_commands_ordered_by_name_explicitly() -> None:
+    app = _OrderingFixtureApp()
+    cmds = app.commands()
+    names = [c.name for c in cmds]
+    assert names == ["alpha", "beta", "zeta"], (
+        f"commands() must sort by descriptor name, not attribute name; got {names}"
+    )

@@ -44,14 +44,16 @@ _log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/daemon", tags=["daemon"])
 
-# Per-request timeout for the daemon proxy calls. A 2 s connect
-# deadline is generous enough for a fresh daemon on a cold
-# cache, and a 10 s read deadline covers the worst-case
-# /browse roundtrip where the aggregator probes up to a few
-# dozen project ids via pkarr. Tuned conservatively — Sprint 7
-# plan §13 R4 explicitly called this out.
-_CONNECT_TIMEOUT = 2.0
-_READ_TIMEOUT = 10.0
+# Sprint 9 Phase A (T10) — the connect + read deadlines are now
+# owned by the ``app.state.daemon_httpx_client`` singleton the
+# FastAPI ``lifespan`` constructs in
+# :mod:`nexus_coordinator.api.app`. Per-call ``async with
+# httpx.AsyncClient(...)`` is gone: every proxy handler reaches
+# the shared client via ``request.app.state.daemon_httpx_client``
+# so that a burst of shell refreshes shares the same connection
+# pool (``Limits(max_connections=10)``). The previous per-call
+# construction re-did the TCP + TLS handshake on every request
+# which, while cheap on loopback, was unbounded under burst.
 
 
 # =================================================================
@@ -130,6 +132,7 @@ def _unavailable(reason: str) -> JSONResponse:
 
 
 async def _forward(
+    request: Request,
     method: str,
     suffix: str,
     json_body: dict[str, Any] | None = None,
@@ -152,10 +155,9 @@ async def _forward(
         return _unavailable("shell-daemon not running")
 
     url = f"{_daemon_base_url(state)}{suffix}"
-    timeout = httpx.Timeout(connect=_CONNECT_TIMEOUT, read=_READ_TIMEOUT, write=_CONNECT_TIMEOUT, pool=_CONNECT_TIMEOUT)
+    client: httpx.AsyncClient = request.app.state.daemon_httpx_client
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.request(method, url, json=json_body)
+        response = await client.request(method, url, json=json_body)
     except httpx.ConnectError as e:
         _log.warning("shell-daemon connect failed", url=url, error=str(e))
         return _unavailable(f"connect failed: {e}")
@@ -193,20 +195,20 @@ async def _forward(
 
 
 @router.get("/info")
-async def daemon_info(_request: Request) -> JSONResponse:
+async def daemon_info(request: Request) -> JSONResponse:
     """Proxy ``GET /info`` on the shell daemon.
 
     Returns a ``DaemonStateSnapshot`` wrapped in the discriminated
     envelope so the shell can render a "daemon offline" state
     from the same React component tree.
     """
-    return await _forward("GET", "/info")
+    return await _forward(request, "GET", "/info")
 
 
 @router.get("/curators")
-async def daemon_list_curators(_request: Request) -> JSONResponse:
+async def daemon_list_curators(request: Request) -> JSONResponse:
     """Proxy ``GET /curators`` on the shell daemon."""
-    return await _forward("GET", "/curators")
+    return await _forward(request, "GET", "/curators")
 
 
 @router.post("/curators/subscribe")
@@ -230,17 +232,17 @@ async def daemon_subscribe_curator(request: Request) -> JSONResponse:
             status_code=400,
             content={"kind": "error", "reason": "request body must be a JSON object"},
         )
-    return await _forward("POST", "/curators/subscribe", json_body=body)
+    return await _forward(request, "POST", "/curators/subscribe", json_body=body)
 
 
 @router.delete("/curators/{pubkey_hex}")
-async def daemon_unsubscribe_curator(pubkey_hex: str) -> JSONResponse:
+async def daemon_unsubscribe_curator(request: Request, pubkey_hex: str) -> JSONResponse:
     """Proxy ``DELETE /curators/{pubkey}`` on the shell daemon."""
-    return await _forward("DELETE", f"/curators/{pubkey_hex}")
+    return await _forward(request, "DELETE", f"/curators/{pubkey_hex}")
 
 
 @router.get("/browse")
-async def daemon_list_browse(_request: Request) -> JSONResponse:
+async def daemon_list_browse(request: Request) -> JSONResponse:
     """Proxy ``GET /browse`` on the shell daemon.
 
     This is the heaviest proxy call — the daemon probes every
@@ -249,4 +251,4 @@ async def daemon_list_browse(_request: Request) -> JSONResponse:
     to probe ~5 uncached projects before the shell sees a
     timeout.
     """
-    return await _forward("GET", "/browse")
+    return await _forward(request, "GET", "/browse")

@@ -36,6 +36,15 @@ def collect_decorators(
     :func:`nexus_sdk.nexus_command`. Keeping it a positional
     return tuple (rather than a named tuple or dict) matches the
     existing unpacking convention in :class:`NexusApp.__init__`.
+
+    Sprint 9 Phase A (T12) — ``workers``, ``tabs`` and ``commands``
+    are sorted by their ``name`` key before return. The previous
+    order was whatever ``dir(cls)`` produced, which is
+    alphabetical by attribute name on CPython as an implementation
+    detail rather than a documented guarantee. Making the sort
+    explicit locks the order against PyPy, ``__slots__``
+    reshuffles, and method renames. ``routes`` is sorted by
+    ``path`` for symmetry.
     """
     routes: list[dict[str, Any]] = []
     workers: list[dict[str, Any]] = []
@@ -70,5 +79,10 @@ def collect_decorators(
                     "fn": attr,
                 }
             )
+
+    routes.sort(key=lambda d: d["path"])
+    workers.sort(key=lambda d: d["name"])
+    tabs.sort(key=lambda d: d["name"])
+    commands.sort(key=lambda d: d["name"])
 
     return routes, workers, tabs, commands
