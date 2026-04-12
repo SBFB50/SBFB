@@ -35,11 +35,14 @@ use std::time::SystemTime;
 
 use anyhow::{anyhow, Context, Result};
 use nexus_core_rs::{create_node, GossipClient, GossipEvent, Node};
-use nexus_shell_daemon_core::browse::{BrowseAggregator, BrowseAggregatorHandle};
+use nexus_shell_daemon_core::browse::{
+    BrowseAggregator, BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
+};
 use nexus_shell_daemon_core::config::ShellDaemonPaths;
 use nexus_shell_daemon_core::iroh_runtime::{
     curator_topic_id, CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle,
 };
+use nexus_shell_daemon_core::publish;
 use nexus_shell_daemon_core::registry::{
     self, new_running_state, remove_running, write_running, StaleOutcome,
 };
@@ -48,7 +51,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
-use crate::http::{build_router, DaemonHttpState};
+use crate::http::{build_router, DaemonHttpState, GossipSenderHandle};
 
 /// Options the binary hands to [`DaemonRuntime::start`].
 ///
@@ -183,6 +186,10 @@ impl DaemonRuntime {
         //     probe each project's reachability on demand.
         let browse_aggregator: BrowseAggregatorHandle = Arc::new(BrowseAggregator::new());
 
+        // 5c. Sprint 11 Phase A: shared gossip sender slot. Set to
+        //     `Some(sender)` once the gossip task joins the topic.
+        let gossip_sender: GossipSenderHandle = Arc::new(tokio::sync::RwLock::new(None));
+
         // 6. Build the shared HTTP state + spawn the serve task.
         let http_state = Arc::new(DaemonHttpState {
             node_id,
@@ -193,6 +200,7 @@ impl DaemonRuntime {
             curator_runtime: Arc::clone(&curator_runtime),
             browse_aggregator: Arc::clone(&browse_aggregator),
             node: Arc::clone(&node),
+            gossip_sender: Arc::clone(&gossip_sender),
         });
         let router = build_router(http_state);
 
@@ -214,6 +222,8 @@ impl DaemonRuntime {
         let gossip_handle = spawn_gossip_subscribe_task(
             Arc::clone(&node),
             Arc::clone(&curator_runtime),
+            Arc::clone(&browse_aggregator),
+            Arc::clone(&gossip_sender),
             gossip_shutdown_rx,
         );
 
@@ -341,6 +351,8 @@ impl Drop for DaemonRuntime {
 fn spawn_gossip_subscribe_task(
     node: Arc<Node>,
     curator_runtime: CuratorRuntimeHandle,
+    browse_aggregator: BrowseAggregatorHandle,
+    gossip_sender_slot: GossipSenderHandle,
     mut shutdown_rx: oneshot::Receiver<()>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -368,7 +380,14 @@ fn spawn_gossip_subscribe_task(
         };
         info!("curator gossip topic joined");
 
-        let (_sender, mut receiver) = topic.split();
+        let (sender, mut receiver) = topic.split();
+
+        // Sprint 11 Phase A: store the sender in the shared slot
+        // so POST /publish can broadcast project announcements.
+        {
+            let mut lock = gossip_sender_slot.write().await;
+            *lock = Some(sender);
+        }
 
         // Step 2: drain events until shutdown is signalled or
         // the receiver stream ends.
@@ -380,31 +399,37 @@ fn spawn_gossip_subscribe_task(
                             debug!(
                                 delivered_from = %delivered_from,
                                 bytes = content.len(),
-                                "curator gossip message received"
+                                "gossip message received"
                             );
-                            handle_announcement(&curator_runtime, &node, &content).await;
+                            // Sprint 11 Phase A: dispatch based on
+                            // message type before curator processing.
+                            if publish::is_project_announcement(&content) {
+                                handle_project_announcement(&browse_aggregator, &content);
+                            } else {
+                                handle_announcement(&curator_runtime, &node, &content).await;
+                            }
                         }
                         Ok(Some(GossipEvent::NeighborUp { node_id })) => {
-                            debug!(neighbor = %node_id, "curator gossip neighbor up");
+                            debug!(neighbor = %node_id, "gossip neighbor up");
                         }
                         Ok(Some(GossipEvent::NeighborDown { node_id })) => {
-                            debug!(neighbor = %node_id, "curator gossip neighbor down");
+                            debug!(neighbor = %node_id, "gossip neighbor down");
                         }
                         Ok(Some(GossipEvent::Lagged)) => {
-                            warn!("curator gossip receiver lagged — some messages dropped");
+                            warn!("gossip receiver lagged — some messages dropped");
                         }
                         Ok(None) => {
-                            info!("curator gossip stream ended cleanly");
+                            info!("gossip stream ended cleanly");
                             break;
                         }
                         Err(e) => {
-                            warn!(error = %e, "curator gossip next_event error");
+                            warn!(error = %e, "gossip next_event error");
                             break;
                         }
                     }
                 }
                 _ = &mut shutdown_rx => {
-                    info!("curator gossip task shut down on signal");
+                    info!("gossip task shut down on signal");
                     break;
                 }
             }
@@ -462,6 +487,36 @@ async fn handle_announcement(curator_runtime: &CuratorRuntimeHandle, node: &Node
         }
         Err(e) => {
             warn!(error = %e, "failed to process curator announcement");
+        }
+    }
+}
+
+/// Handle a gossip message identified as a project announcement.
+/// Parse, validate, and insert into the browse aggregator.
+///
+/// Sprint 11 Phase A.
+fn handle_project_announcement(browse_aggregator: &BrowseAggregatorHandle, content: &[u8]) {
+    match publish::ProjectAnnouncement::from_gossip_bytes(content) {
+        Ok(ann) => {
+            let entry = BrowseEntry {
+                project_id: ann.node_id.clone(),
+                project_name: ann.project_name,
+                category: ann.category,
+                description: ann.description,
+                curator_pubkey: String::new(),
+                curator_name: "Self-published".into(),
+                source: BrowseSource::Direct,
+                status: BrowseStatus::Unknown,
+                last_probed_at: None,
+            };
+            browse_aggregator.add_direct_entry(entry);
+            info!(
+                node_id = %ann.node_id,
+                "project announcement accepted via gossip"
+            );
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to parse project announcement");
         }
     }
 }

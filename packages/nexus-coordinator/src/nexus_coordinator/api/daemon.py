@@ -253,3 +253,27 @@ async def daemon_list_browse(request: Request) -> JSONResponse:
     timeout.
     """
     return await _forward(request, "GET", "/browse")
+
+
+@router.post("/publish")
+async def daemon_publish_project(request: Request) -> JSONResponse:
+    """Proxy ``POST /publish`` on the shell daemon.
+
+    Sprint 11 Phase A. Called by the coordinator's
+    ``POST /project/publish`` endpoint (or directly by the CLI)
+    to broadcast a project announcement on the gossip topic.
+    Body schema is forwarded verbatim — the daemon validates.
+    """
+    try:
+        body = await request.json()
+    except json.JSONDecodeError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"kind": "error", "reason": f"bad request json: {e}"},
+        )
+    if not isinstance(body, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"kind": "error", "reason": "request body must be a JSON object"},
+        )
+    return await _forward(request, "POST", "/publish", json_body=body)

@@ -511,3 +511,117 @@ async def test_daemon_proxy_forwards_422_from_daemon(nexus_grid_tmp: Path) -> No
                 assert "not-hex" in body["body"]["error"]
         finally:
             await coord.stop()
+
+
+# ---------------------------------------------------------------
+# Sprint 11 Phase A — POST /daemon/publish + POST /project/publish
+# ---------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_daemon_publish_forwards_post_body(nexus_grid_tmp: Path) -> None:
+    """POST /daemon/publish forwards the body to the daemon's
+    POST /publish and wraps the response."""
+    with _FakeDaemon() as fake:
+        fake.set_response("POST", "/publish", 200, {"published": True})
+        _write_running_json(nexus_grid_tmp, port=fake.port)
+
+        coord = Coordinator(project_name="daemon-publish")
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                r = client.post(
+                    "/daemon/publish",
+                    json={
+                        "project_name": "gov-officiel",
+                        "category": "gov",
+                        "description": "Le projet gouvernance",
+                        "apps": ["gov"],
+                    },
+                )
+                assert r.status_code == 200
+                body = r.json()
+                assert body["kind"] == "data"
+                assert body["status"] == 200
+                assert body["body"]["published"] is True
+        finally:
+            await coord.stop()
+
+    post_calls = [c for c in fake.calls if c[0] == "POST" and c[1] == "/publish"]
+    assert len(post_calls) == 1
+    forwarded = json.loads(post_calls[0][2])
+    assert forwarded["project_name"] == "gov-officiel"
+
+
+@pytest.mark.asyncio
+async def test_daemon_publish_returns_503_when_daemon_down(
+    nexus_grid_tmp: Path,
+) -> None:
+    """POST /daemon/publish returns 503 when daemon is not running."""
+    coord = Coordinator(project_name="daemon-publish-503")
+    await coord.start()
+    try:
+        with TestClient(create_app(coord)) as client:
+            r = client.post(
+                "/daemon/publish",
+                json={
+                    "project_name": "test",
+                    "category": "misc",
+                    "description": "test",
+                    "apps": [],
+                },
+            )
+            assert r.status_code == 503
+            body = r.json()
+            assert body["kind"] == "unavailable"
+    finally:
+        await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_project_publish_endpoint(nexus_grid_tmp: Path) -> None:
+    """POST /project/publish builds the payload from the coordinator
+    config and forwards to the daemon."""
+    with _FakeDaemon() as fake:
+        fake.set_response("POST", "/publish", 200, {"published": True})
+        _write_running_json(nexus_grid_tmp, port=fake.port)
+
+        coord = Coordinator(project_name="gov-publish-test")
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                r = client.post("/project/publish")
+                assert r.status_code == 200
+                body = r.json()
+                assert body["kind"] == "data"
+                assert body["body"]["published"] is True
+        finally:
+            await coord.stop()
+
+    post_calls = [c for c in fake.calls if c[0] == "POST" and c[1] == "/publish"]
+    assert len(post_calls) == 1
+    forwarded = json.loads(post_calls[0][2])
+    assert forwarded["project_name"] == "gov-publish-test"
+
+
+@pytest.mark.asyncio
+async def test_auto_publish_called_for_public_coordinator(
+    nexus_grid_tmp: Path,
+) -> None:
+    """A coordinator with visibility=public calls the daemon's
+    POST /publish at boot. Sprint 11 Phase A auto-publish."""
+    with _FakeDaemon() as fake:
+        fake.set_response("POST", "/publish", 200, {"published": True})
+        _write_running_json(nexus_grid_tmp, port=fake.port)
+
+        coord = Coordinator(project_name="auto-pub-test")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            # The auto-publish call should have happened during start().
+            post_calls = [c for c in fake.calls if c[0] == "POST" and c[1] == "/publish"]
+            assert len(post_calls) == 1
+            forwarded = json.loads(post_calls[0][2])
+            assert forwarded["project_name"] == "auto-pub-test"
+        finally:
+            await coord.stop()

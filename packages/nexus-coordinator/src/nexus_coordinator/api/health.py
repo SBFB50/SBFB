@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""``/health`` and ``/project`` endpoints."""
+"""``/health``, ``/project``, and ``/project/publish`` endpoints."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import structlog
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 if TYPE_CHECKING:
     from nexus_coordinator.coordinator import Coordinator
+
+_log = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -39,3 +43,24 @@ async def project(request: Request) -> dict[str, object]:
     endpoint landing in Phase C.
     """
     return _coordinator(request).project_payload()
+
+
+@router.post("/project/publish")
+async def publish_project(request: Request) -> JSONResponse:
+    """Publish this project to the P2P network via the daemon.
+
+    Sprint 11 Phase A. Reads the coordinator's own config to build
+    the publish payload, then forwards it to the daemon's
+    ``POST /publish`` via the ``/daemon/publish`` proxy. Returns
+    the daemon's response as-is.
+    """
+    from nexus_coordinator.api import daemon as _daemon_mod
+
+    coord = _coordinator(request)
+    payload = {
+        "project_name": coord.project_name,
+        "category": coord.config.identity.description or "general",
+        "description": coord.config.identity.description or coord.project_name,
+        "apps": list(coord.apps.keys()) if coord.apps else [],
+    }
+    return await _daemon_mod._forward(request, "POST", "/publish", json_body=payload)

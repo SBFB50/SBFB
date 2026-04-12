@@ -39,13 +39,21 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use nexus_core_rs::Node;
-use nexus_shell_daemon_core::browse::{BrowseAggregatorHandle, BrowseEntry};
+use nexus_core_rs::{Node, TopicSender};
+use nexus_shell_daemon_core::browse::{
+    BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
+};
 use nexus_shell_daemon_core::iroh_runtime::{CuratorRuntimeError, CuratorRuntimeHandle};
+use nexus_shell_daemon_core::publish::ProjectAnnouncement;
 use nexus_shell_daemon_core::state::{DaemonStateSnapshot, StateInputs};
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::debug;
+
+/// Shared handle to the gossip topic sender. `None` until the
+/// gossip task has joined the curator topic. Sprint 11 Phase A.
+pub type GossipSenderHandle = Arc<RwLock<Option<TopicSender>>>;
 
 /// Shared state handed to every axum route.
 ///
@@ -68,6 +76,10 @@ pub struct DaemonHttpState {
     /// through the Arc to call `DiscoveryClient::probe_reachable`
     /// on the endpoint.
     pub node: Arc<Node>,
+    /// Gossip topic sender handle. `None` until the gossip task
+    /// has joined the curator topic. Used by `POST /publish` to
+    /// broadcast project announcements. Sprint 11 Phase A.
+    pub gossip_sender: GossipSenderHandle,
 }
 
 impl DaemonHttpState {
@@ -105,6 +117,7 @@ pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
         .route("/curators/subscribe", post(subscribe_curator))
         .route("/curators/:pubkey", delete(unsubscribe_curator))
         .route("/browse", get(list_browse))
+        .route("/publish", post(publish_project))
         .with_state(state)
         .layer(loopback_cors_layer())
 }
@@ -202,6 +215,27 @@ pub struct CuratorsListResponse {
 #[serde(deny_unknown_fields)]
 pub struct BrowseListResponse {
     pub entries: Vec<BrowseEntry>,
+}
+
+/// Body of `POST /publish`. Sprint 11 Phase A.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublishRequest {
+    /// Project display name.
+    pub project_name: String,
+    /// Category tag (e.g. `"gov"`, `"investigation"`).
+    pub category: String,
+    /// Short description.
+    pub description: String,
+    /// List of app names available on this project.
+    #[serde(default)]
+    pub apps: Vec<String>,
+}
+
+/// Body of `POST /publish` (success). Sprint 11 Phase A.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishResponse {
+    pub published: bool,
 }
 
 /// Body returned when a curator runtime error must be surfaced
@@ -327,6 +361,68 @@ async fn list_browse(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResp
     (StatusCode::OK, Json(BrowseListResponse { entries }))
 }
 
+/// `POST /publish` — broadcast a project announcement via gossip
+/// and add it to the local browse aggregator. Sprint 11 Phase A.
+///
+/// Called by the coordinator's `POST /project/publish` endpoint
+/// (proxied through `/daemon/publish`) when the project has
+/// `visibility=public`. The daemon constructs a
+/// [`ProjectAnnouncement`] from the request body + its own
+/// `node_id`, broadcasts it on the curator gossip topic, and
+/// adds the resulting [`BrowseEntry`] to the aggregator so it
+/// appears in the local `/browse` immediately.
+async fn publish_project(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(req): Json<PublishRequest>,
+) -> impl IntoResponse {
+    debug!(project = %req.project_name, "POST /publish");
+
+    let announcement = ProjectAnnouncement::new(
+        state.node_id.clone(),
+        req.project_name.clone(),
+        req.category.clone(),
+        req.description.clone(),
+        req.apps.clone(),
+    );
+
+    // Broadcast via gossip if the sender is available.
+    let sender_guard = state.gossip_sender.read().await;
+    if let Some(sender) = sender_guard.as_ref() {
+        match announcement.to_gossip_bytes() {
+            Ok(bytes) => {
+                if let Err(e) = sender.broadcast(bytes).await {
+                    debug!(error = %e, "gossip broadcast failed for project announcement");
+                    // Non-fatal: the project is still added locally.
+                }
+            }
+            Err(e) => {
+                debug!(error = %e, "failed to serialize project announcement");
+            }
+        }
+    } else {
+        debug!("gossip sender not ready, skipping broadcast");
+    }
+    drop(sender_guard);
+
+    // Add to the local browse aggregator so `/browse` includes
+    // this project immediately without waiting for a gossip
+    // round-trip.
+    let browse_entry = BrowseEntry {
+        project_id: state.node_id.clone(),
+        project_name: req.project_name,
+        category: req.category,
+        description: req.description,
+        curator_pubkey: String::new(),
+        curator_name: "Self-published".into(),
+        source: BrowseSource::Direct,
+        status: BrowseStatus::Reachable,
+        last_probed_at: None,
+    };
+    state.browse_aggregator.add_direct_entry(browse_entry);
+
+    (StatusCode::OK, Json(PublishResponse { published: true }))
+}
+
 // =================================================================
 // Tests
 // =================================================================
@@ -359,6 +455,7 @@ mod tests {
             curator_runtime: Arc::new(CuratorRuntime::new(None)),
             browse_aggregator: Arc::new(BrowseAggregator::new()),
             node: Arc::new(node),
+            gossip_sender: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -620,6 +717,61 @@ mod tests {
         let body = to_bytes(resp.into_body(), 4096).await.unwrap();
         let list: BrowseListResponse = serde_json::from_slice(&body).unwrap();
         assert!(list.entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn publish_returns_200_and_adds_direct_entry() {
+        // Sprint 11 Phase A: POST /publish adds a direct entry
+        // to the browse aggregator and returns published=true.
+        // Gossip broadcast is skipped (sender is None in tests).
+        let state = mk_state().await;
+        let app = build_router(Arc::clone(&state));
+
+        let body = serde_json::to_vec(&PublishRequest {
+            project_name: "gov-officiel".into(),
+            category: "gov".into(),
+            description: "Le projet gouvernance".into(),
+            apps: vec!["gov".into()],
+        })
+        .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/publish")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let pub_resp: PublishResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(pub_resp.published);
+
+        // The direct entry must now appear in /browse.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/browse")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let browse: BrowseListResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(browse.entries.len(), 1);
+        assert_eq!(browse.entries[0].project_name, "gov-officiel");
+        assert_eq!(
+            serde_json::to_string(&browse.entries[0].source).unwrap(),
+            "\"direct\""
+        );
     }
 
     // ---------------------------------------------------------

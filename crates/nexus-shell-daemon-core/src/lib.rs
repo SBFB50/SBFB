@@ -53,6 +53,7 @@ pub mod browse;
 pub mod config;
 pub mod iroh_runtime;
 pub mod paths;
+pub mod publish;
 pub mod registry;
 pub mod state;
 

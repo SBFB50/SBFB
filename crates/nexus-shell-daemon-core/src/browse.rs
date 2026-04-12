@@ -85,6 +85,24 @@ pub fn probe_timeout_from_env() -> Duration {
 // Wire types
 // =================================================================
 
+/// How a [`BrowseEntry`] was discovered: via a signed curator
+/// list, or directly from a gossip project announcement.
+///
+/// Sprint 11 Phase A addition. The field is `#[serde(default)]`
+/// on `BrowseEntry` so daemons that haven't upgraded yet still
+/// deserialize entries without a `source` field (defaulting to
+/// `Curator`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BrowseSource {
+    /// Entry came from a signed curator list.
+    #[default]
+    Curator,
+    /// Entry was announced directly via gossip by the project's
+    /// own daemon (self-publish, Sprint 11 Phase A).
+    Direct,
+}
+
 /// Reachability bucket for a single [`BrowseEntry`].
 ///
 /// `Unknown` is the initial state for entries that haven't been
@@ -130,6 +148,11 @@ pub struct BrowseEntry {
     pub curator_pubkey: String,
     /// Human-readable curator display name.
     pub curator_name: String,
+    /// How this entry was discovered (curator list vs direct
+    /// gossip announcement). Defaults to `Curator` for backward
+    /// compatibility with daemons that predate Sprint 11.
+    #[serde(default)]
+    pub source: BrowseSource,
     /// Latest reachability bucket.
     pub status: BrowseStatus,
     /// RFC 3339 UTC timestamp of the last probe. `None` when
@@ -153,11 +176,15 @@ struct ProbeCacheEntry {
 
 /// The browse aggregator.
 ///
-/// Holds a project-id → probe-cache DashMap and the two
+/// Holds a project-id → probe-cache DashMap, a map of directly
+/// announced projects (Sprint 11 Phase A), and the two
 /// aggregator-level duration knobs. Cloneable via `Arc`.
 #[derive(Debug)]
 pub struct BrowseAggregator {
     cache: DashMap<String, ProbeCacheEntry>,
+    /// Projects announced via gossip directly (self-publish),
+    /// keyed by project_id (node_id hex). Sprint 11 Phase A.
+    direct_entries: DashMap<String, BrowseEntry>,
     probe_ttl: Duration,
     probe_timeout: Duration,
 }
@@ -176,6 +203,7 @@ impl BrowseAggregator {
     pub fn with_durations(probe_ttl: Duration, probe_timeout: Duration) -> Self {
         Self {
             cache: DashMap::new(),
+            direct_entries: DashMap::new(),
             probe_ttl,
             probe_timeout,
         }
@@ -228,9 +256,24 @@ impl BrowseAggregator {
         (status, now)
     }
 
+    /// Add a directly announced project (self-publish via gossip).
+    /// Deduplicates by `project_id` — a second announcement for
+    /// the same node_id replaces the previous entry.
+    ///
+    /// Sprint 11 Phase A.
+    pub fn add_direct_entry(&self, entry: BrowseEntry) {
+        self.direct_entries.insert(entry.project_id.clone(), entry);
+    }
+
+    /// Number of directly announced projects currently cached.
+    pub fn direct_entry_count(&self) -> usize {
+        self.direct_entries.len()
+    }
+
     /// Iterate every cached curator list, flatten its entries,
     /// probe each unique project_id under the TTL cache, and
-    /// return a sorted [`BrowseEntry`] vector.
+    /// return a sorted [`BrowseEntry`] vector. Sprint 11 Phase A
+    /// also includes directly announced projects.
     ///
     /// Sorting: (project_id, curator_pubkey) ascending. Stable
     /// so the shell can diff consecutive `/browse` responses
@@ -268,10 +311,16 @@ impl BrowseAggregator {
                     description: project.description.clone(),
                     curator_pubkey: curator_hex.clone(),
                     curator_name: curator_name.clone(),
+                    source: BrowseSource::Curator,
                     status,
                     last_probed_at: probed_at_opt.map(iso_utc),
                 });
             }
+        }
+
+        // Sprint 11 Phase A: append directly announced projects.
+        for entry in self.direct_entries.iter() {
+            out.push(entry.value().clone());
         }
 
         out.sort_by(|a, b| {
@@ -383,12 +432,44 @@ mod tests {
             description: "desc".into(),
             curator_pubkey: "b".repeat(64),
             curator_name: "FlowUP".into(),
+            source: BrowseSource::Curator,
             status: BrowseStatus::Reachable,
             last_probed_at: Some("2026-04-11T12:00:00Z".into()),
         };
         let json = serde_json::to_string(&entry).unwrap();
         let back: BrowseEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(back, entry);
+    }
+
+    #[test]
+    fn browse_entry_without_source_defaults_to_curator() {
+        // Backward compat: daemons before Sprint 11 emit entries
+        // without a `source` field. Deserialization must default
+        // to Curator.
+        let json = r#"{
+            "project_id": "aaaa",
+            "project_name": "gov",
+            "category": "gov",
+            "description": "d",
+            "curator_pubkey": "bbbb",
+            "curator_name": "FlowUP",
+            "status": "reachable",
+            "last_probed_at": null
+        }"#;
+        let entry: BrowseEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.source, BrowseSource::Curator);
+    }
+
+    #[test]
+    fn browse_source_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&BrowseSource::Curator).unwrap(),
+            "\"curator\""
+        );
+        assert_eq!(
+            serde_json::to_string(&BrowseSource::Direct).unwrap(),
+            "\"direct\""
+        );
     }
 
     // ---------------------------------------------------------
@@ -628,6 +709,85 @@ mod tests {
         assert!(out.is_empty());
         let _ = entry;
 
+        node.shutdown().await.ok();
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 11 Phase A — direct entries
+    // ---------------------------------------------------------
+
+    #[test]
+    fn add_direct_entry_stores_and_counts() {
+        let agg = BrowseAggregator::new();
+        assert_eq!(agg.direct_entry_count(), 0);
+        let entry = BrowseEntry {
+            project_id: "a".repeat(64),
+            project_name: "gov".into(),
+            category: "gov".into(),
+            description: "self-published".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+        };
+        agg.add_direct_entry(entry);
+        assert_eq!(agg.direct_entry_count(), 1);
+    }
+
+    #[test]
+    fn add_direct_entry_dedup_by_project_id() {
+        let agg = BrowseAggregator::new();
+        let id = "a".repeat(64);
+        let entry1 = BrowseEntry {
+            project_id: id.clone(),
+            project_name: "gov-v1".into(),
+            category: "gov".into(),
+            description: "first".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+        };
+        let entry2 = BrowseEntry {
+            project_id: id.clone(),
+            project_name: "gov-v2".into(),
+            category: "gov".into(),
+            description: "updated".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+        };
+        agg.add_direct_entry(entry1);
+        agg.add_direct_entry(entry2);
+        assert_eq!(agg.direct_entry_count(), 1, "dedup by project_id");
+    }
+
+    #[tokio::test]
+    async fn aggregate_includes_direct_entries() {
+        let curator = CuratorRuntime::new(None);
+        let node = spawn_node().await;
+        let agg = BrowseAggregator::new();
+        let entry = BrowseEntry {
+            project_id: "d".repeat(64),
+            project_name: "direct-proj".into(),
+            category: "misc".into(),
+            description: "self-published project".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+        };
+        agg.add_direct_entry(entry);
+
+        let out = agg.aggregate(&curator, &node).await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].source, BrowseSource::Direct);
+        assert_eq!(out[0].project_name, "direct-proj");
         node.shutdown().await.ok();
     }
 

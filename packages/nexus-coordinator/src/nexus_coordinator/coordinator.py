@@ -381,6 +381,53 @@ class Coordinator:
                 commands=len(app.commands()),
             )
 
+        # 10. Sprint 11 Phase A: auto-publish to the P2P network
+        #     if visibility is public. Non-blocking: if the daemon
+        #     is not reachable the coordinator still boots normally.
+        if self.config.network.visibility == "public":
+            await self._auto_publish()
+
+    async def _auto_publish(self) -> None:
+        """Announce this project on the P2P network via the daemon.
+
+        Sprint 11 Phase A. Calls the daemon's ``POST /publish``
+        directly via httpx (the FastAPI server is not started yet
+        at this point in the boot sequence). Non-fatal: a daemon
+        that is offline or unreachable is logged and ignored.
+        """
+        from nexus_coordinator.api.daemon import _daemon_base_url, _read_running_state
+
+        state = _read_running_state()
+        if state is None:
+            _log.warning("auto-publish skipped: shell-daemon not running")
+            return
+
+        url = f"{_daemon_base_url(state)}/publish"
+        payload = {
+            "project_name": self.project_name,
+            "category": self.config.identity.description or "general",
+            "description": self.config.identity.description or self.project_name,
+            "apps": list(self.apps.keys()),
+        }
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+                resp = await client.post(url, json=payload)
+            if resp.status_code == 200:
+                _log.info(
+                    "project published to P2P network",
+                    project=self.project_name,
+                )
+            else:
+                _log.warning(
+                    "auto-publish returned non-200",
+                    status=resp.status_code,
+                    body=resp.text,
+                )
+        except httpx.HTTPError as e:
+            _log.warning("auto-publish failed", error=str(e))
+
     async def stop(self) -> None:
         """Shut down the iroh node and cancel any background tasks.
 
