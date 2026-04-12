@@ -694,13 +694,19 @@ export function setAppState(
  * Sprint 11 Phase C — determine if a browsed project is hosted on
  * the local coordinator and, if so, return its app list. Returns
  * `null` when the project lives on a different node.
+ *
+ * Fix sprint11 D-01: compare against the daemon's node_id (from
+ * GET /daemon/info), not the coordinator's (GET /health). The
+ * BrowseEntry project_id is the announcing daemon's iroh node_id
+ * which differs from the coordinator's own iroh node_id.
  */
 export async function getProjectApps(
   baseUrl: string,
   projectId: string,
 ): Promise<AppsList | null> {
-  const health = await getHealth(baseUrl);
-  if (health.node_id !== projectId) return null;
+  const { getDaemonInfo } = await import("./daemon");
+  const info = await getDaemonInfo(baseUrl);
+  if (info.kind !== "data" || info.body.node_id !== projectId) return null;
   return listApps(baseUrl);
 }
 

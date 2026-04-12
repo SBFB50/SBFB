@@ -360,6 +360,7 @@ async def test_daemon_browse_forwards_upstream(nexus_grid_tmp: Path) -> None:
                         "description": "test",
                         "curator_pubkey": "bb" * 32,
                         "curator_name": "FlowUP",
+                        "source": "curator",
                         "status": "reachable",
                         "last_probed_at": "2026-04-11T12:00:00Z",
                     }

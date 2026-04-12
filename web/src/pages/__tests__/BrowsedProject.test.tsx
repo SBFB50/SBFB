@@ -31,6 +31,31 @@ const COORD_URL = "http://127.0.0.1:8765";
 const LOCAL_NODE_ID = "aa".repeat(32);
 const REMOTE_NODE_ID = "bb".repeat(32);
 
+// The daemon's node_id is what appears as project_id in BrowseEntry
+// for self-published projects. The coordinator has a *different*
+// node_id (its own iroh endpoint). The locality check compares
+// against the daemon's node_id via GET /daemon/info, not the
+// coordinator's GET /health.
+function makeDaemonInfo(nodeId: string = LOCAL_NODE_ID) {
+  return {
+    kind: "data",
+    status: 200,
+    body: {
+      schema_version: 1,
+      node_id: nodeId,
+      daemon_version: "1.0.0",
+      uptime_secs: 120,
+      started_at: "2026-04-12T10:00:00Z",
+      last_updated_at: "2026-04-12T12:00:00Z",
+      api_host: "127.0.0.1",
+      api_port: 7000,
+      subscribed_curators: [],
+      known_lists: 0,
+      known_browse_entries: 1,
+    },
+  };
+}
+
 function makeBrowseEntry(overrides: Record<string, unknown> = {}) {
   return {
     project_id: LOCAL_NODE_ID,
@@ -112,14 +137,7 @@ describe("BrowsedProject", () => {
         status: 200,
         body: { entries: [] },
       },
-      "/health": {
-        status: "ok",
-        project: "test",
-        node_id: LOCAL_NODE_ID,
-        doc_id: null,
-        author_id: null,
-        version: "1.0.0",
-      },
+      "/daemon/info": makeDaemonInfo(),
     });
     renderPage(LOCAL_NODE_ID);
     const backLink = screen.getByTestId("back-to-browse");
@@ -145,14 +163,7 @@ describe("BrowsedProject", () => {
         status: 200,
         body: { entries: [] },
       },
-      "/health": {
-        status: "ok",
-        project: "test",
-        node_id: LOCAL_NODE_ID,
-        doc_id: null,
-        author_id: null,
-        version: "1.0.0",
-      },
+      "/daemon/info": makeDaemonInfo(),
     });
     renderPage("ff".repeat(32));
     await waitFor(() => {
@@ -168,14 +179,7 @@ describe("BrowsedProject", () => {
         status: 200,
         body: { entries: [makeBrowseEntry()] },
       },
-      "/health": {
-        status: "ok",
-        project: "gov",
-        node_id: LOCAL_NODE_ID,
-        doc_id: null,
-        author_id: null,
-        version: "1.0.0",
-      },
+      "/daemon/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -198,14 +202,7 @@ describe("BrowsedProject", () => {
           entries: [makeBrowseEntry({ project_id: REMOTE_NODE_ID })],
         },
       },
-      "/health": {
-        status: "ok",
-        project: "test",
-        node_id: LOCAL_NODE_ID,
-        doc_id: null,
-        author_id: null,
-        version: "1.0.0",
-      },
+      "/daemon/info": makeDaemonInfo(),
     });
     renderPage(REMOTE_NODE_ID);
     await waitFor(() => {
@@ -217,21 +214,14 @@ describe("BrowsedProject", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders local project apps view for matching node_id", async () => {
+  it("renders local project apps view for matching daemon node_id", async () => {
     mockFetch({
       "/daemon/browse": {
         kind: "data",
         status: 200,
         body: { entries: [makeBrowseEntry()] },
       },
-      "/health": {
-        status: "ok",
-        project: "gov",
-        node_id: LOCAL_NODE_ID,
-        doc_id: null,
-        author_id: null,
-        version: "1.0.0",
-      },
+      "/daemon/info": makeDaemonInfo(),
       "/app": {
         apps: [
           {
@@ -262,14 +252,7 @@ describe("BrowsedProject", () => {
         status: 200,
         body: { entries: [makeBrowseEntry()] },
       },
-      "/health": {
-        status: "ok",
-        project: "gov",
-        node_id: LOCAL_NODE_ID,
-        doc_id: null,
-        author_id: null,
-        version: "1.0.0",
-      },
+      "/daemon/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -290,14 +273,7 @@ describe("BrowsedProject", () => {
           entries: [makeBrowseEntry({ source: "direct" })],
         },
       },
-      "/health": {
-        status: "ok",
-        project: "gov",
-        node_id: LOCAL_NODE_ID,
-        doc_id: null,
-        author_id: null,
-        version: "1.0.0",
-      },
+      "/daemon/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);

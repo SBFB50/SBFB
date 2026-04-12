@@ -30,11 +30,10 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { listBrowse, type BrowseEntry } from "@/api/daemon";
+import { getDaemonInfo, listBrowse, type BrowseEntry } from "@/api/daemon";
 import {
   getAppManifest,
   getAppTabDescriptor,
-  getHealth,
   listApps,
 } from "@/api/coordinator";
 import {
@@ -84,9 +83,9 @@ function BrowsedProjectContent({
     staleTime: 30_000,
   });
 
-  const healthQuery = useQuery({
-    queryKey: ["health", coordUrl],
-    queryFn: () => getHealth(coordUrl),
+  const daemonInfoQuery = useQuery({
+    queryKey: ["daemon-info", coordUrl],
+    queryFn: () => getDaemonInfo(coordUrl),
     staleTime: 10_000,
   });
 
@@ -98,9 +97,16 @@ function BrowsedProjectContent({
     );
   }, [browseQuery.data, projectId]);
 
-  const isLocal = healthQuery.data?.node_id === projectId;
+  // Locality check: compare the browsed project_id (which is the
+  // announcing daemon's node_id) against the daemon's own node_id
+  // returned by GET /daemon/info.  The previous check compared
+  // against the coordinator's node_id (GET /health) which is a
+  // *different* iroh node — always false in production.
+  const isLocal =
+    daemonInfoQuery.data?.kind === "data" &&
+    daemonInfoQuery.data.body.node_id === projectId;
 
-  if (browseQuery.isLoading || healthQuery.isLoading) {
+  if (browseQuery.isLoading || daemonInfoQuery.isLoading) {
     return (
       <div className="space-y-4">
         <BackLink />

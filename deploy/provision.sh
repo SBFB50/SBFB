@@ -76,10 +76,13 @@ chown nexus:nexus /opt/nexus-grid/web
 systemctl enable nginx
 systemctl reload nginx || systemctl start nginx
 
-# ── Firewall ────────────────────────────────────────────────
+# ── Firewall (idempotent — no reset) ───────────────────────
 echo "  [6/8] Configuring firewall..."
 apt-get install -y -qq ufw
-ufw --force reset
+# Apply rules idempotently (ufw allow is a no-op for existing rules).
+# Do NOT use `ufw --force reset` — it wipes all rules including any
+# added by other tools (fail2ban, etc.) and leaves a brief window
+# with no firewall.  Fix sprint11 F-01.
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow ssh
@@ -88,6 +91,12 @@ ufw allow 80/tcp
 # iroh QUIC — UDP on all ports (iroh uses ephemeral ports for QUIC)
 ufw allow proto udp from any to any
 ufw --force enable
+
+# ── Sudoers for nexus user (deploy scripts need systemctl) ─
+# Fix sprint11 F-03: deploy.sh and deploy-web.sh run as the nexus
+# user and invoke `sudo systemctl` to reload/restart services.
+echo "nexus ALL=(ALL) NOPASSWD: /usr/bin/systemctl" > /etc/sudoers.d/nexus-systemctl
+chmod 440 /etc/sudoers.d/nexus-systemctl
 
 # ── Systemd services ───────────────────────────────────────
 echo "  [7/8] Installing systemd services..."
