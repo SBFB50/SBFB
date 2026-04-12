@@ -12,11 +12,14 @@ authors = [{ name = "FlowUP" }]
 readme = "README.md"
 keywords = ["p2p", "iroh", "llm", "distributed", "compute", "coordinator", "sbfb"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
     "Topic :: System :: Distributed Computing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
 dependencies = [
     # Core PyO3 wheel — provides the iroh Node, Doc, Gossip, Blobs,
     # Verifier, sign_task/sign_result/sign_claim bindings. Via uv
@@ -80,6 +83,11 @@ dependencies = [
     # together.
     "nexus-sdk",
 ]
+
+[project.urls]
+Homepage = "https://github.com/SBFB50/SBFB"
+Repository = "https://github.com/SBFB50/SBFB"
+Issues = "https://github.com/SBFB50/SBFB/issues"
 
 [project.scripts]
 nexus-coordinator = "nexus_coordinator.cli.main:app"
