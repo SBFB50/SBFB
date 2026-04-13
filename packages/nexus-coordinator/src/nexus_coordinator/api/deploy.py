@@ -30,6 +30,9 @@ _log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["deploy"])
 
+# 100 MB — consistent with blob-serve daemon DEFAULT_MAX_DECOMPRESSED_BYTES.
+MAX_DEPLOY_BYTES: int = 100 * 1024 * 1024
+
 
 def _validate_zip(data: bytes) -> None:
     """Raise HTTPException(400) if ``data`` is not a valid zip with index.html."""
@@ -108,6 +111,14 @@ async def deploy_project(
 ) -> dict:
     """Upload a zip archive and publish to the P2P network."""
     zip_bytes = await archive.read()
+    if len(zip_bytes) > MAX_DEPLOY_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Upload exceeds the maximum allowed size of "
+                f"{MAX_DEPLOY_BYTES} bytes ({MAX_DEPLOY_BYTES // (1024 * 1024)} MB)"
+            ),
+        )
     _log.info("deploy: received zip", size=len(zip_bytes))
 
     _validate_zip(zip_bytes)

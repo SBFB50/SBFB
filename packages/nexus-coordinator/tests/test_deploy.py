@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 12 Phase B — tests for ``POST /project/deploy`` + auto-publish archive.
 
-3 scenarios:
+4 scenarios:
 1. deploy_valid_zip — upload a valid zip → 200 + hash
 2. deploy_invalid_zip — upload garbage → 400
 3. deploy_missing_index — zip without index.html → 400
+4. deploy_oversized_zip — upload > MAX_DEPLOY_BYTES → 413
 """
 
 from __future__ import annotations
@@ -175,5 +176,31 @@ async def test_deploy_missing_index_html(nexus_grid_tmp: Path) -> None:
                 )
                 assert r.status_code == 400
                 assert "index.html" in r.json()["detail"]
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_oversized_zip(nexus_grid_tmp: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /project/deploy with a zip > MAX_DEPLOY_BYTES → 413."""
+    import nexus_coordinator.api.deploy as deploy_mod
+
+    # Patch to a tiny limit so the test stays fast.
+    monkeypatch.setattr(deploy_mod, "MAX_DEPLOY_BYTES", 64)
+
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-too-big")
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                zip_bytes = _make_zip({"index.html": "x" * 200})
+                assert len(zip_bytes) > 64  # sanity: zip exceeds patched limit
+                r = client.post(
+                    "/project/deploy",
+                    files={"archive": ("big.zip", zip_bytes, "application/zip")},
+                )
+                assert r.status_code == 413
+                assert "maximum allowed size" in r.json()["detail"]
         finally:
             await coord.stop()
