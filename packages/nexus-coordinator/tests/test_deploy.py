@@ -181,6 +181,70 @@ async def test_deploy_missing_index_html(nexus_grid_tmp: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_deploy_public_without_repo_url_rejected(nexus_grid_tmp: Path) -> None:
+    """POST /project/deploy for a public project without repo_url → 400."""
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-public-no-repo")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                zip_bytes = _make_zip({"index.html": "<h1>Hello</h1>"})
+                r = client.post(
+                    "/project/deploy",
+                    files={"archive": ("app.zip", zip_bytes, "application/zip")},
+                )
+                assert r.status_code == 400
+                assert "repo_url" in r.json()["detail"]
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_public_with_repo_url_accepted(nexus_grid_tmp: Path) -> None:
+    """POST /project/deploy for a public project with repo_url → 200."""
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-public-with-repo")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                zip_bytes = _make_zip({"index.html": "<h1>Hello</h1>"})
+                r = client.post(
+                    "/project/deploy",
+                    files={"archive": ("app.zip", zip_bytes, "application/zip")},
+                    data={"repo_url": "https://github.com/example/app"},
+                )
+                assert r.status_code == 200
+                body = r.json()
+                assert body["deployed"] is True
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_private_without_repo_url_accepted(nexus_grid_tmp: Path) -> None:
+    """POST /project/deploy for a private project without repo_url → 200."""
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-private-no-repo")
+        # visibility defaults to "private" — no repo_url needed
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                zip_bytes = _make_zip({"index.html": "<h1>Hello</h1>"})
+                r = client.post(
+                    "/project/deploy",
+                    files={"archive": ("app.zip", zip_bytes, "application/zip")},
+                )
+                assert r.status_code == 200
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
 async def test_deploy_oversized_zip(nexus_grid_tmp: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """POST /project/deploy with a zip > MAX_DEPLOY_BYTES → 413."""
     import nexus_coordinator.api.deploy as deploy_mod

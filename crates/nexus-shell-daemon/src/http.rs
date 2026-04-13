@@ -268,6 +268,9 @@ pub struct PublishRequest {
     /// the gossip announcement (Sprint 12 Phase A).
     #[serde(default)]
     pub archive_hash: Option<String>,
+    /// URL of the public source code repository (Sprint 13 Phase B).
+    #[serde(default)]
+    pub repo_url: Option<String>,
 }
 
 /// Body of `POST /publish` (success). Sprint 11 Phase A.
@@ -438,6 +441,11 @@ async fn publish_project(
         req.apps.clone(),
     );
 
+    // Sprint 13 Phase B: propagate repo_url.
+    if let Some(ref url) = req.repo_url {
+        announcement = announcement.with_repo_url(url.clone());
+    }
+
     // Sprint 12: if archive_hash is provided, mint a BlobTicket.
     if let Some(ref hash_hex) = req.archive_hash {
         match mint_blob_ticket(&state, hash_hex).await {
@@ -485,6 +493,7 @@ async fn publish_project(
         last_probed_at: None,
         archive_ticket: announcement.archive_ticket.clone(),
         archive_hash: req.archive_hash.clone(),
+        repo_url: req.repo_url.clone(),
     };
     state.browse_aggregator.add_direct_entry(browse_entry);
 
@@ -936,6 +945,7 @@ mod tests {
             description: "Le projet gouvernance".into(),
             apps: vec!["gov".into()],
             archive_hash: None,
+            repo_url: None,
         })
         .unwrap();
 
@@ -1225,6 +1235,7 @@ mod tests {
             description: "test archive".into(),
             apps: vec![],
             archive_hash: Some(hash_hex.clone()),
+            repo_url: None,
         })
         .unwrap();
 

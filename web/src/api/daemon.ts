@@ -203,6 +203,7 @@ export const BrowseEntrySchema = z
     last_probed_at: z.string().nullable(),
     archive_ticket: z.string().optional(),
     archive_hash: z.string().optional(),
+    repo_url: z.string().optional(),
   })
   .strict();
 

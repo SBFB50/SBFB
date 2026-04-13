@@ -250,6 +250,19 @@ function FullScreenApp({
               </a>
             )}
 
+            {entry.repo_url && (
+              <a
+                href={entry.repo_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 rounded-full bg-white/[0.06] px-3 py-1.5 text-[11px] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                data-testid="repo-link"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Source
+              </a>
+            )}
+
             <span className="flex items-center gap-1 text-[11px] text-white/30">
               <Shield className="h-3 w-3" />
               sandbox

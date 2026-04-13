@@ -333,4 +333,46 @@ describe("BrowsedProject", () => {
     });
     expect(screen.getByText("Auto-publie")).toBeInTheDocument();
   });
+
+  it("renders repo link for entry with repo_url", async () => {
+    mockFetch({
+      "/daemon/browse": {
+        kind: "data",
+        status: 200,
+        body: {
+          entries: [
+            makeBrowseEntry({
+              repo_url: "https://github.com/example/gov",
+            }),
+          ],
+        },
+      },
+      "/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
+    });
+    const link = screen.getByTestId("repo-link");
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "https://github.com/example/gov");
+  });
+
+  it("does not render repo link when repo_url is absent", async () => {
+    mockFetch({
+      "/daemon/browse": {
+        kind: "data",
+        status: 200,
+        body: { entries: [makeBrowseEntry()] },
+      },
+      "/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("repo-link")).not.toBeInTheDocument();
+  });
 });

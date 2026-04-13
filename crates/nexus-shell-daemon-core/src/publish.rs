@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 
 /// Wire format version for project announcements.
 /// v2 adds `archive_ticket` (Sprint 12 Phase A).
-pub const PROJECT_ANNOUNCEMENT_VERSION: u32 = 2;
+/// v3 adds `repo_url` (Sprint 13 Phase B).
+pub const PROJECT_ANNOUNCEMENT_VERSION: u32 = 3;
 
 /// The JSON payload broadcast on the curator gossip topic to
 /// announce a project directly (without a curator intermediary).
@@ -45,6 +46,10 @@ pub struct ProjectAnnouncement {
     /// `None` for v1 announcements from older daemons.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_ticket: Option<String>,
+    /// URL of the public source code repository (Sprint 13 Phase B).
+    /// Required for public projects, optional for private.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_url: Option<String>,
 }
 
 /// Error validating a project announcement.
@@ -82,12 +87,19 @@ impl ProjectAnnouncement {
             description,
             apps,
             archive_ticket: None,
+            repo_url: None,
         }
     }
 
     /// Construct a v2 announcement with an archive ticket.
     pub fn with_archive_ticket(mut self, ticket: String) -> Self {
         self.archive_ticket = Some(ticket);
+        self
+    }
+
+    /// Set the repo_url (v3, Sprint 13 Phase B).
+    pub fn with_repo_url(mut self, url: String) -> Self {
+        self.repo_url = Some(url);
         self
     }
 
@@ -102,8 +114,8 @@ impl ProjectAnnouncement {
     /// for backward compatibility with older daemons.
     pub fn from_gossip_bytes(bytes: &[u8]) -> Result<Self, ProjectAnnouncementError> {
         let ann: Self = serde_json::from_slice(bytes)?;
-        // Accept v1 and v2 for backward compatibility.
-        if ann.v != 1 && ann.v != 2 {
+        // Accept v1, v2, and v3 for backward compatibility.
+        if ann.v == 0 || ann.v > PROJECT_ANNOUNCEMENT_VERSION {
             return Err(ProjectAnnouncementError::Version {
                 got: ann.v,
                 expected: PROJECT_ANNOUNCEMENT_VERSION,
@@ -168,7 +180,7 @@ mod tests {
             err,
             ProjectAnnouncementError::Version {
                 got: 99,
-                expected: 2
+                expected: 3
             }
         ));
     }
@@ -228,7 +240,7 @@ mod tests {
         )
         .with_archive_ticket("blobticket123abc".into());
 
-        assert_eq!(ann.v, 2);
+        assert_eq!(ann.v, PROJECT_ANNOUNCEMENT_VERSION);
         assert_eq!(ann.archive_ticket.as_deref(), Some("blobticket123abc"));
 
         let bytes = ann.to_gossip_bytes().unwrap();
@@ -320,5 +332,72 @@ mod tests {
     fn from_gossip_bytes_rejects_truncated_json() {
         let err = ProjectAnnouncement::from_gossip_bytes(b"{\"v\": 2, \"type\":").unwrap_err();
         assert!(matches!(err, ProjectAnnouncementError::Parse(_)));
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 13 Phase B — v3 with repo_url
+    // ---------------------------------------------------------
+
+    #[test]
+    fn v3_announcement_with_repo_url_round_trips() {
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "gov".into(),
+            "gov".into(),
+            "desc".into(),
+            vec!["gov".into()],
+        )
+        .with_repo_url("https://github.com/example/gov".into());
+
+        assert_eq!(ann.v, 3);
+        assert_eq!(
+            ann.repo_url.as_deref(),
+            Some("https://github.com/example/gov")
+        );
+
+        let bytes = ann.to_gossip_bytes().unwrap();
+        let back = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(back, ann);
+        assert_eq!(
+            back.repo_url.as_deref(),
+            Some("https://github.com/example/gov")
+        );
+    }
+
+    #[test]
+    fn v2_announcement_parses_without_repo_url() {
+        // Backward compat: v2 announcements from older daemons
+        // must parse correctly, with repo_url defaulting to None.
+        let json = serde_json::json!({
+            "v": 2,
+            "type": "project",
+            "node_id": "a".repeat(64),
+            "project_name": "test",
+            "category": "misc",
+            "description": "old daemon",
+            "apps": [],
+            "archive_ticket": "blobticket_abc"
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        let ann = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(ann.v, 2);
+        assert!(ann.repo_url.is_none());
+        assert!(ann.archive_ticket.is_some());
+    }
+
+    #[test]
+    fn v3_announcement_without_repo_url_omits_field() {
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "test".into(),
+            "misc".into(),
+            "test".into(),
+            vec![],
+        );
+        let json_str = serde_json::to_string(&ann).unwrap();
+        assert!(
+            !json_str.contains("repo_url"),
+            "None repo_url should be omitted from JSON"
+        );
     }
 }

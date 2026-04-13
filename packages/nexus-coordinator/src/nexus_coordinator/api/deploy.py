@@ -22,7 +22,7 @@ import zipfile
 
 import httpx
 import structlog
-from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
 
 from nexus_coordinator.api.daemon import _daemon_base_url, _read_running_state
 
@@ -79,8 +79,12 @@ async def _store_blob(request: Request, zip_bytes: bytes) -> str:
     return body["hash"]
 
 
-async def _publish_with_archive(request: Request, hash_hex: str) -> None:
-    """Publish a v2 announcement with the archive hash."""
+async def _publish_with_archive(
+    request: Request,
+    hash_hex: str,
+    repo_url: str | None = None,
+) -> None:
+    """Publish a v3 announcement with the archive hash and optional repo_url."""
     coord = request.app.state.coordinator
     state = _read_running_state()
     if state is None:
@@ -88,13 +92,15 @@ async def _publish_with_archive(request: Request, hash_hex: str) -> None:
         return
 
     url = f"{_daemon_base_url(state)}/publish"
-    payload = {
+    payload: dict = {
         "project_name": coord.project_name,
         "category": coord.config.identity.description or "general",
         "description": coord.config.identity.description or coord.project_name,
         "apps": list(coord.apps.keys()),
         "archive_hash": hash_hex,
     }
+    if repo_url:
+        payload["repo_url"] = repo_url
     client: httpx.AsyncClient = request.app.state.daemon_httpx_client
     try:
         resp = await client.post(url, json=payload)
@@ -108,8 +114,23 @@ async def _publish_with_archive(request: Request, hash_hex: str) -> None:
 async def deploy_project(
     archive: UploadFile,
     request: Request,
+    repo_url: str | None = Form(default=None),
 ) -> dict:
-    """Upload a zip archive and publish to the P2P network."""
+    """Upload a zip archive and publish to the P2P network.
+
+    Public projects must provide a ``repo_url`` (link to a public
+    source code repository). Private projects have no constraint.
+    Sprint 13 Phase B (D1).
+    """
+    # Sprint 13 Phase B: open source enforcement for public apps.
+    coord = request.app.state.coordinator
+    if coord.config.network.visibility == "public":
+        if not repo_url or not repo_url.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Public projects require a repo_url (link to public source code repository)",
+            )
+
     zip_bytes = await archive.read()
     if len(zip_bytes) > MAX_DEPLOY_BYTES:
         raise HTTPException(
@@ -126,6 +147,6 @@ async def deploy_project(
     hash_hex = await _store_blob(request, zip_bytes)
     _log.info("deploy: blob stored", hash=hash_hex)
 
-    await _publish_with_archive(request, hash_hex)
+    await _publish_with_archive(request, hash_hex, repo_url=repo_url)
 
     return {"deployed": True, "hash": hash_hex}

@@ -542,6 +542,7 @@ fn handle_project_announcement(browse_aggregator: &BrowseAggregatorHandle, conte
                 last_probed_at: None,
                 archive_ticket: ann.archive_ticket,
                 archive_hash: None, // Hash not available from gossip announcements; only from local publish
+                repo_url: ann.repo_url,
             };
             browse_aggregator.add_direct_entry(entry);
             info!(

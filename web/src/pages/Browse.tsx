@@ -5,7 +5,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Globe, Play, RefreshCw, Signal, SignalZero, Sparkles } from "lucide-react";
+import { ExternalLink, Globe, Play, RefreshCw, Signal, SignalZero, Sparkles } from "lucide-react";
 
 import { listBrowse, type BrowseEntry, type BrowseStatus } from "@/api/daemon";
 import {
@@ -246,6 +246,19 @@ function AppCard({ entry }: { entry: BrowseEntry }) {
             <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[10px] font-medium text-emerald-400">
               P2P
             </span>
+          )}
+          {entry.repo_url && (
+            <a
+              href={entry.repo_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2.5 py-0.5 text-[10px] font-medium text-white/60 hover:bg-white/10 hover:text-white"
+              data-testid="repo-link"
+            >
+              <ExternalLink className="h-2.5 w-2.5" />
+              Source
+            </a>
           )}
         </div>
       </div>

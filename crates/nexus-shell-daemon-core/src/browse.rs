@@ -169,6 +169,10 @@ pub struct BrowseEntry {
     /// opaque BlobTicket string. `None` when there is no archive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_hash: Option<String>,
+    /// URL of the public source code repository (Sprint 13 Phase B).
+    /// Required for public projects, optional for private.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_url: Option<String>,
 }
 
 // =================================================================
@@ -327,6 +331,7 @@ impl BrowseAggregator {
                     last_probed_at: probed_at_opt.map(iso_utc),
                     archive_ticket: None,
                     archive_hash: None,
+                    repo_url: None,
                 });
             }
         }
@@ -450,6 +455,7 @@ mod tests {
             last_probed_at: Some("2026-04-11T12:00:00Z".into()),
             archive_ticket: None,
             archive_hash: None,
+            repo_url: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let back: BrowseEntry = serde_json::from_str(&json).unwrap();
@@ -489,6 +495,7 @@ mod tests {
             last_probed_at: None,
             archive_ticket: Some("blobticket_abc123".into()),
             archive_hash: Some("ab".repeat(32)),
+            repo_url: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("archive_ticket"));
@@ -512,6 +519,7 @@ mod tests {
             last_probed_at: None,
             archive_ticket: None,
             archive_hash: None,
+            repo_url: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(
@@ -603,6 +611,7 @@ mod tests {
             last_probed_at: None,
             archive_ticket: None,
             archive_hash: None,
+            repo_url: None,
         });
         agg.add_direct_entry(BrowseEntry {
             project_id: id_b.clone(),
@@ -616,6 +625,7 @@ mod tests {
             last_probed_at: None,
             archive_ticket: None,
             archive_hash: None,
+            repo_url: None,
         });
 
         let node = spawn_node().await;
@@ -785,6 +795,7 @@ mod tests {
             last_probed_at: None,
             archive_ticket: None,
             archive_hash: None,
+            repo_url: None,
         };
         agg.add_direct_entry(entry);
         assert_eq!(agg.direct_entry_count(), 1);
@@ -806,6 +817,7 @@ mod tests {
             last_probed_at: None,
             archive_ticket: None,
             archive_hash: None,
+            repo_url: None,
         };
         let entry2 = BrowseEntry {
             project_id: id.clone(),
@@ -818,6 +830,7 @@ mod tests {
             status: BrowseStatus::Unknown,
             archive_ticket: None,
             archive_hash: None,
+            repo_url: None,
             last_probed_at: None,
         };
         agg.add_direct_entry(entry1);
@@ -842,6 +855,7 @@ mod tests {
             last_probed_at: None,
             archive_ticket: None,
             archive_hash: None,
+            repo_url: None,
         };
         agg.add_direct_entry(entry);
 
