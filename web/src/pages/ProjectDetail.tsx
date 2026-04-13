@@ -128,7 +128,7 @@ function ProjectDetailContent({ url }: { url: string }) {
               <p className="mt-1 truncate text-sm text-white/60">
                 {project?.description ?? "..."}
               </p>
-              <p className="mt-1 truncate font-mono text-[11px] text-white/30">
+              <p className="mt-1 truncate font-mono text-[11px] text-white/40">
                 {url}
               </p>
             </div>

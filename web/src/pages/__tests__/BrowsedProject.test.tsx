@@ -375,4 +375,43 @@ describe("BrowsedProject", () => {
     });
     expect(screen.queryByTestId("repo-link")).not.toBeInTheDocument();
   });
+
+  it("renders verified badge when provenance_hash is present", async () => {
+    mockFetch({
+      "/daemon/browse": {
+        kind: "data",
+        status: 200,
+        body: {
+          entries: [
+            makeBrowseEntry({
+              provenance_hash: "bb".repeat(32),
+            }),
+          ],
+        },
+      },
+      "/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("verified-badge")).toBeInTheDocument();
+    });
+  });
+
+  it("does not render verified badge when provenance_hash is absent", async () => {
+    mockFetch({
+      "/daemon/browse": {
+        kind: "data",
+        status: 200,
+        body: { entries: [makeBrowseEntry()] },
+      },
+      "/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("verified-badge")).not.toBeInTheDocument();
+  });
 });

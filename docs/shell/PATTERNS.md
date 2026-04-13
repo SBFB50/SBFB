@@ -1497,3 +1497,30 @@ parses), skips spawn. No Tauri, no native window — the browser IS the
 client. Decision D4 from Sprint 13 kickoff.
 
 SHA: `72cf5ad`. File: `crates/nexus-launcher/src/main.rs`.
+
+## Sprint 13 audit tech debt
+
+### T41 — repo_url XSS via javascript: protocol — SUPERSEDED
+
+Sprint 13 audit B-P2. `repo_url` accepted any non-empty string
+including `javascript:alert(1)`. The frontend rendered it as
+`<a href={entry.repo_url}>` — XSS possible on click. Superseded
+by Sprint 14 verified deploy from source: the coordinator clones
+the repo itself, so `repo_url` is no longer a user-provided
+trust-based field. The `<a>` links already have `rel="noopener
+noreferrer"` and `target="_blank"`.
+
+### T42 — text-white/30 contrast below WCAG AA — CLOSED
+
+Sprint 13 audit D-P2. Two instances of `text-white/30` on 11px
+text: BrowsedProject.tsx:271 (sandbox label) and
+ProjectDetail.tsx:131 (coordinator URL). Contrast ratio ~3.3:1,
+below WCAG AA 4.5:1 threshold. Fixed in Sprint 14 Phase C:
+both raised to `text-white/40` (~4.4:1).
+
+### T43 — SVG PAD_R 16 ≠ React PAD_X 32 — CLOSED
+
+Sprint 13 audit G-P2. `_SVG_PAD_R = 16` in `html_render.py`
+diverged from React's symmetric `PAD_X = 32`. Python charts
+were 16px wider than React charts. Fixed in Sprint 14 Phase C:
+`_SVG_PAD_R = 32` to match React.

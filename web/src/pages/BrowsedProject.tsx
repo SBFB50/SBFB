@@ -15,6 +15,7 @@ import {
   ExternalLink,
   Globe,
   Shield,
+  ShieldCheck,
 } from "lucide-react";
 
 import {
@@ -255,6 +256,16 @@ function FullScreenApp({
               </a>
             )}
 
+            {entry.provenance_hash && (
+              <span
+                className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1.5 text-[11px] font-medium text-emerald-400"
+                data-testid="verified-badge"
+              >
+                <ShieldCheck className="h-3 w-3" />
+                Verifie
+              </span>
+            )}
+
             {entry.repo_url && (
               <a
                 href={entry.repo_url}
@@ -268,7 +279,7 @@ function FullScreenApp({
               </a>
             )}
 
-            <span className="flex items-center gap-1 text-[11px] text-white/30">
+            <span className="flex items-center gap-1 text-[11px] text-white/40">
               <Shield className="h-3 w-3" />
               sandbox
             </span>

@@ -192,7 +192,7 @@ def _esc(value: Any) -> str:
 _SVG_W = 400
 _SVG_H = 120
 _SVG_PAD_L = 32
-_SVG_PAD_R = 16
+_SVG_PAD_R = 32
 _SVG_PAD_T = 16
 _SVG_PAD_B = 16
 # Bar charts use slightly larger top/bottom padding for label room.

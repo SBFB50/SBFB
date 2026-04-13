@@ -5,7 +5,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { ExternalLink, Globe, Play, RefreshCw, Signal, SignalZero, Sparkles } from "lucide-react";
+import { ExternalLink, Globe, Play, RefreshCw, ShieldCheck, Signal, SignalZero, Sparkles } from "lucide-react";
 
 import { listBrowse, type BrowseEntry, type BrowseStatus } from "@/api/daemon";
 import {
@@ -245,6 +245,15 @@ function AppCard({ entry }: { entry: BrowseEntry }) {
           {entry.archive_hash && (
             <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[10px] font-medium text-emerald-400">
               P2P
+            </span>
+          )}
+          {entry.provenance_hash && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[10px] font-medium text-emerald-400"
+              data-testid="verified-badge"
+            >
+              <ShieldCheck className="h-2.5 w-2.5" />
+              Verifie
             </span>
           )}
           {entry.repo_url && (
