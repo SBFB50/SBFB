@@ -19,7 +19,6 @@ use serde::Deserialize;
 pub struct RunningInfo {
     pub api_host: String,
     pub api_port: u16,
-    #[allow(dead_code)]
     pub pid: u32,
 }
 
@@ -58,6 +57,58 @@ async fn wait_for_running(path: &std::path::Path, timeout: Duration) -> Option<R
             return None;
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+/// Check if the daemon is actually alive by attempting a TCP
+/// connection to its API port (2s timeout).  Avoids the stale
+/// `running.json` scenario where the daemon crashed but left the
+/// file behind.
+async fn is_daemon_alive(info: &RunningInfo) -> bool {
+    let addr = format!("{}:{}", info.api_host, info.api_port);
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::net::TcpStream::connect(&addr),
+    )
+    .await
+    .map(|r| r.is_ok())
+    .unwrap_or(false)
+}
+
+/// Spawn the daemon, wait for `running.json`, return the info.
+/// Exits the process on failure.
+async fn spawn_and_wait(
+    running_path: &std::path::Path,
+    spawned_child: &mut Option<std::process::Child>,
+) -> RunningInfo {
+    println!("[launcher] spawning nexus-shell-daemon start...");
+    match spawn_daemon() {
+        Ok(child) => {
+            *spawned_child = Some(child);
+        }
+        Err(e) => {
+            eprintln!("[launcher] failed to spawn daemon: {e}");
+            eprintln!("[launcher] make sure nexus-shell-daemon is in PATH or next to the launcher");
+            std::process::exit(1);
+        }
+    }
+
+    println!("[launcher] waiting for daemon to start (max 15s)...");
+    match wait_for_running(running_path, Duration::from_secs(15)).await {
+        Some(info) => {
+            println!(
+                "[launcher] daemon ready on {}:{}",
+                info.api_host, info.api_port
+            );
+            info
+        }
+        None => {
+            eprintln!("[launcher] daemon did not produce running.json within 15s");
+            if let Some(ref mut child) = spawned_child {
+                let _ = child.kill();
+            }
+            std::process::exit(1);
+        }
     }
 }
 
@@ -105,49 +156,28 @@ async fn main() {
         running_path.display()
     );
 
-    // 1. Check if daemon already running.
+    // 1. Check if daemon already running (with stale detection).
     let mut spawned_child: Option<std::process::Child> = None;
     let info = if let Some(info) = read_running_info(&running_path) {
-        println!(
-            "[launcher] daemon already running on {}:{}",
-            info.api_host, info.api_port
-        );
-        info
+        // Verify the daemon is actually alive by probing its TCP port.
+        if is_daemon_alive(&info).await {
+            println!(
+                "[launcher] daemon already running on {}:{}",
+                info.api_host, info.api_port
+            );
+            info
+        } else {
+            eprintln!(
+                "[launcher] stale running.json (pid {} not responding on {}:{}), removing",
+                info.pid, info.api_host, info.api_port
+            );
+            let _ = std::fs::remove_file(&running_path);
+            // Fall through to spawn a new daemon below.
+            spawn_and_wait(&running_path, &mut spawned_child).await
+        }
     } else {
-        // 2. Spawn the daemon.
-        println!("[launcher] spawning nexus-shell-daemon start...");
-        match spawn_daemon() {
-            Ok(child) => {
-                spawned_child = Some(child);
-            }
-            Err(e) => {
-                eprintln!("[launcher] failed to spawn daemon: {e}");
-                eprintln!(
-                    "[launcher] make sure nexus-shell-daemon is in PATH or next to the launcher"
-                );
-                std::process::exit(1);
-            }
-        }
-
-        // 3. Poll running.json.
-        println!("[launcher] waiting for daemon to start (max 15s)...");
-        match wait_for_running(&running_path, Duration::from_secs(15)).await {
-            Some(info) => {
-                println!(
-                    "[launcher] daemon ready on {}:{}",
-                    info.api_host, info.api_port
-                );
-                info
-            }
-            None => {
-                eprintln!("[launcher] daemon did not produce running.json within 15s");
-                // Try to kill the child we spawned.
-                if let Some(ref mut child) = spawned_child {
-                    let _ = child.kill();
-                }
-                std::process::exit(1);
-            }
-        }
+        // 2. No running.json — spawn fresh.
+        spawn_and_wait(&running_path, &mut spawned_child).await
     };
 
     // 4. Open the browser.
@@ -244,5 +274,15 @@ mod tests {
                 || path.ends_with("shell-daemon\\running.json"),
             "unexpected path: {path:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_is_daemon_alive_returns_false_for_dead_port() {
+        let info = RunningInfo {
+            api_host: "127.0.0.1".to_string(),
+            api_port: 19999, // nobody listens here
+            pid: 99999,
+        };
+        assert!(!is_daemon_alive(&info).await);
     }
 }
