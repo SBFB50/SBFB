@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 /// Wire format version for project announcements.
 /// v2 adds `archive_ticket` (Sprint 12 Phase A).
 /// v3 adds `repo_url` (Sprint 13 Phase B).
-pub const PROJECT_ANNOUNCEMENT_VERSION: u32 = 3;
+/// v4 adds `provenance_hash` (Sprint 14 Phase B).
+pub const PROJECT_ANNOUNCEMENT_VERSION: u32 = 4;
 
 /// The JSON payload broadcast on the curator gossip topic to
 /// announce a project directly (without a curator intermediary).
@@ -50,6 +51,12 @@ pub struct ProjectAnnouncement {
     /// Required for public projects, optional for private.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_url: Option<String>,
+    /// BLAKE3 hex hash of the provenance.json attestation (Sprint 14).
+    /// Present when the app was deployed via `deploy-from-repo` with
+    /// a signed provenance record. `None` for legacy deploys or
+    /// private apps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance_hash: Option<String>,
 }
 
 /// Error validating a project announcement.
@@ -88,6 +95,7 @@ impl ProjectAnnouncement {
             apps,
             archive_ticket: None,
             repo_url: None,
+            provenance_hash: None,
         }
     }
 
@@ -103,6 +111,12 @@ impl ProjectAnnouncement {
         self
     }
 
+    /// Set the provenance_hash (v4, Sprint 14 Phase B).
+    pub fn with_provenance_hash(mut self, hash: String) -> Self {
+        self.provenance_hash = Some(hash);
+        self
+    }
+
     /// Serialize to JSON bytes for gossip broadcast.
     pub fn to_gossip_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
         serde_json::to_vec(self)
@@ -110,11 +124,10 @@ impl ProjectAnnouncement {
 
     /// Parse and validate a project announcement from gossip bytes.
     ///
-    /// Accepts v1 (no archive_ticket) and v2 (with archive_ticket)
-    /// for backward compatibility with older daemons.
+    /// Accepts v1 through v4 for backward compatibility with older daemons.
     pub fn from_gossip_bytes(bytes: &[u8]) -> Result<Self, ProjectAnnouncementError> {
         let ann: Self = serde_json::from_slice(bytes)?;
-        // Accept v1, v2, and v3 for backward compatibility.
+        // Accept v1, v2, v3, and v4 for backward compatibility.
         if ann.v == 0 || ann.v > PROJECT_ANNOUNCEMENT_VERSION {
             return Err(ProjectAnnouncementError::Version {
                 got: ann.v,
@@ -180,7 +193,7 @@ mod tests {
             err,
             ProjectAnnouncementError::Version {
                 got: 99,
-                expected: 3
+                expected: 4
             }
         ));
     }
@@ -349,7 +362,7 @@ mod tests {
         )
         .with_repo_url("https://github.com/example/gov".into());
 
-        assert_eq!(ann.v, 3);
+        assert_eq!(ann.v, PROJECT_ANNOUNCEMENT_VERSION);
         assert_eq!(
             ann.repo_url.as_deref(),
             Some("https://github.com/example/gov")
@@ -398,6 +411,68 @@ mod tests {
         assert!(
             !json_str.contains("repo_url"),
             "None repo_url should be omitted from JSON"
+        );
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 14 Phase B — v4 with provenance_hash
+    // ---------------------------------------------------------
+
+    #[test]
+    fn v4_announcement_with_provenance_hash_round_trips() {
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "gov".into(),
+            "gov".into(),
+            "desc".into(),
+            vec!["gov".into()],
+        )
+        .with_repo_url("https://github.com/test/gov".into())
+        .with_provenance_hash("bb".repeat(32));
+
+        assert_eq!(ann.v, PROJECT_ANNOUNCEMENT_VERSION);
+        assert_eq!(ann.provenance_hash.as_deref(), Some(&*"bb".repeat(32)));
+
+        let bytes = ann.to_gossip_bytes().unwrap();
+        let back = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(back, ann);
+        assert_eq!(back.provenance_hash.as_deref(), Some(&*"bb".repeat(32)));
+    }
+
+    #[test]
+    fn v3_announcement_parses_without_provenance_hash() {
+        // Backward compat: v3 announcements from older daemons
+        // must parse correctly, with provenance_hash defaulting to None.
+        let json = serde_json::json!({
+            "v": 3,
+            "type": "project",
+            "node_id": "a".repeat(64),
+            "project_name": "test",
+            "category": "misc",
+            "description": "old daemon",
+            "apps": [],
+            "repo_url": "https://github.com/test/old"
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        let ann = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(ann.v, 3);
+        assert!(ann.provenance_hash.is_none());
+        assert!(ann.repo_url.is_some());
+    }
+
+    #[test]
+    fn v4_announcement_without_provenance_hash_omits_field() {
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "test".into(),
+            "misc".into(),
+            "test".into(),
+            vec![],
+        );
+        let json_str = serde_json::to_string(&ann).unwrap();
+        assert!(
+            !json_str.contains("provenance_hash"),
+            "None provenance_hash should be omitted from JSON"
         );
     }
 }

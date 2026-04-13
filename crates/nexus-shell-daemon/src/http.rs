@@ -271,6 +271,9 @@ pub struct PublishRequest {
     /// URL of the public source code repository (Sprint 13 Phase B).
     #[serde(default)]
     pub repo_url: Option<String>,
+    /// BLAKE3 hex hash of provenance.json (Sprint 14 Phase B).
+    #[serde(default)]
+    pub provenance_hash: Option<String>,
 }
 
 /// Body of `POST /publish` (success). Sprint 11 Phase A.
@@ -446,6 +449,11 @@ async fn publish_project(
         announcement = announcement.with_repo_url(url.clone());
     }
 
+    // Sprint 14 Phase B: propagate provenance_hash.
+    if let Some(ref hash) = req.provenance_hash {
+        announcement = announcement.with_provenance_hash(hash.clone());
+    }
+
     // Sprint 12: if archive_hash is provided, mint a BlobTicket.
     if let Some(ref hash_hex) = req.archive_hash {
         match mint_blob_ticket(&state, hash_hex).await {
@@ -494,6 +502,7 @@ async fn publish_project(
         archive_ticket: announcement.archive_ticket.clone(),
         archive_hash: req.archive_hash.clone(),
         repo_url: req.repo_url.clone(),
+        provenance_hash: req.provenance_hash.clone(),
     };
     state.browse_aggregator.add_direct_entry(browse_entry);
 
@@ -946,6 +955,7 @@ mod tests {
             apps: vec!["gov".into()],
             archive_hash: None,
             repo_url: None,
+            provenance_hash: None,
         })
         .unwrap();
 
@@ -1236,6 +1246,7 @@ mod tests {
             apps: vec![],
             archive_hash: Some(hash_hex.clone()),
             repo_url: None,
+            provenance_hash: None,
         })
         .unwrap();
 

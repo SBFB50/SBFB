@@ -173,6 +173,10 @@ pub struct BrowseEntry {
     /// Required for public projects, optional for private.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_url: Option<String>,
+    /// BLAKE3 hex hash of the provenance.json attestation (Sprint 14).
+    /// Present when the project was deployed via verified deploy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance_hash: Option<String>,
 }
 
 // =================================================================
@@ -332,6 +336,7 @@ impl BrowseAggregator {
                     archive_ticket: None,
                     archive_hash: None,
                     repo_url: None,
+                    provenance_hash: None,
                 });
             }
         }
@@ -456,6 +461,7 @@ mod tests {
             archive_ticket: None,
             archive_hash: None,
             repo_url: None,
+            provenance_hash: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let back: BrowseEntry = serde_json::from_str(&json).unwrap();
@@ -496,6 +502,7 @@ mod tests {
             archive_ticket: Some("blobticket_abc123".into()),
             archive_hash: Some("ab".repeat(32)),
             repo_url: None,
+            provenance_hash: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("archive_ticket"));
@@ -520,6 +527,7 @@ mod tests {
             archive_ticket: None,
             archive_hash: None,
             repo_url: None,
+            provenance_hash: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(
@@ -612,6 +620,7 @@ mod tests {
             archive_ticket: None,
             archive_hash: None,
             repo_url: None,
+            provenance_hash: None,
         });
         agg.add_direct_entry(BrowseEntry {
             project_id: id_b.clone(),
@@ -626,6 +635,7 @@ mod tests {
             archive_ticket: None,
             archive_hash: None,
             repo_url: None,
+            provenance_hash: None,
         });
 
         let node = spawn_node().await;
@@ -796,6 +806,7 @@ mod tests {
             archive_ticket: None,
             archive_hash: None,
             repo_url: None,
+            provenance_hash: None,
         };
         agg.add_direct_entry(entry);
         assert_eq!(agg.direct_entry_count(), 1);
@@ -818,6 +829,7 @@ mod tests {
             archive_ticket: None,
             archive_hash: None,
             repo_url: None,
+            provenance_hash: None,
         };
         let entry2 = BrowseEntry {
             project_id: id.clone(),
@@ -831,6 +843,7 @@ mod tests {
             archive_ticket: None,
             archive_hash: None,
             repo_url: None,
+            provenance_hash: None,
             last_probed_at: None,
         };
         agg.add_direct_entry(entry1);
@@ -856,6 +869,7 @@ mod tests {
             archive_ticket: None,
             archive_hash: None,
             repo_url: None,
+            provenance_hash: None,
         };
         agg.add_direct_entry(entry);
 

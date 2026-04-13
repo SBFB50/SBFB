@@ -95,6 +95,14 @@ pub const DOMAIN_KUDOS_V1: &[u8] = b"nexus-kudos-v1";
 /// [`crate::curator`] for the full signing + verification contract.
 pub const DOMAIN_CURATOR_LIST_V1: &[u8] = b"nexus-curator-list-v1";
 
+/// Domain separation tag for provenance attestations.
+///
+/// Sprint 14 Phase A: reserved for the Python coordinator's
+/// provenance signing surface. The coordinator signs provenance
+/// attestations with this domain tag so they cannot be replayed
+/// as any other signed payload type.
+pub const DOMAIN_PROVENANCE_V1: &[u8] = b"nexus-provenance-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///

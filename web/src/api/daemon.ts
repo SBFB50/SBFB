@@ -204,6 +204,7 @@ export const BrowseEntrySchema = z
     archive_ticket: z.string().optional(),
     archive_hash: z.string().optional(),
     repo_url: z.string().optional(),
+    provenance_hash: z.string().optional(),
   })
   .strict();
 
