@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useBridge } from "@/bridge/useBridge";
 import {
   ArrowLeft,
   ExternalLink,
@@ -163,6 +164,10 @@ function FullScreenApp({
 }) {
   const [barVisible, setBarVisible] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Sprint 13 Phase C: bridge listener for iframe ↔ coordinator.
+  useBridge(coordUrl, entry.project_name, iframeRef);
 
   // Auto-hide after 3s
   useEffect(() => {
@@ -279,6 +284,7 @@ function FullScreenApp({
               daemonBaseUrlFromInfo(daemonInfo!),
               entry.archive_hash!,
             )}
+            ref={iframeRef}
             sandbox="allow-scripts"
             className="h-full w-full border-0"
             title={entry.project_name}
