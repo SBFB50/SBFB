@@ -109,3 +109,24 @@ export function createEvent(name: string, payload: unknown): BridgeEvent {
     payload,
   };
 }
+
+// =================================================================
+// Heartbeat (iframe → host, liveness ping, Sprint 15 Phase B)
+// =================================================================
+
+/**
+ * Liveness ping emitted by the iframe bridge SDK once per second by
+ * default. The host {@link useBridge} hook uses the delta between
+ * "now" and the last received heartbeat to decide if the iframe is
+ * healthy, stalled, or still starting up.
+ *
+ * Unlike {@link BridgeRequest}, heartbeats carry no correlation ID
+ * — they're fire-and-forget periodic signals. The host does not
+ * reply.
+ */
+export const BridgeHeartbeatSchema = z.object({
+  type: z.literal("sbfb-bridge-heartbeat"),
+  ts: z.number().positive(),
+});
+
+export type BridgeHeartbeat = z.infer<typeof BridgeHeartbeatSchema>;

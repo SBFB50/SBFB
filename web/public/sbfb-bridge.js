@@ -24,6 +24,7 @@ class SBFBBridge {
   /**
    * @param {Object} [options]
    * @param {number} [options.timeout=10000] — ms before a request rejects
+   * @param {number} [options.heartbeatInterval=1000] — ms between liveness pings (0 disables)
    */
   constructor(options) {
     this._timeout = (options && options.timeout) || 10000;
@@ -32,6 +33,12 @@ class SBFBBridge {
     // event name. Each value is a Set<callback> so multiple consumers
     // of the same event can coexist.
     this._eventHandlers = new Map();
+    // Sprint 15 Phase B: liveness heartbeat (0 = disabled for tests).
+    this._heartbeatInterval =
+      options && typeof options.heartbeatInterval === "number"
+        ? options.heartbeatInterval
+        : 1000;
+    this._heartbeatTimer = null;
 
     this._onMessage = (event) => {
       const msg = event.data;
@@ -62,17 +69,58 @@ class SBFBBridge {
     };
 
     window.addEventListener("message", this._onMessage);
+
+    // Sprint 15 Phase B: auto-start heartbeat so the host watchdog
+    // has a signal within the first second. Tests can disable by
+    // passing heartbeatInterval: 0.
+    if (this._heartbeatInterval > 0) {
+      this._startHeartbeat();
+    }
   }
 
   /** Stop listening. Call when the app unmounts. */
   destroy() {
     window.removeEventListener("message", this._onMessage);
+    this._stopHeartbeat();
     // Reject all pending requests.
     for (const [id, resolve] of this._pending) {
       resolve({ type: "sbfb-bridge-response", id, success: false, error: "bridge destroyed" });
     }
     this._pending.clear();
     this._eventHandlers.clear();
+  }
+
+  /**
+   * Start emitting heartbeat pings so the host watchdog can detect
+   * a frozen iframe. Sprint 15 Phase B. Safe to call twice — a
+   * running heartbeat is a no-op.
+   *
+   * @private
+   */
+  _startHeartbeat() {
+    if (this._heartbeatTimer) return;
+    const ping = () => {
+      try {
+        parent.postMessage(
+          { type: "sbfb-bridge-heartbeat", ts: Date.now() },
+          "*",
+        );
+      } catch (e) {
+        // Swallow — postMessage can throw if parent is gone.
+      }
+    };
+    // Fire one immediately so the host sees a heartbeat without
+    // waiting a full interval.
+    ping();
+    this._heartbeatTimer = setInterval(ping, this._heartbeatInterval);
+  }
+
+  /** Stop the heartbeat timer. Sprint 15 Phase B. @private */
+  _stopHeartbeat() {
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
   }
 
   /**

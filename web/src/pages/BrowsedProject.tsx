@@ -11,6 +11,7 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useBridge } from "@/bridge/useBridge";
 import {
+  AlertTriangle,
   ArrowLeft,
   ExternalLink,
   Globe,
@@ -168,7 +169,26 @@ function FullScreenApp({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Sprint 13 Phase C: bridge listener for iframe ↔ coordinator.
-  useBridge(coordUrl, entry.project_name, iframeRef);
+  // Sprint 15 Phase B: also exposes the CPU watchdog state.
+  const { watchdogState, resetWatchdog } = useBridge(
+    coordUrl,
+    entry.project_name,
+    iframeRef,
+  );
+
+  // Sprint 15 Phase B: reload a stalled iframe by resetting its src.
+  // Going through about:blank first avoids browser caches and forces
+  // the internal document to be torn down before the new load.
+  const reloadIframe = useCallback(() => {
+    const frame = iframeRef.current;
+    if (!frame || !daemonInfo || !entry.archive_hash) return;
+    const url = blobServeUrl(daemonBaseUrlFromInfo(daemonInfo), entry.archive_hash);
+    frame.src = "about:blank";
+    window.setTimeout(() => {
+      if (iframeRef.current) iframeRef.current.src = url;
+      resetWatchdog();
+    }, 50);
+  }, [daemonInfo, entry.archive_hash, resetWatchdog]);
 
   // Auto-hide after 3s
   useEffect(() => {
@@ -288,7 +308,44 @@ function FullScreenApp({
       </div>
 
       {/* ---- Content — fills entire screen ---- */}
-      <div className="flex-1">
+      <div className="relative flex-1">
+        {/* Sprint 15 Phase B: stalled overlay. Absent when healthy
+            or unknown so the first few seconds of an app's life
+            stay clean. */}
+        {hasArchive && watchdogState === "stalled" && (
+          <div
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md"
+            data-testid="watchdog-overlay"
+          >
+            <div className="glass-card max-w-sm p-8 text-center">
+              <AlertTriangle className="mx-auto mb-4 h-10 w-10 text-amber-400" />
+              <h3 className="mb-2 text-lg font-bold text-white">
+                Application ne repond plus
+              </h3>
+              <p className="mb-6 text-sm text-white/70">
+                L'app n'a pas envoye de signal depuis plusieurs secondes.
+                Son script est peut-etre bloque ou en boucle.
+              </p>
+              <div className="flex justify-center gap-3">
+                <button
+                  onClick={reloadIframe}
+                  className="rounded-full bg-white/[0.08] px-4 py-1.5 text-xs text-white hover:bg-white/[0.15]"
+                  data-testid="watchdog-reload"
+                >
+                  Recharger
+                </button>
+                <Link
+                  to="/browse"
+                  className="rounded-full bg-white/[0.04] px-4 py-1.5 text-xs text-white/70 hover:bg-white/[0.08] hover:text-white"
+                  data-testid="watchdog-close"
+                >
+                  Fermer
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
         {hasArchive ? (
           <iframe
             src={blobServeUrl(

@@ -3,15 +3,19 @@
  * Sprint 13 Phase C — host-side bridge listener.
  * Sprint 15 Phase A — exposes `pushEvent` so the host can push
  *   fire-and-forget events toward the iframe.
+ * Sprint 15 Phase B — adds a CPU watchdog based on iframe
+ *   heartbeats so the host can detect stalled apps and offer a
+ *   reload overlay to the user.
  *
  * React hook that listens for postMessage events from sandboxed
  * iframes, validates them against the bridge protocol schema,
  * dispatches to the coordinator API, and sends typed responses.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  BridgeHeartbeatSchema,
   BridgeRequestSchema,
   createErrorResponse,
   createEvent,
@@ -23,6 +27,26 @@ import {
   setAppState,
   SubmitAppTaskBodySchema,
 } from "@/api/coordinator";
+
+/**
+ * Watchdog state for a single iframe.
+ *
+ * - `unknown`: the iframe hasn't emitted any heartbeat yet (initial
+ *   load, or no bridge SDK installed). UI shows the normal iframe
+ *   content (no overlay).
+ * - `healthy`: at least one heartbeat has been received within the
+ *   stall threshold. Business as usual.
+ * - `stalled`: the last heartbeat was received more than
+ *   {@link STALL_THRESHOLD_MS} ago. The UI shows the "Application ne
+ *   repond plus" overlay so the user can reload or close the app.
+ */
+export type WatchdogState = "unknown" | "healthy" | "stalled";
+
+/** Milliseconds without a heartbeat before the iframe is declared stalled. */
+export const STALL_THRESHOLD_MS = 5000;
+
+/** How often the host re-evaluates the staleness of the iframe. */
+const WATCHDOG_CHECK_INTERVAL_MS = 2000;
 
 /** Timeout for coordinator API calls (ms). */
 const API_TIMEOUT = 10_000;
@@ -37,6 +61,21 @@ export interface UseBridgeHandle {
    * effort notifications.
    */
   pushEvent: (name: string, payload: unknown) => void;
+
+  /**
+   * Current watchdog state for the iframe. Sprint 15 Phase B.
+   *
+   * `unknown` at mount, transitions to `healthy` on the first
+   * heartbeat, and degrades to `stalled` if no heartbeat is received
+   * for {@link STALL_THRESHOLD_MS}.
+   */
+  watchdogState: WatchdogState;
+
+  /**
+   * Reset the watchdog back to `unknown` (called when the caller
+   * reloads the iframe). Sprint 15 Phase B.
+   */
+  resetWatchdog: () => void;
 }
 
 /**
@@ -56,6 +95,8 @@ export function useBridge(
 ): UseBridgeHandle {
   const coordUrlRef = useRef(coordUrl);
   const appNameRef = useRef(appName);
+  const lastHeartbeatRef = useRef<number | null>(null);
+  const [watchdogState, setWatchdogState] = useState<WatchdogState>("unknown");
 
   useEffect(() => {
     coordUrlRef.current = coordUrl;
@@ -64,6 +105,19 @@ export function useBridge(
 
   useEffect(() => {
     function handler(event: MessageEvent) {
+      // Sprint 15 Phase B: heartbeat path is checked before the
+      // request path because heartbeats are emitted far more often
+      // than tasks, and they don't need source validation (they
+      // carry no side effects).
+      const hb = BridgeHeartbeatSchema.safeParse(event.data);
+      if (hb.success) {
+        const iframe = iframeRef.current;
+        if (!iframe || event.source !== iframe.contentWindow) return;
+        lastHeartbeatRef.current = Date.now();
+        setWatchdogState((prev) => (prev === "healthy" ? prev : "healthy"));
+        return;
+      }
+
       // Ignore messages that don't parse as bridge requests.
       const parsed = BridgeRequestSchema.safeParse(event.data);
       if (!parsed.success) return;
@@ -96,6 +150,26 @@ export function useBridge(
     return () => window.removeEventListener("message", handler);
   }, [iframeRef]);
 
+  // Sprint 15 Phase B: periodically check whether the last heartbeat
+  // is stale. This runs independently of the message listener so a
+  // frozen iframe (no new postMessage) can still be detected.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const last = lastHeartbeatRef.current;
+      if (last === null) return; // still "unknown"
+      const age = Date.now() - last;
+      if (age > STALL_THRESHOLD_MS) {
+        setWatchdogState((prev) => (prev === "stalled" ? prev : "stalled"));
+      }
+    }, WATCHDOG_CHECK_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const resetWatchdog = useCallback(() => {
+    lastHeartbeatRef.current = null;
+    setWatchdogState("unknown");
+  }, []);
+
   const pushEvent = useCallback(
     (name: string, payload: unknown) => {
       const iframe = iframeRef.current;
@@ -105,7 +179,7 @@ export function useBridge(
     [iframeRef],
   );
 
-  return { pushEvent };
+  return { pushEvent, watchdogState, resetWatchdog };
 }
 
 function reply(target: Window, response: import("@/bridge/protocol").BridgeResponse) {

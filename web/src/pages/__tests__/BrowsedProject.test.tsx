@@ -414,4 +414,24 @@ describe("BrowsedProject", () => {
     });
     expect(screen.queryByTestId("verified-badge")).not.toBeInTheDocument();
   });
+
+  it("does not render watchdog overlay in unknown state (initial load)", async () => {
+    // Sprint 15 Phase B: the overlay only appears after a healthy
+    // app stops emitting heartbeats. At mount the state is unknown
+    // and the user sees a clean iframe, not a "ne repond plus" alert.
+    mockFetch({
+      "/daemon/browse": {
+        kind: "data",
+        status: 200,
+        body: { entries: [makeBrowseEntry()] },
+      },
+      "/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("watchdog-overlay")).not.toBeInTheDocument();
+  });
 });
