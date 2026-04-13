@@ -1,11 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Sprint 12 Phase B — tests for ``POST /project/deploy`` + auto-publish archive.
+"""Tests for deploy endpoints.
 
-4 scenarios:
-1. deploy_valid_zip — upload a valid zip → 200 + hash
-2. deploy_invalid_zip — upload garbage → 400
-3. deploy_missing_index — zip without index.html → 400
-4. deploy_oversized_zip — upload > MAX_DEPLOY_BYTES → 413
+Sprint 12 Phase B — ``POST /project/deploy`` (upload zip).
+Sprint 14 Phase A — ``POST /project/deploy-from-repo`` (clone + verify).
 """
 
 from __future__ import annotations
@@ -17,6 +14,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -266,5 +264,315 @@ async def test_deploy_oversized_zip(nexus_grid_tmp: Path, monkeypatch: pytest.Mo
                 )
                 assert r.status_code == 413
                 assert "maximum allowed size" in r.json()["detail"]
+        finally:
+            await coord.stop()
+
+
+# ---------------------------------------------------------------
+# Sprint 14 — deploy-from-repo tests
+# ---------------------------------------------------------------
+
+
+def _create_fake_repo(tmpdir: Path, *, node_id: str = "de" * 32) -> Path:
+    """Create a minimal fake repo directory with SBFB.json + index.html."""
+    repo = tmpdir / "fake-repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / "SBFB.json").write_text(
+        json.dumps({"node_id": node_id, "project_name": "test-app"}),
+        encoding="utf-8",
+    )
+    (repo / "index.html").write_text("<h1>Hello SBFB</h1>", encoding="utf-8")
+    # Add a .git directory (should be excluded from zip).
+    (repo / ".git").mkdir()
+    (repo / ".git" / "config").write_text("[core]", encoding="utf-8")
+    return repo
+
+
+def _make_mock_clone(source_dir: Path):
+    """Create a mock clone function that copies from a local directory."""
+    import shutil
+
+    async def _mock_clone(repo_url: str, dest: str, *, ref: str | None = None) -> None:
+        shutil.copytree(str(source_dir), dest, dirs_exist_ok=True)
+
+    return _mock_clone
+
+
+@pytest.mark.asyncio
+async def test_deploy_from_repo_happy_path(
+    nexus_grid_tmp: Path,
+    tmp_path: Path,
+) -> None:
+    """deploy-from-repo with valid repo → 200 + hash + provenance_hash."""
+    fake_repo = _create_fake_repo(tmp_path, node_id="de" * 32)
+
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-repo-test")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                with (
+                    patch(
+                        "nexus_coordinator.api.deploy._clone_repo",
+                        side_effect=_make_mock_clone(fake_repo),
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy.is_repo_public",
+                        new_callable=AsyncMock,
+                        return_value=True,
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy._git_rev_parse",
+                        new_callable=AsyncMock,
+                        return_value="abc123def456",
+                    ),
+                ):
+                    r = client.post(
+                        "/project/deploy-from-repo",
+                        json={
+                            "repo_url": "https://github.com/test/app",
+                        },
+                    )
+                    assert r.status_code == 200, r.json()
+                    body = r.json()
+                    assert body["deployed"] is True
+                    assert body["hash"] == "ab" * 32
+                    assert "provenance_hash" in body
+                    assert body["commit_sha"] == "abc123def456"
+
+                    # Verify daemon received /publish-blob and /publish.
+                    paths_called = [p for _, p, _ in daemon.calls]
+                    assert "/publish-blob" in paths_called
+                    assert "/publish" in paths_called
+
+                    # Verify the LAST publish payload has provenance_hash
+                    # (the first /publish is from auto-publish on boot).
+                    publish_calls = [b for _, p, b in daemon.calls if p == "/publish"]
+                    assert len(publish_calls) >= 2
+                    publish_body = json.loads(publish_calls[-1])
+                    assert "provenance_hash" in publish_body
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_from_repo_missing_sbfb_json(
+    nexus_grid_tmp: Path,
+    tmp_path: Path,
+) -> None:
+    """deploy-from-repo with no SBFB.json → 400."""
+    fake_repo = tmp_path / "no-sbfb"
+    fake_repo.mkdir()
+    (fake_repo / "index.html").write_text("<h1>Hi</h1>", encoding="utf-8")
+
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-no-sbfb")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                with (
+                    patch(
+                        "nexus_coordinator.api.deploy._clone_repo",
+                        side_effect=_make_mock_clone(fake_repo),
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy.is_repo_public",
+                        new_callable=AsyncMock,
+                        return_value=True,
+                    ),
+                ):
+                    r = client.post(
+                        "/project/deploy-from-repo",
+                        json={"repo_url": "https://github.com/test/no-sbfb"},
+                    )
+                    assert r.status_code == 400
+                    assert "SBFB.json" in r.json()["detail"]
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_from_repo_wrong_node_id(
+    nexus_grid_tmp: Path,
+    tmp_path: Path,
+) -> None:
+    """deploy-from-repo with wrong node_id in SBFB.json → 400."""
+    fake_repo = _create_fake_repo(tmp_path, node_id="aa" * 32)
+
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)  # node_id = "de" * 32
+        coord = Coordinator(project_name="deploy-wrong-id")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                with (
+                    patch(
+                        "nexus_coordinator.api.deploy._clone_repo",
+                        side_effect=_make_mock_clone(fake_repo),
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy.is_repo_public",
+                        new_callable=AsyncMock,
+                        return_value=True,
+                    ),
+                ):
+                    r = client.post(
+                        "/project/deploy-from-repo",
+                        json={"repo_url": "https://github.com/test/wrong-id"},
+                    )
+                    assert r.status_code == 400
+                    assert "node_id" in r.json()["detail"]
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_from_repo_missing_index_html(
+    nexus_grid_tmp: Path,
+    tmp_path: Path,
+) -> None:
+    """deploy-from-repo without index.html → 400."""
+    fake_repo = tmp_path / "no-index"
+    fake_repo.mkdir()
+    (fake_repo / "SBFB.json").write_text(
+        json.dumps({"node_id": "de" * 32, "project_name": "x"}),
+        encoding="utf-8",
+    )
+
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-no-index")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                with (
+                    patch(
+                        "nexus_coordinator.api.deploy._clone_repo",
+                        side_effect=_make_mock_clone(fake_repo),
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy.is_repo_public",
+                        new_callable=AsyncMock,
+                        return_value=True,
+                    ),
+                ):
+                    r = client.post(
+                        "/project/deploy-from-repo",
+                        json={"repo_url": "https://github.com/test/no-index"},
+                    )
+                    assert r.status_code == 400
+                    assert "index.html" in r.json()["detail"]
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_from_repo_private_rejected(
+    nexus_grid_tmp: Path,
+) -> None:
+    """deploy-from-repo for a private project → 400."""
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-private")
+        # visibility defaults to "private"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                r = client.post(
+                    "/project/deploy-from-repo",
+                    json={"repo_url": "https://github.com/a/b"},
+                )
+                assert r.status_code == 400
+                assert "public" in r.json()["detail"].lower()
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_from_repo_provenance_in_zip(
+    nexus_grid_tmp: Path,
+    tmp_path: Path,
+) -> None:
+    """deploy-from-repo includes provenance.json in the stored zip."""
+    fake_repo = _create_fake_repo(tmp_path, node_id="de" * 32)
+
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-prov-zip")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                with (
+                    patch(
+                        "nexus_coordinator.api.deploy._clone_repo",
+                        side_effect=_make_mock_clone(fake_repo),
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy.is_repo_public",
+                        new_callable=AsyncMock,
+                        return_value=True,
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy._git_rev_parse",
+                        new_callable=AsyncMock,
+                        return_value="abc123",
+                    ),
+                ):
+                    r = client.post(
+                        "/project/deploy-from-repo",
+                        json={"repo_url": "https://github.com/test/prov-app"},
+                    )
+                    assert r.status_code == 200
+
+                    # Find the LAST blob (first is auto-publish on boot).
+                    blob_calls = [b for _, p, b in daemon.calls if p == "/publish-blob"]
+                    assert len(blob_calls) >= 2
+                    blob_body = blob_calls[-1]
+                    # Verify the blob is a valid zip containing provenance.json.
+                    with zipfile.ZipFile(io.BytesIO(blob_body)) as zf:
+                        names = zf.namelist()
+                        assert "provenance.json" in names
+                        assert "index.html" in names
+                        # .git/ should be excluded.
+                        assert not any(n.startswith(".git/") for n in names)
+                        # Verify provenance.json is valid JSON.
+                        prov = json.loads(zf.read("provenance.json"))
+                        assert prov["schema_version"] == 1
+                        assert prov["repo_url"] == "https://github.com/test/prov-app"
+                        assert "signature" in prov
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_from_repo_repo_not_public(
+    nexus_grid_tmp: Path,
+) -> None:
+    """deploy-from-repo with a private repo → 400."""
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-not-public")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                with patch(
+                    "nexus_coordinator.api.deploy.is_repo_public",
+                    new_callable=AsyncMock,
+                    return_value=False,
+                ):
+                    r = client.post(
+                        "/project/deploy-from-repo",
+                        json={"repo_url": "https://github.com/private/repo"},
+                    )
+                    assert r.status_code == 400
+                    assert "public" in r.json()["detail"].lower()
         finally:
             await coord.stop()

@@ -41,7 +41,7 @@ use iroh_docs::NamespaceId;
 use nexus_core_rs::{
     blobs::BlobsClient as RsBlobsClient,
     create_node as rs_create_node, create_node_with_config,
-    crypto::{KeyPair, SECRET_KEY_BYTES},
+    crypto::{KeyPair, PUBLIC_KEY_LENGTH, SECRET_KEY_BYTES, SIGNATURE_BYTES},
     curator::{CuratorList, CuratorListEntry},
     discovery::DiscoveryClient as RsDiscoveryClient,
     docs::{DocHandle as RsDocHandle, DocsClient as RsDocsClient},
@@ -1076,6 +1076,58 @@ fn decode_invite<'py>(
 }
 
 // ======================================================================
+// BLAKE3 hash + raw sign/verify (Sprint 14 Phase A)
+// ======================================================================
+
+/// Compute the BLAKE3 hash of arbitrary bytes.
+///
+/// Returns the 32-byte hash as a `bytes` object.
+#[pyfunction]
+fn blake3_digest<'py>(py: Python<'py>, data: &Bound<'_, PyBytes>) -> Bound<'py, PyBytes> {
+    let hash = nexus_core_rs::blake3_hash(data.as_bytes());
+    PyBytes::new(py, &hash)
+}
+
+/// Sign arbitrary bytes with an Ed25519 secret key.
+///
+/// Returns the 64-byte signature as `bytes`. Use this for payloads
+/// that don't fit the Task/Result/Claim/Curator signing surface
+/// (e.g. provenance attestations).
+#[pyfunction]
+fn sign_bytes<'py>(
+    py: Python<'py>,
+    message: &Bound<'_, PyBytes>,
+    secret: &Bound<'_, PyBytes>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let sk: [u8; SECRET_KEY_BYTES] = array32(secret, "secret")?;
+    let kp = KeyPair::from_secret_bytes(&sk);
+    let sig = kp.sign(message.as_bytes());
+    Ok(PyBytes::new(py, &sig))
+}
+
+/// Verify an Ed25519 signature over arbitrary bytes.
+///
+/// Raises `RuntimeError` if the signature is invalid.
+#[pyfunction]
+fn verify_bytes(
+    message: &Bound<'_, PyBytes>,
+    signature: &Bound<'_, PyBytes>,
+    public_key: &Bound<'_, PyBytes>,
+) -> PyResult<()> {
+    let pk: [u8; PUBLIC_KEY_LENGTH] = array32(public_key, "public_key")?;
+    let sig_bytes = signature.as_bytes();
+    if sig_bytes.len() != SIGNATURE_BYTES {
+        return Err(PyValueError::new_err(format!(
+            "signature must be {SIGNATURE_BYTES} bytes, got {}",
+            sig_bytes.len()
+        )));
+    }
+    let mut sig_arr = [0u8; SIGNATURE_BYTES];
+    sig_arr.copy_from_slice(sig_bytes);
+    nexus_core_rs::verify(&pk, message.as_bytes(), &sig_arr).map_err(|e| py_err("verify_bytes", e))
+}
+
+// ======================================================================
 // Module entry point
 // ======================================================================
 
@@ -1105,6 +1157,9 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify_curator_list_entry, m)?)?;
     m.add_function(wrap_pyfunction!(mint_invite, m)?)?;
     m.add_function(wrap_pyfunction!(decode_invite, m)?)?;
+    m.add_function(wrap_pyfunction!(blake3_digest, m)?)?;
+    m.add_function(wrap_pyfunction!(sign_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_bytes, m)?)?;
 
     Ok(())
 }
