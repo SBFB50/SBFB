@@ -31,6 +31,30 @@ Le shell React est un client parmi d'autres — un futur client
 mobile ou Electron utiliserait le meme chemin blob → iframe.
 Les apps TabView SDK existantes sont pre-rendues en HTML statique
 par le coordinator au moment du publish.
+Les apps dans les iframes communiquent avec le reseau via un
+**bridge postMessage** (Sprint 13) : 3 methodes whitelist
+(`task_submit`, `storage_get`, `storage_set`), correlation IDs,
+validation source iframe. Le SDK client `sbfb-bridge.js` est
+inclus par les apps.
+
+## Securite apps publiques — deploy verifie (Sprint 14)
+Les apps publiques sont deployees **depuis le repo source** par
+le coordinateur lui-meme. Le publisher ne fournit pas de zip —
+il donne une URL de repo + commit, et le coordinateur :
+1. Clone le repo (`git clone --depth 1`, max 500 MB, timeout 30s)
+2. Verifie `SBFB.json` a la racine (node_id Ed25519 matche le
+   daemon local — pattern Keyoxide, preuve de propriete)
+3. Verifie que le repo est public (API forge retourne 200)
+4. Verifie `index.html` existe
+5. Zip le contenu (exclut `.git/`, valide les chemins)
+6. Genere `provenance.json` signe (SLSA L1 : repo_url, commit_sha,
+   artifact_hash BLAKE3, node_id, timestamp, signature Ed25519)
+7. Deploie le zip sur iroh-blobs
+
+Garantie : le code sur le reseau = le code du repo. Multi-forge
+(GitHub, GitLab, Codeberg, Gitea). Zero OAuth, zero token.
+Verification offline par n'importe quel noeud via la signature.
+Cf. `sprint14_keyoxide_decision.md` (memory) pour le detail.
 
 ## Architecture Option G (hybride Rust + Python)
 - **Rust workspace** (`crates/`) : `nexus-core-rs` (iroh 0.97
@@ -142,10 +166,18 @@ re-debattre) » — 12 items originaux + extensions Sprint 12/13 :
   daemon blob-serve = rendu universel (origin separee port 7000,
   CSP `connect-src 'none'`), le shell est un iframe host
   agnostique (ne connait pas la techno de l'app)
-- **Sprint 13** : public = open source (repo_url obligatoire),
+- **Sprint 13** : public = open source (repo_url, sera remplace
+  par preuve crypto Keyoxide en Sprint 14),
   postMessage bridge = seul canal iframe ↔ reseau (3 methodes
   whitelist), launcher Rust minimal (pas Tauri, browser = client),
   UI Netflix glassmorphism dark-first
+- **Sprint 14 (decision)** : deploy verifie from source —
+  le coordinateur clone le repo, verifie SBFB.json (Keyoxide
+  Ed25519), build le zip lui-meme, signe provenance.json
+  (SLSA L1). Le code sur le reseau = le code du repo. L'ancien
+  `POST /project/deploy` (upload zip) reste pour le prive.
+  Securite clone : depth 1, 500 MB max, 30s timeout, pas de
+  .git/, pas de submodules, validation paths, MIME scan.
 
 ## Principe de conception — sessions fraiches
 **Ne jamais propager les scope cuts des sprints precedents comme

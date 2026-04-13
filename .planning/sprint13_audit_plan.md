@@ -189,6 +189,22 @@ existants ?
 
 ---
 
+## Note pour l'auditeur — decision post-Sprint 13
+
+Apres la fermeture de Sprint 13, une decision architecturale
+majeure a ete prise : le flow `repo_url` trust-based de Phase B
+sera **remplace en Sprint 14** par un deploy verifie from source.
+Le coordinateur clonera le repo lui-meme, verifiera SBFB.json
+(Keyoxide), et generera une provenance.json signee (SLSA L1).
+Cf. `sprint14_keyoxide_decision.md` dans la memory.
+
+L'audit de Track B (open source enforcement) porte sur le code
+Sprint 13 tel que livre (repo_url trust-based). Les findings
+de Track B informeront le Sprint 14 mais ne bloquent pas la gate
+puisque le systeme entier sera remplace.
+
+---
+
 ## Out of scope pour l'audit
 
 - Les D1-D6 gelees (cf. kickoff §4) — ne pas les rebattre
@@ -197,6 +213,8 @@ existants ?
 - Les pins de deps (iroh 0.97, axum 0.7, etc.)
 - Le contenu des design docs dans `docs/apps/`
 - Les fichiers non trackes (cc.json, site/, docs/apps/)
+- La decision de remplacement repo_url → deploy verifie (c'est
+  un Day 0 de Sprint 14, pas un finding Sprint 13)
 
 ---
 
