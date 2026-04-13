@@ -1455,3 +1455,45 @@ including label escaping and the "upload non disponible" text.
 Sprint 12 audit F-P2. Fixed in Sprint 13 Phase A: added
 `proxy_set_header X-Real-IP $remote_addr;` to the `/blob-serve/`
 location block in `deploy/nginx-nexus.conf`.
+
+## Sprint 13 patterns
+
+### P24 — postMessage bridge protocol
+
+**Rule**: all communication between sandboxed iframe apps and the
+host shell goes through a typed postMessage bridge. The protocol
+uses `BridgeRequest` (iframe → host) and `BridgeResponse` (host →
+iframe) with UUID correlation IDs for async matching. Only three
+methods are whitelisted: `task_submit`, `storage_get`, `storage_set`.
+The host validates source (`event.source === iframe.contentWindow`),
+parses with Zod, dispatches to the coordinator API, and replies.
+No direct network access from the iframe (CSP `connect-src 'none'`).
+
+SHA: `c32d9c7`. Files: `web/src/bridge/protocol.ts`, `useBridge.ts`,
+`web/public/sbfb-bridge.js`.
+
+### P25 — open source enforcement for public apps
+
+**Rule**: any project published with `visibility=public` must provide
+a `repo_url` (URL of a public source code repository). The coordinator
+validates this at `POST /project/deploy` and returns HTTP 400 if
+missing. The daemon propagates `repo_url` in the gossip announcement
+(ProjectAnnouncement v3) and the BrowseEntry. The shell displays a
+clickable "Source" link on Browse cards and BrowsedProject top bar.
+Private projects have no constraint. Sprint 13 does NOT verify that
+the repo actually matches the deployed zip — deferred to Sprint 14.
+
+SHA: `7d669f2`. Files: `publish.rs`, `browse.rs`, `http.rs`,
+`deploy.py`, `daemon.ts`, `Browse.tsx`, `BrowsedProject.tsx`.
+
+### P26 — launcher pattern (spawn daemon + poll running.json)
+
+**Rule**: the nexus-launcher binary spawns `nexus-shell-daemon start`
+as a child process, polls `running.json` until it appears (max 15s),
+reads `api_host:api_port`, opens the default browser via the `open`
+crate, then waits for Ctrl+C. On shutdown, kills the child and waits
+5s for exit. If the daemon is already running (running.json exists and
+parses), skips spawn. No Tauri, no native window — the browser IS the
+client. Decision D4 from Sprint 13 kickoff.
+
+SHA: `72cf5ad`. File: `crates/nexus-launcher/src/main.rs`.
