@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 13 Phase C — bridge protocol schema tests.
+ * Sprint 15 Phase A — adds BridgeEventSchema coverage.
  */
 
 import { describe, expect, it } from "vitest";
 import {
+  BridgeEventSchema,
   BridgeRequestSchema,
   BridgeResponseSchema,
   createErrorResponse,
+  createEvent,
   createResponse,
 } from "../protocol";
 
@@ -65,5 +68,33 @@ describe("BridgeResponseSchema", () => {
     expect(BridgeResponseSchema.safeParse(resp).success).toBe(true);
     expect(resp.success).toBe(false);
     expect(resp.error).toBe("timeout");
+  });
+});
+
+describe("BridgeEventSchema (Sprint 15 Phase A)", () => {
+  it("accepts a valid event with payload", () => {
+    const evt = createEvent("task_result_ready", { task_id: "t-1", result: "ok" });
+    expect(BridgeEventSchema.safeParse(evt).success).toBe(true);
+    expect(evt.type).toBe("sbfb-bridge-event");
+    expect(evt.name).toBe("task_result_ready");
+  });
+
+  it("accepts an event with null payload", () => {
+    expect(BridgeEventSchema.safeParse(createEvent("ping", null)).success).toBe(true);
+  });
+
+  it("rejects an event with empty name", () => {
+    const evt = { type: "sbfb-bridge-event", name: "", payload: null };
+    expect(BridgeEventSchema.safeParse(evt).success).toBe(false);
+  });
+
+  it("rejects an event with name longer than 64 chars", () => {
+    const evt = { type: "sbfb-bridge-event", name: "x".repeat(65), payload: null };
+    expect(BridgeEventSchema.safeParse(evt).success).toBe(false);
+  });
+
+  it("rejects an event with wrong type discriminator", () => {
+    const evt = { type: "sbfb-bridge-response", name: "foo", payload: null };
+    expect(BridgeEventSchema.safeParse(evt).success).toBe(false);
   });
 });

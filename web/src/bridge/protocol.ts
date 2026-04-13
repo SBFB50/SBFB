@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Sprint 13 Phase C — postMessage bridge protocol.
+ * Sprint 15 Phase A — adds host → iframe push events.
  *
  * Zod schemas for the typed messages exchanged between sandboxed
  * iframe apps and the host shell via `window.postMessage`.
  *
  * Direction:
  *   iframe → host : BridgeRequest
- *   host → iframe : BridgeResponse
+ *   host → iframe : BridgeResponse (reply) or BridgeEvent (push, Sprint 15)
  */
 
 import { z } from "zod";
@@ -72,5 +73,39 @@ export function createErrorResponse(
     id,
     success: false,
     error,
+  };
+}
+
+// =================================================================
+// Event (host → iframe, push, Sprint 15 Phase A)
+// =================================================================
+
+/**
+ * Fire-and-forget event pushed by the host toward a sandboxed iframe.
+ *
+ * Unlike {@link BridgeResponse}, events are not tied to any prior
+ * request — the host decides when to push them (e.g. "task result
+ * ready", "storage changed"). The iframe subscribes via
+ * `bridge.onEvent(name, callback)`. No acknowledgement is expected.
+ *
+ * The `name` field is a free-form identifier (≤ 64 chars) so
+ * individual apps can filter events client-side. The host does not
+ * maintain a whitelist — apps only react to events they explicitly
+ * subscribe to.
+ */
+export const BridgeEventSchema = z.object({
+  type: z.literal("sbfb-bridge-event"),
+  name: z.string().min(1).max(64),
+  payload: z.unknown(),
+});
+
+export type BridgeEvent = z.infer<typeof BridgeEventSchema>;
+
+/** Build a push event for a given name + payload. */
+export function createEvent(name: string, payload: unknown): BridgeEvent {
+  return {
+    type: "sbfb-bridge-event",
+    name,
+    payload,
   };
 }

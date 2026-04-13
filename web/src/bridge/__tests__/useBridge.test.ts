@@ -87,4 +87,60 @@ describe("useBridge", () => {
     expect(resp.success).toBe(false);
     expect(resp.error).toContain("no active coordinator");
   });
+
+  describe("pushEvent (Sprint 15 Phase A)", () => {
+    it("posts a bridge-event to the iframe contentWindow", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+
+      result.current.pushEvent("task_result_ready", { task_id: "t-42" });
+
+      expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      const [msg, targetOrigin] = fakeWindow.postMessage.mock.calls[0];
+      expect(msg).toEqual({
+        type: "sbfb-bridge-event",
+        name: "task_result_ready",
+        payload: { task_id: "t-42" },
+      });
+      expect(targetOrigin).toBe("*");
+    });
+
+    it("is a no-op when iframeRef.current is null", () => {
+      const nullRef = { current: null } as React.RefObject<HTMLIFrameElement | null>;
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", nullRef),
+      );
+
+      expect(() => result.current.pushEvent("foo", {})).not.toThrow();
+      expect(fakeWindow.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("is a no-op when contentWindow is null", () => {
+      const noWindowRef = {
+        current: { contentWindow: null } as unknown as HTMLIFrameElement,
+      } as React.RefObject<HTMLIFrameElement | null>;
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", noWindowRef),
+      );
+
+      expect(() => result.current.pushEvent("foo", null)).not.toThrow();
+      expect(fakeWindow.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("allows arbitrary payload types", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+
+      result.current.pushEvent("string_payload", "hello");
+      result.current.pushEvent("number_payload", 42);
+      result.current.pushEvent("array_payload", [1, 2, 3]);
+
+      expect(fakeWindow.postMessage).toHaveBeenCalledTimes(3);
+      expect(fakeWindow.postMessage.mock.calls[0][0].payload).toBe("hello");
+      expect(fakeWindow.postMessage.mock.calls[1][0].payload).toBe(42);
+      expect(fakeWindow.postMessage.mock.calls[2][0].payload).toEqual([1, 2, 3]);
+    });
+  });
 });
