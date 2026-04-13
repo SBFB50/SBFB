@@ -1,0 +1,6 @@
+.DS_Store
+*.log
+node_modules/
+# Pyodide bundle — decommenter si tu veux le re-telecharger a chaque
+# deploiement plutot que de le committer :
+# pyodide/

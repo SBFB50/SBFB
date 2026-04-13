@@ -1,0 +1,6 @@
+{
+  "node_id": "{{NODE_ID}}",
+  "project_name": "{{PROJECT_NAME}}",
+  "template": "html",
+  "version": "0.1.0"
+}

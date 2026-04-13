@@ -91,6 +91,10 @@ Issues = "https://github.com/SBFB50/SBFB/issues"
 
 [project.scripts]
 nexus-coordinator = "nexus_coordinator.cli.main:app"
+# Sprint 15 Phase C — developer CLI for scaffolding SBFB apps.
+# `sbfb init <type> <path>` creates a new app from a bundled
+# template (html / react / pyodide).
+sbfb = "nexus_coordinator.cli.sbfb_main:app"
 
 [project.optional-dependencies]
 test = [
@@ -106,6 +110,11 @@ test = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nexus_coordinator"]
+
+# Sprint 15 Phase C — ship the scaffolding templates as package data
+# so `sbfb init` can find them after `uv pip install nexus-coordinator`.
+[tool.hatch.build.targets.wheel.force-include]
+"src/nexus_coordinator/templates" = "nexus_coordinator/templates"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
