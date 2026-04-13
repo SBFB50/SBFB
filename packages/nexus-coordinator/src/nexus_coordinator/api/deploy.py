@@ -23,6 +23,7 @@ import asyncio
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -33,7 +34,7 @@ import httpx
 import nexus_core
 import structlog
 from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from nexus_coordinator.api.daemon import _daemon_base_url, _read_running_state
 from nexus_coordinator.forge import is_repo_public, normalize_clone_url
@@ -181,6 +182,10 @@ async def deploy_project(
 # Limits for git clone safety (D4).
 MAX_CLONE_BYTES: int = 500 * 1024 * 1024  # 500 MB
 CLONE_TIMEOUT_SECS: int = 30
+CHECKOUT_TIMEOUT_SECS: int = 10
+
+# A full Git SHA-1 commit hash: 40 lowercase hex characters.
+_SHA_PATTERN = re.compile(r"^[a-f0-9]{40}$")
 
 
 class DeployFromRepoBody(BaseModel):
@@ -188,6 +193,19 @@ class DeployFromRepoBody(BaseModel):
 
     repo_url: str
     commit_sha: str | None = None
+
+    @field_validator("commit_sha")
+    @classmethod
+    def _validate_commit_sha(cls, v: str | None) -> str | None:
+        """Accept only full 40-char hex SHAs (normalized to lowercase)."""
+        if v is None:
+            return v
+        normalized = v.lower()
+        if not _SHA_PATTERN.match(normalized):
+            raise ValueError(
+                "commit_sha must be a full 40-character hex SHA (short SHAs and branch/tag names are not supported)"
+            )
+        return normalized
 
 
 @router.post("/project/deploy-from-repo")
@@ -220,7 +238,7 @@ async def deploy_from_repo(body: DeployFromRepoBody, request: Request) -> dict:
     tmpdir = tempfile.mkdtemp(prefix="sbfb-deploy-")
     clone_dir = os.path.join(tmpdir, "repo")
     try:
-        await _clone_repo(repo_url, clone_dir, ref=body.commit_sha)
+        await _clone_repo(repo_url, clone_dir, sha=body.commit_sha)
 
         # 3. Check clone size.
         clone_size = _dir_size(clone_dir)
@@ -300,31 +318,73 @@ async def deploy_from_repo(body: DeployFromRepoBody, request: Request) -> dict:
 # ------------------------------------------------------------------
 
 
-async def _clone_repo(repo_url: str, dest: str, *, ref: str | None = None) -> None:
-    """Run ``git clone --depth 1`` with timeout protection."""
-    cmd = ["git", "clone", "--depth", "1", "--single-branch"]
-    if ref:
-        cmd += ["--branch", ref]
-    cmd += [repo_url, dest]
+async def _clone_repo(repo_url: str, dest: str, *, sha: str | None = None) -> None:
+    """Clone a repo with timeout protection, optionally pinned to a SHA.
 
+    When ``sha`` is ``None``, clones HEAD of the default branch with
+    ``--depth 1 --single-branch`` (fast path, typical case).
+
+    When ``sha`` is provided (validated as a 40-char hex by
+    :class:`DeployFromRepoBody`), the clone is done in three steps:
+
+    1. ``git clone --depth 1 --single-branch`` to bootstrap the repo.
+    2. ``git fetch --depth 1 origin <sha>`` to pull the target commit
+       without downloading the full history.
+    3. ``git checkout FETCH_HEAD`` to move the working tree to it.
+
+    Step 2 requires the remote to allow fetching by SHA. GitHub,
+    GitLab, and Codeberg enable this for public repos by default
+    (``uploadpack.allowReachableSHA1InWant=true``). Self-hosted Gitea
+    instances may need explicit configuration.
+    """
+    # Step 1: initial shallow clone of HEAD.
+    await _run_git(
+        ["git", "clone", "--depth", "1", "--single-branch", repo_url, dest],
+        timeout=CLONE_TIMEOUT_SECS,
+        action="clone",
+    )
+
+    if sha is None:
+        return
+
+    # Step 2: fetch the specific SHA into the clone.
+    await _run_git(
+        ["git", "-C", dest, "fetch", "--depth", "1", "origin", sha],
+        timeout=CLONE_TIMEOUT_SECS,
+        action="fetch",
+    )
+
+    # Step 3: checkout the fetched commit in detached HEAD.
+    await _run_git(
+        ["git", "-C", dest, "checkout", "FETCH_HEAD"],
+        timeout=CHECKOUT_TIMEOUT_SECS,
+        action="checkout",
+    )
+
+
+async def _run_git(cmd: list[str], *, timeout: int, action: str) -> None:
+    """Run a git subprocess with a hard timeout.
+
+    Raises :class:`HTTPException` (400 on non-zero exit, 408 on
+    timeout) with a truncated stderr excerpt as the error detail so
+    the API caller gets a meaningful message (for example
+    ``git fetch failed: fatal: remote SHA not found``).
+    """
     try:
-        proc = await asyncio.wait_for(
-            asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            ),
-            timeout=CLONE_TIMEOUT_SECS,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=CLONE_TIMEOUT_SECS)
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         if proc.returncode != 0:
             detail = stderr.decode("utf-8", errors="replace").strip()[:500]
-            raise HTTPException(status_code=400, detail=f"git clone failed: {detail}")
-    except asyncio.TimeoutError:
+            raise HTTPException(status_code=400, detail=f"git {action} failed: {detail}")
+    except asyncio.TimeoutError as e:
         raise HTTPException(
             status_code=408,
-            detail=f"git clone timed out after {CLONE_TIMEOUT_SECS}s",
-        )
+            detail=f"git {action} timed out after {timeout}s",
+        ) from e
 
 
 async def _git_rev_parse(repo_dir: str) -> str:

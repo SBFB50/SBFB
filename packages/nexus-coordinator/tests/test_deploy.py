@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+import subprocess
 import threading
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -289,9 +291,8 @@ def _create_fake_repo(tmpdir: Path, *, node_id: str = "de" * 32) -> Path:
 
 def _make_mock_clone(source_dir: Path):
     """Create a mock clone function that copies from a local directory."""
-    import shutil
 
-    async def _mock_clone(repo_url: str, dest: str, *, ref: str | None = None) -> None:
+    async def _mock_clone(repo_url: str, dest: str, *, sha: str | None = None) -> None:
         shutil.copytree(str(source_dir), dest, dirs_exist_ok=True)
 
     return _mock_clone
@@ -575,3 +576,157 @@ async def test_deploy_from_repo_repo_not_public(
                     assert "public" in r.json()["detail"].lower()
         finally:
             await coord.stop()
+
+
+# ---------------------------------------------------------------
+# fix(sprint14) A-1 — commit_sha validator tests
+# ---------------------------------------------------------------
+
+
+class TestCommitShaValidator:
+    """Sprint 14 audit A-1: `commit_sha` must be a full 40-char hex SHA.
+
+    Short SHAs, branch/tag names, and anything else are rejected with
+    422 by the Pydantic validator before the endpoint logic runs.
+    """
+
+    def _post_sha(self, sha: str | None, nexus_grid_tmp: Path) -> int:
+        """POST deploy-from-repo with only commit_sha validation reachable."""
+        from nexus_coordinator.api.deploy import DeployFromRepoBody
+        from pydantic import ValidationError
+
+        try:
+            DeployFromRepoBody(repo_url="https://github.com/a/b", commit_sha=sha)
+            return 200
+        except ValidationError:
+            return 422
+
+    def test_accepts_full_40_hex_sha(self, nexus_grid_tmp: Path) -> None:
+        assert self._post_sha("a" * 40, nexus_grid_tmp) == 200
+
+    def test_accepts_mixed_case_and_normalizes_to_lowercase(self) -> None:
+        from nexus_coordinator.api.deploy import DeployFromRepoBody
+
+        body = DeployFromRepoBody(
+            repo_url="https://github.com/a/b",
+            commit_sha="AbCdEf" + "0" * 34,
+        )
+        assert body.commit_sha == "abcdef" + "0" * 34
+
+    def test_rejects_short_hex(self, nexus_grid_tmp: Path) -> None:
+        assert self._post_sha("abc123", nexus_grid_tmp) == 422
+
+    def test_rejects_long_hex(self, nexus_grid_tmp: Path) -> None:
+        assert self._post_sha("a" * 41, nexus_grid_tmp) == 422
+
+    def test_rejects_non_hex(self, nexus_grid_tmp: Path) -> None:
+        assert self._post_sha("z" * 40, nexus_grid_tmp) == 422
+
+    def test_rejects_branch_name(self, nexus_grid_tmp: Path) -> None:
+        assert self._post_sha("main", nexus_grid_tmp) == 422
+
+    def test_accepts_none(self, nexus_grid_tmp: Path) -> None:
+        assert self._post_sha(None, nexus_grid_tmp) == 200
+
+
+# ---------------------------------------------------------------
+# fix(sprint14) A-1 — integration tests against real git subprocess
+# ---------------------------------------------------------------
+
+
+def _git_cli_available() -> bool:
+    """Return True if `git` is on PATH (integration tests need it)."""
+    return shutil.which("git") is not None
+
+
+def _create_local_git_repo(path: Path) -> tuple[str, str]:
+    """Create a git repo at `path` with 2 commits.
+
+    Returns (sha_v1, sha_v2). Configures
+    ``uploadpack.allowAnySHA1InWant`` so our fetch-by-SHA path works
+    against file:// URLs the same way it does against public forges.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+
+    def _run(args: list[str]) -> str:
+        return subprocess.check_output(args, cwd=path, text=True, stderr=subprocess.DEVNULL).strip()
+
+    _run(["git", "init", "--initial-branch=main", "--quiet"])
+    _run(["git", "config", "user.email", "test@sbfb.local"])
+    _run(["git", "config", "user.name", "SBFB Test"])
+    _run(["git", "config", "uploadpack.allowAnySHA1InWant", "true"])
+    _run(["git", "config", "uploadpack.allowReachableSHA1InWant", "true"])
+
+    (path / "index.html").write_text("<h1>v1</h1>", encoding="utf-8")
+    (path / "SBFB.json").write_text(json.dumps({"node_id": "de" * 32, "project_name": "t"}), encoding="utf-8")
+    _run(["git", "add", "."])
+    _run(["git", "commit", "-q", "-m", "v1"])
+    sha_v1 = _run(["git", "rev-parse", "HEAD"])
+
+    (path / "index.html").write_text("<h1>v2</h1>", encoding="utf-8")
+    _run(["git", "add", "."])
+    _run(["git", "commit", "-q", "-m", "v2"])
+    sha_v2 = _run(["git", "rev-parse", "HEAD"])
+
+    return sha_v1, sha_v2
+
+
+def _local_git_url(path: Path) -> str:
+    """Build a ``file://`` URL that git accepts on Windows and Unix."""
+    # Path.as_posix() gives forward slashes; prefix with file:// so
+    # git treats it as a proper URL (not a local path / hardlink).
+    return f"file:///{path.as_posix().lstrip('/')}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _git_cli_available(), reason="git CLI not on PATH")
+async def test_clone_repo_checks_out_specific_sha(tmp_path: Path) -> None:
+    """_clone_repo with a SHA checks out that commit, not HEAD."""
+    import nexus_coordinator.api.deploy as deploy_mod
+
+    source = tmp_path / "source"
+    sha_v1, _sha_v2 = _create_local_git_repo(source)
+
+    dest = tmp_path / "clone-pinned"
+    url = _local_git_url(source)
+    await deploy_mod._clone_repo(url, str(dest), sha=sha_v1)
+
+    # Clone must reflect v1 content, not HEAD (v2).
+    assert (dest / "index.html").read_text(encoding="utf-8") == "<h1>v1</h1>"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _git_cli_available(), reason="git CLI not on PATH")
+async def test_clone_repo_without_sha_uses_head(tmp_path: Path) -> None:
+    """_clone_repo without sha uses HEAD (fast path, no fetch)."""
+    import nexus_coordinator.api.deploy as deploy_mod
+
+    source = tmp_path / "source"
+    _sha_v1, _sha_v2 = _create_local_git_repo(source)
+
+    dest = tmp_path / "clone-head"
+    url = _local_git_url(source)
+    await deploy_mod._clone_repo(url, str(dest), sha=None)
+
+    # HEAD is v2.
+    assert (dest / "index.html").read_text(encoding="utf-8") == "<h1>v2</h1>"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _git_cli_available(), reason="git CLI not on PATH")
+async def test_clone_repo_rejects_nonexistent_sha(tmp_path: Path) -> None:
+    """_clone_repo with a syntactically valid but absent SHA → 400."""
+    import nexus_coordinator.api.deploy as deploy_mod
+    from fastapi import HTTPException
+
+    source = tmp_path / "source"
+    _create_local_git_repo(source)
+
+    dest = tmp_path / "clone-missing"
+    url = _local_git_url(source)
+    absent_sha = "f" * 40  # valid format, not in the repo
+
+    with pytest.raises(HTTPException) as exc_info:
+        await deploy_mod._clone_repo(url, str(dest), sha=absent_sha)
+    assert exc_info.value.status_code == 400
+    assert "fetch" in exc_info.value.detail.lower()
