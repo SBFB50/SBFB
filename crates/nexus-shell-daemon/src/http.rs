@@ -34,8 +34,9 @@ use std::time::SystemTime;
 
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Request, State},
     http::{HeaderValue, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Json},
     routing::{delete, get, post},
     Router,
@@ -118,6 +119,13 @@ impl DaemonHttpState {
 /// router clones it into each handler via the axum `State`
 /// extractor.
 pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
+    // Sprint 13 Phase A (T37): blob-serve routes get a CSP
+    // middleware that injects security headers on ALL responses
+    // (200, 400, 404, 500) — not just the success path.
+    let blob_serve_routes = Router::new()
+        .route("/:hash/*path", get(blob_serve))
+        .layer(middleware::from_fn(blob_serve_csp_middleware));
+
     Router::new()
         .route("/health", get(health))
         .route("/info", get(info))
@@ -128,9 +136,24 @@ pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
         .route("/publish", post(publish_project))
         .route("/publish-blob", post(publish_blob))
         .route("/default-curators", get(default_curators))
-        .route("/blob-serve/:hash/*path", get(blob_serve))
+        .nest("/blob-serve", blob_serve_routes)
         .with_state(state)
         .layer(loopback_cors_layer())
+}
+
+/// Middleware that injects CSP + X-Content-Type-Options headers
+/// on every blob-serve response, including error responses.
+/// Sprint 13 Phase A (T37).
+async fn blob_serve_csp_middleware(request: Request, next: Next) -> impl IntoResponse {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    // Safe to unwrap: both values are compile-time constants.
+    headers.insert(
+        "content-security-policy",
+        blob_serve::BLOB_SERVE_CSP.parse().unwrap(),
+    );
+    headers.insert("x-content-type-options", "nosniff".parse().unwrap());
+    response
 }
 
 /// The loopback-only CORS layer. Accepts exactly the origins
@@ -561,12 +584,12 @@ async fn blob_serve(
 
     let content_type = blob_serve::detect_content_type(path, &file_bytes);
 
+    // CSP + X-Content-Type-Options are injected by
+    // blob_serve_csp_middleware on ALL responses (T37).
     (
         StatusCode::OK,
         [
             ("Content-Type", content_type),
-            ("Content-Security-Policy", blob_serve::BLOB_SERVE_CSP),
-            ("X-Content-Type-Options", "nosniff"),
             ("Cache-Control", "public, max-age=3600, immutable"),
         ],
         file_bytes,
@@ -1262,6 +1285,34 @@ mod tests {
             resp.status() == StatusCode::BAD_REQUEST || resp.status() == StatusCode::NOT_FOUND,
             "expected 400 or 404, got {}",
             resp.status()
+        );
+    }
+
+    /// Sprint 13 Phase A (T37): error responses from blob-serve
+    /// must also carry CSP + X-Content-Type-Options headers, not
+    /// just the 200 success path.
+    #[tokio::test]
+    async fn blob_serve_error_responses_have_csp() {
+        let app = build_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/blob-serve/{}/index.html", "ab".repeat(32)))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        // T37: CSP must be present on error responses too.
+        assert!(
+            resp.headers().get("content-security-policy").is_some(),
+            "CSP header missing on 404 blob-serve response",
+        );
+        assert!(
+            resp.headers().get("x-content-type-options").is_some(),
+            "X-Content-Type-Options header missing on 404 blob-serve response",
         );
     }
 }

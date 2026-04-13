@@ -1,18 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * `/project/:name` — Sprint 5 Phase B rich view.
+ * `/project/:name` — glassmorphism project detail view.
  *
- * Five tabs per `.planning/sprint5_plan.md` §5.2:
- * - Overview:  health + project metadata + derived counters
- * - Tasks:     paginated task list via /tasks
- * - Kudos:     ledger table + integrity badge
- * - Invites:   list + create + revoke
- * - Apps:      manifest browser with sync/async tab descriptors
- *
- * The page resolves the coordinator URL from the project store
- * by name. If the `:name` route param does not match any known
- * coordinator's nickname / project_name, the page renders a
- * card offering to add one via the dialog.
+ * Five tabs: Overview, Tasks, Kudos, Invites, Apps.
  */
 
 import { useMemo } from "react";
@@ -25,13 +15,6 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   getHealth,
   getProject,
@@ -53,9 +36,6 @@ export default function ProjectDetail() {
   const { name } = useParams<{ name: string }>();
   const knownCoordinators = useProjectStore((s) => s.knownCoordinators);
 
-  // Resolve the coordinator by nickname first (set by the
-  // AddCoordinatorDialog from the health payload's project name),
-  // falling back to an exact URL match.
   const coordinator = useMemo(() => {
     if (!name) return null;
     return (
@@ -67,25 +47,25 @@ export default function ProjectDetail() {
 
   if (!coordinator) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Projet introuvable</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-3xl font-extrabold tracking-tight">
+            Projet introuvable
+          </h1>
+          <p className="mt-1 text-sm text-white/50">
             Aucun coordinateur connu ne porte le nom{" "}
-            <code className="font-mono">{name ?? "—"}</code>.
+            <code className="font-mono text-white/70">{name ?? "\u2014"}</code>.
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Que faire&nbsp;?</CardTitle>
-            <CardDescription>
-              Ajoute le coordinateur via le bouton « Ajouter un
-              coordinateur » dans le header, ou vérifie que son
-              nickname correspond à ce que tu as entré.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <div className="glass-card max-w-md p-6">
+          <h3 className="mb-2 font-bold">Que faire ?</h3>
+          <p className="text-sm text-white/50">
+            Ajoute le coordinateur via le bouton « Ajouter un
+            coordinateur » dans l'en-tete, ou verifie que son
+            nickname correspond a ce que tu as entre.
+          </p>
+        </div>
       </div>
     );
   }
@@ -94,9 +74,6 @@ export default function ProjectDetail() {
 }
 
 function ProjectDetailContent({ url }: { url: string }) {
-  // Preload every tab's data in parallel. React Query dedupes
-  // these so child tabs that `useQuery` the same keys get the
-  // already-fetched data immediately.
   const projectQuery = useQuery({
     queryKey: ["project", url],
     queryFn: () => getProject(url),
@@ -137,44 +114,49 @@ function ProjectDetailContent({ url }: { url: string }) {
   const health = healthQuery.data;
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="truncate text-2xl font-bold">
-            {project?.name ?? "Projet"}
-          </h1>
-          <p className="truncate text-sm text-muted-foreground">
-            {project?.description ?? "…"}
-          </p>
-          <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-            {url}
-          </p>
+    <div className="space-y-6">
+      {/* ---- Hero header ---- */}
+      <div className="relative -mx-6 -mt-6 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/40 via-purple-950/30 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0f] via-transparent to-transparent" />
+        <div className="relative px-8 pb-8 pt-12">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="truncate text-3xl font-extrabold tracking-tight">
+                {project?.name ?? "Projet"}
+              </h1>
+              <p className="mt-1 truncate text-sm text-white/60">
+                {project?.description ?? "..."}
+              </p>
+              <p className="mt-1 truncate font-mono text-[11px] text-white/30">
+                {url}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {project && (
+                <span
+                  className={`glass-pill text-[11px] font-medium ${
+                    project.visibility === "public"
+                      ? "text-emerald-400"
+                      : "text-white/50"
+                  }`}
+                >
+                  {project.visibility === "public" ? "Public" : "Prive"}
+                </span>
+              )}
+              <span
+                className={`glass-pill text-[11px] font-medium ${
+                  health?.status === "ok"
+                    ? "text-emerald-400"
+                    : "text-red-400"
+                }`}
+              >
+                {health ? health.status : "..."}
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {project && (
-            <Badge
-              variant="outline"
-              className={
-                project.visibility === "public"
-                  ? "border-emerald-500/40 text-emerald-500"
-                  : "border-border text-muted-foreground"
-              }
-            >
-              {project.visibility === "public" ? "Public" : "Privé"}
-            </Badge>
-          )}
-          <Badge
-            variant="outline"
-            className={
-              health?.status === "ok"
-                ? "border-emerald-500/40 text-emerald-500"
-                : "border-destructive/40 text-destructive"
-            }
-          >
-            {health ? health.status : "…"}
-          </Badge>
-        </div>
-      </header>
+      </div>
 
       <Tabs defaultValue="overview">
         <TabsList>

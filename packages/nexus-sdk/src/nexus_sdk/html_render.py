@@ -190,11 +190,14 @@ def _esc(value: Any) -> str:
 # ===================================================================
 
 _SVG_W = 400
-_SVG_H = 180
-_SVG_PAD_L = 45
-_SVG_PAD_R = 10
-_SVG_PAD_T = 10
-_SVG_PAD_B = 30
+_SVG_H = 120
+_SVG_PAD_L = 32
+_SVG_PAD_R = 16
+_SVG_PAD_T = 16
+_SVG_PAD_B = 16
+# Bar charts use slightly larger top/bottom padding for label room.
+_SVG_BAR_PAD_T = 24
+_SVG_BAR_PAD_B = 24
 
 
 def _render_chart_line_svg(points: list[dict[str, Any]], y_unit: str | None) -> str:
@@ -269,8 +272,10 @@ def _render_chart_bar_svg(bars: list[dict[str, Any]]) -> str:
         v_max = 1
 
     n = len(bars)
+    pad_t = _SVG_BAR_PAD_T
+    pad_b = _SVG_BAR_PAD_B
     plot_w = _SVG_W - _SVG_PAD_L - _SVG_PAD_R
-    plot_h = _SVG_H - _SVG_PAD_T - _SVG_PAD_B
+    plot_h = _SVG_H - pad_t - pad_b
     bar_w = plot_w / max(n, 1) * 0.7
     gap = plot_w / max(n, 1) * 0.3
 
@@ -278,7 +283,7 @@ def _render_chart_bar_svg(bars: list[dict[str, Any]]) -> str:
     grid_lines = []
     for step in range(4):
         gv = v_max * step / 3
-        gy = _SVG_PAD_T + (1 - gv / v_max) * plot_h
+        gy = pad_t + (1 - gv / v_max) * plot_h
         grid_lines.append(
             f'<line x1="{_SVG_PAD_L}" y1="{gy:.1f}" x2="{_SVG_W - _SVG_PAD_R}" '
             f'y2="{gy:.1f}" stroke="var(--border)" stroke-dasharray="4"/>'
@@ -294,7 +299,7 @@ def _render_chart_bar_svg(bars: list[dict[str, Any]]) -> str:
         fill_cls = _FILL_CLASS.get(tone, "fill-neutral")
         bx = _SVG_PAD_L + i * (bar_w + gap) + gap / 2
         bh = (v / v_max) * plot_h
-        by = _SVG_PAD_T + plot_h - bh
+        by = pad_t + plot_h - bh
         rects.append(
             f'<rect x="{bx:.1f}" y="{by:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" rx="3" class="{fill_cls}"/>'
         )

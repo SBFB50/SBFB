@@ -312,3 +312,20 @@ def test_html_escaping():
     html = render_tabview_to_html(desc)
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
+
+
+# ---------------------------------------------------------------
+# 14. File upload placeholder
+# ---------------------------------------------------------------
+
+
+def test_render_file_upload():
+    desc = _descriptor(
+        [
+            {"kind": "file_upload", "label": "Telecharger un fichier"},
+        ]
+    )
+    html = render_tabview_to_html(desc)
+    assert "Telecharger un fichier" in html
+    assert "upload non disponible" in html
+    assert "file-upload-placeholder" in html

@@ -1429,31 +1429,29 @@ Sprint 11 audit F-06. The `/api/` proxy block sets
 in both `nginx-nexus.conf` and `provision.sh` inline. Add the
 header for consistency.
 
-### T37 — CSP middleware for all blob-serve responses — OPEN
+### T37 — CSP middleware for all blob-serve responses — CLOSED
 
-Sprint 12 audit A-P2. Error responses from blob-serve handler
-(`http.rs:528-559`) return `(StatusCode, &str)` without CSP
-headers. Only the 200 OK path includes them. Practical risk is
-negligible (text/plain, no reflected user content), but
-defense-in-depth says add CSP on all responses. Recommended fix:
-tower middleware on the `/blob-serve/*` route group.
+Sprint 12 audit A-P2. Fixed in Sprint 13 Phase A: added
+`blob_serve_csp_middleware` (axum `from_fn`) that injects CSP +
+X-Content-Type-Options on ALL responses (200, 400, 404, 500).
+Blob-serve routes now use a nested Router with this middleware
+layer. The 200 handler no longer duplicates the headers. Test
+`blob_serve_error_responses_have_csp` verifies 404 has CSP.
 
-### T38 — Align html_render SVG chart dimensions with React — OPEN
+### T38 — Align html_render SVG chart dimensions with React — CLOSED
 
-Sprint 12 audit B-P2. `html_render.py` uses H=180, PAD_L=45,
-PAD_R=10, PAD_T=10, PAD_B=30 while React ChartLineBlock uses
-H=120, PAD_X=32, PAD_Y=16 and ChartBarBlock uses H=120,
-PAD_X=32, PAD_Y=24. Charts render correctly but are visually
-taller with different padding in pre-rendered HTML.
+Sprint 12 audit B-P2. Fixed in Sprint 13 Phase A: updated
+`html_render.py` constants to match React: H=120, PAD_L=32,
+PAD_R=16, PAD_T=16, PAD_B=16 (line) / PAD_T=24, PAD_B=24 (bar).
 
-### T39 — Test file_upload block in test_html_render.py — OPEN
+### T39 — Test file_upload block in test_html_render.py — CLOSED
 
-Sprint 12 audit B-P2. 11/12 block kinds are tested in
-`test_html_render.py`. The `file_upload` block is implemented in
-the renderer but has no dedicated test.
+Sprint 12 audit B-P2. Fixed in Sprint 13 Phase A: added
+`test_render_file_upload()` covering the placeholder HTML output
+including label escaping and the "upload non disponible" text.
 
-### T40 — X-Real-IP header in /blob-serve/ nginx block — OPEN
+### T40 — X-Real-IP header in /blob-serve/ nginx block — CLOSED
 
-Sprint 12 audit F-P2. `X-Real-IP` header is present on `/api/`
-and `/daemon/` proxy blocks but absent on `/blob-serve/` in
-`nginx-nexus.conf`. Minor inconsistency (loopback-only).
+Sprint 12 audit F-P2. Fixed in Sprint 13 Phase A: added
+`proxy_set_header X-Real-IP $remote_addr;` to the `/blob-serve/`
+location block in `deploy/nginx-nexus.conf`.

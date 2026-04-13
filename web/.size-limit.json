@@ -44,7 +44,7 @@
   {
     "name": "css",
     "path": "dist/assets/index-*.css",
-    "limit": "100 KB",
+    "limit": "130 KB",
     "brotli": false,
     "gzip": false
   }

@@ -1,21 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * `/curators` — Sprint 7 Phase E curator management page.
- *
- * Shows:
- *   1. The attention set (curators the user has subscribed
- *      to), each as a card with an Unsubscribe button.
- *   2. Cached curator lists, one card per verified entry.
- *   3. A small form at the top to subscribe to a new curator
- *      by hex pubkey.
- *
- * Every call goes through the Sprint 7 D1 path:
- *
- *   shell ─▶ coordinator /daemon/curators* ─▶ nexus-shell-daemon
- *
- * The helpers return `DaemonResult<T>` so "daemon offline"
- * is a first-class render path (banner + CTA) rather than an
- * error boundary trip.
+ * `/curators` — glassmorphism curator management page.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,16 +18,6 @@ import {
   type SubscriptionsResponse,
 } from "@/api/daemon";
 import { DaemonOfflineBanner } from "@/pages/Browse";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
   selectActiveCoordinator,
   useProjectStore,
@@ -53,17 +28,18 @@ export default function Curators() {
 
   if (!active) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         <PageHeader />
-        <Card>
-          <CardHeader>
-            <CardTitle>Aucun coordinateur sélectionné</CardTitle>
-            <CardDescription>
-              Ajoute un coordinateur depuis l'en-tête pour gérer
-              les curators via son daemon.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <div className="glass-card max-w-md p-6">
+          <h3 className="mb-2 font-bold">
+            Aucun coordinateur sélectionné
+          </h3>
+          <p className="text-sm text-white/50">
+            Ajoute un coordinateur depuis l'en-tete pour gerer
+            les curators via son daemon.
+
+          </p>
+        </div>
       </div>
     );
   }
@@ -74,11 +50,13 @@ export default function Curators() {
 function PageHeader() {
   return (
     <div>
-      <h1 className="text-2xl font-bold">Curators</h1>
-      <p className="text-sm text-muted-foreground">
-        Abonne-toi à des listes signées Ed25519. Chaque liste
+      <h1 className="text-3xl font-extrabold tracking-tight">
+        Curators
+      </h1>
+      <p className="mt-1 text-sm text-white/50">
+        Abonne-toi a des listes signees Ed25519. Chaque liste
         voitche des projets publics que tu verras dans{" "}
-        <strong>Explorer</strong>.
+        <strong className="text-white/70">Explorer</strong>.
       </p>
     </div>
   );
@@ -143,91 +121,83 @@ function CuratorsContent({ coordUrl }: { coordUrl: string }) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <PageHeader />
-        {/* Sprint 8 audit F-1: mirror Browse's manual refresh so
-            the user can force a list re-fetch when they bring
-            the daemon up after the page is already open. */}
-        <Button
-          variant="outline"
-          size="sm"
+        <button
           onClick={() => query.refetch()}
           disabled={query.isFetching}
+          className="glass-pill flex items-center gap-2 text-xs"
           data-testid="curators-refresh"
         >
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Rafraîchir
-        </Button>
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${query.isFetching ? "animate-spin" : ""}`}
+          />
+          Rafraichir
+        </button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Ajouter un curator</CardTitle>
-          <CardDescription>
-            Colle la clé publique Ed25519 (64 caractères
-            hexadécimaux) d'un curator de confiance.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="flex flex-col gap-3 md:flex-row md:items-end"
-            onSubmit={handleSubscribe}
-          >
-            <div className="flex-1">
-              <label
-                htmlFor="curator-pubkey"
-                className="mb-1 block text-xs font-medium text-muted-foreground"
-              >
-                Clé publique
-              </label>
-              <Input
-                id="curator-pubkey"
-                data-testid="curator-pubkey-input"
-                value={pubkeyInput}
-                onChange={(e) => setPubkeyInput(e.target.value)}
-                placeholder="abcd1234…"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              {formError ? (
-                <p
-                  className="mt-1 text-xs text-destructive"
-                  data-testid="curator-form-error"
-                >
-                  {formError}
-                </p>
-              ) : null}
-            </div>
-            <Button
-              type="submit"
-              disabled={subscribeMutation.isPending}
-              data-testid="curator-subscribe-submit"
+      <div className="glass-card p-6">
+        <h3 className="mb-1 font-bold">Ajouter un curator</h3>
+        <p className="mb-4 text-sm text-white/50">
+          Colle la cle publique Ed25519 (64 caracteres
+          hexadecimaux) d'un curator de confiance.
+        </p>
+        <form
+          className="flex flex-col gap-3 md:flex-row md:items-end"
+          onSubmit={handleSubscribe}
+        >
+          <div className="flex-1">
+            <label
+              htmlFor="curator-pubkey"
+              className="mb-1 block text-xs font-medium text-white/40"
             >
-              <BookmarkPlus className="mr-2 h-4 w-4" />
-              S'abonner
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+              Cle publique
+            </label>
+            <input
+              id="curator-pubkey"
+              data-testid="curator-pubkey-input"
+              value={pubkeyInput}
+              onChange={(e) => setPubkeyInput(e.target.value)}
+              placeholder="abcd1234..."
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/80 placeholder-white/30 outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/20"
+            />
+            {formError ? (
+              <p
+                className="mt-1 text-xs text-red-400"
+                data-testid="curator-form-error"
+              >
+                {formError}
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="submit"
+            disabled={subscribeMutation.isPending}
+            className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-purple-500 disabled:opacity-50"
+            data-testid="curator-subscribe-submit"
+          >
+            <BookmarkPlus className="h-4 w-4" />
+            S'abonner
+          </button>
+        </form>
+      </div>
 
       {query.isLoading ? (
-        <Card>
-          <CardContent className="py-6 text-sm text-muted-foreground">
-            Chargement…
-          </CardContent>
-        </Card>
+        <div className="glass-card p-6 text-sm text-white/50">
+          Chargement...
+        </div>
       ) : query.isError ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Erreur réseau</CardTitle>
-            <CardDescription>
-              {query.error instanceof Error
-                ? query.error.message
-                : "erreur inconnue"}
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <div className="glass-card p-6">
+          <h3 className="mb-1 font-bold text-red-300">Erreur reseau</h3>
+          <p className="text-sm text-white/50">
+            {query.error instanceof Error
+              ? query.error.message
+              : "erreur inconnue"}
+          </p>
+        </div>
       ) : (
         <CuratorListView
           result={query.data!}
@@ -250,12 +220,10 @@ function CuratorListView({
   }
   if (result.kind === "error") {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Proxy daemon refusé</CardTitle>
-          <CardDescription>{result.reason}</CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="glass-card p-6">
+        <h3 className="mb-1 font-bold text-red-300">Proxy daemon refuse</h3>
+        <p className="text-sm text-white/50">{result.reason}</p>
+      </div>
     );
   }
 
@@ -263,15 +231,13 @@ function CuratorListView({
 
   if (subscribed_curators.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Aucun curator suivi</CardTitle>
-          <CardDescription>
-            Ajoute un curator ci-dessus pour commencer à recevoir
-            ses listes signées.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="glass-card p-6">
+        <h3 className="mb-1 font-bold">Aucun curator suivi</h3>
+        <p className="text-sm text-white/50">
+          Ajoute un curator ci-dessus pour commencer a recevoir
+          ses listes signees.
+        </p>
+      </div>
     );
   }
 
@@ -306,41 +272,42 @@ function CuratorRow({
   const status = entry === undefined ? "waiting" : "active";
 
   return (
-    <Card data-testid="curator-row">
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-base">{name}</CardTitle>
-            <CardDescription className="font-mono text-xs">
-              {truncateHex(pubkeyHex)}
-            </CardDescription>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onUnsubscribe(pubkeyHex)}
-            data-testid="curator-unsubscribe"
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Retirer
-          </Button>
+    <div className="glass-card p-5" data-testid="curator-row">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-base font-bold">{name}</h3>
+          <p className="font-mono text-xs text-white/40">
+            {truncateHex(pubkeyHex)}
+          </p>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
+        <button
+          onClick={() => onUnsubscribe(pubkeyHex)}
+          className="flex items-center gap-2 rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-red-500/20 hover:text-red-300"
+          data-testid="curator-unsubscribe"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Retirer
+        </button>
+      </div>
+      <div className="mt-3 text-sm">
         {status === "waiting" ? (
-          <p className="text-muted-foreground">
-            En attente d'une première annonce gossip…
+          <p className="text-white/40">
+            En attente d'une premiere annonce gossip...
           </p>
         ) : (
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Badge variant="outline">{count} projet(s) vouché(s)</Badge>
+          <div className="flex items-center gap-2">
+            <span className="glass-pill py-0.5 text-[10px] text-white/60">
+              {count} projet(s) vouche(s)
+            </span>
             {revision !== null ? (
-              <Badge variant="outline">rev. {revision}</Badge>
+              <span className="glass-pill py-0.5 text-[10px] text-white/60">
+                rev. {revision}
+              </span>
             ) : null}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -352,7 +319,7 @@ function hexFromBytes(bytes: number[]): string {
 
 function truncateHex(hex: string): string {
   if (hex.length <= 16) return hex;
-  return `${hex.slice(0, 8)}…${hex.slice(-8)}`;
+  return `${hex.slice(0, 8)}...${hex.slice(-8)}`;
 }
 
 // Sprint 9 Phase A (D6) — react-router lazy() Component export.

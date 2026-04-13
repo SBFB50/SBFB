@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Sprint 11 Phase C — BrowsedProject page unit tests.
+ * Sprint 13 Phase A — BrowsedProject page unit tests.
  *
- * Tests cover:
- * - routing / back link
+ * Tests cover the full-screen immersive layout with auto-hide
+ * glassmorphism top bar (redesigned from Sprint 11's sidebar layout).
+ *
+ * - routing / back link in auto-hide top bar
  * - "no coordinator" state
- * - "project not found" state (daemon offline or missing entry)
- * - sidebar rendering with project metadata
+ * - "project not found" state
+ * - top bar rendering with project metadata
  * - remote project placeholder
  * - local project apps rendering
  * - empty apps list
@@ -130,18 +132,21 @@ afterEach(() => {
 });
 
 describe("BrowsedProject", () => {
-  it("renders a back link to /browse", () => {
+  it("renders a back link to /browse in the auto-hide top bar", async () => {
     mockFetch({
       "/daemon/browse": {
         kind: "data",
         status: 200,
-        body: { entries: [] },
+        body: { entries: [makeBrowseEntry()] },
       },
       "/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("back-to-browse")).toBeInTheDocument();
+    });
     const backLink = screen.getByTestId("back-to-browse");
-    expect(backLink).toBeInTheDocument();
     expect(backLink).toHaveAttribute("href", "/browse");
   });
 
@@ -152,7 +157,7 @@ describe("BrowsedProject", () => {
     });
     renderPage(LOCAL_NODE_ID);
     expect(
-      screen.getByText(/Aucun coordinateur sélectionné/),
+      screen.getByText(/Aucun coordinateur/),
     ).toBeInTheDocument();
   });
 
@@ -172,7 +177,7 @@ describe("BrowsedProject", () => {
     expect(screen.getByText(/Projet introuvable/)).toBeInTheDocument();
   });
 
-  it("renders sidebar with project metadata when entry is found", async () => {
+  it("renders project name in auto-hide top bar when entry is found", async () => {
     mockFetch({
       "/daemon/browse": {
         kind: "data",
@@ -184,13 +189,9 @@ describe("BrowsedProject", () => {
     });
     renderPage(LOCAL_NODE_ID);
     await waitFor(() => {
-      expect(screen.getByTestId("project-sidebar")).toBeInTheDocument();
+      expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
     });
-    expect(screen.getByText("gouvernance")).toBeInTheDocument();
-    expect(
-      screen.getByText("Application de gouvernance"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("FlowUP")).toBeInTheDocument();
+    expect(screen.getByText("gov")).toBeInTheDocument();
   });
 
   it("renders remote placeholder for non-local project without archive", async () => {
@@ -230,10 +231,9 @@ describe("BrowsedProject", () => {
     });
     renderPage(REMOTE_NODE_ID);
     await waitFor(() => {
-      expect(screen.getByTestId("remote-iframe")).toBeInTheDocument();
+      expect(screen.getByTestId("remote-iframe-element")).toBeInTheDocument();
     });
     const iframe = screen.getByTestId("remote-iframe-element");
-    expect(iframe).toBeInTheDocument();
     expect(iframe.tagName).toBe("IFRAME");
     expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
     expect(iframe).toHaveAttribute(
@@ -242,7 +242,7 @@ describe("BrowsedProject", () => {
     );
   });
 
-  it("renders 'contenu tiers' warning banner above iframe", async () => {
+  it("renders sandbox label in top bar for iframe content", async () => {
     mockFetch({
       "/daemon/browse": {
         kind: "data",
@@ -260,11 +260,9 @@ describe("BrowsedProject", () => {
     });
     renderPage(REMOTE_NODE_ID);
     await waitFor(() => {
-      expect(screen.getByTestId("remote-iframe")).toBeInTheDocument();
+      expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/Contenu publié par un tiers/),
-    ).toBeInTheDocument();
+    expect(screen.getByText("sandbox")).toBeInTheDocument();
   });
 
   it("renders local project apps view for matching daemon node_id", async () => {
@@ -313,11 +311,11 @@ describe("BrowsedProject", () => {
       expect(screen.getByTestId("no-apps")).toBeInTheDocument();
     });
     expect(
-      screen.getByText(/Aucune application installée/),
+      screen.getByText(/Aucune application SDK/),
     ).toBeInTheDocument();
   });
 
-  it("renders source badge 'Auto-publié' for direct entries in sidebar", async () => {
+  it("renders source badge 'Auto-publie' for direct entries in top bar", async () => {
     mockFetch({
       "/daemon/browse": {
         kind: "data",
@@ -331,8 +329,8 @@ describe("BrowsedProject", () => {
     });
     renderPage(LOCAL_NODE_ID);
     await waitFor(() => {
-      expect(screen.getByTestId("project-sidebar")).toBeInTheDocument();
+      expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
     });
-    expect(screen.getByText("Auto-publié")).toBeInTheDocument();
+    expect(screen.getByText("Auto-publie")).toBeInTheDocument();
   });
 });
