@@ -687,13 +687,16 @@ de sprint) :
 | 9 | DONE + CONDITIONAL PASS levé | `eb81c27` puis `48b332a` post-gate | 7 + 2 (gate) | 4 docs + `audit_findings` |
 | 10 | DONE | `d07bfcf` (pre-Phase F) | 5 | 4 docs (kickoff, plan, verification, audit_plan) |
 | 11 | DONE + CONDITIONAL PASS levé | `999fec6` puis `f2c94e3` post-gate | 6 + 2 (gate) | 4 docs + `audit_findings` |
+| 12 | DONE | `bf3f009` (Phase E) | 7 (planning + A-E + F) | 4 docs (kickoff, plan, verification, audit_plan) |
 
 Sprint 6 est **le premier** à avoir les 4 docs planning
 complets dès le démarrage. Sprint 7 est **le premier cycle
 complet** de l'audit gate pattern. Sprint 10 est **le premier
 sprint ops** (CI/CD + VPS deployment, pas de code applicatif).
 Sprint 11 est **le premier** P2P end-to-end (publish + discovery
-+ render en plein écran).
++ render en plein écran). Sprint 12 est **le premier** rendu
+universel cross-node (archive zip → daemon blob-serve → iframe
+sandboxée).
 
 ---
 

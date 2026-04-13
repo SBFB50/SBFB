@@ -1267,6 +1267,58 @@ Files: `BrowsedProject.tsx` (~421 LOC), `WebAppFrame.tsx` (~35
 LOC), `Browse.tsx` (clickable cards), `App.tsx` (lazy route),
 `daemon.ts` (source field), `coordinator.ts` (getProjectApps).
 
+### P21 — Daemon blob-serve: zip decompression + LRU cache + CSP isolation
+
+Sprint 12 Phase A (`32a1dca`). Archives zip stockees comme blobs
+iroh sont servies via `GET /blob-serve/{hash}/{path}`. Le daemon
+decompresse le zip en memoire (crate `zip` 2.6), cache les
+fichiers dans un `BlobServeCache` LRU (32 entries par defaut),
+et sert chaque fichier avec :
+- `Content-Security-Policy: connect-src 'none'` (bloque les
+  requetes sortantes des scripts dans l'iframe)
+- `X-Content-Type-Options: nosniff`
+- `Cache-Control: public, max-age=3600, immutable`
+- Content-type detection par extension + magic bytes
+
+Protections : path traversal rejection (`.., \, /` absolus),
+zip bomb limit (100MB decompresse), validation hex du hash.
+
+Files: `blob_serve.rs` (~270 LOC), `http.rs` (handler + route).
+
+### P22 — TabView pre-render: Python HTML generator
+
+Sprint 12 Phase B (`52d4004`). `nexus_sdk.html_render` convertit
+un descriptor TabView (dict) en page HTML self-contained. 12 block
+kinds supportes avec inline CSS dark theme miroir des tokens
+Tailwind. Charts line/bar en SVG inline. Blocks interactifs
+(button, file_upload) degradent en placeholder lecture seule.
+
+Le coordinator auto-publie le HTML au boot : chaque tab de chaque
+app montee est pre-rendu, emballe dans un zip avec redirects
+index.html, stocke comme blob, et annonce via ProjectAnnouncement
+v2 avec `archive_hash`.
+
+Files: `html_render.py` (~460 LOC), `deploy.py` (POST /project/deploy),
+`coordinator.py` (_build_and_store_archive).
+
+### P23 — Cross-node iframe rendering: sandboxed untrusted content
+
+Sprint 12 Phase C (`fccea74`). Quand un projet distant a publie
+une archive (archive_hash present dans BrowseEntry), le shell
+affiche le contenu dans une iframe `sandbox="allow-scripts"` (sans
+`allow-same-origin` — origin opaque). Une banniere "Contenu publie
+par un tiers" s'affiche au-dessus. Si pas d'archive, le placeholder
+texte est affiche.
+
+L'URL de l'iframe est construite via `blobServeUrl(daemonBaseUrl,
+hash)` pointant vers le daemon local. Le hash BLAKE3 hex est porte
+par `BrowseEntry.archive_hash` (ajoute en Phase C) car le
+BlobTicket est base32-opaque.
+
+Files: `daemon.ts` (archive_hash, blobServeUrl, daemonBaseUrlFromInfo),
+`BrowsedProject.tsx` (RemoteProjectFrame), `browse.rs` (archive_hash),
+`http.rs` (archive_hash in BrowseEntry), `nginx-nexus.conf` (/blob-serve/).
+
 ### T23 — SPDX scope excludes `nexus/` legacy Python files
 
 Sprint 10 audit gate finding A-1. The `scripts/check-spdx.sh` guard

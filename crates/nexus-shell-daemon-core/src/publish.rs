@@ -318,8 +318,7 @@ mod tests {
 
     #[test]
     fn from_gossip_bytes_rejects_truncated_json() {
-        let err = ProjectAnnouncement::from_gossip_bytes(b"{\"v\": 2, \"type\":")
-            .unwrap_err();
+        let err = ProjectAnnouncement::from_gossip_bytes(b"{\"v\": 2, \"type\":").unwrap_err();
         assert!(matches!(err, ProjectAnnouncementError::Parse(_)));
     }
 }
