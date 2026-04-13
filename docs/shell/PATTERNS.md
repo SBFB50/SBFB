@@ -1524,3 +1524,129 @@ Sprint 13 audit G-P2. `_SVG_PAD_R = 16` in `html_render.py`
 diverged from React's symmetric `PAD_X = 32`. Python charts
 were 16px wider than React charts. Fixed in Sprint 14 Phase C:
 `_SVG_PAD_R = 32` to match React.
+
+## Sprint 14 audit tech debt
+
+Logged in Sprint 15 Phase E from `sprint14_audit_findings.md`.
+The Sprint 14 audit verdict was CONDITIONAL PASS — the single
+P1 (A-1, commit_sha passed to `git clone --branch`) was fixed
+in `542479f` before Sprint 15 Phase A. The eight P2 items
+below are non-blocking but tracked here so they surface in
+future sprints or reviews.
+
+### T44 — `_dir_size` check is post-clone, not streaming
+
+Sprint 14 audit A-P2. `_clone_repo` runs `git clone` to
+completion, then `_dir_size` checks if the clone exceeded
+500 MB. A malicious repository hosting 499 MB of content would
+still use 499 MB of tmpfs during the clone. The 30s
+`CLONE_TIMEOUT_SECS` is the only real defense against large
+repos — attackers on slow links can't exceed the limit in
+time, but fast-link attackers can fill the tmpdir before the
+check fires.
+
+Mitigation (future sprint): stream `git clone --progress` and
+tee stderr to a byte counter, aborting when the 500 MB mark
+is passed. Or use `GIT_HTTP_MAX_REQUEST_BUFFER` env var.
+
+Ref: `packages/nexus-coordinator/src/nexus_coordinator/api/deploy.py:_dir_size`.
+
+### T45 — `_git_rev_parse` has no timeout
+
+Sprint 14 audit A-P2. `_git_rev_parse(clone_dir)` is a
+subprocess without a `asyncio.wait_for` wrapper. Post-clone
+on a shallow `--depth 1` repo, this is fast (reads
+`.git/HEAD`), so the risk is low. But a corrupt clone or a
+git binary hang would block the deploy indefinitely.
+
+Mitigation: add `timeout=5` and HTTPException on timeout.
+
+Ref: `deploy.py:_git_rev_parse`.
+
+### T46 — `startswith("http")` accepts `http://`
+
+Sprint 14 audit A-P2. The guard `if not repo_url.startswith(
+"http")` accepts both `http://` and `https://`. A MITM on a
+plain-text git clone could swap the SBFB.json or insert
+additional commits. For public forges (GitHub, GitLab,
+Codeberg), `http://` redirects to `https://` but the redirect
+itself is not cryptographically verified.
+
+Mitigation: tighten to `startswith("https://")` or use a
+regex `^https://`.
+
+Ref: `deploy.py:deploy_from_repo`.
+
+### T47 — `provenance.py` uses `json.dumps` instead of `jcs`
+
+Sprint 14 audit B-P2. The provenance canonical bytes are
+built with `json.dumps(sort_keys=True, separators=(',',':'))`
+which is equivalent to JCS only for flat string/int schemas
+with ASCII content. The convention across the project is
+`serde_jcs` (Rust) and `jcs` PyPI (Python). Today's schema
+is fine; a future field with non-ASCII Unicode would diverge.
+
+Mitigation: switch to `jcs.canonicalize(payload)` for
+forward-compat.
+
+Ref: `packages/nexus-coordinator/src/nexus_coordinator/provenance.py:_canonical_bytes`.
+
+### T48 — `verify_provenance` ignores `schema_version`
+
+Sprint 14 audit B-P2. `verify_provenance(record_json, pk)`
+pulls `data["schema_version"]` into the signable payload but
+doesn't assert it matches `PROVENANCE_SCHEMA_VERSION`. If a
+v2 schema is introduced later with different field semantics,
+a v1 verifier would still validate v2 payloads whose common
+fields look right — a cross-version replay trap.
+
+Mitigation: add `if data.get("schema_version") !=
+PROVENANCE_SCHEMA_VERSION: return False` at the top of
+`verify_provenance`.
+
+Ref: `provenance.py:verify_provenance`.
+
+### T49 — PA v4 bump breaks forward compat for additive field
+
+Sprint 14 audit D-P2. `publish.rs:from_gossip_bytes` rejects
+announcements with `v > PROJECT_ANNOUNCEMENT_VERSION` (v4).
+A v3 daemon hearing a v4 announcement therefore drops the
+message, even though the only delta is an optional
+`provenance_hash` field that serde would happily ignore.
+
+This is a design decision from the Sprint 14 kickoff D3 and
+not a bug, but future additive fields should consider
+**not** bumping the version and instead relying on serde
+`#[serde(default)]` for graceful unknowns.
+
+Ref: `crates/nexus-shell-daemon-core/src/publish.rs:131`.
+
+### T50 — D4 clone protections lack dedicated tests
+
+Sprint 14 audit G-P2. Of the seven D4 kickoff protections
+(depth 1, single-branch, size 500 MB, timeout 30s, no .git/,
+path traversal rejection, no submodules), only two have
+dedicated tests: `.git/` exclusion is asserted in
+`test_deploy_from_repo_provenance_in_zip`, and depth is
+implicit in the happy path. The remaining five lack
+end-to-end tests — a regression that removes a protection
+(e.g. deleting the `".."` check in `_zip_directory`) would
+not be caught.
+
+Mitigation: add integration tests with synthetic malicious
+repos (symlinks, `../` paths, oversized content).
+
+Ref: `packages/nexus-coordinator/tests/test_deploy.py`.
+
+### T51 — `_clone_repo` never exercised against a real subprocess
+
+Sprint 14 audit G-P2 (related to T50). Every test of the
+deploy-from-repo endpoint mocks `_clone_repo` via
+`_make_mock_clone` which does a `shutil.copytree`. The real
+`git clone` subprocess is never run in unit tests. Sprint 15
+Phase 0 gate fix (A-1 commit_sha SHA pinning) added three
+integration tests that DO exercise real `git clone` against
+a local `file://` repo — these tests are the blueprint for
+expanding coverage to the D4 protections listed in T50.
+
+Ref: `packages/nexus-coordinator/tests/test_deploy.py::test_clone_repo_*`.
