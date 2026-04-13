@@ -138,18 +138,20 @@ async def deploy_project(
 ) -> dict:
     """Upload a zip archive and publish to the P2P network.
 
-    Public projects must provide a ``repo_url`` (link to a public
-    source code repository). Private projects have no constraint.
-    Sprint 13 Phase B (D1).
+    Since Sprint 14, public projects must use
+    ``POST /project/deploy-from-repo`` instead (verified deploy).
+    This endpoint is restricted to private projects only.
     """
-    # Sprint 13 Phase B: open source enforcement for public apps.
     coord = request.app.state.coordinator
+    # Sprint 14 Phase D: public projects must use deploy-from-repo.
     if coord.config.network.visibility == "public":
-        if not repo_url or not repo_url.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="Public projects require a repo_url (link to public source code repository)",
-            )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Public projects must use POST /project/deploy-from-repo "
+                "for verified deploy. This endpoint is for private apps only."
+            ),
+        )
 
     zip_bytes = await archive.read()
     if len(zip_bytes) > MAX_DEPLOY_BYTES:
