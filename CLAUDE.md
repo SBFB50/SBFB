@@ -37,7 +37,8 @@ par le coordinator au moment du publish.
   wrapper), `nexus-core-py` (PyO3 bindings), `nexus-worker-core`
   (headless engine lib) + `nexus-worker` (binary),
   `nexus-shell-daemon-core` + `nexus-shell-daemon` (Sprint 7 —
-  P2P discovery + curator pipeline + pkarr browse)
+  P2P discovery + curator pipeline + pkarr browse),
+  `nexus-launcher` (Sprint 13 — spawn daemon + open browser)
 - **Python workspace** (`packages/`) : `nexus-coordinator`
   (FastAPI + dispatcher + kudos ledger + TabView pre-render),
   `nexus-sdk` (NexusApp ABC + TabView), `nexus-app-gov` /
@@ -71,7 +72,8 @@ nexus-grid/
 │   ├── nexus-worker/                  # worker binary (CLI + TUI + state writer)
 │   ├── nexus-shell-daemon-core/       # P2P discovery lib (curator runtime,
 │   │                                  # browse aggregator, registry singleton)
-│   └── nexus-shell-daemon/            # shell daemon binary (HTTP + gossip subscribe)
+│   ├── nexus-shell-daemon/            # shell daemon binary (HTTP + gossip subscribe)
+│   └── nexus-launcher/                # minimal launcher (spawn daemon + open browser)
 ├── packages/
 │   ├── nexus-coordinator/             # FastAPI coord + dispatcher + kudos + /daemon proxy
 │   ├── nexus-sdk/                     # NexusApp ABC + TabView + decorators
@@ -87,16 +89,19 @@ nexus-grid/
 └── examples/hello-world-app/
 ```
 
-## Etat actuel (2026-04-12, master tip `31479fa`)
-- **Sprints 0-11 CLOSED** + audit gate Sprint 11 CONDITIONAL
-  PASS leve. v1.0.0 released.
-- **331 Rust** / 167 SDK / 89+1 coordinator / 46 app-gov
-  / 173 Vitest / 30 Playwright / 7/7 size-limit / 209 SPDX
-  (~837 tests total) — tous verts
-- Sprint 11 a livre le P2P end-to-end : self-publish gossip,
-  default curator FlowUP, Browse plein ecran, deploy VPS EU
-- **Sprint 12 EN COURS** : cross-node rendering universel
-  (archive zip → daemon blob-serve → iframe isolee) + tech debt T28-T36
+## Etat actuel (2026-04-13, master tip `08853ff`)
+- **Sprints 0-13 CLOSED**. v1.0.0 released.
+- **369 Rust** / 183 SDK / 99+1 coordinator / 46 app-gov
+  / 191 Vitest / 30 Playwright / 7/7 size-limit / 220 SPDX
+  (~908 tests total) — tous verts
+- Sprint 12 a livre le rendu universel cross-node (archive zip
+  → daemon blob-serve → iframe sandboxee)
+- Sprint 13 a livre le bridge postMessage (iframe ↔ coordinator),
+  open source enforcement (public = repo_url obligatoire), UI
+  Netflix glassmorphism, launcher Rust minimal
+- **Sprint 14 EN ATTENTE** : audit gate Sprint 13 a jouer en
+  Phase 0, puis solidification plateforme (CPU watchdog, runtime
+  templates, re-publish auto, verification repo_url, bridge push)
 
 ## Commandes clés
 ```bash
@@ -127,7 +132,7 @@ cd web && npm install && npm run lint && \
 
 ## Decisions architecturales gelees
 Cf. `nexus_grid_pivot.md` (memory) §« Decisions actees (a ne PAS
-re-debattre) » — 12 items originaux + extensions Sprint 12 :
+re-debattre) » — 12 items originaux + extensions Sprint 12/13 :
 - Pivot P2P integral, Option G hybride Rust+Python
 - iroh 0.97 pinne, visibilite 2 etats public/prive
 - Zero moderation centrale, curator lists Ed25519+gossip+blobs
@@ -137,6 +142,10 @@ re-debattre) » — 12 items originaux + extensions Sprint 12 :
   daemon blob-serve = rendu universel (origin separee port 7000,
   CSP `connect-src 'none'`), le shell est un iframe host
   agnostique (ne connait pas la techno de l'app)
+- **Sprint 13** : public = open source (repo_url obligatoire),
+  postMessage bridge = seul canal iframe ↔ reseau (3 methodes
+  whitelist), launcher Rust minimal (pas Tauri, browser = client),
+  UI Netflix glassmorphism dark-first
 
 ## Principe de conception — sessions fraiches
 **Ne jamais propager les scope cuts des sprints precedents comme

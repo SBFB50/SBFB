@@ -670,7 +670,7 @@ deux divergent, c'est un finding.
 
 ## 10. Table de cross-reference des sprints passés
 
-Historique des 8 sprints livrés (mise à jour à chaque fin
+Historique des sprints livrés (mise à jour à chaque fin
 de sprint) :
 
 | Sprint | État | Tip fermeture | Nb commits | Docs planning présents |
@@ -687,7 +687,8 @@ de sprint) :
 | 9 | DONE + CONDITIONAL PASS levé | `eb81c27` puis `48b332a` post-gate | 7 + 2 (gate) | 4 docs + `audit_findings` |
 | 10 | DONE | `d07bfcf` (pre-Phase F) | 5 | 4 docs (kickoff, plan, verification, audit_plan) |
 | 11 | DONE + CONDITIONAL PASS levé | `999fec6` puis `f2c94e3` post-gate | 6 + 2 (gate) | 4 docs + `audit_findings` |
-| 12 | DONE | `bf3f009` (Phase E) | 7 (planning + A-E + F) | 4 docs (kickoff, plan, verification, audit_plan) |
+| 12 | DONE + CONDITIONAL PASS levé | `bf3f009` puis `53a9e32` post-gate | 7 + 1 (gate) | 5 docs (kickoff, plan, verification, audit_plan, audit_findings) |
+| 13 | DONE | `08853ff` (Phase E docs) | 6 (planning + A-D + docs) | 4 docs (kickoff, plan, verification, audit_plan) |
 
 Sprint 6 est **le premier** à avoir les 4 docs planning
 complets dès le démarrage. Sprint 7 est **le premier cycle
@@ -696,7 +697,8 @@ sprint ops** (CI/CD + VPS deployment, pas de code applicatif).
 Sprint 11 est **le premier** P2P end-to-end (publish + discovery
 + render en plein écran). Sprint 12 est **le premier** rendu
 universel cross-node (archive zip → daemon blob-serve → iframe
-sandboxée).
+sandboxée). Sprint 13 est **le premier** avec bridge iframe ↔
+réseau (postMessage + open source enforcement + launcher).
 
 ---
 
@@ -728,17 +730,15 @@ documente soit :
 - une mise à jour de `docs/claude/README.md` si la
   convention elle-même change
 
-Changements majeurs à surveiller :
+Changements majeurs surveilles :
 
-- Sprint 8 : premier cycle d'audit gate rétroactif complet
-  (la session fraîche de Sprint 8 Phase 0 joue
-  `sprint7_audit_plan.md` — c'est le vrai test du pattern
-  inventé en fin Sprint 6)
-- Sprint 9 : branding / renommage — risque de drift dans
-  les noms (nexus-grid vs SBFB vs autre)
+- Sprint 8 : premier cycle d'audit gate retroactif complet
+  — FAIT, le pattern fonctionne
 - Sprint 10 : release v1.0 + 3 VPS bootstrap — premier
-  sprint avec déploiement infra, le pattern devra absorber
-  un nouveau type de tâche (ops, pas seulement code)
-
-Ce fichier doit être mis à jour quand ces évolutions
-landent, pas avant.
+  sprint ops, le pattern a absorbe les taches infra
+- Sprint 12 : rendu universel cross-node — premier sprint
+  avec archive zip + daemon blob-serve + iframe sandbox
+- Sprint 13 : bridge postMessage — premier sprint avec
+  communication iframe ↔ reseau, open source enforcement,
+  et launcher Rust. Le pattern sprint s'est stabilise :
+  les sessions livrent 4 phases en une seule session.
