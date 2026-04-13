@@ -8,6 +8,13 @@ Python/Pyodide, WASM, HTML pur, notebook, etc.) sous forme
 d'archive web. Le reseau la distribue. Les clients la rendent
 dans un iframe sandboxe via le daemon Rust blob-serve.
 
+**App store open source par construction** : chaque app publique
+est deployee depuis un repo Git verifie. Les utilisateurs
+peuvent en 1 clic voir le code source, signaler un bug, proposer
+une feature, contribuer via PR, ou forker l'app et deployer leur
+propre version sur le reseau. Le modele F-Droid/Linux applique
+aux apps web P2P.
+
 Pivot 2026-04-10 depuis l'ancien NEXUS cold-case (toujours present
 sous `nexus/` comme future app mais plus le projet principal).
 
