@@ -7,6 +7,7 @@ members = [
     "crates/nexus-worker",
     "crates/nexus-shell-daemon-core",
     "crates/nexus-shell-daemon",
+    "crates/nexus-launcher",
 ]
 
 # Shared package metadata. Individual crates override name/description.
