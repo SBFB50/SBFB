@@ -153,12 +153,12 @@ Roadmap runtime isolation (WSL2 / Virtualization.framework /
 systemd-nspawn) pour Sprint 17+ dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
-## Etat actuel (2026-04-14, master tip `d18e19e` post-gate S16)
-- **Sprints 0-16 CLOSED + audit gate S16 leve**. v1.2 en cours
-  (Sprint 16 premier livre + 5 commits fix post-gate).
+## Etat actuel (2026-04-14, master tip post-Sprint 17 wrap-up)
+- **Sprints 0-17 CLOSED**. v1.2 en cours.
 - **430 Rust** / 183 SDK / 187+3 skipped coordinator / 46 app-gov
   / 239 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
-  (~1128 tests total) — tous verts
+  (~1128 tests total) — tous verts, inchanges post-S17 (sprint
+  recherche pure, 0 code)
 - Sprint 12 a livre le rendu universel cross-node (archive zip
   → daemon blob-serve → iframe sandboxee)
 - Sprint 13 a livre le bridge postMessage (iframe ↔ coordinator),
@@ -173,29 +173,29 @@ systemd-nspawn) pour Sprint 17+ dans
   `d7c265a` bearer + Host + Origin, Phase B `1cfde89` UDS/NP peer
   creds, Phase C `3247e88` consent 4 niveaux + caps worker-side,
   Phase D `10bbc63` is_open_source, Phase E docs security
-  + roadmap VM isolation). Audit gate S17 Phase 0 joue, verdict
-  CONDITIONAL PASS leve via `0230589` (findings) + `795ebe9`
-  (C-3 fail-closed) + `87cae71` (D-1 daemon reject) + `1aa6fed`
-  (C-1/C-2 wire is_open_source + estimates) + `d1e6971`
-  (chore(protocol) drop pre-launch backward-compat scaffolding)
-  + `8e6fa35` (C-4 watcher preserve on remove) + `d18e19e`
-  (SPRINT_LOG update).
-- **Sprint 17 EN COURS** : sprint **recherche pure** (0 code,
-  ~4350 LOC docs) sur adversary modeling T0-T5, P2P attack
-  surfaces (Sybil / Eclipse / routing / traffic analysis), GPU
-  compute-sharing threats (prompt theft / model extraction /
-  compute theft / rowhammer), gap analysis vs etat S16 + roadmap
-  de durcissement sequencee + release gates par tier d'app-risque
-  (Gate 1 DnD Forge benign → Gate 4 LibanLive state actor). Phase
-  0 audit S16 **deja joue** pre-S17 (verdict PASS). Drafts
-  `.planning/active/sprint17_kickoff.md` + `sprint17_plan.md`
-  actualises post-gate. Cette recherche dicte les sprints S18+
-  implementation (multi-relai federation, Tor/Nym transport,
-  encryption at rest + duress PIN + panic wipe, reproducible
-  builds + Radicle mirror, Sybil resistance kudos-weighted,
-  Eclipse-resistant peer selection, audit externe Cure53/ToB,
-  partenariats Amnesty/HRW) — pas fixes maintenant, se dessinent
-  Phase D-E de S17.
+  + roadmap VM isolation). Audit gate CONDITIONAL PASS leve via
+  7 commits `0230589`..`d18e19e`.
+- **Sprint 17 CLOSED** (sprint **recherche pure**, 0 code, ~4823
+  LOC docs security) : livre Phase A `297fd50` adversary taxonomy
+  T0-T5 + 12 attack scenarios, Phase B `c275ebd` P2P attack
+  surface (Sybil/Eclipse/gossip/DHT/BGP/traffic/ISP), Phase C
+  `7dea299` GPU compute threats (prompt leak/spoof/theft/extract/
+  inject/side-channel/DoS), Phase D `872f48a` hardening roadmap
+  (matrix 27 threats + Sprint 18-30 sequencee + gates 1-4),
+  `721686c` VALIDATED_BLUEPRINT (13 couches long-terme, briques
+  OSS validees 2026 contre docs/advisories/CVE via WebSearch +
+  context7 MCP). Phase E scope-cut (RELEASE_GATES + PARTNERSHIPS
+  + DISCLOSURE) officialise — couvert partiellement par
+  BLUEPRINT, items ONG-facing restants reportes sprint OpSec
+  dedie futur. 3 zones rouges documentees :
+  - R-iroh-audit P0 : iroh 0.97 sans audit public + sans SECURITY.md
+  - R-wasmtime-cve P0 : 12 CVE avril 2026 dont 2 Critical,
+    pinning 43.0.1+ ou LTS 36.0.7+ obligatoire
+  - R-libcrux-hax P2 : Symbolic Software 7 avril 2026 demontre
+    5 semantic gaps pipeline hax->F*, ML-KEM prod via `aws-lc-rs`
+    FIPS 140-3 plutot que libcrux
+- Audit gate S17 = Sprint 18 Phase 0 via
+  `.planning/archive/v1.2/sprint17_audit_plan.md` (tracks A-G).
 
 ## Commandes clés
 ```bash

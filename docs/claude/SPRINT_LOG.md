@@ -17,7 +17,7 @@ Pour le sprint en cours, voir
 | Sprint | Etat | Tip cloture | Nb commits | Docs |
 |---|---|---|---|---|
 | 16 | DONE + CONDITIONAL PASS levé | `d18e19e` (gate close landed) | 6 (Phase 0 gate + A-D + docs) + 7 (findings + C3 + D1 + C1/C2 + chore protocol + C4 + log update) | 6 docs (kickoff, plan, verification, audit_plan, audit_findings) + docs/security/ (README + THREAT_MODEL + RUNTIME_ISOLATION) |
-| 17 | EN COURS (sprint recherche pure) | TBD | TBD (6 commits attendus Phase A-F) | drafts (kickoff, plan) dans active/, Phase 0 gate S16 deja joue pre-S17 |
+| 17 | DONE + scope-cut Phase E acte | `<wrap-up>` (close + scope-cut + migrate) | 6 (A `297fd50` + B `c275ebd` + C `7dea299` + D `872f48a` + BLUEPRINT bonus `721686c` + F wrap-up) | 6 docs security (`ADVERSARIES.md` + 6 fiches T0-T5 dir `adversaries/` + `ATTACK_SCENARIOS.md` + `P2P_THREATS.md` + `COMPUTE_THREATS.md` + `HARDENING_ROADMAP.md` + `VALIDATED_BLUEPRINT.md`) + planning (kickoff/plan/verification/audit_plan) migre archive/v1.2/ |
 
 **Faits saillants** :
 
@@ -62,23 +62,51 @@ Pour le sprint en cours, voir
 
 Detail : [`.planning/archive/v1.2/`](../../.planning/archive/v1.2/).
 
-- **Sprint 17** (en cours) : pivot en sprint **recherche pure**
-  (0 code, ~4350 LOC docs). Objectif : formaliser la taxonomie
-  d'adversaires T0-T5 (du script kiddie T1 au state actor T5
-  type LibanLive / Gaza / dissidents), documenter les surfaces
-  d'attaque P2P (Sybil, Eclipse, routing, traffic analysis) non
-  couvertes par le STRIDE/LINDDUN S16, modeliser les threats
-  GPU compute-sharing (prompt theft, model extraction, fake
-  results, rowhammer cross-tenant), produire une gap analysis
-  chiffree vs etat S16, et livrer une **roadmap de durcissement
-  sequencee** + un systeme de **release gates** par tier
-  d'app-risque. La roadmap post-S17 (sprints S18+ implementation
-  — multi-relai, Tor/Nym, duress PIN, reproducible builds,
-  Sybil resistance, Eclipse-resistant peer selection, audit
-  externe) se dessine Phase D-E de S17 et n'est pas fixee
-  maintenant. Pattern "recherche avant code" (Zcash / Signal /
-  Briar / Tor). Phase 0 audit S16 deja joue pre-S17, verdict
-  PASS, tip entree `d18e19e`.
+- **Sprint 17** : sprint **recherche pure** livre (0 code, ~4823
+  LOC docs). Phase A `297fd50` taxonomie T0-T5 + 12 attack
+  scenarios + 6 fiches adversaires. Phase B `c275ebd` P2P attack
+  surface 7 vecteurs (Sybil/Eclipse/gossip/DHT/BGP/traffic/ISP).
+  Phase C `7dea299` GPU compute-sharing 7 classes menace
+  (prompt leak / spoof / theft / extract / inject / side-channel /
+  DoS). Phase D `872f48a` hardening roadmap (matrix 27 threats
+  + framework scoring I×L/E + roadmap Sprint 18-30 sequencee
+  + quick-wins + big-rocks + dependency graph + gates 1-4
+  unlocking). Commit bonus `721686c` `VALIDATED_BLUEPRINT.md`
+  : design long-terme 13 couches (host / identity / transport /
+  overlay / sybil / storage / compute / runtime / deploy / trust /
+  opsec / formal-verif / research) avec chaque brique OSS validee
+  contre docs 2026 + advisories + CVE via WebSearch + context7
+  MCP (50+ briques, 8 ajoutes, 9 retirees, 3 zones rouges
+  documentees : wasmtime 12 CVE avril 2026, libp2p-gossipsub
+  CVE-2026-33040/34219, libcrux semantic gaps Symbolic Software
+  7 avril 2026). Phase E `RELEASE_GATES.md` + `PARTNERSHIPS.md`
+  + `DISCLOSURE.md` (~750 LOC) **scope-cut officialise** :
+  redondance partielle avec BLUEPRINT (gates + partnerships +
+  disclosure pattern couverts), items Phase E restants
+  ONG-facing (enforcement formel, outreach templates, SLA CVE
+  workflow, audit vendor couts negocies) reportes a sprint
+  OpSec dedie futur quand fondation multi-juridiction en place.
+  Phase F wrap-up livre verification + audit plan S18 + updates
+  CLAUDE.md + SPRINT_LOG + memory + migration planning
+  active -> archive/v1.2/. Pattern "recherche avant code"
+  (Zcash / Signal / Briar / Tor). Phase 0 audit S16 deja joue
+  pre-S17, verdict PASS, tip entree `d18e19e`.
+
+  Position post-S17 vs OSS state-of-the-art 2026 (documente dans
+  `VALIDATED_BLUEPRINT.md`) : **match** sur crypto primitives
+  (aws-lc-rs FIPS 140-3), PQC hybride (Signal PQXDH 2024),
+  app sandbox (Shopify/Fastly via Wasmtime), supply chain
+  (Mozilla/Kubernetes), transport anonyme (Briar via Arti embed),
+  at-rest + duress (Briar + VeraCrypt), formal verif critical
+  path (Signal Triple Ratchet SPQR), fuzzing (Mozilla/Google),
+  TEE attestation (Confidential Computing Consortium), traffic
+  shaping (Mullvad DAITA). **Structurellement superieur** sur
+  memory safety (Rust entier vs Signal Java+C / Tor C / SecureDrop
+  Python). **Leader unique OSS** sur 3 dimensions :
+  compute-sharing defense-in-depth (7 classes adressees),
+  verified P2P app deploy (multi-builder + SLSA L3+), runtime
+  GPU consent per-task. Tests inchanges ~1128 (sprint recherche
+  pure).
 
 ---
 
