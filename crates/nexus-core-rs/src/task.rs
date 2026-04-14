@@ -33,9 +33,11 @@ use crate::error::Result;
 
 /// Current on-wire version for Task and Result payloads.
 ///
-/// Bump this when the canonical serialization format changes in a
-/// way that breaks signature compatibility. Consumers should refuse
-/// to verify entries with a version they don't understand.
+/// Pre-launch policy (cf. `CLAUDE.md` §Pre-launch protocol
+/// policy): no network node is live yet, so this constant stays
+/// at 1 even when the canonical schema evolves. The first tagged
+/// `v1.0` release will freeze the format ; every break after that
+/// bumps the version.
 pub const TASK_FORMAT_VERSION: u16 = 1;
 
 /// An LLM inference task as the coordinator creates it.
@@ -43,7 +45,12 @@ pub const TASK_FORMAT_VERSION: u16 = 1;
 /// A `Task` is the fully-signed unit that gets written into the
 /// tasks doc. Workers discover it, claim it, run inference, and
 /// reply with a [`ResultEntry`].
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// `Eq` is intentionally not derived because `estimated_hours`
+/// (Sprint 16 v2) is `f64`, which is `PartialEq` but not `Eq` —
+/// `NaN != NaN`. Downstream code that needs total ordering over
+/// Task values should wrap the float field explicitly.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Task {
     /// Canonical format version. Must equal [`TASK_FORMAT_VERSION`]
     /// to be accepted by this build.
@@ -94,12 +101,58 @@ pub struct Task {
     /// contain only string values (no nested objects, no floats)
     /// to keep the canonical serialization stable.
     pub metadata: BTreeMap<String, String>,
+
+    /// True iff the project that produced this task has
+    /// `ProjectAnnouncement.is_open_source = true` (i.e. was
+    /// deployed via `deploy-from-repo` with a signed provenance
+    /// chain). Workers at consent level L2 ("open source only")
+    /// accept tasks only when this is true.
+    ///
+    /// Set by the coordinator at task craft time — never
+    /// user-settable. The daemon's `POST /publish` refuses
+    /// `is_open_source=true` without a full provenance chain
+    /// (fix D-1), so a forged task carrying true on a project
+    /// that was never deployed from a public repo cannot exist.
+    ///
+    /// `#[serde(default)]` keeps decode robust when a client
+    /// crafts a minimal JSON that omits the field — the field
+    /// then deserializes to `false` (most restrictive), not as a
+    /// parse error. This is runtime tolerance, not historical
+    /// backward compat.
+    #[serde(default)]
+    pub is_open_source: bool,
+
+    /// Estimated sustained watts this task will draw. The worker
+    /// rejects the task at claim time if `estimated_watts >
+    /// consent.caps.max_watts`. Filled by the app submitting the
+    /// task (kickoff §D3 Option A: the app knows its model best).
+    /// Zero means "unknown" — the watts cap then stays inert for
+    /// this task (caps on hours still apply a posteriori).
+    #[serde(default)]
+    pub estimated_watts: u32,
+
+    /// Estimated VRAM footprint in MB. Same contract as
+    /// `estimated_watts` — zero = unknown = VRAM cap inert.
+    #[serde(default)]
+    pub estimated_vram_mb: u64,
+
+    /// Estimated wall-clock inference time in hours. Used by the
+    /// consent layer to check `used_today + estimated_hours <=
+    /// caps.max_hours_day` before claiming. Zero = unknown, the
+    /// worker falls back to counting actual runtime post-
+    /// completion via `UsageTracker::record_task`.
+    #[serde(default)]
+    pub estimated_hours: f64,
 }
 
 impl Task {
     /// Create a new Task with the current format version and no
     /// parent. Convenience constructor for the common case; fields
     /// can be mutated directly after construction if needed.
+    ///
+    /// `is_open_source`, `estimated_*` default to zero/false. Use
+    /// the `with_*` helpers to fill them without touching the
+    /// other fields.
     pub fn new(
         task_id: impl Into<String>,
         task_type: impl Into<String>,
@@ -119,12 +172,38 @@ impl Task {
             created_at,
             parent_task_id: String::new(),
             metadata: BTreeMap::new(),
+            is_open_source: false,
+            estimated_watts: 0,
+            estimated_vram_mb: 0,
+            estimated_hours: 0.0,
         }
+    }
+
+    /// Mark this task as coming from a project whose
+    /// `ProjectAnnouncement` carries `is_open_source = true`.
+    /// Builder sugar; mutates in place.
+    pub fn with_open_source(mut self, flag: bool) -> Self {
+        self.is_open_source = flag;
+        self
+    }
+
+    /// Set the per-task resource estimates the consent layer uses
+    /// to enforce caps. `watts`, `vram_mb`, and `hours` are all
+    /// optional — passing zero on any of them means "unknown" and
+    /// the corresponding cap becomes inert for this task.
+    pub fn with_estimates(mut self, watts: u32, vram_mb: u64, hours: f64) -> Self {
+        self.estimated_watts = watts;
+        self.estimated_vram_mb = vram_mb;
+        self.estimated_hours = hours;
+        self
     }
 }
 
 /// A signed Task, ready to be written to the tasks doc.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// `Eq` is not derived because `Task` contains an `f64` field
+/// (`estimated_hours`) that is only `PartialEq`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TaskEntry {
     /// The Task itself.
     pub task: Task,
@@ -527,6 +606,52 @@ mod tests {
             text.contains(&format!("\"version\":{TASK_FORMAT_VERSION}")),
             "version field missing from canonical output: {text}"
         );
+    }
+
+    // -----------------------------------------------------------
+    // Sprint 16 fix C-1/C-2 — consent-layer fields
+    // -----------------------------------------------------------
+
+    #[test]
+    fn task_new_defaults_consent_fields_to_zero() {
+        let t = Task::new("id", "t", "p", "m", 5, 0);
+        assert!(!t.is_open_source);
+        assert_eq!(t.estimated_watts, 0);
+        assert_eq!(t.estimated_vram_mb, 0);
+        assert_eq!(t.estimated_hours, 0.0);
+    }
+
+    #[test]
+    fn task_with_open_source_sets_flag() {
+        let t = Task::new("id", "t", "p", "m", 5, 0).with_open_source(true);
+        assert!(t.is_open_source);
+    }
+
+    #[test]
+    fn task_with_estimates_sets_three_fields() {
+        let t = Task::new("id", "t", "p", "m", 5, 0).with_estimates(250, 8192, 0.5);
+        assert_eq!(t.estimated_watts, 250);
+        assert_eq!(t.estimated_vram_mb, 8192);
+        assert_eq!(t.estimated_hours, 0.5);
+    }
+
+    #[test]
+    fn task_canonical_bytes_contain_the_four_consent_fields() {
+        // Wire-format contract: the consent-layer fields land in
+        // the JCS canonical output at stable keys and values so an
+        // off-wire auditor can grep for them. Protects against a
+        // refactor that accidentally drops `#[serde(default)]` in a
+        // way that changes the serialized shape.
+        let t = Task::new("id", "t", "p", "m", 5, 0)
+            .with_open_source(true)
+            .with_estimates(300, 12288, 1.5);
+        let bytes = canonical_bytes(&t, DOMAIN_TASK_V1).unwrap();
+        let body = &bytes[DOMAIN_TASK_V1.len() + 1..];
+        let text = std::str::from_utf8(body).unwrap();
+        assert!(text.contains("\"is_open_source\":true"));
+        assert!(text.contains("\"estimated_watts\":300"));
+        assert!(text.contains("\"estimated_vram_mb\":12288"));
+        assert!(text.contains("\"estimated_hours\":1.5"));
     }
 
     #[test]

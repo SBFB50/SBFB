@@ -756,33 +756,27 @@ impl Engine {
                     continue;
                 }
 
-                // Sprint 16 Phase C: apply the user's consent
-                // filter before minting a claim. `is_open_source`
-                // is wired to `false` here — Phase D ships the
-                // PA v5 plumbing that fills the real value, and
-                // until then L2 rejects everything (documented
-                // in `TaskContext::is_open_source`). Watts / VRAM
-                // / hours estimates are 0 because the Task
-                // canonical format does not carry them yet;
-                // caps stay inert until a future sprint extends
-                // the format. A deliberate choice-to-ship: the
-                // mechanism lands now, the richer inputs later.
+                // Sprint 16 audit fix C-1 + C-2: read the four v2
+                // Task fields directly from the verified TaskEntry.
+                // `is_open_source` comes from the coordinator at
+                // task craft time (set from the project's PA v5
+                // flag). The three `estimated_*` fields come from
+                // the app submitting the task (Option A: the app
+                // knows its model best). Zero means "unknown" —
+                // the corresponding cap stays inert for that task.
+                let task_ctx = TaskContext {
+                    project_id: &project_id,
+                    is_open_source: task_entry.task.is_open_source,
+                    estimated_watts: task_entry.task.estimated_watts,
+                    estimated_vram_mb: task_entry.task.estimated_vram_mb,
+                    estimated_hours: task_entry.task.estimated_hours,
+                };
                 if let Some(watcher) = self.consent.as_ref() {
                     match watcher.current() {
                         Ok(consent_cfg) => {
                             let outcome = if let Some(usage) = self.usage.as_ref() {
                                 let mut guard = usage.lock().await;
-                                consent::should_accept_task(
-                                    &TaskContext {
-                                        project_id: &project_id,
-                                        is_open_source: false,
-                                        estimated_watts: 0,
-                                        estimated_vram_mb: 0,
-                                        estimated_hours: 0.0,
-                                    },
-                                    &consent_cfg,
-                                    &mut guard,
-                                )
+                                consent::should_accept_task(&task_ctx, &consent_cfg, &mut guard)
                             } else {
                                 // No usage tracker — build a
                                 // throwaway one so the hours
@@ -795,17 +789,7 @@ impl Engine {
                                     Ok(u) => u,
                                     Err(_) => continue,
                                 };
-                                consent::should_accept_task(
-                                    &TaskContext {
-                                        project_id: &project_id,
-                                        is_open_source: false,
-                                        estimated_watts: 0,
-                                        estimated_vram_mb: 0,
-                                        estimated_hours: 0.0,
-                                    },
-                                    &consent_cfg,
-                                    &mut throwaway,
-                                )
+                                consent::should_accept_task(&task_ctx, &consent_cfg, &mut throwaway)
                             };
                             if let AllowOutcome::Reject(reason) = outcome {
                                 let reason_str = match reason {
