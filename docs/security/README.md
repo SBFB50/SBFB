@@ -11,10 +11,13 @@ vers le code reel, pas vers un wish-list.
 
 ## Index
 
-| Document | Contenu |
-|---|---|
-| [`THREAT_MODEL.md`](THREAT_MODEL.md) | Assets, adversaires, DFD, STRIDE par composant, LINDDUN par flux, mitigations livrees + residuals |
-| [`RUNTIME_ISOLATION.md`](RUNTIME_ISOLATION.md) | Roadmap VM invisible (WSL2 / Virtualization.framework / systemd-nspawn) pour Sprint 17+ |
+| Document | Contenu | Sprint livre |
+|---|---|---|
+| [`THREAT_MODEL.md`](THREAT_MODEL.md) | Assets, adversaires, DFD, STRIDE par composant, LINDDUN par flux, mitigations livrees + residuals | S16 Phase E |
+| [`RUNTIME_ISOLATION.md`](RUNTIME_ISOLATION.md) | Roadmap VM invisible (WSL2 / Virtualization.framework / systemd-nspawn) pour Sprint 17+ | S16 Phase E |
+| [`ADVERSARIES.md`](ADVERSARIES.md) | Taxonomie 6 tiers T0-T5 (user misconfig → state targeted), rationale, mapping app-risk, glossaire | S17 Phase A |
+| [`adversaries/`](adversaries/) | 6 fiches detaillees T0-T5 : capabilites, budget, tactiques, mitigations par tier | S17 Phase A |
+| [`ATTACK_SCENARIOS.md`](ATTACK_SCENARIOS.md) | 12 scenarios concrets T1-T5 (CSP bypass, supply chain, dragnet, checkpoint seize, etc.) avec chain + mitigation status | S17 Phase A |
 
 ## Mitigations livrees Sprint 16 (pointeurs rapides)
 
