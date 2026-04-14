@@ -302,6 +302,14 @@ pub struct PublishRequest {
     /// BLAKE3 hex hash of provenance.json (Sprint 14 Phase B).
     #[serde(default)]
     pub provenance_hash: Option<String>,
+    /// Whether this project was deployed from a public repo with
+    /// signed provenance (Sprint 16 Phase D). The coordinator sets
+    /// this on every `deploy-from-repo` publish; private zip uploads
+    /// and the legacy auto-publish path leave it at `false`. Workers
+    /// running at consent level `OpenSource` only accept tasks from
+    /// projects where this flag is true.
+    #[serde(default)]
+    pub is_open_source: bool,
 }
 
 /// Body of `POST /publish` (success). Sprint 11 Phase A.
@@ -482,6 +490,11 @@ async fn publish_project(
         announcement = announcement.with_provenance_hash(hash.clone());
     }
 
+    // Sprint 16 Phase D: propagate is_open_source.
+    if req.is_open_source {
+        announcement = announcement.with_open_source(true);
+    }
+
     // Sprint 12: if archive_hash is provided, mint a BlobTicket.
     if let Some(ref hash_hex) = req.archive_hash {
         match mint_blob_ticket(&state, hash_hex).await {
@@ -531,6 +544,7 @@ async fn publish_project(
         archive_hash: req.archive_hash.clone(),
         repo_url: req.repo_url.clone(),
         provenance_hash: req.provenance_hash.clone(),
+        is_open_source: req.is_open_source,
     };
     state.browse_aggregator.add_direct_entry(browse_entry);
 
@@ -1023,6 +1037,7 @@ mod tests {
             archive_hash: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         })
         .unwrap();
 
@@ -1314,6 +1329,7 @@ mod tests {
             archive_hash: Some(hash_hex.clone()),
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         })
         .unwrap();
 

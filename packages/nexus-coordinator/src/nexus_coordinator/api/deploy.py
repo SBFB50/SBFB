@@ -102,8 +102,17 @@ async def _publish_with_archive(
     hash_hex: str,
     repo_url: str | None = None,
     provenance_hash: str | None = None,
+    is_open_source: bool = False,
 ) -> None:
-    """Publish announcement with archive hash, optional repo_url and provenance_hash."""
+    """Publish announcement with archive hash and optional provenance.
+
+    Sprint 16 Phase D adds ``is_open_source``. The coordinator is the
+    single source of truth for this flag: ``deploy_from_repo`` sets it
+    to ``True`` (clone + SBFB.json + signed provenance already proved
+    the code matches the public repo), every other path leaves it at
+    ``False``. Never user-settable — a caller cannot mark a private
+    zip as open source by passing a body flag.
+    """
     coord = request.app.state.coordinator
     state = _read_running_state()
     if state is None:
@@ -117,6 +126,7 @@ async def _publish_with_archive(
         "description": coord.config.identity.description or coord.project_name,
         "apps": list(coord.apps.keys()),
         "archive_hash": hash_hex,
+        "is_open_source": is_open_source,
     }
     if repo_url:
         payload["repo_url"] = repo_url
@@ -170,7 +180,10 @@ async def deploy_project(
     hash_hex = await _store_blob(request, zip_bytes)
     _log.info("deploy: blob stored", hash=hash_hex)
 
-    await _publish_with_archive(request, hash_hex, repo_url=repo_url)
+    # Sprint 16 Phase D: private zip uploads are never marked as
+    # open source — there is no clone+SBFB.json chain tying the
+    # artifact to a public repo.
+    await _publish_with_archive(request, hash_hex, repo_url=repo_url, is_open_source=False)
 
     return {"deployed": True, "hash": hash_hex}
 
@@ -295,12 +308,16 @@ async def deploy_from_repo(body: DeployFromRepoBody, request: Request) -> dict:
         _log.info("deploy-from-repo: blob stored", hash=hash_hex)
 
         # 12. Publish with provenance hash.
+        # Sprint 16 Phase D: deploy-from-repo already proved the zip
+        # matches the public repo via SBFB.json + signed provenance,
+        # so the coordinator marks the announcement is_open_source=true.
         prov_hash = provenance_blake3_hex(provenance)
         await _publish_with_archive(
             request,
             hash_hex,
             repo_url=repo_url,
             provenance_hash=prov_hash,
+            is_open_source=True,
         )
 
         return {

@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 /// v2 adds `archive_ticket` (Sprint 12 Phase A).
 /// v3 adds `repo_url` (Sprint 13 Phase B).
 /// v4 adds `provenance_hash` (Sprint 14 Phase B).
-pub const PROJECT_ANNOUNCEMENT_VERSION: u32 = 4;
+/// v5 adds `is_open_source` (Sprint 16 Phase D).
+pub const PROJECT_ANNOUNCEMENT_VERSION: u32 = 5;
 
 /// The JSON payload broadcast on the curator gossip topic to
 /// announce a project directly (without a curator intermediary).
@@ -57,6 +58,15 @@ pub struct ProjectAnnouncement {
     /// private apps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance_hash: Option<String>,
+    /// True iff the coordinator deployed this project via
+    /// `deploy-from-repo` (clone + SBFB.json + signed provenance —
+    /// Sprint 14). Derived by the coordinator at publish time,
+    /// never user-settable. Workers running at consent level L2
+    /// (OpenSource) accept tasks only from projects that carry
+    /// this flag. `false` covers v1..v4 legacy announcements and
+    /// private zip uploads. Sprint 16 Phase D.
+    #[serde(default)]
+    pub is_open_source: bool,
 }
 
 /// Error validating a project announcement.
@@ -96,6 +106,7 @@ impl ProjectAnnouncement {
             archive_ticket: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         }
     }
 
@@ -117,6 +128,18 @@ impl ProjectAnnouncement {
         self
     }
 
+    /// Mark the project as open source (v5, Sprint 16 Phase D).
+    ///
+    /// The coordinator calls this for every `deploy-from-repo`
+    /// publish — the clone + SBFB.json + signed provenance chain
+    /// already establishes that the code on the network matches
+    /// the public repo. Private zip uploads and legacy v4
+    /// auto-publish paths leave the flag at its `false` default.
+    pub fn with_open_source(mut self, is_open_source: bool) -> Self {
+        self.is_open_source = is_open_source;
+        self
+    }
+
     /// Serialize to JSON bytes for gossip broadcast.
     pub fn to_gossip_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
         serde_json::to_vec(self)
@@ -124,10 +147,10 @@ impl ProjectAnnouncement {
 
     /// Parse and validate a project announcement from gossip bytes.
     ///
-    /// Accepts v1 through v4 for backward compatibility with older daemons.
+    /// Accepts v1 through v5 for backward compatibility with older daemons.
     pub fn from_gossip_bytes(bytes: &[u8]) -> Result<Self, ProjectAnnouncementError> {
         let ann: Self = serde_json::from_slice(bytes)?;
-        // Accept v1, v2, v3, and v4 for backward compatibility.
+        // Accept v1 through the current version for backward compatibility.
         if ann.v == 0 || ann.v > PROJECT_ANNOUNCEMENT_VERSION {
             return Err(ProjectAnnouncementError::Version {
                 got: ann.v,
@@ -193,7 +216,7 @@ mod tests {
             err,
             ProjectAnnouncementError::Version {
                 got: 99,
-                expected: 4
+                expected: 5
             }
         ));
     }
@@ -474,5 +497,131 @@ mod tests {
             !json_str.contains("provenance_hash"),
             "None provenance_hash should be omitted from JSON"
         );
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 16 Phase D — v5 with is_open_source
+    // ---------------------------------------------------------
+
+    #[test]
+    fn v5_announcement_with_open_source_true_round_trips() {
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "gov".into(),
+            "gov".into(),
+            "desc".into(),
+            vec!["gov".into()],
+        )
+        .with_repo_url("https://github.com/test/gov".into())
+        .with_provenance_hash("bb".repeat(32))
+        .with_open_source(true);
+
+        assert_eq!(ann.v, PROJECT_ANNOUNCEMENT_VERSION);
+        assert!(ann.is_open_source);
+
+        let bytes = ann.to_gossip_bytes().unwrap();
+        let back = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(back, ann);
+        assert!(back.is_open_source);
+    }
+
+    #[test]
+    fn v5_announcement_with_open_source_false_round_trips() {
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "private".into(),
+            "misc".into(),
+            "desc".into(),
+            vec![],
+        )
+        .with_open_source(false);
+
+        assert_eq!(ann.v, PROJECT_ANNOUNCEMENT_VERSION);
+        assert!(!ann.is_open_source);
+
+        let bytes = ann.to_gossip_bytes().unwrap();
+        let back = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(back, ann);
+        assert!(!back.is_open_source);
+    }
+
+    #[test]
+    fn v4_legacy_announcement_defaults_is_open_source_to_false() {
+        // A v4 announcement from an older daemon must decode with
+        // is_open_source=false — the consent layer treats absence
+        // as "unverified", which is the safe default.
+        let json = serde_json::json!({
+            "v": 4,
+            "type": "project",
+            "node_id": "a".repeat(64),
+            "project_name": "legacy",
+            "category": "misc",
+            "description": "old daemon",
+            "apps": [],
+            "repo_url": "https://github.com/test/legacy",
+            "provenance_hash": "cc".repeat(32),
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        let ann = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(ann.v, 4);
+        assert!(
+            !ann.is_open_source,
+            "v4 legacy announcement must default is_open_source to false"
+        );
+        assert!(ann.provenance_hash.is_some());
+    }
+
+    #[test]
+    fn v5_announcement_always_serializes_is_open_source_field() {
+        // Unlike Option<_> fields, the bool is always serialized so
+        // every peer sees the explicit value (true or false).
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "test".into(),
+            "misc".into(),
+            "test".into(),
+            vec![],
+        );
+        let json_str = serde_json::to_string(&ann).unwrap();
+        assert!(
+            json_str.contains("\"is_open_source\":false"),
+            "is_open_source=false must be present in v5 JSON, got: {json_str}"
+        );
+
+        let ann_true = ann.clone().with_open_source(true);
+        let json_str_true = serde_json::to_string(&ann_true).unwrap();
+        assert!(
+            json_str_true.contains("\"is_open_source\":true"),
+            "is_open_source=true must be present in v5 JSON, got: {json_str_true}"
+        );
+    }
+
+    #[test]
+    fn v5_announcement_builder_composes_with_other_fields() {
+        // Builder order must not matter — we compose with_open_source
+        // with the other v2/v3/v4 builders without losing state.
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "compose".into(),
+            "gov".into(),
+            "stacked".into(),
+            vec!["gov".into()],
+        )
+        .with_open_source(true)
+        .with_archive_ticket("ticket_abc".into())
+        .with_repo_url("https://github.com/test/compose".into())
+        .with_provenance_hash("dd".repeat(32));
+
+        assert!(ann.is_open_source);
+        assert_eq!(ann.archive_ticket.as_deref(), Some("ticket_abc"));
+        assert_eq!(
+            ann.repo_url.as_deref(),
+            Some("https://github.com/test/compose")
+        );
+        assert_eq!(ann.provenance_hash.as_deref(), Some(&*"dd".repeat(32)));
+
+        let bytes = ann.to_gossip_bytes().unwrap();
+        let back = ProjectAnnouncement::from_gossip_bytes(&bytes).unwrap();
+        assert_eq!(back, ann);
     }
 }

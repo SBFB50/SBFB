@@ -206,6 +206,15 @@ export const BrowseEntrySchema = z
     archive_hash: z.string().optional(),
     repo_url: z.string().optional(),
     provenance_hash: z.string().optional(),
+    /**
+     * Sprint 16 Phase D — true iff the originating
+     * ProjectAnnouncement carried the v5 `is_open_source` flag.
+     * Entries from pre-v5 daemons omit the field, which the shell
+     * must surface as `undefined` (no positive proof either way),
+     * not `false` — the Browse badge logic distinguishes the two
+     * so a legacy entry is not wrongly labelled "proprietary".
+     */
+    is_open_source: z.boolean().optional(),
   })
   .strict();
 

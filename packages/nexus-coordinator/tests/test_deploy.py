@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from nexus_coordinator.api.app import create_app
@@ -730,3 +731,175 @@ async def test_clone_repo_rejects_nonexistent_sha(tmp_path: Path) -> None:
         await deploy_mod._clone_repo(url, str(dest), sha=absent_sha)
     assert exc_info.value.status_code == 400
     assert "fetch" in exc_info.value.detail.lower()
+
+
+# ---------------------------------------------------------------
+# Sprint 16 Phase D — is_open_source flag on ProjectAnnouncement v5
+# ---------------------------------------------------------------
+
+
+def _last_publish_payload(daemon: _FakeDaemon) -> dict:
+    """Return the parsed JSON body of the most recent /publish call.
+
+    The coordinator auto-publishes on boot so the fake daemon sees a
+    series of /publish calls; the final one corresponds to the
+    publish performed by the endpoint under test.
+    """
+    publish_calls = [b for _, p, b in daemon.calls if p == "/publish"]
+    assert publish_calls, "daemon never saw a /publish call"
+    return json.loads(publish_calls[-1])
+
+
+@pytest.mark.asyncio
+async def test_deploy_from_repo_sets_is_open_source_true(
+    nexus_grid_tmp: Path,
+    tmp_path: Path,
+) -> None:
+    """deploy-from-repo → /publish payload carries is_open_source=true."""
+    fake_repo = _create_fake_repo(tmp_path, node_id="de" * 32)
+
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-open-source")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                with (
+                    patch(
+                        "nexus_coordinator.api.deploy._clone_repo",
+                        side_effect=_make_mock_clone(fake_repo),
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy.is_repo_public",
+                        new_callable=AsyncMock,
+                        return_value=True,
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy._git_rev_parse",
+                        new_callable=AsyncMock,
+                        return_value="abc123def456",
+                    ),
+                ):
+                    r = client.post(
+                        "/project/deploy-from-repo",
+                        json={"repo_url": "https://github.com/test/app"},
+                    )
+                    assert r.status_code == 200, r.json()
+
+                    payload = _last_publish_payload(daemon)
+                    assert payload.get("is_open_source") is True, (
+                        "deploy-from-repo must mark the announcement as open source"
+                    )
+                    assert "provenance_hash" in payload
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_private_zip_sets_is_open_source_false(
+    nexus_grid_tmp: Path,
+) -> None:
+    """Private zip upload → /publish payload has is_open_source=false."""
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-private-flag")
+        # default visibility is "private"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                zip_bytes = _make_zip({"index.html": "<h1>Private</h1>"})
+                r = client.post(
+                    "/project/deploy",
+                    files={"archive": ("app.zip", zip_bytes, "application/zip")},
+                )
+                assert r.status_code == 200, r.json()
+
+                payload = _last_publish_payload(daemon)
+                assert payload.get("is_open_source") is False, "private zip upload must never be marked open source"
+                assert "provenance_hash" not in payload
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_publish_with_archive_defaults_is_open_source_false(
+    nexus_grid_tmp: Path,
+) -> None:
+    """_publish_with_archive() without is_open_source arg defaults to False.
+
+    This guards the helper's default so a future caller that forgets
+    to pass the flag can never accidentally emit a true value.
+    """
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-default-flag")
+        await coord.start()
+        try:
+            import nexus_coordinator.api.deploy as deploy_mod
+
+            fake_request = AsyncMock()
+            fake_request.app.state.coordinator = coord
+            fake_request.app.state.daemon_httpx_client = httpx.AsyncClient(timeout=5.0)
+            try:
+                await deploy_mod._publish_with_archive(fake_request, "ab" * 32)
+            finally:
+                await fake_request.app.state.daemon_httpx_client.aclose()
+
+            payload = _last_publish_payload(daemon)
+            assert payload.get("is_open_source") is False
+        finally:
+            await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_deploy_from_repo_publish_payload_shape(
+    nexus_grid_tmp: Path,
+    tmp_path: Path,
+) -> None:
+    """deploy-from-repo publish carries every v5 field the daemon expects.
+
+    Exercises the full PA v5 shape: archive_hash, repo_url,
+    provenance_hash, and is_open_source=true. A missing field here
+    would silently break the gossip contract between coordinator and
+    daemon, so we pin the complete payload.
+    """
+    fake_repo = _create_fake_repo(tmp_path, node_id="de" * 32)
+
+    with _FakeDaemon() as daemon:
+        _write_running_json(nexus_grid_tmp, port=daemon.port)
+        coord = Coordinator(project_name="deploy-shape")
+        coord.config.network.visibility = "public"
+        await coord.start()
+        try:
+            with TestClient(create_app(coord)) as client:
+                with (
+                    patch(
+                        "nexus_coordinator.api.deploy._clone_repo",
+                        side_effect=_make_mock_clone(fake_repo),
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy.is_repo_public",
+                        new_callable=AsyncMock,
+                        return_value=True,
+                    ),
+                    patch(
+                        "nexus_coordinator.api.deploy._git_rev_parse",
+                        new_callable=AsyncMock,
+                        return_value="a" * 40,
+                    ),
+                ):
+                    r = client.post(
+                        "/project/deploy-from-repo",
+                        json={"repo_url": "https://github.com/test/shape"},
+                    )
+                    assert r.status_code == 200, r.json()
+
+                    payload = _last_publish_payload(daemon)
+                    # v5 contract: every required field present.
+                    assert "archive_hash" in payload
+                    assert payload["repo_url"] == "https://github.com/test/shape"
+                    assert "provenance_hash" in payload
+                    assert payload["is_open_source"] is True
+        finally:
+            await coord.stop()

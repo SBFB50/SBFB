@@ -177,6 +177,16 @@ pub struct BrowseEntry {
     /// Present when the project was deployed via verified deploy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance_hash: Option<String>,
+    /// True iff the originating `ProjectAnnouncement` carried the
+    /// v5 `is_open_source=true` flag (Sprint 16 Phase D). Derived
+    /// by the coordinator at deploy-from-repo time; legacy v1..v4
+    /// announcements and private zip uploads default to `false`.
+    /// The React shell consumes this to render the "open source"
+    /// badge on Browse rows; workers at consent level `OpenSource`
+    /// use the same flag (wired separately through the worker
+    /// task ingest path) to accept or reject tasks.
+    #[serde(default)]
+    pub is_open_source: bool,
 }
 
 // =================================================================
@@ -337,6 +347,7 @@ impl BrowseAggregator {
                     archive_hash: None,
                     repo_url: None,
                     provenance_hash: None,
+                    is_open_source: false,
                 });
             }
         }
@@ -462,6 +473,7 @@ mod tests {
             archive_hash: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let back: BrowseEntry = serde_json::from_str(&json).unwrap();
@@ -503,6 +515,7 @@ mod tests {
             archive_hash: Some("ab".repeat(32)),
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("archive_ticket"));
@@ -528,6 +541,7 @@ mod tests {
             archive_hash: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(
@@ -621,6 +635,7 @@ mod tests {
             archive_hash: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         });
         agg.add_direct_entry(BrowseEntry {
             project_id: id_b.clone(),
@@ -636,6 +651,7 @@ mod tests {
             archive_hash: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         });
 
         let node = spawn_node().await;
@@ -807,6 +823,7 @@ mod tests {
             archive_hash: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         };
         agg.add_direct_entry(entry);
         assert_eq!(agg.direct_entry_count(), 1);
@@ -830,6 +847,7 @@ mod tests {
             archive_hash: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         };
         let entry2 = BrowseEntry {
             project_id: id.clone(),
@@ -844,6 +862,7 @@ mod tests {
             archive_hash: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
             last_probed_at: None,
         };
         agg.add_direct_entry(entry1);
@@ -870,6 +889,7 @@ mod tests {
             archive_hash: None,
             repo_url: None,
             provenance_hash: None,
+            is_open_source: false,
         };
         agg.add_direct_entry(entry);
 
