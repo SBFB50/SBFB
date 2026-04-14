@@ -16,10 +16,10 @@ Phase 0 (audit Sprint 15) DONE. Verdict PASS, landed :
 |---|---|---|---|---|
 | A | Bearer 256-bit + Host allowlist + Origin check | ~550 | +30 | `feat(auth): Sprint 16 Phase A — loopback hardening with bearer + Host + Origin` |
 | B | UDS avec SO_PEERCRED + Named Pipes DACL custom | ~600 | +25 | `feat(net): Sprint 16 Phase B — UDS peer creds + Named Pipes DACL` |
-| C | Consent 3 niveaux + caps W/VRAM/h worker-enforced | ~680 | +30 | `feat(consent): Sprint 16 Phase C — GPU opt-in dialog + worker caps enforcement` |
+| C | Consent **4 niveaux** (+L3 whitelist) + caps W/VRAM/h worker-enforced | ~830 | +35 | `feat(consent): Sprint 16 Phase C — GPU opt-in dialog (4 levels + whitelist) + worker caps enforcement` |
 | D | PA v5 + is_open_source derive auto | ~250 | +15 | `feat(p2p): Sprint 16 Phase D — ProjectAnnouncement v5 with is_open_source flag` |
 | E | Docs STRIDE+LINDDUN + RUNTIME_ISOLATION + verif | ~1100 | 0 | `docs(sprint16): verification + audit plan + security roadmap` |
-| **Total** | | **~3180** | **+100** | 5 commits |
+| **Total** | | **~3330** | **+105** | 5 commits |
 
 Ordre justifie :
 - A avant B : le bearer est la base ; UDS peer creds en defense
@@ -210,93 +210,153 @@ integration UDS
 
 ---
 
-## Phase C — Consent 3 niveaux + caps worker-enforced
+## Phase C — Consent 4 niveaux (+L3 whitelist) + caps worker-enforced
 
 ### Scope code
 
-- **`web/src/components/GpuConsentDialog.tsx`** +220 LOC :
-  - Dialog shadcn/ui, 3 radios (default selection = niveau 1
-    "mes projets", pas pre-selection GDPR-safe)
+- **`web/src/components/GpuConsentDialog.tsx`** +320 LOC :
+  - Dialog shadcn/ui, **4 radios** (default = L1 "mes projets",
+    pas pre-selection GDPR-safe)
   - Sliders caps : W max [10, 500] W, VRAM max [1, 24] GB,
     heures/jour [0, 24] h
-  - `POST /consent/set` body `{ level: 1|2|3, cap_watts,
-    cap_vram_mb, cap_hours_day }`
+  - **Section whitelist L3** (visible uniquement si L3 coche) :
+    - Input texte "Ajouter un projet" qui accepte :
+      - node_id hex (64 chars) → ajout direct
+      - URL git (https://github.com/...) → resolution via
+        `POST /consent/whitelist/add` (le coord resout URL vers
+        le node_id publie)
+    - Liste actuelle avec bouton "Retirer" par item
+    - Empty state : "Aucun projet dans ta whitelist. Utilise
+      le bouton 'Contribuer mon GPU' sur la page Browse pour
+      ajouter rapidement."
+  - `POST /consent/set` body `{ level: 1|2|3|4, cap_watts,
+    cap_vram_mb, cap_hours_day, allowed_project_ids: string[] }`
   - Validation cote client + cote API Python.
 
-- **`web/src/pages/Network.tsx`** +30 LOC :
-  - Badge coin haut droit indiquant le level actuel (1/2/3)
-  - Bouton "Modifier consentement" → reopen dialog
+- **`web/src/pages/BrowsedProject.tsx`** +30 LOC :
+  - Nouveau bouton "Contribuer mon GPU" dans la top bar
+    (icone Heart), visible uniquement si consent.level === 3
+  - Click → POST `/consent/whitelist/add` avec
+    `{ project_id: entry.project_id }`. Toast de confirmation.
+  - Si le projet est deja dans la whitelist, le bouton indique
+    "Contribution active" + click = remove.
 
-- **`packages/nexus-coordinator/src/nexus_coordinator/consent.py`** +60 LOC :
+- **`web/src/pages/Network.tsx`** +40 LOC :
+  - Badge coin haut droit indiquant le level actuel (1/2/3/4)
+  - Bouton "Modifier consentement" → reopen dialog
+  - Si L3 : mini-liste des projets whitelistes visible en preview
+
+- **`packages/nexus-coordinator/src/nexus_coordinator/consent.py`** +80 LOC :
   - `GET /consent/get` → lit `~/.sbfb/consent.json`
   - `POST /consent/set` → valide payload + write atomique
     (tmp + rename)
-  - Pydantic model `ConsentConfig`
+  - `POST /consent/whitelist/add` body `{ project_id | repo_url }` :
+    - Si project_id hex → ajout direct
+    - Si repo_url → resolution best-effort (query local browse
+      aggregator pour trouver un projet avec ce repo_url)
+  - `POST /consent/whitelist/remove` body `{ project_id }`
+  - Pydantic model `ConsentConfig` avec
+    `allowed_project_ids: list[str]`
 
-- **`crates/nexus-worker-core/src/allowlist.rs`** +160 LOC :
-  - `ConsentLevel { OwnProjects = 1, OpenSource = 2, All = 3 }`
+- **`crates/nexus-worker-core/src/allowlist.rs`** +180 LOC :
+  - `ConsentLevel { OwnProjects = 1, OpenSource = 2,
+    Whitelist = 3, All = 4 }`
   - `Caps { max_watts, max_vram_mb, max_hours_day }`
+  - `ConsentConfig` inclut `allowed_project_ids: HashSet<NodeId>`
+    (HashSet pour O(1) lookup)
   - `UsageTracker` : charge `~/.sbfb/usage.json`, expose
     `reserve_hours(h) -> Result<()>` qui verifie cumul + reset
     a minuit-local.
   - `should_accept_task(&task, &consent) -> AllowOutcome` :
-    1. level 1 → reject si `task.project_id != self.node_id`
-    2. level 2 → reject si `!task.is_open_source`
-    3. level 3 → accept
-    4. caps : reject si `task.watts_estimate > max_watts`,
+    1. L1 → reject si `task.project_id != self.node_id`
+    2. L2 → reject si `!task.is_open_source`
+    3. L3 → reject si `!consent.allowed_project_ids.contains(&task.project_id)`
+    4. L4 → pass
+    5. caps : reject si `task.watts_estimate > max_watts`,
        `task.vram_mb > max_vram_mb`, `usage.hours_today + task.duration_h > max_hours_day`
   - Persistance usage.json a chaque task completed (atomic
     write).
+  - **File watcher** : le worker re-lit consent.json quand il
+    change (via `notify` crate) pour appliquer les add/remove
+    whitelist sans redemarrage.
 
 - **`crates/nexus-worker`** +20 LOC : appelle
   `allowlist.should_accept_task` dans le claim loop.
 
-### Tests (+30)
+### Tests (+35)
 
-- vitest 10 : dialog rendering (3 radios, caps validation),
-  `POST /consent/set` flow, badge reflects level
-- pytest 5 : `/consent/get`/`set` API, JSON validation, atomic
-  write, error recovery
-- cargo `nexus-worker-core::allowlist` 15 :
-  - level 1 accept own, reject other
-  - level 2 accept is_open_source, reject not
-  - level 3 accept all
+- vitest 12 : dialog rendering (4 radios, caps validation,
+  whitelist section toggle), `POST /consent/set` flow,
+  `POST /consent/whitelist/add` inline, badge reflects level,
+  bouton "Contribuer mon GPU" visible uniquement L3
+- pytest 7 : `/consent/get`/`set` API, `/consent/whitelist/add`
+  resolut repo_url → project_id, `/consent/whitelist/remove`
+  idempotent, JSON validation, atomic write, error recovery
+- cargo `nexus-worker-core::allowlist` 16 :
+  - L1 accept own, reject other
+  - L2 accept is_open_source, reject not
+  - **L3 accept si project_id dans whitelist, reject sinon**
+  - **L3 whitelist empty reject tout (sauf L1 conditions)**
+  - L4 accept all
   - caps : reject task > max_watts
   - caps : reject task > max_vram_mb
   - caps : reject apres cumul >= max_hours_day
   - reset a minuit local : usage.json rebuild, accept retombe
+  - **file watcher : consent.json rewrite → nouveau state applique
+    avant le prochain claim (verifier via polling ou event)**
 
 ### Critere Phase C
 
-- 1er boot → dialog visible, enregistrer persiste consent.json
-- Worker refuse une task `is_open_source=false` quand level=2
+- 1er boot → dialog visible, 4 radios, default L1, enregistrer
+  persiste consent.json
+- Worker refuse une task `is_open_source=false` quand L2
+- **Worker L3 refuse une task dont project_id n'est pas dans
+  la whitelist ; accepte quand ajoute**
+- Bouton "Contribuer mon GPU" sur Browse ajoute le projet en
+  1 clic (test en conditions reelles : start worker, click,
+  verifier qu'une task de ce projet est maintenant acceptee)
 - Worker refuse une task apres cumul h_day atteint
 - "Modifier consentement" rouvre le dialog, sauve, effets
-  immediats sur le worker (watch file + reload)
+  immediats sur le worker (file watcher `notify` crate detecte
+  le write et reload consent.json sans redemarrer le worker)
 
 ### Commit C
 
 ```
-feat(consent): Sprint 16 Phase C — GPU opt-in dialog + worker caps enforcement
+feat(consent): Sprint 16 Phase C — GPU opt-in dialog (4 levels + whitelist) + worker caps enforcement
 
 Pattern BOINC UserOptInConsent + GDPR Art.7 (opt-in explicite,
 granular, withdrawal simple).
 
-- Dialog React 3 niveaux (default "mes projets", zero partage)
+- Dialog React 4 niveaux :
+  L1 "mes projets" (default, zero partage)
+  L2 "open source verifies" (filtre is_open_source flag)
+  L3 "projets specifiques" (whitelist manuelle editable)
+  L4 "tous les projets publics"
+- Raccourci "Contribuer mon GPU" sur page Browse pour ajouter
+  1 projet en 1 clic a la whitelist L3
 - Caps W/VRAM/h max configurables
-- consent.json persiste preferences
-- worker-core allowlist enforce caps a chaque claim + daily
-  counter usage.json reset minuit
+- consent.json persiste preferences + allowed_project_ids
+- worker-core allowlist enforce niveau + caps + whitelist a
+  chaque claim + daily counter usage.json reset minuit
+- File watcher notify crate applique les changements sans
+  redemarrage du worker
 
-Bloquee derriere D1+D2 (/consent/* passe par loopback auth).
+Bloquee derriere D1+D2 (/consent/* et /consent/whitelist/*
+passent par loopback auth).
 
-Tests : 415 + 15 = 430 cargo | 171 + 5 = 176 coord | 219 + 10
-= 229 vitest
+Tests : 415 + 16 = 431 cargo | 171 + 7 = 178 coord | 219 + 12
+= 231 vitest
 ```
 
 ---
 
 ## Phase D — ProjectAnnouncement v5 + is_open_source
+
+Note : les compteurs tests de la Phase D s'ajoutent au cumul
+post-C : 431 → 439 cargo / 178 → 182 coord / 231 → 234 vitest.
+
+
 
 ### Scope code
 
@@ -502,16 +562,16 @@ Cf. `sprint16_kickoff.md` §6. Rappel court :
 
 | Suite | Entree (tip `14ec51e`) | Sortie | Delta |
 |---|---|---|---|
-| Rust workspace | 373 | 438 | +65 |
+| Rust workspace | 373 | 439 | +66 |
 | Python SDK | 182 + 1 flaky | 182 + 1 flaky | = |
-| Python coordinator | 153 + 1 skip | 180 + 1 skip | +27 |
+| Python coordinator | 153 + 1 skip | 182 + 1 skip | +29 |
 | Python app-gov | 46 | 46 | = |
-| Vitest unit | 214 | 232 | +18 |
+| Vitest unit | 214 | 234 | +20 |
 | Playwright | 33 | 38 | +5 |
 | size-limit | 7/7 | 7/7 | = |
-| SPDX | 224 | 240 | +16 |
+| SPDX | 224 | 242 | +18 |
 
-Total : ~934 → ~1049 tests (+115).
+Total : ~934 → ~1054 tests (+120).
 
 ---
 

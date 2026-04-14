@@ -258,19 +258,35 @@ Nouveau composant React `web/src/components/GpuConsentDialog.tsx`
 affiche au premier boot (apres creation de la keypair) un dialog :
 - Explication : "SBFB est un reseau P2P de compute. Tu peux
   choisir comment ton GPU est utilise."
-- **3 options radio** (pre-coche interdit par GDPR) :
-  - "Uniquement mes projets" (default a l'ouverture, zero
-    partage — GDPR-safe)
-  - "Projets open source verifies" (accepte uniquement les apps
-    avec `is_open_source: true` dans leur annonce P2P)
-  - "Tous les projets publics" (opt-in complet)
+- **4 options radio** (pre-coche interdit par GDPR) :
+  - **L1** — "Uniquement mes projets" (default a l'ouverture,
+    zero partage — GDPR-safe)
+  - **L2** — "Projets open source verifies" (accepte uniquement
+    les apps avec `is_open_source: true` dans leur annonce P2P)
+  - **L3** — "Projets specifiques" (whitelist manuelle : user
+    ajoute 1-N projets par node_id ou URL source, liste editable
+    a tout moment, persiste dans `allowed_project_ids: Vec<NodeId>`
+    de consent.json)
+  - **L4** — "Tous les projets publics" (opt-in complet)
 - **Caps configurables** : W max, VRAM max MB, heures/jour max
 - Bouton "Enregistrer" persiste dans `~/.sbfb/consent.json`
 
+**UI whitelist L3** : si L3 selectionne, une section deploie avec :
+- Input "Ajouter un projet" (accepte node_id hex ou URL repo)
+- Liste des projets actuels avec bouton "Retirer"
+- Raccourci : sur la page `/browse`, chaque projet affiche un
+  bouton "Contribuer mon GPU" qui l'ajoute a la whitelist en un
+  clic. Ainsi le user peut dire "je veux aider CancerSearch et
+  FoldingAtHome uniquement" sans quitter le flow naturel.
+
 **Enforcement** : le worker `crates/nexus-worker-core::allowlist`
 lit `consent.json` au boot ET a chaque claim de task :
-1. Filtre par niveau (reject si task.is_open_source=false et
-   niveau=2, reject toute task non-local si niveau=1)
+1. Filtre par niveau :
+   - L1 : reject si `task.project_id != self.node_id`
+   - L2 : reject si `!task.is_open_source`
+   - L3 : reject si `task.project_id` n'est pas dans
+     `allowed_project_ids` (whitelist manuelle)
+   - L4 : pass (sous reserve des caps)
 2. **Enforce caps actifs** : si une task demande plus que W max
    ou VRAM max, reject. Si cumul journalier atteint h max, reject
    toute nouvelle task jusqu'au reset minuit-local.
@@ -288,18 +304,24 @@ dialog, re-ecrit le fichier.
 - Caps UI-only (pas enforced) : trompeur pour l'utilisateur
 
 **Implications** :
-- `web/src/components/GpuConsentDialog.tsx` +220 LOC (3 radios
-  + caps sliders + validation)
-- `web/src/pages/Network.tsx` +30 LOC (badge + bouton "Modifier
-  consentement")
-- `crates/nexus-worker-core::allowlist` +160 LOC : charge
-  consent.json, filtre tasks par is_open_source + visibility,
-  enforce caps W/VRAM/h (daily counter persisted to
-  `~/.sbfb/usage.json`)
+- `web/src/components/GpuConsentDialog.tsx` +320 LOC (4 radios
+  + caps sliders + L3 whitelist section deployable avec input
+  add/remove + validation node_id format)
+- `web/src/pages/BrowsedProject.tsx` +30 LOC (bouton "Contribuer
+  mon GPU" visible si L3 selectionne)
+- `web/src/pages/Network.tsx` +40 LOC (badge + bouton "Modifier
+  consentement" + liste whitelist si L3)
+- `crates/nexus-worker-core::allowlist` +180 LOC : charge
+  consent.json, filtre tasks par level (L1/L2/L3/L4) +
+  whitelist lookup O(log N) via HashSet, enforce caps W/VRAM/h
+  (daily counter persisted to `~/.sbfb/usage.json`)
 - `packages/nexus-coordinator/src/nexus_coordinator/consent.py`
-  +60 LOC : API `/consent/get` et `/consent/set`
-- Tests : 30+ Vitest + cargo + pytest (inclut cap enforcement :
-  task >maxW rejected, cumul >max_h rejected, reset quotidien)
+  +80 LOC : API `/consent/get`, `/consent/set`,
+  `/consent/whitelist/add`, `/consent/whitelist/remove`
+- Tests : 40+ Vitest + cargo + pytest (inclut cap enforcement :
+  task >maxW rejected, cumul >max_h rejected, reset quotidien,
+  L3 whitelist accept/reject par node_id, add/remove whitelist
+  via API, raccourci "Contribuer" depuis Browse)
 
 ### D4 — Flag `is_open_source` sur ProjectAnnouncement v5
 
@@ -544,17 +566,17 @@ independamment. Pattern permanent depuis Sprint 7.
 | 0 — Audit S15 | ~330 (findings + PARA cleanup) | DONE : findings `e99c06f` + PARA `14ec51e` |
 | A — Bearer + Host + Origin | ~550 | 50 launcher + 60 daemon + 70 coord + 20 web + 350 tests |
 | B — UDS/NP avec peer creds + DACL | ~600 | 80 daemon UDS + 120 daemon NP Windows + 30 core + 60 coord + 40 launcher + 270 tests |
-| C — Consent 3 levels + caps enforced | ~680 | 220 dialog + 30 Network + 60 consent.py + 160 allowlist (caps!) + 210 tests |
+| C — Consent 4 levels (+whitelist L3) + caps enforced | ~830 | 320 dialog (4 levels + whitelist section) + 30 BrowsedProject bouton + 40 Network + 80 consent.py (4 endpoints) + 180 allowlist (caps + L3 lookup) + 180 tests |
 | D — PA v5 is_open_source | ~250 | 30 core-rs + 5 deploy + 15 web + 200 tests |
 | E — Docs STRIDE+LINDDUN+VM | ~1100 | 60 README + 500 threat model + 350 runtime-isolation + 100 verif + 100 audit_plan |
-| **Total** | **~3230** | |
+| **Total** | **~3380** | |
 
-Delta par rapport a l'estimation initiale (2900) : +330 LOC en
-grande partie dues a :
+Delta par rapport a l'estimation initiale (2900) : +480 LOC :
 - Named Pipes Windows SECURITY_ATTRIBUTES custom (+120)
 - Cap enforcement worker-core avec usage.json daily counter (+80)
 - LINDDUN privacy section dans threat model (+100)
 - Host/Origin header allowlist (+100 tests)
+- **L3 whitelist manuelle + UI add/remove + 2 endpoints API** (+150)
 
 ---
 
@@ -576,9 +598,12 @@ Decisions confirmees :
    (Tailscale pattern) + Named Pipes Windows **avec
    SECURITY_ATTRIBUTES custom** (DACL user-only, critique car
    default DACL Windows est permissif)
-3. **D3** — Consent 3 niveaux (default "mes projets", GDPR-safe,
-   pattern BOINC) + **caps W/VRAM/h enforced dans worker-core**
-   avec daily counter `~/.sbfb/usage.json` (pas juste UI)
+3. **D3** — Consent **4 niveaux** (default "mes projets",
+   GDPR-safe, pattern BOINC) avec **whitelist manuelle L3**
+   (user choisit 1-N projets precis par node_id/URL, raccourci
+   "Contribuer mon GPU" depuis Browse) + **caps W/VRAM/h
+   enforced dans worker-core** avec daily counter
+   `~/.sbfb/usage.json` (pas juste UI)
 4. **D4** — ProjectAnnouncement v5 avec `is_open_source` derive
    automatiquement par le coordinator, backward compat v4
 5. **D5** — `docs/security/` avec **STRIDE + LINDDUN** (privacy
