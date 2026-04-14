@@ -949,4 +949,36 @@ mod tests {
         }
         panic!("watcher never reloaded — last level seen = {last:?}");
     }
+
+    // Regression guard for Sprint 16 audit finding C-3: when the
+    // inner RwLock is poisoned (a write-holding thread panicked),
+    // `current()` must surface `ConsentError::Poisoned` so the
+    // engine runtime can fail-closed instead of silently falling
+    // back to an "accept all" branch. See `engine/runtime.rs`
+    // consent filter block — the `Err(_)` arm must `continue;`.
+    #[test]
+    fn watcher_current_errors_on_poisoned_lock() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("consent.json");
+        ConsentConfig::default_for("self")
+            .save_atomic(&path)
+            .unwrap();
+        let watcher = ConsentWatcher::spawn(&path, "self").unwrap();
+
+        // Poison the inner RwLock by panicking while holding the
+        // write lock. `force_set_for_test` takes a write lock;
+        // we drop a panicking closure inside the same thread.
+        let inner = Arc::clone(&watcher.inner);
+        let handle = thread::spawn(move || {
+            let _guard = inner.write().unwrap();
+            panic!("intentional poison for test");
+        });
+        let _ = handle.join(); // JoinError (the panic) is expected.
+
+        let err = watcher.current().expect_err("poisoned lock surfaces error");
+        assert!(
+            matches!(err, ConsentError::Poisoned),
+            "expected Poisoned, got {err:?}"
+        );
+    }
 }

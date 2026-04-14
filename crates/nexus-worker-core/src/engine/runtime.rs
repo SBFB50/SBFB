@@ -825,10 +825,13 @@ impl Engine {
                                 continue;
                             }
                         }
-                        Err(e) => warn!(
-                            error = %e,
-                            "consent state unreadable; accepting task by default"
-                        ),
+                        Err(e) => {
+                            warn!(
+                                error = %e,
+                                "consent state unreadable; rejecting task (fail-closed)"
+                            );
+                            continue;
+                        }
                     }
                 }
 
