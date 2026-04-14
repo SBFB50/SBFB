@@ -196,6 +196,7 @@ async fn handle_start(
         allowlist,
         data_dir: Some(paths.data_dir.clone()),
         ollama_override,
+        sbfb_home_override: None,
     };
     let mut engine = Engine::new(boot).await.context("engine boot failed")?;
 

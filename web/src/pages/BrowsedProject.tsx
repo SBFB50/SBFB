@@ -8,16 +8,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBridge } from "@/bridge/useBridge";
 import {
   AlertTriangle,
   ArrowLeft,
   ExternalLink,
   Globe,
+  Heart,
+  HeartOff,
   Shield,
   ShieldCheck,
 } from "lucide-react";
+
+import {
+  addToWhitelist,
+  getConsent,
+  removeFromWhitelist,
+} from "@/api/consent";
 
 import {
   blobServeUrl,
@@ -299,6 +307,11 @@ function FullScreenApp({
               </a>
             )}
 
+            <ContributeGpuButton
+              coordUrl={coordUrl}
+              projectId={entry.project_id}
+            />
+
             <span className="flex items-center gap-1 text-[11px] text-white/40">
               <Shield className="h-3 w-3" />
               sandbox
@@ -375,6 +388,84 @@ function FullScreenApp({
         )}
       </div>
     </div>
+  );
+}
+
+// ================================================================
+// Sprint 16 Phase C — "Contribuer mon GPU" button
+// ================================================================
+//
+// Visible only when the user picked L3 (manual whitelist) in
+// `GpuConsentDialog`. Toggle: adds the project to / removes the
+// project from `consent.json::allowed_project_ids`. The worker's
+// `notify` watcher applies the change before the next claim.
+
+function ContributeGpuButton({
+  coordUrl,
+  projectId,
+}: {
+  coordUrl: string;
+  projectId: string;
+}) {
+  const queryClient = useQueryClient();
+  const consentQuery = useQuery({
+    queryKey: ["consent", coordUrl],
+    queryFn: () => getConsent(coordUrl),
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const isHexNodeId = useMemo(
+    () => /^[0-9a-fA-F]{64}$/.test(projectId),
+    [projectId],
+  );
+
+  const mutation = useMutation({
+    mutationFn: async (action: "add" | "remove") =>
+      action === "add"
+        ? addToWhitelist(coordUrl, projectId)
+        : removeFromWhitelist(coordUrl, projectId),
+    onSuccess: (cfg) => {
+      queryClient.setQueryData(["consent", coordUrl], cfg);
+    },
+  });
+
+  if (consentQuery.data?.level !== 3) return null;
+  if (!isHexNodeId) return null;
+
+  const inWhitelist =
+    consentQuery.data?.allowed_project_ids.includes(projectId) ?? false;
+
+  return (
+    <button
+      type="button"
+      onClick={() => mutation.mutate(inWhitelist ? "remove" : "add")}
+      disabled={mutation.isPending}
+      className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] transition-colors disabled:opacity-50 ${
+        inWhitelist
+          ? "bg-pink-500/15 text-pink-300 hover:bg-pink-500/25"
+          : "bg-white/[0.06] text-white/60 hover:bg-white/10 hover:text-white"
+      }`}
+      data-testid="contribute-gpu"
+      aria-pressed={inWhitelist}
+      title={
+        inWhitelist
+          ? "Tu contribues actuellement ton GPU à ce projet — clique pour retirer."
+          : "Ajoute ce projet à ta whitelist L3 pour partager ton GPU avec lui."
+      }
+    >
+      {inWhitelist ? (
+        <>
+          <HeartOff className="h-3 w-3" />
+          Contribution active
+        </>
+      ) : (
+        <>
+          <Heart className="h-3 w-3" />
+          Contribuer mon GPU
+        </>
+      )}
+    </button>
   );
 }
 

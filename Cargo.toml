@@ -161,6 +161,21 @@ dashmap = "6"
 # Read-only safe, deflate-only to minimize binary size.
 zip = { version = "8.5", default-features = false, features = ["deflate"] }
 
+# Sprint 16 Phase C: file watcher for consent.json reload without
+# worker restart. Cross-platform (inotify on Linux, FSEvents on
+# macOS, ReadDirectoryChangesW on Windows) via the OS-default
+# backend.
+notify = "6"
+
+# Sprint 16 Phase C: timezone-aware "local midnight" reset for
+# daily GPU usage counters (~/.sbfb/usage.json). The workspace
+# comment on `time` (line ~114) prefers `time` for new code, but
+# `time::OffsetDateTime::now_local()` is known-racy in multi-
+# threaded processes (time-rs/time#293). chrono::Local is
+# thread-safe on all supported platforms and is pulled in only
+# for this one use case.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
 [profile.release]
 # Standard release profile for the worker binary. Stripping and LTO cut
 # the binary size roughly in half, which matters for the "single-file

@@ -56,6 +56,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::allowlist::Allowlist;
 use crate::config::WorkerConfig;
+use crate::consent::{self, AllowOutcome, ConsentWatcher, RejectReason, TaskContext, UsageTracker};
 use crate::engine::state::{StateMachine, WorkerEvent, WorkerState};
 use crate::engine::state_writer::{self, LastTask, SnapshotInputs};
 use crate::gpu::{create_monitor, GpuInfo, GpuMonitor};
@@ -88,6 +89,13 @@ pub struct EngineBoot {
     pub allowlist: Allowlist,
     pub data_dir: Option<PathBuf>,
     pub ollama_override: Option<Box<dyn OllamaClient>>,
+    /// Sprint 16 Phase C: override for the `~/.sbfb/` root the
+    /// engine uses to locate `consent.json` and `usage.json`.
+    /// `None` (the prod default) resolves to
+    /// [`consent::sbfb_home`] which honours the `SBFB_HOME` env
+    /// var. Integration tests pass `Some(tempdir)` so they do
+    /// not touch the developer's real home dir.
+    pub sbfb_home_override: Option<PathBuf>,
 }
 
 impl EngineBoot {
@@ -101,6 +109,7 @@ impl EngineBoot {
             allowlist,
             data_dir: None,
             ollama_override: None,
+            sbfb_home_override: None,
         }
     }
 }
@@ -155,6 +164,18 @@ pub struct Engine {
     /// `~/.nexus-grid/worker/state.json` path. `None` means use
     /// [`crate::paths::worker_state_file`] at flush time.
     state_flush_path_override: Option<PathBuf>,
+    /// Sprint 16 Phase C: live view of the user's consent
+    /// preferences. `None` means the `~/.sbfb/` root could not be
+    /// resolved (CI sandbox) or the watcher thread failed to
+    /// start — the engine logs a warning and skips the consent
+    /// filter in that case (equivalent to "accept everything the
+    /// allowlist already enrolled").
+    consent: Option<ConsentWatcher>,
+    /// Sprint 16 Phase C: per-day wall-clock usage tracker
+    /// updated after every completed task. `None` when the root
+    /// is unresolvable; the consent filter then skips the hours
+    /// cap but still enforces level / watts / vram.
+    usage: Option<Arc<Mutex<UsageTracker>>>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -187,6 +208,7 @@ impl Engine {
             allowlist,
             data_dir,
             ollama_override,
+            sbfb_home_override,
         } = boot;
 
         info!(
@@ -318,6 +340,44 @@ impl Engine {
             Err(e) => warn!(error = %e, "list_enabled failed at boot"),
         }
 
+        // --- Sprint 16 Phase C: consent + usage tracker ---
+        //
+        // Resolve `~/.sbfb/` (or the boot override). The worker
+        // keeps booting even if the path is unresolvable or the
+        // notify watcher thread fails — the engine just skips
+        // the consent filter in that case and relies on the
+        // existing allowlist SQLite enrollment for task
+        // admission. A log line records the fallback so ops can
+        // tell "consent filter silently off" from "filter on and
+        // accepting everything".
+        let sbfb_home = sbfb_home_override.or_else(consent::sbfb_home);
+        let own_node_id_hex = hex::encode(keypair.public_bytes());
+        let consent_handle = match sbfb_home.as_ref() {
+            Some(root) => {
+                match ConsentWatcher::spawn(root.join("consent.json"), &own_node_id_hex) {
+                    Ok(w) => Some(w),
+                    Err(e) => {
+                        warn!(error = %e, "consent watcher failed to start; filter disabled");
+                        None
+                    }
+                }
+            }
+            None => {
+                warn!("cannot resolve ~/.sbfb/ root; consent filter disabled");
+                None
+            }
+        };
+        let usage_handle = match sbfb_home.as_ref() {
+            Some(root) => match UsageTracker::load_or_default(root.join("usage.json")) {
+                Ok(u) => Some(Arc::new(Mutex::new(u))),
+                Err(e) => {
+                    warn!(error = %e, "usage tracker failed to load; hours cap disabled");
+                    None
+                }
+            },
+            None => None,
+        };
+
         Ok(Self {
             node,
             state: Arc::new(Mutex::new(state)),
@@ -337,6 +397,8 @@ impl Engine {
             boot_time: SystemTime::now(),
             last_task: None,
             state_flush_path_override: None,
+            consent: consent_handle,
+            usage: usage_handle,
         })
     }
 
@@ -694,6 +756,84 @@ impl Engine {
                     continue;
                 }
 
+                // Sprint 16 Phase C: apply the user's consent
+                // filter before minting a claim. `is_open_source`
+                // is wired to `false` here — Phase D ships the
+                // PA v5 plumbing that fills the real value, and
+                // until then L2 rejects everything (documented
+                // in `TaskContext::is_open_source`). Watts / VRAM
+                // / hours estimates are 0 because the Task
+                // canonical format does not carry them yet;
+                // caps stay inert until a future sprint extends
+                // the format. A deliberate choice-to-ship: the
+                // mechanism lands now, the richer inputs later.
+                if let Some(watcher) = self.consent.as_ref() {
+                    match watcher.current() {
+                        Ok(consent_cfg) => {
+                            let outcome = if let Some(usage) = self.usage.as_ref() {
+                                let mut guard = usage.lock().await;
+                                consent::should_accept_task(
+                                    &TaskContext {
+                                        project_id: &project_id,
+                                        is_open_source: false,
+                                        estimated_watts: 0,
+                                        estimated_vram_mb: 0,
+                                        estimated_hours: 0.0,
+                                    },
+                                    &consent_cfg,
+                                    &mut guard,
+                                )
+                            } else {
+                                // No usage tracker — build a
+                                // throwaway one so the hours
+                                // cap check always passes. The
+                                // level + watts + vram filter
+                                // still runs normally.
+                                let mut throwaway = match UsageTracker::load_or_default(
+                                    std::env::temp_dir().join("sbfb-usage-noop.json"),
+                                ) {
+                                    Ok(u) => u,
+                                    Err(_) => continue,
+                                };
+                                consent::should_accept_task(
+                                    &TaskContext {
+                                        project_id: &project_id,
+                                        is_open_source: false,
+                                        estimated_watts: 0,
+                                        estimated_vram_mb: 0,
+                                        estimated_hours: 0.0,
+                                    },
+                                    &consent_cfg,
+                                    &mut throwaway,
+                                )
+                            };
+                            if let AllowOutcome::Reject(reason) = outcome {
+                                let reason_str = match reason {
+                                    RejectReason::NotOwnProject => "not_own_project",
+                                    RejectReason::NotOpenSource => "not_open_source",
+                                    RejectReason::NotInWhitelist => "not_in_whitelist",
+                                    RejectReason::CapWatts => "cap_watts",
+                                    RejectReason::CapVram => "cap_vram",
+                                    RejectReason::CapHoursToday => "cap_hours_today",
+                                };
+                                debug!(
+                                    project = %project_id,
+                                    task_id = %task_id,
+                                    reason = reason_str,
+                                    "task rejected by consent filter",
+                                );
+                                continue;
+                            }
+                        }
+                        Err(e) => warn!(
+                            error = %e,
+                            "consent state unreadable; accepting task by default"
+                        ),
+                    }
+                }
+
+                let task_started_at = Instant::now();
+
                 // Sign + write claim.
                 let claim = Claim::new(
                     task_entry.task.task_id.clone(),
@@ -787,6 +927,18 @@ impl Engine {
                     .insert(task_entry.task.task_id.clone());
                 if let Err(e) = self.allowlist.record_task(&project_id, 0) {
                     debug!(error = %e, "allowlist.record_task failed (non-fatal)");
+                }
+
+                // Sprint 16 Phase C: record the wall-clock time
+                // this task ate into the per-day hours cap. Non-
+                // fatal: a write error just means the next task
+                // check reads a stale counter.
+                if let Some(usage) = self.usage.as_ref() {
+                    let duration_hours = task_started_at.elapsed().as_secs_f64() / 3600.0;
+                    let mut guard = usage.lock().await;
+                    if let Err(e) = guard.record_task(duration_hours) {
+                        debug!(error = %e, "usage.record_task failed (non-fatal)");
+                    }
                 }
 
                 // Sprint 5 Phase A: record this as the "last
@@ -925,9 +1077,11 @@ fn preview_prompt(prompt: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consent::{ConsentConfig, ConsentLevel};
     use crate::ollama::StubOllama;
     use nexus_core_rs::docs::DocsClient as RsDocsClient;
     use nexus_core_rs::task::Task;
+    use tempfile::TempDir;
 
     async fn build_engine_with_stub_ollama() -> Engine {
         let worker_config = WorkerConfig::default();
@@ -940,6 +1094,7 @@ mod tests {
             allowlist,
             data_dir: None,
             ollama_override: Some(Box::new(StubOllama::new())),
+            sbfb_home_override: None,
         };
         Engine::new(boot).await.expect("engine boots")
     }
@@ -1023,6 +1178,7 @@ mod tests {
             allowlist,
             data_dir: None,
             ollama_override: Some(Box::new(StubOllama::new())),
+            sbfb_home_override: None,
         };
         let mut engine = Engine::new(boot).await.expect("engine boots");
 
@@ -1084,12 +1240,25 @@ mod tests {
             })
             .unwrap();
 
+        // Sprint 16 Phase C: the consent filter defaults to L1
+        // (own projects only) which would reject `proj-w91`
+        // because that id doesn't match the worker's own
+        // node_id hex. Pre-seed a tempdir override with an L4
+        // consent so this test keeps its pre-S16 semantics.
+        let sbfb_tmp: TempDir = tempfile::tempdir().unwrap();
+        let mut consent = ConsentConfig::default_for("test-worker");
+        consent.level = ConsentLevel::All;
+        consent
+            .save_atomic(&sbfb_tmp.path().join("consent.json"))
+            .unwrap();
+
         let boot = EngineBoot {
             worker_config,
             keypair,
             allowlist,
             data_dir: None,
             ollama_override: Some(Box::new(StubOllama::new())),
+            sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
         };
         let mut engine = Engine::new(boot).await.expect("engine boots");
 

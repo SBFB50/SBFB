@@ -5,10 +5,13 @@
  * Polls `GET /worker-state` on the active coordinator every 2 s.
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Cpu, Activity, HardDrive, Timer } from "lucide-react";
+import { Cpu, Activity, HardDrive, Settings, Timer } from "lucide-react";
 
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { GpuConsentDialog } from "@/components/GpuConsentDialog";
 import {
   type GpuSnapshot,
   type LastTask,
@@ -16,6 +19,7 @@ import {
   type WorkerStateV1,
   getWorkerState,
 } from "@/api/coordinator";
+import { type ConsentLevel, getConsent } from "@/api/consent";
 import {
   selectActiveCoordinator,
   useProjectStore,
@@ -68,14 +72,17 @@ function NetworkContent({ url }: { url: string }) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-extrabold tracking-tight">
-          Mon réseau
-        </h1>
-        <p className="mt-1 text-sm text-white/50">
-          État live du worker nexus-grid — polling 2 s via{" "}
-          <code className="font-mono text-white/60">{url}/worker-state</code>.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight">
+            Mon réseau
+          </h1>
+          <p className="mt-1 text-sm text-white/50">
+            État live du worker nexus-grid — polling 2 s via{" "}
+            <code className="font-mono text-white/60">{url}/worker-state</code>.
+          </p>
+        </div>
+        <ConsentBadge coordUrl={url} />
       </div>
 
       {query.isLoading && (
@@ -326,6 +333,102 @@ function LastTaskCard({ task }: { task: LastTask | null }) {
           </dd>
         </dl>
       )}
+    </div>
+  );
+}
+
+// ================================================================
+// Sprint 16 Phase C — consent badge + dialog wiring
+// ================================================================
+//
+// The badge sits in the page header, shows the current sharing
+// level (1..4) with a colour cue, and opens the
+// `GpuConsentDialog` on click. The dialog also auto-opens once
+// per browser profile (gated by a localStorage flag) so the
+// first-boot UX matches the plan's "user must explicitly opt in
+// before the worker shares anything" requirement.
+
+const CONSENT_SEEN_KEY = "sbfb-consent-seen-v1";
+
+const LEVEL_LABELS: Record<ConsentLevel, string> = {
+  1: "L1 — Mes projets",
+  2: "L2 — Open source",
+  3: "L3 — Whitelist",
+  4: "L4 — Tous publics",
+};
+
+const LEVEL_TONES: Record<ConsentLevel, string> = {
+  1: "bg-white/[0.06] text-white/70",
+  2: "bg-emerald-500/15 text-emerald-300",
+  3: "bg-pink-500/15 text-pink-300",
+  4: "bg-amber-500/15 text-amber-300",
+};
+
+function ConsentBadge({ coordUrl }: { coordUrl: string }) {
+  const consentQuery = useQuery({
+    queryKey: ["consent", coordUrl],
+    queryFn: () => getConsent(coordUrl),
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  // Auto-open on the first visit ever (gated by the localStorage
+  // flag). Computed once via the lazy initializer so the dialog
+  // mounts open without a cascading effect re-render. The flag is
+  // set immediately so a refresh during the same session doesn't
+  // re-open the dialog even if the user closed it without saving.
+  const [open, setOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    if (window.localStorage.getItem(CONSENT_SEEN_KEY) === "1") return false;
+    window.localStorage.setItem(CONSENT_SEEN_KEY, "1");
+    return true;
+  });
+
+  if (!consentQuery.data) {
+    return (
+      <div
+        className="text-xs text-white/30"
+        data-testid="consent-badge-loading"
+      >
+        Chargement consent…
+      </div>
+    );
+  }
+
+  const level = consentQuery.data.level;
+  const whitelist = consentQuery.data.allowed_project_ids;
+
+  return (
+    <div className="flex flex-col items-end gap-2">
+      <div className="flex items-center gap-2">
+        <span
+          className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${LEVEL_TONES[level]}`}
+          data-testid="consent-level-badge"
+        >
+          {LEVEL_LABELS[level]}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setOpen(true)}
+          data-testid="consent-edit"
+        >
+          <Settings className="h-3 w-3" />
+          Modifier
+        </Button>
+      </div>
+      {level === 3 && whitelist.length > 0 && (
+        <div className="text-right text-[10px] text-white/40">
+          Whitelist : {whitelist.length} projet
+          {whitelist.length > 1 ? "s" : ""}
+        </div>
+      )}
+      <GpuConsentDialog
+        open={open}
+        onOpenChange={setOpen}
+        coordinatorUrl={coordUrl}
+        initialConfig={consentQuery.data}
+      />
     </div>
   );
 }

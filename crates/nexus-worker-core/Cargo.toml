@@ -91,6 +91,17 @@ thiserror = { workspace = true }
 # snapshot that the shell polls via the coordinator proxy.
 time = { workspace = true }
 
+# Sprint 16 Phase C: file watcher that reloads ~/.sbfb/consent.json
+# when the shell edits it via the coordinator `POST /consent/set`
+# endpoint, so the worker picks up level / caps / whitelist
+# changes without a restart.
+notify = { workspace = true }
+
+# Sprint 16 Phase C: timezone-aware local midnight for the
+# per-worker daily usage reset. See workspace Cargo.toml for the
+# rationale on why we pick chrono over `time` for this one case.
+chrono = { workspace = true }
+
 # Deliberately excluded: clap, ratatui, crossterm, dialoguer.
 # This crate is UI-free by design (see the 2026-04-10 Sprint 3
 # headless-first decision in the plan). Anything user-facing lives

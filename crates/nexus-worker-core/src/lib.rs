@@ -44,6 +44,7 @@
 
 pub mod allowlist;
 pub mod config;
+pub mod consent;
 pub mod engine;
 pub mod gpu;
 pub mod invite;
