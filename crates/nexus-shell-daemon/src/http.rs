@@ -37,7 +37,7 @@ use axum::{
     extract::{Path, Request, State},
     http::{HeaderValue, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Json},
+    response::{IntoResponse, Json, Response},
     routing::{delete, get, post},
     Router,
 };
@@ -469,8 +469,29 @@ async fn list_browse(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResp
 async fn publish_project(
     State(state): State<Arc<DaemonHttpState>>,
     Json(req): Json<PublishRequest>,
-) -> impl IntoResponse {
+) -> Response {
     debug!(project = %req.project_name, "POST /publish");
+
+    // Sprint 16 audit finding D-1: the kickoff §D4 declares
+    // `is_open_source` as "derived by coordinator, never
+    // user-settable". The daemon is the gossip writer, so it
+    // must refuse to flag a project open-source unless the
+    // provenance chain (Sprint 14 deploy-from-repo) is present.
+    // Without this check, any local process holding the bearer
+    // token could submit `{"is_open_source": true, ...}` and
+    // see workers at consent level L2 accept its tasks.
+    if req.is_open_source && (req.provenance_hash.is_none() || req.repo_url.is_none()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "is_open_source=true requires both provenance_hash and repo_url \
+                        (deploy-from-repo chain). The coordinator's \
+                        `POST /project/deploy-from-repo` is the only supported path."
+                    .to_string(),
+            }),
+        )
+            .into_response();
+    }
 
     let mut announcement = ProjectAnnouncement::new(
         state.node_id.clone(),
@@ -548,7 +569,7 @@ async fn publish_project(
     };
     state.browse_aggregator.add_direct_entry(browse_entry);
 
-    (StatusCode::OK, Json(PublishResponse { published: true }))
+    (StatusCode::OK, Json(PublishResponse { published: true })).into_response()
 }
 
 /// `GET /default-curators` — return the daemon's configured
@@ -1078,6 +1099,155 @@ mod tests {
             serde_json::to_string(&browse.entries[0].source).unwrap(),
             "\"direct\""
         );
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 16 audit finding D-1 regression
+    // ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn publish_rejects_is_open_source_without_provenance_chain() {
+        // Sprint 16 audit finding D-1: a malicious local process
+        // holding the bearer token must not be able to flag a
+        // zip deploy as open source without going through the
+        // coord's deploy-from-repo clone+verify+sign path. The
+        // daemon rejects `is_open_source=true` unless both
+        // `provenance_hash` and `repo_url` are present.
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+
+        // Case 1: flag=true, no provenance_hash, no repo_url → 400
+        let body = serde_json::to_vec(&PublishRequest {
+            project_name: "fake-open-source".into(),
+            category: "misc".into(),
+            description: "pretend I'm OSS".into(),
+            apps: vec![],
+            archive_hash: Some("ab".repeat(32)),
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: true,
+        })
+        .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/publish")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Case 2: flag=true, provenance_hash present, repo_url absent → 400
+        let body = serde_json::to_vec(&PublishRequest {
+            project_name: "fake-2".into(),
+            category: "misc".into(),
+            description: "still pretending".into(),
+            apps: vec![],
+            archive_hash: Some("ab".repeat(32)),
+            repo_url: None,
+            provenance_hash: Some("cd".repeat(32)),
+            is_open_source: true,
+        })
+        .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/publish")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Case 3: flag=true, repo_url present, provenance_hash absent → 400
+        let body = serde_json::to_vec(&PublishRequest {
+            project_name: "fake-3".into(),
+            category: "misc".into(),
+            description: "one more try".into(),
+            apps: vec![],
+            archive_hash: Some("ab".repeat(32)),
+            repo_url: Some("https://example.com/repo".into()),
+            provenance_hash: None,
+            is_open_source: true,
+        })
+        .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/publish")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn publish_accepts_is_open_source_with_full_provenance_chain() {
+        // Mirror of the D-1 reject test: the happy path — both
+        // provenance_hash and repo_url present — passes. This is
+        // what the coord's `POST /project/deploy-from-repo` emits
+        // after cloning and signing.
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+
+        let body = serde_json::to_vec(&PublishRequest {
+            project_name: "legit-oss".into(),
+            category: "gov".into(),
+            description: "verified from repo".into(),
+            apps: vec!["gov".into()],
+            archive_hash: Some("ab".repeat(32)),
+            repo_url: Some("https://github.com/example/sbfb-app".into()),
+            provenance_hash: Some("cd".repeat(32)),
+            is_open_source: true,
+        })
+        .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/publish")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Browse entry must carry is_open_source=true.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/browse")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let browse: BrowseListResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(browse.entries.len(), 1);
+        assert!(browse.entries[0].is_open_source);
     }
 
     // ---------------------------------------------------------
