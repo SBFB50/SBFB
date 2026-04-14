@@ -16,7 +16,8 @@ Pour le sprint en cours, voir
 
 | Sprint | Etat | Tip cloture | Nb commits | Docs |
 |---|---|---|---|---|
-| 16 | DONE + CONDITIONAL PASS levé | `8e6fa35` (all 4 P1 closed) | 6 (Phase 0 gate + A-D + docs) + 5 (findings + C3 + D1 + C1/C2 + chore protocol + C4) | 6 docs (kickoff, plan, verification, audit_plan, audit_findings) + docs/security/ (README + THREAT_MODEL + RUNTIME_ISOLATION) |
+| 16 | DONE + CONDITIONAL PASS levé | `d18e19e` (gate close landed) | 6 (Phase 0 gate + A-D + docs) + 7 (findings + C3 + D1 + C1/C2 + chore protocol + C4 + log update) | 6 docs (kickoff, plan, verification, audit_plan, audit_findings) + docs/security/ (README + THREAT_MODEL + RUNTIME_ISOLATION) |
+| 17 | EN COURS (sprint recherche pure) | TBD | TBD (6 commits attendus Phase A-F) | drafts (kickoff, plan) dans active/, Phase 0 gate S16 deja joue pre-S17 |
 
 **Faits saillants** :
 
@@ -60,6 +61,24 @@ Pour le sprint en cours, voir
   239 vitest / 38 Playwright / 7/7 size / 246+ SPDX (~1128 tests).
 
 Detail : [`.planning/archive/v1.2/`](../../.planning/archive/v1.2/).
+
+- **Sprint 17** (en cours) : pivot en sprint **recherche pure**
+  (0 code, ~4350 LOC docs). Objectif : formaliser la taxonomie
+  d'adversaires T0-T5 (du script kiddie T1 au state actor T5
+  type LibanLive / Gaza / dissidents), documenter les surfaces
+  d'attaque P2P (Sybil, Eclipse, routing, traffic analysis) non
+  couvertes par le STRIDE/LINDDUN S16, modeliser les threats
+  GPU compute-sharing (prompt theft, model extraction, fake
+  results, rowhammer cross-tenant), produire une gap analysis
+  chiffree vs etat S16, et livrer une **roadmap de durcissement
+  sequencee** + un systeme de **release gates** par tier
+  d'app-risque. La roadmap post-S17 (sprints S18+ implementation
+  — multi-relai, Tor/Nym, duress PIN, reproducible builds,
+  Sybil resistance, Eclipse-resistant peer selection, audit
+  externe) se dessine Phase D-E de S17 et n'est pas fixee
+  maintenant. Pattern "recherche avant code" (Zcash / Signal /
+  Briar / Tor). Phase 0 audit S16 deja joue pre-S17, verdict
+  PASS, tip entree `d18e19e`.
 
 ---
 
