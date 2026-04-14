@@ -489,10 +489,23 @@ impl ConsentWatcher {
                             if !event.paths.iter().any(|p| p == &path_thread) {
                                 continue;
                             }
-                            if !matches!(
-                                event.kind,
-                                EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
-                            ) {
+                            // Sprint 16 audit fix C-4: a plain
+                            // Remove (user/script deletes
+                            // consent.json without recreating
+                            // it) used to fall through to
+                            // `load_or_default` and silently
+                            // revert the in-memory state to the
+                            // L1 default. Keep the last-known
+                            // config instead and warn loudly so
+                            // the deletion is visible in logs.
+                            if matches!(event.kind, EventKind::Remove(_)) {
+                                warn!(
+                                    path = %path_thread.display(),
+                                    "consent.json removed — keeping in-memory state until recreated"
+                                );
+                                continue;
+                            }
+                            if !matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
                                 continue;
                             }
                             // Debounce write+rename: editors
@@ -948,6 +961,51 @@ mod tests {
             thread::sleep(Duration::from_millis(50));
         }
         panic!("watcher never reloaded — last level seen = {last:?}");
+    }
+
+    // Regression guard for Sprint 16 audit finding C-4: a plain
+    // Remove of consent.json used to trigger `load_or_default`
+    // which returned the L1 default, silently demoting the
+    // in-memory state. The watcher now logs the Remove and
+    // keeps the last-known config until a Create/Modify brings
+    // the file back.
+    #[test]
+    fn watcher_preserves_state_on_consent_file_remove() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("consent.json");
+
+        // Seed with L4 (explicit opt-in so the default L1 is
+        // clearly distinguishable from "keep last").
+        let mut cfg = ConsentConfig::default_for("self");
+        cfg.level = ConsentLevel::All;
+        cfg.save_atomic(&path).unwrap();
+
+        let watcher = ConsentWatcher::spawn(&path, "self").unwrap();
+        assert_eq!(watcher.current().unwrap().level, ConsentLevel::All);
+
+        // Delete the file.
+        std::fs::remove_file(&path).unwrap();
+
+        // Give the notify thread up to 1s to observe and log the
+        // Remove event. After that window the in-memory state
+        // MUST still be L4 — the watcher must not have downgraded
+        // to the default L1.
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline {
+            let current_level = watcher.current().unwrap().level;
+            if current_level != ConsentLevel::All {
+                panic!(
+                    "watcher demoted to {current_level:?} after file removal — \
+                     C-4 regression, should stay at All"
+                );
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            watcher.current().unwrap().level,
+            ConsentLevel::All,
+            "watcher must preserve All after consent.json delete"
+        );
     }
 
     // Regression guard for Sprint 16 audit finding C-3: when the
