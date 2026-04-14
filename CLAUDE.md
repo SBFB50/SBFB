@@ -112,7 +112,10 @@ nexus-grid/
 │   ├── nexus-app-coldcase/            # port de l'ancien NEXUS en tant qu'app
 │   └── nexus-app-forensics/           # BPA + acoustique + traces (legacy forensics)
 ├── web/                               # shell React (Browse, Curators, Network, etc.)
-├── .planning/                         # sprint{N}_{kickoff,plan,verification,audit_plan,audit_findings}.md
+├── .planning/                         # sprints (active/ + archive/v{X}/ + roadmaps + research)
+│   ├── active/                        # sprint en cours uniquement (kickoff, plan, audit_findings du precedent, verification, audit_plan)
+│   ├── archive/v1.0/                  # S0-13 (pivot, P2P, universal render, bridge, launcher)
+│   └── archive/v1.1/                  # S14-15 (verified deploy, bridge bidirectionnel, watchdog)
 ├── docs/
 │   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
 │   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
@@ -120,19 +123,27 @@ nexus-grid/
 └── examples/hello-world-app/
 ```
 
-## Etat actuel (2026-04-13, master tip `08853ff`)
-- **Sprints 0-13 CLOSED**. v1.0.0 released.
-- **369 Rust** / 183 SDK / 99+1 coordinator / 46 app-gov
-  / 191 Vitest / 30 Playwright / 7/7 size-limit / 220 SPDX
-  (~908 tests total) — tous verts
+## Etat actuel (2026-04-14, master tip `4da0043`)
+- **Sprints 0-15 CLOSED**. v1.0.0 released.
+- **373 Rust** / 182+1 SDK / 153+1 coordinator / 46 app-gov
+  / 214 Vitest / 33 Playwright / 7/7 size-limit / 224 SPDX
+  (~934 tests total) — tous verts
 - Sprint 12 a livre le rendu universel cross-node (archive zip
   → daemon blob-serve → iframe sandboxee)
 - Sprint 13 a livre le bridge postMessage (iframe ↔ coordinator),
   open source enforcement (public = repo_url obligatoire), UI
   Netflix glassmorphism, launcher Rust minimal
-- **Sprint 14 EN ATTENTE** : audit gate Sprint 13 a jouer en
-  Phase 0, puis solidification plateforme (CPU watchdog, runtime
-  templates, re-publish auto, verification repo_url, bridge push)
+- Sprint 14 a livre le deploy verifie (Keyoxide + SLSA L1
+  provenance + ProjectAnnouncement v4 + badge "Verifie")
+- Sprint 15 a livre le bridge push bidirectionnel + CPU watchdog
+  par heartbeat + CLI `sbfb init` (html/react/pyodide) + tests
+  Playwright iframe reels
+- **Sprint 16 EN ATTENTE** : audit gate Sprint 15 a jouer en
+  Phase 0, puis **security hardening** (bearer token loopback
+  + UDS/Named Pipes + consent GPU opt-in + flag
+  `is_open_source` + roadmap VM isolation docs). Cf.
+  `.planning/active/sprint16_kickoff.md` §1 pour le besoin produit
+  detaille. Threat model livre dans `docs/security/` en Phase E.
 
 ## Commandes clés
 ```bash

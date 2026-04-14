@@ -155,6 +155,31 @@ Or use the all-in-one script:
 | Playwright e2e | 27 |
 | size-limit | 7/7 |
 
+## Security
+
+nexus-grid's security model combines three layers:
+
+- **Iframe sandboxing** (Sprint 12/13): apps run in
+  `sandbox="allow-scripts"` iframes with CSP `connect-src 'none'`.
+  All network I/O goes through the postMessage bridge — no direct
+  fetch/WebSocket/CDN loading is possible.
+- **Verified deployment** (Sprint 14): public apps are cloned
+  from their Git repo by the coordinator itself, verified against
+  an Ed25519-signed `SBFB.json` (Keyoxide pattern), and published
+  with a SLSA L1 provenance signature.
+- **Local loopback hardening** (Sprint 16, in planning):
+  bearer-token authentication + Unix Domain Sockets / Named
+  Pipes. Threat model and runtime isolation roadmap are tracked
+  in [`docs/security/`](docs/security/) (populated in Sprint 16
+  Phase E).
+
+Current Sprint 16 scope (security hardening + GPU consent opt-in
++ VM isolation roadmap) is documented in
+[`.planning/active/sprint16_kickoff.md`](.planning/active/sprint16_kickoff.md).
+For the full sprint history (grouped by released version) see
+[`.planning/README.md`](.planning/README.md) and
+[`docs/claude/SPRINT_LOG.md`](docs/claude/SPRINT_LOG.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

@@ -56,20 +56,43 @@ Les piliers du système :
 
 ## 2. Structure du fichier `.planning/` par sprint
 
-Pour le sprint N, les documents en `.planning/sprint{N}_*.md`
-sont :
+Depuis Sprint 16, les sprints sont rangés selon le **PARA pattern** :
+
+```
+.planning/
+├── README.md              # explication détaillée du layout
+├── active/                # UN seul sprint à la fois
+│   └── sprint{N}_*.md     # 5 docs du sprint en cours
+├── archive/v{X}/          # sprints fermés, groupés par version livrée
+│   ├── v1.0/              # S0-13
+│   └── v1.1/              # S14-15
+├── codebase/              # cross-sprint, cartographie codebase (snapshot 2026-04-06)
+├── research/              # cross-sprint, notes de recherche
+└── *_ROADMAP.md           # docs thématiques evergreen
+```
+
+Pour le sprint N **en cours**, les 5 documents en
+`.planning/active/sprint{N}_*.md` sont :
 
 ```
 sprint{N}_kickoff.md        # écrit EN ENTRÉE du sprint
 sprint{N}_plan.md           # écrit EN ENTRÉE du sprint
+sprint{N-1}_audit_findings.md # écrit en Phase 0 (gate du sprint précédent)
 sprint{N}_verification.md   # écrit EN SORTIE du sprint
 sprint{N}_audit_plan.md     # écrit EN SORTIE du sprint
-sprint{N}_audit_findings.md # écrit par la session fraîche DU SPRINT N+1 en Phase 0
 ```
 
-Les 4 premiers sont livrés par l'agent qui exécute le sprint.
-Le 5e est produit par une session Claude Code fraîche qui joue
-l'audit au démarrage du sprint N+1.
+Les 4 premiers (kickoff/plan/verification/audit_plan) sont livrés
+par l'agent qui exécute le sprint. L'audit_findings est produit
+par une session Claude Code fraîche qui joue l'audit au démarrage
+du sprint N+1.
+
+À la **clôture** du sprint N (= ouverture Sprint N+1), ses 5 docs
+sont déplacés via `git mv` depuis `active/` vers `archive/v{X}/`
+(la version dont le sprint fait partie). Le nouveau sprint N+1
+écrit ses propres docs dans `active/`. Détail dans
+[`.planning/README.md`](../../.planning/README.md) §« Cycle de
+vie d'un sprint ».
 
 ### 2.1 kickoff.md — le contrat d'entrée
 
@@ -547,37 +570,298 @@ rationale et test de non-régression.
 
 ---
 
-## 7. Comment démarrer un nouveau sprint
+## 7. Prompt générique de bootstrap session fraîche (v2)
 
-Template prompt à coller dans une session fraîche :
+Ce prompt est conçu pour être collé tel quel au démarrage d'une
+nouvelle session Claude Code sur le projet. Il ne suppose **pas**
+de connaître l'état actuel — l'agent détermine seul dans quel cas
+il est, en commençant par un **bloc pre-flight** d'un seul copier-
+coller, puis en routant vers la procédure du cas détecté.
+
+### 7.1 Le prompt à coller
 
 ```
-État au démarrage ({date}, master tip `{SHA}`) :
-  - Sprint {N-1} CLOSED côté code. Résumé très court.
-  - Compteurs de tests verts (Rust / Python / Vitest /
-    Playwright / size-limit)
-  - Audit gate de Sprint {N-1} : PASS / CONDITIONAL PASS /
-    (pas encore joué, à faire en Phase 0)
+Tu démarres une session sur nexus-grid (SBFB). Ne lis RIEN tant
+que tu n'as pas exécuté le pre-flight ci-dessous — il te dit
+quels fichiers sont vraiment pertinents pour ton cas.
 
-Lis d'abord :
-  1. memory MEMORY.md + nexus_grid_pivot.md +
-     sprint_audit_gate.md + feedback_approach.md
-  2. docs/claude/README.md (le présent fichier)
-  3. .planning/sprint{N-1}_audit_plan.md (si Phase 0 gate
-     à jouer) OU .planning/sprint{N}_kickoff.md + plan.md
-     (si gate déjà fermée)
+# === Pre-flight (un seul copy-paste, lis tout l'output) ===
 
-Ce que tu produis :
-  - Si Phase 0 gate : sprint{N-1}_audit_findings.md +
-    fix(sprint{N-1}): ... commits pour les P0/P1
-  - Sinon : commit feat(scope): Sprint N Phase X — titre
-    avec discipline §4 de docs/claude/README.md
+git log --oneline -10
+git status --short
+ls .planning/active/
+ls .planning/archive/
+head -1 docs/claude/SPRINT_LOG.md && grep -E "^## v[0-9]" docs/claude/SPRINT_LOG.md
+grep "^- \[SBFB pivot\|tip \`" "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/MEMORY.md" || true
+grep "Tip \`" "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/nexus_grid_pivot.md" | head -1
 
-Langue : français docs, anglais code. Pas d'emojis. No
-band-aids. Scope cuts respectés.
+# === Détection du cas ===
+
+Compare ce que tu vois avec :
+
+  Cas A — Audit gate à jouer
+    Signal : .planning/active/ vide OU contient SEULEMENT le
+             kickoff/plan d'un sprint dont le précédent vient de
+             fermer (audit_findings absent dans active/ ET dans
+             archive/v{X}/).
+    Lecture ciblée : .planning/archive/v{X}/sprint{N-1}_audit_plan.md
+    Mode : audit indépendant, pas implémentation.
+    Livrable : .planning/active/sprint{N-1}_audit_findings.md +
+               commits fix(sprint{N-1}): ... pour P0/P1.
+
+  Cas B — Sprint en cours
+    Signal : .planning/active/ contient sprint{N}_kickoff.md +
+             sprint{N}_plan.md mais pas verification.md.
+    Lecture ciblée : sprint{N}_plan.md §Phase X (où X = phase
+                     suivante non encore committée selon git log).
+    Mode : implémentation atomique.
+    Livrable : 1 commit feat(scope): Sprint N Phase X — titre.
+
+  Cas C — Nouveau sprint à ouvrir
+    Signal : .planning/active/ contient au max le
+             sprint{N-1}_audit_findings.md avec verdict PASS ou
+             CONDITIONAL PASS levé. Le sprint N-1 est complètement
+             clos.
+    Préalable : lire SPRINT_LOG.md pour décider la version cible
+                (continuer v1.x ou ouvrir v1.x+1 selon le thème).
+    Mode : design + écriture planning.
+    Livrable : sprint{N}_kickoff.md + sprint{N}_plan.md dans
+               active/ + D1..D5 à valider AVANT toute ligne de code.
+    Migration préalable : si sprint N-1 est encore dans active/,
+    le déplacer vers archive/v{X}/ via git mv.
+
+  Cas D — Hotfix hors sprint
+    Signal : utilisateur demande explicitement un fix urgent.
+    Mode : commit fix(...) ciblé, ne touche pas .planning/.
+
+# === Lecture ciblée par cas ===
+
+Tu lis dans l'ordre les fichiers PERTINENTS pour ton cas, pas
+toute la doc. Charger tout sature le contexte pour rien.
+
+  Pour TOUS les cas (lecture commune minimale) :
+    1. CLAUDE.md (racine) — projet + pointeur workflow
+    2. docs/claude/README.md §3 (audit gate) + §4 (commit
+       discipline) + §6 (conventions)
+    3. memory MEMORY.md (l'index)
+
+  Cas A en plus :
+    - .planning/archive/v{X}/sprint{N-1}_audit_plan.md
+    - .planning/archive/v{X}/sprint{N-1}_kickoff.md (D1..D5
+      gelées à NE PAS rebattre)
+    - docs/claude/README.md §3 et §8
+
+  Cas B en plus :
+    - .planning/active/sprint{N}_kickoff.md (D1..D5)
+    - .planning/active/sprint{N}_plan.md §Phase X visée
+    - docs/claude/README.md §4 (atomic commit, body riche)
+
+  Cas C en plus :
+    - docs/claude/SPRINT_LOG.md (versions livrées + thèmes)
+    - .planning/archive/v{X}/sprint{N-1}_kickoff.md (pour reprendre
+      le format)
+    - docs/claude/README.md §2 (5 docs canoniques) + §7 (D1..D5)
+    - memory nexus_grid_pivot.md (roadmap + compteurs tests)
+
+  Cas D :
+    - juste le code touché, rien d'autre
+
+# === Stale memory check (obligatoire avant tout commit) ===
+
+Compare le `Tip` extrait de memory/nexus_grid_pivot.md avec le
+HEAD actuel :
+
+  HEAD_SHA=$(git rev-parse --short HEAD)
+  MEM_TIP=$(grep -oE 'Tip \`[a-f0-9]+\`' \
+    "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/nexus_grid_pivot.md" \
+    | head -1 | grep -oE '[a-f0-9]+')
+
+Si HEAD_SHA != MEM_TIP : la memory est en retard d'au moins un
+sprint. Lire `git log --oneline ${MEM_TIP}..HEAD` pour rattraper,
+NE PAS recommander en se basant sur la memory frozen, mettre à
+jour la description frontmatter de nexus_grid_pivot.md à la fin
+de la session.
+
+# === Livraison standard (tous cas) ===
+
+Avant d'écrire du code :
+
+  1. Résume en 5-10 lignes : cas détecté, dernier tip master,
+     compteurs tests memory vs réel, ce que tu t'apprêtes à faire
+  2. Attends confirmation utilisateur sauf si le cas est
+     trivialement déterminé (sprint{N}_plan.md §Phase X explicite)
+  3. Respecte les D1..D5 figées et les scope cuts du sprint
+     courant — ne rebats pas
+  4. Pas de band-aid fix, pas d'emoji, pas d'amend, pas de
+     force push
+  5. Avant chaque commit : verifier toutes les suites pertinentes
+     (cf. §7.4 ci-dessous)
+
+Langue : français pour réponses utilisateur, docs planning,
+commit bodies. Anglais pour code, identifiants, commit titles.
 ```
 
-### 7.1 Au tout premier sprint (nouveau projet)
+### 7.2 Templates de commit par cas
+
+Format universel : `<type>(<scope>): Sprint N Phase X — titre court`
++ body structuré. Voir §4 pour la discipline générale.
+
+**Cas A — fix post-audit (P0/P1 du sprint précédent)** :
+
+```
+fix(sprint{N-1}): <résumé du finding>
+
+Audit Sprint N-1 Phase 0 finding {ID} ({severity}):
+<copie verbatim du finding pertinent depuis sprint{N-1}_audit_findings.md>
+
+Root cause : <diagnostic>
+Fix : <ce qui change dans le code>
+Tests : <suites + delta>
+
+Refs : .planning/active/sprint{N-1}_audit_findings.md §{ID}
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+```
+
+**Cas B — feat (Phase X du sprint en cours)** :
+
+```
+feat(scope): Sprint N Phase X — titre court
+
+Contexte : <1-2 lignes pourquoi cette phase>
+Fichiers touchés :
+  - path/file.rs : <rôle>
+  - path/file.py : <rôle>
+Delta tests cumulé :
+  Rust workspace : NNN -> NNN (+X Phase Y)
+  Python coord   : NN+1 -> NN+1 (+X)
+  Vitest unit    : NNN -> NNN (+X)
+  Playwright     : NN -> NN (+X)
+Scope cuts honoured : <items NOT, copie du kickoff §6>
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+```
+
+**Cas C — docs (planning d'ouverture sprint)** :
+
+```
+docs(sprint{N}): kickoff + plan for Sprint N
+
+Theme : <résumé en 1 ligne du goal>
+Décisions Day 0 figées : D1, D2, D3, D4, D5 (cf. kickoff §4)
+Scope cuts : <liste des items NOT, cf. kickoff §6>
+LOC estimées : ~NNNN sur N phases
+Audit gate Sprint N-1 : PASS / CONDITIONAL PASS levé via {SHA}
+
+Phases prévues :
+  A — <titre>
+  B — <titre>
+  ...
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+```
+
+**Cas C — docs (clôture sprint, sortie Phase E)** :
+
+```
+docs(sprint{N}): verification + audit plan for Sprint N+1
+
+Verification : NN/NN fail-fast verts, delta tests +NN cumulé
+Audit plan : N tracks A..G pour Sprint N+1 Phase 0
+PATTERNS.md : <ajouts pattern + tech debt T-NN>
+
+Tip d'entrée : {SHA}
+Tip de sortie : {SHA}
+Commit stack : {N commits feat/test} + ce commit docs
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+```
+
+**Cas D — hotfix hors sprint** :
+
+```
+fix: <résumé court>
+
+Contexte : <pourquoi hors cycle sprint>
+Root cause : <diagnostic>
+Fix : <ce qui change>
+Tests : <validation>
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+```
+
+### 7.3 Détection version cible (Cas C uniquement)
+
+Quand on ouvre un nouveau sprint, savoir s'il appartient à la
+version courante (`v1.x`) ou s'il ouvre une nouvelle version
+(`v1.x+1`) détermine où ses docs seront archivés.
+
+```bash
+# Quelle version est en cours ?
+grep -A 1 "^## v" docs/claude/SPRINT_LOG.md | head -4
+```
+
+Heuristique de décision :
+
+| Signal | Décision |
+|---|---|
+| Le sprint continue le thème de la version courante (ex: encore du security hardening dans v1.2) | Reste sur la même version |
+| Le sprint ouvre un thème nouveau (ex: passe de "security" à "scaling") | Nouvelle version `v1.x+1` |
+| Une release officielle vient d'être publiée | Toujours nouvelle version |
+| Doute | **Demander à l'utilisateur** lors de la validation des D1..D5 |
+
+À l'ouverture d'une nouvelle version : créer
+`.planning/archive/v1.x+1/` (vide au départ), ajouter une
+nouvelle section `## v1.x+1 — <thème>` au-dessus de v1.x dans
+`SPRINT_LOG.md`.
+
+### 7.4 Verification avant commit (script unique)
+
+```bash
+# Rust
+cargo fmt --all --check && \
+cargo clippy --workspace --all-targets --locked -- -D warnings && \
+cargo test --workspace --locked
+
+# Python
+uv run ruff format --check packages/ && \
+uv run ruff check packages/ && \
+uv run pytest packages/nexus-sdk/tests/ -q && \
+uv run pytest packages/nexus-coordinator/tests/ -q && \
+uv run pytest packages/nexus-app-gov/tests/ -q
+
+# Frontend
+cd web && \
+npx tsc --noEmit -p tsconfig.app.json && \
+npm run lint && \
+npm run test:unit && \
+npm run build && \
+npm run size && \
+npx playwright test && \
+bash scripts/scan-en-strings.sh && \
+cd ..
+```
+
+Tout rouge bloque le commit. Pas de `--no-verify`, pas de
+`#[ignore]` ajouté pour faire passer. Root cause d'abord.
+
+### 7.5 Mise à jour memory en fin de session
+
+Quand un sprint avance d'au moins une phase ou clôt, mettre à
+jour avant de fermer la session :
+
+1. `memory/nexus_grid_pivot.md` frontmatter `description:` —
+   nouveau tip + nouveaux compteurs de tests
+2. `memory/MEMORY.md` ligne `[SBFB pivot ...]` — résumé court
+   sur 1 ligne
+3. Si nouveau sprint clos : `docs/claude/SPRINT_LOG.md` row
+   ajoutée dans la section v1.x correspondante
+
+Sans cette étape, la prochaine session démarrera avec une
+memory stale et le pre-flight §7 le détectera comme un
+warning.
+
+### 7.6 Au tout premier sprint (nouveau projet)
 
 Template différent — il n'y a pas de `sprint{N-1}` à
 auditer :
@@ -585,7 +869,7 @@ auditer :
 1. Écrire `nexus_grid_pivot.md` (memory) avec la roadmap
    haut niveau
 2. Écrire `sprint0_kickoff.md` + `sprint0_plan.md` dans
-   `.planning/`
+   `.planning/active/` (créer le dossier si besoin)
 3. Valider les D1..D5 avec l'utilisateur avant d'écrire du
    code
 4. Enchaîner les phases A..F
@@ -668,37 +952,27 @@ deux divergent, c'est un finding.
 
 ---
 
-## 10. Table de cross-reference des sprints passés
+## 10. Historique sprint — pointeur
 
-Historique des sprints livrés (mise à jour à chaque fin
-de sprint) :
+L'historique des sprints livrés ne vit plus dans ce document
+(il deviendrait ingérable à 30+ sprints). Voir :
 
-| Sprint | État | Tip fermeture | Nb commits | Docs planning présents |
-|---|---|---|---|---|
-| 0 | DONE | `stabilize/compute` mergée | 9 | - |
-| 1 | DONE | `e631325` | - | - |
-| 2 | DONE + audité rétro | `ed2ea76` | 6 | audit rétro dans `audit_sprint2/` |
-| 3 | DONE | `9476be8` | 12 (W1..W12) | `sprint3_verification.md` |
-| 4 | DONE | `3b5c162` | 9 | `sprint4_kickoff`, `_plan`, `_verification`, `_verify_prompt` |
-| 5 | DONE | `cdf4467` | 9 | `sprint5_kickoff` (monolithique), `_plan`, `_verification` |
-| 6 | DONE + CONDITIONAL PASS levé | `504c6aa` puis `2926383` post-gate | 8 + 10 (gate) | 4 docs + `audit_findings` |
-| 7 | DONE | `9cc0796` | 8 | 4 docs + attend `audit_findings` du Sprint 8 Phase 0 |
-| 8 | DONE + CONDITIONAL PASS levé | `9339bb6` | 7 | 4 docs + `audit_findings` |
-| 9 | DONE + CONDITIONAL PASS levé | `eb81c27` puis `48b332a` post-gate | 7 + 2 (gate) | 4 docs + `audit_findings` |
-| 10 | DONE | `d07bfcf` (pre-Phase F) | 5 | 4 docs (kickoff, plan, verification, audit_plan) |
-| 11 | DONE + CONDITIONAL PASS levé | `999fec6` puis `f2c94e3` post-gate | 6 + 2 (gate) | 4 docs + `audit_findings` |
-| 12 | DONE + CONDITIONAL PASS levé | `bf3f009` puis `53a9e32` post-gate | 7 + 1 (gate) | 5 docs (kickoff, plan, verification, audit_plan, audit_findings) |
-| 13 | DONE | `08853ff` (Phase E docs) | 6 (planning + A-D + docs) | 4 docs (kickoff, plan, verification, audit_plan) |
+- **[`SPRINT_LOG.md`](SPRINT_LOG.md)** — table synthétique de tous
+  les sprints livrés, regroupés par version majeure (v1.0, v1.1,
+  v1.2…), avec tip de clôture, nombre de commits et faits
+  saillants
+- **[`.planning/active/`](../../.planning/active/)** — les docs du
+  sprint en cours (`kickoff`, `plan`, `audit_findings` du sprint
+  précédent, `verification`, `audit_plan`)
+- **[`.planning/archive/v{X}/`](../../.planning/archive/)** — les
+  docs des sprints fermés, regroupés par version livrée
 
-Sprint 6 est **le premier** à avoir les 4 docs planning
-complets dès le démarrage. Sprint 7 est **le premier cycle
-complet** de l'audit gate pattern. Sprint 10 est **le premier
-sprint ops** (CI/CD + VPS deployment, pas de code applicatif).
-Sprint 11 est **le premier** P2P end-to-end (publish + discovery
-+ render en plein écran). Sprint 12 est **le premier** rendu
-universel cross-node (archive zip → daemon blob-serve → iframe
-sandboxée). Sprint 13 est **le premier** avec bridge iframe ↔
-réseau (postMessage + open source enforcement + launcher).
+À la clôture d'un sprint N, ses 5 docs `sprint{N}_*.md` sont
+déplacés via `git mv` depuis `.planning/active/` vers
+`.planning/archive/v{X}/` (la version dont N fait partie), et une
+nouvelle row est ajoutée dans `SPRINT_LOG.md`. Détail dans
+[`.planning/README.md`](../../.planning/README.md) §« Cycle de
+vie d'un sprint ».
 
 ---
 
