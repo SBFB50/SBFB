@@ -69,6 +69,7 @@ function makeBrowseEntry(overrides: Record<string, unknown> = {}) {
     source: "curator",
     status: "reachable",
     last_probed_at: "2026-04-12T12:00:00Z",
+    is_open_source: false,
     ...overrides,
   };
 }

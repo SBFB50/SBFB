@@ -584,10 +584,10 @@ describe("BrowseEntry archive_ticket + archive_hash", () => {
 });
 
 // ---------------------------------------------------------------
-// Sprint 16 Phase D — BrowseEntry is_open_source flag (PA v5)
+// BrowseEntry is_open_source flag
 // ---------------------------------------------------------------
 
-describe("BrowseEntry is_open_source (PA v5)", () => {
+describe("BrowseEntry is_open_source", () => {
   it("accepts entries with is_open_source=true", async () => {
     mockFetchOk({
       kind: "data",
@@ -644,40 +644,6 @@ describe("BrowseEntry is_open_source (PA v5)", () => {
     expect(result.kind).toBe("data");
     if (result.kind !== "data") throw new Error("unreachable");
     expect(result.body.entries[0].is_open_source).toBe(false);
-  });
-
-  it("accepts v4 legacy entries without is_open_source (backward compat)", async () => {
-    // Entries emitted by daemons predating Sprint 16 have no
-    // is_open_source field at all. The schema must surface the
-    // value as `undefined`, not silently default to `false`, so
-    // the shell can distinguish "unproven" from "explicitly
-    // private" when rendering the badge.
-    mockFetchOk({
-      kind: "data",
-      status: 200,
-      body: {
-        entries: [
-          {
-            project_id: "aa".repeat(32),
-            project_name: "legacy-app",
-            category: "misc",
-            description: "v4 announcement",
-            curator_pubkey: "",
-            curator_name: "Self-published",
-            source: "direct",
-            status: "reachable",
-            last_probed_at: null,
-            archive_ticket: "blobticket_legacy",
-            repo_url: "https://github.com/test/legacy",
-            provenance_hash: "ee".repeat(32),
-          },
-        ],
-      },
-    });
-    const result = await listBrowse(COORD);
-    expect(result.kind).toBe("data");
-    if (result.kind !== "data") throw new Error("unreachable");
-    expect(result.body.entries[0].is_open_source).toBeUndefined();
   });
 });
 

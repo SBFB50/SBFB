@@ -238,6 +238,34 @@ le code actuel si un item "differe" est toujours un vrai gap.
 Lancer un agent Explore avant de declarer quelque chose "trop
 gros". Penser produit/plateforme d'abord, implementation ensuite.
 
+## Pre-launch protocol policy
+**Le projet n'a pas encore de deploiement live** : aucun noeud
+tiers ne parle les protocoles SBFB en prod, aucun cache iroh-docs
+externe ne contient d'historique, aucune installation user n'est
+en dehors de la machine dev. Consequence sur les wire formats
+(`Task`, `ProjectAnnouncement`, `CuratorList`, etc.) :
+
+- **`*_FORMAT_VERSION` / `*_ANNOUNCEMENT_VERSION` restent a 1**
+  jusqu'au premier tag `v1.0`. Un sprint qui change le canonical
+  ne bump PAS la version — il redefinit la v1 courante.
+- **Pas de tolerant decoder multi-version** (`v == 1` seul, pas
+  `v1..v5`). Pas de rationale "decode un legacy JSON qui n'a pas
+  ce champ" — le seul legacy est le master d'il y a 2 commits,
+  c'est du refactor, pas de la compat.
+- **`#[serde(default)]` reste legitime** pour la **robustesse
+  runtime** (un client Python qui envoie un JSON minimal a l'API
+  daemon → les champs omis deserializent a zero/false plutot que
+  422 parse error). Ecrire le rationale dans la doc du champ pour
+  eviter la confusion "runtime tolerance vs historical compat".
+- **Tests "legacy decode"** qui simulent une version anterieure
+  du format = **a supprimer immediatement** apres la redefinition.
+  Ce sont des zombies qui protegent un scenario inexistant.
+
+Apres le tag `v1.0`, la politique bascule : chaque break bump la
+version, chaque decoder accepte un range, chaque ajout de champ
+carry un `#[serde(default)]` assume pour la compat ascendante.
+Jusque-la, on edite le canonical librement.
+
 ## Discipline de travail
 **Tout est dans `docs/claude/README.md`.** Résumé ultra-court :
 - un sprint = kickoff + plan + 4-6 phases A-F + verification +
