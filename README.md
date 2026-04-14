@@ -157,25 +157,56 @@ Or use the all-in-one script:
 
 ## Security
 
-nexus-grid's security model combines three layers:
+nexus-grid's security model combines five layers:
 
 - **Iframe sandboxing** (Sprint 12/13): apps run in
-  `sandbox="allow-scripts"` iframes with CSP `connect-src 'none'`.
-  All network I/O goes through the postMessage bridge — no direct
+  `sandbox="allow-scripts"` iframes with CSP `connect-src 'none'`
+  on a dedicated blob-serve origin (`:7000`). All network I/O
+  goes through the postMessage bridge — no direct
   fetch/WebSocket/CDN loading is possible.
+- **postMessage bridge** (Sprint 13/15): three whitelisted
+  methods (`task_submit`, `storage_get`, `storage_set`) plus a
+  fire-and-forget event channel (`sbfb-bridge-event`), validated
+  with Zod schemas + source check (`event.source ===
+  iframe.contentWindow`). Correlation IDs prevent cross-app
+  response confusion. CPU watchdog via heartbeat (5s timeout)
+  surfaces a "app not responding" overlay.
 - **Verified deployment** (Sprint 14): public apps are cloned
-  from their Git repo by the coordinator itself, verified against
-  an Ed25519-signed `SBFB.json` (Keyoxide pattern), and published
-  with a SLSA L1 provenance signature.
-- **Local loopback hardening** (Sprint 16, in planning):
-  bearer-token authentication + Unix Domain Sockets / Named
-  Pipes. Threat model and runtime isolation roadmap are tracked
-  in [`docs/security/`](docs/security/) (populated in Sprint 16
-  Phase E).
+  from their Git repo by the coordinator itself (depth 1,
+  500 MB cap, 30s timeout, `.git/` excluded, path traversal
+  rejected), verified against an Ed25519-signed `SBFB.json`
+  (Keyoxide pattern), and published with a SLSA L1
+  `provenance.json` signature pinned on `commit_sha` (40 hex).
+- **Loopback hardening** (Sprint 16): triple-check middleware on
+  every HTTP request — X-SBFB-Token 256-bit bearer (mitigation
+  for CVE-2025-49596 Anthropic MCP Inspector DNS rebinding,
+  CVSS 9.4) + Host allowlist `{localhost, 127.0.0.1, [::1]}` +
+  Origin check. UDS with SO_PEERCRED (Unix) and Named Pipes with
+  DACL user-only via SDDL (Windows) as orthogonal peer-creds
+  bypass for CLI and daemon-to-coord calls. `/health` is the
+  single unauthenticated probe.
+- **GPU consent opt-in** (Sprint 16): worker refuses to claim
+  a task unless the user has opted into one of four sharing
+  levels (own projects / verified open source / manual whitelist
+  / all public) with hard caps on watts, VRAM and hours-per-day.
+  Config is live-reloaded via a `notify` file watcher (50 ms
+  debounce); daily counter resets at local midnight. GDPR
+  Art.6(1)(a) lawful basis via explicit opt-in; Art.7(3)
+  withdrawal via the same dialog.
 
-Current Sprint 16 scope (security hardening + GPU consent opt-in
-+ VM isolation roadmap) is documented in
-[`.planning/active/sprint16_kickoff.md`](.planning/active/sprint16_kickoff.md).
+**Documentation**:
+
+- [`docs/security/README.md`](docs/security/README.md) — index
+  and contribution guide.
+- [`docs/security/THREAT_MODEL.md`](docs/security/THREAT_MODEL.md) —
+  assets, adversaries, DFD, STRIDE per component, LINDDUN per
+  flow, mitigations table with commit SHAs, residual risks
+  (post-Sprint 16 baseline).
+- [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md) —
+  Sprint 17+ roadmap for invisible VM isolation (WSL2 /
+  Virtualization.framework / systemd-nspawn) that closes the
+  keypair-at-rest residual risk identified in the threat model.
+
 For the full sprint history (grouped by released version) see
 [`.planning/README.md`](.planning/README.md) and
 [`docs/claude/SPRINT_LOG.md`](docs/claude/SPRINT_LOG.md).

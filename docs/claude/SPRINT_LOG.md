@@ -16,7 +16,31 @@ Pour le sprint en cours, voir
 
 | Sprint | Etat | Tip cloture | Nb commits | Docs |
 |---|---|---|---|---|
-| 16 | EN COURS — Phase 0 audit S15 a jouer | — | — | kickoff écrit, théme security hardening (loopback auth + GPU consent + VM roadmap) |
+| 16 | DONE | `<Phase E>` (docs + verification + audit plan) | 6 (Phase 0 gate + A-D + docs) | 5 docs (kickoff, plan, verification, audit_plan) + docs/security/ (README + THREAT_MODEL + RUNTIME_ISOLATION) |
+
+**Faits saillants** :
+
+- **Sprint 16** : loopback passe de `D` a `A-` via defense en
+  profondeur — X-SBFB-Token 256-bit (`d7c265a`, launcher
+  genere, perm 0600) + Host allowlist + Origin check
+  (mitigation CVE-2025-49596 Anthropic MCP Inspector DNS
+  rebinding, CVSS 9.4). UDS avec SO_PEERCRED (pattern Tailscale
+  safesocket) + Named Pipes Windows avec DACL user-only via
+  SDDL (`1cfde89`). GPU consent dialog 4 niveaux + whitelist L3
+  manuelle + raccourci "Contribuer mon GPU" depuis Browse +
+  caps W/VRAM/heures enforced worker-side via
+  `should_accept_task` + `ConsentWatcher` (notify crate, 50 ms
+  debounce) + usage.json daily counter reset minuit-local
+  (`3247e88`). ProjectAnnouncement v5 avec `is_open_source`
+  derive automatiquement par le coordinator (true pour
+  deploy-from-repo, false pour zip prive, non-user-settable
+  pattern npm provenance/cosign), backward compat v4 via
+  decoder tolerant (`10bbc63`). Threat model STRIDE + LINDDUN
+  livre dans `docs/security/` avec roadmap runtime isolation
+  WSL2 / Virtualization.framework / systemd-nspawn pour Sprint
+  17+. Compteurs : ~1136 tests (+~200 ce sprint).
+
+Detail : [`.planning/archive/v1.2/`](../../.planning/archive/v1.2/).
 
 ---
 

@@ -123,11 +123,41 @@ nexus-grid/
 └── examples/hello-world-app/
 ```
 
-## Etat actuel (2026-04-14, master tip `4da0043`)
-- **Sprints 0-15 CLOSED**. v1.0.0 released.
-- **373 Rust** / 182+1 SDK / 153+1 coordinator / 46 app-gov
-  / 214 Vitest / 33 Playwright / 7/7 size-limit / 224 SPDX
-  (~934 tests total) — tous verts
+## Securite loopback + GPU consent (Sprint 16)
+Depuis le Sprint 16, la couche **loopback HTTP** est durcie par
+defense en profondeur : bearer token 256-bit X-SBFB-Token (genere
+par le launcher, perm 0600) + Host allowlist `{localhost,
+127.0.0.1, [::1]}` + Origin check (mitigation CVE-2025-49596 DNS
+rebinding). Sur Unix, un second listener UDS avec SO_PEERCRED
+rejette les uid != geteuid(). Sur Windows, un Named Pipe avec
+DACL custom via SDDL `D:(A;;GA;;;<current-user-SID>)` bloque les
+autres utilisateurs. Le `PeerCredsVerified` marker est un type
+prive Rust non-spoofable. L'exception unique est `/health`.
+
+Le worker enforce un **consent GPU** explicite (4 niveaux : mes
+projets / open source verifies / whitelist manuelle / tous) avec
+caps W/VRAM/heures par jour via
+`crates/nexus-worker-core::consent::should_accept_task`. La
+config `~/.sbfb/consent.json` est re-lue live via un `notify`
+watcher (50 ms debounce), le daily counter `usage.json` reset a
+minuit-local (chrono::Local).
+
+ProjectAnnouncement bumpe en **v5** avec `is_open_source` derive
+automatiquement par le coordinator (true pour deploy-from-repo,
+false pour zip prive), non-user-settable. Le decoder reste
+tolerant (v4 legacy default false).
+
+Threat model STRIDE + LINDDUN complet dans
+[`docs/security/THREAT_MODEL.md`](docs/security/THREAT_MODEL.md).
+Roadmap runtime isolation (WSL2 / Virtualization.framework /
+systemd-nspawn) pour Sprint 17+ dans
+[`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
+
+## Etat actuel (2026-04-14, master tip Sprint 16 Phase E)
+- **Sprints 0-16 CLOSED**. v1.2 en cours (Sprint 16 premier livre).
+- **421 Rust** / 182+1 SDK / 187+1 coordinator / 46 app-gov
+  / 240 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
+  (~1136 tests total) — tous verts
 - Sprint 12 a livre le rendu universel cross-node (archive zip
   → daemon blob-serve → iframe sandboxee)
 - Sprint 13 a livre le bridge postMessage (iframe ↔ coordinator),
@@ -138,12 +168,16 @@ nexus-grid/
 - Sprint 15 a livre le bridge push bidirectionnel + CPU watchdog
   par heartbeat + CLI `sbfb init` (html/react/pyodide) + tests
   Playwright iframe reels
-- **Sprint 16 EN ATTENTE** : audit gate Sprint 15 a jouer en
-  Phase 0, puis **security hardening** (bearer token loopback
-  + UDS/Named Pipes + consent GPU opt-in + flag
-  `is_open_source` + roadmap VM isolation docs). Cf.
-  `.planning/active/sprint16_kickoff.md` §1 pour le besoin produit
-  detaille. Threat model livre dans `docs/security/` en Phase E.
+- Sprint 16 a livre le loopback hardening complet (Phase A
+  `d7c265a` bearer + Host + Origin, Phase B `1cfde89` UDS/NP peer
+  creds, Phase C `3247e88` consent 4 niveaux + caps worker-side,
+  Phase D `10bbc63` PA v5 is_open_source, Phase E docs security
+  + roadmap VM isolation).
+- **Sprint 17 EN ATTENTE** : audit gate Sprint 16 a jouer en
+  Phase 0, puis prioriser les residuals R1-R4 du threat model
+  (keypair encryption at rest, CI cargo-audit/pip-audit/npm
+  audit, rate limit deploy-from-repo, signature consent.json) et
+  attaquer la roadmap runtime isolation Phase A-B.
 
 ## Commandes clés
 ```bash

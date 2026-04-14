@@ -1650,3 +1650,157 @@ a local `file://` repo — these tests are the blueprint for
 expanding coverage to the D4 protections listed in T50.
 
 Ref: `packages/nexus-coordinator/tests/test_deploy.py::test_clone_repo_*`.
+
+## Sprint 16 patterns
+
+### P27 — Defense en profondeur loopback (bearer + Host + Origin + peer creds)
+
+**Rule**: every HTTP request against the coordinator FastAPI
+(`:8080`) or the shell daemon HTTP surface (`:7777`) is gated
+by a **triple-check middleware** plus an orthogonal **peer
+credential bypass** for UDS / Named Pipe connections. A request
+is accepted if and only if one of these holds:
+
+1. (TCP loopback path) `X-SBFB-Token` header matches the bearer
+   from `~/.sbfb/auth_token` **AND** `Host:` in `{localhost,
+   127.0.0.1, [::1]}` (optional port) **AND** `Origin:` absent
+   or in the shell allowlist (`http://localhost:<shell_port>`).
+2. (UDS / Named Pipe path) the connection was accepted by the
+   UDS / NP listener which verified peer credentials, and the
+   accept loop injected a private-typed `PeerCredsVerified`
+   marker into the request extensions.
+
+The single exception is `/health` (unauthenticated probe).
+`/blob-serve/*` is also open: the content is iframe-sandboxed
+(CSP `connect-src 'none'`) and already public by BLAKE3 hash on
+the P2P network — bearer would add no protection.
+
+Why all three headers:
+
+- **Bearer alone** fails against DNS rebinding (CVE-2025-49596
+  Anthropic MCP Inspector, CVSS 9.4): a malicious public site
+  resolves to `127.0.0.1` via TOCTOU DNS flip and hits `localhost`
+  from the victim's browser — no cross-origin preflight, bearer
+  absent so defense fires, but if we ever add a cookie-based
+  session we'd be trivially breakable.
+- **Host allowlist** blocks DNS rebinding outright: any `Host:
+  attacker.com` is rejected even with a valid token.
+- **Origin check** blocks opt-in CORS endpoints from being
+  abused by a malicious site that DOES have a valid token
+  (e.g. leaked via an extension).
+
+Why peer creds are orthogonal, not a replacement:
+
+- The browser cannot connect over UDS / Named Pipes. Bearer is
+  mandatory for the React shell path.
+- CLI `sbfb` and coord-to-daemon internal calls prefer the UDS /
+  NP path when available — peer creds give native OS-level auth
+  without token rotation concerns.
+- `PeerCredsVerified` is a **private Rust type** injected only
+  by the accept loops. A remote caller cannot spoof it via a
+  header — there's no header version.
+
+**SHA**: `d7c265a` (bearer + Host + Origin) + `1cfde89` (UDS
+SO_PEERCRED + Named Pipes SDDL DACL user-only).
+
+**Files** (Rust):
+- `crates/nexus-launcher/src/auth.rs` (460 LOC) — token
+  generation + persistent file perm 0600 + `/auth/token`
+  endpoint on ephemeral loopback port.
+- `crates/nexus-shell-daemon-core/src/auth.rs` (708 LOC) —
+  `auth_required` axum middleware + `is_loopback_host` /
+  `is_loopback_origin` + `PeerCredsVerified` marker type.
+- `crates/nexus-shell-daemon/src/uds_server.rs` (366 LOC) —
+  accept loop `UnixListener` + `SO_PEERCRED` via `getsockopt`
+  (Linux) / `getpeereid` (macOS / BSD).
+- `crates/nexus-shell-daemon/src/named_pipe_server.rs` (417
+  LOC) — `CreateNamedPipeW` with `SECURITY_ATTRIBUTES` built
+  via SDDL `D:(A;;GA;;;<current-user-SID>)`. Prevents default
+  permissive DACL on Windows.
+
+**Files** (Python):
+- `packages/nexus-coordinator/src/nexus_coordinator/auth.py`
+  (229 LOC) — `LoopbackAuthMiddleware` Starlette, same rules.
+  Wired in `api/app.py` **inside** the CORS middleware so CORS
+  answers OPTIONS preflight before bearer fires.
+- `packages/nexus-coordinator/src/nexus_coordinator/peer_creds.py`
+  (92 LOC) — `SO_PEERCRED` via `socket.getsockopt` + `struct`.
+  Helper only, not yet wired into ASGI (uvicorn doesn't expose
+  the raw FD in `scope` — scope cut Sprint 17+).
+
+**Files** (TypeScript):
+- `web/src/api/auth.ts` (122 LOC) — `primeAuthToken` fetches
+  the token from the launcher once at boot, caches it, exposes
+  `authFetch(url, init)` that injects `X-SBFB-Token`. All
+  `coordinator.ts` / `daemon.ts` helpers go through `authFetch`.
+- `web/src/main.tsx` — seeds `window.__SBFB_AUTH_TOKEN` if
+  provided by Playwright global setup.
+- `web/playwright.config.ts` — `extraHTTPHeaders` injects the
+  bearer globally so no test needs to think about auth.
+
+**Upgrade note**: v1.1 users restart daemon + coord + launcher
+after v1.2 install. Launcher generates the token on first run.
+CLI callers of `/project/*` / `/app/*` must send `X-SBFB-Token`
+(export from `~/.sbfb/auth_token`). `/health` unchanged.
+
+### P28 — GPU consent 4 levels + caps enforced worker-side
+
+**Rule**: the worker `crates/nexus-worker-core` refuses to claim
+a task unless it passes `should_accept_task(&task, &consent,
+&mut usage)` — a pure function over the task, the user's
+consent config, and the daily usage tracker. This is the **only**
+gate; the UI's sliders and radios are persisted into
+`~/.sbfb/consent.json` but are **not trusted** on their own. The
+worker re-reads that file live via a `notify` watcher (50 ms
+debounce) so the user can revoke consent without restarting.
+
+Level filter semantics:
+- **L1 OwnProjects** — reject if `task.project_id !=
+  consent.own_node_id`.
+- **L2 OpenSource** — reject if `!task.is_open_source` (Sprint
+  16 Phase D flag, derived server-side from deploy-from-repo).
+- **L3 Whitelist** — reject if `task.project_id ∉
+  consent.allowed_project_ids` (HashSet lookup O(1)).
+- **L4 All** — accept level check; caps still apply.
+
+Cap filter semantics (after level passes):
+- `task.estimated_watts > consent.caps.max_watts` → reject.
+- `task.estimated_vram_mb > consent.caps.max_vram_mb` → reject.
+- `usage.hours_used_today() + task.estimated_hours >
+  consent.caps.max_hours_day` → reject.
+
+Usage reset runs on local midnight via `chrono::Local::now().date_naive()`
+comparison at each `reserve_hours` call — no timer thread, no
+DST bugs (tested with `TZ=America/Chicago` fake clock).
+
+All writes to both `consent.json` and `usage.json` are atomic
+(`tmp + rename`) so a crash mid-write never leaves the worker
+reading garbage.
+
+**SHA**: `3247e88` Phase C.
+
+**Files**:
+- `crates/nexus-worker-core/src/consent.rs` (952 LOC) — all of
+  the above, self-contained module next to the existing
+  `allowlist.rs` (invite-token enrollment, distinct concern).
+- `crates/nexus-worker-core/src/engine/runtime.rs` — claim loop
+  calls `should_accept_task` after `verify_signature`, logs
+  structured rejection reason (observability).
+- `web/src/components/GpuConsentDialog.tsx` (385 LOC) —
+  shadcn/ui dialog, default L1 (GDPR-safe, no pre-checked L2+).
+- `packages/nexus-coordinator/src/nexus_coordinator/api/consent.py`
+  (227 LOC) — four endpoints: `GET /consent/get`, `POST
+  /consent/set`, `POST /consent/whitelist/add`, `POST
+  /consent/whitelist/remove`. All gated by P27.
+
+**Trade-off**: L2 relies on `is_open_source` being trustworthy.
+Sprint 16 Phase D (`10bbc63`) derives it server-side at publish
+time (`true` only for deploy-from-repo, `false` for private
+zip), making it non-user-settable — pattern npm provenance /
+cosign self-managed keys. A publisher cannot flag a private zip
+as open source.
+
+**GDPR mapping**: Art.6(1)(a) lawful basis via explicit opt-in;
+Art.7(3) withdrawal via the same dialog ("Modifier consentement"
+on Network page); Art.25 privacy-by-design via L1 default.
+Detail in `docs/security/THREAT_MODEL.md` §6.1.

@@ -1,0 +1,77 @@
+# Security — nexus-grid / SBFB
+
+Ce dossier documente le modele de menace et la roadmap
+d'isolation runtime du projet nexus-grid.
+
+Ecrit en Phase E du Sprint 16 (2026-04-14), une fois les
+mitigations A-D livrees. Les references `commit <sha>` pointent
+vers le code reel, pas vers un wish-list.
+
+---
+
+## Index
+
+| Document | Contenu |
+|---|---|
+| [`THREAT_MODEL.md`](THREAT_MODEL.md) | Assets, adversaires, DFD, STRIDE par composant, LINDDUN par flux, mitigations livrees + residuals |
+| [`RUNTIME_ISOLATION.md`](RUNTIME_ISOLATION.md) | Roadmap VM invisible (WSL2 / Virtualization.framework / systemd-nspawn) pour Sprint 17+ |
+
+## Mitigations livrees Sprint 16 (pointeurs rapides)
+
+| Phase | Commit | Surface | Livre |
+|---|---|---|---|
+| A | `d7c265a` | Loopback HTTP | X-SBFB-Token 256-bit + Host allowlist + Origin check (mitigation CVE-2025-49596) |
+| B | `1cfde89` | UDS + Named Pipes | SO_PEERCRED (Unix) + DACL user-only (Windows) |
+| C | `3247e88` | Consent GPU + caps | Dialog 4 niveaux + whitelist L3 + watts/VRAM/heures enforced worker-side |
+| D | `10bbc63` | ProjectAnnouncement v5 | Flag `is_open_source` derive auto par coordinator (non-user-settable) |
+
+---
+
+## Matrice de severite
+
+Les findings dans `THREAT_MODEL.md` sont classes selon :
+
+| Severite | Impact | Exploitabilite | Action |
+|---|---|---|---|
+| **C**ritical | Compromission total / exfil key material | Attaquant non privilegie | Sprint immediat |
+| **H**igh | Compromission partielle / data tampering | Attaquant local user-mode | Prochain sprint |
+| **M**edium | DoS, info disclosure limitee | Chaine d'attaque specifique | Backlog dedie |
+| **L**ow | Best practice, defense en profondeur | Hypothetique / theorique | Backlog evergreen |
+
+Cette echelle est alignee CVSS 3.1 mais simplifiee : le projet
+n'a pas d'equipe dediee, un findings H equivaut a un Sprint 17+
+item prioritaire dans le kickoff suivant.
+
+## Comment contribuer au threat model
+
+1. **Nouveau component ou flux de donnees** : ajouter une ligne
+   dans la table STRIDE (`THREAT_MODEL.md` §5) et un row dans
+   le DFD ASCII (§4).
+2. **Nouvelle mitigation livree** : mettre a jour la table
+   mitigations (`THREAT_MODEL.md` §7) avec le commit hash et
+   le fichier touche. Supprimer la ligne residuelle couverte
+   dans §8.
+3. **Nouveau risque residuel** : ajouter ligne dans §8 avec
+   severite + sprint cible (ou `v2+` si long-terme).
+4. **Mise a jour post-audit externe** : creer
+   `THREAT_MODEL_v2.md` plutot que de re-ecrire en place. Les
+   signatures provenance historiques restent auditables.
+
+Chaque change du threat model est revu en Phase E du sprint
+correspondant. Il n'y a pas de revue asynchrone separee — le
+document vit au rythme des sprints.
+
+---
+
+## Hors scope ici
+
+- **Code review / bug bounty** : couvert par
+  [CONTRIBUTING.md](../../CONTRIBUTING.md) et la section
+  "Security" du README racine.
+- **Incident response** : pas de runbook pour l'instant (projet
+  solo). Si une CVE critique est publiee sur iroh / axum /
+  FastAPI, l'utilisateur pousse un hotfix avec `fix(security):`
+  et met une note dans `SPRINT_LOG.md`.
+- **Conformite reglementaire exhaustive** : le threat model
+  couvre GDPR via l'angle LINDDUN (§6) mais ne constitue pas un
+  DPIA formel.
