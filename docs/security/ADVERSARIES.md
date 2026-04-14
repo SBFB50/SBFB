@@ -118,8 +118,14 @@ contre le tier d'adversaire qu'elle affronte realistiquement.
 |---|---|---|
 | T0-T1 | Gate 1 (Low stakes) | DnD Forge, hello-world-app, test utilities |
 | T0-T2 | Gate 2 (Medium stakes, PII light) | TransLingua, FamilyScan |
-| T0-T3 | Gate 3 (High stakes, reputation + legal) | PolitiScan, NEXUS cold-case |
-| T0-T5 | Gate 4 (Critical, life-safety) | LibanLive, war-crime documentation apps |
+| T0-T3 + **partial T4** (Tor S25 + mixnet futur) | Gate 3 (High stakes, reputation + legal) | PolitiScan, NEXUS cold-case |
+| T0-T5 (T4 dragnet complet + T5 targeted) | Gate 4 (Critical, life-safety) | LibanLive, war-crime documentation apps |
+
+**Note T4 mapping** : Gate 3 mitige T0-T3 integralement + **partial
+T4 dragnet metadata** via Tor transport (Sprint 25) et mixnet
+optionnel (Sprint 28+). T4 complet (cryptanalyse a echelle + dragnet
+SIGINT a maturite) n'est couvert que par Gate 4 avec Nym mixnet
+integration complete + TEE attestation.
 
 ### 3.1 Pourquoi T5 non-atteignable avant Gate 4 complet
 

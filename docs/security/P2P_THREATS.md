@@ -790,7 +790,7 @@ attire l'attention par des tentatives visibles DPI.
 
 | Vecteur | T1 kiddie | T2 criminal | T3 corp | T4 dragnet | T5 targeted |
 |---|---|---|---|---|---|
-| **Sybil** | Faible (volume limite) | Moyen (botnets) | Haut (cloud farms) | Haut | Tres haut |
+| **Sybil** | Faible (volume limite) | **Haut (botnets RaaS 10^4+ IP, cost-of-identity zero pre-S19)** | Haut (cloud farms) | Haut | Tres haut |
 | **Eclipse** | Nul | Faible | Moyen | Haut | Tres haut |
 | **Gossip poison** | Faible | Moyen | Haut | Haut | Tres haut |
 | **DHT attack** | Faible | Moyen | Moyen | Haut | Tres haut |
@@ -802,7 +802,7 @@ SBFB **coverage actuel** (post-S16) :
 
 | Vecteur | Coverage | Gap principal |
 |---|---|---|
-| Sybil | ❌ | cost-of-identity zero |
+| Sybil | ❌ (Tier max exploitable = **T2+ pre-S19**, T5 post-S19 PoW + S22 kudos-weighted) | cost-of-identity zero |
 | Eclipse | ❌ | peer selection defaults non audites |
 | Gossip poison | ⚠️ (signature OK) | CPU DoS residuel |
 | DHT | ⚠️ (signature OK) | Eclipse-by-DHT possible |

@@ -154,7 +154,7 @@ signature quorum.
 |---|---|---|---|---|
 | `pkarr` (Nuhvi) | Actif | MIT | GO | Mainline BT DHT + pubkey DNS |
 | `iroh` (n0-computer) | 0.97 (1.0 pas encore) | Apache-2.0/MIT | GO | SBFB deja pinne 0.97 |
-| `libp2p-gossipsub` | **0.49.4+** | MIT/Apache-2.0 | CAUTION | CVE-2026-33040 + CVE-2026-34219 patched 0.49.4 |
+| `libp2p-gossipsub` | **0.49.4+** | MIT/Apache-2.0 | CAUTION | CVE-2026-33040 + CVE-2026-34219 patched 0.49.4 (cite pour awareness ecosysteme — **SBFB utilise `iroh-gossip` 0.97 native, PAS `libp2p-gossipsub`** — les CVE n'affectent pas directement SBFB, documente comme pattern a surveiller dans iroh-gossip futur) |
 
 **Directory authorities pattern** : 10 organisations
 independantes jurisdictionnellement diverses (Amnesty, EFF, CCC,

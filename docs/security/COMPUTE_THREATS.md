@@ -134,7 +134,7 @@ driver NVIDIA peut dumper en cas de crash. Aucun audit trail.
 
 - Carlini et al. 2021, "Extracting Training Data from Large
   Language Models" (USENIX Security 21)
-- Tramer et al. 2024, "Stealing Part of a Production Language
+- Carlini et al. 2024, "Stealing Part of a Production Language
   Model" (ICML)
 - NVIDIA Corp. 2023, "Confidential Computing on H100 GPUs"
   (whitepaper)

@@ -48,7 +48,7 @@ Colonnes :
 | **A-S10** | Turned contributor | T5 | C | ❌ | L | key-rotation+revocation |
 | **A-S11** | ISP national block | T5 | H | ❌ | XL | B-ISPBlock |
 | **A-S12** | Fake curator via keypair theft | T5 | H | ❌ | M | revocation-list |
-| **B-Sybil** | Sybil identity flood | T5 | H | ❌ | L | kudos-Sybil-resistant |
+| **B-Sybil** | Sybil identity flood | T2+ pre-S19, T5 post-S19+S22 | H | ❌ | L | kudos-Sybil-resistant |
 | **B-Eclipse** | Eclipse peer isolation | T5 | C | ❌ | L | multi-relai-federation |
 | **B-GossipPoison** | Gossip poisoning + DoS | T5 | M | ⚠️ (sig OK) | M | B-Sybil (PoW pre-req) |
 | **B-DHT** | DHT/pkarr attacks | T5 | M | ⚠️ (sig OK) | M | multi-relai |
@@ -466,12 +466,13 @@ Phase E) vs Sprint debloquant.
 |---|---|---|---|
 | **Gate 1** (DnD Forge, hello-world) | T0-T1 | S18 | Quick-wins S18 + audit S16 leve (deja fait) |
 | **Gate 2** (TransLingua, FamilyScan) | T0-T2 | S22 | +encryption at rest (S20) +rate-limit (S21) +Sybil base (S22) +supply chain (S18) |
-| **Gate 3** (PolitiScan, NEXUS cold-case) | T0-T3 | S27 | +Tor transport (S26) +redundancy voting (S22) +client-side redaction (S21) +RAG sanitization (S25) +reliable-worker curator (S26) +Sybil mature (S27) +audit externe publie (S29, noter que ordering S27<S29 = Gate 3 effectif est **S29**, pas S27) |
-| **Gate 4** (LibanLive, war-crime doc) | T0-T5 | **S35+** | +Nym mixnet (S28-30+) +TEE H100 (S30+) +MIG (S28) +audit externe comprehensive (S29) +partenariat Amnesty/HRW/CPJ sign-off +18 mois beta ferme + ethics review board + formation OpSec contributeurs |
+| **Gate 3** (PolitiScan, NEXUS cold-case) | T0-T3 + partial T4 | **S29** (tech S27 + audit externe S29) | +Tor transport (S26) +redundancy voting (S22) +client-side redaction (S21) +RAG sanitization (S25) +reliable-worker curator (S26) +Sybil mature (S27) +audit externe Cure53/ToB publie (S29) |
+| **Gate 4** (LibanLive, war-crime doc) | T0-T5 | **~S35-38** | +Nym mixnet (S28-30+) +TEE H100 (S30+) +MIG (S28) +audit externe comprehensive (S29) +partenariat Amnesty/HRW/CPJ sign-off +18 mois beta ferme + ethics review board + formation OpSec contributeurs |
 
-**Correction Gate 3** : S27 livre la suite technique mais Gate 3
-operationnel requiert l'audit externe (S29). Donc **Gate 3
-effectif = fin S29**, avec remediation incluse.
+**Gate 3 effectif = fin S29** : S27 livre la suite technique
+(Sybil mature, watermark, PolitiScan-specific hardening) mais Gate
+3 operationnel requiert l'audit externe Cure53/ToB publie avec
+remediation incluse (Sprint 29).
 
 **Gate 4 n'est pas "fin S30"** : S30 livre TEE attestation qui
 est un prerequis, mais les items non-code (partnership, beta

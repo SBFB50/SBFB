@@ -48,12 +48,12 @@ Telegram screenshot.
 - CSP violation reports (si Sprint 20+ report-uri configure)
 
 **Current SBFB mitigation status** :
-- **Couvert (infrastructure)** : CSP `connect-src 'none'` imposee
+- **✅ Couvert (infrastructure)** : CSP `connect-src 'none'` imposee
   par daemon via iframe wrapping Sprint 12. Meme une app sans
   CSP interne ne peut pas exfil vers reseau.
-- **Partiel** : defacement visuel reste possible — l'iframe
+- **⚠️ Partiel** : defacement visuel reste possible — l'iframe
   content est toujours lisible meme si pas d'exfil.
-- **Absent** : pas de validation CSP au moment du publish
+- **❌ Absent** : pas de validation CSP au moment du publish
   (Sprint 19 potentiel).
 
 **Priority recommendation** :
@@ -92,12 +92,12 @@ quel site web" via blog post.
 - Referer = `evil.com`
 
 **Current SBFB mitigation status** :
-- **Couvert** : Sprint 16 Phase A bloque les 3 vecteurs :
+- **✅ Couvert** : Sprint 16 Phase A bloque les 3 vecteurs :
   - Bearer token X-SBFB-Token : absent → 401
   - Host allowlist : `evil.com` → 403
   - Origin check : `evil.com` → 403 (`connect-src 'none'`
     bloque meme le fetch cote iframe)
-- **Residuel** : si user a une extension browser malveillante
+- **⚠️ Residuel** : si user a une extension browser malveillante
   avec `host_permissions: "http://*/*"`, elle peut bypasser
   Origin et Host (mais pas bearer). Scope threat model AD1
   (voir [`THREAT_MODEL.md`](THREAT_MODEL.md) §3).
@@ -149,7 +149,7 @@ hit 10k+ users en une seule release.
 - Kudos distribution anormale dans les 24h suivant release
 
 **Current SBFB mitigation status** :
-- **Couvert partial** :
+- **⚠️ Couvert partial** :
   - Keyoxide (Sprint 14) : SBFB.json lie commit a node_id
     publisher, mais pas au maintainer du repo. Si T2 compromet
     le repo ET le node_id du publisher, bypass.
@@ -159,7 +159,7 @@ hit 10k+ users en une seule release.
   - `is_open_source` + chain verification (Sprint 16 D) :
     detection si chain casse, mais ne verifie pas la *qualite*
     du commit.
-- **Absent** :
+- **❌ Absent** :
   - Reproducible builds : impossible de detecter que le build
     a produit un binaire different du commit (Sprint 18 Phase D).
   - Multi-sig release (commit requires 2+ maintainer
@@ -217,7 +217,7 @@ mais renvoyer junk results.
   de PR, pas d'issue, repo cree recent)
 
 **Current SBFB mitigation status** :
-- **Couvert partial** :
+- **⚠️ Couvert partial** :
   - Consent 4 niveaux + caps W/VRAM/hours (Sprint 16 C) : cap
     daily hours limite la duree de mining. Si cap = 4h/j, T2
     gagne 4h/j/worker au lieu de 24h.
@@ -226,7 +226,7 @@ mais renvoyer junk results.
     (`true && should_accept_task`).
   - `is_open_source` flag (Sprint 16 D) : si app pretend open
     source sans chain, reject (`87cae71`).
-- **Absent** :
+- **❌ Absent** :
   - Pas de runtime isolation (VM / container) : une app dans
     iframe sandbox peut lancer WASM qui abuse GPU indirect
     via worker relay (Sprint 25+ runtime_isolation.md
@@ -279,12 +279,12 @@ market (prompts avec PII = 0.1-10$ piece).
   distributee
 
 **Current SBFB mitigation status** :
-- **Couvert** :
+- **✅ Couvert** :
   - Bridge postMessage whitelist 3 methods (Sprint 13) :
     `task_submit` only reliable way to send data out
   - `task_submit` payload est visible dans coordinator logs
     (audit possible manuellement)
-- **Absent** :
+- **❌ Absent** :
   - Pas de prompt redaction / sanitization client-side
   - Pas d'alerting si task_submit contient patterns PII (SSN,
     credit card, nom propre + lieu)
@@ -340,12 +340,12 @@ coordone media.
   security"
 
 **Current SBFB mitigation status** :
-- **Couvert partial** :
+- **⚠️ Couvert partial** :
   - Threat model public (Sprint 16 Phase E) : T3 ne peut pas
     pretendre "SBFB cache ses risques"
   - Commit publics + open source : les findings peuvent etre
     verifies independamment
-- **Absent** :
+- **❌ Absent** :
   - Pas d'audit externe publique (Cure53/ToB) : manque un rapport
     crediblee autorite qui contre le blog T3
   - Pas de bug bounty formel : les pentesters T3 pouvaient
@@ -401,11 +401,11 @@ favoriser le competiteur ou compromise long-terme.
 - Commits timing : business hours T3 timezone
 
 **Current SBFB mitigation status** :
-- **Couvert** :
+- **✅ Couvert** :
   - AGPL-3.0 : limite monetization propri even si fork
   - Open source public : infiltration est visible si observation
     continue
-- **Absent** :
+- **❌ Absent** :
   - Pas de Code of Conduct / Governance policy ecrite
   - Pas de disclosure of interest requirement pour contributeurs
   - Pas de reviewer requirement (multi-party commit review)
@@ -457,7 +457,7 @@ SBFB dans la juridiction, sans casser le chiffrement.
   orders
 
 **Current SBFB mitigation status** :
-- **Absent totalement** :
+- **❌ Absent totalement** :
   - Pas de traffic mixing / cover traffic
   - Pas de Tor / Nym transport optionnel
   - Pas de timing padding / randomization
@@ -516,7 +516,7 @@ contributeur LibanLive detenu a checkpoint.
   (honeypot compromise)
 
 **Current SBFB mitigation status** :
-- **Absent quasi-totalement** :
+- **❌ Absent quasi-totalement** :
   - `daemon.key` plaintext avec perm 0600 — lu trivialement
     par forensics
   - Pas de encryption at rest (device-level encryption OS
@@ -577,7 +577,7 @@ cibles.
   reprennent avec ton different
 
 **Current SBFB mitigation status** :
-- **Absent** :
+- **❌ Absent** :
   - Pas de detection comportement anormal (ML, analytics)
   - Pas de safe word system (curator doit inclure un token
     unique secret chaque week)
@@ -626,7 +626,7 @@ coupant l'acces aux relais n0.
 - OONI Tor Metrics / Censored Planet data matche SBFB outage
 
 **Current SBFB mitigation status** :
-- **Absent** :
+- **❌ Absent** :
   - Single relay operator n0 — single point blocking
   - Pas de bridges / pluggable transports (obfs4, meek,
     Snowflake)
@@ -681,7 +681,7 @@ journaliste detenu / mort, pour tromper community.
   evidente pour expert domain
 
 **Current SBFB mitigation status** :
-- **Absent** :
+- **❌ Absent** :
   - Pas de revocation protocol (comment disable une cle
     compromise ?)
   - Pas de deadman switch / heartbeat requirement
