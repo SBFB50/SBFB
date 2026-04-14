@@ -18,6 +18,7 @@ vers le code reel, pas vers un wish-list.
 | [`ADVERSARIES.md`](ADVERSARIES.md) | Taxonomie 6 tiers T0-T5 (user misconfig → state targeted), rationale, mapping app-risk, glossaire | S17 Phase A |
 | [`adversaries/`](adversaries/) | 6 fiches detaillees T0-T5 : capabilites, budget, tactiques, mitigations par tier | S17 Phase A |
 | [`ATTACK_SCENARIOS.md`](ATTACK_SCENARIOS.md) | 12 scenarios concrets T1-T5 (CSP bypass, supply chain, dragnet, checkpoint seize, etc.) avec chain + mitigation status | S17 Phase A |
+| [`P2P_THREATS.md`](P2P_THREATS.md) | 7 vecteurs reseau P2P (Sybil, Eclipse, gossip, DHT, routing/BGP, traffic analysis, ISP block) — etat SBFB + mitigations sequencees | S17 Phase B |
 
 ## Mitigations livrees Sprint 16 (pointeurs rapides)
 
