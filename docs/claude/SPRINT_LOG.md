@@ -16,7 +16,7 @@ Pour le sprint en cours, voir
 
 | Sprint | Etat | Tip cloture | Nb commits | Docs |
 |---|---|---|---|---|
-| 16 | DONE | `<Phase E>` (docs + verification + audit plan) | 6 (Phase 0 gate + A-D + docs) | 5 docs (kickoff, plan, verification, audit_plan) + docs/security/ (README + THREAT_MODEL + RUNTIME_ISOLATION) |
+| 16 | DONE + CONDITIONAL PASS levé | `8e6fa35` (all 4 P1 closed) | 6 (Phase 0 gate + A-D + docs) + 5 (findings + C3 + D1 + C1/C2 + chore protocol + C4) | 6 docs (kickoff, plan, verification, audit_plan, audit_findings) + docs/security/ (README + THREAT_MODEL + RUNTIME_ISOLATION) |
 
 **Faits saillants** :
 
@@ -31,14 +31,33 @@ Pour le sprint en cours, voir
   caps W/VRAM/heures enforced worker-side via
   `should_accept_task` + `ConsentWatcher` (notify crate, 50 ms
   debounce) + usage.json daily counter reset minuit-local
-  (`3247e88`). ProjectAnnouncement v5 avec `is_open_source`
+  (`3247e88`). ProjectAnnouncement avec `is_open_source`
   derive automatiquement par le coordinator (true pour
   deploy-from-repo, false pour zip prive, non-user-settable
-  pattern npm provenance/cosign), backward compat v4 via
-  decoder tolerant (`10bbc63`). Threat model STRIDE + LINDDUN
-  livre dans `docs/security/` avec roadmap runtime isolation
-  WSL2 / Virtualization.framework / systemd-nspawn pour Sprint
-  17+. Compteurs : ~1136 tests (+~200 ce sprint).
+  pattern npm provenance/cosign) (`10bbc63`). Threat model
+  STRIDE + LINDDUN livre dans `docs/security/` avec roadmap
+  runtime isolation WSL2 / Virtualization.framework /
+  systemd-nspawn pour Sprint 17+.
+
+  **Audit gate joue en Phase 0 Sprint 17** (`0230589` findings) :
+  verdict CONDITIONAL PASS avec 4 P1 identifies et fermes :
+  - `795ebe9` C-3 : consent watcher fail-closed sur RwLock
+    poisoned (ajout `continue;` dans Err arm)
+  - `87cae71` D-1 : daemon `POST /publish` reject `is_open_source=true`
+    sans chaine provenance (bypass non-user-settable casse par
+    bearer-holder local)
+  - `1aa6fed` C-1/C-2 : wire `is_open_source` + `estimated_watts`
+    + `estimated_vram_mb` + `estimated_hours` end-to-end via
+    Task canonical schema + runtime.rs lit directement
+  - `d1e6971` chore(protocol) : drop pre-launch backward-compat
+    scaffolding (PA_VERSION 5→1, decoder v==1 only, 6 tests
+    zombies supprimes). Politique pre-launch codifiee dans
+    CLAUDE.md §Pre-launch protocol policy.
+  - `8e6fa35` C-4 : watcher preserve state sur `consent.json`
+    remove (log + garde in-memory au lieu de silent revert L1).
+
+  Compteurs finals : 430 Rust / 187 coord / 183 SDK / 46 gov /
+  239 vitest / 38 Playwright / 7/7 size / 246+ SPDX (~1128 tests).
 
 Detail : [`.planning/archive/v1.2/`](../../.planning/archive/v1.2/).
 
