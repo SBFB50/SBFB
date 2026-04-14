@@ -35,6 +35,7 @@ use std::time::SystemTime;
 
 use anyhow::{anyhow, Context, Result};
 use nexus_core_rs::{create_node, GossipClient, GossipEvent, Node};
+use nexus_shell_daemon_core::auth;
 use nexus_shell_daemon_core::browse::{
     BrowseAggregator, BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
 };
@@ -234,7 +235,25 @@ impl DaemonRuntime {
                 nexus_shell_daemon_core::blob_serve::DEFAULT_MAX_CACHE_ENTRIES,
             )),
         });
-        let router = build_router(http_state);
+        // Sprint 16 Phase A (D1): load the loopback bearer token.
+        // The launcher generates it at first boot; if we are being
+        // started directly (cargo run, tests, packaging without a
+        // launcher), generate + persist one ourselves so the
+        // shell binary can hit a clean daemon stand-alone.
+        //
+        // `SBFB_AUTH_TOKEN` env wins over the file so integration
+        // tests can inject a known token without touching disk.
+        let token = if let Ok(t) = std::env::var(auth::AUTH_TOKEN_ENV) {
+            if t.is_empty() {
+                resolve_token_from_disk()?
+            } else {
+                t
+            }
+        } else {
+            resolve_token_from_disk()?
+        };
+
+        let router = build_router(http_state, token);
 
         let (http_shutdown_tx, http_shutdown_rx) = oneshot::channel::<()>();
         let http_handle = tokio::spawn(async move {
@@ -354,6 +373,19 @@ impl DaemonRuntime {
         info!("shell daemon shutdown complete");
         Ok(())
     }
+}
+
+/// Resolve the bearer token from `~/.sbfb/auth_token`, generating
+/// and persisting one if the file does not exist.
+fn resolve_token_from_disk() -> Result<String> {
+    let path = auth::auth_token_path()
+        .ok_or_else(|| anyhow!("could not resolve ~/.sbfb/auth_token path for this platform"))?;
+    auth::load_or_generate_token(&path).with_context(|| {
+        format!(
+            "failed to load or generate auth token at {}",
+            path.display()
+        )
+    })
 }
 
 impl Drop for DaemonRuntime {

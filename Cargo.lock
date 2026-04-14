@@ -3103,10 +3103,17 @@ dependencies = [
 name = "nexus-launcher"
 version = "1.0.0"
 dependencies = [
+ "anyhow",
+ "axum",
+ "libc",
+ "nexus-shell-daemon-core",
  "open",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -3139,6 +3146,7 @@ name = "nexus-shell-daemon-core"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "axum",
  "blake3",
  "dashmap",
  "directories",
@@ -3146,6 +3154,7 @@ dependencies = [
  "iroh",
  "iroh-blobs",
  "nexus-core-rs",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "sysinfo",
@@ -3154,6 +3163,7 @@ dependencies = [
  "time",
  "tokio",
  "toml",
+ "tower",
  "tracing",
  "zip",
 ]

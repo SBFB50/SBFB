@@ -22,6 +22,14 @@ export const TEST_COORD_URL = "http://127.0.0.1:18765";
 export const TEST_COORD_NAME = "pw-demo";
 const STATE_FILE = resolve(__dirname, ".playwright-state.json");
 
+/** Sprint 16 Phase A (D1): fixed 64-char hex token shared by the
+ *  coordinator subprocess and the Playwright page. Hard-coded so
+ *  each `test.beforeEach` in a spec can `addInitScript` it into
+ *  `window.__SBFB_AUTH_TOKEN` without round-tripping through the
+ *  state file. */
+export const TEST_AUTH_TOKEN =
+  "deadbeefcafebabefeedfaceabadc0de0123456789abcdef0123456789abcdef";
+
 async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError: string = "";
@@ -55,6 +63,7 @@ async function initProject(gridRoot: string): Promise<void> {
         env: {
         ...process.env,
         NEXUS_GRID_ROOT: gridRoot,
+        SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN,
         // Force Rich / structlog to write utf-8 so the checkmark
         // Rich prints in `init` success output does not crash the
         // subprocess on a Windows cp1252 code page.
@@ -108,6 +117,7 @@ async function globalSetup() {
       env: {
         ...process.env,
         NEXUS_GRID_ROOT: gridRoot,
+        SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN,
         // Force Rich / structlog to write utf-8 so the checkmark
         // Rich prints in `init` success output does not crash the
         // subprocess on a Windows cp1252 code page.

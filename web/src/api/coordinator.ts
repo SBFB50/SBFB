@@ -15,6 +15,7 @@
 
 import { z } from "zod";
 
+import { authFetch } from "@/api/auth";
 import { TabViewSchema, type TabView } from "@/components/app/tabview/schema";
 
 // =================================================================
@@ -85,7 +86,7 @@ async function getJson<T>(
   init?: RequestInit,
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     ...init,
     headers: {
       accept: "application/json",
@@ -110,7 +111,7 @@ async function postJson<T>(
   schema: z.ZodType<T>,
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -135,7 +136,7 @@ async function deleteJson<T>(
   schema: z.ZodType<T>,
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     method: "DELETE",
     headers: { accept: "application/json" },
   });

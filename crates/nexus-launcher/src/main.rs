@@ -10,6 +10,8 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+mod auth;
+
 // =================================================================
 // running.json schema
 // =================================================================
@@ -156,6 +158,32 @@ async fn main() {
         running_path.display()
     );
 
+    // 0. Sprint 16 Phase A (D1): resolve the loopback bearer
+    //    token before anything else. Generates + persists
+    //    ~/.sbfb/auth_token on first boot, reuses the existing
+    //    file on subsequent runs. The daemon child will pick up
+    //    the same token either via the SBFB_AUTH_TOKEN env (set
+    //    below) or by reading the same file.
+    let token = match resolve_token_for_child() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("[launcher] failed to prepare auth token: {e}");
+            std::process::exit(1);
+        }
+    };
+    std::env::set_var(nexus_shell_daemon_core::auth::AUTH_TOKEN_ENV, &token);
+
+    let auth_server = match auth::AuthServer::start(token.clone()).await {
+        Ok(s) => {
+            println!("[launcher] auth server listening on {}", s.bound());
+            Some(s)
+        }
+        Err(e) => {
+            eprintln!("[launcher] failed to start auth server: {e}");
+            std::process::exit(1);
+        }
+    };
+
     // 1. Check if daemon already running (with stale detection).
     let mut spawned_child: Option<std::process::Child> = None;
     let info = if let Some(info) = read_running_info(&running_path) {
@@ -228,7 +256,24 @@ async fn main() {
         }
     }
 
+    // 7. Shut down the launcher auth server + remove launcher.json.
+    if let Some(server) = auth_server {
+        server.shutdown().await;
+    }
+
     println!("[launcher] goodbye");
+}
+
+/// Resolve the loopback bearer token: prefer an existing
+/// `~/.sbfb/auth_token`, otherwise generate a fresh 256-bit
+/// token and persist it at mode `0600` (Unix) / user-owned
+/// ACL (Windows).
+fn resolve_token_for_child() -> anyhow::Result<String> {
+    use anyhow::{anyhow, Context};
+    let path = nexus_shell_daemon_core::auth::auth_token_path()
+        .ok_or_else(|| anyhow!("cannot resolve ~/.sbfb/auth_token path for this platform"))?;
+    nexus_shell_daemon_core::auth::load_or_generate_token(&path)
+        .with_context(|| format!("load or generate auth token at {}", path.display()))
 }
 
 // =================================================================

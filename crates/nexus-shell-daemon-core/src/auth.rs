@@ -1,0 +1,557 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Loopback authentication primitives — bearer token, Host +
+//! Origin header allowlist, and the axum middleware layer that
+//! applies all three checks on every request except `/health`.
+//!
+//! Sprint 16 Phase A (D1 — defense en profondeur loopback).
+//!
+//! ## Three checks
+//!
+//! 1. `X-SBFB-Token: <hex>` must match the daemon's 256-bit
+//!    token, loaded from `~/.sbfb/auth_token` at boot.
+//! 2. `Host:` must resolve to a loopback name — `localhost`,
+//!    `127.0.0.1`, or `[::1]` — optionally with a port. Blocks
+//!    DNS rebinding (CVE-2025-49596 Anthropic MCP Inspector,
+//!    CVSS 9.4).
+//! 3. `Origin:` is either absent (CLI / curl) or a loopback
+//!    HTTP URL (the React shell served from `http://localhost:*`).
+//!    Blocks cross-origin fetches from malicious pages or
+//!    extensions with `host_permissions: "http://localhost/*"`.
+//!
+//! `/health` is exempted so a launcher probe or a monitoring
+//! loop does not need to know the token.
+//!
+//! The token is produced on first boot by `nexus-launcher`
+//! (see `crates/nexus-launcher/src/auth.rs`). The daemon and
+//! coordinator both read it from the same on-disk path on
+//! startup — rotation is a "delete the file, restart" flow,
+//! deliberately identical to BOINC, Jupyter, and Syncthing.
+
+use std::path::{Path, PathBuf};
+
+use axum::{
+    body::Body,
+    extract::{Request, State},
+    http::{HeaderValue, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
+
+/// Name of the HTTP header carrying the bearer token. Lowercase
+/// so axum `HeaderMap::get` matches regardless of the client's
+/// case (HTTP/2 lowercases everything, HTTP/1.1 is case-insensitive
+/// but axum stores names lowercased in `HeaderMap`).
+pub const AUTH_HEADER: &str = "x-sbfb-token";
+
+/// Environment variable the daemon / coordinator read at boot to
+/// discover a token written by the launcher. If unset, the
+/// daemon falls back to the `auth_token_path()` on disk.
+pub const AUTH_TOKEN_ENV: &str = "SBFB_AUTH_TOKEN";
+
+/// Length of the hex-encoded token (256 bits / 4 bits per hex
+/// char). Used by [`generate_token`] and by the validator to
+/// reject tokens of a wrong shape early.
+pub const TOKEN_HEX_LEN: usize = 64;
+
+// =================================================================
+// Paths
+// =================================================================
+
+/// Return the path to the `.sbfb` security root for the current
+/// user. Honours the `SBFB_HOME` env override so integration
+/// tests can redirect the token + consent + usage files at a
+/// throwaway directory without touching the developer's real
+/// `~/.sbfb/`.
+///
+/// Falls back to `$HOME/.sbfb` (Unix) or `%USERPROFILE%\.sbfb`
+/// (Windows). Returns `None` only on the rare platform where
+/// neither the override nor the home dir resolves.
+pub fn sbfb_home() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("SBFB_HOME") {
+        if !dir.is_empty() {
+            return Some(PathBuf::from(dir));
+        }
+    }
+    let home = std::env::var("HOME")
+        .ok()
+        .or_else(|| std::env::var("USERPROFILE").ok())?;
+    if home.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(home).join(".sbfb"))
+}
+
+/// Return `<sbfb_home>/auth_token` — the plaintext hex token
+/// the launcher writes at first boot.
+pub fn auth_token_path() -> Option<PathBuf> {
+    sbfb_home().map(|d| d.join("auth_token"))
+}
+
+// =================================================================
+// Token
+// =================================================================
+
+/// Generate a 256-bit token and return it hex-encoded (64 chars,
+/// lowercase). Uses `getrandom` through `rand::rngs::OsRng` for
+/// a CSPRNG.
+pub fn generate_token() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    hex::encode(bytes)
+}
+
+/// Load the token from `path`, or generate + persist one if the
+/// file is absent. Idempotent: a second call returns the same
+/// token. Writes are atomic (tempfile + rename).
+///
+/// ## Permissions
+///
+/// - Parent dir `<sbfb_home>` is created with mode `0700` on Unix.
+/// - File is written with mode `0600` on Unix.
+/// - On Windows the mode bits are ignored; the dir lives under
+///   `%USERPROFILE%` which has a default ACL restricting access
+///   to the logged-in user + admins. Full DACL hardening is
+///   Sprint 17+ (see `RUNTIME_ISOLATION.md`).
+pub fn load_or_generate_token(path: &Path) -> std::io::Result<String> {
+    if let Some(existing) = read_token_file(path)? {
+        return Ok(existing);
+    }
+
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "auth_token path has no parent",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
+    #[cfg(unix)]
+    set_mode(parent, 0o700)?;
+
+    let token = generate_token();
+    write_token_file(path, &token)?;
+    Ok(token)
+}
+
+fn read_token_file(path: &Path) -> std::io::Result<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(s) => {
+            let trimmed = s.trim().to_string();
+            if trimmed.len() == TOKEN_HEX_LEN && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+                Ok(Some(trimmed))
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "auth_token file exists but is malformed",
+                ))
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+fn write_token_file(path: &Path, token: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, token)?;
+    #[cfg(unix)]
+    set_mode(&tmp, 0o600)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let perms = std::fs::Permissions::from_mode(mode);
+    std::fs::set_permissions(path, perms)
+}
+
+// =================================================================
+// Header predicates
+// =================================================================
+
+/// Return `true` iff the `Host:` header value is a loopback
+/// host with an optional port: `localhost`, `127.0.0.1`, or
+/// `[::1]`, followed by an optional `:PORT` (u16).
+pub fn is_loopback_host(host: &str) -> bool {
+    let (host_only, port_opt) = if let Some(rest) = host.strip_prefix('[') {
+        // IPv6 literal: `[::1]` or `[::1]:PORT`
+        let close = rest.find(']').map(|i| i + 1);
+        match close {
+            Some(end) => {
+                let inside = &rest[..end - 1];
+                let tail = &host[end + 1..]; // skip leading '[' and trailing ']'
+                let port = tail.strip_prefix(':');
+                (inside, port)
+            }
+            None => return false,
+        }
+    } else {
+        match host.rsplit_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (host, None),
+        }
+    };
+
+    let host_ok = matches!(host_only, "localhost" | "127.0.0.1" | "::1");
+    if !host_ok {
+        return false;
+    }
+    if let Some(p) = port_opt {
+        if p.parse::<u16>().is_err() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Return `true` iff the `Origin:` header value is an HTTP
+/// loopback URL, optionally with a port, and no path. Reuses
+/// the same loopback name allowlist as [`is_loopback_host`].
+pub fn is_loopback_origin(origin: &str) -> bool {
+    let Some(rest) = origin.strip_prefix("http://") else {
+        return false;
+    };
+    // Accept `http://host` and `http://host:port` — nothing
+    // after the authority component.
+    let authority = rest.split('/').next().unwrap_or(rest);
+    if authority != rest {
+        return false;
+    }
+    is_loopback_host(authority)
+}
+
+// =================================================================
+// Middleware
+// =================================================================
+
+/// State injected into the axum middleware. Carries the
+/// expected token so every handler can share a single immutable
+/// value without re-reading the file on each request.
+#[derive(Debug, Clone)]
+pub struct AuthState {
+    pub token: String,
+}
+
+impl AuthState {
+    pub fn new(token: String) -> Self {
+        Self { token }
+    }
+}
+
+/// Axum middleware that enforces the triple check on every
+/// request except `/health`. Returns 401 on missing/wrong
+/// token, 403 on bad Host or bad Origin.
+pub async fn auth_required(
+    State(auth): State<AuthState>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    // Exemption: liveness probe bypasses auth. Kept explicit so
+    // the grep line in the threat model (Phase E) points at one
+    // obvious allowlist entry.
+    if req.uri().path() == "/health" {
+        return next.run(req).await;
+    }
+
+    // 1. Bearer token
+    let token_ok = req
+        .headers()
+        .get(AUTH_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|t| constant_time_eq(t.as_bytes(), auth.token.as_bytes()))
+        .unwrap_or(false);
+    if !token_ok {
+        return (StatusCode::UNAUTHORIZED, "missing or invalid token").into_response();
+    }
+
+    // 2. Host header allowlist (block DNS rebinding)
+    let host_ok = req
+        .headers()
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(is_loopback_host)
+        .unwrap_or(false);
+    if !host_ok {
+        return (StatusCode::FORBIDDEN, "host not allowed").into_response();
+    }
+
+    // 3. Origin check: absent is OK (CLI / curl), otherwise
+    //    must be a loopback http origin.
+    if let Some(origin) = req.headers().get(axum::http::header::ORIGIN) {
+        let ok = origin
+            .to_str()
+            .ok()
+            .map(is_loopback_origin)
+            .unwrap_or(false);
+        if !ok {
+            return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
+        }
+    }
+
+    next.run(req).await
+}
+
+/// Constant-time slice compare. The `subtle` crate would be
+/// preferable but avoiding a new dep for a 256-bit hex string
+/// is cheap enough here — we iterate the fixed length and or
+/// the differences.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Ergonomic helper: build a `HeaderValue` for the token header.
+/// Used by the daemon / coordinator tests and by the launcher's
+/// `/auth/token` handler response.
+pub fn header_value_for(token: &str) -> Option<HeaderValue> {
+    HeaderValue::from_str(token).ok()
+}
+
+// =================================================================
+// Tests
+// =================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::{
+        body::to_bytes,
+        http::{Request, StatusCode},
+        middleware,
+        routing::get,
+        Router,
+    };
+    use tower::ServiceExt;
+
+    fn build_router(token: &str) -> Router {
+        let auth = AuthState::new(token.to_string());
+        Router::new()
+            .route("/health", get(|| async { "ok" }))
+            .route("/protected", get(|| async { "secret" }))
+            .layer(middleware::from_fn_with_state(auth, auth_required))
+    }
+
+    async fn send(router: Router, req: Request<Body>) -> (StatusCode, String) {
+        let resp = router.oneshot(req).await.unwrap();
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body(), 1024).await.unwrap();
+        (status, String::from_utf8(bytes.to_vec()).unwrap())
+    }
+
+    #[tokio::test]
+    async fn health_is_public() {
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send(router, req).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn protected_rejects_missing_token() {
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/protected")
+            .header("host", "127.0.0.1:7777")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send(router, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn protected_rejects_wrong_token() {
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/protected")
+            .header(AUTH_HEADER, "feedface")
+            .header("host", "127.0.0.1:7777")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send(router, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn protected_accepts_token_host_and_no_origin() {
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/protected")
+            .header(AUTH_HEADER, "deadbeef")
+            .header("host", "127.0.0.1:7777")
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send(router, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "secret");
+    }
+
+    #[tokio::test]
+    async fn protected_accepts_localhost_host_and_loopback_origin() {
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/protected")
+            .header(AUTH_HEADER, "deadbeef")
+            .header("host", "localhost")
+            .header("origin", "http://localhost:5173")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send(router, req).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn protected_rejects_rebound_host() {
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/protected")
+            .header(AUTH_HEADER, "deadbeef")
+            .header("host", "attacker.com")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send(router, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn protected_rejects_cross_origin() {
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/protected")
+            .header(AUTH_HEADER, "deadbeef")
+            .header("host", "127.0.0.1:7777")
+            .header("origin", "https://attacker.com")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send(router, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn protected_rejects_https_loopback_origin() {
+        // https://localhost is NOT acceptable — daemon is http-only
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/protected")
+            .header(AUTH_HEADER, "deadbeef")
+            .header("host", "127.0.0.1:7777")
+            .header("origin", "https://localhost:5173")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send(router, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn ipv6_loopback_host_accepted() {
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/protected")
+            .header(AUTH_HEADER, "deadbeef")
+            .header("host", "[::1]:7777")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send(router, req).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[test]
+    fn token_generation_is_32_bytes_hex() {
+        let t = generate_token();
+        assert_eq!(t.len(), TOKEN_HEX_LEN);
+        assert!(t.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn load_or_generate_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".sbfb").join("auth_token");
+        let a = load_or_generate_token(&path).unwrap();
+        let b = load_or_generate_token(&path).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(a.len(), TOKEN_HEX_LEN);
+    }
+
+    #[test]
+    fn load_or_generate_rejects_malformed_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth_token");
+        std::fs::write(&path, "not-hex!!").unwrap();
+        let err = load_or_generate_token(&path).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_or_generate_sets_unix_perms() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".sbfb").join("auth_token");
+        let _ = load_or_generate_token(&path).unwrap();
+        let file_mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(file_mode, 0o600, "auth_token must be 0600");
+        let dir_mode = std::fs::metadata(path.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(dir_mode, 0o700, "parent dir must be 0700");
+    }
+
+    #[test]
+    fn is_loopback_host_matches_expected() {
+        assert!(is_loopback_host("localhost"));
+        assert!(is_loopback_host("localhost:7777"));
+        assert!(is_loopback_host("127.0.0.1"));
+        assert!(is_loopback_host("127.0.0.1:7777"));
+        assert!(is_loopback_host("[::1]"));
+        assert!(is_loopback_host("[::1]:7777"));
+        assert!(!is_loopback_host("attacker.com"));
+        assert!(!is_loopback_host("0.0.0.0"));
+        assert!(!is_loopback_host("example.com:7777"));
+        assert!(!is_loopback_host("localhost:not-a-port"));
+    }
+
+    #[test]
+    fn is_loopback_origin_matches_expected() {
+        assert!(is_loopback_origin("http://localhost"));
+        assert!(is_loopback_origin("http://localhost:5173"));
+        assert!(is_loopback_origin("http://127.0.0.1:8080"));
+        assert!(is_loopback_origin("http://[::1]:7777"));
+        assert!(!is_loopback_origin("https://localhost"));
+        assert!(!is_loopback_origin("http://attacker.com"));
+        assert!(!is_loopback_origin("http://localhost/path"));
+    }
+
+    #[test]
+    fn constant_time_eq_matches_slice_eq() {
+        assert!(constant_time_eq(b"", b""));
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+    }
+
+    #[test]
+    fn sbfb_home_honours_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::var("SBFB_HOME").ok();
+        std::env::set_var("SBFB_HOME", dir.path());
+        let home = sbfb_home().unwrap();
+        assert_eq!(home, dir.path());
+        match prev {
+            Some(v) => std::env::set_var("SBFB_HOME", v),
+            None => std::env::remove_var("SBFB_HOME"),
+        }
+    }
+}

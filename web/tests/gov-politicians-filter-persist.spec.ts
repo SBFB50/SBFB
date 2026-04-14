@@ -26,8 +26,15 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { primeAuthToken } from "../src/api/auth";
 import { setAppState } from "../src/api/coordinator";
-import { TEST_COORD_NAME, TEST_COORD_URL } from "./global-setup";
+import { TEST_AUTH_TOKEN, TEST_COORD_NAME, TEST_COORD_URL } from "./global-setup";
+
+// Sprint 16 Phase A (D1): seed the module-local token cache so
+// the Node-side `setAppState` call inside this spec injects the
+// loopback bearer on its fetch. `extraHTTPHeaders` from the
+// Playwright config applies to browser contexts only.
+primeAuthToken(TEST_AUTH_TOKEN);
 
 async function openPoliticiansTab(page: import("@playwright/test").Page) {
   await page.goto(`/project/${TEST_COORD_NAME}`);

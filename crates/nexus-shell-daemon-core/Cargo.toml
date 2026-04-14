@@ -92,6 +92,14 @@ thiserror = { workspace = true }
 # web apps and serve them file-by-file.
 zip = { workspace = true }
 
+# Sprint 16 Phase A (D1): loopback auth middleware lives in this
+# crate (headless engine), wired from the binary. Needs axum +
+# tower for the middleware layer and rand for the 256-bit token
+# CSPRNG. (hex + tracing already declared above.)
+axum = { workspace = true }
+tower = { workspace = true }
+rand = { workspace = true }
+
 # Deliberately excluded: clap, ratatui, crossterm, axum, tower,
 # tower-http. The shell-daemon has no TUI (headless-only per
 # Sprint 7 D1) and the HTTP server layer lives in the binary

@@ -28,6 +28,7 @@
 
 import { z } from "zod";
 
+import { authFetch } from "@/api/auth";
 import {
   CoordinatorHttpError,
   CoordinatorProtocolError,
@@ -245,7 +246,7 @@ async function callProxy<T>(
   const url = `${baseUrl}${path}`;
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await authFetch(url, {
       ...init,
       headers: {
         accept: "application/json",

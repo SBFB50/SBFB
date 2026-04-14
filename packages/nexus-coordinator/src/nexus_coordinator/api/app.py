@@ -16,6 +16,8 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from nexus_coordinator.auth import LoopbackAuthMiddleware, load_token
+
 if TYPE_CHECKING:
     from nexus_coordinator.coordinator import Coordinator
 
@@ -69,6 +71,24 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Sprint 16 Phase A (D1): loopback bearer + Host + Origin
+    # triple check. Added BEFORE the CORS middleware so that in
+    # Starlette's reverse middleware wrapping order, CORS ends up
+    # as the outer layer and can answer OPTIONS preflights (which
+    # carry no auth header by spec) without the auth layer
+    # intercepting them.
+    #
+    # Tests that construct the app directly (pytest, Starlette
+    # TestClient) must inject ``SBFB_AUTH_TOKEN`` via
+    # monkeypatch before calling :func:`create_app`.
+    token = load_token()
+    if token is None:
+        raise RuntimeError(
+            "loopback auth token missing — the launcher must set SBFB_AUTH_TOKEN "
+            "or persist ~/.sbfb/auth_token before starting the coordinator"
+        )
+    app.add_middleware(LoopbackAuthMiddleware, token=token)
+
     # Sprint 5 Phase B: allow the local shell (Vite dev server at
     # 127.0.0.1:5173, or any other loopback port while hacking
     # on the web/ app) to hit the coordinator from a different
@@ -78,6 +98,10 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     # the allow list to regex `http://(127\.0\.0\.1|localhost):\d+`
     # keeps the browser from exposing the endpoints to any
     # malicious site the user might visit.
+    #
+    # Added LAST so the CORS layer wraps the auth layer: OPTIONS
+    # preflight requests are answered directly by CORS, while
+    # real GET/POST/DELETE requests still traverse auth first.
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$",

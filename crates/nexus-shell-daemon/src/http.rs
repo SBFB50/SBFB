@@ -42,6 +42,7 @@ use axum::{
     Router,
 };
 use nexus_core_rs::{BlobsClient, Node, TopicSender};
+use nexus_shell_daemon_core::auth::{auth_required, AuthState};
 use nexus_shell_daemon_core::blob_serve::{self, BlobServeCache};
 use nexus_shell_daemon_core::browse::{
     BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
@@ -115,10 +116,25 @@ impl DaemonHttpState {
 }
 
 /// Build the axum [`Router`] carrying every Phase A + Phase C
-/// route. The caller hands us an [`Arc<DaemonHttpState>`]; the
-/// router clones it into each handler via the axum `State`
-/// extractor.
-pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
+/// route. The caller hands us an [`Arc<DaemonHttpState>`] plus
+/// the loopback bearer token; the router clones the state into
+/// each handler via the axum `State` extractor and applies the
+/// [`auth_required`] middleware on every non-public route.
+///
+/// ## Auth exemption (Sprint 16 Phase A)
+///
+/// Two route surfaces bypass the bearer/Host/Origin middleware:
+///
+/// - `GET /health` — liveness probe, reached by the launcher
+///   before it has the token.
+/// - `/blob-serve/:hash/*path` — served into a sandboxed iframe
+///   with CSP `connect-src 'none'` (Sprint 12 Phase A). The
+///   iframe cannot inject a custom header, and its Origin is
+///   `null` because the sandbox strips same-origin. The blob
+///   content is already public by construction (anyone on the
+///   P2P network can fetch the zip by hash), so exempting the
+///   route does not leak anything new.
+pub fn build_router(state: Arc<DaemonHttpState>, token: String) -> Router {
     // Sprint 13 Phase A (T37): blob-serve routes get a CSP
     // middleware that injects security headers on ALL responses
     // (200, 400, 404, 500) — not just the success path.
@@ -126,8 +142,16 @@ pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
         .route("/:hash/*path", get(blob_serve))
         .layer(middleware::from_fn(blob_serve_csp_middleware));
 
-    Router::new()
+    // Public routes: no bearer, no Host check, no Origin check.
+    let public_routes = Router::new()
         .route("/health", get(health))
+        .nest("/blob-serve", blob_serve_routes);
+
+    let auth_state = AuthState::new(token);
+
+    // Authenticated surface: every other route requires
+    // X-SBFB-Token + loopback Host + (absent or loopback) Origin.
+    let authed_routes = Router::new()
         .route("/info", get(info))
         .route("/curators", get(list_curators))
         .route("/curators/subscribe", post(subscribe_curator))
@@ -136,7 +160,11 @@ pub fn build_router(state: Arc<DaemonHttpState>) -> Router {
         .route("/publish", post(publish_project))
         .route("/publish-blob", post(publish_blob))
         .route("/default-curators", get(default_curators))
-        .nest("/blob-serve", blob_serve_routes)
+        .layer(middleware::from_fn_with_state(auth_state, auth_required));
+
+    Router::new()
+        .merge(public_routes)
+        .merge(authed_routes)
         .with_state(state)
         .layer(loopback_cors_layer())
 }
@@ -656,6 +684,45 @@ mod tests {
     use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
     use tower::ServiceExt;
 
+    /// Sprint 16 Phase A: known-valid bearer token used by every
+    /// test via [`build_test_router`]. 64-char lowercase hex,
+    /// the shape
+    /// [`nexus_shell_daemon_core::auth::load_or_generate_token`]
+    /// would produce but fixed so assertions stay deterministic.
+    const TEST_TOKEN: &str = "deadbeefcafebabefeedfaceabadc0de0123456789abcdef0123456789abcdef";
+
+    /// Canonicalized `X-SBFB-Token` header name for the test-only
+    /// layer below. Kept as a separate const because `HeaderMap`
+    /// wants a `HeaderName`, not a `&str`.
+    const AUTH_HEADER_NAME: axum::http::HeaderName =
+        axum::http::HeaderName::from_static("x-sbfb-token");
+
+    /// Build the production router plus an outer test-only layer
+    /// that injects `X-SBFB-Token` and a loopback `Host` on every
+    /// inbound request so the tests below can keep their one-liner
+    /// `Request::builder().uri(..)` shape without re-attaching
+    /// headers by hand 40+ times. Only the outermost layer is
+    /// synthetic — every route still runs the real
+    /// [`auth_required`] middleware, and the 401 / 403 paths are
+    /// covered by `auth::tests` in the core crate.
+    fn build_test_router(state: Arc<DaemonHttpState>) -> Router {
+        use axum::http::header::{HOST, ORIGIN};
+        use axum::http::HeaderValue;
+        build_router(state, TEST_TOKEN.to_string()).layer(middleware::from_fn(
+            |mut req: axum::extract::Request, next: middleware::Next| async move {
+                let h = req.headers_mut();
+                if !h.contains_key(AUTH_HEADER_NAME) {
+                    h.insert(AUTH_HEADER_NAME, HeaderValue::from_static(TEST_TOKEN));
+                }
+                if !h.contains_key(HOST) {
+                    h.insert(HOST, HeaderValue::from_static("127.0.0.1:0"));
+                }
+                h.remove(ORIGIN);
+                next.run(req).await
+            },
+        ))
+    }
+
     /// Build a [`DaemonHttpState`] backed by a live iroh node.
     /// Every HTTP test spins up a fresh node because the
     /// browse route reaches through the Arc<Node> to probe
@@ -682,7 +749,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_returns_200_with_fixed_shape() {
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -704,7 +771,7 @@ mod tests {
 
     #[tokio::test]
     async fn info_returns_full_snapshot() {
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -730,7 +797,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_route_returns_404() {
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -746,7 +813,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_curators_returns_empty_when_nothing_cached() {
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -767,7 +834,7 @@ mod tests {
     #[tokio::test]
     async fn subscribe_then_list_then_delete_happy_path() {
         let state = mk_state().await;
-        let app = build_router(Arc::clone(&state));
+        let app = build_test_router(Arc::clone(&state));
         let kp = KeyPair::generate();
         let hex_key = hex::encode(kp.public_bytes());
 
@@ -844,7 +911,7 @@ mod tests {
         // to mask those bugs for a full release cycle — the
         // tightened contract turns them into a first-commit
         // failure instead.
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let body: Vec<u8> = br#"{"curator_pubkey_hex":"aa","evil_field":"surprise"}"#.to_vec();
         let resp = app
             .oneshot(
@@ -871,7 +938,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_rejects_bad_pubkey_hex_as_400() {
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let body = serde_json::to_vec(&SubscribeCuratorRequest {
             curator_pubkey_hex: "not-hex".to_string(),
         })
@@ -899,7 +966,7 @@ mod tests {
             .subscribe(&hex::encode(kp.public_bytes()))
             .unwrap();
 
-        let app = build_router(Arc::clone(&state));
+        let app = build_test_router(Arc::clone(&state));
         let resp = app
             .oneshot(
                 Request::builder()
@@ -923,7 +990,7 @@ mod tests {
         // `{"entries": []}` at 200. The full Reachable/Unreachable
         // behaviour is covered by the 2-node integration tests
         // in `browse::tests::aggregate_probes_seeded_peer_*`.
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -946,7 +1013,7 @@ mod tests {
         // to the browse aggregator and returns published=true.
         // Gossip broadcast is skipped (sender is None in tests).
         let state = mk_state().await;
-        let app = build_router(Arc::clone(&state));
+        let app = build_test_router(Arc::clone(&state));
 
         let body = serde_json::to_vec(&PublishRequest {
             project_name: "gov-officiel".into(),
@@ -1044,7 +1111,7 @@ mod tests {
 
     #[tokio::test]
     async fn default_curators_returns_empty_when_unconfigured() {
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -1078,7 +1145,7 @@ mod tests {
             default_curators: vec![curator_hex.clone()],
             blob_serve_cache: Arc::new(BlobServeCache::new(8)),
         });
-        let app = build_router(state);
+        let app = build_test_router(state);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -1117,7 +1184,7 @@ mod tests {
     #[tokio::test]
     async fn publish_blob_stores_and_returns_hash() {
         let state = mk_state().await;
-        let app = build_router(Arc::clone(&state));
+        let app = build_test_router(Arc::clone(&state));
         let zip_bytes = make_zip(&[("index.html", b"<h1>Hello</h1>")]);
 
         let resp = app
@@ -1140,7 +1207,7 @@ mod tests {
     #[tokio::test]
     async fn blob_serve_returns_file_from_cached_zip() {
         let state = mk_state().await;
-        let app = build_router(Arc::clone(&state));
+        let app = build_test_router(Arc::clone(&state));
 
         // First, store a zip blob.
         let zip_bytes = make_zip(&[
@@ -1211,7 +1278,7 @@ mod tests {
 
     #[tokio::test]
     async fn blob_serve_returns_404_for_unknown_hash() {
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -1230,7 +1297,7 @@ mod tests {
         // Sprint 12 Phase D: POST /publish with archive_hash
         // sets archive_hash on the browse entry visible in /browse.
         let state = mk_state().await;
-        let app = build_router(Arc::clone(&state));
+        let app = build_test_router(Arc::clone(&state));
 
         // Store a blob first.
         let zip_bytes = make_zip(&[("index.html", b"<h1>Hi</h1>")]);
@@ -1288,7 +1355,7 @@ mod tests {
 
     #[tokio::test]
     async fn blob_serve_rejects_path_traversal() {
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -1315,7 +1382,7 @@ mod tests {
     /// just the 200 success path.
     #[tokio::test]
     async fn blob_serve_error_responses_have_csp() {
-        let app = build_router(mk_state().await);
+        let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
                 Request::builder()

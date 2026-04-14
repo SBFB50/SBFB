@@ -17,8 +17,64 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterator
 
+import httpx
 import pytest
+from fastapi.testclient import TestClient
+from nexus_coordinator import auth as _auth
 from nexus_coordinator import paths as _paths
+
+# Sprint 16 Phase A (D1): a known-valid 64-char hex token so the
+# tests that boot the FastAPI factory can pass the loopback auth
+# middleware without touching disk. Shape chosen to be visually
+# distinct from a real cryptographic token.
+_TEST_AUTH_TOKEN = "deadbeefcafebabefeedfaceabadc0de0123456789abcdef0123456789abcdef"
+
+
+@pytest.fixture(autouse=True)
+def _inject_loopback_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Autouse fixture: publish a known token + pre-attach the
+    ``X-SBFB-Token`` and ``Host`` headers to every TestClient.
+
+    We monkeypatch the ``__init__`` of :class:`TestClient` so any
+    test that builds a client via the stock
+    ``TestClient(create_app(...))`` call gets the bearer for free.
+    Tests that deliberately probe the 401/403 paths override the
+    headers on their client via ``client.headers.pop(...)``.
+    """
+    monkeypatch.setenv(_auth.AUTH_TOKEN_ENV, _TEST_AUTH_TOKEN)
+
+    original_tc_init = TestClient.__init__
+
+    def patched_tc_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        # Default the TestClient base URL to a loopback host so
+        # httpx emits `Host: 127.0.0.1` automatically — passes
+        # LoopbackAuthMiddleware.is_loopback_host() without any
+        # per-test header plumbing.
+        kwargs.setdefault("base_url", "http://127.0.0.1")
+        original_tc_init(self, *args, **kwargs)
+        self.headers.setdefault(_auth.AUTH_HEADER, _TEST_AUTH_TOKEN)
+
+    monkeypatch.setattr(TestClient, "__init__", patched_tc_init)
+
+    # Same story for tests that build an ``httpx.AsyncClient``
+    # directly with an ASGI transport (e.g. ``test_files.py``).
+    # The monkeypatch rewrites the default ``base_url`` to a
+    # loopback host and injects the bearer header, so existing
+    # tests keep working without modification.
+    original_ac_init = httpx.AsyncClient.__init__
+
+    def patched_ac_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if kwargs.get("base_url") in (None, "http://testserver"):
+            kwargs["base_url"] = "http://127.0.0.1"
+        existing_headers = kwargs.get("headers") or {}
+        merged = dict(existing_headers)
+        merged.setdefault(_auth.AUTH_HEADER, _TEST_AUTH_TOKEN)
+        kwargs["headers"] = merged
+        original_ac_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_ac_init)
 
 
 @pytest.fixture

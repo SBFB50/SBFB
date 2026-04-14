@@ -16,3 +16,22 @@ open = "5"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+
+# Sprint 16 Phase A (D1): bearer token + auth HTTP server.
+# Reuses nexus-shell-daemon-core::auth for the token generation
+# and the loopback host/origin predicates so the launcher and
+# daemon share exactly one validation surface.
+nexus-shell-daemon-core = { path = "../nexus-shell-daemon-core" }
+axum = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+# Unix-only: used by the graceful SIGTERM shutdown path in
+# `main.rs`. Kept out of the Windows target so the dependency
+# doesn't balloon the Win32 build.
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3.12"
+url = { workspace = true }
