@@ -3124,6 +3124,8 @@ dependencies = [
  "axum",
  "clap",
  "hex",
+ "hyper",
+ "hyper-util",
  "iroh-blobs",
  "libc",
  "nexus-core-rs",
@@ -3138,6 +3140,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "windows 0.57.0",
  "zip",
 ]
 

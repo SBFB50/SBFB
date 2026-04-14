@@ -43,6 +43,29 @@ use tokio::sync::oneshot;
 /// launcher design doc naming convention (`launcher.json`).
 pub const LAUNCHER_JSON_NAME: &str = "launcher.json";
 
+/// Sprint 16 Phase B (D2): make sure `~/.sbfb/run/` exists before
+/// the daemon and coordinator try to bind their UDS sockets in
+/// it. Mode `0700` on Unix; on Windows the dir lives in the user
+/// profile and inherits the user-only ACL, plus the kernel
+/// Named Pipe namespace ignores filesystem layout for pipe
+/// names — but we still create the dir for symmetry so a future
+/// CLI command can drop a per-process state file there.
+///
+/// Idempotent: existing dir is kept, mode is re-applied.
+pub fn ensure_run_dir() -> Result<PathBuf> {
+    let dir = core_auth::sbfb_run_dir()
+        .ok_or_else(|| anyhow!("cannot resolve ~/.sbfb/run path for this platform"))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("create_dir_all {}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o700);
+        std::fs::set_permissions(&dir, perms)
+            .with_context(|| format!("set 0700 on {}", dir.display()))?;
+    }
+    Ok(dir)
+}
+
 /// Shape of `~/.sbfb/launcher.json`. Pinned so a future launcher
 /// version can extend it without breaking the shell parser.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -262,6 +285,32 @@ mod tests {
                 None => std::env::remove_var("SBFB_HOME"),
             }
         }
+    }
+
+    #[test]
+    fn ensure_run_dir_creates_path_idempotently() {
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = SbfbHomeGuard::new(dir.path());
+
+        let run = ensure_run_dir().unwrap();
+        assert!(run.exists(), "run dir must exist after first call");
+        assert_eq!(run, dir.path().join("run"));
+
+        // Second call is a no-op: same path, no error.
+        let run2 = ensure_run_dir().unwrap();
+        assert_eq!(run, run2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_run_dir_sets_mode_0700_on_unix() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = SbfbHomeGuard::new(dir.path());
+
+        let run = ensure_run_dir().unwrap();
+        let mode = std::fs::metadata(&run).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "run dir must be 0700 on Unix");
     }
 
     #[test]

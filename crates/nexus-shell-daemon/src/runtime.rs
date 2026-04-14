@@ -95,6 +95,12 @@ pub struct DaemonRuntime {
     http_shutdown: Option<oneshot::Sender<()>>,
     gossip_handle: JoinHandle<()>,
     gossip_shutdown: Option<oneshot::Sender<()>>,
+    /// Sprint 16 Phase B (D2): UDS (Unix) or Named Pipe (Windows)
+    /// accept loop running beside the TCP listener. `None` only
+    /// when the bind failed at boot — the daemon then runs with
+    /// TCP-only loopback (warn already logged).
+    peer_handle: Option<JoinHandle<()>>,
+    peer_shutdown: Option<oneshot::Sender<()>>,
     bound_addr: std::net::SocketAddr,
 }
 
@@ -255,6 +261,16 @@ impl DaemonRuntime {
 
         let router = build_router(http_state, token);
 
+        // 6a. Sprint 16 Phase B (D2): spawn the UDS / Named Pipe
+        //     accept loop on a clone of the same router. The
+        //     accept loop wraps the cloned router with the
+        //     `PeerCredsVerified` extension layer so the auth
+        //     middleware bypasses bearer + Host + Origin for
+        //     kernel-authenticated peers. The TCP listener spawned
+        //     just below keeps the strict triple-check for browser
+        //     traffic.
+        let (peer_handle, peer_shutdown) = spawn_peer_listener(router.clone());
+
         let (http_shutdown_tx, http_shutdown_rx) = oneshot::channel::<()>();
         let http_handle = tokio::spawn(async move {
             let serve = axum::serve(listener, router).with_graceful_shutdown(async move {
@@ -286,6 +302,8 @@ impl DaemonRuntime {
             http_shutdown: Some(http_shutdown_tx),
             gossip_handle,
             gossip_shutdown: Some(gossip_shutdown_tx),
+            peer_handle,
+            peer_shutdown,
             bound_addr,
         })
     }
@@ -339,6 +357,18 @@ impl DaemonRuntime {
         }
         if let Err(e) = (&mut self.gossip_handle).await {
             warn!(error = %e, "gossip subscribe task join failed");
+        }
+
+        // Sprint 16 Phase B: signal + join the UDS / Named Pipe
+        // accept loop before the TCP serve so an in-flight
+        // peer-creds connection finishes draining first.
+        if let Some(tx) = self.peer_shutdown.take() {
+            let _ = tx.send(());
+        }
+        if let Some(mut handle) = self.peer_handle.take() {
+            if let Err(e) = (&mut handle).await {
+                warn!(error = %e, "peer (UDS / NP) accept task join failed");
+            }
         }
 
         if let Some(tx) = self.http_shutdown.take() {
@@ -398,6 +428,57 @@ impl Drop for DaemonRuntime {
         if Path::new(&self.running_json).exists() {
             remove_running(&self.running_json);
         }
+    }
+}
+
+// =================================================================
+// Peer (UDS / Named Pipe) accept loop
+// =================================================================
+
+/// Sprint 16 Phase B (D2): spawn the UDS (Unix) or Named Pipe
+/// (Windows) accept loop on `router`. Returns `(None, None)` if
+/// the bind fails — the daemon then falls back to TCP-only
+/// loopback (with the bearer token still required), and the
+/// failure is logged.
+///
+/// The router is consumed (cloned by the caller before the call
+/// when the original is needed for TCP serving).
+fn spawn_peer_listener(
+    router: axum::Router,
+) -> (Option<JoinHandle<()>>, Option<oneshot::Sender<()>>) {
+    #[cfg(unix)]
+    {
+        let path = match crate::uds_server::resolve_socket_path() {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(error = %e, "could not resolve UDS path; UDS listener disabled");
+                return (None, None);
+            }
+        };
+        match crate::uds_server::spawn(router, path) {
+            Ok((handle, tx)) => (Some(handle), Some(tx)),
+            Err(e) => {
+                warn!(error = %e, "UDS listener bind failed; daemon runs TCP-only with bearer auth");
+                (None, None)
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        let pipe_name = crate::named_pipe_server::resolve_pipe_name();
+        match crate::named_pipe_server::spawn(router, pipe_name) {
+            Ok((handle, tx)) => (Some(handle), Some(tx)),
+            Err(e) => {
+                warn!(error = %e, "Named Pipe listener bind failed; daemon runs TCP-only with bearer auth");
+                (None, None)
+            }
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = router;
+        warn!("no UDS/Named Pipe support on this platform; daemon runs TCP-only");
+        (None, None)
     }
 }
 

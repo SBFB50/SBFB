@@ -173,6 +173,17 @@ async fn main() {
     };
     std::env::set_var(nexus_shell_daemon_core::auth::AUTH_TOKEN_ENV, &token);
 
+    // 0b. Sprint 16 Phase B (D2): create ~/.sbfb/run/ at mode 0700
+    //     so the daemon can drop daemon.sock there and the
+    //     coordinator can drop coordinator.sock. On Windows the
+    //     dir lives in the user profile and inherits the user
+    //     ACL; the kernel Named Pipe namespace ignores filesystem
+    //     paths, but we still create the dir for symmetry.
+    if let Err(e) = auth::ensure_run_dir() {
+        eprintln!("[launcher] failed to prepare ~/.sbfb/run/: {e}");
+        std::process::exit(1);
+    }
+
     let auth_server = match auth::AuthServer::start(token.clone()).await {
         Ok(s) => {
             println!("[launcher] auth server listening on {}", s.bound());

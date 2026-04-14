@@ -87,6 +87,47 @@ pub fn auth_token_path() -> Option<PathBuf> {
     sbfb_home().map(|d| d.join("auth_token"))
 }
 
+/// Return `<sbfb_home>/run` — the directory that holds Unix
+/// Domain Sockets on Linux/macOS. Created with mode `0700` by the
+/// launcher at boot (Sprint 16 Phase B). Windows uses kernel
+/// Named Pipes instead so the directory is never read on that
+/// platform, but the helper still resolves to a stable path so
+/// Windows-only tests can opt into a tempdir-backed path under
+/// `SBFB_HOME`.
+pub fn sbfb_run_dir() -> Option<PathBuf> {
+    sbfb_home().map(|d| d.join("run"))
+}
+
+/// Return the Unix Domain Socket path the daemon binds when
+/// running on Unix. `None` only on platforms where neither
+/// `SBFB_HOME` nor a home dir resolves.
+pub fn daemon_socket_path() -> Option<PathBuf> {
+    sbfb_run_dir().map(|d| d.join("daemon.sock"))
+}
+
+/// Return the Unix Domain Socket path the coordinator binds when
+/// running on Unix.
+pub fn coordinator_socket_path() -> Option<PathBuf> {
+    sbfb_run_dir().map(|d| d.join("coordinator.sock"))
+}
+
+/// Windows Named Pipe name the daemon binds when running on
+/// Windows. The `\\.\pipe\` prefix is the kernel Named Pipe
+/// namespace; `sbfb-daemon` is the per-application leaf. Tests
+/// override the leaf via `SBFB_PIPE_SUFFIX` so two cargo test
+/// runs do not collide on the same pipe name.
+pub fn daemon_pipe_name() -> String {
+    let suffix = std::env::var("SBFB_PIPE_SUFFIX").unwrap_or_default();
+    format!(r"\\.\pipe\sbfb-daemon{suffix}")
+}
+
+/// Windows Named Pipe name the coordinator binds when running on
+/// Windows.
+pub fn coordinator_pipe_name() -> String {
+    let suffix = std::env::var("SBFB_PIPE_SUFFIX").unwrap_or_default();
+    format!(r"\\.\pipe\sbfb-coordinator{suffix}")
+}
+
 // =================================================================
 // Token
 // =================================================================
@@ -240,9 +281,29 @@ impl AuthState {
     }
 }
 
+/// Marker injected by the UDS / Named Pipe accept loop into the
+/// request extensions when the OS-level peer credentials match
+/// the current user (SO_PEERCRED on Unix, DACL-restricted Named
+/// Pipe ACL on Windows). When present, [`auth_required`]
+/// bypasses the bearer + Host + Origin checks because the
+/// kernel has already authenticated the peer.
+///
+/// Sprint 16 Phase B (D2 — defense en profondeur).
+#[derive(Debug, Clone, Copy)]
+pub struct PeerCredsVerified;
+
 /// Axum middleware that enforces the triple check on every
 /// request except `/health`. Returns 401 on missing/wrong
 /// token, 403 on bad Host or bad Origin.
+///
+/// ## Bypass for trusted peers
+///
+/// If the request carries a [`PeerCredsVerified`] extension —
+/// injected by the UDS / Named Pipe accept loop after the
+/// kernel has authenticated the peer — the middleware skips
+/// every header-based check. This lets the CLI and other local
+/// processes connect via UDS/NP without reading the bearer
+/// token file, while the TCP path stays guarded for the browser.
 pub async fn auth_required(
     State(auth): State<AuthState>,
     req: Request<Body>,
@@ -252,6 +313,15 @@ pub async fn auth_required(
     // the grep line in the threat model (Phase E) points at one
     // obvious allowlist entry.
     if req.uri().path() == "/health" {
+        return next.run(req).await;
+    }
+
+    // Bypass for UDS / Named Pipe connections that the accept
+    // loop has already authenticated via peer credentials. The
+    // marker is a private type — a malicious caller cannot inject
+    // it from over the wire because axum strips request
+    // extensions on the public Request type.
+    if req.extensions().get::<PeerCredsVerified>().is_some() {
         return next.run(req).await;
     }
 
@@ -553,5 +623,86 @@ mod tests {
             Some(v) => std::env::set_var("SBFB_HOME", v),
             None => std::env::remove_var("SBFB_HOME"),
         }
+    }
+
+    #[test]
+    fn run_dir_paths_resolve_under_sbfb_home() {
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::var("SBFB_HOME").ok();
+        std::env::set_var("SBFB_HOME", dir.path());
+
+        let run = sbfb_run_dir().unwrap();
+        assert_eq!(run, dir.path().join("run"));
+        let dsock = daemon_socket_path().unwrap();
+        assert_eq!(dsock, dir.path().join("run").join("daemon.sock"));
+        let csock = coordinator_socket_path().unwrap();
+        assert_eq!(csock, dir.path().join("run").join("coordinator.sock"));
+
+        match prev {
+            Some(v) => std::env::set_var("SBFB_HOME", v),
+            None => std::env::remove_var("SBFB_HOME"),
+        }
+    }
+
+    #[test]
+    fn windows_pipe_names_have_kernel_prefix() {
+        // Suffix override is used by the daemon's named pipe tests
+        // to avoid collisions with a real running daemon. The
+        // production path keeps the leaf stable.
+        let prev = std::env::var("SBFB_PIPE_SUFFIX").ok();
+        std::env::remove_var("SBFB_PIPE_SUFFIX");
+
+        let d = daemon_pipe_name();
+        assert_eq!(d, r"\\.\pipe\sbfb-daemon");
+        let c = coordinator_pipe_name();
+        assert_eq!(c, r"\\.\pipe\sbfb-coordinator");
+
+        std::env::set_var("SBFB_PIPE_SUFFIX", "-test123");
+        assert_eq!(daemon_pipe_name(), r"\\.\pipe\sbfb-daemon-test123");
+
+        match prev {
+            Some(v) => std::env::set_var("SBFB_PIPE_SUFFIX", v),
+            None => std::env::remove_var("SBFB_PIPE_SUFFIX"),
+        }
+    }
+
+    #[tokio::test]
+    async fn peer_creds_marker_bypasses_bearer() {
+        // A request with no token but a PeerCredsVerified extension
+        // must reach the handler — it represents a UDS / Named Pipe
+        // connection that the kernel has already authenticated.
+        async fn inject_marker(mut req: Request<Body>, next: Next) -> Response {
+            req.extensions_mut().insert(PeerCredsVerified);
+            next.run(req).await
+        }
+        let auth = AuthState::new("deadbeef".to_string());
+        let router: Router = Router::new()
+            .route("/protected", get(|| async { "secret" }))
+            .layer(middleware::from_fn_with_state(auth.clone(), auth_required))
+            .layer(middleware::from_fn(inject_marker));
+        let req = Request::builder()
+            .uri("/protected")
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send(router, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "secret");
+    }
+
+    #[tokio::test]
+    async fn peer_creds_marker_does_not_leak_via_http() {
+        // A client cannot inject the marker by sending a header —
+        // the bypass relies on a private type added to the request
+        // extensions by the accept loop, which the wire format
+        // cannot carry.
+        let router = build_router("deadbeef");
+        let req = Request::builder()
+            .uri("/protected")
+            .header("x-peer-creds-verified", "1") // attempted spoof
+            .header("host", "127.0.0.1:7777")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send(router, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 }

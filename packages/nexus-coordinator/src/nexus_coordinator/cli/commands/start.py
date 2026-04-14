@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
+import sys
+from pathlib import Path
 
 import structlog
 import typer
@@ -13,6 +16,7 @@ import uvicorn
 from rich.console import Console
 
 from nexus_coordinator.api.app import create_app
+from nexus_coordinator.auth import coordinator_socket_path, sbfb_run_dir
 from nexus_coordinator.coordinator import Coordinator
 from nexus_coordinator.paths import coord_config_path, project_dir
 from nexus_coordinator.registry import remove_running_state, write_running_state
@@ -98,6 +102,18 @@ async def _run(name: str, *, port: int | None, host: str | None) -> None:
     )
     server = uvicorn.Server(server_config)
 
+    # Sprint 16 Phase B (D2): bind a parallel UDS server on
+    # Linux/macOS at ~/.sbfb/run/coordinator.sock with mode 0600.
+    # The bearer token middleware still runs over UDS — uvicorn's
+    # ASGI scope does not expose the connection FD so the
+    # SO_PEERCRED bypass equivalent to the Rust daemon's UDS path
+    # is deferred to Sprint 17 (cf. R3 in sprint16_plan.md).
+    # File-mode 0600 + parent dir 0700 are the gate.
+    # Windows: deferred to Sprint 17 — the Named Pipe DACL path
+    # would require a Rust side-car or pywin32 (R3 decision
+    # documented in the Phase B kickoff §D2 implications).
+    uds_server, uds_path = _maybe_build_uds_server(app, log)
+
     stop_event = asyncio.Event()
 
     def _signal_handler() -> None:
@@ -114,13 +130,19 @@ async def _run(name: str, *, port: int | None, host: str | None) -> None:
             pass
 
     server_task = asyncio.create_task(server.serve(), name="uvicorn-server")
+    uds_task: asyncio.Task[None] | None = None
+    if uds_server is not None:
+        uds_task = asyncio.create_task(uds_server.serve(), name="uvicorn-server-uds")
 
     try:
         # Race the uvicorn task vs the stop event; whichever fires
         # first drives the shutdown path.
         stopper = asyncio.create_task(stop_event.wait(), name="stop-waiter")
+        watch_set: set[asyncio.Task[object]] = {server_task, stopper}
+        if uds_task is not None:
+            watch_set.add(uds_task)
         done, pending = await asyncio.wait(
-            {server_task, stopper},
+            watch_set,
             return_when=asyncio.FIRST_COMPLETED,
         )
         for task in pending:
@@ -129,15 +151,88 @@ async def _run(name: str, *, port: int | None, host: str | None) -> None:
         pass
     finally:
         server.should_exit = True
+        if uds_server is not None:
+            uds_server.should_exit = True
         try:
             await asyncio.wait_for(server_task, timeout=5)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             server_task.cancel()
+        if uds_task is not None:
+            try:
+                await asyncio.wait_for(uds_task, timeout=5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                uds_task.cancel()
+        if uds_path is not None and uds_path.exists():
+            try:
+                uds_path.unlink()
+            except OSError:
+                pass  # best-effort cleanup
         await coord.stop()
         # Sprint 5 Phase A D1: best-effort running.json removal.
         # Crashes before this point leave the file behind; the
         # shell detects those via /health roundtrip.
         remove_running_state(name)
+
+
+def _maybe_build_uds_server(
+    app: object,
+    log: structlog.BoundLogger,
+) -> tuple[uvicorn.Server | None, Path | None]:
+    """Return ``(server, sock_path)`` for the parallel UDS uvicorn
+    on Linux/macOS, or ``(None, None)`` on Windows / when no path
+    can be resolved. Sprint 16 Phase B (D2).
+    """
+    if sys.platform not in ("linux", "darwin", "freebsd"):
+        return None, None
+    sock_path = coordinator_socket_path()
+    if sock_path is None:
+        log.warning("could not resolve coordinator UDS path; UDS server disabled")
+        return None, None
+
+    run_dir = sbfb_run_dir()
+    if run_dir is not None:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(run_dir, 0o700)
+        except OSError as e:  # pragma: no cover — non-fatal
+            log.warning("failed to chmod run dir 0700", path=str(run_dir), error=str(e))
+
+    if sock_path.exists():
+        try:
+            sock_path.unlink()
+        except OSError as e:
+            log.warning("could not remove stale UDS socket", path=str(sock_path), error=str(e))
+            return None, None
+
+    config = uvicorn.Config(
+        app=app,
+        uds=str(sock_path),
+        log_config=None,
+        access_log=False,
+    )
+    server = uvicorn.Server(config)
+
+    # uvicorn binds the socket inside `serve()` (lifespan). chmod
+    # the socket file once it appears: schedule a tiny background
+    # task that polls for the socket's existence and applies 0600.
+    async def _chmod_when_bound() -> None:
+        for _ in range(50):  # ~5 seconds total
+            if sock_path.exists():
+                try:
+                    os.chmod(sock_path, 0o600)
+                except OSError as e:  # pragma: no cover
+                    log.warning(
+                        "failed to chmod UDS socket 0600",
+                        path=str(sock_path),
+                        error=str(e),
+                    )
+                return
+            await asyncio.sleep(0.1)
+        log.warning("UDS socket did not appear within 5s; skipping chmod", path=str(sock_path))
+
+    asyncio.get_event_loop().create_task(_chmod_when_bound(), name="uds-chmod")
+    log.info("coordinator UDS server bound", path=str(sock_path))
+    return server, sock_path
 
 
 def _configure_logging() -> None:

@@ -60,6 +60,36 @@ hex = { workspace = true }
 # Sprint 12 Phase A: BlobTicket minting in the publish handler.
 iroh-blobs = { workspace = true }
 
+# Sprint 16 Phase B: hyper / hyper-util power the UDS (Unix) and
+# Named Pipe (Windows) accept loops, both of which sit beside
+# the TCP listener served by `axum::serve`. The Router stays the
+# source of truth — `TowerToHyperService` bridges it into
+# `auto::Builder::serve_connection` for each accepted stream.
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+
+# Sprint 16 Phase B (Unix): SO_PEERCRED + getsockopt for the UDS
+# accept loop's peer-uid check. The launcher already pulls libc
+# on Unix for SIGTERM signalling — declared explicitly here so
+# the daemon binary owns the unsafe call inline.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Sprint 16 Phase B (Windows): the windows crate provides the
+# Win32 SECURITY_DESCRIPTOR + DACL bindings used by
+# `named_pipe_server::secure_pipe_attributes` to construct a
+# SECURITY_ATTRIBUTES allowing only the current user SID. The
+# features list is intentionally narrow — pulling the whole
+# Win32 namespace would balloon link time on Windows.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.57", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]
 # Sprint 12 Phase A: zip archive creation for blob-serve tests.
 zip = { workspace = true }

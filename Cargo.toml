@@ -129,6 +129,20 @@ axum = "0.7"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 
+# Sprint 16 Phase B: the daemon UDS / Named Pipe accept loops
+# wrap connections in hyper directly because axum 0.7's
+# `axum::serve` only accepts a `TcpListener`. The Router stays
+# the source of truth — hyper-util's `TowerToHyperService`
+# bridges it into `auto::Builder::serve_connection` for each
+# accepted UDS / NP stream.
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = [
+    "server",
+    "server-auto",
+    "service",
+    "tokio",
+] }
+
 # Sprint 7 Phase A: nexus-shell-daemon singleton enforcement
 # and concurrent data structures.
 #

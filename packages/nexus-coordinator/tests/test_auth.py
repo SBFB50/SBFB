@@ -19,10 +19,12 @@ from nexus_coordinator.auth import (
     TOKEN_HEX_LEN,
     LoopbackAuthMiddleware,
     auth_token_path,
+    coordinator_socket_path,
     is_loopback_host,
     is_loopback_origin,
     load_token,
     sbfb_home,
+    sbfb_run_dir,
 )
 
 _VALID_TOKEN = "deadbeefcafebabefeedfaceabadc0de0123456789abcdef0123456789abcdef"
@@ -178,3 +180,28 @@ def test_sbfb_home_honours_override(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 def test_token_hex_len_constant() -> None:
     assert TOKEN_HEX_LEN == 64
+
+
+# =================================================================
+# Sprint 16 Phase B (D2): UDS path helpers
+# =================================================================
+
+
+def test_sbfb_run_dir_resolves_under_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SBFB_HOME", str(tmp_path))
+    assert sbfb_run_dir() == tmp_path / "run"
+
+
+def test_coordinator_socket_path_under_run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SBFB_HOME", str(tmp_path))
+    assert coordinator_socket_path() == tmp_path / "run" / "coordinator.sock"
+
+
+def test_sbfb_run_dir_returns_none_without_home(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SBFB_HOME", raising=False)
+    monkeypatch.delenv("HOME", raising=False)
+    monkeypatch.delenv("USERPROFILE", raising=False)
+    assert sbfb_run_dir() is None
+    assert coordinator_socket_path() is None

@@ -30,7 +30,11 @@
 mod cli;
 mod http;
 mod logging;
+#[cfg(windows)]
+mod named_pipe_server;
 mod runtime;
+#[cfg(unix)]
+mod uds_server;
 
 use anyhow::{Context, Result};
 use clap::Parser;

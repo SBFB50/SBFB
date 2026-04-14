@@ -68,6 +68,26 @@ def sbfb_home() -> Path | None:
     return Path(home) / ".sbfb"
 
 
+def sbfb_run_dir() -> Path | None:
+    """Return ``~/.sbfb/run`` — the dir holding the coordinator
+    Unix Domain Socket on Linux/macOS. Sprint 16 Phase B (D2).
+    Mirrors ``nexus_shell_daemon_core::auth::sbfb_run_dir`` so a
+    test that overrides ``SBFB_HOME`` redirects both Rust and
+    Python lookups at the same tempdir.
+    """
+    home = sbfb_home()
+    return None if home is None else home / "run"
+
+
+def coordinator_socket_path() -> Path | None:
+    """Path of the coordinator UDS on Linux/macOS. Returns
+    ``None`` only on platforms where neither ``SBFB_HOME`` nor a
+    home dir resolves.
+    """
+    run = sbfb_run_dir()
+    return None if run is None else run / "coordinator.sock"
+
+
 def auth_token_path() -> Path | None:
     """Return the path of the on-disk token file."""
     home = sbfb_home()
@@ -200,8 +220,10 @@ __all__ = [
     "TOKEN_HEX_LEN",
     "LoopbackAuthMiddleware",
     "auth_token_path",
+    "coordinator_socket_path",
     "is_loopback_host",
     "is_loopback_origin",
     "load_token",
     "sbfb_home",
+    "sbfb_run_dir",
 ]
