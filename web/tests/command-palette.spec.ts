@@ -22,6 +22,10 @@ test("Ctrl+K opens the command palette and navigates", async ({ page }) => {
           version: 0,
         }),
       );
+      // Sprint 16 Phase C: suppress the first-boot GpuConsentDialog
+      // auto-open on /my-network — the overlay would block every
+      // click once this test navigates there via command palette.
+      window.localStorage.setItem("sbfb-consent-seen-v1", "1");
     },
     [TEST_COORD_URL, TEST_COORD_NAME],
   );

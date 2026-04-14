@@ -74,6 +74,10 @@ test.beforeEach(async ({ page }) => {
           version: 0,
         }),
       );
+      // Sprint 16 Phase C: suppress the first-boot GpuConsentDialog
+      // auto-open on /my-network — the overlay would hide the
+      // "Mon réseau" heading and every card below it.
+      window.localStorage.setItem("sbfb-consent-seen-v1", "1");
     },
     [TEST_COORD_URL, TEST_COORD_NAME],
   );
