@@ -126,9 +126,13 @@ actuel preserve).
 
 ## 2. Goal en une phrase
 
-**La couche loopback passe de D a A- via bearer token + UDS ;
+**La couche loopback passe de D a A- via defense en profondeur
+(bearer token 256-bit + Host/Origin header allowlist +
+SO_PEERCRED sur UDS + Named Pipes Windows avec DACL custom) ;
 l'utilisateur consent explicitement a partager son GPU via un
-toggle UI ; la roadmap VM isolation est ecrite pour Sprint 17+.**
+toggle UI avec cap W/VRAM/h enforced dans worker-core ; le
+threat model STRIDE + LINDDUN et la roadmap VM isolation sont
+ecrits pour Sprint 17+.**
 
 ---
 
@@ -150,90 +154,152 @@ Les fix eventuels doivent landed avant le commit Phase A.
 
 ## 4. Decisions Day 0 (D1..D5 proposees — a valider post-audit)
 
-### D1 — Bearer token loopback genere au boot par le launcher
+### D1 — Defense en profondeur loopback (bearer + Host + Origin)
 
-**Retenu** : le launcher Rust (`crates/nexus-launcher`) genere un
-token 256-bit random au premier boot, ecrit dans
-`~/.sbfb/auth_token` avec permissions `0600` (Unix) ou ACL
-user-only (Windows). Le daemon, le coordinator et le shell lisent
-ce fichier au demarrage et l'envoient en header
-`X-SBFB-Token: <hex>` sur chaque appel HTTP loopback.
+**Retenu** : triple validation de chaque requete HTTP loopback,
+inspire du pattern Jupyter/Syncthing + mitigation CVE-2025-49596
+(Anthropic MCP Inspector, RCE via DNS rebinding) :
+
+1. **Bearer token 256-bit** genere par le launcher Rust au 1er
+   boot, stocke `~/.sbfb/auth_token` mode `0600` (Unix) ou
+   ACL user-only (Windows), parent dir `~/.sbfb/` mode `0700`.
+   Lu au demarrage par daemon + coordinator + shell, envoye en
+   header `X-SBFB-Token: <hex>` sur chaque appel.
+2. **Host header allowlist** : le middleware rejette tout
+   `Host:` non inclus dans `{localhost, 127.0.0.1, [::1]}`
+   (bloque DNS rebinding ou serveur utilise comme relay).
+3. **Origin header check** : si present, doit correspondre au
+   shell React (`http://localhost:<shell_port>` ou
+   `about:blank`). Absent autorise pour CLI. Bloque les fetch
+   cross-origin depuis sites malveillants ou extensions
+   navigateur avec `host_permissions: "http://localhost/*"`.
+
+Exception unique : `/health` reste public (probe du launcher).
 
 **Rejete** :
-- OAuth local : surdimensione, PR-compliqu
+- OAuth local : surdimensione, UX complique
 - mTLS loopback : overhead cert rotation, perte UX
-- Unix sockets seuls : ne resolvent pas Windows proprement
+- Bearer seul sans Host/Origin : laisse passe rebindings DNS
+  (cf. CVE-2025-49596 Anthropic, CVSS 9.4)
+- Rotation auto du token : BOINC/Jupyter/Syncthing ne rotent
+  pas, MVP accepte un token stable (user peut supprimer le
+  fichier pour forcer regen au prochain boot)
 
 **Implications** :
-- `crates/nexus-launcher` +50 LOC : genere + persiste le token au
-  boot, garantit perm `0600`
-- `crates/nexus-shell-daemon-core` +30 LOC : middleware axum qui
-  rejette les requests sans header valide (excepte `/health`)
-- `packages/nexus-coordinator` +40 LOC : middleware FastAPI idem,
-  exception `/health` + `/api/public/*` si besoin
-- `web/src/api/*.ts` +20 LOC : fetch interceptor qui injecte le
-  token (lu une fois au boot via endpoint `/auth/token` du
-  launcher, qui lui lit le fichier)
-- Tests : 20+ Vitest + pytest + cargo verifiant 401 sans token,
-  200 avec token, rotation du token
+- `crates/nexus-launcher` +50 LOC : genere + persiste le token
+  au boot, garantit perms `0600` / `0700`
+- `crates/nexus-shell-daemon-core` +60 LOC : middleware axum
+  qui valide bearer + Host + Origin (exception `/health`)
+- `packages/nexus-coordinator` +70 LOC : middleware FastAPI
+  idem (exception `/health`)
+- `web/src/api/*.ts` +20 LOC : fetch interceptor qui injecte
+  le token (lu une fois via endpoint `/auth/token` du launcher)
+- Tests : 30+ Vitest + pytest + cargo verifiant 401 sans token,
+  401 bad Host, 401 bad Origin, 200 avec triple valide
 
-### D2 — Unix Domain Sockets (Linux/Mac) + Named Pipes (Windows)
+### D2 — UDS durcis (SO_PEERCRED) + Named Pipes avec DACL custom
 
-**Retenu** : en plus du TCP loopback avec bearer token, le daemon
-et le coordinator exposent une seconde surface via UDS
-(`~/.sbfb/run/daemon.sock`, `~/.sbfb/run/coordinator.sock`) sur
-Unix et Named Pipes `\\.\pipe\sbfb-daemon` / `\\.\pipe\sbfb-coord`
-sur Windows. Le shell React utilise le TCP (pas d'API UDS dans
-un browser), mais les binaires Rust et le CLI `sbfb` utilisent
-l'UDS quand dispo (plus strict).
+**Retenu** : en plus du TCP bearer-authentifie (D1), le daemon
+et le coordinator exposent une seconde surface via :
+
+- **Unix Domain Sockets** Linux/Mac/FreeBSD :
+  `~/.sbfb/run/daemon.sock`, `~/.sbfb/run/coordinator.sock`,
+  mode `0600`, parent dir `0700`. **Validation SO_PEERCRED**
+  (Tailscale `safesocket.PlatformUsesPeerCreds` pattern) : le
+  serveur lit les credentials OS du peer via `getsockopt` et
+  rejette si uid != uid propre. Auth native de l'OS, independante
+  du token (belt-and-braces).
+
+- **Named Pipes Windows** : `\\.\pipe\sbfb-daemon`,
+  `\\.\pipe\sbfb-coordinator` **avec `SECURITY_ATTRIBUTES`
+  custom** obligatoirement. Default DACL = Everyone readable
+  = **vulnerable** (tout process user-mode peut hitter le
+  pipe). DACL custom avec logon SID du user courant uniquement
+  (pattern Tailscale `\\.\pipe\ProtectedPrefix\...`). Implemente
+  via crate `windows-rs` + `CreateNamedPipeA` avec SD explicite.
+
+Le shell React utilise exclusivement le TCP (browser sans API
+UDS) protege par D1. Les binaires Rust et le CLI `sbfb` parlent
+en UDS/NP **en priorite**, TCP bearer-auth en fallback si socket
+absent.
 
 **Rejete** :
-- UDS uniquement : casse le browser qui ne parle qu'en TCP
-- TCP sur `0.0.0.0` : anti-pattern securite
+- UDS seul : casse le browser qui ne parle qu'en TCP
+- TCP sur `0.0.0.0` : anti-pattern
+- Named Pipe avec DACL default : vulnerable (cf.
+  Microsoft docs « Named Pipe Security and Access Rights »)
+- Bearer sur UDS : redondant avec SO_PEERCRED (mais on garde
+  le bearer end-to-end pour coherence code, trivial)
 
 **Implications** :
-- `crates/nexus-shell-daemon` +60 LOC : listener UDS en plus du
-  TCP (config via env `SBFB_DAEMON_SOCKET`)
-- `packages/nexus-coordinator` +40 LOC : idem
-- `crates/nexus-launcher` +30 LOC : cree le repertoire
-  `~/.sbfb/run/` avec perm `0700` au boot
-- Feature flag `uds` dans `crates/nexus-shell-daemon-core`
-  (no-op sur Windows si non-supporte)
+- `crates/nexus-shell-daemon` +80 LOC : listener UDS (tokio
+  UnixListener) + SO_PEERCRED check, config `SBFB_DAEMON_SOCKET`
+- `crates/nexus-shell-daemon-core` +30 LOC : helper
+  `verify_peer_creds(stream) -> Result<()>`
+- `crates/nexus-shell-daemon` Windows +120 LOC : Named Pipe
+  listener via `windows-rs` avec SECURITY_ATTRIBUTES (new
+  dep `windows = { version = "...", features = ["..."] }`)
+- `packages/nexus-coordinator` +60 LOC : UnixServer asyncio /
+  Win32 named pipe via pywin32 (ou Rust side-car si plus
+  simple — a trancher en Phase B research)
+- `crates/nexus-launcher` +40 LOC : cree `~/.sbfb/run/` mode
+  `0700` au boot, ajoute SID du user courant a DACL Windows
+- Tests : 25+ cargo + pytest verifiant peer creds rejette
+  uid different (simule via fork+setuid dans un docker test),
+  DACL Windows rejette un autre user (skip si CI Linux-only)
 
-### D3 — Consent screen + toggle "Partager GPU avec le reseau"
+### D3 — Consent screen 3 niveaux + caps enforced worker-side
 
-**Retenu** : nouveau composant React
-`web/src/components/GpuConsentDialog.tsx` affiche au premier boot
-(apres creation de la keypair) un dialog :
+**Retenu** : inspire du pattern BOINC `UserOptInConsent`
+(ENROLL/STATSEXPORT) et conforme GDPR Art.7 (opt-in explicite,
+granular, withdrawal aussi simple que donnee).
+
+Nouveau composant React `web/src/components/GpuConsentDialog.tsx`
+affiche au premier boot (apres creation de la keypair) un dialog :
 - Explication : "SBFB est un reseau P2P de compute. Tu peux
   choisir comment ton GPU est utilise."
-- 3 options radio :
-  - "Uniquement mes projets" (default, zero partage)
+- **3 options radio** (pre-coche interdit par GDPR) :
+  - "Uniquement mes projets" (default a l'ouverture, zero
+    partage — GDPR-safe)
   - "Projets open source verifies" (accepte uniquement les apps
     avec `is_open_source: true` dans leur annonce P2P)
   - "Tous les projets publics" (opt-in complet)
-- Cap configurable : W max, VRAM max, heures/jour
+- **Caps configurables** : W max, VRAM max MB, heures/jour max
 - Bouton "Enregistrer" persiste dans `~/.sbfb/consent.json`
 
-Le worker (`crates/nexus-worker-core`) lit ce fichier au boot et
-filtre les tasks entrantes selon le niveau de consentement. Le
-badge "contribution" dans le shell indique le niveau actuel.
+**Enforcement** : le worker `crates/nexus-worker-core::allowlist`
+lit `consent.json` au boot ET a chaque claim de task :
+1. Filtre par niveau (reject si task.is_open_source=false et
+   niveau=2, reject toute task non-local si niveau=1)
+2. **Enforce caps actifs** : si une task demande plus que W max
+   ou VRAM max, reject. Si cumul journalier atteint h max, reject
+   toute nouvelle task jusqu'au reset minuit-local.
+3. Log chaque rejection avec raison (observability).
+
+Les caps ne sont PAS juste des valeurs cosmetique UI : elles sont
+la source de verite pour `allowlist.should_accept_task(&task)`.
+Withdrawal via menu Network > "Modifier consentement", meme
+dialog, re-ecrit le fichier.
 
 **Rejete** :
-- Default "tout le reseau" : viol RGPD + anti F-Droid ethique
+- Default "tout le reseau" : viol GDPR + anti F-Droid ethique
 - Consent implicite "si tu installes c'est que tu acceptes" :
   idem
+- Caps UI-only (pas enforced) : trompeur pour l'utilisateur
 
 **Implications** :
-- `web/src/components/GpuConsentDialog.tsx` +200 LOC
+- `web/src/components/GpuConsentDialog.tsx` +220 LOC (3 radios
+  + caps sliders + validation)
 - `web/src/pages/Network.tsx` +30 LOC (badge + bouton "Modifier
   consentement")
-- `crates/nexus-worker-core::allowlist` +80 LOC : charge
-  consent.json, filtre tasks par flag is_open_source et
-  visibility
+- `crates/nexus-worker-core::allowlist` +160 LOC : charge
+  consent.json, filtre tasks par is_open_source + visibility,
+  enforce caps W/VRAM/h (daily counter persisted to
+  `~/.sbfb/usage.json`)
 - `packages/nexus-coordinator/src/nexus_coordinator/consent.py`
   +60 LOC : API `/consent/get` et `/consent/set`
-- Tests : 15+ Vitest + cargo + pytest
+- Tests : 30+ Vitest + cargo + pytest (inclut cap enforcement :
+  task >maxW rejected, cumul >max_h rejected, reset quotidien)
 
 ### D4 — Flag `is_open_source` sur ProjectAnnouncement v5
 
@@ -261,17 +327,41 @@ entre a la main.
   +5 LOC : set le flag lors de deploy-from-repo
 - Tests : +8 cargo + +4 pytest + +3 Vitest
 
-### D5 — Documentation threat model + runtime isolation roadmap
+### D5 — Threat model STRIDE + LINDDUN + runtime isolation roadmap
 
-**Retenu** : 2 nouveaux documents dans `docs/security/` :
+**Retenu** : 3 documents dans `docs/security/`, combinant STRIDE
+(security, pattern classique Microsoft) et LINDDUN (privacy,
+pertinent pour un reseau P2P qui collecte stats workers) via
+pattern OWASP Threat Dragon.
 
-1. `docs/security/THREAT_MODEL.md` — modele de menace formel
-   (assets, adversaires, vecteurs, mitigations). Reprend
-   l'analyse pre-kickoff : iframe sandbox A, deploy verifie B+,
-   reseau iroh B+, loopback post-Sprint 16 A-, stockage cles C?,
-   supply chain C.
+1. `docs/security/README.md` — index + matrice de severite +
+   pointeur vers les 2 autres docs + instructions pour
+   contributeurs (comment etendre le threat model).
 
-2. `docs/security/RUNTIME_ISOLATION.md` — roadmap VM/namespace :
+2. `docs/security/THREAT_MODEL.md` ~500 LOC — modele formel :
+   - **Assets** : keypair Ed25519, zip artifacts, provenance
+     signatures, user consent.json, usage.json, project archives,
+     task results, kudos ledger
+   - **Adversaires** : extension navigateur malveillante,
+     malware user-mode local, node byzantin P2P, repo git
+     squatte, fornisseur d'app malveillant
+   - **STRIDE** par composant (iframe A, deploy B+, iroh B+,
+     loopback post-S16 A-, key storage C?, supply chain C) :
+     Spoofing / Tampering / Repudiation / Info disclosure / DoS
+     / Elevation of privilege
+   - **LINDDUN** par flux de donnees :
+     Linkability (CPID-like cross-project identifier worker ?) /
+     Identifiability (GPU/CPU stats fingerprinting ?) /
+     Non-repudiation (provenance signee = trace non-niable) /
+     Detectability (un peer peut savoir qui run quoi ?) /
+     Disclosure (consent.json contient prefs sensibles) /
+     Unawareness (user informe ?) / Non-compliance (GDPR)
+   - Tableaux mitigations + severite (CVSS 3.1-like) + residual
+     risk par item
+   - Diagramme DFD ASCII des flux (iframe ↔ bridge ↔ coord ↔
+     iroh ↔ peers)
+
+3. `docs/security/RUNTIME_ISOLATION.md` ~350 LOC — roadmap VM :
    - Pourquoi (loopback → VM elimine 95% des risques locaux)
    - Tech cible : WSL2 (Windows) / Virtualization.framework
      (Mac) / systemd-nspawn (Linux)
@@ -286,14 +376,18 @@ entre a la main.
 - Implementer l'auto-install WSL2 ce sprint : scope creep
   massif, touche launcher + CI + packaging
 - Ne documenter qu'a Sprint 17 : perd l'alignement
-  architectural que D1-D2 posent (bearer token + UDS sont
-  compatibles VM by design)
+  architectural que D1-D2 posent
+- STRIDE uniquement : insuffisant pour un reseau P2P qui
+  collecte des stats workers (LINDDUN privacy requis pour
+  conformite GDPR)
 
 **Implications** :
 - `docs/security/` : dossier cree
-- `docs/security/THREAT_MODEL.md` ~400 LOC markdown
-- `docs/security/RUNTIME_ISOLATION.md` ~300 LOC markdown
-- Lien depuis `README.md` section nouvelle "Security"
+- `docs/security/README.md` ~60 LOC (index + severity matrix)
+- `docs/security/THREAT_MODEL.md` ~500 LOC (STRIDE + LINDDUN)
+- `docs/security/RUNTIME_ISOLATION.md` ~350 LOC
+- Lien depuis `README.md` section "Security" (deja pose en
+  v1.1 cleanup, update avec pointeur vers threat model)
 - Lien depuis `CLAUDE.md` section "Etat actuel"
 - Lien depuis `docs/claude/README.md` §10 table
 
@@ -443,41 +537,63 @@ independamment. Pattern permanent depuis Sprint 7.
 
 ---
 
-## 9. Estimations LOC
+## 9. Estimations LOC (renforcees post-recherche 2026-04-14)
 
 | Phase | LOC estimee | Repartition |
 |---|---|---|
-| 0 — Audit S15 | ~300 (findings + fix eventuels) | findings doc + 0-3 fix commits |
-| A — Bearer token | ~400 | 50 launcher + 30 daemon + 40 coord + 20 web + 260 tests |
-| B — UDS/NP | ~450 | 60 daemon + 40 coord + 30 launcher + 320 tests |
-| C — Consent + worker filter | ~600 | 200 dialog + 30 Network + 60 consent.py + 80 allowlist + 230 tests |
-| D — PA v5 | ~250 | 30 core-rs + 5 deploy + 15 web + 200 tests |
-| E — Docs | ~900 | 400 threat model + 300 runtime-isolation + 100 verif + 100 audit_plan |
-| **Total** | **~2900** | |
+| 0 — Audit S15 | ~330 (findings + PARA cleanup) | DONE : findings `e99c06f` + PARA `14ec51e` |
+| A — Bearer + Host + Origin | ~550 | 50 launcher + 60 daemon + 70 coord + 20 web + 350 tests |
+| B — UDS/NP avec peer creds + DACL | ~600 | 80 daemon UDS + 120 daemon NP Windows + 30 core + 60 coord + 40 launcher + 270 tests |
+| C — Consent 3 levels + caps enforced | ~680 | 220 dialog + 30 Network + 60 consent.py + 160 allowlist (caps!) + 210 tests |
+| D — PA v5 is_open_source | ~250 | 30 core-rs + 5 deploy + 15 web + 200 tests |
+| E — Docs STRIDE+LINDDUN+VM | ~1100 | 60 README + 500 threat model + 350 runtime-isolation + 100 verif + 100 audit_plan |
+| **Total** | **~3230** | |
+
+Delta par rapport a l'estimation initiale (2900) : +330 LOC en
+grande partie dues a :
+- Named Pipes Windows SECURITY_ATTRIBUTES custom (+120)
+- Cap enforcement worker-core avec usage.json daily counter (+80)
+- LINDDUN privacy section dans threat model (+100)
+- Host/Origin header allowlist (+100 tests)
 
 ---
 
 ## 10. Checkpoint de validation
 
-Avant de passer au plan detaille, confirmer :
+**Status** : D1..D5 valides post-recherche le 2026-04-14 par
+l'utilisateur. Recherche a couvert : Tailscale safesocket,
+Syncthing GUI API, Jupyter server token, BOINC UserOptInConsent,
+SLSA v1 + cosign self-managed keys, CVE-2025-49596 (Anthropic
+MCP Inspector RCE via DNS rebinding), Windows Named Pipe DACL,
+OWASP Threat Dragon STRIDE+LINDDUN.
 
-1. D1 (bearer token au boot par le launcher, perm 0600, header
-   `X-SBFB-Token`) est valide
-2. D2 (UDS Unix + Named Pipes Windows en supplement du TCP
-   authentifie) est valide
-3. D3 (consent screen 3 niveaux + worker filtering par
-   `is_open_source`) est valide
-4. D4 (ProjectAnnouncement v5 avec flag derive
-   automatiquement par le coordinator, pas user-settable) est
-   valide
-5. D5 (`docs/security/THREAT_MODEL.md` + `RUNTIME_ISOLATION.md`
-   ecrits ce sprint, auto-install VM differe Sprint 17+) est
-   valide
-6. L'ordre des phases (A bearer token → B UDS/NP → C consent
-   → D PA v5 → E docs) est OK
-7. Les scope cuts (auto-install WSL2, encryption keypair,
-   CI security audit, rate limiting, audit externe → Sprint
-   17+) sont acceptes
-8. La decision de **ne pas** casser la backward compat (PA v4
-   reste decodable, pas de migration forcee des daemons) est
-   valide
+Decisions confirmees :
+
+1. **D1** — Bearer 256-bit launcher-generated + **Host header
+   allowlist** + **Origin header check** (triple validation,
+   defense en profondeur, mitigation CVE-2025-49596)
+2. **D2** — UDS `0600` avec **SO_PEERCRED** validation
+   (Tailscale pattern) + Named Pipes Windows **avec
+   SECURITY_ATTRIBUTES custom** (DACL user-only, critique car
+   default DACL Windows est permissif)
+3. **D3** — Consent 3 niveaux (default "mes projets", GDPR-safe,
+   pattern BOINC) + **caps W/VRAM/h enforced dans worker-core**
+   avec daily counter `~/.sbfb/usage.json` (pas juste UI)
+4. **D4** — ProjectAnnouncement v5 avec `is_open_source` derive
+   automatiquement par le coordinator, backward compat v4
+5. **D5** — `docs/security/` avec **STRIDE + LINDDUN** (privacy
+   requis GDPR) + runtime isolation roadmap WSL2/VM Sprint 17+
+
+Ordre des phases valide : **A** bearer+Host+Origin → **B** UDS/NP
+peer-auth → **C** consent+caps → **D** PA v5 → **E** docs.
+
+Scope cuts confirmes differes Sprint 17+ : auto-install WSL2,
+encryption at rest keypair, CI security audit (cargo-audit/pip-
+audit/npm audit), rate limiting deploy-from-repo, CSP report-uri,
+audit externe, bug bounty, revocation node_id, MIME scan (P2 S14
+T47), multi-level consent per-project, bytecode signing PyO3.
+
+Backward compat : PA v4 reste decodable (default
+`is_open_source=false`), pas de migration forcee. Redemarrer
+daemon + coordinator apres upgrade suffit pour que le launcher
+genere le token et que les middlewares appliquent le mode strict.
