@@ -20,6 +20,7 @@ vers le code reel, pas vers un wish-list.
 | [`ATTACK_SCENARIOS.md`](ATTACK_SCENARIOS.md) | 12 scenarios concrets T1-T5 (CSP bypass, supply chain, dragnet, checkpoint seize, etc.) avec chain + mitigation status | S17 Phase A |
 | [`P2P_THREATS.md`](P2P_THREATS.md) | 7 vecteurs reseau P2P (Sybil, Eclipse, gossip, DHT, routing/BGP, traffic analysis, ISP block) — etat SBFB + mitigations sequencees | S17 Phase B |
 | [`COMPUTE_THREATS.md`](COMPUTE_THREATS.md) | 7 classes menace GPU compute-sharing (prompt leakage, result spoofing, compute theft, model extraction, prompt injection, side-channel GPU, DoS task flood) — etat SBFB + mitigations sequencees + refs 2020-2026 | S17 Phase C |
+| [`HARDENING_ROADMAP.md`](HARDENING_ROADMAP.md) | Matrice 27 threats × mitigations + framework prioritization (I×L/E) + roadmap Sprint 18-30 sequencee + quick-wins + big-rocks + dependency graph + gates 1-4 debloquage | S17 Phase D |
 
 ## Mitigations livrees Sprint 16 (pointeurs rapides)
 
