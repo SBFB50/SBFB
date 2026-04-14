@@ -206,6 +206,30 @@ nexus-grid's security model combines five layers:
   Sprint 17+ roadmap for invisible VM isolation (WSL2 /
   Virtualization.framework / systemd-nspawn) that closes the
   keypair-at-rest residual risk identified in the threat model.
+- [`docs/security/ADVERSARIES.md`](docs/security/ADVERSARIES.md) —
+  6-tier adversary taxonomy (T0 misconfigured user → T5 targeted
+  state actor) with budget, capabilities, and motivations per tier.
+- [`docs/security/ATTACK_SCENARIOS.md`](docs/security/ATTACK_SCENARIOS.md) —
+  12 concrete T1-T5 attack scenarios (CSP bypass, supply chain,
+  dragnet correlation, checkpoint seize, turned contributor, etc.)
+  with chain + current mitigation status.
+- [`docs/security/P2P_THREATS.md`](docs/security/P2P_THREATS.md) —
+  7 P2P network attack surfaces (Sybil, Eclipse, gossip, DHT,
+  BGP/relay, traffic analysis, ISP block) with per-vector SBFB
+  coverage + sequenced mitigations + academic references.
+- [`docs/security/COMPUTE_THREATS.md`](docs/security/COMPUTE_THREATS.md) —
+  7 GPU compute-sharing threat classes (prompt leakage, result
+  spoofing, compute theft, model extraction, prompt injection,
+  side-channel GPU, DoS task flood) with 2020-2026 references.
+- [`docs/security/HARDENING_ROADMAP.md`](docs/security/HARDENING_ROADMAP.md) —
+  threat × mitigation matrix (27 threats), prioritization framework
+  (impact × likelihood / effort), Sprint 18-30 sequenced roadmap,
+  quick-wins, big-rocks, dependency graph, Gates 1-4 unlocking.
+- [`docs/security/VALIDATED_BLUEPRINT.md`](docs/security/VALIDATED_BLUEPRINT.md) —
+  long-term 13-layer maximalist design, each OSS brick validated
+  against 2026 upstream docs + advisories + CVE database,
+  positioning vs Signal / Tor / Briar / SecureDrop / Mozilla /
+  Bytecode Alliance state-of-the-art.
 
 For the full sprint history (grouped by released version) see
 [`.planning/README.md`](.planning/README.md) and

@@ -21,6 +21,7 @@ vers le code reel, pas vers un wish-list.
 | [`P2P_THREATS.md`](P2P_THREATS.md) | 7 vecteurs reseau P2P (Sybil, Eclipse, gossip, DHT, routing/BGP, traffic analysis, ISP block) — etat SBFB + mitigations sequencees | S17 Phase B |
 | [`COMPUTE_THREATS.md`](COMPUTE_THREATS.md) | 7 classes menace GPU compute-sharing (prompt leakage, result spoofing, compute theft, model extraction, prompt injection, side-channel GPU, DoS task flood) — etat SBFB + mitigations sequencees + refs 2020-2026 | S17 Phase C |
 | [`HARDENING_ROADMAP.md`](HARDENING_ROADMAP.md) | Matrice 27 threats × mitigations + framework prioritization (I×L/E) + roadmap Sprint 18-30 sequencee + quick-wins + big-rocks + dependency graph + gates 1-4 debloquage | S17 Phase D |
+| [`VALIDATED_BLUEPRINT.md`](VALIDATED_BLUEPRINT.md) | Vision long-terme maximaliste 13 couches (host/identity/transport/overlay/sybil/storage/compute/runtime/deploy/trust/opsec/formal-verif/research), chaque brique OSS validee contre docs officielles 2026 + advisories + CVE. Positionnement vs Signal/Tor/Briar/SecureDrop/Mozilla/Bytecode Alliance | S17 session recherche |
 
 ## Mitigations livrees Sprint 16 (pointeurs rapides)
 
