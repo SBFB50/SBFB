@@ -17,7 +17,17 @@
 set -eo pipefail
 
 INPUT=$(cat)
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+
+# Extract tool_input.file_path from JSON. Try jq first (fast), fall back
+# to python3 (ubiquitous). If neither -> exit 0 silently (fail-open).
+if command -v jq >/dev/null 2>&1; then
+  FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+elif command -v python3 >/dev/null 2>&1; then
+  FILE_PATH=$(echo "$INPUT" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tool_input",{}).get("file_path","") or "")' 2>/dev/null || true)
+else
+  exit 0
+fi
+
 [[ -z "$FILE_PATH" ]] && exit 0
 
 REPO_ROOT=$(pwd)

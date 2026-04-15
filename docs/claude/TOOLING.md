@@ -36,10 +36,12 @@ la couche de reference. Ce tooling la complete sans la remplacer.
 
 ### 2.1 Prerequis
 
-- Claude Code >= 2.1 (hooks `PostToolUse`, `matcher`, stdin JSON)
+- Claude Code >= 2.1 (hooks `PostToolUse` / `PreToolUse`, `matcher`, stdin JSON)
 - Bash >= 4 (Git Bash sur Windows fonctionne)
-- `jq` dans le PATH (pour parser l'input stdin des hooks)
+- `jq` dans le PATH **OU** `python3` (les hooks detectent auto lequel utiliser
+  pour parser l'input JSON — fail-open silent si aucun des deux n'est present)
 - `cargo`, `uv`, `npm` installes (pour les linters scope au langage)
+- `node` (pour `nexus-statusline.js`)
 
 ### 2.2 Hooks local au repo (automatique)
 
@@ -213,21 +215,73 @@ checklist §7.4 avant commit d'une phase :
 
 ---
 
-## 5. Couche 3 — Subagent review intra-sprint (a venir, etape 7)
+## 5. Couche 3 — Subagent review intra-sprint
 
 Gap actuel : l'audit gate review **entre** les sprints. Rien ne review
 **entre les phases** A→B→C→D→E→F. Un blind-spot Phase B decouvert
 Phase F coute 4 commits a defaire.
 
-Livrable : agent `nexus-phase-auditor` (user-level) spawne 4 subagents
-Task en parallele avant chaque `git commit feat(sprint{N}): Phase X` :
-- security (Semgrep + path traversal + secrets)
-- patterns (diff vs `docs/rust/PATTERNS.md` + `docs/shell/PATTERNS.md`)
-- scope-cuts (grep diff vs `sprint{N}_kickoff.md` §6)
-- tests-delta (delta annonce dans body commit vs delta reel)
+### 5.1 Agent `nexus-phase-auditor`
 
-Synthese dans `.planning/active/sprint{N}_phase_{X}_review.md`.
-Hook PreToolUse sur `Bash(git commit...)` refuse si verdict != PASS.
+**Fichier** : `.claude/agents/nexus-phase-auditor.md` (project-level,
+committed via `.claude/agents/`)
+
+**Invocation** via Task tool :
+
+```
+Task(subagent_type="nexus-phase-auditor",
+     prompt="Audit Sprint 18 Phase B. Draft commit body: ...")
+```
+
+L'agent review 4 dimensions en parallele sur le diff courant :
+1. **Security** — Semgrep + patterns sensibles (secrets, path traversal,
+   unsafe Rust, loopback sans peer-creds, wire format sans JCS canonique)
+2. **Patterns** — diff vs `docs/rust/PATTERNS.md` + `docs/shell/PATTERNS.md`
+3. **Scope-cuts** — grep diff vs `sprint{N}_kickoff.md` §6 (tout match = P1)
+4. **Tests-delta** — delta annonce vs mesure reelle
+
+Produit `.planning/active/sprint{N}_phase_{X}_review.md` avec verdict
+PASS | CONCERN | FAIL, listes P0/P1/P2/P3, et recommendation.
+
+Convention (meme que audit gate Phase 0) : l'agent ne lit PAS
+PATTERNS.md avant d'avoir forme son opinion sur chaque pattern — il
+challenge, il ne ratifie pas.
+
+### 5.2 Hook `phase-auditor-gate.sh`
+
+**Fichier** : `.claude/hooks/phase-auditor-gate.sh` (committed)
+
+**Role** : PreToolUse matcher `Bash` qui intercepte `git commit` et
+refuse si le commit est un Phase commit (match `(feat|fix|docs|chore|test)
+(sprint{N}).*Phase X`) ET le `sprint{N}_phase_{X}_review.md` n'existe
+pas, ou son verdict n'est pas `PASS`.
+
+**Fail-open** pour :
+- Commits hors scope sprint (chore(claude), hotfixes, Merge, Revert)
+- cwd != nexus (check Cargo.toml + crates/nexus-core-rs)
+- Bypass d'urgence via env var : `NEXUS_SKIP_PHASE_AUDITOR=1 git commit ...`
+
+**Fail-closed** (exit 2, bloque le commit avec message visible) pour :
+- Phase commit sans review.md
+- Phase commit avec review.md mais verdict != PASS
+
+**Activation** : automatique via `.claude/settings.json` du repo qui
+declare le hook PreToolUse Bash. Toute session Claude Code ouverte
+dans nexus herite.
+
+**Rationale** : l'audit gate inter-sprint catche les blind-spots en
+post-hoc. Ce hook les catche en pre-commit. Les deux sont
+complementaires — audit gate = sweep complet (3h+, session fraiche),
+phase-auditor = sweep par-phase (20-30 min, dans la meme session).
+
+**Flow recommande** par phase :
+1. Implementer la phase
+2. Invoquer le skill `nexus-phase-review` (couche 2) pour la
+   verification §7.4 + format commit body
+3. Invoquer l'agent `nexus-phase-auditor` (couche 3) pour la review
+   independante 4 dimensions — produit `sprint{N}_phase_{X}_review.md`
+4. `git commit -m "feat(sprintN): Sprint N Phase X — ..."` — le hook
+   verifie le review et soit laisse passer, soit bloque
 
 ---
 
