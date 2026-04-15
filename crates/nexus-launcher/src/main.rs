@@ -14,6 +14,7 @@ use serde::Deserialize;
 use tokio::sync::RwLock;
 
 mod auth;
+mod driver_check;
 mod token_rotation;
 
 #[cfg(test)]
@@ -179,6 +180,41 @@ async fn main() {
         "[launcher] looking for daemon at {}",
         running_path.display()
     );
+
+    // Sprint 18 Phase E1: background NVIDIA driver CVE check.
+    // Spawned as a detached task so a slow or offline NVD doesn't
+    // stall the daemon spawn / browser open path. The report is
+    // printed asynchronously whenever it lands; fail-open by
+    // design (offline hosts and machines without an NVIDIA GPU
+    // simply produce an empty report).
+    tokio::spawn(async move {
+        let report = driver_check::check_nvidia_drivers().await;
+        let source = if report.fetched_from_cache {
+            "cache"
+        } else if report.fetch_failed {
+            "fetch-failed"
+        } else {
+            "nvd"
+        };
+        match report.local_version.as_deref() {
+            Some(v) => println!(
+                "[launcher] driver check ({source}): local={v}, cves_affecting={}, critical={}",
+                report.cves_affecting.len(),
+                report.critical_count
+            ),
+            None => {
+                println!("[launcher] driver check ({source}): no NVIDIA driver detected, skipping")
+            }
+        }
+        if report.critical_count > 0 {
+            if let Some(ref v) = report.local_version {
+                eprintln!(
+                    "[launcher] WARNING: NVIDIA driver {v} is affected by {} Critical CVE. Consider updating.",
+                    report.critical_count
+                );
+            }
+        }
+    });
 
     // 0. Sprint 16 Phase A (D1): resolve the loopback bearer
     //    token before anything else. Generates + persists

@@ -176,6 +176,20 @@ notify = "6"
 # for this one use case.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
+# Sprint 18 Phase E1: NVD API client for the launcher driver CVE
+# check. default-features disabled to avoid openssl (reqwest's
+# `default-tls` feature pulls native-tls → openssl on Linux); we
+# reuse `rustls-tls` which is already pulled transitively by the
+# iroh 0.97 stack, so this adds no new TLS backend to the final
+# binary. `json` gives us the `Response::json::<T>()` helper used
+# by the NVD parser. ollama-rs has its own direct reqwest
+# dependency with different features, so hoisting reqwest here
+# does not change the worker-side TLS surface.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto
 # attestation (Sprint 18 Phase B). Two builds of the same commit

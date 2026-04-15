@@ -26,6 +26,15 @@ axum = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 
+# Sprint 18 Phase E1: local NVIDIA driver discovery and NVD CVE
+# lookup at launcher startup. `nvml-wrapper` dynamically loads
+# `libnvidia-ml` / `nvml.dll` at runtime via `libloading`, so this
+# dependency is safe to add on every target — machines without an
+# NVIDIA driver simply trigger a benign "init failed" that the
+# driver_check module turns into a fail-open empty report.
+nvml-wrapper = { workspace = true }
+reqwest = { workspace = true }
+
 [target.'cfg(unix)'.dependencies]
 # Unix-only: used by the graceful SIGTERM shutdown path in
 # `main.rs`. Kept out of the Windows target so the dependency
