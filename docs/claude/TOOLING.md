@@ -83,8 +83,26 @@ Alternative via marketplace officiel Claude Code :
 
 ### 2.4 Script tout-en-un
 
-Une fois les etapes 6-9 du roadmap livrees, `scripts/install-claude-tooling.sh`
-sera l'entry point unique. En attendant, installer manuellement.
+```bash
+# Install interactive (prompts pour chaque composant optionnel)
+bash scripts/install-claude-tooling.sh
+
+# Install non-interactive (accepte les defaults, skip TDD Guard)
+bash scripts/install-claude-tooling.sh --yes
+
+# Install minimal (core uniquement, pas Semgrep ni TDD Guard)
+bash scripts/install-claude-tooling.sh --minimal
+```
+
+Le script est idempotent (re-run safe) et auto-detecte ce qui est
+deja installe. Composants couverts :
+1. Git post-commit hook (memory updater)
+2. Trail of Bits skills clone/pull
+3. Semgrep via pip (optionnel)
+4. TDD Guard via npm + cargo + pip (optionnel, opt-in)
+
+Ne touche PAS les fichiers `.claude/` committed dans le repo (ils
+sont deja actifs automatiquement).
 
 ---
 
@@ -495,7 +513,33 @@ fi
 Cette doc evolue avec chaque nouvelle couche. Historique des
 ajouts :
 
-- **2026-04-15** (`4f0306b..HEAD`) : Couche 1 hook verify-on-write +
-  Couche 2 Trail of Bits skills + section TOOLING.md initiale
-- Etapes a venir : Couche 1 Semgrep SBFB, Couche 2 nexus-phase-review,
-  Couche 3 phase-auditor agent, Couche 5 memory hooks + statusline
+**Session 2026-04-15** — meta-chantier process Claude Code v1
+(hors cycle Sprint 18) :
+
+| Commit | Scope | Livrable |
+|---|---|---|
+| `4f0306b` | chore(claude) | Couche 1 — hook `verify-on-write.sh` (Rust/Py/TS linter scoped) + .gitignore unignore .claude/ |
+| `8769047` | chore(claude) | .gitignore simplifie + TOOLING.md initial (5 couches) |
+| `db80335` | chore(claude) | Couche 2 — skill `nexus-phase-review` (verification §7.4 + format commit body) |
+| `9f38367` | chore(claude) | Couche 5 — hook `post-commit-memory.sh` (bump tip SHA auto sur sprint commits) |
+| `87512e9` | chore(claude) | Couche 5 — `nexus-statusline.js` enrichi (sprint/phase + drift warning) |
+| `7ea8041` | chore(claude) | Couche 1 — 4 regles Semgrep SBFB (todo macros / placeholder console / ignore without reason) |
+| `119de3a` | chore(claude) | Couche 3 — agent `nexus-phase-auditor` + hook `phase-auditor-gate.sh` (bloque Phase commit sans review PASS) |
+| `0e8d49a` | chore(claude) | Couche 1 — TDD Guard opt-in (wrapper gracieux + config ignorePatterns + 4 hooks registered) |
+| (ce commit) | chore(claude) | `scripts/install-claude-tooling.sh` idempotent + TOOLING.md §9 recap |
+
+Couche 4 (multi-modele / second opinion) **skippee** par decision
+utilisateur 2026-04-15 — cost eleve non justifie, audit gate session
+fraiche couvre le besoin.
+
+**TODO architecturales** (ouverture de nouvelles ameliorations
+quand le besoin se presentera) :
+- 5 regles Semgrep SBFB architecturales (JCS, PeerCreds, iroh pin,
+  repo_url, zip path traversal) -> a generer via
+  `trailofbits/semgrep-rule-creator` avec le code en main
+- Integration Semgrep dans `verify-on-write.sh` (scan scope au
+  fichier apres linter natif, conditionne a `semgrep` dans PATH)
+- Skill `challenge-d5` (pattern adversarial sur D1..D5 kickoff)
+  -> etape 8 originale de l'ultraplan reclassee Couche 4 skippee
+- MCP `claude-context` Zilliz (recherche semantique cross-codebase
+  71K LOC) -> etape 10 originale reclassee Couche 4 skippee
