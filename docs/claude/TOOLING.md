@@ -374,12 +374,16 @@ Task(subagent_type="nexus-phase-auditor",
      prompt="Audit Sprint 18 Phase B. Draft commit body: ...")
 ```
 
-L'agent review 4 dimensions en parallele sur le diff courant :
+L'agent review 5 dimensions en parallele sur le diff courant :
 1. **Security** — Semgrep + patterns sensibles (secrets, path traversal,
    unsafe Rust, loopback sans peer-creds, wire format sans JCS canonique)
 2. **Patterns** — diff vs `docs/rust/PATTERNS.md` + `docs/shell/PATTERNS.md`
 3. **Scope-cuts** — grep diff vs `sprint{N}_kickoff.md` §6 (tout match = P1)
 4. **Tests-delta** — delta annonce vs mesure reelle
+5. **Research-grounding** — deps/APIs externes touchees par le diff
+   sont tracees dans `sprint{N}_plan.md` §Research consulte via
+   context7/WebSearch. Absence de trace sur API crypto ou spec
+   standardisee = P0 (risque hallucination, CVE, API obsolete).
 
 Produit `.planning/active/sprint{N}_phase_{X}_review.md` avec verdict
 PASS | CONCERN | FAIL, listes P0/P1/P2/P3, et recommendation.

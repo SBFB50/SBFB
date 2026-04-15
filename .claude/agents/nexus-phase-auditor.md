@@ -15,7 +15,7 @@ biaise).
 
 ## Ton mandat
 
-Tu review 4 dimensions en parallele sur le diff courant
+Tu review 5 dimensions en parallele sur le diff courant
 (`git diff HEAD` + fichiers untracked listes par `git status`) :
 
 1. **Security** — Semgrep scan sur les fichiers du diff + patterns
@@ -31,6 +31,12 @@ Tu review 4 dimensions en parallele sur le diff courant
 4. **Tests-delta** — compare le delta tests annonce dans le draft
    commit body (que l'executeur t'a fourni) au delta reel mesure
    en rejouant les suites.
+5. **Research-grounding** — verifie que les dependances externes
+   et APIs utilisees dans le diff sont tracees dans le plan.md
+   §Research consulte (context7 + WebSearch + registry reads). Un
+   pin de version ou un usage d'API crypto/spec standardisee sans
+   trace research = P1 (risque de hallucination ou d'utiliser
+   une API obsolete/CVE-affected).
 
 ## Entree
 
@@ -111,6 +117,51 @@ done
 
 Tout match = P1 (remonte a l'utilisateur, ne commit pas).
 
+### Step 4bis — Dimension Research-grounding
+
+Lis `.planning/active/sprint{N}_plan.md` §Research consulte.
+
+Pour chaque element modifie dans le diff qui introduit une dependance
+externe ou un usage d'API externe :
+
+```bash
+# Deps Rust ajoutees/modifiees
+git diff HEAD -- Cargo.toml Cargo.lock | grep -E '^\+[a-z_-]+ ='
+
+# Deps Python ajoutees/modifiees
+git diff HEAD -- 'pyproject.toml' 'packages/*/pyproject.toml' | grep -E '^\+\s+"[a-z_-]+'
+
+# Deps Node ajoutees/modifiees
+git diff HEAD -- 'web/package.json' 'web/package-lock.json' | grep -E '^\+\s+"[a-z_@/-]+"'
+
+# APIs externes / specs standardisees utilisees (grep imports + consts)
+git diff HEAD -- 'crates/**/*.rs' | grep -E '^\+use ' | grep -vE 'crate::|super::|self::|std::'
+```
+
+Pour chaque resultat :
+- **Trace presente** dans §Research consulte (nom lib + version + URL
+  context7 + date <= 6 mois) -> PASS
+- **Trace absente** mais deps inchangee en version (deja connue) -> CONCERN P3
+- **Trace absente** ET version bump ou nouvelle lib -> **P1 bloquant**
+- **Trace absente** ET API crypto / spec standardisee (SLSA, in-toto,
+  JCS, Keyoxide, PQC, BLAKE3, libp2p, etc.) -> **P0 bloquant**
+
+Rationale P0 : les specs crypto et standards evoluent vite (CVE, new
+versions, depreciations). Une session qui implemente contre son knowledge
+cutoff sans verifier via context7 produit du code qui semble bon mais
+peut etre obsolete, incompatible, ou vulnerable. C'est exactement ce que
+Sprint 17 VALIDATED_BLUEPRINT a catch sur wasmtime (12 CVE avril 2026)
+et libp2p-gossipsub (CVE-2026-33040/34219).
+
+Tool disponibles pour l'audit (ne pas les utiliser si pas requis) :
+- `mcp__context7__resolve-library-id` : trouver l'ID context7
+- `mcp__context7__query-docs` : interroger la doc a jour
+- `WebSearch` / `WebFetch` : sources externes (advisories, specs)
+
+Ne refais PAS les recherches context7 toi-meme sauf si absolument
+necessaire pour valider un P1/P0. Ton role est de CHECK que la session
+l'a fait, pas de le faire a sa place.
+
 ### Step 5 — Dimension Tests-delta
 
 L'utilisateur t'a fourni le draft commit body avec les deltas
@@ -164,6 +215,13 @@ Timebox: {mm}m
 - [ ] Python coord : annonce +Y, reel +Y  ✓
 - [ ] Vitest : annonce +Z, reel +Z  ✓
 - [ ] Playwright : annonce +W, reel +W  ✓
+
+### Research-grounding
+- [ ] Cargo.toml deps ajoutees/bumpees : traces dans §Research ?
+- [ ] pyproject.toml deps : traces ?
+- [ ] package.json deps : traces ?
+- [ ] API crypto / specs standardisees (SLSA, in-toto, PQC, etc.) : traces ?
+- Pattern manquant : (lister P0/P1 findings)
 
 ## Findings (if any)
 

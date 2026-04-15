@@ -115,6 +115,52 @@ Checker :
 5. **Scope cuts honoured** liste copiee du kickoff §6
 6. **Co-Authored-By: Claude Opus 4.6 (1M context)** present
 
+### Step 4bis — Verifier research grounding via context7
+
+Le plan.md de chaque sprint doit avoir une section §Research consulte
+(cf. docs/claude/README.md §2.2 section canonique). Cette section
+documente les appels context7 (`mcp__context7__query-docs`,
+`mcp__context7__resolve-library-id`) + lectures de registry / docs
+officielles qui ont valide les choix d'API externe, pins de versions,
+specs crypto, etc.
+
+Check a effectuer :
+
+1. Lire `.planning/active/sprint{N}_plan.md` §Research consulte
+2. Verifier qu'elle n'est PAS vide
+3. Pour chaque pin de dependance ajoute/modifie dans le diff de la phase :
+   - `Cargo.toml` : nouvelle crate ou version bump -> est-il mentionne
+     dans §Research consulte ?
+   - `pyproject.toml` : idem cote Python
+   - `package.json` : idem cote npm
+4. Pour chaque usage de nouvelle API externe (crypto, spec
+   standardisee comme SLSA/in-toto/JCS/Keyoxide) :
+   - La source (context7 + URL + date) est-elle tracee dans §Research ?
+
+Signal :
+- **PASS** : chaque dep/API touche par le diff a une trace Research
+- **CONCERN** : >= 1 dep/API sans trace mais non-critique (ex: patch
+  version bump obvious, existing pattern)
+- **FAIL** : >= 1 API crypto ou spec standardisee utilisee sans trace
+  -> forcer la session a consulter context7 avant de committer
+
+Exemple concret Sprint 18 Phase A (ce qui a ete fait correctement) :
+```
+§Research consulte :
+  - /websites/rs_iroh (RelayMap API iroh 0.97) — 2026-04-12
+  - /bytecodealliance/wasmtime (LTS 12-major-cycle) — 2026-04-09
+  - /websites/embarkstudios_github_io_cargo-deny (advisories cfg) — 2026-04-12
+  - WebSearch : RustSec recommande cargo-deny-action vs cargo-audit seul
+  - WebSearch : SLSA v1.0 provenance spec
+```
+
+Anti-pattern a detecter :
+```
+§Research consulte : (section vide ou absente)
+```
+-> remonter a la session : "lancer `mcp__context7__resolve-library-id`
+sur la lib $LIB avant d'ecrire ce code".
+
 ### Step 5 — Verifier scope cuts respectes
 
 Pour chaque item "Scope cuts" du kickoff §6 du sprint en cours :
