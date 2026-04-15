@@ -101,6 +101,14 @@ pub struct DaemonRuntime {
     /// TCP-only loopback (warn already logged).
     peer_handle: Option<JoinHandle<()>>,
     peer_shutdown: Option<oneshot::Sender<()>>,
+    /// Sprint 18 audit fix D-1: file-watcher on `tokens.json`. Keeps
+    /// the rotator handed to `AuthState::Rotated` synchronised with
+    /// the launcher's 24 h rotation. `None` when no `tokens.json`
+    /// exists at boot — the static `auth_token` path is used and
+    /// no watcher is spawned. Stored on the runtime so the watcher
+    /// thread + inotify handle live for the whole daemon process.
+    #[allow(dead_code)]
+    tokens_watcher: Option<nexus_shell_daemon_core::auth::TokenRotatorWatcher>,
     bound_addr: std::net::SocketAddr,
 }
 
@@ -249,17 +257,33 @@ impl DaemonRuntime {
         //
         // `SBFB_AUTH_TOKEN` env wins over the file so integration
         // tests can inject a known token without touching disk.
-        let token = if let Ok(t) = std::env::var(auth::AUTH_TOKEN_ENV) {
-            if t.is_empty() {
-                resolve_token_from_disk()?
-            } else {
-                t
-            }
+        //
+        // Sprint 18 audit fix D-1: when the launcher has written a
+        // `tokens.json` (rotation pair persisted by
+        // `nexus_launcher::token_rotation::spawn_rotation_loop`),
+        // boot the daemon in `AuthState::Rotated` mode and spawn a
+        // file-watcher so subsequent rotations are picked up
+        // without a daemon restart. The env var keeps absolute
+        // precedence so test harnesses that inject a known token
+        // are unaffected, and a missing file falls through to the
+        // legacy single-token path (`AuthState::Static`).
+        let env_token = std::env::var(auth::AUTH_TOKEN_ENV)
+            .ok()
+            .filter(|t| !t.is_empty());
+        let (auth_state, tokens_watcher) = if let Some(t) = env_token {
+            (auth::AuthState::new(t), None)
+        } else if let Some(rotator_with_path) = load_initial_rotator()? {
+            let (path, initial) = rotator_with_path;
+            let watcher = auth::TokenRotatorWatcher::spawn(path, initial)
+                .context("failed to spawn tokens.json watcher")?;
+            let auth_state = auth::AuthState::rotated(watcher.shared());
+            (auth_state, Some(watcher))
         } else {
-            resolve_token_from_disk()?
+            let static_token = resolve_token_from_disk()?;
+            (auth::AuthState::new(static_token), None)
         };
 
-        let router = build_router(http_state, token);
+        let router = build_router(http_state, auth_state);
 
         // 6a. Sprint 16 Phase B (D2): spawn the UDS / Named Pipe
         //     accept loop on a clone of the same router. The
@@ -304,6 +328,7 @@ impl DaemonRuntime {
             gossip_shutdown: Some(gossip_shutdown_tx),
             peer_handle,
             peer_shutdown,
+            tokens_watcher,
             bound_addr,
         })
     }
@@ -416,6 +441,35 @@ fn resolve_token_from_disk() -> Result<String> {
             path.display()
         )
     })
+}
+
+/// Sprint 18 audit fix D-1.
+///
+/// Try to load `<sbfb_home>/tokens.json` written by the launcher's
+/// rotation loop. Returns:
+///
+/// - `Ok(Some((path, rotator)))` when the file is present and
+///   well-formed — the daemon will boot in `AuthState::Rotated`
+///   mode and spawn a watcher on `path`.
+/// - `Ok(None)` when the file is absent (no launcher rotation in
+///   place yet) or when the home dir does not resolve — the
+///   daemon falls back to the legacy single-token `auth_token`
+///   path.
+/// - `Err(_)` when the file exists but is malformed — surfaced to
+///   the caller because a corrupted rotation file is operator-
+///   visible state, not a soft "use defaults" condition.
+fn load_initial_rotator() -> Result<Option<(PathBuf, auth::TokenRotator)>> {
+    let Some(path) = auth::tokens_file_path() else {
+        return Ok(None);
+    };
+    match auth::TokenRotator::load(&path) {
+        Ok(Some(rotator)) => Ok(Some((path, rotator))),
+        Ok(None) => Ok(None),
+        Err(e) => Err(anyhow!(
+            "failed to read tokens.json at {}: {e}",
+            path.display()
+        )),
+    }
 }
 
 impl Drop for DaemonRuntime {

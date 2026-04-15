@@ -134,7 +134,7 @@ impl DaemonHttpState {
 ///   content is already public by construction (anyone on the
 ///   P2P network can fetch the zip by hash), so exempting the
 ///   route does not leak anything new.
-pub fn build_router(state: Arc<DaemonHttpState>, token: String) -> Router {
+pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
     // Sprint 13 Phase A (T37): blob-serve routes get a CSP
     // middleware that injects security headers on ALL responses
     // (200, 400, 404, 500) — not just the success path.
@@ -147,7 +147,11 @@ pub fn build_router(state: Arc<DaemonHttpState>, token: String) -> Router {
         .route("/health", get(health))
         .nest("/blob-serve", blob_serve_routes);
 
-    let auth_state = AuthState::new(token);
+    // Sprint 18 audit fix D-1 : the caller picks the variant
+    // (`AuthState::Static` for the legacy single-token boot path,
+    // `AuthState::Rotated` once the launcher writes a `tokens.json`).
+    // The middleware reads the inner state on every request so a
+    // rotation reaches `auth_required` without rebuilding the router.
 
     // Authenticated surface: every other route requires
     // X-SBFB-Token + loopback Host + (absent or loopback) Origin.
@@ -160,7 +164,7 @@ pub fn build_router(state: Arc<DaemonHttpState>, token: String) -> Router {
         .route("/publish", post(publish_project))
         .route("/publish-blob", post(publish_blob))
         .route("/default-curators", get(default_curators))
-        .layer(middleware::from_fn_with_state(auth_state, auth_required));
+        .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
         .merge(public_routes)
@@ -743,7 +747,7 @@ mod tests {
     fn build_test_router(state: Arc<DaemonHttpState>) -> Router {
         use axum::http::header::{HOST, ORIGIN};
         use axum::http::HeaderValue;
-        build_router(state, TEST_TOKEN.to_string()).layer(middleware::from_fn(
+        build_router(state, AuthState::new(TEST_TOKEN.to_string())).layer(middleware::from_fn(
             |mut req: axum::extract::Request, next: middleware::Next| async move {
                 let h = req.headers_mut();
                 if !h.contains_key(AUTH_HEADER_NAME) {

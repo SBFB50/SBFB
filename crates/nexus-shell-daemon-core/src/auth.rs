@@ -28,6 +28,7 @@
 //! deliberately identical to BOINC, Jupyter, and Syncthing.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -287,17 +288,74 @@ pub fn is_loopback_origin(origin: &str) -> bool {
 // Middleware
 // =================================================================
 
-/// State injected into the axum middleware. Carries the
-/// expected token so every handler can share a single immutable
-/// value without re-reading the file on each request.
+/// State injected into the axum middleware. Validates a request
+/// token against either a fixed string captured at boot
+/// ([`AuthState::Static`]) or a [`TokenRotator`] kept fresh by a
+/// background watcher ([`AuthState::Rotated`]).
+///
+/// The rotated variant is what makes Sprint 18 Phase D's
+/// `tokens.json` rotation actually take effect on the daemon HTTP
+/// surface — the launcher writes a new pair every 24 h, the
+/// [`TokenRotatorWatcher`] thread re-reads the file via `notify`,
+/// and the next request handed to [`auth_required`] validates
+/// against the fresh pair (current + previous-during-overlap)
+/// without restarting the daemon.
+///
+/// The static variant is preserved for the pre-rotation boot path
+/// (`tokens.json` absent) and for every UDS / Named Pipe accept
+/// loop that hands the middleware a placeholder token before
+/// applying the [`PeerCredsVerified`] bypass.
 #[derive(Debug, Clone)]
-pub struct AuthState {
-    pub token: String,
+pub enum AuthState {
+    /// Single token captured at boot. Used by the legacy
+    /// (`SBFB_AUTH_TOKEN` env / `auth_token` file) path that
+    /// preceded Sprint 18 Phase D rotation, and by the UDS /
+    /// Named Pipe accept loops where the bearer check is
+    /// always bypassed by [`PeerCredsVerified`].
+    Static(String),
+
+    /// Reference-counted handle to the daemon's
+    /// [`TokenRotator`]. The middleware reads the inner state on
+    /// every request, so a rotation written by the launcher to
+    /// `tokens.json` and replayed by [`TokenRotatorWatcher`] is
+    /// visible to the next request without a daemon restart.
+    Rotated(Arc<RwLock<TokenRotator>>),
 }
 
 impl AuthState {
+    /// Build a static [`AuthState`]. Backwards-compatible with the
+    /// pre-Sprint-18-D-1 callers that built `AuthState::new(token)`
+    /// — every existing test continues to compile unchanged.
     pub fn new(token: String) -> Self {
-        Self { token }
+        Self::Static(token)
+    }
+
+    /// Build an [`AuthState`] that consults a [`TokenRotator`] on
+    /// every request. The `Arc` is cloned cheap into the axum
+    /// middleware state ; the underlying `RwLock` is the same
+    /// instance the watcher writes to on a `tokens.json` change.
+    pub fn rotated(rotator: Arc<RwLock<TokenRotator>>) -> Self {
+        Self::Rotated(rotator)
+    }
+
+    /// Constant-time predicate the middleware calls on every
+    /// request. Returns `true` when `request_token` matches the
+    /// static token, the rotator's current, or the rotator's
+    /// previous token within the overlap window. A poisoned
+    /// `RwLock` (writer thread panicked) collapses to `false`
+    /// rather than spreading the panic to the request handler —
+    /// the watcher logs warn on poison, the next valid rotation
+    /// recovers.
+    pub fn validate(&self, request_token: &str) -> bool {
+        match self {
+            Self::Static(expected) => {
+                constant_time_eq(request_token.as_bytes(), expected.as_bytes())
+            }
+            Self::Rotated(rotator) => match rotator.read() {
+                Ok(guard) => validate_token_with_rotator(request_token, &guard),
+                Err(_) => false,
+            },
+        }
     }
 }
 
@@ -345,12 +403,15 @@ pub async fn auth_required(
         return next.run(req).await;
     }
 
-    // 1. Bearer token
+    // 1. Bearer token. `auth.validate` dispatches to the
+    //    static-string check or to the rotator (current + previous
+    //    during overlap). Sprint 18 audit fix D-1 — same predicate
+    //    a launcher-rotated token reaches without a daemon restart.
     let token_ok = req
         .headers()
         .get(AUTH_HEADER)
         .and_then(|v| v.to_str().ok())
-        .map(|t| constant_time_eq(t.as_bytes(), auth.token.as_bytes()))
+        .map(|t| auth.validate(t))
         .unwrap_or(false);
     if !token_ok {
         return (StatusCode::UNAUTHORIZED, "missing or invalid token").into_response();
@@ -604,6 +665,171 @@ pub fn validate_token_with_rotator(request_token: &str, rotator: &TokenRotator) 
         }
     }
     false
+}
+
+// =================================================================
+// File watcher — daemon-side bridge for launcher rotation
+// =================================================================
+//
+// Sprint 18 audit fix D-1.
+//
+// The launcher's `spawn_rotation_loop` writes a fresh `tokens.json`
+// every 24 h. Until D-1, the daemon HTTP layer captured a single
+// token at boot and never re-read the file, so the rotation existed
+// in the file system but never reached `auth_required`. The watcher
+// below closes that gap : a `notify::recommended_watcher` thread on
+// the parent dir reloads the file on every Modify/Create event,
+// updates the shared `Arc<RwLock<TokenRotator>>`, and the next
+// request handed to `auth_required` validates against the fresh
+// pair (current + previous-during-overlap). Pattern mirrors
+// `nexus_worker_core::consent::ConsentWatcher` — same crate, same
+// 50 ms debounce, same parent-dir watch + path-filter to ignore
+// sibling files.
+
+/// Live, reload-on-change handle to a [`TokenRotator`]. Pulled out
+/// of the watcher via [`TokenRotatorWatcher::shared`] and handed to
+/// [`AuthState::rotated`] — the middleware reads the inner state on
+/// every request, so a launcher rotation persisted to `tokens.json`
+/// is visible to the next HTTP request without restarting the
+/// daemon.
+///
+/// The watcher owns a background thread joined to a private
+/// `notify::RecommendedWatcher`. Both are dropped together when the
+/// `TokenRotatorWatcher` value goes out of scope ; in production
+/// the daemon keeps the value alive on its [`crate::DaemonRuntime`]
+/// for the whole process lifetime, so the watcher loop runs until
+/// shutdown.
+pub struct TokenRotatorWatcher {
+    inner: Arc<RwLock<TokenRotator>>,
+    /// Underscore : we never read the watcher after construction.
+    /// `Drop` on it shuts the inotify / ReadDirectoryChangesW
+    /// observer down which in turn closes the channel and stops
+    /// the background thread.
+    _watcher: notify::RecommendedWatcher,
+    /// Joined on `Drop` for clean teardown ; tests rely on the
+    /// watcher thread exiting before the tempdir disappears.
+    _join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl TokenRotatorWatcher {
+    /// Spawn a watcher for `path`. The file **must** already exist
+    /// — the daemon-side caller ([`crate::DaemonRuntime::start`])
+    /// only invokes this constructor after a successful
+    /// [`TokenRotator::load`], so a missing file is never a runtime
+    /// surprise. Tests construct from an existing tempfile.
+    ///
+    /// The first read happens synchronously in the caller via
+    /// [`TokenRotator::load`] ; the watcher only handles
+    /// **subsequent** rewrites. This split keeps the constructor
+    /// total : if the file disappears later the in-memory state
+    /// stays as the last successfully-loaded snapshot (mirroring
+    /// the `consent.json` C-4 fix from Sprint 16 — a deletion does
+    /// not silently revert the daemon to "no tokens").
+    pub fn spawn(path: PathBuf, initial: TokenRotator) -> notify::Result<Self> {
+        use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+
+        let inner = Arc::new(RwLock::new(initial));
+
+        let parent = path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let (tx, rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
+        let mut watcher: RecommendedWatcher = notify::recommended_watcher(tx)?;
+        // Watch the parent dir, not the file directly : write+rename
+        // changes the inode and detaches a file-level watch.
+        watcher.watch(&parent, RecursiveMode::NonRecursive)?;
+
+        let inner_thread = Arc::clone(&inner);
+        let path_thread = path.clone();
+        let join = std::thread::Builder::new()
+            .name("sbfb-tokens-watch".into())
+            .spawn(move || {
+                while let Ok(evt) = rx.recv() {
+                    match evt {
+                        Ok(event) => {
+                            // notify reports every entry under the
+                            // watched dir ; filter to events that
+                            // touch our specific path so a sibling
+                            // (`auth_token`, `consent.json`, etc.)
+                            // does not trigger a reload.
+                            if !event.paths.iter().any(|p| p == &path_thread) {
+                                continue;
+                            }
+                            // C-4 pattern : a Remove (user deletes
+                            // tokens.json by hand) keeps the last
+                            // known rotator state in memory rather
+                            // than collapsing to an "no tokens"
+                            // default that would lock everyone out.
+                            if matches!(event.kind, EventKind::Remove(_)) {
+                                tracing::warn!(
+                                    path = %path_thread.display(),
+                                    "tokens.json removed — keeping in-memory rotator until recreated"
+                                );
+                                continue;
+                            }
+                            if !matches!(
+                                event.kind,
+                                EventKind::Modify(_) | EventKind::Create(_)
+                            ) {
+                                continue;
+                            }
+                            // Debounce write+rename : editors and
+                            // the launcher's `write_atomic` emit
+                            // Create+Modify in quick succession.
+                            std::thread::sleep(Duration::from_millis(50));
+                            match TokenRotator::load(&path_thread) {
+                                Ok(Some(fresh)) => {
+                                    if let Ok(mut guard) = inner_thread.write() {
+                                        *guard = fresh;
+                                        tracing::debug!(
+                                            path = %path_thread.display(),
+                                            "tokens.json reloaded"
+                                        );
+                                    } else {
+                                        tracing::warn!(
+                                            path = %path_thread.display(),
+                                            "tokens.json reload skipped — rotator lock poisoned"
+                                        );
+                                    }
+                                }
+                                Ok(None) => {
+                                    tracing::warn!(
+                                        path = %path_thread.display(),
+                                        "tokens.json absent during reload — keeping in-memory state"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        error = %e,
+                                        path = %path_thread.display(),
+                                        "tokens.json reload failed — keeping in-memory state"
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => tracing::warn!(error = %e, "tokens watcher event error"),
+                    }
+                }
+            })
+            .map_err(|e| notify::Error::generic(&format!("watcher thread spawn failed: {e}")))?;
+
+        Ok(Self {
+            inner,
+            _watcher: watcher,
+            _join: Some(join),
+        })
+    }
+
+    /// Cheap clone of the shared `Arc<RwLock<TokenRotator>>` — the
+    /// same handle [`AuthState::rotated`] consumes. Multiple
+    /// callers can hold their own clone ; the watcher continues
+    /// updating the inner state until the watcher itself is
+    /// dropped.
+    pub fn shared(&self) -> Arc<RwLock<TokenRotator>> {
+        Arc::clone(&self.inner)
+    }
 }
 
 // =================================================================

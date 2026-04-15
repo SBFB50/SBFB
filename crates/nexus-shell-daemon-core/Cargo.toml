@@ -108,6 +108,13 @@ rand = { workspace = true }
 # pattern, keeping the workspace single-style.
 async-trait = { workspace = true }
 
+# Sprint 18 audit fix D-1: file-watcher pour tokens.json, picked up
+# par le daemon HTTP layer pour rotation effective sans restart.
+# Meme crate / meme version que ConsentWatcher cote nexus-worker-core
+# (Sprint 16 Phase C) — pattern eprouve, debouncer 50 ms, watch sur
+# le parent dir pour recuperer write+rename atomiques.
+notify = { workspace = true }
+
 # Deliberately excluded: clap, ratatui, crossterm, axum, tower,
 # tower-http. The shell-daemon has no TUI (headless-only per
 # Sprint 7 D1) and the HTTP server layer lives in the binary
