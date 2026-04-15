@@ -18,6 +18,7 @@ Pour le sprint en cours, voir
 |---|---|---|---|---|
 | 16 | DONE + CONDITIONAL PASS levé | `d18e19e` (gate close landed) | 6 (Phase 0 gate + A-D + docs) + 7 (findings + C3 + D1 + C1/C2 + chore protocol + C4 + log update) | 6 docs (kickoff, plan, verification, audit_plan, audit_findings) + docs/security/ (README + THREAT_MODEL + RUNTIME_ISOLATION) |
 | 17 | DONE + scope-cut Phase E acte | `<wrap-up>` (close + scope-cut + migrate) | 6 (A `297fd50` + B `c275ebd` + C `7dea299` + D `872f48a` + BLUEPRINT bonus `721686c` + F wrap-up) | 6 docs security (`ADVERSARIES.md` + 6 fiches T0-T5 dir `adversaries/` + `ATTACK_SCENARIOS.md` + `P2P_THREATS.md` + `COMPUTE_THREATS.md` + `HARDENING_ROADMAP.md` + `VALIDATED_BLUEPRINT.md`) + planning (kickoff/plan/verification/audit_plan) migre archive/v1.2/ |
+| 18 | DONE + Gate 1 UNLOCKED + pivot E3 Radicle→Codeberg | `<wrap-up>` (close + migrate planning) | 8 (A supply-chain + B `4ab0211` repro + C `9d0ad7a` multi-relai + D `94cccb2` wire+token + E1 `9f4d19f` driver + E2 `04c9621` canary + E3 `95807b1` Codeberg mirror + F wrap-up) | 9 docs planning (kickoff, plan, verification, audit_plan, 5 phase reviews B/C/D/E2/E3) + `docs/release/MIRROR_FALLBACK.md` + `CANARY.txt` bootstrap + `scripts/verify-canary.sh` + `docs/release/REPRODUCIBLE_BUILDS.md` + `.github/workflows/` (supply-chain + canary-monthly + mirror-codeberg) — tous migres archive/v1.2/ |
 
 **Faits saillants** :
 
@@ -107,6 +108,37 @@ Detail : [`.planning/archive/v1.2/`](../../.planning/archive/v1.2/).
   verified P2P app deploy (multi-builder + SLSA L3+), runtime
   GPU consent per-task. Tests inchanges ~1128 (sprint recherche
   pure).
+
+- **Sprint 18** : quick wins + supply chain baseline + multi-relai
+  phase 1 + Gate 1 unlock. Phase A supply-chain CI (cargo-deny +
+  pip-audit + npm audit + wasmtime pin 43.0.1+ D2 contre 12 CVE
+  avril 2026), Phase B `4ab0211` reproducible builds (`--locked`
+  + `SOURCE_DATE_EPOCH` + SHA256 SLSA in-toto attestation Ed25519),
+  Phase C `9d0ad7a` multi-relai federation iroh `RelayMode::Custom`
+  n0 + 2 fallbacks round-robin + DHT pkarr 3-paralleles quorum 2/3,
+  Phase D `94cccb2` coord-side TaskEntry wire (`is_open_source` +
+  estimated_watts/vram_mb/hours injectes dans canonical AVANT sign)
+  + X-SBFB-Token rotation auto, Phase E1 `9f4d19f` NVIDIA driver
+  CVE check launcher startup (NVD scrape + cache 24h), Phase E2
+  `04c9621` warrant canary mensuel Ed25519 signe (gossip topic
+  `nexus-grid/warrant-canary/v1` + `CANARY.txt` bootstrap pubkey
+  `80b439cb...` FlowUP persistante + `scripts/verify-canary.sh` +
+  `canary-monthly.yml` GHA VERIFIER par design — stocker cle en
+  GHA secret casserait dead-man switch), Phase E3 `95807b1`
+  Codeberg prive disaster-recovery mirror (pivot Radicle:
+  `codeberg.org/SBFB/SBFB` + `mirror-codeberg.yml` push --mirror
+  auth via `http.extraheader`, `MIRROR_FALLBACK.md` §1-§7
+  self-contained avec §3 flip sequence v1.0 complet 3.1-3.8 pour
+  activation Radicle `gsaslis/mirror-to-radicle@v0.2.0` SHA
+  `514707f3` + 5 secrets GHA au go-public). Phase F wrap-up livre
+  verification + audit plan S19 + migration planning. Delta tests
+  Rust : **+44** (430 → 474), cumul ~1172 tests. Gate 1 (DnD Forge
+  beta fermee) **effectivement UNLOCKED** — supply chain + repro
+  builds + multi-relai + wire complete + driver check + canary +
+  mirror redundancy = criteres `HARDENING_ROADMAP §7` remplis.
+  Pivot notable : repo GitHub `SBFB50/SBFB` prive pre-launch +
+  Radicle P2P public-only = Codeberg prive maintenant, flip
+  Radicle differe au tag v1.0 go-live avec runbook self-contained.
 
 ---
 

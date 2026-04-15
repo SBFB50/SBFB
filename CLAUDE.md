@@ -153,12 +153,11 @@ Roadmap runtime isolation (WSL2 / Virtualization.framework /
 systemd-nspawn) pour Sprint 17+ dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
-## Etat actuel (2026-04-14, master tip post-Sprint 17 wrap-up)
-- **Sprints 0-17 CLOSED**. v1.2 en cours.
-- **430 Rust** / 183 SDK / 187+3 skipped coordinator / 46 app-gov
+## Etat actuel (2026-04-15, master tip post-Sprint 18 wrap-up)
+- **Sprints 0-18 CLOSED**. v1.2 en cours. Gate 1 (DnD Forge beta fermee) **UNLOCKED**.
+- **474 Rust** / 183 SDK / 187+3 skipped coordinator / 46 app-gov
   / 239 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
-  (~1128 tests total) — tous verts, inchanges post-S17 (sprint
-  recherche pure, 0 code)
+  (~1172 tests total) — tous verts. Delta S18 Rust : +44.
 - Sprint 12 a livre le rendu universel cross-node (archive zip
   → daemon blob-serve → iframe sandboxee)
 - Sprint 13 a livre le bridge postMessage (iframe ↔ coordinator),
@@ -196,6 +195,24 @@ systemd-nspawn) pour Sprint 17+ dans
     FIPS 140-3 plutot que libcrux
 - Audit gate S17 = Sprint 18 Phase 0 via
   `.planning/archive/v1.2/sprint17_audit_plan.md` (tracks A-G).
+- **Sprint 18 CLOSED** (quick wins + supply chain + multi-relai +
+  canary + Codeberg mirror, ~1460 LOC code + ~350 tests + ~440 docs,
+  +44 Rust tests). 8 commits + 1 chore-close : Phase A supply-chain
+  CI (cargo-deny + pip-audit + npm audit + wasmtime pin D2), Phase
+  B `4ab0211` reproducible builds + SLSA in-toto, Phase C `9d0ad7a`
+  multi-relai federation (n0 + 2 fallbacks) + DHT pkarr 3-quorum-2/3,
+  Phase D `94cccb2` coord-side wire TaskEntry + X-SBFB-Token rotation,
+  Phase E1 `9f4d19f` NVIDIA driver CVE check launcher, Phase E2
+  `04c9621` warrant canary monthly Ed25519 signe (gossip + CANARY.txt
+  + verify-canary.sh), Phase E3 `95807b1` Codeberg private
+  disaster-recovery mirror (pivot depuis Radicle : repo GitHub prive
+  pre-launch, Radicle P2P public-only incompatible, differe au v1.0
+  go-live — doc flip sequence self-contained MIRROR_FALLBACK.md §3).
+  Gate 1 effectivement debloque (supply chain + repro + multi-relai
+  + wire + driver check + canary + mirror = DnD Forge beta fermee
+  deployable). Audit gate S18 = Sprint 19 Phase 0 via
+  `.planning/archive/v1.2/sprint18_audit_plan.md` (tracks A-F +
+  meta-track Radicle-v1.0 activation tracking).
 
 ## Commandes clés
 ```bash
