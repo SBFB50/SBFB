@@ -198,15 +198,56 @@ Hook PreToolUse sur `Bash(git commit...)` refuse si verdict != PASS.
 
 ## 6. Couche 5 — Observability + memory hygiene
 
-### 6.1 Post-commit memory updater (a venir, etape 4)
+### 6.1 Post-commit memory updater
 
-Git post-commit hook qui detecte `feat(sprint{N}) | docs(sprint{N}) | fix(sprint{N})`
-et met a jour :
-- `memory/nexus_grid_pivot.md` frontmatter `description:` -> nouveau tip
-- `memory/MEMORY.md` ligne `SBFB pivot` -> resume court avec tip
+**Fichier** : `.claude/hooks/post-commit-memory.sh` (committed, partage)
 
-Objectif : zero session future ne demarre avec memory stale (le
-pre-flight §7 de README.md le detecte mais c'est trop tard).
+**Role** : Git post-commit hook qui detecte les commits lies a un sprint
+(`feat|fix|docs|chore|test(sprint{N})`) et met a jour en place :
+- `memory/nexus_grid_pivot.md` frontmatter ligne `Tip \`<sha>\``
+- `memory/MEMORY.md` ligne `SBFB pivot` (si la ligne mentionne le old tip)
+
+**Ne fait pas** (volontaire, reste manuel) :
+- Update du texte riche de la description (Phase livree, nouveaux tests,
+  etc.) — le script ne fait QUE le SHA, la narration reste sous controle
+  humain
+- Ajout de lignes dans SPRINT_LOG.md
+- Any update si commit != sprint scope (chore(claude), Merge, Revert)
+
+**Idempotent** : re-run sur meme commit = no-op (old == new tip).
+
+**Fail-safe** : si memory absente (nouveau clone, CI), warning silencieux,
+exit 0. Ne bloque jamais le commit.
+
+**Installation** : une seule commande par clone :
+
+```bash
+# Depuis la racine du repo
+ln -sf "$PWD/.claude/hooks/post-commit-memory.sh" .git/hooks/post-commit
+chmod +x .git/hooks/post-commit
+
+# Ou si ln -s pose probleme sur Windows, wrapper direct :
+cat > .git/hooks/post-commit <<'EOF'
+#!/usr/bin/env bash
+exec bash "$(git rev-parse --show-toplevel)/.claude/hooks/post-commit-memory.sh"
+EOF
+chmod +x .git/hooks/post-commit
+```
+
+**Test** :
+
+```bash
+# Simuler un commit sprint sans en faire un :
+bash .claude/hooks/post-commit-memory.sh
+# Exit 0 silencieux si le commit courant n'est pas sprint scope.
+# Output "memory updated: Tip X -> Y (sprint-commit)" si c'etait
+# un sprint commit et que le tip a change.
+```
+
+**Rationale** : l'etape §7.5 de README.md dit "mettre a jour la memory
+avant de fermer la session". C'est une etape humaine oubliable. Ce hook
+la rend automatique pour la partie la plus critique (tip SHA) sans
+enlever le jugement humain sur la narration.
 
 ### 6.2 Statusline enrichi (a venir, etape 5)
 
