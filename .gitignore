@@ -49,8 +49,38 @@ web/.env.local
 *.swo
 *~
 
-# Claude Code local settings
-.claude/
+# Claude Code — process tooling partagé avec tous les contributeurs
+# On commit le dossier .claude/ (settings.json, hooks, skills, agents,
+# commands) pour que toute session nexus herite du meme process qualite.
+# Seules les donnees personnelles sont exclues :
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+.claude/cache/
+.claude/history.jsonl
+.claude/todos/
+.claude/sessions/
+.claude/projects/
+.claude/file-history/
+.claude/shell-snapshots/
+.claude/paste-cache/
+.claude/chrome/
+.claude/debug/
+.claude/telemetry/
+.claude/statsig/
+.claude/stats-cache.json
+.claude/mcp-needs-auth-cache.json
+.claude/gsd-file-manifest.json
+.claude/package.json
+.claude/backups/
+.claude/ide/
+.claude/plans/
+.claude/plugins/cache/
+.claude/plugins/data/
+.claude/plugins/install-counts-cache.json
+.claude/plugins/installed_plugins.json
+.claude/session-env/
+.claude/tasks/
 
 # Rust / Cargo (SBFB monorepo, Sprint 1+)
 target/
