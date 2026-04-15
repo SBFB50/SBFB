@@ -120,8 +120,14 @@ ATTESTATION_PATH="$DIST/${ARTIFACT_BASENAME}.intoto.jsonl"
 BUILDER_ID="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-SBFB50/SBFB}/.github/workflows/release.yml@${GITHUB_REF:-refs/heads/master}"
 BUILD_INVOCATION_ID="${GITHUB_RUN_ID:-local-$(date -u +%s)}"
 
+# Sprint 18 audit fix B-2 : the original buildType
+# `https://slsa.dev/container-based-build/v0.1?sbfb=release-attest.sh`
+# was semantically wrong — the build is a script, not a container.
+# Replaced with a custom SBFB-namespaced URI that names the actual
+# script + its version. SLSA verifiers accept any buildType pourvu
+# que le digest match ; the field is informational metadata.
 cat > "$ATTESTATION_PATH" <<EOF
-{"_type":"https://in-toto.io/Statement/v1","subject":[{"name":"${ARTIFACT_BASENAME}","digest":{"sha256":"${ARTIFACT_SHA256}"}}],"predicateType":"https://slsa.dev/provenance/v1","predicate":{"buildDefinition":{"buildType":"https://slsa.dev/container-based-build/v0.1?sbfb=release-attest.sh","externalParameters":{"binary":"${BINARY}","os":"${OS}","arch":"${ARCH}"},"internalParameters":{"SOURCE_DATE_EPOCH":"${SOURCE_DATE_EPOCH}","profile":"release","locked":true,"codegen-units":1,"lto":"fat","strip":"symbols"},"resolvedDependencies":[{"uri":"git+${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-SBFB50/SBFB}@${COMMIT_SHA}","digest":{"sha1":"${COMMIT_SHA}"}},{"name":"Cargo.lock","digest":{"sha256":"${CARGO_LOCK_SHA}"}}]},"runDetails":{"builder":{"id":"${BUILDER_ID}"},"metadata":{"invocationId":"${BUILD_INVOCATION_ID}","startedOn":"${BUILD_STARTED_ON}"},"byproducts":[]}}}
+{"_type":"https://in-toto.io/Statement/v1","subject":[{"name":"${ARTIFACT_BASENAME}","digest":{"sha256":"${ARTIFACT_SHA256}"}}],"predicateType":"https://slsa.dev/provenance/v1","predicate":{"buildDefinition":{"buildType":"https://github.com/SBFB50/SBFB/build-types/release-attest-bash@v1","externalParameters":{"binary":"${BINARY}","os":"${OS}","arch":"${ARCH}"},"internalParameters":{"SOURCE_DATE_EPOCH":"${SOURCE_DATE_EPOCH}","profile":"release","locked":true,"codegen-units":1,"lto":"fat","strip":"symbols"},"resolvedDependencies":[{"uri":"git+${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-SBFB50/SBFB}@${COMMIT_SHA}","digest":{"sha1":"${COMMIT_SHA}"}},{"name":"Cargo.lock","digest":{"sha256":"${CARGO_LOCK_SHA}"}}]},"runDetails":{"builder":{"id":"${BUILDER_ID}"},"metadata":{"invocationId":"${BUILD_INVOCATION_ID}","startedOn":"${BUILD_STARTED_ON}"},"byproducts":[]}}}
 EOF
 
 echo "    attestation=$ATTESTATION_PATH"

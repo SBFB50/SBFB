@@ -130,10 +130,15 @@ base64 -w0 ~/.radicle/keys/sbfb-ci-mirror
 | `RADICLE_IDENTITY_PRIVATE_KEY` | `base64 -w0 ~/.radicle/keys/sbfb-ci-mirror` |
 | `RADICLE_IDENTITY_PUBLIC_KEY` | contenu `~/.radicle/keys/sbfb-ci-mirror.pub` |
 | `RADICLE_REPOSITORY_ID` | RID affiche par `rad init` (format `rad:z...`) |
-| `RADICLE_PROJECT_NAME` | `SBFB` (constant, mais secret pour coherence) |
 
-**Alias `sbfb-ci-mirror`** inline dans le workflow YAML, pas
-secret (non-sensible + auditabilite).
+**Alias `sbfb-ci-mirror`** + **project name `sbfb` (lowercase,
+matche `radicle-project-name` inline dans le YAML §3.4)** :
+inline dans le workflow YAML, pas secret (non-sensible +
+auditabilite). Sprint 18 audit fix E3-1 : la version d'origine
+listait `RADICLE_PROJECT_NAME` comme 5eme secret avec valeur
+`SBFB` (uppercase), mais le YAML §3.4 hardcode `sbfb` (lowercase)
+— inconsistance casing + secret jamais reellement utilise.
+Retire de la table secrets, mention inline dans cette ligne.
 
 ### 3.4 Ajout workflow `.github/workflows/mirror-radicle.yml`
 

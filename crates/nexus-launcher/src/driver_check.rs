@@ -429,9 +429,32 @@ fn criteria_version(criteria: &str) -> Option<String> {
     Some(parts[5].to_string())
 }
 
+/// Sprint 18 audit fix E1-1 : parse a `XXX.YY.ZZ`-style driver
+/// version into a `Vec<u64>` for ordering. NVIDIA stable drivers
+/// are always pure-numeric per-segment, but a beta / RC string
+/// like `535.54.03-rc1` previously silently coerced the bad
+/// segment to `0` (via the `unwrap_or(0)` shortcut), which
+/// yielded a *lower* parsed version than the patch behind it
+/// and could make a vulnerable driver look unaffected by a CVE
+/// whose end-bound used a similar non-numeric suffix. We now
+/// log a warn on any unparseable segment so the issue is visible
+/// in the launcher logs ; the segment still defaults to 0
+/// because returning an Err would suppress the whole CVE check
+/// silently — degrading to "older-than-everything" is the safer
+/// failure mode (more false positives, never a false negative).
 fn parse_version(s: &str) -> Vec<u64> {
     s.split('.')
-        .map(|seg| seg.parse::<u64>().unwrap_or(0))
+        .map(|seg| match seg.parse::<u64>() {
+            Ok(n) => n,
+            Err(_) => {
+                tracing::warn!(
+                    segment = seg,
+                    raw = s,
+                    "non-numeric driver version segment, defaulting to 0 for ordering",
+                );
+                0
+            }
+        })
         .collect()
 }
 
