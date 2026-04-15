@@ -35,6 +35,34 @@ vers le code reel, pas vers un wish-list.
 | C | `3247e88` | Consent GPU + caps | Dialog 4 niveaux + whitelist L3 + watts/VRAM/heures enforced worker-side |
 | D | `10bbc63` | ProjectAnnouncement v5 | Flag `is_open_source` derive auto par coordinator (non-user-settable) |
 
+## Supply chain CI (Sprint 18 Phase A)
+
+Trois garde-fous CI bloquent toute PR introduisant un CVE critical
+upstream avant landing. Configures dans
+[`deny.toml`](../../deny.toml) (Rust),
+[`web/audit-ci.json`](../../web/audit-ci.json) (npm),
+[`.github/workflows/supply-chain.yml`](../../.github/workflows/supply-chain.yml)
+(declenche sur `pull_request` + cron weekly Monday 08:00 UTC).
+
+| Outil | Surface | Politique |
+|---|---|---|
+| `cargo-deny` | Rust workspace (RUSTSEC + bans + licenses + sources) | yanked=deny, unmaintained=workspace, deny `wasmtime <43.0.1` (CVE-2026-34941 + CVE-2026-34946, Bytecode Alliance 2026-04-09), allowlist licenses standard OSI + AGPL workspace + MPL-2.0 |
+| `pip-audit` (>=2.9,<3) | 3 packages Python (`nexus-sdk`, `nexus-coordinator`, `nexus-app-gov`) | requirements materialises via `uv export --no-emit-workspace --no-editable` puis audit `--strict` |
+| `audit-ci` (>=7.1) | npm `web/` | `critical: true` -> CI fail, threshold high+ remontes en S19 |
+
+Smoke local : `bash tests/ci-smoke/supply-chain-green.sh` execute
+les trois audits (cargo-deny + 3x pip-audit + audit-ci) et exit 0
+sur master propre. Prereq : `cargo install cargo-deny --locked`.
+
+Ignores documentes (cargo-deny `[advisories].ignore`) :
+
+- **RUSTSEC-2026-0097** (`rand 0.8` unsound) — applique uniquement
+  via `ThreadRng` + custom `log` logger ; SBFB utilise `OsRng`
+  directement (cf. `crates/nexus-core-rs/src/crypto.rs` et
+  `crates/nexus-shell-daemon-core/src/auth.rs`) sans logger custom.
+  Path non-exploitable. Upgrade `rand 0.9.3` repousse Sprint 19+
+  (cascade `ed25519-dalek 2.3` + `rand_core 0.9`).
+
 ---
 
 ## Matrice de severite

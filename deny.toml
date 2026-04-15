@@ -1,0 +1,141 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Sprint 18 Phase A — supply-chain policy for the Rust workspace.
+#
+# Enforced in CI by `.github/workflows/supply-chain.yml` (job
+# cargo-deny) via EmbarkStudios/cargo-deny-action. Run locally:
+#
+#     cargo install cargo-deny --locked
+#     cargo deny check --workspace
+#
+# Categories:
+#   [advisories] — RUSTSEC vulnerability database
+#   [bans]       — crate/version denylist + duplicate detection
+#   [licenses]   — SPDX license allowlist
+#   [sources]    — registry/git source allowlist
+#
+# `version = 2` selects the cargo-deny v2 schema (0.15+), which
+# replaces the older `vulnerability = "deny"` / `unmaintained` keys
+# with a single "deny everything in the database by default, ignore
+# by ID" model.
+
+[graph]
+# Platforms we build and ship on. iroh, axum, and rusqlite behave
+# differently per-target, and cargo-deny needs the list so that the
+# dependency graph check covers all 3 OSes our release matrix ships
+# (see .github/workflows/release.yml matrix).
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
+]
+
+[output]
+feature-depth = 1
+
+# --------------------------------------------------------------
+# [advisories] — RUSTSEC advisory database
+# --------------------------------------------------------------
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+# `unmaintained = "workspace"` restricts unmaintained-advisory
+# errors to crates declared in our own workspace. Transitive
+# unmaintained deps pulled via iroh / ratatui (proc-macro-error
+# RUSTSEC-2024-0370, paste RUSTSEC-2024-0436) have no safe
+# upgrade and are upstream's problem. Sprint 19+ revisits if
+# iroh/ratatui cut a new major that swaps them out.
+unmaintained = "workspace"
+# Every ignore lands with a `reason` string and tracks
+# remediation in HARDENING_ROADMAP §tracking-advisories.
+ignore = [
+    # SBFB uses `rand::rngs::OsRng` directly (see
+    # crates/nexus-core-rs/src/crypto.rs and
+    # crates/nexus-shell-daemon-core/src/auth.rs). The unsoundness
+    # applies only to `ThreadRng` reseeding under a custom `log`
+    # logger, which SBFB does not use (logging is via `tracing`,
+    # no custom `log::Log` impl). Upgrade to rand 0.9.3 deferred:
+    # it cascades to ed25519-dalek 2.3 + rand_core 0.9 across the
+    # entire crypto stack and wants a dedicated sprint.
+    { id = "RUSTSEC-2026-0097", reason = "rand 0.8 unsound only via ThreadRng+custom log logger; SBFB uses OsRng directly with no custom logger. Upgrade path tracked for Sprint 19+." },
+]
+
+# --------------------------------------------------------------
+# [licenses] — SPDX allowlist
+# --------------------------------------------------------------
+#
+# Workspace crates declare `AGPL-3.0-or-later` (root) or
+# `AGPL-3.0` (examples/hello-world-app). Both are added to the
+# allowlist so cargo-deny treats our own crates as valid. For
+# third-party deps the allowlist stays tight: Apache-2.0 / MIT /
+# BSD / ISC / Unicode / Zlib / CC0-1.0 / MPL-2.0.
+#
+# MPL-2.0 is added because multiple common Rust deps ship under
+# it (`webpki-roots`, `option-ext`, ...). AGPL for third-party
+# deps is rare but harmonizes with our own copyleft posture.
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "MPL-2.0",
+    "AGPL-3.0",
+    "AGPL-3.0-or-later",
+    "CDLA-Permissive-2.0",
+    "OpenSSL",
+]
+confidence-threshold = 0.8
+# Per-crate exceptions landed here with `# reason:` comment.
+exceptions = []
+
+# --------------------------------------------------------------
+# [bans] — crate/version denylist + duplicate detection
+# --------------------------------------------------------------
+[bans]
+multiple-versions = "warn"  # Tightened to "deny" in Sprint 19+
+wildcards = "allow"         # Tightened in Sprint 19+
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+# Preemptive bans. SBFB does not currently depend on wasmtime,
+# but Sprint 17 Phase E VALIDATED_BLUEPRINT identified 12 CVEs
+# (2 Critical) patched in the April 2026 Bytecode Alliance
+# advisory. This rule blocks any future PR that tries to add
+# wasmtime without the patched version.
+#
+# Refs:
+#   CVE-2026-34941 — heap OOB UTF-16 transcoding
+#   CVE-2026-34946 — Winch table.fill panic
+#   https://bytecodealliance.org/articles/wasmtime-security-advisories
+#
+# Policy: mainline pins `wasmtime >=43.0.1, <44`. LTS path
+# `36.0.7+` re-evaluated Sprint 22+ if adoption grows.
+deny = [
+    { crate = "wasmtime:<43.0.1", reason = "CVE-2026-34941 + CVE-2026-34946, Bytecode Alliance advisory 2026-04-09" },
+]
+
+# Git sources are denied by default (see [sources]), but an
+# explicit allowlist can live here if a specific fork is required.
+allow-wildcard-paths = false
+
+# --------------------------------------------------------------
+# [sources] — where crates may be pulled from
+# --------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

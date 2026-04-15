@@ -1,0 +1,8 @@
+{
+  "$schema": "https://raw.githubusercontent.com/IBM/audit-ci/master/docs/schema.json",
+  "critical": true,
+  "report-type": "summary",
+  "package-manager": "npm",
+  "registry": "https://registry.npmjs.org/",
+  "allowlist": []
+}

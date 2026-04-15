@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# nexus-grid supply-chain CI — Sprint 18 Phase A.
+#
+# Three parallel jobs that block any PR introducing a CVE critical
+# upstream before landing:
+#
+#   * cargo-deny : RUSTSEC advisories + license + bans (wasmtime
+#                  pin >=43.0.1) + source allowlist
+#   * pip-audit  : PyPI advisories across the 3 Python packages
+#   * audit-ci   : npm advisories for the React shell
+#
+# Also runs on a weekly cron so newly published advisories are
+# caught even when no PR is opened.
+#
+# Policy (aligned with HARDENING_ROADMAP §3 S18):
+#   critical  -> CI fail (block PR/merge)
+#   high      -> CI fail via the same gate; lowered to "warn"
+#                when Sprint 19 introduces severity routing
+#   moderate  -> report-only (captured in job log, no fail)
+#   low       -> silent
+
+name: supply-chain
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+  schedule:
+    # Monday 08:00 UTC — picks up advisories published over the
+    # weekend before the week's dev cycle starts.
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # cargo-deny-action uploads SARIF results to the Code Scanning
+  # API when this permission is granted. We keep it off initially
+  # and enable in Sprint 19 once we have a dedicated Security tab
+  # dashboard to read.
+  # security-events: write
+
+jobs:
+  # --------------------------------------------------------------
+  # cargo-deny — Rust workspace
+  # --------------------------------------------------------------
+  cargo-deny:
+    name: cargo-deny (Rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # EmbarkStudios/cargo-deny-action is the frontend recommended
+      # by RustSec (https://rustsec.org/). It installs the matching
+      # cargo-deny binary, loads deny.toml, and runs all four
+      # checks in one invocation.
+      - name: cargo-deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arg: --workspace
+          log-level: warn
+
+  # --------------------------------------------------------------
+  # pip-audit — 3 Python packages
+  # --------------------------------------------------------------
+  pip-audit:
+    name: pip-audit (Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - nexus-sdk
+          - nexus-coordinator
+          - nexus-app-gov
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      # Materialize PyPI deps for the package via `uv export`. We
+      # cannot run pip-audit directly against the installed env
+      # because every workspace member is path-installed (editable)
+      # and pip-audit cannot query their advisories. The export
+      # path drops workspace members (`--no-emit-workspace`) and
+      # editable refs (`--no-editable`), leaving a flat list of
+      # PyPI deps with hashes.
+      - name: Export ${{ matrix.package }} requirements
+        run: |
+          uv export \
+            --package ${{ matrix.package }} \
+            --no-dev --no-editable --no-emit-workspace \
+            --format requirements.txt \
+            > /tmp/req-${{ matrix.package }}.txt
+
+      # `--with 'pip-audit>=2.9,<3'` pins the major to keep a
+      # stable contract while letting uv pull patch upgrades.
+      - name: pip-audit ${{ matrix.package }}
+        run: |
+          uv run --with 'pip-audit>=2.9,<3' \
+            pip-audit \
+              -r /tmp/req-${{ matrix.package }}.txt \
+              --strict \
+              --progress-spinner off
+
+  # --------------------------------------------------------------
+  # audit-ci — npm (React shell)
+  # --------------------------------------------------------------
+  npm-audit:
+    name: audit-ci (npm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install deps
+        working-directory: web
+        run: npm ci
+
+      # audit-ci reads web/audit-ci.json (severity threshold,
+      # registry) and exits non-zero when a matching advisory
+      # is present. npm audit under the hood — but audit-ci adds
+      # a stable exit contract and ignore/allowlist file format
+      # that npm itself lacks.
+      - name: audit-ci
+        working-directory: web
+        run: npm run audit:ci
