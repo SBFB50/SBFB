@@ -54,6 +54,25 @@ Smoke local : `bash tests/ci-smoke/supply-chain-green.sh` execute
 les trois audits (cargo-deny + 3x pip-audit + audit-ci) et exit 0
 sur master propre. Prereq : `cargo install cargo-deny --locked`.
 
+## Reproducible builds + SLSA provenance (Sprint 18 Phase B)
+
+Chaque binary release (`nexus-launcher`, `nexus-worker`,
+`nexus-shell-daemon`) est builde en mode deterministe (profile
+release `codegen-units=1`, `lto=fat`, `strip=symbols`,
+`CARGO_INCREMENTAL=0`, `SOURCE_DATE_EPOCH` pinne au timestamp du
+commit) et accompagne :
+
+- d'un `.sha256` compatible `sha256sum -c`,
+- d'une attestation [SLSA Provenance v1.0](https://slsa.dev/spec/v1.0/provenance)
+  format in-toto Statement v1 (`.intoto.jsonl`),
+- d'une signature cosign keyless OIDC quand le build est emis par
+  le workflow GitHub Actions (`.intoto.jsonl.sig`).
+
+Source de verite : [`scripts/release-attest.sh`](../../scripts/release-attest.sh),
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml),
+et la doc user-facing [`docs/release/REPRODUCIBLE_BUILDS.md`](../release/REPRODUCIBLE_BUILDS.md)
+(verification SHA256, verification attestation, rebuild local).
+
 Ignores documentes (cargo-deny `[advisories].ignore`) :
 
 - **RUSTSEC-2026-0097** (`rand 0.8` unsound) — applique uniquement

@@ -65,7 +65,11 @@ web/.env.local
 target/
 **/*.rs.bk
 Cargo.lock.bak
-.cargo/
+# Ignore per-user cargo state (credentials, local overrides) but keep
+# the workspace-wide reproducibility config. Sprint 18 Phase B ships
+# .cargo/config.toml with `CARGO_INCREMENTAL=0` + `/Brepro` on Windows.
+.cargo/*
+!.cargo/config.toml
 
 # Python build artifacts from maturin (nexus-core-py wheels)
 crates/nexus-core-py/target/

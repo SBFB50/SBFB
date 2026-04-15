@@ -177,14 +177,28 @@ notify = "6"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [profile.release]
-# Standard release profile for the worker binary. Stripping and LTO cut
-# the binary size roughly in half, which matters for the "single-file
-# download" UX goal of the SBFB v1.0 distribution.
+# Deterministic release profile — prerequisite for SLSA in-toto
+# attestation (Sprint 18 Phase B). Two builds of the same commit
+# with the same `SOURCE_DATE_EPOCH` must produce byte-identical
+# binaries so users can reproduce the attestation independently.
+#
+# - `codegen-units = 1` forces single-thread codegen (removes the
+#   non-determinism introduced by parallel LLVM units ordering).
+# - `lto = "fat"` links the whole program at once; combined with
+#   `codegen-units = 1` it also slightly shrinks binary size.
+# - `strip = "symbols"` removes symbol table and debug info — both
+#   non-reproducible across toolchain versions and unnecessary for
+#   production artifacts (debug symbols shipped separately when needed).
+# - `debug = false` is the release default but we set it explicitly
+#   so future "build with debuginfo" tweaks stay scoped to a custom
+#   profile rather than polluting the reproducible one.
+# - `panic = "abort"` kept from the original sizing rationale.
 opt-level = 3
-lto = "thin"
+lto = "fat"
 strip = "symbols"
 codegen-units = 1
 panic = "abort"
+debug = false
 
 [profile.dev]
 # Faster incremental compile during Sprint 1 learning. Opt-level 1 on

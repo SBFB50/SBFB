@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Sprint 18 Phase B — reproducible build defaults.
+#
+# These settings apply to every `cargo build` in the workspace. The
+# release-attest.sh script layers `SOURCE_DATE_EPOCH` on top (injected
+# from the commit timestamp, not hardcoded) so the same `cargo build
+# --release --locked` on two different machines at two different times
+# produces byte-identical artifacts for a given commit.
+#
+# Keep this file minimal: any env var here leaks into dev workflow too,
+# so only values safe for local development belong. SOURCE_DATE_EPOCH
+# is *not* set here for that reason — it would freeze every dev build
+# to the last commit timestamp, which confuses `cargo` incremental
+# detection.
+
+[build]
+# Disable incremental compilation. Incremental splits codegen across
+# cached fragments whose ordering is not deterministic between runs;
+# disabling it trades a slower clean build for a reproducible one.
+# Dev loop is not impacted because `cargo check` and `cargo test` are
+# the hot path, and neither uses incremental release output.
+incremental = false
+
+# Windows MSVC PE binaries embed a TimeDateStamp in the file header
+# and a random GUID in the Debug Directory that both vary between
+# link invocations. The `/Brepro` linker flag replaces both with
+# deterministic values, which is what makes the byte-for-byte
+# reproducibility check in tests/ci-smoke/reproducible-build.sh pass
+# on Windows. Without it, same commit + same SOURCE_DATE_EPOCH still
+# produces mismatched SHA256.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/Brepro"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/Brepro"]
