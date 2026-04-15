@@ -104,6 +104,37 @@ def test_compute_client_constructs_cleanly() -> None:
     assert c is not None  # just a sanity check; real HTTP tested separately
 
 
+# ---------------------------------------------------------------------------
+# Sprint 18 Phase D — cost_estimate()
+# ---------------------------------------------------------------------------
+
+
+def test_cost_estimate_default_returns_conservative() -> None:
+    app = SampleApp()
+    watts, vram_mb, hours = app.cost_estimate()
+    assert watts == 100
+    assert vram_mb == 2000
+    assert hours == pytest.approx(0.1)
+
+
+def test_cost_estimate_override_in_subclass() -> None:
+    class HeavyApp(NexusApp):
+        manifest = AppManifest(name="heavy", version="0.1.0")
+
+        async def on_start(self, ctx: AppContext) -> None:  # pragma: no cover - stub
+            pass
+
+        async def on_stop(self) -> None:  # pragma: no cover - stub
+            pass
+
+        def cost_estimate(self) -> tuple[int, int, float]:
+            return (350, 14000, 0.45)
+
+    watts, vram_mb, hours = HeavyApp().cost_estimate()
+    assert (watts, vram_mb) == (350, 14000)
+    assert hours == pytest.approx(0.45)
+
+
 def test_discover_apps_returns_list() -> None:
     # No entry points registered for nexus-sdk itself, so this
     # should be an empty list — the function must still run and

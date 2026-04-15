@@ -51,6 +51,18 @@ class SubmitRequest:
     dispatcher stays decoupled from the FastAPI request layer;
     the API routers convert their pydantic input into one of
     these.
+
+    Sprint 18 Phase D adds four resource-hint fields that the
+    :class:`Task` canonical format carries end-to-end to the
+    worker's consent layer (``is_open_source``,
+    ``estimated_watts``, ``estimated_vram_mb``,
+    ``estimated_hours``). These are *never* accepted from the
+    HTTP client — the ``/tasks/submit`` handler derives them
+    server-side from project config (``repo_url`` presence) and
+    from the submitting app's :meth:`NexusApp.cost_estimate`.
+    The dispatcher trusts its caller to have performed that
+    derivation; its only job is to write the values into the
+    signed TaskEntry.
     """
 
     task_type: str
@@ -61,6 +73,11 @@ class SubmitRequest:
     parent_task_id: str = ""
     metadata: dict[str, str] | None = None
     task_id: str | None = None
+    # Sprint 18 Phase D — task-entry wire-through.
+    is_open_source: bool = False
+    estimated_watts: int = 0
+    estimated_vram_mb: int = 0
+    estimated_hours: float = 0.0
 
 
 class Dispatcher:
@@ -100,6 +117,10 @@ class Dispatcher:
             "created_at": now,
             "parent_task_id": req.parent_task_id,
             "metadata": req.metadata or {},
+            "is_open_source": bool(req.is_open_source),
+            "estimated_watts": int(req.estimated_watts),
+            "estimated_vram_mb": int(req.estimated_vram_mb),
+            "estimated_hours": float(req.estimated_hours),
         }
         task_json = json.dumps(task_dict, sort_keys=True)
         signed = nexus_core.sign_task(task_json, self._coord_secret)

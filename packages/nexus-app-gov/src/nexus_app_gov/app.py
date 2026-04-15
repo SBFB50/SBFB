@@ -200,6 +200,12 @@ class GovApp(NexusApp):
     async def on_stop(self) -> None:
         self._ctx = None
 
+    def cost_estimate(self) -> tuple[int, int, float]:
+        # Gov RAG/extraction tasks run a mid-size instruct model on
+        # consumer GPUs — ~180W sustained, ~6 GB VRAM footprint,
+        # ~0.15h median per query (RAG retrieval + synthesis).
+        return (180, 6000, 0.15)
+
     # ------------------------------------------------------------------
     # Routes (legacy Sprint 4 stub retained for regression)
     # ------------------------------------------------------------------

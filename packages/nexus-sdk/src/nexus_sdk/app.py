@@ -349,3 +349,27 @@ class NexusApp(ABC):
     async def on_stop(self) -> None:
         """Called on graceful coordinator shutdown. Release any
         open resources here."""
+
+    # ------------------------------------------------------------------
+    # Compute cost hints — Sprint 18 Phase D
+    # ------------------------------------------------------------------
+
+    def cost_estimate(self) -> tuple[int, int, float]:
+        """Return ``(watts, vram_mb, hours_per_task)`` hints used by
+        the coordinator's dispatcher to populate :class:`TaskEntry`
+        fields (``estimated_watts``, ``estimated_vram_mb``,
+        ``estimated_hours``) when crafting a task for this app.
+
+        The default is a conservative fallback ``(100, 2000, 0.1)``
+        sized for a mid-range LLM inference on a consumer GPU. Apps
+        with a known compute profile should override this; apps that
+        keep the default still get non-zero estimates so the worker
+        consent watcher can evaluate caps instead of seeing bare
+        zeros and treating every task as free.
+
+        Tuple ordering is frozen: ``(watts: int, vram_mb: int,
+        hours_per_task: float)``. The dispatcher does not interpret
+        negative values and the types are enforced at the TaskEntry
+        serialization boundary.
+        """
+        return (100, 2000, 0.1)

@@ -52,6 +52,18 @@ class Identity(BaseModel):
         default=None,
         description="iroh-docs NamespaceId hex, persisted after first boot.",
     )
+    repo_url: str | None = Field(
+        default=None,
+        description=(
+            "Public Git repository URL of the last successful "
+            "deploy-from-repo. Set by the coordinator on "
+            "verified-deploy success (Sprint 14) and persisted so "
+            "the dispatcher (Sprint 18 Phase D) can derive "
+            "``Task.is_open_source`` across restarts. Absence "
+            "means the project was never deployed from a public "
+            "repo — tasks crafted for it carry ``is_open_source=false``."
+        ),
+    )
 
 
 class Network(BaseModel):

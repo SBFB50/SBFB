@@ -320,6 +320,13 @@ async def deploy_from_repo(body: DeployFromRepoBody, request: Request) -> dict:
             is_open_source=True,
         )
 
+        # Sprint 18 Phase D: persist the verified repo URL on
+        # identity so the dispatcher (coord craft_task) derives
+        # ``Task.is_open_source=true`` for every subsequent task
+        # submitted on this project, across coordinator restarts.
+        coord.config.identity.repo_url = repo_url
+        coord.config.save(coord.config_path)
+
         return {
             "deployed": True,
             "hash": hash_hex,

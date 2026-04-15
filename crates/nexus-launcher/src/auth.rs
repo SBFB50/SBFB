@@ -256,13 +256,10 @@ mod tests {
     use super::*;
 
     /// Every test in this module mutates the `SBFB_HOME` env var.
-    /// Serialize them through a shared mutex so cargo's parallel
-    /// runner cannot observe a racing value (see the matching
-    /// pattern in `nexus-shell-daemon-core::paths::tests`).
-    fn env_lock() -> &'static std::sync::Mutex<()> {
-        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| std::sync::Mutex::new(()))
-    }
+    /// Serialize them through the crate-wide shared mutex so
+    /// `auth::tests` and `token_rotation::tests` are mutually
+    /// ordered, not just within-module.
+    use crate::test_util::env_lock;
 
     struct SbfbHomeGuard {
         prev: Option<String>,

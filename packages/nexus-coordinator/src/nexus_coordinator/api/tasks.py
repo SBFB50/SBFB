@@ -17,7 +17,22 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
 class TaskCreateBody(BaseModel):
-    """POST /tasks/submit body."""
+    """POST /tasks/submit body.
+
+    Sprint 18 Phase D: ``is_open_source`` and ``estimated_*`` are
+    deliberately absent from this schema. They are *derived
+    server-side* by the handler from project config
+    (``identity.repo_url`` → ``is_open_source``) and from the
+    submitting app's :meth:`NexusApp.cost_estimate`. A client
+    that tacks those fields onto the JSON body sees them dropped
+    by ``extra="ignore"``-style Pydantic forbid behavior (the
+    default on BaseModel is to silently ignore unknown fields);
+    the invariant from Sprint 16 D-1 (*no user override on
+    ``is_open_source``*) holds by construction. ``app_name`` is a
+    hint to the handler so it can pick the right app's cost
+    estimate; if omitted or unknown the handler falls back to
+    the conservative SDK default.
+    """
 
     task_type: str = Field(..., min_length=1, max_length=64)
     prompt: str = Field(..., min_length=1)
@@ -27,10 +42,41 @@ class TaskCreateBody(BaseModel):
     parent_task_id: str = ""
     metadata: dict[str, str] | None = None
     task_id: str | None = None
+    app_name: str | None = Field(
+        default=None,
+        description=(
+            "Optional name of the NexusApp submitting this task. "
+            "Used by the handler to pick the app's "
+            "cost_estimate() override when crafting the TaskEntry."
+        ),
+    )
 
 
 def _coord(request: Request) -> "Coordinator":
     return request.app.state.coordinator  # type: ignore[no-any-return]
+
+
+def _derive_cost_estimate(coord: "Coordinator", app_name: str | None) -> tuple[int, int, float]:
+    """Resolve the (watts, vram_mb, hours) estimate for the task.
+
+    Sprint 18 Phase D helper — looks up the app instance by name
+    on the coordinator and returns its
+    :meth:`NexusApp.cost_estimate` tuple. Falls back to the SDK
+    conservative default ``(100, 2000, 0.1)`` when ``app_name``
+    is ``None`` or the app is not registered on this coordinator
+    (e.g. direct ``/tasks/submit`` from an external CLI).
+    """
+    fallback: tuple[int, int, float] = (100, 2000, 0.1)
+    if not app_name:
+        return fallback
+    app = coord.apps.get(app_name)
+    if app is None:
+        return fallback
+    try:
+        watts, vram_mb, hours = app.cost_estimate()
+    except Exception:  # pragma: no cover - defensive against buggy overrides
+        return fallback
+    return (int(watts), int(vram_mb), float(hours))
 
 
 @router.post("/submit")
@@ -39,6 +85,8 @@ async def submit_task(request: Request, body: TaskCreateBody) -> dict[str, Any]:
     dispatcher = coord.dispatcher
     if dispatcher is None:
         raise HTTPException(status_code=503, detail="dispatcher not yet initialised")
+    is_open_source = coord.config.identity.repo_url is not None
+    watts, vram_mb, hours = _derive_cost_estimate(coord, body.app_name)
     task_id = await dispatcher.submit(
         SubmitRequest(
             task_type=body.task_type,
@@ -49,6 +97,10 @@ async def submit_task(request: Request, body: TaskCreateBody) -> dict[str, Any]:
             parent_task_id=body.parent_task_id,
             metadata=body.metadata,
             task_id=body.task_id,
+            is_open_source=is_open_source,
+            estimated_watts=watts,
+            estimated_vram_mb=vram_mb,
+            estimated_hours=hours,
         )
     )
     return {"task_id": task_id}

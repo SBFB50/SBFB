@@ -6,11 +6,33 @@
 //! browser IS the client.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use nexus_shell_daemon_core::auth::{tokens_file_path, TokenRotator};
 use serde::Deserialize;
+use tokio::sync::RwLock;
 
 mod auth;
+mod token_rotation;
+
+#[cfg(test)]
+mod test_util {
+    //! Shared test plumbing for the launcher. Right now: a
+    //! single process-wide `SBFB_HOME` mutex so `auth::tests`
+    //! and `token_rotation::tests` do not race the env var
+    //! with each other when cargo runs both modules in
+    //! parallel threads.
+    pub fn env_lock() -> &'static std::sync::Mutex<()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+    }
+}
+
+/// Production token rotation cadence. Overridable via
+/// `SBFB_TOKEN_ROTATION_INTERVAL_SECS` for manual burn-in tests
+/// on a running launcher; absent → 24 h.
+const DEFAULT_ROTATION_INTERVAL_SECS: u64 = 86_400;
 
 // =================================================================
 // running.json schema
@@ -195,6 +217,59 @@ async fn main() {
         }
     };
 
+    // 0c. Sprint 18 Phase D: bootstrap the rotation state file
+    //     from the current token and spawn the rotation loop.
+    //     Reloading an existing `tokens.json` preserves a running
+    //     overlap window across launcher restarts; absent file
+    //     seeds a fresh rotator from the token the daemon already
+    //     picked up via `SBFB_AUTH_TOKEN`.
+    let rotation_handle = match tokens_file_path() {
+        Some(path) => {
+            let rotator = match TokenRotator::load(&path) {
+                Ok(Some(r)) => r,
+                Ok(None) => {
+                    let r = TokenRotator::new(token.clone());
+                    if let Err(e) = r.write_atomic(&path) {
+                        eprintln!(
+                            "[launcher] failed to seed tokens.json at {}: {e}",
+                            path.display()
+                        );
+                    }
+                    r
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[launcher] tokens.json at {} is malformed ({e}); reseeding",
+                        path.display()
+                    );
+                    let r = TokenRotator::new(token.clone());
+                    if let Err(e) = r.write_atomic(&path) {
+                        eprintln!("[launcher] failed to rewrite tokens.json: {e}");
+                    }
+                    r
+                }
+            };
+            let rotator = Arc::new(RwLock::new(rotator));
+            let interval_secs = std::env::var("SBFB_TOKEN_ROTATION_INTERVAL_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(DEFAULT_ROTATION_INTERVAL_SECS);
+            println!(
+                "[launcher] token rotation loop: interval={interval_secs}s, file={}",
+                path.display()
+            );
+            Some(token_rotation::spawn_rotation_loop(
+                rotator,
+                path,
+                Duration::from_secs(interval_secs),
+            ))
+        }
+        None => {
+            eprintln!("[launcher] could not resolve tokens.json path; rotation disabled");
+            None
+        }
+    };
+
     // 1. Check if daemon already running (with stale detection).
     let mut spawned_child: Option<std::process::Child> = None;
     let info = if let Some(info) = read_running_info(&running_path) {
@@ -270,6 +345,13 @@ async fn main() {
     // 7. Shut down the launcher auth server + remove launcher.json.
     if let Some(server) = auth_server {
         server.shutdown().await;
+    }
+
+    // 8. Stop the rotation loop so the task does not outlive the
+    //    tokio runtime (the process is about to exit but aborting
+    //    cleanly keeps the tracing output tidy).
+    if let Some(handle) = rotation_handle {
+        handle.abort();
     }
 
     println!("[launcher] goodbye");

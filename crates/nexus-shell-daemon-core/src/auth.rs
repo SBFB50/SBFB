@@ -28,6 +28,7 @@
 //! deliberately identical to BOINC, Jupyter, and Syncthing.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::{
     body::Body,
@@ -36,6 +37,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use serde::{Deserialize, Serialize};
 
 /// Name of the HTTP header carrying the bearer token. Lowercase
 /// so axum `HeaderMap::get` matches regardless of the client's
@@ -383,6 +385,207 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// `/auth/token` handler response.
 pub fn header_value_for(token: &str) -> Option<HeaderValue> {
     HeaderValue::from_str(token).ok()
+}
+
+// =================================================================
+// Token rotation — Sprint 18 Phase D
+// =================================================================
+
+/// How long the previous token stays valid after a rotation, so
+/// an in-flight request signed with the old token completes
+/// instead of failing at 401. 10 minutes is well above the
+/// longest P99 request the daemon serves (`/blob-serve/*` on a
+/// cold blob), and short enough that a stolen old token cannot
+/// be replayed the next day.
+pub const TOKEN_OVERLAP_DURATION: Duration = Duration::from_secs(600);
+
+/// Basename of the rotation state file persisted by the launcher
+/// at `<sbfb_home>/tokens.json`.
+pub const TOKENS_FILE_NAME: &str = "tokens.json";
+
+/// On-disk representation of the rotation state. The launcher
+/// owns write access; the daemon reads it to populate its in-
+/// memory [`TokenRotator`]. The format is stable across
+/// launcher / daemon versions within v1 (pre-launch policy).
+///
+/// `rotated_at` is the Unix epoch (seconds) of the most recent
+/// rotation — persisted across process restarts so an
+/// unfortunately-timed launcher crash right after a rotation
+/// does not silently shrink the overlap window to zero for a
+/// still-running daemon.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TokensFile {
+    pub current: String,
+    pub previous: Option<String>,
+    pub rotated_at: u64,
+}
+
+/// Pair of currently-valid tokens plus the instant of the last
+/// rotation, used by [`validate_token_with_rotator`] to accept
+/// either token during the overlap window.
+///
+/// The struct holds both a [`std::time::Instant`] (for overlap
+/// arithmetic — monotonic, unaffected by wall-clock skew) and a
+/// Unix timestamp (for persistence — the launcher can reload
+/// state across restarts). Only the launcher mutates this state;
+/// the daemon holds a read-only clone.
+#[derive(Debug, Clone)]
+pub struct TokenRotator {
+    current: String,
+    previous: Option<String>,
+    rotated_at: Instant,
+    rotated_at_unix: u64,
+}
+
+impl TokenRotator {
+    /// Build a rotator with a single active token and no
+    /// predecessor. Used at first launcher boot when no
+    /// `tokens.json` exists on disk yet.
+    pub fn new(current: String) -> Self {
+        Self {
+            current,
+            previous: None,
+            rotated_at: Instant::now(),
+            rotated_at_unix: unix_now(),
+        }
+    }
+
+    /// Promote the current token to `previous`, install
+    /// `new_current` as the fresh current, and stamp the
+    /// rotation instant. Idempotent on the previous slot — a
+    /// rotation always overwrites the prior predecessor so the
+    /// overlap window never chains past one generation.
+    pub fn rotate(&mut self, new_current: String) {
+        let prev = std::mem::replace(&mut self.current, new_current);
+        self.previous = Some(prev);
+        self.rotated_at = Instant::now();
+        self.rotated_at_unix = unix_now();
+    }
+
+    /// Currently-active token. Always present.
+    pub fn current(&self) -> &str {
+        &self.current
+    }
+
+    /// Predecessor token, or `None` if no rotation has happened
+    /// yet *or* the overlap window has elapsed. Callers that
+    /// want the raw stored predecessor regardless of window
+    /// should go through [`Self::previous_raw`].
+    pub fn previous(&self) -> Option<&str> {
+        if self.is_in_overlap_window() {
+            self.previous.as_deref()
+        } else {
+            None
+        }
+    }
+
+    /// Raw predecessor token ignoring the overlap window. Only
+    /// used by persistence — [`validate_token_with_rotator`]
+    /// goes through [`Self::previous`] which already gates on
+    /// the window.
+    pub fn previous_raw(&self) -> Option<&str> {
+        self.previous.as_deref()
+    }
+
+    /// True iff a predecessor is stored *and* the overlap
+    /// window has not yet elapsed since the last rotation.
+    pub fn is_in_overlap_window(&self) -> bool {
+        self.previous.is_some() && self.rotated_at.elapsed() < TOKEN_OVERLAP_DURATION
+    }
+
+    /// Unix timestamp (seconds) of the most recent rotation.
+    pub fn rotated_at_unix(&self) -> u64 {
+        self.rotated_at_unix
+    }
+
+    /// Persist the pair atomically (tempfile + rename) so a
+    /// crash mid-write never leaves the daemon with a truncated
+    /// file. Mode is `0600` on Unix; the parent dir is created
+    /// with mode `0700` if absent (same contract as the
+    /// long-lived `auth_token` file).
+    pub fn write_atomic(&self, path: &Path) -> std::io::Result<()> {
+        let payload = TokensFile {
+            current: self.current.clone(),
+            previous: self.previous.clone(),
+            rotated_at: self.rotated_at_unix,
+        };
+        let parent = path.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "tokens.json path has no parent",
+            )
+        })?;
+        std::fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        set_mode(parent, 0o700)?;
+
+        let tmp = path.with_extension("tmp");
+        let body =
+            serde_json::to_string(&payload).map_err(|e| std::io::Error::other(e.to_string()))?;
+        std::fs::write(&tmp, body)?;
+        #[cfg(unix)]
+        set_mode(&tmp, 0o600)?;
+        std::fs::rename(&tmp, path)
+    }
+
+    /// Load a rotator from `path`. Returns `Ok(None)` if the
+    /// file is absent; callers use [`Self::new`] to seed a
+    /// fresh rotator on first boot.
+    pub fn load(path: &Path) -> std::io::Result<Option<Self>> {
+        let body = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let payload: TokensFile =
+            serde_json::from_str(&body).map_err(|e| std::io::Error::other(e.to_string()))?;
+        // Reconstruct the monotonic instant from (now - age):
+        // age = max(0, now - rotated_at_unix). If the wall clock
+        // went backwards for any reason, treat the rotation as
+        // "just now" — defensive, and the overlap window simply
+        // restarts rather than being perpetually expired.
+        let age = unix_now().saturating_sub(payload.rotated_at);
+        let rotated_at = Instant::now()
+            .checked_sub(Duration::from_secs(age))
+            .unwrap_or_else(Instant::now);
+        Ok(Some(Self {
+            current: payload.current,
+            previous: payload.previous,
+            rotated_at,
+            rotated_at_unix: payload.rotated_at,
+        }))
+    }
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Path to `<sbfb_home>/tokens.json`. Returns `None` on
+/// platforms where neither `SBFB_HOME` nor the user home dir
+/// resolves.
+pub fn tokens_file_path() -> Option<PathBuf> {
+    sbfb_home().map(|d| d.join(TOKENS_FILE_NAME))
+}
+
+/// Constant-time check of `request_token` against the
+/// rotator's current token plus, when the overlap window is
+/// still open, the immediately-previous token. Returns `true`
+/// on match, `false` otherwise.
+pub fn validate_token_with_rotator(request_token: &str, rotator: &TokenRotator) -> bool {
+    if constant_time_eq(request_token.as_bytes(), rotator.current.as_bytes()) {
+        return true;
+    }
+    if let Some(prev) = rotator.previous() {
+        if constant_time_eq(request_token.as_bytes(), prev.as_bytes()) {
+            return true;
+        }
+    }
+    false
 }
 
 // =================================================================
