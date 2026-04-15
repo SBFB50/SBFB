@@ -143,7 +143,13 @@ aux deux champs.
   toolchain + meme commit, ouvrir une issue avec les deux binaires.
 - **Wheel `nexus-core-py`** : maturin honore `SOURCE_DATE_EPOCH`
   pour le zip mais la reproductibilite interpreter-wise depend de
-  la version exacte de Python + maturin. Best-effort S18, durci S19+.
+  la version exacte de Python + maturin. Best-effort S18 ; le
+  wheel **est** desormais attesté SLSA depuis l'audit fix S18 B-1
+  (`build-wheel-attest` job dans `release.yml`, output
+  `nexus_core_py-*.whl.intoto.jsonl[.sig]` joint au release
+  draft). Cross-platform wheel matrix (`macos-arm64`,
+  `windows-x86_64`) reportee Sprint 20+ quand la livraison Python
+  croît au-dela du seul wheel manylinux.
 - **Signature cosign keyless** : requiert que l'utilisateur fasse
   confiance au GitHub Actions OIDC issuer
   (`token.actions.githubusercontent.com`). Pas de cle persistante
