@@ -52,7 +52,7 @@ La roadmap Phase D S17 specifie Sprint 18 items :
 |---|---|---|
 | `cargo-audit` / `pip-audit` / `npm audit` CI | ~150 | §3 S18 |
 | Reproducible builds Rust (`--locked`, `SOURCE_DATE_EPOCH`) + SHA256 | ~200 | §3 S18 |
-| Radicle mirror + warrant canary minimal | ~300 | §3 S18 |
+| Codeberg mirror + warrant canary minimal (Radicle differe v1.0) | ~300 | §3 S18 |
 | Driver update check launcher (NVIDIA CVE scrape) | ~250 | §3 S18 |
 | Multi-relai federation phase 1 (n0 + 2 fallbacks, round-robin) | ~400 | §3 S18 |
 | DHT redundant lookup (3 pkarr paralleles, quorum 2/3) | ~200 | §3 S18 |
@@ -132,7 +132,7 @@ fallbacks + DHT pkarr redundant 3-paralleles-quorum-2/3), ferme
 la dette S16 (coord-side wire `is_open_source` + estimates dans
 TaskEntry au craft, token rotation automatique), et installe un
 check driver NVIDIA CVE au launcher startup + warrant canary
-Ed25519-signe + Radicle mirror — debloquant Gate 1 (DnD Forge
+Ed25519-signe + Codeberg mirror (Radicle differe v1.0) — debloquant Gate 1 (DnD Forge
 beta fermee) fin de sprint.**
 
 ---
@@ -182,7 +182,7 @@ en 6 phases A-F selon couplage technique et risque.
 | B — Reproducible builds + SLSA | item 2 + attestation in-toto SHA256 | Prerequis pour tout artefact Gate 1+ livrable |
 | C — Transport P2P durci | multi-relai federation (item 5) + DHT redundant (item 6) | Meme stack iroh, testable en integration tests E2E |
 | D — Coord-side wire + token rotation | dette S16 TaskEntry (item 8) + token rotation (carry 7) | Touches coord + daemon, risque regression minimal |
-| E — Radicle mirror + warrant canary + driver check | items 3 + 4 | Trois items externes ops (GitHub Actions + gossip + NVD scrape), independants du runtime P2P |
+| E — Codeberg mirror + warrant canary + driver check (Radicle differe v1.0) | items 3 + 4 | Trois items externes ops (GitHub Actions + gossip + NVD scrape), independants du runtime P2P |
 | F — Verification + audit plan S19 | consolidation + kickoff S19 audit | Fin de sprint standard |
 
 **Rejete** :
@@ -194,7 +194,7 @@ en 6 phases A-F selon couplage technique et risque.
 - **Fusion A+B "1 phase supply-chain"** : A = CI config pure (YAML +
   cargo-deny.toml), B = build tooling + attestation. Scope distinct.
 - **Phase E decoupage en 3 phases separees** : driver check +
-  warrant canary + Radicle sont independants mais petits (~850 LOC
+  warrant canary + Codeberg mirror sont independants mais petits (~850 LOC
   cumule), 1 phase avec 3 commits internes ou 3 phases ? Decision :
   **1 phase 3 commits internes** pour eviter l'inflation de phases.
 
@@ -378,9 +378,13 @@ Le choix hex + JCS est la convention SBFB etablie depuis Sprint 2
 — le §D5 d'origine etait redige avant que l'implementation ne
 fige la convention.
 
-Le canary est **aussi mirror sur Radicle** (via GitHub Action
-`gsaslis/mirror-to-radicle`, cf. item 3) pour redondance
-decentralisee : si GitHub repo est saisi, Radicle mirror persiste.
+Le canary est **aussi mirror via repo Git** (pattern git-mirror
+classique cf. item 3). **Pivot 2026-04-15** : la cible initiale
+Radicle a ete remplacee par **Codeberg prive** pre-launch (Radicle
+ne supporte pas repos prives par design, repo GitHub est prive
+pre-launch). Au v1.0 go-live, flip Codeberg public + activation
+Radicle mirror en parallele. Voir `docs/release/MIRROR_FALLBACK.md`
+pour le detail et la flip sequence.
 
 **Rejete** :
 
@@ -482,7 +486,7 @@ Migration `sprint17_audit_findings.md` → `archive/v1.2/` via
 
 **Livrable commit** : `feat(sprint18): Phase D — coord-side TaskEntry wire-through + X-SBFB-Token rotation`
 
-### Phase E — Driver check + warrant canary + Radicle mirror (~450 LOC, +10 tests)
+### Phase E — Driver check + warrant canary + Codeberg mirror (~560 LOC, +10 tests)
 
 **Scope subphase E1 — Driver update check (~250 LOC)** :
 - `crates/nexus-launcher/src/driver_check.rs` : startup scrape
@@ -502,15 +506,26 @@ Migration `sprint17_audit_findings.md` → `archive/v1.2/` via
 - CLI `sbfb canary publish` (commande manuelle mensuelle
   dev-side) + cron template GitHub Action pour auto-publish
 
-**Scope subphase E3 — Radicle mirror (~50 LOC config)** :
-- `.github/workflows/radicle-mirror.yml` (adapt
-  `gsaslis/mirror-to-radicle`)
-- Doc setup dans `docs/release/RADICLE_MIRROR.md`
+**Scope subphase E3 — Codeberg mirror (~160 LOC) + Radicle differe** :
+- `.github/workflows/mirror-codeberg.yml` (~50 LOC) : push-mirror
+  auth via `http.extraheader: Authorization: token`, trigger push
+  any branch + all tags + workflow_dispatch, concurrency group
+  serialise, permissions `contents: read`, timeout 15 min
+- `docs/release/MIRROR_FALLBACK.md` (~110 lignes) : rationale
+  pre-launch prive + §flip sequence v1.0 (Radicle activation)
+  + §maintainer setup reference + §secret rotation + §threat
+  model fit
+- **Radicle differe au v1.0 go-live** : Radicle Heartwood
+  public-par-design incompatible avec repo GitHub prive
+  pre-launch. Pattern et doc setup prepares, activation
+  au tag `v1.0` (flip GitHub+Codeberg public + setup rad
+  identity + ajout workflow `mirror-radicle.yml`). Tracking
+  item `sprint18_audit_plan.md` S19.
 
 **Livrable commit 3 internes** :
 1. `feat(sprint18): Phase E1 — NVIDIA driver CVE check at launcher startup`
 2. `feat(sprint18): Phase E2 — warrant canary monthly Ed25519 gossip publish`
-3. `feat(sprint18): Phase E3 — Radicle mirror GitHub Action`
+3. `feat(sprint18): Phase E3 — Codeberg private disaster-recovery mirror`
 
 ### Phase F — Consolidation + verification + audit plan S19 (~250 LOC docs)
 
@@ -578,7 +593,7 @@ Items **nouveaux Sprint 18** :
 - DHT pkarr redundant lookup (nouveau)
 - NVIDIA driver CVE check launcher (nouveau)
 - Warrant canary (nouveau format SBFB Ed25519)
-- Radicle mirror (nouveau, infra ops)
+- Codeberg mirror (nouveau, infra ops) — Radicle differe v1.0 go-live
 
 Items **carry/dette** :
 - Coord-side wire TaskEntry (dette S16 C-1/C-2 partial fix)
@@ -613,7 +628,7 @@ depuis Sprint 7.
 | D — Wire TaskEntry + token rotation | ~280 | ~100 | ~20 | ~400 |
 | E1 — Driver check NVD | ~200 | ~40 | ~10 | ~250 |
 | E2 — Warrant canary | ~100 | ~30 | ~20 | ~150 |
-| E3 — Radicle mirror | ~30 (YAML) | 0 | ~20 | ~50 |
+| E3 — Codeberg mirror (Radicle differe v1.0) | ~50 (YAML) | 0 | ~110 | ~160 |
 | F — Consolidation + verif + audit plan | 0 | 0 | ~250 | ~250 |
 | **Total** | **~1460** | **~350** | **~440** | **~2250** |
 
@@ -646,7 +661,7 @@ confirme l'approche "autonome") :
 3. **D4 relais federaux placeholders seulement S18** : OK de ne
    PAS ajouter relais externes publics ce sprint (attendre S19
    partnership) ou pousser 1-2 relais community public maintenant ?
-4. **D5 warrant canary format Ed25519 + mirror GitHub+Radicle** :
+4. **D5 warrant canary format Ed25519 + mirror GitHub+Codeberg (Radicle differe v1.0)** :
    format retenu ou preferes PGP classique ?
 5. **Phase E decoupage 3 subphases (E1/E2/E3) dans 1 phase**
    mono-commit vs 3 commits distincts : preference ?

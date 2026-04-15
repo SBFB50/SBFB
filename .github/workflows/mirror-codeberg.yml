@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Push-mirror of this repo to Codeberg (Forgejo, e.V. Berlin, EU)
+# as disaster-recovery redundancy. Sprint 18 Phase E3.
+#
+# Scope (pre-launch v1.2): both GitHub source and Codeberg mirror are
+# PRIVATE — mirror is maintainer disaster-recovery only (GitHub account
+# suspension, subpoena, DMCA takedown). At v1.0 go-live, flip GitHub
+# public + Codeberg public + add Radicle mirror workflow. See
+# docs/release/MIRROR_FALLBACK.md for the flip sequence.
+#
+# Auth: Personal Access Token (scope `repository` Read+Write only),
+# stored in GitHub Actions secret CODEBERG_TOKEN. Injected via
+# http.extraheader to avoid URL-embedded credential leakage in logs.
+
+name: Mirror to Codeberg
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-codeberg
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push mirror to Codeberg
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CODEBERG_TOKEN:-}" ]; then
+            echo "::error::CODEBERG_TOKEN secret missing — mirror push aborted"
+            exit 1
+          fi
+          git remote add codeberg "https://codeberg.org/SBFB/SBFB.git"
+          git -c "http.https://codeberg.org/.extraheader=Authorization: token ${CODEBERG_TOKEN}" \
+            push --mirror codeberg

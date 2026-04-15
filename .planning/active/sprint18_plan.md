@@ -26,7 +26,7 @@ decoupee en 3 subphases E1/E2/E3 avec commits distincts),
 | D | Wire TaskEntry + token rotation | ~280 | ~100 | ~20 | 1 : `feat(sprint18): Phase D — coord-side TaskEntry wire-through + X-SBFB-Token rotation` |
 | E1 | Driver check NVD | ~200 | ~40 | ~10 | 1 : `feat(sprint18): Phase E1 — NVIDIA driver CVE check at launcher startup` |
 | E2 | Warrant canary | ~100 | ~30 | ~20 | 1 : `feat(sprint18): Phase E2 — warrant canary monthly Ed25519 gossip publish` |
-| E3 | Radicle mirror | ~30 | 0 | ~20 | 1 : `feat(sprint18): Phase E3 — Radicle mirror GitHub Action` |
+| E3 | Codeberg mirror (Radicle differe v1.0) | ~50 | 0 | ~110 | 1 : `feat(sprint18): Phase E3 — Codeberg private disaster-recovery mirror` |
 | F | Wrap-up + verif + audit plan S19 | 0 | 0 | ~250 | 1 : `chore(sprint18): Phase F — wrap-up + verification + audit plan S19 + migrate planning` |
 | **Total S18** | | **~1460** | **~350** | **~440** | **8 commits + 1 chore(planning) ouverture** |
 
@@ -796,84 +796,151 @@ effective.
 
 ---
 
-## Phase E3 — Radicle mirror GitHub Action (~50 LOC)
+## Phase E3 — Codeberg private disaster-recovery mirror (~160 LOC)
+
+### Pivot 2026-04-15 (Radicle → Codeberg + Radicle differe)
+
+Le plan original §Phase E3 ciblait Radicle mirror uniquement.
+Decouverte en cours de setup : **repo GitHub `SBFB50/SBFB` est
+actuellement prive** (cf. CLAUDE.md §Pre-launch protocol policy,
+aucun user externe). Consequences :
+
+1. **Radicle = impossible maintenant** : Radicle Heartwood est un
+   reseau P2P **public par design**, pas de repos prives. Publier
+   via Radicle maintenant exposerait du code pre-launch.
+2. **Codeberg prive = valeur immediate** : mirror
+   disaster-recovery maintainer (subpoena GitHub, suspension
+   account, takedown DMCA, service outage). Pre-launch = 0 user
+   externe, donc "anti-subpoena public" n'est pas la valeur
+   principale aujourd'hui — mais le pattern est pret.
+3. **Pattern pret pour go-live v1.0** : au tag `v1.0`, flip
+   GitHub public + flip Codeberg public + ajout workflow Radicle
+   = ~15 min total, toutes les pieces deja en place (doc
+   `MIRROR_FALLBACK.md §3 flip sequence` enumere chaque etape).
+
+Recherche deep `2026-04-15` confirmant ce pivot : Codeberg bat
+Radicle sur findability (URL humaine indexee Google vs RID
+z-base32 sur app.radicle.xyz centralise), setup (5 min vs 25 min
++ VM Linux), juridictions equivalentes (e.V. Berlin DE vs Radicle
+Foundation CH, toutes 2 EU anti-DMCA).
 
 ### Goal
 
-Automated mirror du repo GitHub principal vers Radicle
-decentralized git hosting. Redondance decentralisee : si
-GitHub.com subpoena'd, Radicle reste accessible.
+Push-mirror automatique du repo GitHub principal vers Codeberg
+(Forgejo). A chaque push GitHub (any branch + all tags), GHA
+runner ubuntu-latest pousse vers `codeberg.org/SBFB/SBFB` via
+`git push --mirror`. Disaster-recovery maintainer maintenant,
+anti-subpoena public au go-live v1.0.
 
 ### Decisions techniques
 
-- **Machine account Radicle** : nouveau `rad` identity dediee
-  CI (pas la cle perso dev). Stored as GitHub Actions secret
-  (base64 encoded `.radicle/keys/radicle.json`).
-- **Source action** : `gsaslis/mirror-to-radicle` (community,
-  source : [GitHub repo](https://github.com/gsaslis/mirror-to-radicle)).
-- **Trigger** : `push` to master + `schedule` daily 03:00 UTC
-  fallback safety.
+- **Target forge** : Codeberg.org (Forgejo, e.V. Berlin, EU
+  jurisdiction, non-profit anti-DMCA charter explicite)
+- **Auth** : Personal Access Token Forgejo scope `repository`
+  Read+Write only (moindre privilege, pas de scope org/issue/
+  user/package), stocke en GitHub Actions secret
+  `CODEBERG_TOKEN`
+- **Push mode** : `git push --mirror` (all refs + all tags +
+  delete refs absentes sur source = vrai mirror)
+- **Trigger** : `push: branches: ['**'], tags: ['**']` +
+  `workflow_dispatch` (pas de cron — trigger-based suffit
+  pre-launch)
+- **Auth injection** : `http.<url>.extraheader` avec
+  `Authorization: token <PAT>` plutot que URL-embedded
+  credentials (pas de leak token dans logs git verbose)
+- **Concurrency** : `group: mirror-codeberg,
+  cancel-in-progress: false` — serialise les pushes concurrents,
+  evite race cote Codeberg sur pushes rapides successifs
+- **Permissions** : `contents: read` uniquement (workflow ne
+  modifie pas le repo source)
+- **Timeout** : 15 min (safety net en cas de probleme reseau)
+- **Radicle** : **differe au go-live v1.0**, pattern et doc
+  setup deja prepares dans `MIRROR_FALLBACK.md §3`. Tracking
+  item dans `sprint18_audit_plan.md` S19.
 
 ### Livrables
 
 **Nouveaux fichiers** :
 
-- `.github/workflows/radicle-mirror.yml` (~30 LOC YAML) :
-  ```yaml
-  name: Radicle mirror
-  on:
-    push:
-      branches: [master]
-    schedule:
-      - cron: '0 3 * * *'
-    workflow_dispatch:
-  
-  jobs:
-    mirror:
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v4
-          with:
-            fetch-depth: 0
-        - uses: gsaslis/mirror-to-radicle@v1
-          with:
-            radicle-key: ${{ secrets.RADICLE_MACHINE_KEY }}
-            project-name: sbfb
-  ```
+- `.github/workflows/mirror-codeberg.yml` (~50 LOC YAML) :
+  push-mirror auth via extraheader, trigger push + tags +
+  workflow_dispatch, concurrency group serialise, SPDX header
+  AGPL-3.0, `set -euo pipefail`
+- `docs/release/MIRROR_FALLBACK.md` (**~290 lignes, vs ~110
+  annonce initial — inflation +160% volontaire**) :
+  - §1 Rationale pre-launch + v1.0 flip + Notes cohabitation
+    (orgs SBFB50/SBFB + destructivite `git push --mirror`)
+  - §2 Clone depuis Codeberg (fallback) + verification SHA matching
+  - §3 Flip sequence au v1.0 go-live (8 sous-sections
+    3.1-3.8 **self-contained** : visibilite GitHub+Codeberg,
+    setup Radicle double-identite maintainer+machine account,
+    5 secrets GHA tableau, workflow `mirror-radicle.yml`
+    complet pin SHA gsaslis/mirror-to-radicle@514707f3 v0.2.0,
+    update CANARY.txt mirror_urls, verif rad clone + Explorer,
+    docs tracking + rotation machine-account key)
+  - §4 Maintainer setup Codeberg (reference — already done)
+  - §5 Secret rotation Codeberg (12 mois ou incident)
+  - §6 Threat model fit (protects / does NOT protect +
+    note Codeberg branch manual wipe par mirror)
+  - §7 Related docs
+  - **Rationale inflation** : §3.1-§3.8 volontairement detaille
+    pour permettre au maintainer d'executer le flip v1.0 sans
+    re-research (commandes rad, 5 secrets GHA, workflow YAML
+    complet pin SHA, verif). Self-contained documentation =
+    dog-food pattern OSS "no tribal knowledge".
 
-- `docs/release/RADICLE_MIRROR.md` (~20 lignes) :
-  - §1 What is Radicle
-  - §2 How to verify mirror
-  - §3 How to clone from Radicle instead of GitHub
-    (`rad clone <rid>`)
+**Fichiers modifies** : aucun. `CANARY.txt` reste inchange —
+section `mirror_urls:` sera ajoutee au v1.0 flip (etape §3.5 de
+`MIRROR_FALLBACK.md`), pas maintenant (repos prives = urls non
+accessibles au tiers).
 
 ### Tests attendus
 
-Aucun test unit Rust (pur ops CI). Verification manuelle.
+Aucun test unit Rust (pur ops CI). **Verification manuelle** :
+
+1. Push vers GitHub master → workflow `mirror-codeberg.yml` run
+   verte sur `github.com/SBFB50/SBFB/actions`
+2. `git ls-remote` GitHub master SHA == Codeberg master SHA
+3. Scan logs workflow : aucun token fuite (mask automatique GHA
+   doit cacher `***` a la place de la valeur)
 
 ### Critere d'acceptation Phase E3
 
-- [ ] GitHub Actions workflow `radicle-mirror.yml` run verte
-  sur master push
-- [ ] `rad clone <rid>` fonctionne depuis machine tierce
-- [ ] Doc verification user-facing ok
+- [ ] Workflow `mirror-codeberg.yml` run verte sur push master
+- [ ] `git ls-remote` Codeberg master == GitHub master SHA apres run
+- [ ] Doc `MIRROR_FALLBACK.md` complete §1-§7 avec flip sequence
+  Radicle v1.0 explicite
+- [ ] Aucun secret fuite dans workflow logs (masked `***`)
+- [ ] Plan + kickoff §E3 mentionnent Radicle differe + rationale
 
 ### Risques Phase E3
 
-- **Secret setup** : le user doit generer `rad` identity manuellement
-  et uploader `RADICLE_MACHINE_KEY` secret. Documente dans
-  `RADICLE_MIRROR.md §setup`.
-- **`gsaslis/mirror-to-radicle` action uptime** : dep externe.
-  Mitigation : pin `@v1` (commit SHA) pas `@main`.
+- **Token Codeberg expire** : rotation documentee `MIRROR_FALLBACK.md §5`
+- **Codeberg outage ponctuel** : retry implicite au prochain push
+  GitHub (workflow re-sync). Pas de cron ici, mais ajoutable
+  post-v1.0 si besoin.
+- **Codeberg repo accidentally public pre-v1.0** : risque
+  operationnel maintainer. Mitigation = checklist `§3 flip
+  sequence` a ne suivre qu'au jour du tag v1.0.
+- **Radicle jamais active au v1.0** : tracker item S19
+  `sprint18_audit_plan.md` avec owner + deadline tag v1.0.
+- **Compromise `CODEBERG_TOKEN`** : blast radius = attaquant
+  push vers mirror Codeberg seul (pas la source GitHub).
+  Mitigation = `§5` rotation + monitoring Codeberg notifications.
 
 ### Commit
 
-`feat(sprint18): Phase E3 — Radicle mirror GitHub Action`
+`feat(sprint18): Phase E3 — Codeberg private disaster-recovery mirror`
 
-Body : workflow YAML cron daily + push master, machine account
-pattern, doc RADICLE_MIRROR.md clone verification, redondance
-decentralisee anti-subpoena. VALIDATED_BLUEPRINT couche 10 opsec
-deuxieme brique.
+Body : pivot depuis plan initial Radicle-only vers Codeberg
+prive (repo GitHub prive pre-launch, Radicle ne supporte pas
+repos prives par design). Workflow push-mirror auth via
+`http.extraheader` token, trigger push any branch + all tags +
+workflow_dispatch, concurrency group serialise. Doc
+`MIRROR_FALLBACK.md` §1-§7 avec flip sequence v1.0 go-live
+(Radicle activation tracee). Radicle differe, item
+`sprint18_audit_plan.md` S19. VALIDATED_BLUEPRINT couche 10
+opsec deuxieme brique livree (premiere = E2 warrant canary).
 
 ---
 
