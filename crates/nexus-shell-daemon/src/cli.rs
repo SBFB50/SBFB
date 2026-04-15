@@ -98,6 +98,65 @@ pub enum Command {
     /// this to `ShellDaemonConfig::save`.
     #[command(subcommand)]
     Config(ConfigCommand),
+
+    /// Publish / verify the project's monthly warrant canary.
+    ///
+    /// Sprint 18 Phase E2. The declaration text lives at
+    /// `CANARY.txt` at the repo root; the Ed25519 signature is
+    /// minted with a persistent maintainer key stored at
+    /// `<sbfb_home>/canary-key.key`. `publish` also broadcasts
+    /// the canary on the `nexus-grid/warrant-canary/v1` gossip
+    /// topic so live daemons can flag a stale canary even
+    /// without re-cloning the repo.
+    #[command(subcommand)]
+    Canary(CanaryCommand),
+}
+
+/// Subcommands for `nexus-shell-daemon canary ...`.
+///
+/// Sprint 18 Phase E2. `publish` is the one flow wired in this
+/// phase; `verify` is a cheap helper that re-reads `CANARY.txt`
+/// and re-validates the signature, useful for CI and for the
+/// `scripts/verify-canary.sh` shell wrapper.
+#[derive(Debug, Subcommand)]
+pub enum CanaryCommand {
+    /// Build + sign + publish a fresh canary. Creates
+    /// `<sbfb_home>/canary-key.key` on first run. Writes
+    /// `CANARY.txt` to the output path (default: `./CANARY.txt`)
+    /// and, unless `--no-gossip` is set, broadcasts the canary
+    /// on the warrant canary gossip topic.
+    Publish {
+        /// Headline text that proves the canary was minted
+        /// on-or-after today's date. Typically a major news
+        /// headline of the day.
+        #[arg(long, value_name = "HEADLINE")]
+        headline: String,
+
+        /// Output path for the human-readable `CANARY.txt`
+        /// mirror. Defaults to `CANARY.txt` in the current
+        /// working directory.
+        #[arg(long, value_name = "PATH", default_value = "CANARY.txt")]
+        output: std::path::PathBuf,
+
+        /// Skip the gossip broadcast step. Useful when the
+        /// operator just wants to refresh `CANARY.txt` without
+        /// booting an iroh endpoint (e.g. in the monthly GitHub
+        /// Action that runs in a network-restricted CI runner).
+        #[arg(long)]
+        no_gossip: bool,
+    },
+
+    /// Re-parse a canary file and verify its signature locally.
+    /// Prints the date + headline + next-update on success; exits
+    /// non-zero with a descriptive message on any parse or
+    /// signature failure.
+    Verify {
+        /// Path to the `CANARY.txt` (or JSON) file to verify.
+        /// Defaults to `CANARY.txt` in the current working
+        /// directory.
+        #[arg(long, value_name = "PATH", default_value = "CANARY.txt")]
+        input: std::path::PathBuf,
+    },
 }
 
 /// Subcommands for `nexus-shell-daemon config ...`.

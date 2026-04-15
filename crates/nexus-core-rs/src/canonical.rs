@@ -103,6 +103,15 @@ pub const DOMAIN_CURATOR_LIST_V1: &[u8] = b"nexus-curator-list-v1";
 /// as any other signed payload type.
 pub const DOMAIN_PROVENANCE_V1: &[u8] = b"nexus-provenance-v1";
 
+/// Domain separation tag for warrant canary payloads.
+///
+/// Sprint 18 Phase E2: the maintainer signs a monthly warrant
+/// canary with an Ed25519 key and broadcasts it over gossip +
+/// mirrors it into `CANARY.txt` at the repo root. The tag keeps
+/// a canary signature from being replayed as a task / result /
+/// claim / invite / kudos / curator-list / provenance signature.
+pub const DOMAIN_WARRANT_CANARY_V1: &[u8] = b"nexus-warrant-canary-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///

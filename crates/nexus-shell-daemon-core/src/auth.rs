@@ -89,6 +89,24 @@ pub fn auth_token_path() -> Option<PathBuf> {
     sbfb_home().map(|d| d.join("auth_token"))
 }
 
+/// Return `<sbfb_home>/canary-key.key` — the maintainer's
+/// persistent Ed25519 signing key for the Sprint 18 Phase E2
+/// warrant canary flow.
+///
+/// This key is deliberately distinct from the daemon's iroh
+/// node identity (which is minted fresh on every boot via
+/// [`nexus_core_rs::create_node`]). A warrant canary needs a
+/// **stable** maintainer pubkey that outlives any single daemon
+/// process so verifiers can trust one long-lived pubkey across
+/// months of canary publications.
+///
+/// The file is 32 raw bytes (Ed25519 secret key), created with
+/// mode `0600` on Unix via
+/// [`nexus_core_rs::KeyPair::load_or_generate`].
+pub fn canary_key_path() -> Option<PathBuf> {
+    sbfb_home().map(|d| d.join("canary-key.key"))
+}
+
 /// Return `<sbfb_home>/run` — the directory that holds Unix
 /// Domain Sockets on Linux/macOS. Created with mode `0700` by the
 /// launcher at boot (Sprint 16 Phase B). Windows uses kernel

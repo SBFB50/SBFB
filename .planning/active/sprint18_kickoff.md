@@ -362,10 +362,21 @@ Declaration:
 Next scheduled update: 2026-05-15
 
 Signed:
-  Ed25519 signature over the above bytes (SHA256 canonical UTF-8)
-  sig: <base64-Ed25519-signature>
-  pub: <base64-Ed25519-pubkey matching node_id>
+  Ed25519 signature over the canonical bytes (JCS RFC 8785 +
+  domain separation tag `nexus-warrant-canary-v1`)
+  sig: <hex-lowercase-Ed25519-signature, 128 chars>
+  pub: <hex-lowercase-Ed25519-pubkey of maintainer canary key, 64 chars>
 ```
+
+**Correction post-E2** : le bloc ci-dessus disait `base64-Ed25519-*`
+en design d'origine et `SHA256 canonical UTF-8` pour la regle de
+serialisation. L'implementation Phase E2 utilise **hex lowercase**
+(coherent avec task/result/claim/curator-list/provenance qui
+utilisent tous hex dans les JSONs) et **JCS RFC 8785** (meme
+chemin `canonical_bytes` que toutes les autres familles signees).
+Le choix hex + JCS est la convention SBFB etablie depuis Sprint 2
+— le §D5 d'origine etait redige avant que l'implementation ne
+fige la convention.
 
 Le canary est **aussi mirror sur Radicle** (via GitHub Action
 `gsaslis/mirror-to-radicle`, cf. item 3) pour redondance

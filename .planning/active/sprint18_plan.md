@@ -719,20 +719,45 @@ mensuellement).
 
 - `crates/nexus-shell-daemon/src/cli.rs` :
   - Subcommand `sbfb canary publish --headline "NYT 2026-04-15: ..."`
-  - Reads `~/.sbfb/node_id.key` (existant S11+), signs, publishes
-    via gossip, writes `CANARY.txt` local (replace existing)
+  - Reads `~/.sbfb/canary-key.key` (cle maintainer persistante
+    creee/relue via `KeyPair::load_or_generate`, distincte de
+    l'identite daemon iroh qui est ephemere per-boot), signs,
+    publishes via gossip, writes `CANARY.txt` local (replace
+    existing). Correction post-implementation : la doc d'origine
+    mentionnait `~/.sbfb/node_id.key (existant S11+)` — c'etait
+    une hypothese incorrecte, le daemon ne persiste pas son
+    identite iroh. Le warrant canary necessite une pubkey stable
+    multi-mois donc sa propre cle dediee.
 
 - `CANARY.txt` racine repo :
   - Premier canary publie en Phase E2 commit meme (bootstrap)
   - Format ASCII plain text du §D5 kickoff
+  - **Signature hex lowercase** (coherent avec le reste du
+    codebase signed-payload — task/result/claim/invite/kudos/
+    curator-list/provenance utilisent tous hex). Le §D5 kickoff
+    mentionnait `base64-Ed25519-*` en document original — obsolete.
 
 **Fichiers modifies** :
 
 - `.github/workflows/canary-monthly.yml` :
-  - Cron monthly 1st day 09:00 UTC
-  - Manual trigger aussi (workflow_dispatch)
-  - Step : fetch latest commit, run `sbfb canary publish`,
-    commit `CANARY.txt` update, push
+  - Cron **weekly** (lundi 08:00 UTC)
+  - Trigger sur push / PR touchant CANARY.txt + canary.rs + le
+    workflow lui-meme, plus workflow_dispatch
+  - Step : **verify** CANARY.txt signature + gate 45-day
+    staleness (si date > 45j, fail le job → GitHub email le
+    maintainer = notification dead-man switch)
+  - **DEVIATION deliberee vs plan initial** : le plan demandait
+    un auto-publisher (cron qui signe + commit + push `sbfb
+    canary publish`). REJETE pour raisons threat-model. Stocker
+    la cle Ed25519 en GHA secret ≡ compromission GHA =
+    compromission cle. Un maintainer sous gag order pourrait
+    etre contraint de "laisser tourner le cron" → signatures
+    valides perpetuelles alors que le projet est backdoored =
+    cassure du dead-man switch. Le warrant canary classique
+    (rsync.net, IVPN) repose sur une re-signature **manuelle**
+    intentionnelle du maintainer — le workflow livre est un
+    verifier, jamais un signer. Rationale complete en tete du
+    yml + review §Q1 + `sprint18_phase_E2_review.md`.
 
 ### Tests attendus (+5)
 

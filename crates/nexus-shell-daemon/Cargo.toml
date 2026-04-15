@@ -60,6 +60,12 @@ hex = { workspace = true }
 # Sprint 12 Phase A: BlobTicket minting in the publish handler.
 iroh-blobs = { workspace = true }
 
+# Sprint 18 Phase E2: the canary publish handler implements the
+# core crate's `CanaryBroadcaster` trait on top of a live iroh
+# gossip `TopicHandle`, so it needs the `async_trait` attribute
+# macro to match the trait's declared shape.
+async-trait = { workspace = true }
+
 # Sprint 16 Phase B: hyper / hyper-util power the UDS (Unix) and
 # Named Pipe (Windows) accept loops, both of which sit beside
 # the TCP listener served by `axum::serve`. The Router stays the

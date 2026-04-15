@@ -973,6 +973,56 @@ Audit reference: `.planning/sprint9_audit_findings.md` §I3-F2.
 
 ---
 
+## Sprint 18 canonical patterns (2026-04-15)
+
+### Sprint 18.1 — Persistent maintainer identity key vs ephemeral network identity key
+
+Sprint 18 Phase E2 added a warrant canary signed with an Ed25519
+key loaded from `<sbfb_home>/canary-key.key` via
+`KeyPair::load_or_generate`. That key is **intentionally distinct**
+from the shell daemon's `create_node()` iroh identity, which mints
+a fresh keypair on every boot.
+
+The split matters because the two keys answer two different
+questions:
+
+| Key | Persists across reboots? | Publishes pubkey externally? | Rotation cost |
+|---|---|---|---|
+| Daemon `create_node()` identity | No (ephemeral per boot) | Yes (node_id on gossip / docs / blobs) | Free — next reboot mints a new one |
+| Maintainer `canary-key.key` | Yes | Yes (pubkey embedded in CANARY.txt + gossip) | High — verifiers who pinned the old pubkey must be notified out-of-band |
+
+**Rule** : any signing surface that produces artefacts intended
+to be verified **months or years after publication** must use a
+dedicated persistent key file under `<sbfb_home>/`, not the
+daemon's `create_node()` identity. This includes:
+
+- Warrant canaries (Sprint 18.E2)
+- SLSA provenance attestations on releases (Sprint 14, coord-side)
+- Future release-signing keys (Sprint 19+ release attestations)
+
+Any signing surface that produces artefacts **consumed in-band by
+a currently-running daemon** may reuse the iroh identity — it only
+needs to be stable for the duration of the daemon process. This
+includes:
+
+- Task/Result/Claim/Invite signatures (Sprint 2, all daemon-owned)
+- Curator list entries (Sprint 7, re-signed on every rebroadcast)
+- Gossip-level authenticated messages
+
+**Concrete check**: when adding a new `DOMAIN_<NAME>_V1` tag to
+`canonical.rs`, ask "could a verifier 6 months from now refuse to
+accept a valid signature because the key rotated silently?" If yes,
+use a persistent key file. If no, reuse the iroh identity.
+
+Callers must **never** read `<sbfb_home>/auth_token` as a signing
+key — that file is the loopback HTTP bearer (Sprint 16 Phase A),
+not an Ed25519 keypair. Confusing the two was a risk the Sprint 18
+Phase E2 auditor explicitly flagged (P2 carry-over).
+
+Audit reference: `.planning/active/sprint18_phase_E2_review.md` §Q3.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

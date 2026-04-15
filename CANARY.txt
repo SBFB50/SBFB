@@ -1,0 +1,22 @@
+SBFB Warrant Canary
+Date: 2026-04-15 (UTC)
+Headline: SBFB warrant canary bootstrap 2026-04-15 — Sprint 18 Phase E2 landing in nexus-grid (base commit 9f4d19f, iroh 0.97, no compelled disclosure or gag order to date)
+
+Declaration:
+  As of the date above, the SBFB project maintainer(s) have NOT:
+  - received any National Security Letter, secret subpoena,
+    or gag order from any government agency
+  - been compelled to modify or backdoor any code or cryptographic
+    key material used by the project
+  - been compelled to provide user data to any third party
+
+  This canary is signed and published monthly. If the canary is
+  not updated for >45 days, assume it has been compromised OR
+  the project has been compelled and cannot disclose.
+
+Next scheduled update: 2026-05-30
+
+Signed:
+  Ed25519 signature over the canonical bytes (domain nexus-warrant-canary-v1)
+  sig: 2e36f6fae48e4cb27110c62b2f589e47a4c391302de33d851c07a46636bf71478c329b4af649f62160336f26791acda75ffb2feb42e3c879657d8a9d7a560000
+  pub: 80b439cb646a5ee0722aac28940e1191f23c86eb20acd6beb54fd745629fcb3a

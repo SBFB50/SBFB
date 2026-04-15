@@ -100,6 +100,14 @@ axum = { workspace = true }
 tower = { workspace = true }
 rand = { workspace = true }
 
+# Sprint 18 Phase E2: the `CanaryBroadcaster` trait is
+# async-trait so the binary can implement it over an iroh
+# `TopicHandle` while the unit tests implement it over a
+# `Vec<Vec<u8>>`-backed mock. `async-trait` matches the
+# nexus-core-rs / nexus-worker-core choice for the same
+# pattern, keeping the workspace single-style.
+async-trait = { workspace = true }
+
 # Deliberately excluded: clap, ratatui, crossterm, axum, tower,
 # tower-http. The shell-daemon has no TUI (headless-only per
 # Sprint 7 D1) and the HTTP server layer lives in the binary

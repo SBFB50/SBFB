@@ -40,7 +40,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use nexus_shell_daemon_core::config::{ShellDaemonConfig, ShellDaemonPaths};
 
-use cli::{Cli, Command, ConfigCommand};
+use cli::{CanaryCommand, Cli, Command, ConfigCommand};
 use runtime::{DaemonRuntime, DaemonStartOptions};
 
 #[tokio::main]
@@ -74,6 +74,7 @@ async fn main() -> Result<()> {
         Command::Stop => handle_stop(&paths).await,
         Command::Status => handle_status(&paths).await,
         Command::Config(cmd) => handle_config(&paths, cmd).await,
+        Command::Canary(cmd) => handle_canary(cmd).await,
     }
 }
 
@@ -150,6 +151,105 @@ async fn handle_config(_paths: &ShellDaemonPaths, cmd: ConfigCommand) -> Result<
         ),
     }
     Ok(())
+}
+
+async fn handle_canary(cmd: CanaryCommand) -> Result<()> {
+    use nexus_shell_daemon_core::canary::{
+        build_canary, format_canary_txt, parse_canary_txt, publish_canary, today_utc,
+        warrant_canary_topic_id, CanaryBroadcaster,
+    };
+
+    match cmd {
+        CanaryCommand::Publish {
+            headline,
+            output,
+            no_gossip,
+        } => {
+            // 1. Load (or create) the maintainer's persistent
+            //    canary key. Separate from the daemon's ephemeral
+            //    node identity on purpose — see the `canary_key_path`
+            //    doc for the rationale.
+            let key_path = nexus_shell_daemon_core::auth::canary_key_path().with_context(|| {
+                "could not resolve SBFB home dir — set $SBFB_HOME or $HOME/$USERPROFILE"
+            })?;
+            let signer =
+                nexus_core_rs::KeyPair::load_or_generate(&key_path).with_context(|| {
+                    format!(
+                        "failed to load or create canary key at {}",
+                        key_path.display()
+                    )
+                })?;
+
+            // 2. Build + sign the canary.
+            let canary = build_canary(today_utc(), headline, &signer)
+                .context("failed to build signed canary")?;
+
+            // 3. Write the human-readable mirror.
+            let txt = format_canary_txt(&canary);
+            std::fs::write(&output, &txt).with_context(|| {
+                format!("failed to write canary mirror to {}", output.display())
+            })?;
+
+            println!("SBFB canary written to {}", output.display());
+            println!("  date:         {}", canary.signed.date);
+            println!("  headline:     {}", canary.signed.headline);
+            println!("  next update:  {}", canary.signed.next_update);
+            println!("  pubkey:       {}", canary.signed.pubkey_hex);
+            println!("  key file:     {}", key_path.display());
+
+            // 4. Broadcast on gossip unless opted out. Booting an
+            //    iroh node is slow, so keep the noop fast path
+            //    when CI just wants to refresh the repo-side file.
+            if no_gossip {
+                println!("  gossip:       skipped (--no-gossip)");
+                return Ok(());
+            }
+
+            let node = nexus_core_rs::create_node()
+                .await
+                .context("failed to boot iroh endpoint for canary broadcast")?;
+            let gossip = nexus_core_rs::GossipClient::new(node.gossip());
+            let mut topic = gossip
+                .join_topic(warrant_canary_topic_id(), Vec::new())
+                .await
+                .context("failed to join warrant canary gossip topic")?;
+
+            struct TopicBroadcaster<'a> {
+                inner: &'a mut nexus_core_rs::TopicHandle,
+            }
+            #[async_trait::async_trait]
+            impl<'a> CanaryBroadcaster for TopicBroadcaster<'a> {
+                async fn broadcast(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+                    self.inner.broadcast(bytes).await.map_err(|e| e.to_string())
+                }
+            }
+
+            let mut broadcaster = TopicBroadcaster { inner: &mut topic };
+            publish_canary(&canary, &mut broadcaster)
+                .await
+                .context("gossip broadcast of canary failed")?;
+            node.shutdown().await.ok();
+
+            println!("  gossip:       broadcast on warrant-canary/v1");
+            Ok(())
+        }
+
+        CanaryCommand::Verify { input } => {
+            let text = std::fs::read_to_string(&input)
+                .with_context(|| format!("failed to read {}", input.display()))?;
+            let canary =
+                parse_canary_txt(&text).with_context(|| "canary file is not in SBFB format")?;
+            nexus_shell_daemon_core::canary::verify_canary(&canary)
+                .with_context(|| "signature does not validate")?;
+
+            println!("canary OK");
+            println!("  date:         {}", canary.signed.date);
+            println!("  headline:     {}", canary.signed.headline);
+            println!("  next update:  {}", canary.signed.next_update);
+            println!("  pubkey:       {}", canary.signed.pubkey_hex);
+            Ok(())
+        }
+    }
 }
 
 /// Uniform placeholder output for unimplemented subcommands.

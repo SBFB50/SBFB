@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Sprint 18 Phase E2 — warrant canary verification + freshness
+# check.
+#
+# ## What this workflow does NOT do
+#
+# The Phase E2 plan text asked for an automated publisher that
+# would `sbfb canary publish` on cron and commit the refreshed
+# `CANARY.txt` back to the repo. That design is rejected here on
+# threat-model grounds:
+#
+#   * A warrant canary's security property is that the maintainer
+#     must **actively, intentionally** re-sign every month. If
+#     an automated job holds the signing key and publishes on
+#     schedule, a gag-ordered maintainer can be compelled to
+#     "just keep the cron running" and the canary keeps producing
+#     valid signatures while the project is silently compromised.
+#   * Storing the Ed25519 maintainer key in a GitHub Actions
+#     secret makes a GHA-runner breach (or a malicious workflow
+#     edit on a repo fork) trivially equivalent to a canary-key
+#     breach.
+#
+# The classical warrant canary model (rsync.net, IVPN, etc.)
+# relies on a **manual** re-sign — a missed publication is the
+# whole point of the dead man switch. This workflow implements
+# the correct shape:
+#
+#   * On every push and PR touching CANARY.txt: verify the
+#     signature. Blocks a broken file from landing.
+#   * Weekly cron: re-verify the signature + fail the job if the
+#     declaration is older than CANARY_VALIDITY_DAYS (45 days,
+#     matching `nexus_shell_daemon_core::canary::CANARY_VALIDITY_DAYS`).
+#     GitHub will email the maintainer on a failing scheduled
+#     workflow — that is the dead-man-switch notification.
+#   * workflow_dispatch: on-demand re-verify for debugging.
+
+name: canary-monthly
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "CANARY.txt"
+      - "crates/nexus-shell-daemon-core/src/canary.rs"
+      - "crates/nexus-shell-daemon/src/main.rs"
+      - ".github/workflows/canary-monthly.yml"
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "CANARY.txt"
+      - "crates/nexus-shell-daemon-core/src/canary.rs"
+      - "crates/nexus-shell-daemon/src/main.rs"
+      - ".github/workflows/canary-monthly.yml"
+  schedule:
+    # Every Monday 08:00 UTC. A 45-day canary validity window
+    # gives us ~6 weekly checks before the dead-man-switch
+    # fires, so any single missed run of this workflow cannot
+    # cause a false alarm.
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-canary:
+    name: verify CANARY.txt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Build nexus-shell-daemon
+        run: cargo build -p nexus-shell-daemon --locked
+
+      - name: Verify canary signature
+        run: ./scripts/verify-canary.sh
+
+      # Fail the scheduled run if the canary is older than the
+      # 45-day validity window. On push / PR this gate is
+      # redundant with the signature check (a fresh commit always
+      # refreshes the date), but on cron it is the dead-man
+      # switch: a stale canary here triggers GitHub's built-in
+      # "scheduled workflow failed" email to the maintainer.
+      - name: Fail if canary is stale (>45 days)
+        shell: bash
+        run: |
+          set -euo pipefail
+          date_line=$(grep -E '^Date: ' CANARY.txt | head -n1 || true)
+          if [[ -z "${date_line}" ]]; then
+              echo "::error::CANARY.txt missing 'Date:' field" >&2
+              exit 1
+          fi
+          canary_date=$(echo "${date_line}" | sed -E 's/^Date: ([0-9-]+).*/\1/')
+          canary_epoch=$(date -u -d "${canary_date}" +%s)
+          now_epoch=$(date -u +%s)
+          age_days=$(( (now_epoch - canary_epoch) / 86400 ))
+          echo "canary is ${age_days} day(s) old (date=${canary_date})"
+          if (( age_days > 45 )); then
+              echo "::error::Warrant canary is stale (${age_days} days > 45). Maintainer must run 'sbfb canary publish --headline ...' locally and commit a fresh CANARY.txt." >&2
+              exit 1
+          fi
+          if (( age_days > 30 )); then
+              echo "::warning::Warrant canary is due for refresh (${age_days} days; target cadence is 30 days). Maintainer: run 'sbfb canary publish --headline ...' and commit CANARY.txt." >&2
+          fi
