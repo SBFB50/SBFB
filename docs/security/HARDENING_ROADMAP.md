@@ -153,10 +153,16 @@ median app) :
   - TLS cert pinning relays (iroh upstream contrib) — ~200 LOC
   - Delayed upload queue (randomized 0-5min batching) — ~300 LOC
   - pkarr relay self-hosted (docker image + ops doc) — ~400 LOC
-- **LOC total** : ~1300
-- **Tests delta** : +40
+  - **Wire `nexus_core_rs::dht_quorum::redundant_resolve` au
+    browse aggregator + curator runtime** (S18 audit fix C-1
+    carry-over) — la primitive 3-paralleles-quorum-2/3 est livree
+    + testee Phase C `9d0ad7a`, manque uniquement le glue avec
+    iroh-relay 0.97 per-pkarr-relay lookup — ~150 LOC + 5 tests
+- **LOC total** : ~1450
+- **Tests delta** : +45
 - **Dependencies** : S18 multi-relai pour TLS pinning
-- **Gate unlock** : —
+- **Gate unlock** : Eclipse-by-DHT defense pleinement active une
+  fois le wire DHT quorum termine.
 
 ### Sprint 20 — Encryption at rest big-rock
 

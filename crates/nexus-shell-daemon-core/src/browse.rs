@@ -252,6 +252,19 @@ impl BrowseAggregator {
     /// Ask the core discovery client whether `project_id_hex`
     /// is reachable right now. Updates the cache with the
     /// returned bucket.
+    ///
+    /// Sprint 19+ carry-over (audit S18 finding C-1) : the call
+    /// below resolves through `DiscoveryClient::probe_reachable`,
+    /// which delegates to whatever single resolver iroh-relay 0.97
+    /// picks. The Sprint 18 Phase C primitive
+    /// `nexus_core_rs::dht_quorum::redundant_resolve` is the
+    /// drop-in replacement once iroh-relay exposes a per-pkarr-
+    /// relay lookup we can wrap as three [`QuorumResolver`]s and
+    /// require 2/3 agreement on the resolved record. Until then
+    /// the primitive lives in `nexus-core-rs` ready-to-wire and
+    /// the eclipse-by-DHT defence remains partial — the gate is
+    /// flagged as `[~]` rather than `[x]` in
+    /// `sprint18_verification.md §Gate 1 unlock`.
     async fn probe_and_cache(
         &self,
         node: &Node,
