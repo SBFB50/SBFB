@@ -36,11 +36,13 @@ pub mod blobs;
 pub mod canonical;
 pub mod crypto;
 pub mod curator;
+pub mod dht_quorum;
 pub mod discovery;
 pub mod docs;
 pub mod error;
 pub mod gossip;
 pub mod node;
+pub mod relay_config;
 pub mod task;
 pub mod verification;
 
@@ -55,10 +57,15 @@ pub use curator::{
     CURATOR_DESCRIPTION_MAX, CURATOR_LIST_FORMAT_VERSION, CURATOR_LIST_MAX_ENTRIES,
     CURATOR_PROJECT_ID_MAX, CURATOR_PROJECT_NAME_MAX,
 };
+pub use dht_quorum::{redundant_resolve, QuorumError, QuorumRecord, QuorumResolver};
 pub use discovery::{DiscoveryClient, NodeAddrInfo};
 pub use docs::{DocHandle, DocsClient};
 pub use error::{NexusError, Result};
 pub use gossip::{GossipClient, GossipEvent, TopicHandle, TopicReceiver, TopicSender};
 pub use node::{create_node, create_node_with_config, Node, NodeConfig};
+pub use relay_config::{
+    load_relay_map, relays_file_path, validate_relay_url, RelayEntry, RelayListFile,
+    CUSTOM_RELAYS_ENV, DEV_MODE_ENV, RELAYS_FILE_NAME, SBFB_HOME_ENV,
+};
 pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry};
 pub use verification::{spot_check_rate, CheckStatus, LayerResult, VerificationReport, Verifier};

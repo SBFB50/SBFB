@@ -44,7 +44,7 @@ use std::path::PathBuf;
 use iroh::address_lookup::memory::MemoryLookup;
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
-use iroh::{Endpoint, SecretKey};
+use iroh::{Endpoint, RelayMode, SecretKey};
 use iroh_blobs::store::mem::MemStore;
 use iroh_blobs::{BlobsProtocol, ALPN as BLOBS_ALPN};
 use iroh_docs::protocol::Docs;
@@ -246,12 +246,46 @@ pub async fn create_node_with_config(cfg: NodeConfig) -> Result<Node> {
         builder = builder.secret_key(sk);
     }
 
+    // Sprint 18 Phase C : respect the operator's custom relay
+    // list when set (via SBFB_CUSTOM_RELAYS env or
+    // ~/.sbfb/relays.json). A missing / empty config falls
+    // through to the N0 preset's default relay set, preserving
+    // pre-Sprint-18 behaviour byte-for-byte.
+    let custom_relays = crate::relay_config::load_relay_map()
+        .map_err(|e| NexusError::Endpoint(format!("invalid relay config: {e}")))?;
+    let using_custom_relays = custom_relays.is_some();
+    let home_relay: String = match &custom_relays {
+        Some(map) => map
+            .urls::<Vec<_>>()
+            .into_iter()
+            .next()
+            .map(|u| u.to_string())
+            .unwrap_or_else(|| "custom-empty".to_string()),
+        None => "preset::N0".to_string(),
+    };
+    if let Some(map) = custom_relays {
+        let relay_count = map.len();
+        info!(
+            relay_count,
+            home_relay = %home_relay,
+            "using custom relay map from SBFB config"
+        );
+        builder = builder.relay_mode(RelayMode::Custom(map));
+    } else {
+        debug!(home_relay = %home_relay, "no custom relay config — keeping N0 preset defaults");
+    }
+
     let endpoint = builder
         .bind()
         .await
         .map_err(|e| NexusError::Endpoint(format!("bind failed: {e}")))?;
 
-    info!(node_id = %endpoint.id(), "iroh endpoint ready");
+    info!(
+        node_id = %endpoint.id(),
+        custom_relays = using_custom_relays,
+        home_relay = %home_relay,
+        "iroh endpoint ready"
+    );
 
     // Spawn Blobs + Gossip + Docs protocol handlers and wire them
     // into a Router that dispatches by ALPN. This is the full
