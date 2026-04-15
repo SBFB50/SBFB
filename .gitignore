@@ -56,9 +56,10 @@ web/.env.local
 # Claude Code — on commit .claude/ pour partager le process (hooks,
 # skills, agents, commands, settings.json) avec tous les contributeurs.
 # Exclure uniquement les fichiers vraiment personnels ou runtime :
-.claude/settings.local.json    # perms perso avec paths absolus
-.claude/scheduled_tasks.lock   # lock runtime du scheduler
-.claude/worktrees/             # worktrees agents ephemeres
+.claude/settings.local.json        # perms perso avec paths absolus
+.claude/scheduled_tasks.lock       # lock runtime du scheduler
+.claude/worktrees/                 # worktrees agents ephemeres
+.claude/_autoinstall_signaled.marker  # marker SessionStart hook (local)
 
 # Rust / Cargo (SBFB monorepo, Sprint 1+)
 target/

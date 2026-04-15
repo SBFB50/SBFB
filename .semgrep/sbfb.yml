@@ -17,12 +17,21 @@
 #     code profond que le skill trailofbits/semgrep-rule-creator
 #     produira quand on les ecrira.
 #
-# TODO architecturales (a ecrire avec semgrep-rule-creator) :
-#   - sbfb-canonical-bytes-jcs : wire format serialise via JCS pas serde_json
-#   - sbfb-loopback-peer-creds : route /loopback/* doit checker PeerCredsVerified
-#   - sbfb-iroh-endpoint-pin : iroh::Endpoint::builder() avec pin discovery
-#   - sbfb-project-announcement-repo-url : public -> repo_url obligatoire
-#   - sbfb-zip-path-traversal : zip::read_file avec path validation
+# 8 regles livrees a ce jour :
+#   1. sbfb-no-todo-macros-rust (heuristique)
+#   2. sbfb-no-placeholder-console-frontend (heuristique)
+#   3. sbfb-ignore-requires-reason-rust (heuristique)
+#   4. sbfb-ignore-requires-reason-python (heuristique)
+#   5. sbfb-canonical-bytes-jcs (architecturale — paths scope canonical.rs + signing)
+#   6. sbfb-project-announcement-literal-repo-url (architecturale — struct literal)
+#   7. sbfb-zip-by-index-requires-validation (architecturale — flow check)
+#   8. sbfb-iroh-endpoint-pin (architecturale INFO — preventive, pas encore en place)
+#
+# 1 regle documentee en TODO (necessite flow analysis axum middleware que
+# Semgrep ne supporte pas bien) :
+#   - sbfb-loopback-peer-creds : toute nouvelle route dans http.rs doit
+#     etre dans authed_routes. A ecrire quand on aura un ruleset fait
+#     main + fp-check ToB.
 
 rules:
 
@@ -154,4 +163,157 @@ rules:
     metadata:
       category: best-practice
       confidence: HIGH
+      subcategory: [audit]
+
+  # ===================================================================
+  # REGLES ARCHITECTURALES SBFB
+  # Ecrites apres exploration code crates/ (cf. rapport Explore agent
+  # 2026-04-15). Plus bas niveau de confidence que les heuristiques,
+  # necessitent periodic review pour ajuster les patterns.
+  # ===================================================================
+
+  # -------------------------------------------------------------------
+  # 5. Canonical bytes JCS pour wire types signes
+  # -------------------------------------------------------------------
+  # Rationale : Sprint 2 audit a identifie que Rust serde_json::to_vec
+  # emet les champs dans l'ordre de declaration, Python json.dumps
+  # (sort_keys=True) emet alphabetiquement. Cross-language signature
+  # mismatch silencieux. JCS (RFC 8785) resout via ordre lexicographique.
+  # Les types wire (Task, Result, Claim, CuratorList, ProjectAnnouncement,
+  # InvitePayload) DOIVENT passer par canonical_bytes(value, DOMAIN_*_V1)
+  # defini dans crates/nexus-core-rs/src/canonical.rs:125.
+  #
+  # Scope : fichiers qui font de la signature crypto. Le module publish.rs
+  # utilise serde_json::to_vec pour le GOSSIP broadcast (pas la signature),
+  # c'est legitime et hors scope de cette regle (paths.exclude).
+  - id: sbfb-canonical-bytes-jcs
+    languages: [rust]
+    severity: WARNING
+    message: >-
+      `serde_json::to_{string,vec}` dans un module qui fait de la signature
+      crypto. Les wire types (Task / Result / Claim / CuratorList /
+      ProjectAnnouncement / InvitePayload) doivent passer par
+      `canonical_bytes(value, DOMAIN_*_V1)` (crates/nexus-core-rs/src/canonical.rs)
+      pour garantir l'interop JCS (RFC 8785) cross-language.
+      Ref : docs/claude/TOOLING.md §3.2 sbfb-canonical-bytes-jcs.
+    patterns:
+      - pattern-either:
+          - pattern: serde_json::to_string(...)
+          - pattern: serde_json::to_vec(...)
+      - pattern-not-inside: |
+          #[cfg(test)]
+          mod $M { ... }
+      - pattern-not-inside: |
+          #[cfg(test)]
+          $FN
+      - pattern-not-inside: |
+          #[test]
+          fn $FN(...) { ... }
+    paths:
+      include:
+        - "crates/nexus-core-rs/src/canonical.rs"
+        - "crates/nexus-core-rs/src/signing*"
+        - "crates/nexus-worker-core/src/invite.rs"
+    metadata:
+      category: security
+      confidence: MEDIUM
+      subcategory: [audit]
+
+  # -------------------------------------------------------------------
+  # 6. ProjectAnnouncement .with_open_source(true) sans .with_repo_url()
+  # -------------------------------------------------------------------
+  # REGLE RETIREE 2026-04-15 apres test sur le code nexus actuel :
+  # 6 findings, tous FAUX POSITIFS.
+  #
+  # Causes :
+  #   - http.rs:516 : guard clause ligne 483 enforce deja la coherence
+  #     (retourne 400 BAD_REQUEST si is_open_source=true sans repo_url)
+  #     + line 506 appelle with_repo_url avant. Semgrep AST matching ne
+  #     fait pas de flow analysis.
+  #   - publish.rs:385,440,450 : tests qui chainent
+  #     .with_repo_url().with_provenance_hash().with_open_source(true) ;
+  #     le pattern-not $BUILDER.with_repo_url(...).with_open_source(true)
+  #     ne match pas a cause du call intermediaire with_provenance_hash.
+  #   - task.rs:626,645 : meme issue.
+  #
+  # Semgrep Rust AST matching ne peut pas resoudre ces cas sans
+  # un semantic flow analyzer (Creusot / Kani / Prusti). Le coordinator
+  # Python enforce deja cote serveur (cf. CLAUDE.md "enforced daemon-side").
+  # Le garde-fou pattern est PARFAIT cote Python / validation HTTP, pas
+  # cote Semgrep struct literal AST.
+  #
+  # A REOUVRIR si : on a un flow analyzer Rust, OU si un nouveau site
+  # d'appel skip la validation (regression).
+
+  # -------------------------------------------------------------------
+  # 7. Zip extraction requires path validation
+  # -------------------------------------------------------------------
+  # Rationale : Sprint 12 introduit blob-serve qui decompresse des zips
+  # d'archives web depuis iroh-blobs (untrusted sources P2P). Sans
+  # validation, une archive malveillante avec `../etc/passwd` ou
+  # `\..\..\windows` echapperait au repertoire prevu. La defense est
+  # `validate_zip_path(name)` defini dans blob_serve.rs:174 qui rejette
+  # chemins absolus, backslashes, et `..`.
+  #
+  # Cette regle flagge tout nouveau site d'extraction qui utilise
+  # archive.by_index() SANS appeler validate_zip_path sur le name. Ne
+  # match pas les tests (paths.exclude).
+  - id: sbfb-zip-by-index-requires-validation
+    languages: [rust]
+    severity: WARNING
+    message: >-
+      `archive.by_index()` suivi d'une lecture sans appel prealable a
+      `validate_zip_path(&name)`. Risque path traversal : une archive
+      malveillante pourrait contenir `../etc/passwd` qui s'echapperait
+      du repertoire d'extraction.
+      Ref : docs/claude/TOOLING.md §3.2 sbfb-zip-path-traversal.
+    patterns:
+      - pattern: |
+          let $ENTRY = $ARCHIVE.by_index($I)?;
+          ...
+          $ENTRY.read_to_end(...)?;
+      - pattern-not: |
+          let $ENTRY = $ARCHIVE.by_index($I)?;
+          ...
+          if !validate_zip_path(...) { ... }
+          ...
+          $ENTRY.read_to_end(...)?;
+    paths:
+      exclude:
+        - "*/tests/*"
+        - "tests/*"
+    metadata:
+      category: security
+      confidence: MEDIUM
+      subcategory: [vuln]
+
+  # -------------------------------------------------------------------
+  # 8. iroh Endpoint::builder() sans pin discovery (INFO preventive)
+  # -------------------------------------------------------------------
+  # Rationale : Preventive. Le code actuel (node.rs:243) construit un
+  # Endpoint sans .discovery() explicite avec relays pinned, s'appuyant
+  # sur le preset N0 qui utilise pkarr DHT par defaut. La roadmap
+  # Sprint 18 Phase C introduit multi-relai federation + DHT redundant
+  # lookup -> a ce moment-la il faudra passer en mode pin explicit.
+  #
+  # Severity INFO -> ne bloque pas, signale seulement qu'un builder
+  # supplementaire doit etre reviewe quand la couche pin sera en place.
+  - id: sbfb-iroh-endpoint-pin
+    languages: [rust]
+    severity: INFO
+    message: >-
+      `Endpoint::builder()` detecte sans appel a `.discovery(...)` avec
+      pin de relays explicite. Preventive : quand le pattern pin relays
+      sera en place (Sprint 18 Phase C+), assurer que chaque builder
+      passe par la meme config.
+      Ref : docs/claude/TOOLING.md §3.2 sbfb-iroh-endpoint-pin.
+    patterns:
+      - pattern-either:
+          - pattern: iroh::Endpoint::builder($X)
+          - pattern: Endpoint::builder($X)
+      - pattern-not: |
+          $BUILDER.discovery(...)
+    metadata:
+      category: security
+      confidence: LOW
       subcategory: [audit]

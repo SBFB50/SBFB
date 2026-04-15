@@ -94,4 +94,33 @@ case "$EXT" in
     ;;
 esac
 
+# ------- Semgrep SBFB (optionnel) -------
+# Si semgrep est dans le PATH et que .semgrep/sbfb.yml existe, scan le
+# fichier modifie avec les regles SBFB custom. Seulement apres que le
+# linter natif (clippy/ruff/eslint) est passe — on ne veut pas scanner
+# du code qui ne compile meme pas.
+#
+# Exit 2 si Semgrep trouve des findings WARNING+ (ERROR, CRITICAL).
+# INFO est non-bloquant (preventive, cf. sbfb-iroh-endpoint-pin).
+if command -v semgrep >/dev/null 2>&1 && [ -f "$REPO_ROOT/.semgrep/sbfb.yml" ]; then
+  # Scope a l'extension Semgrep support + au fichier specifique.
+  # Semgrep print les findings sur stdout/stderr — on laisse tel quel
+  # pour que l'agent Claude voie le detail.
+  SEMGREP_OUTPUT=$(semgrep --config "$REPO_ROOT/.semgrep/sbfb.yml" \
+    --severity WARNING --severity ERROR \
+    --error \
+    --quiet \
+    "$REPO_ROOT/$REL_PATH" 2>&1 || true)
+
+  if [ -n "$SEMGREP_OUTPUT" ] && echo "$SEMGREP_OUTPUT" | grep -qE 'findings|❯❱'; then
+    echo "[verify-on-write] semgrep findings on $REL_PATH:" >&2
+    echo "$SEMGREP_OUTPUT" | tail -30 >&2
+    # Exit 2 seulement si findings bloquants (WARNING+ severity)
+    echo "$SEMGREP_OUTPUT" | grep -qE 'Blocking|error' && {
+      echo "[verify-on-write] BLOCK: semgrep SBFB rules flagged on $REL_PATH" >&2
+      exit 2
+    }
+  fi
+fi
+
 exit 0

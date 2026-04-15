@@ -104,6 +104,38 @@ deja installe. Composants couverts :
 Ne touche PAS les fichiers `.claude/` committed dans le repo (ils
 sont deja actifs automatiquement).
 
+### 2.5 Auto-detection au SessionStart
+
+Un hook `SessionStart` (matcher `startup|resume`) tourne a chaque
+ouverture de Claude Code dans le repo nexus. Il fait 2 choses :
+
+1. **Auto-install leger** : si `.git/hooks/post-commit` n'existe pas
+   et que `.claude/hooks/post-commit-memory.sh` est present, il ecrit
+   automatiquement un wrapper dans `.git/hooks/post-commit`. Idempotent
+   (ne touche rien si deja installe).
+
+2. **Detection composants optionnels manquants** : verifie la presence
+   de `jq` OU `python3`, de `~/.claude/skills/trailofbits/`, de
+   `semgrep`. Si quelque chose manque, il emet un `additionalContext`
+   JSON qui informe Claude :
+
+```
+[session-start] Composants process tooling manquants (optionnels) :
+  - Trail of Bits skills : 'bash scripts/install-claude-tooling.sh' pour cloner
+  - semgrep : 'pip install --user semgrep' (regles SBFB dans .semgrep/sbfb.yml ne tourneront pas)
+[session-start] Install all-in-one : bash scripts/install-claude-tooling.sh
+```
+
+**Ne fait PAS** d'install externe automatique (npm/pip/cargo install).
+Ces commandes peuvent prendre des minutes ou echouer — mauvaise
+experience au SessionStart. Le user lit le signal et lance le script
+install explicite quand ca l'arrange.
+
+**Marker** : `.claude/_autoinstall_signaled.marker` est cree au premier
+signal pour eviter de repeter le message a chaque session. Delete le
+marker pour re-signaler (utile apres un `bash scripts/install-claude-
+tooling.sh` partiel qui laisse des composants manquants).
+
 ---
 
 ## 3. Couche 1 — Garde-fous automatiques
@@ -181,10 +213,38 @@ semgrep --config .semgrep/sbfb.yml crates/nexus-core-rs/src/foo.rs
 semgrep --config .semgrep/sbfb.yml --error crates/ packages/ web/src/
 ```
 
-**Integration hook** (roadmap future) : `verify-on-write.sh` pourra
-ajouter un step Semgrep scope au fichier modifie apres le linter
-natif, si `semgrep` est dans le PATH. A implementer dans une phase
-ulterieure.
+**Integration hook** : `verify-on-write.sh` **lance automatiquement
+Semgrep** sur le fichier modifie apres le linter natif, si `semgrep`
+est dans le PATH et `.semgrep/sbfb.yml` existe. Seulement les findings
+WARNING/ERROR bloquent (exit 2). Les findings INFO (comme
+sbfb-iroh-endpoint-pin sur le code actuel) sont affiches mais non-
+bloquants.
+
+**Etat actuel du scan sur nexus master** :
+- 0 finding WARNING (toutes les 6 regles WARNING respectees)
+- 1 finding INFO sbfb-iroh-endpoint-pin sur
+  `crates/nexus-core-rs/src/node.rs:243` — attendu, preventive,
+  disparaitra quand Sprint 18 Phase C introduira le pin explicite
+
+**7 regles livrees, 1 documentee en TODO** :
+
+| ID | Langue | Severity | Status |
+|---|---|---|---|
+| sbfb-no-todo-macros-rust | Rust | WARNING | 0 findings |
+| sbfb-no-placeholder-console-frontend | TS/JS | WARNING | 0 findings |
+| sbfb-ignore-requires-reason-rust | Rust | WARNING | 0 findings |
+| sbfb-ignore-requires-reason-python | Python | WARNING | 0 findings |
+| sbfb-canonical-bytes-jcs | Rust | WARNING | 0 findings (avec exclusion `#[cfg(test)]`) |
+| sbfb-zip-by-index-requires-validation | Rust | WARNING | 0 findings |
+| sbfb-iroh-endpoint-pin | Rust | **INFO** | 1 finding preventive attendu |
+| sbfb-loopback-peer-creds | Rust | — | TODO (necessite flow analysis axum middleware) |
+
+**Regle retiree 2026-04-15** : `sbfb-project-announcement-repo-url`
+produisait 6 faux positifs sur code correct (guard clauses HTTP +
+builders chaines avec `with_provenance_hash` intermediaire). Le
+coordinator Python + la validation daemon-side (http.rs:483-494)
+enforcent deja la coherence. Documentee en TODO dans `.semgrep/sbfb.yml`
+pour reouverture si flow analyzer Rust disponible (Creusot/Kani).
 
 ### 3.3 TDD Guard (optionnel, opt-in)
 
