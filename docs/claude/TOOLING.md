@@ -249,13 +249,49 @@ avant de fermer la session". C'est une etape humaine oubliable. Ce hook
 la rend automatique pour la partie la plus critique (tip SHA) sans
 enlever le jugement humain sur la narration.
 
-### 6.2 Statusline enrichi (a venir, etape 5)
+### 6.2 Statusline enrichi
 
-`~/.claude/hooks/gsd-statusline.js` etendu pour afficher :
-- Sprint + Phase en cours (parse `.planning/active/`)
-- Verdict audit gate precedent
-- Drift memory-vs-HEAD (warning si memory stale)
-- TODOs non landed du sprint courant
+**Fichier** : `.claude/hooks/nexus-statusline.js` (committed, partage)
+
+**Role** : Override project-level du statusline Claude Code qui prefixe
+le statusline GSD user-level avec le contexte sprint nexus :
+
+```
+[S18/B ⚠drift] <model> | <task> | <dirname> <context_bar>
+  │   │   │
+  │   │   └── warning jaune si memory tip != HEAD (drift)
+  │   └────── phase courante detectee depuis le dernier commit Phase X
+  └────────── sprint courant detecte depuis .planning/active/
+```
+
+**Composition** :
+- Parse `.planning/active/sprint{N}_*.md` pour extraire N
+- Grep `git log -20 --format=%s` pour trouver dernier `Phase X`
+- Compare `HEAD` vs `memory/nexus_grid_pivot.md` Tip -> flag drift
+- Delegue a `~/.claude/hooks/gsd-statusline.js` (spawnSync) pour le
+  bloc model/task/dir/context bar existant
+
+**Fallback** : si cwd n'est pas le repo nexus (absence Cargo.toml +
+crates/nexus-core-rs), output = GSD statusline brut sans prefix.
+
+**Activation** : automatique via `.claude/settings.json` du repo :
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-statusline.js\""
+}
+```
+
+Claude Code fusionne les settings user + project, avec project qui
+override sur les champs scalaires. Donc quand tu ouvres nexus, le
+statusline bascule auto sur nexus-statusline.js. Quand tu ouvres
+un autre projet, tu retombes sur gsd-statusline.js user-level.
+
+**Rationale** : awareness permanent du contexte sprint. Evite de
+confondre la phase courante ou de committer sans realiser qu'il y a
+un drift memory a rattraper via update manuel post-sprint (§7.5
+README.md).
 
 ---
 
