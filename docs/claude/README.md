@@ -19,6 +19,10 @@ autre LLM) qui doit ouvrir, livrer ou auditer un sprint.
   approach, audit gate pattern)
 - `docs/shell/PATTERNS.md`, `docs/rust/PATTERNS.md` — patterns
   techniques + tech debt tracking
+- [`docs/claude/TOOLING.md`](TOOLING.md) — process tooling au-dessus
+  de Claude Code vanilla (hooks, skills Trail of Bits, agents review,
+  Semgrep regles SBFB). Install en un script, ajoute 5 couches de
+  qualite independantes au cycle sprint.
 
 ---
 
