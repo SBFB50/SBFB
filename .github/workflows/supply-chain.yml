@@ -56,11 +56,21 @@ jobs:
       # by RustSec (https://rustsec.org/). It installs the matching
       # cargo-deny binary, loads deny.toml, and runs all four
       # checks in one invocation.
+      #
+      # Sprint 18 audit fix A-1 : `--workspace` was passed to
+      # `cargo deny check` in the original Phase A landing, but
+      # cargo-deny dropped the flag in v0.14 (the workspace scan is
+      # now the default). Recent releases of EmbarkStudios/cargo-
+      # deny-action ship cargo-deny 0.16+ which rejects `--workspace`
+      # with `error: unexpected argument`, which would silently turn
+      # this fail-closed gate into a fail-open one (red CI for the
+      # wrong reason). Removing the arg keeps the action invoking
+      # `cargo deny check` with no extra args, scanning the entire
+      # workspace as before.
       - name: cargo-deny check
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
-          arg: --workspace
           log-level: warn
 
   # --------------------------------------------------------------
