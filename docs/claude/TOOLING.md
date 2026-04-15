@@ -113,23 +113,58 @@ scope au fichier qui vient d'etre ecrit par Claude.
 la rend automatique sur chaque write -> zero clippy/ruff/eslint rate
 avant commit.
 
-### 3.2 Semgrep rules SBFB (a venir, etape 6)
+### 3.2 Semgrep rules SBFB
 
-`.semgrep/sbfb.yml` + hook PostToolUse qui lance Semgrep scope au
-fichier. Regles planifiees :
+**Fichier** : `.semgrep/sbfb.yml` (committed, partage)
 
-- `sbfb-canonical-bytes-jcs` : interdire `serde_json::to_string` pour
-  wire format, exiger canonical bytes JCS
-- `sbfb-loopback-peer-creds` : toute route loopback doit checker
-  `PeerCredsVerified` marker
-- `sbfb-iroh-endpoint-pin` : `iroh::Endpoint::builder()` doit utiliser
-  pin discovery
-- `sbfb-no-dead-code` : pas de `console.warn` / `unimplemented!()` /
-  `todo!()` hors Phase F docs
-- `sbfb-public-repo-url` : `ProjectAnnouncement` public -> `repo_url`
-  obligatoire
-- `sbfb-zip-path-traversal` : tout `zip::read_file` doit checker le
-  path avant extraction
+**4 regles livrees** (high signal, low false-positive) :
+
+| Id | Langue | Signal |
+|---|---|---|
+| `sbfb-no-todo-macros-rust` | Rust | `unimplemented!()`, `todo!()`, `panic!("not impl")` en production (hors tests/examples/benches). Incident de reference : ButtonBlock.task_submit stub Sprint 6 (§3.4 README). |
+| `sbfb-no-placeholder-console-frontend` | TypeScript/JS | `console.*("not impl|todo|fixme|stub|placeholder|wip|coming soon|temporary...")` en production (hors tests). Incident meme pattern. |
+| `sbfb-ignore-requires-reason-rust` | Rust | `#[ignore]` sans commentaire `// reason:` ou `// TODO: ref T-NN` precedant. Tie back docs/rust/PATTERNS.md tech debt. |
+| `sbfb-ignore-requires-reason-python` | Python | `@pytest.mark.skip` et `skipif` sans argument `reason=`. |
+
+**Rules architecturales TODO** (necessite `semgrep-rule-creator` ToB
+pour generer avec le code en main, cf. §4.1) :
+
+- `sbfb-canonical-bytes-jcs` : wire format serialise via JCS pas serde_json
+- `sbfb-loopback-peer-creds` : route `/loopback/*` doit checker `PeerCredsVerified`
+- `sbfb-iroh-endpoint-pin` : `iroh::Endpoint::builder()` avec pin discovery
+- `sbfb-project-announcement-repo-url` : public -> `repo_url` obligatoire
+- `sbfb-zip-path-traversal` : `zip::read_file` avec path validation
+
+**Installation de Semgrep** (requis pour faire tourner les regles) :
+
+```bash
+# Option 1 : pip (recommande pour uniformite Python workspace)
+pip install semgrep
+
+# Option 2 : via uv (local a l'environnement nexus)
+uv tool install semgrep
+
+# Option 3 : brew (macOS)
+brew install semgrep
+```
+
+**Invocation manuelle** :
+
+```bash
+# Scan complet (workspace)
+semgrep --config .semgrep/sbfb.yml crates/ packages/ web/src/
+
+# Scan d'un fichier unique (rapide, pre-commit)
+semgrep --config .semgrep/sbfb.yml crates/nexus-core-rs/src/foo.rs
+
+# Mode strict (exit 1 si findings)
+semgrep --config .semgrep/sbfb.yml --error crates/ packages/ web/src/
+```
+
+**Integration hook** (roadmap future) : `verify-on-write.sh` pourra
+ajouter un step Semgrep scope au fichier modifie apres le linter
+natif, si `semgrep` est dans le PATH. A implementer dans une phase
+ulterieure.
 
 ---
 

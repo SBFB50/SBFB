@@ -1,0 +1,157 @@
+# .semgrep/sbfb.yml
+#
+# Regles Semgrep custom pour nexus-grid (SBFB). Documentees dans
+# docs/claude/TOOLING.md §3.2.
+#
+# Invocation manuelle :
+#   semgrep --config .semgrep/sbfb.yml crates/ packages/ web/src/
+#
+# Integration hook (roadmap etape future) : PostToolUse matcher Edit|Write
+# qui scope au fichier modifie pour feedback immediat.
+#
+# Philosophie :
+#   - High signal, low false-positive
+#   - Chaque regle cite un incident reel ou un item PATTERNS.md
+#   - Les regles "architecturales" (JCS, PeerCreds, iroh pin, repo_url,
+#     zip path traversal) sont TODO — elles necessitent un context
+#     code profond que le skill trailofbits/semgrep-rule-creator
+#     produira quand on les ecrira.
+#
+# TODO architecturales (a ecrire avec semgrep-rule-creator) :
+#   - sbfb-canonical-bytes-jcs : wire format serialise via JCS pas serde_json
+#   - sbfb-loopback-peer-creds : route /loopback/* doit checker PeerCredsVerified
+#   - sbfb-iroh-endpoint-pin : iroh::Endpoint::builder() avec pin discovery
+#   - sbfb-project-announcement-repo-url : public -> repo_url obligatoire
+#   - sbfb-zip-path-traversal : zip::read_file avec path validation
+
+rules:
+
+  # -------------------------------------------------------------------
+  # 1. Ban unimplemented!() / todo!() / panic!("not impl") en production
+  # -------------------------------------------------------------------
+  # Rationale : docs/claude/README.md §9.x "No band-aid fixes" + §3.4
+  # cite ButtonBlock.task_submit shippe comme dead code (console.warn
+  # stub) comme un blind-spot reel trouve par l'audit gate. Cette
+  # regle evite qu'un equivalent Rust atterrisse en production.
+  #
+  # Signal : mot-cle Rust officiel, faux positifs quasi-impossibles.
+  # Exceptions : tests (paths */tests/*, tests/, #[cfg(test)]) et
+  # examples/ sont exclus via paths.exclude.
+  - id: sbfb-no-todo-macros-rust
+    languages: [rust]
+    severity: WARNING
+    message: >-
+      `unimplemented!()`, `todo!()`, ou `panic!("not impl...")` en
+      production. Cette regle catch les stubs oublies — ils doivent
+      etre remplaces par du vrai code avant merge, ou marques
+      explicitement via un commit qui scope-cut la fonctionnalite
+      au sprint N+1. Si c'est un test, deplacer dans /tests/.
+      Ref : docs/claude/README.md §9 anti-patterns.
+    pattern-either:
+      - pattern: unimplemented!(...)
+      - pattern: todo!(...)
+      - patterns:
+          - pattern: panic!($MSG)
+          - metavariable-regex:
+              metavariable: $MSG
+              regex: '(?i)"(not impl|todo|fixme|stub|placeholder)'
+    paths:
+      exclude:
+        - "*/tests/*"
+        - "tests/*"
+        - "*/examples/*"
+        - "examples/*"
+        - "*/benches/*"
+        - "benches/*"
+    metadata:
+      category: best-practice
+      confidence: HIGH
+      subcategory: [audit]
+
+  # -------------------------------------------------------------------
+  # 2. Ban console.* avec strings de placeholder (stub dead code)
+  # -------------------------------------------------------------------
+  # Rationale : le ButtonBlock.task_submit stub Sprint 6 utilisait
+  # console.warn('not implemented'). La regle match seulement les
+  # messages qui sentent le stub, pas les console.warn legitimes
+  # (ex: 'dropped malformed JSON SSE frame').
+  - id: sbfb-no-placeholder-console-frontend
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      `console.*` avec un message de type placeholder. Si c'est un
+      stub en attente d'implementation, remplacer par du vrai code
+      ou scope-cut explicitement. Si c'est du log legitime, reformer
+      le message sans mot-cle placeholder.
+      Ref : docs/claude/README.md §3.4 (ButtonBlock.task_submit stub).
+    patterns:
+      - pattern-either:
+          - pattern: console.log($MSG)
+          - pattern: console.warn($MSG)
+          - pattern: console.error($MSG)
+          - pattern: console.info($MSG)
+      - metavariable-regex:
+          metavariable: $MSG
+          regex: '(?i)"(not impl|todo|fixme|stub|placeholder|wip\b|coming soon|temporary)'
+    paths:
+      exclude:
+        - "*/__tests__/*"
+        - "*/node_modules/*"
+        - "*.test.ts"
+        - "*.test.tsx"
+        - "*.spec.ts"
+        - "*.spec.tsx"
+    metadata:
+      category: best-practice
+      confidence: HIGH
+      subcategory: [audit]
+
+  # -------------------------------------------------------------------
+  # 3. #[ignore] Rust et pytest.mark.skip sans raison documentee
+  # -------------------------------------------------------------------
+  # Rationale : docs/claude/README.md §6.3 "No band-aid fixes".
+  # Quand un test est ignore, il doit y avoir un rationale en
+  # commentaire ou une ref tech-debt (T-NN dans PATTERNS.md).
+  # Sinon c'est un band-aid pour faire passer le CI sans fixer.
+  - id: sbfb-ignore-requires-reason-rust
+    languages: [rust]
+    severity: WARNING
+    message: >-
+      `#[ignore]` sans raison documentee. Ajouter un commentaire
+      `// reason: ...` ou `// TODO: ref T-NN` juste avant l'attribut,
+      ou supprimer l'ignore et fixer le test.
+      Ref : docs/claude/README.md §6.3 no band-aid fixes.
+    patterns:
+      - pattern: |
+          #[ignore]
+          fn $FN(...) { ... }
+      - pattern-not: |
+          // ...
+          #[ignore]
+          fn $FN(...) { ... }
+    paths:
+      exclude:
+        - "*/examples/*"
+    metadata:
+      category: best-practice
+      confidence: MEDIUM
+      subcategory: [audit]
+
+  - id: sbfb-ignore-requires-reason-python
+    languages: [python]
+    severity: WARNING
+    message: >-
+      `@pytest.mark.skip` sans `reason=`. Toujours documenter
+      pourquoi un test est skip (bug ticket, feature non livree,
+      platform-specific, etc.).
+      Ref : docs/claude/README.md §6.3 no band-aid fixes.
+    patterns:
+      - pattern-either:
+          - pattern: "@pytest.mark.skip"
+          - pattern: "@pytest.mark.skipif($COND)"
+      - pattern-not: "@pytest.mark.skip(reason=$R)"
+      - pattern-not: "@pytest.mark.skipif($COND, reason=$R)"
+    metadata:
+      category: best-practice
+      confidence: HIGH
+      subcategory: [audit]
