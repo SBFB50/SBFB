@@ -9,6 +9,10 @@ data/
 # Exception: benchmark data is version-controlled (text only, no secrets)
 !data/benchmark/
 
+# Exception: TDD Guard config (committed nexus process tooling)
+!.claude/tdd-guard/data/
+!.claude/tdd-guard/data/config.json
+
 # Environment files (use .env.example as reference)
 .env
 .env.local

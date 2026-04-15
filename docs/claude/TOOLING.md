@@ -168,6 +168,69 @@ ajouter un step Semgrep scope au fichier modifie apres le linter
 natif, si `semgrep` est dans le PATH. A implementer dans une phase
 ulterieure.
 
+### 3.3 TDD Guard (optionnel, opt-in)
+
+**Fichiers** :
+- `.claude/hooks/tdd-guard-wrapper.sh` (committed) — wrapper gracieux
+- `.claude/tdd-guard/data/config.json` (committed) — config nexus
+
+**Role** : [nizos/tdd-guard](https://github.com/nizos/tdd-guard) est un
+outil tiers qui enforce le cycle TDD (red-green-refactor) en bloquant
+l'ecriture de code d'implementation si aucun test rouge n'existe
+pre-alablement.
+
+**Par defaut : DESACTIVE** (`guardEnabled: false` dans config.json).
+Le wrapper no-op si `tdd-guard` n'est pas installe, donc zero friction
+pour qui ne veut pas l'activer.
+
+**Activation** (une fois par machine) :
+
+```bash
+# 1. Installer le CLI principal
+npm install -g tdd-guard
+
+# 2. Installer les reporters pour les test runners nexus
+cargo install tdd-guard-rust                # Rust (cargo test)
+pip install tdd-guard-pytest                # Python (pytest)
+
+# 3. Dans Claude Code, activer pour la session :
+#    (tape cette commande dans la conversation Claude)
+/tdd-guard enable
+
+# 4. (optionnel) Persister l'activation en editant config.json
+#    .claude/tdd-guard/data/config.json : "guardEnabled": true
+```
+
+**Opt-out Phase A** (skeleton sans tests autorise) :
+
+```
+/tdd-guard disable    # au debut de Phase A
+# ... code ...
+/tdd-guard enable     # avant Phase B
+```
+
+**IgnorePatterns** nexus-specific deja configures :
+`*.md, *.toml, .planning/**, docs/**, .github/**, scripts/**,
+tests/ci-smoke/**, examples/**, **/migrations/**`
+
+(liste complete dans `.claude/tdd-guard/data/config.json`)
+
+**Hook config** : 4 hooks declares dans `.claude/settings.json` via
+le wrapper :
+- PreToolUse `Write|Edit|MultiEdit|TodoWrite` — valide avant write
+- PostToolUse `Write|Edit|MultiEdit` — update state apres write
+- UserPromptSubmit — intercepte `/tdd-guard enable|disable|status`
+- SessionStart `startup|resume|clear` — clear transient data
+
+Tous les 4 pointent sur le meme wrapper qui no-op si tdd-guard pas
+installe, donc zero overhead pour qui ne l'active pas.
+
+**Trade-off** : TDD Guard ajoute de la friction reelle (chaque
+Edit/Write valide). Recommande seulement sur les phases impl
+(Phase B-E) quand la discipline TDD vaut le cout. La couche 3
+phase-auditor reste suffisante pour attraper les violations moins
+aggressivement.
+
 ---
 
 ## 4. Couche 2 — Skills qualite
