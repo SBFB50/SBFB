@@ -153,11 +153,17 @@ Roadmap runtime isolation (WSL2 / Virtualization.framework /
 systemd-nspawn) pour Sprint 17+ dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
-## Etat actuel (2026-04-15, master tip post-Sprint 18 wrap-up)
-- **Sprints 0-18 CLOSED**. v1.2 en cours. Gate 1 (DnD Forge beta fermee) **UNLOCKED**.
-- **474 Rust** / 183 SDK / 187+3 skipped coordinator / 46 app-gov
+## Etat actuel (2026-04-15, master tip post-S18 audit gate `677556f`)
+- **Sprints 0-18 CLOSED + audit gate S18 leve** (joue par session
+  fraiche 2026-04-15, verdict CONDITIONAL PASS → leve via fix
+  D-1). v1.2 en cours. Gate 1 (DnD Forge beta fermee) **UNLOCKED**
+  + token rotation X-SBFB-Token desormais effective au runtime
+  (carry-over phase D ferme via `677556f`).
+- **478 Rust** / 183 SDK / 187+3 skipped coordinator / 46 app-gov
   / 239 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
-  (~1172 tests total) — tous verts. Delta S18 Rust : +44.
+  (~1176 tests total) — tous verts. Delta S18 Rust : +44 ; delta
+  audit fix S18 : +4 (Rotated dispatch, post-overlap reject, Static
+  non-regression, file-watcher tokens.json reload).
 - Sprint 12 a livre le rendu universel cross-node (archive zip
   → daemon blob-serve → iframe sandboxee)
 - Sprint 13 a livre le bridge postMessage (iframe ↔ coordinator),

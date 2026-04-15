@@ -1,7 +1,7 @@
 # Sprint 18 — Audit plan pour Sprint 19 Phase 0
 
 **Ecrit** : 2026-04-15 (Phase F wrap-up)
-**Commit stack a auditer** : range `4f0727b..<wrap-up>` — 9 commits (Phase A supply-chain `<A>` + Phase B repro builds `4ab0211` + Phase C multi-relai `9d0ad7a` + Phase D wire+token `94cccb2` + Phase E1 driver `9f4d19f` + Phase E2 canary `04c9621` + Phase E3 Codeberg mirror `95807b1` + Phase F `<this>`)
+**Commit stack a auditer** : range `4f0727b..4453bfd` — 9 commits (Phase A supply-chain `d7ab281` + Phase B repro builds `4ab0211` + Phase C multi-relai `9d0ad7a` + Phase D wire+token `94cccb2` + Phase E1 driver `9f4d19f` + Phase E2 canary `04c9621` + Phase E3 Codeberg mirror `95807b1` + Phase F `4453bfd`). Audit gate fix post-cloture : `677556f` (D-1 wire TokenRotator). [Placeholders `<wrap-up>` / `<A>` / `<this>` resolus en commits reels post-audit S18 finding F-1+F-2.]
 
 ---
 
@@ -210,7 +210,7 @@ Meta-track : **Radicle-v1.0 tracking** (P2-2 reporte E3 review).
 3. `SPRINT_LOG.md` : row S18 v1.2 avec Phase stack + theme + etat DONE.
 4. Memory `nexus_grid_pivot.md` frontmatter description : tip sync + compteurs post-S18.
 5. `ls .planning/active/` : vide (tous les sprint18_*.md archives).
-6. `ls .planning/archive/v1.2/sprint18_*.md` : **10 files attendus** (kickoff, plan, verification, audit_plan, 6 phase reviews B/C/D/E1/E2/E3). Note : E1 review produit par nexus-phase-auditor au commit `9f4d19f`.
+6. `ls .planning/archive/v1.2/sprint18_*.md` : **10 files attendus** (kickoff, plan, verification, audit_plan, 6 phase reviews B/C/D/E1/E2/E3). Note : E1 review produit par nexus-phase-auditor au commit `9f4d19f`. (Correction post-audit S18 finding F-1 — la version d'origine de cette ligne disait `9 files attendus` par erreur, le compte reel est 10 incluant E1 review.)
 
 ---
 
