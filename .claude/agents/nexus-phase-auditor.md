@@ -270,8 +270,20 @@ RUST=$(cargo test --workspace --locked 2>&1 | grep '^test result:' | awk '{sum+=
 
 ### Step 6 — Synthese et verdict
 
-Ecris `.planning/active/sprint{N}_phase_{X}_review.md` avec la
-structure suivante :
+**ACTION OBLIGATOIRE EN PREMIER** : invoquer `Write` tool sur
+`.planning/active/sprint{N}_phase_{X}_review.md` AVANT de produire
+toute synthese stdout. Le hook `phase-auditor-gate.sh` lit le
+fichier sur disque, pas ton output conversationnel. Sans Write,
+l'audit est procedurellement invalide et l'executeur sera bloque
+au commit + n'a PAS l'autorisation de transcrire ton rapport
+lui-meme (defait l'independance G4).
+
+Si tu approches la fin de ton budget tokens et n'as pas encore
+ecrit le fichier, **tronquer les sections optionnelles** mais
+garder Verdict + Findings + table dimensions cochees minimum.
+Mieux : un fichier minimal sur disque qu'un rapport long en stdout.
+
+Structure du fichier (Write tool, content) :
 
 ```markdown
 # Sprint {N} Phase {X} — nexus-phase-auditor review

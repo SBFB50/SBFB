@@ -60,10 +60,16 @@ if [ ! -f "$REVIEW" ]; then
   echo "  Expected: $REVIEW" >&2
   echo "" >&2
   echo "  Avant de committer Sprint ${SPRINT} Phase ${PHASE}, lance l'agent :" >&2
-  echo "    Task(subagent_type=\"nexus-phase-auditor\", ..." >&2
-  echo "         prompt=\"Audit Sprint ${SPRINT} Phase ${PHASE}, draft commit body: ...\")" >&2
+  echo "    Task(subagent_type=\"nexus-phase-auditor\"," >&2
+  echo "         prompt=\"Audit Sprint ${SPRINT} Phase ${PHASE}." >&2
+  echo "                 ECRIRE OBLIGATOIREMENT via Write tool dans" >&2
+  echo "                 ${REVIEW} AVANT de retourner." >&2
+  echo "                 Stdout ne suffit pas — le hook bloque sans le" >&2
+  echo "                 fichier sur disque." >&2
+  echo "                 Draft commit body: <coller ici>\")" >&2
   echo "" >&2
-  echo "  L'agent ecrira $REVIEW avec verdict PASS/CONCERN/FAIL." >&2
+  echo "  Si l'agent ne Write PAS le fichier, ne PAS le transcrire toi-meme" >&2
+  echo "  (defait l'independance G4) — relance l'agent avec le rappel ci-dessus." >&2
   echo "" >&2
   echo "  Bypass d'urgence : NEXUS_SKIP_PHASE_AUDITOR=1 git commit ..." >&2
   echo "" >&2
