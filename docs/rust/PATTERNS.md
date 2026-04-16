@@ -1084,6 +1084,72 @@ declares a base). Non-blocking Sprint 20 Phase A.
 Cross-ref : audit finding S19 P2-E1 (`.planning/active/sprint19_
 audit_findings.md §Track E`).
 
+### T25 — `aws-lc-rs` FIPS 140-3 migration deferred (keystore AEAD)
+
+Sprint 20 Phase A ships the `LocalFileKeyStore` AEAD path on
+`aes-gcm = "0.10"` (RustCrypto) instead of the `aws-lc-rs` crate
+called out by the kickoff §D1. The swap was forced by the
+Windows dev-machine build : `aws-lc-sys` requires NASM to compile
+AES-NI intrinsics and a standard Win11 install lacks it. The
+algorithm is byte-identical (AES-256-GCM per RFC 5116), so this
+is not a security regression — but it postpones the
+VALIDATED_BLUEPRINT S17 "FIPS 140-3 track" promise until a
+sprint that activates a `fips` build feature.
+
+Fix path : add a `fips` feature to `nexus-core-rs`, switch
+`build_aead_key` / `seal` / `open` call sites to `aws_lc_rs::aead
+::LessSafeKey` under `#[cfg(feature = "fips")]`, gate the
+workspace `aws-lc-sys` NASM requirement behind the same feature,
+and document the Win11 NASM install requirement for maintainers
+who enable the feature. Non-blocking Sprint 20 Phase A.
+
+Cross-ref : audit finding S20 Phase A review P2-6
+(`.planning/active/sprint20_phase_A_review.md`), kickoff
+§D1 adjusted (terminology note).
+
+### T26 — Argon2id PIN calibration gap vs target
+
+`crates/nexus-core-rs/benches/keystore.rs::derive_kek_64_mib`
+measures **82 ms/attempt** on RTX 5080 + DDR5-6400 with the
+production parameters (m=64 MiB, t=3, p=1). The Sprint 20 kickoff
+§D2 target was ~3 s/attempt ; we beat the target by 36× because
+the Signal SVR calibration that informed §D2 was tuned on ARM
+Android devices, not a 2026 x86_64 desktop. Implication : a
+6-digit PIN brute force on this CPU costs ~83 s single-thread ;
+a dedicated PIN-cracker farm brings it lower. The double layer
+(kek1 from PIN + kek2 from OS keyring) still forces the attacker
+to have live-user access to the keyring, so the scheme holds —
+but the §D2 promise is not strictly honoured.
+
+Fix path : bump m_cost to 128 MiB or t_cost to 6 when we have
+deployment telemetry on the slowest supported platform
+(Raspberry Pi 4 low-end, per §D2 acknowledge), re-run the bench,
+update `§T-keystore-bench-reference`. Older blobs continue to
+unlock because the Argon2 params live in the blob header — only
+new inits pick up the tighter calibration. Non-blocking Sprint
+20 Phase A.
+
+Cross-ref : audit finding S20 Phase A review P2-3.
+
+### T27 — Plaintext `--pin` CLI argument visible in `ps` / shell history
+
+The `sbfb init --pin <p>` / `sbfb unlock --pin <p>` launcher
+subcommands take the PIN as a plaintext argv position. Linux
+`ps auxe` + bash `HISTFILE` both capture it ; Windows Task
+Manager "Command line" column exposes it until the launcher
+exits. Acceptable for Phase A dev / smoke-test flows — the PIN
+is also passed verbatim by a human during the session — but not
+for day-to-day operator use.
+
+Fix path : Phase B introduces an interactive `rpassword`-style
+prompt (no echo, reads /dev/tty on Unix, ReadConsole on
+Windows) that replaces the `--pin` flag. The flag can stay for
+batch / CI smoke-tests behind a `--pin-fd <fd>` alternative that
+reads from a file descriptor instead of argv. Non-blocking
+Sprint 20 Phase A.
+
+Cross-ref : audit finding S20 Phase A review P2-5.
+
 ---
 
 ## Sprint 18 canonical patterns (2026-04-15)
@@ -1262,6 +1328,116 @@ relay-pins.json` + hot-reload + backup pin RFC 7469 §4.3 +
 Audit reference : `.planning/research/S19_phase_C_tls_cert_
 pinning_design.md` §3 alternatives + §3.6 HPKP lessons + §5.4
 fail-open vs fail-closed matrix.
+
+---
+
+## Sprint 20 canonical patterns (2026-04-16)
+
+### Sprint 20.1 Encryption at rest — double layer (PIN + OS keyring)
+
+Sprint 20 Phase A (`crates/nexus-core-rs/src/keystore.rs`) wraps
+the daemon's Ed25519 identity keypair at rest with two independent
+secrets so an attacker who recovers only one still faces a full
+brute-force wall against the other.
+
+```
+PIN ── Argon2id(salt, m=64 MiB, t=3, p=1) ──► kek1  (32 bytes)
+                                              │
+OS keyring (platform-native credential store) ─► kek2  (32 bytes)
+                                              │
+                        BLAKE3(DOMAIN_KEYSTORE_V1 || kek1 || kek2)
+                                              │
+                                              ▼
+              final_kek ── AES-256-GCM ── wrap(Ed25519 privée)
+                                              │
+                                              ▼
+                 blob ~/.sbfb/shell-daemon/keyring/identity.enc
+```
+
+Canonical threat-model coverage :
+
+| Adversary reads | Needs to decrypt | Cost |
+|---|---|---|
+| Blob file only | PIN + keyring | Argon2id wall + live user |
+| OS keyring only | PIN + blob file | Argon2id wall + disk access |
+| Blob file + keyring | PIN | Argon2id wall (~80 ms/attempt on modern CPUs) |
+| Blob + keyring + PIN | — | decrypt |
+
+Closes **T3 DPAPI user-scope gap** (Sygnia 2024 "DPAPI downfall"
++ SpecterOps 2024-2026): a same-user malicious process that dumps
+DPAPI master keys from LSASS via Mimikatz `/unprotect` still
+cannot unlock the blob — the PIN never enters `lsass.exe`.
+
+Deviations from the Sprint 20 kickoff §D1 baseline, noted in the
+Phase A commit body :
+
+- **AEAD backend** : `aes-gcm` (RustCrypto) replaces `aws-lc-rs`
+  from the D1 draft because `aws-lc-sys` requires NASM on Windows
+  to build and that dependency blocks dev-machine setup. The
+  algorithm (AES-256-GCM) is byte-identical ; the migration to
+  `aws-lc-rs` behind a `fips` build feature is a one-file swap
+  tracked for the sprint that actually enables FIPS 140-3. Pre-
+  launch protocol policy (CLAUDE.md §Pre-launch) makes FIPS
+  optional until the `v1.0` tag.
+- **Blob filename** : the kickoff §D1 sketch said
+  `<node_id>.enc` ; the implementation uses the fixed
+  `identity.enc`. The node_id is only available AFTER the blob is
+  decrypted, so prefixing the filename with it would require a
+  sidecar `identity.pub` file. Phase A keeps the layout minimal ;
+  Phase B will add `identity_duress.enc` as a second fixed slot.
+
+### Sprint 20.2 Key-handling discipline
+
+The daemon never holds `kek1` or `kek2` in plaintext beyond the
+AEAD seal/open window. Every sensitive 32-byte buffer lives
+inside `secrecy::SecretBox<[u8; 32]>` (heap-allocated, zeroed on
+drop via `zeroize`). `SecretKeyBytes` is the only
+`SecretBox`-compatible newtype around `[u8; SECRET_KEY_BYTES]` ;
+it derives `Zeroize` so the secrecy box can zero the heap copy
+without the caller thinking about it.
+
+The launcher hands the decrypted secret to the daemon child via
+the `SBFB_IDENTITY_SECRET_HEX` env var. Both sides remove the var
+from their process environment immediately after reading it
+(`std::env::remove_var` on the daemon side, inline `hex_str.
+zeroize()` on the launcher side). This closes the most obvious
+same-user leak path at the cost of leaving the hex bytes briefly
+visible in `/proc/self/environ` during the spawn window.
+Tightening to a Unix domain socket / Windows Named Pipe handoff
+is tracked as T24 tech debt for a future sprint.
+
+### §T-keystore-bench-reference
+
+Reference numbers for `cargo bench -p nexus-core-rs --bench
+keystore` on the calibration hardware (RTX 5080 + DDR5-6400 +
+Windows 11, 2026-04-16) :
+
+| Bench | Median | Target |
+|---|---|---|
+| `keystore_prod/derive_kek_64_mib` | **82 ms** | < 5 s |
+| `keystore_aead/unlock_fast_params` | (fast params — informational only) | — |
+| `keystore_unlock_total/unlock_prod_params_no_keyring` | (prod params) | < 6 s |
+
+The production Argon2id derive (64 MiB / t=3 / p=1) lands at
+~82 ms on this CPU, well under the 5 s critère. It is **much**
+faster than the Sprint 20 kickoff §D2 target of ~3 s/attempt
+because RustCrypto's pure-Rust Argon2 implementation on a 2026
+desktop + fast DDR5 beats the Signal Secure Value Recovery
+reference calibration (which was tuned on ARM Android devices).
+Implication for the threat model : at ~82 ms/attempt a 6-digit
+PIN brute force costs ~83 seconds on a single thread, and a PIN
+cracker farm brings that down further. The calibration is still
+acceptable for Phase A (keyring layer + audit log raise the
+effective cost), but bumping `m_cost` to 128 MiB or `t_cost` to
+6 is a candidate for Sprint F consolidation or a follow-up
+sprint once we have deployment telemetry. Record any such bump
+here AND in the blob `flags` byte so older blobs keep unlocking.
+
+Run the numbers yourself on your dev machine :
+
+```bash
+cargo bench -p nexus-core-rs --bench keystore -- derive_kek_64_mib
+```
 
 ---
 

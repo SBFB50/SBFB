@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 mod auth;
 mod driver_check;
 mod token_rotation;
+mod unlock;
 
 #[cfg(test)]
 mod test_util {
@@ -171,8 +172,38 @@ async fn main() {
         println!("Spawns nexus-shell-daemon, opens the default browser,");
         println!("waits for Ctrl+C, then shuts down gracefully.");
         println!();
-        println!("Usage: nexus-launcher [--help]");
+        println!("Usage:");
+        println!(
+            "  nexus-launcher                       # spawn daemon (legacy ephemeral keypair)"
+        );
+        println!("  nexus-launcher init   --pin <pin>    # generate + encrypt identity, exit");
+        println!("  nexus-launcher unlock --pin <pin>    # decrypt identity, spawn daemon with it");
         return;
+    }
+
+    // Sprint 20 Phase A : dispatch `init` / `unlock` subcommands.
+    // `init` is a pure one-shot (no daemon spawn). `unlock` decrypts
+    // and exports the identity bytes in an env var that the daemon
+    // child will pick up at `NodeConfig::with_secret_key` time, then
+    // falls through to the normal spawn path below.
+    match unlock::parse_subcommand(&args) {
+        Some(unlock::Subcommand::Init { pin }) => {
+            std::process::exit(unlock::run_init(&pin));
+        }
+        Some(unlock::Subcommand::Unlock { pin }) => {
+            if let Err(code) = unlock::run_unlock_and_export_env(&pin) {
+                std::process::exit(code);
+            }
+            // Fall through — the env var is set, continue with the
+            // normal daemon spawn sequence. The daemon reads
+            // SBFB_IDENTITY_SECRET_HEX via
+            // `nexus_shell_daemon::runtime::read_optional_identity_env`.
+        }
+        None => {
+            // Legacy path — daemon boots with an ephemeral iroh
+            // keypair. This preserves dev / smoke-test UX until the
+            // user opts into the encrypted identity flow.
+        }
     }
 
     let running_path = find_running_json();

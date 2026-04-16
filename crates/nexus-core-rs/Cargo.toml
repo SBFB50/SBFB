@@ -96,12 +96,28 @@ notify = { workspace = true }
 # inside nexus-core-rs.
 chrono = { workspace = true }
 
+# Sprint 20 Phase A : encryption at rest for the daemon's Ed25519
+# identity keypair. See the workspace Cargo.toml comments for the
+# rationale of each dep (Argon2id params, RustCrypto aes-gcm over
+# aws-lc-rs due to Windows NASM build constraints pre-launch,
+# secrecy SecretBox wrapping, OS keyring double-layer defense,
+# zeroize RAII wipe).
+argon2 = { workspace = true }
+aes-gcm = { workspace = true }
+secrecy = { workspace = true }
+keyring = { workspace = true }
+zeroize = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
-tempfile = "3.13"
+tempfile = { workspace = true }
 criterion = { workspace = true }
 
 [[bench]]
 name = "pow"
+harness = false
+
+[[bench]]
+name = "keystore"
 harness = false

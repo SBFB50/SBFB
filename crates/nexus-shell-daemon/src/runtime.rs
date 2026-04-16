@@ -34,7 +34,10 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::{anyhow, Context, Result};
-use nexus_core_rs::{create_node, load_quorum_resolvers_from_env, GossipClient, GossipEvent, Node};
+use nexus_core_rs::{
+    create_node, create_node_with_config, load_quorum_resolvers_from_env, GossipClient,
+    GossipEvent, Node, NodeConfig,
+};
 use nexus_shell_daemon_core::auth;
 use nexus_shell_daemon_core::browse::{
     BrowseAggregator, BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
@@ -53,6 +56,64 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use crate::http::{build_router, DaemonHttpState, GossipSenderHandle};
+
+// Sprint 20 Phase A : the env var name used by the launcher to
+// hand the unlocked 32-byte Ed25519 secret key to the daemon child
+// is defined canonically in `nexus_core_rs::keystore::
+// SBFB_IDENTITY_SECRET_HEX_ENV` so launcher + daemon share exactly
+// one string constant. We import it here rather than redeclaring.
+use nexus_core_rs::SBFB_IDENTITY_SECRET_HEX_ENV;
+
+/// Read the identity env var if the launcher set one, parse it as
+/// 32 hex bytes, wipe the env table entry, and return the bytes.
+///
+/// The env var is removed before this function returns so a
+/// subsequent child spawn (for example a future worker process the
+/// daemon may fork) does not inherit the secret. The remaining
+/// copies — the `[u8; 32]` returned to the caller and the original
+/// heap string pulled by `env::var` — are either owned by the
+/// caller (and handed straight to `NodeConfig::with_secret_key`,
+/// where `iroh::SecretKey` takes over lifetime management) or are
+/// dropped and zeroed by `zeroize::Zeroize` inside this function.
+fn read_optional_identity_env() -> Option<[u8; 32]> {
+    let mut raw = match std::env::var(SBFB_IDENTITY_SECRET_HEX_ENV) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+    // Remove the env var from the process environment regardless of
+    // whether the parse succeeds. If the var is malformed we want
+    // the daemon to fall back to legacy mode rather than a second
+    // parse attempt later picking up stale state.
+    std::env::remove_var(SBFB_IDENTITY_SECRET_HEX_ENV);
+
+    let decoded = match hex::decode(raw.trim()) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(error = %e, "SBFB_IDENTITY_SECRET_HEX is not valid hex, falling back to ephemeral identity");
+            use zeroize::Zeroize;
+            raw.zeroize();
+            return None;
+        }
+    };
+    use zeroize::Zeroize;
+    raw.zeroize();
+
+    if decoded.len() != 32 {
+        warn!(
+            actual = decoded.len(),
+            "SBFB_IDENTITY_SECRET_HEX decoded to wrong length (expected 32), falling back to ephemeral identity"
+        );
+        let mut decoded = decoded;
+        decoded.zeroize();
+        return None;
+    }
+
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&decoded);
+    let mut decoded = decoded;
+    decoded.zeroize();
+    Some(out)
+}
 
 /// Options the binary hands to [`DaemonRuntime::start`].
 ///
@@ -153,9 +214,28 @@ impl DaemonRuntime {
         // 2. Boot the iroh endpoint + protocol router. Arc so
         //    the gossip task can hold a clone without fighting
         //    with the shutdown path for ownership.
-        let node = create_node()
-            .await
-            .context("failed to boot iroh node for shell daemon")?;
+        //
+        //    Sprint 20 Phase A: if the launcher ran `sbfb unlock`
+        //    before spawning us, it put the 32-byte Ed25519 secret
+        //    key as a 64-char hex string into
+        //    `SBFB_IDENTITY_SECRET_HEX`. We pick it up here and
+        //    hand it to `NodeConfig::with_secret_key` so the iroh
+        //    endpoint boots with a persistent identity instead of
+        //    minting a fresh ephemeral keypair each run. Absent or
+        //    malformed env → legacy `create_node()` path so dev
+        //    flows that predate the encrypted keystore still work.
+        let node = match read_optional_identity_env() {
+            Some(secret_bytes) => {
+                info!("shell daemon using persistent identity from launcher keystore");
+                let cfg = NodeConfig::default().with_secret_key(secret_bytes);
+                create_node_with_config(cfg)
+                    .await
+                    .context("failed to boot iroh node with persistent identity")?
+            }
+            None => create_node()
+                .await
+                .context("failed to boot iroh node for shell daemon")?,
+        };
         let node_id = node.node_id();
         info!(node_id = %node_id, "shell daemon iroh node ready");
         let node = Arc::new(node);

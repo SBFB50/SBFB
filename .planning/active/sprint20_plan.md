@@ -101,6 +101,19 @@ adjust pre-gel, D1 precision adjust, autres noted no action).
   keyring-rs + argon2 + aws-lc-rs advisories — 0 hit actif.
 - **RustSec Advisory Database** : cross-check 2026-04-16, no
   active advisory on keyring, aws-lc-rs, argon2, zeroize, secrecy.
+- **`aes-gcm = "0.10"`** (RustCrypto) — substitut pour `aws-lc-rs`
+  sur Windows dev : `aws-lc-sys` requires NASM au build (via le
+  crate `jobserver` → `cc` → `aws-lc-sys::build_script`), et
+  l'absence de NASM sur une machine Windows standard bloque le
+  workspace build. Algorithme AES-256-GCM byte-identique (RFC 5116
+  AEAD, RFC 5297), audit surface equivalente. Adopte par `age`,
+  `openmls`, `signal-rs` en production. RustSec advisory-db
+  cross-check 2026-04-16 : 0 finding actif sur `aes-gcm` ou sa
+  dependance `aes` / `ghash`. Migration future vers `aws-lc-rs`
+  (pour un build FIPS 140-3 reellement valide) = one-file swap au
+  site `build_aead_key` / `seal_in_place` / `open_in_place` dans
+  `crates/nexus-core-rs/src/keystore.rs`, trace tech debt T25
+  PATTERNS.md §Sprint 20.1.
 
 ### 3.2 Code registry local
 

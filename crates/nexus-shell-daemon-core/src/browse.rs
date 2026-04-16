@@ -1254,11 +1254,8 @@ mod tests {
             QuorumMock::ok("r2", b"same-signed-packet-bytes"),
             QuorumMock::ok("r3", b"same-signed-packet-bytes"),
         ];
-        let agg = BrowseAggregator::with_durations(
-            DEFAULT_PROBE_TTL,
-            Duration::from_millis(100),
-        )
-        .with_quorum_resolvers(resolvers);
+        let agg = BrowseAggregator::with_durations(DEFAULT_PROBE_TTL, Duration::from_millis(100))
+            .with_quorum_resolvers(resolvers);
         assert_eq!(agg.quorum_resolver_count(), 3);
 
         let node = spawn_node().await;

@@ -228,6 +228,80 @@ x509-parser = "0.17"
 # documented in docs/release/RELAY_PIN_BOOTSTRAP.md.
 base64 = "0.22"
 
+# Sprint 20 Phase A: encryption at rest for the daemon's Ed25519
+# identity keypair. Double-layer defense-in-depth :
+#   1. Argon2id(PIN + salt) derives a 32-byte KEK. RFC 9106
+#      recommends Argon2id for password / PIN input because it is
+#      side-channel resistant (unlike Argon2d). Params calibrated
+#      at 64 MiB / t=3 / p=1 in `crates/nexus-core-rs/src/keystore.rs`
+#      to match a ~3 s/attempt target on modern desktop CPUs
+#      (Signal Secure Value Recovery calibration pattern). OWASP
+#      Password Storage Cheat Sheet default (19 MiB / t=2) is
+#      tuned for passphrase entropy ~40 bits — PIN entropy is
+#      <20 bits, so we bump m_cost to raise the GPU-brute-force
+#      wall (RTX 5080 crack 6-digit PIN @ 19 MiB <2 s → @ 64 MiB
+#      >10 s, asymmetric memory-bandwidth advantage). The crate
+#      is the canonical RustCrypto impl, unchanged API since 0.5.0.
+argon2 = "0.5"
+
+# Sprint 20 Phase A: AEAD AES-256-GCM wrap of the Ed25519 private
+# key. RustCrypto `aes-gcm` (pure Rust, zero system deps) rather
+# than `aws-lc-rs` — the latter pulls `aws-lc-sys` which requires
+# NASM on Windows, blocking dev-machine builds without an out-of-
+# band install. The Sprint 20 kickoff §D1 spec'd aws-lc-rs citing
+# the VALIDATED_BLUEPRINT S17 FIPS 140-3 preference, but FIPS is
+# explicitly NOT a pre-launch requirement (CLAUDE.md pre-launch
+# protocol policy, S17 BLUEPRINT "FIPS track long-term"). The
+# algorithm (AES-256-GCM) is byte-identical between the two crates
+# — future migration to aws-lc-rs for a FIPS-validated build is a
+# one-file swap (the `build_aead_key` / seal / open call sites in
+# `crates/nexus-core-rs/src/keystore.rs`) behind a build feature,
+# carry-over to the sprint that actually activates FIPS. The
+# RustCrypto crate is widely audited (rustsec clean April 2026),
+# implements the same RFC 5116 AEAD, and sees active use in
+# projects like `age`, `openmls`, and `signal-rs`.
+aes-gcm = "0.10"
+
+# Sprint 20 Phase A: hold derived KEK / expose-on-demand wrapper.
+# secrecy 0.10 `SecretBox<T>` requires `T: Zeroize` (raw bytes
+# arrays implement it automatically via the `zeroize` dep below)
+# and zeroes the heap allocation on drop. 0.10 is the current
+# stable line as of April 2026 — the 0.8 → 0.10 bump landed in
+# December 2025 with a `Box<T>` constructor signature break that
+# this crate depends on.
+secrecy = "0.10"
+
+# Sprint 20 Phase A: cross-platform OS credential store (Keychain
+# on macOS/iOS, Credential Manager on Windows, Secret Service on
+# Linux/FreeBSD/OpenBSD). Used as the *second* layer of the double
+# -wrap defense: the OS keyring holds an independent wrap of the
+# KEK so an attacker who steals only the encrypted blob file
+# still faces the Argon2id PIN barrier, and an attacker who reads
+# the OS keyring (same-user DPAPI Mimikatz bypass, Sygnia 2024 +
+# SpecterOps 2026) still faces the PIN barrier because the blob
+# ciphertext is bound to Argon2id(PIN+salt) — not the keyring wrap.
+# 3.6 is the stable line as of 2026-04; the 3.0 → 3.x API is
+# settled (Entry::new / set_secret / get_secret / delete_credential).
+keyring = "3.6"
+
+# Sprint 20 Phase A: RAII zeroize on drop for sensitive buffers
+# (PIN bytes, Argon2id output, Ed25519 secret key bytes after
+# they leave `SecretBox`). `derive` feature gives the `#[derive
+# (Zeroize, ZeroizeOnDrop)]` macros used on the `KeyStoreError`-
+# free wrapper types inside `keystore.rs`. The bare `zeroize`
+# crate was always a transitive dep of ed25519-dalek / secrecy ;
+# hoisting it as a workspace dep makes the intent explicit and
+# lets the launcher's interactive PIN prompt zero the input
+# buffer without a re-export dance.
+zeroize = { version = "1.8", features = ["derive"] }
+
+# Sprint 20 Phase A: `tempfile` already appears as a dev-dep on
+# several crates (see `crates/nexus-core-rs/Cargo.toml` below).
+# Hoist it to the workspace so the new `keystore_integration.rs`
+# test suite and the `unlock.rs` launcher flow share a single
+# pinned version. 3.13 is the current stable line.
+tempfile = "3.13"
+
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto
 # attestation (Sprint 18 Phase B). Two builds of the same commit

@@ -54,8 +54,17 @@ serde_json = { workspace = true }
 
 # Hex-encode / decode helpers in case the `status` subcommand
 # ever needs to show a node_id in short form. Small, already in
-# the workspace, so no tree growth.
+# the workspace, so no tree growth. Sprint 20 Phase A extends the
+# usage to parsing the SBFB_IDENTITY_SECRET_HEX env var the
+# launcher hands to the daemon child at `sbfb unlock` time.
 hex = { workspace = true }
+
+# Sprint 20 Phase A : zero the hex-encoded identity secret after
+# parsing it out of the env var (see `runtime::read_optional_
+# identity_env`). The workspace already pulls zeroize as a direct
+# dep in nexus-core-rs; declaring it here keeps the runtime
+# crate's imports explicit.
+zeroize = { workspace = true }
 
 # Sprint 12 Phase A: BlobTicket minting in the publish handler.
 iroh-blobs = { workspace = true }

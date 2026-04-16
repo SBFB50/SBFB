@@ -26,6 +26,21 @@ axum = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 
+# Sprint 20 Phase A : `sbfb init` / `sbfb unlock` subcommands use
+# the `LocalFileKeyStore` from nexus-core-rs to derive the PIN +
+# write / read the encrypted blob. The launcher already talks to
+# the daemon through the shell-daemon-core path; pulling the core
+# crate in directly keeps the keystore API in a single crate
+# rather than duplicating the type inside launcher.
+nexus-core-rs = { path = "../nexus-core-rs" }
+hex = { workspace = true }
+# `zeroize` wipes the intermediate hex string the launcher builds
+# just before exporting it to the SBFB_IDENTITY_SECRET_HEX env var.
+# `secrecy` is NOT pulled: the launcher only sees the raw bytes
+# transiently — it hands them straight to the daemon child — so
+# adding a SecretBox wrap here would be ceremony without benefit.
+zeroize = { workspace = true }
+
 # Sprint 18 Phase E1: local NVIDIA driver discovery and NVD CVE
 # lookup at launcher startup. `nvml-wrapper` dynamically loads
 # `libnvidia-ml` / `nvml.dll` at runtime via `libloading`, so this
