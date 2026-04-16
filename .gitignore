@@ -93,3 +93,23 @@ logs/
 # (9 .md files reviewing Sprint 2 crate-by-crate, inert outside
 # the cargo workspace).
 .planning/audit_sprint2/
+
+# === Sprint 20 open — P2-2 NOISE coverage (audit S19 finding) ===
+# Untracked root files documented as pre-launch hors-scope dans
+# sprint19_audit_findings.md §Track F + Phase F commit body. These
+# are local dev artefacts + docs drafts pour lesquels un sprint
+# dedie docs apps integrera le classement propre plus tard.
+
+# Local dev binary artefacts
+test_libc.exe
+test_libc.pdb
+
+# Local dev JSON + build outputs (not related to repo packages)
+/cc.json
+/site/
+/node_modules/
+
+# In-progress app design docs (pre-sprint intake, not planning)
+docs/DND_P2P_DESIGN.md
+docs/VISION_USE_CASES.md
+docs/apps/

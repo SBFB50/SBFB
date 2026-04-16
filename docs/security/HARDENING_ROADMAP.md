@@ -11,6 +11,7 @@ triggers_revalidate:
   - "Sprint S+2 commence vs sprint cible (S19+2=S21 → re-scan §3 S21)"
 audited_findings:
   - "2026-04-16 S19 deep analysis : D2 Hashcash daté vs Equi-X 2023, S20 keyring crate, S21 grammar ≠ prompt injection defense, S25 Arti 2.0 Feb 2026 disponible, S26+ PQC trop tardif (HNDL liability)"
+  - "2026-04-16 S20 open : double-layer encryption at rest (Argon2id 64MiB + AES-256-GCM + OS keyring wrap KEK) requis — DPAPI user-scope gap confirmé Sygnia 2024 + SpecterOps 2026 (same-user process malicious = full bypass). Duress PIN pattern = fake keypair noop responses (pas wipe immédiat GrapheneOS-style), panic wipe = 5-tap gesture séparé. Structured output via llguidance (Rust Microsoft 50µs/token, llama.cpp -DLLAMA_LLGUIDANCE=ON) retenu over XGrammar (pas llama.cpp), Outlines (Python IPC), GBNF native (slower). PoW wire scope S20 Phase C (reclassé carry S19 A-2). TLS wire iroh T20 tech debt long-terme (iroh 0.97 ClientBuilder hook cfg-test only). DHT canary enforcement strict reporté post-Gate-2."
 -->
 
 # Hardening Roadmap — Sprint 18-30
