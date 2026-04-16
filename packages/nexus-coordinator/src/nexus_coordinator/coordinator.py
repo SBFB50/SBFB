@@ -54,7 +54,7 @@ from nexus_sdk import (
 )
 
 from nexus_coordinator.config import CoordinatorConfig
-from nexus_coordinator.dispatcher import Dispatcher
+from nexus_coordinator.dispatcher import Dispatcher, SubmitRequest
 from nexus_coordinator.invite import InviteLedger
 from nexus_coordinator.keystore import LoadedKeypair, load_or_generate_keypair
 from nexus_coordinator.kudos import KudosLedger
@@ -67,7 +67,37 @@ from nexus_coordinator.paths import (
     iroh_data_path,
     project_dir,
 )
+from nexus_coordinator.upload_queue import UploadQueue
 from nexus_coordinator.validator import Validator
+
+
+async def _dispatcher_emit_adapter(dispatcher: Dispatcher, payload: dict[str, object]) -> str:
+    """Bridge a queue payload back to :meth:`Dispatcher.submit`.
+
+    The upload queue stores every task as a plain dict (JSON
+    round-trip) so the SQLite column type stays simple. This
+    helper re-materialises a :class:`SubmitRequest` from the dict
+    before handing it to the dispatcher, tolerating extra keys
+    that later revisions may add and stripping the ``version``
+    marker that :meth:`Dispatcher.submit` stamps server-side.
+    """
+    known = {
+        "task_type",
+        "prompt",
+        "model",
+        "system_prompt",
+        "priority",
+        "parent_task_id",
+        "metadata",
+        "task_id",
+        "is_open_source",
+        "estimated_watts",
+        "estimated_vram_mb",
+        "estimated_hours",
+    }
+    kwargs = {k: v for k, v in payload.items() if k in known}
+    return await dispatcher.submit(SubmitRequest(**kwargs))  # type: ignore[arg-type]
+
 
 if TYPE_CHECKING:
     pass
@@ -129,6 +159,12 @@ class Coordinator:
         self.kudos_ledger: KudosLedger | None = None
         self.validator: Validator | None = None
         self.invite_ledger: InviteLedger | None = None
+        # Sprint 19 Phase D — delayed upload queue (anti-correlation
+        # against short-window traffic observers). Populated in
+        # :meth:`start` after the dispatcher is ready; torn down in
+        # :meth:`stop` ahead of the iroh node so any pending row is
+        # drained to the gossip doc before the Endpoint closes.
+        self.upload_queue: UploadQueue | None = None
         self.apps: dict[str, NexusApp] = {}
         self.app_contexts: dict[str, AppContext] = {}
 
@@ -241,6 +277,25 @@ class Coordinator:
             db_path=state_db,
             coord_secret=self._keypair.secret,
         )
+
+        # Sprint 19 Phase D — spawn the delayed upload queue now
+        # that the dispatcher is available as its emit sink. The
+        # queue owns its own SQLite file so a heavy rewrite of the
+        # table schema never collides with the task_state mirror.
+        uq_cfg = self.config.upload_queue
+        upload_queue_db = self.project_dir / "upload_queue.sqlite"
+        dispatcher = self.dispatcher
+        self.upload_queue = UploadQueue(
+            db_path=upload_queue_db,
+            emit_fn=lambda payload: _dispatcher_emit_adapter(dispatcher, payload),
+            mean_jitter_s=uq_cfg.mean_jitter_s,
+            max_jitter_s=uq_cfg.max_jitter_s,
+            flush_interval_s=uq_cfg.flush_interval_s,
+            soft_cap=uq_cfg.soft_cap,
+            hard_cap=uq_cfg.hard_cap,
+            enabled=uq_cfg.enabled,
+        )
+        await self.upload_queue.start()
 
         self.validator = Validator(
             doc=self.state.doc,
@@ -608,6 +663,18 @@ class Coordinator:
             except (asyncio.CancelledError, Exception):
                 pass
             self.state.api_server_task = None
+
+        # Sprint 19 Phase D — drain the delayed upload queue before
+        # we tear down the iroh node. ``drain=True`` force-flushes
+        # every pending row regardless of ``deliver_at`` so a
+        # user-facing submit that was still in jitter land at
+        # shutdown does not silently disappear.
+        if self.upload_queue is not None:
+            try:
+                await self.upload_queue.shutdown(drain=True)
+            except Exception as e:  # noqa: BLE001 — best-effort
+                _log.warning("upload queue shutdown raised", error=str(e))
+            self.upload_queue = None
 
         if self.state.node is not None:
             try:

@@ -1804,3 +1804,110 @@ as open source.
 Art.7(3) withdrawal via the same dialog ("Modifier consentement"
 on Network page); Art.25 privacy-by-design via L1 default.
 Detail in `docs/security/THREAT_MODEL.md` §6.1.
+
+## Sprint 19 patterns
+
+### P29 — Delayed upload queue (exponential jitter, SQLite-persisted)
+
+**Rule**: every `/tasks/submit` is routed through
+`nexus_coordinator.upload_queue.UploadQueue` before the
+dispatcher writes to the project doc. The queue draws a
+cryptographically-random delay from an exponential distribution
+(default mean=90 s, clamp 300 s), persists the payload in
+`upload_queue.sqlite` (WAL mode), and a background scheduler
+flushes every 30 s. The observer at the network edge sees a
+POST → gossip emit correlation window of 0–5 min instead of
+<100 ms, breaking short-window timing correlation attacks (T2/T3
+in `docs/security/P2P_THREATS.md §6.3`).
+
+**Why exponential, not uniform or Poisson process**: Cornell
+ESORICS 2006 proved fat-tail distributions dominate uniform for
+anti-correlation; the Loopix 2017 Poisson process is
+theoretically stronger but requires a mix-net with k-anonymity
+>> 1, which is post-launch infrastructure (Sprint 25+).
+Exponential mean=90 s is the minimum viable anti-correlation
+compatible with our single-user pre-launch anonymity set = 1.
+Full decision matrix in
+`.planning/research/S19_phase_D_delayed_upload_queue_design.md §3`.
+
+**Why 0-5 min range (not 30 min Tor-style, not 2 min)**:
+DnD Forge UX target is "<2 min median, <5 min p99" — sits
+between SimpleX (1–5 s) and Briar (30 s–minutes). Observed
+median = ln(2) × mean ≈ 62 s, p99 clamped to 300 s. Design
+§4.1 for the latency tolerance study.
+
+**Why SQLite-persisted (not in-memory as plan §7.4 originally
+suggested)**: a coord crash within 90 s of a `/tasks/submit`
+would silently drop the task — user sees `{"task_id": "..."}`
+but the task never reaches the network. The design doc upgrades
+to SQLite WAL in a dedicated `upload_queue.sqlite` file next to
+`state.sqlite`. Cost: ~10 LOC schema + ~10 LOC INSERT/DELETE,
+<10 µs per op under WAL. Recovery: `UploadQueue.start()` calls
+`_rerandomize_stale_on_boot` so rows whose `deliver_at` is
+already past at reboot get a fresh delay — mitigates the
+thundering-herd burst after a long downtime (design §6.7).
+
+**Idempotency invariant**: `Dispatcher.submit` is now idempotent
+on `task_id`. If a row for the id already exists in
+`task_state`, the method returns the id without re-signing,
+re-writing the doc, or re-inserting. This makes a queue retry
+after a partial-commit crash safe — the second emit is a no-op
+instead of producing a duplicate TaskEntry on the doc.
+
+**Tunable**: `coordinator.toml [upload_queue]` exposes
+`enabled`, `mean_jitter_s`, `max_jitter_s`, `flush_interval_s`,
+`soft_cap`, `hard_cap`. `enabled = false` is the dev escape
+hatch — submit passes through to the dispatcher synchronously,
+no row ever written to SQLite. Production must keep
+`enabled = true`; changing the default in a deployed build
+breaks the cross-coord anonymity set (design §6.6).
+
+**Backpressure**: soft cap (default 10 000) logs WARN; hard cap
+(default 100 000) raises `QueueFullError` → HTTP 429 with
+`Retry-After: 30`.
+
+**Internal clamp**: the queue clamps each drawn delay to
+`max_jitter_s - flush_interval_s` internally (270 s with the
+defaults) so the observable p99 — drawn delay plus scheduler
+granularity — still respects the advertised `max_jitter_s`
+ceiling (300 s).
+
+**Test injection**: `UploadQueue(..., rng=random.Random(seed),
+now_fn=mutable_clock)` gives the pytest suite full determinism
+without a `freezegun` dep. Production uses
+`secrets.SystemRandom` (CSPRNG) and `time.time`.
+
+**Files**:
+- `packages/nexus-coordinator/src/nexus_coordinator/upload_queue.py`
+  (~345 LOC) — `UploadQueue`, `QueueFullError`, `_bucket`
+  helper for log INFO histogram.
+- `packages/nexus-coordinator/src/nexus_coordinator/config.py`
+  — `UploadQueue` pydantic section.
+- `packages/nexus-coordinator/src/nexus_coordinator/coordinator.py`
+  — `_dispatcher_emit_adapter` (dict → SubmitRequest reinflate)
+  + start/stop wiring.
+- `packages/nexus-coordinator/src/nexus_coordinator/api/tasks.py`
+  — `submit_task` routed through `coord.upload_queue.schedule`,
+  `QueueFullError` → HTTP 429.
+- `packages/nexus-coordinator/src/nexus_coordinator/dispatcher.py`
+  — idempotency check + `INSERT OR IGNORE` on `task_state`.
+
+**Tech debt (queued for later sprints)**:
+- `T-S19-D-1`: no per-payload retry budget — an emit_fn that
+  raises every tick loops forever on the same row. Operator
+  monitoring required; Sprint 22+ will add a backoff-with-dead-
+  letter pattern.
+- `T-S19-D-2`: no priority queue — a high-priority task waits
+  as long as a background one. Design choice for uniform anti-
+  correlation; priority scheduling trivially leaks ordering
+  info to a timing observer.
+- `T-S19-D-3`: no per-app sub-queue — every app shares the same
+  flush tick. Sprint 22+ per-app sub-queues will let each app
+  tune its own privacy/UX trade-off independently.
+- Mix-net Loopix integration (Sprint 25+) will replace
+  `emit_fn` with a Sphinx-packet route; the UploadQueue front
+  stays unchanged.
+
+Reference: Phase D plan at
+`.planning/active/sprint19_plan.md §7`, design doc at
+`.planning/research/S19_phase_D_delayed_upload_queue_design.md`.

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from nexus_coordinator.dispatcher import SubmitRequest
+from nexus_coordinator.upload_queue import QueueFullError
 
 if TYPE_CHECKING:
     from nexus_coordinator.coordinator import Coordinator
@@ -87,22 +88,38 @@ async def submit_task(request: Request, body: TaskCreateBody) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="dispatcher not yet initialised")
     is_open_source = coord.config.identity.repo_url is not None
     watts, vram_mb, hours = _derive_cost_estimate(coord, body.app_name)
-    task_id = await dispatcher.submit(
-        SubmitRequest(
-            task_type=body.task_type,
-            prompt=body.prompt,
-            model=body.model,
-            system_prompt=body.system_prompt,
-            priority=body.priority,
-            parent_task_id=body.parent_task_id,
-            metadata=body.metadata,
-            task_id=body.task_id,
-            is_open_source=is_open_source,
-            estimated_watts=watts,
-            estimated_vram_mb=vram_mb,
-            estimated_hours=hours,
-        )
+    # Sprint 19 Phase D: route through the delayed upload queue.
+    # The queue persists the payload, draws a random delay, and
+    # returns the resolved ``task_id`` immediately. When the
+    # operator has disabled the queue (``upload_queue.enabled =
+    # false`` in coordinator.toml, e.g. for dev), the queue falls
+    # back to a passthrough mode that calls ``dispatcher.submit``
+    # synchronously — the client sees identical latency as pre-S19.
+    upload_queue = coord.upload_queue
+    if upload_queue is None:
+        raise HTTPException(status_code=503, detail="upload queue not yet initialised")
+    submit_req = SubmitRequest(
+        task_type=body.task_type,
+        prompt=body.prompt,
+        model=body.model,
+        system_prompt=body.system_prompt,
+        priority=body.priority,
+        parent_task_id=body.parent_task_id,
+        metadata=body.metadata,
+        task_id=body.task_id,
+        is_open_source=is_open_source,
+        estimated_watts=watts,
+        estimated_vram_mb=vram_mb,
+        estimated_hours=hours,
     )
+    try:
+        task_id = await upload_queue.schedule(submit_req)
+    except QueueFullError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": "30"},
+        ) from exc
     return {"task_id": task_id}
 
 

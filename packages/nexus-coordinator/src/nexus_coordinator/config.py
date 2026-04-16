@@ -105,6 +105,58 @@ class Policy(BaseModel):
     )
 
 
+class UploadQueue(BaseModel):
+    """Delayed-upload queue section — Sprint 19 Phase D anti-correlation.
+
+    Randomizes the time between a coordinator-local submit and the
+    actual gossip emit so an external observer cannot trivially
+    correlate a loopback POST with an upstream broadcast. The
+    default parameters come from the Phase D design doc
+    (exponential mean=90s clamped to 270s internally → 300s
+    observable when accounting for flush granularity). Operators
+    who need a different privacy/UX trade-off can tune each field
+    via coordinator.toml; ``enabled = false`` is a dev escape hatch
+    that routes submits directly to the dispatcher.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Route /tasks/submit through the delayed queue. Set to false in dev only — disables anti-correlation."
+        ),
+    )
+    mean_jitter_s: float = Field(
+        default=90.0,
+        gt=0.0,
+        description="Mean of the exponential delay distribution (seconds).",
+    )
+    max_jitter_s: float = Field(
+        default=300.0,
+        gt=0.0,
+        description=(
+            "Hard ceiling on any single draw (seconds). The "
+            "effective internal clamp is ``max_jitter_s - "
+            "flush_interval_s`` so the observable p99 stays ≤ "
+            "max_jitter_s once scheduler granularity is factored in."
+        ),
+    )
+    flush_interval_s: float = Field(
+        default=30.0,
+        gt=0.0,
+        description="Scheduler wake-up interval (seconds).",
+    )
+    soft_cap: int = Field(
+        default=10_000,
+        ge=1,
+        description="Queue size threshold above which schedule() logs a WARN.",
+    )
+    hard_cap: int = Field(
+        default=100_000,
+        ge=1,
+        description="Queue size ceiling — schedule() raises QueueFullError above this.",
+    )
+
+
 class CoordinatorConfig(BaseSettings):
     """Top-level settings model.
 
@@ -122,6 +174,7 @@ class CoordinatorConfig(BaseSettings):
     identity: Identity = Field(default_factory=Identity)
     network: Network = Field(default_factory=Network)
     policy: Policy = Field(default_factory=Policy)
+    upload_queue: UploadQueue = Field(default_factory=UploadQueue)
 
     @classmethod
     def load(cls, path: Path | None) -> "CoordinatorConfig":

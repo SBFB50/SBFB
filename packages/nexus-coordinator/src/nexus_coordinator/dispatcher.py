@@ -103,8 +103,28 @@ class Dispatcher:
 
     async def submit(self, req: SubmitRequest) -> str:
         """Sign and write a new task to the doc. Returns the assigned
-        ``task_id``."""
+        ``task_id``.
+
+        Idempotent on ``task_id``: if a row already exists in
+        ``task_state`` for the supplied id the method returns it
+        without re-signing, re-writing the doc, or re-inserting the
+        row. This is required by the Sprint 19 Phase D delayed
+        upload queue which retries an emit that partially completed
+        before a coordinator crash (design §6.3 + upload_queue.py
+        docstring).
+        """
         task_id = req.task_id or f"t-{uuid.uuid4().hex}"
+
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT 1 FROM task_state WHERE task_id = ?", (task_id,)) as cursor:
+                existing = await cursor.fetchone()
+        if existing is not None:
+            _log.info(
+                "task already submitted, skipping duplicate",
+                task_id=task_id,
+            )
+            return task_id
+
         now = int(time.time())
         task_dict = {
             "version": TASK_FORMAT_VERSION,
@@ -133,7 +153,7 @@ class Dispatcher:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 """
-                INSERT INTO task_state (
+                INSERT OR IGNORE INTO task_state (
                     task_id, state, task_json, task_type, model,
                     priority, submitted_at
                 ) VALUES (?, 'pending', ?, ?, ?, ?, ?)

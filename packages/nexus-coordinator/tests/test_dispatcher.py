@@ -187,6 +187,11 @@ async def test_api_derives_is_open_source_from_identity_repo_url(
 
     coord = Coordinator(project_name="d-identity-repo")
     coord.config.identity.repo_url = "https://github.com/example/app"
+    # Sprint 19 Phase D — disable the delayed upload queue so the
+    # task lands on the doc before _read_last_task_dict runs. The
+    # queue's semantics are covered end-to-end in
+    # tests/test_api_tasks_delayed.py.
+    coord.config.upload_queue.enabled = False
     await coord.start()
     try:
         with TestClient(create_app(coord)) as client:
@@ -225,6 +230,7 @@ async def test_api_uses_registered_app_cost_estimate(
             return (350, 14000, 0.45)
 
     coord = Coordinator(project_name="d-app-hint")
+    coord.config.upload_queue.enabled = False
     await coord.start()
     try:
         coord.apps["heavy"] = HeavyApp()
@@ -258,6 +264,7 @@ async def test_api_falls_back_to_sdk_defaults_when_app_missing(
     from nexus_coordinator.api.app import create_app
 
     coord = Coordinator(project_name="d-fallback")
+    coord.config.upload_queue.enabled = False
     await coord.start()
     try:
         with TestClient(create_app(coord)) as client:
@@ -293,6 +300,7 @@ async def test_api_ignores_client_attempt_to_set_is_open_source(
 
     coord = Coordinator(project_name="d-no-override")
     # private project, no repo_url → is_open_source must be False.
+    coord.config.upload_queue.enabled = False
     await coord.start()
     try:
         with TestClient(create_app(coord)) as client:
