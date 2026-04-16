@@ -1,7 +1,7 @@
 # Sprint 19 — Audit plan pour Sprint 20 Phase 0
 
 **Ecrit** : 2026-04-16 (Phase F wrap-up)
-**Commit stack a auditer** : range `1a606a3..<wrap-up>` — 8 feat/chore direct
+**Commit stack a auditer** : range `1a606a3..619059b` — 8 feat/chore direct
 S19 + 2 chore(planning) + 2 chore(claude) tooling hors-sprint (G4 auditor
 Write enforce + TOOLING.md doc). Phases livrees :
 
@@ -12,7 +12,7 @@ Write enforce + TOOLING.md doc). Phases livrees :
 - Phase D `f238d31` delayed upload queue (0-5min exponential jitter)
 - Phase D wrap `2fd6c60` chore(planning) review artefact + workflow autonomy
 - Phase E `2fd4d72` pkarr relay self-hosted docker image + ops doc
-- Phase F `<wrap-up>` verification + audit plan + migrations + updates
+- Phase F `619059b` verification + audit plan + migrations + updates
 
 Chore hors-sprint inclus dans le range chronologique :
 - `fe0a8fd` chore(planning) guardrails G1..G7
