@@ -1,0 +1,128 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Build + publish the SBFB pkarr-relay Docker image on ghcr.io.
+# Sprint 19 Phase E — federation bootstrap brick (design doc at
+# .planning/research/S19_phase_E_pkarr_relay_design.md).
+#
+# Trigger: push to master under docker/pkarr-relay/**, tag v*,
+# or manual dispatch. The workflow builds linux/amd64 only for
+# Sprint 19 (arm64 deferred to Sprint 22+).
+#
+# Supply chain (parity Sprint 18 Phase B SLSA L2):
+#   - Cosign keyless signature (GitHub OIDC → Fulcio → Rekor)
+#   - SLSA in-toto provenance attestation
+#   - SPDX SBOM via buildx attest backend
+#   - Trivy HIGH+CRITICAL scan fail-build
+#
+# NOTE on action SHA pinning: this workflow uses `@v*` tags for
+# consistency with the rest of `.github/workflows/*` in this repo
+# (release.yml, supply-chain.yml, etc.). A dedicated repo-wide SHA
+# pinning sweep is carried over from Sprint 18 E3-2 P3 to a future
+# OpSec sprint — migrating this single workflow to pinned SHAs
+# ahead of the others would fragment the policy. Trivy action is
+# tracked against the GHSA-69fq-xp46-6x23 (March 2026) recovery
+# advisory at the version bump time.
+
+name: build-pkarr-image
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "docker/pkarr-relay/**"
+      - ".github/workflows/build-pkarr-image.yml"
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write       # cosign keyless OIDC
+  attestations: write   # GitHub native build provenance
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: sbfb50/pkarr-relay
+
+jobs:
+  build-and-push:
+    name: Build + sign + attest pkarr-relay
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="master-${GITHUB_SHA::7}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build + push (linux/amd64, SLSA provenance + SBOM)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: docker/pkarr-relay
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Trivy scan (HIGH+CRITICAL fail-build)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Cosign keyless sign
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes \
+            "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+
+      - name: GitHub native build-provenance attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Smoke healthcheck on built image
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: bash tests/ci-smoke/pkarr-relay-healthcheck.sh \
+               "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"

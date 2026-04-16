@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Config bootstrap pour pkarr-relay v0.11.5+.
+# Defaults copies depuis upstream relay/src/config.example.toml
+# ajustes pour un deploy SBFB-federe derriere Caddy reverse-proxy.
+#
+# Rate limits : reste permissif (ONG sysadmin). Caddy community
+# OSS ne rate-limite pas nativement (besoin module xcaddy
+# optionnel). C'est le rate_limiter pkarr-relay interne qui fait
+# la protection par defaut.
+# Cache path : volume docker monte sur /var/lib/pkarr/cache.
+
+[http]
+port = 6881
+
+[mainline]
+port = 6881
+
+[cache]
+path = "/var/lib/pkarr/cache"
+size = 1_000_000
+minimum_ttl = 300
+maximum_ttl = 86400
+
+[rate_limiter]
+behind_proxy = true
+burst_size = 50
+per_second = 10

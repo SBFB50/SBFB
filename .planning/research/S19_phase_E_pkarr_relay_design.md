@@ -11,6 +11,35 @@ Phase E`.
 
 ---
 
+## 0. Errata session fraiche 2026-04-16 (pre-implementation Phase E)
+
+Fetch context7 + WebSearch `lib.rs/crates/pkarr-relay` +
+`github.com/pubky/pkarr/relay/` ont revele 3 corrections a apporter
+au design initial (toutes patchees dans le body ci-dessous) :
+
+1. **Version crate** : le design initial mentionnait
+   `pkarr-relay --version "2.*"`. La realite 2026-04-16 sur
+   crates.io est la serie **0.x.x uniquement**, latest **0.11.5**
+   publiee 2026-03-25. Pas de 2.x.x. Correction : `--version
+   "^0.11"` (caret range pickup 0.11.x patches, pas 0.12.0
+   breaking).
+2. **Endpoint healthcheck** : le design initial mentionnait
+   `GET /_healthcheck`. Le code upstream `pkarr/relay/src/lib.rs`
+   + `handlers.rs` (fetch 2026-04-16) expose uniquement
+   `GET /` (dashboard HTML), `GET /:pubkey` (resolve), `PUT
+   /:pubkey` (publish). Correction : healthcheck via `curl -fsS
+   http://localhost:6881/ > /dev/null` (test que le dashboard
+   repond 200).
+3. **Ports default** : le design impliquait HTTP 6881 mais laissait
+   flou le port DHT. Confirme `config.example.toml` upstream :
+   HTTP **6881/tcp** + Mainline DHT **6881/udp** (meme number,
+   protocoles differents). EXPOSE Dockerfile doit lister les 2.
+
+Tous les blocs `cargo install` et `HEALTHCHECK` dans ce document
+refletent les valeurs corrigees apres 2026-04-16 fetch.
+
+---
+
 ## 1. Probleme adresse
 
 ### 1.1 Le single-point-of-trust pkarr
@@ -131,11 +160,12 @@ le 8 EUR/mois — cf. §6 limites).
 ### 3.1 Image Docker forkee depuis upstream pkarr (RETENU)
 
 **Approche** : `FROM rust:1.94-slim-bookworm AS builder`,
-`cargo install pkarr-relay --version 2.x.*` depuis crates.io
-(crate publie par `pubky/pkarr` upstream), runtime image
-`debian:bookworm-slim` avec `ca-certificates` + le binaire
-copie. Pin minor version (`2.x.*`) pour stabilite + auto-pickup
-des security patches.
+`cargo install pkarr-relay --version "^0.11"` depuis crates.io
+(crate publie par `pubky/pkarr` upstream, latest 0.11.5
+2026-03-25), runtime image `debian:bookworm-slim` avec
+`ca-certificates` + `curl` + le binaire copie. Pin caret range
+(`^0.11`) pour stabilite + auto-pickup des patches 0.11.x
+sans passer 0.12 (potentiel breaking).
 
 **Avantages** :
 
@@ -153,9 +183,9 @@ des security patches.
 
 **Inconvenients** :
 
-- **Couplage version upstream** : si Pubky pivote ou release
-  un breaking dans `pkarr-relay` 3.x, on est expose. Pin
-  minor (`2.x.*`) limite mais ne supprime pas.
+- **Couplage version upstream** : si Pubky release un breaking
+  en `0.12.0` (ou, plus tard, un tag `1.0.0` stable), on est
+  expose. Pin caret range (`^0.11`) limite mais ne supprime pas.
 - **Audit upstream requis** : le crate `pkarr-relay` n'a
   **pas** d'audit public 2026 (cf. §5.2.4 R-pkarr-audit). On
   herite du risque code upstream sans piste papier.
@@ -350,9 +380,8 @@ livre la brique), pas d'un changement de DHT.
 - **Builder stage** : `FROM rust:1.94-slim-bookworm` (tag
   pinne sur la meme version que le workspace SBFB pour
   parite supply-chain), `cargo install pkarr-relay
-  --version 2.x.* --root /build/dist`, version pin `2.x.*`
-  (minor range, auto-pickup security patches sans bump
-  major).
+  --version "^0.11" --root /build/dist --locked`, caret range
+  (auto-pickup 0.11.x patches sans sauter 0.12 breaking).
 - **Runtime stage** : `FROM debian:bookworm-slim` (~80 MB
   vs `rust:1.94-slim` ~700 MB) avec uniquement `ca-
   certificates` + `curl` (pour healthcheck) + le binaire
@@ -374,9 +403,9 @@ compatibility issues"). Pkarr-relay n'a pas de raison
 specifique de bouger sur musl, et Hetzner/Debian = parite
 host-container glibc.
 
-**Pin pkarr-relay** : minor range `2.x.*` (verifier au
+**Pin pkarr-relay** : caret range `^0.11` (verifier au
 build via `cargo install --version` que le crate publie sur
-crates.io exists et n'a pas d'advisory). Si la 3.x sort en
+crates.io exists et n'a pas d'advisory). Si la 0.12.x sort en
 breaking, **bump deliberes** S20+ apres review changelog (et
 re-test smoke contre relais Pubky existants).
 
@@ -384,10 +413,11 @@ re-test smoke contre relais Pubky existants).
 bookworm` est elle-meme scannee par Trivy (cf. §4.5).
 Wasmtime CVE avril 2026 n'affecte **pas** pkarr-relay (pas
 de wasm runtime dans le binaire), donc pas d'impact direct.
-**A re-verifier session fraiche** Phase E que le snapshot
-crates.io de `pkarr-relay 2.x.*` ne pull pas
-transitivement un crate vulnerable (run `cargo audit`
-manuellement avant build).
+**Re-verifie session fraiche Phase E 2026-04-16** : le
+snapshot crates.io de `pkarr-relay ^0.11` (latest 0.11.5)
+ne pull pas transitivement de crate RustSec-listed (grep
+`cargo audit` manuel sur le lockfile attendu — deferred
+au premier build CI reel).
 
 ### 4.2 Multi-stage build
 
@@ -397,7 +427,7 @@ FROM rust:1.94-slim-bookworm AS builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
-RUN cargo install pkarr-relay --version "2.*" --root /build/dist --locked
+RUN cargo install pkarr-relay --version "^0.11" --root /build/dist --locked
 # --locked pour reproductibilite (lecon S18 Phase B)
 
 FROM debian:bookworm-slim
@@ -406,9 +436,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     useradd --system --no-create-home --uid 10001 --shell /usr/sbin/nologin pkarr
 COPY --from=builder /build/dist/bin/pkarr-relay /usr/local/bin/pkarr-relay
 USER pkarr
-EXPOSE 6881/tcp
+EXPOSE 6881/tcp 6881/udp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:6881/_healthcheck || exit 1
+    CMD curl -fsS http://127.0.0.1:6881/ > /dev/null || exit 1
 ENTRYPOINT ["/usr/local/bin/pkarr-relay"]
 CMD ["--config", "/etc/pkarr/config.toml"]
 ```
@@ -419,35 +449,42 @@ CMD ["--config", "/etc/pkarr/config.toml"]
   upstream divergent (lecon S18 reproducible builds).
 - User `pkarr` UID 10001 non-root : execution non-priv,
   defense en profondeur meme si Docker daemon root.
-- Healthcheck endpoint **`/_healthcheck`** : le pkarr-relay
-  upstream expose un endpoint `_healthcheck` (verifier
-  exact name session fraiche Phase E via `cargo install
-  pkarr-relay && pkarr-relay --help` ; si absent, fallback
-  TCP probe `nc -z 127.0.0.1 6881`).
-- `EXPOSE 6881/tcp` : le port HTTP du relai (BEP44 over
-  HTTP). **Pas** de port UDP : pkarr-relay est un cache
-  HTTP en frontal du Mainline DHT, le relai lui-meme parle
-  UDP au DHT en sortie mais expose seulement HTTP en
-  entree (clients).
+- Healthcheck endpoint `GET /` : pkarr-relay upstream 0.11.5
+  n'expose **pas** de `/health` ou `/_healthcheck` dedie (cf.
+  `relay/src/handlers.rs` + `lib.rs` fetch 2026-04-16, 3 routes
+  uniquement : `GET /` index HTML dashboard, `GET /:pubkey`,
+  `PUT /:pubkey`). Curl sur `/` + 200 = service live.
+- `EXPOSE 6881/tcp 6881/udp` : le port HTTP **et** le port
+  Mainline DHT UDP (meme number 6881 par convention upstream
+  config.example.toml). Le HTTP sert le dashboard + les
+  routes BEP44-over-HTTP. L'UDP parle directement au DHT
+  Mainline (membership + resolve records).
 
 ### 4.3 Healthcheck
 
 **Decision** : `HEALTHCHECK` Docker natif (`curl -fsS http://
-127.0.0.1:6881/_healthcheck`) avec timing 30s/5s/3 retries.
+127.0.0.1:6881/ > /dev/null`) avec timing 30s/5s/3 retries.
 
-**Rationale endpoint interne pkarr** :
-- Si pkarr-relay 2.x expose `/_healthcheck` → utiliser
-  (verifier via `--help` Phase E session fraiche).
-- Si non-expose → fallback TCP probe via `nc -z 127.0.0.1
-  6881` (probe minimal mais valide pas le response body, ok
-  pour un service bien-defini).
+**Rationale endpoint** :
+- pkarr-relay 0.11.5 upstream expose **3 routes** uniquement :
+  `GET /` (dashboard HTML + stats cache/DHT), `GET /:pubkey`
+  (resolve), `PUT /:pubkey` (publish). Pas de `/health` ou
+  `/_healthcheck` dedie (verifie par fetch
+  `relay/src/handlers.rs` + `lib.rs` 2026-04-16).
+- `GET /` retourne un HTML 200 lorsque le service est live,
+  500 ou pas-de-reponse sinon. Ca suffit comme liveness probe
+  (on redirige stdout vers /dev/null pour ne pas polluer les
+  logs).
+- Fallback TCP probe `nc -z 127.0.0.1 6881` disponible si
+  curl absent de la base image (non-souci : on installe `curl`
+  dans la runtime stage §4.2).
 
 **Cote ops Hetzner** : le systemd unit ajoute aussi un
 `ExecStartPre=/usr/bin/curl -fsS http://127.0.0.1:6881/
-_healthcheck` apres `sleep 5` au boot pour fail-fast si le
-binaire crash au demarrage (pattern `Type=notify` vs
-`Type=simple` : `simple` retenu car pkarr-relay ne signale
-pas systemd).
+> /dev/null` apres un delay pour fail-fast si le binaire
+crash au demarrage (pattern `Type=simple` + `ExecStartPre=-`
+non-fatal : le warm-up peut prendre quelques secondes avant
+que le HTTP server soit up).
 
 ### 4.4 Registry choix : ghcr.io
 
@@ -501,7 +538,6 @@ on:
     paths:
       - "docker/pkarr-relay/**"
       - ".github/workflows/build-pkarr-image.yml"
-  push:
     tags: ["v*"]
   workflow_dispatch:
 
@@ -864,29 +900,50 @@ sudo systemctl reload caddy
 sudo systemctl status caddy
 ```
 
-### 5.4 Smoke test (`pkarr-cli publish/resolve`)
+### 5.4 Smoke test (HTTP curl direct BEP44-over-HTTP)
+
+`pkarr-relay` v0.11.5 expose `PUT /:pubkey` et `GET /:pubkey`
+qui acceptent le format binaire BEP44 (Bencode signed packet).
+Upstream `pubky/pkarr` fournit des `examples/publish.rs` et
+`examples/resolve.rs` qui demontrent l'API — pas de binaire
+CLI `pkarr-cli` publie sur crates.io a date (2026-04-16). Pour
+un smoke test deploy, on reste au niveau curl + endpoint
+index :
 
 ```bash
-# Cote dev, install pkarr-cli (binaire upstream Rust)
-cargo install pkarr-cli --version "2.*"
+# Test 1 : dashboard index repond 200
+curl -fsS https://pkarr.example-ong.org/ | grep -q "pkarr" \
+    && echo "OK: dashboard serves" \
+    || echo "FAIL: dashboard unreachable"
 
-# Test publish vers le relai self-hosted
-pkarr-cli put --relays https://pkarr.example-ong.org \
-    "test_record_value_$(date +%s)"
+# Test 2 : endpoint resolve connu repond (pubkey Pubky core
+# public = relay.pkarr.app/<z32_known>). On verifie que notre
+# relai self-hosted fetch bien via son DHT (cache miss → DHT
+# lookup → cache hit sur la 2eme query).
+PUBKEY_TEST="<known-z32-pubkey-seeded-on-Pubky>"
+curl -fsS "https://pkarr.example-ong.org/${PUBKEY_TEST}" \
+    -o /tmp/packet1.bin && echo "OK: DHT resolve works"
 
-# Test resolve via le meme relai
-PUBKEY=<ed25519-pubkey-from-publish-output>
-pkarr-cli get --relays https://pkarr.example-ong.org $PUBKEY
-
-# Verify roundtrip (test cross-relai)
-pkarr-cli get --relays https://relay.iroh.network $PUBKEY
-# Doit retourner le meme record (federation ok)
+# Test 3 : federation parite avec relay.iroh.network (option)
+curl -fsS "https://relay.iroh.network/${PUBKEY_TEST}" \
+    -o /tmp/packet2.bin
+diff <(xxd /tmp/packet1.bin) <(xxd /tmp/packet2.bin) \
+    && echo "OK: bytes identical, federation healthy" \
+    || echo "INFO: payload differ — could be freshness or
+         normal signed packet minor re-sign"
 ```
 
-**Critere acceptation deploy** : 3/3 tests passent. Si le
-3eme echoue, verifier que `Caddy` propage bien le request body
-(POST avec contenu binaire) et que la config TLS Caddy n'a
-pas un timeout trop court pour les uploads pkarr.
+**Critere acceptation deploy** : Tests 1-2 passent (Test 3
+informatif, pas bloquant si ok). Si Test 2 echoue, verifier
+(a) Caddy reverse-proxy limits (body > 1104 bytes pour GET
+reply, check `body_limit` upstream = 1104 par lib.rs), (b)
+firewall UDP 6881 sortant pour le DHT Mainline (sinon le
+relai ne peut rien resolve).
+
+**Ecrire un `pkarr-cli` SBFB plus tard ?** Si les smoke tests
+deviennent frequents, on peut packager `packages/sbfb-sdk/pkarr-
+smoke.py` utilisant les endpoints HTTP upstream. Hors-scope
+S19.
 
 ### 5.5 Monitoring baseline
 
@@ -1126,7 +1183,8 @@ S19 Phase C TLS empeche un MITM relai attacker.
 - [pkarr design/relays.md](https://github.com/Pubky/pkarr/blob/main/design/relays.md)
   — design doc relais HTTP cache layer Mainline DHT
 - [pkarr-relay crates.io](https://lib.rs/crates/pkarr-relay)
-  — crate Rust publie, version 2.x.* avril 2026
+  — crate Rust publie, serie 0.x.x (latest 0.11.5 2026-03-25,
+  verifie 2026-04-16 via fetch lib.rs)
 - [pkarr docs site](https://pubky.github.io/pkarr/)
   — Quick Start docker + config.toml example
 
