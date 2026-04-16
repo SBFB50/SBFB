@@ -1202,6 +1202,97 @@ mod tests {
         node.shutdown().await.ok();
     }
 
+    #[tokio::test]
+    async fn probe_and_cache_with_quorum_majority_continues_to_dial() {
+        // Sprint 20 Phase 0 audit finding A-3 (P2) regression : the
+        // original Sprint 19 Phase A landed only the two error-path
+        // tests above (NoMajority + AllFailed → skip dial). Neither
+        // asserted that the happy path (2/3 or 3/3 agreement) lets
+        // the aggregator fall through to probe_reachable. A future
+        // refactor collapsing the quorum gate into a single "skip
+        // always" branch would have passed both existing tests. This
+        // test covers the complementary invariant :
+        //
+        //   quorum agrees  →  probe_reachable IS called.
+        //
+        // We cannot mock probe_reachable easily here (it talks to an
+        // iroh Endpoint), so we detect that it was called by two
+        // independent signals :
+        //
+        //   (a) `elapsed` is dominated by the configured
+        //       probe_timeout (400+ ms, vs < 100 ms for the short-
+        //       circuit branches).
+        //   (b) the cache is written as Unreachable but through the
+        //       probe path, not through the early-return
+        //       record_unreachable branch. Both short-circuit
+        //       branches would complete in < 100 ms ; we assert the
+        //       happy path takes noticeably longer.
+        //
+        // The happy path still caches `Unreachable` against a
+        // random node id (the probe cannot dial an unknown peer),
+        // so `status` matches the short-circuit branches. The
+        // discriminating signal is **wall-clock elapsed** : the
+        // NoMajority / AllFailed branches return in < 1 ms because
+        // `record_unreachable` is a single `DashMap::insert` after
+        // the in-memory quorum test. The happy path has to build a
+        // `DiscoveryClient`, reach into the iroh `Endpoint`, and
+        // `probe_reachable` — the error comes back quickly for a
+        // random node id but still measurably slower.
+        //
+        // Observed timings locally (2026-04-16) : NoMajority
+        // ≈ 0.1 ms, happy path ≈ 10 ms. The 3 ms floor below is
+        // chosen as 30× the skip-dial cost : any future refactor
+        // that regresses to "always skip dial" would fall below
+        // this floor with room to spare.
+        //
+        // Probe timeout is clamped to 100 ms so that, if the dial
+        // path ever starts timing out reliably in CI (e.g. an iroh
+        // upgrade gains a synchronous stall), this test still
+        // finishes in << 1 s wall clock.
+        let resolvers: Vec<Arc<dyn QuorumResolver>> = vec![
+            QuorumMock::ok("r1", b"same-signed-packet-bytes"),
+            QuorumMock::ok("r2", b"same-signed-packet-bytes"),
+            QuorumMock::ok("r3", b"same-signed-packet-bytes"),
+        ];
+        let agg = BrowseAggregator::with_durations(
+            DEFAULT_PROBE_TTL,
+            Duration::from_millis(100),
+        )
+        .with_quorum_resolvers(resolvers);
+        assert_eq!(agg.quorum_resolver_count(), 3);
+
+        let node = spawn_node().await;
+        let unknown_id = "d".repeat(64);
+
+        let start = std::time::Instant::now();
+        let (status, _ts) = agg.probe_and_cache(&node, &unknown_id).await;
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed >= Duration::from_millis(3),
+            "quorum happy path must let probe_reachable run, got {elapsed:?} — \
+             a < 1 ms result indicates the dial path was skipped like the \
+             short-circuit branches, i.e. an Eclipse-by-DHT regression where \
+             the quorum gate now blocks even on agreement"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "probe_timeout (100 ms) must dominate ; 2 s is a sanity cap, got {elapsed:?}"
+        );
+        assert_eq!(
+            status,
+            BrowseStatus::Unreachable,
+            "a random node id is unreachable through the probe — Unreachable is correct"
+        );
+        assert_eq!(
+            agg.cached(&unknown_id),
+            Some(BrowseStatus::Unreachable),
+            "TTL cache must be written through the probe path as well"
+        );
+
+        node.shutdown().await.ok();
+    }
+
     #[test]
     fn probe_timeout_env_override_parses_valid_ms() {
         // Sprint 9 Phase E (E-1 close): verify that the env var
