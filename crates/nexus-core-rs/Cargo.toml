@@ -72,6 +72,30 @@ dashmap = { workspace = true }
 # dep is not needed here — chrono::DateTime only appears in the
 # canary payload, which is a separate domain.
 
+# Sprint 19 Phase C : tls_pinning.rs extracts the SubjectPublicKeyInfo
+# from DER-encoded certs (RFC 5280 §4.1.2.7) and SHA-256-hashes it
+# per RFC 7469 §2.4. x509-parser is zero-copy and fuzzed ; we keep
+# it here rather than deep-nested to avoid a transitive-reexport
+# dance from rustls-pki-types.
+x509-parser = { workspace = true }
+
+# Sprint 19 Phase C : base64url no-padding encoding for SPKI pin
+# hashes in ~/.sbfb/relay-pins.json and for the openssl pipeline
+# documented in docs/release/RELAY_PIN_BOOTSTRAP.md.
+base64 = { workspace = true }
+
+# Sprint 19 Phase C : PinValidator hot-reloads the pins file via a
+# notify file-watcher (pattern reused from TokenRotator S18 Phase D
+# and ConsentWatcher S16 Phase C). Already a workspace dep.
+notify = { workspace = true }
+
+# Sprint 19 Phase C : RFC3339 parsing of `added_at` / `expires_at`
+# fields in the pin store. chrono is preferred over the `time`
+# crate here for consistency with the warrant-canary timestamp
+# handling (S18 Phase E2) and to keep a single datetime ecosystem
+# inside nexus-core-rs.
+chrono = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }

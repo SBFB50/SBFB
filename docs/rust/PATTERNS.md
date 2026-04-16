@@ -971,6 +971,52 @@ RAM afterwards.
 
 Audit reference: `.planning/sprint9_audit_findings.md` §I3-F2.
 
+### T20 — iroh 0.97 `relay::client::ClientBuilder` has no public hook for a custom cert verifier
+
+Sprint 19 Phase C delivered the `nexus_core_rs::tls_pinning`
+primitive (SPKI hash extract + `PinValidator` + hot-reload file
+watcher + 17 tests) but **did not** wire a `rustls::client::
+danger::ServerCertVerifier` into the iroh relay fallback path,
+because iroh 0.97 exposes
+`relay::client::ClientBuilder::insecure_skip_cert_verify` only
+under `#[cfg(any(test, feature = "test-utils"))]`. There is no
+stable public API to inject a custom `ServerCertVerifier`
+(context7 `/websites/rs_iroh` verified 2026-04-16).
+
+Consequence : the SBFB transport layer currently validates relay
+certs **WebPKI-only** at runtime. The `PinValidator` primitive
+is in place and testable in isolation, but a T2/T3/T4/T5
+adversary (state-MITM, compromised CA, hostile relay, BGP hijack)
+who obtains a WebPKI-valid cert for a relay URL is not yet
+blocked by the pin check — because the pin check is not called
+during the TLS handshake.
+
+Fix path : two-track approach decided in Phase C design doc §5.1 :
+
+1. **Upstream iroh PR** proposing `ClientBuilder::custom_cert_
+   verifier(Arc<dyn ServerCertVerifier>)` as a stable API. Track
+   the PR from SBFB's side — once merged in iroh 0.98+, this
+   item closes with a one-line `.custom_cert_verifier(Arc::new(
+   PinningServerVerifier::new(pin_validator, webpki_fallback)))`
+   at the relay builder site (likely in
+   `crates/nexus-shell-daemon-core/src/iroh_runtime.rs`).
+2. **Forked connect path** as a fallback if upstream merge
+   stalls > 2 sprints. Copy ~150 LOC from `magicsock::transports::
+   relay::actor::create_relay_builder` and inject a rustls
+   `DangerousClientConfigBuilder::with_custom_certificate_verifier`.
+   Tech-debt burden : re-sync at every iroh upgrade. Mark with an
+   issue tracking link once created.
+
+Tests landed in Phase C do exercise the `PinValidator` against
+synthetic cert bytes, so a regression in the primitive itself
+surfaces immediately. The gap is strictly in the runtime wire
+path, not in the crypto.
+
+Audit reference : `.planning/research/S19_phase_C_tls_cert_
+pinning_design.md` §5.1 Option A vs B ; sprint kickoff
+`.planning/active/sprint19_kickoff.md` §4 D3 ; commit
+`feat(sprint19): Phase C`.
+
 ---
 
 ## Sprint 18 canonical patterns (2026-04-15)
@@ -1079,6 +1125,64 @@ from any signature field. Deriving it from the signature (like
 ed25519 recovery-id would do) or relying on the gossip envelope's
 sender field couples the security to the transport and breaks
 under HyParView peer rotation.
+
+### Sprint 19.3 — TLS cert pinning : SPKI hash + hot-reload + defense-in-depth with WebPKI
+
+Sprint 19 Phase C landed `nexus_core_rs::tls_pinning` with four
+design commitments worth preserving in future sprints :
+
+1. **SPKI hash, not full-cert pin**. Pin the SHA-256 of the
+   DER-encoded `SubjectPublicKeyInfo` (RFC 7469 §2.4), not the
+   cert bytes themselves. Lets operators rotate through Let's
+   Encrypt (90 → 45 day renewals) without rewriting every
+   client's pinset, as long as `--reuse-key` is set.
+2. **Fail-open when empty, fail-closed when populated**. An
+   absent or empty `~/.sbfb/relay-pins.json` triggers a loud
+   warn and falls back to WebPKI-only — pre-launch convivialité.
+   Once the user populates the file (opt-in), every relay URL
+   present in the file must match its pin ; a URL that is
+   **not** in the file (but other URLs are) fails closed with
+   `PinError::NoPin`. Opt-in-then-strict posture.
+3. **Hot-reload via `notify` watcher**. Same pattern as
+   `ConsentWatcher` (S16 Phase C) and `TokenRotator` (S18 Phase
+   D file-watcher) : watch the **parent directory** (not the
+   file itself) to support write+rename atomic saves, debounce
+   50 ms, swap the in-memory `Arc<RwLock<RelayPinsFile>>` in a
+   single operation. A reload that fails to parse **keeps the
+   previous pinset** rather than fail-opening the pinset empty.
+4. **Defense-in-depth, not replacement**. When the Phase C
+   runtime wire eventually lands (T20 above), it must call
+   `WebPkiServerVerifier::verify_server_cert` first, then the
+   pin check — never skip WebPKI. A compromised CA that issues
+   a cert for a non-pinned URL is still caught by WebPKI
+   validity ; the pin is an **additional** check on top, not a
+   substitute.
+
+**Anti-pattern : repeat HPKP (RFC 7469)**. HPKP died because it
+was a web-scale generic header with a 60-day TTL and no safe
+revocation mechanism. SBFB's pinning operates in a completely
+different context : **local file, user-editable, hot-reload in
+50 ms, opt-in**. The primitive cryptographic construct (SPKI
+hash) is valid ; the operational model is what made HPKP
+dangerous.
+
+**Concrete check** : before adding any new pinning-style
+defense, enumerate :
+
+- Where is the state stored? (file, env, db, remote?)
+- How does an authorized user recover from a misconfig? (edit
+  file in 30 s? file a support ticket? wait 60 days?)
+- What happens during a planned key rotation? (overlap window?
+  out-of-band announcement? per-release bootstrap?)
+
+If any of those answers is "no mechanism", the pinning is not
+safe to ship. Phase C's answer to all three is `~/.sbfb/
+relay-pins.json` + hot-reload + backup pin RFC 7469 §4.3 +
+`docs/release/RELAY_PIN_BOOTSTRAP.md §4` procedure.
+
+Audit reference : `.planning/research/S19_phase_C_tls_cert_
+pinning_design.md` §3 alternatives + §3.6 HPKP lessons + §5.4
+fail-open vs fail-closed matrix.
 
 ---
 

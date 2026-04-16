@@ -212,6 +212,22 @@ reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",
 ] }
 
+# Sprint 19 Phase C: TLS cert pinning — SPKI hash extraction from
+# DER-encoded certs. `x509-parser` is zero-copy ASN.1, fuzzed, and
+# preferred over `spki` (RustCrypto) because it keeps nexus-core-rs
+# on a single X.509 ecosystem (`x509-parser` is already transitively
+# pulled by reqwest/rustls-pki-types). RFC 5280 §4.1.2.7 SPKI
+# DER-encoded bytes → SHA-256 → base64url per RFC 7469 §2.4.
+x509-parser = "0.17"
+
+# Sprint 19 Phase C: base64url no-padding encoding for SPKI pin
+# hashes. RFC 4648 §5 URL-safe alphabet (+/= → -_ ), no padding
+# (RFC 7469 §2.4 pin format is ASCII-friendly without =). The
+# general-purpose `URL_SAFE_NO_PAD` engine fits the file format
+# `~/.sbfb/relay-pins.json` and matches the openssl pipeline
+# documented in docs/release/RELAY_PIN_BOOTSTRAP.md.
+base64 = "0.22"
+
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto
 # attestation (Sprint 18 Phase B). Two builds of the same commit

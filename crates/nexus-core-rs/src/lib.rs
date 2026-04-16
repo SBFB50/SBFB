@@ -48,6 +48,7 @@ pub mod pow_gossip;
 pub mod relay_config;
 pub mod relay_pow_policy;
 pub mod task;
+pub mod tls_pinning;
 pub mod verification;
 
 pub use blobs::BlobsClient;
@@ -92,4 +93,9 @@ pub use relay_pow_policy::{
     CUSTOM_POW_POLICY_ENV, RELAY_POW_POLICY_FILE_NAME,
 };
 pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry};
+pub use tls_pinning::{
+    extract_spki_sha256, extract_spki_sha256_from_pem, relay_pins_file_path, PinError, PinSource,
+    PinValidator, RelayPin, RelayPinsFile, CUSTOM_PINS_FILE_ENV, PIN_FILE_FORMAT_VERSION,
+    RELAY_PINS_FILE_NAME,
+};
 pub use verification::{spot_check_rate, CheckStatus, LayerResult, VerificationReport, Verifier};

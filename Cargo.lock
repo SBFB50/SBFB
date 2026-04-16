@@ -3271,8 +3271,10 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "blake3",
  "bytes",
+ "chrono",
  "criterion",
  "dashmap",
  "ed25519-dalek 2.2.0",
@@ -3282,6 +3284,7 @@ dependencies = [
  "iroh-blobs",
  "iroh-docs",
  "iroh-gossip",
+ "notify",
  "rand 0.8.5",
  "serde",
  "serde-big-array",
@@ -3295,6 +3298,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "x509-parser 0.17.0",
 ]
 
 [[package]]
@@ -4481,7 +4485,7 @@ dependencies = [
  "ring",
  "rustls-pki-types",
  "time",
- "x509-parser",
+ "x509-parser 0.18.1",
  "yasna",
 ]
 
@@ -6866,6 +6870,23 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "x509-parser"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4569f339c0c402346d4a75a9e39cf8dad310e287eef1ff56d4c68e5067f53460"
+dependencies = [
+ "asn1-rs",
+ "data-encoding",
+ "der-parser",
+ "lazy_static",
+ "nom",
+ "oid-registry",
+ "rusticata-macros",
+ "thiserror 2.0.18",
+ "time",
 ]
 
 [[package]]
