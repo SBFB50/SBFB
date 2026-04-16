@@ -18,6 +18,15 @@
             "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tdd-guard-wrapper.sh\""
           }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/launch-narration-terminal.sh\""
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -56,6 +65,15 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tdd-guard-wrapper.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|Task|Grep|Glob|Read|WebSearch|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/narrate-action.js\""
           }
         ]
       }

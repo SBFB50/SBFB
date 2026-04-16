@@ -19,6 +19,46 @@ const path = require('path');
 const os = require('os');
 const { execSync, spawnSync } = require('child_process');
 
+// Word-wrap a long paragraph across fixed-width lines. The first line starts
+// with a bullet "▸ " ; following lines are indented to align under it. Caps
+// at `maxLines` rows so a runaway Haiku response can't flood the screen.
+function wrapNarration(text, width, maxLines) {
+  // Bullet in cyan so the eye catches it ; body in light grey (xterm 252)
+  // instead of the old dim-white which rendered almost invisible on most
+  // terminals. Readable, still distinct from the bright header line above.
+  // Bold bullet in bright cyan + bold body in near-white so the paragraph
+  // reads as visually heavier (terminal font size itself is a client-side
+  // setting that a statusline hook cannot override).
+  const BULLET = '\x1b[1;96m';
+  const BODY = '\x1b[1;97m';
+  const RESET = '\x1b[0m';
+  const words = text.split(/\s+/).filter(Boolean);
+  const bullet = '▸ ';
+  const indent = '  ';
+  const innerWidth = Math.max(20, width - bullet.length);
+  const rows = [];
+  let current = '';
+  for (const w of words) {
+    if (!current) {
+      current = w;
+    } else if (current.length + 1 + w.length <= innerWidth) {
+      current += ' ' + w;
+    } else {
+      rows.push(current);
+      current = w;
+    }
+    if (rows.length >= maxLines) break;
+  }
+  if (current && rows.length < maxLines) rows.push(current);
+  if (rows.length > maxLines) rows.length = maxLines;
+  return rows
+    .map((r, i) => {
+      const prefix = i === 0 ? `${BULLET}${bullet}${RESET}` : indent;
+      return `${prefix}${BODY}${r}${RESET}`;
+    })
+    .join('\n');
+}
+
 // Read all stdin async
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -108,11 +148,33 @@ process.stdin.on('end', () => {
     // Compose prefix : "[S18/B]" or "[S18/B ⚠drift]"
     const prefix = `\x1b[36m[S${sprintN}/${phaseX}${driftFlag}\x1b[36m]\x1b[0m`;
 
-    // Emit prefix + separator + GSD output
-    if (gsdOut) {
-      process.stdout.write(`${prefix} ${gsdOut}`);
+    // Read last line of narration.log (written by narrate-action.js hook).
+    // The full product-owner paragraph is word-wrapped across multiple
+    // statusline rows so nothing is truncated mid-word.
+    let narrationBlock = '';
+    try {
+      const logPath = path.join(cwd, '.claude', 'narration.log');
+      if (fs.existsSync(logPath)) {
+        const stat = fs.statSync(logPath);
+        if (Date.now() - stat.mtimeMs < 120000) {
+          const content = fs.readFileSync(logPath, 'utf8');
+          const lines = content.trim().split('\n').filter(Boolean);
+          if (lines.length > 0) {
+            const last = lines[lines.length - 1];
+            const m = last.match(/^\[\d\d:\d\d:\d\d\]\s+(.+)$/);
+            const phrase = m ? m[1] : last;
+            narrationBlock = wrapNarration(phrase, 110, 4);
+          }
+        }
+      }
+    } catch (e) { /* silent */ }
+
+    // Emit header line (prefix + GSD) then wrapped narration block below.
+    const header = gsdOut ? `${prefix} ${gsdOut.trimEnd()}` : prefix;
+    if (narrationBlock) {
+      process.stdout.write(`${header}\n${narrationBlock}`);
     } else {
-      process.stdout.write(prefix);
+      process.stdout.write(header);
     }
   } catch (e) {
     // Silent fail — don't break statusline
