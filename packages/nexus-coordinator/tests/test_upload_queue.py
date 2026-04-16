@@ -389,11 +389,7 @@ async def test_hard_cap_enforced_under_concurrency(tmp_path: Path) -> None:
     )
     succeeded = [r for r in results if not isinstance(r, BaseException)]
     failed = [r for r in results if isinstance(r, QueueFullError)]
-    others = [
-        r
-        for r in results
-        if isinstance(r, BaseException) and not isinstance(r, QueueFullError)
-    ]
+    others = [r for r in results if isinstance(r, BaseException) and not isinstance(r, QueueFullError)]
     assert not others, f"unexpected exceptions: {others}"
     assert len(succeeded) == 5
     assert len(failed) == 15

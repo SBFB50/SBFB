@@ -160,9 +160,10 @@ systemd-nspawn) pour Sprint 17+ dans
   le durcissement de la chaine transport P2P (PoW Hashcash gossip
   + TLS cert pinning relays + delayed upload queue + pkarr relay
   self-hosted image) + carry S18 C-1 (DHT quorum runtime wire).
-  **Eclipse-by-DHT defense desormais pleinement active en runtime**
-  (Phase A `ab6985c` wire `PkarrQuorumResolver` au browse aggregator
-  + curator runtime). v1.2 en cours.
+  **Eclipse-by-DHT defense runtime-active sous config opt-in
+  `SBFB_PKARR_RELAYS`** (Phase A `ab6985c` wire `PkarrQuorumResolver`
+  au browse aggregator + curator runtime ; canary armed avec 2+
+  relays, enforcement strict par defaut = post-Gate 2). v1.2 en cours.
 - **537 Rust** / 185 SDK / 208+3 skipped coordinator / 46 app-gov
   / 239 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
   (~1259 tests total) — tous verts. Delta S19 : **+82** (+59 Rust

@@ -584,6 +584,29 @@ rejeter" (genere du bikeshedding), juste un signal de qualite des
 sources. Le reviewer ne propose pas de solution → pas de bataille
 d'ego entre planner et reviewer.
 
+**Regle renforcee crypto/spec (G1 extension, 2026-04-16 audit gate
+S19)** : quand une D-decision cite une source crypto, un protocole
+standardise, ou une pratique upstream (ex: D2 S19 cite "Tor PoW
+2023" pour Hashcash SHA256), le draft §Retenu DOIT enumerer au moins
+**une alternative concurrente recente (<= 6 mois)** avec la raison
+du rejet. L'agent Explore scoring report applique la verifie :
+manque d'alternative citee = ⚠️ automatique, independamment de la
+date de la source principale.
+
+Rationale : les primitives crypto evoluent vite (Tor a abandonne
+Hashcash en aout 2023 pour Equi-X memory-hard ; libcrux hax gaps
+avril 2026 ; wasmtime 12 CVE avril 2026). Citer "Tor 2023" sans
+mentionner la migration Equi-X donne un rationale circulaire : la
+source est datee, mais le choix qu'elle justifiait n'est plus celui
+que la source recommande aujourd'hui. L'audit gate S19 P3-B2 a
+attrape ce pattern sur D2 (PoW Hashcash SHA256) ; le design doc
+`.planning/research/S19_phase_B_pow_hashcash_design.md §3.6 + §6.2`
+a rattrape post-hoc en documentant explicitement Equi-X comme
+alternative rejetee pour S19 (pas d'impl Rust auditee, crypto custom
+non-RFC, sur-engineered sans difficulty adaptive). Le fix-forward
+est de produire cette analyse **dans le kickoff §D2 directement**,
+pas dans un design doc separe.
+
 **Quand skipper** : sprint pure-docs (S17), hotfix (cas D §7),
 phase trivial refactor sans decision Day-0.
 

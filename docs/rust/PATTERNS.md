@@ -1017,6 +1017,73 @@ pinning_design.md` §5.1 Option A vs B ; sprint kickoff
 `.planning/active/sprint19_kickoff.md` §4 D3 ; commit
 `feat(sprint19): Phase C`.
 
+### T21 — TLS bootstrap pins for n0 relays not yet embedded in daemon binary
+
+Sprint 19 Phase C delivered `PinValidator` + `~/.sbfb/relay-pins.
+json` loader + `RELAY_PIN_BOOTSTRAP.md` with `openssl s_client`
+extraction procedure, but **did not** embed the three known n0
+relay SPKI hashes (`relay.iroh.network`, `relay-1.iroh.network`,
+`relay-2.iroh.network`) into the daemon binary as a default
+pinset. `RELAY_PIN_BOOTSTRAP.md §3.1` explicitly documents this
+as a pre-launch choice awaiting maintainer co-sig in Sprint 20+.
+
+Consequence : a fresh install boots with pinset empty, falling
+back to WebPKI-only by §Sprint 19.3 point 2 (fail-open + warn).
+The TLS pinning protection is effectively opt-in per user.
+
+Fix path : add `crates/nexus-core-rs/src/tls_pinning_bootstrap.
+rs` (new) that const-embeds the three SPKI hashes, extract them
+at release tag time via the documented openssl pipeline (capture
+in a dedicated CI job that produces `relay-pins.bootstrap.json`
+as a release artefact), load them at daemon startup if `~/.sbfb/
+relay-pins.json` is absent. Co-sig two maintainers before landing
+(the bootstrap pins are a trust root — attacker who flips them in
+a commit without review MITMs every fresh install until rotation).
+
+Cross-ref : audit finding S19 P2-C2 (`.planning/active/sprint19_
+audit_findings.md §Track C`).
+
+### T22 — PoW Hashcash bench wall-clock number not archived
+
+`crates/nexus-core-rs/benches/pow.rs` defines three Criterion
+benches (2^12 ~5 ms, 2^18 default target ~100 ms, 2^20 ~400 ms
+stress) to verify the difficulty-2^18 choice stays within the
+budgeted window. The bench code runs, but **no wall-clock number
+is archived in git** (Criterion output is not captured). A
+regression caused by a future Rust toolchain flag change, a SHA-
+256 implementation swap, or a CPU microarchitecture pessimization
+would not surface via CI.
+
+Fix path : add a CI job that runs `cargo bench --bench pow --
+benches` and `grep "time:" | awk` to assert `time: 2^18 < 300ms`
+on the runner hardware. Alternative : capture the locally-observed
+numbers into this PATTERNS section as a dated reference and rely
+on manual re-run before release tags. Non-blocking Sprint 20 Phase
+A.
+
+Cross-ref : audit finding S19 P2-B1 (`.planning/active/sprint19_
+audit_findings.md §Track B`).
+
+### T23 — Docker base image `FROM rust:1.94-slim-bookworm` not pinned to `@sha256:<digest>`
+
+`docker/pkarr-relay/Dockerfile:14` pins `FROM rust:1.94-slim-
+bookworm` by version tag but **not** by content digest. The
+upstream tag is mutable — Docker Hub can push a new image under
+the same tag (CVE patch roll, base OS update), breaking the
+strict reproducibility of the daemon build. A rebuild at N days
+later produces a different SLSA attestation, a different Trivy
+scan output, and potentially different runtime behaviour.
+
+Fix path : capture the current `@sha256:<digest>` via `docker
+buildx imagetools inspect rust:1.94-slim-bookworm` at release tag
+time, commit the digest to `docker/pkarr-relay/Dockerfile`, renew
+quarterly or on security advisory. Optionally extend to every
+`FROM` in the repo (currently only `docker/pkarr-relay/Dockerfile`
+declares a base). Non-blocking Sprint 20 Phase A.
+
+Cross-ref : audit finding S19 P2-E1 (`.planning/active/sprint19_
+audit_findings.md §Track E`).
+
 ---
 
 ## Sprint 18 canonical patterns (2026-04-15)
@@ -1143,6 +1210,18 @@ design commitments worth preserving in future sprints :
    present in the file must match its pin ; a URL that is
    **not** in the file (but other URLs are) fails closed with
    `PinError::NoPin`. Opt-in-then-strict posture.
+
+   **Plan-vs-code deviation (documented here per audit finding
+   S19 P2-C1)** : `sprint19_plan.md §6.4` originally called for
+   fail-closed on empty pinset (« tous relays refusent »). The
+   delivered code chose fail-open + warn because no bootstrap pins
+   are embedded in the daemon binary this sprint (cf. T21 below),
+   so fail-closed would leave a zero-config install unusable. The
+   opt-in-then-strict posture lands the same invariant that plan
+   wanted (pinning is strict **when configured**) without the UX
+   trap. When bootstrap pins land via T21, revisit : the posture
+   could flip to fail-closed-by-default, since zero-config would
+   then already ship the pinset.
 3. **Hot-reload via `notify` watcher**. Same pattern as
    `ConsentWatcher` (S16 Phase C) and `TokenRotator` (S18 Phase
    D file-watcher) : watch the **parent directory** (not the

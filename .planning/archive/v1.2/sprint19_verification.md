@@ -71,7 +71,7 @@ Criteria (cf. `docs/security/HARDENING_ROADMAP.md §3 Sprint 19`) :
 - [x] **TLS cert pinning relays** : `crates/nexus-core-rs/src/tls_pinning.rs` SPKI hash extract + `PinValidator` + pinset bootstrap + test cert fixture `relay_test_cert.pem` + doc PATTERNS.md section TLS pinning (Phase C `540bb51`).
 - [x] **Delayed upload queue** : `packages/nexus-coordinator/src/nexus_coordinator/upload_queue.py` async queue + scheduler 30s flush + exponential jitter 0-5min + integration `api/tasks.py` + doc shell/PATTERNS.md (Phase D `f238d31`).
 - [x] **pkarr relay self-hosted** : `docker/pkarr-relay/Dockerfile` + `.github/workflows/build-pkarr-image.yml` + `docs/release/PKARR_RELAY_OPS.md` §1-§7 self-contained (provisioning + systemd + nginx + smoke + rotation) (Phase E `2fd4d72`).
-- [x] **DHT quorum runtime wire (carry C-1)** : `PkarrQuorumResolver` + `PkarrRelayClient` primitive wrap + wiring `nexus-shell-daemon-core` browse aggregator + curator runtime (Phase A `ab6985c`). **Eclipse-by-DHT defense desormais pleinement active en runtime.**
+- [x] **DHT quorum runtime wire (carry C-1)** : `PkarrQuorumResolver` + `PkarrRelayClient` primitive wrap + wiring `nexus-shell-daemon-core` browse aggregator + curator runtime via canary opt-in `SBFB_PKARR_RELAYS` env var (Phase A `ab6985c`). **Eclipse-by-DHT defense runtime-active sous config** (canary armed avec 2+ relays ; enforcement strict par defaut = post-Gate 2). Finding `sprint19_audit_findings.md §Track A` P2-A1 reclasse explicitement la portee du flip.
 
 **Gate S19 = REMPLI.** Pre-requis S21 rate-limit (Sybil-resistance minimale via PoW) disponible. Pre-requis Gate 2 (encryption at rest + duress) non-bloque.
 
@@ -181,8 +181,11 @@ Items a fusionner manuellement dans la memory description de
 - Compteurs : **537 Rust** (+59) / 185 SDK (+2) / 208+3 coord (+21) /
   46 gov / 239 vitest / 38 pw / 7/7 size. Total **~1259 tests** (+82
   vs baseline S18).
-- Eclipse-by-DHT defense **desormais pleinement active runtime** (Phase
-  A wire C-1 S18 carry). Flip S18 verification.md `[~]→[x]`.
+- Eclipse-by-DHT defense **runtime-active sous config opt-in
+  `SBFB_PKARR_RELAYS`** (Phase A wire C-1 S18 carry) — canary armed
+  avec 2+ relays, enforcement strict par defaut = post-Gate 2. Flip
+  S18 verification.md `[~]→[x]` acte le wiring primitive→runtime, pas
+  l'activation universelle. Cf. audit findings P2-A1.
 - PoW Hashcash primitive + gossip subscribe integration live : difficulty
   2^18 default, per-relai policy, difficulty adjust S21+.
 - TLS SPKI cert pinning live : validator + pinset bootstrap, contrib

@@ -1809,6 +1809,16 @@ Detail in `docs/security/THREAT_MODEL.md` §6.1.
 
 ### P29 — Delayed upload queue (exponential jitter, SQLite-persisted)
 
+> **⚠️ WARNING — payload stored plaintext on disk, no encryption at
+> rest.** `upload_queue.sqlite` WAL file stores task payload +
+> metadata in clear until the scheduler flushes. Encryption at rest
+> is the Sprint 20 big rock (`HARDENING_ROADMAP §3 S20`). Operators
+> enabling `[coordinator.upload_queue] enabled = true` on a shared
+> host before S20 keypair wrap must accept this trade-off. Audit
+> finding S19 D-1 (cf. `.planning/active/sprint19_audit_findings.md
+> §Track D`) promoted this caveat from the tech-debt subsection to
+> the header for operator visibility.
+
 **Rule**: every `/tasks/submit` is routed through
 `nexus_coordinator.upload_queue.UploadQueue` before the
 dispatcher writes to the project doc. The queue draws a

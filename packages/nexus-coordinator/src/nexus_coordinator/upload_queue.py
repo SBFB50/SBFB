@@ -191,15 +191,11 @@ class UploadQueue:
         # rows (fix from Sprint 19 Phase D audit P2-1).
         async with self._lock:
             async with aiosqlite.connect(self.db_path) as db:
-                async with db.execute(
-                    "SELECT COUNT(*) FROM delayed_uploads"
-                ) as cursor:
+                async with db.execute("SELECT COUNT(*) FROM delayed_uploads") as cursor:
                     row = await cursor.fetchone()
                 size = int(row[0]) if row else 0
                 if size >= self.hard_cap:
-                    raise QueueFullError(
-                        f"upload queue full ({size} >= hard cap {self.hard_cap})"
-                    )
+                    raise QueueFullError(f"upload queue full ({size} >= hard cap {self.hard_cap})")
                 if size >= self.soft_cap:
                     _log.warning(
                         "upload queue near soft cap",

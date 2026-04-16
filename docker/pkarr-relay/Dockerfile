@@ -10,6 +10,11 @@
 # v5.0.4 repo tag (2026-03-25), crate pkarr-relay@0.11.5.
 #
 # Design doc : .planning/research/S19_phase_E_pkarr_relay_design.md
+#
+# TODO(T23) : pin FROM base images to `@sha256:<digest>` at release
+# tag time for reproducible builds. Tracked in docs/rust/PATTERNS.md
+# §T23 (audit finding S19 P2-E1). Current tag-only pin is mutable
+# upstream and weakens SLSA-L3 reproducibility.
 
 FROM rust:1.94-slim-bookworm AS builder
 WORKDIR /build
