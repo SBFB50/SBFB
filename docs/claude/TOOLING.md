@@ -367,12 +367,24 @@ Phase F coute 4 commits a defaire.
 **Fichier** : `.claude/agents/nexus-phase-auditor.md` (project-level,
 committed via `.claude/agents/`)
 
-**Invocation** via Task tool :
+**Invocation** via Task tool — **template obligatoire** (l'omission de
+la clause Write a déjà causé Sprint 19 Phase E un échec : agent a
+produit un rapport en stdout sans écrire le fichier, hook a bloqué) :
 
 ```
 Task(subagent_type="nexus-phase-auditor",
-     prompt="Audit Sprint 18 Phase B. Draft commit body: ...")
+     prompt="Audit Sprint {N} Phase {X}.
+             ECRIRE OBLIGATOIREMENT via Write tool dans
+             .planning/active/sprint{N}_phase_{X}_review.md AVANT de
+             retourner. Stdout ne suffit pas — le hook
+             phase-auditor-gate.sh bloque sans le fichier sur disque.
+             Si l'agent ne Write PAS, l'executeur n'a PAS l'autorisation
+             de transcrire le rapport lui-meme (defait l'independance G4).
+             Draft commit body: <coller body integral>")
 ```
+
+**Ne JAMAIS utiliser** le template court "Audit Sprint X Phase Y" sans
+la clause Write obligatoire — il replique la faiblesse historique.
 
 L'agent review 5 dimensions en parallele sur le diff courant :
 1. **Security** — Semgrep + patterns sensibles (secrets, path traversal,
