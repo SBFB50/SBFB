@@ -32,6 +32,7 @@ serde_jcs = { workspace = true }
 ed25519-dalek = { workspace = true }
 blake3 = { workspace = true }
 rand = { workspace = true }
+sha2 = { workspace = true }
 
 thiserror = { workspace = true }
 anyhow = { workspace = true }
@@ -45,7 +46,38 @@ async-trait = { workspace = true }
 # through the workspace like every other foundational dep.
 url = { workspace = true }
 
+# Sprint 19 Phase B : relay_pow_policy.rs reads a TOML file
+# (~/.sbfb/relay_pow_policy.toml) mapping topic ids to difficulty
+# overrides. Already a workspace dep used by the worker allowlist
+# and the coordinator config loader.
+toml = { workspace = true }
+
+# Sprint 19 Phase B : relay_pow_policy.rs decodes 64-char topic id
+# hex keys at load time. hex is already a workspace dep used by
+# the worker (worker.rs) and the daemon (auth.rs); pulling it in
+# direct here avoids a transitive-re-export dance.
+hex = { workspace = true }
+
+# Sprint 19 Phase B : gossip.rs PowVerifyCache uses DashMap for
+# the concurrent (publisher_pubkey, topic) → valid_until table
+# that amortises PoW verification across broadcasts in a session.
+dashmap = { workspace = true }
+
+# Sprint 19 Phase B : receiver-side cache TTL expiry needs a
+# monotonic clock source that survives system time adjustments.
+# tokio::time::Instant is the right primitive but the tests need
+# to manipulate "now" deterministically — we rely on
+# std::time::Instant for the cache itself (monotonic) and surface
+# a tokio sleep only inside the expiry task. The `time` workspace
+# dep is not needed here — chrono::DateTime only appears in the
+# canary payload, which is a separate domain.
+
 [dev-dependencies]
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
 tempfile = "3.13"
+criterion = { workspace = true }
+
+[[bench]]
+name = "pow"
+harness = false

@@ -1023,6 +1023,65 @@ Audit reference: `.planning/active/sprint18_phase_E2_review.md` §Q3.
 
 ---
 
+## Sprint 19 canonical patterns (2026-04-16)
+
+### Sprint 19.1 — Primitive / wire / enforcement separation
+
+Sprint 19 Phase A landed the DHT quorum **runtime wire** (browse
+aggregator canary) on top of the S18 DHT quorum **primitive** that
+was testable in isolation. Sprint 19 Phase B repeats the pattern
+for PoW :
+
+| Layer | Where | What it owns |
+|---|---|---|
+| Primitive | `nexus-core-rs::pow` | `HashcashChallenge`, `HashcashProof`, `solve`, `verify_at` — pure crypto, no I/O, no async |
+| Wire envelope | `nexus-core-rs::pow_gossip` | `PowEnvelope::encode/decode`, `PowSolveCache`, `PowVerifyCache` — stateless byte codec + session caches |
+| Policy | `nexus-core-rs::relay_pow_policy` | `RelayPowPolicy` + TOML loader from `~/.sbfb/relay_pow_policy.toml` |
+| Enforcement | `nexus-shell-daemon-core` + coord-side | Calls `broadcast_with_pow` / `verify_envelope` on its gossip paths (Sprint 20+ wiring) |
+
+**Why the separation matters** : Phase B ships the primitive +
+envelope + policy + caches fully tested (32 unit tests added to
+`nexus-core-rs` — 14 `pow::`, 6 `relay_pow_policy::`, 12
+`pow_gossip::`). Flipping enforcement on for a specific gossip
+topic (curator list, task dispatch, etc.) is a one-line change
+that future sprints can roll per-topic without touching the core
+crypto. A regression in enforcement flipping does not regress the
+primitive's security.
+
+**Concrete check** : when adding a new defence-in-depth
+capability, structure it as `primitive` + `wire` + `enforcement`
+from day 1 even if you are shipping all three in the same sprint.
+The audit-gate pattern rewards explicitly-separated layers
+(primitive tests pass means the crypto is sound even if the wire
+is rewritten).
+
+Audit reference : `.planning/active/sprint19_phase_A_review.md`
+(DHT quorum design canary), `.planning/active/sprint19_kickoff.md`
+§4 D1 (Phase B scope).
+
+### Sprint 19.2 — Forward-compat in PoW proof format
+
+The `HashcashChallenge` wire struct includes `publisher_pubkey:
+[u8; 32]` explicitly so that when the Sprint 26+ post-quantum
+cutover lands (ML-DSA-65 hybrid), the migration is a format
+version bump (`v1 → v2`) with a tolerant decoder, not a full
+redesign.
+
+The `publisher_pubkey` field also makes every proof
+non-replayable cross-identity : a botnet that sniffs one solution
+from the wire cannot reuse it under a second pubkey without
+re-solving. This is the invariant the
+`different_publishers_yield_different_solutions` test pins.
+
+**Concrete check** : when designing a new wire format that will
+carry a pubkey, embed it in the canonical-bytes domain separately
+from any signature field. Deriving it from the signature (like
+ed25519 recovery-id would do) or relying on the gossip envelope's
+sender field couples the security to the transport and breaks
+under HyParView peer rotation.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

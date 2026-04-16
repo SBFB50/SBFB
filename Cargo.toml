@@ -50,10 +50,21 @@ serde-big-array = "0.5"
 # verified by the worker is byte-identical across the FFI boundary.
 serde_jcs = "0.2"
 
-# Crypto (Ed25519 signatures, BLAKE3 content hashes)
+# Crypto (Ed25519 signatures, BLAKE3 content hashes, SHA256 Hashcash PoW)
 ed25519-dalek = "2.1"
 blake3 = "1.5"
 rand = "0.8"
+# Sprint 19 Phase B : SHA256 backing the Hashcash PoW primitive
+# (crates/nexus-core-rs/src/pow.rs). Hashcash historically targets
+# SHA256 — Bitcoin, Tor rend-point PoW 2023, Lightning invoice PoW
+# all use it, so external auditors can replay the proof computation
+# without being confused by a non-standard hash. BLAKE3 was
+# considered (already a workspace dep, 3-5x faster on modern CPUs)
+# but the standards-compatibility argument for long-term audit
+# clarity (Cure53/ToB S29, VALIDATED_BLUEPRINT couche 3) wins.
+# `sha2` is the canonical RustCrypto SHA256 crate, unchanged API
+# since 2017, zero transitive churn.
+sha2 = "0.10"
 
 # Error handling and observability
 thiserror = "1.0"
@@ -175,6 +186,17 @@ notify = "6"
 # thread-safe on all supported platforms and is pulled in only
 # for this one use case.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+# Sprint 19 Phase B: criterion for the Hashcash PoW bench
+# (`cargo bench --bench pow`). Dev-dependency only — zero prod
+# binary impact. `html_reports` disabled because CI runs headless
+# and we only assert wall-clock ceilings. The bench wires
+# `harness = false` in the target crate so criterion drives its
+# own `main`. Upgrading to 0.6+ is a dedicated sprint item (new
+# proc-macro API). 0.5 is the stable line as of 2026-04.
+criterion = { version = "0.5", default-features = false, features = [
+    "cargo_bench_support",
+] }
 
 # Sprint 18 Phase E1: NVD API client for the launcher driver CVE
 # check. default-features disabled to avoid openssl (reqwest's

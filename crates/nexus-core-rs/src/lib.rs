@@ -43,14 +43,17 @@ pub mod error;
 pub mod gossip;
 pub mod node;
 pub mod pkarr_resolver;
+pub mod pow;
+pub mod pow_gossip;
 pub mod relay_config;
+pub mod relay_pow_policy;
 pub mod task;
 pub mod verification;
 
 pub use blobs::BlobsClient;
 pub use canonical::{
     canonical_bytes, DOMAIN_CLAIM_V1, DOMAIN_CURATOR_LIST_V1, DOMAIN_INVITE_V1, DOMAIN_KUDOS_V1,
-    DOMAIN_RESULT_V1, DOMAIN_TASK_V1,
+    DOMAIN_POW_V1, DOMAIN_RESULT_V1, DOMAIN_TASK_V1,
 };
 pub use crypto::{blake3_hash, verify, Blake3Chain, KeyPair};
 pub use curator::{
@@ -68,9 +71,25 @@ pub use pkarr_resolver::{
     load_quorum_resolvers_from_env, PkarrQuorumResolver, CUSTOM_PKARR_RELAYS_ENV,
     DEFAULT_PKARR_RELAY_URL,
 };
+// `crypto::verify` is Ed25519 signature verification. `pow::verify` is
+// Hashcash PoW verification. Both are useful at the root — we re-export
+// the PoW one under a distinct name to keep the crypto signer unchanged
+// for the Python side (`nexus_core_py.verify` = signature verify).
+pub use pow::{
+    leading_zero_bits, solve as pow_solve, verify as pow_verify, verify_at as pow_verify_at,
+    verify_stateless as pow_verify_stateless, HashcashChallenge, HashcashProof, PowError,
+    DEFAULT_DIFFICULTY_BITS, MAX_DIFFICULTY_BITS, MAX_PROOF_AGE_SECS, POW_FORMAT_VERSION,
+};
+pub use pow_gossip::{
+    PowEnvelope, PowGossipError, PowSolveCache, PowVerifyCache, SESSION_WINDOW, SOLVE_TIMEOUT,
+};
 pub use relay_config::{
     load_relay_map, relays_file_path, validate_relay_url, RelayEntry, RelayListFile,
     CUSTOM_RELAYS_ENV, DEV_MODE_ENV, RELAYS_FILE_NAME, SBFB_HOME_ENV,
+};
+pub use relay_pow_policy::{
+    load_relay_pow_policy, relay_pow_policy_file_path, RelayPowPolicy, RelayPowPolicyFile,
+    CUSTOM_POW_POLICY_ENV, RELAY_POW_POLICY_FILE_NAME,
 };
 pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry};
 pub use verification::{spot_check_rate, CheckStatus, LayerResult, VerificationReport, Verifier};

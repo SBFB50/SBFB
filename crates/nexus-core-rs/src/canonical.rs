@@ -112,6 +112,19 @@ pub const DOMAIN_PROVENANCE_V1: &[u8] = b"nexus-provenance-v1";
 /// claim / invite / kudos / curator-list / provenance signature.
 pub const DOMAIN_WARRANT_CANARY_V1: &[u8] = b"nexus-warrant-canary-v1";
 
+/// Domain separation tag for Hashcash PoW challenge canonical
+/// bytes.
+///
+/// Sprint 19 Phase B: the gossip subscribe path requires every
+/// publisher to prove cost-of-identity by solving a SHA256
+/// Hashcash puzzle over the canonical bytes of a
+/// [`crate::pow::HashcashChallenge`]. The domain tag guarantees
+/// that a brute-forced nonce for a PoW puzzle cannot be replayed
+/// as a signed task / result / claim / invite / kudos /
+/// curator-list / provenance / canary payload — the pre-image
+/// spaces are disjoint by construction.
+pub const DOMAIN_POW_V1: &[u8] = b"nexus-pow-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///
