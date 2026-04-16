@@ -806,6 +806,35 @@ Tu démarres une session sur nexus-grid (SBFB). Ne lis RIEN tant
 que tu n'as pas exécuté le pre-flight ci-dessous — il te dit
 quels fichiers sont vraiment pertinents pour ton cas.
 
+# === Principe d'autonomie (à appliquer pendant toute la session) ===
+
+Le process est documenté. Quand le cas est procéduralement déterminé,
+EXÉCUTE sans demander. Demander = friction inutile + signal que tu
+n'as pas lu §6 conventions.
+
+EXÉCUTER directement (ne pas demander) :
+  - working tree audit montre CRAFT/DEBT → commit chore(planning|
+    skill|debt) AVANT phase
+  - plan §Phase X explicite + audit-gate précédent PASS → enchaîner
+    Phase X
+  - NOISE + pattern couvrable .gitignore → ajouter pattern dans le
+    commit chore (pas un commit séparé)
+  - cas A audit gate, P0/P1 trouvés → écrire fix(sprint{N-1}): ...
+    direct (sans demander quel ordre)
+
+DEMANDER (STOP) seulement si :
+  - NOISE + pattern nouveau ambigu (ex: cc.json, doc untracked
+    hors-scope sprint) → où l'archiver ?
+  - Décision Day-0 ambiguë (D1..D5 plusieurs options techniquement
+    viables après research) → arbitrage utilisateur
+  - Audit-gate verdict FAIL ou >=3 P1 → re-conception requise
+  - Désaccord entre plan §Phase X et état réel du code (drift) →
+    valider l'ordre de remédiation
+
+Anti-pattern explicite à éviter : "tu confirmes que je commit
+chore(planning) d'abord ou je lance Phase E ?" — la procédure répond,
+pas l'utilisateur.
+
 # === Pre-flight (un seul copy-paste, lis tout l'output) ===
 
 git log --oneline -10
@@ -964,8 +993,21 @@ Avant d'écrire du code :
 
   1. Résume en 5-10 lignes : cas détecté, dernier tip master,
      compteurs tests memory vs réel, ce que tu t'apprêtes à faire
-  2. Attends confirmation utilisateur sauf si le cas est
-     trivialement déterminé (sprint{N}_plan.md §Phase X explicite)
+  2. **N'attend PAS confirmation** quand le cas est procéduralement
+     déterminé. Procédures qui s'exécutent sans demander :
+     - Cas B + working tree audit montre CRAFT/DEBT → commit
+       `chore(planning|skill|debt)` AVANT phase, **automatique**
+     - Cas B + plan §Phase X explicite + audit-gate précédent
+       PASS → enchaîner Phase X, **automatique**
+     - Cas B + NOISE détecté + pattern déjà couvrable .gitignore
+       → ajouter pattern dans le commit chore, **automatique**
+     - NOISE + pattern nouveau non-trivial → STOP et demander
+     - Décision Day-0 ambiguë (D1..D5 multiple options viables) → STOP
+     - Findings P0/P1 audit-gate → STOP et discuter
+     **Anti-pattern** : "tu confirmes que je commit chore(planning)
+     d'abord ou je lance Phase E ?" → la procédure répond, pas
+     l'utilisateur. Demander = friction inutile + signal que l'agent
+     n'a pas lu §6 conventions.
   3. Respecte les D1..D5 figées et les scope cuts du sprint
      courant — ne rebats pas
   4. Pas de band-aid fix, pas d'emoji, pas d'amend, pas de

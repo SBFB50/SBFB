@@ -142,6 +142,12 @@ Categoriser chaque ligne :
 Le body commit phase **DOIT contenir une section "Working tree
 audit"** listant la categorisation. Absence = P2 (non-tracable).
 
+**Action automatique attendue de l'executeur** (pas une question
+utilisateur) : CRAFT/DEBT detecte → commit `chore(planning|skill|
+debt)` AVANT le commit phase. NOISE → `.gitignore` updated dans le
+chore. L'auditeur flag P2 si l'executeur a demande confirmation au
+lieu d'executer la procedure mecanique.
+
 ### Step 4 — Dimension Scope-cuts
 
 ```bash

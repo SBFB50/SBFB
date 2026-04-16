@@ -79,6 +79,25 @@ A  docs/release/RELAY_PIN_BOOTSTRAP.md           → PHASE
 sans split. Aucun commit ne peut contenir NOISE. Si l'agent observe
 NOISE, **STOP et alerter l'utilisateur** avant de continuer.
 
+**Decision automatique (pas de question utilisateur)** :
+
+- CRAFT detecte → commit `chore(planning): ...` ou
+  `chore(skill): ...` AVANT le commit phase. **Pas de confirmation
+  demandee** — c'est la procedure standard. L'agent execute :
+  (1) stage explicite des CRAFT, (2) commit chore avec body listant
+  la categorisation, (3) puis bascule sur la phase prevue.
+- DEBT detecte → meme regle : `chore(debt): ...` ou stash.
+- NOISE detecte → ajouter a `.gitignore` dans le commit chore (pas
+  un commit separe). Si nouveau pattern non-couvert par .gitignore,
+  alors et seulement alors STOP et demander.
+- PHASE seul (working tree clean apart du scope phase) → commit
+  phase direct, pas de chore prealable.
+
+**Anti-pattern a eviter** : demander "tu veux que je commit
+chore(planning) d'abord ou je lance Phase E ?". Si la categorisation
+montre CRAFT + PHASE, la reponse est mecanique : chore(planning)
+d'abord, Phase apres. Pas de question.
+
 ### Step 2 — Verification suites (§7.4)
 
 Lancer les suites pertinentes selon les langages touches dans le diff :
