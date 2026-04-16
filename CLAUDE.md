@@ -115,7 +115,8 @@ nexus-grid/
 ├── .planning/                         # sprints (active/ + archive/v{X}/ + roadmaps + research)
 │   ├── active/                        # sprint en cours uniquement (kickoff, plan, audit_findings du precedent, verification, audit_plan)
 │   ├── archive/v1.0/                  # S0-13 (pivot, P2P, universal render, bridge, launcher)
-│   └── archive/v1.1/                  # S14-15 (verified deploy, bridge bidirectionnel, watchdog)
+│   ├── archive/v1.1/                  # S14-15 (verified deploy, bridge bidirectionnel, watchdog)
+│   └── archive/v1.2/                  # S16-19 (loopback hardening, research, supply chain, transport hardening)
 ├── docs/
 │   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
 │   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
@@ -153,18 +154,20 @@ Roadmap runtime isolation (WSL2 / Virtualization.framework /
 systemd-nspawn) pour Sprint 17+ dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
-## Etat actuel (2026-04-16, master tip post-S18 audit gate `1a606a3`)
-- **Sprints 0-18 CLOSED + audit gate S18 leve** (joue par session
-  fraiche 2026-04-15, verdict CONDITIONAL PASS → leve via 6
-  commits `677556f..1a606a3` — 1 P1 + 4 P2 + batch P3). v1.2 en
-  cours. Gate 1 (DnD Forge beta fermee) **UNLOCKED** + token
-  rotation X-SBFB-Token desormais effective au runtime (D-1 wire
-  via `677556f`).
-- **478 Rust** / 183 SDK / 187+3 skipped coordinator / 46 app-gov
+## Etat actuel (2026-04-16, master tip post-S19 Phase F wrap-up)
+- **Sprints 0-19 CLOSED**. Audit gate S18 leve via 6 commits
+  `677556f..1a606a3` (1 P1 + 4 P2 + batch P3). Sprint 19 livre
+  le durcissement de la chaine transport P2P (PoW Hashcash gossip
+  + TLS cert pinning relays + delayed upload queue + pkarr relay
+  self-hosted image) + carry S18 C-1 (DHT quorum runtime wire).
+  **Eclipse-by-DHT defense desormais pleinement active en runtime**
+  (Phase A `ab6985c` wire `PkarrQuorumResolver` au browse aggregator
+  + curator runtime). v1.2 en cours.
+- **537 Rust** / 185 SDK / 208+3 skipped coordinator / 46 app-gov
   / 239 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
-  (~1176 tests total) — tous verts. Delta S18 Rust : +44 ; delta
-  audit fix S18 : +4 (Rotated dispatch, post-overlap reject, Static
-  non-regression, file-watcher tokens.json reload).
+  (~1259 tests total) — tous verts. Delta S19 : **+82** (+59 Rust
+  PoW+TLS+DHT wire+integration, +21 coord delayed upload queue,
+  +2 SDK helpers).
 - Sprint 12 a livre le rendu universel cross-node (archive zip
   → daemon blob-serve → iframe sandboxee)
 - Sprint 13 a livre le bridge postMessage (iframe ↔ coordinator),
@@ -231,6 +234,26 @@ systemd-nspawn) pour Sprint 17+ dans
   RADICLE casing). Carry-over S19 : C-1 wire `redundant_resolve`
   au browse aggregator (primitive prete) + Meta-1 Radicle-v1.0
   activation tracking.
+- **Sprint 19 CLOSED** (transport hardening : PoW Hashcash gossip +
+  TLS pinning relays + delayed upload queue + pkarr self-hosted +
+  carry DHT wire). Phases : A `ab6985c` DHT quorum runtime wire
+  (carry S18 C-1 — `PkarrQuorumResolver` + wiring browse aggregator
+  + curator runtime, flip S18 verification `[~]→[x]`), B `edfc51b`
+  + `08f4e41` PoW Hashcash primitive + gossip subscribe integration
+  (difficulty 2^18 default + per-relai policy `relay_pow_policy.toml`),
+  C `540bb51` TLS cert pinning relays (`tls_pinning.rs` SPKI hash
+  extract + `PinValidator` + pinset bootstrap), D `f238d31` delayed
+  upload queue (async queue + scheduler 30s flush + jitter 0-5min
+  anti-correlation), E `2fd4d72` pkarr relay self-hosted docker
+  image (`docker/pkarr-relay/Dockerfile` + `build-pkarr-image.yml`
+  + `docs/release/PKARR_RELAY_OPS.md` §1-§7 self-contained), F
+  wrap-up. Audit gate S19 = Sprint 20 Phase 0 via
+  `.planning/archive/v1.2/sprint19_audit_plan.md` (tracks A-E + F +
+  meta-track Radicle-v1.0 re-carry S20). Carry-overs S19 → S20 :
+  Meta-1 Radicle-v1.0 activation tracking (runbook MIRROR_FALLBACK
+  §3 self-contained, pattern re-carry annual-ish tant que v1.0 pas
+  tag). Pas de nouvelle zone rouge — R-wasmtime-cve / R-iroh-audit
+  / R-libcrux-hax / R-pyodide-escape inchangees.
 
 ## Commandes clés
 ```bash

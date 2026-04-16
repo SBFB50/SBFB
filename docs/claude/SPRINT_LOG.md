@@ -19,6 +19,7 @@ Pour le sprint en cours, voir
 | 16 | DONE + CONDITIONAL PASS levé | `d18e19e` (gate close landed) | 6 (Phase 0 gate + A-D + docs) + 7 (findings + C3 + D1 + C1/C2 + chore protocol + C4 + log update) | 6 docs (kickoff, plan, verification, audit_plan, audit_findings) + docs/security/ (README + THREAT_MODEL + RUNTIME_ISOLATION) |
 | 17 | DONE + scope-cut Phase E acte | `<wrap-up>` (close + scope-cut + migrate) | 6 (A `297fd50` + B `c275ebd` + C `7dea299` + D `872f48a` + BLUEPRINT bonus `721686c` + F wrap-up) | 6 docs security (`ADVERSARIES.md` + 6 fiches T0-T5 dir `adversaries/` + `ATTACK_SCENARIOS.md` + `P2P_THREATS.md` + `COMPUTE_THREATS.md` + `HARDENING_ROADMAP.md` + `VALIDATED_BLUEPRINT.md`) + planning (kickoff/plan/verification/audit_plan) migre archive/v1.2/ |
 | 18 | DONE + Gate 1 UNLOCKED + pivot E3 Radicle→Codeberg + audit gate S18 leve via 6 commits `677556f..1a606a3` (1 P1 + 4 P2 + P3 batch) | `4453bfd` (wrap-up) → `1a606a3` (audit gate close) | 8 + 6 audit fixes (A supply-chain + B `4ab0211` repro + C `9d0ad7a` multi-relai + D `94cccb2` wire+token + E1 `9f4d19f` driver + E2 `04c9621` canary + E3 `95807b1` Codeberg mirror + F `4453bfd` wrap-up + audit-P1 `677556f` D-1 wire TokenRotator + audit-P2 `0fb8458` F-1/F-2 docs hygiene + `9661485` A-1 drop `--workspace` cargo-deny + `6fe2dce` B-1 wheel SLSA attestation + `e223ec7` C-1 DHT quorum primitive-only clarification + audit-P3 `1a606a3` batch buildType URI + parse_version warn + RADICLE casing) | 11 docs planning (kickoff, plan, verification, audit_plan, audit_findings, **7 phase reviews B/C/D/E1/E2/E3 + F wrap-up review**) + `docs/release/MIRROR_FALLBACK.md` + `CANARY.txt` bootstrap + `scripts/verify-canary.sh` + `docs/release/REPRODUCIBLE_BUILDS.md` + `.github/workflows/` (supply-chain + canary-monthly + mirror-codeberg) — tous migres archive/v1.2/ |
+| 19 | DONE + Eclipse-by-DHT defense pleinement active runtime + carry Meta-1 Radicle-v1.0 re-carry S20 | `<wrap-up>` (Phase F) | 5 feat + 1 fix (Phase B follow-up) + 2 chore planning + 2 chore tooling G4 + 1 wrap-up (A `ab6985c` DHT quorum wire + B `edfc51b` PoW Hashcash + B follow-up `08f4e41` Cargo deps + canonical + lib + PATTERNS + C `540bb51` TLS SPKI pinning + D `f238d31` delayed upload queue + E `2fd4d72` pkarr docker image + F `<wrap-up>` + chore planning `fe0a8fd` guardrails G1..G7 + chore planning `2fd6c60` Phase D wrap review + chore tooling `4216436` phase-auditor Write G4 + chore tooling `c609a03` TOOLING.md G4) | 10 docs planning (kickoff, plan, verification, audit_plan, supervision_log + 5 phase reviews A/B/C/D/E) + `crates/nexus-core-rs/src/pow.rs` + `tls_pinning.rs` + `relay_test_cert.pem` fixture + `packages/nexus-coordinator/src/nexus_coordinator/upload_queue.py` + `docker/pkarr-relay/Dockerfile` + `.github/workflows/build-pkarr-image.yml` + `docs/release/PKARR_RELAY_OPS.md` §1-§7 — tous migres archive/v1.2/ |
 
 **Faits saillants** :
 
@@ -170,6 +171,50 @@ Detail : [`.planning/archive/v1.2/`](../../.planning/archive/v1.2/).
   7/7 size / 246+ SPDX (~1176 tests). **CONDITIONAL PASS LEVE**.
   Carry-overs S19 : C-1 wire `redundant_resolve` au browse
   aggregator + Meta-1 Radicle-v1.0 activation tracking.
+
+- **Sprint 19** : durcissement chaine transport P2P. Phase A
+  `ab6985c` **wire DHT quorum** au runtime (carry S18 C-1) —
+  `PkarrQuorumResolver` + `PkarrRelayClient` wrap cables au
+  browse aggregator + curator runtime, **Eclipse-by-DHT defense
+  desormais pleinement active** (flip S18 verification §Gate 1
+  `[~]→[x]`). Phase B `edfc51b` + follow-up `08f4e41` PoW Hashcash
+  primitive (`crates/nexus-core-rs/src/pow.rs` SHA256 leading-zeros
+  difficulty target + domain separation `DOMAIN_POW_V1` + nonce
+  solve loop single-threaded CI-friendly) + gossip subscribe
+  integration (`subscribe_with_pow` wrap + `relay_pow_policy.toml`
+  loader + per-relai difficulty override + default 2^18 ~100ms
+  CPU moderne 2026). Phase C `540bb51` TLS cert pinning relays
+  (`tls_pinning.rs` SPKI hash extract DER RFC 7469 pattern HPKP
+  concept + `PinValidator` fail-closed sur pinset empty + fixture
+  `relay_test_cert.pem` deterministe + doc PATTERNS.md section
+  rotation procedure). Phase D `f238d31` delayed upload queue
+  (`packages/nexus-coordinator/src/nexus_coordinator/upload_queue.
+  py` async queue + scheduler 30s flush loop + exponential jitter
+  0-5min anti-correlation + integration `api/tasks.py` pipe
+  gossip emit async au lieu de direct + tests pytest couvrant
+  distribution range + persistence + concurrent submit). Phase E
+  `2fd4d72` pkarr relay self-hosted docker image (`docker/pkarr-
+  relay/Dockerfile` non-root user UID 10001 + tini + healthcheck,
+  `.github/workflows/build-pkarr-image.yml` push `ghcr.io/SBFB50/
+  pkarr-relay` + Trivy scan, `docs/release/PKARR_RELAY_OPS.md`
+  §1-§7 self-contained : rationale + provisioning Hetzner CX11
+  + systemd + nginx Let's Encrypt + smoke test + monitoring +
+  rotation SPKI cert cross-ref Phase C). Phase F wrap-up livre
+  verification + audit plan S20 + migration planning active →
+  archive/v1.2/. Delta tests S19 : **+82** (+59 Rust PoW+TLS+
+  DHT wire, +21 coord delayed upload, +2 SDK helpers) — cumul
+  **~1259 tests**. Gate S19 = criteres HARDENING_ROADMAP §3 S19
+  remplis, prerequis S21 rate-limit disponible (Sybil-resistance
+  minimale via PoW). Pas de zone rouge nouvelle.
+
+  **Audit gate S19** : a jouer en Phase 0 Sprint 20. Audit plan
+  livre `.planning/archive/v1.2/sprint19_audit_plan.md` avec 6
+  tracks (A DHT wire + B PoW Hashcash + C TLS pinning + D
+  delayed upload + E pkarr relay + F wrap-up) + meta-track
+  Radicle-v1.0 activation tracking re-carry S20. Pattern
+  permanent depuis Sprint 7. Compteurs d'entree S20 : **537
+  Rust** / 185 SDK / 208+3 coord / 46 gov / 239 Vitest / 38
+  Playwright / 7/7 size / 246+ SPDX (~1259 tests).
 
 ---
 
