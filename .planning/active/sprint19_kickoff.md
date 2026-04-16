@@ -56,17 +56,16 @@ via PoW, et anti-correlation traffic embryonnaire.
 
 La roadmap Phase D S17 specifie Sprint 19 items :
 
-| Item | LOC roadmap | Source |
-|---|---|---|
-| PoW Hashcash per-gossip-subscribe (difficulty 2^18 ajustable) | ~400 | §3 S19 |
-| TLS cert pinning relays (iroh upstream contrib) | ~200 | §3 S19 |
-| Delayed upload queue (randomized 0-5min batching) | ~300 | §3 S19 |
-| pkarr relay self-hosted (docker image + ops doc) | ~400 | §3 S19 |
-| **Carry S18 C-1** Wire `redundant_resolve` browse aggregator + curator runtime | ~150 | S18 audit C-1 |
+| Item | Source |
+|---|---|
+| PoW Hashcash per-gossip-subscribe (difficulty 2^18 ajustable) | §3 S19 |
+| TLS cert pinning relays (iroh upstream contrib) | §3 S19 |
+| Delayed upload queue (randomized 0-5min batching) | §3 S19 |
+| pkarr relay self-hosted (docker image + ops doc) | §3 S19 |
+| **Carry S18 C-1** Wire `redundant_resolve` browse aggregator + curator runtime | S18 audit C-1 |
 
-Total roadmap+carry : **~1450 LOC**. Plus **Meta-1 Radicle-v1.0
-tracking** (zero-LOC, juste presence dans §3 items carry pour
-resistance a la cloture S19).
+Plus **Meta-1 Radicle-v1.0 tracking** (juste presence dans §3
+items carry pour resistance a la cloture S19).
 
 **Gate unlock** fin S19 : Eclipse-by-DHT defense pleinement
 active (wiring DHT quorum au runtime browse/curator). Pas un
@@ -83,7 +82,7 @@ aggregator, curator runtime utilisent encore des lookups pkarr
 single-node. La promesse "Eclipse-by-DHT defense" de la kickoff
 S18 §1.2 + HARDENING_ROADMAP §7 Gate 1 est **partiellement
 inactive en runtime** — la primitive est la, le glue avec les
-appelants iroh-relay 0.97 per-pkarr-relay lookup manque (~150 LOC).
+appelants iroh-relay 0.97 per-pkarr-relay lookup manque.
 
 Sprint 19 est le sprint naturel pour ce wiring : (a) le code
 existe, (b) la primitive est testee, (c) le design est
@@ -189,8 +188,7 @@ P2 + 6 P3) :
 **Dette heritee Sprint 18 confirmee** :
 - **C-1 P2 carry** : wire `redundant_resolve` au browse
   aggregator + curator runtime. Design generique sur
-  `QuorumResolver` trait, wiring estime ~150 LOC + 5 tests.
-  **Phase A S19 item 5**.
+  `QuorumResolver` trait. **Phase A S19 item 5**.
 - **Meta-1 P2 carry** : item Radicle-v1.0 activation tracking.
   Owner : FlowUP. Deadline : jour du tag v1.0 (probablement
   sprint release v1.0). Runbook : `docs/release/MIRROR_FALLBACK.
@@ -215,7 +213,7 @@ phases A-E + F wrap-up selon couplage technique et risque.
 
 | Phase | Items couverts | Rationale regroupement |
 |---|---|---|
-| A — DHT quorum runtime wire | Carry S18 C-1 | Quick win (~150 LOC + 5 tests), design prete, livrable day 1, active Eclipse-by-DHT defense |
+| A — DHT quorum runtime wire | Carry S18 C-1 | Quick win, design prete, livrable day 1, active Eclipse-by-DHT defense |
 | B — PoW Hashcash gossip subscribe | Item 1 | Primitive crypto + integration iroh-gossip 0.97 subscribe path, testable isole |
 | C — TLS cert pinning relays | Item 2 | Touche iroh relay client config (potentiellement contrib upstream), smoke test contre n0 relays |
 | D — Delayed upload queue | Item 3 | Pipeline coord-side (publish.rs + task submit), independant transport |
@@ -304,7 +302,7 @@ forke le connect path en S19 et on open PR upstream pour S20+
   (pas improbable 2026, WebPKI sous pression) casse l'auth.
 - **Skipper TLS pinning S19 et attendre S20** : mais HARDENING_
   ROADMAP §3 S19 liste item explicitement, et S20 est encryption
-  at rest big-rock (deja plein). Pin SPKI est quick-win ~200 LOC.
+  at rest big-rock (deja plein). Pin SPKI est quick-win.
 
 **Source** : OWASP Cheat Sheet Pinning + Chromium security model
 post-HPKP-deprecation (pattern Tor Browser verify-cert helper).
@@ -375,7 +373,7 @@ Migration `sprint18_audit_findings.md` + `sprint18_phase_F_
 review.md` → `archive/v1.2/` via `git mv` dans le 1er commit
 S19 (pattern `f75b2c6` S17 open).
 
-### Phase A — DHT quorum runtime wire + carry S18 C-1 (~150 LOC, +5 tests)
+### Phase A — DHT quorum runtime wire + carry S18 C-1 (+5 tests)
 
 **Scope** :
 - `crates/nexus-shell-daemon-core/src/browse.rs` : remplacer
@@ -393,7 +391,7 @@ S19 (pattern `f75b2c6` S17 open).
 **Livrable commit** : `feat(sprint19): Phase A — DHT quorum
 runtime wire (browse aggregator + curator)`
 
-### Phase B — PoW Hashcash gossip subscribe (~400 LOC, +15 tests)
+### Phase B — PoW Hashcash gossip subscribe (+15 tests)
 
 **Scope** :
 - `crates/nexus-core-rs/src/pow.rs` : primitive SHA256 Hashcash
@@ -415,7 +413,7 @@ runtime wire (browse aggregator + curator)`
 **Livrable commit** : `feat(sprint19): Phase B — PoW Hashcash
 gossip subscribe (difficulty 2^18 per-relai)`
 
-### Phase C — TLS cert pinning relays (~200 LOC, +8 tests)
+### Phase C — TLS cert pinning relays (+8 tests)
 
 **Scope** :
 - `crates/nexus-core-rs/src/tls_pinning.rs` : SPKI hash extract
@@ -437,7 +435,7 @@ gossip subscribe (difficulty 2^18 per-relai)`
 **Livrable commit** : `feat(sprint19): Phase C — TLS cert
 pinning relays (SPKI hash validate)`
 
-### Phase D — Delayed upload queue (~300 LOC, +10 tests)
+### Phase D — Delayed upload queue (+10 tests)
 
 **Scope** :
 - `packages/nexus-coordinator/src/nexus_coordinator/upload_
@@ -458,33 +456,32 @@ pinning relays (SPKI hash validate)`
 **Livrable commit** : `feat(sprint19): Phase D — delayed upload
 queue (0-5min exponential jitter)`
 
-### Phase E — pkarr relay self-hosted image (~400 LOC equivalent docker + doc)
+### Phase E — pkarr relay self-hosted image (docker + ops doc, +1 CI smoke test)
 
 **Scope** :
-- `docker/pkarr-relay/Dockerfile` (~30 LOC) : base sur pkarr
-  upstream Dockerfile, tag `FROM rust:1.94-slim AS builder ...`,
+- `docker/pkarr-relay/Dockerfile` : base sur pkarr upstream
+  Dockerfile, tag `FROM rust:1.94-slim AS builder ...`,
   healthcheck exposed
-- `.github/workflows/build-pkarr-image.yml` (~50 LOC) : trigger
-  push sur `master` + tag `v*`, push vers
+- `.github/workflows/build-pkarr-image.yml` : trigger push sur
+  `master` + tag `v*`, push vers
   `ghcr.io/SBFB50/pkarr-relay:<version>`, scan Trivy inline,
   permissions `packages: write`
-- `docs/release/PKARR_RELAY_OPS.md` (~250 lignes) : §1 rationale,
-  §2 provisioning Hetzner CX11 (commands copy-paste), §3
-  systemd unit template, §4 nginx reverse proxy + Let's Encrypt,
-  §5 smoke test `pkarr-cli publish/resolve`, §6 monitoring
-  baseline (disk + network logs), §7 rotation SPKI cert (cross-
-  ref S19 Phase C TLS pinning)
+- `docs/release/PKARR_RELAY_OPS.md` : §1 rationale, §2
+  provisioning Hetzner CX11 (commands copy-paste), §3 systemd
+  unit template, §4 nginx reverse proxy + Let's Encrypt, §5
+  smoke test `pkarr-cli publish/resolve`, §6 monitoring baseline
+  (disk + network logs), §7 rotation SPKI cert (cross-ref S19
+  Phase C TLS pinning)
 - Pas de code Rust dans ce repo — sauf un smoke test ops
-  `tests/ci-smoke/pkarr-relay-healthcheck.sh` (~20 LOC bash)
-  qui curl le `/healthz` endpoint docker local + asserts
-  response
+  `tests/ci-smoke/pkarr-relay-healthcheck.sh` qui curl le
+  `/healthz` endpoint docker local + asserts response
 - Tests ops : 1 test CI (docker build succeeds sur Linux amd64),
   pas de test runtime (deploy real = user-driven ops)
 
 **Livrable commit** : `feat(sprint19): Phase E — pkarr relay
 self-hosted docker image + ops doc`
 
-### Phase F — Consolidation + verification + audit plan S20 (~250 LOC docs)
+### Phase F — Consolidation + verification + audit plan S20 (docs only)
 
 **Scope** :
 - Update `CLAUDE.md §Etat actuel` : Sprint 19 CLOSED + status
@@ -579,28 +576,23 @@ apres cloture S19.
 
 ---
 
-## 9. Estimations LOC
+## 9. Budget tests attendu
 
-| Phase | LOC code | LOC tests | LOC docs | Total |
-|---|---|---|---|---|
-| 0 — Audit S18 | 0 | 0 | 0 (migre existant) | 0 |
-| A — DHT quorum wire | ~100 | ~50 | ~20 | ~170 |
-| B — PoW Hashcash gossip | ~280 | ~120 | ~30 | ~430 |
-| C — TLS cert pinning | ~140 | ~60 | ~20 | ~220 |
-| D — Delayed upload queue | ~200 | ~80 | ~30 | ~310 |
-| E — pkarr relay docker+doc | ~50 (Dockerfile+YAML) | ~20 (smoke bash) | ~250 | ~320 |
-| F — Consolidation + verif + audit plan | 0 | 0 | ~250 | ~250 |
-| **Total** | **~770** | **~330** | **~600** | **~1700** |
+| Phase | Delta tests vise |
+|---|---|
+| 0 — Audit S18 | 0 |
+| A — DHT quorum wire | +5 (3 unit wire + 2 integration scenarios happy/degraded) |
+| B — PoW Hashcash gossip | +15 (10 primitive + 5 integration subscribe) |
+| C — TLS cert pinning | +8 (5 primitive + 3 integration connect) |
+| D — Delayed upload queue | +10 (8 pytest + 2 integration full-loop) |
+| E — pkarr relay docker+doc | +1 (CI docker build smoke) |
+| F — Consolidation | +0 |
+| **Delta total** | **+39** |
 
-**Delta tests** : +45 (Rust ~30, coord ~10, ops smoke ~5).
-Compteur final estime : **~1221 tests** (1176 + 45).
-
-LOC total (~1700) > roadmap estimate (~1450) : ecart vient de
-(a) tests volume (roadmap compte ~45 tests = ~135 LOC vs plan
-estime ~330 LOC incluant fixtures et setup), (b) docs pkarr ops
-non-comptees par roadmap, (c) subphase decoupage Phase A carry
-S18 (150 LOC dans roadmap S18 non-comptee dans S19 estimate
-original).
+Compteur final attendu : **478 + 39 = 517 Rust** (et 187 + 8 = 195
+coord, 38 + 0 Playwright). Si Phase B/C/D/E livre plus de tests
+naturellement, c'est tant mieux — pas de plafond. Pas
+d'estimation LOC (cf. `docs/claude/README.md` §6.7).
 
 ---
 

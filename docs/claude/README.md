@@ -109,7 +109,21 @@ Sections canoniques (pattern Sprint 6/7) :
 1. **Constat d'entrée** — quel est le tip master au début,
    quels tests passent, quels commits ont landé depuis le
    sprint précédent, quel est le verdict de l'audit gate
-2. **Goal en une phrase** — ce que le sprint promet de livrer
+2. **Goal en une phrase** — ce que le sprint promet de livrer.
+   Le goal §2 reste litteraire (lecture humaine) mais **DOIT
+   pointer explicitement vers `verification.md §Fail-fast checklist`
+   comme source of truth mesurable** (G3). Exemple :
+
+   > "Le sprint durcit la chaine transport P2P en imposant... —
+   > debloquant S21 rate-limit fin S21. **Critere SMART : 28+
+   > rows fail-fast verts au verification.md, mesure binaire au
+   > Phase F wrap-up.**"
+
+   Sans cette liaison, "atteint ?" est gameable a la sortie. La
+   verification.md fail-fast checklist existe deja (24-32 rows
+   executables, cf. §2.2 plan §5) — c'est le critere SMART du
+   sprint. Le goal §2 n'a pas besoin de 3 critres SMART
+   supplementaires (duplication §2/§5/§10), juste un pointeur.
 3. **Phase 0 — Audit gate du sprint précédent** (DONE avant le
    kickoff lui-même à partir de Sprint 7) — résumé du verdict
    et du commit stack de gate
@@ -158,8 +172,12 @@ Sections canoniques (pattern Sprint 6/7) :
    patterns précédents. L'audit gate peut re-challenger ces
    sources si elles semblent incomplètes
 4. **Phase A..F** — une section complète par phase avec :
-   - Fichiers ajoutés / modifiés (chemin + LOC estimée +
-     3 à 5 lignes de structure)
+   - Fichiers ajoutés / modifiés (chemin + 3 à 5 lignes de
+     structure). **Pas d'estimation LOC** — quand on vise la
+     solution la plus poussée, la taille finale est inconnue
+     avant que la recherche soit terminée, et les estimations
+     amont biaisent vers la solution minimale qui rentre dans
+     l'estimation. Cf. §6.7.
    - Tests à écrire (nommage + scénario)
    - Critère d'acceptation (ce qui doit être vert avant de
      commiter)
@@ -472,6 +490,38 @@ session. Les autres fichiers sont lus sur demande.
 - **Jamais** : code patterns, git log, who-changed-what —
   ces infos sont déjà dans le repo
 
+#### 5.1.1 Carry-over discipline (G6 — fusion manuelle, pas merge auto)
+
+Anti-pattern observe : `project_nexus_state.md` reste inerte 7+ jours
+apres le pivot 2026-04-10 qui l'a rendu obsolete. Les memory files
+sont read-mostly entre sessions, updates rares.
+
+**Pattern correct** (utilise les artefacts existants, pas de nouveau
+fichier) :
+
+1. Chaque session de sprint termine en ecrivant `sprint{N}_
+   verification.md §5 "Findings carry-over for memory"` listant les
+   items qui valent d'etre persistes (P0/P1 + decisions long-terme +
+   gotchas surprenants), max 5 items par sprint.
+2. **Au kickoff S{N+1}**, la session fraiche fusionne MANUELLEMENT
+   ces items dans la memory concernee (`nexus_grid_pivot.md`,
+   `feedback_approach.md`, ou nouveau fichier dedie). Pas de merge
+   automatique (conflits + pollution).
+3. **Pre-kickoff check obligatoire** (G2 lite) : avant ecrire le
+   nouveau kickoff, l'agent verifie les dates de mtime des memory
+   files vs tip master. Si un memory file n'a pas ete touche depuis
+   > 2 sprints, ouvrir une question explicite "ce fichier est-il
+   encore pertinent ?".
+
+   ```bash
+   # Check rapide
+   ls -la "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/"
+   git log -1 --format=%cd master
+   ```
+
+**Pas de** `last_session_findings.md` mergé auto : merge conflicts
+garantis + pollution graduelle de noise.
+
 ### 5.2 Format MEMORY.md
 
 ```markdown
@@ -495,6 +545,47 @@ l'auditeur ne peuvent PAS les rebattre. Si l'auditeur trouve
 un argument technique new qui les invalide, il le note comme
 « à rouvrir en Sprint N+1 Day 0 » mais ne bloque pas le
 sprint en cours.
+
+### 6.1.1 Design Review Board — reviewer independant pre-gel D1..D5 (G1)
+
+Anti-pattern observe Sprint 19 : les "Rejete" sous chaque D1..D5 sont
+ecrits par le **planner lui-meme**. Pas de challenge independant.
+Resultat : D2 PoW Hashcash SHA256 cite "Tor 2023" sans verifier que
+Tor a abandonne Hashcash en 2023 pour Equi-X. Le rationale est
+plausible mais circulaire.
+
+**Procedure** :
+
+Avant de figer D1..D5 dans `kickoff §4`, le planner :
+
+1. Ecrit un **draft** des decisions avec sources cited (context7 +
+   WebSearch + URL).
+2. Lance un **agent Explore independant** (subagent_type=Explore,
+   session fraiche, contexte minimal) avec le prompt :
+
+   ```
+   Tu review un draft de decisions Day-0 pour Sprint {N}.
+   Pour chaque D1..D5, produire un scoring report :
+   - ✅ source recente (<= 90j) + alternative concurrente verifiee
+   - ⚠️ source presente mais pas a jour OU alternative non comparee
+   - ❌ pas de source OU choix techniquement contredit par WebSearch 2026
+   Ne propose PAS de solution alternative — tu signales les angles
+   morts seulement. Le planner reste owner de la decision finale.
+   ```
+
+3. L'agent ecrit `.planning/active/sprint{N}_design_review.md` avec
+   le scoring report (5-15 min, prompt court).
+4. **Le planner reste owner mais doit acknowledge chaque ⚠️ et ❌
+   explicite** dans le kickoff §4 (paragraphe "Acknowledged review
+   findings"). Pas de veto reviewer, pas de stalemate.
+
+**Avantage vs adversary-agent** : pas de "trouve 3 raisons de
+rejeter" (genere du bikeshedding), juste un signal de qualite des
+sources. Le reviewer ne propose pas de solution → pas de bataille
+d'ego entre planner et reviewer.
+
+**Quand skipper** : sprint pure-docs (S17), hotfix (cas D §7),
+phase trivial refactor sans decision Day-0.
 
 ### 6.2 Scope cuts — stricts DANS un sprint, reevalues ENTRE sprints
 
@@ -522,6 +613,38 @@ complet). Le gap reel etait ~300 LOC, pas un sprint entier.
 le pattern le plus couteux identifie dans le projet — il
 retarde des features quasi-pretes en les traitant comme des
 chantiers majeurs.
+
+#### 6.2.1 Cap carry-overs : max 2 par sprint (G7)
+
+Anti-pattern observe Sprint 18→19 : C-1 (DHT quorum wire) reporte
+S19 documente seulement en commit body + PATTERNS.md, sans entree
+explicite dans `sprint19_audit_plan.md`. Sprint 19 Phase B reporte
+runtime gossip wire S20 sans aucune entree carry. Le report devient
+gratuit → choix par defaut sous pression de fin de sprint.
+
+**Regle** :
+
+- **Max 2 carry-overs par sprint** (scope cuts vers S{N+1} via Phase
+  B/C/etc. report). Au-dela, soit livrer dans le sprint courant,
+  soit abandonner explicitement (entree `docs/DEPRECATED.md` avec
+  rationale).
+- **Phase F wrap-up genere `sprint{N+1}_carry_summary.md`** (pas
+  optionnel) listant les carry-overs avec :
+  - ID + description (1 ligne)
+  - Source : phase qui a reporte + commit SHA
+  - Severite : P1 (Gate-blocker) / P2 (debt) / P3 (cosmetic)
+  - Owner : `<github-handle>` ou `S{N+1}` par defaut
+- **Kickoff S{N+1} doit re-confirmer** chaque carry via une ligne
+  explicite dans §6 "Items carry/dette" : `[x] C-1 carry confirme
+  pour S{N+1} Phase A` ou `[deferred] C-1 differe S{N+2}`.
+
+Decision P1 vs P2 vs P3 : prise par l'auditeur Phase 0 du sprint
+suivant en jouant `sprint{N}_audit_plan.md`. Pas par l'agent qui
+livre le carry (auto-evaluation biaisee).
+
+**Pourquoi cap a 2** : empiriquement (S17→S18→S19), 2 carry-overs
+sont absorbables sans diluer le scope du sprint suivant. 3+ degrade
+le sprint cible en "rattrapage du sprint precedent" → escalade.
 
 ### 6.3 Pas de band-aid fixes
 
@@ -572,6 +695,100 @@ Sauf demande explicite utilisateur. Le feedback
 Toute dérive doit être justifiée dans un commit body avec
 rationale et test de non-régression.
 
+### 6.7 Horizon long terme + documentation AVANT code
+
+Règle forte (cf. memory `feedback_approach.md` §« Regle critique :
+horizon long terme + documentation AVANT code ») :
+
+- **Toute décision technique s'évalue à 2 ans / 10× charge / 100
+  contributeurs**, pas au sprint courant. La dette courte-vue coûte
+  plus cher que l'effort initial d'une solution durable.
+- **Ordre correct** : (1) recherche (context7 + WebSearch + registry
+  local + docs officielles), (2) design doc court dans
+  `.planning/research/` ou `docs/{domain}/` avec alternatives +
+  rationale + limites connues, (3) self-challenge, (4) code.
+  Inverser cet ordre = 80 % des bugs architecturaux rétrospectifs.
+- **Toujours la solution la plus poussée techniquement**, pas la
+  plus simple à livrer. Si une lib plus auditée / FIPS / fuzzed /
+  SLSA existe, la choisir. Si un pattern type-safe / compile-time
+  / zero-copy / const-time existe, le choisir.
+- **Le design doc est un livrable du sprint**, pas un nice-to-have.
+  Avant Phase A : trace écrite des alternatives considérées, libs
+  comparées (versions + CVE + last-audit-date via context7),
+  rationale du choix retenu. `nexus-phase-auditor` bloque §Research
+  consulte vide sur APIs crypto / spec standardisées.
+- **D1..D5 Day 0 citent explicitement les alternatives rejetées**.
+  Sans rationale, ce n'est pas une décision, c'est un réflexe.
+- **Défaut "deep" en cas de doute** entre deep et quick — l'user
+  re-demande deep 3× sur 3, autant l'assumer d'entrée.
+- **Pas d'estimation LOC en amont.** Aucun plan ni kickoff ne
+  fournit un chiffre "~NNNN LOC sur N phases". Raisons :
+  (1) la taille finale dépend de la solution trouvée après
+  recherche, elle n'est pas connaissable au plan ; (2) une
+  estimation amont devient un plafond psychologique — l'agent
+  tronque la solution la plus poussée pour rentrer dans le
+  budget ; (3) la "vitesse de delivery" se mesure aux phases
+  livrées avec tests verts, pas aux LOC produites. La seule LOC
+  qui compte est la LOC **rétrospective** (mesure de gap, ex.
+  §6.2 "gap réel mesuré ~300 LOC").
+
+Preuve empirique : S14 Keyoxide, S17 VALIDATED_BLUEPRINT, S18
+supply-chain → research-first, zero rework majeur.
+À l'opposé : S7 singleton band-aid, S18 D-1 wire manquant → code-
+first, rework commits. Corrélation directe research/doc amont ↔
+réduction debug/rework aval.
+
+### 6.8 Fraîcheur des artefacts long-life — triggers événementiels (G2)
+
+Anti-pattern observé : `HARDENING_ROADMAP.md` écrit S17 (octobre 2025)
+hérite Sprint 19 (avril 2026) sans audit fraîcheur. D2 PoW Hashcash
+2^18 dérive d'une recommandation S17 ; entre-temps Tor a abandonné
+Hashcash pour Equi-X (août 2023). 6 mois entre écriture et
+consommation = drift réel.
+
+**Pattern correct** (événementiel, pas compteur jours absolu) :
+
+Tout artefact long-life (`HARDENING_ROADMAP.md`, `PATTERNS.md`,
+`VALIDATED_BLUEPRINT.md`, memory `nexus_grid_pivot.md`) **DOIT**
+inclure dans son frontmatter :
+
+```yaml
+---
+written: 2026-04-10
+last_validated: 2026-04-16
+triggers_revalidate:
+  - "iroh release > 0.97"
+  - "wasmtime LTS bump"
+  - "CVE annonce sur dep critique"
+  - "Sprint S+2 commence (S19+2 = S21)"
+---
+```
+
+**Quand re-valider** (events, pas timer) :
+
+- Une release upstream majeure d'une lib critique cite (iroh, wasmtime,
+  arti-client, pkarr, libp2p) → re-scan §pertinente.
+- Un CVE annonce sur une dep listee → re-scan §securite.
+- Le sprint S+2 demarre apres l'ecriture → re-scan §roadmap pour ce
+  sprint specifique.
+- Un finding audit S{N} contredit le contenu → re-scan immediate.
+
+**Discipline session-start** (cas A/B/C du prompt §7) :
+
+```bash
+# Verifier triggers actifs
+grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md
+# Pour chaque match, l'agent verifie si un trigger s'est realise depuis last_validated
+```
+
+**Pas de** compteur "stale apres N jours" : un doc fige sur un
+sujet dormant peut rester valide 1 an. Un doc sur une lib en pleine
+evolution est stale apres 1 release. C'est l'event qui declenche,
+pas le calendrier.
+
+**Maintenance** : `last_validated` mis a jour au commit qui re-audite
+la section. Pas obligatoire en lecture seule.
+
 ---
 
 ## 7. Prompt générique de bootstrap session fraîche (v2)
@@ -599,6 +816,12 @@ head -1 docs/claude/SPRINT_LOG.md && grep -E "^## v[0-9]" docs/claude/SPRINT_LOG
 grep "^- \[SBFB pivot\|tip \`" "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/MEMORY.md" || true
 grep "Tip \`" "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/nexus_grid_pivot.md" | head -1
 
+# G2 — triggers événementiels actifs sur artefacts long-life
+grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md docs/shell/PATTERNS.md 2>/dev/null
+
+# G6 — fraîcheur memory vs tip master (ouvrir question si > 2 sprints sans touch)
+ls -la "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/" 2>/dev/null | head -20
+
 # === Détection du cas ===
 
 Compare ce que tu vois avec :
@@ -612,6 +835,9 @@ Compare ce que tu vois avec :
     Mode : audit indépendant, pas implémentation.
     Livrable : .planning/active/sprint{N-1}_audit_findings.md +
                commits fix(sprint{N-1}): ... pour P0/P1.
+    Verdict G4 (rigor signal) : 0 P0/P1 ET 0 P2+ trouve = CONCERN
+               (pas PASS — re-auditer dimension manquee). PASS exige
+               >=1 P2+ documente. Cf. §6.1.1 + agent-auditor.
 
   Cas B — Sprint en cours
     Signal : .planning/active/ contient sprint{N}_kickoff.md +
@@ -620,6 +846,14 @@ Compare ce que tu vois avec :
                      suivante non encore committée selon git log).
     Mode : implémentation atomique.
     Livrable : 1 commit feat(scope): Sprint N Phase X — titre.
+    Avant CHAQUE commit phase (G5) : invoquer skill
+               nexus-phase-review Step 1bis "working tree audit"
+               -> categoriser PHASE/CRAFT/DEBT/NOISE chaque modif,
+               splitter en chore(planning) si CRAFT, refuser NOISE.
+               Body commit DOIT contenir section "Working tree audit".
+    Avant scope cut S+1 (G7) : verifier cap 2 carry-overs/sprint
+               max. Si depassement, livrer en sprint courant ou
+               ajouter a docs/DEPRECATED.md.
 
   Cas C — Nouveau sprint à ouvrir
     Signal : .planning/active/ contient au max le
@@ -628,15 +862,42 @@ Compare ce que tu vois avec :
              clos.
     Préalable : lire SPRINT_LOG.md pour décider la version cible
                 (continuer v1.x ou ouvrir v1.x+1 selon le thème).
+    Pre-research OBLIGATOIRE (G2) : avant figer D1..D5, verifier
+                triggers_revalidate sur HARDENING_ROADMAP §3 S{N}
+                + memory nexus_grid_pivot.md §Sprint S{N} carry. Si
+                trigger active depuis last_validated, re-fetch
+                context7 + WebSearch fresh AVANT le draft kickoff.
+    Design Review Board (G1, sauf sprint pure-docs ou trivial) :
+                apres draft D1..D5 mais AVANT gel, lancer agent
+                Explore independant (cf. §6.1.1) -> scoring report
+                ⚠️/✅/❌ par decision -> planner ack chaque ⚠️/❌
+                explicite dans kickoff §4 paragraphe "Acknowledged
+                review findings". Le reviewer ne propose pas, il
+                signale les angles morts.
+    Goal §2 (G3) : DOIT pointer explicite vers verification.md
+                fail-fast checklist comme critere SMART (ne pas
+                inventer 3 KPIs supplementaires — duplication).
+    Carry-overs (G7) : §6 "Items carry/dette" liste max 2 items
+                re-confirmes ligne par ligne `[x] C-N carry confirme
+                pour S{N} Phase A` ou `[deferred] -> S{N+1}`.
+    Memory carry-over (G6) : fusionner manuellement
+                `sprint{N-1}_verification.md §5 Findings carry-over
+                for memory` dans nexus_grid_pivot.md / feedback_*.md
+                concernes. Pas de merge auto.
     Mode : design + écriture planning.
-    Livrable : sprint{N}_kickoff.md + sprint{N}_plan.md dans
-               active/ + D1..D5 à valider AVANT toute ligne de code.
+    Livrable : sprint{N}_kickoff.md + sprint{N}_plan.md +
+               sprint{N}_design_review.md (G1) + carry-over
+               summary + frontmatter triggers_revalidate sur
+               nouveaux docs long-life. D1..D5 a valider AVANT
+               toute ligne de code.
     Migration préalable : si sprint N-1 est encore dans active/,
     le déplacer vers archive/v{X}/ via git mv.
 
   Cas D — Hotfix hors sprint
     Signal : utilisateur demande explicitement un fix urgent.
     Mode : commit fix(...) ciblé, ne touche pas .planning/.
+    G5 reste actif : working tree audit obligatoire avant commit
+                meme en hotfix.
 
 # === Lecture ciblée par cas ===
 
@@ -646,7 +907,7 @@ toute la doc. Charger tout sature le contexte pour rien.
   Pour TOUS les cas (lecture commune minimale) :
     1. CLAUDE.md (racine) — projet + pointeur workflow
     2. docs/claude/README.md §3 (audit gate) + §4 (commit
-       discipline) + §6 (conventions)
+       discipline) + §6 (conventions, dont 6.1.1 + 6.2.1 + 6.8)
     3. memory MEMORY.md (l'index)
 
   Cas A en plus :
@@ -654,21 +915,32 @@ toute la doc. Charger tout sature le contexte pour rien.
     - .planning/archive/v{X}/sprint{N-1}_kickoff.md (D1..D5
       gelées à NE PAS rebattre)
     - docs/claude/README.md §3 et §8
+    - .claude/agents/nexus-phase-auditor.md (calibration G4 +
+      Step 3bis working tree audit G5)
 
   Cas B en plus :
     - .planning/active/sprint{N}_kickoff.md (D1..D5)
     - .planning/active/sprint{N}_plan.md §Phase X visée
-    - docs/claude/README.md §4 (atomic commit, body riche)
+    - docs/claude/README.md §4 (atomic commit, body riche) +
+      §6.2.1 (cap carry-overs G7)
+    - .claude/skills/nexus-phase-review/SKILL.md (Step 1bis G5
+      + Step 6 rigor signal G4)
 
   Cas C en plus :
     - docs/claude/SPRINT_LOG.md (versions livrées + thèmes)
     - .planning/archive/v{X}/sprint{N-1}_kickoff.md (pour reprendre
-      le format)
-    - docs/claude/README.md §2 (5 docs canoniques) + §7 (D1..D5)
+      le format) + sprint{N-1}_verification.md §5 carry-over G6
+    - docs/claude/README.md §2.1 (goal SMART G3) + §6.1.1
+      (Design Review Board G1) + §6.2.1 (cap carry-overs G7) +
+      §5.1.1 (memory carry-over G6) + §6.8 (triggers G2)
     - memory nexus_grid_pivot.md (roadmap + compteurs tests)
+    - HARDENING_ROADMAP.md frontmatter triggers_revalidate (G2 —
+      verifier si trigger actif depuis last_validated)
 
   Cas D :
     - juste le code touché, rien d'autre
+    - .claude/skills/nexus-phase-review/SKILL.md Step 1bis (G5
+      working tree audit reste obligatoire meme hotfix)
 
 # === Stale memory check (obligatoire avant tout commit) ===
 
@@ -754,7 +1026,6 @@ docs(sprint{N}): kickoff + plan for Sprint N
 Theme : <résumé en 1 ligne du goal>
 Décisions Day 0 figées : D1, D2, D3, D4, D5 (cf. kickoff §4)
 Scope cuts : <liste des items NOT, cf. kickoff §6>
-LOC estimées : ~NNNN sur N phases
 Audit gate Sprint N-1 : PASS / CONDITIONAL PASS levé via {SHA}
 
 Phases prévues :

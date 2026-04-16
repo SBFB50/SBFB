@@ -82,11 +82,10 @@ uv run ruff check packages/      # clean
     `PkarrRelayClient` separes pour avoir N resolutions
     independantes.
   - **Verdict** : Phase A non-bloquee par upstream iroh.
-    ~170 LOC realiste.
 - **Hashcash SHA256 Rust** (WebSearch) : pas de crate
   officielle, mais `sha2` crate (deja dep via nexus-core-rs)
   expose `Sha256::new().update().finalize()`. Primitive
-  Hashcash = ~50 LOC inline dans `pow.rs`.
+  Hashcash livrable inline dans `pow.rs`.
 - **pkarr relay upstream Dockerfile** (WebSearch) : pkarr repo
   GitHub fournit un Dockerfile reference dans `server/` —
   nous forkons le pattern sans re-inventer.
@@ -262,18 +261,18 @@ charge au boot. Difficulty 2^18 default ajustable per-relay.
 
 ### 5.2 Fichiers touches
 
-| Fichier | LOC | Role |
-|---|---|---|
-| `crates/nexus-core-rs/src/pow.rs` (nouveau) | ~180 | primitive SHA256 Hashcash solve/verify, difficulty bits, nonce iter |
-| `crates/nexus-core-rs/src/relay_pow_policy.rs` (nouveau) | ~100 | TOML loader pattern `relay_config.rs` |
-| `crates/nexus-core-rs/src/lib.rs` | +6 | exports modules |
-| `crates/nexus-shell-daemon-core/src/iroh_runtime.rs` | ~40 | wrap `GossipClient::subscribe` avec PoW gate |
-| Tests `pow.rs` module | ~90 | 10 tests (solve+verify + edge cases) |
-| Tests `relay_pow_policy.rs` module | ~40 | 4 tests (load, default, per-relay override) |
-| Tests integration gossip subscribe | ~30 | 2 tests (happy path + reject invalid proof) |
-| Bench `benches/pow.rs` (nouveau) | ~30 | `cargo bench --bench pow` verify timing |
+| Fichier | Role |
+|---|---|
+| `crates/nexus-core-rs/src/pow.rs` (nouveau) | primitive SHA256 Hashcash solve/verify, difficulty bits, nonce iter |
+| `crates/nexus-core-rs/src/relay_pow_policy.rs` (nouveau) | TOML loader pattern `relay_config.rs` |
+| `crates/nexus-core-rs/src/lib.rs` | exports modules |
+| `crates/nexus-shell-daemon-core/src/iroh_runtime.rs` | wrap `GossipClient::subscribe` avec PoW gate |
+| Tests `pow.rs` module | 10 tests (solve+verify + edge cases) |
+| Tests `relay_pow_policy.rs` module | 4 tests (load, default, per-relay override) |
+| Tests integration gossip subscribe | 2 tests (happy path + reject invalid proof) |
+| Bench `benches/pow.rs` (nouveau) | `cargo bench --bench pow` verify timing |
 
-**Total** : ~320 LOC code + ~160 LOC tests + ~30 LOC bench.
+**Delta tests** : +15 (10 primitive pow + 4 policy + 2 integration -1 doc).
 
 ### 5.3 Primitive Hashcash
 
@@ -353,13 +352,16 @@ initial (~100ms CPU moderne 2026) configurable per-relai via
 ~/.sbfb/relay_pow_policy.toml.
 
 Fichiers :
-- crates/nexus-core-rs/src/pow.rs (nouveau, ~180 LOC)
-- crates/nexus-core-rs/src/relay_pow_policy.rs (nouveau, ~100 LOC)
+- crates/nexus-core-rs/src/pow.rs (nouveau)
+- crates/nexus-core-rs/src/relay_pow_policy.rs (nouveau)
 - crates/nexus-shell-daemon-core/src/iroh_runtime.rs (subscribe wrap)
 - benches/pow.rs (nouveau, bench timing)
 
 Tests delta : +16 (10 primitive + 4 policy + 2 integration).
 Total Rust 483 → 499.
+
+Design doc : `.planning/research/S19_phase_B_pow_hashcash_design.md`
+(alternatives crypto considerees, parametrage difficulty, limites).
 
 Prerequis S21 rate-limit per-consumer (HARDENING_ROADMAP §3 S19 +
 dependency graph §6).
@@ -379,16 +381,19 @@ extracts au moment du kickoff S19 via `openssl s_client`).
 
 ### 6.2 Fichiers touches
 
-| Fichier | LOC | Role |
-|---|---|---|
-| `crates/nexus-core-rs/src/tls_pinning.rs` (nouveau) | ~140 | `PinValidator` + SPKI extract + validate against pinset |
-| `crates/nexus-core-rs/src/lib.rs` | +3 | module export |
-| `crates/nexus-core-rs/src/node.rs` (edit) | ~20 | injection validator dans `Endpoint::builder` via rustls custom cert validator (hook iroh 0.97 si expose, sinon forked connect path avec TODO upstream PR) |
-| `~/.sbfb/relay-pins.json` bootstrap (doc) | - | 3 entries pour relay.iroh.network + fallback 1 + fallback 2 |
-| `docs/release/RELAY_PIN_BOOTSTRAP.md` (nouveau) | ~80 | procedure regeneration SPKI via openssl, rotation, user-override |
-| Tests `tls_pinning.rs` module | ~60 | 5 tests primitive + 3 tests integration |
+| Fichier | Role |
+|---|---|
+| `crates/nexus-core-rs/src/tls_pinning.rs` (nouveau) | `PinValidator` + SPKI extract + validate against pinset |
+| `crates/nexus-core-rs/src/lib.rs` | module export |
+| `crates/nexus-core-rs/src/node.rs` (edit) | injection validator dans `Endpoint::builder` via rustls custom cert validator (hook iroh 0.97 si expose, sinon forked connect path avec TODO upstream PR) |
+| `~/.sbfb/relay-pins.json` bootstrap (doc) | 3 entries pour relay.iroh.network + fallback 1 + fallback 2 |
+| `docs/release/RELAY_PIN_BOOTSTRAP.md` (nouveau) | procedure regeneration SPKI via openssl, rotation, user-override |
+| Tests `tls_pinning.rs` module | 5 tests primitive + 3 tests integration |
 
-**Total** : ~160 LOC code + ~60 LOC tests + ~80 LOC docs.
+**Delta tests** : +8.
+
+Design doc : `.planning/research/S19_phase_C_tls_cert_pinning_design.md`
+(SPKI vs full-cert vs CA-only, rotation strategy, contrib upstream).
 
 ### 6.3 Primitive SPKI pin
 
@@ -479,16 +484,19 @@ Scheduler interne flush 30s. Metric log INFO pour diagnostic.
 
 ### 7.2 Fichiers touches
 
-| Fichier | LOC | Role |
-|---|---|---|
-| `packages/nexus-coordinator/src/nexus_coordinator/upload_queue.py` (nouveau) | ~200 | async queue + scheduler + jitter randomization |
-| `packages/nexus-coordinator/src/nexus_coordinator/api/tasks.py` (edit) | ~20 | pipe dans queue au lieu direct gossip emit |
-| `packages/nexus-coordinator/src/nexus_coordinator/coordinator.py` (edit) | ~15 | boot/shutdown hook queue scheduler |
-| Tests `tests/test_upload_queue.py` (nouveau) | ~120 | 10 tests (jitter range, scheduler timing, persistence, concurrent) |
-| Tests integration `tests/test_api_tasks_delayed.py` (edit existing) | ~40 | 2 tests full-loop submit → poll status |
-| `docs/shell/PATTERNS.md` edit | ~20 | section "Delayed upload queue" |
+| Fichier | Role |
+|---|---|
+| `packages/nexus-coordinator/src/nexus_coordinator/upload_queue.py` (nouveau) | async queue + scheduler + jitter randomization |
+| `packages/nexus-coordinator/src/nexus_coordinator/api/tasks.py` (edit) | pipe dans queue au lieu direct gossip emit |
+| `packages/nexus-coordinator/src/nexus_coordinator/coordinator.py` (edit) | boot/shutdown hook queue scheduler |
+| Tests `tests/test_upload_queue.py` (nouveau) | 10 tests (jitter range, scheduler timing, persistence, concurrent) |
+| Tests integration `tests/test_api_tasks_delayed.py` (edit existing) | 2 tests full-loop submit → poll status |
+| `docs/shell/PATTERNS.md` edit | section "Delayed upload queue" |
 
-**Total** : ~235 LOC code + ~160 LOC tests + ~20 LOC docs.
+**Delta tests** : +12.
+
+Design doc : `.planning/research/S19_phase_D_delayed_upload_queue_design.md`
+(distribution choisie, range UX trade-off, persistence policy).
 
 ### 7.3 Primitive queue
 
@@ -596,15 +604,18 @@ test CI docker build. Zero code Rust dans ce repo.
 
 ### 8.2 Fichiers touches
 
-| Fichier | LOC | Role |
-|---|---|---|
-| `docker/pkarr-relay/Dockerfile` (nouveau) | ~40 | FROM rust:1.94-slim AS builder, cargo install pkarr-relay, runtime image |
-| `docker/pkarr-relay/README.md` (nouveau) | ~30 | quick-start docker run |
-| `.github/workflows/build-pkarr-image.yml` (nouveau) | ~60 | trigger push master + tag v*, push ghcr.io, Trivy scan inline |
-| `docs/release/PKARR_RELAY_OPS.md` (nouveau) | ~280 | ops deploy Hetzner (provisioning + systemd + nginx + LE + smoke test + monitoring + SPKI rotation cross-ref Phase C) |
-| `tests/ci-smoke/pkarr-relay-healthcheck.sh` (nouveau) | ~30 | bash script curl /healthz + assert response |
+| Fichier | Role |
+|---|---|
+| `docker/pkarr-relay/Dockerfile` (nouveau) | FROM rust:1.94-slim AS builder, cargo install pkarr-relay, runtime image |
+| `docker/pkarr-relay/README.md` (nouveau) | quick-start docker run |
+| `.github/workflows/build-pkarr-image.yml` (nouveau) | trigger push master + tag v*, push ghcr.io, Trivy scan inline |
+| `docs/release/PKARR_RELAY_OPS.md` (nouveau) | ops deploy Hetzner (provisioning + systemd + nginx + LE + smoke test + monitoring + SPKI rotation cross-ref Phase C) |
+| `tests/ci-smoke/pkarr-relay-healthcheck.sh` (nouveau) | bash script curl /healthz + assert response |
 
-**Total** : ~440 LOC (config + docs + shell), zero Rust.
+**Delta tests** : +1 (CI docker build smoke). Zero Rust.
+
+Design doc : `.planning/research/S19_phase_E_pkarr_relay_design.md`
+(image choice, supply-chain provenance, deploy alternatives, ops).
 
 ### 8.3 Dockerfile shape
 

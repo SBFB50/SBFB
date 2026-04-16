@@ -1,3 +1,18 @@
+<!--
+written: 2026-02-15  # Sprint 17 Phase D
+last_validated: 2026-04-16  # G2 — re-audit S19 Phase A
+triggers_revalidate:
+  - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
+  - "wasmtime LTS bump (CVE refresh §S18)"
+  - "arti-client release > 1.x stable (S25-S26 reroute possible)"
+  - "Tor PoW spec hspow change (impacte D2 PoW choice S19)"
+  - "NIST PQC FIPS 203/204 ecosystem default (impacte S26+)"
+  - "NVIDIA H100 CCM driver release (impacte S30)"
+  - "Sprint S+2 commence vs sprint cible (S19+2=S21 → re-scan §3 S21)"
+audited_findings:
+  - "2026-04-16 S19 deep analysis : D2 Hashcash daté vs Equi-X 2023, S20 keyring crate, S21 grammar ≠ prompt injection defense, S25 Arti 2.0 Feb 2026 disponible, S26+ PQC trop tardif (HNDL liability)"
+-->
+
 # Hardening Roadmap — Sprint 18-30
 
 **Sprint 17 Phase D livrable autoritaire.** Consolide les threats
@@ -264,16 +279,25 @@ median app) :
 
 - **Goal** : commencer Tor integration Gate 3 prep.
 - **Items** :
-  - Tor SOCKS proxy wiring (iroh connection option Tor) — ~800 LOC
-  - Per-app rate budget global coordinator-side — ~300 LOC
+  - Tor SOCKS proxy wiring via Arti standalone subprocess (iroh
+    relay HTTPS fallback over SOCKS5, **NOT** QUIC direct)
+  - Per-app rate budget global coordinator-side
   - RAG sanitization pipeline (detox injection sources externes)
-    — ~600 LOC
-  - Pluggable transports obfs4 integration (fork-patch iroh) —
-    ~400 LOC
-- **LOC total** : ~2100
+  - Pluggable transports : **wire bridge config + lyrebird
+    subprocess** (Tor Project Go binary upstream)
 - **Tests delta** : +55
 - **Dependencies** : S18 multi-relai, S24 domain fronting legal
 - **Gate unlock** : —
+- **Scope reduction documentee** (research deep avril 2026) :
+  l'item original "obfs4 fork-patch iroh ~400 LOC" est
+  **architecturalement infaisable** — Tor refuse UDP par design
+  (cf. [Tor SOCKS extensions spec](https://spec.torproject.org/socks-extensions.html)),
+  donc QUIC-over-Tor impossible. Le Tor mode = **HTTPS relay
+  fallback only**, hole-punching iroh desactive. lyrebird
+  subprocess via Arti gere natif les pluggable transports — pas
+  besoin de fork iroh. Library-embed Arti differe S26+ (API
+  pre-1.x instable, "expect breakage between now and 1.x" cf.
+  [docs.rs/arti-client](https://docs.rs/arti-client/)).
 
 ### Sprint 26 — Tor complete + curator reliable + GPU lockup
 
@@ -281,17 +305,26 @@ median app) :
   reliable-workers + policy no-GPU-sharing.
 - **Items** :
   - Tor transport prod-ready (auto-bootstrap bridge list,
-    fallback) — ~800 LOC
-  - Reliable-workers curator list (extension namespace S10) —
-    ~400 LOC
+    Snowflake broker auto-fetch — **carry S25**)
+  - Arti library-embed migration (subprocess → in-process,
+    **carry S25**, conditionnel arti-client API stable >= 1.0)
+  - Domain fronting implementation (CDN partner signe + ECH
+    config + Snowflake-WebRTC fallback — **carry S24**, conditionnel
+    legal review S24 abouti)
+  - Reliable-workers curator list (extension namespace S10)
   - GPU exclusive lockup (process namespace + cgroups Linux,
-    job object Windows) — ~500 LOC
+    job object Windows)
   - No-sharing policy (worker-core detecte autre process
-    significatif sur GPU, refuse task ou warn) — ~300 LOC
-- **LOC total** : ~2000
+    significatif sur GPU, refuse task ou warn)
 - **Tests delta** : +60
-- **Dependencies** : S25 Tor phase 1, S10 curator infra
+- **Dependencies** : S25 Tor phase 1, S24 domain fronting legal,
+  S10 curator infra
 - **Gate unlock** : —
+- **Carry-overs S24/S25** (research deep avril 2026) : Domain
+  fronting implem differe S24→S26 car majors (Google/AWS/Cloudflare/
+  Fastly) ont ferme 2018-2024, seuls Snowflake-WebRTC + CDN
+  minoritaires + ECH restent — demandent legal partnership prealable.
+  Arti library-embed differe S25→S26 sur condition API stable.
 
 ### Sprint 27 — Watermark model + Sybil mature + Gate 3 push
 

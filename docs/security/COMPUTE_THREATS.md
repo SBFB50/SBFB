@@ -125,6 +125,17 @@ driver NVIDIA peut dumper en cas de crash. Aucun audit trail.
   optionnel) expose via SDK — quick-win pour apps Gate 2+.
 - **Sprint 23** : ephemeral workers — pattern restart apres N
   tasks avec wipe VRAM explicite (`cudaMemset` post-task).
+  **NB cryptographic-erasure best-effort, PAS physical-erasure** :
+  Trail of Bits "LeftoverLocals" 2024 demontre qu'apres
+  `cudaMemset` zero-fill, des fragments persistent dans certaines
+  zones GPU (shared memory inter-process AMD/Apple/Qualcomm,
+  NVIDIA L1 cache evict-pas-zero). `nvidia-smi --gpu-reset`
+  rejete (kill autres processes sur GPU), donc S23 retient
+  `cudaMemset` + drop LRU model + restart process — best-effort
+  acceptable pour Gate 1-3, mais Gate 4 LibanLive exigera TEE
+  H100 confidential compute (S30+) pour resistance T4 forensic
+  GPU-physical. Cf. `.planning/research/S23_design.md` §3.5
+  limites residuelles.
 - **Sprint 30+** : H100 TEE evaluation — pour Gate 4 LibanLive
   uniquement, deploye via relais ONG.
 - **Hors-roadmap SBFB v1** : split inference (complexite >> gain

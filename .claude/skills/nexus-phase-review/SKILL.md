@@ -38,6 +38,47 @@ Complete la couche 2 du process tooling (cf. `docs/claude/TOOLING.md`).
    - Delta tests attendus (plan.md §Phase X critere d'acceptation)
 3. Lire `docs/claude/README.md` §4.3 pour la commande exacte §7.4 verification
 
+### Step 1bis — Pre-flight working tree audit (G5 — obligatoire)
+
+Avant toute autre verification, lister TOUS les modifs trackes ET
+untracked et categorise chacun. Sans cette etape, des modifs accumulees
+peuvent fuiter dans le commit phase ou rester silencieusement non-
+committees apres la phase (anti-pattern observe Sprint 19 : 7 docs
+modifies hors discipline atomique entre Phase A et Phase C).
+
+```bash
+git status --short
+```
+
+Pour chaque ligne du output, classifier en l'une des 4 categories
+ci-dessous. **L'agent DOIT produire la table de categorisation dans
+le body du commit phase** (section "Working tree audit") :
+
+| Categorie | Definition | Action attendue |
+|---|---|---|
+| **PHASE** | Mentionne dans `plan.md §Phase X` (fichiers attendus) | Stage explicite + inclus dans ce commit |
+| **CRAFT** | Planning/research/docs Claude (kickoff, plan, supervision_log, README workflow) modifies pendant la phase | Stage explicite + inclus dans ce commit OU split en commit `chore(planning): ...` distinct AVANT le commit phase |
+| **DEBT** | Scope cut documente kickoff §6 OU tech debt PATTERNS.md | `git stash` ou commit separe `chore(debt): ...` AVANT phase |
+| **NOISE** | Accidentel (node_modules, .env, cache, .pdb, build artefacts) | **BLOQUANT** : ajouter a `.gitignore`, ne JAMAIS stage |
+
+Exemple de categorisation S19 Phase C (si applique) :
+
+```
+M  .claude/agents/nexus-phase-auditor.md          → CRAFT (split commit)
+M  .claude/skills/nexus-phase-review/SKILL.md     → CRAFT (split commit)
+M  .planning/active/sprint19_kickoff.md           → CRAFT (split commit)
+M  .planning/active/sprint19_plan.md              → CRAFT (split commit)
+A  crates/nexus-core-rs/src/tls_pinning.rs       → PHASE
+A  crates/nexus-core-rs/tests/fixtures/relay_test_cert.pem → PHASE
+A  docs/release/RELAY_PIN_BOOTSTRAP.md           → PHASE
+?? cc.json                                        → NOISE → .gitignore
+?? node_modules/                                  → NOISE → .gitignore
+```
+
+**Regle** : aucun commit phase ne peut contenir de mix PHASE+CRAFT
+sans split. Aucun commit ne peut contenir NOISE. Si l'agent observe
+NOISE, **STOP et alerter l'utilisateur** avant de continuer.
+
 ### Step 2 — Verification suites (§7.4)
 
 Lancer les suites pertinentes selon les langages touches dans le diff :
@@ -161,6 +202,42 @@ Anti-pattern a detecter :
 -> remonter a la session : "lancer `mcp__context7__resolve-library-id`
 sur la lib $LIB avant d'ecrire ce code".
 
+### Step 4ter — Horizon long-terme + documentation amont
+
+Verifier l'application de la regle §6.7 `docs/claude/README.md`
+(horizon long terme + doc AVANT code + solution la plus poussee).
+Check a effectuer :
+
+1. **Design doc present** pour nouveaux modules structurants
+   (> 1 sprint de lifetime). Chercher dans `.planning/research/`,
+   `docs/{domain}/`, ou plan §Research consulte. Absent sur
+   nouveau module = P1.
+2. **D1..D5 Day 0 citent alternatives rejetees + rationale**.
+   Une decision sans alternative = P2 (design par reflexe).
+3. **Solution la plus poussee** : si le diff choisit une lib
+   ou un pattern alors qu'une alternative plus auditee /
+   type-safe / fuzzed / FIPS / SLSA existe et n'est pas
+   explicitement rejetee dans le plan = P1.
+4. **Aucune estimation LOC** dans plan.md ou kickoff.md :
+
+   ```bash
+   grep -En 'LOC estim|~\s*[0-9]+\s*LOC|estim.*LOC' \
+     .planning/active/sprint*_{plan,kickoff}.md
+   ```
+
+   Tout match = P2 (contraire a §6.7). Exception : LOC
+   retrospective (mesure de gap a posteriori pour decider
+   scope-cut) est legitime, ex : "le gap reel etait ~300 LOC".
+
+Signal :
+- **PASS** : design doc present + alternatives citees + choix
+  techniquement justifie + aucun LOC estime au plan
+- **CONCERN** : 1 item manquant mais justifiable (phase trivial
+  refactor n'a pas besoin de design doc long)
+- **FAIL** : choix technique courte-vue sans alternative
+  documentee OU design doc manquant pour nouveau module
+  structurant OU estimation LOC presente au plan
+
 ### Step 5 — Verifier scope cuts respectes
 
 Pour chaque item "Scope cuts" du kickoff §6 du sprint en cours :
@@ -185,7 +262,26 @@ done
 l'utilisateur : soit re-defer a un sprint futur, soit rouvrir le cut
 dans le kickoff (mais alors le sprint doit etre re-valide).
 
-### Step 6 — Validation finale
+### Step 6 — Validation finale + rigor signal (G4)
+
+**Critere de verdict explicite** (G4 — inverse l'incitation
+"absence de finding = qualite") :
+
+| Conditions | Verdict |
+|---|---|
+| 0 P0/P1 ET >= 1 finding P2+ documente | **PASS** (audit deep, autorise) |
+| 0 P0/P1 ET 0 finding P2+ | **CONCERN** (audit insuffisant — re-audit requis avec dimension manquee : research-grounding ? horizon long-terme ? working tree ?) |
+| 0 P0/P1 ET 1 finding P2+ avec carry-over explicite dans body | **PASS** (autorise mais entree obligatoire dans `sprint{N+1}_audit_findings.md`) |
+| >= 1 P0 OU >= 1 P1 non resolu | **FAIL** (commit BLOQUE) |
+
+**Rationale** : sur Sprint 19 Phase B, verdict CONCERN→PASS via 2
+mitigations cosmetiques (commit body enrichi, design doc staged) sans
+trouver le vrai probleme (Hashcash daté vs Equi-X 2023, runtime wire
+silencieusement reporté S20 sans entrée audit_findings). Un audit
+qui ne trouve aucun P2+ n'a pas cherché assez — par construction,
+toute phase non-triviale a au moins 1 trade-off discutable.
+
+**Trouver = qualite d'audit, pas absence = qualite**.
 
 Produire un rapport markdown concis :
 
@@ -193,6 +289,14 @@ Produire un rapport markdown concis :
 # Phase Review — Sprint N Phase X
 
 ## Verdict : PASS | CONCERN | FAIL
+
+(Rigor signal : N findings P2+ documentes / >=1 requis pour PASS rigoureux)
+
+## Working tree audit (Step 1bis)
+- PHASE : <count> fichiers <list>
+- CRAFT : <count> fichiers <list> (split commit `chore(planning)` requis ?)
+- DEBT : <count> fichiers <list> (stash ou commit separe ?)
+- NOISE : <count> fichiers <list> (BLOQUANT si >0)
 
 ## Suites
 - Rust : 430 -> 437 (+7) ✅
@@ -202,6 +306,7 @@ Produire un rapport markdown concis :
 
 ## Commit body validation
 - Format titre : ✅ "feat(sprint18): Sprint 18 Phase B — reproducible builds"
+- Section "Working tree audit" presente : ✅ / ❌
 - Delta tests coherent : ✅
 - Scope cuts honoured : ✅
 - Co-Authored-By present : ✅
@@ -210,8 +315,20 @@ Produire un rapport markdown concis :
 - "multi-relai phase 2" : 0 fichiers diff ✅
 - "mobile client" : 0 fichiers diff ✅
 
+## Horizon long-terme + documentation amont
+- Design doc present (nouveaux modules) : ✅ / ❌
+- D1..D5 avec alternatives + rationale : ✅ / ❌
+- Solution la plus poussee (pas de courte-vue) : ✅ / ❌
+- Aucune LOC estimee au plan : ✅ / ❌
+
+## Findings (rigor signal — REQUIS >=1 P2+ pour PASS)
+- **P2** : <description + file:line + carry-over si applicable>
+- **P3** : <nit>
+- (si 0 P2+ : VERDICT = CONCERN, lister dimensions sous-explorees)
+
 ## Recommendation
 - Ready to commit : oui / non
+- Carry-overs S{N+1} (P2+ non resolus) : <liste pour `sprint{N+1}_audit_findings.md`>
 - Corrections needed : <liste si non>
 ```
 

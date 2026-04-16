@@ -50,6 +50,23 @@ Si info manquante, auto-detect :
 - Phase depuis `git log -20 --format=%s | grep "Phase X"` (prend
   la X qui suivrait logiquement la derniere committee)
 
+## Calibration rigor (G4 — obligatoire avant Step 1)
+
+Cet audit visera **>= 1 finding P2+** documente, meme si carry-over.
+
+Rationale : par construction, toute phase non-triviale a au moins
+un trade-off discutable. Un audit qui retourne 0 P2+ a sous-explore
+au moins une dimension (research-grounding obsolete ? horizon
+long-terme ? working tree audit ? scope-cut leak ?). Verdict
+**CONCERN** dans ce cas, pas PASS.
+
+L'absence de finding n'est PAS un signal de qualite ; **trouver
+des findings est le signal de qualite d'audit**. Sur Sprint 19
+Phase B, 0 P2+ trouve sur le fond (Hashcash daté vs Equi-X Tor
+2023, runtime wire reporte S20 sans entree audit_findings) malgre
+2 P2 cosmetiques resolu→ verdict CONCERN→PASS trompeusement
+rassurant. Inverser cette dynamique.
+
 ## Procedure
 
 ### Step 1 — Contexte sprint
@@ -100,6 +117,30 @@ Pour chaque pattern PN cite :
 Tech debt tracked (T-NN items) : si le diff touche du code en
 tech debt, verifier qu'il resout vraiment le T-NN ou qu'il
 documente pourquoi il le reporte.
+
+### Step 3bis — Dimension Working tree audit (G5)
+
+Avant scope-cuts, lister TOUS les modifs trackes ET untracked et les
+categorise. Anti-pattern observe Sprint 19 : 7 docs Claude/planning
+modifies silencieusement entre Phase A et Phase C, accumules hors
+discipline atomique. Phase B `edfc51b` a livre 6/10 fichiers attendus
+a cause d'un desindexage accidentel post-audit-gate retry.
+
+```bash
+git status --short
+```
+
+Categoriser chaque ligne :
+
+| Categorie | Definition | Verdict si present hors phase |
+|---|---|---|
+| **PHASE** | Liste dans `plan.md §Phase X` | ✓ attendu |
+| **CRAFT** | Planning / research / docs Claude (kickoff, plan, README, SKILL) | **P2** : split commit `chore(planning)` requis AVANT phase |
+| **DEBT** | Scope cut (`kickoff §6`) ou tech debt PATTERNS.md | **P1** : remettre dans scope futur ou commit separe |
+| **NOISE** | Accidentel (node_modules, .pdb, .env, cache) | **P0** : ajouter a `.gitignore`, jamais stage |
+
+Le body commit phase **DOIT contenir une section "Working tree
+audit"** listant la categorisation. Absence = P2 (non-tracable).
 
 ### Step 4 — Dimension Scope-cuts
 
@@ -162,6 +203,50 @@ Ne refais PAS les recherches context7 toi-meme sauf si absolument
 necessaire pour valider un P1/P0. Ton role est de CHECK que la session
 l'a fait, pas de le faire a sa place.
 
+### Step 4ter — Dimension Horizon long-terme + documentation amont
+
+Regle critique du projet (cf. `docs/claude/README.md` §6.7 +
+memory `feedback_approach.md` §« horizon long terme + documentation
+AVANT code ») : chaque decision doit s'evaluer a 2 ans / 10x charge
+/ 100 contributeurs, la solution retenue doit etre la plus poussee
+techniquement (pas la plus simple), et un design doc doit exister
+AVANT le code.
+
+Check a effectuer sur le diff :
+
+1. **Design doc present** : la phase touche un nouveau module
+   structurant (> 1 sprint de lifetime) -> une trace ecrite dans
+   `.planning/research/`, `docs/{domain}/`, ou §Research consulte
+   du plan doit exister AVANT le code. Sans ca, le P1 est
+   "reflexion invisible, irreproductible".
+2. **Alternatives rejetees citees** : les D1..D5 du kickoff
+   doivent enumerer les alternatives considerees + rationale du
+   rejet. Une decision sans alternative citee = P2 (design par
+   reflexe au lieu de design par arbitrage).
+3. **Solution la plus poussee** : si le diff choisit une lib /
+   un pattern alors qu'une alternative plus auditee, plus
+   type-safe, plus fuzzed, plus FIPS, plus SLSA existe et n'est
+   pas explicitement rejetee dans le plan -> P1. Exemple typique :
+   crypto maison au lieu d'une lib auditee (aws-lc-rs vs rustcrypto
+   selon contexte FIPS), serde_json au lieu de JCS canonique sur
+   du wire format, RwLock au lieu d'un type-state machine pour
+   un lifecycle a N etats.
+4. **Aucune estimation LOC dans plan/kickoff** : grep
+   `plan.md|kickoff.md` pour `LOC estimee|~\s*\d+\s*LOC|estime.*LOC`.
+   Toute mention au plan = P2 (contraire a §6.7). Exception : LOC
+   retrospective (mesure de gap a posteriori pour decider scope-cut)
+   est legitime. Si l'executeur a introduit une estimation au plan,
+   remonter pour suppression.
+
+Signal :
+- **PASS** : design doc present + alternatives citees + choix
+  techniquement justifie + aucun LOC estime
+- **CONCERN** : 1 item manquant mais justifiable (ex: phase trivial
+  refactor, pas besoin de design doc long)
+- **FAIL** : choix technique courte-vue sans alternative documentee,
+  OU design doc manquant pour un nouveau module structurant, OU
+  estimation LOC presente au plan
+
 ### Step 5 — Dimension Tests-delta
 
 L'utilisateur t'a fourni le draft commit body avec les deltas
@@ -191,9 +276,10 @@ Timebox: {mm}m
 
 ## Verdict : PASS | CONCERN | FAIL
 
-(PASS = 0 finding P0/P1, commit autorise)
-(CONCERN = findings P2/P3 only, commit autorise avec note)
-(FAIL = >=1 P0 ou >=1 P1, commit BLOQUE)
+(PASS = 0 P0/P1 ET >=1 P2+ documente — rigor signal G4)
+(PASS-with-carry = 0 P0/P1 ET 1 P2+ avec entree obligatoire dans `sprint{N+1}_audit_findings.md`)
+(CONCERN = 0 P0/P1 ET 0 P2+ — audit insuffisant, re-auditer dimension manquee)
+(FAIL = >=1 P0 OU >=1 P1, commit BLOQUE)
 
 ## Dimensions
 
@@ -205,6 +291,13 @@ Timebox: {mm}m
 ### Patterns
 - [ ] docs/rust/PATTERNS.md PN : respect / drift (detail)
 - [ ] docs/shell/PATTERNS.md PN : ...
+
+### Working tree audit (G5)
+- [ ] PHASE : <count> fichiers attendus / Plan §Phase X
+- [ ] CRAFT : <count> fichiers planning/docs (split commit fait ?)
+- [ ] DEBT : <count> fichiers tech debt (separation respectee ?)
+- [ ] NOISE : 0 (sinon P0 — `.gitignore` requis)
+- [ ] Section "Working tree audit" presente dans body commit
 
 ### Scope-cuts
 - [ ] Aucun scope cut touche (list items grepped)
@@ -222,6 +315,13 @@ Timebox: {mm}m
 - [ ] package.json deps : traces ?
 - [ ] API crypto / specs standardisees (SLSA, in-toto, PQC, etc.) : traces ?
 - Pattern manquant : (lister P0/P1 findings)
+
+### Horizon long-terme + documentation amont
+- [ ] Design doc present (`.planning/research/` ou `docs/{domain}/`) pour nouveaux modules structurants ?
+- [ ] D1..D5 citent les alternatives rejetees + rationale ?
+- [ ] Solution la plus poussee (pas de courte-vue "rapide a livrer") ?
+- [ ] Aucune estimation LOC dans plan.md ou kickoff.md ?
+- Pattern manquant : (lister P0/P1/P2 findings)
 
 ## Findings (if any)
 
