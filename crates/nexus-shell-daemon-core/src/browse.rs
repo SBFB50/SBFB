@@ -35,15 +35,18 @@
 //! aggregator is pure consumer: iterate curator lists, probe,
 //! format.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
-use nexus_core_rs::{CuratorListEntry, DiscoveryClient, Node};
+use nexus_core_rs::{
+    redundant_resolve, CuratorListEntry, DiscoveryClient, Node, QuorumError, QuorumResolver,
+};
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::iroh_runtime::CuratorRuntime;
 
@@ -61,6 +64,18 @@ pub const DEFAULT_PROBE_TTL: Duration = Duration::from_secs(60);
 /// `NEXUS_PROBE_TIMEOUT_MS` environment variable. The constant
 /// is the fallback when the env var is absent or unparseable.
 pub const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Default per-resolver budget for the Sprint 19 Phase A pkarr
+/// quorum canary. Each of the N resolvers handed to
+/// [`nexus_core_rs::redundant_resolve`] runs under this budget ;
+/// three concurrent timeouts of `T` seconds each complete in
+/// worst-case ~`T` seconds wall-clock because the quorum layer
+/// fans them out through a [`tokio::task::JoinSet`]. Picked at
+/// 3 s — longer than the 2 s probe timeout so a slow pkarr
+/// relay gets a fair chance before the quorum counts it as
+/// errored, short enough that the aggregator call stays
+/// responsive to a shell refresh burst.
+pub const DEFAULT_QUORUM_LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Read the probe timeout from the `NEXUS_PROBE_TIMEOUT_MS`
 /// environment variable, falling back to [`DEFAULT_PROBE_TIMEOUT`]
@@ -208,7 +223,6 @@ struct ProbeCacheEntry {
 /// Holds a project-id → probe-cache DashMap, a map of directly
 /// announced projects (Sprint 11 Phase A), and the two
 /// aggregator-level duration knobs. Cloneable via `Arc`.
-#[derive(Debug)]
 pub struct BrowseAggregator {
     cache: DashMap<String, ProbeCacheEntry>,
     /// Projects announced via gossip directly (self-publish),
@@ -216,6 +230,41 @@ pub struct BrowseAggregator {
     direct_entries: DashMap<String, BrowseEntry>,
     probe_ttl: Duration,
     probe_timeout: Duration,
+    /// Sprint 19 Phase A : optional pkarr quorum resolvers used
+    /// as an eclipse-defence canary before dialing. When set and
+    /// [`nexus_core_rs::redundant_resolve`] returns
+    /// [`QuorumError::NoMajority`] or [`QuorumError::AllFailed`],
+    /// the probe is skipped and the entry is cached as
+    /// `Unreachable` without a dial attempt. When the quorum
+    /// agrees, the probe continues through the standard iroh
+    /// discovery path (`presets::N0`). `None` preserves the
+    /// pre-Sprint-19 single-lookup behaviour byte-for-byte, so
+    /// tests that do not opt in see no change.
+    quorum_resolvers: Option<Arc<Vec<Arc<dyn QuorumResolver>>>>,
+    /// Per-resolver timeout inside
+    /// [`nexus_core_rs::redundant_resolve`]. Ignored when
+    /// `quorum_resolvers` is `None`.
+    quorum_per_lookup_timeout: Duration,
+}
+
+impl fmt::Debug for BrowseAggregator {
+    // Custom Debug avoids requiring `Debug` on `dyn QuorumResolver`
+    // (the trait is intentionally minimal) and surfaces the
+    // aggregator's invariants — cache size, number of wired
+    // resolvers, duration knobs — without dumping opaque entries.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BrowseAggregator")
+            .field("cache_len", &self.cache.len())
+            .field("direct_entries_len", &self.direct_entries.len())
+            .field("probe_ttl", &self.probe_ttl)
+            .field("probe_timeout", &self.probe_timeout)
+            .field(
+                "quorum_resolver_count",
+                &self.quorum_resolvers.as_ref().map(|v| v.len()).unwrap_or(0),
+            )
+            .field("quorum_per_lookup_timeout", &self.quorum_per_lookup_timeout)
+            .finish()
+    }
 }
 
 impl BrowseAggregator {
@@ -235,7 +284,35 @@ impl BrowseAggregator {
             direct_entries: DashMap::new(),
             probe_ttl,
             probe_timeout,
+            quorum_resolvers: None,
+            quorum_per_lookup_timeout: DEFAULT_QUORUM_LOOKUP_TIMEOUT,
         }
+    }
+
+    /// Sprint 19 Phase A : attach a pkarr quorum resolver set to
+    /// the aggregator. On every cache-miss probe, the aggregator
+    /// first consults [`nexus_core_rs::redundant_resolve`] over
+    /// this set ; a clean majority green-lights the downstream
+    /// dial, a no-majority or all-failed result short-circuits to
+    /// `Unreachable` without a dial attempt. The returned
+    /// aggregator is chainable so the daemon boot can write
+    /// `BrowseAggregator::new().with_quorum_resolvers(resolvers)`.
+    ///
+    /// Supplying an empty vector is a caller bug — the canary
+    /// gate then degrades to a warn-logged passthrough rather
+    /// than a hard failure so the daemon still boots. Three
+    /// resolvers are the intended shape ; one or two resolvers
+    /// run as unanimity-quorum (weaker defence but functional).
+    pub fn with_quorum_resolvers(mut self, resolvers: Vec<Arc<dyn QuorumResolver>>) -> Self {
+        self.quorum_resolvers = Some(Arc::new(resolvers));
+        self
+    }
+
+    /// Number of pkarr quorum resolvers currently wired. `0` when
+    /// the aggregator was not opted into the Sprint 19 Phase A
+    /// canary gate (default for tests).
+    pub fn quorum_resolver_count(&self) -> usize {
+        self.quorum_resolvers.as_ref().map(|v| v.len()).unwrap_or(0)
     }
 
     /// Return the current cached reachability bucket for
@@ -253,23 +330,91 @@ impl BrowseAggregator {
     /// is reachable right now. Updates the cache with the
     /// returned bucket.
     ///
-    /// Sprint 19+ carry-over (audit S18 finding C-1) : the call
-    /// below resolves through `DiscoveryClient::probe_reachable`,
-    /// which delegates to whatever single resolver iroh-relay 0.97
-    /// picks. The Sprint 18 Phase C primitive
-    /// `nexus_core_rs::dht_quorum::redundant_resolve` is the
-    /// drop-in replacement once iroh-relay exposes a per-pkarr-
-    /// relay lookup we can wrap as three [`QuorumResolver`]s and
-    /// require 2/3 agreement on the resolved record. Until then
-    /// the primitive lives in `nexus-core-rs` ready-to-wire and
-    /// the eclipse-by-DHT defence remains partial — the gate is
-    /// flagged as `[~]` rather than `[x]` in
-    /// `sprint18_verification.md §Gate 1 unlock`.
+    /// Sprint 19 Phase A wires the pkarr quorum canary in front
+    /// of the probe : when [`Self::with_quorum_resolvers`] has
+    /// been called, three concurrent pkarr lookups run through
+    /// [`nexus_core_rs::redundant_resolve`]. A clean ≥ 2/3
+    /// agreement green-lights the downstream
+    /// [`DiscoveryClient::probe_reachable`] dial — iroh then
+    /// resolves the peer through its own preset-`N0` discovery
+    /// path as before. A no-majority or all-failed verdict marks
+    /// the entry `Unreachable` and caches it **without** a dial
+    /// attempt, because an incoherent quorum is the exact
+    /// signature of an Eclipse-by-DHT attack (one or two relays
+    /// serving a forged or stale record). This closes the
+    /// Sprint 18 audit finding C-1 (P2 carry-over) : the
+    /// primitive shipped in Sprint 18 now has a production call
+    /// site, flipping the Eclipse-by-DHT defence from
+    /// primitive-prete to runtime-active (`[~]` → `[x]` in
+    /// `sprint18_verification.md §Gate 1 unlock`).
     async fn probe_and_cache(
         &self,
         node: &Node,
         project_id_hex: &str,
     ) -> (BrowseStatus, SystemTime) {
+        // Sprint 19 Phase A canary gate. `None` preserves the
+        // pre-Sprint-19 behaviour byte-for-byte so the existing
+        // test fleet does not need to be opted in.
+        if let Some(resolvers) = self.quorum_resolvers.as_ref() {
+            if resolvers.is_empty() {
+                // with_quorum_resolvers(Vec::new()) is a caller
+                // bug — warn and fall through rather than hard
+                // fail so the daemon still answers /browse.
+                warn!(
+                    project_id = %project_id_hex,
+                    "pkarr quorum resolver set is empty — falling through to direct probe"
+                );
+            } else {
+                match redundant_resolve(
+                    project_id_hex,
+                    resolvers.as_slice(),
+                    self.quorum_per_lookup_timeout,
+                )
+                .await
+                {
+                    Ok(record) => {
+                        debug!(
+                            project_id = %project_id_hex,
+                            agreeing = record.agreeing.len(),
+                            dissenting = record.dissenting.len(),
+                            "pkarr quorum agreed — proceeding to probe"
+                        );
+                        // Fall through to the standard probe.
+                    }
+                    Err(QuorumError::NoMajority {
+                        ok_count,
+                        max_agreement,
+                    }) => {
+                        warn!(
+                            project_id = %project_id_hex,
+                            ok_count,
+                            max_agreement,
+                            "pkarr quorum no-majority — marking Unreachable without dial (Eclipse-by-DHT defence active)"
+                        );
+                        return self.record_unreachable(project_id_hex);
+                    }
+                    Err(QuorumError::AllFailed { count }) => {
+                        warn!(
+                            project_id = %project_id_hex,
+                            count,
+                            "all pkarr quorum resolvers failed — marking Unreachable without dial"
+                        );
+                        return self.record_unreachable(project_id_hex);
+                    }
+                    Err(QuorumError::Empty) => {
+                        // Unreachable in practice because we already
+                        // filtered is_empty() above, but matched so
+                        // the compiler exhaustiveness is preserved
+                        // if the variant set grows.
+                        warn!(
+                            project_id = %project_id_hex,
+                            "pkarr quorum returned Empty — falling through to direct probe"
+                        );
+                    }
+                }
+            }
+        }
+
         let disco = DiscoveryClient::new(node.endpoint());
         let now = SystemTime::now();
         let status = match disco
@@ -296,6 +441,23 @@ impl BrowseAggregator {
             },
         );
         (status, now)
+    }
+
+    /// Cache `Unreachable` for `project_id_hex` and return the
+    /// `(status, now)` tuple probe_and_cache expects. Extracted
+    /// into a helper so the Sprint 19 Phase A canary and the
+    /// legacy error branches share one code path and stay in
+    /// lockstep.
+    fn record_unreachable(&self, project_id_hex: &str) -> (BrowseStatus, SystemTime) {
+        let now = SystemTime::now();
+        self.cache.insert(
+            project_id_hex.to_string(),
+            ProbeCacheEntry {
+                status: BrowseStatus::Unreachable,
+                probed_at: now,
+            },
+        );
+        (BrowseStatus::Unreachable, now)
     }
 
     /// Add a directly announced project (self-publish via gossip).
@@ -916,6 +1078,129 @@ mod tests {
     // ---------------------------------------------------------
     // E-1 — probe_timeout_from_env
     // ---------------------------------------------------------
+
+    // ---------------------------------------------------------
+    // Sprint 19 Phase A — pkarr quorum canary gate
+    // ---------------------------------------------------------
+
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+
+    /// Minimal mock resolver for the Phase A canary tests. We
+    /// cannot reuse `dht_quorum::tests::MockResolver` because
+    /// that one is private to its test module — and that is the
+    /// right call : the quorum test mock is a fixture for the
+    /// quorum layer's invariants, not a public facade. Here we
+    /// only need a knob for `Ok(bytes)` / `Err(msg)` per resolver.
+    struct QuorumMock {
+        label: String,
+        response: Mutex<Option<anyhow::Result<Vec<u8>>>>,
+    }
+
+    impl QuorumMock {
+        fn ok(label: &str, bytes: &[u8]) -> Arc<dyn QuorumResolver> {
+            Arc::new(Self {
+                label: label.into(),
+                response: Mutex::new(Some(Ok(bytes.to_vec()))),
+            })
+        }
+
+        fn fail(label: &str, msg: &str) -> Arc<dyn QuorumResolver> {
+            Arc::new(Self {
+                label: label.into(),
+                response: Mutex::new(Some(Err(anyhow::anyhow!("{msg}")))),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl QuorumResolver for QuorumMock {
+        fn label(&self) -> &str {
+            &self.label
+        }
+
+        async fn resolve(&self, _node_id: &str) -> anyhow::Result<Vec<u8>> {
+            self.response
+                .lock()
+                .unwrap()
+                .take()
+                .expect("QuorumMock consumed twice — use a fresh one per test")
+        }
+    }
+
+    #[tokio::test]
+    async fn probe_and_cache_skips_dial_when_quorum_has_no_majority() {
+        // Three resolvers return three different byte strings →
+        // `QuorumError::NoMajority`. The canary must short-circuit
+        // to Unreachable WITHOUT reaching probe_reachable (the
+        // dial would otherwise take 2 s against an unknown id ;
+        // the ~50 ms wall-clock budget below proves the probe
+        // was bypassed).
+        let resolvers: Vec<Arc<dyn QuorumResolver>> = vec![
+            QuorumMock::ok("r1", b"one"),
+            QuorumMock::ok("r2", b"two"),
+            QuorumMock::ok("r3", b"three"),
+        ];
+        let agg = BrowseAggregator::new().with_quorum_resolvers(resolvers);
+        assert_eq!(agg.quorum_resolver_count(), 3);
+
+        let node = spawn_node().await;
+        let unknown_id = "a".repeat(64);
+
+        let start = std::time::Instant::now();
+        let (status, _ts) = agg.probe_and_cache(&node, &unknown_id).await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            status,
+            BrowseStatus::Unreachable,
+            "quorum no-majority must cache Unreachable"
+        );
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "probe must be skipped entirely on no-majority, got {elapsed:?} wall clock"
+        );
+        assert_eq!(
+            agg.cached(&unknown_id),
+            Some(BrowseStatus::Unreachable),
+            "Unreachable verdict must be written to the probe cache for TTL reuse"
+        );
+
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn probe_and_cache_skips_dial_when_all_quorum_resolvers_fail() {
+        // All three resolvers error out →
+        // `QuorumError::AllFailed`. Same expected behaviour as
+        // the no-majority branch : Unreachable + cached + no
+        // dial. Kept as a distinct test so a regression
+        // collapsing the two branches into one code path would
+        // break whichever scenario was dropped.
+        let resolvers: Vec<Arc<dyn QuorumResolver>> = vec![
+            QuorumMock::fail("r1", "connection refused"),
+            QuorumMock::fail("r2", "dns resolution failed"),
+            QuorumMock::fail("r3", "tls handshake timeout"),
+        ];
+        let agg = BrowseAggregator::new().with_quorum_resolvers(resolvers);
+
+        let node = spawn_node().await;
+        let any_id = "b".repeat(64);
+
+        let (status, _ts) = agg.probe_and_cache(&node, &any_id).await;
+        assert_eq!(
+            status,
+            BrowseStatus::Unreachable,
+            "all-failed quorum must cache Unreachable"
+        );
+        assert_eq!(
+            agg.cached(&any_id),
+            Some(BrowseStatus::Unreachable),
+            "Unreachable verdict must be written to the probe cache"
+        );
+
+        node.shutdown().await.ok();
+    }
 
     #[test]
     fn probe_timeout_env_override_parses_valid_ms() {

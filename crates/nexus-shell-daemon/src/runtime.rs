@@ -34,7 +34,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::{anyhow, Context, Result};
-use nexus_core_rs::{create_node, GossipClient, GossipEvent, Node};
+use nexus_core_rs::{create_node, load_quorum_resolvers_from_env, GossipClient, GossipEvent, Node};
 use nexus_shell_daemon_core::auth;
 use nexus_shell_daemon_core::browse::{
     BrowseAggregator, BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
@@ -227,7 +227,39 @@ impl DaemonRuntime {
         //     it is always instantiated at boot; GET /browse
         //     reaches through this handle + the Arc<Node> to
         //     probe each project's reachability on demand.
-        let browse_aggregator: BrowseAggregatorHandle = Arc::new(BrowseAggregator::new());
+        //
+        //     Sprint 19 Phase A : if `SBFB_PKARR_RELAYS` is set,
+        //     wire the pkarr quorum canary so probe_and_cache
+        //     short-circuits to Unreachable on an incoherent
+        //     multi-relay lookup (Eclipse-by-DHT defence active
+        //     in production). When the env var is absent the
+        //     aggregator boots without the canary — behaviour is
+        //     byte-for-byte the pre-Sprint-19 path.
+        let quorum_resolvers = load_quorum_resolvers_from_env()
+            .context("failed to build pkarr quorum resolvers from SBFB_PKARR_RELAYS env")?;
+        let browse_aggregator: BrowseAggregatorHandle = {
+            let mut agg = BrowseAggregator::new();
+            if let Some(resolvers) = quorum_resolvers {
+                let count = resolvers.len();
+                agg = agg.with_quorum_resolvers(resolvers);
+                if count < 2 {
+                    warn!(
+                        count,
+                        "pkarr quorum canary armed with a single relay — inter-relay cross-checking requires 2+ distinct URLs (SBFB_PKARR_RELAYS)"
+                    );
+                } else {
+                    info!(
+                        count,
+                        "pkarr quorum canary armed — Eclipse-by-DHT defence active"
+                    );
+                }
+            } else {
+                info!(
+                    "pkarr quorum canary disabled (SBFB_PKARR_RELAYS not set) — browse probes use the default iroh N0 discovery path"
+                );
+            }
+            Arc::new(agg)
+        };
 
         // 5c. Sprint 11 Phase A: shared gossip sender slot. Set to
         //     `Some(sender)` once the gossip task joins the topic.

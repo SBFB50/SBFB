@@ -42,6 +42,7 @@ pub mod docs;
 pub mod error;
 pub mod gossip;
 pub mod node;
+pub mod pkarr_resolver;
 pub mod relay_config;
 pub mod task;
 pub mod verification;
@@ -63,6 +64,10 @@ pub use docs::{DocHandle, DocsClient};
 pub use error::{NexusError, Result};
 pub use gossip::{GossipClient, GossipEvent, TopicHandle, TopicReceiver, TopicSender};
 pub use node::{create_node, create_node_with_config, Node, NodeConfig};
+pub use pkarr_resolver::{
+    load_quorum_resolvers_from_env, PkarrQuorumResolver, CUSTOM_PKARR_RELAYS_ENV,
+    DEFAULT_PKARR_RELAY_URL,
+};
 pub use relay_config::{
     load_relay_map, relays_file_path, validate_relay_url, RelayEntry, RelayListFile,
     CUSTOM_RELAYS_ENV, DEV_MODE_ENV, RELAYS_FILE_NAME, SBFB_HOME_ENV,
