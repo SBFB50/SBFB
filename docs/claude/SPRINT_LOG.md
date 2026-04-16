@@ -18,7 +18,7 @@ Pour le sprint en cours, voir
 |---|---|---|---|---|
 | 16 | DONE + CONDITIONAL PASS levé | `d18e19e` (gate close landed) | 6 (Phase 0 gate + A-D + docs) + 7 (findings + C3 + D1 + C1/C2 + chore protocol + C4 + log update) | 6 docs (kickoff, plan, verification, audit_plan, audit_findings) + docs/security/ (README + THREAT_MODEL + RUNTIME_ISOLATION) |
 | 17 | DONE + scope-cut Phase E acte | `<wrap-up>` (close + scope-cut + migrate) | 6 (A `297fd50` + B `c275ebd` + C `7dea299` + D `872f48a` + BLUEPRINT bonus `721686c` + F wrap-up) | 6 docs security (`ADVERSARIES.md` + 6 fiches T0-T5 dir `adversaries/` + `ATTACK_SCENARIOS.md` + `P2P_THREATS.md` + `COMPUTE_THREATS.md` + `HARDENING_ROADMAP.md` + `VALIDATED_BLUEPRINT.md`) + planning (kickoff/plan/verification/audit_plan) migre archive/v1.2/ |
-| 18 | DONE + Gate 1 UNLOCKED + pivot E3 Radicle→Codeberg + audit gate S18 leve via `677556f` (D-1 wire TokenRotator) | `4453bfd` (wrap-up) → `677556f` (audit gate close) | 8 + 1 audit fix (A supply-chain + B `4ab0211` repro + C `9d0ad7a` multi-relai + D `94cccb2` wire+token + E1 `9f4d19f` driver + E2 `04c9621` canary + E3 `95807b1` Codeberg mirror + F `4453bfd` wrap-up + audit-P1 `677556f` D-1 wire TokenRotator post-wrap-up) | 10 docs planning (kickoff, plan, verification, audit_plan, **6 phase reviews B/C/D/E1/E2/E3** — correction post-audit S18 finding F-1, l'entree d'origine disait "5 phase reviews B/C/D/E2/E3" par omission de E1) + `docs/release/MIRROR_FALLBACK.md` + `CANARY.txt` bootstrap + `scripts/verify-canary.sh` + `docs/release/REPRODUCIBLE_BUILDS.md` + `.github/workflows/` (supply-chain + canary-monthly + mirror-codeberg) — tous migres archive/v1.2/ |
+| 18 | DONE + Gate 1 UNLOCKED + pivot E3 Radicle→Codeberg + audit gate S18 leve via 6 commits `677556f..1a606a3` (1 P1 + 4 P2 + P3 batch) | `4453bfd` (wrap-up) → `1a606a3` (audit gate close) | 8 + 6 audit fixes (A supply-chain + B `4ab0211` repro + C `9d0ad7a` multi-relai + D `94cccb2` wire+token + E1 `9f4d19f` driver + E2 `04c9621` canary + E3 `95807b1` Codeberg mirror + F `4453bfd` wrap-up + audit-P1 `677556f` D-1 wire TokenRotator + audit-P2 `0fb8458` F-1/F-2 docs hygiene + `9661485` A-1 drop `--workspace` cargo-deny + `6fe2dce` B-1 wheel SLSA attestation + `e223ec7` C-1 DHT quorum primitive-only clarification + audit-P3 `1a606a3` batch buildType URI + parse_version warn + RADICLE casing) | 11 docs planning (kickoff, plan, verification, audit_plan, audit_findings, **7 phase reviews B/C/D/E1/E2/E3 + F wrap-up review**) + `docs/release/MIRROR_FALLBACK.md` + `CANARY.txt` bootstrap + `scripts/verify-canary.sh` + `docs/release/REPRODUCIBLE_BUILDS.md` + `.github/workflows/` (supply-chain + canary-monthly + mirror-codeberg) — tous migres archive/v1.2/ |
 
 **Faits saillants** :
 
@@ -139,6 +139,37 @@ Detail : [`.planning/archive/v1.2/`](../../.planning/archive/v1.2/).
   Pivot notable : repo GitHub `SBFB50/SBFB` prive pre-launch +
   Radicle P2P public-only = Codeberg prive maintenant, flip
   Radicle differe au tag v1.0 go-live avec runbook self-contained.
+
+  **Audit gate S18 joue en Phase 0 Sprint 19** (2026-04-15, session
+  fraiche post-`4453bfd`) : verdict CONDITIONAL PASS avec 0 P0 + 1
+  P1 + 5 P2 + 6 P3. Fermeture via 6 commits :
+  - `677556f` D-1 (P1) : wire `TokenRotator` via `AuthState::
+    Rotated(Arc<RwLock<TokenRotator>>)` + `notify` file-watcher
+    sur `tokens.json` (pattern S16 ConsentWatcher). Rotation 24h
+    passe de primitive livree a effective au runtime. +4 tests
+    Rust (Rotated accepts current+previous, post-overlap reject,
+    Static non-regression, file-watcher reload).
+  - `0fb8458` F-1+F-2 (P2) : resolve 4 docs hygiene discrepancies
+    (phase_E1_review presence + file count 9→10 + "5 reviews"→"6
+    reviews" + tip placeholders `<wrap-up>`/`<A>` resolus reel).
+  - `9661485` A-1 (P2) : drop `arg: --workspace` du job cargo-deny
+    (default depuis v0.14, rejete par versions modernes).
+  - `6fe2dce` B-1 (P2) : ajouter le wheel `nexus-core-py` a la
+    matrix `release.yml` avec attestation SLSA in-toto (parite
+    avec nexus-worker / nexus-shell-daemon / nexus-launcher).
+  - `e223ec7` C-1 (P2) : clarifier `verification.md §Gate 1` que
+    DHT quorum est livre comme **primitive prete, runtime wiring
+    S19+**. Pas de wire au browse aggregator ce sprint (carry-
+    over).
+  - `1a606a3` P3 batch (3 nits) : buildType URI SLSA slsa.dev/
+    build-type/custom + `parse_version` warn sur segment
+    non-numerique + RADICLE_PROJECT_NAME casing align.
+
+  Compteurs finals post-gate : **478 Rust** (474→478 +4 audit fix)
+  / 183 SDK / 187+3 coord / 46 gov / 239 Vitest / 38 Playwright /
+  7/7 size / 246+ SPDX (~1176 tests). **CONDITIONAL PASS LEVE**.
+  Carry-overs S19 : C-1 wire `redundant_resolve` au browse
+  aggregator + Meta-1 Radicle-v1.0 activation tracking.
 
 ---
 

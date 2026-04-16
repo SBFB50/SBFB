@@ -153,12 +153,13 @@ Roadmap runtime isolation (WSL2 / Virtualization.framework /
 systemd-nspawn) pour Sprint 17+ dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
-## Etat actuel (2026-04-15, master tip post-S18 audit gate `677556f`)
+## Etat actuel (2026-04-16, master tip post-S18 audit gate `1a606a3`)
 - **Sprints 0-18 CLOSED + audit gate S18 leve** (joue par session
-  fraiche 2026-04-15, verdict CONDITIONAL PASS → leve via fix
-  D-1). v1.2 en cours. Gate 1 (DnD Forge beta fermee) **UNLOCKED**
-  + token rotation X-SBFB-Token desormais effective au runtime
-  (carry-over phase D ferme via `677556f`).
+  fraiche 2026-04-15, verdict CONDITIONAL PASS → leve via 6
+  commits `677556f..1a606a3` — 1 P1 + 4 P2 + batch P3). v1.2 en
+  cours. Gate 1 (DnD Forge beta fermee) **UNLOCKED** + token
+  rotation X-SBFB-Token desormais effective au runtime (D-1 wire
+  via `677556f`).
 - **478 Rust** / 183 SDK / 187+3 skipped coordinator / 46 app-gov
   / 239 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
   (~1176 tests total) — tous verts. Delta S18 Rust : +44 ; delta
@@ -218,7 +219,18 @@ systemd-nspawn) pour Sprint 17+ dans
   + wire + driver check + canary + mirror = DnD Forge beta fermee
   deployable). Audit gate S18 = Sprint 19 Phase 0 via
   `.planning/archive/v1.2/sprint18_audit_plan.md` (tracks A-F +
-  meta-track Radicle-v1.0 activation tracking).
+  meta-track Radicle-v1.0 activation tracking). Audit findings S18
+  livres verdict CONDITIONAL PASS (1 P1 + 5 P2 + 6 P3), tous leves
+  via 6 commits : `677556f` D-1 wire TokenRotator + file-watcher
+  tokens.json ; `0fb8458` F-1+F-2 docs hygiene (phase_E1_review
+  presence + file-count 10 + tip placeholders) ; `9661485` A-1
+  drop `--workspace` cargo-deny job (deprecated v0.14+) ; `6fe2dce`
+  B-1 wheel SLSA attestation in release matrix ; `e223ec7` C-1
+  DHT quorum primitive-only clarification (runtime wire S19+) ;
+  `1a606a3` P3 batch (buildType URI + parse_version warn +
+  RADICLE casing). Carry-over S19 : C-1 wire `redundant_resolve`
+  au browse aggregator (primitive prete) + Meta-1 Radicle-v1.0
+  activation tracking.
 
 ## Commandes clés
 ```bash
