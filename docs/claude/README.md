@@ -431,12 +431,34 @@ secrets, binaires, caches temporaires.
 
 ### 4.3 Verification obligatoire avant commit
 
-Avant chaque commit de phase :
+**Deux modes** : itération pendant la phase (scope-réduit, rapide) et
+verification finale avant le commit (exhaustif). `cargo test
+--workspace --locked` sur le projet entier coûte 15-20 minutes sur
+une machine dev et n'a pas besoin de tourner entre deux edits —
+scope au crate modifié pendant l'itération et ne lance le full
+workspace qu'une seule fois, juste avant le commit.
+
+**Itération pendant la phase** (après chaque edit significatif) :
 
 ```bash
+# Rust — nextest sur le crate touché, tests unit+integration
+cargo nextest run -p <crate-touche> --locked
+
+# Python — pytest ciblé sur le package modifié
+uv run pytest packages/<pkg-touche>/tests/ -q
+
+# Frontend — vitest watch mode ou un seul fichier
+cd web && npx vitest run src/components/__tests__/<file>.test.tsx
+```
+
+**Verification finale avant le commit de phase** (complet) :
+
+```bash
+# Rust — nextest workspace + doctests (nextest ne gère pas les doctests)
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+cargo nextest run --workspace --locked
+cargo test --workspace --locked --doc
 
 uv run ruff format --check packages/
 uv run ruff check packages/
@@ -453,6 +475,14 @@ npm run size
 npx playwright test
 bash scripts/scan-en-strings.sh
 ```
+
+Prerequis : `cargo install cargo-nextest --locked` (config partagée
+dans [`.config/nextest.toml`](../../.config/nextest.toml), profil
+`ci` utilisé par [`.github/workflows/rust-ci.yml`](../../.github/workflows/rust-ci.yml)).
+Fallback `cargo test --workspace --locked` accepté si nextest
+indisponible, mais l'isolation process-per-test de nextest détecte
+des flakes que `cargo test` masque (panic qui contamine d'autres
+tests du même binaire).
 
 Tout rouge bloque le commit. Aucune exception « je commit et
 je fix après » — le fix doit être dans le même commit ou
@@ -1158,10 +1188,11 @@ nouvelle section `## v1.x+1 — <thème>` au-dessus de v1.x dans
 ### 7.4 Verification avant commit (script unique)
 
 ```bash
-# Rust
+# Rust — nextest workspace (process-per-test, detecte les flakes)
 cargo fmt --all --check && \
 cargo clippy --workspace --all-targets --locked -- -D warnings && \
-cargo test --workspace --locked
+cargo nextest run --workspace --locked && \
+cargo test --workspace --locked --doc
 
 # Python
 uv run ruff format --check packages/ && \
@@ -1181,6 +1212,10 @@ npx playwright test && \
 bash scripts/scan-en-strings.sh && \
 cd ..
 ```
+
+Pendant l'itération d'une phase, scope au crate touché plutôt que
+de lancer le workspace entier à chaque edit — cf. §4.3 pour le
+détail des deux modes (itération rapide vs verification finale).
 
 Tout rouge bloque le commit. Pas de `--no-verify`, pas de
 `#[ignore]` ajouté pour faire passer. Root cause d'abord.

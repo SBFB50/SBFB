@@ -260,8 +260,12 @@ annonces. Relancer les suites concernees (selon languages du diff)
 et comparer :
 
 ```bash
-# Mesurer l'apres
-RUST=$(cargo test --workspace --locked 2>&1 | grep '^test result:' | awk '{sum+=$4} END {print sum}')
+# Mesurer l'apres — Rust = nextest (unit+integration) + doctests separement
+RUST_NEXTEST=$(cargo nextest run --workspace --locked 2>&1 | \
+  grep -oE '[0-9]+ passed' | head -1 | awk '{print $1}')
+RUST_DOC=$(cargo test --workspace --locked --doc 2>&1 | \
+  grep -E '^test result:' | awk '{sum+=$4} END {print sum+0}')
+RUST=$((RUST_NEXTEST + RUST_DOC))
 # etc. pour les autres suites
 
 # Comparer avec le "before" du body et calculer delta reel

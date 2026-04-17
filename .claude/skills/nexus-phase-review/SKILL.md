@@ -109,10 +109,11 @@ HAS_RUST=$(echo "$CHANGED_FILES" | grep -E '\.rs$|Cargo\.toml' | wc -l)
 HAS_PY=$(echo "$CHANGED_FILES" | grep -E '\.py$|pyproject\.toml' | wc -l)
 HAS_WEB=$(echo "$CHANGED_FILES" | grep -E '^web/.*\.(ts|tsx|js|jsx|css)$' | wc -l)
 
-# Rust (si touche)
+# Rust (si touche) — nextest pour les tests rapides + doctests a part
 [ "$HAS_RUST" -gt 0 ] && cargo fmt --all --check && \
   cargo clippy --workspace --all-targets --locked -- -D warnings && \
-  cargo test --workspace --locked
+  cargo nextest run --workspace --locked && \
+  cargo test --workspace --locked --doc
 
 # Python (si touche)
 [ "$HAS_PY" -gt 0 ] && uv run ruff format --check packages/ && \
@@ -142,8 +143,16 @@ fix root-cause. Ne jamais suggerer `#[ignore]`, `xfail`, ou
 ```bash
 # Avant-apres pour chaque suite
 # (le chiffre "apres" est ce que le user aura dans son body commit)
-RUST_AFTER=$(cargo test --workspace --locked 2>&1 | \
-  grep -E '^test result:' | awk '{sum+=$4} END {print sum}')
+
+# Rust — nextest summary line: "Summary [   2.345s] 537 tests run: 537 passed"
+# On prend le premier nombre apres "run:" (champ "passed") + on cumule
+# les doctests comptes separement par cargo test --doc.
+RUST_NEXTEST=$(cargo nextest run --workspace --locked 2>&1 | \
+  grep -oE '[0-9]+ passed' | head -1 | awk '{print $1}')
+RUST_DOC=$(cargo test --workspace --locked --doc 2>&1 | \
+  grep -E '^test result:' | awk '{sum+=$4} END {print sum+0}')
+RUST_AFTER=$((RUST_NEXTEST + RUST_DOC))
+
 PY_SDK_AFTER=$(uv run pytest packages/nexus-sdk/tests/ -q 2>&1 | \
   grep -E 'passed' | tail -1 | awk '{print $1}')
 # ... (idem coord, app-gov, vitest, playwright)

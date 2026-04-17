@@ -258,10 +258,14 @@ systemd-nspawn) pour Sprint 17+ dans
 
 ## Commandes clés
 ```bash
-# Rust workspace
-cargo test --workspace --locked
+# Rust workspace — iteration pendant phase (rapide, cible le crate modifie)
+cargo nextest run -p <crate-touche> --locked
+
+# Rust workspace — verification finale avant commit phase (complet)
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo nextest run --workspace --locked
+cargo test --workspace --locked --doc   # doctests only (nextest ne gere pas)
 cargo build -p nexus-shell-daemon --release
 
 # Python (trois packages tournés séparément — collision de nom tests/)

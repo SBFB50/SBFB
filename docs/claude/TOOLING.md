@@ -41,6 +41,9 @@ la couche de reference. Ce tooling la complete sans la remplacer.
 - `jq` dans le PATH **OU** `python3` (les hooks detectent auto lequel utiliser
   pour parser l'input JSON — fail-open silent si aucun des deux n'est present)
 - `cargo`, `uv`, `npm` installes (pour les linters scope au langage)
+- `cargo-nextest` installe : `cargo install cargo-nextest --locked`
+  (test runner process-per-test, config [`.config/nextest.toml`](../../.config/nextest.toml),
+  commandes standard cf. [`README.md`](README.md) §4.3 et §7.4)
 - `node` (pour `nexus-statusline.js`)
 
 ### 2.2 Hooks local au repo (automatique)

@@ -1,14 +1,93 @@
-# Normalize line endings (LF everywhere, CRLF on Windows checkout)
-* text=auto
-*.py text eol=lf
-*.ts text eol=lf
-*.tsx text eol=lf
-*.json text eol=lf
-*.md text eol=lf
-*.yml text eol=lf
-*.yaml text eol=lf
-*.txt text eol=lf
-*.html text eol=lf
-*.css text eol=lf
-*.js text eol=lf
-*.sh text eol=lf
+# Normalize line endings to LF everywhere, on every platform.
+#
+# Why this file exists at all: without explicit rules, git on Windows
+# applies `core.autocrlf=true` at checkout (LF in repo -> CRLF in
+# working tree), which produces spurious "modified" entries in
+# `git status` after every editor save. `* text=auto eol=lf` forces
+# LF on both sides and kills that noise at the source.
+#
+# Renormalization recipe when a file is incorrectly stored with CRLF
+# in the index (e.g. committed before this file existed):
+#   git add --renormalize <path>
+#   git commit -m "chore: renormalize line endings"
+#
+# `eol=lf` on specific extensions below is redundant with the
+# catch-all `* text=auto eol=lf`, but kept explicit for robustness:
+# should the catch-all be weakened later, these entries still hold.
+
+* text=auto eol=lf
+
+# --- Source code ---------------------------------------------------
+
+*.rs       text eol=lf
+*.toml     text eol=lf
+*.py       text eol=lf
+*.pyi      text eol=lf
+*.ts       text eol=lf
+*.tsx      text eol=lf
+*.js       text eol=lf
+*.jsx      text eol=lf
+*.mjs      text eol=lf
+*.cjs      text eol=lf
+*.json     text eol=lf
+*.html     text eol=lf
+*.css      text eol=lf
+*.scss     text eol=lf
+
+# --- Config / docs -------------------------------------------------
+
+*.md       text eol=lf
+*.mdx      text eol=lf
+*.txt      text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.ini      text eol=lf
+*.cfg      text eol=lf
+*.lock     text eol=lf
+Dockerfile text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+.dockerignore text eol=lf
+
+# --- Shell scripts stay LF even on Windows checkout ---------------
+
+*.sh       text eol=lf
+
+# --- Windows-specific scripts keep CRLF ---------------------------
+# cmd.exe refuses to run .bat/.cmd with LF-only endings in some
+# edge cases, so pin them to CRLF explicitly.
+
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+
+# --- Binary files: never convert, never diff as text -------------
+
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.webp     binary
+*.avif     binary
+*.svg      text eol=lf
+*.pdf      binary
+*.zip      binary
+*.gz       binary
+*.tar      binary
+*.xz       binary
+*.7z       binary
+*.wasm     binary
+*.woff     binary
+*.woff2    binary
+*.ttf      binary
+*.otf      binary
+*.eot      binary
+*.der      binary
+*.p12      binary
+*.pfx      binary
+*.pyc      binary
+*.db       binary
+*.sqlite   binary
+*.sqlite3  binary
