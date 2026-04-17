@@ -27,6 +27,15 @@
             "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/launch-narration-terminal.sh\""
           }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/launch-sidecar-terminal.sh\""
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -74,6 +83,25 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/narrate-action.js\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|Task|Grep|Glob|Read|WebSearch|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/sidecar-drain-on-post-tool.js\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/sidecar-drain-on-stop.js\""
           }
         ]
       }

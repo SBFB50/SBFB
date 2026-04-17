@@ -66,6 +66,10 @@ web/.env.local
 .claude/_autoinstall_signaled.marker
 # runtime heartbeat viewer narration (refresh 1s)
 .claude/.narration-terminal.heartbeat
+# runtime heartbeat sidecar input terminal (refresh 5s)
+.claude/.sidecar-terminal.heartbeat
+# queue de questions sidecar drainee par PostToolUse hook
+.claude/.sidecar-queue.jsonl
 
 # Rust / Cargo (SBFB monorepo, Sprint 1+)
 target/
