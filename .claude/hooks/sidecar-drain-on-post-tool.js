@@ -54,6 +54,23 @@ process.stdin.on('end', () => {
     // Drain : all consumed entries removed, queue cleared.
     fs.writeFileSync(queuePath, '');
 
+    // Reverse channel : append a delivery-confirmation to the
+    // sidecar replies log so the user's terminal shows a "◆
+    // delivered" line right after they hit Enter. Sidecar-input.js
+    // tails this file and renders it via renderReply().
+    try {
+      const repliesPath = path.join(cwd, '.claude', '.sidecar-replies.jsonl');
+      const confirmation = {
+        ts: new Date().toISOString(),
+        kind: 'drained',
+        count: entries.length,
+      };
+      fs.appendFileSync(repliesPath, JSON.stringify(confirmation) + '\n');
+    } catch {
+      // Silent — the reverse channel is a nice-to-have, never block
+      // on its failure.
+    }
+
     const header = entries.length === 1
       ? 'Un message sidecar est arrive pendant ton travail :'
       : `${entries.length} messages sidecar sont arrives pendant ton travail :`;
