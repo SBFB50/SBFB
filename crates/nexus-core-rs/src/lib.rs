@@ -70,9 +70,10 @@ pub use error::{NexusError, Result};
 pub use gossip::{GossipClient, GossipEvent, TopicHandle, TopicReceiver, TopicSender};
 pub use keystore::{
     Identity, IdentityMode, KdfParams, KeyStore, KeyStoreError, LocalFileKeyStore, UnlockError,
-    ARGON2_MEM_COST_KIB, ARGON2_PARALLELISM, ARGON2_TIME_COST, BLOB_FILE_NAME, BLOB_HEADER_LEN,
-    BLOB_MAGIC, BLOB_VERSION, DOMAIN_KEYSTORE_V1, KEYRING_ACCOUNT_NORMAL, KEYRING_SERVICE,
-    NONCE_LEN, SALT_LEN, SBFB_IDENTITY_SECRET_HEX_ENV, TAG_LEN,
+    ARGON2_MEM_COST_KIB, ARGON2_PARALLELISM, ARGON2_TIME_COST, BLOB_FILE_NAME,
+    BLOB_FILE_NAME_DURESS, BLOB_HEADER_LEN, BLOB_MAGIC, BLOB_VERSION, DOMAIN_KEYSTORE_V1,
+    KEYRING_ACCOUNT_DURESS, KEYRING_ACCOUNT_NORMAL, KEYRING_SERVICE, NONCE_LEN, SALT_LEN,
+    SBFB_IDENTITY_SECRET_HEX_ENV, TAG_LEN,
 };
 pub use node::{create_node, create_node_with_config, Node, NodeConfig};
 pub use pkarr_resolver::{

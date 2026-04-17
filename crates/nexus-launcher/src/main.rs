@@ -190,6 +190,11 @@ async fn main() {
         Some(unlock::Subcommand::Init { pin }) => {
             std::process::exit(unlock::run_init(&pin));
         }
+        Some(unlock::Subcommand::InitDuress { pin }) => {
+            // Sprint 20 Phase B : one-shot, no daemon spawn.
+            // Provisions the duress slot next to the normal one.
+            std::process::exit(unlock::run_init_duress(&pin));
+        }
         Some(unlock::Subcommand::Unlock { pin }) => {
             if let Err(code) = unlock::run_unlock_and_export_env(&pin) {
                 std::process::exit(code);
@@ -198,6 +203,8 @@ async fn main() {
             // normal daemon spawn sequence. The daemon reads
             // SBFB_IDENTITY_SECRET_HEX via
             // `nexus_shell_daemon::runtime::read_optional_identity_env`.
+            // Sprint 20 Phase B also plumbs SBFB_IDENTITY_MODE when
+            // the duress slot matched.
         }
         None => {
             // Legacy path — daemon boots with an ephemeral iroh

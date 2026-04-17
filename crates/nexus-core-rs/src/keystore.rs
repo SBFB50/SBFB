@@ -134,12 +134,25 @@ pub const ARGON2_PARALLELISM: u32 = 1;
 /// Default relative path of the on-disk blob under `data_dir`.
 pub const BLOB_FILE_NAME: &str = "identity.enc";
 
+/// Phase B duress blob filename. Sits next to [`BLOB_FILE_NAME`]
+/// in the same `data_dir`. Byte-for-byte indistinguishable layout
+/// from the normal blob (same header, same 96-byte total length)
+/// so a disk forensics pass sees two identical-looking blobs
+/// without a successful decrypt.
+pub const BLOB_FILE_NAME_DURESS: &str = "identity_duress.enc";
+
 /// OS keyring service name used by the default `LocalFileKeyStore`.
 pub const KEYRING_SERVICE: &str = "sbfb-daemon";
 
 /// OS keyring account name used by the default `LocalFileKeyStore`
 /// for the normal (non-duress) identity's `kek2` wrap.
 pub const KEYRING_ACCOUNT_NORMAL: &str = "identity-kek-wrap";
+
+/// Phase B : OS keyring account for the duress identity's `kek2`
+/// wrap. A distinct slot so a forensic dump of the keyring shows
+/// two unrelated-looking entries rather than one compound entry,
+/// and so `wipe_all` can delete each independently.
+pub const KEYRING_ACCOUNT_DURESS: &str = "identity-kek-wrap-duress";
 
 /// Environment variable the launcher uses to hand the decrypted
 /// 32-byte Ed25519 secret key to the daemon child (64-char lower-
@@ -428,6 +441,10 @@ pub struct LocalFileKeyStore {
     keyring_service: String,
     /// Account name for the normal identity's `kek2` wrap.
     keyring_account: String,
+    /// Phase B : account name for the duress identity's `kek2`
+    /// wrap. Default `KEYRING_ACCOUNT_DURESS`; parameterised for
+    /// tests in the same way as `keyring_account`.
+    keyring_account_duress: String,
 }
 
 impl LocalFileKeyStore {
@@ -440,6 +457,7 @@ impl LocalFileKeyStore {
             use_keyring: true,
             keyring_service: KEYRING_SERVICE.to_string(),
             keyring_account: KEYRING_ACCOUNT_NORMAL.to_string(),
+            keyring_account_duress: KEYRING_ACCOUNT_DURESS.to_string(),
         }
     }
 
@@ -453,6 +471,7 @@ impl LocalFileKeyStore {
             use_keyring: true,
             keyring_service: KEYRING_SERVICE.to_string(),
             keyring_account: KEYRING_ACCOUNT_NORMAL.to_string(),
+            keyring_account_duress: KEYRING_ACCOUNT_DURESS.to_string(),
         }
     }
 
@@ -470,13 +489,19 @@ impl LocalFileKeyStore {
     /// that need a unique per-testcase keyring slot; production
     /// callers should always use the `new` / `with_params`
     /// constructors that pick `KEYRING_SERVICE`.
+    ///
+    /// The duress account gets the `"{account}-duress"` derived
+    /// name so a Phase B test running in parallel with another
+    /// test cannot collide on the fixed `KEYRING_ACCOUNT_DURESS`.
     pub fn with_keyring_slot(
         mut self,
         service: impl Into<String>,
         account: impl Into<String>,
     ) -> Self {
         self.keyring_service = service.into();
-        self.keyring_account = account.into();
+        let account = account.into();
+        self.keyring_account_duress = format!("{account}-duress");
+        self.keyring_account = account;
         self
     }
 
@@ -485,8 +510,18 @@ impl LocalFileKeyStore {
         self.data_dir.join(BLOB_FILE_NAME)
     }
 
+    /// Phase B : path of the on-disk duress blob file.
+    pub fn blob_path_duress(&self) -> PathBuf {
+        self.data_dir.join(BLOB_FILE_NAME_DURESS)
+    }
+
     fn keyring_entry(&self) -> Result<keyring::Entry, KeyStoreError> {
         keyring::Entry::new(&self.keyring_service, &self.keyring_account)
+            .map_err(|e| KeyStoreError::Keyring(e.to_string()))
+    }
+
+    fn keyring_entry_duress(&self) -> Result<keyring::Entry, KeyStoreError> {
+        keyring::Entry::new(&self.keyring_service, &self.keyring_account_duress)
             .map_err(|e| KeyStoreError::Keyring(e.to_string()))
     }
 }
@@ -731,22 +766,258 @@ impl KeyStore for LocalFileKeyStore {
     }
 
     fn wipe(&self) -> Result<(), KeyStoreError> {
-        let blob_path = self.blob_path();
-        if blob_path.exists() {
-            // Best-effort secure unlink: overwrite with zeros then
-            // remove. On SSDs with wear-leveling this is not a
-            // true secure erase, but it removes the bytes from the
-            // filesystem layer and forces an FS metadata update.
-            let len = fs::metadata(&blob_path)?.len() as usize;
-            let zeros = vec![0u8; len];
-            fs::write(&blob_path, &zeros)?;
-            fs::remove_file(&blob_path)?;
-        }
+        self.secure_unlink_blob(&self.blob_path())?;
         if self.use_keyring {
             if let Ok(entry) = keyring::Entry::new(&self.keyring_service, &self.keyring_account) {
                 // Ignore "no entry" errors — we want idempotent wipe.
                 let _ = entry.delete_credential();
             }
+        }
+        Ok(())
+    }
+}
+
+// =================================================================
+// Phase B — duress + wipe_all
+// =================================================================
+
+impl LocalFileKeyStore {
+    /// Phase B : provision the duress slot. Writes a **fresh**
+    /// Ed25519 keypair to [`BLOB_FILE_NAME_DURESS`] wrapped by
+    /// `duress_pin` + the duress-specific OS keyring slot.
+    ///
+    /// This method is symmetric with [`KeyStore::init`] — it
+    /// refuses to overwrite an existing duress blob, it derives
+    /// `kek1` with the same Argon2id params, and it produces a
+    /// blob that is byte-for-byte indistinguishable in size from
+    /// the normal blob. The only visible differences are the
+    /// filename and the keyring account.
+    ///
+    /// Returns an [`Identity`] tagged `IdentityMode::Duress` for
+    /// symmetry with `unlock_differential`, even though the typical
+    /// caller (the launcher at setup) drops the returned identity
+    /// immediately — it is the persistence on disk that matters.
+    pub fn init_duress(&self, duress_pin: &str) -> Result<Identity, KeyStoreError> {
+        let blob_path = self.blob_path_duress();
+        if blob_path.exists() {
+            return Err(KeyStoreError::AlreadyInitialized(blob_path));
+        }
+
+        fs::create_dir_all(&self.data_dir)?;
+
+        // A distinct Ed25519 keypair — the whole point of duress
+        // mode is that the compelled-unlock path reveals a decoy
+        // identity that is NOT the user's real node_id.
+        let kp = KeyPair::generate();
+        let secret_bytes = kp.secret_bytes();
+        let public_bytes = kp.public_bytes();
+
+        let mut salt = [0u8; SALT_LEN];
+        OsRng.fill_bytes(&mut salt);
+        let mut nonce_bytes = [0u8; NONCE_LEN];
+        OsRng.fill_bytes(&mut nonce_bytes);
+
+        let kek2 = if self.use_keyring {
+            let mut bytes = [0u8; 32];
+            OsRng.fill_bytes(&mut bytes);
+            let entry = self.keyring_entry_duress()?;
+            entry
+                .set_secret(&bytes)
+                .map_err(|e| KeyStoreError::Keyring(e.to_string()))?;
+            bytes
+        } else {
+            [0u8; 32]
+        };
+
+        let kek1 = derive_kek1(duress_pin.as_bytes(), &salt, self.params)?;
+        let final_kek = combine_keks(kek1.expose_secret(), &kek2);
+
+        let flags = if self.use_keyring { 0b0000_0001 } else { 0 };
+        let header = encode_header(flags, &salt, self.params, &nonce_bytes);
+        let aad = build_aad(&header);
+        let cipher = Aes256Gcm::new_from_slice(final_kek.expose_secret())
+            .map_err(|e| KeyStoreError::Aead(e.to_string()))?;
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: &secret_bytes,
+                    aad: &aad,
+                },
+            )
+            .map_err(|e| KeyStoreError::Aead(e.to_string()))?;
+
+        let mut blob = Vec::with_capacity(BLOB_HEADER_LEN + ciphertext.len());
+        blob.extend_from_slice(&header);
+        blob.extend_from_slice(&ciphertext);
+        write_atomic(&blob_path, &blob)?;
+
+        let identity = Identity {
+            secret: SecretBox::new(Box::new(SecretKeyBytes(secret_bytes))),
+            public: public_bytes,
+            mode: IdentityMode::Duress,
+        };
+        let mut tmp = secret_bytes;
+        tmp.zeroize();
+        Ok(identity)
+    }
+
+    /// Phase B : try unlocking the normal slot first, fall back to
+    /// the duress slot. Returns an [`Identity`] whose `mode` field
+    /// tells the caller which slot matched.
+    ///
+    /// ## Semantics
+    ///
+    /// - Normal blob exists + PIN matches normal → `Identity { mode:
+    ///   Normal }`.
+    /// - Normal blob exists + PIN matches duress + duress blob exists
+    ///   → `Identity { mode: Duress }`.
+    /// - Normal blob exists + PIN wrong + duress blob missing →
+    ///   `UnlockError::AeadReject`.
+    /// - Normal blob exists + PIN wrong + duress blob exists + PIN
+    ///   wrong for duress too → `UnlockError::AeadReject`.
+    /// - Normal blob missing → `UnlockError::NotInitialized` from
+    ///   the normal path (duress-only layouts are rejected; the
+    ///   user must always set up normal first).
+    ///
+    /// ## Timing indistinguabilite
+    ///
+    /// A PIN that only matches the duress slot costs **~2x** the
+    /// Argon2id KDF (the normal derivation runs first and fails
+    /// AEAD). This is a documented Phase B scope cut — see
+    /// `.planning/research/S20_phase_B_duress_panic_design.md §5`.
+    /// A Sprint 22+ refactor will derive both KDFs in parallel and
+    /// cancel the loser to erase the timing side channel.
+    pub fn unlock_differential(&self, pin: &str) -> Result<Identity, UnlockError> {
+        match self.unlock(pin) {
+            Ok(id) => Ok(id),
+            Err(UnlockError::AeadReject) => {
+                // Normal rejected the PIN — try the duress slot.
+                // If the duress blob does not exist, surface the
+                // original normal-slot AeadReject so callers cannot
+                // observe "duress not set up" vs "wrong PIN".
+                let duress_path = self.blob_path_duress();
+                if !duress_path.exists() {
+                    return Err(UnlockError::AeadReject);
+                }
+                self.unlock_duress_slot(pin)
+            }
+            Err(other) => Err(other),
+        }
+    }
+
+    /// Internal helper mirroring [`KeyStore::unlock`] but reading
+    /// the duress blob + the duress keyring account. Returns an
+    /// `Identity` tagged `Duress`.
+    fn unlock_duress_slot(&self, pin: &str) -> Result<Identity, UnlockError> {
+        let blob_path = self.blob_path_duress();
+        let blob = match fs::read(&blob_path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                return Err(UnlockError::NotInitialized(blob_path));
+            }
+            Err(e) => return Err(UnlockError::Io(e)),
+        };
+
+        let parsed = parse_blob(&blob).map_err(UnlockError::BlobMalformed)?;
+
+        let kek2 = if parsed.uses_keyring {
+            let entry = keyring::Entry::new(&self.keyring_service, &self.keyring_account_duress)
+                .map_err(|e| UnlockError::KeyringEntryMissing(e.to_string()))?;
+            match entry.get_secret() {
+                Ok(bytes) => {
+                    if bytes.len() != 32 {
+                        return Err(UnlockError::KeyringEntryMissing(format!(
+                            "keyring kek2 has wrong length: {} (expected 32)",
+                            bytes.len()
+                        )));
+                    }
+                    let mut out = [0u8; 32];
+                    out.copy_from_slice(&bytes);
+                    out
+                }
+                Err(e) => return Err(UnlockError::KeyringEntryMissing(e.to_string())),
+            }
+        } else {
+            [0u8; 32]
+        };
+
+        let kek1 = derive_kek1(pin.as_bytes(), &parsed.salt, parsed.params)
+            .map_err(|e| UnlockError::Argon2Kdf(e.to_string()))?;
+        let final_kek = combine_keks(kek1.expose_secret(), &kek2);
+
+        let cipher = Aes256Gcm::new_from_slice(final_kek.expose_secret())
+            .map_err(|_| UnlockError::AeadReject)?;
+        let nonce = Nonce::from_slice(&parsed.nonce);
+        let aad = build_aad(&parsed.header);
+        let mut plaintext = cipher
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: parsed.ciphertext,
+                    aad: &aad,
+                },
+            )
+            .map_err(|_| UnlockError::AeadReject)?;
+
+        if plaintext.len() != SECRET_KEY_BYTES {
+            plaintext.zeroize();
+            return Err(UnlockError::BlobMalformed(format!(
+                "unexpected plaintext length {} (expected {})",
+                plaintext.len(),
+                SECRET_KEY_BYTES
+            )));
+        }
+
+        let mut secret = [0u8; SECRET_KEY_BYTES];
+        secret.copy_from_slice(&plaintext);
+        let public = KeyPair::from_secret_bytes(&secret).public_bytes();
+        plaintext.zeroize();
+
+        Ok(Identity {
+            secret: SecretBox::new(Box::new(SecretKeyBytes(secret))),
+            public,
+            mode: IdentityMode::Duress,
+        })
+    }
+
+    /// Phase B : wipe both the normal blob AND the duress blob +
+    /// both OS keyring entries. Idempotent — missing files or
+    /// missing keyring entries are silently accepted so a panic
+    /// wipe never blocks on "nothing to delete".
+    ///
+    /// Called from `nexus-shell-daemon::panic::PanicWipeService`
+    /// when the user triggers the 5-tap panic gesture, and from
+    /// tests that need a clean slate between cases.
+    pub fn wipe_all(&self) -> Result<(), KeyStoreError> {
+        // Normal blob first — the typical setup always has this
+        // one. Then duress (may not exist).
+        self.secure_unlink_blob(&self.blob_path())?;
+        self.secure_unlink_blob(&self.blob_path_duress())?;
+
+        if self.use_keyring {
+            if let Ok(entry) = keyring::Entry::new(&self.keyring_service, &self.keyring_account) {
+                let _ = entry.delete_credential();
+            }
+            if let Ok(entry) =
+                keyring::Entry::new(&self.keyring_service, &self.keyring_account_duress)
+            {
+                let _ = entry.delete_credential();
+            }
+        }
+        Ok(())
+    }
+
+    /// Zero-overwrite then unlink a blob file. No-op if the file
+    /// does not exist. Shared by `wipe` (normal blob) and
+    /// `wipe_all` (both blobs).
+    fn secure_unlink_blob(&self, blob_path: &Path) -> Result<(), KeyStoreError> {
+        if blob_path.exists() {
+            let len = fs::metadata(blob_path)?.len() as usize;
+            let zeros = vec![0u8; len];
+            fs::write(blob_path, &zeros)?;
+            fs::remove_file(blob_path)?;
         }
         Ok(())
     }
@@ -1155,5 +1426,130 @@ mod tests {
         // Idempotent: a second wipe on an already-wiped store is
         // a noop, not an error.
         store.wipe().unwrap();
+    }
+
+    // =============================================================
+    // Phase B — duress + wipe_all
+    // =============================================================
+
+    /// #B1 init_duress alongside a pre-existing normal init writes
+    /// a second blob file at BLOB_FILE_NAME_DURESS. Both blobs
+    /// co-exist on disk.
+    #[test]
+    fn init_duress_creates_two_blobs() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        store.init_duress("2222").unwrap();
+        assert!(store.blob_path().exists(), "normal blob must exist");
+        assert!(store.blob_path_duress().exists(), "duress blob must exist");
+    }
+
+    /// #B2 unlock_differential with the normal PIN returns
+    /// Identity { mode: Normal } even when the duress slot is
+    /// provisioned.
+    #[test]
+    fn unlock_normal_pin_returns_normal_identity() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        store.init_duress("2222").unwrap();
+        let id = store.unlock_differential("1111").unwrap();
+        assert_eq!(id.mode(), IdentityMode::Normal);
+    }
+
+    /// #B3 unlock_differential with the duress PIN returns
+    /// Identity { mode: Duress }. The fall-through from the
+    /// normal-slot AEAD reject to the duress-slot open is the
+    /// core Phase B runtime branch.
+    #[test]
+    fn unlock_duress_pin_returns_duress_identity() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        store.init_duress("2222").unwrap();
+        let id = store.unlock_differential("2222").unwrap();
+        assert_eq!(id.mode(), IdentityMode::Duress);
+    }
+
+    /// #B4 unlock_differential with a PIN that matches neither
+    /// slot surfaces a uniform `AeadReject` — the caller cannot
+    /// observe whether the duress slot is set up based on the
+    /// error type alone.
+    #[test]
+    fn unlock_wrong_pin_rejected_even_with_duress_setup() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        store.init_duress("2222").unwrap();
+        let err = store.unlock_differential("wrong-pin").unwrap_err();
+        assert!(
+            matches!(err, UnlockError::AeadReject),
+            "expected AeadReject, got {err:?}"
+        );
+    }
+
+    /// #B5 The duress keypair is a distinct Ed25519 pair from the
+    /// normal one. A network observer that sees the node_id
+    /// derived from the unlocked identity sees a different public
+    /// key between Normal and Duress boots.
+    #[test]
+    fn duress_keypair_different_from_normal() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        store.init_duress("2222").unwrap();
+        let normal = store.unlock_differential("1111").unwrap();
+        let duress = store.unlock_differential("2222").unwrap();
+        assert_ne!(
+            normal.public_bytes(),
+            duress.public_bytes(),
+            "duress keypair must differ from normal"
+        );
+    }
+
+    /// #B6 The duress blob is the same size as the normal blob.
+    /// A forensic dump that lists `~/.sbfb/shell-daemon/keyring/`
+    /// cannot tell which file is which by size alone.
+    #[test]
+    fn duress_blob_indistinguishable_size_from_normal() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        store.init_duress("2222").unwrap();
+        let normal_len = fs::metadata(store.blob_path()).unwrap().len();
+        let duress_len = fs::metadata(store.blob_path_duress()).unwrap().len();
+        assert_eq!(
+            normal_len, duress_len,
+            "duress blob must match normal blob size byte-for-byte"
+        );
+    }
+
+    /// #B7 init_duress refuses to overwrite an existing duress
+    /// blob, mirroring the safety invariant enforced by `init`.
+    #[test]
+    fn init_duress_twice_rejected() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        store.init_duress("2222").unwrap();
+        let err = store.init_duress("3333").unwrap_err();
+        assert!(matches!(err, KeyStoreError::AlreadyInitialized(_)));
+    }
+
+    /// #B8 wipe_all removes both blobs; idempotent on re-invocation.
+    #[test]
+    fn wipe_all_removes_both_blobs() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        store.init_duress("2222").unwrap();
+        assert!(store.blob_path().exists());
+        assert!(store.blob_path_duress().exists());
+        store.wipe_all().unwrap();
+        assert!(!store.blob_path().exists());
+        assert!(!store.blob_path_duress().exists());
+        // Idempotent
+        store.wipe_all().unwrap();
     }
 }

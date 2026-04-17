@@ -90,6 +90,18 @@ pub struct DaemonHttpState {
     /// Sprint 12 Phase A: LRU cache of decompressed zip archives
     /// for the blob-serve endpoint.
     pub blob_serve_cache: Arc<BlobServeCache>,
+    /// Sprint 20 Phase B : duress-mode flag. Set to
+    /// [`IdentityMode::Duress`] when the daemon was booted via an
+    /// identity unlocked under the duress PIN. Every outbound
+    /// handler routes through `crate::noop_identity` to noop
+    /// publishes / subscribes under the fake keypair. Normal
+    /// boots leave this at `IdentityMode::Normal` (the default).
+    pub identity_mode: nexus_core_rs::IdentityMode,
+    /// Sprint 20 Phase B : panic wipe service, provisioned at
+    /// boot with the real keystore + state-db + blob-cache paths
+    /// and the production [`crate::panic::RealExit`] strategy.
+    /// Consumed by the `POST /panic/wipe` handler.
+    pub panic_wipe: Arc<crate::panic::PanicWipeService>,
 }
 
 impl DaemonHttpState {
@@ -164,6 +176,11 @@ pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
         .route("/publish", post(publish_project))
         .route("/publish-blob", post(publish_blob))
         .route("/default-curators", get(default_curators))
+        // Sprint 20 Phase B : panic wipe endpoint. Behind the
+        // same loopback bearer + Host + Origin gate as every
+        // other authenticated route so only a co-located shell
+        // with the rotated token can trigger it.
+        .route("/panic/wipe", post(panic_wipe))
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -410,6 +427,21 @@ async fn subscribe_curator(
     Json(req): Json<SubscribeCuratorRequest>,
 ) -> impl IntoResponse {
     debug!(curator = %req.curator_pubkey_hex, "POST /curators/subscribe");
+    // Sprint 20 Phase B : in duress mode, accept the request but
+    // do NOT mutate the attention set. The shell still sees a
+    // 200 so the UI is quiet; the fake identity never subscribes
+    // a real curator.
+    if crate::noop_identity::curator_subscribe_in_duress(state.identity_mode)
+        == crate::noop_identity::SubscribeOutcome::Noop
+    {
+        return (
+            StatusCode::OK,
+            Json(SubscriptionsResponse {
+                subscribed_curators: Vec::new(),
+            }),
+        )
+            .into_response();
+    }
     match state.curator_runtime.subscribe(&req.curator_pubkey_hex) {
         Ok(_) => (
             StatusCode::OK,
@@ -475,6 +507,18 @@ async fn publish_project(
     Json(req): Json<PublishRequest>,
 ) -> Response {
     debug!(project = %req.project_name, "POST /publish");
+
+    // Sprint 20 Phase B : in duress mode, short-circuit BEFORE
+    // touching the gossip sender so the fake keypair never
+    // signs a ProjectAnnouncement. The response says
+    // `published: false` — the handler is authoritative, not
+    // the peer observer, so a local UI getting a false-flag
+    // response is fine; the wire saw nothing.
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return (StatusCode::OK, Json(PublishResponse { published: false })).into_response();
+    }
 
     // Sprint 16 audit finding D-1: the kickoff §D4 declares
     // `is_open_source` as "derived by coordinator, never
@@ -597,6 +641,21 @@ async fn default_curators(State(state): State<Arc<DaemonHttpState>>) -> impl Int
 /// `POST /publish` as `archive_hash`.
 async fn publish_blob(State(state): State<Arc<DaemonHttpState>>, body: Bytes) -> impl IntoResponse {
     debug!(size = body.len(), "POST /publish-blob");
+    // Sprint 20 Phase B : in duress mode, reject task / blob
+    // dispatch with a generic 503. Matches the observable
+    // surface of any daemon in a maintenance window — no
+    // duress-specific signal.
+    if crate::noop_identity::task_dispatch_in_duress(state.identity_mode)
+        == crate::noop_identity::DispatchOutcome::Reject503
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "service in maintenance mode".to_string(),
+            }),
+        )
+            .into_response();
+    }
     let blobs = BlobsClient::new(state.node.blobs_store());
     match blobs.add_bytes(body.to_vec()).await {
         Ok(hash) => {
@@ -609,6 +668,42 @@ async fn publish_blob(State(state): State<Arc<DaemonHttpState>>, body: Bytes) ->
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: format!("blob store failed: {e}"),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `POST /panic/wipe` — Sprint 20 Phase B. Irreversibly destroy
+/// the daemon's on-disk state (identity blobs + OS keyring
+/// entries + subscriptions.json + blob cache) then exit the
+/// process. Triggered by the shell's 5-tap `Ctrl+Shift+Alt+W`
+/// gesture. The handler replies 200 BEFORE scheduling the exit
+/// so the shell receives confirmation; the actual
+/// `process::exit` runs from a spawned tokio task that sleeps
+/// 100 ms to let axum flush the response.
+async fn panic_wipe(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    warn!("POST /panic/wipe — executing irreversible wipe");
+    let service = Arc::clone(&state.panic_wipe);
+    match service.execute() {
+        Ok(_) => {
+            // Schedule the process exit on a background task so
+            // the HTTP response can actually be written back.
+            // `exit_only` skips re-running `execute` — the wipe
+            // already happened synchronously above.
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                service.exit_only(0);
+            });
+            (StatusCode::OK, Json(serde_json::json!({ "wiped": true }))).into_response()
+        }
+        Err(e) => {
+            warn!(error = %e, "panic wipe execute failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("panic wipe failed: {e}"),
                 }),
             )
                 .into_response()
@@ -770,7 +865,24 @@ mod tests {
     /// calls the synchronous Drop path which is fine for
     /// unit tests.
     async fn mk_state() -> Arc<DaemonHttpState> {
+        mk_state_with_mode(nexus_core_rs::IdentityMode::Normal).await
+    }
+
+    async fn mk_state_with_mode(mode: nexus_core_rs::IdentityMode) -> Arc<DaemonHttpState> {
         let node = create_node().await.expect("boot test node");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let keystore = Arc::new(nexus_core_rs::LocalFileKeyStore::new(tmp.path()));
+        let panic_wipe = Arc::new(crate::panic::PanicWipeService::new(
+            keystore,
+            tmp.path().join("state.sqlite"),
+            tmp.path().join("blob-cache"),
+            Arc::new(crate::panic::RealExit) as Arc<dyn crate::panic::ExitStrategy>,
+        ));
+        // The tempdir is intentionally leaked so the panic service's
+        // keystore can still reference its directory across the
+        // state's lifetime. Unit tests never actually invoke the
+        // panic service, so the directory stays untouched.
+        std::mem::forget(tmp);
         Arc::new(DaemonHttpState {
             node_id: node.node_id(),
             daemon_version: "0.1.0-test".to_string(),
@@ -783,6 +895,8 @@ mod tests {
             gossip_sender: Arc::new(RwLock::new(None)),
             default_curators: vec![],
             blob_serve_cache: Arc::new(BlobServeCache::new(8)),
+            identity_mode: mode,
+            panic_wipe,
         })
     }
 
@@ -1321,6 +1435,15 @@ mod tests {
     async fn default_curators_returns_configured_list() {
         let node = create_node().await.expect("boot test node");
         let curator_hex = "ab".repeat(32);
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let keystore = Arc::new(nexus_core_rs::LocalFileKeyStore::new(tmp.path()));
+        let panic_wipe = Arc::new(crate::panic::PanicWipeService::new(
+            keystore,
+            tmp.path().join("state.sqlite"),
+            tmp.path().join("blob-cache"),
+            Arc::new(crate::panic::RealExit) as Arc<dyn crate::panic::ExitStrategy>,
+        ));
+        std::mem::forget(tmp);
         let state = Arc::new(DaemonHttpState {
             node_id: node.node_id(),
             daemon_version: "0.1.0-test".to_string(),
@@ -1333,6 +1456,8 @@ mod tests {
             gossip_sender: Arc::new(RwLock::new(None)),
             default_curators: vec![curator_hex.clone()],
             blob_serve_cache: Arc::new(BlobServeCache::new(8)),
+            identity_mode: nexus_core_rs::IdentityMode::Normal,
+            panic_wipe,
         });
         let app = build_test_router(state);
         let resp = app
@@ -1593,5 +1718,135 @@ mod tests {
             resp.headers().get("x-content-type-options").is_some(),
             "X-Content-Type-Options header missing on 404 blob-serve response",
         );
+    }
+
+    // =============================================================
+    // Sprint 20 Phase B — duress runtime HTTP surface
+    // =============================================================
+
+    /// #B-rt-1 The `/publish` handler in Duress mode returns 200
+    /// with `{published: false}` and does NOT add a direct entry
+    /// to the browse aggregator. A peer observer sees no gossip
+    /// broadcast (the gossip_sender is None here so we rely on
+    /// the handler short-circuit before even reading the sender
+    /// guard — the empty browse aggregator is the local witness).
+    #[tokio::test]
+    async fn daemon_boot_in_duress_mode_publishes_fake_curator_empty() {
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+        let app = build_test_router(Arc::clone(&state));
+
+        let body = serde_json::to_vec(&PublishRequest {
+            project_name: "real-project".into(),
+            category: "gov".into(),
+            description: "should-not-reach-wire".into(),
+            apps: vec!["gov".into()],
+            archive_hash: None,
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        })
+        .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/publish")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let pub_resp: PublishResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(
+            !pub_resp.published,
+            "Duress mode must report published=false (no wire broadcast)"
+        );
+
+        // The browse aggregator must be empty — no direct entry
+        // was added under the fake identity.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/browse")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let browse: BrowseListResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(
+            browse.entries.is_empty(),
+            "browse aggregator must stay empty in Duress mode"
+        );
+    }
+
+    /// #B-rt-2 The `/curators/subscribe` handler in Duress mode
+    /// returns 200 but does NOT add the pubkey to the attention
+    /// set. The peer observer sees an ACK; the local state is
+    /// silently untouched.
+    #[tokio::test]
+    async fn daemon_boot_in_duress_mode_rejects_curator_subscribe_real() {
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+        let app = build_test_router(Arc::clone(&state));
+        let curator_hex = "cd".repeat(32);
+
+        let body = serde_json::to_vec(&SubscribeCuratorRequest {
+            curator_pubkey_hex: curator_hex.clone(),
+        })
+        .unwrap();
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/curators/subscribe")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let sub_resp: SubscriptionsResponse =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(
+            sub_resp.subscribed_curators.is_empty(),
+            "Duress mode must not grow the attention set"
+        );
+
+        // Verify the curator runtime itself stays empty.
+        assert!(
+            state.curator_runtime.subscribed_pubkeys_hex().is_empty(),
+            "curator_runtime attention set must not mutate under Duress"
+        );
+    }
+
+    /// #B-rt-3 The `/publish-blob` handler in Duress mode returns
+    /// 503 with a generic "maintenance" payload — no signal that
+    /// duress is active, just a plausible service-unavailable.
+    #[tokio::test]
+    async fn daemon_boot_in_duress_mode_rejects_task_dispatch() {
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+        let app = build_test_router(Arc::clone(&state));
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/publish-blob")
+                    .header("content-type", "application/octet-stream")
+                    .body(axum::body::Body::from(b"fake blob bytes".to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

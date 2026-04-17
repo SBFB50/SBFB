@@ -368,6 +368,39 @@ export function listBrowse(
   return callProxy(baseUrl, "/daemon/browse", BrowseListResponseSchema);
 }
 
+/**
+ * Sprint 20 Phase B — response shape of `POST /daemon/panic/wipe`.
+ *
+ * Mirrors the Rust handler's `{ "wiped": true }` success envelope.
+ * On failure the daemon returns the standard `{ error: string }`
+ * body and a 5xx status, which `callProxy` surfaces via the
+ * `CoordinatorHttpError` path.
+ */
+export const PanicWipeResponseSchema = z
+  .object({ wiped: z.literal(true) })
+  .strict();
+export type PanicWipeResponse = z.infer<typeof PanicWipeResponseSchema>;
+
+/**
+ * Sprint 20 Phase B — trigger the irreversible panic wipe on the
+ * daemon. Invoked by the `PanicWipeKeybind` component after a
+ * confirmed 5-tap gesture.
+ *
+ * This call is **destructive** — the daemon zeroes its identity
+ * blobs + OS keyring entries + on-disk state before exiting the
+ * process. The returned envelope only arrives if the handler's
+ * `tokio::spawn` sleep delays the exit enough for axum to flush
+ * the response; callers MUST assume the daemon is gone after
+ * the call returns regardless of envelope shape.
+ */
+export function triggerPanicWipe(
+  baseUrl: string,
+): Promise<DaemonResult<PanicWipeResponse>> {
+  return callProxy(baseUrl, "/daemon/panic/wipe", PanicWipeResponseSchema, {
+    method: "POST",
+  });
+}
+
 // =================================================================
 // Helpers
 // =================================================================

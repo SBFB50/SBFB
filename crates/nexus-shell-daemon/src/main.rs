@@ -32,6 +32,8 @@ mod http;
 mod logging;
 #[cfg(windows)]
 mod named_pipe_server;
+mod noop_identity;
+mod panic;
 mod runtime;
 #[cfg(unix)]
 mod uds_server;
@@ -90,12 +92,25 @@ async fn handle_start(paths: ShellDaemonPaths, _headless: bool) -> Result<()> {
     println!("  running.json: {}", paths.running_json.display());
     println!();
 
+    // Sprint 20 Phase B : the launcher sets `SBFB_IDENTITY_MODE=
+    // duress` in the child's environment when `sbfb unlock`
+    // matched the duress blob. Any other value (including unset)
+    // falls through to `Normal`. The env var is read inside the
+    // daemon process and never persisted on disk, matching the
+    // Phase A pattern for `SBFB_IDENTITY_SECRET_HEX`.
+    let identity_mode = match std::env::var("SBFB_IDENTITY_MODE").ok().as_deref() {
+        Some("duress") => nexus_core_rs::IdentityMode::Duress,
+        _ => nexus_core_rs::IdentityMode::Normal,
+    };
+    std::env::remove_var("SBFB_IDENTITY_MODE");
+
     let opts = DaemonStartOptions {
         paths,
         api_host: cfg.network.api_host.clone(),
         api_port: cfg.network.api_port,
         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
         curator: cfg.curator.clone(),
+        identity_mode,
     };
 
     let runtime = DaemonRuntime::start(opts)

@@ -34,6 +34,7 @@ import {
 import { getHealth } from "@/api/coordinator";
 import { AddCoordinatorDialog } from "@/components/AddCoordinatorDialog";
 import { useCommandPalette } from "@/components/command-palette/useCommandPalette";
+import { PanicWipeKeybind } from "@/components/PanicWipeKeybind";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +65,13 @@ export function AppShell() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const palette = useCommandPalette();
   const location = useLocation();
+  // Sprint 20 Phase B : the panic wipe keybind fires on
+  // Ctrl+Shift+Alt+W x5 in 3s and POSTs to the daemon via the
+  // active coordinator's /daemon/panic/wipe proxy. Null URL =
+  // no coordinator picked yet = nothing to wipe, so skip mount.
+  const activeCoordinatorUrl = useProjectStore(
+    (s) => s.activeCoordinatorUrl,
+  );
 
   // Full-screen pages hide the shell chrome
   const isFullScreen = location.pathname.startsWith("/browse/");
@@ -84,6 +92,9 @@ export function AppShell() {
           open={addDialogOpen}
           onOpenChange={setAddDialogOpen}
         />
+        {activeCoordinatorUrl && (
+          <PanicWipeKeybind coordinatorBaseUrl={activeCoordinatorUrl} />
+        )}
       </>
     );
   }
@@ -181,6 +192,10 @@ export function AppShell() {
           onAddCoordinator={() => setAddDialogOpen(true)}
         />
       </Suspense>
+
+      {activeCoordinatorUrl && (
+        <PanicWipeKeybind coordinatorBaseUrl={activeCoordinatorUrl} />
+      )}
     </div>
   );
 }

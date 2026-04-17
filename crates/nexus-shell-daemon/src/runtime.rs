@@ -129,6 +129,12 @@ pub struct DaemonStartOptions {
     pub daemon_version: String,
     /// Sprint 11 Phase B: `[curator]` section from config.
     pub curator: CuratorConfig,
+    /// Sprint 20 Phase B : which slot the launcher's `sbfb
+    /// unlock` matched. `Normal` in the typical case, `Duress`
+    /// when the user typed the duress PIN. Propagated into
+    /// `DaemonHttpState` so the noop routing helpers can gate
+    /// every publish / subscribe / dispatch handler.
+    pub identity_mode: nexus_core_rs::IdentityMode,
 }
 
 /// A live `nexus-shell-daemon` process.
@@ -345,6 +351,26 @@ impl DaemonRuntime {
         //     `Some(sender)` once the gossip task joins the topic.
         let gossip_sender: GossipSenderHandle = Arc::new(tokio::sync::RwLock::new(None));
 
+        // 5d. Sprint 20 Phase B : provision the panic wipe service
+        //     + read the identity mode the launcher handed us.
+        //     The keystore points at the same `<root>/keyring/`
+        //     directory the launcher's `sbfb unlock` wrote to,
+        //     so `wipe_all` reaches the exact two blob files.
+        //     The state_db path matches `subscriptions_json`
+        //     (the Sprint 11 persistence file, named .json but
+        //     treated here as the "session state" store — any
+        //     future sqlite file would be added alongside).
+        let keyring_dir = opts.paths.root.join("keyring");
+        let blob_cache_dir = opts.paths.root.join("blob-cache");
+        let keystore_for_panic = Arc::new(nexus_core_rs::LocalFileKeyStore::new(&keyring_dir));
+        let panic_wipe = Arc::new(crate::panic::PanicWipeService::new(
+            keystore_for_panic,
+            opts.paths.subscriptions_json.clone(),
+            blob_cache_dir,
+            Arc::new(crate::panic::RealExit) as Arc<dyn crate::panic::ExitStrategy>,
+        ));
+        let identity_mode = opts.identity_mode;
+
         // 6. Build the shared HTTP state + spawn the serve task.
         let http_state = Arc::new(DaemonHttpState {
             node_id,
@@ -360,6 +386,8 @@ impl DaemonRuntime {
             blob_serve_cache: Arc::new(nexus_shell_daemon_core::blob_serve::BlobServeCache::new(
                 nexus_shell_daemon_core::blob_serve::DEFAULT_MAX_CACHE_ENTRIES,
             )),
+            identity_mode,
+            panic_wipe,
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
@@ -856,6 +884,7 @@ mod tests {
             api_port: 0,
             daemon_version: "0.1.0-test".to_string(),
             curator: CuratorConfig::default(),
+            identity_mode: nexus_core_rs::IdentityMode::Normal,
         }
     }
 
