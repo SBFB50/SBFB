@@ -29,7 +29,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::{
     body::Body,
@@ -500,20 +500,25 @@ pub struct TokensFile {
     pub rotated_at: u64,
 }
 
-/// Pair of currently-valid tokens plus the instant of the last
-/// rotation, used by [`validate_token_with_rotator`] to accept
-/// either token during the overlap window.
+/// Pair of currently-valid tokens plus the wall-clock timestamp
+/// of the last rotation, used by [`validate_token_with_rotator`]
+/// to accept either token during the overlap window.
 ///
-/// The struct holds both a [`std::time::Instant`] (for overlap
-/// arithmetic — monotonic, unaffected by wall-clock skew) and a
-/// Unix timestamp (for persistence — the launcher can reload
-/// state across restarts). Only the launcher mutates this state;
+/// The struct uses a Unix timestamp (seconds since epoch) as the
+/// single source of truth for rotation age. Wall-clock is the
+/// right clock here: a monotonic [`std::time::Instant`] cannot
+/// reconstruct an "already-expired" age when loaded from a file
+/// whose timestamp predates the current process boot (the
+/// `Instant::now().checked_sub(age)` call underflows and silently
+/// falls back to `Instant::now()`, which re-starts the overlap
+/// window). Wall-clock skew risk is negligible: any attacker who
+/// can move the clock backwards already has the privilege to
+/// forge tokens directly. Only the launcher mutates this state;
 /// the daemon holds a read-only clone.
 #[derive(Debug, Clone)]
 pub struct TokenRotator {
     current: String,
     previous: Option<String>,
-    rotated_at: Instant,
     rotated_at_unix: u64,
 }
 
@@ -525,7 +530,6 @@ impl TokenRotator {
         Self {
             current,
             previous: None,
-            rotated_at: Instant::now(),
             rotated_at_unix: unix_now(),
         }
     }
@@ -538,7 +542,6 @@ impl TokenRotator {
     pub fn rotate(&mut self, new_current: String) {
         let prev = std::mem::replace(&mut self.current, new_current);
         self.previous = Some(prev);
-        self.rotated_at = Instant::now();
         self.rotated_at_unix = unix_now();
     }
 
@@ -570,7 +573,11 @@ impl TokenRotator {
     /// True iff a predecessor is stored *and* the overlap
     /// window has not yet elapsed since the last rotation.
     pub fn is_in_overlap_window(&self) -> bool {
-        self.previous.is_some() && self.rotated_at.elapsed() < TOKEN_OVERLAP_DURATION
+        if self.previous.is_none() {
+            return false;
+        }
+        let age = unix_now().saturating_sub(self.rotated_at_unix);
+        age < TOKEN_OVERLAP_DURATION.as_secs()
     }
 
     /// Unix timestamp (seconds) of the most recent rotation.
@@ -619,19 +626,9 @@ impl TokenRotator {
         };
         let payload: TokensFile =
             serde_json::from_str(&body).map_err(|e| std::io::Error::other(e.to_string()))?;
-        // Reconstruct the monotonic instant from (now - age):
-        // age = max(0, now - rotated_at_unix). If the wall clock
-        // went backwards for any reason, treat the rotation as
-        // "just now" — defensive, and the overlap window simply
-        // restarts rather than being perpetually expired.
-        let age = unix_now().saturating_sub(payload.rotated_at);
-        let rotated_at = Instant::now()
-            .checked_sub(Duration::from_secs(age))
-            .unwrap_or_else(Instant::now);
         Ok(Some(Self {
             current: payload.current,
             previous: payload.previous,
-            rotated_at,
             rotated_at_unix: payload.rotated_at,
         }))
     }
