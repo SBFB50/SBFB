@@ -179,6 +179,7 @@ function callAnthropicApi(prompt) {
         'content-length': Buffer.byteLength(body),
       },
       timeout: 8000,
+      agent: false,
     }, res => {
       let buf = '';
       res.on('data', c => buf += c);
@@ -241,5 +242,9 @@ function callClaudeCli(prompt) {
 if (PARENT_MODE) {
   parentExit();
 } else {
-  child();
+  // Safety force-exit so a hung HTTP socket or stuck claude CLI
+  // cannot leak a zombie node.exe. 25s = 20s CLI timeout + 5s slack.
+  const safetyExit = setTimeout(() => process.exit(0), 25000);
+  safetyExit.unref();
+  child().finally(() => process.exit(0));
 }

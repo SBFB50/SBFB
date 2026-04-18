@@ -18,12 +18,15 @@ VIEWER="$CWD/.claude/hooks/sidecar-input.js"
 
 [ -f "$VIEWER" ] || exit 0
 
-# Skip spawn when a sidecar is alive (heartbeat < 30s old).
+# Skip spawn when a sidecar is alive (heartbeat < 300s old). See
+# launch-narration-terminal.sh for rationale on the 30s->300s bump.
+# Sidecar writes heartbeat every 5s so 300s tolerates 1 min of
+# stuckness before assuming dead.
 if [ -f "$HEARTBEAT" ]; then
   now=$(date +%s)
   if mtime=$(stat -c %Y "$HEARTBEAT" 2>/dev/null) || mtime=$(stat -f %m "$HEARTBEAT" 2>/dev/null); then
     age=$((now - mtime))
-    if [ "$age" -lt 30 ]; then
+    if [ "$age" -lt 300 ]; then
       exit 0
     fi
   fi

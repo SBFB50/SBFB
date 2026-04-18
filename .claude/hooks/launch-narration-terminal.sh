@@ -15,12 +15,16 @@ VIEWER="$CWD/.claude/hooks/narration-viewer.js"
 
 [ -f "$VIEWER" ] || exit 0
 
-# Skip spawn when a viewer is alive (heartbeat written < 30s ago).
+# Skip spawn when a viewer is alive (heartbeat written < 300s ago).
+# Window bumped from 30s to 300s after observing that short windows
+# let SessionStart (via /clear or resume) re-spawn duplicates when
+# the viewer had a transient busy period. The viewer itself refreshes
+# every 1s so 300s tolerates 5 min of stuckness before assuming dead.
 if [ -f "$HEARTBEAT" ]; then
   now=$(date +%s)
   if mtime=$(stat -c %Y "$HEARTBEAT" 2>/dev/null) || mtime=$(stat -f %m "$HEARTBEAT" 2>/dev/null); then
     age=$((now - mtime))
-    if [ "$age" -lt 30 ]; then
+    if [ "$age" -lt 300 ]; then
       exit 0
     fi
   fi

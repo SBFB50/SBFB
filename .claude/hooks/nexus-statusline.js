@@ -179,5 +179,9 @@ process.stdin.on('end', () => {
   } catch (e) {
     // Silent fail — don't break statusline
     process.stdout.write(input ? '' : '');
+  } finally {
+    // Explicit exit so node event loop drains and the process does
+    // not lingerer on Windows with buffered stdout keeping it alive.
+    process.exit(0);
   }
 });
