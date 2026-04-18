@@ -17,6 +17,10 @@
  *
  * Sprint 15 Phase A — adds `onEvent(name, callback)` for push events
  *   pushed by the host toward the iframe (fire-and-forget).
+ * Sprint 21 Phase B — adds `piiRedact(text, policy)` that runs the
+ *   host-side PII SDK (GLiNER edge / regex fallback) and returns a
+ *   redacted string. Use before `submitTask({ prompt })` so workers
+ *   never see personal data from the end user.
  */
 
 // eslint-disable-next-line no-unused-vars
@@ -180,6 +184,25 @@ class SBFBBridge {
    */
   setStorage(key, value) {
     return this._call("storage_set", Object.assign({ key: key }, value || {}));
+  }
+
+  /**
+   * Redact PII from a piece of text via the host-side SDK (Sprint
+   * 21 Phase B). The host runs GLiNER ONNX when the model asset is
+   * available and falls back to curated regex (email, phone, CC,
+   * SSN, IBAN) otherwise. Apps should call this before
+   * {@link submitTask} whenever the prompt may contain personal
+   * data.
+   *
+   * @param {string} text — input text to scan (≤ 50000 chars)
+   * @param {Object} [policy] — partial policy override (enabled,
+   *   entities, replacement, confidence_threshold, use_model)
+   * @returns {Promise<{ redacted_text: string, findings_count: number }>}
+   */
+  piiRedact(text, policy) {
+    var payload = { text: text };
+    if (policy) payload.policy = policy;
+    return this._call("pii_redact", payload);
   }
 
   /**

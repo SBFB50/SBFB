@@ -22,6 +22,11 @@ dist-ssr
 # Vitest coverage output
 /coverage/
 
+# Sprint 21 Phase B — PII SDK models downloaded on-demand runtime
+# (45.8 MB ONNX file, gitkeep placeholder preserved)
+/public/models/*
+!/public/models/.gitkeep
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

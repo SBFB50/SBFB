@@ -1463,14 +1463,19 @@ location block in `deploy/nginx-nexus.conf`.
 **Rule**: all communication between sandboxed iframe apps and the
 host shell goes through a typed postMessage bridge. The protocol
 uses `BridgeRequest` (iframe → host) and `BridgeResponse` (host →
-iframe) with UUID correlation IDs for async matching. Only three
-methods are whitelisted: `task_submit`, `storage_get`, `storage_set`.
-The host validates source (`event.source === iframe.contentWindow`),
-parses with Zod, dispatches to the coordinator API, and replies.
-No direct network access from the iframe (CSP `connect-src 'none'`).
+iframe) with UUID correlation IDs for async matching. The method
+enum is a whitelist extended additively across sprints — never
+bumped as a protocol version. As of Sprint 21 it contains four
+entries: `task_submit`, `storage_get`, `storage_set` (Sprint 13)
+and `pii_redact` (Sprint 21 Phase B, local host dispatch, no
+coordinator round-trip). The host validates source (`event.source
+=== iframe.contentWindow`), parses with Zod, dispatches to the
+coordinator API (or locally for `pii_redact`), and replies. No
+direct network access from the iframe (CSP `connect-src 'none'`).
 
-SHA: `c32d9c7`. Files: `web/src/bridge/protocol.ts`, `useBridge.ts`,
-`web/public/sbfb-bridge.js`.
+SHA: `c32d9c7` (S13 baseline), extended Sprint 21 Phase B. Files:
+`web/src/bridge/protocol.ts`, `useBridge.ts`, `web/public/sbfb-
+bridge.js`.
 
 ### P25 — open source enforcement for public apps
 

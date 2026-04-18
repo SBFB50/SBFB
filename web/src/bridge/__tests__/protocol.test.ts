@@ -9,6 +9,8 @@ import {
   BridgeEventSchema,
   BridgeRequestSchema,
   BridgeResponseSchema,
+  PII_REDACT_MAX_TEXT_LENGTH,
+  PiiRedactPayloadSchema,
   createErrorResponse,
   createEvent,
   createResponse,
@@ -96,5 +98,30 @@ describe("BridgeEventSchema (Sprint 15 Phase A)", () => {
   it("rejects an event with wrong type discriminator", () => {
     const evt = { type: "sbfb-bridge-response", name: "foo", payload: null };
     expect(BridgeEventSchema.safeParse(evt).success).toBe(false);
+  });
+});
+
+describe("PiiRedactPayloadSchema (Sprint 21 Phase B)", () => {
+  it("accepts pii_redact as a valid bridge method", () => {
+    const req = {
+      type: "sbfb-bridge-request",
+      id: "550e8400-e29b-41d4-a716-446655440000",
+      method: "pii_redact",
+      payload: { text: "Hello foo@bar.com" },
+    };
+    expect(BridgeRequestSchema.safeParse(req).success).toBe(true);
+  });
+
+  it("rejects a pii_redact payload larger than the hard cap", () => {
+    const text = "x".repeat(PII_REDACT_MAX_TEXT_LENGTH + 1);
+    expect(PiiRedactPayloadSchema.safeParse({ text }).success).toBe(false);
+  });
+
+  it("accepts an optional partial policy override", () => {
+    const payload = {
+      text: "sample",
+      policy: { enabled: false, confidence_threshold: 0.2 },
+    };
+    expect(PiiRedactPayloadSchema.safeParse(payload).success).toBe(true);
   });
 });

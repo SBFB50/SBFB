@@ -88,6 +88,43 @@ describe("useBridge", () => {
     expect(resp.error).toContain("no active coordinator");
   });
 
+  describe("pii_redact dispatch (Sprint 21 Phase B)", () => {
+    it("redacts without requiring a coordinator URL", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      renderHook(() => useBridge(null, null, iframeRef));
+
+      // `use_model: false` forces the regex fallback path — jsdom
+      // has no WASM runtime, so the real ONNX loader would hang
+      // otherwise. The model path is covered by the wrapper tests
+      // that inject a stub ModelLoader.
+      const req = makeRequest({
+        id: "11111111-1111-4111-8111-111111111111",
+        method: "pii_redact",
+        payload: { text: "Email foo@bar.com", policy: { use_model: false } },
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      const data = resp.data as { redacted_text: string; findings_count: number };
+      expect(data.redacted_text).toContain("[REDACTED:EMAIL_ADDRESS]");
+      expect(data.redacted_text).not.toContain("foo@bar.com");
+      expect(data.findings_count).toBeGreaterThan(0);
+
+      // Local dispatch: the coord was never called.
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe("pushEvent (Sprint 15 Phase A)", () => {
     it("posts a bridge-event to the iframe contentWindow", () => {
       const { result } = renderHook(() =>

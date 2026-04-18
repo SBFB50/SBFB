@@ -21,6 +21,10 @@ export const BridgeMethodSchema = z.enum([
   "task_submit",
   "storage_get",
   "storage_set",
+  // Sprint 21 Phase B — client-side PII redaction. Dispatched
+  // locally in the host shell (no coordinator round-trip) so apps
+  // can redact prompts before calling `task_submit`.
+  "pii_redact",
 ]);
 
 export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;
@@ -33,6 +37,33 @@ export const BridgeRequestSchema = z.object({
 });
 
 export type BridgeRequest = z.infer<typeof BridgeRequestSchema>;
+
+// =================================================================
+// Method payload schemas — Sprint 21 Phase B
+// =================================================================
+
+/** Hard cap on text size submitted for redaction (50 KB). */
+export const PII_REDACT_MAX_TEXT_LENGTH = 50_000;
+
+/**
+ * `pii_redact` payload. The `policy` field is an optional partial
+ * override of the host-shell {@link DEFAULT_POLICY}; missing fields
+ * fall back to the default so apps only need to specify diffs.
+ */
+export const PiiRedactPayloadSchema = z.object({
+  text: z.string().max(PII_REDACT_MAX_TEXT_LENGTH),
+  policy: z
+    .object({
+      enabled: z.boolean().optional(),
+      entities: z.array(z.string()).optional(),
+      replacement: z.string().optional(),
+      confidence_threshold: z.number().min(0).max(1).optional(),
+      use_model: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+export type PiiRedactPayload = z.infer<typeof PiiRedactPayloadSchema>;
 
 // =================================================================
 // Response (host → iframe)

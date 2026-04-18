@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BridgeHeartbeatSchema,
   BridgeRequestSchema,
+  PiiRedactPayloadSchema,
   createErrorResponse,
   createEvent,
   createResponse,
@@ -27,6 +28,7 @@ import {
   setAppState,
   SubmitAppTaskBodySchema,
 } from "@/api/coordinator";
+import { detectAndRedact, type PiiPolicy } from "@/sdk/pii";
 
 /**
  * Watchdog state for a single iframe.
@@ -128,6 +130,26 @@ export function useBridge(
       const iframe = iframeRef.current;
       if (!iframe || event.source !== iframe.contentWindow) return;
 
+      // Sprint 21 Phase B — pii_redact dispatches locally inside
+      // the host shell (no coordinator round-trip), so it must be
+      // reachable even when `coordUrl` is null (offline app, boot
+      // sequence, degraded mode). Keep this branch ABOVE the coord
+      // guard so the bridge stays usable without a live coord.
+      if (req.method === "pii_redact") {
+        void dispatchPiiRedact(req).then(
+          (data) => reply(event.source as Window, createResponse(req.id, data)),
+          (err) =>
+            reply(
+              event.source as Window,
+              createErrorResponse(
+                req.id,
+                err instanceof Error ? err.message : String(err),
+              ),
+            ),
+        );
+        return;
+      }
+
       const url = coordUrlRef.current;
       const app = appNameRef.current;
       if (!url || !app) {
@@ -184,6 +206,18 @@ export function useBridge(
 
 function reply(target: Window, response: import("@/bridge/protocol").BridgeResponse) {
   target.postMessage(response, "*");
+}
+
+async function dispatchPiiRedact(
+  req: BridgeRequest,
+): Promise<{ redacted_text: string; findings_count: number }> {
+  const parsed = PiiRedactPayloadSchema.parse(req.payload);
+  const override = parsed.policy as Partial<PiiPolicy> | undefined;
+  const result = await detectAndRedact(parsed.text, override);
+  return {
+    redacted_text: result.text,
+    findings_count: result.findings.length,
+  };
 }
 
 async function dispatch(

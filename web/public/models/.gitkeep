@@ -1,0 +1,16 @@
+# Sprint 21 Phase B — PII SDK models directory
+
+The ONNX models for the client-side PII redaction SDK are NOT
+committed to git. They are downloaded on-demand at runtime (or by
+the developer manually for local dev).
+
+To enable the full GLiNER PII model path (Phase B Couche 1), fetch:
+
+    curl -L -o gliner-pii-edge-v1.0.onnx \
+      https://huggingface.co/knowledgator/gliner-pii-edge-v1.0/resolve/main/onnx/model_quint8.onnx
+
+Model size: 45.8 MB (ModernBERT backbone, Apache-2.0).
+
+Without the model, the SDK falls back automatically to curated
+regex detection (email, phone E.164, credit card with Luhn check,
+SSN, IBAN) — see web/src/sdk/pii/fallback.ts.
