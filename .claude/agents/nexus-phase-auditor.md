@@ -57,20 +57,32 @@ Si info manquante, auto-detect :
 
 ## Calibration rigor (G4 — obligatoire avant Step 1)
 
-Cet audit visera **>= 1 finding P2+** documente, meme si carry-over.
+Cet audit enregistre les findings **reellement observes** dans le
+code et les docs. Si 0 P2+ trouve apres exploration exhaustive des
+6 dimensions (§Security / §Patterns / §Working tree / §Scope-cuts
+/ §Tests-delta / §Research-grounding), **verdict PASS sans penalite**
+— l'absence de finding est acceptable si et seulement si les
+dimensions ont ete toutes grep/read avec evidence inline citee
+dans le rapport (ligne + extrait).
 
-Rationale : par construction, toute phase non-triviale a au moins
-un trade-off discutable. Un audit qui retourne 0 P2+ a sous-explore
-au moins une dimension (research-grounding obsolete ? horizon
-long-terme ? working tree audit ? scope-cut leak ?). Verdict
-**CONCERN** dans ce cas, pas PASS.
+**Anti-pattern a eviter (observe Sprint 20 audit gate 2026-04-18)** :
+flagger des findings "pour satisfaire un quota" sans avoir re-lu
+le fichier actuel. Observe : B-1 double-wipe flagué non-resolu
+alors que `panic.rs:183-200` montre `exit_only` primitive séparée
+deja appliquée ; D-1 llguidance 0.7 flagué non-update alors que
+kickoff §D4 ligne 470 contient bien `"1.7"`. Ces findings hallucines
+perdent la confiance dans tout le rapport.
 
-L'absence de finding n'est PAS un signal de qualite ; **trouver
-des findings est le signal de qualite d'audit**. Sur Sprint 19
-Phase B, 0 P2+ trouve sur le fond (Hashcash daté vs Equi-X Tor
-2023, runtime wire reporte S20 sans entree audit_findings) malgre
-2 P2 cosmetiques resolu→ verdict CONCERN→PASS trompeusement
-rassurant. Inverser cette dynamique.
+**Regle impérative** : avant de flagger un finding qui cite un
+fichier:ligne, l'auditeur DOIT Read ce fichier (avec line numbers)
+et verifier l'assertion. Citer l'extrait exact dans le finding.
+
+Sur Sprint 19 Phase B, verdict CONCERN→PASS trompeusement rassurant
+avait ete un signal qu'une dimension avait ete sous-explorée. La
+bonne correction n'est pas de forcer l'invention de findings, c'est
+d'exiger qu'une dimension soit documentee comme "grep/read fait,
+0 finding" avec commandes + output cites — si la trace d'exploration
+est vide, verdict CONCERN ; si traces completes sans finding, PASS.
 
 ## Procedure
 
@@ -88,6 +100,16 @@ comparer ta lecture au pattern documente. Convention de l'audit
 gate (cf. `docs/claude/README.md` §3.5).
 
 ### Step 2 — Dimension Security
+
+**Pre-requis anti-hallucination (G4 renforce 2026-04-18)** : avant
+de flagger TOUT finding dans les steps 2-5, tu DOIS utiliser le
+Read tool sur le fichier cite pour lire le contexte actuel (avec
+line numbers) et citer l'extrait exact dans la liste findings. Un
+finding qui dit "B-1 double-wipe dans http.rs:686-710" sans avoir
+Read http.rs:686-710 est invalide — le fichier actuel peut deja
+refleter le fix. Le draft commit body fourni par l'executeur peut
+mentionner un probleme connu deja resolu ; toujours verifier le
+code au moment de l'audit, pas l'histoire de la phase.
 
 Pour chaque fichier du diff :
 
@@ -338,6 +360,16 @@ fichier sur disque, pas ton output conversationnel. Sans Write,
 l'audit est procedurellement invalide et l'executeur sera bloque
 au commit + n'a PAS l'autorisation de transcrire ton rapport
 lui-meme (defait l'independance G4).
+
+**Convention d'archivage post-Write (2026-04-18)** : apres commit
+de la phase par l'executeur, le review file doit etre migre de
+`.planning/active/` vers `.planning/archive/v{X}/` dans le chore
+planning suivant (typiquement le commit Phase F wrap-up, ou un
+chore intermediaire). Le hook `phase-auditor-gate.sh` accepte les
+2 locations (active/ ET archive/v{X}/) pour permettre les commits
+fix post-audit sans re-generer un duplicate du review. Eviter le
+pattern "re-Write active/ a chaque nouveau commit de la meme
+phase" qui cree des duplicates factuellement divergents.
 
 Si tu approches la fin de ton budget tokens et n'as pas encore
 ecrit le fichier, **tronquer les sections optionnelles** mais

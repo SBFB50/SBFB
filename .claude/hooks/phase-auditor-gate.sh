@@ -51,19 +51,29 @@ PHASE=$(echo "$CMD" | grep -oE 'Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{
 [ -z "$SPRINT" ] && exit 0
 [ -z "$PHASE" ] && exit 0
 
-REVIEW=".planning/active/sprint${SPRINT}_phase_${PHASE}_review.md"
+REVIEW_ACTIVE=".planning/active/sprint${SPRINT}_phase_${PHASE}_review.md"
+# Si le review a deja ete archive (commit fix post-audit, Phase F wrap-up,
+# ou chore intermediaire), on accepte aussi l'archive. Evite de forcer
+# une regeneration du fichier qui cree des duplicates factuellement
+# divergents (observe session 2026-04-18).
+REVIEW_ARCHIVE=$(ls .planning/archive/v*/sprint${SPRINT}_phase_${PHASE}_review.md 2>/dev/null | head -1)
 
-if [ ! -f "$REVIEW" ]; then
+if [ -f "$REVIEW_ACTIVE" ]; then
+  REVIEW="$REVIEW_ACTIVE"
+elif [ -n "$REVIEW_ARCHIVE" ]; then
+  REVIEW="$REVIEW_ARCHIVE"
+else
   echo "" >&2
   echo "[phase-auditor-gate] BLOCK: missing review file" >&2
   echo "" >&2
-  echo "  Expected: $REVIEW" >&2
+  echo "  Expected (active):  $REVIEW_ACTIVE" >&2
+  echo "  Expected (archive): .planning/archive/v{X}/sprint${SPRINT}_phase_${PHASE}_review.md" >&2
   echo "" >&2
   echo "  Avant de committer Sprint ${SPRINT} Phase ${PHASE}, lance l'agent :" >&2
   echo "    Task(subagent_type=\"nexus-phase-auditor\"," >&2
   echo "         prompt=\"Audit Sprint ${SPRINT} Phase ${PHASE}." >&2
   echo "                 ECRIRE OBLIGATOIREMENT via Write tool dans" >&2
-  echo "                 ${REVIEW} AVANT de retourner." >&2
+  echo "                 ${REVIEW_ACTIVE} AVANT de retourner." >&2
   echo "                 Stdout ne suffit pas — le hook bloque sans le" >&2
   echo "                 fichier sur disque." >&2
   echo "                 Draft commit body: <coller ici>\")" >&2
@@ -76,7 +86,7 @@ if [ ! -f "$REVIEW" ]; then
   exit 2
 fi
 
-# Review existe — verdict PASS ?
+# Review existe (active ou archive) — verdict PASS ?
 if ! grep -qE '^## Verdict[[:space:]]*:[[:space:]]*PASS' "$REVIEW"; then
   VERDICT_LINE=$(grep -E '^## Verdict' "$REVIEW" | head -1 || echo "(unknown)")
   echo "" >&2
