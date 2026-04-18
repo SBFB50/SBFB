@@ -154,13 +154,9 @@ pub fn frost_keygen_trusted_dealer(
     max_signers: u16,
 ) -> Result<(Vec<FrostKeyShare>, FrostPubkey), FrostError> {
     let rng = OsRng;
-    let (shares, pubkey_package) = frost::keys::generate_with_dealer(
-        max_signers,
-        min_signers,
-        IdentifierList::Default,
-        rng,
-    )
-    .map_err(|e| FrostError::Keygen(e.to_string()))?;
+    let (shares, pubkey_package) =
+        frost::keys::generate_with_dealer(max_signers, min_signers, IdentifierList::Default, rng)
+            .map_err(|e| FrostError::Keygen(e.to_string()))?;
 
     let mut key_shares = Vec::with_capacity(shares.len());
     for (id, secret_share) in shares {
