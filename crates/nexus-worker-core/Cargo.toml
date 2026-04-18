@@ -140,6 +140,28 @@ llama-cpp-2 = { workspace = true, optional = true }
 # Optional-workspace just like `llama-cpp-2` above.
 llguidance = { workspace = true, optional = true }
 
+# Sprint 21 Phase A : rate-limit GCRA multi-tier per-(consumer,
+# worker, model) via the `governor` crate (GCRA + keyed DashMap).
+# The `RateLimiter` wrapper lives in `src/rate_limit.rs` and is
+# consumed by the engine loop pre-task-execution — R1 scope-cut
+# worker-engine gate pure Rust, HTTP middleware coord-side
+# différé S22+ (cf. `.planning/archive/v1.2/sprint21_phase_A_
+# pivot_proposal.md`).
+governor = { workspace = true }
+
+# Sprint 21 Phase A : `nonzero!(N)` macro required by
+# `governor::Quota::per_second(nonzero!(..))` — compile-time
+# non-zero constructor for `NonZeroU32`.
+nonzero_ext = { workspace = true }
+
+# Sprint 21 Phase A : concurrent hashmap for the per-consumer
+# override limiter map held inside `RateLimiter`. Already a
+# workspace dep via `nexus-shell-daemon-core` (curator registry) —
+# re-declared here because the worker-core `rate_limit` module
+# holds its own `DashMap<ConsumerId, ...>` and must not reach
+# through a transitive re-export.
+dashmap = { workspace = true }
+
 # Deliberately excluded: clap, ratatui, crossterm, dialoguer.
 # This crate is UI-free by design (see the 2026-04-10 Sprint 3
 # headless-first decision in the plan). Anything user-facing lives

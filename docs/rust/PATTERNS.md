@@ -1818,6 +1818,127 @@ is enough to validate the metric format end-to-end.
 
 ---
 
+## §P33 — Sprint 21 Phase A : rate-limit GCRA multi-tier (R1 worker-engine gate)
+
+Phase A delivers a rate-limit primitive per-(consumer, worker,
+model) in `crates/nexus-worker-core/src/rate_limit.rs`, consumed
+by the worker engine pre-task-execution. The primitive wraps
+`governor::DefaultKeyedRateLimiter<RateKey>` (GCRA algorithm,
+DashMap-backed concurrent state) plus a per-consumer override map
+for operator whitelists.
+
+```rust
+pub struct RateKey {
+    pub consumer: ConsumerId,
+    pub worker: WorkerId,
+    pub model: ModelId,
+}
+
+pub struct RateLimiter {
+    default: Arc<DefaultKeyedRateLimiter<RateKey>>,
+    overrides: Arc<DashMap<ConsumerId, Arc<DefaultKeyedRateLimiter<RateKey>>>>,
+    _policy: Arc<RwLock<RateLimitPolicy>>,
+}
+
+impl RateLimiter {
+    pub fn check(&self, key: &RateKey) -> Result<(), RateLimitError> {
+        let limiter = match self.overrides.get(&key.consumer) {
+            Some(entry) => Arc::clone(entry.value()),
+            None => Arc::clone(&self.default),
+        };
+        match limiter.check_key(key) {
+            Ok(()) => Ok(()),
+            Err(_not_until) => Err(RateLimitError::Saturated { ... }),
+        }
+    }
+    pub fn retain_recent(&self) { /* evict stale keys */ }
+}
+```
+
+Policy is loaded from `~/.sbfb/rate_limit_policy.toml` via
+`RateLimitPolicyWatcher` (`rate_limit_policy_loader.rs`) with the
+same pattern as `PowPolicyWatcher` (S20 §P29) + `TokenRotator`
+(S18 D-1) + `ConsentWatcher` (S16) : parent-dir `notify` watch,
+50 ms debounce, malformed-reload guard, file-deletion guard,
+Arc<RwLock<RateLimitPolicy>> snapshot shared across engine tasks.
+
+### R1 scope-cut rationale
+
+The plan §4.1 (kickoff §D1 literal) originally called for a
+`tower-governor` axum middleware on `/task/submit` in the Rust
+shell-daemon. A mid-phase drift detection showed `/task/submit`
+lives in Python FastAPI (`packages/nexus-coordinator/src/nexus_
+coordinator/api/tasks.py::POST /tasks/submit` since Sprint 4
+Phase A) — `tower-governor` cannot middleware FastAPI.
+
+User arbitrated R1 worker-engine gate 2026-04-19. Rationale :
+- `HARDENING_ROADMAP §3 S21` threats `C-ModelExtract` + `C-DosFlood`
+  are defended at the worker level (protect inference + GPU), not
+  HTTP coord (where the real threat is a botnet across workers,
+  not per-worker rate).
+- D1 core `governor 0.10.2 GCRA + DashMap keyed + policy hot-
+  reload` preserved verbatim.
+- HTTP middleware Python coord-side deferred S22+ (slowapi or
+  equivalent dedicated API security sprint).
+
+The pattern lesson : **when a design assumes a language or runtime
+substrate that does not exist at the target path, G8 pre-flight
+S1+S2+S3+S4 catches it** — but the mid-phase grep (pre first
+`Edit`/`Write`) is the last-line-of-defense checklist. Always
+grep for the target routes/endpoints before starting to wire
+middleware.
+
+### Policy TOML schema
+
+```toml
+[default]
+per_min = 60             # u32 required, rejects zero at boot
+burst_multiplier = 2.0   # f64 optional, floors to per_min if < 1.0
+
+[[overrides.consumer]]
+pubkey_hex = "0xabc..."  # 64-char Ed25519 hex
+per_min = 500
+burst_multiplier = 3.0
+```
+
+Tests cover : saturation rejects over budget, per-tuple
+independence on all 3 axes (consumer / worker / model),
+`retain_recent` idempotent housekeeping, override whitelist lifts
+budget, invalid quota rejected at boot, TOML serde round-trip,
+hot-reload live swap, malformed reload keeps previous, deletion
+keeps previous. 16 Rust tests total.
+
+### Engine integration (outline, consumed S21 Phase B+)
+
+```rust
+// Worker engine, pre-task-execution admission check
+let key = RateKey::new(
+    task.consumer_pubkey_hex.clone(),
+    worker_id.clone(),
+    task.model_id.clone(),
+);
+match rate_limiter.check(&key) {
+    Ok(()) => admit_and_execute(task).await,
+    Err(RateLimitError::Saturated { .. }) => {
+        // Defer : task goes back to the coordinator with a
+        // "retry later" signal, surfaced as a task status
+        // update via the existing result channel.
+        defer_with_retry(task).await
+    }
+    Err(RateLimitError::InvalidQuota(_)) => unreachable!(
+        "loader rejected invalid quotas at boot"
+    ),
+}
+```
+
+The full engine wire-up (task accept loop integration + retry
+channel) will land with Phase B or as a carry during Phase F
+verification when the worker engine loop is exercised end-to-end.
+Phase A ships the primitive + loader + tests only ; no engine
+call-site yet.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

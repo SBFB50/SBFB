@@ -128,10 +128,14 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 
 # Sprint 7 Phase A: nexus-shell-daemon HTTP layer.
 #
-# axum is pinned to the 0.7.x line deliberately. axum 0.8 introduced
-# `Handler` trait lifetime changes that break several compile-time
-# patterns we rely on (see `.planning/sprint7_plan.md` R2). When the
-# ecosystem pushes us to 0.8 we'll revisit in a dedicated sprint.
+# Sprint 21 pre-Phase-A chore: axum bumped 0.7 → 0.8 workspace-
+# wide (commit `5e67ce0`) to unblock `tower-governor 0.8` pinning
+# axum 0.8. Migration mécanique: 3 routes path syntax `/:param/
+# *rest` → `/{param}/{*rest}`, middleware::from_fn signatures
+# compat sans modif, Router::merge/nest sans fallback donc sans
+# risque panic. Audit gates S16/S17/S19 loopback hardening
+# invariants préservés (bearer + Host + Origin + UDS/NP peer
+# creds) — rework = syntax only.
 #
 # tower-http is the CORS middleware source. `cors` is the only
 # feature we need — the daemon is loopback-only and does not need
@@ -355,6 +359,34 @@ llguidance = "1.7"
 # `crates/nexus-shell-daemon-core/src/canary/frost.rs` so the
 # workspace surface stays minimal until Niveau 1 lands.
 frost-ed25519 = "2.1"
+
+# Sprint 21 Phase A : rate-limit GCRA (Generic Cell Rate
+# Algorithm) multi-tier per-(consumer, worker, model). `governor`
+# est la seule crate Rust 2026 mature avec GCRA + keyed natif
+# (DashMap backend pour cardinalité dynamique). Wrapper
+# `RateLimiter` dans `crates/nexus-worker-core/src/rate_limit.rs`
+# consommé par l'engine worker pre-task-execution (R1 scope-cut
+# worker-engine gate pure Rust, HTTP middleware coord-side
+# différé S22+). Scope D1 kickoff §4 figé 2026-04-18 + R1
+# arbitrage drift mid-phase 2026-04-19 (cf. `.planning/archive/
+# v1.2/sprint21_phase_A_pivot_proposal.md` frontmatter
+# `post_bump_drift_R1`).
+#
+# Version 0.10.2 = dernière stable crates.io (vérifié context7
+# `/boinkor-net/governor` + WebSearch 2026-04-18). Rejected
+# alternatives documentées kickoff §D1 Rejetés (ratelimit_meter
+# archived, leaky-bucket non-keyed, tokio-rate-limit 0.8 sans
+# GCRA, custom lru + atomic reinvente, global daemon-wide défaite
+# §4 fairness). RustSec scan 2026-04-18 : aucun advisory actif
+# sur `governor`.
+governor = "0.10.2"
+
+# Sprint 21 Phase A : helper `nonzero!(N)` macro requis par
+# `governor::Quota::per_second(nonzero!(10u32))` etc. La macro
+# construit un `NonZero*` au compile-time avec panic statique si
+# la valeur est zéro — strictement nécessaire vu que les
+# constructeurs `Quota::*` acceptent uniquement des non-zéro.
+nonzero_ext = "0.3"
 
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto

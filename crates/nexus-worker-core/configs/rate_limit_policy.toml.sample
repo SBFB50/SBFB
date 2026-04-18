@@ -1,0 +1,47 @@
+# Sprint 21 Phase A — rate-limit policy sample for the SBFB worker.
+#
+# Copy to `~/.sbfb/rate_limit_policy.toml` (per-user dotdir). The
+# worker process reads this file at boot and re-reads it on every
+# filesystem write — the `rate_limit_policy_loader` crate-side
+# watcher picks up edits without restarting the worker.
+#
+# Schema:
+#   [default]
+#       per_min           : u32, required. Requests per minute
+#                           allowed for a given (consumer, worker,
+#                           model) tuple. Default 60 when absent.
+#       burst_multiplier  : f64, optional (default 2.0). Burst
+#                           capacity = per_min * burst_multiplier,
+#                           floored to per_min if the multiplier is
+#                           below 1.0.
+#
+#   [[overrides.consumer]]
+#       pubkey_hex        : str, required. 64-char Ed25519 hex.
+#       per_min           : u32, required.
+#       burst_multiplier  : f64, optional (default 2.0).
+#
+# Threat model coverage (HARDENING_ROADMAP §3 S21):
+#   - C-ModelExtract : burst-ceiling + per-tuple budget limits how
+#     many inferences a single consumer-worker-model triple can
+#     trigger per minute, bounding model extraction paper-flood.
+#   - C-DosFlood     : per-tuple independence (saturating one tuple
+#     does not spill over) prevents a single abusive consumer
+#     from starving other consumers' worker bandwidth.
+#
+# Scope-cut R1 (2026-04-19): HTTP middleware on /task/submit is
+# NOT applied Phase A — that endpoint vit Python FastAPI, the
+# slowapi middleware will land in a dedicated S22+ sprint. The
+# rate-limit enforced via this file is worker-engine side only
+# (checked by the engine loop before admitting a task).
+
+[default]
+per_min = 60
+burst_multiplier = 2.0
+
+# Example override for a privileged consumer pubkey — uncomment
+# and replace the hex with your consumer's Ed25519 public key.
+#
+# [[overrides.consumer]]
+# pubkey_hex = "0000000000000000000000000000000000000000000000000000000000000000"
+# per_min = 500
+# burst_multiplier = 3.0

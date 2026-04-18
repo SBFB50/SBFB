@@ -58,6 +58,8 @@ pub mod gpu;
 pub mod invite;
 pub mod llm;
 pub mod paths;
+pub mod rate_limit;
+pub mod rate_limit_policy_loader;
 
 /// Version of the `nexus-worker-core` crate, taken from
 /// `CARGO_PKG_VERSION` at compile time. The `nexus-worker` binary
