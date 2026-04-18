@@ -127,6 +127,40 @@ d'ouverture S21 (requalification D2 SDK).
 
 ## 4. Phase A — Rate-limit sliding-window multi-tier
 
+### 4.0 Pré-requis chore hors-sprint (G8 Option C arbitré)
+
+G8 preflight 2026-04-18 (`sprint21_phase_A_pivot_proposal.md`
+verdict DESIGN-CONFLICT → user arbitre Option C) : **avant la 1re
+ligne de code Phase A**, commit chore hors-sprint 
+`chore: bump axum 0.7 → 0.8 workspace-wide` pour résoudre le clash
+tower-governor 0.8 (requiert axum 0.8) vs workspace axum 0.7.
+
+Scope concret audit pre-chore :
+- `Cargo.toml` ligne 139 : `axum = "0.7"` → `"0.8"` (workspace dep
+  inherited par `nexus-shell-daemon` + `nexus-launcher`).
+- `crates/nexus-shell-daemon/src/http.rs:180` : `/:hash/*path` →
+  `/{hash}/{*path}` (axum 0.8 path syntax).
+- `crates/nexus-shell-daemon/src/http.rs:200` : `/curators/:pubkey`
+  → `/curators/{pubkey}`.
+- `crates/nexus-shell-daemon/src/http.rs:168,784` + `crates/nexus-
+  shell-daemon-core/src/browse.rs:183` : doc comments sync syntax.
+- Middleware `middleware::from_fn` + `from_fn_with_state` +
+  `Next` signatures : ajustements compile-driven (axum 0.8
+  `Request` / `Next` API mineurement different).
+- Tests S16 loopback suites à re-valider (`auth.rs` test modules
+  + `uds_server.rs` + `named_pipe_server.rs`) : bearer + Host +
+  Origin + UDS/NP peer creds **invariants préservés**, rework =
+  syntax only.
+
+Aucun de : `PathParamsRejection` / `hyper::Body` / `axum::async_
+trait` / `Option<Extractor>` / `into_make_service_with_connect_
+info` n'est utilisé dans le workspace → breakage grid axum 0.8
+bien plus réduit que proposal initial §3 Option C estimait.
+
+Dépendances workspace déjà compat axum 0.8 : `tower = "0.5"` (ligne
+140) + `tower-http = "0.6"` (ligne 141) + `hyper = "1"` (ligne 149).
+Pas de bump transversal nécessaire.
+
 ### 4.1 Fichiers ajoutés / modifiés
 
 - **`crates/nexus-worker-core/src/rate_limit.rs`** (nouveau) :
@@ -154,8 +188,9 @@ d'ouverture S21 (requalification D2 SDK).
   custom key extractor `(consumer, worker, model)` depuis body
   task.
 - **`Cargo.toml` workspace** (modifié) : deps
-  `governor = "0.10.2"`, `tower-governor = "0.8"`, `notify = "*"`
-  (déjà workspace), `toml = "*"` (déjà).
+  `governor = "0.10.2"`, `tower-governor = "0.8"` (axum 0.8 natif
+  post chore §4.0), `notify = "*"` (déjà workspace), `toml = "*"`
+  (déjà).
 - **`~/.sbfb/rate_limit_policy.toml.sample`** (nouveau) :
   template default budgets tier + overrides.
 - **Tests** : `crates/nexus-worker-core/src/rate_limit.rs#tests`
@@ -204,14 +239,18 @@ d'ouverture S21 (requalification D2 SDK).
 ### 4.4 Commit cible Phase A
 
 ```
-feat(sprint21): Phase A — rate-limit sliding-window multi-tier per-(consumer, worker, model) via governor GCRA
+feat(sprint21): Phase A — rate-limit sliding-window multi-tier per-(consumer, worker, model) via governor GCRA + tower-governor 0.8
 
 Body riche avec :
 - Delta tests (+15 Rust)
 - Scope cuts respectés (kudos-weighted admission, redundancy
   voting, etc. tous différés S22+)
 - Working tree audit G5 (PHASE / CRAFT / DEBT / NOISE)
-- G8 preflight Phase A verdict CLEAN ou SCOPE-CUT-CONSISTENT
+- G8 preflight Phase A verdict DESIGN-CONFLICT résolu par pivot
+  Option C (axum bump hors-sprint prerequis, chore séparé dans
+  range)
+- Référence : `sprint21_phase_A_pivot_proposal.md` (Option C
+  arbitré user 2026-04-18)
 ```
 
 ---
