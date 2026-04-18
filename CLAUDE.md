@@ -116,7 +116,7 @@ nexus-grid/
 │   ├── active/                        # sprint en cours uniquement (kickoff, plan, audit_findings du precedent, verification, audit_plan)
 │   ├── archive/v1.0/                  # S0-13 (pivot, P2P, universal render, bridge, launcher)
 │   ├── archive/v1.1/                  # S14-15 (verified deploy, bridge bidirectionnel, watchdog)
-│   └── archive/v1.2/                  # S16-19 (loopback hardening, research, supply chain, transport hardening)
+│   └── archive/v1.2/                  # S16-20 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites)
 ├── docs/
 │   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
 │   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
@@ -154,21 +154,25 @@ Roadmap runtime isolation (WSL2 / Virtualization.framework /
 systemd-nspawn) pour Sprint 17+ dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
-## Etat actuel (2026-04-16, master tip post-S19 Phase F wrap-up)
-- **Sprints 0-19 CLOSED**. Audit gate S18 leve via 6 commits
-  `677556f..1a606a3` (1 P1 + 4 P2 + batch P3). Sprint 19 livre
-  le durcissement de la chaine transport P2P (PoW Hashcash gossip
-  + TLS cert pinning relays + delayed upload queue + pkarr relay
-  self-hosted image) + carry S18 C-1 (DHT quorum runtime wire).
-  **Eclipse-by-DHT defense runtime-active sous config opt-in
-  `SBFB_PKARR_RELAYS`** (Phase A `ab6985c` wire `PkarrQuorumResolver`
-  au browse aggregator + curator runtime ; canary armed avec 2+
-  relays, enforcement strict par defaut = post-Gate 2). v1.2 en cours.
-- **537 Rust** / 185 SDK / 208+3 skipped coordinator / 46 app-gov
-  / 239 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
-  (~1259 tests total) — tous verts. Delta S19 : **+82** (+59 Rust
-  PoW+TLS+DHT wire+integration, +21 coord delayed upload queue,
-  +2 SDK helpers).
+## Etat actuel (2026-04-18, master tip post-S20 Phase F wrap-up)
+- **Sprints 0-20 CLOSED**. Audit gate S19 leve via 2 commits
+  `1af90b3..3a7f0a3` (0 P0 + 0 P1 + 9 P2 + 2 P3 resolus inline,
+  verdict PASS). Sprint 20 livre les **6 big rocks Gate 2
+  prerequis** (encryption at rest keypair + duress PIN + panic
+  wipe + PoW runtime wire + structured output dual-backend +
+  warrant canary federation foundations + dual-transport WSS
+  observability). **Premier pivot G8 effectif** sur Phase E :
+  skill `nexus-phase-preflight` introduit commit `59225ee` a
+  detecte un conflit threat-model vs commit S18 E2 `04c9621`
+  (auto-publish scheduler rejete pour raison cle Ed25519
+  accessible) et declenche pivot Option C deep-evolution
+  federation foundations arbitre user 2026-04-18 (plan mis a
+  jour avant code via `bd16e64`). v1.2 en cours.
+- **642 Rust** / 185 SDK / 213+3 skipped coordinator / 46 app-gov
+  / 241 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
+  (~1371 tests total) — tous verts. Delta S20 : **+111** (+104
+  Rust encryption+duress+wipe+PoW wire+structured output+FROST,
+  +5 coord canary_registry, +2 Vitest PanicWipe).
 - Sprint 12 a livre le rendu universel cross-node (archive zip
   → daemon blob-serve → iframe sandboxee)
 - Sprint 13 a livre le bridge postMessage (iframe ↔ coordinator),
@@ -248,13 +252,69 @@ systemd-nspawn) pour Sprint 17+ dans
   anti-correlation), E `2fd4d72` pkarr relay self-hosted docker
   image (`docker/pkarr-relay/Dockerfile` + `build-pkarr-image.yml`
   + `docs/release/PKARR_RELAY_OPS.md` §1-§7 self-contained), F
-  wrap-up. Audit gate S19 = Sprint 20 Phase 0 via
-  `.planning/archive/v1.2/sprint19_audit_plan.md` (tracks A-E + F +
-  meta-track Radicle-v1.0 re-carry S20). Carry-overs S19 → S20 :
-  Meta-1 Radicle-v1.0 activation tracking (runbook MIRROR_FALLBACK
-  §3 self-contained, pattern re-carry annual-ish tant que v1.0 pas
-  tag). Pas de nouvelle zone rouge — R-wasmtime-cve / R-iroh-audit
-  / R-libcrux-hax / R-pyodide-escape inchangees.
+  wrap-up. Audit gate S19 leve via 2 commits `1af90b3..3a7f0a3`
+  session fraiche 2026-04-16 (verdict PASS, 0 P0 + 0 P1 + 9 P2 + 2
+  P3 resolus inline). Carry-over S20 : Meta-1 Radicle-v1.0
+  activation tracking.
+- **Sprint 20 CLOSED** (Gate 2 prerequis : encryption at rest
+  keypair + duress PIN + panic wipe + PoW runtime wire + structured
+  output dual-backend + warrant canary federation foundations +
+  WSS fallback observability). Phases : A `05271fa` encryption at
+  rest double layer (Argon2id m=64 MiB/t=3/p=1 + AES-256-GCM
+  `aes-gcm 0.10` + OS keyring wrap `keyring-rs 3.6`, blob v1
+  `~/.sbfb/keyring/identity.enc`, bench 82 ms RTX 5080 T26
+  calibration Pi 4 TBD, deviation NASM Windows build T25 FIPS
+  path), B `c32ecb3` duress PIN fake-keypair noop (`IdentityMode::
+  Duress` + `noop_identity` helpers gossip publish fake / curator
+  subscribe noop / task dispatch reject, indistinguabilite wire
+  blobs 96 bytes identical) + panic wipe 5-tap `Ctrl+Shift+Alt+W`
+  x5 3s → `POST /panic/wipe` loopback auth → zeroize RAM +
+  secure-unlink + delete OS keyring + `ExitStrategy::exit(0)`,
+  C `16b94ba` PoW runtime wire (subscribe_with_pow au runtime pour
+  curator + browse + task dispatch gossip, `pow_policy_loader.rs`
+  hot-reload pattern TokenRotator S18, audit P2-C-SEC-1 leve
+  in-phase via `2e045f1`), D `c85397b` structured output dual-
+  backend `LlmBackend` trait (Ollama `format` JSON schema +
+  llama.cpp llguidance 1.7 matcher state machine `ff_tokens` +
+  `consume_token` post-selection, logit-bias wire S21 carry,
+  `TaskResponse` struct + `task_response.schema.json` draft-07 +
+  `schemars` schema generation, validation finale
+  `validate_task_response` garde-fou, follow-up `7ea68a6` audit
+  P2-1 commentaire honnete llama_cpp sampler + PATTERNS §P30 note
+  Sprint 20 etat), E `6a3f199` pivot G8 Option C federation
+  foundations (`CanarySigner` trait + `Ed25519CanarySigner` impl
+  baseline + `FrostCanarySigner` K-of-N RFC 9591 jan 2025 +
+  `CanaryRegistry` coord-side observational-only + duress ack
+  channel `nexus-grid/canary-duress-ack/v1` CLI `sbfb canary ack`
+  + `AttestationProvider` trait + `NoopAttestation` prep TEE S25-30
+  + `transport_probe.rs` UDP QUIC probe 3x 10s → WSS TCP 443 warn
+  log observability-only — S1 finding preflight absorbe `relay_wss_
+  only` n'existe pas client-side iroh 0.97), F wrap-up
+  (`<Phase F>`). Pivot G8 retrospective : premier declenchement
+  effectif du skill `nexus-phase-preflight` (commit `59225ee`
+  codification) sur Phase E, verdict DESIGN-CONFLICT suite scan S2
+  historical decisions (rejet threat-model S18 E2 `04c9621`
+  auto-publish scheduler) → `sprint20_phase_E_pivot_proposal.md`
+  → arbitrage user Option C deep-evolution 2026-04-18 → plan mis
+  a jour avant code via `bd16e64`. Aucune signature canary
+  automatisee — CLI manuel uniquement, clef Ed25519 jamais
+  exposee scheduler. `CanarySigned v1` wire format preserved
+  (FROST sigs Ed25519 RFC 8032 byte-identique verifiable via
+  verifier standard). Carries G7 2/2 respectes : Meta-1 Radicle-
+  v1.0 re-carry S21 + P2-2 gitignore NOISE inline open S20
+  `1b1f9cb`. Delta tests S20 : **+111** (+104 Rust / +5 coord /
+  +2 Vitest). Audit gate S20 = Sprint 21 Phase 0 via
+  `.planning/archive/v1.2/sprint20_audit_plan.md` (tracks A-F +
+  meta-track Radicle-v1.0 re-carry S21). Chore tooling G4 hors-
+  sprint inclus dans le range : `59225ee` + `b634c23` + `e2e8595`
+  workflow G8 introduction + robustness follow-up + bootstrap
+  §7.1 reference, `b6da3a4` skill hook process cleanup, `3c18908`
+  narrate-action mutex, `b7d8d74` narrate-action.lock gitignore.
+  Pre-launch protocol policy respectee : `BLOB_VERSION = 0x01`,
+  `TASK_RESPONSE_VERSION = 1`, `CANARY_VERSION = 1` inchanges,
+  aucun tolerant decoder multi-version introduit. Pas de nouvelle
+  zone rouge — R-wasmtime-cve / R-iroh-audit / R-libcrux-hax /
+  R-pyodide-escape inchangees.
 
 ## Commandes clés
 ```bash
