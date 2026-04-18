@@ -637,6 +637,62 @@ non-RFC, sur-engineered sans difficulty adaptive). Le fix-forward
 est de produire cette analyse **dans le kickoff §D2 directement**,
 pas dans un design doc separe.
 
+**Regle renforcee custom Rust stack (G1 extension, 2026-04-18
+audit gate S20)** : quand une D-decision cite un ecosysteme
+externe (Python/JS/Go/etc.) ou une lib non-Rust alors que le
+projet a une preference architecturale Rust-first (Option G,
+cf. `CLAUDE.md §Architecture Option G`), le draft §Retenu DOIT
+enumerer AU MOINS une alternative Rust-native production-grade
+avec raison factuelle rejet OU adoption. Alternatives a considerer
+selon le domaine :
+
+- Inference ML : `tract`, `ort` (ONNX Runtime binding via pyke),
+  `candle` (HuggingFace), `burn` (Tracel AI), `gline-rs` pour NER
+- Crypto : `aws-lc-rs`, `ring`, `dalek-cryptography`, `libcrux`
+- Networking : `iroh`, `libp2p-rs`, `quinn`, `hyper`
+- Storage : `redb`, `sled`, `rocksdb-rs`, `fjall`
+- Serialization : `serde_json`, `postcard`, `bincode`, `rkyv`
+
+Le draft identifie l'alternative Rust-native la plus pertinente
+pour le domaine, verifie son etat 2026 (version, audit, prod
+readiness, target support wasm32 si pertinent) via context7 +
+WebSearch, et documente la raison du rejet (gap technique factuel :
+« tract 0.22 teste opset 9-18 vs GLiNER export opset 19 ; ort-web
+experimental status ; candle-onnx manque op Attention ») OU
+adoption (bascule du §Retenu). Pas de rejet par pure preference
+(« prefer Python SDK X car plus mature ») : le point de la regle
+est precisement de mesurer le gap factuel.
+
+**Visibilite G1** : manque d'alternative Rust-native citee dans
+un projet Rust-first = ⚠️ automatique par le scoring report,
+independamment de la qualite des sources sur l'option externe
+retenue. Le reviewer ne tranche pas (pas de veto), mais le
+planner doit acknowledge explicite le gap dans le kickoff §4
+« Acknowledged review findings » si l'alternative Rust est
+rejetee sur une raison factuelle.
+
+**Exception custom Rust** : D-choice qui ne touche pas inference
+ML / crypto / networking / storage runtime. Sont exemptes :
+generation de docs (ex: mdbook vs Sphinx — non-runtime), CI
+tooling (cargo-deny, pip-audit, npm audit coexistent
+necessairement), frontend UX (web/ est volontairement React,
+pas Yew/Leptos, decision Day-0 figee), tests fixtures / scripts
+one-shot. Le perimetre est : toute lib qui finit liee au binary
+worker/daemon/coordinator runtime.
+
+Rationale : le projet a paye cher (S7 singleton band-aid,
+S13 blob-serve) le cout d'introduire un runtime non-Rust dans
+une chaine Rust parce qu'une « lib X existe en face ». Chaque
+dep non-Rust elargit la surface d'attaque supply chain, ajoute
+un runtime, complique le build release. G1 extension oblige a
+verifier explicitement qu'aucune alternative Rust production-grade
+ne couvre le cas avant d'accepter un ecart d'architecture. Observe
+Sprint 21 D2 PII : G1 initial a bien challenge tokio-rate-limit
+vs governor (deux libs Rust) mais n'a pas questionne « pourquoi
+pas custom `nexus-pii-rs` base tract/ort/gline-rs ? » — le gap a
+ete comble par research user-driven, pas par G1. La regle
+formalise ce reflexe.
+
 **Quand skipper** : sprint pure-docs (S17), hotfix (cas D §7),
 phase trivial refactor sans decision Day-0.
 
@@ -698,6 +754,83 @@ livre le carry (auto-evaluation biaisee).
 **Pourquoi cap a 2** : empiriquement (S17→S18→S19), 2 carry-overs
 sont absorbables sans diluer le scope du sprint suivant. 3+ degrade
 le sprint cible en "rattrapage du sprint precedent" → escalade.
+
+**Reclassification long-term commitments (amendement 2026-04-18,
+audit gate S20)** : anti-pattern observe Sprint 18→21 : Meta-1
+« Radicle-v1.0 activation tracking » est carry depuis S18 jusqu'a
+S21 (4 sprints consecutifs). Chaque sprint le porte dans le cap
+2/2 bien qu'il soit en realite un **engagement conditionnel au
+tag v1.0 go-live**, pas une dette a resorber. Une slot du cap G7
+est occupee en permanence par un item sans chemin d'atterrissage
+dans le sprint courant. Le cap devient gaming-able — un carry
+permanent squatte une place, les vrais carries courts se battent
+pour la slot restante.
+
+**Regle** : apres **3 sprints consecutifs** en carry sans livraison
+(ni PASS ni reject explicit via `docs/DEPRECATED.md`), un item est
+automatiquement reclassifie **long-term commitment** et sort du
+cap G7. Le cap redevient 2/2 exclusif pour les vrais carries
+< 3 sprints.
+
+**Ou vivent les long-term commitments** : un doc dedie
+`docs/release/ROADMAP_COMMITMENTS.md` (cree a l'occasion du premier
+item reclassifie, pas avant). Chaque entree contient 7 champs :
+
+- **ID** (meme que dans le dernier carry_summary, ex: Meta-1)
+- **Title** (1 ligne courte)
+- **Origine** : sprint + commit SHA ou l'item a ete carry en premier
+- **Condition de declenchement** : evenement externe qui reouvre
+  l'item comme carry actif (ex: « tag v1.0 go-live », « release
+  iroh > 1.0 », « CVE sur dep critique »)
+- **Owner** : `<github-handle>` ou placeholder `<post-v1.0>`
+- **Runbook pointer** : fichier `.md` dans `docs/release/` qui
+  contient la procedure d'activation quand la condition est
+  declenchee (ex: `docs/release/MIRROR_FALLBACK.md §3` pour Meta-1
+  Radicle)
+- **Derniere revue** : date + SHA commit qui a confirme que la
+  condition n'est toujours pas declenchee
+
+**Mecanique de reclassification** :
+
+- Phase F wrap-up du sprint N+2 (= 3e sprint consecutif de carry) :
+  lors de la generation de `sprint{N+3}_carry_summary.md`, l'agent
+  detecte les IDs presents dans 3 carry_summary consecutifs et les
+  deplace vers `ROADMAP_COMMITMENTS.md` au lieu de les propager.
+- Kickoff S{N+3} : la liste des carry-overs ne re-confirme PAS ces
+  items reclassifies (ils ne sont plus carry). Le kickoff §6 pointe
+  vers `ROADMAP_COMMITMENTS.md` pour rappel.
+- Audit gate S{N+3} Phase 0 : l'auditeur verifie que les items
+  reclassifies sont bien presents dans `ROADMAP_COMMITMENTS.md`
+  avec les 7 champs. Absence = P2 (dette documentaire, pas
+  Gate-blocker).
+
+**Re-activation** : un long-term commitment peut redevenir carry
+actif (re-entrer dans le cap 2/2) si sa **condition de declenchement**
+s'est realisee. Exemple : Meta-1 Radicle passe de long-term a carry
+actif le jour ou le tag v1.0 go-live est pose. Le commit qui pose
+le tag inclut une entree carry explicite dans son body pour le
+sprint suivant. Pas de re-activation silencieuse — le declencheur
+doit etre trace.
+
+**Quand skipper** : jamais. La mecanique est automatique au niveau
+de la generation carry_summary. Pas de reclassification manuelle
+sous pression de fin de sprint (ce qui serait un moyen detourne
+de vider le cap G7).
+
+**Exemple concret 2026-04-18** : Meta-1 Radicle-v1.0 activation
+tracking est sur le fil (S18 → S19 → S20 → carry S21 = 4e sprint).
+A la cloture S21 Phase F, Meta-1 sera reclassifie long-term
+commitment et sortira du carry_summary S22. Le cap G7 S22 sera
+donc 2/2 disponible pour de vrais carries courts. Meta-1 reste
+visible dans `ROADMAP_COMMITMENTS.md` avec condition « tag v1.0
+go-live » et runbook `docs/release/MIRROR_FALLBACK.md §3`.
+
+Rationale : le cap G7 protege la focus d'un sprint (empiriquement
+2 carries absorbables). Les long-term commitments ne consomment
+pas la focus du sprint — ils vivent dans la roadmap release, pas
+dans le plan sprint. Les garder dans le cap melange deux concepts :
+dette resorbable court-terme (vrai carry) vs engagement conditionnel
+long-terme (commitment). La reclassification les separe proprement.
 
 ### 6.3 Pas de band-aid fixes
 
@@ -1031,6 +1164,231 @@ Implémentation procédurale via skill `.claude/skills/nexus-phase-
 preflight/SKILL.md` (cf. §7.1 bootstrap Cas B). Le skill scripte
 les 4 scans + emit le bon document selon verdict. Aucun pivot
 manuel sans passer par cette gate.
+
+---
+
+### 6.10 G9 — Factual-research-gate on D-decisions
+
+Anti-pattern observe Sprint 21 kickoff 2026-04-18 : l'orchestrateur
+a propose d'entree un draft D2 PII « alt2 Hybrid Rust-first iframe »
+sans avoir fait la research factuelle sur l'ecosysteme Rust
+inference ML (tract wasm32-browser support, GLiNER opset coverage,
+gline-rs production readiness, ort-wasm existence, candle-onnx ops
+supportees). L'user a du corriger explicite « analyse Rust-first
+SBFB avant » pour declencher la recherche. Le §6.7 research-first
+documente l'ordre recherche→design→code, mais il n'est pas enforced
+en amont de la **proposition** du draft D-choice lui-meme. Resultat :
+le planner peut poser un D-draft plausible mais non-factuel, et
+la research arrive apres coup en correction plutot qu'en input.
+
+G1 (§6.1.1) couvre « ≥ 1 alternative concurrente < 6 mois » pour
+les sources **crypto/spec standardisee**, et (extension 2026-04-18)
+« custom Rust stack alternatives » pour les choix architecturaux
+Rust-first. Mais aucune des deux ne garantit qu'une research
+**factuelle primaire** a ete effectuee AVANT que le draft soit
+propose. G9 comble ce trou procedural.
+
+**Pattern correct** : avant de **proposer** un draft D-choice dans
+le kickoff §4, l'orchestrateur DOIT avoir effectue une research G2
+factuelle documentee. Le draft §Retenu cite explicitement cette
+research dans un bullet `§Research consulte` (ou section dediee
+kickoff §Sources) :
+
+- Sources primaires : `mcp__context7__query-docs` sur les libs
+  envisagees + `WebSearch` CVE/audit/benchmarks publics recents.
+- Versions + dates absolues (pas « recent » ou « latest » — ex:
+  « tract 0.22.1 publie 2026-02-23, wasm32-unknown-unknown support
+  non documente officiellement, seul wasm32-wasi demontre via
+  examples wasmtime »).
+- Benchmarks publics si existent (latency, memory, accuracy sur
+  tache comparable). Si benchmarks absents : dire explicitement
+  « pas de bench public tiers 2025-2026 sur ce combo, adoption
+  basee sur README + audit date + production users cites ».
+- Liste des alternatives explicitement comparees avec raison
+  factuelle rejet (pas opinion).
+
+**Visibilite G1** : un draft D-choice qui n'a pas de `§Research
+consulte` list ou avec sources vagues (pas de version + date) = ⚠️
+automatique par le scoring report G1, independamment de la date
+des sources citees individuellement (une source recente mal
+structuree reste un angle mort).
+
+**Symetrie avec G8** : G8 (§6.9) est un gate pre-phase code ;
+G9 est un gate pre-D-decision Day-0. Meme principe — factual
+evidence avant proposition, pas en correction post-facto. G1
+reste le reviewer qui verifie la qualite des sources ; G9 impose
+qu'elles existent avant que le reviewer soit lance.
+
+**Exemple concret Sprint 21 D2 PII SDK** : le draft initial
+« alt2 Hybrid Rust-first iframe » citait une preference
+architecturale (Option G Rust-first) mais pas de research sur
+l'etat reel de l'ecosysteme Rust inference ML en 2026-04. La
+research factuelle (context7 tract + WebSearch gline-rs + ort-
+web + candle-onnx ops support) a revele : tract teste opset 9-18
+vs GLiNER opset 19, wasm32-unknown-unknown tract non documente
+officiellement, gline-rs v1.0.1 (Rust GLiNER mainstream 2026-01)
+a explicitement choisi `ort` pas tract, ort-web est `onnxruntime-
+web` deguise (experimental), candle-onnx manque op Attention.
+Ces faits ont converti le draft alt2 en « Option 7 JS iframe +
+Presidio coord » dimensionnee factuellement. Sans G9 enforced,
+la decision serait partie sur un feeling « Rust-first c'est plus
+propre » sans verifier que la stack Rust visee supportait
+reellement le cas d'usage.
+
+**Quand skipper** : D-choice trivial qui ne cree pas de nouvelle
+dep (ex: « utilise `governor` deja pinne workspace pour rate-
+limit » — crate deja connu, aucune research G2 requise). Sprint
+pure-docs (ex: S17). Hotfix hors-sprint cas D. Phase trivial
+refactor sans decision Day-0. Pour tout le reste — adoption d'une
+nouvelle crate, changement de stack, choix d'architecture
+inference/network/storage/crypto — G9 s'applique.
+
+Rationale : les ecosystemes evoluent vite. tract a ajoute wasm32
+entre 0.19 et 0.20 ; gline-rs est passe production 2026-Q1 ;
+ort-web a stabilise son API en 2025-12 mais reste experimental ;
+burn-onnx est active-development 0.21. Un D-draft ecrit sur
+memoire training 2024 ou intuition sans research produit des
+decisions decorrelees de la realite stack 2026. G9 impose la
+verification factuelle comme prerequis a la proposition, pas
+comme correction post-hoc.
+
+---
+
+### 6.11 Archive research outputs pattern
+
+Anti-pattern observe Sprint 21 kickoff 2026-04-18 : 4 rapports
+factuels volumineux produits par des agents Explore / general-
+purpose pendant la session (pre-research G2 PII SDK ~2800 mots +
+analyse Rust-first objectif ~2300 mots + backbone resolution HF
+~1500 mots + ort-wasm alternatives re-check ~2500 mots) vivent
+uniquement dans le transcript session, cumul ~9000 mots. Fin de
+session = transcript compacte ou perdu = rapports perdus. Le
+`kickoff §Sources` n'archive qu'un resume condense de 10-30 lignes
+citant les verdicts. Une session fraiche auditant S21 en S22
+n'aurait plus acces au raisonnement factuel complet — elle
+devrait soit re-executer les recherches (cout tokens + temps +
+drift stack 2026 continue), soit faire confiance au resume.
+Perte d'information factuelle irreversible.
+
+**Pattern correct** : tout research output produit par agent
+Explore / general-purpose / skill preflight dont le volume
+depasse **2000 mots** (roughly 12-15 KB markdown) doit etre
+archive dans `.planning/research/S{N}_research_{topic}.md` (ou,
+si volume eleve sur un sprint, sub-directory
+`.planning/research/S{N}/{topic}.md`).
+
+**Structure du fichier archive** :
+
+```markdown
+---
+sprint: 21
+topic: pii_sdk_rust_first_analysis
+date: 2026-04-18
+agent: general-purpose (Explore subagent)
+prompt_source: transcript session orchestrateur 2026-04-18 turn N
+word_count: 2312
+---
+
+## Prompt donne a l'agent
+
+[texte brut exact du prompt envoye, pas paraphrase]
+
+## Rapport recu
+
+[texte brut exact retourne par l'agent, sans troncature
+ni resume, incluant sections factuelles, URLs, versions,
+benchmarks, caveats]
+
+## Decision downstream
+
+[1-3 lignes : quelle decision kickoff/plan a consomme ce
+rapport, avec pointer vers `sprint{N}_kickoff.md §X` ou
+`sprint{N}_plan.md §Y`]
+```
+
+**But** :
+
+1. **Reproductibilite audit** — une session fraiche S{N+1}
+   Phase 0 peut relire les sources factuelles brutes, pas
+   juste un resume filtre, pour juger si la decision D-choice
+   etait fondee.
+2. **Source pour pivot G8** — scan S2 decisions historiques
+   traversees a besoin du raisonnement complet, pas du verdict
+   seul. Un pivot proposal qui reference `.planning/research/
+   S21_research_pii_sdk.md §4` est factuellement tracable ; un
+   pivot proposal qui dit « selon le verdict G1 S21 » est un
+   cul-de-sac (raisonnement perdu).
+3. **Replicabilite externe** — si un contributeur externe
+   challenge une D-decision, il peut lire le dossier complet,
+   pas juste le resultat.
+4. **Drift detection** — si un research output S{N} devient
+   obsolete par une release upstream majeure (ex: tract 0.23
+   publie en S{N+3} change la conclusion opset), la comparaison
+   diff est possible uniquement si l'output brut est archive.
+
+**Contenu de l'archive** :
+
+- **Prompt donne** : texte brut exact. Pas de paraphrase.
+  Le prompt lui-meme est une info de reproductibilite.
+- **Rapport recu** : texte brut exact. Inclut les sections que
+  l'orchestrateur a ignorees ou jugees non-pertinentes — elles
+  peuvent devenir pertinentes plus tard.
+- **Date** : absolue (`2026-04-18`), pas « aujourd'hui ».
+- **Agent ID** si disponible : type (Explore, general-purpose,
+  skill name), permet de comparer qualite rapport selon source.
+
+**Quand skipper** :
+
+- Output trivial < 2000 mots (1 page markdown roughly).
+- Output purement confirmatoire d'une decision deja documentee
+  (ex: « verify que iroh 0.97 est toujours le latest stable »
+  → WebSearch retourne « oui » → pas besoin d'archive).
+- Output fait partie d'un preflight G8 deja archive via
+  `sprint{N}_phase_{X}_preflight.md` (pas de duplication).
+- Output de type « list files in dir » ou « grep pattern » qui
+  n'est pas factuel-research mais mecanique tool-usage.
+
+**Maintenance** :
+
+- Le dossier `.planning/research/` vit en tant que PARA archive
+  permanent (pas rotate par version, pas archive par sprint
+  close). Un research output S7 peut rester utile en S25.
+- Les outputs ne sont PAS squashes entre sprints — meme si un
+  sprint produit 5 research outputs, les 5 sont conserves.
+- Git blame + commit SHA donne la tracabilite temporelle
+  naturellement — pas besoin d'un index manuel.
+
+**Exemple concret S21 archive retroactif** (livres dans le chore
+`chore(research): sprint21 archive 4 research outputs` 2026-04-18) :
+
+- `.planning/research/S21_research_pii_sdk_options.md` —
+  pre-research G2 options 1-7 (context7 tract/ort/gline-rs +
+  WebSearch GLiNER v2.5 + Gretel vs knowledgator).
+- `.planning/research/S21_research_rust_first_alignment.md` —
+  analyse « pourquoi Rust-first SBFB pour inference worker » avec
+  benchmarks wasm32 browser + verdicts alternatifs Python.
+- `.planning/research/S21_research_backbone_resolution.md` — fetch
+  HF primary sources (gliner_config.json) pour resoudre ambiguite
+  ModernBERT vs DeBERTa-v3 gliner-pii-edge-v1.0.
+- `.planning/research/S21_research_ort_wasm_alternatives.md` —
+  post-mortem G1 re-check ort-web vs candle-onnx vs burn-onnx
+  faisabilite Rust-first iframe S22+.
+
+Regle forte sessions futures : archive **pendant** la session,
+pas **apres**. Un research output produit doit etre immediatement
+Write dans `.planning/research/` avant continuation de la session
+(pattern cohérent avec §6.9 G8 preflight.md Write obligatoire
+avant 1re ligne de code).
+
+Rationale : le research est le livrable le plus couteux a
+reproduire (tokens, temps, verification sources, cross-check
+benchmarks). Le perdre equivaut a repeter le cout a chaque audit.
+Archive systematique = amortissement du cout research sur tous
+les futurs usages (audit, pivot G8, drift detection, contribution
+externe). §6.7 « documentation AVANT code » requiert deja un design
+doc — §6.11 etend la regle aux research outputs source qui ont
+fonde le design doc lui-meme. Sans §6.11, les design docs citent
+des sources qu'on ne peut plus relire.
 
 ---
 
