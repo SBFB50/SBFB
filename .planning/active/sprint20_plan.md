@@ -631,89 +631,165 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 
 ---
 
-## 8. Phase E — Warrant canary auto-publish + dual-transport WSS TCP 443 fallback (+8 tests)
+## 8. Phase E — Warrant canary federation foundations + dual-transport WSS TCP 443 fallback (+20 tests)
 
-### 8.1 Scope
+> **Pivot G8 2026-04-18** (cf. `sprint20_phase_E_pivot_proposal.md`,
+> commit `59225ee` codification G8). Plan original §8.1 item 1
+> "auto-publish scheduler coord-side" supprime suite scan G8 S2 :
+> commit S18 Phase E2 `04c9621` body documente le rejet explicite
+> de ce pattern pour raison threat-model (cle Ed25519 accessible
+> auto = compromission dead-man switch sous gag order). Pivot Option C
+> "deep-evolution federation foundations" arbitre par user. Item 2
+> dual-transport WSS conserve intact (clean sur 4 scans G8).
 
-2 features infrastructure network :
+### 8.1 Scope (post-pivot)
 
-1. **Warrant canary auto-publish scheduler** : au-dessus du
-   publish manuel S18 E2 `04c9621`. Scheduler coord-side qui
-   signe + publie un canary heartbeat mensuel automatiquement.
-   **Verifier au kickoff Phase E si S18 a deja le scheduler**
-   (risque duplicate). Grep `canary-monthly.yml`, `cron`,
-   `scheduler.*canary`.
-2. **Dual-transport detection + WSS TCP 443 fallback** : au boot
-   daemon, probe UDP QUIC (3x dial in 10s) ; si all fail,
-   bascule `RelayMode::Custom` avec `relay_wss_only = true`
-   (force WebSocket over TCP 443). Log warn observable ops.
-   Defense baseline anti-DPI ISP (full Tor/Snowflake = S24-25).
+7 sous-taches infrastructure cryptographique federation + transport :
+
+- **E.1** : `CanarySigner` trait abstraction (refactor pure, extrait
+  Ed25519 logic actuelle dans `Ed25519CanarySigner` impl).
+- **E.2** : FROST-ed25519 primitive K-of-N (default K=1/N=1
+  equivalent baseline, opt-in K=2/N=3 via flag). Crate
+  `frost-ed25519 v2.x` (RFC 9591 jan 2025, audit Trail of Bits 2023).
+  Produit signatures Ed25519-valid wire-compatible (zero break
+  `CanarySigned v1`).
+- **E.3** : Federated `CanaryRegistry` coord-side — subscribe topic
+  gossip `nexus-grid/warrant-canary/v1`, persist
+  `~/.sbfb/canary-registry.json`, expose
+  `GET /api/canary/network-health` (pubkeys observees + freshness
+  per pubkey + last_seen timestamps).
+- **E.4** : Duress ack channel — nouveau topic gossip
+  `nexus-grid/canary-duress-ack/v1` + CLI `sbfb canary ack
+  --message "..."`, registry tracks ack ages separement (signal
+  anti-coercion plus fin que canary monthly).
+- **E.5** : `AttestationProvider` trait + `NoopAttestation` impl
+  + roadmap doc `docs/security/WARRANT_CANARY_HARDENING.md`.
+  Decouplage CanarySigner != attestation requirement (prep TEE
+  Sprint 25-30).
+- **E.6** : Dual-transport probe + WSS TCP 443 fallback — au boot
+  daemon, probe UDP QUIC (3x dial in 10s) ; si all fail, bascule
+  `RelayMode::Custom` avec `relay_wss_only = true`. Defense
+  baseline anti-DPI ISP. (Item 2 plan original, intact.)
+- **E.7** : Documentation extensive — `WARRANT_CANARY_HARDENING.md`
+  threat model layers + FROST DKG procedure cross-juridiction +
+  TEE roadmap, `docs/rust/PATTERNS.md §P31` (CanarySigner trait
+  + FROST + Federated registry pattern), `docs/shell/PATTERNS.md
+  §Transport probe + WSS fallback`, `HARDENING_ROADMAP §3` ligne
+  nouvelle S25-30 "Warrant canary Niveau 1 enforcement (TEE
+  attestation + FROST K=2/N=3 cross-juridiction + community
+  recruitment)".
 
 ### 8.2 Fichiers touches
 
-| Fichier | Role |
-|---|---|
-| `packages/nexus-coordinator/src/nexus_coordinator/canary_scheduler.py` (nouveau OU extension S18 E2 selon check) | scheduler monthly cron-like, signe Ed25519 + JCS, publie gossip topic `nexus-grid/warrant-canary/v1` |
-| `packages/nexus-coordinator/src/nexus_coordinator/coordinator.py` | boot hook canary_scheduler start/stop |
-| `crates/nexus-shell-daemon-core/src/transport_probe.rs` (nouveau) | UDP QUIC probe 3x 10s + fallback detection |
-| `crates/nexus-shell-daemon-core/src/iroh_runtime.rs` | utilise transport_probe au boot, configure `RelayMode` |
-| Tests integration `packages/nexus-coordinator/tests/test_canary_scheduler.py` + `crates/nexus-shell-daemon-core/tests/transport_fallback.rs` | 8 tests |
+| Fichier | Role | Sous-tache |
+|---|---|---|
+| `crates/nexus-shell-daemon-core/src/canary.rs` | refactor extract `Ed25519CanarySigner` impl | E.1 |
+| `crates/nexus-shell-daemon-core/src/canary/signer.rs` (nouveau) | `CanarySigner` trait + `Ed25519CanarySigner` impl | E.1 |
+| `crates/nexus-shell-daemon-core/src/canary/frost.rs` (nouveau) | `FrostCanarySigner` impl K-of-N + DKG helpers | E.2 |
+| `Cargo.toml` workspace | ajout `frost-ed25519 = "2.x"` | E.2 |
+| `crates/nexus-shell-daemon-core/src/canary/duress_ack.rs` (nouveau) | duress ack message + topic ID + verify helper | E.4 |
+| `crates/nexus-shell-daemon-core/src/cli/canary.rs` | extension CLI `sbfb canary ack` | E.4 |
+| `crates/nexus-shell-daemon-core/src/canary/attestation.rs` (nouveau) | `AttestationProvider` trait + `NoopAttestation` | E.5 |
+| `crates/nexus-shell-daemon-core/src/transport_probe.rs` (nouveau) | UDP QUIC probe 3x 10s + WSS fallback detection | E.6 |
+| `crates/nexus-shell-daemon-core/src/iroh_runtime.rs` | wire transport_probe au boot, configure `RelayMode::Custom` si WSS forced | E.6 |
+| `packages/nexus-coordinator/src/nexus_coordinator/canary_registry.py` (nouveau) | aggregate canaries gossip + persist registry + freshness check | E.3 |
+| `packages/nexus-coordinator/src/nexus_coordinator/api/canary.py` (nouveau) | endpoint `GET /api/canary/network-health` | E.3 |
+| `packages/nexus-coordinator/src/nexus_coordinator/coordinator.py` | boot hook canary_registry start/stop + subscribe | E.3 |
+| `docs/security/WARRANT_CANARY_HARDENING.md` (nouveau) | threat model layers + FROST DKG procedure + TEE roadmap | E.7 |
+| `docs/security/HARDENING_ROADMAP.md §3` | ligne nouvelle S25-30 Niveau 1 enforcement | E.7 |
+| `docs/rust/PATTERNS.md §P31` | CanarySigner trait + FROST + Federated pattern | E.7 |
+| `docs/shell/PATTERNS.md` | section nouvelle Transport probe + WSS fallback | E.7 |
 
-### 8.3 Tests plan (8 tests)
+### 8.3 Tests plan (+20 tests)
 
-Warrant canary scheduler (4 tests pytest) :
+Repartition par sous-tache :
 
-1. `scheduler_signs_and_publishes_monthly` : freeze time, advance
-   30 days, verify publish call
-2. `scheduler_skips_if_last_publish_under_30_days`
-3. `scheduler_signs_with_maintainer_key_from_keyring` : cross-ref
-   Phase A
-4. `scheduler_logs_warn_if_publish_fails_but_retries_24h`
-
-Transport probe + fallback (4 tests Rust) :
-
-5. `probe_udp_quic_success_uses_default_transport`
-6. `probe_udp_quic_timeout_3x_forces_wss_fallback`
-7. `fallback_wss_still_connects_via_tcp_443`
-8. `probe_rerun_on_config_reload_detected`
+| # | Test | Fichier | Sous-tache |
+|---|---|---|---|
+| 1 | `signer_trait_roundtrip_identical_to_baseline_ed25519` | `canary/signer.rs` tests | E.1 |
+| 2 | `signer_trait_pubkey_matches_baseline` | `canary/signer.rs` tests | E.1 |
+| 3 | `frost_dkg_k2_n3_produces_valid_ed25519_sig` | `canary/frost.rs` tests | E.2 |
+| 4 | `frost_singleton_k1_n1_round_trip_identical_to_ed25519` | `canary/frost.rs` tests | E.2 |
+| 5 | `frost_aggregate_refuses_partial_below_k_threshold` | `canary/frost.rs` tests | E.2 |
+| 6 | `frost_tampered_share_rejected` | `canary/frost.rs` tests | E.2 |
+| 7 | `frost_sig_verifiable_by_standard_ed25519_verifier` | `canary/frost.rs` tests | E.2 |
+| 8 | `registry_subscribe_updates_on_received_canary` | `tests/test_canary_registry.py` | E.3 |
+| 9 | `registry_stale_detection_30_45_60_days_thresholds` | `tests/test_canary_registry.py` | E.3 |
+| 10 | `registry_persist_reload_roundtrip_preserves_state` | `tests/test_canary_registry.py` | E.3 |
+| 11 | `api_canary_network_health_returns_expected_shape` | `tests/test_api_canary.py` | E.3 |
+| 12 | `duress_ack_signed_roundtrip` | `canary/duress_ack.rs` tests | E.4 |
+| 13 | `duress_ack_topic_id_deterministic_and_distinct_from_canary` | `canary/duress_ack.rs` tests | E.4 |
+| 14 | `registry_tracks_duress_ack_separately_from_canary` | `tests/test_canary_registry.py` | E.4 |
+| 15 | `attestation_noop_returns_dummy_attestation` | `canary/attestation.rs` tests | E.5 |
+| 16 | `signer_decoupled_from_attestation_provider` | `canary/signer.rs` tests | E.5 |
+| 17 | `probe_udp_quic_success_uses_default_transport` | `tests/transport_fallback.rs` | E.6 |
+| 18 | `probe_udp_quic_timeout_3x_forces_wss_fallback` | `tests/transport_fallback.rs` | E.6 |
+| 19 | `fallback_wss_still_connects_via_tcp_443` | `tests/transport_fallback.rs` | E.6 |
+| 20 | `probe_rerun_on_config_reload_detected` | `tests/transport_fallback.rs` | E.6 |
 
 ### 8.4 Critere d'acceptation
 
-- Check preliminaire S18 E2 : si scheduler deja livre, cette
-  feature devient UPGRADE (non duplicate). Document decision dans
-  commit body.
-- Tests pytest + Rust integration verts
-- Doc `docs/shell/PATTERNS.md §Warrant canary auto-publish` +
-  `docs/rust/PATTERNS.md §Transport probe + WSS fallback`
+- Tous tests Rust + Python verts (cf. §7.4 verification)
+- Pre-research E.2 obligatoire context7 `frost-ed25519` v2.x +
+  WebSearch RustSec advisory check + WebSearch RFC 9591 status
+- Pre-research E.6 obligatoire context7 `iroh` 0.97 `RelayMode::
+  Custom` + `relay_wss_only` semantics (peut etre flag relay-side
+  vs client-side, a confirmer)
+- `CanarySigned v1` wire format unchanged verifie par grep
+  `_VERSION` + roundtrip test cross-version
+- Threat model preserved : aucune cle exposee a un scheduler
+  automatise, aucune signature auto, cle canary reste strictement
+  humaine (CLI manuel)
+- Doc `WARRANT_CANARY_HARDENING.md` ecrit AVANT code (G6.7
+  documentation amont)
+- Pivot retrospective dimension ajoutee dans `sprint20_audit_plan
+  .md` (Phase F)
 
 ### 8.5 Commit cible
 
 ```
-feat(sprint20): Phase E — warrant canary auto-publish + dual-transport WSS TCP 443 fallback
+feat(sprint20): Phase E — warrant canary federation foundations + dual-transport WSS TCP 443 fallback
 
-2 features infrastructure :
+Pivot G8 (sprint20_phase_E_pivot_proposal.md, commit 59225ee
+codification G8) : plan original §8.1 item 1 "auto-publish
+scheduler" supprime suite scan S2 finding bloquant commit S18 E2
+04c9621 (rejet explicite threat-model). Pivot Option C
+deep-evolution arbitre user 2026-04-18.
 
-1. Warrant canary auto-publish scheduler (packages/nexus-
-   coordinator/src/nexus_coordinator/canary_scheduler.py nouveau
-   OR extension S18 04c9621 selon check). Automatise le publish
-   mensuel + signature Ed25519+JCS + gossip topic.
+7 sous-taches livrees :
 
-2. Dual-transport probe : au boot, UDP QUIC probe 3x 10s ; si
-   all fail, RelayMode::Custom relay_wss_only=true (WebSocket TCP
-   443 fallback). Defense baseline anti-DPI ISP. Full Tor
-   bridges + Snowflake-WebRTC reste hors scope S20 (cf. S24-25).
+E.1 CanarySigner trait abstraction (refactor pur Ed25519 impl)
+E.2 FROST-ed25519 primitive K-of-N default K=1/N=1 baseline
+    + opt-in K=2/N=3 (RFC 9591 jan 2025, ZF audit ToB 2023,
+    sigs Ed25519-valid wire-compatible)
+E.3 Federated CanaryRegistry coord-side + GET /api/canary/network-
+    health (subscribe gossip + persist + freshness aggregator)
+E.4 Duress ack channel topic nexus-grid/canary-duress-ack/v1
+    + CLI sbfb canary ack (signal anti-coercion daily granularity)
+E.5 AttestationProvider trait + NoopAttestation impl (prep TEE
+    sprint 25-30)
+E.6 Dual-transport probe UDP QUIC 3x 10s -> WSS TCP 443 fallback
+    iroh RelayMode::Custom (defense baseline anti-DPI ISP)
+E.7 Documentation : WARRANT_CANARY_HARDENING.md threat layers +
+    FROST DKG procedure + TEE roadmap, PATTERNS.md §P31,
+    HARDENING_ROADMAP §3 ligne S25-30
 
-Fichiers :
-- packages/nexus-coordinator/src/nexus_coordinator/canary_scheduler.py
-- packages/nexus-coordinator/src/nexus_coordinator/coordinator.py
-- crates/nexus-shell-daemon-core/src/transport_probe.rs
-- crates/nexus-shell-daemon-core/src/iroh_runtime.rs
+Wire format invariants preserves :
+- CanarySigned v1 unchanged (FROST sig = Ed25519 RFC 8032 valid)
+- DOMAIN_WARRANT_CANARY_V1 figee
+- Aucun bump _VERSION, aucun tolerant decoder multi-version
+- Threat model S18 E2 honore (aucune cle exposee scheduler auto)
 
-Tests delta : +4 coord + +4 Rust. Total 598 Rust → 602, coord
-208+3 → 212+3.
+Tests delta : +20 (Rust E.1+E.2+E.4+E.5+E.6 = 14 ; Python E.3 = 4 ;
+duress_ack registry track E.4 = 1 ; api endpoint E.3 = 1).
 
-Closes HARDENING_ROADMAP §3 S20 items 5+6 (canary auto-publish +
-dual-transport WSS fallback).
+Pivot retrospective dimension : nexus-phase-auditor review Phase
+E receive scan supplementaire "Pivot retrospective" (cf.
+README.md §6.9 garde-fou 7).
+
+Closes HARDENING_ROADMAP §3 S20 items "warrant canary federation
+foundations" (substitue auto-publish initial) + "dual-transport
+WSS fallback".
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
