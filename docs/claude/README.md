@@ -968,12 +968,25 @@ de divergence chronique. 7 garde-fous obligatoires :
    FROST K-of-N en E.2 prepare consumer = community future réelle
    listée HARDENING_ROADMAP §3 ligne S25-30) → OK.
 
-7. **Pivot audité retrospectivement** : `nexus-phase-auditor` reçoit
-   dimension supplémentaire "Pivot retrospective" si phase a déclenché
-   G8 → était-il evidence-grounded ? a-t-il honoré les invariants ?
-   le SOTA delta annoncé a-t-il été livré ? si pattern de pivot
-   répétitif sur 2+ phases consécutives → signal méta-issue plan-phase
-   quality (le plan d'origine était-il vraiment basé sur SOTA fresh ?)
+7. **Pivot audité retrospectivement + traçabilité G8 obligatoire** :
+   `nexus-phase-auditor` reçoit dimension supplémentaire "G8
+   traceability" pour CHAQUE phase auditée (pas seulement celles qui
+   ont pivot). Avant d'autoriser le commit feat phase, l'auditor
+   vérifie la présence de `sprint{N}_phase_{X}_preflight.md` OU
+   `sprint{N}_phase_{X}_pivot_proposal.md` dans `.planning/active/`.
+   Absence = P1 bloquant "G8 gate bypass" (la phase a été codée
+   sans scan pre-implementation, drift plan-vers-code non-détecté).
+   Exception : Cas D hotfix hors-sprint. Phase docs-only triviale
+   exige au minimum un preflight.md 1-3 lignes verdict CLEAN.
+   Si verdict DESIGN-CONFLICT : l'auditor vérifie aussi que le
+   plan §Phase X reflète le pivot via chore(planning) antérieur
+   au commit feat — divergence silencieuse plan-vs-code = P1
+   "pivot silencieux". Rationale : sans cette dimension, un agent
+   overzealous pouvait skipper G8 et passer l'audit quand même.
+   G8 produit un artefact file-based précisément pour rendre le
+   skip détectable post-hoc. Si pattern de pivot répétitif sur
+   2+ phases consécutives → signal méta-issue plan-phase quality
+   (le plan d'origine était-il vraiment basé sur SOTA fresh ?).
 
 #### Articulation avec G1-G7 existants
 

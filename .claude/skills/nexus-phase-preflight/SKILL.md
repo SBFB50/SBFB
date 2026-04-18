@@ -54,6 +54,33 @@ Complete la couche tooling (cf. `docs/claude/TOOLING.md`).
    - APIs externes touchees (specs crypto, RFC, etc.)
    - Wire format touche (TaskEntry, ProjectAnnouncement, etc.)
    - Threat model claim (ex : "defense vs Sybil", "anti-DPI")
+
+3bis. **Cas phase vaste (>10 fichiers ciblees Step 1.3)** : activer
+   sampling pour eviter timeout `git log` et noise overload. Partitionner
+   les fichiers en sous-ensembles par module principal (max 3 groupes,
+   ex : crates/rust / packages/python / docs). Pour S2 (Step 3), passer
+   `--max-count=100` a `git log` et scanner par groupe, pas fichier-par-
+   fichier. Pour S1 (Step 2), prioriser les libs **crypto + wire format
+   + network-exposed** en premier, differ les libs purement internes
+   (`anyhow`, `tracing`, `serde` struct derive) en sampling LITE
+   (version string check uniquement, pas context7 full).
+
+3ter. **Cas phase ad-hoc (plan §Phase X absent)** : une phase peut
+   avoir ete inseree via `gsd:insert-phase` (ex : Phase 5.2 decimal)
+   ou un hotfix-in-sprint sans update plan.md. Detection : Step 1.2
+   trouve une phase en git log ou working tree mais Step 1.3 ne
+   trouve pas la section correspondante dans plan.md. Fallback :
+   - Utiliser le **commit body** (si la phase a un draft commit fourni
+     par l'user) OU le **working tree diff** (si phase partiellement
+     code) comme source-of-truth pour "Files touched / Libs / APIs /
+     Wire format".
+   - Si absence totale (phase mentionnee en code/log mais aucun artefact
+     de contexte) -> STOP + demander a user : "Phase X trouvee hors
+     plan.md. Est-ce un insert-phase ad-hoc legitime ? Source-of-truth
+     a utiliser (commit body / diff) ?"
+   - **Jamais skip G8 silencieusement** sur phase ad-hoc : emit un
+     preflight.md avec verdict CLEAN minimal ou demander fallback.
+
 4. Lire `docs/claude/README.md §6.9` pour la procedure verdict
 
 ### Step 2 — Scan S1 : SOTA 2026 vs design
@@ -106,7 +133,42 @@ Findings type :
 - Phase Y du sprint courant ou precedent a deja livre une primitive
   qui resout ce que la phase X reproduit (duplicate)
 
-Output Step 3 : liste des decisions historiques + sha + raison, ou
+**Reverse-commit check (obligatoire par finding S2)** : un commit
+"rejected" peut avoir ete reverte par un commit ulterieur (decision
+changee apres re-research, nouveau contexte, CVE leve). Sans ce
+check, S2 produit des faux positifs DESIGN-CONFLICT qui bloquent
+inutilement. Pour chaque finding S2 potentiel :
+
+```bash
+# Pour chaque commit "rejected" finding, chercher une reversion
+FILES_IN_FINDING=<fichiers mentionnes par le commit rejected>
+REJECTED_SHA=<sha du commit rejected>
+
+# 1. Grep body commits posterieurs au rejected sur les memes fichiers
+git log --all --oneline "${REJECTED_SHA}..HEAD" -- $FILES_IN_FINDING | \
+  grep -iE "revert|undo|unblock|now allowed|reopen|supersed"
+
+# 2. Grep commits qui mentionnent explicitement le rejected SHA
+git log --all --grep="${REJECTED_SHA}" --oneline
+
+# 3. Lire les bodies des candidats reversion pour confirmer
+git show <candidate-sha> --no-patch --format=%B
+```
+
+Classification :
+- Reversion **confirmee** (body explicite type "revert S{N-k}" +
+  rationale "threat closed / CVE fixed / decision updated") → finding
+  S2 **declasse** en "historiquement adressee, verifiee le YYYY-MM-
+  DD". Log dans preflight.md §S2 mais ne declenche PAS DESIGN-
+  CONFLICT.
+- Reversion **ambigue** (body mentionne le sujet mais sans revert
+  explicite) → finding S2 **CONCERN**, proposer pivot_proposal.md
+  section §2 evidence avec les 2 commits (rejected + ambigu) et
+  laisser user arbitrer.
+- **Pas de reversion** trouvee → finding S2 **DESIGN-CONFLICT**
+  plein, suivre procedure Step 6.
+
+Output Step 3 : liste des decisions historiques + sha + raison + **reversion status** (confirmee / ambigue / absente), ou
 "S2: clean".
 
 ### Step 4 — Scan S3 : Threat model coverage
@@ -190,34 +252,45 @@ S3 = clean | findings
 S4 = clean | findings
 ```
 
-Decision tree (cf. README.md §6.9) :
+**Classifier chaque finding individuel en bloquant vs non-bloquant
+AVANT d'agreger** (evite l'ambiguite multi-findings) :
+
+| Scan | Finding bloquant si | Finding non-bloquant si |
+|---|---|---|
+| **S1** | CVE critical/high affectant crypto/wire/network ; lib bump MAJOR breaking sur API utilisee ; RFC revision avec impact security | CVE low/medium avec mitigation alternative lib documentee ; lib bump PATCH/MINOR semver-stable ; RFC revision non-semantique |
+| **S2** | Decision historique documentee + rationale threat-model encore valide + pas de reversion confirmee (cf. Step 3 reverse-commit check) | Decision revertee (reversion confirmee) ; decision sur contexte revolu ; mention indirecte sans rationale explicite |
+| **S3** | Regression sur threat T0-T5 couvert actuellement ; pre-requirement HARDENING_ROADMAP §3 ligne S{N} manquant | Gap documente prevu sprint futur (non-regression) ; threat non-adresse mais hors-scope phase courante |
+| **S4** | Bump `*_VERSION` pre-launch sans CVE bloquant justificatif ; Day 0 figee contredite par implementation ; pre-launch protocol policy violee | `#[serde(default)]` legitime avec rationale runtime tolerance inline ; wire format unchanged malgre nouveau field optional |
+
+**Regle d'agregation** :
+- **>= 1 finding bloquant** (any scan) → DESIGN-CONFLICT
+- **0 finding bloquant + >= 1 finding non-bloquant** → SCOPE-CUT-CONSISTENT
+- **0 finding tout court** → EXECUTE plan-as-is
+
+Decision tree complet (cf. README.md §6.9) :
 
 ```
-Tous clean :
+Aucun finding (S1+S2+S3+S4 tous clean) :
   -> verdict EXECUTE plan-as-is
   -> emit .planning/active/sprint{N}_phase_{X}_preflight.md (1-3 lignes)
 
-Findings non-bloquants (sub-optimal selon SOTA mais plan reste
-executable, decisions historiques pas contredites, threat model OK,
-wire format OK) :
+Findings non-bloquants uniquement :
   -> verdict SCOPE-CUT-CONSISTENT
   -> emit sprint{N}_phase_{X}_preflight.md avec finding documente
      + recommandation S+1 carry-over
   -> proceder code phase normalement
   -> note dans verification.md fail-fast checklist
 
-Findings bloquants (DESIGN-CONFLICT) — au moins UN parmi :
-  - S1 : CVE bloquant sur dep crypto critique
-  - S2 : plan contredit decision documentee historique avec rationale
-    threat-model encore valide
-  - S3 : phase introduirait regression sur threat couvert ailleurs
-  - S4 : phase casserait wire format pre-launch sans CVE bloquant
-        OU contredirait Day 0 figee
-:
+>= 1 finding bloquant :
   -> verdict DESIGN-CONFLICT
   -> STOP code ecriture
   -> emit sprint{N}_phase_{X}_pivot_proposal.md avec sections
      obligatoires (cf. template Step 7)
+  -> Si multiple bloquants : section §2 Evidence liste CHACUN
+     avec son scan source (S1/S2/S3/S4), pas d'agregation silencieuse
+  -> Si 2+ escalations distinctes (ex : CVE bloquant S1 + Day 0
+     rebattu S4) : proposal §2 marque "MULTIPLE BLOCKING FINDINGS"
+     + chaque Option A/B/C doit adresser ou acknowledger chacun
   -> alerter user avec resume verdict + 3 options
   -> attendre arbitrage user
 ```
@@ -338,12 +411,26 @@ Option <X> parce que <raison technique chiffree>.
 
 ## 6. Suite
 
-Si pivot accepte :
+Si pivot accepte (user choisit A, B, ou C) :
 1. commit chore(planning) inline qui update plan §Phase X
 2. commit feat phase X avec body documentant pivot + ce document
 3. nexus-phase-auditor receive dimension "Pivot retrospective" en review
 
-Si pivot refuse :
+Si user refuse les 3 options et propose Option D (rejeu contraint) :
+1. Agent construit **Option D evidence-grounded** depuis le
+   feedback user (garde-fou 1 reste obligatoire : Option D doit
+   referencer les memes sources externes verifiables §2)
+2. Emit `sprint{N}_phase_{X}_pivot_proposal.v2.md` (incremente
+   numero version dans le nom) avec Option D + A/B/C conservees
+   pour reference + motivation concrete pourquoi D resout ce que
+   A/B/C ne resolvent pas
+3. User arbitre v2. **Max 1 rejeu** : si user rejette aussi v2,
+   default Option A scope-cut conforme + log carry-over explicite
+   sprint{N+1}_audit_plan.md "G8 pivot rejected 2x Phase X,
+   defer redesign to sprint dedie"
+4. Jamais proceder code sans arbitrage accepte OU fallback Option A
+
+Si pivot refuse definitivement (user dit "scope-cut minimal") :
 1. proceder Option A (scope-cut conforme)
 2. carry-over ajoute sprint{N+1}_audit_plan.md
 ```

@@ -15,7 +15,7 @@ biaise).
 
 ## Ton mandat
 
-Tu review 5 dimensions en parallele sur le diff courant
+Tu review 6 dimensions en parallele sur le diff courant
 (`git diff HEAD` + fichiers untracked listes par `git status`) :
 
 1. **Security** — Semgrep scan sur les fichiers du diff + patterns
@@ -37,6 +37,11 @@ Tu review 5 dimensions en parallele sur le diff courant
    pin de version ou un usage d'API crypto/spec standardisee sans
    trace research = P1 (risque de hallucination ou d'utiliser
    une API obsolete/CVE-affected).
+6. **G8 traceability** — verifie que la phase a emis un artefact
+   G8 (`sprint{N}_phase_{X}_preflight.md` OU
+   `sprint{N}_phase_{X}_pivot_proposal.md`) dans `.planning/active/`
+   avant ecriture code. Absence = P1 "G8 gate bypass" bloquant
+   (cf. `docs/claude/README.md §6.9`). Exception Cas D hotfix.
 
 ## Entree
 
@@ -147,6 +152,58 @@ utilisateur) : CRAFT/DEBT detecte → commit `chore(planning|skill|
 debt)` AVANT le commit phase. NOISE → `.gitignore` updated dans le
 chore. L'auditeur flag P2 si l'executeur a demande confirmation au
 lieu d'executer la procedure mecanique.
+
+### Step 3ter — Dimension G8 traceability
+
+Verifier que la phase a emis un artefact G8 dans `.planning/active/`
+avant ecriture code :
+
+```bash
+SPRINT_N=<numero sprint courant>
+PHASE_X=<lettre phase courante>
+
+# Artefact G8 attendu : soit preflight.md (verdict CLEAN ou
+# SCOPE-CUT-CONSISTENT) soit pivot_proposal.md (verdict
+# DESIGN-CONFLICT). L'un des 2 doit exister.
+PREFLIGHT=".planning/active/sprint${SPRINT_N}_phase_${PHASE_X}_preflight.md"
+PIVOT=".planning/active/sprint${SPRINT_N}_phase_${PHASE_X}_pivot_proposal.md"
+# Variante pivot avec rejeu : pivot_proposal.v2.md si user a refuse
+# la v1 (cf. skill SKILL.md Step 7 Option D loop)
+PIVOT_V2=".planning/active/sprint${SPRINT_N}_phase_${PHASE_X}_pivot_proposal.v2.md"
+
+if [ ! -f "$PREFLIGHT" ] && [ ! -f "$PIVOT" ] && [ ! -f "$PIVOT_V2" ]; then
+  echo "G8 GATE BYPASS: no preflight.md or pivot_proposal.md for Phase ${PHASE_X}"
+fi
+```
+
+Classification :
+- Au moins 1 artefact G8 present → **PASS** (log nom du fichier
+  dans le rapport pour tracabilite)
+- Aucun artefact G8 → **P1 bloquant "G8 gate bypass"** : la phase
+  a ete codee sans passer le scan pre-implementation, drift
+  plan-vers-code non-detecte. Remonter a l'executeur : relancer
+  `nexus-phase-preflight` skill AVANT de commit.
+
+**Exception legitime** :
+- Cas D hotfix hors-sprint (cf. README §7.1 Cas D) : G8 NON
+  applicable, pas d'artefact attendu, PASS.
+- Phase docs-only triviale (que la doc planning, 0 fichiers code
+  metier) : artefact G8 minimal attendu (preflight.md verdict
+  CLEAN, 1-3 lignes). Absence = P2 (skippable mais trace manquante).
+
+**Si l'artefact existe ET verdict = DESIGN-CONFLICT** : verifier
+cohérence plan §Phase X (doit refleter le pivot via commit
+chore(planning) anterieur au commit feat). Divergence plan-vs-code
+silencieuse = P1 bloquant "pivot silencieux".
+
+**Si l'artefact existe ET verdict = SCOPE-CUT-CONSISTENT** :
+verifier que les findings non-bloquants sont listes dans
+`sprint{N}_audit_plan.md` track carry-over S+1. Absence = P2.
+
+Rationale : sans cette dimension, un agent overzealous pouvait
+skipper G8 ("phase triviale") et passer l'audit quand meme. G8
+produit un artefact file-based precisement pour rendre le skip
+detectable post-hoc.
 
 ### Step 4 — Dimension Scope-cuts
 
@@ -320,6 +377,14 @@ Timebox: {mm}m
 - [ ] DEBT : <count> fichiers tech debt (separation respectee ?)
 - [ ] NOISE : 0 (sinon P0 — `.gitignore` requis)
 - [ ] Section "Working tree audit" presente dans body commit
+
+### G8 traceability
+- [ ] `sprint{N}_phase_{X}_preflight.md` OU `_pivot_proposal.md` existe dans `.planning/active/`
+- [ ] Fichier present : <nom> (verdict : EXECUTE | SCOPE-CUT-CONSISTENT | DESIGN-CONFLICT)
+- [ ] Si DESIGN-CONFLICT : plan §Phase X reflete le pivot (chore(planning) anterieur) ?
+- [ ] Si SCOPE-CUT-CONSISTENT : findings non-bloquants ajoutes `sprint{N}_audit_plan.md` carry S+1 ?
+- [ ] OU Cas D hotfix documente (G8 NON applicable)
+- Pattern manquant : (lister P1 "G8 gate bypass" si aucun artefact)
 
 ### Scope-cuts
 - [ ] Aucun scope cut touche (list items grepped)
