@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-18  # G2 — re-audit S20 Phase E (federation foundations + WSS) + S30 line addition
+last_validated: 2026-04-18  # G2 — re-audit S21 open (trigger S19+2=S21 activated, D2 PII SDK requalification post-factual-research)
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -15,6 +15,7 @@ audited_findings:
   - "2026-04-16 S19 deep analysis : D2 Hashcash daté vs Equi-X 2023, S20 keyring crate, S21 grammar ≠ prompt injection defense, S25 Arti 2.0 Feb 2026 disponible, S26+ PQC trop tardif (HNDL liability)"
   - "2026-04-16 S20 open : double-layer encryption at rest (Argon2id 64MiB + AES-256-GCM + OS keyring wrap KEK) requis — DPAPI user-scope gap confirmé Sygnia 2024 + SpecterOps 2026 (same-user process malicious = full bypass). Duress PIN pattern = fake keypair noop responses (pas wipe immédiat GrapheneOS-style), panic wipe = 5-tap gesture séparé. Structured output via llguidance (Rust Microsoft 50µs/token, llama.cpp -DLLAMA_LLGUIDANCE=ON) retenu over XGrammar (pas llama.cpp), Outlines (Python IPC), GBNF native (slower). PoW wire scope S20 Phase C (reclassé carry S19 A-2). TLS wire iroh T20 tech debt long-terme (iroh 0.97 ClientBuilder hook cfg-test only). DHT canary enforcement strict reporté post-Gate-2."
   - "2026-04-18 S20 Phase E pivot Option C deep-evolution (G8 codification, cf. .planning/active/sprint20_phase_E_pivot_proposal.md + sprint20_phase_E_preflight.md) : warrant canary auto-publish scheduler (plan §8.1 item 1 original) supprimé sur scan S2 — décision threat-model S18 E2 04c9621 toujours valide (cle Ed25519 accessible auto = compromission GHA = compromission cle = dead-man-switch cassé sous gag order). Federation foundations livrées : CanarySigner trait abstraction + FrostCanarySigner K-of-N (RFC 9591 jan 2025, ZF crate 2.1, ToB 2023 audit), DuressAck channel (gossip topic distinct, daily granularité), AttestationProvider trait + NoopAttestation (decouple signing != attestation), Federated CanaryRegistry coord-side (POST /api/canary/observed + GET /api/canary/network-health). E.6 ajusté inline post-G8 S1 finding : iroh 0.91 a supprimé l'option TCP raw → relays = WSS TCP 443 unique mode automatic, transport_probe.rs dégradé en diagnostic-only (probe 3x UDP QUIC + log warn + metric degraded_mode). Wire format CanarySigned v1 + DOMAIN_WARRANT_CANARY_V1 préservés (FROST sig = Ed25519 RFC 8032 byte-identical). Niveau 1 enforcement (cross-juridiction recruitment + TEE H100) added to §3 S30 line."
+  - "2026-04-18 S21 open : D2 PII SDK requalifié post-research G2. Libellé roadmap §3 S21 original S17 'spaCy NER wasm ~500 LOC' obsolète 2026 (spaCy pas de port wasm officiel maintenu). Stack retenue defense-in-depth : client iframe = onnxruntime-web 1.24.3 (Microsoft, npm mars 2026) + @huggingface/transformers v4 tokenizer + knowledgator/gliner-pii-edge-v1.0 (Apache-2.0, 2024-01-29, F1 0.755, backbone à confirmer Phase B G8 S1 scan pre-first-line-of-code) + regex fallback curated ; coord-side = presidio-analyzer 2.2.362 (Microsoft MIT, 2026-03-15) + GLiNERRecognizer extra [gliner] + même modèle ONNX source-of-truth unique. Full Rust-first iframe (tract + GLiNER + wasm-bindgen) rejeté factuellement : tract 0.22.1 teste opset 9-18 vs GLiNER export opset 19 (DisentangledSelfAttention DeBERTa-v3 non documenté), tract wasm32-unknown-unknown (browser) non documenté officiellement (seul wasm32-wasi wasmtime), zero precedent production, gline-rs v1.0.1 (Rust GLiNER mainstream 01/2026) a choisi ort pas tract. Rust-wasm iframe realignement Option G reporté S22+ via tech debt T-NN+2 (re-evaluate triggers: tract opset 19 coverage OR ort wasm32-browser stable OR gline-rs wasm-bindgen target). Decisions D1 governor 0.10.2 GCRA + D3 LLM Guard 0.3.16 InvisibleText + PLeak EED + D4 SQLite WAL pattern S19 reuse + CLI sbfb quarantine. Cf. sprint21_kickoff.md §D1-D5 + sprint21_design_review.md."
 -->
 
 # Hardening Roadmap — Sprint 18-30
@@ -204,23 +205,41 @@ median app) :
 - **Dependencies** : S18 multi-relai (warrant canary)
 - **Gate unlock** : —
 
-### Sprint 21 — Rate-limit + client-side redaction
+### Sprint 21 — Rate-limit + PII redaction defense-in-depth + output filter + quarantine queue
 
 - **Goal** : mutualiser rate-limit per-consumer pour §4 extraction
-  + §7 DoS flood. SDK redaction pour apps Gate 2+.
+  + §7 DoS flood. SDK redaction defense-in-depth (client iframe +
+  coord) pour apps Gate 2+. Requalification post-research G2
+  2026-04-18 vs libellé original S17 (spaCy wasm obsolète 2026).
 - **Items** :
   - Rate limit sliding-window per-(consumer, worker, model)
-    worker-core — ~400 LOC
-  - Client-side redaction SDK module (regex PII + optional spaCy
-    NER wasm) — ~500 LOC
-  - Output filter lib SDK (system prompt echo detection, beacon
-    chars) — ~300 LOC
-  - Quarantine queue gossip (unverified-high-rate messages hold
-    15min, manual flush) — ~200 LOC
-- **LOC total** : ~1400
-- **Tests delta** : +50
-- **Dependencies** : S19 PoW (sinon rate-limit contourne)
-- **Gate unlock** : —
+    via `governor 0.10.2` GCRA + `tower-governor 0.8` axum
+  - PII redaction SDK client iframe : `onnxruntime-web 1.24.3`
+    (Microsoft, mars 2026) + `@huggingface/transformers` v4
+    tokenizer + modèle HF `knowledgator/gliner-pii-edge-v1.0`
+    (Apache-2.0, F1 0.755, backbone confirmé Phase B G8 S1) +
+    regex fallback curated
+  - PII redaction coord-side : `presidio-analyzer 2.2.362`
+    (Microsoft MIT) + `GLiNERRecognizer` extra `[gliner]` +
+    **même modèle ONNX source of truth unique**
+  - Output filter : `LLM Guard 0.3.16` `InvisibleText` scanner
+    (zero-width + PUA + Tag chars) + EED prompt echo detection
+    (Levenshtein similarity > 0.85, seuil empirique Phase C
+    configurable)
+  - Quarantine queue SQLite WAL local + TTL 15 min + CLI
+    `sbfb quarantine list/flush/drop` (pattern S19 `f238d31`
+    `upload_queue.py` reuse)
+- **Tests delta** : +50 (projection) — détail par phase
+  `sprint21_plan.md §11`
+- **Dependencies** : S19 PoW wire runtime (satisfait S20 Phase C
+  `16b94ba`)
+- **Gate unlock** : — (prerequisite Gate 2 consolidé apps
+  confidentielles defense-in-depth PII + DoS)
+- **Rust-wasm iframe realignement Option G** : reporté S22+ via
+  tech debt `T-NN+2` (blocked tract opset 18 max vs GLiNER opset
+  19 + wasm32-browser zero-precedent + gline-rs a choisi ort
+  pas tract). Re-evaluate triggers documented
+  `sprint21_carry_summary.md §2 T-NN+2`.
 
 ### Sprint 22 — Sybil resistance + compute detection + voting
 
