@@ -256,9 +256,18 @@ burst_multiplier = 2.0       # GCRA burst capacity = base × multiplier
 # per_min = 500
 ```
 
-Integration : middleware injecté sur HTTP loopback endpoint
-`/task/submit` (et dispatch downstream) — defense-in-depth
-cumulative avec PoW gossip gate existant S20 Phase C `16b94ba`.
+Integration (R1 scope-cut arbitré 2026-04-19 post-drift
+detection) : **worker-engine gate pure Rust**. La primitive
+`RateLimiter::check(&key)` est appelée par l'engine worker avant
+exécution d'une tâche reçue du coordinator. Pas de middleware
+HTTP Phase A — l'endpoint `/task/submit` vit côté Python FastAPI
+(`packages/nexus-coordinator/src/nexus_coordinator/api/tasks.py`
+depuis Sprint 4 Phase A), `tower-governor` axum ne peut pas
+middleware FastAPI. HTTP middleware coord-side (`slowapi` ou
+équivalent Python) sera ré-évalué S22+ dans un sprint sécurité
+API dédié. Defense-in-depth cumulative avec PoW gossip gate S20
+Phase C `16b94ba` maintenue au niveau fabric P2P (gossip
+subscribe), pas au niveau HTTP.
 
 **Rejetés** :
 
@@ -281,20 +290,25 @@ cumulative avec PoW gossip gate existant S20 Phase C `16b94ba`.
 - **Global rate-limit daemon-wide** : trop grossier, défaite
   §4 (un consumer fair-share peut bloquer un autre).
 
-**Implications code** :
+**Implications code (R1 scope-cut)** :
 
 - Nouveau module `crates/nexus-worker-core/src/rate_limit.rs` :
   `struct RateLimiter` wrapping `governor::DefaultKeyedRateLimiter
-  <(ConsumerId, WorkerId, ModelId)>` + `Clock::quanta_with_offset
-  (0)` pour déterminisme tests.
-- Nouveau module `crates/nexus-shell-daemon/src/rate_limit_policy_
+  <RateKey>` avec `RateKey = (ConsumerId, WorkerId, ModelId)` +
+  `governor::Quota` + `DefaultDirectRateLimiter` natif GCRA.
+- Nouveau module `crates/nexus-worker-core/src/rate_limit_policy_
   loader.rs` : pattern hot-reload `~/.sbfb/rate_limit_policy.toml`
   + `notify` file-watcher (50 ms debounce, cohérent S18 D-1
-  `TokenRotator` + S20 Phase C `pow_policy_loader.rs`).
-- Middleware `tower-governor` branché sur route `/task/submit`
-  dans `crates/nexus-shell-daemon/src/http.rs`.
-- Test intégration : saturation intentionnelle tuple → 429 retour,
-  éviction auto 60 s après quiet, reload live policy.toml.
+  `TokenRotator` + S20 Phase C `pow_policy_loader.rs`). **Vit
+  worker-core** (pas shell-daemon) car le consumer final de la
+  policy est le worker engine — symétrique au pattern
+  `consent/mod.rs` déjà worker-core.
+- **Pas** de middleware `tower-governor` sur `/task/submit` R1
+  (endpoint FastAPI coord-side). HTTP middleware coord-side
+  déféré S22+ sprint API sécurité dédié.
+- Tests unit : saturation intentionnelle tuple → `NotUntil`
+  retour gouvernor, éviction auto après quiet, reload live
+  policy.toml, override consumer whitelist.
 
 **Cap règle G1 extension** (alternative concurrente récente <=6 mois
 obligatoire) : `tokio-rate-limit 0.8` (nov 2025) cité et rejeté

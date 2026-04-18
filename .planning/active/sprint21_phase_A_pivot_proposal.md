@@ -11,6 +11,7 @@ arbitrated_option: C (deep-evolution — axum 0.7 → 0.8 workspace bump + tower
 arbitrated_by: user (FlowUP)
 arbitrated_at: 2026-04-18
 post_audit_scope_note: axum usage audit revisited — scope réel ~5 sites (3 routes path syntax + Cargo.toml + middleware signature compile-driven), tower/tower-http/hyper workspace déjà compat 0.8, pas d'Option<Extractor> / PathParamsRejection / hyper::Body / axum::async_trait. Risque S16 régression réduit versus estimation initiale proposal §3 Option C.
+post_bump_drift_R1: après commit chore axum bump `5e67ce0`, pre-code Phase A grep a révélé un 2e drift plan §4.1 `/task/submit` n'existe pas côté Rust shell-daemon (endpoint vit `packages/nexus-coordinator/src/nexus_coordinator/api/tasks.py` FastAPI depuis Sprint 4 Phase A). `tower-governor` axum ne peut pas middleware FastAPI. User arbitre 2026-04-19 **R1 worker-engine gate pure Rust** (drop HTTP middleware, primitive worker-core native consommée par engine pre-task-execution). Scope-cut : tests §4.2 row 7-8 différés S22+ sprint API sécurité Python dédié. D1 core `governor 0.10.2 GCRA` préservé. 10 tests Rust Phase A au lieu de 15 initial. Chore(planning) inline avant feat commit Phase A.
 ---
 
 # Sprint 21 Phase A — pivot proposal G8

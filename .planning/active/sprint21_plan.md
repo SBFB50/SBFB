@@ -178,79 +178,110 @@ Pas de bump transversal nécessaire.
       async fn evict_loop(interval_secs: u64, ...) { ... }
   }
   ```
-- **`crates/nexus-shell-daemon/src/rate_limit_policy_loader.rs`**
+- **`crates/nexus-worker-core/src/rate_limit_policy_loader.rs`**
   (nouveau) : pattern hot-reload `~/.sbfb/rate_limit_policy.toml`
   + `notify` file-watcher (50 ms debounce) + `malformed-reload-
   guard` + `file-deletion-guard` (cohérent S20 Phase C
-  `pow_policy_loader.rs` + S18 D-1 `TokenRotator`).
-- **`crates/nexus-shell-daemon/src/http.rs`** (modifié) : ajout
-  middleware `tower-governor` sur route `/task/submit` avec
-  custom key extractor `(consumer, worker, model)` depuis body
-  task.
+  `pow_policy_loader.rs` + S18 D-1 `TokenRotator`). **Post-G8 R1
+  scope-cut** : le loader vit worker-core (pas shell-daemon) car
+  le consumer final de la policy est l'engine worker (consent
+  pattern pré-existant `worker-core/src/consent/mod.rs`).
+- **~~`crates/nexus-shell-daemon/src/http.rs`~~** : **scope-cut
+  R1 2026-04-19**. Plan initial mentionnait middleware
+  `tower-governor` sur `/task/submit` mais cet endpoint vit côté
+  Python FastAPI (`packages/nexus-coordinator/src/nexus_
+  coordinator/api/tasks.py::POST /tasks/submit`, depuis Sprint 4
+  Phase A), **pas** côté Rust axum. `tower-governor` ne peut pas
+  middleware FastAPI. R1 arbitré user 2026-04-19 : **worker-
+  engine gate pure Rust**, pas de middleware HTTP. HTTP middleware
+  sera ré-évalué S22+ au niveau coord Python (`slowapi` ou
+  équivalent) dans un sprint dédié sécurité API.
 - **`Cargo.toml` workspace** (modifié) : deps
-  `governor = "0.10.2"`, `tower-governor = "0.8"` (axum 0.8 natif
-  post chore §4.0), `notify = "*"` (déjà workspace), `toml = "*"`
-  (déjà).
-- **`~/.sbfb/rate_limit_policy.toml.sample`** (nouveau) :
-  template default budgets tier + overrides.
+  `governor = "0.10.2"` + `nonzero_ext = "0.3"` (requis par
+  `governor::Quota::per_second(nonzero!(..))`). `tower-governor =
+  "0.8"` **non-ajouté R1** — scope-cut middleware HTTP. `notify
+  = "6"` (déjà workspace) + `toml = "0.8"` (déjà).
+- **`crates/nexus-worker-core/Cargo.toml`** (modifié) : deps
+  `governor = { workspace = true }` + `nonzero_ext = { workspace =
+  true }`.
+- **`crates/nexus-worker-core/configs/rate_limit_policy.toml.
+  sample`** (nouveau) : template default budgets tier +
+  overrides (pattern S20 `relay_pow_policy.toml.sample`).
 - **Tests** : `crates/nexus-worker-core/src/rate_limit.rs#tests`
-  + `crates/nexus-shell-daemon/tests/rate_limit_integration.rs`.
+  (unit, saturation/per-tuple/eviction/override). Pas de tests
+  HTTP intégration R1 (scope-cut).
 
-### 4.2 Tests à écrire
+### 4.2 Tests à écrire (R1 scope-cut post-G8 drift detection)
 
+Unit tests `rate_limit.rs` :
 1. `rate_limit::saturation_rejects_over_budget` : saturer un tuple
-   consumer/worker/model à 100 req/s, vérifier `governor` retourne
-   `NotUntil` après 100 tokens bucket.
+   consumer/worker/model à 100 req/min, vérifier `governor` retourne
+   `NotUntil` après N tokens bucket.
 2. `rate_limit::per_tuple_independence` : 3 tuples distincts,
    vérifier saturation d'un n'affecte pas les 2 autres.
-3. `rate_limit::eviction_after_quiet_period` : après 60 s silence,
-   `retain_recent()` supprime les clés silencieuses de DashMap,
-   mémoire libérée.
-4. `rate_limit::policy_hot_reload_live` : modifier toml runtime,
-   vérifier nouvelle limit appliquée sans restart daemon.
-5. `rate_limit::policy_malformed_reload_does_not_crash` : TOML
-   corrompu → policy précédente conservée, warning log, pas panic.
-6. `rate_limit::policy_deletion_does_not_crash` : fichier
-   supprimé runtime → policy précédente conservée (pattern S20
-   Phase C pow_policy_loader).
-7. `http::task_submit_429_on_rate_limit` : endpoint retourne 429
-   Too Many Requests avec `Retry-After` header si saturé.
-8. `http::rate_limit_middleware_order_before_pow_gate` :
-   middleware ordonné avant PoW check (defense-in-depth).
-9. `rate_limit::override_consumer_whitelist` : whitelist opérateur
-   override default budget.
-10. Tests PATTERNS : ajouter §P33 rate-limit GCRA multi-tier pour
-    usage futur.
+3. `rate_limit::eviction_after_quiet_period` : après silence,
+   `retain_recent()` supprime les clés silencieuses de DashMap.
+4. `rate_limit::override_consumer_whitelist` : override policy
+   par-consumer pubkey remplace default budget.
 
-**+15 tests Rust attendus**.
+Unit tests `rate_limit_policy_loader.rs` :
+5. `spawn_missing_file_uses_default_policy` : pas de fichier →
+   default budgets.
+6. `spawn_existing_file_loads_override` : fichier valide →
+   override appliqué.
+7. `spawn_malformed_toml_fails_loud_at_boot` : TOML corrompu au
+   boot → erreur explicite.
+8. `policy_hot_reload_live` : modifier toml runtime, vérifier
+   nouvelle limit appliquée sans restart worker.
+9. `malformed_reload_keeps_previous_policy` : TOML corrompu
+   runtime → policy précédente conservée, warn log, pas panic.
+10. `removal_keeps_previous_policy` : fichier supprimé runtime →
+    policy précédente conservée (pattern S20 pow_policy_loader).
 
-### 4.3 Critère d'acceptation Phase A
+**+10 tests Rust attendus** (delta original +15 → +10 via scope-
+cut R1 : tests HTTP row 7-8 original drop, ajout de 3 tests
+policy_loader symétriques pow_policy_loader pour couverture
+complète). Test row 10 original « PATTERNS §P33 » reste couvert
+par l'update PATTERNS.md hors-tests.
+
+Tests HTTP différés S22+ scope-cut :
+- `http::task_submit_429_on_rate_limit` (R1 drop — endpoint
+  Python FastAPI, middleware Python dédié au sprint S22+).
+- `http::rate_limit_middleware_order_before_pow_gate` (R1 drop
+  — pas de middleware HTTP Rust dans R1).
+
+### 4.3 Critère d'acceptation Phase A (R1)
 
 - `cargo nextest run -p nexus-worker-core --locked` vert (incluant
-  nouveaux tests rate-limit).
-- `cargo nextest run -p nexus-shell-daemon --locked` vert.
+  nouveaux tests rate-limit + policy_loader).
+- `cargo nextest run --workspace --locked` vert ≥ 652 tests
+  (baseline 642 + 10 Phase A).
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`
   0 warning.
 - `cargo fmt --all --check` 0 diff.
 - `cargo test --workspace --locked --doc` vert.
-- Test manuel loopback : `curl -X POST localhost:7080/task/submit
-  ...` 100 fois rapide → 429 retourné 101e requête.
+- **Test manuel HTTP 429 retiré** (R1 scope-cut, pas de middleware
+  HTTP Phase A).
 
 ### 4.4 Commit cible Phase A
 
 ```
-feat(sprint21): Phase A — rate-limit sliding-window multi-tier per-(consumer, worker, model) via governor GCRA + tower-governor 0.8
+feat(sprint21): Phase A — rate-limit sliding-window multi-tier per-(consumer, worker, model) via governor GCRA worker-engine gate R1
 
 Body riche avec :
-- Delta tests (+15 Rust)
+- Delta tests +10 Rust (R1 scope-cut : 15 → 10, drop HTTP 429
+  row 7-8, ajout 3 tests policy_loader symétriques pow_policy_
+  loader S20 C)
 - Scope cuts respectés (kudos-weighted admission, redundancy
-  voting, etc. tous différés S22+)
+  voting, HTTP middleware /task/submit S22+ dédié, etc.)
 - Working tree audit G5 (PHASE / CRAFT / DEBT / NOISE)
-- G8 preflight Phase A verdict DESIGN-CONFLICT résolu par pivot
-  Option C (axum bump hors-sprint prerequis, chore séparé dans
-  range)
-- Référence : `sprint21_phase_A_pivot_proposal.md` (Option C
-  arbitré user 2026-04-18)
+- G8 pre-flight Phase A (commit `60adceb`) DESIGN-CONFLICT Option
+  C arbitré + axum bump chore hors-sprint (commit `5e67ce0`)
+- Drift Phase A §4.1 /task/submit (Python FastAPI, pas Rust axum)
+  identifié mid-phase 2026-04-19 → R1 worker-engine gate arbitré
+  user 2026-04-19 (scope-cut HTTP middleware S22+)
+- Référence : `sprint21_phase_A_pivot_proposal.md` (Option C +
+  R1 scope-cut inline §3 Day-0 Drift post-pivot)
 ```
 
 ---
