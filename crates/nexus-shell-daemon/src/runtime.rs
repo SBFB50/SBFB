@@ -35,8 +35,9 @@ use std::time::SystemTime;
 
 use anyhow::{anyhow, Context, Result};
 use nexus_core_rs::{
-    create_node, create_node_with_config, load_quorum_resolvers_from_env, GossipClient,
-    GossipEvent, Node, NodeConfig,
+    create_node, create_node_with_config, load_quorum_resolvers_from_env,
+    relay_pow_policy_file_path, GossipClient, GossipEvent, KeyPair, Node, NodeConfig,
+    PowSolveCache, PowVerifyCache, RelayPowPolicy,
 };
 use nexus_shell_daemon_core::auth;
 use nexus_shell_daemon_core::browse::{
@@ -46,6 +47,7 @@ use nexus_shell_daemon_core::config::{CuratorConfig, ShellDaemonPaths};
 use nexus_shell_daemon_core::iroh_runtime::{
     curator_topic_id, CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle,
 };
+use nexus_shell_daemon_core::pow_policy_loader::PowPolicyWatcher;
 use nexus_shell_daemon_core::publish;
 use nexus_shell_daemon_core::registry::{
     self, new_running_state, remove_running, write_running, StaleOutcome,
@@ -176,6 +178,14 @@ pub struct DaemonRuntime {
     /// thread + inotify handle live for the whole daemon process.
     #[allow(dead_code)]
     tokens_watcher: Option<nexus_shell_daemon_core::auth::TokenRotatorWatcher>,
+    /// Sprint 20 Phase C : file-watcher on `relay_pow_policy.toml`.
+    /// Kept alive for the daemon's whole lifetime so reloads reach
+    /// both the publish handler (`PowSolveCache` next-solve) and the
+    /// gossip receive loop (`PowVerifyCache` policy check). `None`
+    /// when no `sbfb_home` resolves — the daemon then runs on a
+    /// detached default-policy handle (fallback logged at boot).
+    #[allow(dead_code)]
+    pow_policy_watcher: Option<PowPolicyWatcher>,
     bound_addr: std::net::SocketAddr,
 }
 
@@ -230,21 +240,33 @@ impl DaemonRuntime {
         //    minting a fresh ephemeral keypair each run. Absent or
         //    malformed env → legacy `create_node()` path so dev
         //    flows that predate the encrypted keystore still work.
-        let node = match read_optional_identity_env() {
+        // Sprint 20 Phase C : mint the PoW keypair from the same
+        // secret the iroh endpoint consumes so the Hashcash
+        // `publisher_pubkey` field matches the node identity the
+        // peers already know via gossip. A fallback ephemeral keypair
+        // (generated when the launcher did not hand a secret) pairs
+        // naturally with the `create_node()` ephemeral identity path.
+        let (node, pow_keypair) = match read_optional_identity_env() {
             Some(secret_bytes) => {
                 info!("shell daemon using persistent identity from launcher keystore");
+                let pow_kp = KeyPair::from_secret_bytes(&secret_bytes);
                 let cfg = NodeConfig::default().with_secret_key(secret_bytes);
-                create_node_with_config(cfg)
+                let n = create_node_with_config(cfg)
                     .await
-                    .context("failed to boot iroh node with persistent identity")?
+                    .context("failed to boot iroh node with persistent identity")?;
+                (n, pow_kp)
             }
-            None => create_node()
-                .await
-                .context("failed to boot iroh node for shell daemon")?,
+            None => {
+                let n = create_node()
+                    .await
+                    .context("failed to boot iroh node for shell daemon")?;
+                (n, KeyPair::generate())
+            }
         };
         let node_id = node.node_id();
         info!(node_id = %node_id, "shell daemon iroh node ready");
         let node = Arc::new(node);
+        let pow_keypair = Arc::new(pow_keypair);
 
         // 3. Bind the TCP listener. An empty host in the config
         //    was clamped to 127.0.0.1 at load time (see
@@ -371,6 +393,57 @@ impl DaemonRuntime {
         ));
         let identity_mode = opts.identity_mode;
 
+        // 5e. Sprint 20 Phase C : spawn the PoW policy file-watcher
+        //     and provision the publisher / subscriber caches.
+        //
+        //     The watcher resolves `~/.sbfb/relay_pow_policy.toml`
+        //     (overridable via `SBFB_POW_POLICY_PATH`), loads the
+        //     initial policy synchronously, then starts a background
+        //     thread that reloads the TOML on every write. A missing
+        //     file boots on the S19 default (2^18 leading zero bits
+        //     for every topic, no overrides) ; a malformed file at
+        //     boot fails loud, a malformed edit at runtime keeps the
+        //     last known-good policy in memory.
+        //
+        //     When no `$SBFB_HOME` / `$HOME` resolves (rare — headless
+        //     test harness that strips the environment) the watcher
+        //     is skipped and we run on a detached default-policy
+        //     handle so the gate still enforces 2^18 everywhere.
+        let curator_topic = curator_topic_id();
+        let pow_solve_cache = Arc::new(PowSolveCache::new());
+        let pow_verify_cache = Arc::new(PowVerifyCache::new());
+        let (pow_policy, _pow_policy_watcher) = match relay_pow_policy_file_path() {
+            Some(path) => match PowPolicyWatcher::spawn(path.clone()) {
+                Ok(w) => {
+                    info!(
+                        path = %path.display(),
+                        "PoW policy watcher armed — hot-reload enabled"
+                    );
+                    (w.shared(), Some(w))
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        path = %path.display(),
+                        "PoW policy watcher spawn failed, falling back to default policy"
+                    );
+                    (
+                        nexus_shell_daemon_core::pow_policy_loader::shared_default_policy(),
+                        None,
+                    )
+                }
+            },
+            None => {
+                warn!(
+                    "SBFB_HOME / HOME / USERPROFILE not set — PoW policy locked to default (2^18)"
+                );
+                (
+                    nexus_shell_daemon_core::pow_policy_loader::shared_default_policy(),
+                    None,
+                )
+            }
+        };
+
         // 6. Build the shared HTTP state + spawn the serve task.
         let http_state = Arc::new(DaemonHttpState {
             node_id,
@@ -388,6 +461,10 @@ impl DaemonRuntime {
             )),
             identity_mode,
             panic_wipe,
+            pow_solve_cache: Arc::clone(&pow_solve_cache),
+            pow_policy: Arc::clone(&pow_policy),
+            pow_keypair: Arc::clone(&pow_keypair),
+            curator_gossip_topic: curator_topic,
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
@@ -449,12 +526,20 @@ impl DaemonRuntime {
         //    curator topic, streams events, and forwards each
         //    message body to the curator runtime. The oneshot
         //    lets shutdown signal a clean exit.
+        //
+        //    Sprint 20 Phase C : the task also receives the
+        //    `PowVerifyCache` + shared policy so every inbound
+        //    gossip message is unwrapped from its PoW envelope
+        //    and dropped if the proof fails to satisfy the
+        //    policy's topic difficulty.
         let (gossip_shutdown_tx, gossip_shutdown_rx) = oneshot::channel::<()>();
         let gossip_handle = spawn_gossip_subscribe_task(
             Arc::clone(&node),
             Arc::clone(&curator_runtime),
             Arc::clone(&browse_aggregator),
             Arc::clone(&gossip_sender),
+            Arc::clone(&pow_verify_cache),
+            Arc::clone(&pow_policy),
             gossip_shutdown_rx,
         );
 
@@ -469,6 +554,7 @@ impl DaemonRuntime {
             peer_handle,
             peer_shutdown,
             tokens_watcher,
+            pow_policy_watcher: _pow_policy_watcher,
             bound_addr,
         })
     }
@@ -692,6 +778,8 @@ fn spawn_gossip_subscribe_task(
     curator_runtime: CuratorRuntimeHandle,
     browse_aggregator: BrowseAggregatorHandle,
     gossip_sender_slot: GossipSenderHandle,
+    pow_verify_cache: Arc<PowVerifyCache>,
+    pow_policy: Arc<std::sync::RwLock<RelayPowPolicy>>,
     mut shutdown_rx: oneshot::Receiver<()>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -740,12 +828,48 @@ fn spawn_gossip_subscribe_task(
                                 bytes = content.len(),
                                 "gossip message received"
                             );
+                            // Sprint 20 Phase C wire : every inbound
+                            // gossip payload is a PoW envelope. Reject
+                            // messages that do not satisfy the current
+                            // topic difficulty BEFORE any blob fetch,
+                            // signature verify, or attention-set
+                            // lookup — the gate is the cheapest
+                            // defence against flood + Sybil noise.
+                            let policy_snapshot = {
+                                match pow_policy.read() {
+                                    Ok(guard) => guard.clone(),
+                                    Err(poisoned) => {
+                                        warn!("PoW policy lock poisoned, using default");
+                                        poisoned.into_inner().clone()
+                                    }
+                                }
+                            };
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            let payload: Vec<u8> = match pow_verify_cache
+                                .verify_envelope(&content, &policy_snapshot, now)
+                            {
+                                Ok((_proof, payload)) => payload.to_vec(),
+                                Err(e) => {
+                                    warn!(
+                                        error = %e,
+                                        delivered_from = %delivered_from,
+                                        bytes = content.len(),
+                                        "PoW envelope verify failed — dropping gossip message"
+                                    );
+                                    continue;
+                                }
+                            };
                             // Sprint 11 Phase A: dispatch based on
                             // message type before curator processing.
-                            if publish::is_project_announcement(&content) {
-                                handle_project_announcement(&browse_aggregator, &content);
+                            // Post-PoW unwrap, the dispatch reads the
+                            // borrowed-then-owned payload bytes.
+                            if publish::is_project_announcement(&payload) {
+                                handle_project_announcement(&browse_aggregator, &payload);
                             } else {
-                                handle_announcement(&curator_runtime, &node, &content).await;
+                                handle_announcement(&curator_runtime, &node, &payload).await;
                             }
                         }
                         Ok(Some(GossipEvent::NeighborUp { node_id })) => {

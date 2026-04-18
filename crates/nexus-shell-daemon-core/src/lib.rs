@@ -56,6 +56,7 @@ pub mod canary;
 pub mod config;
 pub mod iroh_runtime;
 pub mod paths;
+pub mod pow_policy_loader;
 pub mod publish;
 pub mod registry;
 pub mod state;

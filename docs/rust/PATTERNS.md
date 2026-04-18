@@ -1406,6 +1406,62 @@ visible in `/proc/self/environ` during the spawn window.
 Tightening to a Unix domain socket / Windows Named Pipe handoff
 is tracked as T24 tech debt for a future sprint.
 
+### Sprint 20.3 PoW gossip wire runtime
+
+Sprint 19 Phase B landed the Hashcash primitive + envelope +
+publisher/subscriber caches (`crates/nexus-core-rs/src/pow.rs` +
+`pow_gossip.rs` + `relay_pow_policy.rs`). Sprint 20 Phase C wires
+them into the daemon's live gossip path so every outbound payload
+is PoW-gated and every inbound payload is dropped if it fails the
+topic's difficulty bar.
+
+**Two sides wired at one entry point each :**
+
+- **Publish** — `crates/nexus-shell-daemon/src/http.rs ::
+  publish_project` now calls `wrap_payload_with_pow(&state,
+  &payload)` (same file). The helper reads the shared policy
+  (`Arc<RwLock<RelayPowPolicy>>`), asks the
+  `PowSolveCache` for a live proof keyed by the curator topic id,
+  and `PowEnvelope::encode`s `[u32 BE proof_len][proof bytes]
+  [payload]` before `TopicSender::broadcast`.
+- **Receive** — `crates/nexus-shell-daemon/src/runtime.rs ::
+  spawn_gossip_subscribe_task` unwraps every
+  `GossipEvent::Message { content, .. }` through
+  `PowVerifyCache::verify_envelope` **before** the
+  `publish::is_project_announcement` / `handle_announcement`
+  dispatch. A failed verify warns + drops — neither the browse
+  aggregator nor the curator runtime ever sees non-PoW noise.
+
+**Hot-reload :** the shared policy lives behind
+`nexus_shell_daemon_core::pow_policy_loader::PowPolicyWatcher`, a
+pattern-copy of `TokenRotatorWatcher` (Sprint 18 D-1 audit fix,
+cf. `auth.rs:699-830`) : watch the parent dir (not the file), 50 ms
+debounce, fail-safe on malformed reload (keep last known-good
+policy). A missing `~/.sbfb/relay_pow_policy.toml` boots the gate
+on the S19 `DEFAULT_POW_POLICY` (2^18 leading zero bits, no
+overrides). The watcher is kept alive on `DaemonRuntime.
+pow_policy_watcher` for the whole process.
+
+**What the two call-sites grep guarantees :** the Phase F checklist
+audits `grep -r "gossip\.subscribe\|\.join_topic" crates/
+nexus-shell-daemon*/src/` — the only call-site inside the
+run-time is `runtime.rs::spawn_gossip_subscribe_task::join_topic`,
+and its receive loop is wrapped by `verify_envelope`. The `main.rs`
+canary subcommand broadcasts on a one-shot topic and is
+intentionally out of the S20 C scope (scheduler + gossip wire
+livered by S20 Phase E).
+
+**Extension points :**
+
+- **S21 rate-limit per-(consumer, worker, model)** depends on PoW
+  being active (this wire). After Phase C merges, the rate-limit
+  lookup key can include the Hashcash publisher pubkey without
+  extra auth.
+- **S22 kudos-weighted admission** : the receive verify predicate
+  becomes `pow_ok && kudos_score >= threshold`. The verify lives
+  in `PowVerifyCache::verify_envelope` — a single place to edit,
+  same cache key `(pubkey, topic)`.
+
 ### §T-keystore-bench-reference
 
 Reference numbers for `cargo bench -p nexus-core-rs --bench

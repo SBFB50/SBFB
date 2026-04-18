@@ -41,7 +41,9 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use nexus_core_rs::{BlobsClient, Node, TopicSender};
+use nexus_core_rs::{
+    BlobsClient, KeyPair, Node, PowEnvelope, PowSolveCache, RelayPowPolicy, TopicSender,
+};
 use nexus_shell_daemon_core::auth::{auth_required, AuthState};
 use nexus_shell_daemon_core::blob_serve::{self, BlobServeCache};
 use nexus_shell_daemon_core::browse::{
@@ -102,6 +104,30 @@ pub struct DaemonHttpState {
     /// and the production [`crate::panic::RealExit`] strategy.
     /// Consumed by the `POST /panic/wipe` handler.
     pub panic_wipe: Arc<crate::panic::PanicWipeService>,
+    /// Sprint 20 Phase C : PoW solve cache (publisher side). Each
+    /// outbound broadcast wraps its payload with a Hashcash proof
+    /// minted via [`PowSolveCache::ensure_proof`]. The cache keeps
+    /// one live proof per topic for 15 min, so a chatty publisher
+    /// pays the ~100 ms solve twice an hour, not per-message.
+    pub pow_solve_cache: Arc<PowSolveCache>,
+    /// Sprint 20 Phase C : shared PoW policy handle. Read on every
+    /// solve so a hot-reloaded `relay_pow_policy.toml` (cf.
+    /// [`nexus_shell_daemon_core::pow_policy_loader::PowPolicyWatcher`])
+    /// takes effect for the next outbound broadcast without a
+    /// restart.
+    pub pow_policy: Arc<std::sync::RwLock<RelayPowPolicy>>,
+    /// Sprint 20 Phase C : the daemon's long-lived Ed25519 keypair,
+    /// used as the `publisher_pubkey` anchor in Hashcash challenges.
+    /// When the launcher's `sbfb unlock` hands over a persistent
+    /// identity, the keypair matches the node's iroh secret ; on
+    /// legacy `cargo run` paths a fresh ephemeral keypair is minted
+    /// alongside the ephemeral iroh identity.
+    pub pow_keypair: Arc<KeyPair>,
+    /// Sprint 20 Phase C : pre-computed 32-byte curator gossip
+    /// topic id. The publish handler uses this to key the
+    /// [`PowSolveCache`] instead of recomputing the BLAKE3 hash on
+    /// every broadcast.
+    pub curator_gossip_topic: [u8; 32],
 }
 
 impl DaemonHttpState {
@@ -492,6 +518,37 @@ async fn list_browse(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResp
     (StatusCode::OK, Json(BrowseListResponse { entries }))
 }
 
+/// Sprint 20 Phase C : wrap an outbound gossip payload in a PoW
+/// envelope. Solves (or reuses) a [`PowSolveCache`] entry for the
+/// curator topic under the current live
+/// [`RelayPowPolicy`], then concatenates `[u32 BE proof_len][proof
+/// bytes][payload]` via [`PowEnvelope::encode`].
+///
+/// Returns an error if the policy clamps the topic's difficulty to
+/// zero (misconfigured policy — loud failure rather than silent
+/// bypass) or if the Hashcash solve times out (default 30 s, cf.
+/// `SOLVE_TIMEOUT` in `pow_gossip`).
+fn wrap_payload_with_pow(
+    state: &DaemonHttpState,
+    payload: &[u8],
+) -> Result<Vec<u8>, nexus_core_rs::PowGossipError> {
+    // Graceful degradation on a poisoned lock : recover the inner
+    // policy rather than propagating a panic through the publish
+    // handler. Mirrors the gossip receive loop
+    // (`runtime.rs::spawn_gossip_subscribe_task`) so every reader
+    // of `DaemonHttpState.pow_policy` survives a poisoning event.
+    let policy = match state.pow_policy.read() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+    let proof = state.pow_solve_cache.ensure_proof(
+        state.curator_gossip_topic,
+        state.pow_keypair.as_ref(),
+        &policy,
+    )?;
+    PowEnvelope::encode(&proof, payload)
+}
+
 /// `POST /publish` — broadcast a project announcement via gossip
 /// and add it to the local browse aggregator. Sprint 11 Phase A.
 ///
@@ -578,15 +635,28 @@ async fn publish_project(
     }
 
     // Broadcast via gossip if the sender is available.
+    //
+    // Sprint 20 Phase C wire : every outbound payload is wrapped in
+    // a PoW envelope ([`PowEnvelope::encode`]) so receiver daemons
+    // can drop unsolicited noise before processing. The proof is
+    // minted (or reused, 15-min session window) by the shared
+    // [`PowSolveCache`] driven by the live
+    // [`RelayPowPolicy`] — a policy reload picks up on the very
+    // next broadcast that misses the cache.
     let sender_guard = state.gossip_sender.read().await;
     if let Some(sender) = sender_guard.as_ref() {
         match announcement.to_gossip_bytes() {
-            Ok(bytes) => {
-                if let Err(e) = sender.broadcast(bytes).await {
-                    debug!(error = %e, "gossip broadcast failed for project announcement");
-                    // Non-fatal: the project is still added locally.
+            Ok(payload) => match wrap_payload_with_pow(&state, &payload) {
+                Ok(envelope) => {
+                    if let Err(e) = sender.broadcast(envelope).await {
+                        debug!(error = %e, "gossip broadcast failed for project announcement");
+                        // Non-fatal: the project is still added locally.
+                    }
                 }
-            }
+                Err(e) => {
+                    debug!(error = %e, "PoW envelope encode failed — skipping broadcast");
+                }
+            },
             Err(e) => {
                 debug!(error = %e, "failed to serialize project announcement");
             }
@@ -897,6 +967,10 @@ mod tests {
             blob_serve_cache: Arc::new(BlobServeCache::new(8)),
             identity_mode: mode,
             panic_wipe,
+            pow_solve_cache: Arc::new(PowSolveCache::new()),
+            pow_policy: nexus_shell_daemon_core::pow_policy_loader::shared_default_policy(),
+            pow_keypair: Arc::new(KeyPair::generate()),
+            curator_gossip_topic: nexus_shell_daemon_core::iroh_runtime::curator_topic_id(),
         })
     }
 
@@ -1458,6 +1532,10 @@ mod tests {
             blob_serve_cache: Arc::new(BlobServeCache::new(8)),
             identity_mode: nexus_core_rs::IdentityMode::Normal,
             panic_wipe,
+            pow_solve_cache: Arc::new(PowSolveCache::new()),
+            pow_policy: nexus_shell_daemon_core::pow_policy_loader::shared_default_policy(),
+            pow_keypair: Arc::new(KeyPair::generate()),
+            curator_gossip_topic: nexus_shell_daemon_core::iroh_runtime::curator_topic_id(),
         });
         let app = build_test_router(state);
         let resp = app

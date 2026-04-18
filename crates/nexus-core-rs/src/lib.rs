@@ -97,8 +97,9 @@ pub use relay_config::{
     CUSTOM_RELAYS_ENV, DEV_MODE_ENV, RELAYS_FILE_NAME, SBFB_HOME_ENV,
 };
 pub use relay_pow_policy::{
-    load_relay_pow_policy, relay_pow_policy_file_path, RelayPowPolicy, RelayPowPolicyFile,
-    CUSTOM_POW_POLICY_ENV, RELAY_POW_POLICY_FILE_NAME,
+    load_relay_pow_policy, load_relay_pow_policy_from, relay_pow_policy_file_path, RelayPowPolicy,
+    RelayPowPolicyFile, CUSTOM_POW_POLICY_ENV, DEFAULT_POLICY as DEFAULT_POW_POLICY,
+    RELAY_POW_POLICY_FILE_NAME,
 };
 pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry};
 pub use tls_pinning::{

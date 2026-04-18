@@ -44,7 +44,7 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -208,10 +208,23 @@ pub fn load_relay_pow_policy() -> Result<RelayPowPolicy> {
     let Some(path) = relay_pow_policy_file_path() else {
         return Ok(DEFAULT_POLICY.clone());
     };
+    load_relay_pow_policy_from(&path)
+}
+
+/// Load the policy from an explicit path. Thin twin of
+/// [`load_relay_pow_policy`] that bypasses the
+/// `SBFB_POW_POLICY_PATH` / `sbfb_home` resolution.
+///
+/// Sprint 20 Phase C : the daemon-side `PowPolicyWatcher` resolves
+/// the path once at boot and re-invokes this helper on every
+/// `notify` reload, so the resolution logic does not race with the
+/// watcher. A missing file still collapses to
+/// [`DEFAULT_POLICY`] — identical contract to the env-var variant.
+pub fn load_relay_pow_policy_from(path: &Path) -> Result<RelayPowPolicy> {
     if !path.is_file() {
         return Ok(DEFAULT_POLICY.clone());
     }
-    let raw = fs::read_to_string(&path)
+    let raw = fs::read_to_string(path)
         .map_err(|e| NexusError::Other(format!("failed to read {}: {e}", path.display())))?;
     let file: RelayPowPolicyFile = toml::from_str(&raw)
         .map_err(|e| NexusError::Other(format!("failed to parse {}: {e}", path.display())))?;
