@@ -24,6 +24,45 @@ const https = require('https');
 
 const PARENT_MODE = !process.env.__NARRATE_CHILD__;
 
+// Mutex — only one narration child runs a Haiku call at a time. Prevents the
+// ~500 MB sub-claude from stacking when many tool calls fire in parallel.
+// Lockfile is atomic via `openSync(..., 'wx')` (CreateFile CREATE_NEW on Win,
+// O_EXCL on Unix). Stale threshold = safetyExit (25s) + 5s slack = 30s.
+let __activeLockPath = null;
+
+function acquireLock(cwd) {
+  const lockDir = path.join(cwd, '.claude');
+  const lockPath = path.join(lockDir, 'narrate-action.lock');
+  const STALE_MS = 30000;
+  try { fs.mkdirSync(lockDir, { recursive: true }); } catch { /* silent */ }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      __activeLockPath = lockPath;
+      return true;
+    } catch (e) {
+      if (e.code !== 'EEXIST') return false;
+      try {
+        const age = Date.now() - fs.statSync(lockPath).mtimeMs;
+        if (age > STALE_MS) {
+          try { fs.unlinkSync(lockPath); } catch { /* silent */ }
+          continue;
+        }
+      } catch { /* silent */ }
+      return false;
+    }
+  }
+  return false;
+}
+
+function releaseLock() {
+  if (!__activeLockPath) return;
+  try { fs.unlinkSync(__activeLockPath); } catch { /* silent */ }
+  __activeLockPath = null;
+}
+
 function parentExit() {
   // Read stdin, spawn detached child with the JSON as arg, exit immediately.
   let input = '';
@@ -53,6 +92,12 @@ async function child() {
     const inputStr = JSON.stringify(input).slice(0, 400);
 
     const cwd = data.cwd || process.cwd();
+
+    // Serialize Haiku calls. If another narration is in flight, no-op silently
+    // — the statusline keeps showing the previous line until the active call
+    // completes. Stale locks (>30s) are auto-released.
+    if (!acquireLock(cwd)) return;
+
     const logPath = path.join(cwd, '.claude', 'narration.log');
     const archiveDir = path.join(cwd, '.claude', 'narration');
 
@@ -159,6 +204,7 @@ Reponds uniquement par le paragraphe, sans entete.`;
       fs.appendFileSync(archivePath, archiveLine);
     } catch (e) { /* silent */ }
   } catch (e) { /* silent */ }
+  finally { releaseLock(); }
 }
 
 function callAnthropicApi(prompt) {
@@ -246,5 +292,7 @@ if (PARENT_MODE) {
   // cannot leak a zombie node.exe. 25s = 20s CLI timeout + 5s slack.
   const safetyExit = setTimeout(() => process.exit(0), 25000);
   safetyExit.unref();
+  // Guarantee lock release even on forced exit / unhandled rejection.
+  process.on('exit', releaseLock);
   child().finally(() => process.exit(0));
 }
