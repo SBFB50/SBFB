@@ -29,7 +29,7 @@
 //! coordinator docs (via the `tasks_doc_ticket` field on invite
 //! v2 or a test injection), scans `task:*` entries, verifies the
 //! coordinator signature, signs and writes a [`ClaimEntry`],
-//! calls [`OllamaClient::generate`], and writes the signed
+//! calls [`LlmBackend::generate`], and writes the signed
 //! [`ResultEntry`] back.
 //!
 //! ## Channels
@@ -60,7 +60,8 @@ use crate::consent::{self, AllowOutcome, ConsentWatcher, RejectReason, TaskConte
 use crate::engine::state::{StateMachine, WorkerEvent, WorkerState};
 use crate::engine::state_writer::{self, LastTask, SnapshotInputs};
 use crate::gpu::{create_monitor, GpuInfo, GpuMonitor};
-use crate::ollama::{GenerateParams, HealthCheck, OllamaClient, OllamaHttpClient};
+use crate::llm::factory::build_backend;
+use crate::llm::{GenerateParams, HealthCheck, LlmBackend};
 use crate::paths::worker_state_file;
 
 // =================================================================
@@ -74,21 +75,22 @@ use crate::paths::worker_state_file;
 /// and loaded the persistent Ed25519 keypair from disk) and
 /// passed to [`Engine::new`].
 ///
-/// Sprint 4 Phase D W9.1 fields:
+/// Sprint 4 Phase D W9.1 fields (renamed Sprint 20 Phase D):
 /// - `data_dir`: when Some, passed to [`NodeConfig::with_data_dir`]
 ///   so the worker's iroh-docs replica and default author survive
 ///   process restarts. The W9.1 task flow stores imported
 ///   coordinator docs through this same store.
-/// - `ollama_override`: when Some, replaces the OllamaHttpClient
-///   built from `worker_config.ollama`. The nexus-worker binary
-///   uses this to wire [`crate::ollama::StubOllama`] when the
-///   operator passes `--stub-ollama` for hermetic e2e runs.
+/// - `llm_override`: when Some, replaces the backend built from
+///   `worker_config.llm` (which pre-S20 was called `ollama`). The
+///   nexus-worker binary uses this to wire
+///   [`crate::llm::StubBackend`] when the operator passes
+///   `--stub-llm` for hermetic e2e runs.
 pub struct EngineBoot {
     pub worker_config: WorkerConfig,
     pub keypair: KeyPair,
     pub allowlist: Allowlist,
     pub data_dir: Option<PathBuf>,
-    pub ollama_override: Option<Box<dyn OllamaClient>>,
+    pub llm_override: Option<Box<dyn LlmBackend>>,
     /// Sprint 16 Phase C: override for the `~/.sbfb/` root the
     /// engine uses to locate `consent.json` and `usage.json`.
     /// `None` (the prod default) resolves to
@@ -100,15 +102,15 @@ pub struct EngineBoot {
 
 impl EngineBoot {
     /// Convenience constructor that mirrors the Sprint 3 W9 shape
-    /// (no data_dir, default Ollama) so existing callers keep
-    /// compiling after the Phase D struct extension.
+    /// (no data_dir, default backend from config) so existing
+    /// callers keep compiling after the Phase D struct extension.
     pub fn new(worker_config: WorkerConfig, keypair: KeyPair, allowlist: Allowlist) -> Self {
         Self {
             worker_config,
             keypair,
             allowlist,
             data_dir: None,
-            ollama_override: None,
+            llm_override: None,
             sbfb_home_override: None,
         }
     }
@@ -131,7 +133,7 @@ pub struct Engine {
     state_tx: watch::Sender<WorkerState>,
     state_rx: watch::Receiver<WorkerState>,
     allowlist: Allowlist,
-    ollama: Box<dyn OllamaClient>,
+    llm: Box<dyn LlmBackend>,
     gpu: Box<dyn GpuMonitor>,
     gpu_info: Vec<GpuInfo>,
     worker_config: WorkerConfig,
@@ -207,7 +209,7 @@ impl Engine {
             keypair,
             allowlist,
             data_dir,
-            ollama_override,
+            llm_override,
             sbfb_home_override,
         } = boot;
 
@@ -226,31 +228,32 @@ impl Engine {
             .map_err(|e| anyhow::anyhow!("failed to boot iroh node for worker keypair: {e}"))?;
         info!(node_id = %node.node_id(), "iroh endpoint ready");
 
-        // --- Ollama ---
-        let ollama: Box<dyn OllamaClient> = match ollama_override {
+        // --- LLM backend (Sprint 20 Phase D : dual-backend) ---
+        let llm: Box<dyn LlmBackend> = match llm_override {
             Some(stub) => {
-                info!("using injected OllamaClient override (stub mode)");
+                info!("using injected LlmBackend override (stub mode)");
                 stub
             }
-            None => Box::new(OllamaHttpClient::from_config(&worker_config.ollama)?),
+            None => build_backend(&worker_config.llm)
+                .map_err(|e| anyhow::anyhow!("failed to build LLM backend: {e}"))?,
         };
-        match ollama.healthcheck().await {
+        match llm.healthcheck().await {
             HealthCheck::Ready { models } => {
                 info!(
-                    endpoint = %worker_config.ollama.endpoint,
+                    backend = ?worker_config.llm.backend,
                     model_count = models.len(),
-                    "ollama healthcheck passed"
+                    "llm healthcheck passed"
                 );
             }
             HealthCheck::NotRunning { endpoint, hint, .. } => {
                 warn!(
                     %endpoint,
                     %hint,
-                    "ollama is not running; engine will continue but cannot serve tasks until it comes up"
+                    "llm backend is not running; engine will continue but cannot serve tasks until it comes up"
                 );
             }
             HealthCheck::Error { endpoint, reason } => {
-                warn!(%endpoint, %reason, "ollama healthcheck returned an error");
+                warn!(%endpoint, %reason, "llm healthcheck returned an error");
             }
         }
 
@@ -384,7 +387,7 @@ impl Engine {
             state_tx,
             state_rx,
             allowlist,
-            ollama,
+            llm,
             gpu,
             gpu_info,
             worker_config,
@@ -591,7 +594,7 @@ impl Engine {
                 // reachable and at least one project is
                 // enrolled. Otherwise stay in Connecting; the
                 // TUI will show the user what's missing.
-                let hc = self.ollama.healthcheck().await;
+                let hc = self.llm.healthcheck().await;
                 let enabled_count = match self.allowlist.list_enabled() {
                     Ok(list) => list.len(),
                     Err(e) => {
@@ -624,7 +627,7 @@ impl Engine {
                 // engine cannot serve tasks this tick. Bounce back
                 // through Pause → Resume so the state machine
                 // reflects the degraded state.
-                let hc = self.ollama.healthcheck().await;
+                let hc = self.llm.healthcheck().await;
                 if !hc.is_ready() {
                     warn!("ollama is no longer reachable, dropping back to Connecting");
                     self.apply_event(WorkerEvent::Pause).await;
@@ -642,7 +645,7 @@ impl Engine {
             }
             WorkerState::PullingModel { .. } => {
                 // W5 retry policy already handles this via
-                // exponential backoff inside OllamaHttpClient;
+                // exponential backoff inside the LlmBackend;
                 // nothing to do in the tick until W9.1 wires
                 // the actual pull_model stream through.
             }
@@ -672,7 +675,7 @@ impl Engine {
     ///    to [`TaskEntry`], verify the coordinator signature.
     /// 4. Mint a [`ClaimEntry`] and write it under
     ///    `claim:<task_id>`.
-    /// 5. Call [`OllamaClient::generate`] with the prompt.
+    /// 5. Call [`LlmBackend::generate`] with the prompt.
     /// 6. Build a [`ResultPayload`] (deterministic digests in
     ///    stub mode; hashed model digest + logprob placeholder
     ///    otherwise) and sign it into a [`ResultEntry`], write
@@ -854,7 +857,7 @@ impl Engine {
                 )
                 .with_system(task_entry.task.system_prompt.clone());
 
-                let generated = match self.ollama.generate(params).await {
+                let generated = match self.llm.generate(params).await {
                     Ok(r) => r,
                     Err(e) => {
                         warn!(task_id = %task_id, error = %e, "ollama.generate failed");
@@ -1065,7 +1068,7 @@ fn preview_prompt(prompt: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
     use crate::consent::{ConsentConfig, ConsentLevel};
-    use crate::ollama::StubOllama;
+    use crate::llm::StubBackend;
     use nexus_core_rs::docs::DocsClient as RsDocsClient;
     use nexus_core_rs::task::Task;
     use tempfile::TempDir;
@@ -1080,7 +1083,7 @@ mod tests {
             keypair,
             allowlist,
             data_dir: None,
-            ollama_override: Some(Box::new(StubOllama::new())),
+            llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: None,
         };
         Engine::new(boot).await.expect("engine boots")
@@ -1164,7 +1167,7 @@ mod tests {
             keypair,
             allowlist,
             data_dir: None,
-            ollama_override: Some(Box::new(StubOllama::new())),
+            llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: None,
         };
         let mut engine = Engine::new(boot).await.expect("engine boots");
@@ -1244,7 +1247,7 @@ mod tests {
             keypair,
             allowlist,
             data_dir: None,
-            ollama_override: Some(Box::new(StubOllama::new())),
+            llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
         };
         let mut engine = Engine::new(boot).await.expect("engine boots");

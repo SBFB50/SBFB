@@ -1921,3 +1921,107 @@ without a `freezegun` dep. Production uses
 Reference: Phase D plan at
 `.planning/active/sprint19_plan.md §7`, design doc at
 `.planning/research/S19_phase_D_delayed_upload_queue_design.md`.
+
+## Sprint 20 patterns
+
+### §P30 — LLM backend dual-build operator runbook
+
+Sprint 20 Phase D introduces a dual-backend LLM abstraction in
+`crates/nexus-worker-core/src/llm`. Operators pick the backend
+in `worker.toml` :
+
+```toml
+[llm]
+backend = "llama_cpp"   # recommended production
+# or
+backend = "ollama"      # development / fallback
+```
+
+#### Default build — Ollama only
+
+```bash
+cargo build --release -p nexus-worker
+```
+
+Compiled worker talks HTTP to `localhost:11434` (Ollama daemon).
+Zero extra build dependency. Schema enforcement via
+Ollama v0.5+ `format` param.
+
+Prereq for runtime : install Ollama from
+`https://ollama.com/download` and run `ollama serve`.
+
+#### Production build — in-process llama.cpp + llguidance
+
+```bash
+# Linux (Ubuntu / Debian)
+sudo apt-get install -y cmake build-essential libclang-dev
+# macOS
+brew install cmake llvm
+# Windows
+# 1. Install Visual Studio Build Tools 2022 (C++ workload)
+# 2. Install LLVM from https://github.com/llvm/llvm-project/releases
+# 3. Set env var LIBCLANG_PATH=C:\Program Files\LLVM\bin
+# 4. Install cmake (winget: winget install Kitware.CMake)
+
+# With CPU-only inference
+cargo build --release -p nexus-worker --features llm_llama_cpp
+
+# With CUDA 12.6+ (RTX 40xx / 50xx)
+cargo build --release -p nexus-worker --features llm_llama_cpp_cuda
+
+# With Apple Metal (M-series Macs)
+cargo build --release -p nexus-worker --features llm_llama_cpp_metal
+
+# With Vulkan (cross-vendor GPU)
+cargo build --release -p nexus-worker --features llm_llama_cpp_vulkan
+```
+
+Then point `[llm.llama_cpp] model_path` at a GGUF file on disk :
+
+```toml
+[llm]
+backend = "llama_cpp"
+
+[llm.llama_cpp]
+model_path = "~/.nexus-grid/models/qwen2.5-7b-instruct-q4_k_m.gguf"
+n_ctx = 4096
+n_gpu_layers = -1
+n_threads = 0
+```
+
+Test the backend :
+
+```bash
+nexus-worker stats    # healthcheck path prints GGUF ready / not running
+nexus-worker start    # full engine boot
+```
+
+#### Fallback semantics
+
+If `backend = "llama_cpp"` in `worker.toml` but the binary was
+built **without** `--features llm_llama_cpp`, the worker refuses
+to boot with :
+
+```
+unsupported llm backend "llama_cpp": feature "llm_llama_cpp" is
+not compiled in this binary
+hint: rebuild with `cargo build --features llm_llama_cpp` or set
+`[llm] backend = "ollama"` in worker.toml
+```
+
+Rationale : we prefer a loud startup failure over a silent
+fallback because the operator explicitly asked for the in-process
+backend.
+
+#### Security remark — grammar ≠ prompt-injection defense
+
+Both backends enforce JSON Schema on the LLM output. This
+guarantees the signature chain never signs garbled JSON, but does
+**not** defend against prompt injection producing schema-valid
+malicious content. See `docs/rust/PATTERNS.md §P30` for the full
+warning and the layered defense roadmap (Sprint 21 client-side
+redaction, Sprint 22 tool-calling sandbox).
+
+Reference : design doc
+`.planning/research/S20_phase_D_structured_output_design.md`,
+plan § 7 in `.planning/active/sprint20_plan.md`.

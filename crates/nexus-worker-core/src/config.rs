@@ -194,12 +194,23 @@ impl WorkerPaths {
 /// specified. The full set of defaults is produced by
 /// `WorkerConfig::default()` via the derived `Default` impl,
 /// which in turn uses each section's own `Default` impl.
+///
+/// ## Sprint 20 Phase D breaking change
+///
+/// The pre-S20 `[ollama]` section has been folded into
+/// `[llm.ollama]` alongside the new `[llm.llama_cpp]` section.
+/// Worker config files must regenerate — the project is pre-launch
+/// (no tolerant decoder per `CLAUDE.md §Pre-launch protocol policy`)
+/// so there is no backward-compatible alias for the old path.
+///
+/// Env-var overrides follow the same rename :
+/// `NEXUS_WORKER__OLLAMA__ENDPOINT` → `NEXUS_WORKER__LLM__OLLAMA__ENDPOINT`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct WorkerConfig {
     #[serde(default)]
     pub identity: Identity,
     #[serde(default)]
-    pub ollama: Ollama,
+    pub llm: LlmConfig,
     #[serde(default)]
     pub gpu: Gpu,
     #[serde(default)]
@@ -235,9 +246,53 @@ impl Default for Identity {
     }
 }
 
-/// `[ollama]` section: how to reach the local inference backend.
+/// `[llm]` section: which backend the worker uses + per-backend
+/// subsections.
+///
+/// Sprint 20 Phase D replaces the old `[ollama]` top-level section
+/// with a backend-agnostic `[llm]` container. Two backends ship :
+///
+/// - `ollama` : HTTP to a local Ollama daemon. Always compiled.
+/// - `llama_cpp` : in-process `llama-cpp-2` + `llguidance`. Gated
+///   behind the `llm_llama_cpp` Cargo feature (cmake required).
+///
+/// The `backend` field selects which one is used at runtime.
+/// Defaults to `Ollama` so a vanilla build without the
+/// `llm_llama_cpp` feature works out of the box ; production
+/// deployments are expected to set `backend = "llama_cpp"` and
+/// build with the feature enabled (see the design doc
+/// `.planning/research/S20_phase_D_structured_output_design.md`
+/// §2.4 for the rationale).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct LlmConfig {
+    #[serde(default)]
+    pub backend: BackendKind,
+    #[serde(default)]
+    pub ollama: OllamaConfig,
+    #[serde(default)]
+    pub llama_cpp: LlamaCppConfig,
+}
+
+/// Which [`LlmBackend`][crate::llm::LlmBackend] the worker runs.
+///
+/// Default is [`BackendKind::Ollama`] — always compiled and
+/// cmake-free. A future HARDENING sprint may flip the default to
+/// `LlamaCpp` once the build chain is documented across all dev
+/// platforms (cf. design doc §2.4 "Tension résolue").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BackendKind {
+    /// Ollama HTTP daemon. Default.
+    #[default]
+    Ollama,
+    /// In-process llama.cpp with llguidance-constrained sampling.
+    /// Requires the `llm_llama_cpp` Cargo feature.
+    LlamaCpp,
+}
+
+/// `[llm.ollama]` section: how to reach the local Ollama daemon.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Ollama {
+pub struct OllamaConfig {
     /// HTTP endpoint to the Ollama server (default:
     /// `http://localhost:11434`, matching the Ollama installer).
     pub endpoint: String,
@@ -245,11 +300,48 @@ pub struct Ollama {
     pub timeout_secs: u64,
 }
 
-impl Default for Ollama {
+impl Default for OllamaConfig {
     fn default() -> Self {
         Self {
             endpoint: "http://localhost:11434".to_string(),
             timeout_secs: 300,
+        }
+    }
+}
+
+/// `[llm.llama_cpp]` section: how the in-process llama.cpp runtime
+/// loads its model.
+///
+/// Populated only when `[llm] backend = "llama_cpp"`. The factory
+/// validates paths eagerly so a missing or unreadable GGUF surfaces
+/// at startup (not on the first generate).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LlamaCppConfig {
+    /// Absolute or tilde-expandable path to the GGUF model file.
+    /// Defaults to an empty string ; the factory rejects an empty
+    /// path when the backend is actually selected.
+    pub model_path: String,
+    /// Context window size in tokens (`n_ctx`). Defaults to 4096 ;
+    /// a caller that wants the model's training default can set
+    /// this to `0` and the backend interprets it as "use model
+    /// default" (mirrors `llama-cpp-2` `Option<NonZeroU32>`).
+    pub n_ctx: u32,
+    /// Number of layers to offload to the GPU. `-1` offloads all
+    /// available layers ; `0` stays on CPU. Matches
+    /// `LlamaModelParams::with_n_gpu_layers` semantics.
+    pub n_gpu_layers: i32,
+    /// CPU threads used during generation. `0` ⇒ let llama.cpp
+    /// pick based on the number of cores.
+    pub n_threads: u32,
+}
+
+impl Default for LlamaCppConfig {
+    fn default() -> Self {
+        Self {
+            model_path: String::new(),
+            n_ctx: 4096,
+            n_gpu_layers: -1,
+            n_threads: 0,
         }
     }
 }
@@ -450,8 +542,12 @@ mod tests {
     #[test]
     fn default_has_sensible_values() {
         let cfg = WorkerConfig::default();
-        assert_eq!(cfg.ollama.endpoint, "http://localhost:11434");
-        assert_eq!(cfg.ollama.timeout_secs, 300);
+        assert_eq!(cfg.llm.backend, BackendKind::Ollama);
+        assert_eq!(cfg.llm.ollama.endpoint, "http://localhost:11434");
+        assert_eq!(cfg.llm.ollama.timeout_secs, 300);
+        assert_eq!(cfg.llm.llama_cpp.model_path, "");
+        assert_eq!(cfg.llm.llama_cpp.n_ctx, 4096);
+        assert_eq!(cfg.llm.llama_cpp.n_gpu_layers, -1);
         assert_eq!(cfg.gpu.max_vram_fraction, 0.9);
         assert_eq!(cfg.engine.task_poll_interval_ms, 2000);
         assert_eq!(cfg.engine.max_concurrent_tasks, 1);
@@ -463,8 +559,9 @@ mod tests {
 
     #[test]
     fn save_then_load_preserves_values() {
-        // This test reads `ollama.endpoint` through WorkerConfig::load,
-        // which honours NEXUS_WORKER__OLLAMA__ENDPOINT. The
+        // This test reads `llm.ollama.endpoint` through
+        // WorkerConfig::load, which honours
+        // NEXUS_WORKER__LLM__OLLAMA__ENDPOINT. The
         // env_var_overrides_file_value test below briefly sets that
         // variable; if cargo schedules the two in parallel this test
         // can observe the leaked value. Hold the shared lock and
@@ -472,14 +569,14 @@ mod tests {
         let _guard = env_var_test_lock()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("NEXUS_WORKER__OLLAMA__ENDPOINT");
+        std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT");
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("worker.toml");
 
         let mut cfg = WorkerConfig::default();
         cfg.identity.name = "rtx5080-home".to_string();
-        cfg.ollama.endpoint = "http://10.0.0.5:11434".to_string();
+        cfg.llm.ollama.endpoint = "http://10.0.0.5:11434".to_string();
         cfg.engine.max_concurrent_tasks = 4;
 
         cfg.save(&path).unwrap();
@@ -490,10 +587,11 @@ mod tests {
     }
 
     /// Serialize every test that touches
-    /// `NEXUS_WORKER__OLLAMA__ENDPOINT` so cargo's default
+    /// `NEXUS_WORKER__LLM__OLLAMA__ENDPOINT` so cargo's default
     /// parallel test runner doesn't race them against each other.
     /// Added in Sprint 4 Phase C after the env-var test caused
-    /// intermittent failures under parallel execution.
+    /// intermittent failures under parallel execution (renamed
+    /// in Sprint 20 Phase D with the `[llm]` migration).
     fn env_var_test_lock() -> &'static std::sync::Mutex<()> {
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
         LOCK.get_or_init(|| std::sync::Mutex::new(()))
@@ -506,7 +604,7 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         // Paranoid cleanup so a leaked env var from a hypothetical
         // third test cannot contaminate this one either.
-        std::env::remove_var("NEXUS_WORKER__OLLAMA__ENDPOINT");
+        std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT");
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("missing.toml");
@@ -531,30 +629,31 @@ mod tests {
     fn partial_toml_falls_back_to_defaults_per_section() {
         // Same rationale as save_then_load_preserves_values:
         // reads through WorkerConfig::load which is sensitive to
-        // a leaked NEXUS_WORKER__OLLAMA__ENDPOINT from a parallel
-        // test. Hold the shared lock and clear the var first.
+        // a leaked NEXUS_WORKER__LLM__OLLAMA__ENDPOINT from a
+        // parallel test. Hold the shared lock and clear the var.
         let _guard = env_var_test_lock()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("NEXUS_WORKER__OLLAMA__ENDPOINT");
+        std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT");
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("partial.toml");
 
-        // Only override ollama.endpoint — every other section
+        // Only override llm.ollama.endpoint — every other section
         // must stay at the default.
         std::fs::write(
             &path,
             r#"
-[ollama]
+[llm.ollama]
 endpoint = "http://elsewhere:11434"
 "#,
         )
         .unwrap();
 
         let loaded = WorkerConfig::load(&path).unwrap();
-        assert_eq!(loaded.ollama.endpoint, "http://elsewhere:11434");
-        assert_eq!(loaded.ollama.timeout_secs, 300); // default
+        assert_eq!(loaded.llm.backend, BackendKind::Ollama); // default
+        assert_eq!(loaded.llm.ollama.endpoint, "http://elsewhere:11434");
+        assert_eq!(loaded.llm.ollama.timeout_secs, 300); // default
         assert_eq!(loaded.gpu.max_vram_fraction, 0.9); // default
         assert_eq!(loaded.identity.name, "unnamed-worker"); // default
     }
@@ -672,7 +771,7 @@ state_flush_secs = 0
         std::fs::write(
             &path,
             r#"
-[ollama]
+[llm.ollama]
 endpoint = "http://from-file:11434"
 "#,
         )
@@ -680,13 +779,51 @@ endpoint = "http://from-file:11434"
 
         // SAFETY: guarded by env_var_test_lock above so no
         // parallel test can observe the transient mutation.
-        std::env::set_var("NEXUS_WORKER__OLLAMA__ENDPOINT", "http://from-env:11434");
+        std::env::set_var(
+            "NEXUS_WORKER__LLM__OLLAMA__ENDPOINT",
+            "http://from-env:11434",
+        );
         let loaded = WorkerConfig::load(&path).unwrap();
-        std::env::remove_var("NEXUS_WORKER__OLLAMA__ENDPOINT");
+        std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT");
 
         assert_eq!(
-            loaded.ollama.endpoint, "http://from-env:11434",
+            loaded.llm.ollama.endpoint, "http://from-env:11434",
             "env var must override file value"
         );
+    }
+
+    #[test]
+    fn llm_backend_parses_llama_cpp_value() {
+        let toml_body = r#"
+[llm]
+backend = "llama_cpp"
+
+[llm.llama_cpp]
+model_path = "/models/qwen.gguf"
+n_ctx = 8192
+n_gpu_layers = 0
+n_threads = 4
+"#;
+        let cfg: WorkerConfig = toml::from_str(toml_body).unwrap();
+        assert_eq!(cfg.llm.backend, BackendKind::LlamaCpp);
+        assert_eq!(cfg.llm.llama_cpp.model_path, "/models/qwen.gguf");
+        assert_eq!(cfg.llm.llama_cpp.n_ctx, 8192);
+        assert_eq!(cfg.llm.llama_cpp.n_gpu_layers, 0);
+        assert_eq!(cfg.llm.llama_cpp.n_threads, 4);
+    }
+
+    #[test]
+    fn llm_section_omitted_falls_back_to_ollama_default() {
+        let cfg: WorkerConfig = toml::from_str("").unwrap();
+        assert_eq!(cfg.llm.backend, BackendKind::Ollama);
+        assert_eq!(cfg.llm.ollama.endpoint, "http://localhost:11434");
+    }
+
+    #[test]
+    fn backend_kind_serializes_as_snake_case() {
+        let via_json = serde_json::to_string(&BackendKind::LlamaCpp).unwrap();
+        assert_eq!(via_json, "\"llama_cpp\"");
+        let via_json = serde_json::to_string(&BackendKind::Ollama).unwrap();
+        assert_eq!(via_json, "\"ollama\"");
     }
 }

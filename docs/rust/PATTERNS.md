@@ -1497,6 +1497,136 @@ cargo bench -p nexus-core-rs --bench keystore -- derive_kek_64_mib
 
 ---
 
+## §P30 — Sprint 20 Phase D : structured output dual-backend
+
+> ⚠️ **STRUCTURED OUTPUT GRAMMAR IS NOT A DEFENSE AGAINST PROMPT
+> INJECTION.** The grammar enforces *format* (JSON Schema), not
+> *content*. A successful prompt injection against the user query
+> can still produce schema-valid responses with malicious payload
+> (e.g. `TaskResponse { content: "<exfiltrated secret>",
+> tool_calls: [...] }` — valid shape, bad content). Defense against
+> prompt injection belongs to Sprint 22 (tool-calling sandbox +
+> wasmtime jail) and Sprint 21 (client-side redaction SDK).
+> Grammar enforcement + signature chain integrity is *one layer*
+> of defense, not a replacement for prompt-injection hardening.
+> Cf. `docs/security/HARDENING_ROADMAP.md audited_findings
+> 2026-04-18 "grammar ≠ prompt injection defense"`.
+
+### Architecture
+
+`nexus-worker-core::llm` ships two implementations of the
+[`LlmBackend`] trait :
+
+| Backend | Feature flag | Grammar engine | Typical perf |
+|---|---|---|---|
+| `OllamaBackend` | always on | Ollama's internal llama.cpp GBNF | ~200 µs/token |
+| `LlamaCppBackend` | `llm_llama_cpp` | `llguidance` crate, Rust-side bridge | ~50 µs/token |
+
+Worker config `worker.toml` selects the backend :
+
+```toml
+[llm]
+backend = "llama_cpp"  # or "ollama"
+
+[llm.ollama]
+endpoint = "http://localhost:11434"
+timeout_secs = 300
+
+[llm.llama_cpp]
+model_path = "~/.nexus-grid/models/qwen2.5-7b-instruct-q4_k_m.gguf"
+n_ctx = 4096
+n_gpu_layers = -1   # -1 = all, 0 = CPU-only
+n_threads = 0       # 0 = let llama.cpp pick
+```
+
+### Schema source-of-truth
+
+`nexus_core_rs::TaskResponse` is derived with
+`#[derive(JsonSchema)]` — the JSON Schema is **generated from the
+Rust struct**, not hand-written. Both backends consume the same
+`serde_json::Value`. A snapshot lives at
+`crates/nexus-core-rs/src/schemas/task_response.schema.json` as
+a canary against silent drift ; regenerate with :
+
+```bash
+UPDATE_SNAPSHOTS=1 cargo test -p nexus-core-rs \
+    schemas::task_response::tests::schema_snapshot_matches_struct
+```
+
+### Defense-in-depth
+
+Both backends run a **defensive validator** on the decoded text
+before returning :
+
+```rust
+let parsed: TaskResponse = serde_json::from_str(&text)?;
+parsed.validate_identity()?;
+```
+
+**Sprint 20 enforcement coverage** :
+
+| Backend | Sample-time enforcement | Post-decode validator |
+|---|---|---|
+| `OllamaBackend` | ✅ via `format` param (Ollama v0.5+ GBNF inside its llama.cpp) | ✅ |
+| `LlamaCppBackend` | partial — matcher state advances via `compute_mask` + `ff_tokens`, but the logit-bias frame push is S21+ (P3-D3 carry). The picked token is checked post-hoc via `consume_token` → `SchemaViolation` on reject. | ✅ |
+
+Until the `llama_cpp` logit-bias wire lands, the post-decode
+validator is the load-bearing layer for `LlamaCppBackend` schema
+correctness. Post-hoc `consume_token` raises `SchemaViolation`
+when the sampler picked a token outside the grammar — the worker
+refuses to sign. Between the two, the signature chain never sees
+malformed JSON.
+
+This catches :
+- A broken Ollama daemon that ignores its own grammar (has
+  happened on pre-0.5 versions that silently dropped the
+  `format` param).
+- A `LlamaCppBackend` misconfiguration where the matcher
+  deterministic-fastforwards but somehow outputs off-schema
+  bytes (grammar bugs in llguidance compiled against an old
+  tokenizer).
+- A wrong `version` or `domain` tag that would otherwise slip
+  past the JSON Schema check (the schema validates structure,
+  not semantic identity).
+
+Refusing to sign an unparsable response is the signature-layer
+analogue of the "fail closed" principle applied to every
+certificate pin in S19 Phase C.
+
+### Why Rust-side llguidance rather than `-DLLAMA_LLGUIDANCE=ON`
+
+The llama.cpp build flag links `libllguidance` into the C-side
+sampler. We bridge the crate in Rust instead (`llguidance::
+Matcher` shares state with the `llama_cpp_2::sampling::LlamaSampler`
+chain ; logit-bias push for full pre-sample enforcement is carried
+to Sprint 21+ as P3-D3) so :
+
+- Operators do **not** need a custom llama.cpp build — cargo
+  pulls the crate transitively.
+- The matcher state is owned by Rust code we can unit-test
+  (`build_matcher_accepts_task_response_schema` in
+  `llm::llama_cpp::tests`).
+- Future tool-call interception (S22 sandbox) can hook on
+  `matcher.consume_token` to observe grammar transitions
+  without touching C code.
+
+### Build chain caveats (operator)
+
+- `llama-cpp-sys-2` uses `bindgen` → requires **LLVM / libclang**
+  on the build host.
+  - Windows : install LLVM + add `LIBCLANG_PATH` env var.
+  - Linux : `sudo apt-get install libclang-dev`.
+  - macOS : `brew install llvm` or use Xcode's bundled clang.
+- CUDA cascade feature `llm_llama_cpp_cuda` requires CUDA
+  toolkit 12.6+.
+- A fresh `cargo build` without the feature **never touches
+  cmake / bindgen** — this is why the default stays
+  feature-off.
+
+See `docs/shell/PATTERNS.md §P30` for the full operator runbook.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

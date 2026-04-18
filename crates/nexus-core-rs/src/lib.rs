@@ -48,6 +48,7 @@ pub mod pow;
 pub mod pow_gossip;
 pub mod relay_config;
 pub mod relay_pow_policy;
+pub mod schemas;
 pub mod task;
 pub mod tls_pinning;
 pub mod verification;
@@ -100,6 +101,9 @@ pub use relay_pow_policy::{
     load_relay_pow_policy, load_relay_pow_policy_from, relay_pow_policy_file_path, RelayPowPolicy,
     RelayPowPolicyFile, CUSTOM_POW_POLICY_ENV, DEFAULT_POLICY as DEFAULT_POW_POLICY,
     RELAY_POW_POLICY_FILE_NAME,
+};
+pub use schemas::{
+    task_response_schema, TaskResponse, ToolCall, TASK_RESPONSE_DOMAIN_TAG, TASK_RESPONSE_VERSION,
 };
 pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry};
 pub use tls_pinning::{

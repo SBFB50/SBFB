@@ -49,8 +49,8 @@ pub struct Cli {
     /// end-to-end test suite so the worker can execute tasks
     /// on a CI host without a real Ollama install.
     ///
-    /// When set, the engine's `OllamaClient` is replaced with
-    /// [`nexus_worker_core::ollama::StubOllama`], which
+    /// When set, the engine's `LlmBackend` is replaced with
+    /// [`nexus_worker_core::llm::StubBackend`], which
     /// reports the daemon as "ready" and returns a canned
     /// `STUB[model]: <prompt>` response for every generate
     /// call.

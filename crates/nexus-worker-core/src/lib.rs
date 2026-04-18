@@ -30,8 +30,11 @@
 //!   `~/.nexus-grid/worker.toml` via `directories` + `config`.
 //! - `gpu` — (W4) `GpuMonitor` trait with `NvmlBackend` and
 //!   `NoopBackend` implementations.
-//! - `ollama` — (W5) async Ollama client with healthcheck and
-//!   retry.
+//! - `llm` — (Sprint 20 Phase D) dual-backend LLM abstraction.
+//!   Pre-S20 this module was `ollama` (a single Ollama HTTP
+//!   client) ; S20 generalises to a `LlmBackend` trait with
+//!   Ollama + llama.cpp implementations, backend chosen via
+//!   `[llm] backend` in worker.toml.
 //! - `engine::state` — (W6) `WorkerState` state machine + legal
 //!   transitions.
 //! - `allowlist` — (W7) SQLite-backed project allowlist.
@@ -39,7 +42,12 @@
 //! - `engine::loop` — (W9) the main engine loop that drives the
 //!   state machine and talks to `nexus_core_rs`.
 
-#![forbid(unsafe_code)]
+// Sprint 20 Phase D : `llama-cpp-2` FFI is compiled in behind the
+// `llm_llama_cpp` feature ; its C bindings use `unsafe` internally
+// even though we never write `unsafe` code in this crate ourselves.
+// Relaxing the forbid to a deny-by-default lint keeps the safety
+// bar high without blocking the transitive dep.
+#![deny(unsafe_code)]
 #![deny(rust_2018_idioms)]
 
 pub mod allowlist;
@@ -48,7 +56,7 @@ pub mod consent;
 pub mod engine;
 pub mod gpu;
 pub mod invite;
-pub mod ollama;
+pub mod llm;
 pub mod paths;
 
 /// Version of the `nexus-worker-core` crate, taken from

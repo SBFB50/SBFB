@@ -302,6 +302,39 @@ zeroize = { version = "1.8", features = ["derive"] }
 # pinned version. 3.13 is the current stable line.
 tempfile = "3.13"
 
+# Sprint 20 Phase D: JSON Schema derive for Rust structs —
+# `TaskResponse` uses `#[derive(JsonSchema)]` so the wire schema
+# is generated from the Rust type (single source of truth) and
+# fed to both `ollama_rs::generation::parameters::JsonStructure`
+# and `llguidance::TopLevelGrammar::from_json_schema`. Pinned to
+# 0.8.21 to match ollama-rs 0.2.6 transitive constraint — the
+# 0.8 → 1.0 upgrade is an ecosystem-wide churn we avoid in a
+# security-hardening sprint.
+schemars = { version = "0.8.21", features = ["derive"] }
+
+# Sprint 20 Phase D: embedded llama.cpp runtime via the `utilityai`
+# Rust binding. Kept as an optional workspace dep so crates opt in
+# via feature flag — a vanilla `cargo build` stays cmake-free and
+# works on any dev box without CUDA toolkit or NASM. Production
+# images enable the feature plus the appropriate GPU backend
+# (`cuda`, `metal`, `vulkan`) on top of the `llama_cpp` feature
+# in `crates/nexus-worker-core/Cargo.toml`. 0.1.143 is the current
+# stable line on crates.io (April 2026) and exposes LlamaBackend,
+# LlamaModel, LlamaContext, LlamaBatch, LlamaSampler needed by the
+# custom llguidance-driven sampler in `llm/llama_cpp.rs`.
+llama-cpp-2 = "0.1.143"
+
+# Sprint 20 Phase D: Microsoft constrained-decoding engine. JSON
+# Schema / Lark / regex / GBNF support with ~50µs mask compute on
+# 128k tokenizers. Wired Rust-side (custom sampler) rather than via
+# the llama.cpp -DLLAMA_LLGUIDANCE=ON cmake flag, so operators do
+# not need a custom llama.cpp build — cargo pulls the crate, the
+# sampler bridges `Matcher::compute_mask()` to the `LlamaContext`
+# logits vector. 1.7 is the current stable line (April 2026);
+# context7 `/guidance-ai/llguidance` confirms the `ParserFactory` +
+# `TopLevelGrammar` + `Matcher` API shape used in `llm/llama_cpp.rs`.
+llguidance = "1.7"
+
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto
 # attestation (Sprint 18 Phase B). Two builds of the same commit

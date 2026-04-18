@@ -162,7 +162,10 @@ async fn handle_start(
         println!("nexus-worker v{}", env!("CARGO_PKG_VERSION"));
         println!("  worker:  {}", cfg.identity.name);
         println!("  pubkey:  {}", hex::encode(keypair.public_bytes()));
-        println!("  ollama:  {}", cfg.ollama.endpoint);
+        println!(
+            "  llm:     {:?} (ollama endpoint = {})",
+            cfg.llm.backend, cfg.llm.ollama.endpoint
+        );
         println!("  config:  {}", paths.config_file.display());
         println!();
     }
@@ -184,9 +187,12 @@ async fn handle_start(
     // iroh-docs replica + default author survive reboots, and a
     // --stub-ollama override (resolved from the CLI flag) so
     // hermetic e2e tests can run without an Ollama install.
-    let ollama_override: Option<Box<dyn nexus_worker_core::ollama::OllamaClient>> = if stub_ollama {
-        tracing::info!("--stub-ollama flag set; using StubOllama in place of the HTTP client");
-        Some(Box::new(nexus_worker_core::ollama::StubOllama::new()))
+    // Sprint 20 Phase D : `--stub-ollama` is now a dual-backend
+    // stub (it fronts the `LlmBackend` trait) but the CLI flag
+    // name is preserved to avoid breaking scripts.
+    let llm_override: Option<Box<dyn nexus_worker_core::llm::LlmBackend>> = if stub_ollama {
+        tracing::info!("--stub-ollama flag set; using StubBackend in place of the LLM backend");
+        Some(Box::new(nexus_worker_core::llm::StubBackend::new()))
     } else {
         None
     };
@@ -195,7 +201,7 @@ async fn handle_start(
         keypair,
         allowlist,
         data_dir: Some(paths.data_dir.clone()),
-        ollama_override,
+        llm_override,
         sbfb_home_override: None,
     };
     let mut engine = Engine::new(boot).await.context("engine boot failed")?;
@@ -419,7 +425,7 @@ async fn handle_stats(paths: &WorkerPaths) -> Result<()> {
                     ("name", cfg.identity.name.as_str()),
                     ("config", &paths.config_file.display().to_string()),
                     ("secret_key", key_status),
-                    ("ollama", cfg.ollama.endpoint.as_str()),
+                    ("ollama", cfg.llm.ollama.endpoint.as_str()),
                 ],
             );
         }

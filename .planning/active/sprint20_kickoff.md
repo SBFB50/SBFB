@@ -467,8 +467,11 @@ regression UX attendue.
 
 **Implications code** :
 
-- `Cargo.toml` workspace : `llguidance = "0.7"` optional dep dans
-  `nexus-worker-core`.
+- `Cargo.toml` workspace : `llguidance = "1.7"` optional dep dans
+  `nexus-worker-core` (bumpe depuis `0.7` annonce initialement au
+  kickoff — version courante verifiee context7 `/guidance-ai/
+  llguidance` 2026-04-18 Phase D session fraiche, levee in-phase
+  cf. audit P2-2 Phase D).
 - `llama-cpp-2` deja pinne workspace (ou a ajouter) avec feature
   `llguidance`.
 - `crates/nexus-worker-core/src/llm.rs` : wire `llguidance::

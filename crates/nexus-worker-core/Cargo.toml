@@ -13,6 +13,26 @@ readme.workspace = true
 name = "nexus_worker_core"
 path = "src/lib.rs"
 
+[features]
+# Default stays cmake-free : any developer can `cargo build` on a
+# fresh machine (no llama.cpp, no CUDA toolkit, no NASM). The
+# Ollama HTTP backend is always compiled ; operators opt into the
+# in-process llama.cpp runtime via --features llm_llama_cpp.
+#
+# Production deployments are expected to build with
+# `llm_llama_cpp` enabled and set `[llm] backend = "llama_cpp"`
+# in worker.toml — the default `[llm] backend = "ollama"` stays
+# compatible with the vanilla build.
+default = []
+llm_llama_cpp = ["dep:llama-cpp-2", "dep:llguidance"]
+# GPU acceleration features for the llama.cpp backend. Cascade
+# the base `llm_llama_cpp` so an operator who picks `--features
+# llm_llama_cpp_cuda` automatically pulls the required Rust-side
+# wiring without having to list both.
+llm_llama_cpp_cuda = ["llm_llama_cpp", "llama-cpp-2/cuda"]
+llm_llama_cpp_metal = ["llm_llama_cpp", "llama-cpp-2/metal"]
+llm_llama_cpp_vulkan = ["llm_llama_cpp", "llama-cpp-2/vulkan"]
+
 [dependencies]
 # The worker engine is built on top of the SBFB core wrapper for
 # iroh. Every state change in the engine eventually reads or writes
@@ -101,6 +121,24 @@ notify = { workspace = true }
 # per-worker daily usage reset. See workspace Cargo.toml for the
 # rationale on why we pick chrono over `time` for this one case.
 chrono = { workspace = true }
+
+# Sprint 20 Phase D: schemars derive on `TaskResponse` in
+# nexus-core-rs + Ollama format bridging. Re-declared here so the
+# worker crate's llm/schema_bridge.rs can import `JsonSchema` and
+# `JsonStructure` without reaching through `nexus-core-rs` re-exports.
+schemars = { workspace = true }
+
+# Sprint 20 Phase D: in-process llama.cpp runtime (feature-gated).
+# Optional workspace dep — only pulled when `llm_llama_cpp` is on,
+# keeping the vanilla `cargo build` cmake-free. CUDA / Metal /
+# Vulkan feature cascades defined above.
+llama-cpp-2 = { workspace = true, optional = true }
+
+# Sprint 20 Phase D: constrained decoding engine bridged Rust-side
+# into the llama.cpp sampler via llm/llama_cpp.rs. JSON Schema /
+# Lark / regex / GBNF in one crate, ~50 µs mask compute per token.
+# Optional-workspace just like `llama-cpp-2` above.
+llguidance = { workspace = true, optional = true }
 
 # Deliberately excluded: clap, ratatui, crossterm, dialoguer.
 # This crate is UI-free by design (see the 2026-04-10 Sprint 3

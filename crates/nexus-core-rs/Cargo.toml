@@ -108,6 +108,16 @@ secrecy = { workspace = true }
 keyring = { workspace = true }
 zeroize = { workspace = true }
 
+# Sprint 20 Phase D : schemas/task_response.rs derives JsonSchema
+# on the Rust `TaskResponse` struct so the wire schema is generated
+# from the type (single source of truth). The generated schema is
+# consumed by both worker backends : `ollama-rs 0.2.6` wires it
+# into `FormatType::StructuredJson(JsonStructure)` and the
+# `llama-cpp-2` backend feeds the same `serde_json::Value` to
+# `llguidance::TopLevelGrammar::from_json_schema`. See the
+# workspace comment for why we pin 0.8.21 (ollama-rs 0.2.6 peers).
+schemars = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
