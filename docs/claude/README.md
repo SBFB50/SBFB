@@ -844,6 +844,183 @@ la section. Pas obligatoire en lecture seule.
 
 ---
 
+### 6.9 Phase pre-flight factual evolution check (G8)
+
+Anti-pattern observé : Sprint 20 plan §8 Phase E demandait un *warrant
+canary auto-publish scheduler* alors que Sprint 18 E2 (`04c9621`)
+avait **explicitement rejeté** ce pattern pour raisons threat-model
+documentées dans le commit body. Le drift a été détecté *par hasard*
+au moment du grep duplicate-check, pas par procédure. Si le grep
+n'avait pas été fait, le code aurait reproduit exactement la
+vulnérabilité que S18 fermait.
+
+**Diagnostic** : entre le sprint kickoff (où G1 Design Review et G2
+triggers_revalidate filtrent les drifts) et le code-time (où G5
+working tree audit catch les fuites de scope), il y a un trou. Le
+plan §Phase X peut avoir été écrit 3-5 sprints avant son exécution,
+sur une compréhension partielle de l'historique. Personne ne re-grep
+systématiquement les décisions intermédiaires entre plan-time et
+code-time.
+
+**G8 = gate procédural pre-implementation phase.** Avant la PREMIERE
+LIGNE DE CODE de chaque phase de chaque sprint, l'agent exécute 4
+scans factuels indépendants. Verdict en 3 niveaux conditionne la
+suite. Procédure systématique, pas opinion.
+
+#### Quand
+
+Avant la 1ère ligne de code d'une phase (entre validation `gsd:plan-
+phase` ou lecture du plan §Phase X et le 1er `Edit`/`Write` outil).
+Pour CHAQUE phase de CHAQUE sprint, sans exception (sauf hotfix
+hors-sprint cas D).
+
+#### Les 4 scans factuels
+
+| Scan | Source | Output attendu |
+|---|---|---|
+| **S1 — SOTA 2026 vs design** | `mcp__context7__query-docs` sur libs/specs touchées par la phase + `WebSearch` CVE/audit/RFC bump publiés depuis `last_validated` du plan ou du kickoff | Liste de findings type *"lib X v Y.Z bump major depuis plan"*, *"RFC W révisé Aug 2026"*, *"CVE CVE-2026-XXXX critical sur dep transitive"* |
+| **S2 — Décisions historiques traversées** | `git log --all --grep="DEVIATION\|rejected\|scope-cut\|deliberate" -- <files-touchés-phase>` + grep `body` commits dans `.planning/archive/v*/` + memory `feedback_*.md` | Liste de *"S{N-k} `<sha>` a explicitement rejeté/dévié sur ce pattern pour raison Z"* |
+| **S3 — Threat model coverage** | `docs/security/THREAT_MODEL.md` adversary taxonomy + `HARDENING_ROADMAP.md §3` matrix + audit findings sprints précédents | Matrix *"primitive proposée → threats T0-T5 couverts vs non-couverts"* |
+| **S4 — Wire format / pre-launch invariants** | grep `*_VERSION` + `crates/nexus-core-rs/src/canonical.rs` + memory `nexus_grid_pivot.md §Pre-launch` | Liste invariants à préserver (wire format, decisions Day 0 figées, scope cuts hors-pivot) |
+
+Les 4 scans sont **non-substituables**. S1 sans S2 = on adopte la
+nouveauté SOTA mais on rebat une décision documentée. S2 sans S3 =
+on reste cohérent historiquement mais on laisse un gap threat model
+ouvert. S3 sans S4 = on durcit le threat model mais on casse le wire
+format pre-launch. S4 sans S1 = on préserve les invariants sur une
+lib obsolète.
+
+#### Décision tree (verdict en 3 niveaux)
+
+```
+Si S1+S2+S3+S4 = clean (aucune contradiction factuelle) :
+  → EXECUTE plan-as-is
+  → log 1 ligne archive : ".planning/active/sprint{N}_phase_{X}_preflight.md"
+    avec timestamp + sources scannées + verdict CLEAN
+  → procéder code phase normalement
+
+Si scan ≠ clean mais finding = SCOPE-CUT-CONSISTENT (le plan ne
+contredit pas, juste sub-optimal selon SOTA OU décision historique) :
+  → EXECUTE plan + log carry-over Sprint+1
+  → emit ".planning/active/sprint{N}_phase_{X}_preflight.md" avec finding
+    documenté + recommandation S+1
+  → aucun pivot phase courante, aucune réécriture du plan
+  → la finding entre dans sprint{N}_audit_plan.md track normal
+
+Si scan ≠ clean et finding = DESIGN-CONFLICT (plan contradit décision
+documentée S2 OU plan break wire format S4 OU CVE bloquant S1) :
+  → STOP code écriture
+  → emit ".planning/active/sprint{N}_phase_{X}_pivot_proposal.md"
+    avec sections obligatoires :
+      - Evidence factuelle (commit refs, CVE numbers, RFC sections,
+        context7 query timestamps, audit report DOI)
+      - 3 options minimum : [A=scope-cut conforme historique,
+                             B=adapt minimal,
+                             C=deep-evolution]
+      - Coût/bénéfice chiffré par option (test delta estimé,
+        fichiers touchés, gap SOTA fermé, scope creep)
+      - Préservation invariants explicite (wire format unchanged ?
+        threat model respecté ? Day 0 préservées ?)
+      - Recommandation default + raisons techniques
+  → user arbitre l'option choisie
+  → si pivot accepté → commit chore(planning) inline qui update
+    plan §Phase X AVANT le commit feat — pas de divergence silencieuse
+    plan vs code
+```
+
+#### Garde-fous (G8 ≠ blanc-seing pour scope creep)
+
+Le pivot deep-evolution doit être maîtrisé sinon il devient un vecteur
+de divergence chronique. 7 garde-fous obligatoires :
+
+1. **Pivot evidence-based, pas opinion** : `pivot_proposal.md` REQUIRE
+   au moins 1 source factuelle externe vérifiable (commit ref dans
+   l'historique, CVE ID NVD-trackable, RFC section, context7 query
+   timestamp + lib name, audit report DOI/URL). Opinion seule
+   ("je pense que X est mieux") = invalid → reject.
+
+2. **Pivot ne rebat pas Day 0 figées sans escalation** : si le pivot
+   touche D1..D5 du sprint courant ou décisions actées dans memory
+   `nexus_grid_pivot.md §Decisions actees` ou `nexus_grid_pivot.md
+   §Pre-launch protocol policy` → escalation user obligatoire,
+   jamais pivot auto. Le pivot peut PROPOSER une remise en question
+   Day 0 mais ne peut JAMAIS la trancher.
+
+3. **Pivot ne casse pas pre-launch wire format** : si pivot bumperait
+   `*_VERSION` avant tag v1.0 → invalid sauf motivé par CVE bloquant
+   sur la primitive crypto sous-jacente. Sinon redéfinir le canonical
+   v1 (pattern actuel `nexus_grid_pivot.md §Pre-launch protocol`).
+
+4. **Pivot test budget cap** : si test delta pivot > 2.5x plan
+   original → split en 2 phases (E + E.bis dans même sprint), ou
+   carry next sprint. Sinon le sprint déraille (ratio 8 tests
+   prévus → 25 tests réels = signal scope creep masqué).
+
+5. **Pivot reste DANS le thème sprint** : sprint S20 = "security
+   hardening" → pivot dans cette zone OK (federated multi-canary,
+   FROST primitive, etc.). Pivot vers "UI redesign" ou "perf
+   optimization" = NON. Reste fidèle au sprint kickoff §1 thème.
+
+6. **Pivot doit clore une gap claire, pas créer complexité YAGNI** :
+   si "primitive scaffolding pour S+5" sans aucun consumer dans
+   S{N}-S{N+4} → reject (You Aren't Gonna Need It). Si scaffolding
+   pour consumer réel sprint dédié dans roadmap explicite (ex :
+   FROST K-of-N en E.2 prepare consumer = community future réelle
+   listée HARDENING_ROADMAP §3 ligne S25-30) → OK.
+
+7. **Pivot audité retrospectivement** : `nexus-phase-auditor` reçoit
+   dimension supplémentaire "Pivot retrospective" si phase a déclenché
+   G8 → était-il evidence-grounded ? a-t-il honoré les invariants ?
+   le SOTA delta annoncé a-t-il été livré ? si pattern de pivot
+   répétitif sur 2+ phases consécutives → signal méta-issue plan-phase
+   quality (le plan d'origine était-il vraiment basé sur SOTA fresh ?)
+
+#### Articulation avec G1-G7 existants
+
+G8 n'est pas un substitut de G1/G2 — il les complète à un moment
+différent du cycle. Vue d'ensemble :
+
+| Gate | Quand | Quoi | Output |
+|---|---|---|---|
+| G1 (§6.1.1) | Sprint kickoff, après draft D1..D5 | Design Review Board reviewer indépendant scoring report | `sprint{N}_design_review.md` ⚠️/✅/❌ par décision |
+| G2 (§6.8) | Sprint kickoff + tout commit qui touche artefact triggered | Re-validation triggers_revalidate sur docs long-life | `last_validated` updated + re-research si trigger actif |
+| G3 (§2.1) | Sprint kickoff goal §2 | Goal SMART pointe verification.md fail-fast | `sprint{N}_kickoff.md §2` cohérent avec verification |
+| G4 (§3 + auditor) | Phase Z review pre-commit + audit gate Phase 0 | Rigor signal : 0 P0/P1 + ≥1 P2+ documenté pour PASS | Verdict PASS/CONCERN/FAIL |
+| G5 (§4.2 + skill Step 1bis) | Pre-commit phase | Working tree audit PHASE/CRAFT/DEBT/NOISE | Section "Working tree audit" dans body commit |
+| G6 (§5.1.1) | Phase F verification | Memory carry-over manuel | `nexus_grid_pivot.md` updated atomic |
+| G7 (§6.2.1) | Carry-over reclassification entre sprints | Cap 2 carry-overs/sprint | `sprint{N}_carry_summary.md` |
+| **G8 (§6.9)** | **Pre-implementation phase** | **4 scans factuels SOTA + history + threat + wire** | **`phase_{X}_preflight.md` ou `phase_{X}_pivot_proposal.md`** |
+
+G8 spécifiquement comble le trou entre G2 (kickoff-time) et G5
+(commit-time). G1 protège contre les drifts au design ; G8 protège
+contre les drifts au plan-vers-code translation.
+
+#### Anti-patterns (pivot mal exécuté)
+
+- **Pivot opportuniste** : "tant qu'on touche ce fichier on en
+  profite pour refactor X". Reject — G8 declenche sur DESIGN-CONFLICT
+  factuel, pas sur opportunité d'éditeur.
+- **Pivot pour pivoter** : pas de finding S1-S4 mais quelqu'un trouve
+  l'archi "pas assez deep". Reject — G8 require evidence factuelle.
+- **Pivot silencieux** : on adapte le code sans `pivot_proposal.md`
+  ni update plan. Reject — divergence silencieuse plan/code casse
+  l'audit gate.
+- **Pivot qui dilue verification.md** : pivot ajoute 5 features mais
+  ne met pas à jour la fail-fast checklist. Reject — checklist
+  sprint-end doit refléter ce qui a été livré.
+- **Pivot répétitif** : 3 pivots consécutifs sur 3 phases = le plan
+  n'était pas basé sur SOTA fresh. Reject suite — signal méta vers
+  re-faire `gsd:plan-phase` complet, pas accumuler des pivots.
+
+#### Mise en œuvre
+
+Implémentation procédurale via skill `.claude/skills/nexus-phase-
+preflight/SKILL.md` (cf. §7.1 bootstrap Cas B). Le skill scripte
+les 4 scans + emit le bon document selon verdict. Aucun pivot
+manuel sans passer par cette gate.
+
+---
+
 ## 7. Prompt générique de bootstrap session fraîche (v2)
 
 Ce prompt est conçu pour être collé tel quel au démarrage d'une
@@ -868,8 +1045,9 @@ n'as pas lu §6 conventions.
 EXÉCUTER directement (ne pas demander) :
   - working tree audit montre CRAFT/DEBT → commit chore(planning|
     skill|debt) AVANT phase
-  - plan §Phase X explicite + audit-gate précédent PASS → enchaîner
-    Phase X
+  - plan §Phase X explicite + audit-gate précédent PASS + G8
+    verdict EXECUTE plan-as-is OU SCOPE-CUT-CONSISTENT → enchaîner
+    Phase X (carry doc en parallèle si SCOPE-CUT-CONSISTENT)
   - NOISE + pattern couvrable .gitignore → ajouter pattern dans le
     commit chore (pas un commit séparé)
   - cas A audit gate, P0/P1 trouvés → écrire fix(sprint{N-1}): ...
@@ -883,10 +1061,15 @@ DEMANDER (STOP) seulement si :
   - Audit-gate verdict FAIL ou >=3 P1 → re-conception requise
   - Désaccord entre plan §Phase X et état réel du code (drift) →
     valider l'ordre de remédiation
+  - G8 verdict DESIGN-CONFLICT → STOP, présenter
+    sprint{N}_phase_{X}_pivot_proposal.md, attendre arbitrage
+    utilisateur sur option A/B/C avant écriture code
 
 Anti-pattern explicite à éviter : "tu confirmes que je commit
 chore(planning) d'abord ou je lance Phase E ?" — la procédure répond,
-pas l'utilisateur.
+pas l'utilisateur. Symétrique pour G8 : "tu confirmes que je lance
+les 4 scans factuels ?" — non, c'est procédure obligatoire pre-phase
+sans confirmation.
 
 # === Pre-flight (un seul copy-paste, lis tout l'output) ===
 
@@ -928,6 +1111,15 @@ Compare ce que tu vois avec :
                      suivante non encore committée selon git log).
     Mode : implémentation atomique.
     Livrable : 1 commit feat(scope): Sprint N Phase X — titre.
+    Avant la PREMIERE LIGNE DE CODE phase (G8) : invoquer skill
+               nexus-phase-preflight pour 4 scans factuels (S1 SOTA
+               delta + S2 historical decisions traversed + S3 threat
+               model coverage + S4 wire format invariants). Verdict :
+               EXECUTE plan-as-is (procéder), SCOPE-CUT-CONSISTENT
+               (procéder + carry S+1 doc), ou DESIGN-CONFLICT (STOP,
+               emit pivot_proposal, attendre arbitrage user). Output
+               obligatoire : sprint{N}_phase_{X}_preflight.md OU
+               sprint{N}_phase_{X}_pivot_proposal.md.
     Avant CHAQUE commit phase (G5) : invoquer skill
                nexus-phase-review Step 1bis "working tree audit"
                -> categoriser PHASE/CRAFT/DEBT/NOISE chaque modif,
@@ -980,6 +1172,12 @@ Compare ce que tu vois avec :
     Mode : commit fix(...) ciblé, ne touche pas .planning/.
     G5 reste actif : working tree audit obligatoire avant commit
                 meme en hotfix.
+    G8 NON applicable : pas de plan §Phase X à challenger en
+                hotfix. Mais si le hotfix touche un threat model
+                ou wire format pre-launch (rare), faire un mini-S4
+                manuel : grep *_VERSION + canonical.rs + memory
+                pre-launch protocol. Si conflit -> escalation user
+                avant fix.
 
 # === Lecture ciblée par cas ===
 
@@ -1004,9 +1202,11 @@ toute la doc. Charger tout sature le contexte pour rien.
     - .planning/active/sprint{N}_kickoff.md (D1..D5)
     - .planning/active/sprint{N}_plan.md §Phase X visée
     - docs/claude/README.md §4 (atomic commit, body riche) +
-      §6.2.1 (cap carry-overs G7)
+      §6.2.1 (cap carry-overs G7) + §6.9 (G8 phase pre-flight)
+    - .claude/skills/nexus-phase-preflight/SKILL.md (G8 4 scans
+      + decision tree + garde-fous, runs AVANT code)
     - .claude/skills/nexus-phase-review/SKILL.md (Step 1bis G5
-      + Step 6 rigor signal G4)
+      + Step 6 rigor signal G4, runs AVANT commit)
 
   Cas C en plus :
     - docs/claude/SPRINT_LOG.md (versions livrées + thèmes)
@@ -1050,19 +1250,24 @@ Avant d'écrire du code :
      déterminé. Procédures qui s'exécutent sans demander :
      - Cas B + working tree audit montre CRAFT/DEBT → commit
        `chore(planning|skill|debt)` AVANT phase, **automatique**
-     - Cas B + plan §Phase X explicite + audit-gate précédent
-       PASS → enchaîner Phase X, **automatique**
+     - Cas B + G8 verdict EXECUTE plan-as-is OU SCOPE-CUT-CONSISTENT
+       + audit-gate précédent PASS → enchaîner Phase X, **automatique**
      - Cas B + NOISE détecté + pattern déjà couvrable .gitignore
        → ajouter pattern dans le commit chore, **automatique**
+     - Cas B + G8 4 scans factuels (S1-S4) → **automatique** pre-phase,
+       pas de question "je lance G8 ?"
      - NOISE + pattern nouveau non-trivial → STOP et demander
      - Décision Day-0 ambiguë (D1..D5 multiple options viables) → STOP
      - Findings P0/P1 audit-gate → STOP et discuter
+     - G8 verdict DESIGN-CONFLICT → STOP, présenter pivot_proposal,
+       attendre arbitrage utilisateur sur option A/B/C
      **Anti-pattern** : "tu confirmes que je commit chore(planning)
      d'abord ou je lance Phase E ?" → la procédure répond, pas
      l'utilisateur. Demander = friction inutile + signal que l'agent
      n'a pas lu §6 conventions.
   3. Respecte les D1..D5 figées et les scope cuts du sprint
-     courant — ne rebats pas
+     courant — ne rebats pas (G8 peut PROPOSER une remise en
+     question Day 0 mais ne tranche jamais)
   4. Pas de band-aid fix, pas d'emoji, pas d'amend, pas de
      force push
   5. Avant chaque commit : verifier toutes les suites pertinentes
