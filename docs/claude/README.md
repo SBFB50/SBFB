@@ -1087,6 +1087,10 @@ grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md docs/she
 # G6 — fraîcheur memory vs tip master (ouvrir question si > 2 sprints sans touch)
 ls -la "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/" 2>/dev/null | head -20
 
+# G8 hint — historical decisions qui pourraient flager DESIGN-CONFLICT
+# (lecture rapide, signal uniquement, le scan S2 complet vit dans skill preflight)
+git log --all --grep="DEVIATION\|rejected\|threat-model\|scope-cut" --oneline | head -10
+
 # === Détection du cas ===
 
 Compare ce que tu vois avec :
@@ -1109,7 +1113,10 @@ Compare ce que tu vois avec :
              sprint{N}_plan.md mais pas verification.md.
     Lecture ciblée : sprint{N}_plan.md §Phase X (où X = phase
                      suivante non encore committée selon git log).
-    Mode : implémentation atomique.
+    Mode : implémentation atomique — APRES verdict G8 positif
+           (EXECUTE plan-as-is OU SCOPE-CUT-CONSISTENT). Si
+           verdict G8 = DESIGN-CONFLICT, mode bascule "emit
+           pivot_proposal + STOP" (cf. ci-dessous).
     Livrable : 1 commit feat(scope): Sprint N Phase X — titre.
     Avant la PREMIERE LIGNE DE CODE phase (G8) : invoquer skill
                nexus-phase-preflight pour 4 scans factuels (S1 SOTA
@@ -1172,12 +1179,16 @@ Compare ce que tu vois avec :
     Mode : commit fix(...) ciblé, ne touche pas .planning/.
     G5 reste actif : working tree audit obligatoire avant commit
                 meme en hotfix.
-    G8 NON applicable : pas de plan §Phase X à challenger en
-                hotfix. Mais si le hotfix touche un threat model
-                ou wire format pre-launch (rare), faire un mini-S4
-                manuel : grep *_VERSION + canonical.rs + memory
-                pre-launch protocol. Si conflit -> escalation user
-                avant fix.
+    G8 NON applicable (pas de plan §Phase X à challenger). Mais
+                si le hotfix touche threat model ou wire format
+                pre-launch (rare), faire un mini-S4 manuel
+                reprenant les 4 commandes du skill
+                nexus-phase-preflight SKILL.md Step 5 :
+                  grep -rE "_VERSION\s*[:=]\s*[0-9]+" crates/nexus-core-rs/src/
+                  grep -A 10 "Pre-launch protocol" memory/nexus_grid_pivot.md
+                  grep -A 10 "Pre-launch protocol policy" CLAUDE.md
+                  git log --grep="DEVIATION\|rejected" -- <fichiers hotfix>
+                Si conflit -> escalation user avant fix.
 
 # === Lecture ciblée par cas ===
 
@@ -1187,7 +1198,8 @@ toute la doc. Charger tout sature le contexte pour rien.
   Pour TOUS les cas (lecture commune minimale) :
     1. CLAUDE.md (racine) — projet + pointeur workflow
     2. docs/claude/README.md §3 (audit gate) + §4 (commit
-       discipline) + §6 (conventions, dont 6.1.1 + 6.2.1 + 6.8)
+       discipline) + §6 (conventions, dont 6.1.1 + 6.2.1 + 6.8
+       + 6.9)
     3. memory MEMORY.md (l'index)
 
   Cas A en plus :
