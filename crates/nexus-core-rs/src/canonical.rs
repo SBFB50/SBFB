@@ -125,6 +125,18 @@ pub const DOMAIN_WARRANT_CANARY_V1: &[u8] = b"nexus-warrant-canary-v1";
 /// spaces are disjoint by construction.
 pub const DOMAIN_POW_V1: &[u8] = b"nexus-pow-v1";
 
+/// Domain separation tag for duress ack heartbeat payloads.
+///
+/// Sprint 20 Phase E.4: the maintainer signs a daily-or-better
+/// short heartbeat ("I, the maintainer, voluntarily produced
+/// this ack on this date") and broadcasts it over the
+/// `nexus-grid/canary-duress-ack/v1` gossip topic. The tag
+/// keeps a duress ack signature from being replayed as a
+/// monthly warrant canary signature (the two streams use the
+/// same Ed25519 maintainer key but different gossip topics +
+/// different domain tags so cross-stream replay is impossible).
+pub const DOMAIN_DURESS_ACK_V1: &[u8] = b"nexus-duress-ack-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///

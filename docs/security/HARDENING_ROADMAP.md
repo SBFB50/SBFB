@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-16  # G2 — re-audit S19 Phase A
+last_validated: 2026-04-18  # G2 — re-audit S20 Phase E (federation foundations + WSS) + S30 line addition
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -9,9 +9,12 @@ triggers_revalidate:
   - "NIST PQC FIPS 203/204 ecosystem default (impacte S26+)"
   - "NVIDIA H100 CCM driver release (impacte S30)"
   - "Sprint S+2 commence vs sprint cible (S19+2=S21 → re-scan §3 S21)"
+  - "frost-ed25519 release > 2.1 (CanarySigner FROST primitive S20 Phase E.2)"
+  - "RFC 9591 erratum publication (FROST threshold spec, drives S20 E.2 + S30 Niveau 1 enforcement)"
 audited_findings:
   - "2026-04-16 S19 deep analysis : D2 Hashcash daté vs Equi-X 2023, S20 keyring crate, S21 grammar ≠ prompt injection defense, S25 Arti 2.0 Feb 2026 disponible, S26+ PQC trop tardif (HNDL liability)"
   - "2026-04-16 S20 open : double-layer encryption at rest (Argon2id 64MiB + AES-256-GCM + OS keyring wrap KEK) requis — DPAPI user-scope gap confirmé Sygnia 2024 + SpecterOps 2026 (same-user process malicious = full bypass). Duress PIN pattern = fake keypair noop responses (pas wipe immédiat GrapheneOS-style), panic wipe = 5-tap gesture séparé. Structured output via llguidance (Rust Microsoft 50µs/token, llama.cpp -DLLAMA_LLGUIDANCE=ON) retenu over XGrammar (pas llama.cpp), Outlines (Python IPC), GBNF native (slower). PoW wire scope S20 Phase C (reclassé carry S19 A-2). TLS wire iroh T20 tech debt long-terme (iroh 0.97 ClientBuilder hook cfg-test only). DHT canary enforcement strict reporté post-Gate-2."
+  - "2026-04-18 S20 Phase E pivot Option C deep-evolution (G8 codification, cf. .planning/active/sprint20_phase_E_pivot_proposal.md + sprint20_phase_E_preflight.md) : warrant canary auto-publish scheduler (plan §8.1 item 1 original) supprimé sur scan S2 — décision threat-model S18 E2 04c9621 toujours valide (cle Ed25519 accessible auto = compromission GHA = compromission cle = dead-man-switch cassé sous gag order). Federation foundations livrées : CanarySigner trait abstraction + FrostCanarySigner K-of-N (RFC 9591 jan 2025, ZF crate 2.1, ToB 2023 audit), DuressAck channel (gossip topic distinct, daily granularité), AttestationProvider trait + NoopAttestation (decouple signing != attestation), Federated CanaryRegistry coord-side (POST /api/canary/observed + GET /api/canary/network-health). E.6 ajusté inline post-G8 S1 finding : iroh 0.91 a supprimé l'option TCP raw → relays = WSS TCP 443 unique mode automatic, transport_probe.rs dégradé en diagnostic-only (probe 3x UDP QUIC + log warn + metric degraded_mode). Wire format CanarySigned v1 + DOMAIN_WARRANT_CANARY_V1 préservés (FROST sig = Ed25519 RFC 8032 byte-identical). Niveau 1 enforcement (cross-juridiction recruitment + TEE H100) added to §3 S30 line."
 -->
 
 # Hardening Roadmap — Sprint 18-30
@@ -380,14 +383,24 @@ median app) :
     ~1200 LOC
   - Split inference research prototype (hors v1, document
     findings) — ~300 LOC (docs)
-- **LOC total** : ~1500
-- **Tests delta** : +25
-- **Dependencies** : S28 MIG, S29 audit
+  - **Warrant canary Niveau 1 enforcement** (consumer of S20
+    Phase E.2 + E.5 federation foundations) — recruit 3+
+    cross-juridiction maintainers, distribute K=2/N=3 FROST
+    shares per `WARRANT_CANARY_HARDENING.md §FROST DKG procedure`,
+    wire `AttestationProvider` impl to TEE H100 quote backend ;
+    flips warrant canary from Niveau 0 (single-key, this-machine
+    trust root) to Niveau 1 (threshold-distributed,
+    TEE-attested) — ~600 LOC + ops runbook
+- **LOC total** : ~2100
+- **Tests delta** : +35
+- **Dependencies** : S28 MIG, S29 audit, S20 Phase E.2/E.5
+  primitives (CanarySigner trait, FrostCanarySigner, Attestation
+  Provider trait, NoopAttestation impl)
 - **Gate unlock** : Gate 4 eligibility partielle (prerequisites
   complets ; release reel requiert S31+ partnership + beta ferme
   18 mois)
 
-**Total S18-30** : ~22100 LOC, ~650 tests delta, 13 sprints.
+**Total S18-30** : ~22700 LOC, ~660 tests delta, 13 sprints.
 
 ---
 

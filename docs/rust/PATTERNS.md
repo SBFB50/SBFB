@@ -1627,6 +1627,197 @@ See `docs/shell/PATTERNS.md §P30` for the full operator runbook.
 
 ---
 
+## §P31 — Sprint 20 Phase E : warrant canary federation foundations
+
+The S20 Phase E pivot (G8 codification 2026-04-18, cf.
+`.planning/active/sprint20_phase_E_pivot_proposal.md` + commit
+`bd16e64` plan update) replaces the original §8.1 item 1
+"auto-publish scheduler" — rejected on the G8 S2 finding that
+S18 E2 commit `04c9621` already documents : a key Ed25519
+accessible to any scheduler / cron / GHA workflow ≡ key
+compromise under gag order ≡ dead-man-switch broken by design.
+
+The pivot ships **federation primitives** (Niveau 1 scaffolding)
+without any new way to produce signatures automatically. Every
+canary signature still requires a human typing `sbfb canary
+publish` (Niveau 0) or `K` humans cooperating in a synchronous
+FROST round-1/round-2/aggregate session (Niveau 1+).
+
+### Core abstraction : `CanarySigner`
+
+```rust
+pub trait CanarySigner: Send + Sync {
+    fn pubkey(&self) -> [u8; PUBLIC_KEY_LENGTH];
+    fn sign(&self, message: &[u8]) -> [u8; SIGNATURE_BYTES];
+}
+```
+
+Two implementations ship in S20 :
+
+- **`Ed25519CanarySigner`** (E.1) — wraps `nexus_core_rs::KeyPair`,
+  produces a standalone Ed25519 RFC 8032 signature. The default
+  for solo maintainers and for any Niveau 0 deploy. Byte-identical
+  to the S18 E2 baseline behaviour (the trait migration is a pure
+  refactor — same wire output, swappable callsite).
+- **`FrostCanarySigner`** (E.2) — wraps a `K-of-N` FROST trusted-dealer
+  setup via the `frost-ed25519` v2.x crate (RFC 9591 jan 2025, ZF
+  reference impl, Trail of Bits 2023 audit). The aggregated
+  signature is **byte-identical** to a standalone Ed25519 signature
+  by RFC 8032 spec (FROST is a Schnorr-flavoured threshold scheme
+  whose output verifies against the standard Ed25519 verifier
+  unchanged). This is the wire-format invariant the entire pivot
+  hinges on : `CanarySigned v1` does not bump, the `verify_canary`
+  path does not change, only the *production* of the signature
+  becomes K-party.
+
+### Why a trait
+
+Decoupling at the trait surface lets the build+sign+verify
+pipeline (`build_canary` / `verify_canary` / `format_canary_txt` /
+`parse_canary_txt`) stay algorithm-agnostic. Future Niveau 1+
+backends (PQC ML-DSA, hardware-keystore-backed, TEE-attested
+sign-inside-enclave) plug in by implementing the trait without
+touching any wire code.
+
+The trait is deliberately minimal :
+- No `Result` return on `sign` — implementations construct from
+  validated inputs (e.g. `FrostCanarySigner::trusted_dealer` is the
+  fallible constructor ; the resulting signer cannot fail to sign
+  with self-dealt shares). Keeps callers simple.
+- No async — canary signing is a once-per-month operation, the
+  perf budget is "done in seconds, not microseconds", and
+  threshold ceremonies are synchronous interactive flows
+  orchestrated outside the daemon process.
+
+### Default K=2/N=2 minimum, not K=1/N=1
+
+A common mistake is to assume `K=1/N=1` "FROST" exists as a way
+to express the baseline single-key case via the trait. RFC 9591
+§6.1 explicitly requires `K >= 2` (a "K=1 threshold" is
+degenerate ; `frost-ed25519` v2.x rejects it at construct time).
+The minimum legitimate FROST configuration is therefore **K=2/N=2**
+(both shares cooperate, no redundancy). For the K=1-equivalent,
+use `Ed25519CanarySigner` directly — the trait abstraction makes
+that swap a single line at the callsite.
+
+### Duress ack channel (E.4)
+
+`crates/nexus-shell-daemon-core/src/canary/duress_ack.rs` adds a
+**second** signed heartbeat stream on a **distinct gossip topic**
+(`nexus-grid/canary-duress-ack/v1`) and **distinct domain tag**
+(`DOMAIN_DURESS_ACK_V1 = b"nexus-duress-ack-v1"`). The same
+maintainer pubkey signs both streams ; the registry tracks them
+on independent freshness ladders.
+
+Why a separate topic + domain : a duress ack signature MUST NOT
+be replayable as a canary signature, and a relay / verifier
+choosing to subscribe to one stream MUST NOT be forced to ingest
+the other (the ack stream is daily-cadence, the canary stream is
+monthly — different bandwidth profiles).
+
+### `AttestationProvider` orthogonal axis (E.5)
+
+`canary/attestation.rs` introduces a second trait — `Attestation
+Provider` with a `NoopAttestation` baseline — that is
+**deliberately disjoint** from `CanarySigner`. The two axes
+(signing trust + process trust) compose freely : a maintainer
+can use Ed25519+TDX, FROST+Noop, FROST+SNP, etc. The composition
+matrix is documented in `docs/security/WARRANT_CANARY_HARDENING.md
+§5`.
+
+### Federated registry (E.3, Python-side)
+
+`packages/nexus-coordinator/src/nexus_coordinator/canary_registry.py`
+aggregates observed canaries + duress acks per maintainer pubkey
+and persists to `<root>/canary-registry.json`. The
+`GET /api/canary/network-health` endpoint surfaces a fleet
+freshness snapshot the React shell can render directly. The
+registry is **observational only** — it never re-signs, never
+makes a trust decision. The wire JSON it persists is the same
+shape the daemon-side `Canary` struct serializes to.
+
+### Tests guarantee
+
+The crucial wire-format invariant is verified end-to-end :
+`canary::frost::tests::frost_sig_verifiable_by_standard_ed25519_verifier`
+asserts that a `FrostCanarySigner::sign` output verifies against
+`nexus_core_rs::crypto::verify` (a plain
+`ed25519_dalek::VerifyingKey::verify` under the hood) — i.e. the
+verify path does not need to know whether the signature came from
+a single key or a K-party threshold. Combined with the
+`frost_dkg_k2_n3_produces_valid_ed25519_sig` end-to-end test that
+runs `build_canary(date, headline, &frost_signer)` followed by
+`verify_canary(&canary)`, we have a hard guarantee the
+`CanarySigned v1` wire format survives the trait migration
+byte-for-byte.
+
+See `docs/security/WARRANT_CANARY_HARDENING.md` for the full
+4-layer strategy (L0 single-key → L1 federation primitives → L1
+enforcement S25-30 → L2 cross-project federation post-v1.0) and
+the FROST DKG ceremony procedure for cross-juridiction
+recruitment.
+
+---
+
+## §P32 — Sprint 20 Phase E.6 (post-G8) : transport probe = observability-only
+
+The S20 plan §8.1 E.6 originally called for a manual switch to
+`RelayMode::Custom` with a `relay_wss_only = true` flag if the
+boot-time UDP QUIC probe failed 3 times. The G8 phase pre-flight
+S1 scan ([`sprint20_phase_E_preflight.md`]) discovered :
+
+- iroh **0.91** removed the raw-TCP option from the relay client
+  (cf. blog post `iroh-0-91-0-the-last-relay-break`). The relay
+  speaks **WebSockets only** since 0.91, and 0.97 inherits.
+- WebSockets ⇒ TCP 443 by default. There is no `relay_wss_only`
+  flag because there is no other mode to opt out of.
+- `RelayMode::Custom(RelayMap)` exists, but only to point the
+  endpoint at a different relay set ; the transport (WSS) is
+  fixed.
+- The fall-back from a failed UDP QUIC hole-punch to a relay-WSS
+  path is **automatic inside iroh** and requires no client-side
+  configuration to activate.
+
+The pattern lesson : **when the runtime already does the right
+thing, the integration code is a metric, not a control loop.**
+`crates/nexus-shell-daemon-core/src/transport_probe.rs` is
+deliberately observability-only :
+
+```rust
+pub async fn probe_with_retries(
+    prober: &dyn TransportProber,
+    cfg: ProbeConfig,
+) -> TransportProbeOutcome {
+    for attempt in 1..=cfg.max_attempts {
+        if prober.probe_once(cfg.attempt_timeout).await {
+            return TransportProbeOutcome::Direct;
+        }
+    }
+    warn!(
+        target: "nexus_shell_daemon_core::transport_probe",
+        transport_degraded_mode = true,
+        ...
+    );
+    TransportProbeOutcome::Degraded
+}
+```
+
+It never touches `iroh::Endpoint`, never calls `endpoint
+.set_relay_mode()`, never constructs a `RelayMap`. It just
+attempts a dial up to `max_attempts` times and emits a structured
+`tracing::warn!` with a `transport_degraded_mode = true` field
+on failure — the field is what ops dashboards / log shippers
+filter on to surface "this daemon is on the relay-WSS fallback
+path" without needing to count attempts themselves.
+
+Future Sprint S+1 follow-up (if/when needed) would wire the
+`IrohQuicProber` impl that runs `endpoint.connect(addr,
+ALPN).await.is_ok()` against a configured peer ; for S20 only the
+trait + retry loop + scripted-mock test surface is shipped, which
+is enough to validate the metric format end-to-end.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

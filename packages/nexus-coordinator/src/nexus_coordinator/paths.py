@@ -179,3 +179,18 @@ def shell_daemon_registry_path() -> Path:
     for the exact shape.
     """
     return nexus_grid_root() / "shell-daemon" / "running.json"
+
+
+def canary_registry_path() -> Path:
+    """Path to the federated warrant canary registry persistence file.
+
+    Sprint 20 Phase E.3: the Python coordinator maintains an
+    aggregator of every signed warrant canary it has observed
+    (locally signed via the CLI, or imported from a federated
+    peer). The registry persists to ``<root>/canary-registry.json``
+    so freshness state survives coordinator restarts. The file is
+    process-global (single user can run multiple coordinator
+    project instances; the registry is shared because all of
+    them observe the same gossip topic).
+    """
+    return nexus_grid_root() / "canary-registry.json"

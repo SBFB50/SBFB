@@ -335,6 +335,27 @@ llama-cpp-2 = "0.1.143"
 # `TopLevelGrammar` + `Matcher` API shape used in `llm/llama_cpp.rs`.
 llguidance = "1.7"
 
+# Sprint 20 Phase E.2: FROST (Flexible Round-Optimised Schnorr
+# Threshold) signatures over Ed25519, ZcashFoundation reference
+# implementation. RFC 9591 (jan 2025), audited by Trail of Bits in
+# 2023. The crate's `aggregate()` output is a 64-byte Ed25519
+# signature byte-identical to a standalone RFC 8032 signature, so
+# warrant canary verifiers can keep using the existing
+# `nexus_core_rs::crypto::verify` path unchanged whether the canary
+# was signed by a single `Ed25519CanarySigner` (default) or a
+# threshold `FrostCanarySigner` (opt-in K-of-N cross-juridiction
+# maintainer federation, scaffolded here, real distribution
+# enforcement scheduled Sprint 25-30 per docs/security/HARDENING_
+# ROADMAP.md §3 "Warrant canary Niveau 1 enforcement"). 2.1.0 is
+# the current stable line on crates.io (verified WebSearch +
+# docs.rs 2026-04-18); RustSec advisory check 2026-04-18 returned
+# zero active advisories on `frost-ed25519` (RUSTSEC-2026-0075 on
+# `libcrux-ed25519` is non-applicable — different impl, different
+# CSPRNG path). The FROST primitive lives entirely in
+# `crates/nexus-shell-daemon-core/src/canary/frost.rs` so the
+# workspace surface stays minimal until Niveau 1 lands.
+frost-ed25519 = "2.1"
+
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto
 # attestation (Sprint 18 Phase B). Two builds of the same commit

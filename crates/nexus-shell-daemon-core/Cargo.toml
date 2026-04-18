@@ -115,6 +115,16 @@ async-trait = { workspace = true }
 # le parent dir pour recuperer write+rename atomiques.
 notify = { workspace = true }
 
+# Sprint 20 Phase E.2: FROST threshold signatures over Ed25519
+# (RFC 9591 jan 2025, ZcashFoundation reference impl, ToB audit
+# 2023). Backs the opt-in `FrostCanarySigner` in
+# `src/canary/frost.rs` — `aggregate()` returns a 64-byte Ed25519
+# signature byte-identical to a standalone RFC 8032 sig so
+# verifiers keep using the existing `nexus_core_rs::crypto::verify`
+# path unchanged. Pulls only the FROST primitive (~30 KiB compiled
+# into the daemon binary) ; no extra TLS / async / runtime deps.
+frost-ed25519 = { workspace = true }
+
 # Deliberately excluded: clap, ratatui, crossterm, axum, tower,
 # tower-http. The shell-daemon has no TUI (headless-only per
 # Sprint 7 D1) and the HTTP server layer lives in the binary

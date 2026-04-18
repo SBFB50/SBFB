@@ -53,6 +53,7 @@ from nexus_sdk import (
     discover_apps,
 )
 
+from nexus_coordinator.canary_registry import CanaryRegistry
 from nexus_coordinator.config import CoordinatorConfig
 from nexus_coordinator.dispatcher import Dispatcher, SubmitRequest
 from nexus_coordinator.invite import InviteLedger
@@ -62,6 +63,7 @@ from nexus_coordinator.paths import (
     app_db_path,
     app_storage_path,
     app_uploads_path,
+    canary_registry_path,
     coord_config_path,
     coord_key_path,
     iroh_data_path,
@@ -165,6 +167,13 @@ class Coordinator:
         # :meth:`stop` ahead of the iroh node so any pending row is
         # drained to the gossip doc before the Endpoint closes.
         self.upload_queue: UploadQueue | None = None
+        # Sprint 20 Phase E.3 — federated warrant canary registry.
+        # Aggregates observed canaries + duress acks across the
+        # network, exposes freshness via ``GET /api/canary/network-
+        # health``. Eagerly instantiated here (no iroh dependency)
+        # so the API endpoint works even before :meth:`start` boots
+        # the iroh node — useful for inspect-only operator flows.
+        self.canary_registry: CanaryRegistry = CanaryRegistry(canary_registry_path())
         self.apps: dict[str, NexusApp] = {}
         self.app_contexts: dict[str, AppContext] = {}
 

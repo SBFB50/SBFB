@@ -45,10 +45,24 @@
 use async_trait::async_trait;
 use nexus_core_rs::canonical::{canonical_bytes, DOMAIN_WARRANT_CANARY_V1};
 use nexus_core_rs::crypto::{verify, PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
-use nexus_core_rs::KeyPair;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use time::{Date, Duration, OffsetDateTime};
+
+pub mod attestation;
+pub mod duress_ack;
+pub mod frost;
+pub mod signer;
+
+pub use attestation::{Attestation, AttestationProvider, NoopAttestation};
+pub use duress_ack::{
+    build_duress_ack, duress_ack_topic_id, verify_duress_ack, DuressAck, DuressAckSigned,
+    DURESS_ACK_TOPIC_SEED,
+};
+pub use frost::{
+    frost_keygen_trusted_dealer, FrostCanarySigner, FrostError, FrostKeyShare, FrostPubkey,
+};
+pub use signer::{CanarySigner, Ed25519CanarySigner};
 
 /// Canary wire format version. Bumped on a signature-invalidating
 /// field change; the `v1` suffix on [`DOMAIN_WARRANT_CANARY_V1`]
@@ -163,9 +177,24 @@ pub struct Canary {
 
 /// Build a signed canary using `signer` as the maintainer key.
 ///
+/// `signer` is any [`CanarySigner`] implementation:
+/// - [`Ed25519CanarySigner`] — single-key (default, monthly cron-
+///   free human-driven publish flow).
+/// - [`FrostCanarySigner`] — threshold K-of-N over Ed25519 via
+///   FROST RFC 9591 (opt-in, K=2/N=3 cross-juridiction maintainer
+///   federation).
+///
+/// Both produce a 64-byte Ed25519 signature byte-identical on the
+/// wire — the verifier path is the same `verify(pubkey, msg, sig)`
+/// call against [`DOMAIN_WARRANT_CANARY_V1`] canonical bytes.
+///
 /// `date` is the canary date (typically today's UTC date). The
 /// `next_update` field is computed as `date + CANARY_VALIDITY_DAYS`.
-pub fn build_canary(date: Date, headline: String, signer: &KeyPair) -> Result<Canary, CanaryError> {
+pub fn build_canary(
+    date: Date,
+    headline: String,
+    signer: &dyn CanarySigner,
+) -> Result<Canary, CanaryError> {
     if headline.len() > MAX_HEADLINE_LEN {
         return Err(CanaryError::HeadlineTooLong(headline.len()));
     }
@@ -175,7 +204,7 @@ pub fn build_canary(date: Date, headline: String, signer: &KeyPair) -> Result<Ca
         date: format_date(date),
         headline,
         next_update: format_date(next_update),
-        pubkey_hex: hex::encode(signer.public_bytes()),
+        pubkey_hex: hex::encode(signer.pubkey()),
     };
     let bytes = canonical_bytes(&signed, DOMAIN_WARRANT_CANARY_V1)
         .map_err(|e| CanaryError::Canonical(e.to_string()))?;
@@ -357,15 +386,20 @@ fn decode_fixed_hex<const N: usize>(s: &str, field: &'static str) -> Result<[u8;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_core_rs::KeyPair;
 
     fn a_date() -> Date {
         Date::from_calendar_date(2026, time::Month::April, 15).unwrap()
     }
 
+    fn ed25519_signer() -> Ed25519CanarySigner {
+        Ed25519CanarySigner::new(KeyPair::generate())
+    }
+
     #[test]
     fn build_canary_includes_date_headline_sig() {
-        let kp = KeyPair::generate();
-        let c = build_canary(a_date(), "NYT 2026-04-15: test".into(), &kp)
+        let signer = ed25519_signer();
+        let c = build_canary(a_date(), "NYT 2026-04-15: test".into(), &signer)
             .expect("build_canary works on well-formed input");
 
         assert_eq!(c.signed.version, CANARY_VERSION);
@@ -378,15 +412,15 @@ mod tests {
 
     #[test]
     fn verify_canary_accepts_valid_signature() {
-        let kp = KeyPair::generate();
-        let c = build_canary(a_date(), "headline".into(), &kp).unwrap();
+        let signer = ed25519_signer();
+        let c = build_canary(a_date(), "headline".into(), &signer).unwrap();
         verify_canary(&c).expect("a freshly-built canary must verify");
     }
 
     #[test]
     fn verify_canary_rejects_tampered_message() {
-        let kp = KeyPair::generate();
-        let mut c = build_canary(a_date(), "real".into(), &kp).unwrap();
+        let signer = ed25519_signer();
+        let mut c = build_canary(a_date(), "real".into(), &signer).unwrap();
         c.signed.headline = "forged".into();
         let err = verify_canary(&c).expect_err("tampered headline must fail verify");
         assert!(matches!(err, CanaryError::Signature(_)));
@@ -394,12 +428,12 @@ mod tests {
 
     #[test]
     fn verify_canary_rejects_wrong_pubkey() {
-        let kp = KeyPair::generate();
-        let attacker = KeyPair::generate();
-        let mut c = build_canary(a_date(), "real".into(), &kp).unwrap();
+        let signer = ed25519_signer();
+        let attacker = ed25519_signer();
+        let mut c = build_canary(a_date(), "real".into(), &signer).unwrap();
         // Swap the embedded pubkey to the attacker's, leaving
         // the legitimate signature in place.
-        c.signed.pubkey_hex = hex::encode(attacker.public_bytes());
+        c.signed.pubkey_hex = hex::encode(attacker.pubkey());
         let err = verify_canary(&c).expect_err("pubkey swap must fail verify");
         assert!(matches!(err, CanaryError::Signature(_)));
     }
@@ -418,8 +452,8 @@ mod tests {
             }
         }
 
-        let kp = KeyPair::generate();
-        let c = build_canary(a_date(), "headline".into(), &kp).unwrap();
+        let signer = ed25519_signer();
+        let c = build_canary(a_date(), "headline".into(), &signer).unwrap();
 
         let mut mock = MockBroadcaster { sent: vec![] };
         publish_canary(&c, &mut mock).await.expect("mock broadcast");
@@ -442,25 +476,25 @@ mod tests {
 
     #[test]
     fn build_canary_rejects_oversize_headline() {
-        let kp = KeyPair::generate();
+        let signer = ed25519_signer();
         let oversize = "x".repeat(MAX_HEADLINE_LEN + 1);
-        let err = build_canary(a_date(), oversize, &kp)
+        let err = build_canary(a_date(), oversize, &signer)
             .expect_err("headline over MAX_HEADLINE_LEN must fail");
         assert!(matches!(err, CanaryError::HeadlineTooLong(_)));
     }
 
     #[test]
     fn build_canary_accepts_headline_at_exact_cap() {
-        let kp = KeyPair::generate();
+        let signer = ed25519_signer();
         let at_cap = "y".repeat(MAX_HEADLINE_LEN);
-        build_canary(a_date(), at_cap, &kp)
+        build_canary(a_date(), at_cap, &signer)
             .expect("headline exactly at MAX_HEADLINE_LEN must succeed");
     }
 
     #[test]
     fn parse_canary_txt_round_trips_through_format() {
-        let kp = KeyPair::generate();
-        let original = build_canary(a_date(), "headline text".into(), &kp).unwrap();
+        let signer = ed25519_signer();
+        let original = build_canary(a_date(), "headline text".into(), &signer).unwrap();
         let txt = format_canary_txt(&original);
         let parsed = parse_canary_txt(&txt).expect("round-trip parse");
         assert_eq!(parsed, original);
@@ -469,8 +503,8 @@ mod tests {
 
     #[test]
     fn format_canary_txt_contains_key_fields() {
-        let kp = KeyPair::generate();
-        let c = build_canary(a_date(), "big news".into(), &kp).unwrap();
+        let signer = ed25519_signer();
+        let c = build_canary(a_date(), "big news".into(), &signer).unwrap();
         let txt = format_canary_txt(&c);
         assert!(txt.contains("SBFB Warrant Canary"));
         assert!(txt.contains("Date: 2026-04-15 (UTC)"));

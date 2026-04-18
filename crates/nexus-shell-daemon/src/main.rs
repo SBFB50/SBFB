@@ -171,7 +171,7 @@ async fn handle_config(_paths: &ShellDaemonPaths, cmd: ConfigCommand) -> Result<
 async fn handle_canary(cmd: CanaryCommand) -> Result<()> {
     use nexus_shell_daemon_core::canary::{
         build_canary, format_canary_txt, parse_canary_txt, publish_canary, today_utc,
-        warrant_canary_topic_id, CanaryBroadcaster,
+        warrant_canary_topic_id, CanaryBroadcaster, Ed25519CanarySigner,
     };
 
     match cmd {
@@ -187,13 +187,19 @@ async fn handle_canary(cmd: CanaryCommand) -> Result<()> {
             let key_path = nexus_shell_daemon_core::auth::canary_key_path().with_context(|| {
                 "could not resolve SBFB home dir — set $SBFB_HOME or $HOME/$USERPROFILE"
             })?;
-            let signer =
+            let keypair =
                 nexus_core_rs::KeyPair::load_or_generate(&key_path).with_context(|| {
                     format!(
                         "failed to load or create canary key at {}",
                         key_path.display()
                     )
                 })?;
+            // Wrap the keypair in the Sprint 20 Phase E.1
+            // CanarySigner trait so the build_canary path stays
+            // algorithm-agnostic (FrostCanarySigner is the opt-in
+            // K-of-N alternative for cross-juridiction maintainer
+            // federation).
+            let signer = Ed25519CanarySigner::new(keypair);
 
             // 2. Build + sign the canary.
             let canary = build_canary(today_utc(), headline, &signer)

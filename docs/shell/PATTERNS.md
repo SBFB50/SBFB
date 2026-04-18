@@ -2025,3 +2025,54 @@ redaction, Sprint 22 tool-calling sandbox).
 Reference : design doc
 `.planning/research/S20_phase_D_structured_output_design.md`,
 plan § 7 in `.planning/active/sprint20_plan.md`.
+
+### P31 — Warrant canary federation foundations (Sprint 20 Phase E)
+
+Sprint 20 Phase E (G8 pivot Option C, codified
+2026-04-18) introduces the **federation primitives** for the
+warrant canary signing surface. From the shell daemon
+perspective :
+
+- The Rust crate `nexus-shell-daemon-core::canary` is now a
+  **module directory** (was a single file) holding the
+  `CanarySigner` trait + `Ed25519CanarySigner` (S18 baseline,
+  default) + `FrostCanarySigner` (K-of-N opt-in for cross-
+  juridiction maintainer federation, RFC 9591 jan 2025) +
+  `DuressAck` (separate gossip topic for daily-cadence
+  anti-coercion signal) + `AttestationProvider` /
+  `NoopAttestation` (decoupled from signing, prep TEE Sprint
+  25-30).
+- The Python coordinator package adds a `CanaryRegistry`
+  aggregator + `GET /api/canary/network-health` endpoint that
+  the React shell can render as a fleet freshness panel.
+- The full strategy + L0..L1..L2 ladder lives in
+  `docs/security/WARRANT_CANARY_HARDENING.md`.
+- The Rust pattern detail lives in `docs/rust/PATTERNS.md §P31`
+  (CanarySigner trait + FROST + Federated registry pattern).
+
+The federation does not introduce any way to **automate** canary
+signing — every canary signature still requires a human (Niveau
+0) or K humans cooperating in a synchronous interactive FROST
+ceremony (Niveau 1, S25-30 enforcement). This honours the
+S18 E2 decision (commit `04c9621`) that any key-accessible-to-a-
+scheduler ≡ key-compromise-under-gag-order ≡ dead-man-switch
+broken.
+
+### P32 — Transport probe = observability-only (Sprint 20 Phase E.6 ajusté)
+
+The S20 G8 phase pre-flight S1 scan discovered that iroh 0.91+
+has no `relay_wss_only` flag — relays speak WSS-over-TCP-443
+exclusively since 0.91 (`iroh-0-91-0-the-last-relay-break`
+blog post), and the fall-back from a failed UDP QUIC hole-punch
+to a relay-WSS path is automatic. The
+`crates/nexus-shell-daemon-core/src/transport_probe.rs` module
+is therefore deliberately **observability-only** : it dials up
+to N attempts, emits a structured `tracing::warn!` with a
+`transport_degraded_mode = true` field on failure, and never
+touches `iroh::Endpoint` to mutate the relay mode.
+
+Operator picks up the metric via log shipper / dashboard filter
+on `transport_degraded_mode=true` to surface "this daemon is
+running on the relay-WSS fallback path" — the data plane keeps
+working because iroh handled the fallback automatically. See
+`docs/rust/PATTERNS.md §P32` for the Rust-side detail.
