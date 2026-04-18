@@ -314,12 +314,27 @@ avec rationale factuel. ✓
   transformer — issue #826 GLiNER natif non supporté, on contourne
   en chargeant le modèle directement via onnxruntime-web).
 - **Modèle** : `knowledgator/gliner-pii-edge-v1.0` (HF, Apache-2.0,
-  publication 2024-01-29, F1 0.755, ~45.8 MB quint8 ONNX cible).
-  **Backbone architecture + taille exacte ONNX à confirmer Phase B
-  G8 S1 scan** (sources G2 divergent ModernBERT vs DeBERTa-v3 ;
-  model card HF incomplète). Fallback si backbone incompatible
-  onnxruntime-web : `gliner_small-v2.1` onnx-community (plus petit,
-  multilingue non-PII mais testable). Décision Phase B preflight.
+  publication 2024-01-29, F1 0.755). **Backbone confirmé
+  ModernBERT** (base `jhu-clsp/ettin-encoder-32m`, 32M params,
+  10 layers, hidden 384, vocab 50 370, context 8192) via HF
+  `gliner_config.json` primary source 2026-04-18 (archive
+  research `.planning/research/S21_research_backbone_
+  resolution.md`). Tokenizer BPE byte-level OLMo-style
+  (`PreTrainedTokenizerFast`). **ONNX quint8 = 45.8 MB**
+  (variantes disponibles : FP32 181 MB / FP16 90.8 MB / QUINT8
+  45.8 MB). La confusion initiale « 197 MB UINT8 » provenait
+  du README copy-paste de la section tailles du modèle `base-
+  v1.0` DeBERTa-v3-small — bug documentation model card HF
+  upstream, pas ambiguïté architecturale. **Opset ONNX
+  compatible onnxruntime-web 1.24.3 sans risque** : ORT
+  supporte opset ≤ 21 depuis 1.20 ; exports `optimum` /
+  `transformers.onnx` récents (2025) émettent opset 14-18 par
+  défaut. **Zéro risque DESIGN-CONFLICT Phase B G8 S1 scan**
+  résolu pre-phase. Fallback si perf insuffisante bench Phase B :
+  `onnx-community/gliner_multi_pii-v1` (349 MB int8, multilingue
+  FR/EN/ES/DE/IT/PT, DeBERTa-v3 backbone, intégré Presidio par
+  défaut) — viable via lazy-load mais budget bundle iframe plus
+  contraint.
 - **Wrapper JS thin** ~300-500 LOC dans `web/src/sdk/pii/` :
   `detect(text) → [{ entity, start, end, confidence }]` +
   `redact(text, replacement) → redacted_text`.
@@ -453,12 +468,16 @@ nvidia gliner-pii 2025-10, GLiNER.js npm mars 2025, redact-core
 2026-02, Full Rust tract 2026-02, Transformers.js v4 2026-02).
 ✓ rigor extension satisfaite.
 
-**G8 S1 scan obligatoire Phase B** : avant 1re ligne de code
-Phase B, fetch fresh model card HF `knowledgator/gliner-pii-edge-
-v1.0` + `config.json` + opset export pour figer backbone + taille
-quantized. Verdict possible EXECUTE plan-as-is / SCOPE-CUT-CONSISTENT
-(switch modèle base/small si edge insuffisant) / DESIGN-CONFLICT
-(blocker opset onnxruntime-web).
+**G8 S1 scan Phase B — backbone déjà résolu 2026-04-18** : la
+session d'ouverture S21 a effectué le scan backbone fresh via
+HF primary sources (cf. `.planning/research/S21_research_backbone_
+resolution.md`). Verdict **ModernBERT confirmé + opset compatible
+ORT Web 1.24.3**. Phase B G8 S1 scan obligatoire mais devrait
+retourner **EXECUTE plan-as-is** sauf nouvelle release majeure
+upstream (ex: onnxruntime-web 1.25 breaking change, knowledgator
+bump model). Re-fetcher la model card + `gliner_config.json` au
+moment de Phase B pour validation finale pre-code est le filet
+de sécurité normal G8.
 
 ### D3 — Output filter (invisible chars + prompt echo EED detection)
 
@@ -645,16 +664,35 @@ vérifié, leaky-bucket, ratelimit_meter archived, async-rate-limiter
 non-keyed). Date exacte release crates.io non-canonique gap mineur
 acceptable.
 
-**D2 ⚠️** : **adjust appliqué dans ce kickoff + commit open S21** :
+**D2 ⚠️** : **adjust appliqué dans ce kickoff + commit open S21 +
+post-G1 fixes multi-agent team 2026-04-18** :
 1. Entrée `audited_findings` frontmatter `HARDENING_ROADMAP.md`
    datée 2026-04-18 ajoutée dans ce commit, requalifiant D2 SDK
    vs libellé S17 original.
-2. §D2 implementations note explicite « G8 S1 scan obligatoire
-   Phase B » avant 1re ligne de code (fetch fresh model card HF
-   pour backbone + config.json + opset export).
-3. Ambiguïté backbone `gliner-pii-edge-v1.0` (ModernBERT vs
-   DeBERTa-v3) notée comme zone non-vérifiable résolue Phase B
-   preflight.
+2. §D2 implementations note explicite « G8 S1 scan Phase B »
+   avant 1re ligne de code (fetch fresh model card HF pour
+   validation pre-phase).
+3. **Ambiguïté backbone `gliner-pii-edge-v1.0` résolue
+   rétroactivement** via agent team post-G1 (multi-agent fixes
+   2026-04-18) : ModernBERT confirmé via `gliner_config.json`
+   primary source HuggingFace, taille ONNX quint8 = 45.8 MB (pas
+   197 MB — confusion README upstream edge↔base), opset
+   compatible ORT Web 1.24.3. Archive
+   `.planning/research/S21_research_backbone_resolution.md`.
+   Phase B G8 S1 scan reste obligatoire mais devrait retourner
+   EXECUTE plan-as-is sauf release upstream breaking.
+4. **Lacune G1 sur « custom Rust stack alternatives » comblée
+   post-mortem** via agent team re-check ort-web/candle-onnx/
+   burn-onnx : non-viable S21 (ort-web = onnxruntime-web
+   déguisé experimental, candle-onnx manque op Attention,
+   burn-onnx v0.21 active-dev 0 precedent DeBERTa-v3 wasm,
+   gline-rs a explicitement rejeté wasm). Option 7 confirmée
+   factuellement. Conditions re-evaluate S22+ précisées tech
+   debt T-NN+2. Archive
+   `.planning/research/S21_research_ort_wasm_alternatives.md`.
+   Extension règle `docs/claude/README.md §6.1.1` renforcée
+   (« custom Rust stack alternatives » G1 ext 2026-04-18) pour
+   éviter lacune future.
 
 **D3 ⚠️** : adjust reporté Phase B/C S21 :
 1. Seuil EED 0.85 = tuning empirique documenté inline code
