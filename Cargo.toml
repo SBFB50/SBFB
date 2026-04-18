@@ -136,16 +136,16 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 # tower-http is the CORS middleware source. `cors` is the only
 # feature we need — the daemon is loopback-only and does not need
 # compression, tracing, rate-limit, or auth layers from tower-http.
-axum = "0.7"
+axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 
 # Sprint 16 Phase B: the daemon UDS / Named Pipe accept loops
-# wrap connections in hyper directly because axum 0.7's
-# `axum::serve` only accepts a `TcpListener`. The Router stays
-# the source of truth — hyper-util's `TowerToHyperService`
-# bridges it into `auto::Builder::serve_connection` for each
-# accepted UDS / NP stream.
+# wrap connections in hyper directly because axum's `axum::serve`
+# only accepts a `TcpListener`. The Router stays the source of
+# truth — hyper-util's `TowerToHyperService` bridges it into
+# `auto::Builder::serve_connection` for each accepted UDS / NP
+# stream.
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = [
     "server",

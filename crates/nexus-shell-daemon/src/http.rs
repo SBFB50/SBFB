@@ -165,7 +165,7 @@ impl DaemonHttpState {
 ///
 /// - `GET /health` — liveness probe, reached by the launcher
 ///   before it has the token.
-/// - `/blob-serve/:hash/*path` — served into a sandboxed iframe
+/// - `/blob-serve/{hash}/{*path}` — served into a sandboxed iframe
 ///   with CSP `connect-src 'none'` (Sprint 12 Phase A). The
 ///   iframe cannot inject a custom header, and its Origin is
 ///   `null` because the sandbox strips same-origin. The blob
@@ -177,7 +177,7 @@ pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
     // middleware that injects security headers on ALL responses
     // (200, 400, 404, 500) — not just the success path.
     let blob_serve_routes = Router::new()
-        .route("/:hash/*path", get(blob_serve))
+        .route("/{hash}/{*path}", get(blob_serve))
         .layer(middleware::from_fn(blob_serve_csp_middleware));
 
     // Public routes: no bearer, no Host check, no Origin check.
@@ -197,7 +197,7 @@ pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
         .route("/info", get(info))
         .route("/curators", get(list_curators))
         .route("/curators/subscribe", post(subscribe_curator))
-        .route("/curators/:pubkey", delete(unsubscribe_curator))
+        .route("/curators/{pubkey}", delete(unsubscribe_curator))
         .route("/browse", get(list_browse))
         .route("/publish", post(publish_project))
         .route("/publish-blob", post(publish_blob))
@@ -781,7 +781,7 @@ async fn panic_wipe(State(state): State<Arc<DaemonHttpState>>) -> impl IntoRespo
     }
 }
 
-/// `GET /blob-serve/:hash/*path` — serve a file from a cached
+/// `GET /blob-serve/{hash}/{*path}` — serve a file from a cached
 /// zip archive with CSP headers. Sprint 12 Phase A.
 ///
 /// If the archive is not in cache, attempts to load it from the

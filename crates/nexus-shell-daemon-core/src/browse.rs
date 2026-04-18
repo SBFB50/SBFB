@@ -180,7 +180,7 @@ pub struct BrowseEntry {
     pub archive_ticket: Option<String>,
     /// Hex-encoded BLAKE3 hash of the zip blob (Sprint 12 Phase C).
     /// The frontend uses this to construct blob-serve URLs since
-    /// `GET /blob-serve/:hash/*path` expects a hex hash, not the
+    /// `GET /blob-serve/{hash}/{*path}` expects a hex hash, not the
     /// opaque BlobTicket string. `None` when there is no archive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_hash: Option<String>,
