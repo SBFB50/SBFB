@@ -2,9 +2,9 @@
 
 **Date** : 2026-04-18 (session Phase F wrap-up).
 **Tip master à la rédaction** : `b7d8d74` (pre-Phase F) →
-`<HEAD>` (post-Phase F, résolu post-commit).
+`f209168` (post-Phase F, résolu post-commit).
 **Entrée sprint** : `3a7f0a3` (tip post-S19 audit gate levé).
-**Range commits Sprint 20** : `3a7f0a3..<HEAD>` (22+ commits incluant
+**Range commits Sprint 20** : `3a7f0a3..f209168` (22+ commits incluant
 5 feat phases + 1 planning open + 4 chore planning + 3 chore workflow/
 tooling + 2 chore hooks/gitignore + 1 fix sprint18 carry + 1 chore
 fmt residual + Phase F wrap-up).
@@ -30,7 +30,7 @@ Sprint 20 livre les **6 big rocks Gate 2 prerequis** :
   `CanaryRegistry` coord-side + duress ack channel + `AttestationProvider`
   trait) + dual-transport probe UDP QUIC → WSS TCP 443 fallback
   observability-only (+17 tests Rust, +5 tests Python coord).
-- Phase F `<HEAD>` — wrap-up docs only (ce commit).
+- Phase F `f209168` — wrap-up docs only (ce commit).
 
 **Pivot G8 Phase E** (premier déclenchement effectif du skill
 `nexus-phase-preflight` après son introduction commit `59225ee`) :
