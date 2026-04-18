@@ -56,7 +56,15 @@ REVIEW_ACTIVE=".planning/active/sprint${SPRINT}_phase_${PHASE}_review.md"
 # ou chore intermediaire), on accepte aussi l'archive. Evite de forcer
 # une regeneration du fichier qui cree des duplicates factuellement
 # divergents (observe session 2026-04-18).
-REVIEW_ARCHIVE=$(ls .planning/archive/v*/sprint${SPRINT}_phase_${PHASE}_review.md 2>/dev/null | head -1)
+#
+# `|| true` : quand le glob `.planning/archive/v*/sprint..._review.md`
+# ne matche aucun fichier, `ls` exits 2 sur Windows Git Bash. Avec
+# `set -eo pipefail` en tete du script, cet exit non-zero se propage
+# silencieusement et fait echouer le hook avant meme le check
+# `-f $REVIEW_ACTIVE`. Le `|| true` en fin de pipeline protege le
+# chemin "archive absent mais active present" contre ce faux-positif
+# d'environnement (detecte session 2026-04-19).
+REVIEW_ARCHIVE=$(ls .planning/archive/v*/sprint${SPRINT}_phase_${PHASE}_review.md 2>/dev/null | head -1 || true)
 
 if [ -f "$REVIEW_ACTIVE" ]; then
   REVIEW="$REVIEW_ACTIVE"
