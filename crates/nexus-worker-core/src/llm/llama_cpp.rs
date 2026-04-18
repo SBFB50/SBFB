@@ -303,10 +303,15 @@ fn generate_blocking(
         None => None,
     };
 
-    // Sampler chain : temperature + greedy / distribution. We apply
-    // the llguidance mask manually against the candidates array
-    // below (before sampler.sample) so the matcher's token-level
-    // enforcement beats the temperature sampler.
+    // Sampler chain : temperature + greedy / distribution. The
+    // matcher state is advanced inside `apply_matcher_mask` (mask
+    // computation + ff_tokens consume), but at Sprint 20 we do NOT
+    // yet push a logit-bias frame before `sampler.sample` — the
+    // sampler picks freely and the matcher's `consume_token` raises
+    // `SchemaViolation` post-hoc when a rejected token slipped
+    // through. Pre-sample logit-bias enforcement is carried as
+    // P3-D3 for Sprint 21+. See `apply_matcher_mask` docstring +
+    // `docs/rust/PATTERNS.md §P30 Defense-in-depth` table.
     let temp = temperature.unwrap_or(0.7);
     let mut sampler =
         LlamaSampler::chain_simple([LlamaSampler::temp(temp), LlamaSampler::greedy()]);
