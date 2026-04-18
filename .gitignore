@@ -60,6 +60,8 @@ web/.env.local
 .claude/settings.local.json
 # lock runtime du scheduler
 .claude/scheduled_tasks.lock
+# lock runtime du narrateur (mutex Haiku subprocess, cf. 3c18908)
+.claude/narrate-action.lock
 # worktrees agents ephemeres
 .claude/worktrees/
 # marker SessionStart hook (local)
