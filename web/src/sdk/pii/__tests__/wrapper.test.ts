@@ -66,4 +66,23 @@ describe("GlinerPiiDetector", () => {
     const findings = await detector.detect("Alice loves bread", policy);
     expect(findings.some((f) => f.entity === "PERSON")).toBe(false);
   });
+
+  it("detects at least two entities on the Phase B fixture text", async () => {
+    // Sprint 22 Phase B regression fixture (plan §5.3 test 6) :
+    // the real ONNX path cannot run in jsdom, so this exercises the
+    // regex fallback combined with the threshold filter. We expect
+    // the detector to surface ≥ 2 findings on a prompt that mixes an
+    // email with an international phone — catching the case where a
+    // future refactor silently regresses the fallback wiring when
+    // the model path returns zero spans.
+    const detector = new GlinerPiiDetector(new StubLoaderAlwaysFails());
+    const findings = await detector.detect(
+      "Contact: alice@example.com and +33123456789",
+      DEFAULT_POLICY,
+    );
+    expect(findings.length).toBeGreaterThanOrEqual(2);
+    const entities = new Set(findings.map((f) => f.entity));
+    expect(entities.has("EMAIL_ADDRESS")).toBe(true);
+    expect(entities.has("PHONE_NUMBER")).toBe(true);
+  });
 });
