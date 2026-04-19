@@ -69,6 +69,7 @@ from nexus_coordinator.paths import (
     iroh_data_path,
     project_dir,
 )
+from nexus_coordinator.quarantine_queue import QuarantineQueue
 from nexus_coordinator.upload_queue import UploadQueue
 from nexus_coordinator.validator import Validator
 
@@ -167,6 +168,12 @@ class Coordinator:
         # :meth:`stop` ahead of the iroh node so any pending row is
         # drained to the gossip doc before the Endpoint closes.
         self.upload_queue: UploadQueue | None = None
+        # Sprint 21 Phase D — quarantine queue (defense-in-depth third
+        # leg of the C-DosFlood S21 triangle: rate-limit + PoW +
+        # quarantine). Populated in :meth:`start`; torn down in
+        # :meth:`stop`. Audit entries (flushed/dropped) survive
+        # restart; only pending entries are auto-dropped at TTL.
+        self.quarantine_queue: QuarantineQueue | None = None
         # Sprint 20 Phase E.3 — federated warrant canary registry.
         # Aggregates observed canaries + duress acks across the
         # network, exposes freshness via ``GET /api/canary/network-
@@ -305,6 +312,21 @@ class Coordinator:
             enabled=uq_cfg.enabled,
         )
         await self.upload_queue.start()
+
+        # Sprint 21 Phase D — quarantine queue. Owns its own SQLite
+        # WAL file in the project dir so it never collides with
+        # upload_queue.sqlite or state.sqlite. Wire-up from the
+        # subscriber gossip path is hors-scope Phase D (carry S22+);
+        # for now the queue is exercised by tests + the operator
+        # CLI directly.
+        qq_cfg = self.config.quarantine_queue
+        quarantine_db = self.project_dir / "quarantine.sqlite"
+        self.quarantine_queue = QuarantineQueue(
+            db_path=quarantine_db,
+            ttl_seconds=qq_cfg.ttl_seconds,
+            sweep_interval_s=qq_cfg.sweep_interval_s,
+        )
+        await self.quarantine_queue.start()
 
         self.validator = Validator(
             doc=self.state.doc,
@@ -684,6 +706,17 @@ class Coordinator:
             except Exception as e:  # noqa: BLE001 — best-effort
                 _log.warning("upload queue shutdown raised", error=str(e))
             self.upload_queue = None
+
+        # Sprint 21 Phase D — stop the quarantine sweep loop. The
+        # SQLite file is left intact: audit entries (flushed /
+        # dropped) survive the restart so an operator can review
+        # past decisions.
+        if self.quarantine_queue is not None:
+            try:
+                await self.quarantine_queue.shutdown()
+            except Exception as e:  # noqa: BLE001 — best-effort
+                _log.warning("quarantine queue shutdown raised", error=str(e))
+            self.quarantine_queue = None
 
         if self.state.node is not None:
             try:

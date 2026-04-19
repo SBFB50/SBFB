@@ -157,6 +157,32 @@ class UploadQueue(BaseModel):
     )
 
 
+class QuarantineQueue(BaseModel):
+    """Quarantine queue section — Sprint 21 Phase D defense-in-depth.
+
+    Holds borderline gossip messages that passed PoW + rate-limit
+    but matched a soft heuristic, waiting for operator review via
+    ``nexus-coordinator quarantine list/flush/drop``. The TTL
+    auto-drops pending entries silently after ``ttl_seconds`` to
+    bound disk growth.
+    """
+
+    ttl_seconds: int = Field(
+        default=900,
+        ge=1,
+        description=(
+            "Pending-entry TTL window (seconds). Default 15 min "
+            "matches kickoff §D4 ligne 590. Audit entries (flushed "
+            "or dropped) survive past TTL."
+        ),
+    )
+    sweep_interval_s: float = Field(
+        default=30.0,
+        gt=0.0,
+        description="Sweep loop interval between TTL DELETE batches (seconds).",
+    )
+
+
 class CoordinatorConfig(BaseSettings):
     """Top-level settings model.
 
@@ -175,6 +201,7 @@ class CoordinatorConfig(BaseSettings):
     network: Network = Field(default_factory=Network)
     policy: Policy = Field(default_factory=Policy)
     upload_queue: UploadQueue = Field(default_factory=UploadQueue)
+    quarantine_queue: QuarantineQueue = Field(default_factory=QuarantineQueue)
 
     @classmethod
     def load(cls, path: Path | None) -> "CoordinatorConfig":

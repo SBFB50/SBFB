@@ -16,6 +16,7 @@ from __future__ import annotations
 import typer
 
 from nexus_coordinator.cli.commands import invite as invite_cmds
+from nexus_coordinator.cli.commands import quarantine as quarantine_cmds
 from nexus_coordinator.cli.commands.init import init_cmd
 from nexus_coordinator.cli.commands.migrate import migrate_cmd
 from nexus_coordinator.cli.commands.start import start_cmd
@@ -32,6 +33,7 @@ app.command("init", help="Create a new project directory, keypair, and config.")
 app.command("start", help="Boot the coordinator and serve the local control API.")(start_cmd)
 app.command("migrate", help="Plan or apply database migrations for apps.")(migrate_cmd)
 app.add_typer(invite_cmds.app, name="invite")
+app.add_typer(quarantine_cmds.app, name="quarantine")
 
 
 if __name__ == "__main__":
