@@ -50,6 +50,19 @@ use tracing::{debug, warn};
 
 use crate::rate_limit::RateLimitPolicy;
 
+/// Type alias for the hot-reload callback invoked by
+/// [`RateLimitPolicyWatcher::spawn_with_on_reload`]. The callback
+/// receives the freshly-parsed policy after every successful TOML
+/// reload (and once at spawn for the initial policy). Implementations
+/// are expected to call
+/// [`crate::rate_limit::RateLimiter::swap_policy`] on their own
+/// `Arc<RateLimiter>` so the worker engine's gate picks up the new
+/// quotas without a restart.
+///
+/// `Send + Sync + 'static` because the callback is invoked from the
+/// watcher background thread and persisted across reloads.
+pub type OnReloadCallback = Arc<dyn Fn(&RateLimitPolicy) + Send + Sync + 'static>;
+
 /// Load a [`RateLimitPolicy`] from a TOML file on disk.
 ///
 /// `Ok(default)` when the file does not exist — the worker always
@@ -109,6 +122,55 @@ impl RateLimitPolicyWatcher {
     /// starting state without race conditions vs the watcher
     /// thread.
     pub fn spawn_with_initial(path: PathBuf, initial: RateLimitPolicy) -> anyhow::Result<Self> {
+        Self::spawn_inner(path, initial, None)
+    }
+
+    /// Spawn a watcher that also rebuilds downstream state on every
+    /// reload via `on_reload`. The callback runs synchronously on the
+    /// watcher background thread ; implementations should avoid
+    /// blocking for more than a few ms so notify events do not
+    /// back-pressure the channel.
+    ///
+    /// Typical wiring (Sprint 22 Phase A engine integration) :
+    ///
+    /// ```ignore
+    /// let rate_limiter: Arc<RateLimiter> = ...;
+    /// let rl = Arc::clone(&rate_limiter);
+    /// let watcher = RateLimitPolicyWatcher::spawn_with_on_reload(
+    ///     path,
+    ///     move |fresh| {
+    ///         if let Err(e) = rl.swap_policy(fresh.clone()) {
+    ///             tracing::warn!(error = %e,
+    ///                 "rate-limit policy swap failed, keeping previous");
+    ///         }
+    ///     },
+    /// )?;
+    /// ```
+    ///
+    /// The callback is invoked **once at spawn** with the initial
+    /// policy (so the downstream state is coherent from the first
+    /// `check` call onward) and then on every successful reload.
+    /// Parse failures on reload keep the previous in-memory policy
+    /// and do NOT trigger the callback — the downstream state stays
+    /// on the last known-good quotas.
+    pub fn spawn_with_on_reload<F>(path: PathBuf, on_reload: F) -> anyhow::Result<Self>
+    where
+        F: Fn(&RateLimitPolicy) + Send + Sync + 'static,
+    {
+        let initial = load_rate_limit_policy_from(&path)
+            .map_err(|e| anyhow::anyhow!("load rate-limit policy at boot: {e}"))?;
+        // Synchronously apply the initial policy so callers do not
+        // race the watcher thread's first event.
+        on_reload(&initial);
+        let cb: OnReloadCallback = Arc::new(on_reload);
+        Self::spawn_inner(path, initial, Some(cb))
+    }
+
+    fn spawn_inner(
+        path: PathBuf,
+        initial: RateLimitPolicy,
+        on_reload: Option<OnReloadCallback>,
+    ) -> anyhow::Result<Self> {
         use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
         let inner = Arc::new(RwLock::new(initial));
@@ -129,6 +191,7 @@ impl RateLimitPolicyWatcher {
 
         let inner_thread = Arc::clone(&inner);
         let path_thread = path.clone();
+        let on_reload_thread = on_reload.clone();
         let join = std::thread::Builder::new()
             .name("sbfb-rate-limit-policy-watch".into())
             .spawn(move || {
@@ -169,7 +232,7 @@ impl RateLimitPolicyWatcher {
                             match load_rate_limit_policy_from(&path_thread) {
                                 Ok(fresh) => {
                                     if let Ok(mut guard) = inner_thread.write() {
-                                        *guard = fresh;
+                                        *guard = fresh.clone();
                                         debug!(
                                             path = %path_thread.display(),
                                             "rate_limit_policy.toml reloaded"
@@ -179,6 +242,14 @@ impl RateLimitPolicyWatcher {
                                             path = %path_thread.display(),
                                             "policy reload skipped — RwLock poisoned"
                                         );
+                                    }
+                                    // Notify downstream consumers
+                                    // AFTER updating the shared
+                                    // handle so a poll + callback
+                                    // observer see the same fresh
+                                    // snapshot.
+                                    if let Some(cb) = on_reload_thread.as_ref() {
+                                        cb(&fresh);
                                     }
                                 }
                                 Err(e) => {
@@ -414,5 +485,96 @@ burst_multiplier = 2.0
         let shared = shared_default_policy();
         let policy = shared.read().unwrap();
         assert_eq!(*policy, RateLimitPolicy::default());
+    }
+
+    #[test]
+    fn swap_preserves_unsaturated_tuples() {
+        use crate::rate_limit::{RateKey, RateLimitOverrides, RateLimitTier, RateLimiter};
+
+        // Initial policy: 5 req/min with burst == per_min.
+        let initial = RateLimitPolicy {
+            default: RateLimitTier {
+                per_min: 5,
+                burst_multiplier: 1.0,
+            },
+            overrides: RateLimitOverrides::default(),
+        };
+        let limiter = RateLimiter::from_policy_value(initial).expect("build");
+        let key = RateKey::new("coord_a", "worker_1", "llama3");
+
+        // Use 2 of the 5 requests under the initial policy — tuple
+        // is not saturated.
+        limiter.check(&key).unwrap();
+        limiter.check(&key).unwrap();
+
+        // Operator bumps the policy to a higher quota. The watcher
+        // would call `swap_policy` with the new snapshot ; here we
+        // invoke it directly to keep the test deterministic
+        // (file-based reload is covered by `policy_hot_reload_live`).
+        let bumped = RateLimitPolicy {
+            default: RateLimitTier {
+                per_min: 5,
+                burst_multiplier: 2.0, // burst = 10
+            },
+            overrides: RateLimitOverrides::default(),
+        };
+        limiter.swap_policy(bumped).expect("swap");
+
+        // The previously-unsaturated tuple must still be admissible :
+        // the new GCRA state starts at full capacity (burst = 10),
+        // so we can comfortably fire another 5 requests without
+        // tripping the gate. This is the key invariant — a policy
+        // bump must never hurt callers who were well under their
+        // old budget.
+        for i in 0..5 {
+            limiter
+                .check(&key)
+                .unwrap_or_else(|e| panic!("request {i} after swap should pass, got {e}"));
+        }
+    }
+
+    #[test]
+    fn swap_clears_saturated_state() {
+        use crate::rate_limit::{RateKey, RateLimitOverrides, RateLimitTier, RateLimiter};
+
+        // Initial policy: 3 req/min with burst == per_min.
+        let initial = RateLimitPolicy {
+            default: RateLimitTier {
+                per_min: 3,
+                burst_multiplier: 1.0,
+            },
+            overrides: RateLimitOverrides::default(),
+        };
+        let limiter = RateLimiter::from_policy_value(initial).expect("build");
+        let key = RateKey::new("coord_a", "worker_1", "llama3");
+
+        // Saturate the tuple under the initial policy.
+        for _ in 0..3 {
+            limiter.check(&key).unwrap();
+        }
+        assert!(
+            limiter.check(&key).is_err(),
+            "tuple must be saturated before swap"
+        );
+
+        // Operator swaps to a higher per_min. The new internal GCRA
+        // state is built from scratch (a brand new
+        // `DefaultKeyedRateLimiter`) so the previously-saturated
+        // tuple starts fresh — the operator's runtime fix takes
+        // effect immediately rather than having to wait for the old
+        // bucket to replenish.
+        let bumped = RateLimitPolicy {
+            default: RateLimitTier {
+                per_min: 20,
+                burst_multiplier: 1.0,
+            },
+            overrides: RateLimitOverrides::default(),
+        };
+        limiter.swap_policy(bumped).expect("swap");
+
+        // Previously saturated tuple must now pass again.
+        limiter
+            .check(&key)
+            .expect("swap must rebuild GCRA state from scratch, freeing saturated tuple");
     }
 }

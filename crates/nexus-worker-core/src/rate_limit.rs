@@ -39,10 +39,10 @@
 //! Les tests unit GCRA + eviction + override + policy hot-reload
 //! restent in-scope.
 
+use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::{Arc, RwLock};
 
-use dashmap::DashMap;
 use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter as GovernorRateLimiter};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -158,27 +158,41 @@ pub enum RateLimitError {
     InvalidQuota(u32),
 }
 
-/// Rate-limit primitive. Holds a default keyed rate limiter plus a
-/// per-consumer override map. Cheap to clone (`Arc<...>` inside) so
-/// the engine can hand out shared handles to multiple tasks in
-/// flight.
-pub struct RateLimiter {
+/// Internal rate-limit state held under the [`RateLimiter::state`]
+/// RwLock. Grouping the default limiter and the override map inside
+/// a single lock-guarded struct means a policy swap replaces both
+/// atomically — callers can never observe a half-applied reload
+/// where the default quota is fresh but the overrides still point
+/// at the old tier.
+struct RateLimiterState {
     default: Arc<DefaultKeyedRateLimiter<RateKey>>,
-    overrides: Arc<DashMap<ConsumerId, Arc<DefaultKeyedRateLimiter<RateKey>>>>,
-    /// Shared policy snapshot. The watcher updates it in place; new
-    /// `RateLimiter::from_policy` rebuilds are required to pick up
-    /// default-tier quota changes.
-    _policy: Arc<RwLock<RateLimitPolicy>>,
+    overrides: Arc<HashMap<ConsumerId, Arc<DefaultKeyedRateLimiter<RateKey>>>>,
+}
+
+/// Rate-limit primitive. Holds a default keyed rate limiter plus a
+/// per-consumer override map behind a single `RwLock` so hot-reload
+/// rotations are atomic. `check` takes a read lock for long enough
+/// to clone the relevant `Arc<DefaultKeyedRateLimiter>` and then
+/// runs the GCRA check outside the lock — readers never block
+/// other readers, and a writer only blocks readers for the duration
+/// of the `Arc` swap (a handful of atomic operations).
+pub struct RateLimiter {
+    state: RwLock<RateLimiterState>,
+    /// Shared policy snapshot kept in sync with [`Self::state`]. The
+    /// loader watcher holds a clone via [`Self::policy_handle`] so
+    /// diagnostic code can inspect the live policy without going
+    /// through the governor layer.
+    policy: Arc<RwLock<RateLimitPolicy>>,
 }
 
 impl RateLimiter {
     /// Build a rate limiter from a shared policy handle. The initial
-    /// snapshot is read once; subsequent reloads update the backing
-    /// `Arc<RwLock<RateLimitPolicy>>` but do **not** rebuild the
-    /// governor state automatically — callers that want full
-    /// hot-reload semantics (including default-tier quota bumps)
-    /// should re-construct a new `RateLimiter` when the watcher
-    /// signals a change, or rely on `refresh_from_policy` below.
+    /// snapshot is read once and wired into the internal GCRA state.
+    /// Subsequent policy edits land via [`Self::swap_policy`] — the
+    /// loader watcher (cf. [`crate::rate_limit_policy_loader`]) calls
+    /// that method on each successful disk reload so default-tier
+    /// quota bumps AND override membership changes take effect
+    /// without restarting the worker.
     pub fn from_policy(policy: Arc<RwLock<RateLimitPolicy>>) -> Result<Self, RateLimitError> {
         let snapshot = match policy.read() {
             Ok(g) => g.clone(),
@@ -191,20 +205,10 @@ impl RateLimiter {
         snapshot: &RateLimitPolicy,
         policy: Arc<RwLock<RateLimitPolicy>>,
     ) -> Result<Self, RateLimitError> {
-        let default = Arc::new(build_keyed_limiter(&snapshot.default)?);
-        let overrides = Arc::new(DashMap::new());
-        for ov in &snapshot.overrides.consumer {
-            let tier = RateLimitTier {
-                per_min: ov.per_min,
-                burst_multiplier: ov.burst_multiplier,
-            };
-            let limiter = Arc::new(build_keyed_limiter(&tier)?);
-            overrides.insert(ov.pubkey_hex.clone(), limiter);
-        }
+        let state = build_state_from(snapshot)?;
         Ok(Self {
-            default,
-            overrides,
-            _policy: policy,
+            state: RwLock::new(state),
+            policy,
         })
     }
 
@@ -215,6 +219,46 @@ impl RateLimiter {
         Self::from_policy(shared)
     }
 
+    /// Atomically rebuild the internal GCRA state from a new
+    /// [`RateLimitPolicy`]. Called by the loader watcher on each
+    /// successful TOML reload, via
+    /// [`crate::rate_limit_policy_loader::RateLimitPolicyWatcher::
+    /// spawn_with_on_reload`]. Also updates the shared policy handle
+    /// exposed via [`Self::policy_handle`] so a poisoned watcher
+    /// thread (or a test calling `swap_policy` directly) keeps both
+    /// views consistent.
+    ///
+    /// Fails with [`RateLimitError::InvalidQuota`] if the new policy
+    /// has `per_min = 0` for the default tier or any override ; the
+    /// caller is expected to `warn!` and keep the previous policy in
+    /// that case (same pattern as the loader's malformed-TOML path).
+    pub fn swap_policy(&self, new: RateLimitPolicy) -> Result<(), RateLimitError> {
+        let new_state = build_state_from(&new)?;
+        // Write the new state first, then the exposed policy handle.
+        // Order matters : a `check` call observing the new state
+        // while `policy` still reads old is fine (policy is only for
+        // diagnostics), but the inverse would let a concurrent
+        // observer believe the override exists before it is
+        // actually enforced.
+        match self.state.write() {
+            Ok(mut guard) => *guard = new_state,
+            Err(poisoned) => {
+                *poisoned.into_inner() = new_state;
+            }
+        }
+        if let Ok(mut guard) = self.policy.write() {
+            *guard = new;
+        }
+        Ok(())
+    }
+
+    /// Cheap clone of the shared [`Arc<RwLock<RateLimitPolicy>>`]
+    /// kept in sync with the internal GCRA state. Useful for
+    /// diagnostic endpoints and tests.
+    pub fn policy_handle(&self) -> Arc<RwLock<RateLimitPolicy>> {
+        Arc::clone(&self.policy)
+    }
+
     /// Check a single request against its tuple's bucket. Returns
     /// [`RateLimitError::Saturated`] if the GCRA state is exhausted.
     /// The underlying `governor` limiter returns a `NotUntil` with
@@ -222,11 +266,7 @@ impl RateLimiter {
     /// here to keep the worker engine agnostic to the `governor`
     /// types.
     pub fn check(&self, key: &RateKey) -> Result<(), RateLimitError> {
-        let limiter: Arc<DefaultKeyedRateLimiter<RateKey>> = match self.overrides.get(&key.consumer)
-        {
-            Some(entry) => Arc::clone(entry.value()),
-            None => Arc::clone(&self.default),
-        };
+        let limiter = self.resolve_limiter(&key.consumer);
         match limiter.check_key(key) {
             Ok(()) => Ok(()),
             Err(_not_until) => Err(RateLimitError::Saturated {
@@ -237,17 +277,24 @@ impl RateLimiter {
         }
     }
 
+    fn resolve_limiter(&self, consumer: &ConsumerId) -> Arc<DefaultKeyedRateLimiter<RateKey>> {
+        let guard = match self.state.read() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        match guard.overrides.get(consumer) {
+            Some(limiter) => Arc::clone(limiter),
+            None => Arc::clone(&guard.default),
+        }
+    }
+
     /// Remove stale keys from every underlying GCRA map. Call this
     /// periodically (the engine does so every 60s from a background
     /// tokio task) to prevent unbounded memory growth when many
     /// ephemeral consumers pass through.
     pub fn retain_recent(&self) {
-        self.default.retain_recent();
-        let mut snapshots: Vec<Arc<DefaultKeyedRateLimiter<RateKey>>> = Vec::new();
-        for entry in self.overrides.iter() {
-            snapshots.push(Arc::clone(entry.value()));
-        }
-        for limiter in snapshots {
+        let snapshot = self.snapshot_limiters();
+        for limiter in snapshot {
             limiter.retain_recent();
         }
     }
@@ -255,15 +302,7 @@ impl RateLimiter {
     /// Total live key count across default + all override limiters.
     /// Useful for tests and ops metrics.
     pub fn len(&self) -> usize {
-        let mut total = self.default.len();
-        let mut snapshots: Vec<Arc<DefaultKeyedRateLimiter<RateKey>>> = Vec::new();
-        for entry in self.overrides.iter() {
-            snapshots.push(Arc::clone(entry.value()));
-        }
-        for limiter in snapshots {
-            total += limiter.len();
-        }
-        total
+        self.snapshot_limiters().iter().map(|l| l.len()).sum()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -273,8 +312,48 @@ impl RateLimiter {
     /// Number of registered consumer overrides. Useful for tests +
     /// policy observability.
     pub fn override_count(&self) -> usize {
-        self.overrides.len()
+        let guard = match self.state.read() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.overrides.len()
     }
+
+    /// Clone the default + every override `Arc` into a fresh `Vec`
+    /// under the read lock, then drop the lock. This keeps the
+    /// GCRA operations (retain_recent, len) outside the lock and
+    /// avoids re-entrancy deadlocks when the operation logic is
+    /// long-running.
+    fn snapshot_limiters(&self) -> Vec<Arc<DefaultKeyedRateLimiter<RateKey>>> {
+        let guard = match self.state.read() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let mut out: Vec<Arc<DefaultKeyedRateLimiter<RateKey>>> =
+            Vec::with_capacity(guard.overrides.len() + 1);
+        out.push(Arc::clone(&guard.default));
+        for limiter in guard.overrides.values() {
+            out.push(Arc::clone(limiter));
+        }
+        out
+    }
+}
+
+fn build_state_from(snapshot: &RateLimitPolicy) -> Result<RateLimiterState, RateLimitError> {
+    let default = Arc::new(build_keyed_limiter(&snapshot.default)?);
+    let mut overrides: HashMap<ConsumerId, Arc<DefaultKeyedRateLimiter<RateKey>>> = HashMap::new();
+    for ov in &snapshot.overrides.consumer {
+        let tier = RateLimitTier {
+            per_min: ov.per_min,
+            burst_multiplier: ov.burst_multiplier,
+        };
+        let limiter = Arc::new(build_keyed_limiter(&tier)?);
+        overrides.insert(ov.pubkey_hex.clone(), limiter);
+    }
+    Ok(RateLimiterState {
+        default,
+        overrides: Arc::new(overrides),
+    })
 }
 
 fn build_keyed_limiter(

@@ -63,6 +63,8 @@ use crate::gpu::{create_monitor, GpuInfo, GpuMonitor};
 use crate::llm::factory::build_backend;
 use crate::llm::{GenerateParams, HealthCheck, LlmBackend};
 use crate::paths::worker_state_file;
+use crate::rate_limit::{RateKey, RateLimitError, RateLimiter};
+use crate::rate_limit_policy_loader::RateLimitPolicyWatcher;
 
 // =================================================================
 // Boot-time configuration
@@ -98,6 +100,14 @@ pub struct EngineBoot {
     /// var. Integration tests pass `Some(tempdir)` so they do
     /// not touch the developer's real home dir.
     pub sbfb_home_override: Option<PathBuf>,
+    /// Sprint 22 Phase A: override for the rate-limit policy file
+    /// path. `None` (the prod default) resolves to
+    /// `<sbfb_home>/rate_limit_policy.toml`. Integration tests set
+    /// this to a tempdir file so they can (a) exercise the engine
+    /// gate against a pre-seeded policy without touching the real
+    /// `~/.sbfb/` and (b) rewrite the file to trigger hot-reload
+    /// without racing the operator's config.
+    pub rate_limit_policy_path_override: Option<PathBuf>,
 }
 
 impl EngineBoot {
@@ -112,6 +122,7 @@ impl EngineBoot {
             data_dir: None,
             llm_override: None,
             sbfb_home_override: None,
+            rate_limit_policy_path_override: None,
         }
     }
 }
@@ -178,6 +189,23 @@ pub struct Engine {
     /// is unresolvable; the consent filter then skips the hours
     /// cap but still enforces level / watts / vram.
     usage: Option<Arc<Mutex<UsageTracker>>>,
+    /// Sprint 22 Phase A : worker-engine rate-limit gate. Invoked
+    /// just before claim sign / broadcast in
+    /// [`Engine::scan_and_execute_tasks`] against the tuple
+    /// `(task_entry.author_pubkey, self.keypair.public, task.model)`.
+    /// Wrapped in `Arc` so the policy watcher callback (held by
+    /// `_rate_limit_watcher` below) can keep a cheap clone across
+    /// hot-reload events.
+    rate_limiter: Arc<RateLimiter>,
+    /// Sprint 22 Phase A : watcher thread backing
+    /// [`Self::rate_limiter`] hot-reload. Held in the struct so its
+    /// `Drop` runs at engine shutdown, joining the background
+    /// reload thread. `None` when `~/.sbfb/` could not be resolved
+    /// — the engine then runs against the in-memory default
+    /// policy (60 req/min, no overrides) and never picks up operator
+    /// edits, which matches the consent-filter-disabled fallback
+    /// pattern from Sprint 16 Phase C.
+    _rate_limit_watcher: Option<RateLimitPolicyWatcher>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -211,6 +239,7 @@ impl Engine {
             data_dir,
             llm_override,
             sbfb_home_override,
+            rate_limit_policy_path_override,
         } = boot;
 
         info!(
@@ -381,6 +410,93 @@ impl Engine {
             None => None,
         };
 
+        // --- Sprint 22 Phase A: rate-limit engine gate + hot-reload ---
+        //
+        // Resolve the policy path : explicit override wins (tests),
+        // else `<sbfb_home>/rate_limit_policy.toml`, else fall back
+        // to in-memory default. The same fail-open pattern as the
+        // consent watcher : a worker with no resolvable home dir
+        // still boots, but its gate runs on the default policy
+        // (60 req/min + burst x2) and cannot pick up operator edits.
+        let rate_limit_path = rate_limit_policy_path_override.or_else(|| {
+            sbfb_home
+                .as_ref()
+                .map(|root| root.join("rate_limit_policy.toml"))
+        });
+        let (rate_limiter, rate_limit_watcher) = match rate_limit_path {
+            Some(path) => {
+                // Build the rate limiter from the on-disk snapshot
+                // (or default if the file does not yet exist) BEFORE
+                // spawning the watcher, so `check` calls on the
+                // first tick see a coherent state. The watcher's
+                // `spawn_with_on_reload` then synchronously applies
+                // the same snapshot via the callback and installs
+                // the notify observer for subsequent edits.
+                let rl_arc =
+                    match crate::rate_limit_policy_loader::load_rate_limit_policy_from(&path) {
+                        Ok(initial) => match RateLimiter::from_policy_value(initial) {
+                            Ok(r) => Arc::new(r),
+                            Err(e) => {
+                                warn!(
+                                    error = %e,
+                                    "rate-limit policy invalid at boot; falling back to default"
+                                );
+                                Arc::new(
+                                    RateLimiter::from_policy_value(
+                                        crate::rate_limit::RateLimitPolicy::default(),
+                                    )
+                                    .expect("default policy must build"),
+                                )
+                            }
+                        },
+                        Err(e) => {
+                            warn!(
+                                error = %e,
+                                path = %path.display(),
+                                "rate-limit policy load failed at boot; falling back to default"
+                            );
+                            Arc::new(
+                                RateLimiter::from_policy_value(
+                                    crate::rate_limit::RateLimitPolicy::default(),
+                                )
+                                .expect("default policy must build"),
+                            )
+                        }
+                    };
+                let rl_for_callback = Arc::clone(&rl_arc);
+                let watcher = match RateLimitPolicyWatcher::spawn_with_on_reload(
+                    path,
+                    move |fresh| {
+                        if let Err(e) = rl_for_callback.swap_policy(fresh.clone()) {
+                            warn!(
+                                error = %e,
+                                "rate-limit policy swap rejected — keeping previous GCRA state"
+                            );
+                        }
+                    },
+                ) {
+                    Ok(w) => Some(w),
+                    Err(e) => {
+                        warn!(error = %e, "rate-limit watcher failed to spawn; hot-reload disabled");
+                        None
+                    }
+                };
+                (rl_arc, watcher)
+            }
+            None => {
+                warn!("cannot resolve ~/.sbfb/ root; rate-limit runs on default policy, no hot-reload");
+                (
+                    Arc::new(
+                        RateLimiter::from_policy_value(
+                            crate::rate_limit::RateLimitPolicy::default(),
+                        )
+                        .expect("default policy must build"),
+                    ),
+                    None,
+                )
+            }
+        };
+
         Ok(Self {
             node,
             state: Arc::new(Mutex::new(state)),
@@ -402,6 +518,8 @@ impl Engine {
             state_flush_path_override: None,
             consent: consent_handle,
             usage: usage_handle,
+            rate_limiter,
+            _rate_limit_watcher: rate_limit_watcher,
         })
     }
 
@@ -822,6 +940,54 @@ impl Engine {
                     }
                 }
 
+                // Sprint 22 Phase A : rate-limit engine gate.
+                // Consent filter has cleared the task ; now bound
+                // its admission rate by the tuple
+                // `(coordinator_that_signed, self, model)`. A
+                // saturated bucket defers the task — we `continue`
+                // without emitting a `ClaimEntry`, so the TaskEntry
+                // stays live on the doc and the next tick (after
+                // GCRA replenish) has a fresh shot. Defends
+                // `HARDENING_ROADMAP §3 C-ModelExtract` model-
+                // extraction paper-flood + `C-DosFlood` §7 DoS
+                // flood at the runtime layer, making the S21 Phase
+                // A primitive effective on the hot path.
+                let rate_key = RateKey::new(
+                    hex::encode(task_entry.author_pubkey),
+                    hex::encode(self.keypair.public_bytes()),
+                    task_entry.task.model.clone(),
+                );
+                match self.rate_limiter.check(&rate_key) {
+                    Ok(()) => {}
+                    Err(RateLimitError::Saturated {
+                        consumer,
+                        worker,
+                        model,
+                    }) => {
+                        debug!(
+                            task_id = %task_id,
+                            consumer = %consumer,
+                            worker = %worker,
+                            model = %model,
+                            "rate-limit saturated; deferring task (no claim emitted this tick)"
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        // InvalidQuota surfaces only on a mis-
+                        // configured policy — the watcher rejects
+                        // malformed swaps and keeps the previous
+                        // known-good state, so reaching this arm
+                        // means the bootstrap quota itself was
+                        // invalid and the engine fell back to
+                        // default. We `warn!` and continue (the
+                        // default policy's quotas are always
+                        // valid) rather than crash the engine.
+                        warn!(task_id = %task_id, error = %e, "rate-limit gate errored; skipping task");
+                        continue;
+                    }
+                }
+
                 let task_started_at = Instant::now();
 
                 // Sign + write claim.
@@ -1070,7 +1236,7 @@ mod tests {
     use crate::consent::{ConsentConfig, ConsentLevel};
     use crate::llm::StubBackend;
     use nexus_core_rs::docs::DocsClient as RsDocsClient;
-    use nexus_core_rs::task::Task;
+    use nexus_core_rs::task::{Task, TaskEntry};
     use tempfile::TempDir;
 
     async fn build_engine_with_stub_ollama() -> Engine {
@@ -1085,6 +1251,7 @@ mod tests {
             data_dir: None,
             llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: None,
+            rate_limit_policy_path_override: None,
         };
         Engine::new(boot).await.expect("engine boots")
     }
@@ -1169,6 +1336,7 @@ mod tests {
             data_dir: None,
             llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: None,
+            rate_limit_policy_path_override: None,
         };
         let mut engine = Engine::new(boot).await.expect("engine boots");
 
@@ -1249,6 +1417,7 @@ mod tests {
             data_dir: None,
             llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
+            rate_limit_policy_path_override: None,
         };
         let mut engine = Engine::new(boot).await.expect("engine boots");
 
@@ -1310,6 +1479,347 @@ mod tests {
 
         let _ = tx.send(());
         handle.await.unwrap().unwrap();
+    }
+
+    // =============================================================
+    // Sprint 22 Phase A — rate-limit engine gate integration tests
+    // =============================================================
+
+    /// Helper : spawn an engine pre-wired with a rate-limit policy
+    /// written to a tempdir TOML file. Returns the engine plus
+    /// handles the test needs to inject tasks (doc + author + coord
+    /// keypair + project id) and to rewrite the policy for the
+    /// hot-reload test. The tempdir is kept alive for the engine's
+    /// lifetime.
+    async fn build_engine_with_rate_limit_policy(
+        policy_toml: &str,
+    ) -> (
+        Engine,
+        TempDir,
+        std::path::PathBuf,
+        RsDocsClient,
+        KeyPair,
+        String,
+    ) {
+        let worker_config = WorkerConfig {
+            engine: crate::config::Engine {
+                task_poll_interval_ms: 100,
+                max_concurrent_tasks: 1,
+                state_flush_secs: 5,
+            },
+            ..WorkerConfig::default()
+        };
+        let keypair = KeyPair::generate();
+        let allowlist = Allowlist::open_in_memory().unwrap();
+        let project_id = "proj-rl".to_string();
+        allowlist
+            .enroll(crate::allowlist::NewProject {
+                id: project_id.clone(),
+                name: "rate-limit test".into(),
+                enabled: true,
+                budget_joules: 0,
+                tasks_doc_ticket: None,
+            })
+            .unwrap();
+
+        // Consent L4 so the filter admits any project id (the test
+        // project id has nothing to do with the worker node id).
+        let sbfb_tmp: TempDir = tempfile::tempdir().unwrap();
+        let mut consent = ConsentConfig::default_for("rate-limit-test");
+        consent.level = ConsentLevel::All;
+        consent
+            .save_atomic(&sbfb_tmp.path().join("consent.json"))
+            .unwrap();
+
+        let policy_path = sbfb_tmp.path().join("rate_limit_policy.toml");
+        std::fs::write(&policy_path, policy_toml).unwrap();
+
+        let boot = EngineBoot {
+            worker_config,
+            keypair: keypair.clone(),
+            allowlist,
+            data_dir: None,
+            llm_override: Some(Box::new(StubBackend::new())),
+            sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
+            rate_limit_policy_path_override: Some(policy_path.clone()),
+        };
+        let engine = Engine::new(boot).await.expect("engine boots");
+
+        let docs = RsDocsClient::new(engine.node.docs());
+        let coord_kp = KeyPair::generate();
+        (engine, sbfb_tmp, policy_path, docs, coord_kp, project_id)
+    }
+
+    fn sign_test_task(id: &str, coord_kp: &KeyPair) -> Vec<u8> {
+        let mut task = Task::new(
+            id,
+            "analysis",
+            "hello",
+            "stub-model:latest",
+            5,
+            1_000_000_000,
+        );
+        task.system_prompt = "".into();
+        let task_entry = TaskEntry::sign(task, coord_kp).unwrap();
+        serde_json::to_vec(&task_entry).unwrap()
+    }
+
+    #[tokio::test]
+    async fn rate_limit_gate_admits_fresh_tuple() {
+        // A fresh (coord, worker, model) tuple must clear the gate
+        // and produce a `claim:*` + `result:*` entry just like the
+        // pre-S22 flow. This is the no-regression baseline : the
+        // gate must not starve tasks under their normal budget.
+        let (mut engine, _home, _policy_path, docs, coord_kp, project_id) =
+            build_engine_with_rate_limit_policy(
+                r#"
+[default]
+per_min = 60
+burst_multiplier = 2.0
+"#,
+            )
+            .await;
+
+        let author = docs.author_create().await.unwrap();
+        let doc = docs.create_doc().await.unwrap();
+        let task_json = sign_test_task("t-fresh", &coord_kp);
+        doc.set(author, b"task:t-fresh".to_vec(), task_json)
+            .await
+            .unwrap();
+        engine.register_task_doc(&project_id, doc.clone());
+
+        let tx = engine.take_shutdown_sender().unwrap();
+        let handle = tokio::spawn(async move { engine.run_until_shutdown().await });
+
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let entries = doc.get_many_by_prefix(b"result:").await.unwrap();
+                if !entries.is_empty() {
+                    return entries;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("fresh tuple must produce a result within 10s");
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].key(), b"result:t-fresh");
+
+        let claims = doc.get_many_by_prefix(b"claim:").await.unwrap();
+        assert_eq!(claims.len(), 1, "claim must be emitted for fresh tuple");
+
+        let _ = tx.send(());
+        handle.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rate_limit_gate_rejects_saturated_tuple() {
+        // Saturate the tuple through direct `rate_limiter.check`
+        // calls BEFORE the engine ticks. The tuple key must match
+        // what the engine derives at admission time :
+        // `(hex(coord_pubkey), hex(self.worker_pubkey), model)`.
+        // A saturated tuple must NOT get a `claim:*` entry — the
+        // engine defers the task and moves on.
+        let policy_toml = r#"
+[default]
+per_min = 2
+burst_multiplier = 1.0
+"#;
+        let (mut engine, _home, _policy_path, docs, coord_kp, project_id) =
+            build_engine_with_rate_limit_policy(policy_toml).await;
+
+        // Pre-saturate the engine's rate limiter on the exact tuple
+        // the engine will see when it admits `t-saturated` below.
+        let rl = Arc::clone(&engine.rate_limiter);
+        let rate_key = RateKey::new(
+            hex::encode(coord_kp.public_bytes()),
+            hex::encode(engine.keypair.public_bytes()),
+            "stub-model:latest",
+        );
+        rl.check(&rate_key).unwrap();
+        rl.check(&rate_key).unwrap();
+        assert!(
+            rl.check(&rate_key).is_err(),
+            "tuple must be saturated before the task lands"
+        );
+
+        let author = docs.author_create().await.unwrap();
+        let doc = docs.create_doc().await.unwrap();
+        let task_json = sign_test_task("t-saturated", &coord_kp);
+        doc.set(author, b"task:t-saturated".to_vec(), task_json)
+            .await
+            .unwrap();
+        engine.register_task_doc(&project_id, doc.clone());
+
+        let tx = engine.take_shutdown_sender().unwrap();
+        let handle = tokio::spawn(async move { engine.run_until_shutdown().await });
+
+        // Give the engine enough ticks to observe the task and run
+        // the gate. 1.5s at `task_poll_interval_ms = 100` is ~15
+        // scan cycles — plenty to confirm the gate rejected the
+        // task (if a claim were going to be written, it would have
+        // been written by now).
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
+        let claims = doc.get_many_by_prefix(b"claim:").await.unwrap();
+        assert!(
+            claims.is_empty(),
+            "saturated tuple must not produce a claim entry (got {})",
+            claims.len()
+        );
+
+        let _ = tx.send(());
+        handle.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rate_limit_gate_defer_preserves_task() {
+        // A rate-limited task must remain live on the doc — no
+        // claim emitted, no result emitted, but the TaskEntry still
+        // exists. This is the contract that keeps throughput lossy
+        // but not wasteful : once the GCRA bucket replenishes, a
+        // future tick can pick the same task up.
+        let (mut engine, _home, _policy_path, docs, coord_kp, project_id) =
+            build_engine_with_rate_limit_policy(
+                r#"
+[default]
+per_min = 1
+burst_multiplier = 1.0
+"#,
+            )
+            .await;
+
+        let rl = Arc::clone(&engine.rate_limiter);
+        let rate_key = RateKey::new(
+            hex::encode(coord_kp.public_bytes()),
+            hex::encode(engine.keypair.public_bytes()),
+            "stub-model:latest",
+        );
+        rl.check(&rate_key).unwrap();
+        assert!(rl.check(&rate_key).is_err());
+
+        let author = docs.author_create().await.unwrap();
+        let doc = docs.create_doc().await.unwrap();
+        let task_json = sign_test_task("t-deferred", &coord_kp);
+        doc.set(author, b"task:t-deferred".to_vec(), task_json)
+            .await
+            .unwrap();
+        engine.register_task_doc(&project_id, doc.clone());
+
+        let tx = engine.take_shutdown_sender().unwrap();
+        let handle = tokio::spawn(async move { engine.run_until_shutdown().await });
+
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
+        let tasks = doc.get_many_by_prefix(b"task:").await.unwrap();
+        assert_eq!(
+            tasks.len(),
+            1,
+            "deferred task must remain on the doc for a future tick"
+        );
+        assert_eq!(tasks[0].key(), b"task:t-deferred");
+
+        let claims = doc.get_many_by_prefix(b"claim:").await.unwrap();
+        assert!(
+            claims.is_empty(),
+            "deferred task must not produce a claim entry"
+        );
+        let results = doc.get_many_by_prefix(b"result:").await.unwrap();
+        assert!(
+            results.is_empty(),
+            "deferred task must not produce a result entry"
+        );
+
+        let _ = tx.send(());
+        handle.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rate_limit_gate_reloads_live_policy() {
+        // Boot with a cramped policy that saturates the tuple after
+        // a single check, rewrite the TOML with a generous budget,
+        // wait for the notify watcher to propagate the reload via
+        // the `swap_policy` callback, and confirm the same tuple is
+        // now admissible. This exercises the full hot-reload path
+        // (file watch → parse → swap_policy → GCRA rebuild).
+        let (engine, _home, policy_path, _docs, coord_kp, _project_id) =
+            build_engine_with_rate_limit_policy(
+                r#"
+[default]
+per_min = 1
+burst_multiplier = 1.0
+"#,
+            )
+            .await;
+
+        let rl = Arc::clone(&engine.rate_limiter);
+        let rate_key = RateKey::new(
+            hex::encode(coord_kp.public_bytes()),
+            hex::encode(engine.keypair.public_bytes()),
+            "stub-model:latest",
+        );
+        // Saturate under the initial policy.
+        rl.check(&rate_key).unwrap();
+        assert!(rl.check(&rate_key).is_err());
+
+        // Rewrite the TOML with a far higher budget. The watcher
+        // picks up the Modify event (debounced 50 ms) and invokes
+        // the on_reload callback which calls
+        // `rate_limiter.swap_policy`, rebuilding the GCRA state.
+        std::fs::write(
+            &policy_path,
+            r#"
+[default]
+per_min = 600
+burst_multiplier = 1.0
+"#,
+        )
+        .unwrap();
+
+        // Wait for the reload — bounded to 3s to surface a
+        // regression quickly without flaking on slow CI.
+        let reloaded = {
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            let mut applied = false;
+            while std::time::Instant::now() < deadline {
+                if rl.check(&rate_key).is_ok() {
+                    applied = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            applied
+        };
+        assert!(
+            reloaded,
+            "hot-reload via swap_policy must free the saturated tuple within 3s"
+        );
+
+        // Engine shutdown path. This test never injects a real
+        // task — the assertion is purely on the in-process
+        // rate_limiter state.
+        let _ = engine.node.shutdown().await;
+    }
+
+    #[test]
+    fn rate_limit_policy_sample_loader_smoke() {
+        // Parse the checked-in sample TOML to catch schema drift
+        // between `RateLimitPolicy` and the operator-facing example.
+        // A regression here means the sample file documents a
+        // shape the parser refuses — very confusing for operators.
+        let sample_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("configs/rate_limit_policy.toml.sample");
+        let parsed =
+            crate::rate_limit_policy_loader::load_rate_limit_policy_from(&sample_path).unwrap();
+        assert!(
+            parsed.default.per_min > 0,
+            "sample default tier must have a positive per_min"
+        );
+        assert!(
+            parsed.default.burst_multiplier > 0.0,
+            "sample default tier must have a positive burst multiplier"
+        );
     }
 
     #[tokio::test]

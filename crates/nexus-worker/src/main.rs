@@ -203,6 +203,7 @@ async fn handle_start(
         data_dir: Some(paths.data_dir.clone()),
         llm_override,
         sbfb_home_override: None,
+        rate_limit_policy_path_override: None,
     };
     let mut engine = Engine::new(boot).await.context("engine boot failed")?;
 
