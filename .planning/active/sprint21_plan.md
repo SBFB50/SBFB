@@ -412,24 +412,66 @@ Body riche avec :
 
 ### 6.2 Fichiers ajoutés / modifiés
 
+**Correction naming 2026-04-19 (post-G8 preflight Phase C)** : le
+plan initial §6.2 listait un fichier `task_response_validator.py`
+(modifié) qui **n'existe pas** côté coord Python. La fonction
+`validate_task_response` vit exclusivement côté worker Rust
+(`crates/nexus-worker-core/src/llm/ollama.rs:222` +
+`llama_cpp.rs:439`, livré S20 Phase D `c85397b`) et n'est jamais
+appelée depuis Python. Les vrais points d'insertion coord-side
+pour le hook ordering *rate-limit → PoW → PII redact → dispatch
+→ output filter → mark_completed* sont :
+
+- `dispatcher.py::Dispatcher.submit` (prompt user → signing
+  → iroh-docs write) pour le `PiiRedactor` pre-dispatch.
+- `validator.py::Validator._handle_result` (result signé worker
+  → 3-layer verify Rust → mark_completed + kudos credit) pour
+  le `OutputFilter` post-verify pre-accept.
+
+Cette correction est un naming-fix sans impact threat-model / wire
+format / Day 0 — le design Phase C (redact pre-dispatch coord-side
++ filter output coord-side) reste strictement celui figé kickoff
+§D2 layer 2 + §D3 output filter. Documenté dans
+`sprint21_phase_C_preflight.md §S1 Note de conception` et tracké
+via `chore(planning)` avant le feat Phase C.
+
+Fichiers phase :
+
 - **`packages/nexus-coordinator/src/nexus_coordinator/
   pii_redactor.py`** (nouveau) : `class PiiRedactor(presidio +
-  GLiNER)`.
+  GLiNERRecognizer sur knowledgator/gliner-pii-edge-v1.0)` +
+  `redact(prompt, *, policy)` + hot-reload policy.toml.
 - **`packages/nexus-coordinator/src/nexus_coordinator/
   output_filter.py`** (nouveau) : `class OutputFilter(LLM Guard
-  InvisibleText + EED echo detector)`.
+  InvisibleText wrappé output + EED echo detector via
+  rapidfuzz.Levenshtein.normalized_similarity)` +
+  `filter(prompt, model_output, *, policy)` + hot-reload.
 - **`packages/nexus-coordinator/src/nexus_coordinator/
-  task_response_validator.py`** (modifié) : ajout hook
-  `output_filter.filter()` avant `validate_task_response`.
+  dispatcher.py`** (modifié) : insertion `PiiRedactor.redact()`
+  dans `Dispatcher.submit` AVANT `nexus_core.sign_task` (donc
+  avant wire signing / iroh-docs write). Le prompt redacted
+  remplace le prompt brut dans `SubmitRequest`. Le
+  `system_prompt` est redacted aussi. Audit trail : structlog
+  log `pii_redacted` avec count par entity type (pas de contenu
+  brut dans les logs).
+- **`packages/nexus-coordinator/src/nexus_coordinator/
+  validator.py`** (modifié) : insertion `OutputFilter.filter()`
+  dans `Validator._handle_result` APRÈS `Verifier.verify_entries`
+  (3-layer) et AVANT `Dispatcher.mark_completed` + `kudos.credit`.
+  Un block verdict (invisible chars détectés / prompt echo above
+  threshold) convertit en `ValidationEvent(kind="result_rejected",
+  reason="output_filter: <sub-reason>")` et appelle
+  `dispatcher.mark_failed(task_id, reason)` sans crediter kudos.
 - **`packages/nexus-coordinator/pyproject.toml`** (modifié) :
   deps `presidio-analyzer = {version = "2.2.362", extras =
   ["gliner"]}`, `presidio-anonymizer = "2.2.362"`,
-  `llm-guard = "0.3.16"`, `rapidfuzz = "3.x"` (EED Levenshtein
-  optimisé).
-- **`~/.sbfb/pii_redaction_policy.toml.sample`** (nouveau).
-- **`~/.sbfb/output_filter_policy.toml.sample`** (nouveau).
-- **Tests** : `packages/nexus-coordinator/tests/test_pii_
-  redactor.py` + `test_output_filter.py`.
+  `llm-guard = "0.3.16"`, `rapidfuzz>=3.0`.
+- **`~/.sbfb/pii_redaction_policy.toml.sample`** (nouveau) :
+  schema documenté dans le design doc §6.1.
+- **`~/.sbfb/output_filter_policy.toml.sample`** (nouveau) :
+  EED threshold default 0.85, whitelist Cf RLO/LRO, configurable.
+- **Tests** : `packages/nexus-coordinator/tests/test_pii_redactor.py`
+  + `test_output_filter.py`.
 
 ### 6.3 Tests à écrire
 
@@ -439,7 +481,9 @@ Body riche avec :
    policy override gate2_apps = confidence_threshold 0.3, tout
    redact.
 3. `test_pii_redactor.py::test_policy_hot_reload` : modifier
-   policy.toml runtime, reload appliqué.
+   policy.toml runtime, reload appliqué (pattern TokenRotator S18
+   + pow_policy_loader S20 C : 50 ms debounce, malformed-reload
+   guard, file-deletion guard).
 4. `test_output_filter.py::test_invisible_chars_stripped` :
    zero-width U+200B, PUA U+E000, Tag chars U+E0020 tous strippés.
 5. `test_output_filter.py::test_rlo_lro_whitelisted_for_i18n` :
