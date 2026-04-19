@@ -27,7 +27,7 @@ Libs scannées via Context7 MCP + WebSearch CVE :
 | Lib | Version plan | Context7 snapshot | CVE WebSearch | Delta |
 |---|---|---|---|---|
 | `presidio-analyzer` | `2.2.362` | `/microsoft/presidio` 975 snippets High, `[gliner]` extra + `GLiNERRecognizer` API `model_name` / `entity_mapping` / `flat_ner` / `multi_label` / `map_location` confirmés. Release 2026-03-15 active | snyk + Safety scans = 0 vulnérabilité connue sur 2.2.362. Pas de CVE-2026 trouvée | **clean** |
-| `llm-guard` | `0.3.16` | `/protectai/llm-guard` 385 snippets High, `InvisibleText` vit dans `input_scanners` mais API stateless `scan(text)` sanitized_text + is_valid + risk_score. `output_scanners.Sensitive` / `NoRefusal` / `Relevance` / `URLReachability` existent mais pas `InvisibleText` output natif | Pas de CVE-2026 publique sur llm-guard | **non-bloquant** (cf. Note de conception 1) |
+| `llm-guard` | `0.3.16` | `/protectai/llm-guard` 385 snippets High, `InvisibleText` vit dans `input_scanners` mais API stateless `scan(text)` sanitized_text + is_valid + risk_score. `output_scanners.Sensitive` / `NoRefusal` / `Relevance` / `URLReachability` existent mais pas `InvisibleText` output natif | Pas de CVE-2026 publique sur llm-guard | **pivot D3 post-preflight** (cf. §Pivot log 2026-04-19 : transitive-pin incompatible avec D2, feature ré-implémentée localement) |
 | `rapidfuzz` | `3.x` | `/rapidfuzz/rapidfuzz` 277 snippets Medium. `Levenshtein.normalized_similarity(s1, s2)` float [0.0-1.0], parfait pour EED seuil 0.85 configurable | snyk scans = 0 vulnérabilité connue. Version PyPI courante `3.14.x` active | **clean** |
 
 **Note de conception 1 (non-bloquante)** : `LLM Guard 0.3.16
@@ -276,3 +276,73 @@ Procède Phase C code implementation selon plan §6 :
 
 Ce document sera archivé Phase F dans `archive/v1.2/` avec les
 autres artefacts S21.
+
+---
+
+## Pivot log post-preflight
+
+### 2026-04-19 — Pivot D3 (drop llm-guard)
+
+**Finding tardif** : au premier `uv sync` pendant l'implémentation
+coord-side (après le préflight initial ci-dessus), le graph deps
+a échoué — `llm-guard 0.3.16` (dernière release PyPI 2026-04, pas
+de plus récent disponible) transitive-pin `presidio-analyzer==
+2.2.358`, incompatible avec le `>=2.2.362` requis par D2 stack.
+G8 S1 finding **manqué par le préflight initial** : les versions
+unitaires ont été vérifiées via context7 (`/protectai/llm-guard`
+385 snippets + `/microsoft/presidio` 975 snippets) mais le graph
+deps transitif cross-libs n'a pas été résolu avant écriture code.
+Seul `uv sync` l'expose (pas de check context7 pour les transitive
+pins de ce type).
+
+**Arbitrage user 2026-04-19 — Option B** : drop llm-guard entièrement
+et ré-implémenter le scanner `InvisibleText` localement dans
+`output_filter.py`. Rationale :
+
+1. Le scanner `InvisibleText` de llm-guard est lui-même ~30 lignes
+   d'unicode category checks + regex strip (pas de ML, pas de
+   modèle chargé, API stateless). Cf. context7 exemple : `from
+   llm_guard.input_scanners import InvisibleText; scanner =
+   InvisibleText(); sanitized, is_valid, risk_score =
+   scanner.scan(prompt)` — comportement reproductible en
+   ~30 lignes Python.
+2. llm-guard 0.3.16 tire un graph transitif massif (torch +
+   transformers + spaCy ~500 MB) pour des scanners qu'on
+   n'utilise pas (`Sensitive`, `NoRefusal`, `Relevance`,
+   `URLReachability`). Drop élimine cet overhead.
+3. Ré-implémentation locale = code auditable, pas de magic
+   lib, testable ligne par ligne. Parité avec llm-guard
+   comportement testée explicitement (tests 4-5 du plan
+   §6.3).
+4. L'esprit D3 kickoff (feature InvisibleText + whitelist
+   Cf pour RLO/LRO i18n) est **préservé par construction**
+   — c'est le même algorithme, juste implémenté chez nous.
+
+**Impact G8 scans (re-classification)** :
+- S1 : llm-guard passe de "non-bloquant note de conception 1"
+  à "pivot D3 post-preflight" — dep retirée, feature
+  ré-implémentée.
+- S2-S4 : inchangés (pas de threat model / wire format / Day 0
+  touchés par le pivot).
+
+**Garde-fou G8 vérifié pour pivot** (README §6.9) :
+- [x] Evidence-based : `uv sync` error output + PyPI version
+  check + context7 llm-guard lock file inspection.
+- [x] Day 0 respect : D3 non rebattu (feature InvisibleText
+  préservée, implémentation détail changé).
+- [x] Wire format : aucun touché.
+- [x] Test budget cap : +1 test parité (InvisibleText local vs
+  whitelist Cf), delta total <= cap 2.5x.
+- [x] Thème sprint : préservé (output filter, defense-in-depth).
+- [x] Pas YAGNI : le pivot réduit le scope (moins de deps, pas
+  plus de code).
+- [x] Retrospective trackée : `chore(planning)` suivant +
+  mention `sprint21_audit_plan.md` Phase C Track pivot D3.
+
+**Verdict G8 post-pivot** : **EXECUTE plan-as-is modifié**
+(équivalent SCOPE-CUT-CONSISTENT avec retrait de dep).
+
+**Action** : `chore(planning)` avant feat Phase C update
+`sprint21_plan.md §6.2` + `pyproject.toml` + ce préflight + design
+doc §2.2 revised. Feat Phase C suivra avec code modules +
+dispatcher/validator hooks + tests.

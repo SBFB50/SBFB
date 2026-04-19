@@ -82,6 +82,32 @@ dependencies = [
     # Workspace path dep so a fresh `uv sync` rebuilds both crates
     # together.
     "nexus-sdk",
+
+    # Sprint 21 phase coord-side — PII redaction layer 2 (complète
+    # la couche iframe livrée phase B `d5b0035`) + output filter
+    # local (InvisibleText scanner reimplémenté + EED prompt echo
+    # detection via rapidfuzz Levenshtein, seuil 0.85 configurable).
+    # Design doc : `.planning/research/S21_phase_C_output_filter_design.md`.
+    #
+    # Pivot D3 2026-04-19 : `llm-guard 0.3.16` (plan initial)
+    # transitive-pin `presidio-analyzer==2.2.358`, incompatible
+    # avec `presidio-analyzer>=2.2.362` requis par D2. Le scanner
+    # `InvisibleText` de llm-guard étant ~30 lignes d'unicode
+    # category checks + regex strip (pas de ML, pas de modèle),
+    # il est ré-implémenté localement dans `output_filter.py` —
+    # élimine ~500 MB de transitive deps (torch + transformers +
+    # spaCy tirés par llm-guard pour scanners qu'on n'utilise
+    # pas : Sensitive, NoRefusal, Relevance, URLReachability) et
+    # débloque le graph deps. L'esprit du plan D3 (feature
+    # InvisibleText + whitelist Cf pour RLO/LRO i18n) est
+    # préservé par construction + parité testée.
+    #
+    # Presidio GLiNER reste chargé best-effort — en absence du
+    # modèle HF cache local, le `PiiRedactor` degrade vers le
+    # regex engine pur Python built-in (email/phone/CC/IBAN/
+    # SSN/IP/URL).
+    "presidio-analyzer[gliner]>=2.2.362",
+    "rapidfuzz>=3.0",
 ]
 
 [project.urls]

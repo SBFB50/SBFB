@@ -463,9 +463,24 @@ Fichiers phase :
   reason="output_filter: <sub-reason>")` et appelle
   `dispatcher.mark_failed(task_id, reason)` sans crediter kudos.
 - **`packages/nexus-coordinator/pyproject.toml`** (modifié) :
-  deps `presidio-analyzer = {version = "2.2.362", extras =
-  ["gliner"]}`, `presidio-anonymizer = "2.2.362"`,
-  `llm-guard = "0.3.16"`, `rapidfuzz>=3.0`.
+  deps `presidio-analyzer[gliner]>=2.2.362` + `rapidfuzz>=3.0`.
+  **Pivot D3 2026-04-19** : `llm-guard>=0.3.16` (plan initial)
+  retiré — `llm-guard 0.3.16` (dernière release PyPI, pas de
+  plus récent) transitive-pin `presidio-analyzer==2.2.358`,
+  incompatible avec `>=2.2.362` requis par D2. Le scanner
+  `InvisibleText` de llm-guard est ~30 lignes d'unicode
+  category checks + regex strip (pas de ML) ; ré-implémenté
+  localement dans `output_filter.py` (cf. design doc §2.2
+  revised + parité testée tests 4-5). Élimine aussi
+  ~500 MB de transitive deps (torch + transformers + spaCy
+  tirés par llm-guard pour scanners Sensitive/NoRefusal/
+  Relevance/URLReachability qu'on n'utilise pas). Esprit D3
+  kickoff préservé : feature InvisibleText + whitelist Cf
+  (RLO/LRO i18n) par construction. G8 S1 finding tardif
+  (graph deps transitif non vérifié au preflight initial) —
+  trace dans `sprint21_phase_C_preflight.md §Pivot log`.
+  `presidio-anonymizer` n'est plus requis non plus (le
+  `PiiRedactor` fait ses propres replacements inline).
 - **`~/.sbfb/pii_redaction_policy.toml.sample`** (nouveau) :
   schema documenté dans le design doc §6.1.
 - **`~/.sbfb/output_filter_policy.toml.sample`** (nouveau) :
