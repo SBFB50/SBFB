@@ -1,10 +1,21 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Sprint 20 Phase E.3 — federated canary registry API tests."""
+"""Sprint 20 Phase E.3 — federated canary registry API tests.
+
+Sprint 21 Phase E (T-NN+1 tech debt resolved) update : the
+``POST /api/canary/observed`` endpoint now verifies the Ed25519
+signature at ingest. Tests use ``nexus_core.build_canary`` to
+produce real signed canaries instead of the previous forged
+payloads (which the new verify path correctly rejects with HTTP
+401).
+"""
 
 from __future__ import annotations
 
+import json
+import secrets
 from pathlib import Path
 
+import nexus_core
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from nexus_coordinator.api.canary import router as canary_router
@@ -31,7 +42,17 @@ def _build_app(registry: CanaryRegistry) -> FastAPI:
     return app
 
 
-def test_api_canary_network_health_returns_expected_shape(tmp_path: Path) -> None:
+def _signed_canary_payload(headline: str = "API test headline") -> dict[str, object]:
+    """Return a freshly-signed canary wire payload via the Rust
+    ``build_canary`` PyO3 binding. The returned dict is the flat
+    JSON shape the daemon emits over gossip — the same shape the
+    ``observed`` endpoint accepts."""
+    secret = secrets.token_bytes(32)
+    canary_json = nexus_core.build_canary("2026-04-15", headline, secret)
+    return json.loads(canary_json)
+
+
+def test_api_canary_network_health_empty_registry_returns_expected_shape(tmp_path: Path) -> None:
     """``GET /api/canary/network-health`` returns the
     NetworkHealth schema FastAPI dumps from pydantic, even when
     the registry is empty (zero maintainers, all summary
@@ -40,7 +61,6 @@ def test_api_canary_network_health_returns_expected_shape(tmp_path: Path) -> Non
     app = _build_app(reg)
     client = TestClient(app)
 
-    # Empty registry baseline — schema must still hold up.
     resp = client.get("/api/canary/network-health")
     assert resp.status_code == 200, resp.text
     data = resp.json()
@@ -48,8 +68,6 @@ def test_api_canary_network_health_returns_expected_shape(tmp_path: Path) -> Non
     assert data["maintainers"] == []
     assert data["summary"]["maintainers_total"] == 0
     assert data["summary"]["canary_fresh"] == 0
-    # Summary keys exist for every status bucket — front-end can
-    # render them directly without nullability handling.
     for k in (
         "canary_fresh",
         "canary_warn",
@@ -64,20 +82,19 @@ def test_api_canary_network_health_returns_expected_shape(tmp_path: Path) -> Non
     assert isinstance(data["observed_at"], str)
     assert data["observed_at"].startswith("20")  # plausible RFC 3339
 
-    # Now POST a canary observation through the API and
-    # re-query — the registry must surface it.
-    pk = ("a" * 63) + "f"
-    canary_payload = {
-        "v": 1,  # confirms the v -> version coercion path
-        "date": "2026-04-15",
-        "headline": "API test headline",
-        "next_update": "2026-05-30",
-        "pubkey_hex": pk,
-        "signature_hex": "b" * 128,
-    }
+
+def test_observed_endpoint_accepts_valid_canary(tmp_path: Path) -> None:
+    """A canary signed via the Rust ``build_canary`` path passes
+    the Ed25519 verify-at-ingest check (Sprint 21 Phase E T-NN+1)
+    and is recorded in the registry."""
+    reg = CanaryRegistry(tmp_path / "canary-registry.json")
+    app = _build_app(reg)
+    client = TestClient(app)
+
+    payload = _signed_canary_payload()
     post = client.post(
         "/api/canary/observed",
-        json={"kind": "canary", "payload": canary_payload},
+        json={"kind": "canary", "payload": payload},
     )
     assert post.status_code == 200, post.text
     assert post.json() == {"status": "observed", "kind": "canary"}
@@ -88,22 +105,59 @@ def test_api_canary_network_health_returns_expected_shape(tmp_path: Path) -> Non
     assert re_data["summary"]["maintainers_total"] == 1
     assert len(re_data["maintainers"]) == 1
     entry = re_data["maintainers"][0]
-    assert entry["pubkey_hex"] == pk
+    assert entry["pubkey_hex"] == payload["pubkey_hex"]
     assert entry["canary_date"] == "2026-04-15"
-    # status depends on today's wall clock — just assert one of
-    # the legal values to keep the test deterministic.
     assert entry["canary_status"] in {"fresh", "warn", "stale"}
 
-    # Bad payload shape -> 422.
+
+def test_observed_endpoint_rejects_malformed_signature(tmp_path: Path) -> None:
+    """A canary with a forged ``signature_hex`` is rejected with
+    HTTP 401 by the verify-at-ingest gate (Sprint 21 Phase E
+    T-NN+1) — the registry must NOT record it."""
+    reg = CanaryRegistry(tmp_path / "canary-registry.json")
+    app = _build_app(reg)
+    client = TestClient(app)
+
+    payload = _signed_canary_payload()
+    payload["signature_hex"] = "b" * 128  # tamper
+
+    post = client.post(
+        "/api/canary/observed",
+        json={"kind": "canary", "payload": payload},
+    )
+    assert post.status_code == 401, post.text
+    assert "signature verification failed" in post.json()["detail"]
+
+    re_resp = client.get("/api/canary/network-health")
+    assert re_resp.status_code == 200
+    assert re_resp.json()["summary"]["maintainers_total"] == 0
+
+
+def test_observed_endpoint_rejects_missing_fields(tmp_path: Path) -> None:
+    """A payload missing required canary fields trips the Rust
+    JSON parse before the cryptographic verify, surfaced as
+    HTTP 401 (the verify-at-ingest gate is the first guard)."""
+    reg = CanaryRegistry(tmp_path / "canary-registry.json")
+    app = _build_app(reg)
+    client = TestClient(app)
+
     bad = client.post(
         "/api/canary/observed",
         json={"kind": "canary", "payload": {"oops": "missing fields"}},
     )
-    assert bad.status_code == 422
+    assert bad.status_code == 401
 
-    # Unknown kind -> 400.
+
+def test_observed_endpoint_rejects_unknown_kind(tmp_path: Path) -> None:
+    """``kind`` outside {canary, duress_ack} returns 400 before
+    any verify is attempted (the dispatch happens first)."""
+    reg = CanaryRegistry(tmp_path / "canary-registry.json")
+    app = _build_app(reg)
+    client = TestClient(app)
+
+    payload = _signed_canary_payload()
     unknown = client.post(
         "/api/canary/observed",
-        json={"kind": "garbage", "payload": canary_payload},
+        json={"kind": "garbage", "payload": payload},
     )
     assert unknown.status_code == 400

@@ -36,6 +36,22 @@ serde_json = { workspace = true }
 # writes).
 nexus-worker-core = { path = "../nexus-worker-core" }
 
+# Sprint 21 Phase E (T-NN+1 tech debt resolved) — nexus-shell-
+# daemon-core owns the warrant canary type. We depend on it only
+# for the `verify_canary` binding consumed by the coordinator's
+# CanaryRegistry to verify Ed25519 signatures at ingest (closes
+# the Sprint 20 Phase E observational-only gap that accepted any
+# payload as valid). Same rationale as `nexus-worker-core` above :
+# Rust types stay the single source of truth, the coordinator
+# never re-implements canary parsing or signature verification in
+# Python.
+nexus-shell-daemon-core = { path = "../nexus-shell-daemon-core" }
+
+# Sprint 21 Phase E — `time` for the `build_canary` test-surface
+# binding (Date::parse on YYYY-MM-DD strings). Same crate /
+# feature set as nexus-shell-daemon-core, no new transitive deps.
+time = { workspace = true }
+
 # Stream polling for Doc::subscribe binding. futures-lite is the
 # same dep nexus-core-rs already uses in its gossip/docs wrappers,
 # so we match the workspace choice rather than pulling futures

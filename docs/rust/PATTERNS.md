@@ -1939,6 +1939,117 @@ call-site yet.
 
 ---
 
+## §P34 — Sprint 21 Phase E : warrant canary tech debt closeout
+
+Resolves the two P2 carries that landed alongside the Sprint 20
+Phase E federation foundations (`6a3f199`) and surfaces a new
+S22+ debt entry that the same effort uncovered.
+
+### T-NN — `canary_wire_bytes` JCS canonical (resolved Sprint 21 Phase E)
+
+**Before (S20)** : `crates/nexus-shell-daemon-core/src/canary/
+mod.rs::canary_wire_bytes` returned `serde_json::to_vec(canary)`,
+i.e. the default Rust `serde_json` ordering (insertion order
+from the struct). Two observers — Rust + Python — could produce
+different bytes for the same logical canary, breaking any
+hash-of-wire-bytes deduplication or observation tracking.
+
+**After (S21)** : migrated to `serde_jcs::to_vec(canary)` (RFC
+8785 JCS canonical). Aligns the canary on the project-wide JCS
+pattern adopted Sprint 4 Day 0 (`1c1fcfb`) for Task / Result /
+Claim / Curator. The signing path was already JCS via
+`nexus_core_rs::canonical_bytes` so this migration does NOT
+break any existing signature — `verify_canary` continues to
+hash `canonical_bytes(&canary.signed, DOMAIN_WARRANT_CANARY_V1)`,
+not the wire bytes.
+
+**Pre-launch coverage** : no canary has been published in
+production yet, so even an observer cache built from the old
+`serde_json::to_vec` bytes would be wiped at the first prod
+publish. Zero migration risk.
+
+**Test guarantee** : `canary::tests::wire_bytes_is_jcs_canonical_
+cross_language` asserts `canary_wire_bytes` matches `serde_jcs::
+to_vec` directly AND that a JCS round-trip via `serde_json::Value`
+(which loses ordering) re-canonicalises byte-identical — the
+property a Python observer relies on (`jcs.canonicalize(json.
+loads(bytes)) == bytes`).
+
+### T-NN+1 — `CanaryRegistry` verify Ed25519 at ingest (resolved Sprint 21 Phase E)
+
+**Before (S20)** : `nexus_coordinator.api.canary` `POST /api/
+canary/observed` accepted any shape-valid payload and recorded
+it observational-only. A peer pushing a forged `signature_hex`
+could pollute the local registry and skew the network-health
+diagnostic.
+
+**After (S21)** : added `verify_canary` PyO3 binding to
+`nexus-core-py` (path-dep `nexus-shell-daemon-core` in `Cargo.
+toml`). The handler calls `nexus_core.verify_canary(json.dumps
+(payload))` BEFORE `coerce_canary_payload` + `observe_canary`.
+A signature / version / hex parse failure returns HTTP 401 and
+the registry stays untouched.
+
+**Defense-in-depth** : the loopback bearer auth (Sprint 16) is
+orthogonal to the verify-at-ingest gate. Even a legitimate
+loopback caller cannot poison the registry with garbage. Both
+checks must pass.
+
+**Test guarantee** : `test_api_canary.py::test_observed_endpoint_
+accepts_valid_canary` (happy path with `nexus_core.build_canary`)
++ `test_observed_endpoint_rejects_malformed_signature` (forged
+sig → 401, registry empty) + `test_observed_endpoint_rejects_
+missing_fields` (broken shape trips the JSON parse before the
+crypto verify).
+
+**Test surface added** : `nexus_core.build_canary(date, headline,
+secret) -> str` PyO3 binding so Python tests can produce real
+signed canaries without re-implementing the canonical-bytes
+recipe in Python (which would let the two paths drift). Rust
+remains the single source of truth for the signing recipe.
+
+**Carries closed** : `verify_duress_ack` binding stays out of
+scope — Sprint 21 Phase E plan §8.1 E-2 explicitly mandated
+canary verify only. Hardening the duress ack channel end-to-end
+is a S22+ follow-up if the threat model elevates the cost of an
+observational-only ack stream.
+
+### T-NN+2 — Iframe PII SDK Rust-wasm realignement Option G (open S22+)
+
+**Status** : open, blocked by upstream toolchain gaps detected
+during Sprint 21 Phase B G8 preflight (cf. memory
+`nexus_grid_pivot.md` § « Tech debt T-NN+2 ») :
+
+- `tract 0.22.1` tests opset 9-18 ; GLiNER export is opset 19
+  (`DisentangledSelfAttention` for DeBERTa-v3 not yet documented)
+- `tract` `wasm32-unknown-unknown` (browser) target not
+  officially documented (only `wasm32-wasi` via wasmtime is
+  upstream-supported)
+- Zero production precedent for `tract` in browser-WASM ML
+  inference
+- `gline-rs v1.0.1` (Rust GLiNER mainstream as of 2026-01-29)
+  picked `ort` (ONNX Runtime) rather than `tract`
+
+**Trigger to revisit** :
+
+- `tract` adds opset 19 coverage including the DeBERTa-v3
+  attention layout, OR
+- `ort` ships a stable `wasm32-unknown-unknown` browser backend,
+  OR
+- `gline-rs` publishes a `wasm-bindgen` browser target
+
+**Workaround in production** : Sprint 21 Phase B implementation
+chose `onnxruntime-web 1.24.3` (Microsoft, npm Mar 2026) +
+`@huggingface/transformers` v4 tokenizer + the `knowledgator/
+gliner-pii-edge-v1.0` Apache-2.0 ONNX model. Same model is the
+single source of truth (coord-side `presidio-analyzer 2.2.362`
++ `GLiNERRecognizer` extra `[gliner]`). The JS path runs the
+defense-in-depth client-side redaction inside the iframe. The
+Rust-wasm Option G realignment would replace only the JS
+runtime, not the model.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

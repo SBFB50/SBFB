@@ -236,10 +236,26 @@ pub fn verify_canary(canary: &Canary) -> Result<(), CanaryError> {
     verify(&pubkey, &bytes, &sig).map_err(|e| CanaryError::Signature(e.to_string()))
 }
 
-/// Serialize a canary to the compact JSON bytes broadcast on the
-/// warrant canary gossip topic.
+/// Serialize a canary to the JCS canonical (RFC 8785) JSON bytes
+/// broadcast on the warrant canary gossip topic.
+///
+/// Sprint 21 Phase E (T-NN tech debt resolved) : migrated from
+/// `serde_json::to_vec` to `serde_jcs::to_vec` so the wire bytes
+/// are byte-identical across Rust and Python observers. Aligns
+/// the canary transport on the project-wide JCS pattern adopted
+/// Sprint 4 Day 0 (commit `1c1fcfb`) for Task / Result / Claim /
+/// Curator. The signing path already uses JCS via
+/// [`nexus_core_rs::canonical_bytes`] so this migration does NOT
+/// break any existing signature — `verify_canary` continues to
+/// hash `canonical_bytes(&canary.signed, DOMAIN_WARRANT_CANARY_V1)`,
+/// not the wire bytes.
+///
+/// Pre-launch protocol policy : no canary has been published in
+/// production yet, so even an observer cache built from the old
+/// `serde_json::to_vec` bytes would be wiped at the first prod
+/// publish. Zero migration risk.
 pub fn canary_wire_bytes(canary: &Canary) -> Result<Vec<u8>, CanaryError> {
-    serde_json::to_vec(canary).map_err(|e| CanaryError::Canonical(e.to_string()))
+    serde_jcs::to_vec(canary).map_err(|e| CanaryError::Canonical(e.to_string()))
 }
 
 /// Format a canary as the multi-line ASCII declaration stored at
@@ -463,6 +479,41 @@ mod tests {
             serde_json::from_slice(&mock.sent[0]).expect("broadcast bytes must be valid JSON");
         assert_eq!(decoded, c);
         verify_canary(&decoded).expect("round-tripped canary must still verify");
+    }
+
+    /// Sprint 21 Phase E (T-NN tech debt resolved) — confirm
+    /// `canary_wire_bytes` returns JCS canonical (RFC 8785) bytes.
+    /// The cross-language guarantee : a Python observer that
+    /// `jcs.canonicalize`s the same logical canary produces the
+    /// exact same bytes, so a hash-of-wire-bytes (used downstream
+    /// for dedup or observation tracking) matches across both
+    /// implementations.
+    #[test]
+    fn wire_bytes_is_jcs_canonical_cross_language() {
+        let signer = ed25519_signer();
+        let canary = build_canary(a_date(), "headline".into(), &signer).unwrap();
+
+        // 1. The wire bytes must equal `serde_jcs::to_vec` directly.
+        let wire = canary_wire_bytes(&canary).expect("canary_wire_bytes works");
+        let direct_jcs = serde_jcs::to_vec(&canary).expect("serde_jcs works");
+        assert_eq!(
+            wire, direct_jcs,
+            "canary_wire_bytes must use serde_jcs (T-NN tech debt resolved)"
+        );
+
+        // 2. JCS guarantees lexicographic key ordering. Round-tripping
+        //    via serde_json::Value (which loses ordering) and re-
+        //    serialising via serde_jcs must produce the same bytes —
+        //    this is the property a Python observer relies on
+        //    (Python's `jcs.canonicalize(json.loads(bytes))` =
+        //    `bytes`).
+        let value: serde_json::Value =
+            serde_json::from_slice(&wire).expect("wire bytes are valid JSON");
+        let re_canonical = serde_jcs::to_vec(&value).expect("re-canonicalise");
+        assert_eq!(
+            wire, re_canonical,
+            "JCS round-trip via Value must be byte-identical (cross-language guarantee)"
+        );
     }
 
     #[test]

@@ -32,6 +32,15 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Sprint 21 Phase E (T-NN tech debt resolved) — JCS canonical
+# (RFC 8785) for `canary_wire_bytes` so the gossip transport
+# bytes are byte-identical cross-language. Aligns the canary on
+# the project-wide JCS pattern adopted Sprint 4 Day 0 (1c1fcfb)
+# for Task / Result / Claim / Curator. Signing path was already
+# JCS via `nexus_core_rs::canonical_bytes`; only the wire
+# transport was the odd-one-out.
+serde_jcs = { workspace = true }
+
 # TOML (de)serialization for the on-disk `config.toml` the shell
 # daemon reads / writes under `<root>/shell-daemon/`. Matches the
 # `toml = "0.8"` pin the worker-core Cargo.toml already uses.

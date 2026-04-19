@@ -51,6 +51,10 @@ use nexus_core_rs::{
     task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry},
     Node, NodeConfig, VerificationReport, Verifier as RsVerifier,
 };
+use nexus_shell_daemon_core::canary::{
+    build_canary as rs_build_canary, signer::Ed25519CanarySigner,
+    verify_canary as rs_verify_canary, Canary as RsCanary,
+};
 use nexus_worker_core::invite::{
     current_unix_secs, Invite as RsInvite, InviteError as RsInviteError,
     InviteScope as RsInviteScope,
@@ -1105,6 +1109,59 @@ fn sign_bytes<'py>(
     Ok(PyBytes::new(py, &sig))
 }
 
+/// Build a freshly-signed [`Canary`] from `(date, headline,
+/// secret)` and return the wire JSON.
+///
+/// Sprint 21 Phase E test surface — exposed so the coordinator's
+/// pytest suite can produce valid canaries to feed back through
+/// `verify_canary` / `POST /api/canary/observed`. The Rust
+/// `build_canary` is the single source of truth for the signing
+/// recipe (canonical bytes + DOMAIN_WARRANT_CANARY_V1 + Ed25519);
+/// re-implementing it Python-side would let the two paths drift.
+///
+/// `date` is `YYYY-MM-DD`. Raises `ValueError` on bad date format
+/// or oversize headline.
+#[pyfunction]
+fn build_canary(date: &str, headline: &str, secret: &Bound<'_, PyBytes>) -> PyResult<String> {
+    use time::macros::format_description;
+    let parsed = time::Date::parse(date, &format_description!("[year]-[month]-[day]"))
+        .map_err(|e| PyValueError::new_err(format!("bad date {date:?}: {e}")))?;
+    let sk: [u8; SECRET_KEY_BYTES] = array32(secret, "secret")?;
+    let kp = KeyPair::from_secret_bytes(&sk);
+    let signer = Ed25519CanarySigner::new(kp);
+    let canary = rs_build_canary(parsed, headline.to_string(), &signer)
+        .map_err(|e| py_err("build_canary", e))?;
+    serde_json::to_string(&canary).map_err(|e| py_err("serialize", e))
+}
+
+/// Verify a [`Canary`] JSON blob signed via the warrant canary
+/// monthly publication path (Sprint 18 Phase E2 + Sprint 20 Phase
+/// E.2 federation foundations). Raises `RuntimeError` if the
+/// signature is invalid, the version is unsupported, or the JSON
+/// is malformed.
+///
+/// Sprint 21 Phase E (T-NN+1 tech debt resolved). Consumed by
+/// `nexus_coordinator.api.canary` `POST /api/canary/observed` so
+/// the federated `CanaryRegistry` only ingests cryptographically
+/// valid observations — closing the Sprint 20 Phase E
+/// observational-only gap (registry accepted any payload, deferred
+/// verify to operator inspection).
+///
+/// Body shape : the wire JSON of the signed [`Canary`] struct
+/// with `signed` flattened into the top-level object. Same shape
+/// the Rust `canary_wire_bytes()` produces (now JCS canonical
+/// since E-1 above), and the same shape the coord-side
+/// `coerce_canary_payload` accepts. The flatten on the Rust side
+/// (`#[serde(flatten)]` on `CanarySigned`) means a verifier who
+/// receives the wire JSON can pass it directly here without
+/// reconstructing the nested `signed: {...}` envelope.
+#[pyfunction]
+fn verify_canary(canary_json: &str) -> PyResult<()> {
+    let canary: RsCanary = serde_json::from_str(canary_json)
+        .map_err(|e| PyValueError::new_err(format!("bad canary json: {e}")))?;
+    rs_verify_canary(&canary).map_err(|e| py_err("verify_canary", e))
+}
+
 /// Verify an Ed25519 signature over arbitrary bytes.
 ///
 /// Raises `RuntimeError` if the signature is invalid.
@@ -1160,6 +1217,8 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(blake3_digest, m)?)?;
     m.add_function(wrap_pyfunction!(sign_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(verify_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(build_canary, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_canary, m)?)?;
 
     Ok(())
 }

@@ -466,6 +466,21 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 
 ## 6. Phase C — PoW runtime wire gossip subscribe (carry S19 integre) (+10 tests)
 
+> **Correction post-implementation 2026-04-19 (Sprint 21 Phase E
+> C-PLAN-1 carry resolved)** : §6.2 + §6.4 ci-dessous citent
+> `iroh_runtime.rs::GossipClient::subscribe` comme wire-point
+> draft. Le wire-up reel realise par le commit S20 Phase C
+> `16b94ba` cible `crates/nexus-shell-daemon/src/runtime.rs::
+> spawn_gossip_subscribe_task` (path daemon binary, pas le client
+> low-level dans `nexus-shell-daemon-core`). Pattern miroir
+> `pow_policy_loader.rs` hot-reload identique. Tous les paths
+> subscribe runtime (curator + browse aggregator + task dispatch
+> gossip) passent par cette task spawn — la Phase C reste
+> equivalente fonctionnellement, seul le path file diffère du
+> draft. Cf. memory `nexus_grid_pivot.md` ligne « C-PLAN-1 plan
+> docs fix wire-point divergence S20 » + audit gate findings
+> S20 P3.
+
 ### 6.1 Scope
 
 Execute la promesse annoncee dans le commit body S19 `edfc51b`

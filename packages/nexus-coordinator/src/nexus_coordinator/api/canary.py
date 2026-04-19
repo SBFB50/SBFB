@@ -11,19 +11,30 @@ Exposes two endpoints:
   ``sbfb canary publish`` CLI to seed the local registry on
   every local publication.
 
+Sprint 21 Phase E (T-NN+1 tech debt resolved): canary observations
+now go through ``nexus_core.verify_canary`` Ed25519 signature
+verification at ingest. A forged ``canary`` payload is rejected
+with HTTP 401 before it can pollute the registry. This closes the
+Sprint 20 Phase E observational-only gap (registry accepted any
+shape-valid payload, deferred verify to operator inspection). The
+``duress_ack`` path is intentionally NOT verified here yet — the
+T-NN+1 carry only covered canary verify; ``verify_duress_ack``
+binding would be a S22+ follow-up if hardened end-to-end matters
+for that channel.
+
 The router has no authentication beyond the loopback bearer
-already enforced by ``LoopbackAuthMiddleware`` (Sprint 16) — the
-registry is purely observational data; observing a forged canary
-is harmless because the freshness diagnostic still surfaces it
-as a maintainer the operator must validate, and the operator
-holds the trust root (the bootstrap pubkeys in CANARY.txt at the
-repo root).
+already enforced by ``LoopbackAuthMiddleware`` (Sprint 16). The
+forged-canary defence above is orthogonal to the loopback bearer:
+even a legitimate loopback caller (e.g. a buggy local CLI) cannot
+poison the registry with garbage.
 """
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
+import nexus_core
 import structlog
 from fastapi import APIRouter, HTTPException, Request
 
@@ -89,9 +100,30 @@ async def observed(request: Request) -> dict[str, str]:
 
     try:
         if kind == "canary":
+            # Sprint 21 Phase E (T-NN+1 tech debt resolved) :
+            # verify Ed25519 signature at ingest before letting
+            # the observation reach the registry. The Rust binding
+            # consumes the wire JSON directly (the same flat shape
+            # produced by `canary_wire_bytes` and accepted by
+            # `coerce_canary_payload` below) and raises on any
+            # signature / version / hex parse error. We surface
+            # those as HTTP 401 because the failure mode is
+            # cryptographic, not request-shape.
+            try:
+                nexus_core.verify_canary(json.dumps(payload))
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=401,
+                    detail=f"canary signature verification failed: {exc}",
+                ) from exc
             obs = coerce_canary_payload(payload)
             coord.canary_registry.observe_canary(obs)
         elif kind == "duress_ack":
+            # Note Sprint 21 Phase E: `verify_duress_ack` binding
+            # is intentionally NOT yet exposed — the T-NN+1 carry
+            # only mandated canary verify at ingest. Duress acks
+            # remain observational-only at the registry layer
+            # pending S22+ follow-up.
             obs = coerce_duress_ack_payload(payload)
             coord.canary_registry.observe_duress_ack(obs)
         else:
