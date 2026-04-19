@@ -116,7 +116,7 @@ nexus-grid/
 │   ├── active/                        # sprint en cours uniquement (kickoff, plan, audit_findings du precedent, verification, audit_plan)
 │   ├── archive/v1.0/                  # S0-13 (pivot, P2P, universal render, bridge, launcher)
 │   ├── archive/v1.1/                  # S14-15 (verified deploy, bridge bidirectionnel, watchdog)
-│   └── archive/v1.2/                  # S16-20 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites)
+│   └── archive/v1.2/                  # S16-21 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites, rate-limit + PII defense-in-depth)
 ├── docs/
 │   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
 │   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
@@ -154,25 +154,43 @@ Roadmap runtime isolation (WSL2 / Virtualization.framework /
 systemd-nspawn) pour Sprint 17+ dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
-## Etat actuel (2026-04-18, master tip post-S20 Phase F wrap-up)
-- **Sprints 0-20 CLOSED**. Audit gate S19 leve via 2 commits
-  `1af90b3..3a7f0a3` (0 P0 + 0 P1 + 9 P2 + 2 P3 resolus inline,
-  verdict PASS). Sprint 20 livre les **6 big rocks Gate 2
-  prerequis** (encryption at rest keypair + duress PIN + panic
-  wipe + PoW runtime wire + structured output dual-backend +
-  warrant canary federation foundations + dual-transport WSS
-  observability). **Premier pivot G8 effectif** sur Phase E :
-  skill `nexus-phase-preflight` introduit commit `59225ee` a
-  detecte un conflit threat-model vs commit S18 E2 `04c9621`
-  (auto-publish scheduler rejete pour raison cle Ed25519
-  accessible) et declenche pivot Option C deep-evolution
-  federation foundations arbitre user 2026-04-18 (plan mis a
-  jour avant code via `bd16e64`). v1.2 en cours.
-- **642 Rust** / 185 SDK / 213+3 skipped coordinator / 46 app-gov
-  / 241 Vitest / 38 Playwright / 7/7 size-limit / 246+ SPDX
-  (~1371 tests total) — tous verts. Delta S20 : **+111** (+104
-  Rust encryption+duress+wipe+PoW wire+structured output+FROST,
-  +5 coord canary_registry, +2 Vitest PanicWipe).
+## Etat actuel (2026-04-19, master tip post-S21 Phase F wrap-up)
+- **Sprints 0-21 CLOSED**. Audit gate S20 leve via `66a3a7c`
+  verdict PASS (0 P0 + 0 P1 + 4 P2 carry actifs + 6 P2 resolus
+  in-phase + 6 P3 cosmetiques). Sprint 21 livre **5 phases A-E**
+  sur le theme « rate-limit + PII SDK defense-in-depth + output
+  filter + quarantine queue + tech debt batch ». Phase A `63afe4e`
+  rate-limit sliding-window multi-tier per-(consumer, worker,
+  model) via `governor 0.10.2` GCRA worker-engine R1 (precedee
+  pivot G8 Option C `60adceb` arbitrage user axum 0.7→0.8 bump
+  workspace-wide `5e67ce0`). Phase B `d5b0035` PII SDK iframe
+  client-side (`onnxruntime-web 1.24.3` + `@huggingface/
+  transformers` v4 tokenizer + `knowledgator/gliner-pii-edge-
+  v1.0` ONNX). Phase C `23abb11` PII coord-side
+  (`presidio-analyzer 2.2.362` + `GLiNERRecognizer` extra
+  `[gliner]` meme modele ONNX source-of-truth + local
+  InvisibleText scanner curated + EED echo Levenshtein 0.85).
+  Phase D `f830579` quarantine queue SQLite WAL + `nexus-
+  coordinator quarantine list/flush/drop` Typer CLI (chore
+  realignement coord-Python `a82e8db` G8 SCOPE-CUT-CONSISTENT
+  qui a absorbe 4 findings drift plan-vs-code). Phase E
+  `49f0d32` tech debt batch — `canary_wire_bytes` JCS canonical
+  (T-NN resolu), `CanaryRegistry` verify Ed25519 at ingest via
+  `nexus_core.verify_canary` PyO3 binding (T-NN+1 resolu), plan
+  docs S20 §6 wire-point fix (C-PLAN-1 resolu), PATTERNS.md
+  §P34 closeout. **Premier sprint avec G8 systematique 5/5
+  phases** (1 DESIGN-CONFLICT axum bump + 4 SCOPE-CUT-
+  CONSISTENT). Cap G7 carry-overs respecte 2/2 pour S22 :
+  Meta-1 Radicle-v1.0 re-carry (S18→S19→S20→S21→S22) + T-NN+2
+  iframe Rust-wasm Option G ouvert S22+ blocked tract/ort/
+  gline-rs (PATTERNS §P34, hors cap formel). v1.2 en cours.
+- **659 Rust** / 185 SDK / **249+3 skipped** coordinator / 46
+  app-gov / **256 Vitest** / 38 Playwright / 7/7 size-limit /
+  246+ SPDX (**~1436 tests total**) — tous verts. Delta S21 :
+  **+65** (+17 Rust governor + canary JCS, +36 coord PII redactor
+  + output filter + quarantine queue + verify-at-ingest + 16
+  fix wheel-stale via Phase E maturin rebuild bonus, +15 Vitest
+  iframe SDK PII).
 - Sprint 12 a livre le rendu universel cross-node (archive zip
   → daemon blob-serve → iframe sandboxee)
 - Sprint 13 a livre le bridge postMessage (iframe ↔ coordinator),
@@ -315,6 +333,11 @@ systemd-nspawn) pour Sprint 17+ dans
   aucun tolerant decoder multi-version introduit. Pas de nouvelle
   zone rouge — R-wasmtime-cve / R-iroh-audit / R-libcrux-hax /
   R-pyodide-escape inchangees.
+- Audit gate S21 = Sprint 22 Phase 0 via
+  `.planning/archive/v1.2/sprint21_audit_plan.md` (tracks A-F +
+  meta-track Radicle-v1.0 re-carry S22 + meta-track G8
+  traceability 5/5 phases A-E + meta-track hook coverage Phase D
+  sans review.md investigation).
 
 ## Commandes clés
 ```bash
