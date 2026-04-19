@@ -36,6 +36,7 @@ import nexus_core
 import structlog
 
 from nexus_coordinator.db.migrations import init_db
+from nexus_coordinator.pii_redactor import PiiRedactor
 
 _log = structlog.get_logger(__name__)
 
@@ -82,7 +83,16 @@ class SubmitRequest:
 
 class Dispatcher:
     """Owns ``task:*`` writes on the project doc and the task_state
-    mirror SQLite table."""
+    mirror SQLite table.
+
+    Sprint 21 phase coord-side : ``pii_redactor`` hook layer 2
+    defense-in-depth. Si fourni, ``Dispatcher.submit`` appelle
+    ``pii_redactor.redact()`` sur ``req.prompt`` et
+    ``req.system_prompt`` AVANT ``nexus_core.sign_task`` —
+    garantit que le TaskEntry signé qui part sur iroh-docs ne
+    contient jamais de PII brutes, même si la couche iframe
+    client (phase B `d5b0035`) n'a pas tourné.
+    """
 
     def __init__(
         self,
@@ -91,11 +101,13 @@ class Dispatcher:
         doc: Any,  # nexus_core.Doc
         author_id: str,
         coord_secret: bytes,
+        pii_redactor: PiiRedactor | None = None,
     ) -> None:
         self._db_path = db_path
         self._doc = doc
         self._author_id = author_id
         self._coord_secret = coord_secret
+        self._pii_redactor = pii_redactor
 
     async def init(self) -> None:
         """Ensure the DB schema exists. Call once at coordinator start."""
@@ -126,12 +138,22 @@ class Dispatcher:
             return task_id
 
         now = int(time.time())
+        # Sprint 21 phase coord-side layer 2 PII redaction hook —
+        # applique AVANT la signature + iroh-docs write. Le
+        # SubmitRequest original reste intact (le caller peut
+        # l'avoir construit pour d'autres dérivations côté API).
+        if self._pii_redactor is not None:
+            prompt_for_wire = self._pii_redactor.redact(req.prompt)
+            system_prompt_for_wire = self._pii_redactor.redact(req.system_prompt)
+        else:
+            prompt_for_wire = req.prompt
+            system_prompt_for_wire = req.system_prompt
         task_dict = {
             "version": TASK_FORMAT_VERSION,
             "task_id": task_id,
             "task_type": req.task_type,
-            "prompt": req.prompt,
-            "system_prompt": req.system_prompt,
+            "prompt": prompt_for_wire,
+            "system_prompt": system_prompt_for_wire,
             "model": req.model,
             "priority": req.priority,
             "created_at": now,

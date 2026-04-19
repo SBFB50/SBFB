@@ -26,6 +26,16 @@ The loop exposes two hooks for tests:
   a per-event summary.
 - :meth:`Validator.run_forever` — drive the loop until the
   coordinator stops.
+
+Sprint 21 phase coord-side : optional ``output_filter`` hook. Si
+fourni, ``_handle_result`` applique ``output_filter.filter()``
+APRÈS le 3-layer verify Rust et AVANT
+``Dispatcher.mark_completed`` + ``KudosLedger.credit``. Un verdict
+négatif (invisible text strippé / prompt echo above threshold)
+convertit l'event en ``result_rejected`` avec
+``reason="output_filter: <sub-reason>"`` + appelle
+``dispatcher.mark_failed``. Le worker **n'est pas crédité** —
+pattern identique à un 3-layer verify fail.
 """
 
 from __future__ import annotations
@@ -41,6 +51,7 @@ import structlog
 
 from nexus_coordinator.dispatcher import Dispatcher
 from nexus_coordinator.kudos import KudosLedger
+from nexus_coordinator.output_filter import OutputFilter
 
 _log = structlog.get_logger(__name__)
 
@@ -66,6 +77,7 @@ class Validator:
         dispatcher: Dispatcher,
         kudos: KudosLedger,
         db_path: Path,
+        output_filter: OutputFilter | None = None,
     ) -> None:
         self._doc = doc
         self._node = node
@@ -74,6 +86,7 @@ class Validator:
         self._db_path = db_path
         self._subscription: Any | None = None
         self._verifier: Any = nexus_core.Verifier()
+        self._output_filter = output_filter
 
     async def start(self) -> None:
         """Open a LiveEvent subscription on the doc."""
@@ -213,6 +226,36 @@ class Validator:
         result_entry = json.loads(result_json)
         worker_pubkey = bytes(result_entry["worker_pubkey"])
         tokens = int(result_entry["payload"]["tokens_generated"])
+
+        # Sprint 21 phase coord-side — output filter hook. Appliqué
+        # APRÈS 3-layer verify (on sait que la sig est bonne) et
+        # AVANT mark_completed + kudos credit. Un verdict négatif
+        # bloque la delivery au client via l'API control plane +
+        # décrédite le worker (pattern identique à un 3-layer fail).
+        if self._output_filter is not None:
+            model_output = self._extract_model_output(result_entry)
+            system_prompt, user_prompt = self._extract_task_prompts(task_entry_json)
+            verdict = self._output_filter.filter(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model_output=model_output,
+            )
+            if not verdict.is_valid:
+                reason = f"output_filter: {verdict.reason}"
+                await self._dispatcher.mark_failed(task_id, reason)
+                _log.warning(
+                    "output_filter_rejected_result",
+                    task_id=task_id,
+                    reason=verdict.reason,
+                    risk_score=verdict.risk_score,
+                )
+                return ValidationEvent(
+                    kind="result_rejected",
+                    task_id=task_id,
+                    worker_pubkey_hex=worker_pubkey.hex(),
+                    reason=reason,
+                )
+
         await self._dispatcher.mark_completed(task_id, entry["hash"])
         await self._kudos.credit(
             worker_pubkey=worker_pubkey,
@@ -230,3 +273,33 @@ class Validator:
             task_id=task_id,
             worker_pubkey_hex=worker_pubkey.hex(),
         )
+
+    @staticmethod
+    def _extract_model_output(result_entry: dict[str, Any]) -> str:
+        """Pull the LLM text output from a ResultEntry payload.
+
+        Best-effort : un `ResultEntry` peut avoir le contenu sous
+        plusieurs noms de champs selon le task_type (``content``,
+        ``output``, ``text``). En absence, renvoie chaîne vide —
+        l'output filter skip alors sur texte vide (no-op).
+        """
+        payload = result_entry.get("payload", {}) or {}
+        for key in ("content", "output", "text", "response"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return ""
+
+    @staticmethod
+    def _extract_task_prompts(task_entry_json: str) -> tuple[str, str]:
+        """Pull (system_prompt, user_prompt) from the signed TaskEntry."""
+        try:
+            parsed = json.loads(task_entry_json)
+        except json.JSONDecodeError:
+            return "", ""
+        task = parsed.get("task", parsed) if isinstance(parsed, dict) else {}
+        if not isinstance(task, dict):
+            return "", ""
+        system_prompt = str(task.get("system_prompt", "") or "")
+        user_prompt = str(task.get("prompt", "") or "")
+        return system_prompt, user_prompt
