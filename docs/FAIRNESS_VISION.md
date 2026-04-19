@@ -197,15 +197,49 @@ histoire vraie dans le code.
 
 ---
 
-## 7. Le design-conflict du Sprint 22
+## 7. Le design-conflict du Sprint 22 — **RÉSOLU 2026-04-19**
 
-`docs/security/HARDENING_ROADMAP.md` ligne 250 prévoit pour
+**Arbitrage user 2026-04-19** (post-synthèse research G2 6 agents
+deep-dive + G1 Design Review Board CONDITIONAL PASS) :
+
+- **Option (a) age+PoW** → retenue comme **Couche 1** (réutilise
+  S19 PoW Hashcash + `AgeWitness` peer-attestation Ed25519 + cap
+  âge 7j + bootstrap allowlist ≤20 nodes).
+- **Option (c) voice-per-project binaire** → retenue comme
+  **Couche 2** (`ContributorAttestation` predicate in-toto extend
+  `ProvenanceRecord` S14).
+- **Option (b) Passport multi-signal** → **rejetée** (Human
+  Passport centralisé Holonym 2024, BrightID AntiSybil dormant
+  2021, GitHub OAuth biais OECD ~90% population mondiale exclue
+  vs populations Gate 4 LibanLive-class).
+- **Composition 3 couches** avec Couche 3 design-only S22 / implem
+  S23-S27 (multi-forge cross-validate + trust-web Amnesty-class
+  ONG post-v1.0).
+
+**Design-conflict Matthew effect latent one-layer-deeper** acknowledgé :
+voice-per-project évite kudos-weighting gossip-layer mais high-
+kudos workers entrent dans plus de projets → voix cumulée
+reconstituée un niveau + profond. Mitigation LT-1 latent commitment
+(trigger empirique Gini >0.70 OR top-5% >50% OR churn×hw corrélé)
++ TODO code comments Phase C.
+
+Cf. :
+- `.planning/active/sprint22_kickoff.md §4 D1`
+- `.planning/active/sprint22_design_review.md §3 P2-G1-3`
+- `.planning/active/sprint22_carry_summary.md §5` (pivot S27)
+- `docs/security/HARDENING_ROADMAP.md §3 S22` (wording fix)
+
+---
+
+**Section historique pre-arbitrage (archivée pour traçabilité)** :
+
+`docs/security/HARDENING_ROADMAP.md` ligne 250 prévoyait pour
 Sprint 22 :
 
 > "Kudos-weighted gossip admission (nodes >N kudos full voice,
 > others read-only)"
 
-Telle qu'écrite, cette ligne câble le Matthew effect dans la
+Telle qu'écrite, cette ligne câblait le Matthew effect dans la
 gouvernance du réseau elle-même. Le raisonnement est simple : si le
 droit de parole sur la couche gossip dépend du kudos cumulé, et si
 le kudos cumulé dépend du hardware, alors les workers au hardware

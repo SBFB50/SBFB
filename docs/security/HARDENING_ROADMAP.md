@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-19  # G2 — Sprint 21 CLOSED (5 phases A-E + tech debts P2 S20 fermés + premier G8 systématique 5/5)
+last_validated: 2026-04-19  # G2 — Sprint 22 OPEN (composition 3 couches Sybil, FAIRNESS flag S22 item 1 résolu arbitrage user, pivot S27 item implicit, items 3/4 deferrés S23/post-S25, LT-2 Meta-1 Radicle reclassification régularisée)
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -242,42 +242,77 @@ median app) :
   pas tract). Re-evaluate triggers documented
   `sprint21_carry_summary.md §2 T-NN+2`.
 
-### Sprint 22 — Sybil resistance + compute detection + voting
+### Sprint 22 — Sybil resistance composition 3 couches + compute detection baseline + watermark primitive
 
-- **Goal** : consolider Gate 2 via Sybil-resistance kudos-weighted
-  + detection runtime compute theft + redundancy voting Gate 3
-  base.
+- **Goal** : consolider Gate 2 via Sybil-resistance **composée
+  3 couches** (flag FAIRNESS résolu arbitrage user 2026-04-19) +
+  NVML baseline foundation S24 + watermark canari primitive.
 - **Items** :
-  - Kudos-weighted gossip admission (nodes >N kudos full voice,
-    others read-only) — ~600 LOC
-    > **FAIRNESS FLAG 2026-04-19** : cette ligne, telle qu'ecrite,
-    > cable le Matthew effect dans la gouvernance (plus gros GPU
-    > → plus de kudos → plus de voix). Revisiter contre
-    > [`docs/FAIRNESS_VISION.md`](../FAIRNESS_VISION.md) §7
-    > "Design-conflict S22" AVANT le kickoff S22. Alternatives
-    > Sybil-resistance non-kudos-gated listees : (a) anciennete
-    > node_id + PoW individuel, (b) Gitcoin-Passport-style
-    > multi-signal (stamps GH + SBFB.json Keyoxide + BrightID
-    > optionnel), (c) voice-per-project-contribution binaire
-    > (≥1 contribution = 1 voix, pas plus). Long-term commitment
-    > LT-1 "Kudos-v2 fairness reform" enregistre dans
-    > [`docs/release/ROADMAP_COMMITMENTS.md`](../release/ROADMAP_COMMITMENTS.md).
-  - NVML util + duree profile worker-core, log-only baseline —
-    ~400 LOC
-  - Sandbox tool-calling allow-list strict + dry-run — ~500 LOC
-  - Redundancy voting Task.redundancy_factor (3 workers majority)
-    — ~400 LOC
-  - Spot-check watermark canari (consumer glisse 1/N prompt
-    verif) — ~300 LOC
-- **LOC total** : ~2200
-- **Tests delta** : +75
-- **Dependencies** : S19 PoW, S21 rate-limit
-- **Gate unlock** : Gate 2 (TransLingua, FamilyScan) debloque
+  - **Sybil-resistance admission composée 3 couches** (remplace
+    "Kudos-weighted gossip admission" flag FAIRNESS résolu) :
+    - **Couche 1** : age node_id ≥7j + PoW S19 réutilise
+      `crates/nexus-core-rs/src/gossip.rs:140-162` + bootstrap
+      allowlist ≤20 nodes (self-witness pre-v1.0) — ~400 LOC
+    - **Couche 2** : `ContributorAttestation` predicate in-toto
+      extend `ProvenanceRecord` S14 + wire
+      `crates/nexus-core-rs/src/curator.rs:252-274` + coord Python
+      registry — ~500 LOC + ~100 Python
+    - **Couche 3** : design-only S22 (RFC
+      `docs/security/CONTRIBUTOR_ATTESTATION_RFC.md` +
+      `CONTRIBUTOR_ATTESTATION_PREDICATE.md` spec), implémentation
+      distribuée S23-S27 — ~250 LOC docs
+    > **FAIRNESS FLAG résolu 2026-04-19** : arbitrage user post-
+    > synthèse research G2 (6 agents deep-dive) + G1 Design Review
+    > Board CONDITIONAL PASS. Alternative (c) voice-per-project
+    > binaire adoptée comme Couche 2 (ContributorAttestation),
+    > alternative (a) age+PoW adoptée comme Couche 1, alternative
+    > (b) Passport multi-signal rejetée (centralisé Human Passport +
+    > dormant BrightID + biais OECD GH). Design-conflict Matthew
+    > effect **latent one-layer-deeper** acknowledgé via
+    > [`ROADMAP_COMMITMENTS §LT-1`](../release/ROADMAP_COMMITMENTS.md)
+    > + TODO code comments Phase C. Post-v1.0 refonte Kudos v2 =
+    > LT-1 commitment. Cf. `sprint22_kickoff.md §4 D1` +
+    > `sprint22_design_review.md §3 P2-G1-3`.
+  - NVML util + duree profile worker-core, **log-only baseline
+    stats-only** (foundation S24, pas anomaly detection) — ~300 LOC
+  - ~~Sandbox tool-calling allow-list strict + dry-run — ~500 LOC~~
+    **DEFERRÉ post-S25** (pas de surface tool-call live S22 :
+    seul S20 structured output, pas de tool-registry ouvert.
+    OWASP LLM06:2025 Excessive Agency ne se déclenche pas sans
+    tool-call live. Re-évaluation trigger : S25 RAG ou S28+
+    tool-registry LLM).
+  - ~~Redundancy voting Task.redundancy_factor (3 workers majority)
+    — ~400 LOC~~ **DEFERRÉ S23** (mitigue C-ResultSpoof tier T5
+    = surdimensionné 3 gates au-dessus Gate 2 T0-T2. BOINC/F@H
+    ont opéré 1-worker prod 20 ans. Gate 3 track §7 ligne 554.
+    Co-deferrer dependency S24 ligne 311 `S22 redundancy voting`
+    → `S23 redundancy voting`).
+  - Spot-check watermark canari-input (consumer glisse 1/N prompt
+    known-answer Ed25519-signed rotatable, distinct watermark-
+    output Kirchenbauer vulnérable BIRA 2025) — ~300 Python
+  - **Wire-up debts S21 absorbés en phases dédiées** (pas carry-
+    overs G7 formels — pattern S20 Phase C `16b94ba` PoW runtime
+    wire carry S19 A-2 absorbé) :
+    - Phase A rate-limit engine wire (P2-S21-1 + P2-S21-2 hot-
+      reload) — ~250 Rust
+    - Phase B GLiNER span-logits decoder iframe (P2-S21-3) — ~350 TS
+  - Process fixes Phase F : P2-S21-4 README §4.X review→audit_plan
+    règle + P2-S21-5 GHA CI cross-check commit→review file —
+    ~150 LOC
+- **LOC total** : ~2500 (+14% vs nominal 2200 absorption wire-up
+  debts + G1 findings P0 ceremony + predicate spec)
+- **Tests delta** : **+43** (+28 Rust Phase A/C/D + 6 Vitest Phase B
+  + 9 Python coord Phase C/E)
+- **Dependencies** : S19 PoW (live `edfc51b`), S21 rate-limit
+  (primitive live `63afe4e`, wire S22 Phase A), S14 ProvenanceRecord
+  (live `95807b1`, extend S22 Phase C)
+- **Gate unlock** : **Gate 2** (TransLingua, FamilyScan,
+  EHPAD-Lien) débloqué à la clôture S22 Phase F.
 
-### Sprint 23 — Ephemeral workers + escalating PoW + honeypot
+### Sprint 23 — Ephemeral workers + escalating PoW + honeypot + redundancy voting (carry S22)
 
 - **Goal** : durcir contre worker-infiltre (honey-worker) + anti-
-  extraction modele.
+  extraction modele + ajouter redundancy voting foundation Gate 3.
 - **Items** :
   - Ephemeral workers pattern (restart after N tasks +
     `cudaMemset` VRAM wipe) — ~500 LOC
@@ -285,14 +320,25 @@ median app) :
     geometrique — ~300 LOC
   - Honeypot Eclipse detection (canary peer rotation, alert si
     toujours meme neighborhood) — ~400 LOC
-  - Exponential cooldown per-identity overflow (1/2/4/... min) —
-    ~200 LOC
-  - Traffic padding design doc + iroh upstream PR draft — ~100
-    LOC (mostly docs)
-- **LOC total** : ~1500
-- **Tests delta** : +60
-- **Dependencies** : S22 Sybil kudos
+  - **Redundancy voting `Task.redundancy_factor` (3 workers
+    majority)** — ~400 LOC **(carry S22 co-deferré 2026-04-19,
+    cf. `sprint22_carry_summary.md §4`)**. Pré-requis dependency
+    S24 re-run sampling (ligne 311 update `S22 → S23`).
+  - Couche 3 design doc finalisation (RFC émis S22 Phase C) +
+    delegation cert format Rust struct — ~100 LOC (design-only)
+  - ~~Exponential cooldown per-identity overflow (1/2/4/... min) —
+    ~200 LOC~~ **DEFERRÉ** (redondant avec Couche 1 age gate S22 —
+    node_id <7j déjà bloqué, pas besoin cooldown exponentiel)
+  - ~~Traffic padding design doc + iroh upstream PR draft — ~100
+    LOC~~ **REPORTÉ S28** (aligné Nym mixnet integration phase 1)
+- **LOC total** : ~1700 (vs 1500 initial, +200 redundancy voting
+  carry)
+- **Tests delta** : +65
+- **Dependencies** : S22 Sybil base (Couches 1+2)
 - **Gate unlock** : —
+- **Scope reduction documentée** (arbitrage S22 ouverture 2026-
+  04-19) : Exponential cooldown redondant Couche 1 age gate ;
+  Traffic padding aligné Nym mixnet S28 plutôt que doc-only S23.
 
 ### Sprint 24 — Re-run sampling + DNS fallback + key rotation
 
@@ -308,7 +354,9 @@ median app) :
     ~500 LOC
 - **LOC total** : ~1400
 - **Tests delta** : +50
-- **Dependencies** : S22 redundancy voting (pour seuil detection)
+- **Dependencies** : **S23 redundancy voting** (pour seuil
+  detection — dep update 2026-04-19 post co-defer S22→S23, cf.
+  `sprint22_carry_summary.md §4`)
 - **Gate unlock** : —
 
 ### Sprint 25 — Tor transport phase 1 + per-app quota + RAG
@@ -362,20 +410,27 @@ median app) :
   minoritaires + ECH restent — demandent legal partnership prealable.
   Arti library-embed differe S25→S26 sur condition API stable.
 
-### Sprint 27 — Watermark model + Sybil mature + Gate 3 push
+### Sprint 27 — Watermark model + Couche 3 mature + Gate 3 push
 
 - **Goal** : PolitiScan-ready suite complete.
 - **Items** :
   - Watermark injection opt-in (technique Kirchenbauer 2023
     green-list tokens biased) — ~500 LOC
-  - Sybil kudos-weighted mature : trust-web bootstrapped par
-    Amnesty-class ONG pour Gate 4 — ~400 LOC
+  - **Couche 3 mature (multi-forge cross-validate + trust-web
+    Amnesty integration)** — ~700 LOC **(remplace "Sybil kudos-
+    weighted mature" 2026-04-19 pivot, même flag FAIRNESS implicite
+    que S22 item 1 original — cf. `sprint22_carry_summary.md §5`)**.
+    Implem parser `git log --show-signature` offline + cache LRU
+    SQLite + trust-web Amnesty-class ONG bootstrap seed.
   - PolitiScan-specific hardening items (audit S16-S26 gaps) —
     ~300 LOC
-- **LOC total** : ~1200
-- **Tests delta** : +45
-- **Dependencies** : S22 Sybil base, S26 Tor complete
-- **Gate unlock** : Gate 3 (PolitiScan, NEXUS cold-case) debloque
+- **LOC total** : ~1500 (vs 1200 initial, +300 Couche 3 LOC)
+- **Tests delta** : +50
+- **Dependencies** : S22 Sybil base (Couches 1+2), S23 Couche 3
+  design finalisé, S25-S26 Couche 3 implem partielle, S26 Tor
+  complete
+- **Gate unlock** : Gate 3 (PolitiScan, NEXUS cold-case) debloqué
+  post-audit externe S29.
 
 ### Sprint 28 — Nym mixnet + MIG + external audit prep
 

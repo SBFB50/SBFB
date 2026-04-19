@@ -41,6 +41,7 @@ Derniere revue).
 | ID   | Title                                                         | Status     | Owner          | Last reviewed |
 |------|---------------------------------------------------------------|------------|----------------|---------------|
 | LT-1 | Kudos-v2 fairness reform (log-utility + DRF + EMA fitness)    | latent     | `<post-v1.0>`  | 2026-04-19    |
+| LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | latent   | `<post-v1.0>`  | 2026-04-19    |
 
 ## LT-1 Kudos-v2 fairness reform
 
@@ -100,19 +101,50 @@ Derniere revue).
   en Phase 0 audit du sprint qui detecte le premier seuil (c1/c2/c3)
   franchi, ou en Phase F wrap-up du sprint qui pose le tag v1.0.
 
+## LT-2 Meta-1 Radicle-v1.0 activation tracking
+
+- **ID** : LT-2
+- **Title** : Meta-1 Radicle-v1.0 activation tracking (flip
+  Codeberg mirror → Radicle primary post go-live).
+- **Origine** : S18 Phase E3 `95807b1` scope-cut Radicle-v1.0
+  (Radicle P2P public-only incompatible repo GitHub privé pré-
+  launch). Carry S18 → S19 → S20 → S21 = 3 consecutives (règle
+  §6.2.1 trigger). **Rattrapage reclassification en Phase F
+  S21 oublié**, régularisé au kickoff S22 (2026-04-19) via G1
+  acknowledgement P3-G1-7 + audit gate S21 PASS confirmé
+  (`96a953b`). Entre directement via voie 1 (reclassification
+  automatique).
+- **Condition de declenchement** : **tag `v1.0` go-live posé sur
+  master**. Déclencheur unique. Au moment du tag :
+  - (a) Réouvrir Meta-1 comme carry actif dans le sprint qui pose
+    le tag (reintegration G7 cap du sprint concerné).
+  - (b) Exécuter flip sequence `docs/release/MIRROR_FALLBACK.md §3
+    "Flip sequence Codeberg → Radicle"`.
+  - (c) Activer Radicle Heartwood node primary + DHT pkarr 3-
+    quorum 2/3 (S18 Phase C) + warrant canary FROST K-of-N (S20
+    Phase E + S30 FROST Niveau 1).
+- **Owner** : `<post-v1.0>`. Sera remplacé par le handle du lead
+  release au moment du tag v1.0. Pas d'owner assigné tant que la
+  condition de déclenchement n'est pas remplie.
+- **Runbook pointer** : `docs/release/MIRROR_FALLBACK.md §3 "Flip
+  sequence Codeberg → Radicle"` — procédure self-contained
+  documentée depuis S18 Phase E3. Inclut :
+  - Désactivation mirror GitHub privé
+  - Publication seed nodes Radicle officiels (`iris.radicle.xyz`,
+    `rosa.radicle.xyz` cités agent research 6 — à re-vérifier
+    post-Heartwood 1.8.x vuln replay attack corrigée 2026-03-30).
+  - Migration `docs/release/PKARR_RELAY_OPS.md §1-§7` pattern
+    self-hosted docker image (S19 Phase E `2fd4d72`).
+  - Re-calibration Radicle adoption vs S22 Couche 3 Radicle cross-
+    validate (S25-S27 implem).
+- **Derniere revue** : 2026-04-19 (régularisation reclassification
+  kickoff S22 via §6.2.1 auto-trigger + audit gate S21 PASS).
+  Prochaine revue attendue au sprint qui pose le tag `v1.0` OU
+  lors d'une revue trimestrielle long-term commitments si tag
+  retardé.
+
 ## Reservation IDs futurs
 
-- **LT-2** : reserve a priori pour **Meta-1 Radicle-v1.0 activation
-  tracking**. Actuellement en carry S18 → S19 → S20 → S21 (4e sprint
-  consecutif, sur le fil de la reclassification §6.2.1). La
-  reclassification deviendra effective en Phase F wrap-up du
-  Sprint 21 : Meta-1 sortira de `sprint22_carry_summary.md` et une
-  section detaillee `## LT-2` sera ajoutee ici, avec condition de
-  declenchement « tag v1.0 go-live » et runbook pointer
-  `docs/release/MIRROR_FALLBACK.md §3 "Flip sequence Codeberg →
-  Radicle"`. Pas de section detaillee pour LT-2 tant que la
-  reclassification Phase F S21 n'est pas effective — l'ID est
-  simplement reserve pour eviter une collision.
-
-Les IDs suivants (LT-3, LT-4, ...) seront alloues dans l'ordre
-d'entree au registre, sans reutilisation des IDs liberes.
+- **LT-3+** : IDs alloués dans l'ordre d'entrée au registre
+  (reclassification carry ≥3 consecutives OU net-new identifié
+  route § préambule voie 2), sans réutilisation des IDs libérés.
