@@ -249,6 +249,18 @@ median app) :
 - **Items** :
   - Kudos-weighted gossip admission (nodes >N kudos full voice,
     others read-only) — ~600 LOC
+    > **FAIRNESS FLAG 2026-04-19** : cette ligne, telle qu'ecrite,
+    > cable le Matthew effect dans la gouvernance (plus gros GPU
+    > → plus de kudos → plus de voix). Revisiter contre
+    > [`docs/FAIRNESS_VISION.md`](../FAIRNESS_VISION.md) §7
+    > "Design-conflict S22" AVANT le kickoff S22. Alternatives
+    > Sybil-resistance non-kudos-gated listees : (a) anciennete
+    > node_id + PoW individuel, (b) Gitcoin-Passport-style
+    > multi-signal (stamps GH + SBFB.json Keyoxide + BrightID
+    > optionnel), (c) voice-per-project-contribution binaire
+    > (≥1 contribution = 1 voix, pas plus). Long-term commitment
+    > LT-1 "Kudos-v2 fairness reform" enregistre dans
+    > [`docs/release/ROADMAP_COMMITMENTS.md`](../release/ROADMAP_COMMITMENTS.md).
   - NVML util + duree profile worker-core, log-only baseline —
     ~400 LOC
   - Sandbox tool-calling allow-list strict + dry-run — ~500 LOC
