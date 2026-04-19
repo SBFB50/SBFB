@@ -535,65 +535,140 @@ feat(sprint21): Phase C — coord-side PII redaction + output filter (Presidio G
 
 ## 7. Phase D — Quarantine queue SQLite WAL + CLI
 
+**Realignement coord-Python 2026-04-19 (post-G8 preflight Phase D)** :
+le draft initial §7.2 ciblait `crates/nexus-shell-daemon/src/api/
+quarantine.rs` (REST Rust + proxy coord) et `crates/nexus-launcher/
+src/cli.rs` (sous-commande `sbfb`). Ces deux paths n'existent pas
+au tip `17035c3` : le daemon agrege ses routes dans `http.rs` (cf.
+`/panic/wipe`) et le launcher est volontairement minimal (uniquement
+init/unlock/init-duress dispatches via `unlock::Subcommand`). Le
+pattern explicitement reutilise par §D4 ligne 599-600 — S19 D
+`f238d31` `upload_queue.py` — est **100% coord-Python** (`aiosqlite`
+WAL + `class UploadQueue` + FastAPI router consumer + `coordinator.py`
+wiring). §7.1 + §7.2 + §7.3 ci-dessous reflechissent ce realignement.
+Day 0 D4 (kickoff §D4 lignes 575-597 : schema 8-cols + TTL 15 min
+auto-drop + CLI `sbfb quarantine list|flush|drop` + auth bearer
+X-SBFB-Token + Host + Origin pattern S16) preservee integralement —
+seul le langage REST/CLI bascule Rust → Python pour coherence
+pattern reuse. Cf. `.planning/active/sprint21_phase_D_preflight.md`
+verdict SCOPE-CUT-CONSISTENT 4 findings non-bloquants documentes.
+
+Le binaire CLI utilisateur `sbfb quarantine ...` reste l'interface
+contractuelle (kickoff §D4 ligne 594) — implementee techniquement
+via le binaire Typer `nexus-coordinator quarantine ...` declare
+par `pyproject.toml` `[project.scripts]`. Un eventuel alias shell
+`sbfb` → `nexus-coordinator` reste hors-scope Phase D (UX naming
+operator-side, S22+).
+
 ### 7.1 Design doc pre-Phase-D
 
-`.planning/research/S21_phase_D_quarantine_design.md`. Couvre :
-- Schema SQLite evolution
-- TTL clock semantics (received_at vs inserted_at, NTP sync)
+`.planning/research/S21_phase_D_quarantine_design.md` (livre
+inline avec le commit `chore(planning)` de realignement, AVANT
+le commit `feat` Phase D). Couvre :
+- Schema SQLite 8-cols + index `received_at_epoch_s` + index
+  `sender_pubkey`
+- TTL clock semantics (`received_at_epoch_s` source-of-truth =
+  monotonic `time.monotonic_ns()` au moment add ; pas de NTP
+  dependence puisque local-only et TTL relatif)
 - Security manual flush (bearer X-SBFB-Token + Host + Origin
-  pattern S16)
-- Interaction gossip layer (PoW gate at flush time vs pre-hold)
+  pattern S16, FastAPI dependency injection inspires
+  `api/canary.py`)
+- Interaction gossip layer (PoW gate verifie **at quarantine
+  ingest** par le subscriber, pas at flush — cf. S20 C
+  `pow_policy_loader.rs` deja en amont. La quarantine ne
+  re-verifie pas PoW, le `pow_status` est juste persisted comme
+  audit metadata)
 - Expected cardinality + benchmarks (~1000 msg/min/15min TTL
-  estimate)
+  estimate = ~15k entries steady-state, SQLite WAL handle 100k+
+  rows trivially, bench follow-up Phase F si besoin)
 
-### 7.2 Fichiers ajoutés / modifiés
+### 7.2 Fichiers ajoutes / modifies (realignement coord-Python)
 
 - **`packages/nexus-coordinator/src/nexus_coordinator/
   quarantine_queue.py`** (nouveau) : `class QuarantineQueue`
-  SQLite WAL + tokio task TTL + REST handlers.
-- **`crates/nexus-shell-daemon/src/api/quarantine.rs`** (nouveau) :
-  REST routes `/quarantine/list|flush|drop` avec auth bearer
-  pattern S16 + proxy vers coord Python si coord responsable.
-- **`crates/nexus-launcher/src/cli.rs`** (modifié) : sous-commande
-  `sbfb quarantine list|flush|drop`.
-- **`~/.sbfb/quarantine.db`** (créé runtime, gitignore) : SQLite
-  WAL.
+  `aiosqlite` WAL + asyncio task TTL 15 min auto-drop +
+  `add()/list()/flush()/drop()/start()/stop()` (pattern miroir
+  `upload_queue.py`).
+- **`packages/nexus-coordinator/src/nexus_coordinator/api/
+  quarantine.py`** (nouveau) : FastAPI router
+  `/quarantine/list`, `/quarantine/flush/{id}`,
+  `/quarantine/drop/{id}` avec dependency injection auth bearer
+  X-SBFB-Token + Host + Origin pattern S16 (pattern miroir
+  `api/canary.py`).
+- **`packages/nexus-coordinator/src/nexus_coordinator/cli/
+  commands/quarantine.py`** (nouveau) : Typer commands `list`,
+  `flush <id>`, `drop <id>` appelant `httpx>=0.27` loopback
+  (pattern miroir `cli/commands/invite.py`).
+- **`packages/nexus-coordinator/src/nexus_coordinator/
+  coordinator.py`** (modifie) : instancier
+  `self.quarantine_queue = QuarantineQueue(...)` + `await
+  self.quarantine_queue.start()` (pattern lignes 294-307 pour
+  `upload_queue`).
+- **`packages/nexus-coordinator/src/nexus_coordinator/cli/main.
+  py`** (modifie) : `app.add_typer(quarantine_cmds.app,
+  name="quarantine")` (pattern `invite_cmds`).
+- **`packages/nexus-coordinator/src/nexus_coordinator/config.
+  py`** (modifie) : `class QuarantineQueue(BaseModel)` config
+  + `quarantine_queue: QuarantineQueue = Field(default_factory
+  =QuarantineQueue)` dans la coord config (pattern ligne 108 +
+  177 `UploadQueue`).
+- **`packages/nexus-coordinator/src/nexus_coordinator/api/
+  __init__.py`** (modifie) : include router `quarantine.router`.
+- **`<project_dir>/quarantine.sqlite`** (cree runtime, gitignore
+  via pattern `*.sqlite` deja couvert) : SQLite WAL local au
+  projet coord (pas `~/.sbfb/quarantine.db` global — coherent
+  avec `upload_queue.sqlite` projet-scoped).
 - **Tests** : `packages/nexus-coordinator/tests/test_quarantine_
-  queue.py` + `crates/nexus-shell-daemon/tests/quarantine_
-  integration.rs`.
+  queue.py` (queue mechanics) + `packages/nexus-coordinator/
+  tests/test_quarantine_api.py` (FastAPI auth + REST
+  contract) + `packages/nexus-coordinator/tests/test_quarantine_
+  cli.py` (Typer CliRunner smoke).
 
-### 7.3 Tests à écrire
+### 7.3 Tests a ecrire
 
 1. `test_quarantine_queue.py::test_add_then_list_returns_entry` :
    add + list round-trip.
 2. `test_quarantine_queue.py::test_ttl_15min_auto_drop` : mock
    clock +900s → entry auto-removed.
-3. `test_quarantine_queue.py::test_manual_flush_accept_sends_to_
-   gossip` : flush flush_status='flushed' + gossip broadcast.
+3. `test_quarantine_queue.py::test_manual_flush_marks_status` :
+   flush flush_status='flushed' (gossip broadcast laisse hors-
+   scope Phase D — l'integration gossip reuse arrivera S22+ avec
+   le Sybil/kudos work).
 4. `test_quarantine_queue.py::test_manual_drop_sets_status` :
-   drop flush_status='dropped', no gossip broadcast.
+   drop flush_status='dropped'.
 5. `test_quarantine_queue.py::test_cardinality_10k_entries_no_
    panic` : bulk insert 10k then TTL cleanup.
-6. `quarantine_integration.rs::test_bearer_auth_required` :
+6. `test_quarantine_api.py::test_bearer_auth_required` :
    `/quarantine/*` sans bearer → 401.
-7. `quarantine_integration.rs::test_host_origin_check` : wrong
+7. `test_quarantine_api.py::test_host_origin_check` : wrong
    origin → 403 (pattern S16).
-8. CLI test : `sbfb quarantine list --json` retourne JSON
-   validé schema.
+8. `test_quarantine_cli.py::test_list_json_outputs_schema` : CLI
+   `nexus-coordinator quarantine list --json` retourne JSON
+   valide.
 
-**+5 Python coord tests + 3 Rust tests = +8 tests**.
+**+8 tests Python coord** (delta identique au plan original ; le
+split tests Rust integration → Python FastAPI TestClient absorbe
+le delta sans changement de count).
 
-### 7.4 Critère d'acceptation Phase D
+### 7.4 Critere d'acceptation Phase D
 
-- Tests verts.
-- CLI smoke test : `sbfb quarantine list` fonctionne loopback.
-- Design doc présent.
+- Tests verts (8 nouveaux + tous les existants).
+- CLI smoke test : `nexus-coordinator quarantine list` fonctionne
+  loopback (acces local, daemon up).
+- Design doc `.planning/research/S21_phase_D_quarantine_design.md`
+  livre dans le `chore(planning)` de realignement (pre-requis
+  consume par le commit feat).
 
 ### 7.5 Commit cible Phase D
 
 ```
 feat(sprint21): Phase D — quarantine queue SQLite WAL + manual flush CLI
 ```
+
+(Precede d'un commit `chore(planning): sprint21 §7 Phase D
+realignement coord-Python + design doc` qui consigne le
+realignement §7 ci-dessus + livre le design doc + range le
+preflight.md G8 dans `.planning/active/`.)
 
 ---
 
