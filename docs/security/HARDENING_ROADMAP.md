@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-19  # G2 — Sprint 22 OPEN (composition 3 couches Sybil, FAIRNESS flag S22 item 1 résolu arbitrage user, pivot S27 item implicit, items 3/4 deferrés S23/post-S25, LT-2 Meta-1 Radicle reclassification régularisée)
+last_validated: 2026-04-20  # G2 — Sprint 22 Phase A livrée (`0bc499f` rate-limit engine wire + hot-reload + sample smoke, delta +7 Rust 659→666) + amendement S23 hors-sprint (ajout design doc `docs/fairness/CONTRIBUTION_FAMILIES_V1.md` + `/diagnostic/fairness` observability endpoint, pré-requis LT-3 post-v1.0 — cf. `docs/release/ROADMAP_COMMITMENTS.md §LT-3` + research `.planning/research/S22_contribution_family_sybil_matrix.md` commit `dbc4ceb`)
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -309,10 +309,12 @@ median app) :
 - **Gate unlock** : **Gate 2** (TransLingua, FamilyScan,
   EHPAD-Lien) débloqué à la clôture S22 Phase F.
 
-### Sprint 23 — Ephemeral workers + escalating PoW + honeypot + redundancy voting (carry S22)
+### Sprint 23 — Ephemeral workers + escalating PoW + honeypot + redundancy voting (carry S22) + contribution families foundation
 
 - **Goal** : durcir contre worker-infiltre (honey-worker) + anti-
-  extraction modele + ajouter redundancy voting foundation Gate 3.
+  extraction modele + ajouter redundancy voting foundation Gate 3 +
+  poser les fondations Option F pour LT-3 (contribution families
+  Sybil matrix post-v1.0).
 - **Items** :
   - Ephemeral workers pattern (restart after N tasks +
     `cudaMemset` VRAM wipe) — ~500 LOC
@@ -326,19 +328,41 @@ median app) :
     S24 re-run sampling (ligne 311 update `S22 → S23`).
   - Couche 3 design doc finalisation (RFC émis S22 Phase C) +
     delegation cert format Rust struct — ~100 LOC (design-only)
+  - **Contribution families design doc (Option F 3 couches
+    asymétriques)** — `docs/fairness/CONTRIBUTION_FAMILIES_V1.md`
+    (~300 LOC docs) + `docs/fairness/KUDOS_V2_WIRE.md` (~100 LOC
+    docs, spec-only pas de code) — design-only, pré-requis LT-3
+    post-v1.0 (research `.planning/research/S22_contribution_
+    family_sybil_matrix.md` commit `dbc4ceb`). Item **net-new
+    2026-04-20 hors-sprint** (research capture + stub reserved
+    S31) ajouté via `chore(planning)` amendement.
+  - **Fairness observability endpoint** `/diagnostic/fairness` —
+    ~80 LOC Python + ~40 LOC tests (coord-side, **zéro wire
+    impact, zéro schema change**). Calcule Gini + top-5% +
+    churn-rate-vs-hardware du ledger compute existant. Rend
+    triggers LT-1 et LT-3 (condition b) factuellement
+    mesurables dès Gate 2 activation (fin S22 Phase F). Pattern
+    reuse `packages/nexus-coordinator/src/nexus_coordinator/
+    api/` existant.
   - ~~Exponential cooldown per-identity overflow (1/2/4/... min) —
     ~200 LOC~~ **DEFERRÉ** (redondant avec Couche 1 age gate S22 —
     node_id <7j déjà bloqué, pas besoin cooldown exponentiel)
   - ~~Traffic padding design doc + iroh upstream PR draft — ~100
     LOC~~ **REPORTÉ S28** (aligné Nym mixnet integration phase 1)
-- **LOC total** : ~1700 (vs 1500 initial, +200 redundancy voting
-  carry)
-- **Tests delta** : +65
-- **Dependencies** : S22 Sybil base (Couches 1+2)
+- **LOC total** : ~2220 (vs 1500 initial, +200 redundancy voting
+  carry S22, +400 docs contribution families design, +120
+  observability endpoint) — dans les normes S20 ~104 Rust + S21
+  ~65 tests delta, pas de scope creep monstre
+- **Tests delta** : +70 (+65 initial + 5 observability endpoint)
+- **Dependencies** : S22 Sybil base (Couches 1+2), S22 Phase A
+  (rate-limit wire-up `0bc499f` pour pattern kudos ledger query)
 - **Gate unlock** : —
 - **Scope reduction documentée** (arbitrage S22 ouverture 2026-
-  04-19) : Exponential cooldown redondant Couche 1 age gate ;
-  Traffic padding aligné Nym mixnet S28 plutôt que doc-only S23.
+  04-19 + 2026-04-20) : Exponential cooldown redondant Couche 1
+  age gate ; Traffic padding aligné Nym mixnet S28 plutôt que
+  doc-only S23. **LT-3 implementation deferred post-v1.0** —
+  S23 livre seulement design docs + observability foundation,
+  pas de code métier multi-famille.
 
 ### Sprint 24 — Re-run sampling + DNS fallback + key rotation
 

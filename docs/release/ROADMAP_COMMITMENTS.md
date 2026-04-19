@@ -42,6 +42,7 @@ Derniere revue).
 |------|---------------------------------------------------------------|------------|----------------|---------------|
 | LT-1 | Kudos-v2 fairness reform (log-utility + DRF + EMA fitness)    | latent     | `<post-v1.0>`  | 2026-04-19    |
 | LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | latent   | `<post-v1.0>`  | 2026-04-19    |
+| LT-3 | Contribution family Sybil matrix (3 couches asymetriques post-v1.0) | latent | `<post-v1.0>`  | 2026-04-20    |
 
 ## LT-1 Kudos-v2 fairness reform
 
@@ -143,8 +144,70 @@ Derniere revue).
   lors d'une revue trimestrielle long-term commitments si tag
   retardé.
 
+## LT-3 Contribution family Sybil matrix
+
+- **ID** : LT-3
+- **Title** : Contribution family Sybil matrix (3 couches asymetriques
+  compute+funding / code+docs / review+mod+design+a11y, post-v1.0).
+  Le systeme kudos actuel (`packages/nexus-coordinator/src/nexus_
+  coordinator/kudos.py:52-94`) mesure uniquement la contribution
+  compute et repose sur le cout physique (GPU + electricite) comme
+  Sybil defense naturelle. Si le ledger est etendu a d'autres familles
+  (code, docs, review, moderation, design, accessibility), l'asymetrie
+  de cout de production LLM-era (un agent genere 200 pages de docs par
+  heure a cout marginal quasi-nul) casse la defense naturelle. La
+  reponse consolidee = composition asymetrique de 3 patterns valides
+  empiriquement 15-30 ans chacun : (A) compute+funding gardent la
+  defense cost-based existante ; (B) code+docs via evaluator committee
+  clawback pattern RetroPGF-style (Optimism 2022-2026) ; (C) review+
+  moderation+design+accessibility via invitation Protocol-Guild-style
+  time-weighted (Protocol Guild $100M+ cumule 2022-2025 zero capture,
+  Apache/Debian/Linux MAINTAINERS 30+ ans). Design-only post-v1.0 —
+  rien n'est implemente pre-v1.0.
+- **Origine** : Discussion orchestrateur 2026-04-20 (hors-sprint S22,
+  post Phase A commit `0bc499f`). Reaction utilisateur a la realisation
+  factuelle que la defense cost-Sybil compute ne s'etend pas aux 5
+  familles non-compute vulnerables LLM-farming. Synthese de 4 agents
+  paralleles independants (sprint audit + OSS 15 systemes + academique
+  17 sources ICLR/USENIX/IEEE S&P/ACM CHI + faisabilite codebase).
+  Research doc trace : `.planning/research/S22_contribution_family_
+  sybil_matrix.md` (commit `dbc4ceb`). Item net-new (pas issu d'un
+  carry reclassifie) — entre directement dans ce registre via la voie 2
+  du preambule.
+- **Condition de declenchement** : au moins UNE des trois sous-
+  conditions suivantes doit etre realisee pour reouvrir LT-3 comme
+  carry actif (reintegration dans le cap G7 du sprint qui pose le
+  declenchement) :
+  - (a) tag `v1.0` go-live pose sur master **ET** au moins une app
+    Gate 2 (TransLingua, FamilyScan, EHPAD-Lien) compte >= 3
+    contributeurs non-compute reels actifs pendant 30j glissants ;
+  - (b) `/diagnostic/fairness` endpoint (livre S23 Phase D per
+    `docs/security/HARDENING_ROADMAP.md §3 S23`) reporte Gini > 0.70
+    OR top-5% > 50% sur ledger compute de production, mesurable
+    empiriquement ;
+  - (c) audit externe Cure53/ToB S29 (`docs/security/HARDENING_
+    ROADMAP.md §3 S29`) signale explicitement vulnerabilite
+    contribution-family dans son rapport de findings.
+  Tant qu'aucune des trois n'est satisfaite, le commitment reste
+  latent. Le declenchement (b) est le plus probable : l'endpoint
+  d'observabilite rend la condition factuellement mesurable des
+  que Gate 2 produit de la data en production (fin S22+).
+- **Owner** : `<post-v1.0>`. Sera remplace par le handle du lead
+  contribution-family au moment de la reactivation.
+- **Runbook pointer** : `.planning/research/S22_contribution_family_
+  sybil_matrix.md` (research complet 40+ sources, Option F consolidee
+  specifiee par couche) + `.planning/reserved/S31_contribution_
+  families_kickoff.md` (sprint stub pre-rempli activable). Quand
+  active, copier le stub dans `.planning/active/sprint{N}_kickoff.md`,
+  amender sur la base des donnees empiriques collectees via
+  `/diagnostic/fairness`, et executer le sprint dedie.
+- **Derniere revue** : 2026-04-20 (creation de l'entree). Prochaine
+  revue attendue en Phase 0 audit du sprint qui detecte le premier
+  trigger (a/b/c) franchi, ou en revue trimestrielle long-term
+  commitments si aucun trigger ne se declenche.
+
 ## Reservation IDs futurs
 
-- **LT-3+** : IDs alloués dans l'ordre d'entrée au registre
+- **LT-4+** : IDs alloués dans l'ordre d'entrée au registre
   (reclassification carry ≥3 consecutives OU net-new identifié
   route § préambule voie 2), sans réutilisation des IDs libérés.
