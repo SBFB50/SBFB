@@ -715,6 +715,21 @@ Body riche :
   2026-05-XX` bump (date Phase F).
 - **Migration PARA** : `git mv .planning/active/sprint22_*.md`
   + `sprint21_audit_findings.md` → `.planning/archive/v1.2/`.
+- **agents_sudo D1 trust tiers doc absorption** (ajouté S22
+  hors-sprint 2026-04-20 post Phase B `e9530c2`, cf.
+  `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md`
+  §1 Cluster D + §7) :
+  - **`docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md`** (déjà
+    créé hors-sprint, vérifier présence Phase F — doc-only design,
+    3 tiers AUTO / CONFIRM_PROMPT / BIOMETRIC_GATE, inventaire
+    endpoints loopback + tier cible, extension `consent.json`
+    schema `level_threat_note` + `residual_threats_acknowledged`).
+  - **Vérifier** aucun code Rust/Python introduit S22 sur ce item
+    (pur doc absorption). Implementation T1 `CONFIRM_PROMPT` =
+    S25 co-landing D5. T2 `BIOMETRIC_GATE` = LT-4 post-v1.0.
+  - **Note frontmatter HARDENING §3 S22** bump `last_validated`
+    et entrée `audited_findings` "2026-04-20 S22 hors-sprint
+    agents_sudo integration" déjà posée au moment de la Phase F.
 
 ### 9.2 Tests à écrire
 

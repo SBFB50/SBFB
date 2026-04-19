@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-20  # G2 — Sprint 22 Phase A livrée (`0bc499f` rate-limit engine wire + hot-reload + sample smoke, delta +7 Rust 659→666) + amendement S23 hors-sprint (ajout design doc `docs/fairness/CONTRIBUTION_FAMILIES_V1.md` + `/diagnostic/fairness` observability endpoint, pré-requis LT-3 post-v1.0 — cf. `docs/release/ROADMAP_COMMITMENTS.md §LT-3` + research `.planning/research/S22_contribution_family_sybil_matrix.md` commit `dbc4ceb`)
+last_validated: 2026-04-20  # G2 — Sprint 22 Phase B livrée (`e9530c2` GLiNER span-logits decoder iframe SDK, delta +8 Vitest 256→264, verdict PASS) + amendement hors-sprint agents_sudo integration (18 features openai-agents-python + microsoft/sudo mappées S22 Phase F → S29 + LT-4, cf. `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md` + 3 design docs `docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md` + `docs/security/CAPABILITY_TOGGLES.md` + `docs/security/GUARDRAILS_ARCHITECTURE.md` + entrée LT-4 `docs/release/ROADMAP_COMMITMENTS.md §LT-4`)
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -11,12 +11,16 @@ triggers_revalidate:
   - "Sprint S+2 commence vs sprint cible (S19+2=S21 → re-scan §3 S21)"
   - "frost-ed25519 release > 2.1 (CanarySigner FROST primitive S20 Phase E.2)"
   - "RFC 9591 erratum publication (FROST threshold spec, drives S20 E.2 + S30 Niveau 1 enforcement)"
+  - "openai-agents-python release > 0.7.0 (Agent/Runner/Guardrail API breaking, impacte B1 guardrails refactor S23 + A1 hooks S24 + C2 SDK decorator S25)"
+  - "MCP spec revision Anthropic 2026+ (impacte B2 mcp_server_expose S25 + D5 capability toggle)"
+  - "microsoft/sudo elevation mode release beyond Windows 11 24H2 inbox (impacte D1 trust tiers + D3 Windows RPC S28 + D4 biometric LT-4)"
 audited_findings:
   - "2026-04-16 S19 deep analysis : D2 Hashcash daté vs Equi-X 2023, S20 keyring crate, S21 grammar ≠ prompt injection defense, S25 Arti 2.0 Feb 2026 disponible, S26+ PQC trop tardif (HNDL liability)"
   - "2026-04-16 S20 open : double-layer encryption at rest (Argon2id 64MiB + AES-256-GCM + OS keyring wrap KEK) requis — DPAPI user-scope gap confirmé Sygnia 2024 + SpecterOps 2026 (same-user process malicious = full bypass). Duress PIN pattern = fake keypair noop responses (pas wipe immédiat GrapheneOS-style), panic wipe = 5-tap gesture séparé. Structured output via llguidance (Rust Microsoft 50µs/token, llama.cpp -DLLAMA_LLGUIDANCE=ON) retenu over XGrammar (pas llama.cpp), Outlines (Python IPC), GBNF native (slower). PoW wire scope S20 Phase C (reclassé carry S19 A-2). TLS wire iroh T20 tech debt long-terme (iroh 0.97 ClientBuilder hook cfg-test only). DHT canary enforcement strict reporté post-Gate-2."
   - "2026-04-18 S20 Phase E pivot Option C deep-evolution (G8 codification, cf. .planning/active/sprint20_phase_E_pivot_proposal.md + sprint20_phase_E_preflight.md) : warrant canary auto-publish scheduler (plan §8.1 item 1 original) supprimé sur scan S2 — décision threat-model S18 E2 04c9621 toujours valide (cle Ed25519 accessible auto = compromission GHA = compromission cle = dead-man-switch cassé sous gag order). Federation foundations livrées : CanarySigner trait abstraction + FrostCanarySigner K-of-N (RFC 9591 jan 2025, ZF crate 2.1, ToB 2023 audit), DuressAck channel (gossip topic distinct, daily granularité), AttestationProvider trait + NoopAttestation (decouple signing != attestation), Federated CanaryRegistry coord-side (POST /api/canary/observed + GET /api/canary/network-health). E.6 ajusté inline post-G8 S1 finding : iroh 0.91 a supprimé l'option TCP raw → relays = WSS TCP 443 unique mode automatic, transport_probe.rs dégradé en diagnostic-only (probe 3x UDP QUIC + log warn + metric degraded_mode). Wire format CanarySigned v1 + DOMAIN_WARRANT_CANARY_V1 préservés (FROST sig = Ed25519 RFC 8032 byte-identical). Niveau 1 enforcement (cross-juridiction recruitment + TEE H100) added to §3 S30 line."
   - "2026-04-19 S21 CLOSED : 5 phases A-E livrées sur le thème rate-limit + PII SDK defense-in-depth + output filter + quarantine queue + tech debt batch. Phase A `63afe4e` rate-limit governor 0.10.2 GCRA worker-engine R1 (axum 0.7→0.8 bump prereq workspace-wide `5e67ce0` post-G8 pivot Option C). Phase B `d5b0035` PII SDK iframe (onnxruntime-web 1.24.3 + GLiNER PII edge ONNX). Phase C `23abb11` PII coord (presidio-analyzer 2.2.362 + GLiNERRecognizer extra [gliner] même modèle ONNX SoT + InvisibleText scanner curated + EED Levenshtein 0.85). Phase D `f830579` quarantine queue SQLite WAL + Typer CLI (réalignement coord-Python G8 SCOPE-CUT-CONSISTENT `a82e8db`). Phase E `49f0d32` tech debt batch — T-NN canary_wire_bytes JCS canonical (RFC 8785) + T-NN+1 CanaryRegistry verify Ed25519 at ingest via nexus_core.verify_canary PyO3 binding (path-dep nexus-shell-daemon-core ajoutée à nexus-core-py) + plan docs S20 §6 wire-point fix C-PLAN-1 + PATTERNS.md §P34 closeout (T-NN résolu + T-NN+1 résolu + T-NN+2 ouvert S22+ blocked tract opset 19 / ort wasm32-browser / gline-rs wasm-bindgen). Premier sprint avec G8 systématique 5/5 phases : 1 DESIGN-CONFLICT (Phase A axum bump) + 4 SCOPE-CUT-CONSISTENT (B/C/D/E). Cap G7 carry-overs respecté 2/2 → S22 : Meta-1 Radicle-v1.0 re-carry + T-NN+2 PATTERNS hors cap formel. Compteurs finals : 659 Rust / 185 SDK / 249+3 coord / 46 gov / 256 Vitest / 38 Playwright / ~1436 tests (+65 vs baseline 1371). Carries S22 audit_plan : P2-E-DURESS-ACK verify_duress_ack hors-scope explicit + P2-E-WIRE-PRE-LAUNCH-FIX check maturin develop --release fresh dans bootstrap §7 + P3-E-2 align build_canary serde_json → JCS pour cohérence + Meta-track hook coverage gap Phase D sans review.md + Phase A R1 rate_limit_policy.toml.sample manquant + Phase B drift Playwright PII end-to-end."
   - "2026-04-18 S21 open : D2 PII SDK requalifié post-research G2. Libellé roadmap §3 S21 original S17 'spaCy NER wasm ~500 LOC' obsolète 2026 (spaCy pas de port wasm officiel maintenu). Stack retenue defense-in-depth : client iframe = onnxruntime-web 1.24.3 (Microsoft, npm mars 2026) + @huggingface/transformers v4 tokenizer + knowledgator/gliner-pii-edge-v1.0 (Apache-2.0, 2024-01-29, F1 0.755, backbone à confirmer Phase B G8 S1 scan pre-first-line-of-code) + regex fallback curated ; coord-side = presidio-analyzer 2.2.362 (Microsoft MIT, 2026-03-15) + GLiNERRecognizer extra [gliner] + même modèle ONNX source-of-truth unique. Full Rust-first iframe (tract + GLiNER + wasm-bindgen) rejeté factuellement : tract 0.22.1 teste opset 9-18 vs GLiNER export opset 19 (DisentangledSelfAttention DeBERTa-v3 non documenté), tract wasm32-unknown-unknown (browser) non documenté officiellement (seul wasm32-wasi wasmtime), zero precedent production, gline-rs v1.0.1 (Rust GLiNER mainstream 01/2026) a choisi ort pas tract. Rust-wasm iframe realignement Option G reporté S22+ via tech debt T-NN+2 (re-evaluate triggers: tract opset 19 coverage OR ort wasm32-browser stable OR gline-rs wasm-bindgen target). Decisions D1 governor 0.10.2 GCRA + D3 LLM Guard 0.3.16 InvisibleText + PLeak EED + D4 SQLite WAL pattern S19 reuse + CLI sbfb quarantine. Cf. sprint21_kickoff.md §D1-D5 + sprint21_design_review.md."
+  - "2026-04-20 S22 hors-sprint agents_sudo integration : analyse deep openai-agents-python + microsoft/sudo → 18 features produit identifiées (4 agents parallèles independants cluster A observability / B guardrails / C SDK+streaming / D process+OS integration). Mapping factuel S22 Phase F → S29 + LT-4 tracé dans `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md`. S22 Phase F absorption : D1 three-mode trade-off doc (`docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md` 3 tiers AUTO/CONFIRM_PROMPT/BIOMETRIC_GATE + consent.json threat_note field). S23 amendement : B1 guardrails refactor pipeline déclaratif (6 primitives S16-S22 → contrat Guardrail unifié `docs/security/GUARDRAILS_ARCHITECTURE.md`) + D5 design `docs/security/CAPABILITY_TOGGLES.md` capabilities gate-off-by-default via binaire `nexus-admin`. S24 amendement : A1 `TaskDispatchHooks` + C3 handoffs semantic dispatcher. S25 amendement : D5-implem + A3 OS audit channel ETW/journald/oslog + B2 MCP server expose + C2 `@task_handler` SDK + C5 streaming bridge (5 features = FAT, split recommandé). S26 amendement : C1 SQLiteSession abstraction crate + A4 process role tagging. S28 amendement : D2 broker/executor split + D3 Windows RPC + C4 task-scoped sandbox (cohérence runtime isolation). S29 amendement : A2 TraceProvider OTEL backend-agnostic + B4 per-mode residual risk doc THREAT_MODEL §9 pre-audit Cure53/ToB. LT-4 net-new : D4 OS biometric gate cross-platform post-v1.0 (trigger v1.0 + S30 FROST N1 + partnership OpSec signal). Cap G7 bilan : 0 slot carry-over formel consommé pre-v1.0 (tout via amendements §3 + items net-new + chore hors-sprint + Phase F absorption). Pre-launch protocol respectée (nouveaux DOMAIN_TRACE_EVENT_V1 + DOMAIN_OS_AUDIT_EVENT_V1 + capabilities.toml + bridge.schema.json extension P24 additif = design-only pre-launch stable, zéro bump *_VERSION). Arbitrages user différés kickoff S23 + S25 : B1 timing (dédié/distribué/défer), S25 split (D5+B2 priorité vs A3+C2+C5 carry), D5 enforcement (Semgrep strict vs CI manuel)."
 -->
 
 # Hardening Roadmap — Sprint 18-30
@@ -299,6 +303,14 @@ median app) :
   - Process fixes Phase F : P2-S21-4 README §4.X review→audit_plan
     règle + P2-S21-5 GHA CI cross-check commit→review file —
     ~150 LOC
+  - **agents_sudo D1 three-mode trust tiers doc** (absorbé Phase F,
+    cluster D feature D1 — cf.
+    `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md`) :
+    nouveau `docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md`
+    (~150 LOC docs design-only) + extension `consent.json` field
+    `level_threat_note` + `residual_threats_acknowledged` (spec
+    only, implem runtime S22 Phase F — pur doc). Zéro code Rust/
+    Python S22 (Phase F absorption doc-only).
 - **LOC total** : ~2500 (+14% vs nominal 2200 absorption wire-up
   debts + G1 findings P0 ceremony + predicate spec)
 - **Tests delta** : **+43** (+28 Rust Phase A/C/D + 6 Vitest Phase B
@@ -349,13 +361,39 @@ median app) :
     node_id <7j déjà bloqué, pas besoin cooldown exponentiel)
   - ~~Traffic padding design doc + iroh upstream PR draft — ~100
     LOC~~ **REPORTÉ S28** (aligné Nym mixnet integration phase 1)
-- **LOC total** : ~2220 (vs 1500 initial, +200 redundancy voting
-  carry S22, +400 docs contribution families design, +120
-  observability endpoint) — dans les normes S20 ~104 Rust + S21
-  ~65 tests delta, pas de scope creep monstre
-- **Tests delta** : +70 (+65 initial + 5 observability endpoint)
+  - **agents_sudo B1 guardrails refactor pipeline déclaratif**
+    (cluster B feature B1 — cf.
+    `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md`
+    + design doc `docs/security/GUARDRAILS_ARCHITECTURE.md` écrit
+    S22 hors-sprint 2026-04-20) : trait/ABC `Guardrail` +
+    `GuardrailChain` Python + PyO3 Rust binding + retrofit 6
+    primitives (`pii_redactor` S21C + `output_filter` S21D +
+    `quarantine_queue` S21D + `rate_limit` S22A + `pii_iframe`
+    S21B/S22B + `canary_input` S22E) vers contrat unifié avec
+    exceptions typées `InputTripwire / OutputTripwire`. Bridge P24
+    whitelist extend méthode `guardrails_check` iframe-side.
+    **~800 LOC refactor + ~200 tests contract = ~1000 LOC**.
+    **Arbitrage user kickoff S23** : 3 options viables (S23
+    dédié avec split phase / S24-S25 distribué / défer S27
+    post-Sybil mature).
+  - **agents_sudo D5 capabilities toggle design doc hors-sprint**
+    (cluster D feature D5 design — cf.
+    `docs/security/CAPABILITY_TOGGLES.md` écrit S22 hors-sprint
+    2026-04-20, implementation S25) : capabilities gate-off-by-
+    default pattern microsoft/sudo + `capabilities.toml` schema +
+    binaire `nexus-admin` Typer CLI spec + Semgrep PR-block rule
+    spec. **Zéro code S23 sur cet item** (design-only pré-requis
+    S25 tool-calling réactivation).
+- **LOC total** : ~2220 initial + ~1000 B1 guardrails refactor =
+  **~3220 LOC si B1 S23 dédié** (dépasse norme ~2500 LOC,
+  arbitrage user kickoff S23 requis). OU **~2220 LOC si B1
+  distribué S24-S25** (cohérent norme).
+- **Tests delta** : +70 (+65 initial + 5 observability endpoint) +
+  ~200 contract tests B1 = **+270 si B1 S23 dédié**.
 - **Dependencies** : S22 Sybil base (Couches 1+2), S22 Phase A
-  (rate-limit wire-up `0bc499f` pour pattern kudos ledger query)
+  (rate-limit wire-up `0bc499f` pour pattern kudos ledger query).
+  **B1 deps** : S22 Phase E watermark canary livré (dernière
+  primitive à intégrer au refactor).
 - **Gate unlock** : —
 - **Scope reduction documentée** (arbitrage S22 ouverture 2026-
   04-19 + 2026-04-20) : Exponential cooldown redondant Couche 1
@@ -376,11 +414,32 @@ median app) :
     ~200 LOC
   - Ed25519 key rotation ceremony + revocation list gossip —
     ~500 LOC
-- **LOC total** : ~1400
-- **Tests delta** : +50
+  - **agents_sudo A1 `TaskDispatchHooks` API** (cluster A feature
+    A1 — cf.
+    `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md`) :
+    trait Rust + PyO3 binding exposant 5 events typés
+    (on_claim_broadcast / on_task_dispatched / on_result_received
+    / on_validator_post_task / on_quarantine_enqueue) injectable
+    `Dispatcher.__init__(hooks=[...])`. Consumer natif = re-run
+    sampling ci-dessus (anomaly reader = hook on_result_received.
+    divergence_score). Design-ready (cluster A research).
+    **~400 LOC + ~30 tests**.
+  - **agents_sudo C3 handoffs semantic dispatcher** (cluster C
+    feature C3) : refactor `dispatcher.py` avec trait `Handoff`
+    (on_handoff callback + input_filter re-redact PII policy-
+    target + is_enabled skip low-reputation/Sybil-reject). Design
+    doc long-life `docs/shell/DISPATCHER_HANDOFFS.md` préalable
+    Phase A (pattern S22 Phase C preflight design doc). Dep
+    rate-limit S22A ✓, Couches 1+2 S22C, redundancy voting S23.
+    **~700 LOC + ~40 tests**.
+- **LOC total** : ~1400 initial + 1100 (A1 + C3) = **~2500 LOC**
+  (dans norme)
+- **Tests delta** : +50 initial + 70 (A1 + C3) = **+120**
 - **Dependencies** : **S23 redundancy voting** (pour seuil
   detection — dep update 2026-04-19 post co-defer S22→S23, cf.
-  `sprint22_carry_summary.md §4`)
+  `sprint22_carry_summary.md §4`). **A1/C3 deps** : S22 Phase A
+  rate-limit wire ✓, S22 Phase C Couches 1+2, S23 redundancy
+  voting.
 - **Gate unlock** : —
 
 ### Sprint 25 — Tor transport phase 1 + per-app quota + RAG
@@ -393,8 +452,57 @@ median app) :
   - RAG sanitization pipeline (detox injection sources externes)
   - Pluggable transports : **wire bridge config + lyrebird
     subprocess** (Tor Project Go binary upstream)
-- **Tests delta** : +55
-- **Dependencies** : S18 multi-relai, S24 domain fronting legal
+  - **agents_sudo D5 capabilities implem** (cluster D feature D5,
+    design `docs/security/CAPABILITY_TOGGLES.md` écrit S22
+    hors-sprint) : binaire `nexus-admin` Typer CLI + `capabilities.
+    toml` + check admin privilege cross-OS (EUID Unix / `IsUserAn
+    Admin()` + Mandatory Integrity Level High Windows) + Semgrep
+    custom rule `.semgrep/capability_gate.yml` PR-block. **Pré-
+    requis** pour tool-calling réactivation dans RAG pipeline.
+    **~400 LOC + ~30 tests**.
+  - **agents_sudo A3 OS audit channel `nexus-events-core`**
+    (cluster A feature A3) : crate Rust writers platform-native
+    (tracing-etw Windows, sd_journal_send Linux, os_log macOS) +
+    12 event types enum (consent_change, panic_fired,
+    token_rotation, duress_unlock, quarantine_drop, sybil_
+    admission_reject, pow_verify_fail, canary_published,
+    canary_dead_mans_switch_tripped, transport_degraded,
+    rate_limit_tier_breach, nvml_anomaly_detected,
+    capability_changed). Dep A1 S24 (event enum typée).
+    **~500 LOC + ~50 tests**.
+  - **agents_sudo B2 MCP server exposition** (cluster B feature
+    B2) : bridge S13 expose MCP server stdio/HTTP transport local-
+    only, 3 tools whitelist (task_submit/storage_get/storage_set)
+    avec JSON schema strict. Design doc long-life
+    `docs/security/MCP_BRIDGE_ARCHITECTURE.md` + threat model
+    adversary AD6 "MCP consumer malveillant". Gate
+    `capability.mcp_server_expose` (D5). Dep B1 guardrails S23 +
+    B3 Pydantic auto-derivation (S22F ou S23). **~600 LOC + ~40
+    tests**.
+  - **agents_sudo C2 `@task_handler` SDK auto-schema** (cluster C
+    feature C2) : decorator `packages/nexus-sdk/src/nexus_sdk/
+    decorators.py` introspecte signature Pydantic → auto-génère
+    `task_request.schema.json` + `task_response.schema.json` +
+    manifest auto-export `GET /app/<name>/manifest`. Dep B3
+    Pydantic auto-derivation (S22F ou S23). **~300 LOC + ~30
+    tests**.
+  - **agents_sudo C5 streaming bridge events** (cluster C feature
+    C5) : nouvelle méthode whitelist P24 `task_submit_streaming`
+    + wire format formal `bridge.schema.json` discriminated union
+    (token/tool_called/pii_masked/done/error). Playwright 3-
+    browser matrix (Chromium+Firefox+WebKit). SDK client
+    `web/public/sbfb-bridge.js` `onTaskStream(correlation_id,
+    onEvent)`. Gate `capability.streaming_bridge` (D5). Dep S20
+    Phase D structured output ✓, S21 Phase B PII iframe ✓ + S22
+    Phase B decoder ✓. **~700 LOC + ~50 tests**.
+- **Tests delta** : +55 initial + 200 (5 features) = **+255**
+- **LOC total** : ~1200 initial + ~2500 (5 features) = **~3700
+  LOC** — **FAT, dépasse norme ~50%**. Arbitrage user kickoff
+  S25 requis : priorisation {D5 + B2} (tool-calling unlock) vs
+  carry {A3 + C2 + C5} S26-S27.
+- **Dependencies** : S18 multi-relai, S24 domain fronting legal,
+  **B1 guardrails S23** (pour B2 MCP), **A1 hooks S24** (pour A3
+  events typés), **B3 Pydantic auto** (pour B2 + C2, S22F ou S23).
 - **Gate unlock** : —
 - **Scope reduction documentee** (research deep avril 2026) :
   l'item original "obfs4 fork-patch iroh ~400 LOC" est
@@ -424,9 +532,32 @@ median app) :
     job object Windows)
   - No-sharing policy (worker-core detecte autre process
     significatif sur GPU, refuse task ou warn)
-- **Tests delta** : +60
+  - **agents_sudo A4 process role tagging** (cluster A feature A4,
+    amendement item GPU lockup ligne précédente — prérequis
+    structurel cgroups/Job Object) : crate `nexus-role-core` avec
+    `ProcessRole` enum (Launcher/Daemon/Worker/OllamaRuntime/
+    IframeBlobServe) + `RoleTagger` trait platform-abstraction
+    (Windows Job Object named per-role + Process Mitigation
+    Policy, Linux cgroup v2 + Landlock LSM ruleset per-role,
+    macOS launchd label + sandbox-exec profile). Role attribué
+    au spawn via env var `NEXUS_PROCESS_ROLE` HMAC-signée (anti-
+    spoof). **~400 LOC + ~30 tests**.
+  - **agents_sudo C1 SQLiteSession abstraction** (cluster C
+    feature C1, thème principal S26) : extraire crate Rust
+    `nexus-session-store` + PyO3 binding exposant trait
+    `Session<T>` uniforme avec `get_items / add_items / pop_item
+    / clear_session`. Migration 5 stores coord existants
+    (`quarantine_queue`, `kudos`, `canary_registry`,
+    `contributor_registry` S22C, `upload_queue` S19) vers
+    adapters `aiosqlite`. CLI unifiée `sbfb session <module>
+    list/pop/clear` (remplace 5 CLI Typer séparées). **~800 LOC +
+    ~80 tests**.
+- **Tests delta** : +60 initial + 110 (A4 + C1) = **+170**
+- **LOC total** : ~800 initial + 1200 (A4 + C1) = **~2000 LOC**
+  (dans norme).
 - **Dependencies** : S25 Tor phase 1, S24 domain fronting legal,
-  S10 curator infra
+  S10 curator infra. **C1 deps** : S22 Phase C `contributor_
+  registry` stabilisé (5e store cristallisé avant abstraction).
 - **Gate unlock** : —
 - **Carry-overs S24/S25** (research deep avril 2026) : Domain
   fronting implem differe S24→S26 car majors (Google/AWS/Cloudflare/
@@ -466,9 +597,47 @@ median app) :
   - MIG partitioning A100/H100 opt-in config — ~500 LOC
   - External audit scope doc + RFP Cure53/ToB — ~200 LOC (docs)
   - Amnesty/HRW/CPJ partnership outreach (non-code) — 0 LOC
-- **LOC total** : ~2200
-- **Tests delta** : +40
-- **Dependencies** : S27 Sybil mature
+  - **agents_sudo D2 broker/executor process split** (cluster D
+    feature D2, amendement alignement `RUNTIME_ISOLATION.md §3
+    Phase C` WSL2/Virtualization.framework/systemd-nspawn) :
+    split strict broker Rust (peer-cred gated, long-lived,
+    surface minimale = bearer auth + routing) vs executor
+    (short-lived, load model Ollama/llama.cpp, crash indep).
+    Design doc long-life `docs/security/PROCESS_ARCHITECTURE.md`
+    préalable. Split `nexus-shell-daemon` broker vs nouveau
+    `nexus-executor` binaire. **Bench cold-start Ollama re-load
+    obligatoire pre-commit** (budget < 5s consumer-facing).
+    **~800 LOC + ~50 tests + ~400 LOC design doc**.
+  - **agents_sudo D3 Windows RPC + OS-auth handle forward**
+    (cluster D feature D3, co-landing D2) : remplacer
+    `named_pipe_server.rs` SDDL DACL manuel S16 Phase B par
+    Windows RPC via `windows-rs` `RpcBindingInqAuthClient*` API.
+    OS fournit SID caller authentifié + handle forwarding auto
+    = **~300 LOC custom supprimés** + surface attaque réduite.
+    **~500 LOC + ~30 tests**. Fallback D3 → S30 si `windows-rs`
+    binding immature fin 2026.
+  - **agents_sudo C4 task-scoped sandbox** (cluster C feature C4,
+    cohérence thème isolation) : refactor `crates/nexus-shell-
+    daemon-core/src/blob_serve.rs` iframe renderer génère iframe
+    per-task via `?task_id=<uuid>` query + cache LRU
+    `(app_hash, task_id)` TTL 30s post-task + event `task-done`
+    postMessage trigger iframe destruction + fresh Pyodide
+    interpreter per-task. Design doc long-life
+    `docs/shell/TASK_SCOPED_SANDBOX.md` + opt-in flag
+    AppManifest `requires_task_scoped_sandbox: bool` (défaut
+    false backward-compat Gate 2 apps, true obligatoire Gate 3+
+    T3+ apps). Dep C5 streaming S25 (correlation ID stable
+    cross-iframe-instance, design C5 doit anticiper). **~500 LOC
+    + ~40 tests + ~300 LOC design doc**.
+- **LOC total** : ~2200 initial + 1800 (D2 + D3 + C4) = **~4000
+  LOC** — **dépasse norme ~45%**. Arbitrage user kickoff S28 :
+  D3 peut défer S30 ou LT-4 (dep `windows-rs` crate maturité) ;
+  D2 + C4 obligatoires co-landing (cohérence thème isolation
+  pré-audit S29).
+- **Tests delta** : +40 initial + 120 (D2 + D3 + C4) = **+160**
+- **Dependencies** : S27 Sybil mature. **D2/D3/C4 deps** : S20
+  Phase A/B ✓ (keypair encryption + duress PIN), S27 Couche 3
+  mature, C5 streaming S25.
 - **Gate unlock** : —
 
 ### Sprint 29 — External audit + remediation buffer
@@ -480,9 +649,41 @@ median app) :
   - Remediation findings (buffer ~1500 LOC estime)
   - Public disclosure responsible-disclosure policy +
     security.txt — ~200 LOC
-- **LOC total** : ~1700 (majoritairement fix audit findings)
-- **Tests delta** : +50
-- **Dependencies** : S28 scope doc
+  - **agents_sudo A2 TraceProvider backend-agnostic** (cluster A
+    feature A2, pré-audit Cure53/ToB obligation discipline tracing
+    formelle) : `TraceProvider` trait unifié Rust (crate
+    `nexus-trace-core`) + Python sibling via PyO3. Backends :
+    `BatchLogProcessor` JSON structured → file default ;
+    `OtelProcessor` OTLP/gRPC Grafana Tempo / Jaeger via
+    `opentelemetry 0.27` ; `SignedCanaryProcessor` Ed25519-signed
+    trace events (`DOMAIN_TRACE_EVENT_V1` nouveau domain design-
+    only pre-launch stable) — réutilise `nexus-core-py::sign_bytes`
+    pattern S14/S20 Phase E. W3C Trace Context propagation
+    (`traceparent` header) cross-process Rust↔Python via HTTP
+    loopback + gossip trace baggage. API `set_trace_processors()
+    / add_trace_processor()` symétrique openai-agents-python.
+    Consumer : A1 hooks S24 events typés + A3 nexus-events-core
+    S25 comme TraceProcessor. **~600 LOC + ~40 tests**.
+  - **agents_sudo B4 per-mode residual risk doc THREAT_MODEL §9**
+    (cluster B feature B4, pré-audit Cure53/ToB input) : refactor
+    `docs/security/THREAT_MODEL.md` ajout §9 "Residual risks
+    per-configuration" sous-sections par feature configurable :
+    9.1 consent GPU 4 niveaux S16C, 9.2 loopback 3 trust tiers
+    S22F/S25/LT-4, 9.3 duress PIN S20B, 9.4 rate-limit tiers
+    S22A, 9.5 pipeline guardrails disabled combos (B1 S23), 9.6
+    capability toggles (D5 S25). Annotations in-product
+    `consent.json` field `residual_threats_acknowledged` +
+    `level_threat_note` (livrées S22 Phase F D1 design). UI
+    launcher `web/src/components/GpuConsentDialog.tsx` affiche
+    `level_threat_note` tooltip. **~200 LOC docs + ~100 LOC
+    frontend + ~20 LOC backend**.
+- **LOC total** : ~1700 initial + 920 (A2 + B4) = **~2620 LOC**
+  (dans norme).
+- **Tests delta** : +50 initial + 60 (A2 + B4) = **+110**
+- **Dependencies** : S28 scope doc. **A2 deps** : A1 hooks S24,
+  A3 events S25. **B4 deps** : tous les modes livrés S16-S28
+  (consent GPU, loopback tiers, duress, rate-limit, guardrails
+  B1, capabilities D5).
 - **Gate unlock** : —
 
 ### Sprint 30 — TEE H100 eval + split inference research

@@ -43,6 +43,7 @@ Derniere revue).
 | LT-1 | Kudos-v2 fairness reform (log-utility + DRF + EMA fitness)    | latent     | `<post-v1.0>`  | 2026-04-19    |
 | LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | latent   | `<post-v1.0>`  | 2026-04-19    |
 | LT-3 | Contribution family Sybil matrix (3 couches asymetriques post-v1.0) | latent | `<post-v1.0>`  | 2026-04-20    |
+| LT-4 | OS biometric gate cross-platform (Windows Hello / TouchID / polkit) | latent | `<post-v1.0>` | 2026-04-20    |
 
 ## LT-1 Kudos-v2 fairness reform
 
@@ -206,8 +207,60 @@ Derniere revue).
   trigger (a/b/c) franchi, ou en revue trimestrielle long-term
   commitments si aucun trigger ne se declenche.
 
+## LT-4 OS biometric gate cross-platform
+
+- **ID** : LT-4
+- **Title** : OS biometric gate cross-platform (Windows Hello /
+  TouchID macOS / polkit Linux) appliqué sur ops critiques loopback
+  (panic wipe, duress unlock, rotation token force, escalade consent
+  tier `mes_projets → tous`, federation canary FROST cosign S30
+  Niveau 1). Permet de bloquer malware user-mode avec browser
+  compromise d'invoquer ces endpoints en DOM injection (gate
+  OS-level non-forgeable par process unprivileged).
+- **Origine** : Analyse `microsoft/sudo` 2026-04-20 — UAC utilisé
+  comme single gate non-bypassable par process browser-level
+  (absence de password, single OS-level gate). Identifié dans
+  `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md
+  §1 Cluster D (D4)` comme **feature différenciante populations
+  Gate 4 cible** (journalistes/activistes/ONG face AD2 malware
+  user-mode). Item net-new (pas issu d'un carry reclassifié) —
+  entre directement dans ce registre via la voie 2 du préambule.
+- **Condition de déclenchement** : les trois sous-conditions
+  suivantes doivent être simultanément satisfaites pour réouvrir
+  LT-4 comme carry actif :
+  - (a) tag `v1.0` go-live posé sur master ;
+  - (b) S30 Phase E FROST Niveau 1 enforcement livré (consumer
+    natif du gate T2 `BIOMETRIC_GATE` sur endpoint `/canary/
+    cosign`, cf. `docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md
+    §3`) ;
+  - (c) partnership OpSec Amnesty/HRW/CPJ/EFF S30+ a signalé
+    explicitement besoin biometric gate face adversary AD2 malware
+    user-mode dans son retour sécurité (pattern symétrique LT-3
+    condition c audit externe).
+  Tant que l'une des trois n'est pas satisfaite, le commitment
+  reste latent. La condition (c) est qualitative (retour expert
+  partnership) mais factuelle (pas opinion — requiert trace écrite
+  dans le registre outreach S28 Phase D + S30 partnership).
+- **Owner** : `<post-v1.0>`. Sera remplacé par le handle du lead
+  OpSec cross-platform au moment de la réactivation.
+- **Runbook pointer** : `docs/security/LOOPBACK_ENDPOINTS_TRUST_
+  TIERS.md §7 "Implémentation T2 BIOMETRIC_GATE (LT-4
+  post-v1.0)"` — spécification cross-platform 3 OS (Windows Hello,
+  TouchID macOS, polkit Linux) + workflow daemon T2 avec nonce
+  + TTL + verrouillage après 3 échecs. Inclut 3 crates cibles :
+  - Windows : `windows-rs 0.58+` `Windows.Security.Credentials.UI`
+    namespace.
+  - macOS : `security-framework 0.2+` ou `local-authentication-macos`.
+  - Linux : `polkit-agent` binding ou `zbus` D-Bus direct.
+  Spec cross-crate dans `docs/security/CAPABILITY_TOGGLES.md §2`
+  table capability `biometric_gate` (gate-off by default).
+- **Dernière revue** : 2026-04-20 (création de l'entrée). Prochaine
+  revue attendue en Phase 0 audit du sprint qui détecte le premier
+  trigger (a/b/c) franchi, ou en revue trimestrielle long-term
+  commitments si aucun trigger ne se déclenche.
+
 ## Reservation IDs futurs
 
-- **LT-4+** : IDs alloués dans l'ordre d'entrée au registre
+- **LT-5+** : IDs alloués dans l'ordre d'entrée au registre
   (reclassification carry ≥3 consecutives OU net-new identifié
   route § préambule voie 2), sans réutilisation des IDs libérés.
