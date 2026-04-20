@@ -102,6 +102,7 @@ async def _dispatcher_emit_adapter(dispatcher: Dispatcher, payload: dict[str, ob
         "estimated_watts",
         "estimated_vram_mb",
         "estimated_hours",
+        "redundancy_factor",
     }
     kwargs = {k: v for k, v in payload.items() if k in known}
     return await dispatcher.submit(SubmitRequest(**kwargs))  # type: ignore[arg-type]

@@ -143,6 +143,21 @@ pub struct Task {
     /// completion via `UsageTracker::record_task`.
     #[serde(default)]
     pub estimated_hours: f64,
+
+    /// Number of independent workers that must execute this task
+    /// before the coordinator votes on the majority result.
+    /// 1 = normal single-worker dispatch (no redundancy).
+    ///
+    /// `#[serde(default)]` deserializes to 1 when the field is
+    /// omitted — runtime tolerance so clients that do not set
+    /// the field get single-worker passthrough, not zero-worker
+    /// invalid state.
+    #[serde(default = "default_redundancy_factor")]
+    pub redundancy_factor: u8,
+}
+
+fn default_redundancy_factor() -> u8 {
+    1
 }
 
 impl Task {
@@ -176,6 +191,7 @@ impl Task {
             estimated_watts: 0,
             estimated_vram_mb: 0,
             estimated_hours: 0.0,
+            redundancy_factor: 1,
         }
     }
 
@@ -195,6 +211,12 @@ impl Task {
         self.estimated_watts = watts;
         self.estimated_vram_mb = vram_mb;
         self.estimated_hours = hours;
+        self
+    }
+
+    /// Set the redundancy factor (number of independent workers).
+    pub fn with_redundancy_factor(mut self, factor: u8) -> Self {
+        self.redundancy_factor = factor;
         self
     }
 }
@@ -652,6 +674,37 @@ mod tests {
         assert!(text.contains("\"estimated_watts\":300"));
         assert!(text.contains("\"estimated_vram_mb\":12288"));
         assert!(text.contains("\"estimated_hours\":1.5"));
+    }
+
+    // -----------------------------------------------------------
+    // Sprint 23 Phase D — redundancy voting
+    // -----------------------------------------------------------
+
+    #[test]
+    fn task_wire_redundancy_factor() {
+        let t = Task::new("id", "t", "p", "m", 5, 0).with_redundancy_factor(3);
+        let bytes = canonical_bytes(&t, DOMAIN_TASK_V1).unwrap();
+        let body = &bytes[DOMAIN_TASK_V1.len() + 1..];
+        let restored: Task = serde_json::from_slice(body).unwrap();
+        assert_eq!(restored.redundancy_factor, 3);
+    }
+
+    #[test]
+    fn task_wire_default_factor_1() {
+        let json = serde_json::json!({
+            "version": 1,
+            "task_id": "x",
+            "task_type": "t",
+            "prompt": "p",
+            "system_prompt": "",
+            "model": "m",
+            "priority": 5,
+            "created_at": 0,
+            "parent_task_id": "",
+            "metadata": {}
+        });
+        let t: Task = serde_json::from_value(json).unwrap();
+        assert_eq!(t.redundancy_factor, 1);
     }
 
     #[test]

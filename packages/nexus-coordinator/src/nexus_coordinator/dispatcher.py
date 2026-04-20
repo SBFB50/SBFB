@@ -79,6 +79,8 @@ class SubmitRequest:
     estimated_watts: int = 0
     estimated_vram_mb: int = 0
     estimated_hours: float = 0.0
+    # Sprint 23 Phase D — redundancy voting.
+    redundancy_factor: int = 1
 
 
 class Dispatcher:
@@ -102,12 +104,14 @@ class Dispatcher:
         author_id: str,
         coord_secret: bytes,
         pii_redactor: PiiRedactor | None = None,
+        redundancy_dispatcher: Any | None = None,  # RedundancyDispatcher
     ) -> None:
         self._db_path = db_path
         self._doc = doc
         self._author_id = author_id
         self._coord_secret = coord_secret
         self._pii_redactor = pii_redactor
+        self._redundancy_dispatcher = redundancy_dispatcher
 
     async def init(self) -> None:
         """Ensure the DB schema exists. Call once at coordinator start."""
@@ -163,6 +167,7 @@ class Dispatcher:
             "estimated_watts": int(req.estimated_watts),
             "estimated_vram_mb": int(req.estimated_vram_mb),
             "estimated_hours": float(req.estimated_hours),
+            "redundancy_factor": int(req.redundancy_factor),
         }
         task_json = json.dumps(task_dict, sort_keys=True)
         signed = nexus_core.sign_task(task_json, self._coord_secret)
@@ -183,6 +188,9 @@ class Dispatcher:
                 (task_id, signed, req.task_type, req.model, req.priority, now),
             )
             await db.commit()
+
+        if req.redundancy_factor > 1 and self._redundancy_dispatcher is not None:
+            self._redundancy_dispatcher.register_task(task_id, req.redundancy_factor)
 
         _log.info("task submitted", task_id=task_id, task_type=req.task_type, model=req.model)
         return task_id

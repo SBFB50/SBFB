@@ -51,6 +51,12 @@ class TaskCreateBody(BaseModel):
             "cost_estimate() override when crafting the TaskEntry."
         ),
     )
+    redundancy_factor: int = Field(
+        1,
+        ge=1,
+        le=10,
+        description="Number of independent workers for redundancy voting.",
+    )
 
 
 def _coord(request: Request) -> "Coordinator":
@@ -111,6 +117,7 @@ async def submit_task(request: Request, body: TaskCreateBody) -> dict[str, Any]:
         estimated_watts=watts,
         estimated_vram_mb=vram_mb,
         estimated_hours=hours,
+        redundancy_factor=body.redundancy_factor,
     )
     try:
         task_id = await upload_queue.schedule(submit_req)
