@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Sprint 20 Phase E.3 — federated warrant canary registry API.
 
-Exposes two endpoints:
+Exposes (warrant canary, S20 Phase E.3 + S21 Phase E):
 
 - ``GET  /api/canary/network-health`` — fleet snapshot of every
   observed maintainer's canary + duress-ack freshness.
@@ -21,6 +21,19 @@ shape-valid payload, deferred verify to operator inspection). The
 T-NN+1 carry only covered canary verify; ``verify_duress_ack``
 binding would be a S22+ follow-up if hardened end-to-end matters
 for that channel.
+
+Sprint 22 Phase E — watermark canari-input primitive — adds two
+more endpoints on the same router (distinct primitive, same URL
+prefix for operator clarity):
+
+- ``POST /api/canary/inject-rate`` — live update of the
+  :class:`~nexus_coordinator.canary_input.CanaryInputManager`
+  ``inject_rate`` (1/N sampling frequency) without a coordinator
+  restart.
+- ``GET  /api/canary/observed-divergence`` — recent divergence
+  records emitted by the Observer when a worker answer failed a
+  known-answer probe. Delivers the primitive only; durable
+  alerting lands in Sprint 23 B1 Guardrails refactor.
 
 The router has no authentication beyond the loopback bearer
 already enforced by ``LoopbackAuthMiddleware`` (Sprint 16). The
@@ -139,3 +152,61 @@ async def observed(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=422, detail=f"invalid {kind} payload: {exc}") from exc
 
     return {"status": "observed", "kind": kind or ""}
+
+
+# ---------------------------------------------------------------------------
+# Sprint 22 Phase E — watermark canari-input primitive endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/canary/inject-rate")
+async def set_inject_rate(request: Request) -> dict[str, object]:
+    """Update the canari-input 1/N sampling frequency live.
+
+    Body shape: ``{"inject_rate": <positive int>}``. A value ``<= 1``
+    forces injection on every task — useful for integration tests
+    but a terrible production default (workers would catch on).
+    The ``CanaryInputManager`` clamps to ``max(1, new_rate)`` so a
+    zero or negative value is coerced to ``1`` without erroring.
+    """
+    coord = _coordinator(request)
+    manager = getattr(coord, "canary_input", None)
+    if manager is None:
+        raise HTTPException(status_code=503, detail="canary_input manager not initialised")
+    body = await request.json()
+    if not isinstance(body, dict) or "inject_rate" not in body:
+        raise HTTPException(status_code=400, detail="body must contain 'inject_rate' integer field")
+    try:
+        new_rate = int(body["inject_rate"])
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"inject_rate must be an integer: {exc}") from exc
+    manager.update_inject_rate(new_rate)
+    return {
+        "status": "updated",
+        "inject_rate": manager.policy.inject_rate,
+    }
+
+
+@router.get("/api/canary/observed-divergence")
+async def observed_divergence(request: Request, limit: int = 50) -> dict[str, object]:
+    """Return the recent divergence ring-buffer contents.
+
+    ``limit`` caps the number of records returned (default 50, max
+    ring capacity is set by the Observer — currently 100). Each
+    record carries ``(prompt_id, observed_at_unix, similarity,
+    expected_answer, observed_answer, worker_pubkey_hex)``. The
+    response also bundles injector + observer counters so operators
+    can eyeball the "did anything trigger" signal at a glance.
+    """
+    coord = _coordinator(request)
+    manager = getattr(coord, "canary_input", None)
+    if manager is None:
+        raise HTTPException(status_code=503, detail="canary_input manager not initialised")
+    capped = max(0, min(int(limit), 100))
+    divergences = manager.observer.recent_divergences(limit=capped)
+    return {
+        "divergences": [d.to_dict() for d in divergences],
+        "count": len(divergences),
+        "injector_stats": manager.injector.stats,
+        "observer_stats": manager.observer.stats,
+    }

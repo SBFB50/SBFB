@@ -53,6 +53,7 @@ from nexus_sdk import (
     discover_apps,
 )
 
+from nexus_coordinator.canary_input import CanaryInputManager
 from nexus_coordinator.canary_registry import CanaryRegistry
 from nexus_coordinator.config import CoordinatorConfig
 from nexus_coordinator.contributor_registry import ContributorRegistry
@@ -64,6 +65,8 @@ from nexus_coordinator.paths import (
     app_db_path,
     app_storage_path,
     app_uploads_path,
+    canary_input_policy_path,
+    canary_input_set_path,
     canary_registry_path,
     contributor_registry_path,
     coord_config_path,
@@ -192,6 +195,12 @@ class Coordinator:
         # like :attr:`canary_registry` so the REST endpoint works
         # before :meth:`start` boots the iroh node.
         self.contributor_registry: ContributorRegistry = ContributorRegistry(contributor_registry_path())
+        # Sprint 22 Phase E — watermark canari-input manager. Populated
+        # in :meth:`start` once the keypair is loaded (the manager
+        # needs the coord pubkey to reject a signed set from a rogue
+        # key). The pre-start attribute is ``None`` so the API
+        # endpoints return 503 cleanly before boot.
+        self.canary_input: CanaryInputManager | None = None
         self.apps: dict[str, NexusApp] = {}
         self.app_contexts: dict[str, AppContext] = {}
 
@@ -214,6 +223,20 @@ class Coordinator:
 
         # 1. Keypair
         self._keypair = load_or_generate_keypair(self.key_path)
+
+        # 1b. Sprint 22 Phase E — canari-input manager. Bind the
+        #     manager once the coord pubkey is known so it can reject
+        #     a signed set that does not match our own key (guard
+        #     against replacing a curated set with one signed by a
+        #     rogue key, even if the policy file points at an
+        #     attacker-controlled path). The policy + set files are
+        #     per-user under ``~/.sbfb/`` — pattern parallel to the
+        #     Sprint 21 Phase C :class:`OutputFilter` policy layout.
+        self.canary_input = CanaryInputManager(
+            policy_path=canary_input_policy_path(),
+            canary_set_path=canary_input_set_path(),
+            coord_pubkey=self._keypair.public,
+        )
 
         # 2. iroh Node with the persistent secret so node_id is
         #    stable across reboots, plus a persistent docs/author

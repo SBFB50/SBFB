@@ -196,6 +196,36 @@ def canary_registry_path() -> Path:
     return nexus_grid_root() / "canary-registry.json"
 
 
+def canary_input_policy_path() -> Path:
+    """Path to the ``canary_input_policy.toml`` hot-reload config.
+
+    Sprint 22 Phase E: the :class:`CanaryInputManager` watches this
+    file for inject_rate + tolerance + rotation cadence overrides.
+    Lives under ``~/.sbfb/`` (not under the project dir) because the
+    policy is per-user, not per-project — a single user running N
+    coordinator projects shares one canary-input policy.
+    """
+    override = os.environ.get(_ROOT_OVERRIDE_ENV)
+    if override:
+        return Path(override) / "sbfb" / "canary_input_policy.toml"
+    return Path.home() / ".sbfb" / "canary_input_policy.toml"
+
+
+def canary_input_set_path() -> Path:
+    """Default path to the signed :class:`CanaryInputSet` JSON file.
+
+    Sprint 22 Phase E: rotated via
+    ``nexus-coordinator canary rotate``. Lives alongside the
+    policy TOML under ``~/.sbfb/``. Operators can override via the
+    ``[default].set_path`` TOML field to keep their curated probes
+    outside the default location.
+    """
+    override = os.environ.get(_ROOT_OVERRIDE_ENV)
+    if override:
+        return Path(override) / "sbfb" / "canary_input_set.json"
+    return Path.home() / ".sbfb" / "canary_input_set.json"
+
+
 def contributor_registry_path() -> Path:
     """Path to the contributor attestation registry SQLite file.
 

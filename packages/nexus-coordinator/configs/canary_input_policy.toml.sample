@@ -1,0 +1,73 @@
+# Sprint 22 Phase E — watermark canari-input policy sample for the
+# SBFB coordinator.
+#
+# Copy to `~/.sbfb/canary_input_policy.toml` (per-user dotdir). Le
+# coordinator lit ce fichier lazy et hot-reload sur mtime change
+# (50 ms debounce, malformed-reload guard, file-deletion guard).
+#
+# La primitive canari-input glisse un prompt known-answer signé
+# Ed25519 coord dans 1 tâche sur N (default N=100). Le worker ne
+# peut pas distinguer la canari d'une vraie tâche sur le wire, donc
+# un worker qui tente de tricher en utilisant un modèle moins cher
+# rate les probes avec une distance Levenshtein < tolérance, ce qui
+# déclenche un DivergenceRecord dans le CanaryInputObserver.
+#
+# **Distinct** de l'output watermarking Kirchenbauer (ICML 2023,
+# green-list logit biasing) qui est vulnérable au BIRA attack
+# (arXiv 2509.23019, sept 2025). L'input-side prompt-probe ne
+# manipule pas les logits, est model-agnostic, et immune aux
+# rewrite attacks token-level.
+#
+# Le set de probes est signé + rotatable via
+# `nexus-coordinator canary rotate` (pattern S18 Phase D
+# TokenRotator file-watched reload). Le CLI `canary status` dump
+# le set courant + les compteurs injector/observer + les
+# DivergenceRecord récents.
+#
+# Schema:
+#   [default]
+#       enabled                   : bool, default true. Master off
+#                                   switch (no-op si false — le
+#                                   manager ne rouvre pas le fichier
+#                                   de set tant que ce flag reste
+#                                   false, utile pour debug local).
+#       inject_rate               : int, default 100. 1 tâche
+#                                   injectée sur N. Un ``<= 1``
+#                                   force l'injection sur chaque
+#                                   tâche (debug only — un worker
+#                                   repèrerait instantanément).
+#       default_tolerance         : f64, default 0.85. Seuil
+#                                   Levenshtein normalized_similarity
+#                                   entre expected_answer et worker
+#                                   output. < tolerance = divergence
+#                                   alert. Surchargeable par probe
+#                                   via CanaryPrompt.tolerance.
+#       rotation_frequency_days   : int, default 30. Cadence
+#                                   advisory (non-enforced — le
+#                                   monitoring S23+ pourra avertir
+#                                   sur staleness via CreatedAt
+#                                   du set).
+#       set_path                  : str, optional. Override du
+#                                   chemin par défaut
+#                                   ~/.sbfb/canary_input_set.json.
+#                                   Utile pour partager un set
+#                                   curaté entre plusieurs
+#                                   coordinators côté même user.
+#
+# Threat model coverage (HARDENING_ROADMAP §3 S22, D4):
+#   - C-ComputeTheft / silent-model-swap : worker qui remplace
+#     discrètement le modèle requis par un modèle moins cher
+#     produit une réponse plausible mais incorrecte sur les
+#     probes → alerte Observer.
+#   - Partial mitigation C-SilentOutputTamper : seulement si le
+#     tamper change assez l'answer pour dépasser le seuil.
+#
+# Consommé par le refactor S23 B1 Guardrails
+# (docs/security/GUARDRAILS_ARCHITECTURE.md §3 ligne 371-372).
+
+[default]
+enabled = true
+inject_rate = 100
+default_tolerance = 0.85
+rotation_frequency_days = 30
+# set_path = "~/.sbfb/canary_input_set.json"  # default (uncomment to override)
