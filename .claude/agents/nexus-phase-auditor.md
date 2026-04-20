@@ -55,6 +55,73 @@ Si info manquante, auto-detect :
 - Phase depuis `git log -20 --format=%s | grep "Phase X"` (prend
   la X qui suivrait logiquement la derniere committee)
 
+## Focus post-code — optimisation input/prompt (2026-04-20)
+
+**Observation team 4-agent analysis** : l'auditor a historiquement
+consomme ~60-97k tokens/run dont ~50% a re-deriver les 4 scans S1-S4
+que le preflight G8 a deja tournes. Ca n'est PAS de la value — c'est
+de la duplication factuelle couteuse. Ta valeur unique est **post-
+code** : security runtime, design smells, scope-cuts respectes, delta
+tests reel, patterns drift. Pas la re-verification SOTA / historiques
+/ threat model / wire format (couverts preflight + G8 skill).
+
+**Regle operationnelle** :
+
+1. **Si `.planning/active/sprint{N}_phase_{X}_preflight.md` existe** :
+   lis-le (~200-400 lignes typiquement). Si verdict = `EXECUTE` ou
+   `SCOPE-CUT-CONSISTENT`, **ACKNOWLEDGE les 4 scans S1-S4** au lieu
+   de les re-deriver. Inscris dans ton rapport :
+
+   ```
+   ### Acknowledged by G8 preflight (not re-derived)
+   - S1 SOTA 2026 : <1 ligne du verdict preflight>
+   - S2 historiques : <1 ligne>
+   - S3 threat model : <1 ligne>
+   - S4 wire format : <1 ligne>
+   ```
+
+   Puis focus ton attention sur les dimensions **post-code only** :
+   Security runtime + Patterns + Scope-cuts + Tests-delta + Working
+   tree + G8-integrity (preflight emitted + plan coherence).
+
+2. **Si preflight manquant OU DESIGN-CONFLICT OU > 30j** : audit
+   complet classique (inclut re-derivation S1-S4), mais applique
+   toujours la regle de timebox ci-dessous.
+
+3. **Timebox explicite** : 25 minutes max par audit LIGHT-AUDIT, 45
+   minutes max par audit DEEP (preflight manquant / C1 wire / C3
+   primitive Rust / C7 Phase F wrap-up / threat docs touches). Si
+   tu approches le timebox, **truncate les sections low-value**
+   (patterns drift documentation, design smells non-bloquants) et
+   livre Verdict + Findings + Working tree audit obligatoires.
+
+4. **Output compact par defaut** : table dimensions avec checkboxes
+   + evidence 1 ligne/item. Findings listes avec file:line +
+   extrait 1-2 lignes cite. PAS de paragraphes narratifs de 5-10
+   lignes si une phrase + code suffit. Objectif : review.md < 300
+   lignes sauf FAIL (findings P0/P1 meritent detail).
+
+5. **Rouge-ligne DEEP obligatoire** (ignore "Focus post-code"
+   optimisation, fais un audit complet meme si preflight EXECUTE) :
+   - diff touche `docs/security/{THREAT_MODEL,HARDENING_ROADMAP,
+     VALIDATED_BLUEPRINT,RUNTIME_ISOLATION}.md`
+   - diff modifie `crates/nexus-core-rs/src/canonical.rs` ou
+     `schemas/` (wire format pre-launch)
+   - diff introduit un `#[cfg(not(test))]` ou `#[allow(dead_code)]`
+     nouveau (masquage code path)
+   - phase kickoff §D cite une spec externe datee (Tor PoW, BIP,
+     RFC) sans SHA/timestamp < 30j verifiable
+   - `fix(sprint{N-1})` figure dans le range non-audite (carry-over
+     implicite)
+   Dans ces cas, le gain d'optimisation est sacrifie pour la rigueur.
+
+Cette optimisation ne reduit PAS ton input (tu lis toujours full
+diff + full staged tree + full preflight/plan/kickoff refs). Elle
+reduit ton **output effort** sur les dimensions deja couvertes par
+le preflight. G4 independance preservee : tu peux toujours flagger
+un P0/P1 meme sur une dimension "acknowledged" si tu decouvres un
+angle mort — le preflight n'est PAS un free-pass.
+
 ## Calibration rigor (G4 — obligatoire avant Step 1)
 
 Cet audit enregistre les findings **reellement observes** dans le

@@ -82,15 +82,28 @@ CATEGORY_COUNT=$(echo "$STAGED_FILES" \
   | grep -cE '^(crates|packages|web)$' || echo 0)
 
 # C5 LOC effectif (>500, hors tests + docs + .md + lockfiles)
+#
+# Fix 2026-04-20 (post-analyse 4-agent teamwork factuelle) : la boucle
+# while ci-dessous utilise `$((A + B))` qui exige des entiers. Le git
+# numstat colonne "added" est toujours un entier (format "123\t45\tfile")
+# mais si un output de CRLF ou whitespace parasite passe (Windows Git
+# Bash observe occasionnel), le $(()) lance un arithmetic error fatal
+# sous `set -eo pipefail`. On strip whitespace + double fallback 0 pour
+# robustesse. Bug historique S21 Phase C : LOC reel 1024 affiche "no"
+# dans diagnostic, faux-negatif sur une phase qui aurait du etre audite.
 EFFECTIVE_LOC=0
 while IFS=$'\t' read -r added removed file; do
   [ -z "$file" ] && continue
   [ "$added" = "-" ] && continue
+  added_clean=$(echo "$added" | tr -d '[:space:]')
+  case "$added_clean" in
+    ''|*[!0-9]*) continue ;;
+  esac
   case "$file" in
     *test*|*tests/*|*/test_*|*spec.ts*|*.test.ts*|*.test.tsx*|*.md|docs/*|*.lock|Cargo.lock)
       continue ;;
   esac
-  EFFECTIVE_LOC=$((EFFECTIVE_LOC + added))
+  EFFECTIVE_LOC=$((EFFECTIVE_LOC + added_clean))
 done < <(git diff --cached --numstat 2>/dev/null || true)
 
 # C6 G8 DESIGN-CONFLICT (pivot proposal present active)
@@ -105,19 +118,30 @@ FORCE_FILE=".planning/active/sprint${SPRINT}_phase_${PHASE}_force_audit.txt"
 FORCE_OVERRIDE=0
 [ -f "$FORCE_FILE" ] && FORCE_OVERRIDE=1
 
+# C9 rouge-ligne HARDENING_ROADMAP / THREAT_MODEL modifies — 2026-04-20
+# (deduit team 4-agent analysis FM-1, FM-3 : preflight G8 EXECUTE peut
+# masquer un drift threat model. Si les docs de menace sont touches, le
+# diff a une dimension security potentiellement manquee par S3/S4 preflight
+# — audit full obligatoire, skip LIGHTWEIGHT meme si tous les autres
+# criteres sont zero.)
+TOUCHES_THREAT_DOCS=0
+echo "$STAGED_FILES" | grep -qE 'docs/security/(THREAT_MODEL|HARDENING_ROADMAP|VALIDATED_BLUEPRINT|RUNTIME_ISOLATION)\.md' && TOUCHES_THREAT_DOCS=1
+
 if [ "$TOUCHES_WIRE" -eq 0 ] && [ "$TOUCHES_VERSION" -eq 0 ] \
    && [ "$TOUCHES_CRYPTO" -eq 0 ] && [ "$CATEGORY_COUNT" -lt 2 ] \
    && [ "$EFFECTIVE_LOC" -lt 500 ] && [ -z "$PIVOT_FILE" ] \
-   && [ "$IS_PHASE_F" -eq 0 ] && [ "$FORCE_OVERRIDE" -eq 0 ]; then
+   && [ "$IS_PHASE_F" -eq 0 ] && [ "$FORCE_OVERRIDE" -eq 0 ] \
+   && [ "$TOUCHES_THREAT_DOCS" -eq 0 ]; then
   REVIEW_STUB=".planning/active/sprint${SPRINT}_phase_${PHASE}_review.md"
   if [ ! -f "$REVIEW_STUB" ]; then
     cat > "$REVIEW_STUB" <<EOSTUB
 # Sprint ${SPRINT} Phase ${PHASE} — auditor skip (heuristique gate hook)
 
-## Verdict : PASS
+## Verdict : PASS-SKIP-LIGHTWEIGHT
 
-SKIP-LIGHTWEIGHT — phase ne remplit aucun critere C1-C8 du gate (cf.
-docs/claude/TOOLING.md §5.2 amendement 2026-04-20) :
+SKIP-LIGHTWEIGHT — phase ne remplit aucun critere C1-C9 du gate (cf.
+docs/claude/TOOLING.md §5.2 amendement 2026-04-20 + extension 2026-04-20
+rouge-ligne threat docs post-team-analysis) :
 
 - C1 wire format / canonical : non
 - C2 *_VERSION bump : non
@@ -127,6 +151,14 @@ docs/claude/TOOLING.md §5.2 amendement 2026-04-20) :
 - C6 G8 DESIGN-CONFLICT : non (pas de pivot_proposal)
 - C7 Phase F wrap-up : non
 - C8 sentinelle force_audit : non
+- C9 HARDENING/THREAT_MODEL/VALIDATED_BLUEPRINT touches : non
+
+**Clarification G4 (2026-04-20)** : ce verdict est distinct d'un PASS
+apres audit LLM reel. Le hook l'accepte (regex ^## Verdict[[:space:]]*:
+[[:space:]]*PASS matche "PASS-SKIP-LIGHTWEIGHT") mais le nom rend
+honnete le fait qu'aucun jugement semantique n'a ete pose. A lire
+comme "checks mecaniques pre-commit seuls, auditor non-invoque par
+economie heuristique".
 
 Hooks legers pre-commit appliques par
 .claude/hooks/phase-precommit-lightcheck.sh
