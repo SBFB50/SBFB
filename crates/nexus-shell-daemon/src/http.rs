@@ -234,6 +234,11 @@ pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
             "/api/contributor/verify/{project_id}/{node_id_hex}",
             get(proxy_contributor_verify),
         )
+        // Sprint 23 Phase E : diagnostic neighborhood snapshot.
+        // Returns the node's own ID and known peer IDs from the
+        // iroh endpoint's remote info table. Diagnostic-only, no
+        // wire format impact.
+        .route("/diagnostic/neighborhood", get(diagnostic_neighborhood))
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -405,6 +410,14 @@ pub struct DefaultCuratorsResponse {
 pub struct PublishBlobResponse {
     /// Hex-encoded BLAKE3 hash of the stored blob.
     pub hash: String,
+}
+
+/// Body of `GET /diagnostic/neighborhood`. Sprint 23 Phase E.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeighborhoodResponse {
+    pub node_id: String,
+    pub peers: Vec<String>,
 }
 
 /// Body returned when a curator runtime error must be surfaced
@@ -999,6 +1012,26 @@ async fn mint_blob_ticket(
         .await?;
     let ticket = BlobTicket::new(addr, Hash::from_bytes(hash_bytes), BlobFormat::Raw);
     Ok(ticket.to_string())
+}
+
+/// `GET /diagnostic/neighborhood` — Sprint 23 Phase E. Returns the
+/// node's own ID and the peer pubkeys currently in the daemon's
+/// observable neighborhood. iroh 0.97 does not expose a DHT routing
+/// table enumeration (`remote_info_iter` landed post-0.97), so the
+/// observable neighborhood is the set of subscribed curator pubkeys
+/// — the peers this daemon actively tracks via gossip. Post-0.97
+/// upgrade or pkarr canary integration (S24) will enrich this with
+/// transport-layer peer discovery.
+async fn diagnostic_neighborhood(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    debug!("GET /diagnostic/neighborhood");
+    let peers = state.curator_runtime.subscribed_pubkeys_hex();
+    (
+        StatusCode::OK,
+        Json(NeighborhoodResponse {
+            node_id: state.node_id.clone(),
+            peers,
+        }),
+    )
 }
 
 // =================================================================
@@ -2118,5 +2151,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 23 Phase E: diagnostic neighborhood endpoint
+    // ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn diagnostic_neighborhood_returns_own_node_id_and_empty_peers() {
+        let state = mk_state().await;
+        let expected_node_id = state.node_id.clone();
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/diagnostic/neighborhood")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let neighborhood: NeighborhoodResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(neighborhood.node_id, expected_node_id);
+        assert!(
+            neighborhood.peers.is_empty(),
+            "fresh node should have no known peers"
+        );
     }
 }
