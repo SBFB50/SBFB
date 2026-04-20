@@ -36,6 +36,7 @@
 
 pub mod noop;
 pub mod nvml;
+pub mod profile;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

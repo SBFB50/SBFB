@@ -96,7 +96,7 @@ clap = { version = "4.5", features = ["derive"] }
 ratatui = "0.28"
 crossterm = "0.28"
 ollama-rs = "0.2"
-nvml-wrapper = "0.10"
+nvml-wrapper = "0.12.1"
 
 # W3: layered config (defaults + TOML file + env vars) and
 # cross-platform OS directory resolution. `config` reads config

@@ -162,6 +162,14 @@ impl WorkerPaths {
         self.data_dir.join("allowlist.sqlite3")
     }
 
+    /// The canonical path for the NVML utilization+duration profile
+    /// SQLite database (Sprint 22 Phase D — log-only baseline
+    /// foundation for the Sprint 24 random re-run sampling
+    /// detection of `C-ComputeTheft`).
+    pub fn default_nvml_profile_db(&self) -> PathBuf {
+        self.data_dir.join("nvml_profile.sqlite3")
+    }
+
     /// Create every parent directory referenced by these paths.
     ///
     /// Called by [`WorkerConfig::save_new`] before writing the

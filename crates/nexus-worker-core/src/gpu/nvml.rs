@@ -64,6 +64,14 @@ impl NvmlBackend {
     pub fn inner(&self) -> &Nvml {
         &self.nvml
     }
+
+    /// Clone the internal `Arc<Nvml>` so other GPU subsystems
+    /// (currently [`crate::gpu::profile::NvmlProfile`]) can avoid
+    /// a second `Nvml::init` call. Cheap — just bumps the
+    /// refcount, never re-enters NVML.
+    pub(super) fn shared_handle(&self) -> Arc<Nvml> {
+        Arc::clone(&self.nvml)
+    }
 }
 
 impl GpuMonitor for NvmlBackend {
@@ -213,10 +221,19 @@ mod tests {
         let stats = backend.snapshot(0).expect("snapshot of device 0");
         assert_eq!(stats.index, 0);
         assert!(stats.vram_total_bytes > 0);
-        assert_eq!(
-            stats.vram_total_bytes,
-            stats.vram_free_bytes + stats.vram_used_bytes,
-            "memory accounting invariant: free + used = total"
+        // nvml-wrapper 0.11.0 switched the underlying NVML call
+        // to `nvmlDeviceGetMemoryInfo` v2 (CHANGELOG entry "to
+        // be consistent with nvidia-smi"). v2 reports
+        // `total = free + used + reserved` where `reserved` is
+        // driver/system overhead — so the strict equality
+        // `total == free + used` from the v1 era no longer holds.
+        // The relaxed invariant remains a useful sanity check:
+        // memory accounting must never *over*-report relative to
+        // the device total.
+        assert!(
+            stats.vram_free_bytes + stats.vram_used_bytes <= stats.vram_total_bytes,
+            "memory accounting invariant: free + used must not exceed total \
+             (v2 semantics: total = free + used + reserved-driver-overhead)"
         );
         assert!(stats.gpu_utilization_percent <= 100);
         assert!(stats.memory_utilization_percent <= 100);
