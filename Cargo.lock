@@ -3760,7 +3760,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "config",
- "dashmap",
  "data-encoding",
  "directories",
  "governor",

@@ -306,8 +306,8 @@ export class GlinerPiiDetector {
       const raw = await this.handle.detect(text, policy.confidence_threshold);
       const filtered = filterFindings(raw, policy);
       if (filtered.length === 0) {
-        // Scaffold path returns empty; augment with regex so apps
-        // in dev (without the model) still get meaningful redaction.
+        // Model returns 0 findings = no PII detected. Fallback kept
+        // as defense-in-depth (regex catches formats the model misses).
         return fallbackDetect(text, policy);
       }
       return filtered;

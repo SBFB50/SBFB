@@ -505,7 +505,7 @@ class CanaryInputManager:
             # the lock: __init__ runs single-threaded by construction —
             # no other reference to ``self`` exists yet for a concurrent
             # reload to race against.
-            self._reload_policy_locked()
+            self._reload_policy_inner()
 
         initial_set: CanaryInputSet | None = None
         target = self._effective_set_path()
@@ -613,10 +613,10 @@ class CanaryInputManager:
             return
         self._reload_state.last_reload_check = now
         with self._lock:
-            self._reload_policy_locked()
+            self._reload_policy_inner()
             self._reload_set_locked()
 
-    def _reload_policy_locked(self) -> None:
+    def _reload_policy_inner(self) -> None:
         if self._policy_path is None:
             return
         try:

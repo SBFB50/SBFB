@@ -1818,14 +1818,18 @@ is enough to validate the metric format end-to-end.
 
 ---
 
-## §P33 — Sprint 21 Phase A : rate-limit GCRA multi-tier (R1 worker-engine gate)
+## §P33 — Sprint 21 Phase A + Sprint 22 Phase A : rate-limit GCRA multi-tier (R1 worker-engine gate + hot-reload wire-up)
 
-Phase A delivers a rate-limit primitive per-(consumer, worker,
+Phase A S21 delivers a rate-limit primitive per-(consumer, worker,
 model) in `crates/nexus-worker-core/src/rate_limit.rs`, consumed
-by the worker engine pre-task-execution. The primitive wraps
-`governor::DefaultKeyedRateLimiter<RateKey>` (GCRA algorithm,
-DashMap-backed concurrent state) plus a per-consumer override map
-for operator whitelists.
+by the worker engine pre-task-execution. Sprint 22 Phase A wires
+the primitive into `runtime.rs` pre-`ClaimEntry` gate and adds
+`swap_policy` for hot-reload via Arc swap.
+
+The primitive wraps `governor::DefaultKeyedRateLimiter<RateKey>`
+(GCRA algorithm) behind a `RwLock<RateLimiterState>` for atomic
+hot-reload rotations (readers never block other readers, writer
+only blocks for Arc swap duration).
 
 ```rust
 pub struct RateKey {
@@ -1834,24 +1838,20 @@ pub struct RateKey {
     pub model: ModelId,
 }
 
-pub struct RateLimiter {
+struct RateLimiterState {
     default: Arc<DefaultKeyedRateLimiter<RateKey>>,
-    overrides: Arc<DashMap<ConsumerId, Arc<DefaultKeyedRateLimiter<RateKey>>>>,
-    _policy: Arc<RwLock<RateLimitPolicy>>,
+    overrides: Arc<HashMap<ConsumerId, Arc<DefaultKeyedRateLimiter<RateKey>>>>,
+}
+
+pub struct RateLimiter {
+    state: RwLock<RateLimiterState>,
+    policy: Arc<RwLock<RateLimitPolicy>>,
 }
 
 impl RateLimiter {
-    pub fn check(&self, key: &RateKey) -> Result<(), RateLimitError> {
-        let limiter = match self.overrides.get(&key.consumer) {
-            Some(entry) => Arc::clone(entry.value()),
-            None => Arc::clone(&self.default),
-        };
-        match limiter.check_key(key) {
-            Ok(()) => Ok(()),
-            Err(_not_until) => Err(RateLimitError::Saturated { ... }),
-        }
-    }
-    pub fn retain_recent(&self) { /* evict stale keys */ }
+    pub fn from_policy(policy: Arc<RwLock<RateLimitPolicy>>) -> Result<Self, RateLimitError>;
+    pub fn swap_policy(&self, new: RateLimitPolicy) -> Result<(), RateLimitError>;
+    pub fn check(&self, key: &RateKey) -> Result<(), RateLimitError>;
 }
 ```
 

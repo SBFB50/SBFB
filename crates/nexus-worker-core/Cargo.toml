@@ -154,13 +154,6 @@ governor = { workspace = true }
 # non-zero constructor for `NonZeroU32`.
 nonzero_ext = { workspace = true }
 
-# Sprint 21 Phase A : concurrent hashmap for the per-consumer
-# override limiter map held inside `RateLimiter`. Already a
-# workspace dep via `nexus-shell-daemon-core` (curator registry) —
-# re-declared here because the worker-core `rate_limit` module
-# holds its own `DashMap<ConsumerId, ...>` and must not reach
-# through a transitive re-export.
-dashmap = { workspace = true }
 
 # Deliberately excluded: clap, ratatui, crossterm, dialoguer.
 # This crate is UI-free by design (see the 2026-04-10 Sprint 3

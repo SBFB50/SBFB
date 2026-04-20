@@ -4,6 +4,9 @@
 #   ISO-8601 timestamp | sprint/phase | commit SHA | justification
 #
 # Created: Sprint 22 Phase F (P2-S21-5 fix).
+# Note: forward-only from creation date. Phase D S22 iteration 2
+# used NEXUS_SKIP_PHASE_AUDITOR=1 prior to this file's existence —
+# not retroactively appended (P2-Meta-hook-coverage-1 S22 audit).
 # Pattern: every use of NEXUS_SKIP_PHASE_AUDITOR=1 must append a
 # line here with an inline justification. Entries are audited in
 # the Phase 0 audit gate of the following sprint.

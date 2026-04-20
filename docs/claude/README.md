@@ -1003,8 +1003,7 @@ horizon long terme + documentation AVANT code ») :
   Sans rationale, ce n'est pas une décision, c'est un réflexe.
 - **Défaut "deep" en cas de doute** entre deep et quick — l'user
   re-demande deep 3× sur 3, autant l'assumer d'entrée.
-- **Pas d'estimation LOC en amont.** Aucun plan ni kickoff ne
-  fournit un chiffre "~NNNN LOC sur N phases". Raisons :
+- **Pas d'estimation LOC en amont dans le kickoff/plan.** Raisons :
   (1) la taille finale dépend de la solution trouvée après
   recherche, elle n'est pas connaissable au plan ; (2) une
   estimation amont devient un plafond psychologique — l'agent
@@ -1012,7 +1011,15 @@ horizon long terme + documentation AVANT code ») :
   budget ; (3) la "vitesse de delivery" se mesure aux phases
   livrées avec tests verts, pas aux LOC produites. La seule LOC
   qui compte est la LOC **rétrospective** (mesure de gap, ex.
-  §6.2 "gap réel mesuré ~300 LOC").
+  §6.2 "gap réel mesuré ~300 LOC"). **Exception** : le
+  HARDENING_ROADMAP §3 fournit des bornes indicatives par item
+  pour le séquençage multi-sprint (~500, ~300, etc.) — ces
+  chiffres sont des **bornes de scoping** admises pour évaluer si
+  un sprint dépasse la norme ~2500 LOC totale, pas des métriques
+  de succès ni des plafonds de phase. Un plan ne les reprend pas
+  en "budget" par phase. Le commit body documente la LOC
+  rétrospective réelle si elle dévie significativement (>2×) de
+  la borne — cf. pattern observé 3× en S22 (P2-E-2).
 
 Preuve empirique : S14 Keyoxide, S17 VALIDATED_BLUEPRINT, S18
 supply-chain → research-first, zero rework majeur.
