@@ -76,8 +76,8 @@ pub use discovery::{DiscoveryClient, NodeAddrInfo};
 pub use docs::{DocHandle, DocsClient};
 pub use error::{NexusError, Result};
 pub use gossip::{
-    evaluate_age_admission, AgeAdmissionOutcome, AgeAdmissionPolicy, GossipClient, GossipEvent,
-    TopicHandle, TopicReceiver, TopicSender,
+    evaluate_age_admission, AgeAdmissionOutcome, AgeAdmissionPolicy, DifficultyTarget,
+    GossipClient, GossipEvent, TopicHandle, TopicReceiver, TopicSender,
 };
 pub use keystore::{
     Identity, IdentityMode, KdfParams, KeyStore, KeyStoreError, LocalFileKeyStore, UnlockError,
@@ -96,9 +96,10 @@ pub use pkarr_resolver::{
 // the PoW one under a distinct name to keep the crypto signer unchanged
 // for the Python side (`nexus_core_py.verify` = signature verify).
 pub use pow::{
-    leading_zero_bits, solve as pow_solve, verify as pow_verify, verify_at as pow_verify_at,
-    verify_stateless as pow_verify_stateless, HashcashChallenge, HashcashProof, PowError,
-    DEFAULT_DIFFICULTY_BITS, MAX_DIFFICULTY_BITS, MAX_PROOF_AGE_SECS, POW_FORMAT_VERSION,
+    escalating_difficulty, leading_zero_bits, should_reset_daily, should_reset_daily_at,
+    solve as pow_solve, verify as pow_verify, verify_at as pow_verify_at,
+    verify_stateless as pow_verify_stateless, EscalatingPolicy, HashcashChallenge, HashcashProof,
+    PowError, DEFAULT_DIFFICULTY_BITS, MAX_DIFFICULTY_BITS, MAX_PROOF_AGE_SECS, POW_FORMAT_VERSION,
 };
 pub use pow_gossip::{
     PowEnvelope, PowGossipError, PowSolveCache, PowVerifyCache, SESSION_WINDOW, SOLVE_TIMEOUT,

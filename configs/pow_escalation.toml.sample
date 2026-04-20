@@ -1,0 +1,23 @@
+# Escalating PoW difficulty policy — Sprint 23 Phase C.
+#
+# Each consumer's required PoW difficulty increases geometrically
+# with the number of tasks they submit per UTC day for a given model.
+#
+# Formula: difficulty = base_difficulty × multiplier^(task_count / tranche_size)
+# Clamped at max_difficulty (and the absolute cap MAX_DIFFICULTY_BITS = 30).
+#
+# Copy this file to ~/.sbfb/pow_escalation.toml and adjust values.
+
+# Starting difficulty (leading zero bits). Same as DEFAULT_DIFFICULTY_BITS.
+base_difficulty = 18
+
+# Geometric factor per tranche. 2.0 = difficulty doubles each step.
+multiplier = 2.0
+
+# Number of tasks per escalation step. After 10 tasks in the same
+# UTC day for the same model, difficulty doubles; after 20, quadruples.
+tranche_size = 10
+
+# Maximum difficulty (leading zero bits). The ramp stops here regardless
+# of how many tasks the consumer submits. Must be <= 30.
+max_difficulty = 26

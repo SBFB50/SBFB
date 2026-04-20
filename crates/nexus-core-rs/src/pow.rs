@@ -432,6 +432,85 @@ pub fn verify(proof: &HashcashProof) -> Result<(), PowError> {
 }
 
 // =================================================================
+// Escalating difficulty policy
+// =================================================================
+
+/// Geometric difficulty ramp per (consumer, model) tuple.
+///
+/// Each `tranche_size` tasks the consumer submits for a given model,
+/// the required difficulty doubles (×`multiplier`). The ramp resets
+/// daily at midnight UTC.
+///
+/// The policy is coordinator-local (not serialised on the wire) — it
+/// drives the `difficulty` field value injected into
+/// [`HashcashChallenge`] at solve time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EscalatingPolicy {
+    /// Starting difficulty (leading zero bits) at task_count=0.
+    pub base_difficulty: u32,
+    /// Geometric factor applied per tranche (typically 2.0).
+    pub multiplier: f64,
+    /// Number of tasks per escalation step.
+    pub tranche_size: u32,
+    /// Ceiling difficulty (will not exceed this OR [`MAX_DIFFICULTY_BITS`]).
+    pub max_difficulty: u32,
+}
+
+impl Default for EscalatingPolicy {
+    fn default() -> Self {
+        Self {
+            base_difficulty: DEFAULT_DIFFICULTY_BITS,
+            multiplier: 2.0,
+            tranche_size: 10,
+            max_difficulty: MAX_DIFFICULTY_BITS,
+        }
+    }
+}
+
+/// Compute the effective difficulty for a consumer that has already
+/// submitted `task_count` tasks in the current daily window.
+///
+/// Formula: `base_difficulty × multiplier^(task_count / tranche_size)`
+/// clamped to `[base_difficulty, max_difficulty]` and to
+/// [`MAX_DIFFICULTY_BITS`] as an absolute ceiling.
+pub fn escalating_difficulty(policy: &EscalatingPolicy, task_count: u64) -> u32 {
+    if task_count == 0 || policy.tranche_size == 0 {
+        return policy.base_difficulty.min(MAX_DIFFICULTY_BITS);
+    }
+    let exponent = task_count / u64::from(policy.tranche_size);
+    if exponent == 0 {
+        return policy.base_difficulty.min(MAX_DIFFICULTY_BITS);
+    }
+    let factor = policy.multiplier.powi(exponent as i32);
+    let raw = (f64::from(policy.base_difficulty) * factor).round() as u64;
+    let clamped = raw
+        .min(u64::from(policy.max_difficulty))
+        .min(u64::from(MAX_DIFFICULTY_BITS));
+    (clamped as u32).max(policy.base_difficulty)
+}
+
+/// Check whether a daily reset is due given the last reset timestamp.
+///
+/// Returns `true` if midnight UTC has passed since `last_reset`.
+/// Uses day-of-epoch comparison: `unix_secs / 86400`.
+pub fn should_reset_daily(last_reset: SystemTime) -> bool {
+    let last_secs = last_reset
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    now_secs / 86_400 > last_secs / 86_400
+}
+
+/// Deterministic variant for tests: compare two explicit timestamps.
+pub fn should_reset_daily_at(last_reset_unix: u64, now_unix: u64) -> bool {
+    now_unix / 86_400 > last_reset_unix / 86_400
+}
+
+// =================================================================
 // Tests
 // =================================================================
 
@@ -656,5 +735,136 @@ mod tests {
         // a runaway policy burn CPU in solve().
         let c = HashcashChallenge::new([0; 32], [0; 32], 100);
         assert_eq!(c.difficulty, MAX_DIFFICULTY_BITS);
+    }
+
+    // =============================================================
+    // Escalating difficulty policy tests
+    // =============================================================
+
+    fn default_escalating() -> EscalatingPolicy {
+        EscalatingPolicy {
+            base_difficulty: 18,
+            multiplier: 2.0,
+            tranche_size: 10,
+            max_difficulty: 26,
+        }
+    }
+
+    #[test]
+    fn escalating_difficulty_base_at_zero_count() {
+        let p = default_escalating();
+        assert_eq!(escalating_difficulty(&p, 0), 18);
+    }
+
+    #[test]
+    fn escalating_difficulty_ramp_first_tranche() {
+        let _p = default_escalating();
+        // count=10 → exponent=1 → 18×2=36 → clamped to max 26
+        // Use lower base to see the ramp clearly:
+        let p2 = EscalatingPolicy {
+            base_difficulty: 10,
+            multiplier: 2.0,
+            tranche_size: 10,
+            max_difficulty: 26,
+        };
+        assert_eq!(escalating_difficulty(&p2, 10), 20); // 10×2^1=20
+    }
+
+    #[test]
+    fn escalating_difficulty_ramp_third_tranche() {
+        let p = EscalatingPolicy {
+            base_difficulty: 10,
+            multiplier: 2.0,
+            tranche_size: 10,
+            max_difficulty: 30,
+        };
+        // count=30 → exponent=3 → 10×2^3=80 → clamped to 30
+        assert_eq!(escalating_difficulty(&p, 30), 30);
+        // count=20 → exponent=2 → 10×4=40 → clamped to 30
+        assert_eq!(escalating_difficulty(&p, 20), 30);
+        // With higher max to see unclamped:
+        let p2 = EscalatingPolicy {
+            base_difficulty: 4,
+            multiplier: 2.0,
+            tranche_size: 5,
+            max_difficulty: 30,
+        };
+        // count=15 → exponent=3 → 4×8=32 → clamped MAX_DIFFICULTY_BITS=30
+        assert_eq!(escalating_difficulty(&p2, 15), 30);
+    }
+
+    #[test]
+    fn escalating_difficulty_cap_max() {
+        let policy = default_escalating();
+        // count=100_000 → exponent=10_000 → astronomic → clamped
+        assert_eq!(
+            escalating_difficulty(&policy, 100_000),
+            policy.max_difficulty
+        );
+    }
+
+    #[test]
+    fn escalating_difficulty_within_first_tranche_stays_base() {
+        let p = default_escalating();
+        // count < tranche_size → exponent=0 → base
+        for count in 1..10 {
+            assert_eq!(escalating_difficulty(&p, count), 18);
+        }
+    }
+
+    #[test]
+    fn escalating_difficulty_overflow_saturates_max() {
+        let p = EscalatingPolicy {
+            base_difficulty: 20,
+            multiplier: 3.0,
+            tranche_size: 1,
+            max_difficulty: 28,
+        };
+        // count=100 → exponent=100 → 20×3^100 → overflow → clamped
+        assert_eq!(escalating_difficulty(&p, 100), 28);
+    }
+
+    #[test]
+    fn escalating_difficulty_zero_tranche_returns_base() {
+        let p = EscalatingPolicy {
+            tranche_size: 0,
+            ..default_escalating()
+        };
+        assert_eq!(escalating_difficulty(&p, 50), 18);
+    }
+
+    #[test]
+    fn escalating_difficulty_fractional_multiplier() {
+        let p = EscalatingPolicy {
+            base_difficulty: 10,
+            multiplier: 1.5,
+            tranche_size: 5,
+            max_difficulty: 30,
+        };
+        // count=5 → exponent=1 → 10×1.5=15
+        assert_eq!(escalating_difficulty(&p, 5), 15);
+        // count=10 → exponent=2 → 10×2.25=23 (rounded)
+        assert_eq!(escalating_difficulty(&p, 10), 23);
+    }
+
+    #[test]
+    fn should_reset_daily_same_day_is_false() {
+        // Two timestamps in the same UTC day → no reset
+        let noon = 86_400 * 100 + 43_200; // day 100, 12:00
+        let evening = 86_400 * 100 + 79_200; // day 100, 22:00
+        assert!(!should_reset_daily_at(noon, evening));
+    }
+
+    #[test]
+    fn should_reset_daily_next_day_is_true() {
+        let late_night = 86_400 * 100 + 86_399; // day 100, 23:59:59
+        let next_morning = 86_400 * 101 + 1; // day 101, 00:00:01
+        assert!(should_reset_daily_at(late_night, next_morning));
+    }
+
+    #[test]
+    fn should_reset_daily_epoch_to_day_one() {
+        assert!(should_reset_daily_at(0, 86_400));
+        assert!(!should_reset_daily_at(0, 86_399));
     }
 }

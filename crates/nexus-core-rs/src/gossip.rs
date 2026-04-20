@@ -53,8 +53,34 @@ use iroh_gossip::proto::TopicId;
 use tracing::warn;
 
 use crate::attestations::{AgeWitness, AgeWitnessError, MIN_WITNESS_AGE_DAYS};
-use crate::crypto::PUBLIC_KEY_LENGTH;
+use crate::crypto::{KeyPair, PUBLIC_KEY_LENGTH};
 use crate::error::{NexusError, Result};
+use crate::pow::MAX_DIFFICULTY_BITS;
+use crate::pow_gossip::PowSolveCache;
+use crate::relay_pow_policy::RelayPowPolicy;
+
+/// Dynamic difficulty target for PoW-gated gossip joins.
+///
+/// Sprint 23 Phase C: the difficulty can be either a fixed value
+/// (from the static policy file or a direct override) or resolved
+/// dynamically per-topic from the escalating policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DifficultyTarget {
+    /// A fixed difficulty value (leading zero bits).
+    Fixed(u32),
+    /// Read from the static relay PoW policy for the given topic.
+    FromPolicy(RelayPowPolicy),
+}
+
+impl DifficultyTarget {
+    /// Resolve the effective difficulty for a topic.
+    pub fn resolve(&self, topic: &[u8; 32]) -> u32 {
+        match self {
+            Self::Fixed(d) => *d,
+            Self::FromPolicy(policy) => policy.difficulty_for(topic),
+        }
+    }
+}
 
 /// Outcome of the Couche 1 age-admission gate evaluation. Returned
 /// by [`evaluate_age_admission`] and consumed by
@@ -312,6 +338,49 @@ impl GossipClient {
                 )));
             }
         }
+        self.join_topic(topic_bytes, bootstrap).await
+    }
+
+    /// Join a topic with a PoW admission gate at a dynamic
+    /// difficulty level.
+    ///
+    /// Sprint 23 Phase C. Accepts a [`DifficultyTarget`] that may
+    /// come from the static policy file OR from the escalating
+    /// difficulty computed per (consumer, model). The publisher
+    /// proves they can solve at the required difficulty before the
+    /// topic join proceeds.
+    ///
+    /// The solve is cached via [`PowSolveCache`] — subsequent
+    /// calls within the 15-minute session window return
+    /// immediately.
+    pub async fn join_topic_with_pow(
+        &self,
+        topic_bytes: [u8; 32],
+        bootstrap: Vec<String>,
+        keypair: &KeyPair,
+        target: DifficultyTarget,
+        solve_cache: &PowSolveCache,
+    ) -> Result<TopicHandle> {
+        let difficulty = target.resolve(&topic_bytes);
+        if difficulty == 0 {
+            return Err(NexusError::Gossip(
+                "join_topic_with_pow: zero difficulty disables defence".into(),
+            ));
+        }
+        if difficulty > MAX_DIFFICULTY_BITS {
+            return Err(NexusError::Gossip(format!(
+                "join_topic_with_pow: difficulty {difficulty} exceeds max {MAX_DIFFICULTY_BITS}"
+            )));
+        }
+        let policy = RelayPowPolicy {
+            default_difficulty: difficulty,
+            topic_overrides: Default::default(),
+        };
+        solve_cache
+            .ensure_proof(topic_bytes, keypair, &policy)
+            .map_err(|e| {
+                NexusError::Gossip(format!("join_topic_with_pow: PoW solve failed: {e}"))
+            })?;
         self.join_topic(topic_bytes, bootstrap).await
     }
 
