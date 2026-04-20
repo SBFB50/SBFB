@@ -407,7 +407,7 @@ Body structuré :
     Vitest unit:              99 → 114 (+15 daemon.ts)
     Playwright:               10 → 13 (+5 Phase E, -2 stub-pages)
 - Scope cuts honoured (liste explicite de NOT)
-- Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+- Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
 Si une phase a besoin d'un fix post-commit (pattern Sprint 2
@@ -1679,7 +1679,7 @@ Tests : <suites + delta>
 
 Refs : .planning/active/sprint{N-1}_audit_findings.md §{ID}
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
 **Cas B — feat (Phase X du sprint en cours)** :
@@ -1698,7 +1698,7 @@ Delta tests cumulé :
   Playwright     : NN -> NN (+X)
 Scope cuts honoured : <items NOT, copie du kickoff §6>
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
 **Cas C — docs (planning d'ouverture sprint)** :
@@ -1716,7 +1716,7 @@ Phases prévues :
   B — <titre>
   ...
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
 **Cas C — docs (clôture sprint, sortie Phase E)** :
@@ -1732,7 +1732,7 @@ Tip d'entrée : {SHA}
 Tip de sortie : {SHA}
 Commit stack : {N commits feat/test} + ce commit docs
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
 **Cas D — hotfix hors sprint** :
@@ -1745,7 +1745,7 @@ Root cause : <diagnostic>
 Fix : <ce qui change>
 Tests : <validation>
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
 ### 7.3 Détection version cible (Cas C uniquement)
@@ -1936,6 +1936,28 @@ déplacés via `git mv` depuis `.planning/active/` vers
 nouvelle row est ajoutée dans `SPRINT_LOG.md`. Détail dans
 [`.planning/README.md`](../../.planning/README.md) §« Cycle de
 vie d'un sprint ».
+
+---
+
+## 10.1 Discipline d'exécution Claude (modèle + effort + MRCR)
+
+Deux documents complémentaires pilotent la consommation compute
+de Claude Code sur le projet :
+
+- **[`MRCR_SELFTEST.md`](MRCR_SELFTEST.md)** — 3 questions de
+  contrôle cross-session à jouer en Phase 0 sur session fraîche,
+  barème 0-3, règle de décision modèle (rester Opus 4.6 si score
+  ≤ 1/3, bascule 4.7 si 3/3). Baromètre binaire de la régression
+  MRCR mesurée sur Opus 4.7.
+- **[`MODEL_AND_EFFORT.md`](MODEL_AND_EFFORT.md)** — mapping
+  recommandé effort/phase (Phase 0 = `max`, Phase A/F = `high`,
+  Phase B-D = `xhigh`, Phase E sécurité = `max`) + protocole
+  baseline A/B Opus 4.6 vs 4.7 sur les phases restantes du sprint
+  courant, règle de décision post-mesure.
+
+Ces documents sont optionnels mais leur suivi évite (1) du
+gaspillage `xhigh`/`max` sur phases légères (2) des décisions de
+modèle guidées par marketing plutôt que mesure.
 
 ---
 

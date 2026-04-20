@@ -172,8 +172,13 @@ Playwright:         <before> -> <after> (+<delta>)
 
 ### Step 4 — Verifier le draft commit body
 
-Demander a l'utilisateur le draft commit body (ou le generer a partir
-du diff et lui soumettre).
+Si l'utilisateur n'a PAS fourni de draft commit body explicitement
+dans la session courante, **générer systématiquement** un draft depuis
+le diff en suivant le template §7.2 Cas B de `docs/claude/README.md`,
+et le présenter en output markdown au user pour validation avant le
+commit. Ne jamais supposer que l'user veut un body minimaliste —
+default = body riche structuré avec contexte + fichiers touchés +
+delta tests cumulé + scope cuts honoured + Co-Authored-By.
 
 Checker :
 
@@ -182,7 +187,7 @@ Checker :
 3. **Fichiers touches** listes avec rationale (pas juste la liste)
 4. **Delta tests cumule** coherent avec Step 3
 5. **Scope cuts honoured** liste copiee du kickoff §6
-6. **Co-Authored-By: Claude Opus 4.6 (1M context)** present
+6. **Co-Authored-By: Claude <model_name> (1M context)** present — la ligne doit matcher le modèle utilisé pour la session (grep `CLAUDE_MODEL` env ou défaut actuel `Claude Opus 4.7`). Les archives pré-Sprint 20 sont restées sur `4.6`, les sprints ≥ S20 doivent être sur `4.7`
 
 ### Step 4bis — Verifier research grounding via context7
 
