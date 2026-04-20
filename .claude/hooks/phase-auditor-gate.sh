@@ -68,10 +68,12 @@ TOUCHES_VERSION=0
 git diff --cached -U0 -- 'crates/**/*.rs' 'packages/**/*.py' 2>/dev/null \
   | grep -qE '^\+[^+].*_VERSION[[:space:]]*[:=][[:space:]]*[0-9]+' && TOUCHES_VERSION=1
 
-# C3 crypto / signature primitives
+# C3 crypto / signature primitives (Rust + Python — meme esprit, peu
+# importe la langue : un fichier qui matche un de ces tokens est crypto-
+# touched par construction de la convention nommage SBFB)
 TOUCHES_CRYPTO=0
 echo "$STAGED_FILES" \
-  | grep -qE '(canary|provenance|curator|invite|gossip|pow|tls_pinning|encryption|duress|frost|signing|signature|keypair)\.rs$' \
+  | grep -qE '(canary|provenance|curator|invite|gossip|pow|tls_pinning|encryption|duress|frost|signing|signature|keypair)\.(rs|py)$' \
   && TOUCHES_CRYPTO=1
 
 # C4 multi-langue >= 2 categories (crates / packages / web)

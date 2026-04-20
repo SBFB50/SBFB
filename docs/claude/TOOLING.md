@@ -424,7 +424,7 @@ est vrai sur le diff staged au moment du `git commit` :
 |---|---|---|
 | **C1** | Wire format / canonical touche | `git diff --cached --name-only \| grep -E '^crates/nexus-core-rs/src/(canonical\|schemas/)'` |
 | **C2** | `*_VERSION` field bumpe (lignes ajoutees) | `git diff --cached -U0 -- 'crates/**/*.rs' 'packages/**/*.py' \| grep -E '^\+[^+].*_VERSION[[:space:]]*[:=][[:space:]]*[0-9]+'` |
-| **C3** | Crypto / signature primitives | `git diff --cached --name-only \| grep -E '(canary\|provenance\|curator\|invite\|gossip\|pow\|tls_pinning\|encryption\|duress\|frost\|signing\|signature\|keypair)\.rs$'` |
+| **C3** | Crypto / signature primitives (Rust + Python) | `git diff --cached --name-only \| grep -E '(canary\|provenance\|curator\|invite\|gossip\|pow\|tls_pinning\|encryption\|duress\|frost\|signing\|signature\|keypair)\.(rs\|py)$'` |
 | **C4** | Multi-langue >= 2 categories | `git diff --cached --name-only \| awk -F/ '{print $1}' \| sort -u \| grep -cE '^(crates\|packages\|web)$'` returns >= 2 |
 | **C5** | LOC effectif > 500 (hors tests + docs + .md + lockfiles) | somme `git diff --cached --numstat` filtree |
 | **C6** | G8 verdict DESIGN-CONFLICT (pivot proposal present) | `ls .planning/active/sprint{N}_phase_{X}_pivot_proposal*.md` returns non-empty |
