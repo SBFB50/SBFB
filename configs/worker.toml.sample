@@ -1,0 +1,32 @@
+# SBFB Worker configuration sample
+# Copy to ~/.config/nexus-grid/worker.toml (Linux)
+#        %APPDATA%\FlowUP\nexus-grid\config\worker.toml (Windows)
+
+[identity]
+name = "my-worker"
+
+[llm]
+backend = "ollama"
+
+[llm.ollama]
+endpoint = "http://localhost:11434"
+timeout_secs = 300
+
+[gpu]
+max_vram_fraction = 0.9
+
+[engine]
+task_poll_interval_ms = 2000
+max_concurrent_tasks = 1
+state_flush_secs = 5
+
+[ephemeral]
+# Number of tasks before the worker process self-terminates
+# (supervisor restarts it). Defense against state accumulation.
+max_tasks = 50
+# Zero freed VRAM between tasks via cudarc cuMemsetD8.
+# Requires the gpu-ephemeral feature at build time.
+vram_wipe = true
+
+[logging]
+level = "info"

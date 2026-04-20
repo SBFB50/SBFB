@@ -225,6 +225,8 @@ pub struct WorkerConfig {
     pub engine: Engine,
     #[serde(default)]
     pub logging: Logging,
+    #[serde(default)]
+    pub ephemeral: crate::ephemeral::EphemeralConfig,
 }
 
 /// `[identity]` section: who this worker is.

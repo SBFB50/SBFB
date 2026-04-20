@@ -32,6 +32,12 @@ llm_llama_cpp = ["dep:llama-cpp-2", "dep:llguidance"]
 llm_llama_cpp_cuda = ["llm_llama_cpp", "llama-cpp-2/cuda"]
 llm_llama_cpp_metal = ["llm_llama_cpp", "llama-cpp-2/metal"]
 llm_llama_cpp_vulkan = ["llm_llama_cpp", "llama-cpp-2/vulkan"]
+# Sprint 23 Phase B: ephemeral worker VRAM wipe via cudarc.
+# Default off — operators building for GPU workers opt in with
+# `--features gpu-ephemeral`. Without a CUDA toolkit on the
+# build machine, the feature simply stays disabled and wipe_vram
+# is a no-op.
+gpu-ephemeral = ["dep:cudarc"]
 
 [dependencies]
 # The worker engine is built on top of the SBFB core wrapper for
@@ -148,6 +154,10 @@ llguidance = { workspace = true, optional = true }
 # différé S22+ (cf. `.planning/archive/v1.2/sprint21_phase_A_
 # pivot_proposal.md`).
 governor = { workspace = true }
+
+# Sprint 23 Phase B : VRAM wipe inter-task via cudarc CUDA driver
+# API. Optional — only linked when `gpu-ephemeral` feature is on.
+cudarc = { workspace = true, optional = true }
 
 # Sprint 21 Phase A : `nonzero!(N)` macro required by
 # `governor::Quota::per_second(nonzero!(..))` — compile-time

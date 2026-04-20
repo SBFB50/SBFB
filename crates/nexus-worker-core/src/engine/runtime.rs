@@ -59,6 +59,7 @@ use crate::config::WorkerConfig;
 use crate::consent::{self, AllowOutcome, ConsentWatcher, RejectReason, TaskContext, UsageTracker};
 use crate::engine::state::{StateMachine, WorkerEvent, WorkerState};
 use crate::engine::state_writer::{self, LastTask, SnapshotInputs};
+use crate::ephemeral::{EphemeralLifecycle, LifecycleState};
 use crate::gpu::{create_monitor, GpuInfo, GpuMonitor};
 use crate::llm::factory::build_backend;
 use crate::llm::{GenerateParams, HealthCheck, LlmBackend};
@@ -206,6 +207,10 @@ pub struct Engine {
     /// edits, which matches the consent-filter-disabled fallback
     /// pattern from Sprint 16 Phase C.
     _rate_limit_watcher: Option<RateLimitPolicyWatcher>,
+    /// Sprint 23 Phase B : ephemeral worker lifecycle tracker.
+    /// Counts completed tasks, triggers VRAM wipe between tasks,
+    /// and signals process exit when `max_tasks` is reached.
+    ephemeral: EphemeralLifecycle,
 }
 
 impl std::fmt::Debug for Engine {
@@ -497,6 +502,8 @@ impl Engine {
             }
         };
 
+        let ephemeral = EphemeralLifecycle::new(worker_config.ephemeral.clone());
+
         Ok(Self {
             node,
             state: Arc::new(Mutex::new(state)),
@@ -520,6 +527,7 @@ impl Engine {
             usage: usage_handle,
             rate_limiter,
             _rate_limit_watcher: rate_limit_watcher,
+            ephemeral,
         })
     }
 
@@ -1109,6 +1117,27 @@ impl Engine {
                     status: "completed".to_string(),
                     completed_at: rfc3339_now(),
                 });
+
+                // Sprint 23 Phase B : ephemeral lifecycle post-task.
+                self.ephemeral.start_task();
+                self.ephemeral.complete_task();
+
+                if self.ephemeral.state() == LifecycleState::WipePending {
+                    if let Err(e) = crate::ephemeral::wipe_vram().await {
+                        warn!(error = %e, "ephemeral VRAM wipe failed (non-fatal)");
+                    }
+                    self.ephemeral.wipe_done();
+                }
+
+                if self.ephemeral.state() == LifecycleState::RestartPending {
+                    self.ephemeral.request_exit();
+                    info!(
+                        completed = self.ephemeral.completed_count(),
+                        "ephemeral max_tasks reached; requesting graceful shutdown"
+                    );
+                    self.apply_event(WorkerEvent::Shutdown).await;
+                    return Ok(());
+                }
             }
         }
 

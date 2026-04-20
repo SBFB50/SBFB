@@ -388,6 +388,14 @@ governor = "0.10.2"
 # constructeurs `Quota::*` acceptent uniquement des non-zéro.
 nonzero_ext = "0.3"
 
+# Sprint 23 Phase B : safe CUDA bindings for VRAM wipe (cuMemsetD8)
+# between tasks — ephemeral worker defense-in-depth against model
+# weight extraction by injected task N+1. Feature-gated behind
+# `gpu-ephemeral` so the vanilla build stays CUDA-toolkit-free.
+# The `driver` feature exposes the low-level cuMemAlloc / cuMemsetD8
+# path ; no runtime/nvrtc needed.
+cudarc = { version = "0.12", default-features = false, features = ["driver", "cuda-12060"] }
+
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto
 # attestation (Sprint 18 Phase B). Two builds of the same commit

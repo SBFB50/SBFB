@@ -54,6 +54,7 @@ pub mod allowlist;
 pub mod config;
 pub mod consent;
 pub mod engine;
+pub mod ephemeral;
 pub mod gpu;
 pub mod invite;
 pub mod llm;
