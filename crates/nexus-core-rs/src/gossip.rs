@@ -50,8 +50,134 @@ use iroh::PublicKey;
 use iroh_gossip::api::{Event, GossipReceiver, GossipSender, GossipTopic};
 use iroh_gossip::net::Gossip;
 use iroh_gossip::proto::TopicId;
+use tracing::warn;
 
+use crate::attestations::{AgeWitness, AgeWitnessError, MIN_WITNESS_AGE_DAYS};
+use crate::crypto::PUBLIC_KEY_LENGTH;
 use crate::error::{NexusError, Result};
+
+/// Outcome of the Couche 1 age-admission gate evaluation. Returned
+/// by [`evaluate_age_admission`] and consumed by
+/// [`GossipClient::join_topic_with_age_witness`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgeAdmissionOutcome {
+    /// The joining node is in the bootstrap allowlist ; admission
+    /// succeeds without a witness (pre-`v1.0` bootstrap ceremony).
+    BootstrapSelfWitness,
+
+    /// A valid age witness was presented, its signature verified,
+    /// the witnessed node is ≥ [`MIN_AGE_DAYS`] days old, and the
+    /// witness itself is ≥ [`MIN_WITNESS_AGE_DAYS`] days known to
+    /// the local mesh state.
+    AgeGatePassed {
+        /// Age of the witnessed node in days at evaluation time.
+        age_days: i64,
+        /// Age of the witnessing peer in days at evaluation time.
+        witness_age_days: i64,
+    },
+
+    /// No witness was provided and the joining node is not in the
+    /// bootstrap allowlist. Admission depends on the PoW gate
+    /// alone (Couche 0, Sprint 19). Logged with a `warn!` by the
+    /// caller — this path is deliberately kept open for
+    /// very-early bootstrap and removed at the `v1.0` tag.
+    PowFallback {
+        /// Short explanation for the fallback decision.
+        reason: &'static str,
+    },
+
+    /// A witness was present but failed admission — either bad
+    /// signature, underage witnessed node, future timestamp, or
+    /// the witnessing peer itself was not yet old enough to
+    /// vouch (`<` [`MIN_WITNESS_AGE_DAYS`]). Callers surface this
+    /// as a hard error rather than fall back to PoW, because a
+    /// present-but-invalid witness is a security signal.
+    Rejected(AgeWitnessError),
+}
+
+/// Policy hook queried by [`evaluate_age_admission`] to resolve
+/// local mesh state without binding this crate to a concrete
+/// bootstrap-allowlist / mesh-state implementation.
+///
+/// The concrete implementation lives in
+/// `nexus-shell-daemon-core::bootstrap_allowlist::BootstrapAllowlist`
+/// (plus a small mesh-state table tracking `first_seen_ts` per
+/// neighbor). This crate is intentionally decoupled so
+/// [`AgeAdmissionPolicy`] stays testable with an in-memory stub.
+pub trait AgeAdmissionPolicy {
+    /// Return `true` if `node_id` is currently in the bootstrap
+    /// allowlist and therefore eligible for the self-witness
+    /// admission shortcut (P0-G1-1 pre-`v1.0` ceremony).
+    fn is_bootstrap_node(&self, node_id: &[u8; PUBLIC_KEY_LENGTH]) -> bool;
+
+    /// Return the age in days (at `now_ts`) of `witness_pubkey` as
+    /// observed by the local mesh state, or `None` if the witness
+    /// is not yet known. The age gate rejects any witness whose
+    /// age is below [`MIN_WITNESS_AGE_DAYS`] — a chain-breaking
+    /// guard so a fresh Sybil cannot instantly vouch for another
+    /// fresh Sybil.
+    fn witness_age_days(
+        &self,
+        witness_pubkey: &[u8; PUBLIC_KEY_LENGTH],
+        now_ts: i64,
+    ) -> Option<i64>;
+}
+
+/// Evaluate the Couche 1 age-admission gate for a node joining a
+/// gossip topic. Pure function over the trait + args ; no iroh
+/// dependency so tests can exercise all branches without a running
+/// node.
+///
+/// The decision tree matches the kickoff §4 D1 spec :
+///
+/// 1. **Bootstrap allowlist** wins first (the joining node is a
+///    pre-v1.0 seed).
+/// 2. Else if a witness is provided, verify its signature, check
+///    the joining node age ≥ [`MIN_AGE_DAYS`], and check that the
+///    witness itself is ≥ [`MIN_WITNESS_AGE_DAYS`] days known to
+///    the mesh.
+/// 3. Else fall back to PoW-only admission (very-early bootstrap
+///    tolerance).
+pub fn evaluate_age_admission<P: AgeAdmissionPolicy>(
+    joining_node_id: &[u8; PUBLIC_KEY_LENGTH],
+    age_witness: Option<&AgeWitness>,
+    policy: &P,
+    now_ts: i64,
+) -> AgeAdmissionOutcome {
+    if policy.is_bootstrap_node(joining_node_id) {
+        return AgeAdmissionOutcome::BootstrapSelfWitness;
+    }
+    match age_witness {
+        Some(witness) => {
+            if witness.node_id != *joining_node_id {
+                return AgeAdmissionOutcome::Rejected(AgeWitnessError::BadSignature(
+                    "witness.node_id does not match joining_node_id".to_string(),
+                ));
+            }
+            if let Err(e) = witness.verify_with_age(now_ts) {
+                return AgeAdmissionOutcome::Rejected(e);
+            }
+            match policy.witness_age_days(&witness.witness_pubkey, now_ts) {
+                Some(witness_age) if witness_age >= MIN_WITNESS_AGE_DAYS => {
+                    AgeAdmissionOutcome::AgeGatePassed {
+                        age_days: witness.age_days(now_ts),
+                        witness_age_days: witness_age,
+                    }
+                }
+                Some(witness_age) => AgeAdmissionOutcome::Rejected(AgeWitnessError::Underage {
+                    age_days: witness_age,
+                    required: MIN_WITNESS_AGE_DAYS,
+                }),
+                None => AgeAdmissionOutcome::PowFallback {
+                    reason: "witness pubkey unknown to local mesh state",
+                },
+            }
+        }
+        None => AgeAdmissionOutcome::PowFallback {
+            reason: "no witness provided and node not in bootstrap allowlist",
+        },
+    }
+}
 
 /// SBFB-side gossip event, mirrors [`iroh_gossip::api::Event`] with
 /// a slightly cleaner enum surface.
@@ -123,6 +249,70 @@ impl GossipClient {
         GossipClient {
             inner: inner.clone(),
         }
+    }
+
+    /// Subscribe to a topic and wait for at least one peer
+    /// connection before returning.
+    ///
+    /// `topic_bytes` is a 32-byte topic identifier. `bootstrap`
+    /// is a list of known peer public keys as strings (one per
+    /// peer, parseable by [`iroh::PublicKey::from_str`]) — pass
+    /// an empty vec if the topic is already being seeded by
+    /// peers we are connected to.
+    ///
+    /// Join a topic with a Couche 1 age-admission check ahead of
+    /// the underlying iroh-gossip subscribe.
+    ///
+    /// Sprint 22 Phase C. Wraps [`Self::join_topic`] with the
+    /// [`evaluate_age_admission`] gate :
+    ///
+    /// 1. If `joining_node_id` is in the bootstrap allowlist
+    ///    (`policy.is_bootstrap_node`), the self-witness shortcut
+    ///    applies (pre-`v1.0` bootstrap ceremony, P0-G1-1).
+    /// 2. Else if `age_witness` is `Some` and the witness passes
+    ///    signature + age ≥ [`MIN_AGE_DAYS`] + witness itself ≥
+    ///    [`MIN_WITNESS_AGE_DAYS`] days via
+    ///    `policy.witness_age_days`, admission succeeds.
+    /// 3. Else the method logs a `warn!` and falls back to
+    ///    PoW-only admission (Couche 0, S19). Very-early bootstrap
+    ///    tolerance ; post-`v1.0` this fallback is removed (the
+    ///    bootstrap allowlist expires at `v1.0`).
+    ///
+    /// On explicit witness rejection (step 2 fails validation) the
+    /// call surfaces a [`NexusError::Crypto`] rather than falling
+    /// back, because a present-but-invalid witness is a security
+    /// signal rather than "we have no age proof".
+    ///
+    /// On success the returned [`TopicHandle`] is identical to
+    /// [`Self::join_topic`]'s — the age gate is a pre-flight check,
+    /// not a per-message transform.
+    pub async fn join_topic_with_age_witness<P: AgeAdmissionPolicy>(
+        &self,
+        topic_bytes: [u8; 32],
+        bootstrap: Vec<String>,
+        joining_node_id: &[u8; PUBLIC_KEY_LENGTH],
+        age_witness: Option<&AgeWitness>,
+        policy: &P,
+        now_ts: i64,
+    ) -> Result<TopicHandle> {
+        match evaluate_age_admission(joining_node_id, age_witness, policy, now_ts) {
+            AgeAdmissionOutcome::BootstrapSelfWitness
+            | AgeAdmissionOutcome::AgeGatePassed { .. } => {}
+            AgeAdmissionOutcome::PowFallback { reason } => {
+                warn!(
+                    topic = %hex::encode(topic_bytes),
+                    reason,
+                    "join_topic_with_age_witness: age gate fell back to PoW-only \
+                     (very-early bootstrap tolerance, removed at v1.0 tag)"
+                );
+            }
+            AgeAdmissionOutcome::Rejected(err) => {
+                return Err(NexusError::Crypto(format!(
+                    "join_topic_with_age_witness: witness rejected: {err}"
+                )));
+            }
+        }
+        self.join_topic(topic_bytes, bootstrap).await
     }
 
     /// Subscribe to a topic and wait for at least one peer
@@ -249,12 +439,173 @@ impl TopicReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::attestations::SECONDS_PER_DAY;
+    use crate::crypto::KeyPair;
     use crate::{create_node, Node};
+    use std::collections::HashMap;
     use std::time::Duration;
     use tokio::time::timeout;
 
     async fn spawn_node() -> Node {
         create_node().await.expect("boot")
+    }
+
+    /// Test stub for [`AgeAdmissionPolicy`] : owns two maps
+    /// mirroring the runtime shell-daemon state (bootstrap
+    /// allowlist + first-seen timestamps).
+    struct StubPolicy {
+        bootstrap: Vec<[u8; 32]>,
+        first_seen: HashMap<[u8; 32], i64>,
+    }
+
+    impl AgeAdmissionPolicy for StubPolicy {
+        fn is_bootstrap_node(&self, node_id: &[u8; 32]) -> bool {
+            self.bootstrap.iter().any(|b| b == node_id)
+        }
+
+        fn witness_age_days(&self, witness_pubkey: &[u8; 32], now_ts: i64) -> Option<i64> {
+            let first = self.first_seen.get(witness_pubkey)?;
+            let delta = now_ts.saturating_sub(*first);
+            Some(delta / SECONDS_PER_DAY)
+        }
+    }
+
+    #[test]
+    fn admission_bootstrap_node_wins_first() {
+        let bootstrap_node = [0x01u8; 32];
+        let policy = StubPolicy {
+            bootstrap: vec![bootstrap_node],
+            first_seen: HashMap::new(),
+        };
+        let outcome = evaluate_age_admission(&bootstrap_node, None, &policy, 1_700_000_000);
+        assert_eq!(outcome, AgeAdmissionOutcome::BootstrapSelfWitness);
+    }
+
+    #[test]
+    fn admission_witness_passes_with_aged_witness() {
+        let joining = [0x42u8; 32];
+        let witness_kp = KeyPair::generate();
+        let base_ts = 1_700_000_000_i64;
+        let first_seen_joining = base_ts - 10 * SECONDS_PER_DAY;
+        let first_seen_witness = base_ts - 45 * SECONDS_PER_DAY;
+
+        let witness = AgeWitness::sign(joining, first_seen_joining, &witness_kp).unwrap();
+
+        let mut policy = StubPolicy {
+            bootstrap: vec![],
+            first_seen: HashMap::new(),
+        };
+        policy
+            .first_seen
+            .insert(witness_kp.public_bytes(), first_seen_witness);
+
+        let outcome = evaluate_age_admission(&joining, Some(&witness), &policy, base_ts);
+        match outcome {
+            AgeAdmissionOutcome::AgeGatePassed {
+                age_days,
+                witness_age_days,
+            } => {
+                assert_eq!(age_days, 10);
+                assert_eq!(witness_age_days, 45);
+            }
+            other => panic!("expected AgeGatePassed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn admission_witness_rejected_when_underage() {
+        let joining = [0x42u8; 32];
+        let witness_kp = KeyPair::generate();
+        let base_ts = 1_700_000_000_i64;
+        // 3d old — below MIN_AGE_DAYS (7).
+        let first_seen_joining = base_ts - 3 * SECONDS_PER_DAY;
+        let witness = AgeWitness::sign(joining, first_seen_joining, &witness_kp).unwrap();
+
+        let mut policy = StubPolicy {
+            bootstrap: vec![],
+            first_seen: HashMap::new(),
+        };
+        policy
+            .first_seen
+            .insert(witness_kp.public_bytes(), base_ts - 45 * SECONDS_PER_DAY);
+
+        let outcome = evaluate_age_admission(&joining, Some(&witness), &policy, base_ts);
+        assert!(matches!(outcome, AgeAdmissionOutcome::Rejected(_)));
+    }
+
+    #[test]
+    fn admission_witness_rejected_when_witness_itself_underage() {
+        let joining = [0x42u8; 32];
+        let witness_kp = KeyPair::generate();
+        let base_ts = 1_700_000_000_i64;
+        let first_seen_joining = base_ts - 10 * SECONDS_PER_DAY;
+        // Witness is only 20d old — below MIN_WITNESS_AGE_DAYS (30).
+        let first_seen_witness = base_ts - 20 * SECONDS_PER_DAY;
+        let witness = AgeWitness::sign(joining, first_seen_joining, &witness_kp).unwrap();
+
+        let mut policy = StubPolicy {
+            bootstrap: vec![],
+            first_seen: HashMap::new(),
+        };
+        policy
+            .first_seen
+            .insert(witness_kp.public_bytes(), first_seen_witness);
+
+        let outcome = evaluate_age_admission(&joining, Some(&witness), &policy, base_ts);
+        assert!(matches!(outcome, AgeAdmissionOutcome::Rejected(_)));
+    }
+
+    #[test]
+    fn admission_falls_back_to_pow_when_no_witness_and_not_bootstrap() {
+        let joining = [0x42u8; 32];
+        let policy = StubPolicy {
+            bootstrap: vec![],
+            first_seen: HashMap::new(),
+        };
+        let outcome = evaluate_age_admission(&joining, None, &policy, 1_700_000_000);
+        assert!(matches!(outcome, AgeAdmissionOutcome::PowFallback { .. }));
+    }
+
+    #[test]
+    fn admission_falls_back_when_witness_pubkey_unknown() {
+        let joining = [0x42u8; 32];
+        let witness_kp = KeyPair::generate();
+        let base_ts = 1_700_000_000_i64;
+        let first_seen_joining = base_ts - 10 * SECONDS_PER_DAY;
+        let witness = AgeWitness::sign(joining, first_seen_joining, &witness_kp).unwrap();
+
+        // Witness not in policy.first_seen → unknown → PoW fallback.
+        let policy = StubPolicy {
+            bootstrap: vec![],
+            first_seen: HashMap::new(),
+        };
+
+        let outcome = evaluate_age_admission(&joining, Some(&witness), &policy, base_ts);
+        assert!(matches!(outcome, AgeAdmissionOutcome::PowFallback { .. }));
+    }
+
+    #[test]
+    fn admission_rejects_witness_for_different_node_id() {
+        // Present a witness that signs for a different node_id
+        // than the joining one. Must reject, not fall back — this
+        // is a swapped-witness attack.
+        let joining = [0x42u8; 32];
+        let other_node = [0x99u8; 32];
+        let witness_kp = KeyPair::generate();
+        let base_ts = 1_700_000_000_i64;
+        let first_seen_other = base_ts - 10 * SECONDS_PER_DAY;
+        let witness = AgeWitness::sign(other_node, first_seen_other, &witness_kp).unwrap();
+
+        let mut policy = StubPolicy {
+            bootstrap: vec![],
+            first_seen: HashMap::new(),
+        };
+        policy
+            .first_seen
+            .insert(witness_kp.public_bytes(), base_ts - 45 * SECONDS_PER_DAY);
+
+        let outcome = evaluate_age_admission(&joining, Some(&witness), &policy, base_ts);
+        assert!(matches!(outcome, AgeAdmissionOutcome::Rejected(_)));
     }
 
     #[tokio::test]

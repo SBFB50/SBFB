@@ -33,6 +33,7 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     from nexus_coordinator.api.apps import router as apps_router
     from nexus_coordinator.api.canary import router as canary_router
     from nexus_coordinator.api.consent import router as consent_router
+    from nexus_coordinator.api.contributor import router as contributor_router
     from nexus_coordinator.api.daemon import router as daemon_router
     from nexus_coordinator.api.deploy import router as deploy_router
     from nexus_coordinator.api.events import router as events_router
@@ -129,5 +130,6 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     app.include_router(deploy_router)
     app.include_router(consent_router)
     app.include_router(canary_router)
+    app.include_router(contributor_router)
     app.include_router(quarantine_router)
     return app

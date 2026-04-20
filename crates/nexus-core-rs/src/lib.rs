@@ -32,6 +32,7 @@
 #![deny(rust_2018_idioms)]
 #![warn(missing_docs)]
 
+pub mod attestations;
 pub mod blobs;
 pub mod canonical;
 pub mod crypto;
@@ -53,14 +54,20 @@ pub mod task;
 pub mod tls_pinning;
 pub mod verification;
 
+pub use attestations::{
+    AgeWitness, AgeWitnessError, ContributorAttestation, ContributorAttestationError,
+    ContributorPredicate, CONTRIBUTOR_ATTESTATION_PREDICATE_TYPE,
+    CONTRIBUTOR_ATTESTATION_STATEMENT_TYPE, MIN_AGE_DAYS, MIN_WITNESS_AGE_DAYS,
+};
 pub use blobs::BlobsClient;
 pub use canonical::{
-    canonical_bytes, DOMAIN_CLAIM_V1, DOMAIN_CURATOR_LIST_V1, DOMAIN_DURESS_ACK_V1,
-    DOMAIN_INVITE_V1, DOMAIN_KUDOS_V1, DOMAIN_POW_V1, DOMAIN_RESULT_V1, DOMAIN_TASK_V1,
+    canonical_bytes, DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_CONTRIBUTOR_ATTESTATION_V1,
+    DOMAIN_CURATOR_LIST_V1, DOMAIN_DURESS_ACK_V1, DOMAIN_INVITE_V1, DOMAIN_KUDOS_V1, DOMAIN_POW_V1,
+    DOMAIN_RESULT_V1, DOMAIN_TASK_V1,
 };
 pub use crypto::{blake3_hash, verify, Blake3Chain, KeyPair};
 pub use curator::{
-    CuratorList, CuratorListEntry, CuratorProjectRef, CURATOR_CATEGORY_MAX,
+    ContributorRegistry, CuratorList, CuratorListEntry, CuratorProjectRef, CURATOR_CATEGORY_MAX,
     CURATOR_DESCRIPTION_MAX, CURATOR_LIST_FORMAT_VERSION, CURATOR_LIST_MAX_ENTRIES,
     CURATOR_PROJECT_ID_MAX, CURATOR_PROJECT_NAME_MAX,
 };
@@ -68,7 +75,10 @@ pub use dht_quorum::{redundant_resolve, QuorumError, QuorumRecord, QuorumResolve
 pub use discovery::{DiscoveryClient, NodeAddrInfo};
 pub use docs::{DocHandle, DocsClient};
 pub use error::{NexusError, Result};
-pub use gossip::{GossipClient, GossipEvent, TopicHandle, TopicReceiver, TopicSender};
+pub use gossip::{
+    evaluate_age_admission, AgeAdmissionOutcome, AgeAdmissionPolicy, GossipClient, GossipEvent,
+    TopicHandle, TopicReceiver, TopicSender,
+};
 pub use keystore::{
     Identity, IdentityMode, KdfParams, KeyStore, KeyStoreError, LocalFileKeyStore, UnlockError,
     ARGON2_MEM_COST_KIB, ARGON2_PARALLELISM, ARGON2_TIME_COST, BLOB_FILE_NAME,

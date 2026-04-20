@@ -128,6 +128,22 @@ pub struct DaemonHttpState {
     /// [`PowSolveCache`] instead of recomputing the BLAKE3 hash on
     /// every broadcast.
     pub curator_gossip_topic: [u8; 32],
+    /// Sprint 22 Phase C : outbound HTTP client used by the
+    /// `/api/contributor/verify/...` proxy to reach the co-located
+    /// coordinator. Shared (cloned cheaply via
+    /// [`reqwest::Client`]'s internal `Arc`) so every in-flight
+    /// verify request reuses the same TLS/connection pool. Phase C
+    /// only pings the coord over plain HTTP loopback, but the
+    /// client is built with the workspace `rustls-tls` features so
+    /// a future `/metrics/*` cross-HTTPS call (post-`v1.0`) can
+    /// land without a second dep.
+    pub coord_http_client: reqwest::Client,
+    /// Sprint 22 Phase C : base URL of the co-located coordinator
+    /// (e.g. `http://127.0.0.1:8787`). The proxy route concatenates
+    /// this with the suffix it received to build the upstream URL.
+    /// Resolved at boot by [`resolve_coord_base_url`] which reads
+    /// `SBFB_COORD_URL` and falls back to a loopback default.
+    pub coord_base_url: String,
 }
 
 impl DaemonHttpState {
@@ -207,6 +223,17 @@ pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
         // other authenticated route so only a co-located shell
         // with the rotated token can trigger it.
         .route("/panic/wipe", post(panic_wipe))
+        // Sprint 22 Phase C (Couche 2) : contributor attestation
+        // registry proxy. Loopback-only forwarding to the
+        // co-located coordinator's `/api/contributor/verify/...`
+        // endpoint. The proxy mirrors the S13 "coord-endpoint via
+        // daemon" pattern : shell clients always hit the daemon on
+        // its loopback port, the daemon forwards to coord when the
+        // data lives there.
+        .route(
+            "/api/contributor/verify/{project_id}/{node_id_hex}",
+            get(proxy_contributor_verify),
+        )
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -690,6 +717,107 @@ async fn publish_project(
     (StatusCode::OK, Json(PublishResponse { published: true })).into_response()
 }
 
+/// Environment variable naming the coordinator base URL used by
+/// the Sprint 22 Phase C contributor-verify proxy. Optional ; if
+/// absent the daemon falls back to
+/// [`DEFAULT_COORD_BASE_URL`].
+pub const COORD_BASE_URL_ENV: &str = "SBFB_COORD_URL";
+
+/// Fallback coordinator URL when [`COORD_BASE_URL_ENV`] is unset.
+/// Matches the default port the coordinator binds to on a fresh
+/// dev install (`packages/nexus-coordinator/src/nexus_coordinator/
+/// config.py` `api_port = 8787`). Operators running the coord on
+/// a non-default port must set the env var.
+pub const DEFAULT_COORD_BASE_URL: &str = "http://127.0.0.1:8787";
+
+/// Resolve the coordinator base URL at boot. `SBFB_COORD_URL`
+/// wins ; else [`DEFAULT_COORD_BASE_URL`] (loopback, default
+/// coord port). Trailing slashes are trimmed so the proxy can
+/// concatenate a leading-slash path suffix without double-slash
+/// collisions.
+pub fn resolve_coord_base_url() -> String {
+    let raw = std::env::var(COORD_BASE_URL_ENV).unwrap_or_else(|_| DEFAULT_COORD_BASE_URL.into());
+    raw.trim_end_matches('/').to_string()
+}
+
+/// `GET /api/contributor/verify/{project_id}/{node_id_hex}` —
+/// Sprint 22 Phase C (Couche 2). Loopback proxy to the
+/// coordinator's same-path endpoint. Forwards the path parameters
+/// verbatim (already validated by axum's `Path` extractor as UTF-8
+/// strings ; the coord re-validates hex shape on its side). The
+/// `X-SBFB-Token` header the shell's request carries is passed
+/// through so the coord's `LoopbackAuthMiddleware` accepts the
+/// forwarded call under the same rotating token.
+async fn proxy_contributor_verify(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path((project_id, node_id_hex)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    // Basic hex shape guard so a malformed request fails fast at
+    // the daemon before we burn a round-trip. The coord re-checks
+    // but the daemon-side check costs nanoseconds.
+    if !is_64_lowercase_hex(&project_id) || !is_64_lowercase_hex(&node_id_hex) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "project_id and node_id_hex must be 64 lowercase hex chars".into(),
+            }),
+        )
+            .into_response();
+    }
+    let url = format!(
+        "{}/api/contributor/verify/{}/{}",
+        state.coord_base_url, project_id, node_id_hex
+    );
+    let mut req = state.coord_http_client.get(&url);
+    // Forward the SBFB bearer token so the coord authenticates the
+    // proxied call the same way it authenticates direct coord
+    // requests. Any other header is stripped to avoid forwarding
+    // host / accept / cookie drift.
+    if let Some(tok) = headers.get("X-SBFB-Token") {
+        req = req.header("X-SBFB-Token", tok);
+    }
+    match req.send().await {
+        Ok(resp) => {
+            let status = resp.status();
+            match resp.json::<serde_json::Value>().await {
+                Ok(body) => (
+                    StatusCode::from_u16(status.as_u16())
+                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                    Json(body),
+                )
+                    .into_response(),
+                Err(e) => {
+                    warn!(error = %e, url = %url, "coord proxy returned bad JSON");
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        Json(ErrorResponse {
+                            error: format!("coord response not JSON: {e}"),
+                        }),
+                    )
+                        .into_response()
+                }
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, url = %url, "coord proxy request failed");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorResponse {
+                    error: format!("coord unreachable: {e}"),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+fn is_64_lowercase_hex(s: &str) -> bool {
+    s.len() == 64
+        && s.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+}
+
 /// `GET /default-curators` — return the daemon's configured
 /// default curator pubkeys from `[curator]` config section.
 /// Sprint 11 Phase B.
@@ -971,7 +1099,69 @@ mod tests {
             pow_policy: nexus_shell_daemon_core::pow_policy_loader::shared_default_policy(),
             pow_keypair: Arc::new(KeyPair::generate()),
             curator_gossip_topic: nexus_shell_daemon_core::iroh_runtime::curator_topic_id(),
+            coord_http_client: reqwest::Client::new(),
+            coord_base_url: "http://127.0.0.1:9".into(),
         })
+    }
+
+    #[tokio::test]
+    async fn proxy_contributor_verify_rejects_non_hex_path_params() {
+        // Sprint 22 Phase C. The daemon-side hex guard must reject
+        // malformed path parameters before touching the coord. The
+        // state carries an unreachable coord URL (port 9) so any
+        // outbound call would fail ; a passing test proves the
+        // daemon short-circuited at the 64-lowercase-hex guard.
+        let app = build_test_router(mk_state().await);
+        let bad_project = "NOT-HEX";
+        let node_hex = "a".repeat(64);
+        let uri = format!("/api/contributor/verify/{bad_project}/{node_hex}");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn proxy_contributor_verify_bad_gateway_when_coord_unreachable() {
+        // Sprint 22 Phase C. Valid hex path params routed to an
+        // unreachable coord URL → 502 Bad Gateway with a structured
+        // error. Proves the proxy handler's connection-error branch
+        // is wired and does not panic.
+        let app = build_test_router(mk_state().await);
+        let project_hex = "b".repeat(64);
+        let node_hex = "a".repeat(64);
+        let uri = format!("/api/contributor/verify/{project_hex}/{node_hex}");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+    }
+
+    #[test]
+    fn resolve_coord_base_url_respects_env_var() {
+        // Sprint 22 Phase C. SBFB_COORD_URL wins over the default,
+        // and trailing slashes are trimmed so path suffixes
+        // concatenate cleanly.
+        std::env::set_var(COORD_BASE_URL_ENV, "http://127.0.0.1:12345/");
+        let resolved = resolve_coord_base_url();
+        assert_eq!(resolved, "http://127.0.0.1:12345");
+        std::env::remove_var(COORD_BASE_URL_ENV);
+        let fallback = resolve_coord_base_url();
+        assert_eq!(fallback, DEFAULT_COORD_BASE_URL);
     }
 
     #[tokio::test]
@@ -1536,6 +1726,8 @@ mod tests {
             pow_policy: nexus_shell_daemon_core::pow_policy_loader::shared_default_policy(),
             pow_keypair: Arc::new(KeyPair::generate()),
             curator_gossip_topic: nexus_shell_daemon_core::iroh_runtime::curator_topic_id(),
+            coord_http_client: reqwest::Client::new(),
+            coord_base_url: "http://127.0.0.1:9".into(),
         });
         let app = build_test_router(state);
         let resp = app

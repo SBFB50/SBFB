@@ -55,6 +55,7 @@ from nexus_sdk import (
 
 from nexus_coordinator.canary_registry import CanaryRegistry
 from nexus_coordinator.config import CoordinatorConfig
+from nexus_coordinator.contributor_registry import ContributorRegistry
 from nexus_coordinator.dispatcher import Dispatcher, SubmitRequest
 from nexus_coordinator.invite import InviteLedger
 from nexus_coordinator.keystore import LoadedKeypair, load_or_generate_keypair
@@ -64,6 +65,7 @@ from nexus_coordinator.paths import (
     app_storage_path,
     app_uploads_path,
     canary_registry_path,
+    contributor_registry_path,
     coord_config_path,
     coord_key_path,
     iroh_data_path,
@@ -181,6 +183,15 @@ class Coordinator:
         # so the API endpoint works even before :meth:`start` boots
         # the iroh node — useful for inspect-only operator flows.
         self.canary_registry: CanaryRegistry = CanaryRegistry(canary_registry_path())
+        # Sprint 22 Phase C — contributor attestation registry
+        # (Couche 2). Signed at verified-deploy time in
+        # :mod:`nexus_coordinator.api.deploy` and consumed by the
+        # daemon loopback proxy at
+        # ``GET /api/contributor/verify/...`` for the curator-list
+        # Couche 2 governance-strong gate. Eagerly instantiated
+        # like :attr:`canary_registry` so the REST endpoint works
+        # before :meth:`start` boots the iroh node.
+        self.contributor_registry: ContributorRegistry = ContributorRegistry(contributor_registry_path())
         self.apps: dict[str, NexusApp] = {}
         self.app_contexts: dict[str, AppContext] = {}
 

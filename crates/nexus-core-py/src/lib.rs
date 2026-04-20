@@ -39,6 +39,9 @@ use futures_lite::StreamExt;
 use iroh_docs::engine::LiveEvent;
 use iroh_docs::NamespaceId;
 use nexus_core_rs::{
+    attestations::{
+        AgeWitness as RsAgeWitness, ContributorAttestation as RsContributorAttestation,
+    },
     blobs::BlobsClient as RsBlobsClient,
     create_node as rs_create_node, create_node_with_config,
     crypto::{KeyPair, PUBLIC_KEY_LENGTH, SECRET_KEY_BYTES, SIGNATURE_BYTES},
@@ -1162,6 +1165,91 @@ fn verify_canary(canary_json: &str) -> PyResult<()> {
     rs_verify_canary(&canary).map_err(|e| py_err("verify_canary", e))
 }
 
+/// Build a freshly-signed
+/// [`ContributorAttestation`](nexus_core_rs::attestations::ContributorAttestation)
+/// and return the in-toto v1.0 envelope as JSON.
+///
+/// Sprint 22 Phase C — Couche 2 primitive exposed to the Python
+/// coordinator. Callers typically wire this through
+/// :class:`nexus_coordinator.contributor_registry.ContributorRegistry.record`
+/// inside the ``/api/deploy-from-repo`` flow, right after
+/// ``generate_provenance``.
+///
+/// Parameters are all hex strings or unix integers so the Python
+/// side passes the same values it already has for the provenance
+/// signing (no extra conversions). The single Rust function is the
+/// source of truth for the signing recipe (canonical bytes + domain
+/// tag + Ed25519) ; re-implementing it Python-side would let the
+/// two paths drift.
+///
+/// Raises `ValueError` on any field shape violation (bad hex,
+/// wrong length, empty repo_url) and `RuntimeError` on an
+/// internal signing failure.
+#[pyfunction]
+#[pyo3(signature = (project_id_hex, artifact_hash_hex, contributor_node_id_hex, first_deploy_ts, commit_sha_hex, repo_url, secret))]
+fn build_contributor_attestation(
+    project_id_hex: &str,
+    artifact_hash_hex: &str,
+    contributor_node_id_hex: &str,
+    first_deploy_ts: i64,
+    commit_sha_hex: &str,
+    repo_url: &str,
+    secret: &Bound<'_, PyBytes>,
+) -> PyResult<String> {
+    let sk: [u8; SECRET_KEY_BYTES] = array32(secret, "secret")?;
+    let kp = KeyPair::from_secret_bytes(&sk);
+    let att = RsContributorAttestation::build(
+        project_id_hex,
+        artifact_hash_hex,
+        contributor_node_id_hex,
+        first_deploy_ts,
+        commit_sha_hex,
+        repo_url,
+        &kp,
+    )
+    .map_err(|e| PyValueError::new_err(format!("build_contributor_attestation: {e}")))?;
+    serde_json::to_string(&att).map_err(|e| py_err("serialize", e))
+}
+
+/// Verify a [`ContributorAttestation`](nexus_core_rs::attestations::ContributorAttestation)
+/// envelope JSON against the expected coordinator public key.
+///
+/// Raises `ValueError` on bad JSON or bad public-key length, and
+/// `RuntimeError` if the signature does not verify.
+///
+/// The call is **offline** : no network reach, no registry lookup.
+/// Pure crypto. Typically wrapped by the daemon proxy at
+/// ``/api/contributor/verify`` so third-party auditors can
+/// independently check attestation validity without a running
+/// coordinator.
+#[pyfunction]
+fn verify_contributor_attestation(
+    envelope_json: &str,
+    coord_pubkey: &Bound<'_, PyBytes>,
+) -> PyResult<()> {
+    let pk: [u8; PUBLIC_KEY_LENGTH] = array32(coord_pubkey, "coord_pubkey")?;
+    let att: RsContributorAttestation = serde_json::from_str(envelope_json)
+        .map_err(|e| PyValueError::new_err(format!("bad attestation json: {e}")))?;
+    att.verify(&pk)
+        .map_err(|e| py_err("verify_contributor_attestation", e))
+}
+
+/// Verify an [`AgeWitness`](nexus_core_rs::attestations::AgeWitness)
+/// JSON blob : signature + age ≥ MIN_AGE_DAYS + timestamp not in
+/// the future.
+///
+/// Raises `RuntimeError` on any admission failure. Does **not**
+/// check the witness peer's own mesh age — that check lives in
+/// the daemon runtime (which knows the mesh state).
+#[pyfunction]
+fn verify_age_witness(witness_json: &str, now_ts: i64) -> PyResult<()> {
+    let witness: RsAgeWitness = serde_json::from_str(witness_json)
+        .map_err(|e| PyValueError::new_err(format!("bad age witness json: {e}")))?;
+    witness
+        .verify_with_age(now_ts)
+        .map_err(|e| py_err("verify_age_witness", e))
+}
+
 /// Verify an Ed25519 signature over arbitrary bytes.
 ///
 /// Raises `RuntimeError` if the signature is invalid.
@@ -1219,6 +1307,9 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(build_canary, m)?)?;
     m.add_function(wrap_pyfunction!(verify_canary, m)?)?;
+    m.add_function(wrap_pyfunction!(build_contributor_attestation, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_contributor_attestation, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_age_witness, m)?)?;
 
     Ok(())
 }

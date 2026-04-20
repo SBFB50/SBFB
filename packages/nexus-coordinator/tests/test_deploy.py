@@ -327,7 +327,7 @@ async def test_deploy_from_repo_happy_path(
                     patch(
                         "nexus_coordinator.api.deploy._git_rev_parse",
                         new_callable=AsyncMock,
-                        return_value="abc123def456",
+                        return_value="abc123def456" + "0" * 28,
                     ),
                 ):
                     r = client.post(
@@ -341,7 +341,7 @@ async def test_deploy_from_repo_happy_path(
                     assert body["deployed"] is True
                     assert body["hash"] == "ab" * 32
                     assert "provenance_hash" in body
-                    assert body["commit_sha"] == "abc123def456"
+                    assert body["commit_sha"] == "abc123def456" + "0" * 28
 
                     # Verify daemon received /publish-blob and /publish.
                     paths_called = [p for _, p, _ in daemon.calls]
@@ -354,6 +354,19 @@ async def test_deploy_from_repo_happy_path(
                     assert len(publish_calls) >= 2
                     publish_body = json.loads(publish_calls[-1])
                     assert "provenance_hash" in publish_body
+
+                    # Sprint 22 Phase C hook : the deploy flow must
+                    # have recorded a ContributorAttestation after
+                    # generate_provenance. The registry is queryable
+                    # through the coordinator's public attribute.
+                    # Keyed on the daemon node_id (same value used
+                    # as both project_id and contributor_node_id in
+                    # the single-operator pre-v1.0 deploy flow).
+                    daemon_node_id = "de" * 32
+                    assert coord.contributor_registry.is_verified_contributor(daemon_node_id, daemon_node_id) is True, (
+                        "deploy-from-repo did not record a contributor "
+                        "attestation for (project=node_id, contributor=node_id)"
+                    )
         finally:
             await coord.stop()
 
@@ -523,7 +536,7 @@ async def test_deploy_from_repo_provenance_in_zip(
                     patch(
                         "nexus_coordinator.api.deploy._git_rev_parse",
                         new_callable=AsyncMock,
-                        return_value="abc123",
+                        return_value="abc123" + "0" * 34,
                     ),
                 ):
                     r = client.post(
@@ -778,7 +791,7 @@ async def test_deploy_from_repo_sets_is_open_source_true(
                     patch(
                         "nexus_coordinator.api.deploy._git_rev_parse",
                         new_callable=AsyncMock,
-                        return_value="abc123def456",
+                        return_value="abc123def456" + "0" * 28,
                     ),
                 ):
                     r = client.post(

@@ -194,3 +194,18 @@ def canary_registry_path() -> Path:
     them observe the same gossip topic).
     """
     return nexus_grid_root() / "canary-registry.json"
+
+
+def contributor_registry_path() -> Path:
+    """Path to the contributor attestation registry SQLite file.
+
+    Sprint 22 Phase C (Couche 2): the coordinator records a signed
+    ContributorAttestation per ``(project_id, contributor_node_id)``
+    pair at verified-deploy time. Queries by the daemon's curator-
+    list governance-strong gate (``/api/contributor/verify/...``)
+    hit this file. Kept process-global like the canary registry
+    because the invariant is per-user, not per-project : a single
+    user can publish multiple projects and each has one
+    contributor graph.
+    """
+    return nexus_grid_root() / "contributor_registry.sqlite"

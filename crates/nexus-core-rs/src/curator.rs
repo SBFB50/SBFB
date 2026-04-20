@@ -272,6 +272,84 @@ impl CuratorListEntry {
         let bytes = canonical_bytes(&self.list, DOMAIN_CURATOR_LIST_V1)?;
         crate::crypto::verify(&self.curator_pubkey, &bytes, &self.signature)
     }
+
+    /// Verify a [`CuratorListEntry`] under the Sprint 22 Couche 2
+    /// governance-strong flag : every project entry whose
+    /// `project_id` is enrolled in the contributor registry must
+    /// have this curator's pubkey listed as a verified contributor.
+    ///
+    /// `registry` is queried per-entry. Projects for which
+    /// [`ContributorRegistry::is_enrolled`] returns `false` are
+    /// skipped — Couche 2 gating is opt-in per project, not a
+    /// global requirement. Projects that are enrolled but whose
+    /// curator pubkey is not a verified contributor cause
+    /// verification to reject.
+    ///
+    /// Runs [`Self::verify_signature`] first ; the contributor
+    /// check is strictly additive on top of the base signature
+    /// validation.
+    ///
+    /// NOTE: Interim Sybil-resistance S22. Contributor selection
+    /// is still biased toward high-kudos workers (Matthew effect
+    /// one layer deeper). Post-v1.0 LT-1 Kudos-v2 reform will
+    /// introduce log-utility + DRF + EMA trust to break this
+    /// cycle. See:
+    /// - `docs/FAIRNESS_VISION.md §7` "Design-conflict S22"
+    /// - `docs/release/ROADMAP_COMMITMENTS.md §LT-1`
+    pub fn verify_with_contributor_registry<R: ContributorRegistry>(
+        &self,
+        registry: &R,
+    ) -> Result<()> {
+        self.verify_signature()?;
+        for (idx, entry) in self.list.entries.iter().enumerate() {
+            if !registry.is_enrolled(&entry.project_id) {
+                // Project not enrolled in governance-strong gate :
+                // curator vouching is sufficient (the base-layer
+                // signature check above).
+                continue;
+            }
+            if !registry.is_verified_contributor(&entry.project_id, &self.curator_pubkey) {
+                return Err(NexusError::Crypto(format!(
+                    "curator list entry #{idx}: curator_pubkey is not a verified contributor \
+                     for project_id={} under Couche 2 governance-strong flag",
+                    entry.project_id
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Couche 2 governance-strong verification hook. The shell-daemon
+/// injects an implementation that proxies the coordinator's
+/// `contributor_registry` SQLite table over HTTP.
+///
+/// Implementors are expected to cache query results where useful —
+/// `verify_with_contributor_registry` calls `is_enrolled` +
+/// `is_verified_contributor` per entry, so a large list can result
+/// in several hundred lookups. The coordinator-side proxy is
+/// loopback-only and synchronous ; the cost is in practice
+/// bounded by [`CURATOR_LIST_MAX_ENTRIES`].
+pub trait ContributorRegistry {
+    /// Return `true` iff `project_id` opts into the Couche 2
+    /// governance-strong gate (i.e. a curator list entry for this
+    /// project triggers the contributor-attestation check).
+    ///
+    /// Projects that have not been enrolled by the publisher (via
+    /// `SBFB.json` flag or coordinator ceremony — TBD S23+) are
+    /// gated by the base-layer signature check only.
+    fn is_enrolled(&self, project_id: &str) -> bool;
+
+    /// Return `true` iff `curator_pubkey` is a verified contributor
+    /// for `project_id` in the registry — i.e. the coordinator has
+    /// previously signed at least one
+    /// [`crate::attestations::ContributorAttestation`] for this
+    /// pair.
+    fn is_verified_contributor(
+        &self,
+        project_id: &str,
+        curator_pubkey: &[u8; PUBLIC_KEY_LENGTH],
+    ) -> bool;
 }
 
 /// Reject any [`CuratorProjectRef`] whose string fields exceed
@@ -585,5 +663,98 @@ mod tests {
         list.entries[0].description = "d".repeat(CURATOR_DESCRIPTION_MAX);
         let entry = CuratorListEntry::sign(list, &kp).expect("cap boundary signs");
         entry.verify_signature().expect("cap boundary verifies");
+    }
+
+    /// Minimal in-memory [`ContributorRegistry`] stub used by the
+    /// Couche 2 governance-strong gate tests. Real registry hook
+    /// lives in `nexus-shell-daemon/src/http.rs` (proxy) and the
+    /// Python `contributor_registry.py` (SQLite source of truth).
+    struct StubRegistry {
+        enrolled: std::collections::BTreeSet<String>,
+        verified: std::collections::BTreeSet<(String, [u8; PUBLIC_KEY_LENGTH])>,
+    }
+
+    impl StubRegistry {
+        fn new() -> Self {
+            Self {
+                enrolled: Default::default(),
+                verified: Default::default(),
+            }
+        }
+        fn enroll(mut self, project_id: &str) -> Self {
+            self.enrolled.insert(project_id.to_string());
+            self
+        }
+        fn verify(mut self, project_id: &str, curator: [u8; PUBLIC_KEY_LENGTH]) -> Self {
+            self.verified.insert((project_id.to_string(), curator));
+            self
+        }
+    }
+
+    impl ContributorRegistry for StubRegistry {
+        fn is_enrolled(&self, project_id: &str) -> bool {
+            self.enrolled.contains(project_id)
+        }
+        fn is_verified_contributor(
+            &self,
+            project_id: &str,
+            curator_pubkey: &[u8; PUBLIC_KEY_LENGTH],
+        ) -> bool {
+            self.verified
+                .contains(&(project_id.to_string(), *curator_pubkey))
+        }
+    }
+
+    #[test]
+    fn verify_rejects_non_contributor_if_enforce() {
+        // Enroll the project but do NOT register the curator as a
+        // verified contributor — governance-strong gate must reject.
+        let kp = KeyPair::generate();
+        let list = sample_list(kp.public_bytes());
+        let project_id = list.entries[0].project_id.clone();
+        let entry = CuratorListEntry::sign(list, &kp).unwrap();
+
+        let registry = StubRegistry::new().enroll(&project_id);
+        let err = entry
+            .verify_with_contributor_registry(&registry)
+            .expect_err("non-contributor must reject under enforcement");
+        match err {
+            NexusError::Crypto(msg) => {
+                assert!(msg.contains("not a verified contributor"), "msg: {msg}")
+            }
+            other => panic!("expected Crypto error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_admits_registered_contributor() {
+        // Enroll + register : gate must admit.
+        let kp = KeyPair::generate();
+        let list = sample_list(kp.public_bytes());
+        let project_a = list.entries[0].project_id.clone();
+        let project_b = list.entries[1].project_id.clone();
+        let entry = CuratorListEntry::sign(list, &kp).unwrap();
+
+        let registry = StubRegistry::new()
+            .enroll(&project_a)
+            .verify(&project_a, kp.public_bytes())
+            .enroll(&project_b)
+            .verify(&project_b, kp.public_bytes());
+        entry
+            .verify_with_contributor_registry(&registry)
+            .expect("fully registered curator admits");
+    }
+
+    #[test]
+    fn verify_allows_non_enrolled_project_without_contributor_gate() {
+        // Project not enrolled → gate inert ; base signature check
+        // alone is sufficient. Matches the opt-in Couche 2 design.
+        let kp = KeyPair::generate();
+        let list = sample_list(kp.public_bytes());
+        let entry = CuratorListEntry::sign(list, &kp).unwrap();
+        let registry = StubRegistry::new(); // nothing enrolled
+        entry
+            .verify_with_contributor_registry(&registry)
+            .expect("unenrolled projects bypass Couche 2 gate");
     }
 }

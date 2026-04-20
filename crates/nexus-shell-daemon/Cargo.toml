@@ -83,6 +83,16 @@ async-trait = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 
+# Sprint 22 Phase C: the daemon exposes a loopback proxy at
+# `/api/contributor/verify/...` that forwards to the coordinator's
+# matching endpoint. reqwest is the same HTTP client the coordinator
+# uses for its own outbound calls (httpx on the Python side) — the
+# workspace pin is `0.12` default-features-off with the minimal
+# `rustls-tls-native-roots` feature needed to talk to a loopback
+# HTTPS coord in a future sprint (pre-launch the coord is HTTP so
+# the client strictly goes over plain TCP).
+reqwest = { workspace = true }
+
 # Sprint 16 Phase B (Unix): SO_PEERCRED + getsockopt for the UDS
 # accept loop's peer-uid check. The launcher already pulls libc
 # on Unix for SIGTERM signalling — declared explicitly here so

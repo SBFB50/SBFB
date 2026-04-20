@@ -137,6 +137,34 @@ pub const DOMAIN_POW_V1: &[u8] = b"nexus-pow-v1";
 /// different domain tags so cross-stream replay is impossible).
 pub const DOMAIN_DURESS_ACK_V1: &[u8] = b"nexus-duress-ack-v1";
 
+/// Domain separation tag for [`crate::attestations::AgeWitness`]
+/// canonical bytes.
+///
+/// Sprint 22 Phase C — Sybil-resistance Couche 1. A peer-attested
+/// witness signs that a given `node_id` was first seen at
+/// `first_seen_ts`, enabling a ≥7-day age gate on gossip admission
+/// (Couche 1 in the 3-layer composition arbitrated 2026-04-19, plan
+/// §6 kickoff §4 D1). The domain tag keeps an AgeWitness signature
+/// from being replayed as a task / result / claim / invite / kudos
+/// / curator-list / provenance / canary / PoW / duress-ack payload.
+pub const DOMAIN_AGE_WITNESS_V1: &[u8] = b"nexus-age-witness-v1";
+
+/// Domain separation tag for [`crate::attestations::ContributorAttestation`]
+/// canonical bytes.
+///
+/// Sprint 22 Phase C — Sybil-resistance Couche 2. The coordinator
+/// signs a binary attestation at verified-deploy time (SLSA L1 flow,
+/// S14 `provenance.sign` adjacent) that `contributor_node_id` has
+/// completed at least one successful verified-deploy for a given
+/// project. Consumed by curator list verification under a
+/// governance-strong flag and by the federated trust-web Amnesty
+/// integration reserved S27. The domain tag prevents cross-stream
+/// replay against any other signed payload family. Cf.
+/// [`docs/security/CONTRIBUTOR_ATTESTATION_PREDICATE.md`](
+/// ../../../docs/security/CONTRIBUTOR_ATTESTATION_PREDICATE.md) for
+/// the wire format, envelope rules, and verification procedure.
+pub const DOMAIN_CONTRIBUTOR_ATTESTATION_V1: &[u8] = b"nexus-contributor-attestation-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///

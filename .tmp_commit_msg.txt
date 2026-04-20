@@ -1,0 +1,188 @@
+feat(sprint22): Phase C — Sybil-resistance composition 3 couches (age witness + contributor attestation + daemon proxy + Couche 3 RFC)
+
+Livre la Couche 1 (age_witness + bootstrap_allowlist) + Couche 2
+(ContributorAttestation in-toto v1.0 + coord registry + curator
+verify extend + daemon HTTP proxy) + Couche 3 design-only (RFC)
+conformement au plan §6 + kickoff §4 D1 arbitre 2026-04-19 post-
+synthese research G2 + G1 Design Review Board CONDITIONAL PASS.
+G8 preflight verdict EXECUTE (fb16a50).
+
+## Couche 1 — age node_id >=7j + PoW S19 + bootstrap allowlist
+
+- crates/nexus-core-rs/src/attestations/age_witness.rs (new
+  ~340 LOC) — AgeWitness struct {node_id, first_seen_ts,
+  witness_pubkey, witness_sig} + AgeWitnessError + sign /
+  verify_signature / verify_with_age / age_days. Constantes :
+  MIN_AGE_DAYS = 7 (mirror Tor Guard 8-day avec 1-day
+  clock-skew headroom), MIN_WITNESS_AGE_DAYS = 30
+  (chain-breaking guard anti Sybil-vouch-Sybil).
+- crates/nexus-core-rs/src/gossip.rs (modified) —
+  GossipClient::join_topic_with_age_witness() + trait
+  AgeAdmissionPolicy + enum AgeAdmissionOutcome + pure fonction
+  evaluate_age_admission() testable sans iroh node.
+- crates/nexus-shell-daemon-core/src/bootstrap_allowlist.rs
+  (new ~600 LOC, P0-G1-1 ack) — BootstrapAllowlist +
+  BootstrapAllowlistFile TOML schema + BootstrapAllowlistWatcher
+  hot-reload notify pattern PowPolicyWatcher S20 Phase C +
+  AllowlistPolicy<F> impl AgeAdmissionPolicy. Cap
+  MAX_BOOTSTRAP_ENTRIES = 20. Tag expires_at_tag = "v1.0"
+  enforced (post-go-live becomes no-op).
+- crates/nexus-core-rs/src/canonical.rs (modified) — ajout
+  DOMAIN_AGE_WITNESS_V1. Pre-launch additif, aucun _VERSION bump.
+- crates/nexus-core-py/src/lib.rs (modified) — PyO3 binding
+  verify_age_witness(witness_json, now_ts).
+
+## Couche 2 — ContributorAttestation + coord registry + daemon proxy
+
+- docs/security/CONTRIBUTOR_ATTESTATION_PREDICATE.md (new
+  ~275 LOC, P0-G1-2 ack).
+- crates/nexus-core-rs/src/attestations/contributor.rs (new
+  ~530 LOC) — ContributorAttestation envelope in-toto v1.0 +
+  ContributorPredicate + InTotoSubject + build() signe au
+  domain DOMAIN_CONTRIBUTOR_ATTESTATION_V1 + verify() offline.
+  attestation_coord_sig base64-std 88 chars.
+- crates/nexus-core-rs/src/canonical.rs — ajout
+  DOMAIN_CONTRIBUTOR_ATTESTATION_V1.
+- crates/nexus-core-rs/src/curator.rs — trait
+  ContributorRegistry + CuratorListEntry::
+  verify_with_contributor_registry() gate Couche 2
+  governance-strong opt-in per project. Code comment P2-G1-3
+  LT-1 TODO inline (Matthew effect one layer deeper).
+- crates/nexus-core-py/src/lib.rs — PyO3 bindings
+  build_contributor_attestation() + verify_contributor_attestation().
+- packages/nexus-coordinator/src/nexus_coordinator/contributor_registry.py
+  (new ~270 LOC) — SQLite WAL, UNIQUE (project_id,
+  contributor_node_id) pour idempotence anchor.
+- packages/nexus-coordinator/src/nexus_coordinator/api/contributor.py
+  (new ~140 LOC) — 3 REST endpoints verify / project / envelope.
+- packages/nexus-coordinator/src/nexus_coordinator/api/deploy.py
+  — hook contributor_registry.record() apres generate_provenance().
+- packages/nexus-coordinator/src/nexus_coordinator/coordinator.py
+  — attribut contributor_registry.
+- packages/nexus-coordinator/src/nexus_coordinator/paths.py
+  — helper contributor_registry_path().
+- packages/nexus-coordinator/src/nexus_coordinator/api/app.py
+  — include_router(contributor_router).
+- crates/nexus-shell-daemon/src/http.rs — daemon loopback
+  proxy GET /api/contributor/verify/{project_id}/{node_id_hex}
+  forwarding vers la coord. Guard daemon-side
+  is_64_lowercase_hex avant forward. Token X-SBFB-Token
+  propage. Timeout 2s. Constantes COORD_BASE_URL_ENV +
+  DEFAULT_COORD_BASE_URL = http://127.0.0.1:8787 + helper
+  resolve_coord_base_url().
+- crates/nexus-shell-daemon/src/runtime.rs —
+  DaemonHttpState::coord_http_client (reqwest, timeout 2s) +
+  coord_base_url.
+- crates/nexus-shell-daemon/Cargo.toml — ajout reqwest =
+  { workspace = true }.
+
+## Couche 3 — DESIGN-ONLY S22
+
+- docs/security/CONTRIBUTOR_ATTESTATION_RFC.md (new ~315
+  LOC) — Sections 1-9 : multi-forge + DelegationCert Ed25519
+  bridging SBFB node_id <-> SSH key fingerprint +
+  git log --show-signature parser contract + multi-forge
+  cross-validate + trust-web Amnesty/EFF/CPJ/HRW S27 + meta-
+  track S27 pivot ligne 371-372 HARDENING_ROADMAP. Aucun code
+  landed S22 — implem S23 (schema + DelegationCert) / S24
+  (parser) / S26 (multi-forge wire) / S27 (trust-web).
+
+## Tests
+
+Delta reel +42 (+36 Rust + +6 Python coord ; premier body
+annoncait +49 base sur recount agent, agent re-audit a verifie
++36 Rust + 6 Py = +42 factuel) :
+
+- +36 Rust : age_witness.rs (8) + contributor.rs (9) +
+  gossip.rs evaluate_age_admission (7) + bootstrap_allowlist.rs
+  (8) + curator.rs Couche 2 gate (3) + http.rs proxy (3 tests).
+- +6 Python coord : test_contributor_registry.py.
+- +1 Python deploy : hook recorded attestation assertion.
+
+## Compteurs
+
+- Rust : 705 (baseline avant Phase C = 669 post-Phase B, delta
+  +36).
+- SDK Python : 185 (inchange).
+- Coord Python : 255+3 skipped (baseline 249+3, delta +6).
+- Gov Python : 46 (inchange).
+- Vitest : 256 (inchange, Phase B).
+- Playwright : 38 (inchange).
+- Size-limit : 7/7.
+
+## Verification §7.4 passed
+
+- cargo fmt --all --check : clean.
+- cargo clippy --workspace --all-targets --locked -- -D warnings :
+  0 warning (1 useless-format fix in-phase).
+- cargo nextest run --workspace --locked : 705 pass.
+- cargo test --workspace --locked --doc : clean.
+- uv run ruff format --check packages/ : clean.
+- uv run ruff check packages/ : clean.
+- uv run pytest packages/nexus-coordinator/tests/ -q : 255
+  pass + 3 skip.
+- uv run pytest packages/nexus-sdk/tests/ -q : 185 pass.
+- uv run pytest packages/nexus-app-gov/tests/ -q : 46 pass.
+
+## Pre-launch protocol policy
+
+- BLOB_VERSION = 0x01 / TASK_RESPONSE_VERSION = 1 /
+  CANARY_VERSION = 1 / ANNOUNCEMENT_VERSION = 1 /
+  INVITE_VERSION = 2 (S4) — tous inchanges.
+- 2 nouveaux domain tags additifs pre-launch stables :
+  DOMAIN_AGE_WITNESS_V1 + DOMAIN_CONTRIBUTOR_ATTESTATION_V1.
+- 1 domain tag reserve DESIGN-ONLY : DOMAIN_DELEGATION_CERT_V1
+  (implem S23 per RFC §3).
+- Aucun tolerant decoder multi-version. Aucun
+  #[serde(default)] ajoute.
+
+## D1..D5 preserves
+
+- D1 composition 3 couches : Phase C implemente D1 conforme
+  arbitrage 2026-04-19 (kickoff §4 lignes 311-400).
+- D2 gamma hybride 6 phases : Phase C est item (c) du D2.
+- D3-D5 : non touchees.
+
+## Decisions actees respectees
+
+- "public = open source" (S13) : compatible.
+- "deploy verified from source" (S14) : hook api/deploy.py
+  apres generate_provenance().
+- Threat-model S18 E2 04c9621 (rejet auto-publish scheduler) :
+  respectee — ContributorAttestation signee par coordinator
+  volontaire au verified-deploy, pas par scheduler temporel.
+
+## Working tree audit (G5)
+
+| Categorie | Count |
+|---|---|
+| PHASE | 23 |
+| CRAFT | 0 |
+| DEBT | 0 |
+| NOISE | 0 |
+
+## Audit retrospective (2 iterations)
+
+- Iteration 1 : verdict FAIL (P1 daemon proxy manquant).
+- Fix applique : reqwest dep + route + handler + tests + env
+  var plumbing + DaemonHttpState extend.
+- Iteration 2 : verdict PASS (review.md final). Findings
+  residuels non-bloquants : P2 delta tests recompute +42 vs +49
+  body initial (corrige ici) ; P3 re-export DOMAIN_PROVENANCE_V1
+  + DOMAIN_WARRANT_CANARY_V1 carry S23 audit_plan.
+
+## G8 pre-flight Phase C verdict
+
+EXECUTE plan-as-is (4 scans S1-S4 clean, cf. fb16a50).
+
+## Refs
+
+- Plan : sprint22_plan.md §6 lignes 268-546
+- Kickoff D1 : sprint22_kickoff.md §4 lignes 309-400
+- Preflight : sprint22_phase_C_preflight.md (commit fb16a50)
+- Review (iteration 2 PASS) : sprint22_phase_C_review.md
+- HARDENING_ROADMAP §3 S22
+- Predicate spec : docs/security/CONTRIBUTOR_ATTESTATION_PREDICATE.md
+- Couche 3 RFC : docs/security/CONTRIBUTOR_ATTESTATION_RFC.md
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

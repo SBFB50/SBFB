@@ -465,6 +465,18 @@ impl DaemonRuntime {
             pow_policy: Arc::clone(&pow_policy),
             pow_keypair: Arc::clone(&pow_keypair),
             curator_gossip_topic: curator_topic,
+            // Sprint 22 Phase C : outbound HTTP client for the
+            // contributor-verify proxy. Built once at boot so
+            // every in-flight request shares the connection pool.
+            // A short timeout is in order because the endpoint is
+            // strictly loopback and a coord that is up should
+            // always respond in milliseconds ; anything longer is
+            // almost certainly a hang worth surfacing early.
+            coord_http_client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(2))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
+            coord_base_url: crate::http::resolve_coord_base_url(),
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being

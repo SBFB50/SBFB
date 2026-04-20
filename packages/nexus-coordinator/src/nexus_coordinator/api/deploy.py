@@ -299,6 +299,29 @@ async def deploy_from_repo(body: DeployFromRepoBody, request: Request) -> dict:
             secret=coord.keypair.secret,
         )
 
+        # 9bis. Sprint 22 Phase C (Couche 2) : record a contributor
+        # attestation for this (project, contributor) pair. The
+        # contributor is the daemon operator — same node_id the
+        # provenance is signed under. Idempotent : a re-deploy
+        # for the same pair reuses the stored first_deploy_ts
+        # anchor. The daemon loopback proxy exposes this registry
+        # at ``/api/contributor/verify/...`` for the curator-list
+        # Couche 2 governance-strong gate.
+        contributor_record = coord.contributor_registry.record(
+            project_id=daemon_state.node_id,
+            contributor_node_id=daemon_state.node_id,
+            artifact_hash=artifact_hash_hex,
+            commit_sha=commit_sha,
+            repo_url=repo_url,
+            coord_secret=coord.keypair.secret,
+        )
+        _log.info(
+            "deploy-from-repo: contributor attestation recorded",
+            project_id=contributor_record.project_id,
+            contributor_node_id=contributor_record.contributor_node_id,
+            first_deploy_ts=contributor_record.first_deploy_ts,
+        )
+
         # 10. Add provenance.json to the zip.
         zip_bytes = _add_to_zip(zip_bytes, "provenance.json", provenance_to_json(provenance))
         _log.info("deploy-from-repo: provenance added", size=len(zip_bytes))
