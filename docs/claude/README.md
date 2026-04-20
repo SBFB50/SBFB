@@ -415,6 +415,59 @@ Si une phase a besoin d'un fix post-commit (pattern Sprint 2
 le fix vit dans un commit séparé
 `fix(sprint{N}): description` — jamais d'amend.
 
+### 4.1.1 Mécanique d'écriture du message commit (Windows Git Bash)
+
+**Règle impérative** : pour tout commit dont le body dépasse ~30
+lignes, écrire le message dans un fichier puis `git commit -F`.
+**Ne PAS utiliser `git commit -m "$(cat <<'EOF' ... EOF)"`** pour les
+bodies riches.
+
+Cause : heredoc `<<'EOF'` protège l'expansion shell mais Windows Git
+Bash échoue régulièrement sur :
+- Apostrophes françaises répétées (« l'approche », « l'économie »,
+  « l'auditor ») qui déstabilisent le parser malgré `<<'EOF'`
+- Backticks markdown nombreux (`` `fichier.py` ``) dans un body
+  multi-sections
+- Buffering CRLF qui masque la terminaison `EOF` quand la ligne
+  fermante n'est pas strict-LF
+- Interaction `"$(...)"` + heredoc qui force bash à compter les
+  quotes jusqu'à `)"` fermant le command substitution
+
+Le résultat observé (Sprint 22 Phase E, S20 Phase E pivot) :
+`unexpected EOF while looking for matching '` — plusieurs sessions
+tentent heredoc, échouent, puis basculent sur file-based.
+
+Pattern correct :
+
+```bash
+# 1. Écrire le body dans un fichier (Write tool en agent context,
+#    ou éditeur en main). Chemin standard : .git/COMMIT_EDITMSG_<label>.txt
+#    pour que le fichier vive sous le répertoire git (cleanup auto
+#    possible) et soit ignoré du tracking.
+
+cat > .git/COMMIT_EDITMSG_PHASE_E.txt <<'CANARY_END'
+feat(sprint22): Phase E — titre court
+
+Body multi-sections riche...
+CANARY_END
+
+# 2. Commit par fichier
+git commit -F .git/COMMIT_EDITMSG_PHASE_E.txt
+
+# 3. (optionnel) nettoyage post-commit
+# le fichier est ignoré par git (sous .git/) ; il peut rester pour
+# audit, ou être supprimé avec `rm .git/COMMIT_EDITMSG_PHASE_E.txt`
+```
+
+Pour les bodies courts (<= 30 lignes, 1 section), `git commit -m
+"title$(echo -e '\n\n body')"` ou `-m "title" -m "body"` reste
+acceptable — le seuil 30 lignes est empirique, les commits de phase
+atomique dépassent systématiquement.
+
+Anti-pattern à éviter : re-essayer heredoc sur erreur « unexpected
+EOF » en espérant que l'erreur était transitoire. Elle ne l'est pas
+— basculer immédiatement sur file-based.
+
 ### 4.2 Discipline de staging
 
 Staging explicite (jamais `git add -A`) :
