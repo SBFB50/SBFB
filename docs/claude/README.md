@@ -541,6 +541,49 @@ Tout rouge bloque le commit. Aucune exception « je commit et
 je fix après » — le fix doit être dans le même commit ou
 déclenche un nouveau cycle.
 
+### 4.4 Phase F wrap-up — parse phase reviews et route les P2/P3 au audit_plan
+
+**Fix P2-S21-4 Sprint 22 Phase F.** Avant Sprint 22, le wrap-up
+Phase F écrivait `sprint{N}_verification.md` + `sprint{N}_audit
+_plan.md` mais ne parsait pas systématiquement chaque
+`sprint{N}_phase_[A-F]_review.md` produit par le hook
+`phase-auditor-gate.sh` pré-commit. Conséquence : les findings
+P2/P3 documentés par l'auditeur de phase pouvaient rester
+orphelins (jamais ré-injectés dans l'audit gate du sprint
+suivant).
+
+**Règle désormais imperative** :
+
+À chaque écriture de `sprint{N}_audit_plan.md` en Phase F, la
+session doit :
+
+1. **Enumérer** les fichiers `.planning/active/sprint{N}_phase_
+   [A-F]_review.md` présents.
+2. **Parser** chaque section `## Findings` (ou équivalent
+   `## Issues found`) et extraire les findings `P[0-3]-*`.
+3. **Router** chaque finding dans le Track correspondant de
+   `sprint{N}_audit_plan.md` :
+   - P2-{Phase}-* → Track A/B/C/D/E selon la Phase source
+   - P3-{Phase}-* → Track correspondant sous-section advisory
+   - Findings transverses (LOC estimations, convention hygiene)
+     → Meta-track dédié ou carry summary
+4. **Documenter** les findings résolus inline pendant la phase
+   (fix retrospective, iteration 2 pattern Sprint 22 Phase D)
+   dans la section Track comme `[closed inline]` avec le commit
+   SHA de résolution.
+
+**Garde-fou** : un `sprint{N}_audit_plan.md` sans référence à
+au moins un finding par phase ayant un review.md = **CONCERN**
+(probable parsing oublié). Exception acceptable : review.md
+avec verdict PASS + 0 finding explicite.
+
+**Exemple Sprint 22** : les 5 phase reviews A/B/C/D/E ont
+produit 14 findings (5 P2 + 9 P3). `sprint22_audit_plan.md`
+les route dans Tracks A-E (sous-section A-1/A-2/A-3/A-4/A-5
+etc.) + Meta-track LOC estimations (transverse P3-S22A-1 +
+P3-B-1 + P2-E-2 + Phase D déviation LOC = 4 occurrences du
+même pattern à fermer S23 chore planning).
+
 ---
 
 ## 5. Memory system externe

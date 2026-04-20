@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Phase review cross-check — Sprint 22 Phase F P2-S21-5 fix.
+#
+# Parses `git log master..HEAD` for commits matching
+# `feat(sprintNN): Phase X — ...` and verifies that a matching
+# `.planning/active/sprint{N}_phase_{X}_review.md` file exists
+# in the commit diff OR in `.planning/archive/v*/`. Fails the
+# check if the review file is missing (signals a bypass of the
+# phase-auditor-gate hook).
+#
+# Trigger: pull_request to master. Does NOT run on push (master
+# commits are post-audit). Complements the pre-commit hook
+# `.claude/hooks/phase-auditor-gate.sh` which runs at commit time.
+
+name: phase-review-cross-check
+
+on:
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  check:
+    name: Phase review presence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history to compute master..HEAD
+          fetch-depth: 0
+
+      - name: Identify phase feat commits in range
+        id: commits
+        run: |
+          set -euo pipefail
+
+          # Base ref = master (pull_request base). Head = current tip.
+          base_ref="${{ github.event.pull_request.base.ref }}"
+          git fetch origin "$base_ref" --depth=100 || true
+          base_sha="$(git rev-parse "origin/$base_ref")"
+          head_sha="$(git rev-parse HEAD)"
+
+          echo "Auditing range: $base_sha..$head_sha"
+
+          # Extract feat(sprintNN): Phase X commits.
+          phase_commits=$(git log --format='%H %s' "$base_sha..$head_sha" \
+            | grep -E 'feat\(sprint[0-9]+\): Phase [A-F]' || true)
+
+          if [[ -z "$phase_commits" ]]; then
+            echo "No phase feat commits in range — nothing to check."
+            echo "has_phases=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "has_phases=true" >> "$GITHUB_OUTPUT"
+          echo "$phase_commits" > /tmp/phase_commits.txt
+          echo "Found $(wc -l < /tmp/phase_commits.txt) phase feat commits"
+          cat /tmp/phase_commits.txt
+
+      - name: Verify review.md presence per phase
+        if: steps.commits.outputs.has_phases == 'true'
+        run: |
+          set -euo pipefail
+
+          missing_reviews=()
+
+          while IFS= read -r line; do
+            sha=$(echo "$line" | awk '{print $1}')
+            subject=$(echo "$line" | cut -d' ' -f2-)
+
+            # Parse sprint number + phase letter from subject.
+            sprint=$(echo "$subject" | sed -nE 's/feat\(sprint([0-9]+)\): Phase ([A-F]).*/\1/p')
+            phase=$(echo "$subject" | sed -nE 's/feat\(sprint([0-9]+)\): Phase ([A-F]).*/\2/p')
+
+            if [[ -z "$sprint" || -z "$phase" ]]; then
+              echo "::warning::Could not parse sprint/phase from: $subject"
+              continue
+            fi
+
+            review_active=".planning/active/sprint${sprint}_phase_${phase}_review.md"
+            review_archive=$(find .planning/archive -name "sprint${sprint}_phase_${phase}_review.md" 2>/dev/null | head -1)
+
+            if [[ -f "$review_active" ]] || [[ -n "$review_archive" ]]; then
+              echo "✅ Sprint $sprint Phase $phase — review present ($sha)"
+            else
+              echo "❌ Sprint $sprint Phase $phase — review MISSING ($sha)"
+              missing_reviews+=("sprint${sprint}_phase_${phase}_review.md ($sha)")
+            fi
+          done < /tmp/phase_commits.txt
+
+          if [[ ${#missing_reviews[@]} -gt 0 ]]; then
+            echo ""
+            echo "::error::Phase review files missing for the following feat commits:"
+            for r in "${missing_reviews[@]}"; do
+              echo "  - $r"
+            done
+            echo ""
+            echo "The phase-auditor-gate hook must run before each"
+            echo "'feat(sprintN): Phase X' commit and produce a review.md."
+            echo "If NEXUS_SKIP_PHASE_AUDITOR=1 was used, confirm the"
+            echo "entry in .claude/.bypass_audit_trail.log and add a"
+            echo "retrospective review.md in a follow-up chore commit."
+            exit 1
+          fi
+
+          echo ""
+          echo "All phase feat commits have matching review.md files."

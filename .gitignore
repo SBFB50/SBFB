@@ -103,6 +103,10 @@ models/*.gguf
 # Logs
 logs/
 *.log
+# Exception: phase-auditor bypass audit trail must be committed
+# (Sprint 22 Phase F — P2-S21-5 fix). Entries appended when
+# NEXUS_SKIP_PHASE_AUDITOR=1 is used.
+!.claude/.bypass_audit_trail.log
 
 # Sprint 2 audit shards — kept locally, not part of the repo
 # (9 .md files reviewing Sprint 2 crate-by-crate, inert outside

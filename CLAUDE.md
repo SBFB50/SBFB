@@ -154,12 +154,49 @@ Roadmap runtime isolation (WSL2 / Virtualization.framework /
 systemd-nspawn) pour Sprint 17+ dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
-## Etat actuel (2026-04-19, master tip post-S21 Phase F wrap-up)
-- **Sprints 0-21 CLOSED**. Audit gate S20 leve via `66a3a7c`
-  verdict PASS (0 P0 + 0 P1 + 4 P2 carry actifs + 6 P2 resolus
-  in-phase + 6 P3 cosmetiques). Sprint 21 livre **5 phases A-E**
-  sur le theme « rate-limit + PII SDK defense-in-depth + output
-  filter + quarantine queue + tech debt batch ». Phase A `63afe4e`
+## Etat actuel (2026-04-20, master tip post-S22 Phase F wrap-up)
+- **Sprints 0-22 CLOSED**. Audit gate S21 leve via `96a953b`
+  verdict PASS (0 P0 + 0 P1 + findings P2/P3 carry S22 tous
+  absorbes phases A-F). Sprint 22 livre **5 phases A-E** sur le
+  theme « Sybil-resistance composition 3 couches + rate-limit
+  engine wire + GLiNER span-decoder + NVML baseline + watermark
+  canari primitive + process fixes ». Phase A `0bc499f` rate-
+  limit engine wire-up + hot-reload + policy sample (absorbe
+  P2-S21-1/2/6 + P3-S21-4). Phase B `e9530c2` GLiNER span-logits
+  decoder iframe SDK (absorbe P2-S21-3). Phase C `cf3918c` Sybil-
+  resistance composition 3 couches (Couche 1 AgeWitness peer-
+  attestation Ed25519 + bootstrap allowlist P0-G1-1 ack ; Couche 2
+  `ContributorAttestation` in-toto predicate + `ContributorRegistry`
+  coord-side SQLite + daemon proxy + Matthew-effect TODO inline
+  LT-1 commitment ; Couche 3 RFC design-only `CONTRIBUTOR_
+  ATTESTATION_RFC.md` S23-S27 implem). Phase D `56211f2` NVML
+  util+duree profile log-only baseline foundation S24 (`nvml-
+  wrapper 0.12.1`). Phase E `690fab3` watermark canari-input
+  primitive consumer 1/N spot-check (Ed25519 signe coord rotatable
+  + injector + observer rapidfuzz Levenshtein + CLI Typer
+  `canary rotate/status`). Phase F `<HEAD>` wrap-up + verification
+  + audit plan S23 + process fixes P2-S21-4 README §4.4 règle
+  parse phase_review + P2-S21-5 GHA `phase-review-cross-check.yml`
+  + `.claude/.bypass_audit_trail.log`. **Deuxième sprint avec G8
+  systematique 6/6 phases A-F** (0 DESIGN-CONFLICT — G1 pre-gel
+  robuste). Carry G7 cap 1/2 slot pour S23 : T-NN+2 iframe Rust-
+  wasm hors cap formel PATTERNS §P34. **LT-2 Meta-1 Radicle-v1.0
+  reclassification** sortie cap G7 (trigger tag v1.0 unique, runbook
+  `docs/release/MIRROR_FALLBACK.md §3`). **LT-3 Contribution
+  family Sybil matrix** + **LT-4 OS biometric gate** ouverts hors-
+  sprint (post-v1.0). v1.2 en cours.
+- **710 Rust** / 185 SDK / **263+3 skipped** coordinator / 46
+  app-gov / **264 Vitest** / 38 Playwright / 7/7 size-limit /
+  246+ SPDX (**~1509 tests total**) — tous verts. Delta S22 :
+  **+73** (+51 Rust rate-limit wire + AgeWitness + contributor
+  attestation + NVML + bootstrap allowlist, +14 coord Phase C
+  ContributorRegistry + Phase E canari-input, +8 Vitest Phase B
+  span decoder + wrapper integration). Over-delivery positive
+  +30 vs projection §11 documentée verification.md §4.
+- **Sprint 21 CLOSED** (rate-limit sliding-window multi-tier +
+  PII SDK defense-in-depth client-side + coord-side output filter
+  + quarantine queue + tech debt batch T-NN/T-NN+1 fermes).
+  Phase A `63afe4e`
   rate-limit sliding-window multi-tier per-(consumer, worker,
   model) via `governor 0.10.2` GCRA worker-engine R1 (precedee
   pivot G8 Option C `60adceb` arbitrage user axum 0.7→0.8 bump
@@ -337,7 +374,21 @@ systemd-nspawn) pour Sprint 17+ dans
   `.planning/archive/v1.2/sprint21_audit_plan.md` (tracks A-F +
   meta-track Radicle-v1.0 re-carry S22 + meta-track G8
   traceability 5/5 phases A-E + meta-track hook coverage Phase D
-  sans review.md investigation).
+  sans review.md investigation) — leve verdict PASS `96a953b`.
+- Audit gate S22 = Sprint 23 Phase 0 via
+  `.planning/archive/v1.2/sprint22_audit_plan.md` (tracks A-F +
+  meta-track LT-2 Radicle reclassification sortie cap G7 +
+  meta-track G8 traceability 6/6 phases A-F + meta-track hook
+  coverage Phase D S21 closeout + meta-track agents_sudo hors-
+  sprint absorption S22 Phase F + meta-track LT-3 Contribution
+  family Sybil hors-sprint). Pre-launch protocol policy
+  respectee : `BLOB_VERSION = 0x01`, `TASK_RESPONSE_VERSION = 1`,
+  `CANARY_VERSION = 1`, `ANNOUNCEMENT_VERSION = 1` inchanges +
+  nouveaux pre-launch stable `AGE_WITNESS_VERSION = 1`,
+  `CONTRIBUTOR_ATTESTATION_VERSION = 1`, `DELEGATION_CERT_VERSION
+  = 1` (design-only), aucun tolerant decoder multi-version
+  introduit. Pas de nouvelle zone rouge — R-wasmtime-cve /
+  R-iroh-audit / R-libcrux-hax / R-pyodide-escape inchangees.
 
 ## Commandes clés
 ```bash
