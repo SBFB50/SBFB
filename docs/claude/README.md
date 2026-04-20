@@ -645,6 +645,15 @@ fichier) :
    git log -1 --format=%cd master
    ```
 
+4. **Après chaque commit `feat(sprintN): Phase X`**, l'agent met à
+   jour `nexus_grid_pivot.md` §Tip (description textuelle : phases
+   livrées, compteurs tests réels, carries P2+, prochaine phase) ET
+   la ligne correspondante dans `MEMORY.md`. Le hook post-commit ne
+   met à jour que le SHA — le texte descriptif est la responsabilité
+   de l'agent, **avant de rendre la main à l'utilisateur**. Séquence
+   post-commit complète : (1) commit feat → (2) update memory →
+   (3) résumé utilisateur.
+
 **Pas de** `last_session_findings.md` mergé auto : merge conflicts
 garantis + pollution graduelle de noise.
 
@@ -1236,7 +1245,7 @@ différent du cycle. Vue d'ensemble :
 | G3 (§2.1) | Sprint kickoff goal §2 | Goal SMART pointe verification.md fail-fast | `sprint{N}_kickoff.md §2` cohérent avec verification |
 | G4 (§3 + auditor) | Phase Z review pre-commit + audit gate Phase 0 | Rigor signal : 0 P0/P1 + ≥1 P2+ documenté pour PASS | Verdict PASS/CONCERN/FAIL |
 | G5 (§4.2 + skill Step 1bis) | Pre-commit phase | Working tree audit PHASE/CRAFT/DEBT/NOISE | Section "Working tree audit" dans body commit |
-| G6 (§5.1.1) | Phase F verification | Memory carry-over manuel | `nexus_grid_pivot.md` updated atomic |
+| G6 (§5.1.1) | Après chaque commit feat phase + Phase F verification | Memory update §Tip post-commit + carry-over sprint boundary | `nexus_grid_pivot.md` + `MEMORY.md` updated |
 | G7 (§6.2.1) | Carry-over reclassification entre sprints | Cap 2 carry-overs/sprint | `sprint{N}_carry_summary.md` |
 | **G8 (§6.9)** | **Pre-implementation phase** | **4 scans factuels SOTA + history + threat + wire** | **`phase_{X}_preflight.md` ou `phase_{X}_pivot_proposal.md`** |
 
