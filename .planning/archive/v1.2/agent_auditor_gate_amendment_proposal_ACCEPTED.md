@@ -1,10 +1,16 @@
 # Chore planning — amendement critères hook `phase-auditor-gate.sh`
 
-**Date** : 2026-04-20
+**Date proposition** : 2026-04-20
+**Date arbitrage** : 2026-04-20 (Accept full §6 option A — patch hook +
+hooks légers + TOOLING.md update)
 **Origine** : Sprint 22 Phase D `56211f2` — ROI auditor jugé faible
 (~97k tokens / 6.5 min pour 1 finding utile sur 4 sur Rust-only 643
 LOC bien préparée par préflight G8 SCOPE-CUT-CONSISTENT).
-**Statut** : proposition arbitrage user requise avant patch hook.
+**Statut** : **ACCEPTED**, livré dans le commit qui archive ce doc :
+patch `.claude/hooks/phase-auditor-gate.sh` §4 + nouveau
+`.claude/hooks/phase-precommit-lightcheck.sh` §5 + update
+`docs/claude/TOOLING.md §5.2` + ajout 2ème entrée PreToolUse Bash dans
+`.claude/settings.json`.
 
 ## 1. Problème observé
 

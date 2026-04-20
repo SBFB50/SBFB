@@ -51,6 +51,95 @@ PHASE=$(echo "$CMD" | grep -oE 'Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{
 [ -z "$SPRINT" ] && exit 0
 [ -z "$PHASE" ] && exit 0
 
+# === Amendement criteres conditional run 2026-04-20 ===
+# (cf. .planning/archive/v1.2/agent_auditor_gate_amendment_proposal_ACCEPTED.md
+#      + docs/claude/TOOLING.md §5.2)
+# Auditor obligatoire seulement si AU MOINS UN critere C1-C8 est vrai.
+# Sinon SKIP-LIGHTWEIGHT auto-stub review.md PASS + git add automatique.
+
+STAGED_FILES=$(git diff --cached --name-only 2>/dev/null || true)
+
+# C1 wire format / canonical
+TOUCHES_WIRE=0
+echo "$STAGED_FILES" | grep -qE '^crates/nexus-core-rs/src/(canonical|schemas/)' && TOUCHES_WIRE=1
+
+# C2 *_VERSION bump (lignes ajoutees seulement)
+TOUCHES_VERSION=0
+git diff --cached -U0 -- 'crates/**/*.rs' 'packages/**/*.py' 2>/dev/null \
+  | grep -qE '^\+[^+].*_VERSION[[:space:]]*[:=][[:space:]]*[0-9]+' && TOUCHES_VERSION=1
+
+# C3 crypto / signature primitives
+TOUCHES_CRYPTO=0
+echo "$STAGED_FILES" \
+  | grep -qE '(canary|provenance|curator|invite|gossip|pow|tls_pinning|encryption|duress|frost|signing|signature|keypair)\.rs$' \
+  && TOUCHES_CRYPTO=1
+
+# C4 multi-langue >= 2 categories (crates / packages / web)
+CATEGORY_COUNT=$(echo "$STAGED_FILES" \
+  | awk -F/ '{print $1}' | sort -u \
+  | grep -cE '^(crates|packages|web)$' || echo 0)
+
+# C5 LOC effectif (>500, hors tests + docs + .md + lockfiles)
+EFFECTIVE_LOC=0
+while IFS=$'\t' read -r added removed file; do
+  [ -z "$file" ] && continue
+  [ "$added" = "-" ] && continue
+  case "$file" in
+    *test*|*tests/*|*/test_*|*spec.ts*|*.test.ts*|*.test.tsx*|*.md|docs/*|*.lock|Cargo.lock)
+      continue ;;
+  esac
+  EFFECTIVE_LOC=$((EFFECTIVE_LOC + added))
+done < <(git diff --cached --numstat 2>/dev/null || true)
+
+# C6 G8 DESIGN-CONFLICT (pivot proposal present active)
+PIVOT_FILE=$(ls .planning/active/sprint${SPRINT}_phase_${PHASE}_pivot_proposal*.md 2>/dev/null | head -1 || true)
+
+# C7 Phase F wrap-up
+IS_PHASE_F=0
+echo "$PHASE" | grep -qE '^F[0-9]?$' && IS_PHASE_F=1
+
+# C8 sentinelle override explicite
+FORCE_FILE=".planning/active/sprint${SPRINT}_phase_${PHASE}_force_audit.txt"
+FORCE_OVERRIDE=0
+[ -f "$FORCE_FILE" ] && FORCE_OVERRIDE=1
+
+if [ "$TOUCHES_WIRE" -eq 0 ] && [ "$TOUCHES_VERSION" -eq 0 ] \
+   && [ "$TOUCHES_CRYPTO" -eq 0 ] && [ "$CATEGORY_COUNT" -lt 2 ] \
+   && [ "$EFFECTIVE_LOC" -lt 500 ] && [ -z "$PIVOT_FILE" ] \
+   && [ "$IS_PHASE_F" -eq 0 ] && [ "$FORCE_OVERRIDE" -eq 0 ]; then
+  REVIEW_STUB=".planning/active/sprint${SPRINT}_phase_${PHASE}_review.md"
+  if [ ! -f "$REVIEW_STUB" ]; then
+    cat > "$REVIEW_STUB" <<EOSTUB
+# Sprint ${SPRINT} Phase ${PHASE} — auditor skip (heuristique gate hook)
+
+## Verdict : PASS
+
+SKIP-LIGHTWEIGHT — phase ne remplit aucun critere C1-C8 du gate (cf.
+docs/claude/TOOLING.md §5.2 amendement 2026-04-20) :
+
+- C1 wire format / canonical : non
+- C2 *_VERSION bump : non
+- C3 crypto / sig primitives : non
+- C4 multi-langue >= 2 categories : non (categories=${CATEGORY_COUNT})
+- C5 >500 LOC effectif : non (LOC=${EFFECTIVE_LOC})
+- C6 G8 DESIGN-CONFLICT : non (pas de pivot_proposal)
+- C7 Phase F wrap-up : non
+- C8 sentinelle force_audit : non
+
+Hooks legers pre-commit appliques par
+.claude/hooks/phase-precommit-lightcheck.sh
+(staging coherence strict + refs lignes body warn + LOC deviation warn).
+
+Si re-audit souhaite a posteriori (sweep audit gate fin sprint), creer
+${FORCE_FILE} + re-commit triggerera l auditor sur le diff cumule.
+EOSTUB
+    git add "$REVIEW_STUB" 2>/dev/null || true
+    echo "[phase-auditor-gate] SKIP-LIGHTWEIGHT (review stub auto-stage)" >&2
+  fi
+  exit 0
+fi
+# === fin amendement ===
+
 REVIEW_ACTIVE=".planning/active/sprint${SPRINT}_phase_${PHASE}_review.md"
 # Si le review a deja ete archive (commit fix post-audit, Phase F wrap-up,
 # ou chore intermediaire), on accepte aussi l'archive. Evite de forcer
