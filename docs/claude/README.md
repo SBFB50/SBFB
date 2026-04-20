@@ -1913,9 +1913,17 @@ bash scripts/scan-en-strings.sh && \
 cd ..
 ```
 
-Pendant l'itération d'une phase, scope au crate touché plutôt que
-de lancer le workspace entier à chaque edit — cf. §4.3 pour le
+Pendant l'**itération** d'une phase, scope au crate touché plutôt
+que de lancer le workspace entier à chaque edit — cf. §4.3 pour le
 détail des deux modes (itération rapide vs verification finale).
+
+**Pre-commit final : les 3 blocs sont OBLIGATOIRES**, même si la
+phase ne touche qu'un seul langage. Une modification Python
+(`app.py` wiring) peut casser un test Playwright ; un changement
+Rust (`http.rs` endpoint) peut impacter un proxy coord-side testé
+en Python. Le coût des 3 blocs complets est ~5 min ; le coût d'une
+régression cross-stack non détectée est un fix(sprint) + audit P1.
+Ne pas filtrer par "langage touché" — lancer les 3 blocs.
 
 Tout rouge bloque le commit. Pas de `--no-verify`, pas de
 `#[ignore]` ajouté pour faire passer. Root cause d'abord.

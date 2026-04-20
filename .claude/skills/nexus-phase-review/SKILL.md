@@ -100,30 +100,33 @@ d'abord, Phase apres. Pas de question.
 
 ### Step 2 — Verification suites (§7.4)
 
-Lancer les suites pertinentes selon les langages touches dans le diff :
+Lancer **les 3 blocs complets** (Rust + Python + Frontend),
+independamment du langage touche par la phase. Une modification
+dans un seul langage peut provoquer une regression cross-stack
+(ex : wiring app.py casse un Playwright, endpoint http.rs casse
+un proxy coord-side). Cout des 3 blocs ~5 min, cout d'une
+regression non detectee = fix(sprint) + audit P1.
+
+**NE PAS filtrer par "langage touche"** — c'est un anti-pattern
+identifie Sprint 23 Phase E (suites web non lancees alors que
+app.py modifie).
 
 ```bash
-# Identifier les langages modifies
-CHANGED_FILES=$(git diff --name-only HEAD)
-HAS_RUST=$(echo "$CHANGED_FILES" | grep -E '\.rs$|Cargo\.toml' | wc -l)
-HAS_PY=$(echo "$CHANGED_FILES" | grep -E '\.py$|pyproject\.toml' | wc -l)
-HAS_WEB=$(echo "$CHANGED_FILES" | grep -E '^web/.*\.(ts|tsx|js|jsx|css)$' | wc -l)
-
-# Rust (si touche) — nextest pour les tests rapides + doctests a part
-[ "$HAS_RUST" -gt 0 ] && cargo fmt --all --check && \
+# Rust — nextest workspace + doctests
+cargo fmt --all --check && \
   cargo clippy --workspace --all-targets --locked -- -D warnings && \
   cargo nextest run --workspace --locked && \
   cargo test --workspace --locked --doc
 
-# Python (si touche)
-[ "$HAS_PY" -gt 0 ] && uv run ruff format --check packages/ && \
+# Python
+uv run ruff format --check packages/ && \
   uv run ruff check packages/ && \
   uv run pytest packages/nexus-sdk/tests/ -q && \
   uv run pytest packages/nexus-coordinator/tests/ -q && \
   uv run pytest packages/nexus-app-gov/tests/ -q
 
-# Frontend (si touche)
-[ "$HAS_WEB" -gt 0 ] && cd web && \
+# Frontend
+cd web && \
   npx tsc --noEmit -p tsconfig.app.json && \
   npm run lint && \
   npm run test:unit && \
@@ -132,6 +135,9 @@ HAS_WEB=$(echo "$CHANGED_FILES" | grep -E '^web/.*\.(ts|tsx|js|jsx|css)$' | wc -
   npx playwright test && \
   bash scripts/scan-en-strings.sh && \
   cd ..
+
+# Release build (binary deliverable)
+cargo build -p nexus-shell-daemon --release
 ```
 
 **Toute suite rouge = STOP.** Remonter l'erreur a l'utilisateur pour
