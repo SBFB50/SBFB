@@ -18,33 +18,6 @@
             "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start-autoinstall.sh\""
           }
         ]
-      },
-      {
-        "matcher": "startup|resume|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tdd-guard-wrapper.sh\""
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/launch-narration-terminal.sh\""
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/launch-sidecar-terminal.sh\""
-          }
-        ]
       }
     ],
     "PreToolUse": [
@@ -60,15 +33,6 @@
             "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/phase-precommit-lightcheck.sh\""
           }
         ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit|TodoWrite",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tdd-guard-wrapper.sh\""
-          }
-        ]
       }
     ],
     "PostToolUse": [
@@ -80,58 +44,7 @@
             "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/verify-on-write.sh\""
           }
         ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tdd-guard-wrapper.sh\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Write|Edit|MultiEdit|Task|Grep|Glob|Read|WebSearch|WebFetch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/narrate-action.js\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Write|Edit|MultiEdit|Task|Grep|Glob|Read|WebSearch|WebFetch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/sidecar-drain-on-post-tool.js\""
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/sidecar-drain-on-stop.js\""
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tdd-guard-wrapper.sh\""
-          }
-        ]
       }
     ]
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-statusline.js\""
   }
 }
