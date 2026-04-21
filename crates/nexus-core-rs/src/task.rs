@@ -29,7 +29,27 @@ use serde_big_array::BigArray;
 
 use crate::canonical::{canonical_bytes, DOMAIN_CLAIM_V1, DOMAIN_RESULT_V1, DOMAIN_TASK_V1};
 use crate::crypto::{KeyPair, PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
-use crate::error::Result;
+use crate::error::{NexusError, Result};
+
+/// Canonical bytes for a [`Task`], excluding dispatch-only fields.
+///
+/// `redundancy_factor` is a coordinator dispatch policy, not part of
+/// the task's cryptographic identity (Sprint 23 plan §13 R3). Two
+/// tasks differing only by dispatch policy produce identical bytes.
+fn task_canonical_bytes(task: &Task, domain: &[u8]) -> Result<Vec<u8>> {
+    let mut val = serde_json::to_value(task)
+        .map_err(|e| NexusError::Other(format!("task to Value failed: {e}")))?;
+    if let Some(obj) = val.as_object_mut() {
+        obj.remove("redundancy_factor");
+    }
+    let body = serde_jcs::to_vec(&val)
+        .map_err(|e| NexusError::Other(format!("canonical JCS failed: {e}")))?;
+    let mut out = Vec::with_capacity(domain.len() + 1 + body.len());
+    out.extend_from_slice(domain);
+    out.push(0);
+    out.extend_from_slice(&body);
+    Ok(out)
+}
 
 /// Current on-wire version for Task and Result payloads.
 ///
@@ -246,7 +266,7 @@ impl TaskEntry {
     /// Sign a Task with the given keypair and produce a signed
     /// entry ready to be written to the tasks doc.
     pub fn sign(task: Task, keypair: &KeyPair) -> Result<Self> {
-        let bytes = canonical_bytes(&task, DOMAIN_TASK_V1)?;
+        let bytes = task_canonical_bytes(&task, DOMAIN_TASK_V1)?;
         let signature = keypair.sign(&bytes);
         Ok(TaskEntry {
             task,
@@ -261,7 +281,7 @@ impl TaskEntry {
     /// [`crate::error::NexusError::Crypto`] on any failure (bad
     /// bytes, wrong key, tampered task).
     pub fn verify_signature(&self) -> Result<()> {
-        let bytes = canonical_bytes(&self.task, DOMAIN_TASK_V1)?;
+        let bytes = task_canonical_bytes(&self.task, DOMAIN_TASK_V1)?;
         crate::crypto::verify(&self.author_pubkey, &bytes, &self.signature)
     }
 }
@@ -681,11 +701,35 @@ mod tests {
     // -----------------------------------------------------------
 
     #[test]
-    fn task_wire_redundancy_factor() {
+    fn task_canonical_excludes_redundancy_factor() {
+        let t1 = Task::new("id", "t", "p", "m", 5, 0).with_redundancy_factor(1);
+        let t3 = Task::new("id", "t", "p", "m", 5, 0).with_redundancy_factor(3);
+        let bytes1 = task_canonical_bytes(&t1, DOMAIN_TASK_V1).unwrap();
+        let bytes3 = task_canonical_bytes(&t3, DOMAIN_TASK_V1).unwrap();
+        assert_eq!(
+            bytes1, bytes3,
+            "dispatch-only field must not affect canonical bytes"
+        );
+    }
+
+    #[test]
+    fn task_entry_different_redundancy_same_signature() {
+        let kp = KeyPair::generate();
+        let t1 = sample_task();
+        let t3 = sample_task().with_redundancy_factor(3);
+        let e1 = TaskEntry::sign(t1, &kp).unwrap();
+        let e3 = TaskEntry::sign(t3, &kp).unwrap();
+        assert_eq!(
+            e1.signature, e3.signature,
+            "dispatch-only field must not affect signature"
+        );
+    }
+
+    #[test]
+    fn task_wire_redundancy_factor_roundtrip() {
         let t = Task::new("id", "t", "p", "m", 5, 0).with_redundancy_factor(3);
-        let bytes = canonical_bytes(&t, DOMAIN_TASK_V1).unwrap();
-        let body = &bytes[DOMAIN_TASK_V1.len() + 1..];
-        let restored: Task = serde_json::from_slice(body).unwrap();
+        let json = serde_json::to_string(&t).unwrap();
+        let restored: Task = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.redundancy_factor, 3);
     }
 
