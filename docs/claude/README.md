@@ -1492,18 +1492,20 @@ Compare ce que tu vois avec :
     Lecture ciblée : sprint{N}_plan.md §Phase X (où X = phase
                      suivante non encore committée selon git log).
     Mode : implémentation atomique — APRES verdict G8 positif
-           (EXECUTE plan-as-is OU SCOPE-CUT-CONSISTENT). Si
+           (EXECUTE OU PLAN-ADAPT OU SCOPE-CUT-CONSISTENT). Si
            verdict G8 = DESIGN-CONFLICT, mode bascule "emit
-           pivot_proposal + STOP" (cf. ci-dessous).
+           pivot_proposal + STOP".
     Livrable : 1 commit feat(scope): Sprint N Phase X — titre.
     Avant la PREMIERE LIGNE DE CODE phase (G8) : invoquer skill
-               nexus-phase-preflight pour 4 scans factuels (S1 SOTA
-               delta + S2 historical decisions traversed + S3 threat
-               model coverage + S4 wire format invariants). Verdict :
-               EXECUTE plan-as-is (procéder), SCOPE-CUT-CONSISTENT
-               (procéder + carry S+1 doc), ou DESIGN-CONFLICT (STOP,
-               emit pivot_proposal, attendre arbitrage user). Output
-               obligatoire : sprint{N}_phase_{X}_preflight.md OU
+               nexus-phase-preflight pour 5 scans factuels (S1a OSS
+               prior art + S1b deps SOTA + S2 historical decisions +
+               S3 threat model + S4 wire format). Verdict :
+               EXECUTE plan-as-is (procéder),
+               PLAN-ADAPT (recherche OSS montre meilleure approche →
+               adapter le code inline, pas d'arrêt),
+               SCOPE-CUT-CONSISTENT (procéder + carry S+1 doc),
+               DESIGN-CONFLICT (STOP, emit pivot_proposal, arbitrage
+               user). Output : sprint{N}_phase_{X}_preflight.md OU
                sprint{N}_phase_{X}_pivot_proposal.md.
     Avant CHAQUE commit phase : invoquer skill
                nexus-phase-review Step 1bis "staging coherence"
@@ -1592,8 +1594,9 @@ toute la doc. Charger tout sature le contexte pour rien.
     - .planning/active/sprint{N}_plan.md §Phase X visée
     - docs/claude/README.md §4 (atomic commit, body riche) +
       §6.2.1 (cap carry-overs G7) + §6.9 (G8 phase pre-flight)
-    - .claude/skills/nexus-phase-preflight/SKILL.md (G8 4 scans
-      + decision tree + garde-fous, runs AVANT code)
+    - .claude/skills/nexus-phase-preflight/SKILL.md (G8 5 scans
+      S1a OSS prior art + S1b deps + S2-S4, PLAN-ADAPT verdict,
+      runs AVANT code)
     - .claude/skills/nexus-phase-review/SKILL.md (Step 1bis
       staging, runs AVANT commit, inconditionnel)
 
