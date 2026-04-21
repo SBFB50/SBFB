@@ -482,7 +482,7 @@ Body structuré (template — 8 sections obligatoires) :
 
 ## G8 traceability
 - Preflight : [SHA `chore(planning): sprint{N} Phase {X} — G8 preflight`]
-  verdict [EXECUTE plan-as-is / SCOPE-CUT-CONSISTENT]
+  verdict [EXECUTE plan-as-is / PLAN-ADAPT / SCOPE-CUT-CONSISTENT]
 - Review : [SHA commit phase lui-même] verdict auditor
   [PASS / CONCERN / FAIL] ([N] P0, [N] P1, [N] P2)
 [chaîne explicite avec SHAs cross-référencés — permet à l'audit gate
@@ -1100,9 +1100,10 @@ systématiquement les décisions intermédiaires entre plan-time et
 code-time.
 
 **G8 = gate procédural pre-implementation phase.** Avant la PREMIERE
-LIGNE DE CODE de chaque phase de chaque sprint, l'agent exécute 4
-scans factuels indépendants. Verdict en 3 niveaux conditionne la
-suite. Procédure systématique, pas opinion.
+LIGNE DE CODE de chaque phase de chaque sprint, l'agent exécute 5
+scans factuels indépendants (S1a + S1b + S2 + S3 + S4). Verdict en
+4 niveaux (EXECUTE / PLAN-ADAPT / SCOPE-CUT-CONSISTENT / DESIGN-
+CONFLICT). Procédure systématique, pas opinion.
 
 #### Quand
 
@@ -1111,74 +1112,89 @@ phase` ou lecture du plan §Phase X et le 1er `Edit`/`Write` outil).
 Pour CHAQUE phase de CHAQUE sprint, sans exception (sauf hotfix
 hors-sprint cas D).
 
-#### Les 4 scans factuels
+#### Les 5 scans factuels
 
 | Scan | Source | Output attendu |
 |---|---|---|
-| **S1 — SOTA 2026 vs design** | `mcp__context7__query-docs` sur libs/specs touchées par la phase + `WebSearch` CVE/audit/RFC bump publiés depuis `last_validated` du plan ou du kickoff | Liste de findings type *"lib X v Y.Z bump major depuis plan"*, *"RFC W révisé Aug 2026"*, *"CVE CVE-2026-XXXX critical sur dep transitive"* |
-| **S2 — Décisions historiques traversées** | `git log --all --grep="DEVIATION\|rejected\|scope-cut\|deliberate" -- <files-touchés-phase>` + grep `body` commits dans `.planning/archive/v*/` + memory `feedback_*.md` | Liste de *"S{N-k} `<sha>` a explicitement rejeté/dévié sur ce pattern pour raison Z"* |
-| **S3 — Threat model coverage** | `docs/security/THREAT_MODEL.md` adversary taxonomy + `HARDENING_ROADMAP.md §3` matrix + audit findings sprints précédents | Matrix *"primitive proposée → threats T0-T5 couverts vs non-couverts"* |
-| **S4 — Wire format / pre-launch invariants** | grep `*_VERSION` + `crates/nexus-core-rs/src/canonical.rs` + memory `nexus_grid_pivot.md §Pre-launch` | Liste invariants à préserver (wire format, decisions Day 0 figées, scope cuts hors-pivot) |
+| **S1a — OSS prior art (G10)** | `WebSearch` "comment les projets OSS matures résolvent le problème de cette phase" + `mcp__context7` sur libs/frameworks trouvés. Projets de référence par domaine : compute verification → BOINC/Folding@Home/Golem/Truebit, LLM safety → NeMo/Guardrails AI/openai-agents, P2P → libp2p/IPFS, crypto → age/Keyoxide/FROST | Findings : `APPROACH-NAIVE` (plan naïf vs SOTA OSS, bloquant), `APPROACH-ALIGNED`, `LIB-EXISTS` (lib prête, bloquant), `APPROACH-NOVEL` (justifié contexte P2P) |
+| **S1b — Deps/libs versions** | `mcp__context7__query-docs` sur libs/specs touchées + `WebSearch` CVE/audit/RFC bump publiés depuis `last_validated` | Findings type *"lib X v Y.Z bump major"*, *"CVE-2026-XXXX critical"* |
+| **S2 — Décisions historiques traversées** | `git log --all --grep="DEVIATION\|rejected\|scope-cut\|deliberate" -- <files-touchés-phase>` + grep `.planning/archive/v*/` + memory `feedback_*.md` | Liste de *"S{N-k} `<sha>` a explicitement rejeté/dévié pour raison Z"* |
+| **S3 — Threat model coverage** | `docs/security/THREAT_MODEL.md` + `HARDENING_ROADMAP.md §3` + audit findings | Matrix *"primitive proposée → threats T0-T5 couverts vs non-couverts"* |
+| **S4 — Wire format / pre-launch invariants** | grep `*_VERSION` + `canonical.rs` + memory `nexus_grid_pivot.md §Pre-launch` | Liste invariants (wire format, Day 0 figées, scope cuts) |
 
-Les 4 scans sont **non-substituables**. S1 sans S2 = on adopte la
-nouveauté SOTA mais on rebat une décision documentée. S2 sans S3 =
-on reste cohérent historiquement mais on laisse un gap threat model
-ouvert. S3 sans S4 = on durcit le threat model mais on casse le wire
-format pre-launch. S4 sans S1 = on préserve les invariants sur une
-lib obsolète.
+Les 5 scans sont **non-substituables**. S1a sans S1b = on a le bon
+design mais sur une lib obsolète. S1b sans S1a = on a la bonne lib
+mais le mauvais design (S24 Phase D : BLAKE3 à jour mais hash binaire
+sur output stochastique = inopérant). S2 sans S3 = cohérent
+historiquement mais gap threat model. S3 sans S4 = durci mais wire
+cassé. S4 sans S1 = invariants préservés sur approche obsolète.
+
+**S1a est le scan le plus important.** Il challenge le *design* du
+plan, pas juste les versions. Un plan écrit au kickoff reflète la
+compréhension du moment. La recherche OSS pre-phase corrige les
+angles morts avant d'écrire du code. Le plan est un point de départ,
+pas un contrat — la recherche le corrige si nécessaire.
 
 #### Efficacité mesurée (S22-S24, 17 preflights)
 
-14/17 EXECUTE, 3/17 SCOPE-CUT-CONSISTENT, 0 DESIGN-CONFLICT.
+14/17 EXECUTE, 3/17 SCOPE-CUT-CONSISTENT, 0 DESIGN-CONFLICT,
+0 PLAN-ADAPT (S1a ajouté post-S24 Phase D).
 
-- **S1+S2 portent 100% des findings réels** : S22-B GLiNER ONNX
-  pseudocode mismatch (inline fix), S22-D gpu/ module pré-existant
-  (évité NVML double-init), S23-E CVE-2025-69277 pynacl (carry S24
-  dep floor).
-- **S3+S4 sont des gate checks de contrainte** : 0 finding en 17
-  runs. Ils valident `*_VERSION = 1` et HARDENING_ROADMAP aligné —
-  assertions vérifiables par grep, pas des scans de découverte.
-- **Consolidation** : S3+S4 passent en **fast-path** dans le skill
-  preflight (grep commands only, pas de context7/WebSearch). Les 4
-  scans restent obligatoires. Coût estimé : ~45 min → ~20 min.
+- **S1b+S2 portent 100% des findings réels (S22-S24)** : S22-B
+  GLiNER ONNX mismatch, S22-D gpu/ module pré-existant, S23-E
+  CVE-2025-69277 pynacl.
+- **S1a (ajouté S24)** : 0 run historique (nouveau). Aurait détecté
+  APPROACH-NAIVE sur S24 Phase D (hash binaire sur output LLM
+  stochastique — BOINC/Truebit montrent que ça ne marche pas).
+- **S3+S4 sont des gate checks** : 0 finding en 17 runs → fast-path
+  grep only.
+- **Consolidation** : S3+S4 fast-path, S1a obligatoire (nouveau
+  volet le plus important — challenge le design pas juste les deps).
+  Les 5 scans restent obligatoires.
 
-#### Décision tree (verdict en 3 niveaux)
+#### Décision tree (verdict en 4 niveaux)
 
 ```
-Si S1+S2+S3+S4 = clean (aucune contradiction factuelle) :
+Si S1a+S1b+S2+S3+S4 = clean :
   → EXECUTE plan-as-is
-  → log 1 ligne archive : ".planning/active/sprint{N}_phase_{X}_preflight.md"
-    avec timestamp + sources scannées + verdict CLEAN
+  → emit ".planning/active/sprint{N}_phase_{X}_preflight.md" condensé
   → procéder code phase normalement
 
-Si scan ≠ clean mais finding = SCOPE-CUT-CONSISTENT (le plan ne
-contredit pas, juste sub-optimal selon SOTA OU décision historique) :
-  → EXECUTE plan + log carry-over Sprint+1
-  → emit ".planning/active/sprint{N}_phase_{X}_preflight.md" avec finding
-    documenté + recommandation S+1
-  → aucun pivot phase courante, aucune réécriture du plan
-  → la finding entre dans sprint{N}_audit_plan.md track normal
+Si S1a finding bloquant (APPROACH-NAIVE ou LIB-EXISTS) :
+  → PLAN-ADAPT
+  → emit preflight.md avec §Plan adaptation (evidence OSS + approche
+    corrigée + fichiers/tests impactés)
+  → procéder code phase avec l'approche corrigée (PAS le plan original)
+  → commit body documente la déviation vs plan §Phase X
+  → PAS d'arrêt, PAS d'arbitrage user — la recherche est l'arbitre
+  → le plan.md reste inchangé (snapshot kickoff), la déviation est
+    tracée dans preflight.md + commit body
 
-Si scan ≠ clean et finding = DESIGN-CONFLICT (plan contradit décision
-documentée S2 OU plan break wire format S4 OU CVE bloquant S1) :
+Si finding non-bloquant uniquement (S1b minor, S2 réversé, etc.) :
+  → SCOPE-CUT-CONSISTENT
+  → emit preflight.md avec finding + carry-over S+1
+  → procéder code phase normalement
+
+Si finding bloquant S1b/S2/S3/S4 (pas S1a) :
+  → DESIGN-CONFLICT
   → STOP code écriture
   → emit ".planning/active/sprint{N}_phase_{X}_pivot_proposal.md"
     avec sections obligatoires :
-      - Evidence factuelle (commit refs, CVE numbers, RFC sections,
-        context7 query timestamps, audit report DOI)
-      - 3 options minimum : [A=scope-cut conforme historique,
-                             B=adapt minimal,
-                             C=deep-evolution]
-      - Coût/bénéfice chiffré par option (test delta estimé,
-        fichiers touchés, gap SOTA fermé, scope creep)
-      - Préservation invariants explicite (wire format unchanged ?
-        threat model respecté ? Day 0 préservées ?)
-      - Recommandation default + raisons techniques
-  → user arbitre l'option choisie
-  → si pivot accepté → commit chore(planning) inline qui update
-    plan §Phase X AVANT le commit feat — pas de divergence silencieuse
-    plan vs code
+      - Evidence factuelle (commit refs, CVE, RFC, context7, URLs)
+      - 3 options minimum : [A=scope-cut, B=adapt minimal, C=deep]
+      - Coût/bénéfice par option
+      - Préservation invariants (wire format, Day 0, threat model)
+      - Recommandation default
+  → user arbitre l'option
+  → si pivot accepté → commit chore(planning) AVANT feat
 ```
+
+**PLAN-ADAPT vs DESIGN-CONFLICT** : PLAN-ADAPT corrige l'approche
+technique (le *comment*) — le plan avait tort sur la méthode, la
+recherche OSS montre la bonne. DESIGN-CONFLICT touche les
+contraintes structurelles (Day 0 figées, wire format, threat model)
+— ça demande un arbitrage humain car ce sont des décisions de
+gouvernance, pas de technique.
 
 #### Garde-fous (G8 ≠ blanc-seing pour scope creep)
 
@@ -1258,7 +1274,7 @@ la règle. `[STRUCT]` = structure du cycle, jamais drop.
 | ~~G5~~ | — | ~~Supprimé S24~~ | ~~Working tree audit~~ | ~~Hook lightcheck couvre~~ |
 | G6 (§5.1.1) | `[STRUCT]` | Post-commit feat + Phase F | Memory update §Tip + carry-over | `nexus_grid_pivot.md` updated |
 | G7 (§6.2.1) | `[STRUCT]` | Phase F carry generation | Cap 2 carry-overs/sprint | `sprint{N}_carry_summary.md` |
-| G8 (§6.9) | `[DETECT]` | Pre-implementation phase | 4 scans factuels SOTA + history + threat + wire | `phase_{X}_preflight.md` |
+| G8 (§6.9) | `[DETECT]` | Pre-implementation phase | 5 scans factuels OSS prior art + SOTA deps + history + threat + wire | `phase_{X}_preflight.md` |
 | G9 (§6.10) | `[DETER]` | Avant proposition D-choice | Factual research gate on D-decisions | §Research consulté dans kickoff |
 
 G8 comble le trou entre G2 (kickoff-time) et le commit (code-time).
@@ -1286,7 +1302,7 @@ contre les drifts au plan-vers-code translation.
 
 Implémentation procédurale via skill `.claude/skills/nexus-phase-
 preflight/SKILL.md` (cf. §7.1 bootstrap Cas B). Le skill scripte
-les 4 scans + emit le bon document selon verdict. Aucun pivot
+les 5 scans + emit le bon document selon verdict. Aucun pivot
 manuel sans passer par cette gate.
 
 ---
@@ -1416,7 +1432,8 @@ EXÉCUTER directement (ne pas demander) :
   - working tree montre docs planning/skills modifiés hors phase →
     commit chore(planning|skill) AVANT phase
   - plan §Phase X explicite + audit-gate précédent PASS + G8
-    verdict EXECUTE OU SCOPE-CUT-CONSISTENT → enchaîner Phase X
+    verdict EXECUTE OU PLAN-ADAPT OU SCOPE-CUT-CONSISTENT → enchaîner
+    Phase X (si PLAN-ADAPT : code suit l'approche corrigée, pas le plan)
   - fichiers accidentels (cache, build) + pattern .gitignore évident
     → ajouter pattern dans le commit chore
   - cas A audit gate, P0/P1 trouvés → écrire fix(sprint{N-1}): ...
