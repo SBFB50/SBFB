@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-21  # G2 — Sprint 24 kickoff : 1 ACTIVE trigger (openai-agents-python 0.14.3, API guardrails stable, pas d'impact design B1). 4 INACTIVE (frost-ed25519 2.1, iroh 0.97, wasmtime 43.x non-LTS, microsoft/sudo 24H2). Compteurs 743 Rust / 185 SDK / 272+3 coord / 46 gov / 264 Vitest / 43 Playwright / 7/7 size / ~1563 tests.
+last_validated: 2026-04-21  # G2 — Sprint 24 Phase F close : S24 delivered (guardrails + hooks + re-run + DNS fallback). Compteurs 757 Rust / 185 SDK / 315+3 coord / 46 gov / 264 Vitest / 43 Playwright / 7/7 size / ~1621 tests.
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -442,6 +442,14 @@ median app) :
   rate-limit wire ✓, S22 Phase C Couches 1+2, S23 redundancy
   voting.
 - **Gate unlock** : —
+- **Post-delivery S24** (2026-04-21) : 5 phases A-E livrées. B1
+  guardrails pipeline Guardrail ABC + GuardrailChain + 4 adapters
+  retrofit coord-side. A1 TaskDispatchHooks 5 events + HookRunner
+  fire-and-forget. Re-run sampling 1-5% + DivergenceScorer BLAKE3
+  mismatch → quarantine. DNS fallback DoH+DoT via hickory-resolver
+  0.24 + browse_aggregator fallback chain. Domain fronting design
+  doc outline (implem S25+). Key rotation + C3 handoffs deferred
+  S25. +58 tests (757 Rust / 315+3 coord / ~1621 total).
 
 ### Sprint 25 — Tor transport phase 1 + per-app quota + RAG
 

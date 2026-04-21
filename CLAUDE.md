@@ -103,7 +103,7 @@ nexus-grid/
 │   ├── active/                        # sprint en cours uniquement (kickoff, plan, audit_findings du precedent, verification, audit_plan)
 │   ├── archive/v1.0/                  # S0-13 (pivot, P2P, universal render, bridge, launcher)
 │   ├── archive/v1.1/                  # S14-15 (verified deploy, bridge bidirectionnel, watchdog)
-│   └── archive/v1.2/                  # S16-21 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites, rate-limit + PII defense-in-depth)
+│   └── archive/v1.2/                  # S16-24 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites, rate-limit + PII defense-in-depth, Sybil-resistance, ephemeral workers, guardrails + hooks + re-run + DNS fallback)
 ├── docs/
 │   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
 │   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
@@ -119,16 +119,17 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-23 CLOSED**, v1.2 en cours. Audit gate S23 = S24
-  Phase 0 (`.planning/archive/v1.2/sprint23_audit_plan.md`).
-- **~1563 tests total** (743 Rust / 185 SDK / 272+3 coord / 46
+- **Sprints 0-24 CLOSED**, v1.2 en cours. Audit gate S24 = S25
+  Phase 0 (`.planning/archive/v1.2/sprint24_audit_plan.md`).
+- **~1621 tests total** (757 Rust / 185 SDK / 315+3 coord / 46
   app-gov / 264 Vitest / 43 Playwright / 7/7 size-limit / 246+
   SPDX) — tous verts (32 coord skip PyO3 wheel stale, pas
   regression).
-- Carry S24 : T-NN+2 iframe Rust-wasm (PATTERNS §P34).
+- Carry S25 : T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
-  P2-D-1/P2-D-2/P2-E-1/P2-E-2/P2-E-3/P2-F-1 (cleanup batch S24).
+  P2-D-1/P2-D-2/P2-E-1-iroh (tech debt non-bloquant).
+  P2-E-1/P2-E-2 (DNS fallback TLS name + concurrent strategy).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
