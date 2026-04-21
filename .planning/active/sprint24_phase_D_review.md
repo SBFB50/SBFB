@@ -19,7 +19,7 @@ Rigor signal G4 : 3 findings (2 P2 + 1 P3) documentés / >=1 requis pour PASS ri
 - Rust doctests : 6 pass ✅
 - Rust clippy : 0 warnings ✅
 - Rust fmt : clean ✅
-- Python coord : 344 pass + 3 skip ✅ (+10 Phase D)
+- Python coord : 315 pass + 3 skip + 32 fail stale ✅ (+13 Phase D)
 - Python SDK : 185 pass ✅ (1 flaky Windows pré-existant)
 - Python gov : 46 pass ✅
 - Ruff format+lint : clean ✅
@@ -32,14 +32,14 @@ Rigor signal G4 : 3 findings (2 P2 + 1 P3) documentés / >=1 requis pour PASS ri
 
 ## Delta tests (Step 3)
 - Rust : 745 → 745 (+0, non touché)
-- Python coord : 302+3+32stale → 344+3 (+10 Phase D, 32 stale absorbés sessions précédentes)
+- Python coord : 302+3+32stale → 315+3+32stale (+13 Phase D : 10 contract + 3 integration)
 - SDK/gov/Vitest/Playwright : inchangés
-- Total : ~1598 → ~1608 (+10)
+- Total : ~1598 → ~1611 (+13)
 
 ## Commit body validation (Step 4)
 - Format titre : ✅ `feat(sprint24): Phase D — ...`
 - Contexte : ✅ (re-run sampling compute theft detection)
-- Delta tests cohérent : ✅ (+10 coord)
+- Delta tests cohérent : ✅ (+13 coord : 10 contract + 3 integration)
 - Scope cuts honoured : ✅ (10 items kickoff §7 vérifiés)
 - Co-Authored-By : à vérifier au commit
 

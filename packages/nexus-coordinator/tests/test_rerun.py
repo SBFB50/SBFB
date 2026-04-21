@@ -176,3 +176,117 @@ def test_rerun_config_invalid_rate(tmp_path: Path) -> None:
     cfg_path.write_text("rerun_sample_rate = 2.5\n")
     config = RerunConfig.from_toml(cfg_path)
     assert config.sample_rate == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# 11: Dispatcher integration — mark_completed triggers _schedule_rerun
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_mark_completed_schedules_rerun(tmp_path: Path) -> None:
+    """mark_completed with a sampler(rate=1.0) must re-submit a rerun task."""
+    from unittest.mock import patch
+
+    from nexus_coordinator.dispatcher import Dispatcher, SubmitRequest
+
+    sampler = RerunSampler(sample_rate=1.0)
+    mock_doc = AsyncMock()
+
+    with patch("nexus_coordinator.dispatcher.nexus_core") as mock_nc:
+        mock_nc.sign_task.return_value = '{"task":{"task_type":"analysis","prompt":"hello","model":"m1","system_prompt":"","priority":5},"author_pubkey":[],"signature":""}'
+
+        dispatcher = Dispatcher(
+            db_path=tmp_path / "test.db",
+            doc=mock_doc,
+            author_id="test-author",
+            coord_secret=b"\x00" * 32,
+            rerun_sampler=sampler,
+        )
+        await dispatcher.init()
+
+        original_id = await dispatcher.submit(SubmitRequest(task_type="analysis", prompt="hello", model="m1"))
+
+        await dispatcher.mark_completed(original_id, b"\xaa" * 32)
+
+    tasks = await dispatcher.list_tasks()
+    rerun_tasks = [t for t in tasks if t["task_id"].startswith("rerun-")]
+    assert len(rerun_tasks) == 1
+    assert sampler.get_original(rerun_tasks[0]["task_id"]) == original_id
+
+
+# ---------------------------------------------------------------------------
+# 12: Dispatcher — sampler rate=0 does NOT schedule rerun
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_mark_completed_no_rerun_at_rate_0(tmp_path: Path) -> None:
+    """mark_completed with sampler(rate=0) must not create rerun tasks."""
+    from unittest.mock import patch
+
+    from nexus_coordinator.dispatcher import Dispatcher, SubmitRequest
+
+    sampler = RerunSampler(sample_rate=0.0)
+    mock_doc = AsyncMock()
+
+    with patch("nexus_coordinator.dispatcher.nexus_core") as mock_nc:
+        mock_nc.sign_task.return_value = '{"task":{},"author_pubkey":[],"signature":""}'
+
+        dispatcher = Dispatcher(
+            db_path=tmp_path / "test.db",
+            doc=mock_doc,
+            author_id="test-author",
+            coord_secret=b"\x00" * 32,
+            rerun_sampler=sampler,
+        )
+        await dispatcher.init()
+
+        original_id = await dispatcher.submit(SubmitRequest(task_type="test", prompt="hi", model="m1"))
+        await dispatcher.mark_completed(original_id, b"\xaa" * 32)
+
+    tasks = await dispatcher.list_tasks()
+    rerun_tasks = [t for t in tasks if t["task_id"].startswith("rerun-")]
+    assert len(rerun_tasks) == 0
+
+
+# ---------------------------------------------------------------------------
+# 13: Dispatcher — rerun of a rerun is prevented
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_rerun_of_rerun_prevented(tmp_path: Path) -> None:
+    """Completing a rerun task must not trigger another rerun (infinite chain)."""
+    from unittest.mock import patch
+
+    from nexus_coordinator.dispatcher import Dispatcher, SubmitRequest
+
+    sampler = RerunSampler(sample_rate=1.0)
+    mock_doc = AsyncMock()
+
+    with patch("nexus_coordinator.dispatcher.nexus_core") as mock_nc:
+        mock_nc.sign_task.return_value = '{"task":{"task_type":"t","prompt":"p","model":"m","system_prompt":"","priority":5},"author_pubkey":[],"signature":""}'
+
+        dispatcher = Dispatcher(
+            db_path=tmp_path / "test.db",
+            doc=mock_doc,
+            author_id="test-author",
+            coord_secret=b"\x00" * 32,
+            rerun_sampler=sampler,
+        )
+        await dispatcher.init()
+
+        original_id = await dispatcher.submit(SubmitRequest(task_type="t", prompt="p", model="m"))
+        await dispatcher.mark_completed(original_id, b"\xaa" * 32)
+
+        tasks = await dispatcher.list_tasks()
+        rerun_tasks = [t for t in tasks if t["task_id"].startswith("rerun-")]
+        assert len(rerun_tasks) == 1
+        rerun_id = rerun_tasks[0]["task_id"]
+
+        await dispatcher.mark_completed(rerun_id, b"\xbb" * 32)
+
+    tasks_final = await dispatcher.list_tasks()
+    rerun_of_rerun = [t for t in tasks_final if t["task_id"].startswith("rerun-") and t["task_id"] != rerun_id]
+    assert len(rerun_of_rerun) == 0
