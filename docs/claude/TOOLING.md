@@ -407,34 +407,20 @@ Convention (meme que audit gate Phase 0) : l'agent ne lit PAS
 PATTERNS.md avant d'avoir forme son opinion sur chaque pattern — il
 challenge, il ne ratifie pas.
 
-### 5.2 Hook `phase-auditor-gate.sh` + amendement criteres conditional run (2026-04-20)
+### 5.2 Hook `phase-auditor-gate.sh` (audit inconditionnel)
 
 **Fichier** : `.claude/hooks/phase-auditor-gate.sh` (committed)
 
 **Role** : PreToolUse matcher `Bash` qui intercepte `git commit` et
 refuse si le commit est un Phase commit (match `(feat|fix|docs|chore|test)
-(sprint{N}).*Phase X`) ET la phase remplit AU MOINS UN critere C1-C8
-(amendement 2026-04-20) ET le `sprint{N}_phase_{X}_review.md` n'existe
-pas, ou son verdict n'est pas `PASS`.
+(sprint{N}).*Phase X`) ET le `sprint{N}_phase_{X}_review.md` n'existe
+pas ou son verdict n'est pas `PASS`.
 
-**Criteres conditional run C1-C8** — auditor obligatoire si **au moins un**
-est vrai sur le diff staged au moment du `git commit` :
-
-| ID | Critere | Detection bash |
-|---|---|---|
-| **C1** | Wire format / canonical touche | `git diff --cached --name-only \| grep -E '^crates/nexus-core-rs/src/(canonical\|schemas/)'` |
-| **C2** | `*_VERSION` field bumpe (lignes ajoutees) | `git diff --cached -U0 -- 'crates/**/*.rs' 'packages/**/*.py' \| grep -E '^\+[^+].*_VERSION[[:space:]]*[:=][[:space:]]*[0-9]+'` |
-| **C3** | Crypto / signature primitives (Rust + Python) | `git diff --cached --name-only \| grep -E '(canary\|provenance\|curator\|invite\|gossip\|pow\|tls_pinning\|encryption\|duress\|frost\|signing\|signature\|keypair)\.(rs\|py)$'` |
-| **C4** | Multi-langue >= 2 categories | `git diff --cached --name-only \| awk -F/ '{print $1}' \| sort -u \| grep -cE '^(crates\|packages\|web)$'` returns >= 2 |
-| **C5** | LOC effectif > 500 (hors tests + docs + .md + lockfiles) | somme `git diff --cached --numstat` filtree |
-| **C6** | G8 verdict DESIGN-CONFLICT (pivot proposal present) | `ls .planning/active/sprint{N}_phase_{X}_pivot_proposal*.md` returns non-empty |
-| **C7** | Phase F wrap-up (audit findings cumules) | `PHASE` matche `^F[0-9]?$` |
-| **C8** | Sentinelle override explicite | `test -f .planning/active/sprint{N}_phase_{X}_force_audit.txt` |
-
-**Si AUCUN C1-C8 vrai** → SKIP-LIGHTWEIGHT : le hook auto-cree
-`sprint{N}_phase_{X}_review.md` avec verdict PASS + breakdown des criteres
-verifies (chacun a 0/non) + git add automatique. L'auditor n'est PAS
-invoque (economie ~95k tokens / ~6 min par phase Rust-only courte).
+**Audit inconditionnel** : tout commit Phase déclenche la vérification.
+L'amendement C1-C9 conditionnel (2026-04-20, `34dacdc`) a été retiré
+après le faux négatif S23 P1 C-1 (`redundancy_factor` dans canonical
+bytes, `task.rs` non matché par regex C1 sur `canonical|schemas/`).
+Cf. `.planning/research/S24_process_review_2026-04-21.md §1.2`.
 
 **Hook complementaire** `.claude/hooks/phase-precommit-lightcheck.sh`
 (declare en 2eme position PreToolUse Bash apres auditor-gate) applique
@@ -442,62 +428,29 @@ invoque (economie ~95k tokens / ~6 min par phase Rust-only courte).
 
 1. **Coherence staging (STRICT, BLOCK)** — pour chaque `+pub mod X;` Rust
    ajoute, le file `<dir>/X.rs` ou `<dir>/X/mod.rs` doit exister + etre
-   staged ou tracked. Catche le P1 Sprint 22 Phase D `56211f2` (profile.rs
-   untracked = commit incompilable initial).
-2. **Refs fichiers body (WARN)** — pour chaque `<path>.{md,rs,py,ts,tsx,toml}`
-   cite dans le commit body, verifier que le file existe dans le repo.
-   Catche le P2 Sprint 22 Phase D (ref ligne THREAT_MODEL alors que la
-   table est dans HARDENING_ROADMAP).
+   staged ou tracked.
+2. **Refs fichiers body (WARN)** — pour chaque path cite dans le commit
+   body, verifier que le file existe dans le repo.
 3. **LOC deviation (WARN)** — si body cite `~XXX LOC` et diff stat reel
-   > 2.5x, demander mention "deviation LOC" / "ecart LOC" explicite.
-   Catche le P2 Sprint 22 Phase D (643 LOC vs ~250 plan, deviation initialement
-   non documentee).
+   > 2.5x, demander mention explicite.
 
 **Fail-open** pour :
 - Commits hors scope sprint (chore(claude), hotfixes, Merge, Revert)
 - cwd != nexus (check Cargo.toml + crates/nexus-core-rs)
 - Bypass d'urgence via env var : `NEXUS_SKIP_PHASE_AUDITOR=1 git commit ...`
-- Phase remplissant aucun C1-C8 (auto-stub PASS, auditor non requis)
 
-**Fail-closed** (exit 2, bloque le commit avec message visible) pour :
-- Phase commit ET (au moins un C1-C8 vrai) ET (review.md absent OU verdict != PASS)
+**Fail-closed** (exit 2, bloque le commit) pour :
+- Phase commit ET review.md absent OU verdict != PASS
 - Lightcheck Check 1 staging incoherence detectee
-
-**Activation** : automatique via `.claude/settings.json` du repo qui
-declare les hooks PreToolUse Bash (auditor-gate FIRST, lightcheck SECOND).
-Toute session Claude Code ouverte dans nexus herite.
-
-**Rationale** : l'audit gate inter-sprint catche les blind-spots en
-post-hoc. Ce hook les catche en pre-commit. Les deux sont
-complementaires — audit gate = sweep complet (3h+, session fraiche),
-phase-auditor = sweep par-phase (20-30 min) seulement quand le diff le
-merite (criteres C1-C8). Les phases legeres mono-langue passent par les
-hooks legers (<1 sec, 0 token) qui catchent ~75% des findings auditor
-historiquement observes.
 
 **Flow recommande par phase** :
 
 1. Implementer la phase
 2. Invoquer le skill `nexus-phase-review` (couche 2) pour la
    verification §7.4 + format commit body
-3. **Auditor invoque conditionnellement** :
-   - Si phase remplit AU MOINS UN C1-C8 (wire / version / crypto /
-     multi-langue / >500 LOC / DESIGN-CONFLICT / Phase F / sentinelle)
-     → Invoquer l'agent `nexus-phase-auditor` (couche 3) pour la review
-     independante 4 dimensions — produit `sprint{N}_phase_{X}_review.md`
-   - Sinon → SKIP-LIGHTWEIGHT, auto-stub PASS cree par le hook
-4. `git commit -m "feat(sprintN): Sprint N Phase X — ..."` — le hook
-   verifie review.md (existant ou auto-stub) + lightcheck (staging +
-   refs + LOC) et soit laisse passer, soit bloque
-
-**Override force-audit** : si le user souhaite re-auditer une phase
-SKIP-LIGHTWEIGHT a posteriori (sweep audit gate fin sprint, doute sur
-finding), `touch .planning/active/sprint{N}_phase_{X}_force_audit.txt`
-+ re-commit triggerera l'auditor sur le diff cumule.
-
-**Origine de l'amendement** : Sprint 22 Phase D `56211f2` — ROI auditor
-mesure ~97k tokens / 6.5 min pour 1 finding utile sur 4 sur Rust-only
-643 LOC (cf. `.planning/archive/v1.2/agent_auditor_gate_amendment_proposal_ACCEPTED.md`).
+3. Invoquer l'agent `nexus-phase-auditor` (couche 3) pour la review
+   independante — produit `sprint{N}_phase_{X}_review.md`
+4. `git commit` — le hook verifie review.md + lightcheck
 
 ---
 

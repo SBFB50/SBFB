@@ -88,18 +88,13 @@ tests reel, patterns drift. Pas la re-verification SOTA / historiques
    complet classique (inclut re-derivation S1-S4), mais applique
    toujours la regle de timebox ci-dessous.
 
-3. **Timebox explicite** : 25 minutes max par audit LIGHT-AUDIT, 45
-   minutes max par audit DEEP (preflight manquant / C1 wire / C3
-   primitive Rust / C7 Phase F wrap-up / threat docs touches). Si
-   tu approches le timebox, **truncate les sections low-value**
-   (patterns drift documentation, design smells non-bloquants) et
-   livre Verdict + Findings + Working tree audit obligatoires.
+3. **Timebox explicite** : **15 minutes max** par audit (preflight
+   existe). 30 minutes max si preflight manquant ou rouge-ligne.
+   Si tu approches le timebox, tronque et livre Verdict + Findings.
 
-4. **Output compact par defaut** : table dimensions avec checkboxes
-   + evidence 1 ligne/item. Findings listes avec file:line +
-   extrait 1-2 lignes cite. PAS de paragraphes narratifs de 5-10
-   lignes si une phrase + code suffit. Objectif : review.md < 300
-   lignes sauf FAIL (findings P0/P1 meritent detail).
+4. **Output compact** : table dimensions cochées + findings
+   file:line + extrait 1-2 lignes. Objectif : review.md **< 100
+   lignes** sauf FAIL (P0/P1 méritent détail). Pas de narratif.
 
 5. **Rouge-ligne DEEP obligatoire** (ignore "Focus post-code"
    optimisation, fais un audit complet meme si preflight EXECUTE) :
@@ -212,37 +207,7 @@ Tech debt tracked (T-NN items) : si le diff touche du code en
 tech debt, verifier qu'il resout vraiment le T-NN ou qu'il
 documente pourquoi il le reporte.
 
-### Step 3bis — Dimension Working tree audit (G5)
-
-Avant scope-cuts, lister TOUS les modifs trackes ET untracked et les
-categorise. Anti-pattern observe Sprint 19 : 7 docs Claude/planning
-modifies silencieusement entre Phase A et Phase C, accumules hors
-discipline atomique. Phase B `edfc51b` a livre 6/10 fichiers attendus
-a cause d'un desindexage accidentel post-audit-gate retry.
-
-```bash
-git status --short
-```
-
-Categoriser chaque ligne :
-
-| Categorie | Definition | Verdict si present hors phase |
-|---|---|---|
-| **PHASE** | Liste dans `plan.md §Phase X` | ✓ attendu |
-| **CRAFT** | Planning / research / docs Claude (kickoff, plan, README, SKILL) | **P2** : split commit `chore(planning)` requis AVANT phase |
-| **DEBT** | Scope cut (`kickoff §6`) ou tech debt PATTERNS.md | **P1** : remettre dans scope futur ou commit separe |
-| **NOISE** | Accidentel (node_modules, .pdb, .env, cache) | **P0** : ajouter a `.gitignore`, jamais stage |
-
-Le body commit phase **DOIT contenir une section "Working tree
-audit"** listant la categorisation. Absence = P2 (non-tracable).
-
-**Action automatique attendue de l'executeur** (pas une question
-utilisateur) : CRAFT/DEBT detecte → commit `chore(planning|skill|
-debt)` AVANT le commit phase. NOISE → `.gitignore` updated dans le
-chore. L'auditeur flag P2 si l'executeur a demande confirmation au
-lieu d'executer la procedure mecanique.
-
-### Step 3ter — Dimension G8 traceability
+### Step 3bis — Dimension G8 traceability
 
 Verifier que la phase a emis un artefact G8 dans `.planning/active/`
 avant ecriture code :
@@ -443,82 +408,35 @@ ecrit le fichier, **tronquer les sections optionnelles** mais
 garder Verdict + Findings + table dimensions cochees minimum.
 Mieux : un fichier minimal sur disque qu'un rapport long en stdout.
 
-Structure du fichier (Write tool, content) :
+Structure du fichier (Write tool, **< 100 lignes** sauf FAIL) :
 
 ```markdown
-# Sprint {N} Phase {X} — nexus-phase-auditor review
+# Sprint {N} Phase {X} — review
 
-HEAD pre-commit: {sha}
-Draft commit body: "<1re ligne>"
-Timebox: {mm}m
+HEAD: {sha} | Timebox: {mm}m
 
 ## Verdict : PASS | CONCERN | FAIL
 
-(PASS = 0 P0/P1 ET >=1 P2+ documente — rigor signal G4)
-(PASS-with-carry = 0 P0/P1 ET 1 P2+ avec entree obligatoire dans `sprint{N+1}_audit_findings.md`)
-(CONCERN = 0 P0/P1 ET 0 P2+ — audit insuffisant, re-auditer dimension manquee)
-(FAIL = >=1 P0 OU >=1 P1, commit BLOQUE)
-
 ## Dimensions
 
-### Security
-- [ ] semgrep scan : 0 findings / N findings (detail)
-- [ ] unsafe/unwrap : ...
-- [ ] loopback/wire/zip : ...
+| Dim | Status | Evidence |
+|---|---|---|
+| Security | ok / P{N} | semgrep 0 findings, grep unsafe 0 |
+| Scope-cuts | ok / leak | 8/8 items grepped, 0 match |
+| Tests-delta | ok / drift | annonce +X, reel +X |
+| Research | ok / gap | deps traces dans §Research |
+| G8 | ok / bypass | preflight.md present, verdict EXECUTE |
 
-### Patterns
-- [ ] docs/rust/PATTERNS.md PN : respect / drift (detail)
-- [ ] docs/shell/PATTERNS.md PN : ...
+## Acknowledged by G8 preflight (not re-derived)
+S1-S4: <1 ligne chacun si preflight existe>
 
-### Working tree audit (G5)
-- [ ] PHASE : <count> fichiers attendus / Plan §Phase X
-- [ ] CRAFT : <count> fichiers planning/docs (split commit fait ?)
-- [ ] DEBT : <count> fichiers tech debt (separation respectee ?)
-- [ ] NOISE : 0 (sinon P0 — `.gitignore` requis)
-- [ ] Section "Working tree audit" presente dans body commit
+## Findings
 
-### G8 traceability
-- [ ] `sprint{N}_phase_{X}_preflight.md` OU `_pivot_proposal.md` existe dans `.planning/active/`
-- [ ] Fichier present : <nom> (verdict : EXECUTE | SCOPE-CUT-CONSISTENT | DESIGN-CONFLICT)
-- [ ] Si DESIGN-CONFLICT : plan §Phase X reflete le pivot (chore(planning) anterieur) ?
-- [ ] Si SCOPE-CUT-CONSISTENT : findings non-bloquants ajoutes `sprint{N}_audit_plan.md` carry S+1 ?
-- [ ] OU Cas D hotfix documente (G8 NON applicable)
-- Pattern manquant : (lister P1 "G8 gate bypass" si aucun artefact)
-
-### Scope-cuts
-- [ ] Aucun scope cut touche (list items grepped)
-- [ ] OU leak detecte : <file> touche <scope-cut>
-
-### Tests-delta
-- [ ] Rust : annonce +X, reel +X  ✓
-- [ ] Python coord : annonce +Y, reel +Y  ✓
-- [ ] Vitest : annonce +Z, reel +Z  ✓
-- [ ] Playwright : annonce +W, reel +W  ✓
-
-### Research-grounding
-- [ ] Cargo.toml deps ajoutees/bumpees : traces dans §Research ?
-- [ ] pyproject.toml deps : traces ?
-- [ ] package.json deps : traces ?
-- [ ] API crypto / specs standardisees (SLSA, in-toto, PQC, etc.) : traces ?
-- Pattern manquant : (lister P0/P1 findings)
-
-### Horizon long-terme + documentation amont
-- [ ] Design doc present (`.planning/research/` ou `docs/{domain}/`) pour nouveaux modules structurants ?
-- [ ] D1..D5 citent les alternatives rejetees + rationale ?
-- [ ] Solution la plus poussee (pas de courte-vue "rapide a livrer") ?
-- [ ] Aucune estimation LOC dans plan.md ou kickoff.md ?
-- Pattern manquant : (lister P0/P1/P2 findings)
-
-## Findings (if any)
-
-- **P0** : <description> — <file:line>
-- **P1** : <description> — <file:line>
-- **P2** : <description> (log to PATTERNS.md tech debt)
-- **P3** : <nit description>
+- **P2** : <description> — <file:line>
+- **P3** : <nit>
 
 ## Recommendation
-
-<commit autorise / fixes requis avant commit / re-scope phase>
+<commit autorise / fixes requis>
 ```
 
 ## Limites

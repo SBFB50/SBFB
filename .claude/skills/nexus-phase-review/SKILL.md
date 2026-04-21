@@ -38,65 +38,40 @@ Complete la couche 2 du process tooling (cf. `docs/claude/TOOLING.md`).
    - Delta tests attendus (plan.md §Phase X critere d'acceptation)
 3. Lire `docs/claude/README.md` §4.3 pour la commande exacte §7.4 verification
 
-### Step 1bis — Pre-flight working tree audit (G5 — obligatoire)
+### Step 1bis — Pre-flight staging coherence check
 
-Avant toute autre verification, lister TOUS les modifs trackes ET
-untracked et categorise chacun. Sans cette etape, des modifs accumulees
-peuvent fuiter dans le commit phase ou rester silencieusement non-
-committees apres la phase (anti-pattern observe Sprint 19 : 7 docs
-modifies hors discipline atomique entre Phase A et Phase C).
+Avant les suites §7.4, verifier que le working tree est prepare
+pour un commit phase atomique :
 
 ```bash
 git status --short
 ```
 
-Pour chaque ligne du output, classifier en l'une des 4 categories
-ci-dessous. **L'agent DOIT produire la table de categorisation dans
-le body du commit phase** (section "Working tree audit") :
+**Decision mecanique** (pas de question utilisateur) :
 
-| Categorie | Definition | Action attendue |
-|---|---|---|
-| **PHASE** | Mentionne dans `plan.md §Phase X` (fichiers attendus) | Stage explicite + inclus dans ce commit |
-| **CRAFT** | Planning/research/docs Claude (kickoff, plan, supervision_log, README workflow) modifies pendant la phase | Stage explicite + inclus dans ce commit OU split en commit `chore(planning): ...` distinct AVANT le commit phase |
-| **DEBT** | Scope cut documente kickoff §6 OU tech debt PATTERNS.md | `git stash` ou commit separe `chore(debt): ...` AVANT phase |
-| **NOISE** | Accidentel (node_modules, .env, cache, .pdb, build artefacts) | **BLOQUANT** : ajouter a `.gitignore`, ne JAMAIS stage |
+- **Modifs planning / docs Claude / PATTERNS.md hors `plan.md §Phase X`
+  fichiers attendus** → commit `chore(planning): ...` ou
+  `chore(skill): ...` AVANT le commit phase. Procedure standard,
+  pas de confirmation.
+- **Modifs scope cut documente kickoff §6 OU tech debt hors plan**
+  → `git stash` ou commit separe `chore(debt): ...` AVANT phase.
+- **Untracked accidentel** (node_modules, .env, cache, .pdb, build
+  artefacts) → ajouter `.gitignore` dans le commit chore. Si
+  pattern nouveau ambigu, STOP et demander.
+- **Working tree clean hors scope phase** → commit phase direct.
 
-Exemple de categorisation S19 Phase C (si applique) :
-
-```
-M  .claude/agents/nexus-phase-auditor.md          → CRAFT (split commit)
-M  .claude/skills/nexus-phase-review/SKILL.md     → CRAFT (split commit)
-M  .planning/active/sprint19_kickoff.md           → CRAFT (split commit)
-M  .planning/active/sprint19_plan.md              → CRAFT (split commit)
-A  crates/nexus-core-rs/src/tls_pinning.rs       → PHASE
-A  crates/nexus-core-rs/tests/fixtures/relay_test_cert.pem → PHASE
-A  docs/release/RELAY_PIN_BOOTSTRAP.md           → PHASE
-?? cc.json                                        → NOISE → .gitignore
-?? node_modules/                                  → NOISE → .gitignore
-```
-
-**Regle** : aucun commit phase ne peut contenir de mix PHASE+CRAFT
-sans split. Aucun commit ne peut contenir NOISE. Si l'agent observe
-NOISE, **STOP et alerter l'utilisateur** avant de continuer.
-
-**Decision automatique (pas de question utilisateur)** :
-
-- CRAFT detecte → commit `chore(planning): ...` ou
-  `chore(skill): ...` AVANT le commit phase. **Pas de confirmation
-  demandee** — c'est la procedure standard. L'agent execute :
-  (1) stage explicite des CRAFT, (2) commit chore avec body listant
-  la categorisation, (3) puis bascule sur la phase prevue.
-- DEBT detecte → meme regle : `chore(debt): ...` ou stash.
-- NOISE detecte → ajouter a `.gitignore` dans le commit chore (pas
-  un commit separe). Si nouveau pattern non-couvert par .gitignore,
-  alors et seulement alors STOP et demander.
-- PHASE seul (working tree clean apart du scope phase) → commit
-  phase direct, pas de chore prealable.
+Le hook `phase-precommit-lightcheck.sh` Check 1 (staging coherence
+STRICT BLOCK) catche automatiquement les mismatch `+pub mod X;` /
+`X.rs` untracked, mais il ne catch PAS les mix planning+phase ni
+les scope-cut leaks — la discipline mecanique ci-dessus reste
+requise. L'audit gate Phase 0 reconstitue la discipline historique
+via `git log --stat` + split commits visibles, pas via artefact
+body dedie.
 
 **Anti-pattern a eviter** : demander "tu veux que je commit
-chore(planning) d'abord ou je lance Phase E ?". Si la categorisation
-montre CRAFT + PHASE, la reponse est mecanique : chore(planning)
-d'abord, Phase apres. Pas de question.
+chore(planning) d'abord ou je lance Phase E ?". Si le working tree
+montre planning + phase fichiers, la reponse est mecanique :
+chore(planning) d'abord, Phase apres. Pas de question.
 
 ### Step 2 — Verification suites (§7.4)
 

@@ -3,8 +3,8 @@
 # .claude/hooks/phase-precommit-lightcheck.sh
 #
 # PreToolUse hook (matcher Bash) — 3 verifications legeres pre-commit
-# qui completent (sans remplacer) le gate phase-auditor-gate.sh sur les
-# phases SKIP-LIGHTWEIGHT (criteres C1-C8 amendement 2026-04-20).
+# qui completent (sans remplacer) le gate phase-auditor-gate.sh sur
+# tous les commits sprint (inconditionnel depuis S24 process review).
 #
 # Verifications :
 #   1. Coherence staging (STRICT, BLOCK) — pour chaque `+pub mod X;`

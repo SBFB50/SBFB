@@ -25,7 +25,7 @@ Complete la couche tooling (cf. `docs/claude/TOOLING.md`).
   d'une phase A/B/C/D/E/F
 - AVANT le premier `Edit` ou `Write` outil sur du code de la phase
 - Avant les commits chore(planning) qui split CRAFT — non, ceux-la
-  passent par `nexus-phase-review` Step 1bis G5 (post-code time)
+  passent par `nexus-phase-review` Step 1bis (post-code time)
 - L'utilisateur dit "preflight phase X", "G8 scan", "before coding"
 
 ## Quand NE PAS l'utiliser
@@ -492,8 +492,8 @@ recommander Option A (scope-cut conforme) par defaut.
 
 - `docs/claude/README.md §6.9` (G8 source-of-truth)
 - `docs/claude/README.md §7.1` (bootstrap Cas B integration G8)
-- `.claude/skills/nexus-phase-review/SKILL.md` (G5 working tree
-  audit pre-commit, complement post-code)
+- `.claude/skills/nexus-phase-review/SKILL.md` (staging coherence
+  pre-commit, complement post-code)
 - `.claude/agents/nexus-phase-auditor.md` (audit retrospective
   recoit dimension "Pivot retrospective" si phase a declenche G8)
 - memory `feedback_approach.md` (principe pick-deepest dont G8 est

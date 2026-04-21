@@ -24,6 +24,15 @@ autre LLM) qui doit ouvrir, livrer ou auditer un sprint.
   Semgrep regles SBFB). Install en un script, ajoute 5 couches de
   qualite independantes au cycle sprint.
 
+**Fichiers dépendants** (à mettre à jour si ce document change) :
+- `.claude/agents/nexus-phase-auditor.md` — cite §3, §6.9
+- `.claude/skills/nexus-phase-review/SKILL.md` — cite §4.3, §6.7, §7.4
+- `.claude/skills/nexus-phase-preflight/SKILL.md` — cite §6.9, §7.1
+- `.claude/hooks/phase-auditor-gate.sh` — implémente l'audit gate §3
+- `.claude/hooks/phase-precommit-lightcheck.sh` — implémente §4.2
+- `docs/claude/TOOLING.md` — cite §3, §4, §5
+- `CLAUDE.md` — pointe vers ce document
+
 ---
 
 ## 1. Vue d'ensemble
@@ -443,7 +452,7 @@ Pattern commit :
 ```
 feat(scope): Sprint N Phase X — titre court
 
-Body structuré (template S20 gold — 10 sections obligatoires) :
+Body structuré (template — 8 sections obligatoires) :
 
 ## Contexte
 [1-3 paragraphes : rationale, threat model, research grounding]
@@ -454,12 +463,6 @@ Body structuré (template S20 gold — 10 sections obligatoires) :
 | crates/nexus-foo/src/bar.rs | [description changement] |
 [grouper par Rust / Python / Web / Tests]
 
-## Working tree audit (G5)
-| Fichier | Catégorie | Rôle |
-|---------|-----------|------|
-[chaque fichier modifié avec annotation sous-tâche]
-CRAFT: 0 · DEBT: 0 · NOISE: 0
-
 ## Delta tests
 | Suite | Avant | Après | Delta |
 |-------|-------|-------|-------|
@@ -467,36 +470,26 @@ CRAFT: 0 · DEBT: 0 · NOISE: 0
 [+ décomposition per-module : "+15 keystore::tests, +8 integration, +5 unlock"]
 
 ## Verification §7.4
-- cargo fmt --all --check : ✓
-- cargo clippy -D warnings : ✓
-- cargo nextest --workspace : N pass
-- uv run pytest coord : N pass
 [CI manifest complet, chaque suite avec résultat]
 
 ## Scope cuts respectés (kickoff §8)
-[TOUS les items du kickoff §8, exhaustif, avec sprint cible]
-- Hardware keystore TPM/SE : S22+ (0 fichier)
-- Rate-limit per-consumer : S21 (0 fichier)
-[14+ items — pas de troncature]
+[TOUS les items du kickoff §8, exhaustif — pas de troncature]
 
 ## G8 traceability
-- Preflight : [SHA] verdict [EXECUTE/SCOPE-CUT-CONSISTENT]
-- Review : [SHA] verdict [PASS] (N P0, N P1, N P2)
-[chaîne complète avec SHAs cross-référencés]
-
-## Findings (rigor signal G4)
-- P2-X-N : [description détaillée] → [résolu inline/carry S{N+1}]
-[chaque finding individuellement avec statut de résolution]
+- Preflight : [SHA `chore(planning): sprint{N} Phase {X} — G8 preflight`]
+  verdict [EXECUTE plan-as-is / SCOPE-CUT-CONSISTENT]
+- Review : [SHA commit phase lui-même] verdict auditor
+  [PASS / CONCERN / FAIL] ([N] P0, [N] P1, [N] P2)
+[chaîne explicite avec SHAs cross-référencés — permet à l'audit gate
+S+1 de retracer le process sans ouvrir les artefacts `.planning/active/`]
 
 ## Pre-launch protocol
 [*_VERSION unchanged, wire format preservé]
 
 ## Carry closure / Unblock
-- Closes carry S{N-1} A-2 (PoW wire gossip subscribe)
-- Débloque prérequis S{N+1} rate-limit (depend Phase C)
 [graphe de dépendances inter-sprint explicite]
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 
 Si une phase a besoin d'un fix post-commit (pattern Sprint 2
@@ -808,86 +801,20 @@ rejeter" (genere du bikeshedding), juste un signal de qualite des
 sources. Le reviewer ne propose pas de solution → pas de bataille
 d'ego entre planner et reviewer.
 
-**Regle renforcee crypto/spec (G1 extension, 2026-04-16 audit gate
-S19)** : quand une D-decision cite une source crypto, un protocole
-standardise, ou une pratique upstream (ex: D2 S19 cite "Tor PoW
-2023" pour Hashcash SHA256), le draft §Retenu DOIT enumerer au moins
-**une alternative concurrente recente (<= 6 mois)** avec la raison
-du rejet. L'agent Explore scoring report applique la verifie :
-manque d'alternative citee = ⚠️ automatique, independamment de la
-date de la source principale.
+**Checklist crypto/spec** `[DETER]` (ajouté S19, incident S19 P3-B2
+Tor PoW/Equi-X — `sprint19_audit_findings.md`) :
+- [ ] D-choice crypto/spec cite ≥1 alternative concurrente <6 mois
+- [ ] Source datée <2 ans ou explicitement revalidée
+- [ ] Reviewer ⚠️ si alternative absente
 
-Rationale : les primitives crypto evoluent vite (Tor a abandonne
-Hashcash en aout 2023 pour Equi-X memory-hard ; libcrux hax gaps
-avril 2026 ; wasmtime 12 CVE avril 2026). Citer "Tor 2023" sans
-mentionner la migration Equi-X donne un rationale circulaire : la
-source est datee, mais le choix qu'elle justifiait n'est plus celui
-que la source recommande aujourd'hui. L'audit gate S19 P3-B2 a
-attrape ce pattern sur D2 (PoW Hashcash SHA256) ; le design doc
-`.planning/research/S19_phase_B_pow_hashcash_design.md §3.6 + §6.2`
-a rattrape post-hoc en documentant explicitement Equi-X comme
-alternative rejetee pour S19 (pas d'impl Rust auditee, crypto custom
-non-RFC, sur-engineered sans difficulty adaptive). Le fix-forward
-est de produire cette analyse **dans le kickoff §D2 directement**,
-pas dans un design doc separe.
+**Checklist Rust-first** `[DETER]` (ajouté S21, incident D2 PII
+nexus-pii-rs gap — `sprint21_kickoff.md §Sources`) :
+- [ ] D-choice runtime cite ≥1 alternative Rust-native production
+- [ ] Gap factuel documenté si alternative Rust rejetée
+- [ ] Reviewer ⚠️ si gap non documenté
+- Exemptions : CI tooling, frontend UX, docs, tests fixtures
 
-**Regle renforcee custom Rust stack (G1 extension, 2026-04-18
-audit gate S20)** : quand une D-decision cite un ecosysteme
-externe (Python/JS/Go/etc.) ou une lib non-Rust alors que le
-projet a une preference architecturale Rust-first (Option G,
-cf. `CLAUDE.md §Architecture Option G`), le draft §Retenu DOIT
-enumerer AU MOINS une alternative Rust-native production-grade
-avec raison factuelle rejet OU adoption. Alternatives a considerer
-selon le domaine :
-
-- Inference ML : `tract`, `ort` (ONNX Runtime binding via pyke),
-  `candle` (HuggingFace), `burn` (Tracel AI), `gline-rs` pour NER
-- Crypto : `aws-lc-rs`, `ring`, `dalek-cryptography`, `libcrux`
-- Networking : `iroh`, `libp2p-rs`, `quinn`, `hyper`
-- Storage : `redb`, `sled`, `rocksdb-rs`, `fjall`
-- Serialization : `serde_json`, `postcard`, `bincode`, `rkyv`
-
-Le draft identifie l'alternative Rust-native la plus pertinente
-pour le domaine, verifie son etat 2026 (version, audit, prod
-readiness, target support wasm32 si pertinent) via context7 +
-WebSearch, et documente la raison du rejet (gap technique factuel :
-« tract 0.22 teste opset 9-18 vs GLiNER export opset 19 ; ort-web
-experimental status ; candle-onnx manque op Attention ») OU
-adoption (bascule du §Retenu). Pas de rejet par pure preference
-(« prefer Python SDK X car plus mature ») : le point de la regle
-est precisement de mesurer le gap factuel.
-
-**Visibilite G1** : manque d'alternative Rust-native citee dans
-un projet Rust-first = ⚠️ automatique par le scoring report,
-independamment de la qualite des sources sur l'option externe
-retenue. Le reviewer ne tranche pas (pas de veto), mais le
-planner doit acknowledge explicite le gap dans le kickoff §4
-« Acknowledged review findings » si l'alternative Rust est
-rejetee sur une raison factuelle.
-
-**Exception custom Rust** : D-choice qui ne touche pas inference
-ML / crypto / networking / storage runtime. Sont exemptes :
-generation de docs (ex: mdbook vs Sphinx — non-runtime), CI
-tooling (cargo-deny, pip-audit, npm audit coexistent
-necessairement), frontend UX (web/ est volontairement React,
-pas Yew/Leptos, decision Day-0 figee), tests fixtures / scripts
-one-shot. Le perimetre est : toute lib qui finit liee au binary
-worker/daemon/coordinator runtime.
-
-Rationale : le projet a paye cher (S7 singleton band-aid,
-S13 blob-serve) le cout d'introduire un runtime non-Rust dans
-une chaine Rust parce qu'une « lib X existe en face ». Chaque
-dep non-Rust elargit la surface d'attaque supply chain, ajoute
-un runtime, complique le build release. G1 extension oblige a
-verifier explicitement qu'aucune alternative Rust production-grade
-ne couvre le cas avant d'accepter un ecart d'architecture. Observe
-Sprint 21 D2 PII : G1 initial a bien challenge tokio-rate-limit
-vs governor (deux libs Rust) mais n'a pas questionne « pourquoi
-pas custom `nexus-pii-rs` base tract/ort/gline-rs ? » — le gap a
-ete comble par research user-driven, pas par G1. La regle
-formalise ce reflexe.
-
-**Quand skipper** : sprint pure-docs (S17), hotfix (cas D §7),
+**Quand skipper G1** : sprint pure-docs (S17), hotfix (cas D §7),
 phase trivial refactor sans decision Day-0.
 
 ### 6.2 Scope cuts — stricts DANS un sprint, reevalues ENTRE sprints
@@ -1127,54 +1054,18 @@ réduction debug/rework aval.
 
 ### 6.8 Fraîcheur des artefacts long-life — triggers événementiels (G2)
 
-Anti-pattern observé : `HARDENING_ROADMAP.md` écrit S17 (octobre 2025)
-hérite Sprint 19 (avril 2026) sans audit fraîcheur. D2 PoW Hashcash
-2^18 dérive d'une recommandation S17 ; entre-temps Tor a abandonné
-Hashcash pour Equi-X (août 2023). 6 mois entre écriture et
-consommation = drift réel.
-
-**Pattern correct** (événementiel, pas compteur jours absolu) :
-
-Tout artefact long-life (`HARDENING_ROADMAP.md`, `PATTERNS.md`,
-`VALIDATED_BLUEPRINT.md`, memory `nexus_grid_pivot.md`) **DOIT**
-inclure dans son frontmatter :
-
-```yaml
----
-written: 2026-04-10
-last_validated: 2026-04-16
-triggers_revalidate:
-  - "iroh release > 0.97"
-  - "wasmtime LTS bump"
-  - "CVE annonce sur dep critique"
-  - "Sprint S+2 commence (S19+2 = S21)"
----
-```
-
-**Quand re-valider** (events, pas timer) :
-
-- Une release upstream majeure d'une lib critique cite (iroh, wasmtime,
-  arti-client, pkarr, libp2p) → re-scan §pertinente.
-- Un CVE annonce sur une dep listee → re-scan §securite.
-- Le sprint S+2 demarre apres l'ecriture → re-scan §roadmap pour ce
-  sprint specifique.
-- Un finding audit S{N} contredit le contenu → re-scan immediate.
-
-**Discipline session-start** (cas A/B/C du prompt §7) :
+`[DETECT]` Artefacts long-life (`HARDENING_ROADMAP.md`, `PATTERNS.md`,
+`VALIDATED_BLUEPRINT.md`, memory) portent un frontmatter
+`triggers_revalidate` (liste d'events : release upstream, CVE, S+2).
+Au session-start, grep les triggers et re-scanner si un event s'est
+réalisé depuis `last_validated`. Événementiel, pas timer.
 
 ```bash
-# Verifier triggers actifs
 grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md
-# Pour chaque match, l'agent verifie si un trigger s'est realise depuis last_validated
 ```
 
-**Pas de** compteur "stale apres N jours" : un doc fige sur un
-sujet dormant peut rester valide 1 an. Un doc sur une lib en pleine
-evolution est stale apres 1 release. C'est l'event qui declenche,
-pas le calendrier.
-
-**Maintenance** : `last_validated` mis a jour au commit qui re-audite
-la section. Pas obligatoire en lecture seule.
+Origine : S19, HARDENING_ROADMAP S17 hérité sans audit → D2 PoW
+Hashcash drift. Rationale complet : `fe0a8fd`.
 
 ---
 
@@ -1189,7 +1080,7 @@ n'avait pas été fait, le code aurait reproduit exactement la
 vulnérabilité que S18 fermait.
 
 **Diagnostic** : entre le sprint kickoff (où G1 Design Review et G2
-triggers_revalidate filtrent les drifts) et le code-time (où G5
+triggers_revalidate filtrent les drifts) et le code-time (où le hook
 working tree audit catch les fuites de scope), il y a un trou. Le
 plan §Phase X peut avoir été écrit 3-5 sprints avant son exécution,
 sur une compréhension partielle de l'historique. Personne ne re-grep
@@ -1327,19 +1218,24 @@ de divergence chronique. 7 garde-fous obligatoires :
 G8 n'est pas un substitut de G1/G2 — il les complète à un moment
 différent du cycle. Vue d'ensemble :
 
-| Gate | Quand | Quoi | Output |
-|---|---|---|---|
-| G1 (§6.1.1) | Sprint kickoff, après draft D1..D5 | Design Review Board reviewer indépendant scoring report | `sprint{N}_design_review.md` ⚠️/✅/❌ par décision |
-| G2 (§6.8) | Sprint kickoff + tout commit qui touche artefact triggered | Re-validation triggers_revalidate sur docs long-life | `last_validated` updated + re-research si trigger actif |
-| G3 (§2.1) | Sprint kickoff goal §2 | Goal SMART pointe verification.md fail-fast | `sprint{N}_kickoff.md §2` cohérent avec verification |
-| G4 (§3 + auditor) | Phase Z review pre-commit + audit gate Phase 0 | Rigor signal : 0 P0/P1 + ≥1 P2+ documenté pour PASS | Verdict PASS/CONCERN/FAIL |
-| G5 (§4.2 + skill Step 1bis) | Pre-commit phase | Working tree audit PHASE/CRAFT/DEBT/NOISE | Section "Working tree audit" dans body commit |
-| G6 (§5.1.1) | Après chaque commit feat phase + Phase F verification | Memory update §Tip post-commit + carry-over sprint boundary | `nexus_grid_pivot.md` + `MEMORY.md` updated |
-| G7 (§6.2.1) | Carry-over reclassification entre sprints | Cap 2 carry-overs/sprint | `sprint{N}_carry_summary.md` |
-| **G8 (§6.9)** | **Pre-implementation phase** | **4 scans factuels SOTA + history + threat + wire** | **`phase_{X}_preflight.md` ou `phase_{X}_pivot_proposal.md`** |
+Tags : `[DETECT]` = mécanique observable, drop si 0 findings en 4
+sprints. `[DETER]` = principe dissuasif, drop si 3× violations MALGRÉ
+la règle. `[STRUCT]` = structure du cycle, jamais drop.
 
-G8 spécifiquement comble le trou entre G2 (kickoff-time) et G5
-(commit-time). G1 protège contre les drifts au design ; G8 protège
+| Gate | Tag | Quand | Quoi | Output |
+|---|---|---|---|---|
+| G1 (§6.1.1) | `[DETER]` | Kickoff, après draft D1..D5 | Design Review Board scoring report | `sprint{N}_design_review.md` |
+| G2 (§6.8) | `[DETECT]` | Session-start, event upstream | Re-validation triggers_revalidate docs long-life | `last_validated` updated |
+| G3 (§2.1) | `[STRUCT]` | Kickoff §2 | Goal SMART → verification.md fail-fast | `sprint{N}_kickoff.md §2` |
+| G4 (§3 + auditor) | `[DETECT]` | Phase review + audit gate | Rigor signal : 0 P0/P1 + ≥1 P2+ pour PASS | Verdict PASS/CONCERN/FAIL |
+| ~~G5~~ | — | ~~Supprimé S24~~ | ~~Working tree audit~~ | ~~Hook lightcheck couvre~~ |
+| G6 (§5.1.1) | `[STRUCT]` | Post-commit feat + Phase F | Memory update §Tip + carry-over | `nexus_grid_pivot.md` updated |
+| G7 (§6.2.1) | `[STRUCT]` | Phase F carry generation | Cap 2 carry-overs/sprint | `sprint{N}_carry_summary.md` |
+| G8 (§6.9) | `[DETECT]` | Pre-implementation phase | 4 scans factuels SOTA + history + threat + wire | `phase_{X}_preflight.md` |
+| G9 (§6.10) | `[DETER]` | Avant proposition D-choice | Factual research gate on D-decisions | §Research consulté dans kickoff |
+
+G8 comble le trou entre G2 (kickoff-time) et le commit (code-time).
+G1 protège contre les drifts au design ; G8 protège
 contre les drifts au plan-vers-code translation.
 
 #### Anti-patterns (pivot mal exécuté)
@@ -1457,139 +1353,14 @@ comme correction post-hoc.
 
 ### 6.11 Archive research outputs pattern
 
-Anti-pattern observe Sprint 21 kickoff 2026-04-18 : 4 rapports
-factuels volumineux produits par des agents Explore / general-
-purpose pendant la session (pre-research G2 PII SDK ~2800 mots +
-analyse Rust-first objectif ~2300 mots + backbone resolution HF
-~1500 mots + ort-wasm alternatives re-check ~2500 mots) vivent
-uniquement dans le transcript session, cumul ~9000 mots. Fin de
-session = transcript compacte ou perdu = rapports perdus. Le
-`kickoff §Sources` n'archive qu'un resume condense de 10-30 lignes
-citant les verdicts. Une session fraiche auditant S21 en S22
-n'aurait plus acces au raisonnement factuel complet — elle
-devrait soit re-executer les recherches (cout tokens + temps +
-drift stack 2026 continue), soit faire confiance au resume.
-Perte d'information factuelle irreversible.
+`[DETER]` Tout research output agent (Explore, general-purpose, skill
+preflight) **> 2000 mots** → Write immédiat dans `.planning/research/
+S{N}_research_{topic}.md` avec frontmatter (sprint, topic, date, agent)
++ prompt brut + rapport brut + décision downstream (1-3 lignes). Skip
+si < 2000 mots, confirmatoire, ou déjà dans un preflight G8.
 
-**Pattern correct** : tout research output produit par agent
-Explore / general-purpose / skill preflight dont le volume
-depasse **2000 mots** (roughly 12-15 KB markdown) doit etre
-archive dans `.planning/research/S{N}_research_{topic}.md` (ou,
-si volume eleve sur un sprint, sub-directory
-`.planning/research/S{N}/{topic}.md`).
-
-**Structure du fichier archive** :
-
-```markdown
----
-sprint: 21
-topic: pii_sdk_rust_first_analysis
-date: 2026-04-18
-agent: general-purpose (Explore subagent)
-prompt_source: transcript session orchestrateur 2026-04-18 turn N
-word_count: 2312
----
-
-## Prompt donne a l'agent
-
-[texte brut exact du prompt envoye, pas paraphrase]
-
-## Rapport recu
-
-[texte brut exact retourne par l'agent, sans troncature
-ni resume, incluant sections factuelles, URLs, versions,
-benchmarks, caveats]
-
-## Decision downstream
-
-[1-3 lignes : quelle decision kickoff/plan a consomme ce
-rapport, avec pointer vers `sprint{N}_kickoff.md §X` ou
-`sprint{N}_plan.md §Y`]
-```
-
-**But** :
-
-1. **Reproductibilite audit** — une session fraiche S{N+1}
-   Phase 0 peut relire les sources factuelles brutes, pas
-   juste un resume filtre, pour juger si la decision D-choice
-   etait fondee.
-2. **Source pour pivot G8** — scan S2 decisions historiques
-   traversees a besoin du raisonnement complet, pas du verdict
-   seul. Un pivot proposal qui reference `.planning/research/
-   S21_research_pii_sdk.md §4` est factuellement tracable ; un
-   pivot proposal qui dit « selon le verdict G1 S21 » est un
-   cul-de-sac (raisonnement perdu).
-3. **Replicabilite externe** — si un contributeur externe
-   challenge une D-decision, il peut lire le dossier complet,
-   pas juste le resultat.
-4. **Drift detection** — si un research output S{N} devient
-   obsolete par une release upstream majeure (ex: tract 0.23
-   publie en S{N+3} change la conclusion opset), la comparaison
-   diff est possible uniquement si l'output brut est archive.
-
-**Contenu de l'archive** :
-
-- **Prompt donne** : texte brut exact. Pas de paraphrase.
-  Le prompt lui-meme est une info de reproductibilite.
-- **Rapport recu** : texte brut exact. Inclut les sections que
-  l'orchestrateur a ignorees ou jugees non-pertinentes — elles
-  peuvent devenir pertinentes plus tard.
-- **Date** : absolue (`2026-04-18`), pas « aujourd'hui ».
-- **Agent ID** si disponible : type (Explore, general-purpose,
-  skill name), permet de comparer qualite rapport selon source.
-
-**Quand skipper** :
-
-- Output trivial < 2000 mots (1 page markdown roughly).
-- Output purement confirmatoire d'une decision deja documentee
-  (ex: « verify que iroh 0.97 est toujours le latest stable »
-  → WebSearch retourne « oui » → pas besoin d'archive).
-- Output fait partie d'un preflight G8 deja archive via
-  `sprint{N}_phase_{X}_preflight.md` (pas de duplication).
-- Output de type « list files in dir » ou « grep pattern » qui
-  n'est pas factuel-research mais mecanique tool-usage.
-
-**Maintenance** :
-
-- Le dossier `.planning/research/` vit en tant que PARA archive
-  permanent (pas rotate par version, pas archive par sprint
-  close). Un research output S7 peut rester utile en S25.
-- Les outputs ne sont PAS squashes entre sprints — meme si un
-  sprint produit 5 research outputs, les 5 sont conserves.
-- Git blame + commit SHA donne la tracabilite temporelle
-  naturellement — pas besoin d'un index manuel.
-
-**Exemple concret S21 archive retroactif** (livres dans le chore
-`chore(research): sprint21 archive 4 research outputs` 2026-04-18) :
-
-- `.planning/research/S21_research_pii_sdk_options.md` —
-  pre-research G2 options 1-7 (context7 tract/ort/gline-rs +
-  WebSearch GLiNER v2.5 + Gretel vs knowledgator).
-- `.planning/research/S21_research_rust_first_alignment.md` —
-  analyse « pourquoi Rust-first SBFB pour inference worker » avec
-  benchmarks wasm32 browser + verdicts alternatifs Python.
-- `.planning/research/S21_research_backbone_resolution.md` — fetch
-  HF primary sources (gliner_config.json) pour resoudre ambiguite
-  ModernBERT vs DeBERTa-v3 gliner-pii-edge-v1.0.
-- `.planning/research/S21_research_ort_wasm_alternatives.md` —
-  post-mortem G1 re-check ort-web vs candle-onnx vs burn-onnx
-  faisabilite Rust-first iframe S22+.
-
-Regle forte sessions futures : archive **pendant** la session,
-pas **apres**. Un research output produit doit etre immediatement
-Write dans `.planning/research/` avant continuation de la session
-(pattern cohérent avec §6.9 G8 preflight.md Write obligatoire
-avant 1re ligne de code).
-
-Rationale : le research est le livrable le plus couteux a
-reproduire (tokens, temps, verification sources, cross-check
-benchmarks). Le perdre equivaut a repeter le cout a chaque audit.
-Archive systematique = amortissement du cout research sur tous
-les futurs usages (audit, pivot G8, drift detection, contribution
-externe). §6.7 « documentation AVANT code » requiert deja un design
-doc — §6.11 etend la regle aux research outputs source qui ont
-fonde le design doc lui-meme. Sans §6.11, les design docs citent
-des sources qu'on ne peut plus relire.
+Origine : S21, 4 rapports ~9000 mots perdus dans transcript (`71de0ec`).
+But : reproductibilité audit, source pivot G8, drift detection.
 
 ---
 
@@ -1699,11 +1470,11 @@ Compare ce que tu vois avec :
                emit pivot_proposal, attendre arbitrage user). Output
                obligatoire : sprint{N}_phase_{X}_preflight.md OU
                sprint{N}_phase_{X}_pivot_proposal.md.
-    Avant CHAQUE commit phase (G5) : invoquer skill
-               nexus-phase-review Step 1bis "working tree audit"
-               -> categoriser PHASE/CRAFT/DEBT/NOISE chaque modif,
-               splitter en chore(planning) si CRAFT, refuser NOISE.
-               Body commit DOIT contenir section "Working tree audit".
+    Avant CHAQUE commit phase : invoquer skill
+               nexus-phase-review Step 1bis "staging coherence"
+               -> verifier staging coherent (hook lightcheck le fait
+               automatiquement). Separer chore(planning) si docs
+               planning modifies hors-phase.
     Avant scope cut S+1 (G7) : verifier cap 2 carry-overs/sprint
                max. Si depassement, livrer en sprint courant ou
                ajouter a docs/DEPRECATED.md.
@@ -1749,7 +1520,7 @@ Compare ce que tu vois avec :
   Cas D — Hotfix hors sprint
     Signal : utilisateur demande explicitement un fix urgent.
     Mode : commit fix(...) ciblé, ne touche pas .planning/.
-    G5 reste actif : working tree audit obligatoire avant commit
+    Hook lightcheck reste actif : staging coherence avant commit
                 meme en hotfix.
     G8 NON applicable (pas de plan §Phase X à challenger). Mais
                 si le hotfix touche threat model ou wire format
@@ -1779,8 +1550,7 @@ toute la doc. Charger tout sature le contexte pour rien.
     - .planning/archive/v{X}/sprint{N-1}_kickoff.md (D1..D5
       gelées à NE PAS rebattre)
     - docs/claude/README.md §3 et §8
-    - .claude/agents/nexus-phase-auditor.md (calibration G4 +
-      Step 3bis working tree audit G5)
+    - .claude/agents/nexus-phase-auditor.md (calibration G4)
 
   Cas B en plus :
     - .planning/active/sprint{N}_kickoff.md (D1..D5)
@@ -1789,8 +1559,8 @@ toute la doc. Charger tout sature le contexte pour rien.
       §6.2.1 (cap carry-overs G7) + §6.9 (G8 phase pre-flight)
     - .claude/skills/nexus-phase-preflight/SKILL.md (G8 4 scans
       + decision tree + garde-fous, runs AVANT code)
-    - .claude/skills/nexus-phase-review/SKILL.md (Step 1bis G5
-      + Step 6 rigor signal G4, runs AVANT commit)
+    - .claude/skills/nexus-phase-review/SKILL.md (Step 1bis
+      staging, runs AVANT commit, inconditionnel)
 
   Cas C en plus :
     - docs/claude/SPRINT_LOG.md (versions livrées + thèmes)
@@ -1805,8 +1575,8 @@ toute la doc. Charger tout sature le contexte pour rien.
 
   Cas D :
     - juste le code touché, rien d'autre
-    - .claude/skills/nexus-phase-review/SKILL.md Step 1bis (G5
-      working tree audit reste obligatoire meme hotfix)
+    - .claude/skills/nexus-phase-review/SKILL.md Step 1bis
+      (staging coherence reste obligatoire meme hotfix)
 
 # === Stale memory check (obligatoire avant tout commit) ===
 
@@ -2169,9 +1939,50 @@ un audit causal du process accumulé S16-S22. Résultat :
   nice-to-have, non-bloquant)
 
 Diagnostic clé : *"la qualité code vient du modèle + instructions
-CLAUDE.md, pas des hooks/reviews/cérémonies."* Le process doit
-rester lean — les seuls mécanismes justifiés sont ceux avec
-impact causal mesuré sur la qualité du code.
+CLAUDE.md, pas des hooks/reviews/cérémonies."* L'affirmation est
+**partiellement fausse** : analyse rétrospective S23 montre que le
+hook `phase-auditor-gate.sh` a une valeur causale prouvée (2 P1
+catchés pré-commit en S22 Phase C + Phase D). Le hook conditionnel
+`34dacdc` introduit par le bankruptcy a causé 5/6 phases S23 sans
+review → le P1 C-1 (canonical bytes) a échappé au filet.
+
+**Correction S24 Rework v2** (après délibération indépendante sur
+le rework Opus 4.7 initial) :
+
+- **KEEP drop hook conditionnel C1-C9** — retour audit
+  inconditionnel sur tout commit `feat(sprintN Phase X)`. Valeur
+  causale directe (P1 S23 échappé via regex C1 mal calibrée sur
+  `task.rs`). Alternative "affiner C1-C9" rejetée : effort > valeur.
+- **KEEP drop G5 Working tree audit du body commit** —
+  catégorisation PHASE/CRAFT/DEBT/NOISE redondante avec hook
+  lightcheck Check 1 (staging coherence STRICT BLOCK) + split
+  commits `chore(planning)` visibles dans `git log --stat`. L'audit
+  gate Phase 0 reconstitue la catégorisation S+1 via `git log
+  --stat` + bodies split, pas via table body dédiée. **Perte
+  assumée** : `.gitignore` update auto sur NOISE et grep scope-cuts
+  sur DEBT ne sont plus surveillés par un mécanisme dédié — à
+  compenser par discipline auditor Phase 0 qui reste obligatoire.
+- **REINTRODUCE §4.4 Phase F parse reviews** — mode de défaillance
+  documenté (P2-S21-4). Coût README ~40 lignes lu 1×/session.
+- **REINTRODUCE G1 extensions crypto-spec + custom-Rust-stack** —
+  les deux règles adossées à incidents datés (Tor PoW 2023 / Equi-X
+  migration, S21 D2 PII / nexus-pii-rs gap). Dissuasion documentée
+  > détection observable.
+- **REINTRODUCE §6.7 bullet "pas d'estimation LOC amont"** —
+  pattern observé 3× S22 (P2-E-2). Contre-mesure active contre
+  plafond psychologique cognitif.
+- **REINTRODUCE section G8 traceability dans template commit body**
+  — artefact self-contained pour audit gate S+1 qui ne re-ouvre pas
+  `.planning/active/` archivé. Permet retracer la chaîne preflight
+  → phase commit depuis le `git log` seul.
+
+Les hooks narratifs et sidecar restent supprimés (0 valeur causale
+confirmée, 200 appels Haiku/session). Méta-finding à amender dans
+un prochain sprint : un diff `docs/claude/README.md` ≥ 50 lignes
+suppressions devrait déclencher un full audit orphelins (C9-like) —
+le rework Opus 4.7 initial avait oublié 3 refs C1-C9 / G5 dans
+`SKILL.md` nexus-phase-review + preflight + `TOOLING.md §5.2`,
+cleanup inclus dans ce commit.
 
 ---
 
