@@ -384,6 +384,11 @@ strict :
   `docs/rust/PATTERNS.md` tech debt sections
 - **P3 optionnels** — laissés tels quels
 
+**Data S22-S24** : seul gate à valeur causale prouvée (2
+DESIGN-CONFLICT S20/S21, P1 C-1 S23 échappé quand audit
+conditionnel actif). Review coverage : S22 6/6, S23 1/6 (gap non
+détecté — fix §4.4 step 5), S24 3/3 (restauré).
+
 ### 3.2 Phases A..E — contenu du sprint
 
 Les vraies livraisons de code. Une phase = un commit
@@ -653,6 +658,16 @@ session doit :
    (fix retrospective, iteration 2 pattern Sprint 22 Phase D)
    dans la section Track comme `[closed inline]` avec le commit
    SHA de résolution.
+
+5. **Vérifier présence exhaustive** : pour chaque phase A..F
+   ayant un commit `feat(sprint{N}): Phase X`, un fichier
+   `sprint{N}_phase_{X}_review.md` doit exister dans
+   `.planning/active/` (ou archive/ si déjà migré). Inscrire le
+   ratio dans Track F de `sprint{N}_audit_plan.md` :
+   `- [ ] Phase review files present: {N_reviews}/{N_phases}`
+   **Ratio < N/N = P2** (Data S23 : 1/6 reviews produits, audit
+   gate non-détecté — gap découvert par inspection manuelle
+   post-facto).
 
 **Garde-fou** : un `sprint{N}_audit_plan.md` sans référence à
 au moins un finding par phase ayant un review.md = **CONCERN**
@@ -1111,6 +1126,21 @@ on reste cohérent historiquement mais on laisse un gap threat model
 ouvert. S3 sans S4 = on durcit le threat model mais on casse le wire
 format pre-launch. S4 sans S1 = on préserve les invariants sur une
 lib obsolète.
+
+#### Efficacité mesurée (S22-S24, 17 preflights)
+
+14/17 EXECUTE, 3/17 SCOPE-CUT-CONSISTENT, 0 DESIGN-CONFLICT.
+
+- **S1+S2 portent 100% des findings réels** : S22-B GLiNER ONNX
+  pseudocode mismatch (inline fix), S22-D gpu/ module pré-existant
+  (évité NVML double-init), S23-E CVE-2025-69277 pynacl (carry S24
+  dep floor).
+- **S3+S4 sont des gate checks de contrainte** : 0 finding en 17
+  runs. Ils valident `*_VERSION = 1` et HARDENING_ROADMAP aligné —
+  assertions vérifiables par grep, pas des scans de découverte.
+- **Consolidation** : S3+S4 passent en **fast-path** dans le skill
+  preflight (grep commands only, pas de context7/WebSearch). Les 4
+  scans restent obligatoires. Coût estimé : ~45 min → ~20 min.
 
 #### Décision tree (verdict en 3 niveaux)
 

@@ -354,6 +354,11 @@ Produire un rapport markdown concis :
    test supprime non documente.
 3. **Ne PAS faire un fix "dans la review"**. Un fix trouve ici
    devient sa propre iteration : user fixe, relance le skill.
+4. **Review coverage enforcement** : la presence de chaque
+   `sprint{N}_phase_{X}_review.md` est verifiee au audit gate
+   (cf. `docs/claude/README.md §4.4` step 5, Track F item
+   "Phase review files present: N/N"). Data S23 : 1/6 reviews,
+   audit gate non-detecte — le guard est desormais explicite.
 
 ## Refs
 

@@ -19,6 +19,13 @@ Skill de scan factuel pre-implementation pour une phase SBFB.
 Materialise le gate G8 documente dans `docs/claude/README.md §6.9`.
 Complete la couche tooling (cf. `docs/claude/TOOLING.md`).
 
+## Efficacite mesuree (S22-S24, 17 preflights)
+
+14/17 EXECUTE, 3/17 SCOPE-CUT-CONSISTENT, 0 DESIGN-CONFLICT.
+S1+S2 portent 100% des findings reels (3/17). S3+S4 = 0 finding
+en 17 runs (gate checks de contrainte). Consolidation : S3+S4
+passent en fast-path (grep only), S1+S2 restent full scans.
+
 ## Quand l'utiliser
 
 - Tu es en Cas B (sprint en cours) et tu t'apprete a ecrire le code
@@ -171,7 +178,13 @@ Classification :
 Output Step 3 : liste des decisions historiques + sha + raison + **reversion status** (confirmee / ambigue / absente), ou
 "S2: clean".
 
-### Step 4 — Scan S3 : Threat model coverage
+### Step 4 — Scan S3 : Threat model coverage (fast-path gate check)
+
+**Fast-path** (0 finding en 17 runs S22-S24) : S3 est un gate check
+de contrainte, pas un scan de decouverte. Executer les grep commands
+ci-dessous mais NE PAS lancer context7/WebSearch sauf si un grep
+renvoie un signal inattendu (regression threat, pre-requirement
+manquant). Si tous greps clean → "S3: clean (fast-path verified)".
 
 ```bash
 # Lire la threat matrix
@@ -202,7 +215,13 @@ Findings type :
 
 Output Step 4 : matrix coverage + regression flags, ou "S3: clean".
 
-### Step 5 — Scan S4 : Wire format / pre-launch invariants
+### Step 5 — Scan S4 : Wire format / pre-launch invariants (fast-path gate check)
+
+**Fast-path** (0 finding en 17 runs S22-S24) : S4 est un gate check
+de contrainte, pas un scan de decouverte. Executer les grep commands
+ci-dessous. Si `*_VERSION = 1` et Day 0 preservees → "S4: clean
+(fast-path verified)". Si version bump ou Day 0 deviation detectes
+→ escalade full scan (context7/WebSearch sur la spec touchee).
 
 ```bash
 # Scanner les wire format versions
@@ -272,7 +291,8 @@ Decision tree complet (cf. README.md §6.9) :
 ```
 Aucun finding (S1+S2+S3+S4 tous clean) :
   -> verdict EXECUTE plan-as-is
-  -> emit .planning/active/sprint{N}_phase_{X}_preflight.md (1-3 lignes)
+  -> emit .planning/active/sprint{N}_phase_{X}_preflight.md
+     **Output condense autorise** (format ci-dessous) :
 
 Findings non-bloquants uniquement :
   -> verdict SCOPE-CUT-CONSISTENT
@@ -297,7 +317,24 @@ Findings non-bloquants uniquement :
 
 ### Step 7 — Templates de documents
 
-#### Template `sprint{N}_phase_{X}_preflight.md` (verdict CLEAN ou SCOPE-CUT-CONSISTENT)
+#### Template condense (verdict EXECUTE plan-as-is, 4 scans clean)
+
+```markdown
+# Sprint {N} Phase {X} — preflight G8
+
+Date : YYYY-MM-DD | HEAD : `<sha>` | Verdict : **EXECUTE plan-as-is**
+
+## Scans (all clean)
+- S1 SOTA : <N> libs scannees, 0 delta — clean
+- S2 historiques : <N> fichiers, <N> commits scannes — clean
+- S3 threat model : fast-path verified, HARDENING_ROADMAP aligned — clean
+- S4 wire format : fast-path verified, VERSION=1, Day 0 preserved — clean
+
+## Action
+Proceder code phase {X}.
+```
+
+#### Template complet (verdict SCOPE-CUT-CONSISTENT ou DESIGN-CONFLICT)
 
 ```markdown
 # Sprint {N} Phase {X} — preflight G8
