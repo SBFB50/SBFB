@@ -90,6 +90,30 @@ passent en fast-path (grep only), S1+S2 restent full scans.
 
 4. Lire `docs/claude/README.md §6.9` pour la procedure verdict
 
+### Step 1.5 — Memory consultation (avant scans)
+
+Lire `MEMORY.md` (index) et charger les memories pertinentes pour
+la zone fonctionnelle de la phase. L'objectif : eviter de proposer
+un design que les memories rejettent ou contraignent.
+
+**Toujours lire** (cout negligeable, valeur transversale) :
+- `feedback_approach.md` — regles "pick deepest", "no band-aid",
+  "research before code". Calibre le scan S1 (depth) et S2
+  (historical rigor).
+
+**Lire si la phase touche la zone** (matcher depuis Step 1.3) :
+- kudos / fairness / reputation → `fairness_vision.md` +
+  `feedback_kudos_non_monetary.md`
+- governance / funding / modele economique → `vision_model.md`
+- deploy / crypto / Ed25519 → `sprint14_keyoxide_decision.md`
+- lib externe / dep bump / API spec → `feedback_context7_systematic.md`
+
+**Mecanisme** : lire le fichier, extraire en 1-2 lignes la
+contrainte pertinente pour cette phase, la noter dans le
+preflight.md §Memory consultation. Si une contrainte memory
+entre en tension avec le plan §Phase X → signal S2 finding
+(reversion check obligatoire).
+
 ### Step 2 — Scan S1 : SOTA 2026 vs design
 
 Pour chaque lib/spec extraite Step 1.3 :
@@ -324,6 +348,10 @@ Findings non-bloquants uniquement :
 
 Date : YYYY-MM-DD | HEAD : `<sha>` | Verdict : **EXECUTE plan-as-is**
 
+## Memory consultation (Step 1.5)
+- feedback_approach.md : <contrainte pertinente ou N/A>
+- <zone-specific>.md : <contrainte ou N/A>
+
 ## Scans (all clean)
 - S1 SOTA : <N> libs scannees, 0 delta — clean
 - S2 historiques : <N> fichiers, <N> commits scannes — clean
@@ -342,6 +370,11 @@ Proceder code phase {X}.
 Date : YYYY-MM-DD
 HEAD : <git rev-parse --short HEAD>
 Verdict : EXECUTE plan-as-is | SCOPE-CUT-CONSISTENT
+
+## Memory consultation (Step 1.5)
+- feedback_approach.md : <contrainte pertinente>
+- <zone-specific>.md : <contrainte ou N/A>
+- Tensions plan vs memory : aucune | <description>
 
 ## Scans
 

@@ -38,6 +38,33 @@ Complete la couche 2 du process tooling (cf. `docs/claude/TOOLING.md`).
    - Delta tests attendus (plan.md §Phase X critere d'acceptation)
 3. Lire `docs/claude/README.md` §4.3 pour la commande exacte §7.4 verification
 
+### Step 1.5 — Memory consultation (avant suites)
+
+Lire `MEMORY.md` (index) et charger les memories pertinentes pour
+la zone fonctionnelle de la phase. L'objectif : calibrer la review
+contre les contraintes documentees dans la memory.
+
+**Toujours lire** :
+- `feedback_approach.md` — "pick deepest technical option", "no
+  band-aid". Si la phase choisit une solution courte-vue alors
+  qu'une alternative plus auditee/type-safe/FIPS existe et n'est
+  pas rejetee dans le plan → P1.
+
+**Lire si la phase touche la zone** :
+- kudos / fairness → `fairness_vision.md` (Matthew effect,
+  non-monetary) + `feedback_kudos_non_monetary.md` (interdit
+  cost/deposit/stake patterns)
+- governance / modele → `vision_model.md` (OpenBSD pattern, pas
+  startup/funding)
+- deploy / crypto → `sprint14_keyoxide_decision.md` (from-source)
+- lib externe → `feedback_context7_systematic.md` (context7
+  obligatoire avant code)
+
+**Mecanisme** : noter dans le rapport review §Memory consultation
+les contraintes verifiees et leur statut (respecte / viole / N/A).
+Violation memory = P1 bloquant (la memory capture des decisions
+utilisateur explicites).
+
 ### Step 1bis — Pre-flight staging coherence check
 
 Avant les suites §7.4, verifier que le working tree est prepare
