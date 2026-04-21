@@ -396,6 +396,20 @@ nonzero_ext = "0.3"
 # path ; no runtime/nvrtc needed.
 cudarc = { version = "0.12", default-features = false, features = ["driver", "cuda-12060"] }
 
+# Sprint 24 Phase E : DNS-based DHT fallback (DoH RFC 8484 + DoT
+# RFC 7858). When pkarr relay quorum (Sprint 19) returns AllFailed,
+# the browse aggregator falls back to encrypted DNS resolution via
+# hickory-resolver (formerly trust-dns-resolver). Mature crate
+# (4.4k stars, Apache-2.0), tokio-native async, DoH + DoT + DNSSEC
+# support. RustSec scan 2026-04-21 : zero active advisories.
+# `dns-over-https-rustls` and `dns-over-rustls` use the rustls TLS
+# backend already pulled transitively by the iroh 0.97 stack — no
+# new TLS backend added to the binary.
+hickory-resolver = { version = "0.24", features = [
+    "dns-over-https-rustls",
+    "dns-over-rustls",
+] }
+
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto
 # attestation (Sprint 18 Phase B). Two builds of the same commit

@@ -39,6 +39,7 @@ pub mod crypto;
 pub mod curator;
 pub mod dht_quorum;
 pub mod discovery;
+pub mod dns_fallback;
 pub mod docs;
 pub mod error;
 pub mod gossip;
@@ -77,6 +78,12 @@ pub use curator::{
 };
 pub use dht_quorum::{redundant_resolve, QuorumError, QuorumRecord, QuorumResolver};
 pub use discovery::{DiscoveryClient, NodeAddrInfo};
+pub use dns_fallback::{
+    concat_txt_strings, load_dns_fallback_from_env, DnsEndpoint, DnsFallbackConfig,
+    DnsFallbackResolve, DnsFallbackResolver, DEFAULT_DNS_TIMEOUT, DEFAULT_DOMAIN_SUFFIX,
+    DNS_FALLBACK_DOMAIN_ENV, DNS_FALLBACK_ENABLED_ENV, DOH_CLOUDFLARE_IP, DOH_CLOUDFLARE_TLS_NAME,
+    DOH_GOOGLE_IP, DOH_GOOGLE_TLS_NAME, DOH_PORT, DOT_PORT,
+};
 pub use docs::{DocHandle, DocsClient};
 pub use error::{NexusError, Result};
 pub use gossip::{

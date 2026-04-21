@@ -118,6 +118,11 @@ zeroize = { workspace = true }
 # workspace comment for why we pin 0.8.21 (ollama-rs 0.2.6 peers).
 schemars = { workspace = true }
 
+# Sprint 24 Phase E : DNS-based DHT fallback (DoH + DoT) via
+# hickory-resolver. The DnsFallbackResolver queries encrypted DNS
+# when pkarr relays are unreachable. See `src/dns_fallback.rs`.
+hickory-resolver = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -41,7 +41,8 @@ use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
 use nexus_core_rs::{
-    redundant_resolve, CuratorListEntry, DiscoveryClient, Node, QuorumError, QuorumResolver,
+    redundant_resolve, CuratorListEntry, DiscoveryClient, DnsFallbackResolve, Node, QuorumError,
+    QuorumResolver,
 };
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
@@ -245,6 +246,12 @@ pub struct BrowseAggregator {
     /// [`nexus_core_rs::redundant_resolve`]. Ignored when
     /// `quorum_resolvers` is `None`.
     quorum_per_lookup_timeout: Duration,
+    /// Sprint 24 Phase E : optional DNS fallback resolver. When
+    /// the pkarr quorum returns `AllFailed` (all relays unreachable),
+    /// the aggregator tries DNS (DoH/DoT) before marking the peer
+    /// `Unreachable`. `NoMajority` (eclipse signal) is NOT
+    /// overridden — DNS fallback only covers connectivity failures.
+    dns_fallback: Option<Arc<dyn DnsFallbackResolve>>,
 }
 
 impl fmt::Debug for BrowseAggregator {
@@ -263,6 +270,10 @@ impl fmt::Debug for BrowseAggregator {
                 &self.quorum_resolvers.as_ref().map(|v| v.len()).unwrap_or(0),
             )
             .field("quorum_per_lookup_timeout", &self.quorum_per_lookup_timeout)
+            .field(
+                "dns_fallback",
+                &self.dns_fallback.as_ref().map(|f| f.label()),
+            )
             .finish()
     }
 }
@@ -286,6 +297,7 @@ impl BrowseAggregator {
             probe_timeout,
             quorum_resolvers: None,
             quorum_per_lookup_timeout: DEFAULT_QUORUM_LOOKUP_TIMEOUT,
+            dns_fallback: None,
         }
     }
 
@@ -305,6 +317,14 @@ impl BrowseAggregator {
     /// run as unanimity-quorum (weaker defence but functional).
     pub fn with_quorum_resolvers(mut self, resolvers: Vec<Arc<dyn QuorumResolver>>) -> Self {
         self.quorum_resolvers = Some(Arc::new(resolvers));
+        self
+    }
+
+    /// Sprint 24 Phase E : attach a DNS fallback resolver. When
+    /// the pkarr quorum returns `AllFailed`, the aggregator tries
+    /// DNS (DoH/DoT) before marking the peer `Unreachable`.
+    pub fn with_dns_fallback(mut self, fallback: Arc<dyn DnsFallbackResolve>) -> Self {
+        self.dns_fallback = Some(fallback);
         self
     }
 
@@ -394,12 +414,35 @@ impl BrowseAggregator {
                         return self.record_unreachable(project_id_hex);
                     }
                     Err(QuorumError::AllFailed { count }) => {
-                        warn!(
-                            project_id = %project_id_hex,
-                            count,
-                            "all pkarr quorum resolvers failed — marking Unreachable without dial"
-                        );
-                        return self.record_unreachable(project_id_hex);
+                        if let Some(dns) = self.dns_fallback.as_ref() {
+                            match dns.resolve_node(project_id_hex).await {
+                                Ok(bytes) => {
+                                    debug!(
+                                        project_id = %project_id_hex,
+                                        dns_label = %dns.label(),
+                                        bytes = bytes.len(),
+                                        pkarr_failed = count,
+                                        "pkarr quorum AllFailed but DNS fallback resolved — proceeding to probe"
+                                    );
+                                }
+                                Err(dns_err) => {
+                                    warn!(
+                                        project_id = %project_id_hex,
+                                        pkarr_failed = count,
+                                        dns_error = %dns_err,
+                                        "pkarr quorum AllFailed and DNS fallback also failed — marking Unreachable"
+                                    );
+                                    return self.record_unreachable(project_id_hex);
+                                }
+                            }
+                        } else {
+                            warn!(
+                                project_id = %project_id_hex,
+                                count,
+                                "all pkarr quorum resolvers failed — marking Unreachable without dial"
+                            );
+                            return self.record_unreachable(project_id_hex);
+                        }
                     }
                     Err(QuorumError::Empty) => {
                         // Unreachable in practice because we already
@@ -1084,7 +1127,42 @@ mod tests {
     // ---------------------------------------------------------
 
     use async_trait::async_trait;
+    use nexus_core_rs::DnsFallbackResolve;
     use std::sync::Mutex;
+
+    /// Minimal mock DNS fallback resolver for Sprint 24 Phase E tests.
+    struct DnsFallbackMock {
+        response: Mutex<Option<anyhow::Result<Vec<u8>>>>,
+    }
+
+    impl DnsFallbackMock {
+        fn ok(data: &[u8]) -> Arc<dyn DnsFallbackResolve> {
+            Arc::new(Self {
+                response: Mutex::new(Some(Ok(data.to_vec()))),
+            })
+        }
+
+        fn fail(msg: &str) -> Arc<dyn DnsFallbackResolve> {
+            Arc::new(Self {
+                response: Mutex::new(Some(Err(anyhow::anyhow!("{}", msg)))),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl DnsFallbackResolve for DnsFallbackMock {
+        fn label(&self) -> &str {
+            "mock-dns-fallback"
+        }
+
+        async fn resolve_node(&self, _node_id_hex: &str) -> anyhow::Result<Vec<u8>> {
+            self.response
+                .lock()
+                .unwrap()
+                .take()
+                .expect("DnsFallbackMock consumed twice — use a fresh one per test")
+        }
+    }
 
     /// Minimal mock resolver for the Phase A canary tests. We
     /// cannot reuse `dht_quorum::tests::MockResolver` because
@@ -1289,6 +1367,93 @@ mod tests {
 
         node.shutdown().await.ok();
     }
+
+    // ---------------------------------------------------------
+    // Sprint 24 Phase E — DNS fallback integration
+    // ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn probe_dns_fallback_resolves_on_quorum_all_failed() {
+        // Scenario: all 3 pkarr quorum resolvers fail, but DNS
+        // fallback returns data → the aggregator must fall through
+        // to probe_reachable (not short-circuit to Unreachable).
+        // A random node_id will still probe as Unreachable through
+        // the iroh discovery path, but the discriminating signal is
+        // wall-clock elapsed > 3 ms (same reasoning as the
+        // probe_and_cache_with_quorum_majority_continues_to_dial
+        // test above): if DNS fallback properly falls through, the
+        // probe path fires; if it short-circuits, elapsed < 1 ms.
+        let resolvers: Vec<Arc<dyn QuorumResolver>> = vec![
+            QuorumMock::fail("r1", "timeout"),
+            QuorumMock::fail("r2", "timeout"),
+            QuorumMock::fail("r3", "timeout"),
+        ];
+        let dns = DnsFallbackMock::ok(b"pkarr-signed-packet-bytes");
+        let agg = BrowseAggregator::with_durations(DEFAULT_PROBE_TTL, Duration::from_millis(100))
+            .with_quorum_resolvers(resolvers)
+            .with_dns_fallback(dns);
+
+        let node = spawn_node().await;
+        let unknown_id = "e".repeat(64);
+
+        let start = std::time::Instant::now();
+        let (status, _ts) = agg.probe_and_cache(&node, &unknown_id).await;
+        let elapsed = start.elapsed();
+
+        // The probe fires (DNS fallback green-lit it), but the
+        // peer is random/unknown so it probes as Unreachable.
+        assert_eq!(status, BrowseStatus::Unreachable);
+        assert!(
+            elapsed >= Duration::from_millis(3),
+            "DNS fallback must let probe_reachable run after AllFailed, got {elapsed:?}"
+        );
+
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn probe_dns_fallback_fails_marks_unreachable() {
+        // Scenario: all 3 pkarr resolvers fail AND DNS fallback
+        // also fails → Unreachable without probe. Must complete
+        // in < 1 s (no dial attempt).
+        let resolvers: Vec<Arc<dyn QuorumResolver>> = vec![
+            QuorumMock::fail("r1", "timeout"),
+            QuorumMock::fail("r2", "timeout"),
+            QuorumMock::fail("r3", "timeout"),
+        ];
+        let dns = DnsFallbackMock::fail("NXDOMAIN");
+        let agg = BrowseAggregator::new()
+            .with_quorum_resolvers(resolvers)
+            .with_dns_fallback(dns);
+
+        let node = spawn_node().await;
+        let unknown_id = "f".repeat(64);
+
+        let start = std::time::Instant::now();
+        let (status, _ts) = agg.probe_and_cache(&node, &unknown_id).await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            status,
+            BrowseStatus::Unreachable,
+            "pkarr AllFailed + DNS fail must cache Unreachable"
+        );
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "probe must be skipped when both pkarr and DNS fail, got {elapsed:?}"
+        );
+        assert_eq!(
+            agg.cached(&unknown_id),
+            Some(BrowseStatus::Unreachable),
+            "Unreachable must be written to cache"
+        );
+
+        node.shutdown().await.ok();
+    }
+
+    // ---------------------------------------------------------
+    // E-1 — probe_timeout_from_env
+    // ---------------------------------------------------------
 
     #[test]
     fn probe_timeout_env_override_parses_valid_ms() {
