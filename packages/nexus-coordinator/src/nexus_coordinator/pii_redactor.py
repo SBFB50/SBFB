@@ -414,6 +414,52 @@ class PiiRedactor:
         return rewritten
 
 
+class PiiInputGuardrail:
+    """Guardrail adapter wrapping :class:`PiiRedactor`.
+
+    Always passes (redaction is a mutation, never a tripwire).
+    Implements the ``Guardrail`` ABC from ``nexus_coordinator.guardrails``.
+    """
+
+    def __init__(self, redactor: PiiRedactor) -> None:
+        self._redactor = redactor
+
+    @property
+    def name(self) -> str:
+        return "pii_input"
+
+    @property
+    def direction(self) -> str:
+        return "input"
+
+    async def check(self, ctx: object, value: str) -> object:
+        from nexus_coordinator.guardrails import GuardrailOutcome
+
+        redacted = self._redactor.redact(value)
+        mutated = redacted if redacted != value else None
+        return GuardrailOutcome(
+            passed=True,
+            tripwire=False,
+            guardrail_name=self.name,
+            evidence={"redacted": mutated is not None},
+            mutated_value=mutated,
+        )
+
+    async def on_tripwire(self, ctx: object, outcome: object) -> None:
+        pass
+
+
+# Register as Guardrail subclass so isinstance checks work.
+# Import deferred to avoid circular dependency at module load time.
+def _register_pii_guardrail() -> None:
+    from nexus_coordinator.guardrails import Guardrail
+
+    Guardrail.register(PiiInputGuardrail)
+
+
+_register_pii_guardrail()
+
+
 def _dedupe_spans(spans: list[_Span]) -> list[_Span]:
     """Fusionne les spans chevauchants en gardant le plus large
     (ou le plus confiant en cas d'egalité)."""

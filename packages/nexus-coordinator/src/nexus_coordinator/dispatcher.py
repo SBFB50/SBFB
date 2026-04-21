@@ -36,6 +36,7 @@ import nexus_core
 import structlog
 
 from nexus_coordinator.db.migrations import init_db
+from nexus_coordinator.guardrails import GuardrailChain, GuardrailContext
 from nexus_coordinator.pii_redactor import PiiRedactor
 
 _log = structlog.get_logger(__name__)
@@ -105,6 +106,7 @@ class Dispatcher:
         coord_secret: bytes,
         pii_redactor: PiiRedactor | None = None,
         redundancy_dispatcher: Any | None = None,  # RedundancyDispatcher
+        input_chain: GuardrailChain | None = None,
     ) -> None:
         self._db_path = db_path
         self._doc = doc
@@ -112,6 +114,7 @@ class Dispatcher:
         self._coord_secret = coord_secret
         self._pii_redactor = pii_redactor
         self._redundancy_dispatcher = redundancy_dispatcher
+        self._input_chain = input_chain
 
     async def init(self) -> None:
         """Ensure the DB schema exists. Call once at coordinator start."""
@@ -142,11 +145,15 @@ class Dispatcher:
             return task_id
 
         now = int(time.time())
-        # Sprint 21 phase coord-side layer 2 PII redaction hook —
-        # applique AVANT la signature + iroh-docs write. Le
-        # SubmitRequest original reste intact (le caller peut
-        # l'avoir construit pour d'autres dérivations côté API).
-        if self._pii_redactor is not None:
+        if self._input_chain is not None:
+            ctx = GuardrailContext(
+                task_id=task_id,
+                system_prompt=req.system_prompt,
+                user_prompt=req.prompt,
+            )
+            prompt_for_wire = await self._input_chain.run(ctx, req.prompt)
+            system_prompt_for_wire = await self._input_chain.run(ctx, req.system_prompt)
+        elif self._pii_redactor is not None:
             prompt_for_wire = self._pii_redactor.redact(req.prompt)
             system_prompt_for_wire = self._pii_redactor.redact(req.system_prompt)
         else:

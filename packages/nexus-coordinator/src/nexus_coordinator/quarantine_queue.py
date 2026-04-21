@@ -299,4 +299,61 @@ class QuarantineQueue:
         return deleted
 
 
-__all__ = ["QuarantineQueue"]
+class QuarantineGuardrail:
+    """Guardrail adapter wrapping :class:`QuarantineQueue`.
+
+    Trips when ``condition(ctx, value)`` returns True. The actual
+    enqueue into the SQLite queue is the coordinator's responsibility
+    (catches :class:`~nexus_coordinator.guardrails.OutputTripwire`
+    and calls :meth:`QuarantineQueue.add` with the full gossip context).
+
+    Implements the ``Guardrail`` ABC from ``nexus_coordinator.guardrails``.
+    """
+
+    def __init__(
+        self,
+        queue: QuarantineQueue | None = None,
+        *,
+        condition: Callable[[Any, str], bool] | None = None,
+    ) -> None:
+        self._queue = queue
+        self._condition: Callable[[Any, str], bool] = condition if condition is not None else (lambda _c, _v: False)
+
+    @property
+    def name(self) -> str:
+        return "quarantine"
+
+    @property
+    def direction(self) -> str:
+        return "output"
+
+    async def check(self, ctx: Any, value: str) -> Any:
+        from nexus_coordinator.guardrails import GuardrailOutcome
+
+        if self._condition(ctx, value):
+            return GuardrailOutcome(
+                passed=False,
+                tripwire=True,
+                guardrail_name=self.name,
+                evidence={"task_id": getattr(ctx, "task_id", "")},
+            )
+        return GuardrailOutcome(
+            passed=True,
+            tripwire=False,
+            guardrail_name=self.name,
+        )
+
+    async def on_tripwire(self, ctx: Any, outcome: Any) -> None:
+        _log.info("quarantine_guardrail_tripwire", task_id=getattr(ctx, "task_id", ""))
+
+
+def _register_quarantine_guardrail() -> None:
+    from nexus_coordinator.guardrails import Guardrail
+
+    Guardrail.register(QuarantineGuardrail)
+
+
+_register_quarantine_guardrail()
+
+
+__all__ = ["QuarantineGuardrail", "QuarantineQueue"]

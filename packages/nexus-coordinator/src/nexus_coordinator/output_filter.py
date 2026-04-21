@@ -341,9 +341,57 @@ class OutputFilter:
         )
 
 
+class OutputSafetyGuardrail:
+    """Guardrail adapter wrapping :class:`OutputFilter`.
+
+    Tripwires when the filter verdict is invalid (invisible text or
+    prompt echo detected). Implements the ``Guardrail`` ABC from
+    ``nexus_coordinator.guardrails``.
+    """
+
+    def __init__(self, output_filter: OutputFilter) -> None:
+        self._filter = output_filter
+
+    @property
+    def name(self) -> str:
+        return "output_safety"
+
+    @property
+    def direction(self) -> str:
+        return "output"
+
+    async def check(self, ctx: object, value: str) -> object:
+        from nexus_coordinator.guardrails import GuardrailOutcome
+
+        verdict = self._filter.filter(
+            getattr(ctx, "system_prompt", ""),
+            getattr(ctx, "user_prompt", ""),
+            value,
+        )
+        return GuardrailOutcome(
+            passed=verdict.is_valid,
+            tripwire=not verdict.is_valid,
+            guardrail_name=self.name,
+            evidence={"reason": verdict.reason, "risk_score": verdict.risk_score},
+        )
+
+    async def on_tripwire(self, ctx: object, outcome: object) -> None:
+        pass
+
+
+def _register_output_guardrail() -> None:
+    from nexus_coordinator.guardrails import Guardrail
+
+    Guardrail.register(OutputSafetyGuardrail)
+
+
+_register_output_guardrail()
+
+
 __all__ = [
     "FilterVerdict",
     "OutputFilter",
     "OutputFilterPolicy",
+    "OutputSafetyGuardrail",
     "scan_invisible_text",
 ]

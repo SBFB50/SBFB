@@ -707,18 +707,73 @@ their own set instead of the seed list.
 """
 
 
+class CanaryInputGuardrail:
+    """Guardrail adapter wrapping :class:`CanaryInputInjector`.
+
+    Sampling-based canary injection: ``should_inject()`` fires 1/N,
+    at which point ``next_prompt()`` replaces the original value
+    via ``mutated_value``. Never tripwires (observational only).
+
+    Implements the ``Guardrail`` ABC from ``nexus_coordinator.guardrails``.
+    """
+
+    def __init__(self, injector: CanaryInputInjector) -> None:
+        self._injector = injector
+
+    @property
+    def name(self) -> str:
+        return "canary_input"
+
+    @property
+    def direction(self) -> str:
+        return "input"
+
+    async def check(self, ctx: object, value: str) -> object:
+        from nexus_coordinator.guardrails import GuardrailOutcome
+
+        if self._injector.should_inject():
+            probe = self._injector.next_prompt()
+            if probe is not None:
+                return GuardrailOutcome(
+                    passed=True,
+                    tripwire=False,
+                    guardrail_name=self.name,
+                    evidence={"injected": True, "prompt_id": probe.prompt_id},
+                    mutated_value=probe.prompt,
+                )
+        return GuardrailOutcome(
+            passed=True,
+            tripwire=False,
+            guardrail_name=self.name,
+            evidence={"injected": False},
+        )
+
+    async def on_tripwire(self, ctx: object, outcome: object) -> None:
+        pass
+
+
+def _register_canary_guardrail() -> None:
+    from nexus_coordinator.guardrails import Guardrail
+
+    Guardrail.register(CanaryInputGuardrail)
+
+
+_register_canary_guardrail()
+
+
 __all__ = [
     "CANARY_INPUT_SET_VERSION",
-    "DEFAULT_INJECT_RATE",
-    "DEFAULT_ROTATION_FREQUENCY_DAYS",
-    "DEFAULT_SEED_PROMPTS",
-    "DEFAULT_TOLERANCE",
+    "CanaryInputGuardrail",
     "CanaryInputInjector",
     "CanaryInputManager",
     "CanaryInputObserver",
     "CanaryInputPolicy",
     "CanaryInputSet",
     "CanaryPrompt",
+    "DEFAULT_INJECT_RATE",
+    "DEFAULT_ROTATION_FREQUENCY_DAYS",
+    "DEFAULT_SEED_PROMPTS",
+    "DEFAULT_TOLERANCE",
     "DivergenceRecord",
     "build_canary_input_set",
     "load_canary_input_set",

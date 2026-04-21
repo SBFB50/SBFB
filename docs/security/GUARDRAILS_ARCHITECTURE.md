@@ -1,7 +1,7 @@
 ---
 written: 2026-04-20  # S22 hors-sprint post Phase B `e9530c2`
 last_validated: 2026-04-20
-status: design-only (implementation S23 amendement HARDENING §3 S23 "guardrails refactor" item net-new)
+status: implemented (S24 Phase B `feat(sprint24)` — ABC + GuardrailChain + 4 adapters + dispatcher integration)
 triggers_revalidate:
   - "openai-agents-python release > 0.7.0 (GuardrailFunctionOutput API breaking)"
   - "Nouveau checker PII/output/canary introduit hors pattern (drift ad-hoc)"
@@ -65,6 +65,17 @@ composition déclarative, pas d'exception typée par type de tripwire.
 - **Observability native** : chaque `Guardrail.check()` émet hook
   (A1 consumer S24) + trace span (A2 consumer S29) = visibilité
   end-to-end auditeur externe.
+
+### 1.3 Comparative analysis — alternatives considérées
+
+| Framework | Pattern | Adapté SBFB ? | Raison |
+|---|---|---|---|
+| openai-agents-python v0.14.3 | `@input_guardrail` / tripwire decorator | **Oui (retenu)** | ABC simple, outcome typé, short-circuit explicite, pipeline ordonné |
+| LangChain callback hooks | State graph middleware (`next()` cascade) | Non | Architecture state-graph, inadaptée à notre dispatcher linéaire ; ordre implicite, error handling complexe |
+| NeMo Guardrails (Colang DSL) | Domain-specific language | Non | Over-engineered pour 4 primitives connues ; runtime DSL lourd, courbe d'apprentissage |
+| Guardrails AI (Guard) | Pipeline structurellement similaire | Structurellement confirmé | Confirme le pattern GuardrailChain, mais wrapper OpenAI-spécifique ; notre implem. reste agnostique |
+
+(G1 review finding D1-G1-1 acknowledged — cf. `sprint24_kickoff.md §4.5`)
 
 ## 2. Contrat `Guardrail`
 
