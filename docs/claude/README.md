@@ -1386,33 +1386,24 @@ EXÉCUTE sans demander. Demander = friction inutile + signal que tu
 n'as pas lu §6 conventions.
 
 EXÉCUTER directement (ne pas demander) :
-  - working tree audit montre CRAFT/DEBT → commit chore(planning|
-    skill|debt) AVANT phase
+  - working tree montre docs planning/skills modifiés hors phase →
+    commit chore(planning|skill) AVANT phase
   - plan §Phase X explicite + audit-gate précédent PASS + G8
-    verdict EXECUTE plan-as-is OU SCOPE-CUT-CONSISTENT → enchaîner
-    Phase X (carry doc en parallèle si SCOPE-CUT-CONSISTENT)
-  - NOISE + pattern couvrable .gitignore → ajouter pattern dans le
-    commit chore (pas un commit séparé)
+    verdict EXECUTE OU SCOPE-CUT-CONSISTENT → enchaîner Phase X
+  - fichiers accidentels (cache, build) + pattern .gitignore évident
+    → ajouter pattern dans le commit chore
   - cas A audit gate, P0/P1 trouvés → écrire fix(sprint{N-1}): ...
-    direct (sans demander quel ordre)
 
 DEMANDER (STOP) seulement si :
-  - NOISE + pattern nouveau ambigu (ex: cc.json, doc untracked
-    hors-scope sprint) → où l'archiver ?
-  - Décision Day-0 ambiguë (D1..D5 plusieurs options techniquement
-    viables après research) → arbitrage utilisateur
+  - fichier untracked ambigu (ex: cc.json, doc hors-scope)
+  - Décision Day-0 ambiguë (D1..D5 viables après research)
   - Audit-gate verdict FAIL ou >=3 P1 → re-conception requise
-  - Désaccord entre plan §Phase X et état réel du code (drift) →
-    valider l'ordre de remédiation
-  - G8 verdict DESIGN-CONFLICT → STOP, présenter
-    sprint{N}_phase_{X}_pivot_proposal.md, attendre arbitrage
-    utilisateur sur option A/B/C avant écriture code
+  - Désaccord plan §Phase X vs état réel du code (drift)
+  - G8 verdict DESIGN-CONFLICT → présenter pivot_proposal, attendre
+    arbitrage utilisateur sur option A/B/C
 
-Anti-pattern explicite à éviter : "tu confirmes que je commit
-chore(planning) d'abord ou je lance Phase E ?" — la procédure répond,
-pas l'utilisateur. Symétrique pour G8 : "tu confirmes que je lance
-les 4 scans factuels ?" — non, c'est procédure obligatoire pre-phase
-sans confirmation.
+Anti-pattern : "tu confirmes que je commit chore(planning) d'abord ?"
+— la procédure répond, pas l'utilisateur.
 
 # === Pre-flight (un seul copy-paste, lis tout l'output) ===
 
@@ -1601,24 +1592,7 @@ Avant d'écrire du code :
   1. Résume en 5-10 lignes : cas détecté, dernier tip master,
      compteurs tests memory vs réel, ce que tu t'apprêtes à faire
   2. **N'attend PAS confirmation** quand le cas est procéduralement
-     déterminé. Procédures qui s'exécutent sans demander :
-     - Cas B + working tree audit montre CRAFT/DEBT → commit
-       `chore(planning|skill|debt)` AVANT phase, **automatique**
-     - Cas B + G8 verdict EXECUTE plan-as-is OU SCOPE-CUT-CONSISTENT
-       + audit-gate précédent PASS → enchaîner Phase X, **automatique**
-     - Cas B + NOISE détecté + pattern déjà couvrable .gitignore
-       → ajouter pattern dans le commit chore, **automatique**
-     - Cas B + G8 4 scans factuels (S1-S4) → **automatique** pre-phase,
-       pas de question "je lance G8 ?"
-     - NOISE + pattern nouveau non-trivial → STOP et demander
-     - Décision Day-0 ambiguë (D1..D5 multiple options viables) → STOP
-     - Findings P0/P1 audit-gate → STOP et discuter
-     - G8 verdict DESIGN-CONFLICT → STOP, présenter pivot_proposal,
-       attendre arbitrage utilisateur sur option A/B/C
-     **Anti-pattern** : "tu confirmes que je commit chore(planning)
-     d'abord ou je lance Phase E ?" → la procédure répond, pas
-     l'utilisateur. Demander = friction inutile + signal que l'agent
-     n'a pas lu §6 conventions.
+     déterminé. Mêmes règles que §Principe d'autonomie ci-dessus.
   3. Respecte les D1..D5 figées et les scope cuts du sprint
      courant — ne rebats pas (G8 peut PROPOSER une remise en
      question Day 0 mais ne tranche jamais)
