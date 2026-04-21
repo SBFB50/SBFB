@@ -168,7 +168,7 @@ Checker :
 3. **Fichiers touches** listes avec rationale (pas juste la liste)
 4. **Delta tests cumule** coherent avec Step 3
 5. **Scope cuts honoured** liste copiee du kickoff §6
-6. **Co-Authored-By: Claude <model_name> (1M context)** present — la ligne doit matcher le modèle utilisé pour la session (grep `CLAUDE_MODEL` env ou défaut actuel `Claude Opus 4.7`). Les archives pré-Sprint 20 sont restées sur `4.6`, les sprints ≥ S20 doivent être sur `4.7`
+6. **Co-Authored-By: Claude <model_name> (1M context)** present — la ligne doit matcher le modèle utilisé pour la session courante
 
 ### Step 4bis — Verifier research grounding via context7
 

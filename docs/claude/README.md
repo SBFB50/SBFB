@@ -45,7 +45,7 @@ l'agent n'a pas de mémoire entre sessions.
 
 Les piliers du système :
 
-1. **Roadmap multi-sprint** — Sprint 0 à Sprint 11+, chaque
+1. **Roadmap multi-sprint** — Sprint 0 à Sprint 23+, chaque
    sprint a un scope défini dans la memory
    `nexus_grid_pivot.md`
 2. **Découpage en phases** — chaque sprint est 4 à 6 phases
@@ -628,8 +628,8 @@ déclenche un nouveau cycle.
 **Fix P2-S21-4 Sprint 22 Phase F.** Avant Sprint 22, le wrap-up
 Phase F écrivait `sprint{N}_verification.md` + `sprint{N}_audit
 _plan.md` mais ne parsait pas systématiquement chaque
-`sprint{N}_phase_[A-F]_review.md` produit par le hook
-`phase-auditor-gate.sh` pré-commit. Conséquence : les findings
+`sprint{N}_phase_[A-F]_review.md` produit par l'agent
+`nexus-phase-auditor` pré-commit. Conséquence : les findings
 P2/P3 documentés par l'auditeur de phase pouvaient rester
 orphelins (jamais ré-injectés dans l'audit gate du sprint
 suivant).
@@ -670,8 +670,8 @@ même pattern à fermer S23 chore planning).
 
 ## 5. Memory system externe
 
-Cinq fichiers persistés hors repo, lus par chaque session
-fraîche au démarrage :
+Fichiers persistés hors repo, lus par chaque session fraîche
+au démarrage (index dans `MEMORY.md`, fichiers dédiés par topic) :
 
 ```
 C:\Users\FlowUP\.claude\projects\C--Users-FlowUP-Documents-Code-nexus\memory\
@@ -730,11 +730,8 @@ fichier) :
 4. **Après chaque commit `feat(sprintN): Phase X`**, l'agent met à
    jour `nexus_grid_pivot.md` §Tip (description textuelle : phases
    livrées, compteurs tests réels, carries P2+, prochaine phase) ET
-   la ligne correspondante dans `MEMORY.md`. Le hook post-commit ne
-   met à jour que le SHA — le texte descriptif est la responsabilité
-   de l'agent, **avant de rendre la main à l'utilisateur**. Séquence
-   post-commit complète : (1) commit feat → (2) update memory →
-   (3) résumé utilisateur.
+   la ligne correspondante dans `MEMORY.md`. Séquence post-commit :
+   (1) commit feat → (2) update memory → (3) résumé utilisateur.
 
 **Pas de** `last_session_findings.md` mergé auto : merge conflicts
 garantis + pollution graduelle de noise.
@@ -1081,7 +1078,7 @@ vulnérabilité que S18 fermait.
 
 **Diagnostic** : entre le sprint kickoff (où G1 Design Review et G2
 triggers_revalidate filtrent les drifts) et le code-time (où le hook
-working tree audit catch les fuites de scope), il y a un trou. Le
+lightcheck catch les erreurs de staging), il y a un trou. Le
 plan §Phase X peut avoir été écrit 3-5 sprints avant son exécution,
 sur une compréhension partielle de l'historique. Personne ne re-grep
 systématiquement les décisions intermédiaires entre plan-time et
@@ -1624,7 +1621,7 @@ Tests : <suites + delta>
 
 Refs : .planning/active/sprint{N-1}_audit_findings.md §{ID}
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 
 **Cas B — feat (Phase X du sprint en cours)** :
@@ -1643,7 +1640,7 @@ Delta tests cumulé :
   Playwright     : NN -> NN (+X)
 Scope cuts honoured : <items NOT, copie du kickoff §6>
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 
 **Cas C — docs (planning d'ouverture sprint)** :
@@ -1661,7 +1658,7 @@ Phases prévues :
   B — <titre>
   ...
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 
 **Cas C — docs (clôture sprint, sortie Phase E)** :
@@ -1677,7 +1674,7 @@ Tip d'entrée : {SHA}
 Tip de sortie : {SHA}
 Commit stack : {N commits feat/test} + ce commit docs
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 
 **Cas D — hotfix hors sprint** :
@@ -1690,7 +1687,7 @@ Root cause : <diagnostic>
 Fix : <ce qui change>
 Tests : <validation>
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 
 ### 7.3 Détection version cible (Cas C uniquement)
