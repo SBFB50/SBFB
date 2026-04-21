@@ -306,11 +306,10 @@ Produire un rapport markdown concis :
 
 (Rigor signal : N findings P2+ documentes / >=1 requis pour PASS rigoureux)
 
-## Working tree audit (Step 1bis)
-- PHASE : <count> fichiers <list>
-- CRAFT : <count> fichiers <list> (split commit `chore(planning)` requis ?)
-- DEBT : <count> fichiers <list> (stash ou commit separe ?)
-- NOISE : <count> fichiers <list> (BLOQUANT si >0)
+## Staging check (Step 1bis)
+- Phase fichiers : <count> <list>
+- Planning/docs split : chore(planning) fait ? oui/non/N/A
+- Untracked accidentels : 0
 
 ## Suites
 - Rust : 430 -> 437 (+7) ✅
@@ -320,7 +319,6 @@ Produire un rapport markdown concis :
 
 ## Commit body validation
 - Format titre : ✅ "feat(sprint18): Sprint 18 Phase B — reproducible builds"
-- Section "Working tree audit" presente : ✅ / ❌
 - Delta tests coherent : ✅
 - Scope cuts honoured : ✅
 - Co-Authored-By present : ✅

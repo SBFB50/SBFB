@@ -14,18 +14,16 @@ discussions session de [`memory/`](../../../memory/) correspondantes.
 
 ---
 
-## 1. Vue d'ensemble — 5 couches de qualite
+## 1. Vue d'ensemble — 3 couches actives
 
-Le process empile 5 couches independantes. Chacune catch une classe
-d'erreurs differente. Tu peux activer chaque couche separement.
+Le process empile 3 couches actives. Chacune catch une classe
+d'erreurs differente.
 
 | # | Couche | Moment | Outil principal |
 |---|---|---|---|
 | 1 | Garde-fous automatiques | PostToolUse (chaque write) | `.claude/hooks/verify-on-write.sh` + Semgrep |
 | 2 | Skills qualite specialises | Sur demande Claude | Trail of Bits skills + `nexus-phase-review` |
-| 3 | Subagent review intra-sprint | Pre-commit d'une phase | `nexus-phase-auditor` agent |
-| 4 | Multi-modele / second opinion | (non active sur nexus) | — |
-| 5 | Observability + memory hygiene | PostCommit + statusline | hooks memory + statusline enrichi |
+| 3 | Subagent review intra-sprint | Pre-commit d'une phase | `nexus-phase-auditor` agent (inconditionnel) |
 
 L'**audit gate inter-sprint** (cf. [`README.md`](README.md) §3) reste
 la couche de reference. Ce tooling la complete sans la remplacer.
@@ -44,8 +42,6 @@ la couche de reference. Ce tooling la complete sans la remplacer.
 - `cargo-nextest` installe : `cargo install cargo-nextest --locked`
   (test runner process-per-test, config [`.config/nextest.toml`](../../.config/nextest.toml),
   commandes standard cf. [`README.md`](README.md) §4.3 et §7.4)
-- `node` (pour `nexus-statusline.js`)
-
 ### 2.2 Hooks local au repo (automatique)
 
 Rien a installer. Le fichier `.claude/settings.json` est committe dans
@@ -454,120 +450,7 @@ Cf. `.planning/research/S24_process_review_2026-04-21.md §1.2`.
 
 ---
 
-## 6. Couche 5 — Observability + memory hygiene
-
-### 6.1 Post-commit memory updater
-
-**Fichier** : `.claude/hooks/post-commit-memory.sh` (committed, partage)
-
-**Role** : Git post-commit hook qui detecte les commits lies a un sprint
-(`feat|fix|docs|chore|test(sprint{N})`) et met a jour en place :
-- `memory/nexus_grid_pivot.md` frontmatter ligne `Tip \`<sha>\``
-- `memory/MEMORY.md` ligne `SBFB pivot` (si la ligne mentionne le old tip)
-
-**Ne fait pas** (volontaire, reste manuel) :
-- Update du texte riche de la description (Phase livree, nouveaux tests,
-  etc.) — le script ne fait QUE le SHA, la narration reste sous controle
-  humain
-- Ajout de lignes dans SPRINT_LOG.md
-- Any update si commit != sprint scope (chore(claude), Merge, Revert)
-
-**Idempotent** : re-run sur meme commit = no-op (old == new tip).
-
-**Fail-safe** : si memory absente (nouveau clone, CI), warning silencieux,
-exit 0. Ne bloque jamais le commit.
-
-**Installation** : une seule commande par clone :
-
-```bash
-# Depuis la racine du repo
-ln -sf "$PWD/.claude/hooks/post-commit-memory.sh" .git/hooks/post-commit
-chmod +x .git/hooks/post-commit
-
-# Ou si ln -s pose probleme sur Windows, wrapper direct :
-cat > .git/hooks/post-commit <<'EOF'
-#!/usr/bin/env bash
-exec bash "$(git rev-parse --show-toplevel)/.claude/hooks/post-commit-memory.sh"
-EOF
-chmod +x .git/hooks/post-commit
-```
-
-**Test** :
-
-```bash
-# Simuler un commit sprint sans en faire un :
-bash .claude/hooks/post-commit-memory.sh
-# Exit 0 silencieux si le commit courant n'est pas sprint scope.
-# Output "memory updated: Tip X -> Y (sprint-commit)" si c'etait
-# un sprint commit et que le tip a change.
-```
-
-**Rationale** : l'etape §7.5 de README.md dit "mettre a jour la memory
-avant de fermer la session". C'est une etape humaine oubliable. Ce hook
-la rend automatique pour la partie la plus critique (tip SHA) sans
-enlever le jugement humain sur la narration.
-
-### 6.2 Statusline enrichi
-
-**Fichier** : `.claude/hooks/nexus-statusline.js` (committed, partage)
-
-**Role** : Override project-level du statusline Claude Code qui prefixe
-le statusline GSD user-level avec le contexte sprint nexus :
-
-```
-[S18/B ⚠drift] <model> | <task> | <dirname> <context_bar>
-  │   │   │
-  │   │   └── warning jaune si memory tip != HEAD (drift)
-  │   └────── phase courante detectee depuis le dernier commit Phase X
-  └────────── sprint courant detecte depuis .planning/active/
-```
-
-**Composition** :
-- Parse `.planning/active/sprint{N}_*.md` pour extraire N
-- Grep `git log -20 --format=%s` pour trouver dernier `Phase X`
-- Compare `HEAD` vs `memory/nexus_grid_pivot.md` Tip -> flag drift
-- Delegue a `~/.claude/hooks/gsd-statusline.js` (spawnSync) pour le
-  bloc model/task/dir/context bar existant
-
-**Fallback** : si cwd n'est pas le repo nexus (absence Cargo.toml +
-crates/nexus-core-rs), output = GSD statusline brut sans prefix.
-
-**Activation** : automatique via `.claude/settings.json` du repo :
-
-```json
-"statusLine": {
-  "type": "command",
-  "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-statusline.js\""
-}
-```
-
-Claude Code fusionne les settings user + project, avec project qui
-override sur les champs scalaires. Donc quand tu ouvres nexus, le
-statusline bascule auto sur nexus-statusline.js. Quand tu ouvres
-un autre projet, tu retombes sur gsd-statusline.js user-level.
-
-**Rationale** : awareness permanent du contexte sprint. Evite de
-confondre la phase courante ou de committer sans realiser qu'il y a
-un drift memory a rattraper via update manuel post-sprint (§7.5
-README.md).
-
----
-
-## 7. Couche skippee — Multi-modele / second opinion
-
-Decision utilisateur 2026-04-15 : **ne pas activer** de multi-modele
-adversarial (Claude vs GPT/Gemini) sur nexus-grid. Cout eleve (3 API
-simultanees) non justifie par le gain sur ce workflow sprint
-discipline.
-
-Alternative deja en place :
-- Audit gate session fraiche (meme modele Claude, mais sans contexte
-  historique -> effet "second opinion" natif)
-- D1..D5 figes au kickoff (force la reflexion design en amont)
-
----
-
-## 8. Quick reference — activer le tooling
+## 6. Quick reference — activer le tooling
 
 ```bash
 # 1. Ouvrir nexus avec Claude Code
@@ -596,38 +479,14 @@ fi
 
 ---
 
-## 9. Evolution
+## 7. Evolution
 
-Cette doc evolue avec chaque nouvelle couche. Historique des
-ajouts :
+**S24 process review** (`466f826`, 2026-04-21) : drop couche 4
+(multi-modele) et couche 5 (hooks memory/statusline supprimes
+en `2438c59`). Renumerate 5→3 couches actives. Drop C1-C9
+conditionnel, retour audit inconditionnel.
 
-**Session 2026-04-15** — meta-chantier process Claude Code v1
-(hors cycle Sprint 18) :
-
-| Commit | Scope | Livrable |
-|---|---|---|
-| `4f0306b` | chore(claude) | Couche 1 — hook `verify-on-write.sh` (Rust/Py/TS linter scoped) + .gitignore unignore .claude/ |
-| `8769047` | chore(claude) | .gitignore simplifie + TOOLING.md initial (5 couches) |
-| `db80335` | chore(claude) | Couche 2 — skill `nexus-phase-review` (verification §7.4 + format commit body) |
-| `9f38367` | chore(claude) | Couche 5 — hook `post-commit-memory.sh` (bump tip SHA auto sur sprint commits) |
-| `87512e9` | chore(claude) | Couche 5 — `nexus-statusline.js` enrichi (sprint/phase + drift warning) |
-| `7ea8041` | chore(claude) | Couche 1 — 4 regles Semgrep SBFB (todo macros / placeholder console / ignore without reason) |
-| `119de3a` | chore(claude) | Couche 3 — agent `nexus-phase-auditor` + hook `phase-auditor-gate.sh` (bloque Phase commit sans review PASS) |
-| `0e8d49a` | chore(claude) | Couche 1 — TDD Guard opt-in (wrapper gracieux + config ignorePatterns + 4 hooks registered) |
-| (ce commit) | chore(claude) | `scripts/install-claude-tooling.sh` idempotent + TOOLING.md §9 recap |
-
-Couche 4 (multi-modele / second opinion) **skippee** par decision
-utilisateur 2026-04-15 — cost eleve non justifie, audit gate session
-fraiche couvre le besoin.
-
-**TODO architecturales** (ouverture de nouvelles ameliorations
-quand le besoin se presentera) :
-- 5 regles Semgrep SBFB architecturales (JCS, PeerCreds, iroh pin,
-  repo_url, zip path traversal) -> a generer via
-  `trailofbits/semgrep-rule-creator` avec le code en main
-- Integration Semgrep dans `verify-on-write.sh` (scan scope au
-  fichier apres linter natif, conditionne a `semgrep` dans PATH)
-- Skill `challenge-d5` (pattern adversarial sur D1..D5 kickoff)
-  -> etape 8 originale de l'ultraplan reclassee Couche 4 skippee
-- MCP `claude-context` Zilliz (recherche semantique cross-codebase
-  71K LOC) -> etape 10 originale reclassee Couche 4 skippee
+**TODO architecturales** :
+- Semgrep rule `sbfb-canonical-bytes-jcs` (detection semantique
+  structs participant a `canonical_bytes()`)
+- Skill `challenge-d5` (pattern adversarial D1..D5 kickoff)

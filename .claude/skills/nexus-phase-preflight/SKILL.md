@@ -24,8 +24,8 @@ Complete la couche tooling (cf. `docs/claude/TOOLING.md`).
 - Tu es en Cas B (sprint en cours) et tu t'apprete a ecrire le code
   d'une phase A/B/C/D/E/F
 - AVANT le premier `Edit` ou `Write` outil sur du code de la phase
-- Avant les commits chore(planning) qui split CRAFT — non, ceux-la
-  passent par `nexus-phase-review` Step 1bis (post-code time)
+- Avant les commits chore(planning) — non, ceux-la passent par
+  `nexus-phase-review` Step 1bis (post-code time)
 - L'utilisateur dit "preflight phase X", "G8 scan", "before coding"
 
 ## Quand NE PAS l'utiliser

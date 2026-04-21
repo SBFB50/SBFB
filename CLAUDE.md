@@ -121,7 +121,7 @@ Runtime isolation roadmap dans
 ## Etat actuel
 - **Sprints 0-23 CLOSED**, v1.2 en cours. Audit gate S23 = S24
   Phase 0 (`.planning/archive/v1.2/sprint23_audit_plan.md`).
-- **~1561 tests total** (741 Rust / 185 SDK / 272+3 coord / 46
+- **~1563 tests total** (743 Rust / 185 SDK / 272+3 coord / 46
   app-gov / 264 Vitest / 43 Playwright / 7/7 size-limit / 246+
   SPDX) — tous verts (32 coord skip PyO3 wheel stale, pas
   regression).

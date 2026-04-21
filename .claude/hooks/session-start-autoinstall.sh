@@ -3,10 +3,9 @@
 # .claude/hooks/session-start-autoinstall.sh
 #
 # SessionStart hook (matcher startup|resume) qui :
-#   1. Installe automatiquement le git post-commit hook (leger, idempotent)
-#   2. Detecte les composants optionnels absents (Trail of Bits, Semgrep,
-#      TDD Guard) et les signale a Claude via additionalContext
-#   3. NE FAIT PAS d'install externe (npm/pip/cargo install) sans
+#   1. Detecte les composants optionnels absents (Trail of Bits, Semgrep)
+#      et les signale a Claude via additionalContext
+#   2. NE FAIT PAS d'install externe (npm/pip/cargo install) sans
 #      demande explicite — ces commandes peuvent etre longues ou
 #      echouer, mauvais user experience au SessionStart
 #
@@ -26,21 +25,7 @@ fi
 MARKER="$REPO_ROOT/.claude/_autoinstall_signaled.marker"
 MISSING_COMPONENTS=()
 
-# ------- 1. Git post-commit hook (auto-install, leger) -------
-POST_COMMIT_HOOK="$REPO_ROOT/.git/hooks/post-commit"
-POST_COMMIT_SOURCE="$REPO_ROOT/.claude/hooks/post-commit-memory.sh"
-
-if [ ! -f "$POST_COMMIT_HOOK" ] && [ -f "$POST_COMMIT_SOURCE" ]; then
-  cat > "$POST_COMMIT_HOOK" <<'EOF'
-#!/usr/bin/env bash
-# Auto-installed by .claude/hooks/session-start-autoinstall.sh
-exec bash "$(git rev-parse --show-toplevel)/.claude/hooks/post-commit-memory.sh"
-EOF
-  chmod +x "$POST_COMMIT_HOOK" 2>/dev/null || true
-  AUTOINSTALLED_POSTCOMMIT=1
-fi
-
-# ------- 2. Detection composants optionnels -------
+# ------- 1. Detection composants optionnels -------
 
 # jq OR python3 (pour les hooks JSON parse)
 if ! command -v jq >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
@@ -63,20 +48,13 @@ if ! command -v tdd-guard >/dev/null 2>&1; then
   :
 fi
 
-# ------- 3. Emettre additionalContext -------
-# Seulement la premiere fois par session, OU si on vient d'auto-installer
-# le git hook (pour signaler ce qu'on a fait)
+# ------- 2. Emettre additionalContext -------
 
 SHOULD_EMIT=0
-[ "${AUTOINSTALLED_POSTCOMMIT:-0}" = "1" ] && SHOULD_EMIT=1
 [ ! -f "$MARKER" ] && [ ${#MISSING_COMPONENTS[@]} -gt 0 ] && SHOULD_EMIT=1
 
 if [ "$SHOULD_EMIT" = "1" ]; then
   CTX=""
-  if [ "${AUTOINSTALLED_POSTCOMMIT:-0}" = "1" ]; then
-    CTX="[session-start] Auto-installed .git/hooks/post-commit delegator (memory tip updater active).\n"
-  fi
-
   if [ ${#MISSING_COMPONENTS[@]} -gt 0 ]; then
     CTX="${CTX}[session-start] Composants process tooling manquants (optionnels) :\n"
     for comp in "${MISSING_COMPONENTS[@]}"; do
