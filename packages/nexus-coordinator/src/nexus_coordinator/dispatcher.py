@@ -39,6 +39,7 @@ from nexus_coordinator.db.migrations import init_db
 from nexus_coordinator.guardrails import GuardrailChain, GuardrailContext
 from nexus_coordinator.hooks import HookRunner
 from nexus_coordinator.pii_redactor import PiiRedactor
+from nexus_coordinator.rerun import RerunSampler
 
 _log = structlog.get_logger(__name__)
 
@@ -109,6 +110,7 @@ class Dispatcher:
         redundancy_dispatcher: Any | None = None,  # RedundancyDispatcher
         input_chain: GuardrailChain | None = None,
         hook_runner: HookRunner | None = None,
+        rerun_sampler: RerunSampler | None = None,
     ) -> None:
         self._db_path = db_path
         self._doc = doc
@@ -118,6 +120,7 @@ class Dispatcher:
         self._redundancy_dispatcher = redundancy_dispatcher
         self._input_chain = input_chain
         self._hook_runner = hook_runner
+        self._rerun_sampler = rerun_sampler
 
     async def init(self) -> None:
         """Ensure the DB schema exists. Call once at coordinator start."""
@@ -228,7 +231,13 @@ class Dispatcher:
             await db.commit()
 
     async def mark_completed(self, task_id: str, result_hash: bytes) -> None:
-        """Called by the validator on a signature-valid result."""
+        """Called by the validator on a signature-valid result.
+
+        When a ``RerunSampler`` is wired, completed non-rerun tasks
+        are evaluated for spot-check re-dispatch. The sampler decides
+        based on ``sample_rate``; if selected, a re-run task is
+        submitted with the same parameters but a distinct task_id.
+        """
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 """
@@ -241,6 +250,9 @@ class Dispatcher:
                 (int(time.time()), result_hash, task_id),
             )
             await db.commit()
+
+        if self._rerun_sampler is not None and self._rerun_sampler.should_rerun(task_id):
+            await self._schedule_rerun(task_id)
 
     async def mark_failed(self, task_id: str, reason: str) -> None:
         """Called when a result fails verification."""
@@ -292,3 +304,43 @@ class Dispatcher:
             async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
+
+    async def _schedule_rerun(self, original_task_id: str) -> None:
+        """Read the original task parameters and submit a re-run."""
+        assert self._rerun_sampler is not None
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT task_json FROM task_state WHERE task_id = ?",
+                (original_task_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return
+        try:
+            entry = json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            return
+        task = entry.get("task", entry) if isinstance(entry, dict) else {}
+        if not isinstance(task, dict):
+            return
+
+        rerun_id = self._rerun_sampler.make_rerun_id(original_task_id)
+        req = SubmitRequest(
+            task_type=task.get("task_type", "unknown"),
+            prompt=task.get("prompt", ""),
+            model=task.get("model", "unknown"),
+            system_prompt=task.get("system_prompt", ""),
+            priority=task.get("priority", 5),
+            task_id=rerun_id,
+            is_open_source=task.get("is_open_source", False),
+            estimated_watts=task.get("estimated_watts", 0),
+            estimated_vram_mb=task.get("estimated_vram_mb", 0),
+            estimated_hours=task.get("estimated_hours", 0.0),
+            redundancy_factor=1,
+        )
+        await self.submit(req)
+        _log.info(
+            "rerun_task_scheduled",
+            original_task_id=original_task_id,
+            rerun_task_id=rerun_id,
+        )

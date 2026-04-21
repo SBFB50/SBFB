@@ -240,7 +240,11 @@ class Validator:
             await self._hook_runner.fire(
                 "on_result_received",
                 task_id=task_id,
-                metadata={"worker_pubkey_hex": worker_pubkey.hex(), "tokens": tokens},
+                metadata={
+                    "worker_pubkey_hex": worker_pubkey.hex(),
+                    "tokens": tokens,
+                    "result_hash": entry["hash"],
+                },
             )
 
         # Sprint 21 phase coord-side — output filter hook. Appliqué
