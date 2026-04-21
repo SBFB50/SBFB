@@ -2081,3 +2081,34 @@ on `transport_degraded_mode=true` to surface "this daemon is
 running on the relay-WSS fallback path" — the data plane keeps
 working because iroh handled the fallback automatically. See
 `docs/rust/PATTERNS.md §P32` for the Rust-side detail.
+
+---
+
+## Sprint 24 patterns
+
+### PyO3 wheel rebuild procedure
+
+The coordinator tests import `nexus_core` (PyO3 bindings from
+`crates/nexus-core-py`). When the Rust API evolves (new binding,
+changed signature), the installed wheel in `.venv/` becomes stale
+and tests fail with `AttributeError: module 'nexus_core' has no
+attribute '<name>'`.
+
+Rebuild procedure:
+
+```bash
+unset CONDA_PREFIX CONDA_DEFAULT_ENV
+VIRTUAL_ENV=$PWD/.venv maturin develop --release \
+    --manifest-path crates/nexus-core-py/Cargo.toml
+```
+
+After rebuild, re-run coordinator tests:
+
+```bash
+uv run pytest packages/nexus-coordinator/tests/ -q
+```
+
+The 32 stale failures (pre-existing since Sprint 23 Phase F)
+trace back to `sign_bytes` binding rename. This is an environment
+issue, not a code regression — the source code in `nexus-core-py`
+is correct.

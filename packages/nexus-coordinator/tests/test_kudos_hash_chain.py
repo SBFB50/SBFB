@@ -134,3 +134,55 @@ async def test_total_for_worker(tmp_path: Path) -> None:
 
     total = await ledger.total_for_worker(worker)
     assert total == 350.0
+
+
+@pytest.mark.asyncio
+async def test_get_total_kudos(tmp_path: Path) -> None:
+    db = tmp_path / "state.sqlite"
+    await init_db(db)
+    secret = _fresh_secret()
+    ledger = KudosLedger(db_path=db, coord_secret=secret)
+
+    await ledger.credit(worker_pubkey=b"\x01" * 32, task_id="t-1", tokens=100)
+    await ledger.credit(worker_pubkey=b"\x02" * 32, task_id="t-2", tokens=200)
+    await ledger.credit(worker_pubkey=b"\x01" * 32, task_id="t-3", tokens=50)
+
+    total = await ledger.get_total_kudos()
+    assert total == 350.0
+
+
+@pytest.mark.asyncio
+async def test_get_total_kudos_empty_ledger(tmp_path: Path) -> None:
+    db = tmp_path / "state.sqlite"
+    await init_db(db)
+    secret = _fresh_secret()
+    ledger = KudosLedger(db_path=db, coord_secret=secret)
+
+    total = await ledger.get_total_kudos()
+    assert total == 0.0
+
+
+@pytest.mark.asyncio
+async def test_get_top_contributors(tmp_path: Path) -> None:
+    db = tmp_path / "state.sqlite"
+    await init_db(db)
+    secret = _fresh_secret()
+    ledger = KudosLedger(db_path=db, coord_secret=secret)
+
+    w1 = b"\x01" * 32
+    w2 = b"\x02" * 32
+    w3 = b"\x03" * 32
+    w4 = b"\x04" * 32
+    w5 = b"\x05" * 32
+
+    await ledger.credit(worker_pubkey=w1, task_id="t-1", tokens=500)
+    await ledger.credit(worker_pubkey=w2, task_id="t-2", tokens=300)
+    await ledger.credit(worker_pubkey=w3, task_id="t-3", tokens=100)
+    await ledger.credit(worker_pubkey=w4, task_id="t-4", tokens=800)
+    await ledger.credit(worker_pubkey=w5, task_id="t-5", tokens=200)
+
+    top3 = await ledger.get_top_contributors(3)
+    assert len(top3) == 3
+    assert top3[0][0] == w4  # 800
+    assert top3[1][0] == w1  # 500
+    assert top3[2][0] == w2  # 300

@@ -67,7 +67,7 @@ dependencies = [
     # helpers, but pynacl gives us a pure-Python signing surface
     # for the per-row chain signature so the ledger stays
     # standalone and can be verified without a rust wheel.
-    "pynacl>=1.5",
+    "pynacl>=1.6.2",
 
     # Cross-platform user-config-dir resolver (~/.nexus-grid/... on
     # every platform via platformdirs.user_data_dir).

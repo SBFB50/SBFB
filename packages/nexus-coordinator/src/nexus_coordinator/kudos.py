@@ -235,6 +235,30 @@ class KudosLedger:
                 row = await cursor.fetchone()
         return float(row[0]) if row else 0.0
 
+    async def get_total_kudos(self) -> float:
+        """Sum of ``amount`` across the entire ledger (all workers)."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT COALESCE(SUM(amount), 0.0) FROM kudos_ledger",
+            ) as cursor:
+                row = await cursor.fetchone()
+        return float(row[0]) if row else 0.0
+
+    async def get_top_contributors(self, n: int = 10) -> list[tuple[bytes, float]]:
+        """Top *n* workers by total ``amount``, descending.
+
+        Returns a list of ``(worker_pubkey, total_amount)`` tuples.
+        """
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT worker_pubkey, SUM(amount) AS total "
+                "FROM kudos_ledger GROUP BY worker_pubkey "
+                "ORDER BY total DESC LIMIT ?",
+                (n,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [(row[0], float(row[1])) for row in rows]
+
     async def verify_chain_integrity(self) -> tuple[bool, int | None]:
         """Replay the whole chain and return (ok, first_bad_row_id).
 

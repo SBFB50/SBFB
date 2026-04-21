@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-20  # G2 — Sprint 22 CLOSED (Phase F wrap-up) : 5 phases A-E livrées (rate-limit engine wire-up + GLiNER span-decoder + Sybil composition 3 couches + NVML baseline + watermark canari) + deuxième sprint avec G8 systématique 6/6 phases (0 DESIGN-CONFLICT) + LT-2 Radicle reclassification sortie cap G7 + LT-3/LT-4 hors-sprint + process fixes P2-S21-4 README §4.4 + P2-S21-5 GHA phase-review-cross-check + .bypass_audit_trail.log + audit plan S22 émis `.planning/archive/v1.2/sprint22_audit_plan.md`. Compteurs finals 710 Rust / 185 SDK / 263+3 coord / 46 gov / 264 Vitest / 38 Playwright / 7/7 size / ~1509 tests (+73 vs baseline 1436).
+last_validated: 2026-04-21  # G2 — Sprint 24 kickoff : 1 ACTIVE trigger (openai-agents-python 0.14.3, API guardrails stable, pas d'impact design B1). 4 INACTIVE (frost-ed25519 2.1, iroh 0.97, wasmtime 43.x non-LTS, microsoft/sudo 24H2). Compteurs 743 Rust / 185 SDK / 272+3 coord / 46 gov / 264 Vitest / 43 Playwright / 7/7 size / ~1563 tests.
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"

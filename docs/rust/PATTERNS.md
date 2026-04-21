@@ -2050,6 +2050,62 @@ runtime, not the model.
 
 ---
 
+## §P35 — Sprint 23 Phase B : ephemeral worker lifecycle (restart + VRAM wipe)
+
+Workers restart after `max_tasks_before_restart` tasks (default 50)
+via `EphemeralState` state machine in `crates/nexus-worker-core/src/
+ephemeral.rs`. Between each task, `cudaMemset` zeroes visible VRAM
+(mitigation: model weight extraction by task N+1).
+
+**State machine** : `Idle -> Running -> RestartPending -> Idle`.
+`completed_count` tracks tasks since last restart. When
+`completed_count >= max_tasks`, state transitions to
+`RestartPending` and the engine signals the supervisor to restart
+the process.
+
+**Config** : `worker.toml` field `max_tasks_before_restart: u32`
+(default 50). `cuda_wipe_enabled: bool` (default true, feature-gated
+`gpu-ephemeral` for headless CI builds without GPU).
+
+**Pattern** : restart-based recycling rather than process-pool
+(cold-start latency Ollama ~3-8s per spawn unacceptable) or
+TEE-only (consumer RTX hardware lacks NVIDIA CCM). Similar to
+systemd `RuntimeMaxSec` / Kubernetes `activeDeadlineSeconds` but
+task-count-based rather than time-based.
+
+**Test guarantee** : `ephemeral::tests::*` — lifecycle state
+transitions, wipe mock, config parse, restart trigger at boundary.
+
+---
+
+## §P36 — Sprint 23 Phase D : redundancy voting (3-worker majority)
+
+Coordinator dispatches tasks with `redundancy_factor > 1` (values
+1/3/5, wire format `Task.redundancy_factor`) to N workers and
+aggregates via majority vote on hash of canonical result bytes.
+
+**Module** : `packages/nexus-coordinator/src/nexus_coordinator/
+redundancy.py` — `RedundancyDispatcher` in-memory tracker. Registers
+pending tasks, collects results, votes when quorum reached.
+Mismatch → outlier worker IDs recorded → quarantine route.
+
+**Hash comparison** : SHA-256 of raw result bytes (deviation from
+D3 spec BLAKE3 — functionally equivalent for equality, not used
+for crypto integrity since Ed25519 sigs cover that). See
+`redundancy.py::hash_result_bytes` docstring.
+
+**Wire** : `redundancy_factor` field in `Task` struct uses
+`#[serde(default)]` for runtime robustness (Python omission
+deserialises to 1). Excluded from canonical bytes (`#[serde(skip)]`
+in `TaskCanonical`) since it is a dispatch-only policy, not task
+identity. Fix landed `34c77ce`.
+
+**Pattern** : BOINC/Folding@Home result validator majority (10+ years
+production). Fixed factor discrete (1/3/5) rather than continuous
+float or coordinator-free gossip consensus.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

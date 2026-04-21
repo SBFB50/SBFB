@@ -41,7 +41,14 @@ class VoteOutcome:
 
 
 def hash_result_bytes(data: bytes) -> str:
-    """SHA-256 hex digest of raw result bytes."""
+    """SHA-256 hex digest of raw result bytes.
+
+    Deviation from kickoff D3 which specifies BLAKE3: SHA-256 is
+    functionally equivalent for equality comparison (not used for
+    crypto integrity — Ed25519 signatures cover that).  SHA-256 is
+    stdlib, zero extra dep.  Align to BLAKE3 if needed for
+    consistency post-v1.0 (carry S25 audit track).
+    """
     return hashlib.sha256(data).hexdigest()
 
 

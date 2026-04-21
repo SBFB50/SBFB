@@ -481,7 +481,8 @@ pub fn escalating_difficulty(policy: &EscalatingPolicy, task_count: u64) -> u32 
     if exponent == 0 {
         return policy.base_difficulty.min(MAX_DIFFICULTY_BITS);
     }
-    let factor = policy.multiplier.powi(exponent as i32);
+    let capped_exp = exponent.min(i32::MAX as u64);
+    let factor = policy.multiplier.powi(capped_exp as i32);
     let raw = (f64::from(policy.base_difficulty) * factor).round() as u64;
     let clamped = raw
         .min(u64::from(policy.max_difficulty))
@@ -822,6 +823,20 @@ mod tests {
         };
         // count=100 → exponent=100 → 20×3^100 → overflow → clamped
         assert_eq!(escalating_difficulty(&p, 100), 28);
+    }
+
+    #[test]
+    fn escalating_difficulty_exponent_saturation_i32() {
+        // P2-B-1 S23 audit: exponent > i32::MAX must saturate, not wrap.
+        let p = EscalatingPolicy {
+            base_difficulty: 18,
+            multiplier: 2.0,
+            tranche_size: 1,
+            max_difficulty: 28,
+        };
+        // task_count = u64::MAX → exponent = u64::MAX → capped to i32::MAX
+        // → 2^(i32::MAX) = +inf → raw = +inf → clamped to max_difficulty
+        assert_eq!(escalating_difficulty(&p, u64::MAX), 28);
     }
 
     #[test]
