@@ -42,6 +42,7 @@ pub mod discovery;
 pub mod docs;
 pub mod error;
 pub mod gossip;
+pub mod hooks;
 pub mod keystore;
 pub mod node;
 pub mod pkarr_resolver;

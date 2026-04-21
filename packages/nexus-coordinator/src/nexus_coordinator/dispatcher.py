@@ -37,6 +37,7 @@ import structlog
 
 from nexus_coordinator.db.migrations import init_db
 from nexus_coordinator.guardrails import GuardrailChain, GuardrailContext
+from nexus_coordinator.hooks import HookRunner
 from nexus_coordinator.pii_redactor import PiiRedactor
 
 _log = structlog.get_logger(__name__)
@@ -107,6 +108,7 @@ class Dispatcher:
         pii_redactor: PiiRedactor | None = None,
         redundancy_dispatcher: Any | None = None,  # RedundancyDispatcher
         input_chain: GuardrailChain | None = None,
+        hook_runner: HookRunner | None = None,
     ) -> None:
         self._db_path = db_path
         self._doc = doc
@@ -115,6 +117,7 @@ class Dispatcher:
         self._pii_redactor = pii_redactor
         self._redundancy_dispatcher = redundancy_dispatcher
         self._input_chain = input_chain
+        self._hook_runner = hook_runner
 
     async def init(self) -> None:
         """Ensure the DB schema exists. Call once at coordinator start."""
@@ -200,6 +203,12 @@ class Dispatcher:
             self._redundancy_dispatcher.register_task(task_id, req.redundancy_factor)
 
         _log.info("task submitted", task_id=task_id, task_type=req.task_type, model=req.model)
+        if self._hook_runner is not None:
+            await self._hook_runner.fire(
+                "on_task_dispatched",
+                task_id=task_id,
+                metadata={"task_type": req.task_type, "model": req.model},
+            )
         return task_id
 
     async def mark_claimed(self, task_id: str, worker_pubkey: bytes) -> None:

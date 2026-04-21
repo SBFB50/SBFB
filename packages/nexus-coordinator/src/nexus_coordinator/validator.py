@@ -50,6 +50,7 @@ import nexus_core
 import structlog
 
 from nexus_coordinator.dispatcher import Dispatcher
+from nexus_coordinator.hooks import HookRunner
 from nexus_coordinator.kudos import KudosLedger
 from nexus_coordinator.output_filter import OutputFilter
 
@@ -78,6 +79,7 @@ class Validator:
         kudos: KudosLedger,
         db_path: Path,
         output_filter: OutputFilter | None = None,
+        hook_runner: HookRunner | None = None,
     ) -> None:
         self._doc = doc
         self._node = node
@@ -87,6 +89,7 @@ class Validator:
         self._subscription: Any | None = None
         self._verifier: Any = nexus_core.Verifier()
         self._output_filter = output_filter
+        self._hook_runner = hook_runner
 
     async def start(self) -> None:
         """Open a LiveEvent subscription on the doc."""
@@ -182,6 +185,12 @@ class Validator:
         worker_pubkey: list[int] = claim_entry["worker_pubkey"]
         worker_pubkey_bytes = bytes(worker_pubkey)
         await self._dispatcher.mark_claimed(task_id, worker_pubkey_bytes)
+        if self._hook_runner is not None:
+            await self._hook_runner.fire(
+                "on_claim_broadcast",
+                task_id=task_id,
+                metadata={"worker_pubkey_hex": worker_pubkey_bytes.hex()},
+            )
         _log.info("claim validated", task_id=task_id, worker_pubkey_hex=worker_pubkey_bytes.hex())
         return ValidationEvent(
             kind="claim",
@@ -227,6 +236,13 @@ class Validator:
         worker_pubkey = bytes(result_entry["worker_pubkey"])
         tokens = int(result_entry["payload"]["tokens_generated"])
 
+        if self._hook_runner is not None:
+            await self._hook_runner.fire(
+                "on_result_received",
+                task_id=task_id,
+                metadata={"worker_pubkey_hex": worker_pubkey.hex(), "tokens": tokens},
+            )
+
         # Sprint 21 phase coord-side — output filter hook. Appliqué
         # APRÈS 3-layer verify (on sait que la sig est bonne) et
         # AVANT mark_completed + kudos credit. Un verdict négatif
@@ -243,12 +259,27 @@ class Validator:
             if not verdict.is_valid:
                 reason = f"output_filter: {verdict.reason}"
                 await self._dispatcher.mark_failed(task_id, reason)
+                if self._hook_runner is not None:
+                    await self._hook_runner.fire(
+                        "on_quarantine_enqueue",
+                        task_id=task_id,
+                        metadata={
+                            "reason": verdict.reason,
+                            "worker_pubkey_hex": worker_pubkey.hex(),
+                        },
+                    )
                 _log.warning(
                     "output_filter_rejected_result",
                     task_id=task_id,
                     reason=verdict.reason,
                     risk_score=verdict.risk_score,
                 )
+                if self._hook_runner is not None:
+                    await self._hook_runner.fire(
+                        "on_validator_post_task",
+                        task_id=task_id,
+                        metadata={"outcome": "rejected", "reason": reason},
+                    )
                 return ValidationEvent(
                     kind="result_rejected",
                     task_id=task_id,
@@ -268,6 +299,12 @@ class Validator:
             tokens=tokens,
             worker_pubkey_hex=worker_pubkey.hex(),
         )
+        if self._hook_runner is not None:
+            await self._hook_runner.fire(
+                "on_validator_post_task",
+                task_id=task_id,
+                metadata={"outcome": "ok", "tokens": tokens},
+            )
         return ValidationEvent(
             kind="result_ok",
             task_id=task_id,
