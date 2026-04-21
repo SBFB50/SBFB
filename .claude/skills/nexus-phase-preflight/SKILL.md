@@ -114,7 +114,62 @@ preflight.md §Memory consultation. Si une contrainte memory
 entre en tension avec le plan §Phase X → signal S2 finding
 (reversion check obligatoire).
 
-### Step 2 — Scan S1 : SOTA 2026 vs design
+### Step 2 — Scan S1 : SOTA + OSS prior art + deps
+
+S1 a deux volets : **S1a** (OSS prior art sur l'approche) et
+**S1b** (deps/libs versions). S1a est le volet le plus important
+— il challenge le *design* du plan, pas juste les versions.
+
+#### S1a — OSS prior art research (OBLIGATOIRE)
+
+La question : **"comment les projets open source matures resolvent
+le meme probleme que cette phase ?"**
+
+1. Identifier le domaine fonctionnel de la phase depuis Step 1.3
+   (ex : "divergence detection on distributed compute",
+   "guardrail pipeline for LLM safety", "DNS fallback DHT")
+2. Rechercher :
+   ```
+   WebSearch "<domaine> open source solution site:github.com"
+   WebSearch "<domaine> how <project-reference> implements"
+   ```
+   Projets de reference par domaine (non-exhaustif, adapter) :
+   - compute verification → BOINC, Folding@Home, Golem, Truebit
+   - LLM safety/guardrails → NeMo Guardrails, Guardrails AI,
+     LangChain, openai-agents-python
+   - P2P networking → libp2p, iroh, IPFS, BitTorrent
+   - crypto/identity → age, Keyoxide, OpenPGP.js, FROST
+   - DNS/transport → hickory-resolver, stubby, dnscrypt-proxy
+
+3. Pour chaque projet pertinent trouve :
+   - `mcp__context7__resolve-library-id` si c'est une lib
+   - `mcp__context7__query-docs` sur l'API/pattern specifique
+   - Lire le code source si necessaire (README, design docs)
+
+4. Comparer l'approche du plan §Phase X avec l'approche OSS :
+   - Le plan est-il aligne avec l'etat de l'art ?
+   - L'approche OSS revele-t-elle une faille dans le design du plan ?
+     (ex : "hash binaire sur output stochastique = 100% faux positifs")
+   - Existe-t-il une lib prête qui fait deja ce que la phase code
+     from scratch ?
+
+**Findings type S1a** :
+- `APPROACH-NAIVE` : le plan propose une approche que les projets
+  matures ont abandonnee ou ne recommandent pas (avec evidence URL)
+- `APPROACH-ALIGNED` : le plan est conforme au SOTA OSS
+- `LIB-EXISTS` : une lib OSS fait deja le job — adopter au lieu
+  de recoder (avec licence + audit status)
+- `APPROACH-NOVEL` : le plan propose quelque chose que l'OSS ne
+  fait pas — acceptable si justifie par le contexte P2P specifique
+
+**Classification** :
+- `APPROACH-NAIVE` = finding **bloquant** si evidence claire (pas
+  opinion) → le plan DOIT etre adapte avant code
+- `LIB-EXISTS` = finding **bloquant** si lib mature + compatible
+  licence → evaluer adoption vs recode
+- `APPROACH-ALIGNED` / `APPROACH-NOVEL` = non-bloquant
+
+#### S1b — Deps/libs versions (fast-path si pas de nouvelle dep)
 
 Pour chaque lib/spec extraite Step 1.3 :
 
@@ -131,13 +186,40 @@ Puis pour chaque dep critique :
 4. `WebSearch` "<lib> CVE 2026" si crypto/security-critical
 5. Pour les specs RFC/standards : `WebSearch "<spec> revision 2026"`
 
-Findings type :
+Findings type S1b :
 - `lib X v Y.Z` — major bump publie depuis plan, breaking changes
 - `RFC W` — section X revisee Aug 2026, change semantique
 - `CVE-2026-XXXX` critical sur dep transitive Z
 - API deprecated, remplacement = nouvelle methode
 
-Output Step 2 : liste de findings ou "S1: clean" si aucun delta.
+Output Step 2 : S1a findings + S1b findings, ou "S1: clean" si
+aucun delta sur les deux volets.
+
+### Step 2bis — Plan adaptation (si S1a finding bloquant)
+
+Si S1a produit un finding `APPROACH-NAIVE` ou `LIB-EXISTS` :
+
+1. **Ne PAS emettre un DESIGN-CONFLICT** (reserve aux Day 0
+   contredites). Emettre un **PLAN-ADAPT**.
+2. Rediger dans le preflight.md une section `## Plan adaptation`
+   avec :
+   - L'evidence OSS (URL + extrait)
+   - L'approche corrigee (concrete, pas abstraite)
+   - Les fichiers/tests impactes vs le plan original
+3. **Adapter le plan inline** : le code de la phase suit
+   l'approche corrigee, pas le plan original. Le commit body
+   documente la deviation : "Plan §Phase X proposait <ancien>,
+   preflight S1a a identifie <evidence>, adapte vers <nouveau>."
+4. Le plan.md reste inchange (c'est un snapshot kickoff). La
+   deviation est tracee dans preflight.md + commit body.
+
+**Rationale** : un plan fige qui ignore la recherche pre-phase
+est pire qu'un plan adapte. Le S24 Phase D illustre le probleme :
+le plan disait "hash binaire BLAKE3" pour des outputs LLM
+stochastiques, l'OSS (BOINC, Truebit) montre que ca ne marche pas.
+Suivre le plan aveuglement a produit du code inoperant. Le plan
+est un point de depart, pas un contrat — la recherche pre-phase
+le corrige si necessaire.
 
 ### Step 3 — Scan S2 : Decisions historiques traversees
 
@@ -300,23 +382,43 @@ AVANT d'agreger** (evite l'ambiguite multi-findings) :
 
 | Scan | Finding bloquant si | Finding non-bloquant si |
 |---|---|---|
-| **S1** | CVE critical/high affectant crypto/wire/network ; lib bump MAJOR breaking sur API utilisee ; RFC revision avec impact security | CVE low/medium avec mitigation alternative lib documentee ; lib bump PATCH/MINOR semver-stable ; RFC revision non-semantique |
+| **S1a** | `APPROACH-NAIVE` avec evidence OSS (projet mature montre que l'approche du plan est fondamentalement inadaptee) ; `LIB-EXISTS` lib mature + licence compatible couvre le besoin | `APPROACH-ALIGNED` ; `APPROACH-NOVEL` justifie par contexte P2P specifique |
+| **S1b** | CVE critical/high affectant crypto/wire/network ; lib bump MAJOR breaking sur API utilisee ; RFC revision avec impact security | CVE low/medium avec mitigation alternative lib documentee ; lib bump PATCH/MINOR semver-stable ; RFC revision non-semantique |
 | **S2** | Decision historique documentee + rationale threat-model encore valide + pas de reversion confirmee (cf. Step 3 reverse-commit check) | Decision revertee (reversion confirmee) ; decision sur contexte revolu ; mention indirecte sans rationale explicite |
 | **S3** | Regression sur threat T0-T5 couvert actuellement ; pre-requirement HARDENING_ROADMAP §3 ligne S{N} manquant | Gap documente prevu sprint futur (non-regression) ; threat non-adresse mais hors-scope phase courante |
 | **S4** | Bump `*_VERSION` pre-launch sans CVE bloquant justificatif ; Day 0 figee contredite par implementation ; pre-launch protocol policy violee | `#[serde(default)]` legitime avec rationale runtime tolerance inline ; wire format unchanged malgre nouveau field optional |
 
 **Regle d'agregation** :
-- **>= 1 finding bloquant** (any scan) → DESIGN-CONFLICT
+- **>= 1 finding S1a bloquant** (APPROACH-NAIVE ou LIB-EXISTS) → **PLAN-ADAPT**
+- **>= 1 finding bloquant S1b/S2/S3/S4** (pas S1a) → **DESIGN-CONFLICT**
 - **0 finding bloquant + >= 1 finding non-bloquant** → SCOPE-CUT-CONSISTENT
 - **0 finding tout court** → EXECUTE plan-as-is
 
-Decision tree complet (cf. README.md §6.9) :
+**PLAN-ADAPT vs DESIGN-CONFLICT** :
+- PLAN-ADAPT = la recherche OSS montre une meilleure approche. Le
+  plan s'adapte inline (Step 2bis), pas d'arret, pas d'arbitrage
+  user. Le code suit l'approche corrigee. Tracabilite dans
+  preflight.md §Plan adaptation + commit body.
+- DESIGN-CONFLICT = une Day 0 est contredite, ou un threat model
+  est viole, ou un wire format pre-launch est bumpe. Ca ne se
+  resout PAS par adaptation inline — ca demande un arbitrage user
+  explicite sur les options.
+
+Decision tree complet :
 
 ```
-Aucun finding (S1+S2+S3+S4 tous clean) :
+Aucun finding (S1a+S1b+S2+S3+S4 tous clean) :
   -> verdict EXECUTE plan-as-is
   -> emit .planning/active/sprint{N}_phase_{X}_preflight.md
      **Output condense autorise** (format ci-dessous) :
+
+Finding S1a bloquant (APPROACH-NAIVE ou LIB-EXISTS) :
+  -> verdict PLAN-ADAPT
+  -> emit sprint{N}_phase_{X}_preflight.md avec §Plan adaptation
+     (evidence OSS + approche corrigee + impact fichiers/tests)
+  -> proceder code phase avec l'approche corrigee
+  -> commit body documente la deviation vs plan original
+  -> PAS d'arret, PAS d'arbitrage user (la recherche est l'arbitre)
 
 Findings non-bloquants uniquement :
   -> verdict SCOPE-CUT-CONSISTENT
@@ -325,14 +427,14 @@ Findings non-bloquants uniquement :
   -> proceder code phase normalement
   -> note dans verification.md fail-fast checklist
 
->= 1 finding bloquant :
+>= 1 finding bloquant S1b/S2/S3/S4 :
   -> verdict DESIGN-CONFLICT
   -> STOP code ecriture
   -> emit sprint{N}_phase_{X}_pivot_proposal.md avec sections
      obligatoires (cf. template Step 7)
   -> Si multiple bloquants : section §2 Evidence liste CHACUN
-     avec son scan source (S1/S2/S3/S4), pas d'agregation silencieuse
-  -> Si 2+ escalations distinctes (ex : CVE bloquant S1 + Day 0
+     avec son scan source (S1b/S2/S3/S4), pas d'agregation silencieuse
+  -> Si 2+ escalations distinctes (ex : CVE bloquant S1b + Day 0
      rebattu S4) : proposal §2 marque "MULTIPLE BLOCKING FINDINGS"
      + chaque Option A/B/C doit adresser ou acknowledger chacun
   -> alerter user avec resume verdict + 3 options
@@ -353,13 +455,45 @@ Date : YYYY-MM-DD | HEAD : `<sha>` | Verdict : **EXECUTE plan-as-is**
 - <zone-specific>.md : <contrainte ou N/A>
 
 ## Scans (all clean)
-- S1 SOTA : <N> libs scannees, 0 delta — clean
+- S1a OSS prior art : <N> projets recherches (<noms>), APPROACH-ALIGNED — clean
+- S1b deps : <N> libs scannees, 0 delta — clean
 - S2 historiques : <N> fichiers, <N> commits scannes — clean
 - S3 threat model : fast-path verified, HARDENING_ROADMAP aligned — clean
 - S4 wire format : fast-path verified, VERSION=1, Day 0 preserved — clean
 
 ## Action
 Proceder code phase {X}.
+```
+
+#### Template PLAN-ADAPT (verdict PLAN-ADAPT, S1a finding bloquant)
+
+```markdown
+# Sprint {N} Phase {X} — preflight G8
+
+Date : YYYY-MM-DD | HEAD : `<sha>` | Verdict : **PLAN-ADAPT**
+
+## Memory consultation (Step 1.5)
+- feedback_approach.md : <contrainte pertinente>
+
+## S1a — OSS prior art research
+- Projets recherches : <list avec URLs>
+- context7 queries : <list avec resultats cles>
+- Finding : **APPROACH-NAIVE** — <description evidence>
+  Plan proposait : <approche plan original>
+  OSS montre : <approche mature avec evidence URL>
+
+## Plan adaptation
+- Approche corrigee : <description concrete>
+- Fichiers impactes vs plan : <delta>
+- Tests impactes : <delta>
+
+## Scans S1b/S2/S3/S4
+- S1b deps : clean
+- S2/S3/S4 : clean (ou findings documentes)
+
+## Action
+Proceder code phase {X} avec approche corrigee. Commit body
+documente deviation vs plan §Phase X.
 ```
 
 #### Template complet (verdict SCOPE-CUT-CONSISTENT ou DESIGN-CONFLICT)

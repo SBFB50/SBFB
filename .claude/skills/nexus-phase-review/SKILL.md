@@ -242,34 +242,55 @@ Checker :
 5. **Scope cuts honoured** liste copiee du kickoff §6
 6. **Co-Authored-By: Claude <model_name> (1M context)** present — la ligne doit matcher le modèle utilisé pour la session courante
 
-### Step 4bis — Verifier research grounding via context7
+### Step 4bis — Verifier research grounding (approche + deps)
 
-Le plan.md de chaque sprint doit avoir une section §Research consulte
-(cf. docs/claude/README.md §2.2 section canonique). Cette section
-documente les appels context7 (`mcp__context7__query-docs`,
-`mcp__context7__resolve-library-id`) + lectures de registry / docs
-officielles qui ont valide les choix d'API externe, pins de versions,
-specs crypto, etc.
+Deux dimensions a verifier :
 
-Check a effectuer :
+#### 4bis-A — OSS prior art sur l'approche (G10)
+
+Le preflight G8 Step 2 / S1a doit avoir recherche comment les
+projets OSS matures resolvent le meme probleme. Verifier :
+
+1. Lire `.planning/active/sprint{N}_phase_{X}_preflight.md`
+2. La section `S1a OSS prior art` existe-t-elle ?
+3. Au moins 1 projet OSS de reference a-t-il ete consulte (context7
+   ou WebSearch) ?
+4. Si verdict PLAN-ADAPT : la section `§Plan adaptation` documente-
+   t-elle l'evidence et l'approche corrigee ?
+
+Signal :
+- **PASS** : S1a documente avec >= 1 projet OSS consulte
+- **CONCERN** : S1a presente mais sommaire ("APPROACH-ALIGNED"
+  sans nommer le projet consulte)
+- **FAIL** : S1a absente OU phase implementee avec approche naive
+  que l'OSS montre inadaptee (= preflight S1a n'a pas ete fait
+  ou a ete ignore). APPROACH-NAIVE non detecte pre-code = P1.
+
+**Anti-pattern cle (S24 Phase D post-mortem)** : le plan disait
+"hash binaire BLAKE3 pour comparer outputs LLM re-run". BOINC et
+Truebit montrent que la comparaison exacte ne marche pas sur des
+outputs stochastiques. Le preflight S1a aurait du detecter
+APPROACH-NAIVE et emettre PLAN-ADAPT. A la place, S1 n'a verifie
+que les versions de libs (S1b) et a emis "clean". Le code livree
+est structurellement inoperant sur le use case principal.
+
+#### 4bis-B — Deps/API via context7 (existant)
+
+Le plan.md doit avoir une section §Research consulte (cf.
+docs/claude/README.md §2.2). Check :
 
 1. Lire `.planning/active/sprint{N}_plan.md` §Research consulte
 2. Verifier qu'elle n'est PAS vide
-3. Pour chaque pin de dependance ajoute/modifie dans le diff de la phase :
-   - `Cargo.toml` : nouvelle crate ou version bump -> est-il mentionne
+3. Pour chaque pin de dependance ajoute/modifie dans le diff :
+   - `Cargo.toml` / `pyproject.toml` / `package.json` -> mentionne
      dans §Research consulte ?
-   - `pyproject.toml` : idem cote Python
-   - `package.json` : idem cote npm
-4. Pour chaque usage de nouvelle API externe (crypto, spec
-   standardisee comme SLSA/in-toto/JCS/Keyoxide) :
-   - La source (context7 + URL + date) est-elle tracee dans §Research ?
+4. Pour chaque API externe (crypto, spec standardisee) :
+   - Source (context7 + URL + date) tracee dans §Research ?
 
 Signal :
 - **PASS** : chaque dep/API touche par le diff a une trace Research
-- **CONCERN** : >= 1 dep/API sans trace mais non-critique (ex: patch
-  version bump obvious, existing pattern)
-- **FAIL** : >= 1 API crypto ou spec standardisee utilisee sans trace
-  -> forcer la session a consulter context7 avant de committer
+- **CONCERN** : >= 1 dep/API sans trace mais non-critique
+- **FAIL** : >= 1 API crypto ou spec sans trace → context7 avant commit
 
 Exemple concret Sprint 18 Phase A (ce qui a ete fait correctement) :
 ```
