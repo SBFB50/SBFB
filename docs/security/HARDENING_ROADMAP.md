@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-21  # G2 — Sprint 24 Phase F close : S24 delivered (guardrails + hooks + re-run + DNS fallback). Compteurs 757 Rust / 185 SDK / 315+3 coord / 46 gov / 264 Vitest / 43 Playwright / 7/7 size / ~1621 tests.
+last_validated: 2026-04-22  # G2 — Sprint 25 kickoff : 6 triggers scanned (1 ACTIVE MCP STDIO vuln avril 2026 OX Security ~200k servers RCE, 5 INACTIVE). S25 scope: key rotation + C3 handoffs + D5 capabilities + P2 batch. Compteurs 757 Rust / 185 SDK / 315+3 coord / 46 gov / 264 Vitest / 43 Playwright / 7/7 size / ~1621 tests.
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"

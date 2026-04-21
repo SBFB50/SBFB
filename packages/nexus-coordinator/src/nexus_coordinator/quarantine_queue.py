@@ -142,12 +142,15 @@ class QuarantineQueue:
         payload_bytes: bytes,
         rate_strikes: int,
         pow_status: str,
+        task_id: str | None = None,
     ) -> int:
         """Insert a borderline message and return its row id.
 
         ``pow_status`` is persisted as audit metadata; the queue
         never re-verifies the proof. Caller is responsible for
         having validated PoW upstream (design §5.2).
+
+        ``task_id`` is optional context for structured curator alerting.
         """
         if pow_status not in _VALID_POW_STATUS:
             raise ValueError(f"pow_status must be one of {sorted(_VALID_POW_STATUS)}, got {pow_status!r}")
@@ -172,6 +175,13 @@ class QuarantineQueue:
             topic=topic,
             rate_strikes=rate_strikes,
             pow_status=pow_status,
+        )
+        _log.warning(
+            "quarantine_curator_alert",
+            worker_id=sender_pubkey.hex(),
+            reason=f"{topic}/{pow_status} strikes={rate_strikes}",
+            task_id=task_id or "unknown",
+            row_id=row_id,
         )
         return row_id
 

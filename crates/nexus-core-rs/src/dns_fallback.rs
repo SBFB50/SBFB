@@ -34,7 +34,9 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use hickory_resolver::config::{NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts};
+use hickory_resolver::config::{
+    NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts,
+};
 use hickory_resolver::TokioAsyncResolver;
 use tracing::debug;
 
@@ -190,19 +192,23 @@ impl DnsFallbackResolver {
                 "no DNS endpoints configured for protocol {protocol:?}"
             )));
         }
-        let ips: Vec<IpAddr> = endpoints.iter().map(|ep| ep.ip).collect();
-        let port = endpoints[0].port;
-        let tls_name = endpoints[0].tls_name.clone();
+        if !matches!(protocol, Protocol::Https | Protocol::Tls) {
+            return Err(NexusError::Endpoint(
+                "DNS fallback only supports DoH (Https) and DoT (Tls)".to_string(),
+            ));
+        }
 
-        let ns_group = match protocol {
-            Protocol::Https => NameServerConfigGroup::from_ips_https(&ips, port, tls_name, false),
-            Protocol::Tls => NameServerConfigGroup::from_ips_tls(&ips, port, tls_name, false),
-            _ => {
-                return Err(NexusError::Endpoint(
-                    "DNS fallback only supports DoH (Https) and DoT (Tls)".to_string(),
-                ));
-            }
-        };
+        let mut ns_group = NameServerConfigGroup::with_capacity(endpoints.len());
+        for ep in endpoints {
+            ns_group.push(NameServerConfig {
+                socket_addr: std::net::SocketAddr::new(ep.ip, ep.port),
+                protocol,
+                tls_dns_name: Some(ep.tls_name.clone()),
+                trust_negative_responses: false,
+                tls_config: None,
+                bind_addr: None,
+            });
+        }
 
         let resolver_config = ResolverConfig::from_parts(None, vec![], ns_group);
         let mut opts = ResolverOpts::default();
@@ -256,31 +262,50 @@ impl DnsFallbackResolve for DnsFallbackResolver {
             .build_query_name(node_id_hex)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        match Self::resolve_txt_via(&self.doh_resolver, &query, "DoH").await {
-            Ok(data) => {
-                debug!(node_id = %node_id_hex, bytes = data.len(), "DNS fallback resolved via DoH");
-                Ok(data)
-            }
-            Err(doh_err) => {
-                debug!(
-                    node_id = %node_id_hex,
-                    error = %doh_err,
-                    "DoH failed, trying DoT"
-                );
-                match Self::resolve_txt_via(&self.dot_resolver, &query, "DoT").await {
-                    Ok(data) => {
-                        debug!(
-                            node_id = %node_id_hex,
-                            bytes = data.len(),
-                            "DNS fallback resolved via DoT"
-                        );
-                        Ok(data)
-                    }
-                    Err(dot_err) => Err(anyhow::anyhow!(
-                        "DNS fallback failed for {node_id_hex}: DoH={doh_err}, DoT={dot_err}"
-                    )),
+        let doh_fut = Self::resolve_txt_via(&self.doh_resolver, &query, "DoH");
+        let dot_fut = Self::resolve_txt_via(&self.dot_resolver, &query, "DoT");
+
+        tokio::pin!(doh_fut, dot_fut);
+
+        // Race both protocols concurrently. First success wins; if the
+        // first responder fails, await the remaining one before giving up.
+        tokio::select! {
+            doh = &mut doh_fut => match doh {
+                Ok(data) => {
+                    debug!(node_id = %node_id_hex, bytes = data.len(), "DNS fallback resolved via DoH");
+                    Ok(data)
                 }
-            }
+                Err(doh_err) => {
+                    debug!(node_id = %node_id_hex, error = %doh_err, "DoH failed, waiting for DoT");
+                    match dot_fut.await {
+                        Ok(data) => {
+                            debug!(node_id = %node_id_hex, bytes = data.len(), "DNS fallback resolved via DoT");
+                            Ok(data)
+                        }
+                        Err(dot_err) => Err(anyhow::anyhow!(
+                            "DNS fallback failed for {node_id_hex}: DoH={doh_err}, DoT={dot_err}"
+                        )),
+                    }
+                }
+            },
+            dot = &mut dot_fut => match dot {
+                Ok(data) => {
+                    debug!(node_id = %node_id_hex, bytes = data.len(), "DNS fallback resolved via DoT");
+                    Ok(data)
+                }
+                Err(dot_err) => {
+                    debug!(node_id = %node_id_hex, error = %dot_err, "DoT failed, waiting for DoH");
+                    match doh_fut.await {
+                        Ok(data) => {
+                            debug!(node_id = %node_id_hex, bytes = data.len(), "DNS fallback resolved via DoH");
+                            Ok(data)
+                        }
+                        Err(doh_err) => Err(anyhow::anyhow!(
+                            "DNS fallback failed for {node_id_hex}: DoH={doh_err}, DoT={dot_err}"
+                        )),
+                    }
+                }
+            },
         }
     }
 }
@@ -460,5 +485,74 @@ mod tests {
         assert_eq!(cfg.domain_suffix, "custom.example.com");
         std::env::remove_var(DNS_FALLBACK_ENABLED_ENV);
         std::env::remove_var(DNS_FALLBACK_DOMAIN_ENV);
+    }
+
+    // ---------------------------------------------------------
+    // P2-E-1 : per-endpoint TLS name (S25 Phase A)
+    // ---------------------------------------------------------
+
+    #[test]
+    fn per_endpoint_tls_name_used_doh() {
+        let cfg = DnsFallbackConfig {
+            doh_endpoints: vec![
+                DnsEndpoint {
+                    ip: DOH_CLOUDFLARE_IP,
+                    port: DOH_PORT,
+                    tls_name: "custom-cf.example.com".to_string(),
+                },
+                DnsEndpoint {
+                    ip: DOH_GOOGLE_IP,
+                    port: DOH_PORT,
+                    tls_name: "custom-google.example.com".to_string(),
+                },
+            ],
+            ..DnsFallbackConfig::default()
+        };
+        let resolver =
+            DnsFallbackResolver::new(&cfg).expect("build resolver with per-endpoint TLS");
+        assert_eq!(resolver.label(), "dns-fallback-doh-dot");
+    }
+
+    #[test]
+    fn per_endpoint_tls_name_used_dot() {
+        let cfg = DnsFallbackConfig {
+            dot_endpoints: vec![
+                DnsEndpoint {
+                    ip: DOH_CLOUDFLARE_IP,
+                    port: DOT_PORT,
+                    tls_name: "dot-cf.example.com".to_string(),
+                },
+                DnsEndpoint {
+                    ip: DOH_GOOGLE_IP,
+                    port: DOT_PORT,
+                    tls_name: "dot-google.example.com".to_string(),
+                },
+            ],
+            ..DnsFallbackConfig::default()
+        };
+        let resolver =
+            DnsFallbackResolver::new(&cfg).expect("build resolver with per-endpoint DoT TLS");
+        assert_eq!(resolver.label(), "dns-fallback-doh-dot");
+    }
+
+    #[test]
+    fn build_resolver_rejects_unsupported_protocol() {
+        let eps = vec![DnsEndpoint {
+            ip: DOH_CLOUDFLARE_IP,
+            port: 53,
+            tls_name: "dns.example.com".to_string(),
+        }];
+        let cfg = DnsFallbackConfig::default();
+        let err = DnsFallbackResolver::build_resolver(&eps, Protocol::Udp, &cfg).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("only supports DoH"), "got: {msg}");
+    }
+
+    #[test]
+    fn build_resolver_rejects_empty_endpoints() {
+        let cfg = DnsFallbackConfig::default();
+        let err = DnsFallbackResolver::build_resolver(&[], Protocol::Https, &cfg).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("no DNS endpoints"), "got: {msg}");
     }
 }

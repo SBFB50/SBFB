@@ -160,6 +160,7 @@ class DivergenceScorer(DispatchHook):
                     ).encode("utf-8"),
                     rate_strikes=0,
                     pow_status="valid",
+                    task_id=original_id,
                 )
         else:
             _log.info(
