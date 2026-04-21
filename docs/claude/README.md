@@ -1297,6 +1297,19 @@ contre les drifts au plan-vers-code translation.
 - **Pivot répétitif** : 3 pivots consécutifs sur 3 phases = le plan
   n'était pas basé sur SOTA fresh. Reject suite — signal méta vers
   re-faire `gsd:plan-phase` complet, pas accumuler des pivots.
+- **PLAN-ADAPT sans evidence OSS concrete** : S1a conclut
+  APPROACH-NAIVE mais cite 0 projet OSS de reference avec URL ou
+  query context7. Invalid — PLAN-ADAPT require >= 1 projet OSS
+  nomme avec source verifiable. Sinon c'est une opinion, pas une
+  adaptation evidence-based.
+- **PLAN-ADAPT qui touche Day-0 figees** : si l'approche corrigee
+  modifie une D1..D5 du sprint courant, ce n'est pas PLAN-ADAPT
+  (correction technique) mais DESIGN-CONFLICT (gouvernance).
+  Escalation user obligatoire, pas adaptation inline.
+- **PLAN-ADAPT repete** : 2+ PLAN-ADAPT consecutifs dans le meme
+  sprint = le plan n'etait pas base sur SOTA au kickoff. Signal
+  meta → re-faire `gsd:plan-phase` complet sur research fresh,
+  pas accumuler des adaptations incrementales.
 
 #### Mise en œuvre
 

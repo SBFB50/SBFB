@@ -44,21 +44,19 @@ Lire `MEMORY.md` (index) et charger les memories pertinentes pour
 la zone fonctionnelle de la phase. L'objectif : calibrer la review
 contre les contraintes documentees dans la memory.
 
-**Toujours lire** :
-- `feedback_approach.md` — "pick deepest technical option", "no
-  band-aid". Si la phase choisit une solution courte-vue alors
-  qu'une alternative plus auditee/type-safe/FIPS existe et n'est
-  pas rejetee dans le plan → P1.
+**Routing table** (source of truth : identique preflight et review) :
 
-**Lire si la phase touche la zone** :
-- kudos / fairness → `fairness_vision.md` (Matthew effect,
-  non-monetary) + `feedback_kudos_non_monetary.md` (interdit
-  cost/deposit/stake patterns)
-- governance / modele → `vision_model.md` (OpenBSD pattern, pas
-  startup/funding)
-- deploy / crypto → `sprint14_keyoxide_decision.md` (from-source)
-- lib externe → `feedback_context7_systematic.md` (context7
-  obligatoire avant code)
+| Zone phase | Memory file | Contrainte cle |
+|---|---|---|
+| (toujours) | `feedback_approach.md` | pick deepest, no band-aid, research before code |
+| kudos / fairness / reputation | `fairness_vision.md` + `feedback_kudos_non_monetary.md` | non-monetary, no cost/deposit/stake |
+| governance / funding / modele | `vision_model.md` | OpenBSD solo maintainer, no startup |
+| deploy / crypto / Ed25519 | `sprint14_keyoxide_decision.md` | from-source verified deploy |
+| lib externe / dep / API spec | `feedback_context7_systematic.md` | context7 obligatoire avant code |
+
+Matcher zone depuis Step 1 fichiers touches. Toute modification
+future de cette table doit toucher les 2 skills (grep "Routing
+table" dans `.claude/skills/*/SKILL.md`).
 
 **Mecanisme** : noter dans le rapport review §Memory consultation
 les contraintes verifiees et leur statut (respecte / viole / N/A).

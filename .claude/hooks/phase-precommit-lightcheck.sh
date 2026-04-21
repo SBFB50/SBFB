@@ -131,6 +131,29 @@ if [ -n "$BODY" ]; then
   fi
 fi
 
+# === Check 4 : wire-format staging alert (WARN) ===
+WIRE_FILES=$(git diff --cached --name-only 2>/dev/null | grep -E 'canonical\.rs|schemas/|_VERSION' || true)
+if [ -n "$WIRE_FILES" ]; then
+  echo "[lightcheck] WARN: wire-format files staged:" >&2
+  echo "$WIRE_FILES" | while IFS= read -r wf; do
+    echo "  $wf" >&2
+  done
+  PREFLIGHT_PHASE=""
+  if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
+    PREFLIGHT_PHASE=".planning/active/sprint${SPRINT}_phase_${PHASE}_preflight.md"
+  fi
+  if [ -n "$PREFLIGHT_PHASE" ] && [ -f "$PREFLIGHT_PHASE" ]; then
+    if ! grep -qE 'S4.*full|full.*S4|FULL SCAN' "$PREFLIGHT_PHASE" 2>/dev/null; then
+      echo "[lightcheck] WARN: preflight S4 may be fast-path — wire-format requires full S4 scan" >&2
+      echo "  Pre-launch protocol applies. Verify VERSION=1 + Day 0 preserved." >&2
+      WARNINGS=$((WARNINGS + 1))
+    fi
+  else
+    echo "[lightcheck] WARN: no preflight found — verify S4 wire-format invariants manually" >&2
+    WARNINGS=$((WARNINGS + 1))
+  fi
+fi
+
 if [ "$ERRORS" -gt 0 ]; then
   echo "" >&2
   echo "[lightcheck] BLOCK: ${ERRORS} erreur(s) coherence staging" >&2

@@ -96,17 +96,19 @@ Lire `MEMORY.md` (index) et charger les memories pertinentes pour
 la zone fonctionnelle de la phase. L'objectif : eviter de proposer
 un design que les memories rejettent ou contraignent.
 
-**Toujours lire** (cout negligeable, valeur transversale) :
-- `feedback_approach.md` — regles "pick deepest", "no band-aid",
-  "research before code". Calibre le scan S1 (depth) et S2
-  (historical rigor).
+**Routing table** (source of truth : identique preflight et review) :
 
-**Lire si la phase touche la zone** (matcher depuis Step 1.3) :
-- kudos / fairness / reputation → `fairness_vision.md` +
-  `feedback_kudos_non_monetary.md`
-- governance / funding / modele economique → `vision_model.md`
-- deploy / crypto / Ed25519 → `sprint14_keyoxide_decision.md`
-- lib externe / dep bump / API spec → `feedback_context7_systematic.md`
+| Zone phase | Memory file | Contrainte cle |
+|---|---|---|
+| (toujours) | `feedback_approach.md` | pick deepest, no band-aid, research before code |
+| kudos / fairness / reputation | `fairness_vision.md` + `feedback_kudos_non_monetary.md` | non-monetary, no cost/deposit/stake |
+| governance / funding / modele | `vision_model.md` | OpenBSD solo maintainer, no startup |
+| deploy / crypto / Ed25519 | `sprint14_keyoxide_decision.md` | from-source verified deploy |
+| lib externe / dep / API spec | `feedback_context7_systematic.md` | context7 obligatoire avant code |
+
+Matcher zone depuis Step 1.3 fichiers cibles. Toute modification
+future de cette table doit toucher les 2 skills (grep "Routing
+table" dans `.claude/skills/*/SKILL.md`).
 
 **Mecanisme** : lire le fichier, extraire en 1-2 lignes la
 contrainte pertinente pour cette phase, la noter dans le
@@ -323,11 +325,20 @@ Output Step 4 : matrix coverage + regression flags, ou "S3: clean".
 
 ### Step 5 — Scan S4 : Wire format / pre-launch invariants (fast-path gate check)
 
-**Fast-path** (0 finding en 17 runs S22-S24) : S4 est un gate check
-de contrainte, pas un scan de decouverte. Executer les grep commands
-ci-dessous. Si `*_VERSION = 1` et Day 0 preservees → "S4: clean
-(fast-path verified)". Si version bump ou Day 0 deviation detectes
-→ escalade full scan (context7/WebSearch sur la spec touchee).
+**Escalation obligatoire** : si les fichiers cibles Step 1.3 incluent
+`canonical.rs`, `schemas/`, ou tout fichier contenant `*_VERSION` →
+**S4 FULL SCAN obligatoire** (pas fast-path). Lire canonical.rs en
+entier + verifier structs touches + Day 0 check complet + context7
+sur la spec wire si applicable. Le hook `phase-precommit-lightcheck.sh`
+Check 4 emettra un WARN si des fichiers wire-format sont stages sans
+trace S4 full dans le preflight.
+
+**Fast-path** (autorise UNIQUEMENT si aucun fichier wire-format dans
+le perimetre phase — 0 finding en 17 runs S22-S24) : S4 est un gate
+check de contrainte, pas un scan de decouverte. Executer les grep
+commands ci-dessous. Si `*_VERSION = 1` et Day 0 preservees → "S4:
+clean (fast-path verified)". Si version bump ou Day 0 deviation
+detectes → escalade full scan (context7/WebSearch sur la spec touchee).
 
 ```bash
 # Scanner les wire format versions
@@ -368,7 +379,7 @@ ou "S4: clean".
 
 ### Step 6 — Synthese verdict + emit document
 
-Combiner les 4 scans :
+Combiner les 5 scans :
 
 ```
 S1 = clean | findings
@@ -443,7 +454,7 @@ Findings non-bloquants uniquement :
 
 ### Step 7 — Templates de documents
 
-#### Template condense (verdict EXECUTE plan-as-is, 4 scans clean)
+#### Template condense (verdict EXECUTE plan-as-is, 5 scans clean)
 
 ```markdown
 # Sprint {N} Phase {X} — preflight G8
@@ -459,7 +470,15 @@ Date : YYYY-MM-DD | HEAD : `<sha>` | Verdict : **EXECUTE plan-as-is**
 - S1b deps : <N> libs scannees, 0 delta — clean
 - S2 historiques : <N> fichiers, <N> commits scannes — clean
 - S3 threat model : fast-path verified, HARDENING_ROADMAP aligned — clean
-- S4 wire format : fast-path verified, VERSION=1, Day 0 preserved — clean
+- S4 wire format : fast-path | full / VERSION=1, Day 0 preserved — clean
+
+## Telemetrie preflight
+- Duree totale : {mm}m{ss}s
+- S1a : {duree} / {N} projets OSS consultes / finding : clean | APPROACH-NAIVE | LIB-EXISTS
+- S1b : {duree} / {N} libs scannees / finding : clean | {type}
+- S2 : {duree} / {N} commits scannes / finding : clean | {type}
+- S3 : fast-path | full / {duree}
+- S4 : fast-path | full / {duree}
 
 ## Action
 Proceder code phase {X}.
@@ -490,6 +509,14 @@ Date : YYYY-MM-DD | HEAD : `<sha>` | Verdict : **PLAN-ADAPT**
 ## Scans S1b/S2/S3/S4
 - S1b deps : clean
 - S2/S3/S4 : clean (ou findings documentes)
+
+## Telemetrie preflight
+- Duree totale : {mm}m{ss}s
+- S1a : {duree} / {N} projets OSS consultes / finding : APPROACH-NAIVE
+- S1b : {duree} / {N} libs scannees / finding : clean | {type}
+- S2 : {duree} / {N} commits scannes
+- S3 : fast-path | full / {duree}
+- S4 : fast-path | full / {duree}
 
 ## Action
 Proceder code phase {X} avec approche corrigee. Commit body

@@ -58,7 +58,7 @@ Si info manquante, auto-detect :
 ## Focus post-code — optimisation input/prompt (2026-04-20)
 
 **Observation team 4-agent analysis** : l'auditor a historiquement
-consomme ~60-97k tokens/run dont ~50% a re-deriver les 4 scans S1-S4
+consomme ~60-97k tokens/run dont ~50% a re-deriver les 5 scans S1a-S4
 que le preflight G8 a deja tournes. Ca n'est PAS de la value — c'est
 de la duplication factuelle couteuse. Ta valeur unique est **post-
 code** : security runtime, design smells, scope-cuts respectes, delta
@@ -69,7 +69,7 @@ tests reel, patterns drift. Pas la re-verification SOTA / historiques
 
 1. **Si `.planning/active/sprint{N}_phase_{X}_preflight.md` existe** :
    lis-le (~200-400 lignes typiquement). Si verdict = `EXECUTE` ou
-   `SCOPE-CUT-CONSISTENT`, **ACKNOWLEDGE les 4 scans S1-S4** au lieu
+   `SCOPE-CUT-CONSISTENT`, **ACKNOWLEDGE les 5 scans S1a-S4** au lieu
    de les re-deriver. Inscris dans ton rapport :
 
    ```
