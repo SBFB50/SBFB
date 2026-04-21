@@ -1446,7 +1446,9 @@ EXÉCUTER directement (ne pas demander) :
     commit chore(planning|skill) AVANT phase
   - plan §Phase X explicite + audit-gate précédent PASS + G8
     verdict EXECUTE OU PLAN-ADAPT OU SCOPE-CUT-CONSISTENT → enchaîner
-    Phase X (si PLAN-ADAPT : code suit l'approche corrigée, pas le plan)
+    Phase X (si PLAN-ADAPT : code suit l'approche corrigée, pas le
+    plan — mais PLAN-ADAPT require evidence OSS concrete, ne peut
+    PAS toucher Day-0 figées, et 2+ consécutifs = signal méta)
   - fichiers accidentels (cache, build) + pattern .gitignore évident
     → ajouter pattern dans le commit chore
   - cas A audit gate, P0/P1 trouvés → écrire fix(sprint{N-1}): ...
@@ -1512,10 +1514,14 @@ Compare ce que tu vois avec :
     Avant la PREMIERE LIGNE DE CODE phase (G8) : invoquer skill
                nexus-phase-preflight pour 5 scans factuels (S1a OSS
                prior art + S1b deps SOTA + S2 historical decisions +
-               S3 threat model + S4 wire format). Verdict :
+               S3 threat model + S4 wire format). S4 escalation :
+               si phase touche canonical.rs/schemas/*_VERSION → S4
+               FULL SCAN obligatoire (pas fast-path). Verdict :
                EXECUTE plan-as-is (procéder),
                PLAN-ADAPT (recherche OSS montre meilleure approche →
-               adapter le code inline, pas d'arrêt),
+               adapter le code inline, pas d'arrêt — require >=1
+               projet OSS nommé avec source vérifiable, ne touche
+               PAS Day-0 figées),
                SCOPE-CUT-CONSISTENT (procéder + carry S+1 doc),
                DESIGN-CONFLICT (STOP, emit pivot_proposal, arbitrage
                user). Output : sprint{N}_phase_{X}_preflight.md OU
@@ -1574,8 +1580,8 @@ Compare ce que tu vois avec :
                 meme en hotfix.
     G8 NON applicable (pas de plan §Phase X à challenger). Mais
                 si le hotfix touche threat model ou wire format
-                pre-launch (rare), faire un mini-S4 manuel
-                reprenant les 4 commandes du skill
+                pre-launch (rare), faire un S4 FULL SCAN manuel
+                reprenant les commandes du skill
                 nexus-phase-preflight SKILL.md Step 5 :
                   grep -rE "_VERSION\s*[:=]\s*[0-9]+" crates/nexus-core-rs/src/
                   grep -A 10 "Pre-launch protocol" memory/nexus_grid_pivot.md
