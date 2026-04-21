@@ -20,8 +20,8 @@
 //!   implementation distributed S23-S27.
 //!
 //! This module hosts the Rust crypto primitives for Couche 1 +
-//! Couche 2. The Couche 3 `DelegationCert` is reserved (design-only)
-//! and lands no code under `attestations/` in Sprint 22.
+//! Couche 2 + the Couche 3 [`DelegationCert`] format primitive
+//! (design-only S23, runtime wiring S24-S27).
 //!
 //! Both attestations use RFC 8785 JCS canonical bytes + domain
 //! separation via [`crate::canonical::canonical_bytes`]. Cross-stream
@@ -43,6 +43,7 @@
 
 pub mod age_witness;
 pub mod contributor;
+pub mod delegation;
 
 pub use age_witness::{
     AgeWitness, AgeWitnessError, MIN_AGE_DAYS, MIN_WITNESS_AGE_DAYS, SECONDS_PER_DAY,
@@ -50,4 +51,8 @@ pub use age_witness::{
 pub use contributor::{
     ContributorAttestation, ContributorAttestationError, ContributorPredicate,
     CONTRIBUTOR_ATTESTATION_PREDICATE_TYPE, CONTRIBUTOR_ATTESTATION_STATEMENT_TYPE,
+};
+pub use delegation::{
+    DelegationCert, DelegationCertError, DELEGATION_ALGO_OPENPGP_ED25519,
+    DELEGATION_ALGO_SSH_ED25519, DELEGATION_ALGO_SSH_RSA,
 };

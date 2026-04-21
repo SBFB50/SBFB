@@ -165,6 +165,19 @@ pub const DOMAIN_AGE_WITNESS_V1: &[u8] = b"nexus-age-witness-v1";
 /// the wire format, envelope rules, and verification procedure.
 pub const DOMAIN_CONTRIBUTOR_ATTESTATION_V1: &[u8] = b"nexus-contributor-attestation-v1";
 
+/// Domain separation tag for [`crate::attestations::DelegationCert`]
+/// canonical bytes.
+///
+/// Sprint 23 Phase F — Sybil-resistance Couche 3 (design-only). A
+/// contributor self-signs a certificate binding their SBFB Ed25519
+/// `node_id` to an SSH/PGP signing key fingerprint used on external
+/// forges. The domain tag prevents cross-stream replay against any
+/// other signed payload family. Cf.
+/// [`docs/security/CONTRIBUTOR_ATTESTATION_RFC.md §3`](
+/// ../../../docs/security/CONTRIBUTOR_ATTESTATION_RFC.md) for the
+/// format specification and attack surface analysis.
+pub const DOMAIN_DELEGATION_CERT_V1: &[u8] = b"nexus-delegation-cert-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///

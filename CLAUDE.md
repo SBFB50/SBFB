@@ -119,14 +119,16 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-22 CLOSED**, v1.2 en cours. Audit gate S22 = S23
-  Phase 0 (`.planning/archive/v1.2/sprint22_audit_plan.md`).
-- **~1509 tests total** (710 Rust / 185 SDK / 263+3 coord / 46
-  app-gov / 264 Vitest / 38 Playwright / 7/7 size-limit / 246+
-  SPDX) — tous verts.
-- Carry S23 : T-NN+2 iframe Rust-wasm (PATTERNS §P34).
+- **Sprints 0-23 CLOSED**, v1.2 en cours. Audit gate S23 = S24
+  Phase 0 (`.planning/archive/v1.2/sprint23_audit_plan.md`).
+- **~1561 tests total** (741 Rust / 185 SDK / 272+3 coord / 46
+  app-gov / 264 Vitest / 43 Playwright / 7/7 size-limit / 246+
+  SPDX) — tous verts (32 coord skip PyO3 wheel stale, pas
+  regression).
+- Carry S24 : T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
+  P2-D-1/P2-D-2/P2-E-1/P2-E-2/P2-E-3/P2-F-1 (cleanup batch S24).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
