@@ -104,12 +104,19 @@ vie d'un sprint ».
 décisions non-rebattables avant d'écrire la moindre ligne de
 code.
 
-Sections canoniques (pattern Sprint 6/7) :
+Sections canoniques (pattern Sprint 20 gold) :
 
-1. **Constat d'entrée** — quel est le tip master au début,
+1. **§Sources context7 + WebSearch consultées (pre-gel)** —
+   traces des recherches effectuées AVANT de rédiger les D1-D5.
+   URLs, versions, dates absolues, papers. Preuve factuelle que
+   G9 a été respecté. Section absente = ⚠️ G1.
+2. **Constat d'entrée** — quel est le tip master au début,
    quels tests passent, quels commits ont landé depuis le
-   sprint précédent, quel est le verdict de l'audit gate
-2. **Goal en une phrase** — ce que le sprint promet de livrer.
+   sprint précédent, quel est le verdict de l'audit gate.
+   Sous-sections : §1.1 D'où on part, §1.2 Ancrage
+   HARDENING_ROADMAP, §1.3 Compteurs tests entrée (tip SHA),
+   §1.4 Pre-launch protocol policy (rappel).
+3. **Goal en une phrase** — ce que le sprint promet de livrer.
    Le goal §2 reste litteraire (lecture humaine) mais **DOIT
    pointer explicitement vers `verification.md §Fail-fast checklist`
    comme source of truth mesurable** (G3). Exemple :
@@ -124,28 +131,52 @@ Sections canoniques (pattern Sprint 6/7) :
    executables, cf. §2.2 plan §5) — c'est le critere SMART du
    sprint. Le goal §2 n'a pas besoin de 3 critres SMART
    supplementaires (duplication §2/§5/§10), juste un pointeur.
-3. **Phase 0 — Audit gate du sprint précédent** (DONE avant le
+4. **Phase 0 — Audit gate du sprint précédent** (DONE avant le
    kickoff lui-même à partir de Sprint 7) — résumé du verdict
    et du commit stack de gate
-4. **Décisions Day 0 (D1..D5 gelées)** — les choix
+5. **Décisions Day 0 (D1..D5 gelées)** — les choix
    architecturaux qui vont piloter toutes les phases. Une
-   fois figées, non rebattables. Format :
+   fois figées, non rebattables. Format S20 gold :
    - titre court
-   - « Retenu » : la décision
-   - « Rejeté » : les alternatives considérées avec raison
-   - « Implications » : ce que ça verrouille dans le code
-5. **Plan Phase outline A..F** — une section courte par phase
+   - « Retenu » : la décision (paragraphe détaillé + code sample
+     si applicable)
+   - « Rejeté » : chaque alternative avec raison factuelle du
+     rejet (1-2 lignes par alternative, minimum 2 alternatives)
+   - « Implications code » : fichiers/modules verrouillés
+   Suivi immédiat : **§Acknowledged review findings (G1)** —
+   scoring D1✅ D2✅ D3⚠️ etc. avec adjustments inline pour
+   chaque ⚠️. Format :
+   ```
+   Scoring : D1 ✅, D2 ✅, D3 ⚠️, D4 ✅, D5 ✅.
+   Rigor signal G4 satisfait (1 ⚠️ sur 5).
+   D3 ⚠️ : [finding]. Decision : adjust — [correction inline].
+   ```
+6. **Plan Phase outline A..F** — une section courte par phase
    avec son scope, son critère d'acceptation et son commit
    cible
-6. **Scope cuts** — liste des choses qu'on ne fera PAS dans
-   ce sprint et pour quel sprint elles sont gardées
-7. **Traçabilité scope** — table qui mappe chaque item « What's
+7. **Items carry/dette** — reclassification explicite des
+   carry-overs (cap G7 = 2/2), avec pour chaque item :
+   classification (carry confirmé / scope intégré / tech debt
+   long-terme / post-Gate-N), rationale, conséquences
+8. **Scope cuts** — liste **exhaustive** (10-14 items) des
+   choses qu'on ne fera PAS dans ce sprint et pour quel
+   sprint elles sont gardées. Pattern S20 : chaque item avec
+   sprint cible explicite.
+9. **Traçabilité scope** — table qui mappe chaque item « What's
    NOT » du sprint précédent sur le sprint + phase où il est
    pris en charge
-8. **Audit gate pattern — rappel** — confirme que la Phase 0
-   a été jouée et que la Phase F devra produire l'audit_plan
-9. **Checkpoint de validation** — ce que l'utilisateur doit
-   valider avant que l'agent attaque le plan détaillé
+10. **Risk register (R1..R7)** — risques techniques avec
+    colonnes Likelihood / Impact / Mitigation. Pattern S20 :
+    7 risques identifiés, dont R7 qui a prédit le conflit
+    Phase E (G8 DESIGN-CONFLICT). Ce registre est vérifié
+    par l'audit gate.
+11. **Audit gate pattern — rappel** — confirme que la Phase 0
+    a été jouée et que la Phase F devra produire l'audit_plan
+12. **Checkpoint de validation** — 5 questions pour arbitrage
+    user AVANT que l'agent attaque le plan détaillé. Pattern
+    S20 : une question par D-decision pour confirmer le choix.
+    Pas un rubber-stamp — c'est le dernier moment pour pivoter
+    sans coût.
 
 Cas particulier Sprint 5 (950 lignes) : le kickoff contenait
 initialement aussi le plan détaillé. Depuis Sprint 6, kickoff
@@ -171,17 +202,25 @@ Sections canoniques (pattern Sprint 6/7) :
    lectures de registry local `~/.cargo/registry/`, grep de
    patterns précédents. L'audit gate peut re-challenger ces
    sources si elles semblent incomplètes
-4. **Phase A..F** — une section complète par phase avec :
-   - Fichiers ajoutés / modifiés (chemin + 3 à 5 lignes de
-     structure). **Pas d'estimation LOC** — quand on vise la
-     solution la plus poussée, la taille finale est inconnue
-     avant que la recherche soit terminée, et les estimations
-     amont biaisent vers la solution minimale qui rentre dans
-     l'estimation. Cf. §6.7.
-   - Tests à écrire (nommage + scénario)
-   - Critère d'acceptation (ce qui doit être vert avant de
-     commiter)
-   - Commit cible (titre complet)
+4. **Phase A..F** — une section complète par phase (pattern
+   S20 gold, 5 sous-sections par phase) :
+   - **§X.1 Scope** — 1-3 paragraphes détaillant les livrables
+   - **§X.2 Fichiers touchés** — table `| Fichier | Rôle |`
+     (chemin complet + description des changements, pas juste
+     une liste plate). **Pas d'estimation LOC** — cf. §6.7
+   - **§X.3 Tests plan** — tests nommés individuellement avec
+     scénario (pas juste un comptage "+N tests"). Pattern S20 :
+     `1. test_derive_kek_roundtrip`, `2. test_aad_integrity`,
+     etc. Permet de vérifier la couverture au commit
+   - **§X.4 Critère d'acceptation** — commandes exactes pour
+     vérifier (ce qui doit être vert avant de commiter)
+   - **§X.5 Commit cible** — template body complet incluant
+     le titre exact et les sections attendues du body. Force
+     la discipline avant d'écrire le code
+   - **Dependencies inter-phases** documentées explicitement
+     en tête de section (ex: "Phase A → Phase B : B extends
+     KeyStore::unlock() de A"). Pattern S20 : graphe de
+     dépendances en 5 lignes avant les phases
 5. **Fail-fast checklist** — table `| # | Check | Commande
    | Critère | Observed |` qui liste 24 à 32 rows exécutables.
    Chaque row est la vérif qu'on rejouera au verification.md.
@@ -227,8 +266,14 @@ Sections canoniques :
 6. **Surface nouvelle livrée** — liste factuelle des LOC par
    nouveau module
 7. **Ce que le sprint n'a PAS livré (scope cuts respectés)**
-   — reprise de §6 kickoff avec check `❌` pour chacun
-8. **Checkpoint de clôture** — les N conditions du plan.md
+   — reprise **exhaustive** de §8 kickoff (10-14 items) avec
+   check `❌` pour chacun. Ne pas tronquer — l'auditeur
+   vérifiera que TOUS les items sont listés
+8. **Findings carry-over for memory (G6)** — max 5 items qui
+   valent d'être persistés dans la memory externe (P0/P1 +
+   décisions long-terme + gotchas surprenants). Fusion
+   manuelle au kickoff S{N+1}
+9. **Checkpoint de clôture** — les N conditions du plan.md
    §checkpoint, chacune cochée
 
 ### 2.4 audit_plan.md — le plan d'audit pour le sprint suivant
@@ -398,16 +443,60 @@ Pattern commit :
 ```
 feat(scope): Sprint N Phase X — titre court
 
-Body structuré :
-- Contexte (1-2 lignes)
-- Fichiers touchés avec rationale (pas seulement la liste)
-- Delta de tests cumulé :
-    Rust workspace:           193 → 254 (+61 Phase X)
-    Python coord:             47+1 → 57+1 (+10 daemon proxy)
-    Vitest unit:              99 → 114 (+15 daemon.ts)
-    Playwright:               10 → 13 (+5 Phase E, -2 stub-pages)
-- Scope cuts honoured (liste explicite de NOT)
-- Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Body structuré (template S20 gold — 10 sections obligatoires) :
+
+## Contexte
+[1-3 paragraphes : rationale, threat model, research grounding]
+
+## Fichiers
+| Fichier | Rôle |
+|---------|------|
+| crates/nexus-foo/src/bar.rs | [description changement] |
+[grouper par Rust / Python / Web / Tests]
+
+## Working tree audit (G5)
+| Fichier | Catégorie | Rôle |
+|---------|-----------|------|
+[chaque fichier modifié avec annotation sous-tâche]
+CRAFT: 0 · DEBT: 0 · NOISE: 0
+
+## Delta tests
+| Suite | Avant | Après | Delta |
+|-------|-------|-------|-------|
+| Rust workspace | 538 | 566 | +28 |
+[+ décomposition per-module : "+15 keystore::tests, +8 integration, +5 unlock"]
+
+## Verification §7.4
+- cargo fmt --all --check : ✓
+- cargo clippy -D warnings : ✓
+- cargo nextest --workspace : N pass
+- uv run pytest coord : N pass
+[CI manifest complet, chaque suite avec résultat]
+
+## Scope cuts respectés (kickoff §8)
+[TOUS les items du kickoff §8, exhaustif, avec sprint cible]
+- Hardware keystore TPM/SE : S22+ (0 fichier)
+- Rate-limit per-consumer : S21 (0 fichier)
+[14+ items — pas de troncature]
+
+## G8 traceability
+- Preflight : [SHA] verdict [EXECUTE/SCOPE-CUT-CONSISTENT]
+- Review : [SHA] verdict [PASS] (N P0, N P1, N P2)
+[chaîne complète avec SHAs cross-référencés]
+
+## Findings (rigor signal G4)
+- P2-X-N : [description détaillée] → [résolu inline/carry S{N+1}]
+[chaque finding individuellement avec statut de résolution]
+
+## Pre-launch protocol
+[*_VERSION unchanged, wire format preservé]
+
+## Carry closure / Unblock
+- Closes carry S{N-1} A-2 (PoW wire gossip subscribe)
+- Débloque prérequis S{N+1} rate-limit (depend Phase C)
+[graphe de dépendances inter-sprint explicite]
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ```
 
 Si une phase a besoin d'un fix post-commit (pattern Sprint 2
@@ -1791,7 +1880,7 @@ Tests : <suites + delta>
 
 Refs : .planning/active/sprint{N-1}_audit_findings.md §{ID}
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ```
 
 **Cas B — feat (Phase X du sprint en cours)** :
@@ -1810,7 +1899,7 @@ Delta tests cumulé :
   Playwright     : NN -> NN (+X)
 Scope cuts honoured : <items NOT, copie du kickoff §6>
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ```
 
 **Cas C — docs (planning d'ouverture sprint)** :
@@ -1828,7 +1917,7 @@ Phases prévues :
   B — <titre>
   ...
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ```
 
 **Cas C — docs (clôture sprint, sortie Phase E)** :
@@ -1844,7 +1933,7 @@ Tip d'entrée : {SHA}
 Tip de sortie : {SHA}
 Commit stack : {N commits feat/test} + ce commit docs
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ```
 
 **Cas D — hotfix hors sprint** :
@@ -1857,7 +1946,7 @@ Root cause : <diagnostic>
 Fix : <ce qui change>
 Tests : <validation>
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ```
 
 ### 7.3 Détection version cible (Cas C uniquement)
@@ -2059,25 +2148,30 @@ vie d'un sprint ».
 
 ---
 
-## 10.1 Discipline d'exécution Claude (modèle + effort + MRCR)
+## 10.1 Note historique : process bankruptcy (2026-04-20, `2438c59`)
 
-Deux documents complémentaires pilotent la consommation compute
-de Claude Code sur le projet :
+Le sprint 22 Phase D a conclu un A/B test Opus 4.6 vs 4.7 et
+un audit causal du process accumulé S16-S22. Résultat :
 
-- **[`MRCR_SELFTEST.md`](MRCR_SELFTEST.md)** — 3 questions de
-  contrôle cross-session à jouer en Phase 0 sur session fraîche,
-  barème 0-3, règle de décision modèle (rester Opus 4.6 si score
-  ≤ 1/3, bascule 4.7 si 3/3). Baromètre binaire de la régression
-  MRCR mesurée sur Opus 4.7.
-- **[`MODEL_AND_EFFORT.md`](MODEL_AND_EFFORT.md)** — mapping
-  recommandé effort/phase (Phase 0 = `max`, Phase A/F = `high`,
-  Phase B-D = `xhigh`, Phase E sécurité = `max`) + protocole
-  baseline A/B Opus 4.6 vs 4.7 sur les phases restantes du sprint
-  courant, règle de décision post-mesure.
+- **Décision modèle** : rester Opus 4.6 (régression MRCR
+  mesurée : -32.7pp @256K, -46.1pp @1M sur Opus 4.7)
+- **Hooks supprimés** (0 valeur causale prouvée, 200 appels
+  Haiku/session) : narration terminal, sidecar terminal,
+  TDD guard, statusline, post-commit-memory
+- **Hooks conservés** (valeur causale prouvée) :
+  `phase-auditor-gate.sh` (2 DESIGN-CONFLICT détectés S20/S21),
+  `phase-precommit-lightcheck.sh`, `verify-on-write.sh`,
+  `session-start-autoinstall.sh`
+- **CLAUDE.md** réduit de 503 à 232 lignes (détails redondants
+  avec docs/)
+- **Documents supprimés** : `MRCR_SELFTEST.md` (moot après
+  décision modèle), `MODEL_AND_EFFORT.md` (optimisation
+  nice-to-have, non-bloquant)
 
-Ces documents sont optionnels mais leur suivi évite (1) du
-gaspillage `xhigh`/`max` sur phases légères (2) des décisions de
-modèle guidées par marketing plutôt que mesure.
+Diagnostic clé : *"la qualité code vient du modèle + instructions
+CLAUDE.md, pas des hooks/reviews/cérémonies."* Le process doit
+rester lean — les seuls mécanismes justifiés sont ceux avec
+impact causal mesuré sur la qualité du code.
 
 ---
 

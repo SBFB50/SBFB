@@ -2,15 +2,6 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/cleanup-orphan-hooks.sh\""
-          }
-        ]
-      },
-      {
         "matcher": "startup|resume",
         "hooks": [
           {
