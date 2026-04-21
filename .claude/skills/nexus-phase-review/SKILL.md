@@ -146,6 +146,51 @@ cargo build -p nexus-shell-daemon --release
 fix root-cause. Ne jamais suggerer `#[ignore]`, `xfail`, ou
 `--no-verify`.
 
+### Step 2bis — Modified-file branch coverage check (G9)
+
+Le delta tests (Step 3) verifie "combien de tests ajoutes". Ce step
+verifie "est-ce que chaque nouvelle branche/methode dans un fichier
+EXISTANT modifie est exercee par au moins 1 test".
+
+**Rationale** : S24 Phase D a livre `_schedule_rerun()` (40 LOC) et
+la branche `if self._rerun_sampler is not None` dans
+`mark_completed()` sans aucun test d'integration. Le delta tests
+plan vs reel matchait (+10/+10) mais le wiring etait invisible.
+Phase C avait le meme pattern (validator.py hooks non integres).
+Le trou est structurel : les tests unitaires couvrent les composants
+isoles, pas le wiring dans les fichiers existants.
+
+**Procedure** :
+
+1. Lister les fichiers existants modifies par la phase (pas les NEW) :
+   ```bash
+   git diff HEAD --name-only -- '*.py' '*.rs' '*.ts' '*.tsx' | \
+     grep -v __pycache__
+   ```
+
+2. Pour chaque fichier, extraire les nouvelles methodes/branches :
+   ```bash
+   git diff HEAD -- <file> | grep -E '^\+.*(def |fn |async fn |if |match )'
+   ```
+
+3. Pour chaque nouvelle methode/branche identifiee, grep les fichiers
+   test pour verifier qu'au moins 1 test l'exerce :
+   - Methode `_schedule_rerun` → grep `schedule_rerun` dans tests/
+   - Branche `if self._rerun_sampler` → grep `rerun_sampler` dans tests/
+   - Methode publique `foo()` → grep `foo` dans tests/
+
+4. **Signal** :
+   - **PASS** : chaque methode/branche a >= 1 test qui l'exerce
+   - **CONCERN** : branche defensive triviale (`if x is None: return`)
+     sans test — acceptable si le path principal est teste
+   - **FAIL** : methode > 10 LOC ou branche de logique metier sans
+     test → P1 bloquant, ajouter le test avant commit
+
+**Anti-pattern** : "les tests du composant isole suffisent". Non.
+Le composant peut etre correct et le wiring casse (mauvais param,
+oubli d'appel, condition inversee). Le test d'integration du wiring
+est le seul qui le detecte.
+
 ### Step 3 — Compter le delta tests reel
 
 ```bash
@@ -349,6 +394,11 @@ Produire un rapport markdown concis :
 - Delta tests coherent : ✅
 - Scope cuts honoured : ✅
 - Co-Authored-By present : ✅
+
+## Modified-file branch coverage (Step 2bis, G9)
+- <file.py> : `new_method()` (N LOC) → tested by `test_X` ✅
+- <file.py> : `if self._foo is not None` branch → tested by `test_Y` ✅
+- (FAIL si methode > 10 LOC sans test)
 
 ## Scope cuts verification
 - "multi-relai phase 2" : 0 fichiers diff ✅
