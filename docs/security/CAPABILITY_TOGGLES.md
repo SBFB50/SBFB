@@ -1,7 +1,7 @@
 ---
 written: 2026-04-20  # S22 hors-sprint post Phase B `e9530c2`
 last_validated: 2026-04-20
-status: design-only (implementation S25 amendement HARDENING §3 S25)
+status: implemented (Sprint 25 Phase D)
 triggers_revalidate:
   - "microsoft/sudo Settings UI change"
   - "Tool-calling sandbox reactivation S25+ effective"

@@ -121,6 +121,7 @@ nexus-coordinator = "nexus_coordinator.cli.main:app"
 # `sbfb init <type> <path>` creates a new app from a bundled
 # template (html / react / pyodide).
 sbfb = "nexus_coordinator.cli.sbfb_main:app"
+nexus-admin = "nexus_coordinator.cli.commands.capability:app"
 
 [project.optional-dependencies]
 test = [

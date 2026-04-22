@@ -16,6 +16,7 @@ from __future__ import annotations
 import typer
 
 from nexus_coordinator.cli.commands import canary as canary_cmds
+from nexus_coordinator.cli.commands import capability as capability_cmds
 from nexus_coordinator.cli.commands import invite as invite_cmds
 from nexus_coordinator.cli.commands import quarantine as quarantine_cmds
 from nexus_coordinator.cli.commands.init import init_cmd
@@ -36,6 +37,7 @@ app.command("migrate", help="Plan or apply database migrations for apps.")(migra
 app.add_typer(invite_cmds.app, name="invite")
 app.add_typer(quarantine_cmds.app, name="quarantine")
 app.add_typer(canary_cmds.app, name="canary")
+app.add_typer(capability_cmds.app, name="capability")
 
 
 if __name__ == "__main__":

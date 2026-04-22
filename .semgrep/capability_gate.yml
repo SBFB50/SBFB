@@ -1,0 +1,47 @@
+rules:
+  - id: require-capability-check
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @app.post("/tool/$X")
+              def $FUNC(...):
+                  ...
+          - pattern: |
+              @app.post("/rag/$X")
+              def $FUNC(...):
+                  ...
+          - pattern: |
+              @app.post("/mcp/$X")
+              def $FUNC(...):
+                  ...
+          - pattern: |
+              @app.post("/tool/$X")
+              async def $FUNC(...):
+                  ...
+          - pattern: |
+              @app.post("/rag/$X")
+              async def $FUNC(...):
+                  ...
+          - pattern: |
+              @app.post("/mcp/$X")
+              async def $FUNC(...):
+                  ...
+      - pattern-not-inside: |
+          @require_capability(...)
+          def $FUNC(...):
+              ...
+      - pattern-not-inside: |
+          @require_capability(...)
+          async def $FUNC(...):
+              ...
+    message: >
+      Endpoint with risk surface (/tool/, /rag/, /mcp/) missing
+      `@require_capability(...)` decorator.
+      See `docs/security/CAPABILITY_TOGGLES.md §5`.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      technology: [python]
+      references:
+        - docs/security/CAPABILITY_TOGGLES.md
