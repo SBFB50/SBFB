@@ -27,15 +27,14 @@ The loop exposes two hooks for tests:
 - :meth:`Validator.run_forever` — drive the loop until the
   coordinator stops.
 
-Sprint 21 phase coord-side : optional ``output_filter`` hook. Si
-fourni, ``_handle_result`` applique ``output_filter.filter()``
-APRÈS le 3-layer verify Rust et AVANT
-``Dispatcher.mark_completed`` + ``KudosLedger.credit``. Un verdict
-négatif (invisible text strippé / prompt echo above threshold)
-convertit l'event en ``result_rejected`` avec
-``reason="output_filter: <sub-reason>"`` + appelle
-``dispatcher.mark_failed``. Le worker **n'est pas crédité** —
-pattern identique à un 3-layer verify fail.
+Sprint 25 phase C3 handoffs : ``stage_guards: StageGuardrailMap``
+replaces the inline ``output_filter`` path. The
+``"on_result_received"`` chain runs AFTER 3-layer verify and
+BEFORE ``Dispatcher.mark_completed`` + ``KudosLedger.credit``.
+An ``OutputTripwire`` converts the event into ``result_rejected``
+with ``reason="output_filter: <sub-reason>"``. Backward compat:
+passing ``output_filter`` wraps it in an ``OutputSafetyGuardrail``
+→ ``GuardrailChain`` → ``{"on_result_received": chain}``.
 """
 
 from __future__ import annotations
@@ -50,9 +49,15 @@ import nexus_core
 import structlog
 
 from nexus_coordinator.dispatcher import Dispatcher
+from nexus_coordinator.guardrails import (
+    GuardrailChain,
+    GuardrailContext,
+    OutputTripwire,
+    StageGuardrailMap,
+)
 from nexus_coordinator.hooks import HookRunner
 from nexus_coordinator.kudos import KudosLedger
-from nexus_coordinator.output_filter import OutputFilter
+from nexus_coordinator.output_filter import OutputFilter, OutputSafetyGuardrail
 
 _log = structlog.get_logger(__name__)
 
@@ -79,6 +84,7 @@ class Validator:
         kudos: KudosLedger,
         db_path: Path,
         output_filter: OutputFilter | None = None,
+        stage_guards: StageGuardrailMap | None = None,
         hook_runner: HookRunner | None = None,
     ) -> None:
         self._doc = doc
@@ -88,7 +94,13 @@ class Validator:
         self._db_path = db_path
         self._subscription: Any | None = None
         self._verifier: Any = nexus_core.Verifier()
-        self._output_filter = output_filter
+        if stage_guards is not None:
+            self._stage_guards: StageGuardrailMap = stage_guards
+        elif output_filter is not None:
+            output_chain = GuardrailChain([OutputSafetyGuardrail(output_filter)])
+            self._stage_guards = {"on_result_received": output_chain}
+        else:
+            self._stage_guards = {}
         self._hook_runner = hook_runner
 
     async def start(self) -> None:
@@ -247,36 +259,34 @@ class Validator:
                 },
             )
 
-        # Sprint 21 phase coord-side — output filter hook. Appliqué
-        # APRÈS 3-layer verify (on sait que la sig est bonne) et
-        # AVANT mark_completed + kudos credit. Un verdict négatif
-        # bloque la delivery au client via l'API control plane +
-        # décrédite le worker (pattern identique à un 3-layer fail).
-        if self._output_filter is not None:
+        result_chain = self._stage_guards.get("on_result_received")
+        if result_chain is not None:
             model_output = self._extract_model_output(result_entry)
             system_prompt, user_prompt = self._extract_task_prompts(task_entry_json)
-            verdict = self._output_filter.filter(
+            ctx = GuardrailContext(
+                task_id=task_id,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                model_output=model_output,
             )
-            if not verdict.is_valid:
-                reason = f"output_filter: {verdict.reason}"
+            try:
+                await result_chain.run(ctx, model_output)
+            except OutputTripwire as e:
+                reason = f"output_filter: {e.evidence.get('reason', str(e))}"
                 await self._dispatcher.mark_failed(task_id, reason)
                 if self._hook_runner is not None:
                     await self._hook_runner.fire(
                         "on_quarantine_enqueue",
                         task_id=task_id,
                         metadata={
-                            "reason": verdict.reason,
+                            "reason": e.evidence.get("reason", str(e)),
                             "worker_pubkey_hex": worker_pubkey.hex(),
                         },
                     )
                 _log.warning(
                     "output_filter_rejected_result",
                     task_id=task_id,
-                    reason=verdict.reason,
-                    risk_score=verdict.risk_score,
+                    reason=e.evidence.get("reason", str(e)),
+                    risk_score=e.evidence.get("risk_score", 0.0),
                 )
                 if self._hook_runner is not None:
                     await self._hook_runner.fire(

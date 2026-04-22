@@ -104,11 +104,25 @@ class GuardrailChain:
         return list(self._guardrails)
 
 
+GUARDRAIL_STAGES: frozenset[str] = frozenset(
+    {
+        "on_claim_broadcast",
+        "on_task_dispatched",
+        "on_result_received",
+        "on_validator_post_task",
+        "on_quarantine_enqueue",
+    }
+)
+
+StageGuardrailMap = dict[str, GuardrailChain]
+
 __all__ = [
+    "GUARDRAIL_STAGES",
     "Guardrail",
     "GuardrailChain",
     "GuardrailContext",
     "GuardrailOutcome",
     "InputTripwire",
     "OutputTripwire",
+    "StageGuardrailMap",
 ]
