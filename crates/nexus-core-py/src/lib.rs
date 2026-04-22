@@ -1272,6 +1272,25 @@ fn verify_bytes(
     nexus_core_rs::verify(&pk, message.as_bytes(), &sig_arr).map_err(|e| py_err("verify_bytes", e))
 }
 
+/// Verify a [`SignedKeyRotation`](nexus_core_rs::key_rotation::SignedKeyRotation)
+/// JSON blob: signature valid over canonical bytes with
+/// `DOMAIN_KEY_ROTATION_V1`, version check, field constraints.
+///
+/// Sprint 25 Phase B. Consumed coordinator-side for validating
+/// key rotation announcements received over gossip or HTTP.
+///
+/// Raises `ValueError` on bad JSON, `RuntimeError` if the
+/// signature does not verify or constraints fail.
+#[pyfunction]
+fn verify_key_rotation(announcement_json: &str) -> PyResult<()> {
+    let signed: nexus_core_rs::key_rotation::SignedKeyRotation =
+        serde_json::from_str(announcement_json)
+            .map_err(|e| PyValueError::new_err(format!("bad key rotation json: {e}")))?;
+    signed
+        .verify()
+        .map_err(|e| py_err("verify_key_rotation", e))
+}
+
 // ======================================================================
 // Module entry point
 // ======================================================================
@@ -1310,6 +1329,7 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build_contributor_attestation, m)?)?;
     m.add_function(wrap_pyfunction!(verify_contributor_attestation, m)?)?;
     m.add_function(wrap_pyfunction!(verify_age_witness, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_key_rotation, m)?)?;
 
     Ok(())
 }

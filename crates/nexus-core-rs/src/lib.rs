@@ -44,6 +44,7 @@ pub mod docs;
 pub mod error;
 pub mod gossip;
 pub mod hooks;
+pub mod key_rotation;
 pub mod keystore;
 pub mod node;
 pub mod pkarr_resolver;
@@ -67,8 +68,8 @@ pub use blobs::BlobsClient;
 pub use canonical::{
     canonical_bytes, DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_CONTRIBUTOR_ATTESTATION_V1,
     DOMAIN_CURATOR_LIST_V1, DOMAIN_DELEGATION_CERT_V1, DOMAIN_DURESS_ACK_V1, DOMAIN_INVITE_V1,
-    DOMAIN_KUDOS_V1, DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1, DOMAIN_RESULT_V1, DOMAIN_TASK_V1,
-    DOMAIN_WARRANT_CANARY_V1,
+    DOMAIN_KEY_ROTATION_V1, DOMAIN_KUDOS_V1, DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1, DOMAIN_RESULT_V1,
+    DOMAIN_TASK_V1, DOMAIN_WARRANT_CANARY_V1,
 };
 pub use crypto::{blake3_hash, verify, Blake3Chain, KeyPair};
 pub use curator::{
@@ -89,6 +90,11 @@ pub use error::{NexusError, Result};
 pub use gossip::{
     evaluate_age_admission, AgeAdmissionOutcome, AgeAdmissionPolicy, DifficultyTarget,
     GossipClient, GossipEvent, TopicHandle, TopicReceiver, TopicSender,
+};
+pub use key_rotation::{
+    KeyRotationAnnouncement, RevocationCache, RevocationEntry, SignedKeyRotation,
+    DEFAULT_TRANSITION_DAYS, KEY_ROTATION_FORMAT_VERSION, KEY_ROTATION_TOPIC, MAX_TRANSITION_DAYS,
+    REASON_MAX_BYTES,
 };
 pub use keystore::{
     Identity, IdentityMode, KdfParams, KeyStore, KeyStoreError, LocalFileKeyStore, UnlockError,

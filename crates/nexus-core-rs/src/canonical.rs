@@ -165,6 +165,16 @@ pub const DOMAIN_AGE_WITNESS_V1: &[u8] = b"nexus-age-witness-v1";
 /// the wire format, envelope rules, and verification procedure.
 pub const DOMAIN_CONTRIBUTOR_ATTESTATION_V1: &[u8] = b"nexus-contributor-attestation-v1";
 
+/// Domain separation tag for [`crate::key_rotation::KeyRotationAnnouncement`]
+/// canonical bytes.
+///
+/// Sprint 25 Phase B: a curator or node operator signs a rotation
+/// announcement with their **old** key, proving possession, and
+/// broadcasts it on the `nexus-grid/key-rotation/v1` gossip topic.
+/// The domain tag prevents cross-stream replay against any other
+/// signed payload family.
+pub const DOMAIN_KEY_ROTATION_V1: &[u8] = b"nexus-key-rotation-v1";
+
 /// Domain separation tag for [`crate::attestations::DelegationCert`]
 /// canonical bytes.
 ///

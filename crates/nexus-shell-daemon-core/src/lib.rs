@@ -56,6 +56,7 @@ pub mod browse;
 pub mod canary;
 pub mod config;
 pub mod iroh_runtime;
+pub mod key_rotation_handler;
 pub mod paths;
 pub mod pow_policy_loader;
 pub mod publish;

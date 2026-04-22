@@ -51,6 +51,7 @@ use serde_big_array::BigArray;
 use crate::canonical::{canonical_bytes, DOMAIN_CURATOR_LIST_V1};
 use crate::crypto::{KeyPair, PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
 use crate::error::{NexusError, Result};
+use crate::key_rotation::RevocationCache;
 
 /// Current on-wire version for CuratorList payloads.
 ///
@@ -271,6 +272,26 @@ impl CuratorListEntry {
         }
         let bytes = canonical_bytes(&self.list, DOMAIN_CURATOR_LIST_V1)?;
         crate::crypto::verify(&self.curator_pubkey, &bytes, &self.signature)
+    }
+
+    /// Verify signature and check the curator's key against the
+    /// [`RevocationCache`]. If the key is fully revoked (transition
+    /// window expired), the entry is rejected. If the key is in
+    /// transition, verification succeeds but callers should log a
+    /// warning.
+    ///
+    /// Returns `Ok(true)` if verification passed and the key is in
+    /// transition (callers should warn), `Ok(false)` if passed
+    /// cleanly (key not in cache or unknown), `Err` if revoked or
+    /// signature invalid.
+    pub fn verify_with_revocation(&self, cache: &RevocationCache, now_ts: u64) -> Result<bool> {
+        if cache.is_revoked(&self.curator_pubkey, now_ts) {
+            return Err(NexusError::Crypto(
+                "curator key is fully revoked (transition window expired)".into(),
+            ));
+        }
+        self.verify_signature()?;
+        Ok(cache.is_in_transition(&self.curator_pubkey, now_ts))
     }
 
     /// Verify a [`CuratorListEntry`] under the Sprint 22 Couche 2
@@ -756,5 +777,72 @@ mod tests {
         entry
             .verify_with_contributor_registry(&registry)
             .expect("unenrolled projects bypass Couche 2 gate");
+    }
+
+    // ---- Key rotation / revocation integration (Sprint 25 Phase B) ----
+
+    #[test]
+    fn curator_verify_with_revoked_key_rejects() {
+        let curator_kp = KeyPair::generate();
+        let new_kp = KeyPair::generate();
+        let list = sample_list(curator_kp.public_bytes());
+        let entry = CuratorListEntry::sign(list, &curator_kp).unwrap();
+
+        let mut cache = RevocationCache::new();
+        let ann = crate::key_rotation::KeyRotationAnnouncement::new(
+            curator_kp.public_bytes(),
+            new_kp.public_bytes(),
+            1_000_000,
+            "compromised",
+            7,
+        )
+        .unwrap();
+        let signed = crate::key_rotation::SignedKeyRotation::sign(ann, &curator_kp).unwrap();
+        cache.apply_announcement(&signed).unwrap();
+
+        // After transition window (day 8): fully revoked
+        let after = 1_000_000 + 8 * 86_400;
+        let result = entry.verify_with_revocation(&cache, after);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn curator_verify_with_transitioning_key_warns() {
+        let curator_kp = KeyPair::generate();
+        let new_kp = KeyPair::generate();
+        let list = sample_list(curator_kp.public_bytes());
+        let entry = CuratorListEntry::sign(list, &curator_kp).unwrap();
+
+        let mut cache = RevocationCache::new();
+        let ann = crate::key_rotation::KeyRotationAnnouncement::new(
+            curator_kp.public_bytes(),
+            new_kp.public_bytes(),
+            1_000_000,
+            "planned rotation",
+            7,
+        )
+        .unwrap();
+        let signed = crate::key_rotation::SignedKeyRotation::sign(ann, &curator_kp).unwrap();
+        cache.apply_announcement(&signed).unwrap();
+
+        // During transition (day 3): accepted but returns true (warn)
+        let during = 1_000_000 + 3 * 86_400;
+        let in_transition = entry
+            .verify_with_revocation(&cache, during)
+            .expect("transitioning key must be accepted");
+        assert!(in_transition, "must signal in-transition state");
+    }
+
+    #[test]
+    fn curator_verify_with_clean_key_passes() {
+        let curator_kp = KeyPair::generate();
+        let list = sample_list(curator_kp.public_bytes());
+        let entry = CuratorListEntry::sign(list, &curator_kp).unwrap();
+
+        let cache = RevocationCache::new(); // empty
+        let in_transition = entry
+            .verify_with_revocation(&cache, 1_700_000_000)
+            .expect("clean key must pass");
+        assert!(!in_transition, "clean key must not signal transition");
     }
 }
