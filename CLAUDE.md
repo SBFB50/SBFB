@@ -128,7 +128,8 @@ Runtime isolation roadmap dans
 - Carry S26 : T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
-  P2-D-1/P2-E-1-iroh (tech debt non-bloquant).
+  P2-D-1 redundancy full wire-up + persistence (RedundancyDispatcher
+  non instancie en prod, re-carry S23). P2-E-1-iroh (non-bloquant).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.

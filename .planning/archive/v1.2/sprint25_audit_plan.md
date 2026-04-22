@@ -110,7 +110,7 @@ L'auditeur independant (nouvel agent, session fraiche) doit :
 
 | ID | Severite | Description | Source |
 |---|---|---|---|
-| P2-D-1 | P2 | Redundancy persistence in-memory → SQLite | S23 carry |
+| P2-D-1 | P2 | Redundancy full wire-up + persistence : `RedundancyDispatcher` existe (S23 Phase D) mais n'est instancie nulle part en production (dispatcher.py recoit `None` par defaut). Le wire-up `collect_result` dans le result path + persistence SQLite restent a faire. Libelle precedent "in-memory → SQLite" masquait l'etat reel | S23 carry, reclassifie S25 post-sprint |
 | P2-E-1-iroh | P2 | iroh neighborhood enrichment | S23 carry |
 | T-NN+2 | P3 | iframe Rust-wasm (PATTERNS §P34, triggers inactive) | S22 carry |
 
@@ -125,13 +125,40 @@ L'auditeur independant (nouvel agent, session fraiche) doit :
 2. **Capability store file permissions** : `capabilities.toml` devrait
    etre en permissions restrictives (admin-writable only). Verifier
    que le `CapabilitiesStore` ne cree pas le fichier avec des
-   permissions trop ouvertes.
+   permissions trop ouvertes (`mkdir(parents=True, exist_ok=True)`
+   ligne 212 cree le dir sans restriction de permissions).
 3. **StageGuardrailMap validation** : verifier qu'un stage name
    invalide (typo dans la cle) est detecte (warning ou reject) et
-   ne silently ignore le chain.
+   ne silently ignore le chain. (Phase C review P2-C-1 confirme :
+   pas de validation, carry S26+.)
 4. **Admin check bypass via import mock** : verifier que
    `require_admin()` ne peut pas etre bypass par un import mock dans
    le contexte de production (uniquement en test).
+5. **RevocationCache silent overwrite** (identifie post-sprint) :
+   `apply_verified()` (`key_rotation.rs:248`) fait un `insert` sans
+   log ni warning si une entree existe deja pour `old_public_key`.
+   Le test `cache_overwrites_on_second_rotation` documente le
+   comportement mais ne le signale pas comme risque. Pre-v1.0 c'est
+   acceptable (0 node externe), mais post-v1.0 un attaquant avec
+   acces a l'ancienne cle (pendant la transition) pourrait ecraser
+   une rotation legitime avec une fausse pointant vers sa propre cle.
+   Mitigation future : log warning sur overwrite + reject si
+   transition_start de la nouvelle est anterieur a l'existante.
+6. **CapabilitiesStore._write() hash ordering** (identifie post-sprint) :
+   le hash est calcule sur `tomli_w.dumps(data)` SANS integrity_hash,
+   puis le champ est insere et `tomli_w.dumps(data)` est appele une
+   seconde fois (`capability_store.py:206-213`). Le contrat de
+   determinisme de tomli_w n'est pas garanti par la lib — si un
+   upgrade change l'ordre de serialisation, le hash load/store
+   divergerait. Verifier que les tests tamper couvrent un round-trip
+   write→load→verify_hash.
+7. **Admin check Windows MIL null pointer** (identifie post-sprint) :
+   `admin_check.py:62-64` — `GetSidSubAuthorityCount` et
+   `GetSidSubAuthority` retournent des pointeurs natifs sans
+   verification de NULL. Sur un SID malformed, c'est un segfault
+   potentiel. Les 2 tests Windows sont en skip (non-Windows CI).
+   Verifier sur une machine Windows reelle ou ajouter un guard
+   NULL check.
 
 ---
 

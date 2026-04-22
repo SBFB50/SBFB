@@ -451,9 +451,38 @@ median app) :
   doc outline (implem S25+). Key rotation + C3 handoffs deferred
   S25. +58 tests (757 Rust / 315+3 coord / ~1621 total).
 
-### Sprint 25 — Tor transport phase 1 + per-app quota + RAG
+### Sprint 25 — fondations securitaires pre-tool-calling
 
-- **Goal** : commencer Tor integration Gate 3 prep.
+> **Note realisme** (ajoutee 2026-04-22 post-S25) : la prescription
+> originale ci-dessous listait ~3700 LOC / 9 features. S25 a livre
+> 1/9 features prescrites (D5 capabilities) + 3 items hors-
+> prescription (key rotation carry + C3 handoffs carry + P2 batch
+> DNS). Les 8 features restantes sont re-sequencees S26+. La norme
+> empirique est ~2500 LOC / 4 phases par sprint. Cette section sert
+> de **backlog prioritise**, pas de plan sprint — le kickoff de
+> chaque sprint arbitre le scope reel.
+
+- **Goal** : poser les fondations securitaires pre-tool-calling (key
+  rotation Ed25519, guardrails multi-stage, capability gates).
+- **Prescrit originalement** (S17) : Tor transport phase 1 + per-app
+  quota + RAG + pluggable transports + D5 capabilities + A3 OS audit
+  + B2 MCP + C2 SDK + C5 streaming bridge (~3700 LOC, 9 features).
+- **Livre effectivement** (2026-04-22) :
+  - D5 capabilities gate-off-by-default (CapabilitiesStore, nexus-admin
+    CLI, @require_capability, .semgrep/capability_gate.yml) — **seul
+    item prescrit livre**
+  - Key rotation ceremony Ed25519 self-signed + gossip revocation list
+    (carry S24 D5)
+  - C3 handoffs StageGuardrailMap multi-stage guardrail pipeline (carry
+    S24 D5)
+  - P2 batch DNS concurrent fallback + quarantine alerting (cleanup
+    audit S24)
+- **Tests delta** : +92 (790 Rust / 372+5 coord / ~1712 total)
+- **LOC code** : ~2508 (dans norme)
+- **Scope-cut S26+** : Tor phase 1, B2 MCP, A3 OS audit, C2 SDK, C5
+  streaming, RAG, per-app rate, pluggable transports
+
+- **Goal prescrit original** : commencer Tor integration Gate 3 prep.
 - **Items** :
   - Tor SOCKS proxy wiring via Arti standalone subprocess (iroh
     relay HTTPS fallback over SOCKS5, **NOT** QUIC direct)
@@ -525,6 +554,13 @@ median app) :
   [docs.rs/arti-client](https://docs.rs/arti-client/)).
 
 ### Sprint 26 — Tor complete + curator reliable + GPU lockup
+
+> **Note realisme** (ajoutee 2026-04-22) : cette section prescrit
+> ~2000 LOC propres + ~3300 LOC de carry S25 non livres = ~5300 LOC
+> cumul. La norme empirique est ~2500 LOC / sprint. Le kickoff S26
+> devra arbitrer agressivement — prioriser les items prereq Gate 3
+> (Tor/Arti) et defer le reste. Les items prescriptifs ci-dessous
+> servent de backlog, pas de scope engage.
 
 - **Goal** : finaliser Tor transport + liste curateurs
   reliable-workers + policy no-GPU-sharing.

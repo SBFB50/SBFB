@@ -19,12 +19,14 @@ Skill de scan factuel pre-implementation pour une phase SBFB.
 Materialise le gate G8 documente dans `docs/claude/README.md §6.9`.
 Complete la couche tooling (cf. `docs/claude/TOOLING.md`).
 
-## Efficacite mesuree (S22-S24, 17 preflights)
+## Efficacite mesuree (S22-S25, 21 preflights)
 
-14/17 EXECUTE, 3/17 SCOPE-CUT-CONSISTENT, 0 DESIGN-CONFLICT.
-S1+S2 portent 100% des findings reels (3/17). S3+S4 = 0 finding
-en 17 runs (gate checks de contrainte). Consolidation : S3+S4
-passent en fast-path (grep only), S1+S2 restent full scans.
+18/21 EXECUTE, 3/21 SCOPE-CUT-CONSISTENT, 0 DESIGN-CONFLICT.
+S1+S2 portent 100% des findings reels (3/21). S3+S4 = 0 finding
+en 21 runs. Consolidation post-S25 : S3 passe en FULL quand la
+phase introduit un nouveau composant de securite ou wire format
+(cf. Step 4 escalation obligatoire S3). S4 FULL deja conditionne
+sur canonical.rs/schemas. S1+S2 restent full scans systematiques.
 
 ## Quand l'utiliser
 
@@ -288,11 +290,27 @@ Output Step 3 : liste des decisions historiques + sha + raison + **reversion sta
 
 ### Step 4 — Scan S3 : Threat model coverage (fast-path gate check)
 
-**Fast-path** (0 finding en 17 runs S22-S24) : S3 est un gate check
-de contrainte, pas un scan de decouverte. Executer les grep commands
-ci-dessous mais NE PAS lancer context7/WebSearch sauf si un grep
-renvoie un signal inattendu (regression threat, pre-requirement
-manquant). Si tous greps clean → "S3: clean (fast-path verified)".
+**Escalation obligatoire S3** : si la phase introduit un **nouveau
+wire format** (nouveau `DOMAIN_*_V1`, nouveau `*_FORMAT_VERSION`)
+OU un **nouveau composant de securite** (capability store, admin
+check, revocation cache, key rotation, credential store) → **S3
+FULL SCAN obligatoire** (pas fast-path). Verifier : (a) quel T0-T5
+couvre le nouveau composant, (b) quel nouveau vecteur d'attaque il
+introduit non couvert par le threat model existant, (c) si un T
+supplementaire doit etre documente. Le fast-path ne detecte que les
+regressions sur l'existant — il ne detecte pas les gaps sur le
+nouveau. (Rationale : analyse post-sprint S25 — Phase B key rotation
+et Phase D capabilities etaient en S3 fast-path alors qu'elles
+introduisent des composants de securite avec des vecteurs non
+modelises dans THREAT_MODEL.md.)
+
+**Fast-path** (autorise UNIQUEMENT si la phase ne cree pas de
+nouveau composant de securite ni de nouveau wire format — 0 finding
+en 21 runs S22-S25) : S3 est un gate check de contrainte, pas un
+scan de decouverte. Executer les grep commands ci-dessous mais NE
+PAS lancer context7/WebSearch sauf si un grep renvoie un signal
+inattendu (regression threat, pre-requirement manquant). Si tous
+greps clean → "S3: clean (fast-path verified)".
 
 ```bash
 # Lire la threat matrix
