@@ -116,6 +116,14 @@ GUARDRAIL_STAGES: frozenset[str] = frozenset(
 
 StageGuardrailMap = dict[str, GuardrailChain]
 
+
+def validate_stage_guard_map(stage_guards: StageGuardrailMap) -> None:
+    """Raise ValueError if any key is not in GUARDRAIL_STAGES."""
+    invalid = set(stage_guards.keys()) - GUARDRAIL_STAGES
+    if invalid:
+        raise ValueError(f"Invalid guardrail stages: {sorted(invalid)}")
+
+
 __all__ = [
     "GUARDRAIL_STAGES",
     "Guardrail",
@@ -125,4 +133,5 @@ __all__ = [
     "InputTripwire",
     "OutputTripwire",
     "StageGuardrailMap",
+    "validate_stage_guard_map",
 ]

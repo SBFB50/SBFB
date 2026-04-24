@@ -435,3 +435,57 @@ class TestSemgrepRule:
         assert "/tool/" in text
         assert "/rag/" in text
         assert "/mcp/" in text
+
+
+# ---------------------------------------------------------------------------
+# P2-HASH-1 — tomli_w determinism round-trip (Sprint 26 Phase A)
+# ---------------------------------------------------------------------------
+
+
+class TestTomlDeterminism:
+    def test_toml_roundtrip_determinism(self, tmp_path: Path) -> None:
+        import tomli_w
+
+        path = tmp_path / "capabilities.toml"
+        store = CapabilitiesStore.load(path)
+        store.enable("tool_calling", "user1")
+        store2 = CapabilitiesStore.load(path)
+        store2.enable("tool_calling", store.get("tool_calling").enabled_by)
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        rewrite = tomli_w.dumps(data)
+        data2 = tomllib.loads(rewrite)
+        rewrite2 = tomli_w.dumps(data2)
+        assert rewrite == rewrite2
+
+
+# ---------------------------------------------------------------------------
+# P2-ADMIN-1 — NULL SID guard (Sprint 26 Phase A)
+# ---------------------------------------------------------------------------
+
+
+class TestAdminCheckNullSid:
+    def test_check_mil_high_has_null_guards(self) -> None:
+        import inspect
+
+        from nexus_coordinator.admin_check import _check_mil_high
+
+        source = inspect.getsource(_check_mil_high)
+        assert "NULL SidSubAuthorityCount" in source
+        assert "NULL SidSubAuthority" in source
+
+
+# ---------------------------------------------------------------------------
+# P2-CAPS-1 — directory permissions (Sprint 26 Phase A)
+# ---------------------------------------------------------------------------
+
+
+class TestCapabilityStoreDirPermissions:
+    @pytest.mark.skipif(sys.platform == "win32", reason="Unix-only chmod test")
+    def test_sbfb_dir_permissions_0o700(self, tmp_path: Path) -> None:
+        import os
+
+        sbfb_dir = tmp_path / ".sbfb"
+        path = sbfb_dir / "capabilities.toml"
+        CapabilitiesStore.load(path)
+        mode = os.stat(sbfb_dir).st_mode & 0o777
+        assert mode == 0o700

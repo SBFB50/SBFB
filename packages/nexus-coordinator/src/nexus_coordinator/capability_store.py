@@ -209,7 +209,10 @@ class CapabilitiesStore:
         hash_val = "sha256-" + hashlib.sha256(body.encode()).hexdigest()
         data["integrity_hash"] = hash_val
         final = tomli_w.dumps(data)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        parent = self._path.parent
+        parent.mkdir(parents=True, exist_ok=True)
+        if os.name != "nt":
+            os.chmod(parent, 0o700)
         self._path.write_text(final, encoding="utf-8")
 
 

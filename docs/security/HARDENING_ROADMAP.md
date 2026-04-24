@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-22  # G2 — Sprint 25 kickoff : 6 triggers scanned (1 ACTIVE MCP STDIO vuln avril 2026 OX Security ~200k servers RCE, 5 INACTIVE). S25 scope: key rotation + C3 handoffs + D5 capabilities + P2 batch. Compteurs 757 Rust / 185 SDK / 315+3 coord / 46 gov / 264 Vitest / 43 Playwright / 7/7 size / ~1621 tests.
+last_validated: 2026-04-22  # G2 — Sprint 26 kickoff : 11 triggers re-scanned (all INACTIVE, leverage S25 same-day scan). S26 scope: B2 MCP server local + A3 OS audit + C2 @task_handler SDK + P2 batch. Reclassification P2-D-1 → LT-5, P2-E-1-iroh → LT-6. Compteurs 790 Rust / 185 SDK / 372+5 coord / 46 gov / 264 Vitest / 43 Playwright / 7/7 size / ~1712 tests.
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -555,12 +555,13 @@ median app) :
 
 ### Sprint 26 — Tor complete + curator reliable + GPU lockup
 
-> **Note realisme** (ajoutee 2026-04-22) : cette section prescrit
-> ~2000 LOC propres + ~3300 LOC de carry S25 non livres = ~5300 LOC
-> cumul. La norme empirique est ~2500 LOC / sprint. Le kickoff S26
-> devra arbitrer agressivement — prioriser les items prereq Gate 3
-> (Tor/Arti) et defer le reste. Les items prescriptifs ci-dessous
-> servent de backlog, pas de scope engage.
+> **Note realisme** (mise a jour 2026-04-22 kickoff S26) : cette
+> section prescrit ~5300 LOC. S26 a arbitre : Tor bloque (arti
+> pre-1.0), GPU/curator deferes S27. Scope retenu = B2 MCP server
+> local-only + A3 OS audit SecurityEvent + C2 @task_handler SDK +
+> P2 batch S25 (~1640 LOC). Les items prescrits non retenus restent
+> dans le backlog ci-dessous pour S27+. P2-D-1 + P2-E-1-iroh
+> reclassifies long-term (LT-5/LT-6 ROADMAP_COMMITMENTS.md).
 
 - **Goal** : finaliser Tor transport + liste curateurs
   reliable-workers + policy no-GPU-sharing.

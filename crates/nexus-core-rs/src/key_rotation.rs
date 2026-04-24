@@ -245,7 +245,26 @@ impl RevocationCache {
     /// The caller MUST have called [`SignedKeyRotation::verify`]
     /// before calling this. This method trusts that the signature
     /// has already been validated.
-    pub fn apply_verified(&mut self, announcement: &KeyRotationAnnouncement) {
+    ///
+    /// Returns `Err` if the cache already contains an entry for the
+    /// same `old_public_key` with a `transition_start` >= the new
+    /// announcement's timestamp (stale rotation rejected).
+    pub fn apply_verified(&mut self, announcement: &KeyRotationAnnouncement) -> Result<()> {
+        if let Some(existing) = self.entries.get(&announcement.old_public_key) {
+            if announcement.timestamp <= existing.transition_start {
+                tracing::warn!(
+                    old_key = hex::encode(announcement.old_public_key),
+                    existing_ts = existing.transition_start,
+                    incoming_ts = announcement.timestamp,
+                    "stale_rotation_rejected"
+                );
+                return Err(NexusError::Crypto("stale rotation rejected".into()));
+            }
+            tracing::info!(
+                old_key = hex::encode(announcement.old_public_key),
+                "rotation_updated"
+            );
+        }
         self.entries.insert(
             announcement.old_public_key,
             RevocationEntry {
@@ -255,14 +274,14 @@ impl RevocationCache {
                 reason: announcement.reason.clone(),
             },
         );
+        Ok(())
     }
 
     /// Verify a [`SignedKeyRotation`] and apply it to the cache in
     /// one step. Returns `Err` if the signature is invalid.
     pub fn apply_announcement(&mut self, signed: &SignedKeyRotation) -> Result<()> {
         signed.verify()?;
-        self.apply_verified(&signed.announcement);
-        Ok(())
+        self.apply_verified(&signed.announcement)
     }
 
     /// Number of entries in the cache.
@@ -578,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_overwrites_on_second_rotation() {
+    fn cache_accepts_newer_rotation() {
         let old_kp = KeyPair::generate();
         let new_kp1 = KeyPair::generate();
         let new_kp2 = KeyPair::generate();
@@ -594,6 +613,43 @@ mod tests {
         let entry = cache.get(&old_kp.public_bytes()).unwrap();
         assert_eq!(entry.new_public_key, new_kp2.public_bytes());
         assert_eq!(entry.transition_days, 14);
+    }
+
+    #[test]
+    fn cache_rejects_stale_rotation() {
+        let old_kp = KeyPair::generate();
+        let new_kp1 = KeyPair::generate();
+        let new_kp2 = KeyPair::generate();
+
+        let signed1 = make_rotation(&old_kp, &new_kp1, ts(200), "first", 7);
+        let signed_stale = make_rotation(&old_kp, &new_kp2, ts(100), "stale", 14);
+
+        let mut cache = RevocationCache::new();
+        cache.apply_announcement(&signed1).unwrap();
+        let result = cache.apply_announcement(&signed_stale);
+        assert!(result.is_err());
+
+        let entry = cache.get(&old_kp.public_bytes()).unwrap();
+        assert_eq!(entry.new_public_key, new_kp1.public_bytes());
+        assert_eq!(entry.transition_start, ts(200));
+    }
+
+    #[test]
+    fn cache_rejects_same_timestamp_rotation() {
+        let old_kp = KeyPair::generate();
+        let new_kp1 = KeyPair::generate();
+        let new_kp2 = KeyPair::generate();
+
+        let signed1 = make_rotation(&old_kp, &new_kp1, ts(100), "first", 7);
+        let signed_same = make_rotation(&old_kp, &new_kp2, ts(100), "same-ts", 14);
+
+        let mut cache = RevocationCache::new();
+        cache.apply_announcement(&signed1).unwrap();
+        let result = cache.apply_announcement(&signed_same);
+        assert!(result.is_err());
+
+        let entry = cache.get(&old_kp.public_bytes()).unwrap();
+        assert_eq!(entry.new_public_key, new_kp1.public_bytes());
     }
 
     #[test]

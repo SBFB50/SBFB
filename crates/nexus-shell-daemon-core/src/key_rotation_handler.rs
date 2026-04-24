@@ -48,17 +48,26 @@ pub fn handle_rotation_message(
     let new_key_hex = hex::encode(signed.announcement.new_public_key);
 
     match cache.write() {
-        Ok(mut guard) => {
-            guard.apply_verified(&signed.announcement);
-            debug!(
-                old_key = %old_key_hex,
-                new_key = %new_key_hex,
-                transition_days = signed.announcement.transition_days,
-                reason = %signed.announcement.reason,
-                "key-rotation: applied announcement"
-            );
-            Ok(())
-        }
+        Ok(mut guard) => match guard.apply_verified(&signed.announcement) {
+            Ok(()) => {
+                debug!(
+                    old_key = %old_key_hex,
+                    new_key = %new_key_hex,
+                    transition_days = signed.announcement.transition_days,
+                    reason = %signed.announcement.reason,
+                    "key-rotation: applied announcement"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    old_key = %old_key_hex,
+                    "key-rotation: stale rotation rejected"
+                );
+                Err(format!("stale: {e}"))
+            }
+        },
         Err(_) => {
             warn!("key-rotation: RevocationCache RwLock poisoned, skipping");
             Err("cache lock poisoned".into())

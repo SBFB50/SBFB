@@ -44,6 +44,8 @@ Derniere revue).
 | LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | latent   | `<post-v1.0>`  | 2026-04-19    |
 | LT-3 | Contribution family Sybil matrix (3 couches asymetriques post-v1.0) | latent | `<post-v1.0>`  | 2026-04-20    |
 | LT-4 | OS biometric gate cross-platform (Windows Hello / TouchID / polkit) | latent | `<post-v1.0>` | 2026-04-20    |
+| LT-5 | Redundancy persistence SQLite + wire-up prod               | latent     | `<post-v1.0>`  | 2026-04-22    |
+| LT-6 | iroh neighborhood enrichment                                | latent     | `<post-v1.0>`  | 2026-04-22    |
 
 ## LT-1 Kudos-v2 fairness reform
 
@@ -259,8 +261,61 @@ Derniere revue).
   trigger (a/b/c) franchi, ou en revue trimestrielle long-term
   commitments si aucun trigger ne se déclenche.
 
+## LT-5 Redundancy persistence SQLite + wire-up prod
+
+- **ID** : LT-5
+- **Title** : Redundancy persistence SQLite + wire-up production
+  (RedundancyDispatcher in-memory → SQLite WAL + wire collect_result
+  dans le result path du dispatcher).
+- **Origine** : S23 Phase D `dc163ea` — `RedundancyDispatcher` livré
+  avec `Task.redundancy_factor` mais instancié nulle part en production
+  (`dispatcher.py` reçoit `None` par défaut). Le wire-up + persistence
+  SQLite ont été déférés S24 → S25 → S26 (3 carry consécutifs). S25
+  audit_plan a clarifié l'état réel : "RedundancyDispatcher existe
+  mais n'est instancié nulle part en production".
+- **Condition de déclenchement** : **premier déploiement multi-worker**
+  OU **tag `v1.0` go-live**. Pre-v1.0, in-memory suffisant (0 node
+  externe, pas de state à survivre un restart). Post-v1.0, les workers
+  tiers nécessitent la redondance effective pour détecter les résultats
+  spoofés (C-ResultSpoof threat).
+- **Owner** : `<post-v1.0>`. Sera remplacé par le handle du lead
+  compute au moment de la réactivation.
+- **Runbook pointer** : `packages/nexus-coordinator/src/nexus_coordinator/
+  redundancy.py` (code existant) + `sprint23_plan.md §Phase D` (spec
+  originale wire-up + persistence). Quand activé : (1) instancier
+  `RedundancyDispatcher` dans `dispatcher.py` __init__, (2) wire
+  `collect_result` dans `on_result_received` hook path, (3) ajouter
+  SQLite WAL persistence (pattern `quarantine_queue.py` S21 Phase D).
+- **Dernière revue** : 2026-04-22 (reclassification S26 kickoff,
+  §6.2.1 auto-trigger après 3+ carry consécutifs S24/S25/S26).
+
+## LT-6 iroh neighborhood enrichment
+
+- **ID** : LT-6
+- **Title** : iroh neighborhood enrichment (enrichir le mécanisme
+  de découverte de pairs via le neighborhood iroh pour améliorer la
+  résilience réseau).
+- **Origine** : S23 audit → carry S24 → S25 → S26 (3 carry
+  consécutifs). Item identifié comme amélioration non-bloquante de
+  la qualité du réseau P2P. L'enrichissement du neighborhood permet
+  de diversifier les pairs découverts et de réduire la surface
+  d'attaque Eclipse (B-Eclipse threat).
+- **Condition de déclenchement** : **iroh release > 0.97** (avec API
+  neighborhood améliorée) OU **tag `v1.0` go-live**. L'API iroh
+  0.97 actuelle expose un neighborhood minimal suffisant pour le
+  fonctionnement pre-v1.0.
+- **Owner** : `<post-v1.0>`. Sera remplacé par le handle du lead
+  réseau au moment de la réactivation.
+- **Runbook pointer** : `crates/nexus-core-rs/src/` (code iroh
+  existant) + `sprint23_audit_plan.md` (spec originale). Quand
+  activé : enrichir les callbacks de découverte dans
+  `nexus-shell-daemon-core` pour propager les pairs voisins et
+  diversifier la topologie du réseau.
+- **Dernière revue** : 2026-04-22 (reclassification S26 kickoff,
+  §6.2.1 auto-trigger après 3+ carry consécutifs S24/S25/S26).
+
 ## Reservation IDs futurs
 
-- **LT-5+** : IDs alloués dans l'ordre d'entrée au registre
+- **LT-7+** : IDs alloués dans l'ordre d'entrée au registre
   (reclassification carry ≥3 consecutives OU net-new identifié
   route § préambule voie 2), sans réutilisation des IDs libérés.

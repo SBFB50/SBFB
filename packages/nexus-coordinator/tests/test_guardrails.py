@@ -238,3 +238,23 @@ async def test_dispatcher_no_chain_fallback() -> None:
     direct = redactor.redact("contact alice@example.com now")
     assert "alice@example.com" not in direct
     assert "<EMAIL_ADDRESS_1>" in direct
+
+
+# ---------------------------------------------------------------------------
+# P2-STAGE-1 — StageGuardrailMap key validation (Sprint 26 Phase A)
+# ---------------------------------------------------------------------------
+
+
+def test_stage_guards_valid_keys_accepted() -> None:
+    from nexus_coordinator.guardrails import GUARDRAIL_STAGES, validate_stage_guard_map
+
+    valid_map = {stage: GuardrailChain([]) for stage in GUARDRAIL_STAGES}
+    validate_stage_guard_map(valid_map)
+
+
+def test_stage_guards_invalid_key_raises() -> None:
+    from nexus_coordinator.guardrails import validate_stage_guard_map
+
+    invalid_map = {"on_task_dispatched": GuardrailChain([]), "bogus_stage": GuardrailChain([])}
+    with pytest.raises(ValueError, match="Invalid guardrail stages"):
+        validate_stage_guard_map(invalid_map)

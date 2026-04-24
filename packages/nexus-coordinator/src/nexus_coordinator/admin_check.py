@@ -60,8 +60,12 @@ def _check_mil_high() -> None:
 
         sid_ptr = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]
         sub_count_ptr = advapi32.GetSidSubAuthorityCount(sid_ptr)
+        if not sub_count_ptr:
+            raise PermissionError("nexus-admin: NULL SidSubAuthorityCount (malformed SID).")
         count = ctypes.cast(sub_count_ptr, ctypes.POINTER(ctypes.c_ubyte))[0]
         sub_auth_ptr = advapi32.GetSidSubAuthority(sid_ptr, count - 1)
+        if not sub_auth_ptr:
+            raise PermissionError("nexus-admin: NULL SidSubAuthority (malformed SID).")
         rid = ctypes.cast(sub_auth_ptr, ctypes.POINTER(ctypes.wintypes.DWORD))[0]
 
         if rid < SECURITY_MANDATORY_HIGH_RID:
