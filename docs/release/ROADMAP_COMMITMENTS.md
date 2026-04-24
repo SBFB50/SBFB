@@ -1,9 +1,9 @@
 # Roadmap commitments long-terme
 
 Cree : 2026-04-19 (Sprint 21, session fraiche).
-Regle de gestion : `docs/claude/README.md` §6.2.1 « Cap carry-overs :
-max 2 par sprint (G7) », sous-section « Reclassification long-term
-commitments (amendement 2026-04-18, audit gate S20) ».
+Regle de gestion : `docs/claude/README.md` §6.2.1 « Carry-overs,
+escalade et dette (G7) » — amendement 2026-04-24 : escalade a 3
+reports, phase dette sprints pairs, items < 500 LOC non reclassifiables.
 
 ## Preambule
 
@@ -13,8 +13,8 @@ de sprint.
 
 - **Carry-over court-terme** : dette resorbable identifiee en Phase F
   wrap-up, consignee dans `sprint{N+1}_carry_summary.md`, soumise au
-  cap G7 (max 2 carries par sprint). Destinee a etre livree dans le
-  sprint suivant ou au maximum le sous-suivant.
+  escalade G7 (3 reports = obligatoire, cf. §6.2.1 Regle 2). Destinee
+  a etre livree dans les sprints suivants.
 - **Long-term commitment** : engagement conditionnel au declenchement
   d'un evenement externe (tag v1.0 go-live, release d'une dep amont,
   seuil empirique atteint en prod, CVE critique sur une dep cle). Vit

@@ -305,11 +305,8 @@ arbitrage user favorable, draft initial trait `Guardrail` + squelette
 - Phase F : wrap + verification + `CanaryInputGuardrail` wire
   (provenant S22 Phase E à venir).
 
-**S23 budget** : ~800 LOC refactor + ~200 LOC tests contract =
-~1000 LOC. Charge S23 actuel ~2220 LOC + ~1000 refactor = ~3220
-LOC. **Dépasse norme** ~2500 LOC → arbitrage user kickoff S23
-(3 options : S23 dédié avec split phase, S24-S25 distribué, ou
-défer S27).
+**S23 estimation retrospective** : ~800 LOC refactor + ~200 LOC
+tests contract = ~1000 LOC. Arbitrage scope au kickoff S23.
 
 **S24 consumer** (A1 `TaskDispatchHooks` landing) : refactor B1
 devient testable observability hook-by-hook.
