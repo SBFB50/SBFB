@@ -21,6 +21,7 @@ path = "src/lib.rs"
 # APIs. The dep is pulled in now so the Phase A runtime already
 # owns a live `Node`.
 nexus-core-rs = { path = "../nexus-core-rs" }
+nexus-events-core = { path = "../nexus-events-core" }
 
 # Async runtime. The daemon runtime is async throughout so the
 # binary (and any alternative frontend) can spin it up on a tokio

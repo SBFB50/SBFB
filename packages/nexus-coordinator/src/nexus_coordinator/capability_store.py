@@ -76,6 +76,24 @@ def _compute_integrity_hash(file_text: str) -> str:
     return "sha256-" + hashlib.sha256("".join(filtered).encode()).hexdigest()
 
 
+def _emit_capability_event(name: str, enabled: bool) -> None:
+    try:
+        import json
+
+        from nexus_core import emit_security_event
+
+        emit_security_event(
+            json.dumps(
+                {
+                    "event_type": "CapabilityChanged",
+                    "payload": {"name": name, "enabled": enabled},
+                }
+            )
+        )
+    except (ImportError, Exception):
+        pass
+
+
 class CapabilitiesStore:
     def __init__(self, path: Path, capabilities: dict[str, CapabilityEntry]) -> None:
         self._path = path
@@ -161,6 +179,7 @@ class CapabilitiesStore:
             new=True,
             actor=actor,
         )
+        _emit_capability_event(cap_name, True)
 
     def disable(self, cap_name: str) -> None:
         if cap_name not in KNOWN_CAPABILITIES:
@@ -178,6 +197,7 @@ class CapabilitiesStore:
             previous=previous,
             new=False,
         )
+        _emit_capability_event(cap_name, False)
 
     def get(self, cap_name: str) -> CapabilityEntry | None:
         return self._capabilities.get(cap_name)

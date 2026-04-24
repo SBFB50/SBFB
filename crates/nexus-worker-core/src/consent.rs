@@ -208,7 +208,17 @@ impl ConsentConfig {
     /// Write atomically (`tmp + rename`) so a crash mid-write
     /// cannot leave the worker reading a half-truncated file.
     pub fn save_atomic(&self, path: &Path) -> ConsentResult<()> {
-        atomic_write_json(path, self)
+        let previous_level = fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<ConsentConfig>(&b).ok())
+            .map(|c| u8::from(c.level).to_string())
+            .unwrap_or_default();
+        atomic_write_json(path, self)?;
+        nexus_events_core::emit_event(&nexus_events_core::SecurityEvent::ConsentChange {
+            previous: previous_level,
+            current: u8::from(self.level).to_string(),
+        });
+        Ok(())
     }
 }
 

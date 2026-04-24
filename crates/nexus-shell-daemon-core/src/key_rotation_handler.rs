@@ -57,6 +57,9 @@ pub fn handle_rotation_message(
                     reason = %signed.announcement.reason,
                     "key-rotation: applied announcement"
                 );
+                nexus_events_core::emit_event(&nexus_events_core::SecurityEvent::TokenRotation {
+                    rotated_at: signed.announcement.timestamp.to_string(),
+                });
                 Ok(())
             }
             Err(e) => {

@@ -161,6 +161,9 @@ impl PanicWipeService {
     /// cycle (the handler then replies 200 and schedules the
     /// exit so the response actually reaches the shell).
     pub fn execute(&self) -> Result<PanicWipeReport, PanicWipeError> {
+        nexus_events_core::emit_event(&nexus_events_core::SecurityEvent::PanicFired {
+            trigger: "5-tap-wipe".into(),
+        });
         let mut report = PanicWipeReport::default();
 
         // 1. Keystore is the only hard-fail step — if we cannot

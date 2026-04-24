@@ -3703,6 +3703,7 @@ dependencies = [
  "futures-lite",
  "iroh-docs",
  "nexus-core-rs",
+ "nexus-events-core",
  "nexus-shell-daemon-core",
  "nexus-worker-core",
  "pyo3",
@@ -3757,6 +3758,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-events-core"
+version = "1.0.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
 name = "nexus-launcher"
 version = "1.0.0"
 dependencies = [
@@ -3792,6 +3805,7 @@ dependencies = [
  "iroh-blobs",
  "libc",
  "nexus-core-rs",
+ "nexus-events-core",
  "nexus-shell-daemon-core",
  "reqwest",
  "serde",
@@ -3824,6 +3838,7 @@ dependencies = [
  "iroh",
  "iroh-blobs",
  "nexus-core-rs",
+ "nexus-events-core",
  "notify",
  "rand 0.8.6",
  "serde",
@@ -3876,6 +3891,7 @@ dependencies = [
  "llama-cpp-2",
  "llguidance",
  "nexus-core-rs",
+ "nexus-events-core",
  "nonzero_ext",
  "notify",
  "nvml-wrapper",

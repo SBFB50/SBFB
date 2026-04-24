@@ -1272,6 +1272,21 @@ fn verify_bytes(
     nexus_core_rs::verify(&pk, message.as_bytes(), &sig_arr).map_err(|e| py_err("verify_bytes", e))
 }
 
+/// Emit a typed security event through the global audit emitter.
+///
+/// Sprint 26 Phase C. The `event_json` argument must be a JSON
+/// string matching the `SecurityEvent` tagged enum shape, e.g.:
+/// `{"event_type":"CapabilityChanged","payload":{"name":"x","enabled":true}}`
+///
+/// Silently no-ops if the Rust-side emitter is not initialized.
+#[pyfunction]
+fn emit_security_event(event_json: &str) -> PyResult<()> {
+    let event: nexus_events_core::SecurityEvent = serde_json::from_str(event_json)
+        .map_err(|e| PyValueError::new_err(format!("bad security event json: {e}")))?;
+    nexus_events_core::emit_event(&event);
+    Ok(())
+}
+
 /// Verify a [`SignedKeyRotation`](nexus_core_rs::key_rotation::SignedKeyRotation)
 /// JSON blob: signature valid over canonical bytes with
 /// `DOMAIN_KEY_ROTATION_V1`, version check, field constraints.
@@ -1330,6 +1345,7 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify_contributor_attestation, m)?)?;
     m.add_function(wrap_pyfunction!(verify_age_witness, m)?)?;
     m.add_function(wrap_pyfunction!(verify_key_rotation, m)?)?;
+    m.add_function(wrap_pyfunction!(emit_security_event, m)?)?;
 
     Ok(())
 }

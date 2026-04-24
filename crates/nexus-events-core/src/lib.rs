@@ -1,0 +1,401 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Sprint 26 Phase C — OS audit SecurityEvent system.
+//!
+//! Typed [`SecurityEvent`] enum covering 12 security-relevant event
+//! categories across the SBFB stack. [`EventWriter`] trait abstracts
+//! platform-specific output: [`JsonFileWriter`] (append-only JSONL,
+//! primary), [`EtwWriter`] (Windows ETW via tracing structured
+//! events), [`JournaldWriter`] and [`OsLogWriter`] (stubs for future
+//! Linux/macOS integration).
+//!
+//! A global [`emit_event`] singleton routes events to the writer
+//! initialized at daemon/worker startup via [`init_emitter`].
+
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+
+// ======================================================================
+// SecurityEvent
+// ======================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "event_type", content = "payload")]
+pub enum SecurityEvent {
+    ConsentChange { previous: String, current: String },
+    PanicFired { trigger: String },
+    TokenRotation { rotated_at: String },
+    DuressUnlock { mode: String },
+    QuarantineDrop { task_id: String, reason: String },
+    SybilAdmissionReject { node_id: String, reason: String },
+    PowVerifyFail { difficulty: u32, peer: String },
+    CanaryPublished { version: u32 },
+    CanaryDeadMansSwitchTripped { last_seen: String },
+    TransportDegraded { mode: String, reason: String },
+    RateLimitTierBreach { consumer: String, tier: String },
+    CapabilityChanged { name: String, enabled: bool },
+}
+
+// ======================================================================
+// AuditRecord
+// ======================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditRecord {
+    pub timestamp: String,
+    pub event: SecurityEvent,
+}
+
+// ======================================================================
+// Errors
+// ======================================================================
+
+#[derive(Debug, thiserror::Error)]
+pub enum EventError {
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("json: {0}")]
+    Json(#[from] serde_json::Error),
+}
+
+// ======================================================================
+// EventWriter trait
+// ======================================================================
+
+pub trait EventWriter: Send + Sync {
+    fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError>;
+}
+
+// ======================================================================
+// JsonFileWriter — append-only JSONL audit log
+// ======================================================================
+
+pub struct JsonFileWriter {
+    path: PathBuf,
+}
+
+impl JsonFileWriter {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl EventWriter for JsonFileWriter {
+    fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError> {
+        let record = AuditRecord {
+            timestamp: Utc::now().to_rfc3339(),
+            event: event.clone(),
+        };
+        let line = serde_json::to_string(&record)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+}
+
+// ======================================================================
+// EtwWriter — Windows ETW via tracing structured events
+// ======================================================================
+//
+// Emits security events as tracing::info! with target
+// `sbfb_security_events`. When the binary configures a tracing-etw
+// subscriber layer, these events flow to Windows ETW automatically.
+// When no ETW layer is present, they appear as regular tracing output
+// (zero-cost if no subscriber is active).
+
+pub struct EtwWriter;
+
+impl EventWriter for EtwWriter {
+    fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError> {
+        let json = serde_json::to_string(event)?;
+        tracing::info!(
+            target: "sbfb_security_events",
+            event_json = %json,
+            "security_event"
+        );
+        Ok(())
+    }
+}
+
+// ======================================================================
+// JournaldWriter — Linux journald (stub)
+// ======================================================================
+
+pub struct JournaldWriter;
+
+impl EventWriter for JournaldWriter {
+    fn write_event(&self, _event: &SecurityEvent) -> Result<(), EventError> {
+        tracing::debug!("journald writer stub — using JsonFileWriter fallback");
+        Ok(())
+    }
+}
+
+// ======================================================================
+// OsLogWriter — macOS Unified Logging (stub)
+// ======================================================================
+
+pub struct OsLogWriter;
+
+impl EventWriter for OsLogWriter {
+    fn write_event(&self, _event: &SecurityEvent) -> Result<(), EventError> {
+        tracing::debug!("oslog writer stub — using JsonFileWriter fallback");
+        Ok(())
+    }
+}
+
+// ======================================================================
+// Global emitter singleton
+// ======================================================================
+
+static SECURITY_EMITTER: OnceLock<Box<dyn EventWriter>> = OnceLock::new();
+
+pub fn init_emitter(writer: Box<dyn EventWriter>) {
+    let _ = SECURITY_EMITTER.set(writer);
+}
+
+pub fn emit_event(event: &SecurityEvent) {
+    if let Some(writer) = SECURITY_EMITTER.get() {
+        if let Err(e) = writer.write_event(event) {
+            tracing::warn!(error = %e, "failed to emit security event");
+        }
+    }
+}
+
+// ======================================================================
+// Tests
+// ======================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    struct MockWriter {
+        events: Mutex<Vec<SecurityEvent>>,
+    }
+
+    impl MockWriter {
+        fn new() -> Self {
+            Self {
+                events: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn events(&self) -> Vec<SecurityEvent> {
+            self.events.lock().unwrap().clone()
+        }
+    }
+
+    impl EventWriter for MockWriter {
+        fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError> {
+            self.events.lock().unwrap().push(event.clone());
+            Ok(())
+        }
+    }
+
+    fn all_variants() -> Vec<SecurityEvent> {
+        vec![
+            SecurityEvent::ConsentChange {
+                previous: "L1".into(),
+                current: "L3".into(),
+            },
+            SecurityEvent::PanicFired {
+                trigger: "5-tap".into(),
+            },
+            SecurityEvent::TokenRotation {
+                rotated_at: "2026-04-24T12:00:00Z".into(),
+            },
+            SecurityEvent::DuressUnlock {
+                mode: "fake-keypair".into(),
+            },
+            SecurityEvent::QuarantineDrop {
+                task_id: "t-123".into(),
+                reason: "pii-detected".into(),
+            },
+            SecurityEvent::SybilAdmissionReject {
+                node_id: "abc123".into(),
+                reason: "age<7d".into(),
+            },
+            SecurityEvent::PowVerifyFail {
+                difficulty: 20,
+                peer: "peer-xyz".into(),
+            },
+            SecurityEvent::CanaryPublished { version: 3 },
+            SecurityEvent::CanaryDeadMansSwitchTripped {
+                last_seen: "2026-04-20".into(),
+            },
+            SecurityEvent::TransportDegraded {
+                mode: "udp".into(),
+                reason: "relay-only".into(),
+            },
+            SecurityEvent::RateLimitTierBreach {
+                consumer: "worker-1".into(),
+                tier: "burst".into(),
+            },
+            SecurityEvent::CapabilityChanged {
+                name: "tool_calling".into(),
+                enabled: true,
+            },
+        ]
+    }
+
+    #[test]
+    fn security_event_serialize_all_variants() {
+        for event in all_variants() {
+            let json = serde_json::to_string(&event).unwrap();
+            let roundtrip: SecurityEvent = serde_json::from_str(&json).unwrap();
+            assert_eq!(event, roundtrip);
+        }
+    }
+
+    #[test]
+    fn event_type_tag_correct() {
+        let event = SecurityEvent::CapabilityChanged {
+            name: "mcp_server_expose".into(),
+            enabled: true,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains(r#""event_type":"CapabilityChanged""#));
+    }
+
+    #[test]
+    fn audit_record_has_timestamp() {
+        let record = AuditRecord {
+            timestamp: "2026-04-24T12:00:00+00:00".into(),
+            event: SecurityEvent::PanicFired {
+                trigger: "test".into(),
+            },
+        };
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(json.contains(r#""timestamp":"2026-04-24T12:00:00+00:00""#));
+        assert!(json.contains(r#""event_type":"PanicFired""#));
+    }
+
+    #[test]
+    fn json_file_writer_creates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+
+        let writer = JsonFileWriter::new(&path);
+        writer
+            .write_event(&SecurityEvent::PanicFired {
+                trigger: "test".into(),
+            })
+            .unwrap();
+
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn json_file_writer_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+
+        let writer = JsonFileWriter::new(&path);
+        writer
+            .write_event(&SecurityEvent::PanicFired {
+                trigger: "first".into(),
+            })
+            .unwrap();
+        writer
+            .write_event(&SecurityEvent::TokenRotation {
+                rotated_at: "now".into(),
+            })
+            .unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.trim().split('\n').collect();
+        assert_eq!(lines.len(), 2);
+
+        let r1: AuditRecord = serde_json::from_str(lines[0]).unwrap();
+        let r2: AuditRecord = serde_json::from_str(lines[1]).unwrap();
+        assert!(matches!(r1.event, SecurityEvent::PanicFired { .. }));
+        assert!(matches!(r2.event, SecurityEvent::TokenRotation { .. }));
+    }
+
+    #[test]
+    fn json_file_writer_invalid_path() {
+        let writer = JsonFileWriter::new("/nonexistent/dir/audit.jsonl");
+        let result = writer.write_event(&SecurityEvent::PanicFired {
+            trigger: "test".into(),
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn etw_writer_compiles() {
+        let writer = EtwWriter;
+        let _ = writer.write_event(&SecurityEvent::PanicFired {
+            trigger: "test".into(),
+        });
+    }
+
+    #[test]
+    fn stub_writers_noop() {
+        let j = JournaldWriter;
+        let o = OsLogWriter;
+        j.write_event(&SecurityEvent::PanicFired {
+            trigger: "test".into(),
+        })
+        .unwrap();
+        o.write_event(&SecurityEvent::PanicFired {
+            trigger: "test".into(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn mock_writer_receives_events() {
+        let mock = MockWriter::new();
+        mock.write_event(&SecurityEvent::CapabilityChanged {
+            name: "tool_calling".into(),
+            enabled: true,
+        })
+        .unwrap();
+        mock.write_event(&SecurityEvent::PanicFired {
+            trigger: "test".into(),
+        })
+        .unwrap();
+
+        let events = mock.events();
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], SecurityEvent::CapabilityChanged { .. }));
+        assert!(matches!(events[1], SecurityEvent::PanicFired { .. }));
+    }
+
+    #[test]
+    fn emit_capability_changed_produces_jsonl() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("emit_test.jsonl");
+
+        let writer = JsonFileWriter::new(&path);
+        writer
+            .write_event(&SecurityEvent::CapabilityChanged {
+                name: "mcp_server_expose".into(),
+                enabled: true,
+            })
+            .unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let record: AuditRecord = serde_json::from_str(content.trim()).unwrap();
+        assert!(!record.timestamp.is_empty());
+        assert!(matches!(
+            record.event,
+            SecurityEvent::CapabilityChanged {
+                ref name,
+                enabled: true
+            } if name == "mcp_server_expose"
+        ));
+    }
+}

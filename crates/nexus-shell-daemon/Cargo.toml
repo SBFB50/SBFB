@@ -19,6 +19,7 @@ path = "src/main.rs"
 # Sprint 3 worker split. See the Sprint 7 Phase A plan §4.1 for
 # the split rationale.
 nexus-shell-daemon-core = { path = "../nexus-shell-daemon-core" }
+nexus-events-core = { path = "../nexus-events-core" }
 
 # Direct dependency on nexus-core-rs so the runtime can call
 # `create_node()` at boot. Phase A only uses `create_node` and

@@ -45,6 +45,7 @@ gpu-ephemeral = ["dep:cudarc"]
 # something through this crate — docs for task/result entries,
 # gossip for curator lists, blobs for fetch-by-ticket, etc.
 nexus-core-rs = { path = "../nexus-core-rs" }
+nexus-events-core = { path = "../nexus-events-core" }
 
 # Async runtime. The engine's public API is async throughout so
 # the binary (and any alternative frontend) can spin it up on a
