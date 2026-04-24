@@ -65,9 +65,16 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
         timeout = httpx.Timeout(connect=2.0, read=10.0, write=2.0, pool=2.0)
         limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
         app.state.daemon_httpx_client = httpx.AsyncClient(timeout=timeout, limits=limits)
+        # Sprint 26 Phase B: MCP session manager lifecycle.
+        mcp_srv = getattr(app.state, "mcp_server", None)
+        mcp_ctx = mcp_srv.session_manager.run() if mcp_srv else None
+        if mcp_ctx:
+            await mcp_ctx.__aenter__()
         try:
             yield
         finally:
+            if mcp_ctx:
+                await mcp_ctx.__aexit__(None, None, None)
             await app.state.daemon_httpx_client.aclose()
 
     app = FastAPI(
@@ -134,4 +141,15 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     app.include_router(contributor_router)
     app.include_router(quarantine_router)
     app.include_router(diagnostic_router)
+
+    # Sprint 26 Phase B (D1): MCP server local-only Streamable HTTP.
+    # Mounted AFTER all routers so it sits at /mcp. The
+    # LoopbackAuthMiddleware already covers bearer + Host + Origin;
+    # CapabilityGateMiddleware adds the mcp_server_expose check.
+    from nexus_coordinator.mcp_server import create_mcp_app
+
+    mcp_asgi, mcp_server = create_mcp_app(coordinator)
+    app.mount("/mcp", mcp_asgi)
+    app.state.mcp_server = mcp_server  # type: ignore[attr-defined]
+
     return app

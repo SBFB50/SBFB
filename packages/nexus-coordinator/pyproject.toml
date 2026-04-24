@@ -108,6 +108,12 @@ dependencies = [
     # SSN/IP/URL).
     "presidio-analyzer[gliner]>=2.2.362",
     "rapidfuzz>=3.0",
+
+    # Sprint 26 Phase B — MCP server local-only Streamable HTTP.
+    # Official SDK by Anthropic (MIT, modelcontextprotocol/python-sdk).
+    # Transitive deps (httpx, pydantic, starlette, anyio) already
+    # present via FastAPI.
+    "mcp>=1.27",
 ]
 
 [project.urls]
