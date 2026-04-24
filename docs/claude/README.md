@@ -1543,9 +1543,14 @@ Compare ce que tu vois avec :
     Goal §2 (G3) : DOIT pointer explicite vers verification.md
                 fail-fast checklist comme critere SMART (ne pas
                 inventer 3 KPIs supplementaires — duplication).
-    Carry-overs (G7) : §6 "Items carry/dette" liste max 2 items
-                re-confirmes ligne par ligne `[x] C-N carry confirme
-                pour S{N} Phase A` ou `[deferred] -> S{N+1}`.
+    Carry-overs (G7) : §6 "Items carry/dette" re-confirme chaque
+                carry avec compteur reports. Items a 3 reports =
+                obligatoire (§6.2.1 Regle 2). Items < 500 LOC ne
+                peuvent pas etre reclassifies long-term.
+                Check ROADMAP_COMMITMENTS conditions (§6.2.1
+                Regle 3) : evaluer si declencheurs remplis.
+    Phase dette (G7) : si sprint pair (S28, S30...), reserver
+                une phase dette obligatoire (§6.2.1 Regle 1).
     Memory carry-over (G6) : fusionner manuellement
                 `sprint{N-1}_verification.md §5 Findings carry-over
                 for memory` dans nexus_grid_pivot.md / feedback_*.md
@@ -1598,7 +1603,7 @@ toute la doc. Charger tout sature le contexte pour rien.
     - .planning/active/sprint{N}_kickoff.md (D1..D5)
     - .planning/active/sprint{N}_plan.md §Phase X visée
     - docs/claude/README.md §4 (atomic commit, body riche) +
-      §6.2.1 (cap carry-overs G7) + §6.9 (G8 phase pre-flight)
+      §6.2.1 (escalade carry-overs G7) + §6.9 (G8 phase pre-flight)
     - .claude/skills/nexus-phase-preflight/SKILL.md (G8 5 scans
       S1a OSS prior art + S1b deps + S2-S4, PLAN-ADAPT verdict,
       runs AVANT code)
@@ -1610,7 +1615,7 @@ toute la doc. Charger tout sature le contexte pour rien.
     - .planning/archive/v{X}/sprint{N-1}_kickoff.md (pour reprendre
       le format) + sprint{N-1}_verification.md §5 carry-over G6
     - docs/claude/README.md §2.1 (goal SMART G3) + §6.1.1
-      (Design Review Board G1) + §6.2.1 (cap carry-overs G7) +
+      (Design Review Board G1) + §6.2.1 (escalade + phase dette G7) +
       §5.1.1 (memory carry-over G6) + §6.8 (triggers G2)
     - memory nexus_grid_pivot.md (roadmap + compteurs tests)
     - HARDENING_ROADMAP.md frontmatter triggers_revalidate (G2 —
