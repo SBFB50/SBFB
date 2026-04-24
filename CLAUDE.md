@@ -85,6 +85,8 @@ nexus-grid/
 │   ├── nexus-core-rs/                 # iroh wrapper (docs, gossip, blobs,
 │   │                                  # discovery, curator crypto, canonical bytes JCS)
 │   ├── nexus-core-py/                 # PyO3 bindings (sign/verify task/result/claim/curator)
+│   ├── nexus-events-core/             # SecurityEvent enum + EventWriter trait +
+│   │                                  # JsonFileWriter JSONL + EtwWriter (Windows)
 │   ├── nexus-worker-core/             # engine lib headless (state machine,
 │   │                                  # allowlist SQLite, GPU monitor, Ollama client)
 │   ├── nexus-worker/                  # worker binary (CLI + TUI + state writer)
@@ -119,17 +121,17 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-25 CLOSED**, v1.2 en cours. Audit gate S25 = S26
-  Phase 0 (`.planning/active/sprint25_audit_plan.md`).
-- **~1712 tests total** (790 Rust / 185 SDK / 372+5 coord / 46
-  app-gov / 264 Vitest / 43 Playwright / 7/7 size-limit / 246+
-  SPDX) — tous verts (32 coord fail PyO3 wheel stale, pas
-  regression).
-- Carry S26 : T-NN+2 iframe Rust-wasm (PATTERNS §P34).
+- **Sprints 0-26 CLOSED**, v1.2 en cours. Audit gate S26 = S27
+  Phase 0 (`.planning/active/sprint26_audit_plan.md`).
+- **~1752 tests total** (802 Rust / 193 SDK / 377+6 coord / 46
+  app-gov / 264 Vitest / 43 Playwright / 7/7 size-limit) — tous
+  verts code (45 coord fail PyO3 wheel stale + 4 gov collect errors
+  + 16 PW env fail — meme root cause wheel stale, pas regression).
+- Carry S27 : T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
-  P2-D-1 redundancy full wire-up + persistence (RedundancyDispatcher
-  non instancie en prod, re-carry S23). P2-E-1-iroh (non-bloquant).
+  LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
+  LT-6 iroh neighborhood enrichment (ex-P2-E-1-iroh, reclassifie S26).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
