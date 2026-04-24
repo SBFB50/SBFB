@@ -20,13 +20,14 @@ from nexus_sdk.app import (
     NexusApp,
     RouteDescriptor,
     TabDescriptor,
+    TaskHandlerDescriptor,
     WorkerDescriptor,
     WorkerNotFound,
 )
 from nexus_sdk.commands import CommandDescriptor
 from nexus_sdk.compute_client import ComputeClient
 from nexus_sdk.db import AppDatabaseClient, DatabaseError
-from nexus_sdk.decorators import nexus_app_files, nexus_command, nexus_route, nexus_tab, nexus_worker
+from nexus_sdk.decorators import nexus_app_files, nexus_command, nexus_route, nexus_tab, nexus_worker, task_handler
 from nexus_sdk.events import AppEvents, EventEnvelope, EventOverflowPolicy
 from nexus_sdk.files import AppFileStore, FileHandle, FileManifest, FileTypeError
 from nexus_sdk.html_render import render_tabview_to_html
@@ -83,6 +84,7 @@ __all__ = [
     "TabBlockFileUpload",
     "TabDescriptor",
     "TabView",
+    "TaskHandlerDescriptor",
     "TabViewV1",
     "TabViewV2",
     "TypedNamespace",
@@ -108,6 +110,7 @@ __all__ = [
     "render_tabview_to_html",
     "section",
     "table_",
+    "task_handler",
     "text",
     "view",
 ]

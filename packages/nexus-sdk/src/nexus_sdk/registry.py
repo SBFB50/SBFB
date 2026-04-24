@@ -17,6 +17,7 @@ WORKER_ATTR = "__nexus_worker__"
 TAB_ATTR = "__nexus_tab__"
 COMMAND_ATTR = "__nexus_command__"
 FILES_ATTR = "__nexus_app_files__"
+TASK_HANDLER_ATTR = "__nexus_task_handler__"
 
 
 def collect_decorators(
@@ -26,32 +27,19 @@ def collect_decorators(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     """Scan ``cls`` (and its bases) for decorated methods.
 
-    Returns four lists: ``(routes, workers, tabs, commands)``.
-    Each entry is a dict ready to feed into the matching
-    dataclass / Pydantic constructor (RouteDescriptor,
-    WorkerDescriptor, TabDescriptor, CommandDescriptor).
-
-    Sprint 8 Phase A adds the fourth bucket for
-    :func:`nexus_sdk.nexus_command`. Keeping it a positional
-    return tuple (rather than a named tuple or dict) matches the
-    existing unpacking convention in :class:`NexusApp.__init__`.
-
-    Sprint 9 Phase A (T12) — ``workers``, ``tabs`` and ``commands``
-    are sorted by their ``name`` key before return. The previous
-    order was whatever ``dir(cls)`` produced, which is
-    alphabetical by attribute name on CPython as an implementation
-    detail rather than a documented guarantee. Making the sort
-    explicit locks the order against PyPy, ``__slots__``
-    reshuffles, and method renames. ``routes`` is sorted by
-    ``path`` for symmetry.
+    Returns five lists: ``(routes, workers, tabs, commands,
+    task_handlers)``. Each entry is a dict ready to feed into
+    the matching dataclass / Pydantic constructor.
     """
     routes: list[dict[str, Any]] = []
     workers: list[dict[str, Any]] = []
     tabs: list[dict[str, Any]] = []
     commands: list[dict[str, Any]] = []
+    task_handlers: list[dict[str, Any]] = []
 
     for name in dir(cls):
         try:
@@ -81,10 +69,21 @@ def collect_decorators(
                     "fn": attr,
                 }
             )
+        if hasattr(attr, TASK_HANDLER_ATTR):
+            meta = getattr(attr, TASK_HANDLER_ATTR)
+            task_handlers.append(
+                {
+                    "name": name,
+                    "request_schema": meta["request_schema"],
+                    "response_schema": meta["response_schema"],
+                    "fn": attr,
+                }
+            )
 
     routes.sort(key=lambda d: d["path"])
     workers.sort(key=lambda d: d["name"])
     tabs.sort(key=lambda d: d["name"])
     commands.sort(key=lambda d: d["name"])
+    task_handlers.sort(key=lambda d: d["name"])
 
-    return routes, workers, tabs, commands
+    return routes, workers, tabs, commands, task_handlers

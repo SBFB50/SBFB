@@ -221,6 +221,7 @@ async def test_app_manifest_endpoint_returns_gov(nexus_grid_tmp: Path) -> None:
             ]
             assert all(c["group"] == "Gov" for c in body["commands"])
             assert all(c["schema_version"] == 1 for c in body["commands"])
+            assert body["task_handlers"] == []
 
             r = client.get("/app/hello/manifest")
             assert r.status_code == 200
@@ -609,5 +610,85 @@ async def test_invoke_app_command_unknown_raises_404(nexus_grid_tmp: Path) -> No
         with TestClient(app) as client:
             r = client.post("/app/emptycmd/commands/ghost/invoke")
             assert r.status_code == 404
+    finally:
+        await coord.stop()
+
+
+# ---------------------------------------------------------------------------
+# Sprint 26 Phase D — @task_handler manifest integration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_manifest_endpoint_returns_task_handler_schemas(nexus_grid_tmp: Path) -> None:
+    from nexus_sdk import AppContext, AppManifest, NexusApp, task_handler
+    from pydantic import BaseModel, Field
+
+    class EchoRequest(BaseModel):
+        text: str
+        repeat: int = Field(default=1, ge=1, le=10)
+
+    class EchoResponse(BaseModel):
+        result: str
+
+    class HandlerApp(NexusApp):
+        manifest = AppManifest(name="handler-manifest", version="0.1.0")
+
+        @task_handler(EchoRequest, EchoResponse)
+        async def echo(self, req: EchoRequest) -> EchoResponse:
+            return EchoResponse(result=req.text * req.repeat)
+
+        async def on_start(self, ctx: AppContext) -> None:
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+    coord = Coordinator(project_name="demo-handler-manifest")
+    await coord.start()
+    try:
+        coord.apps["handler-manifest"] = HandlerApp()
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.get("/app/handler-manifest/manifest")
+            assert r.status_code == 200
+            body = r.json()
+            handlers = body["task_handlers"]
+            assert len(handlers) == 1
+            h = handlers[0]
+            assert h["name"] == "echo"
+            assert h["request_schema"]["type"] == "object"
+            assert "text" in h["request_schema"]["properties"]
+            assert "repeat" in h["request_schema"]["properties"]
+            assert h["request_schema"]["properties"]["repeat"]["default"] == 1
+            assert h["response_schema"]["type"] == "object"
+            assert "result" in h["response_schema"]["properties"]
+    finally:
+        await coord.stop()
+
+
+@pytest.mark.asyncio
+async def test_manifest_endpoint_no_handlers_empty(nexus_grid_tmp: Path) -> None:
+    from nexus_sdk import AppContext, AppManifest, NexusApp
+
+    class PlainApp(NexusApp):
+        manifest = AppManifest(name="plain-no-handlers", version="0.1.0")
+
+        async def on_start(self, ctx: AppContext) -> None:
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+    coord = Coordinator(project_name="demo-no-handlers")
+    await coord.start()
+    try:
+        coord.apps["plain-no-handlers"] = PlainApp()
+        app = create_app(coord)
+        with TestClient(app) as client:
+            r = client.get("/app/plain-no-handlers/manifest")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["task_handlers"] == []
     finally:
         await coord.stop()

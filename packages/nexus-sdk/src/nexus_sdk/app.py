@@ -96,6 +96,16 @@ class RouteDescriptor:
 
 
 @dataclass
+class TaskHandlerDescriptor:
+    """One @task_handler-decorated method on an app."""
+
+    name: str
+    request_schema: dict[str, Any]
+    response_schema: dict[str, Any]
+    fn: Callable[..., Any]
+
+
+@dataclass
 class AppContext:
     """Context passed into ``on_start`` / ``on_stop``.
 
@@ -247,6 +257,7 @@ class NexusApp(ABC):
             self._workers,
             self._tabs,
             self._commands,
+            self._task_handlers,
         ) = collect_decorators(type(self))
 
     # ------------------------------------------------------------------
@@ -263,14 +274,6 @@ class NexusApp(ABC):
         return [TabDescriptor(name=t["name"], icon=t["icon"], fn=t["fn"]) for t in self._tabs]
 
     def commands(self) -> list[CommandDescriptor]:
-        """Return Pydantic-validated command descriptors for
-        every ``@nexus_command``-decorated method.
-
-        Sprint 8 Phase A (D2 impl) — the React shell's Command
-        Palette merges the output of this method across every
-        app enrolled on the coordinator into a dedicated
-        ``App: <name>`` group.
-        """
         return [
             CommandDescriptor(
                 name=c["name"],
@@ -279,6 +282,17 @@ class NexusApp(ABC):
                 group=c["group"],
             )
             for c in self._commands
+        ]
+
+    def task_handlers(self) -> list[TaskHandlerDescriptor]:
+        return [
+            TaskHandlerDescriptor(
+                name=t["name"],
+                request_schema=t["request_schema"],
+                response_schema=t["response_schema"],
+                fn=t["fn"],
+            )
+            for t in self._task_handlers
         ]
 
     # ------------------------------------------------------------------

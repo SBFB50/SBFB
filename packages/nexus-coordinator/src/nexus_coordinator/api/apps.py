@@ -93,6 +93,14 @@ async def app_manifest(request: Request, name: str) -> dict[str, Any]:
             for t in app.tabs()
         ],
         "commands": [c.model_dump() for c in app.commands()],
+        "task_handlers": [
+            {
+                "name": th.name,
+                "request_schema": th.request_schema,
+                "response_schema": th.response_schema,
+            }
+            for th in app.task_handlers()
+        ],
     }
 
 

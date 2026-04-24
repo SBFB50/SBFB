@@ -11,7 +11,14 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from nexus_sdk.registry import COMMAND_ATTR, FILES_ATTR, ROUTE_ATTR, TAB_ATTR, WORKER_ATTR
+from nexus_sdk.registry import (
+    COMMAND_ATTR,
+    FILES_ATTR,
+    ROUTE_ATTR,
+    TAB_ATTR,
+    TASK_HANDLER_ATTR,
+    WORKER_ATTR,
+)
 
 
 def nexus_route(
@@ -108,6 +115,46 @@ def nexus_command(
                 "description": description,
                 "icon": icon,
                 "group": group,
+            },
+        )
+        return fn
+
+    return wrap
+
+
+def task_handler(
+    request_model: type,
+    response_model: type,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Mark a method as a typed task handler with auto-generated JSON Schemas.
+
+    The decorator stores ``model_json_schema()`` output from the
+    Pydantic request and response models as attributes on the
+    wrapped function. The registry collects these at construction
+    time so the coordinator can expose them via the manifest
+    endpoint.
+
+    Example::
+
+        class TranslateRequest(BaseModel):
+            text: str
+            target_lang: str
+
+        class TranslateResponse(BaseModel):
+            translated: str
+
+        @task_handler(TranslateRequest, TranslateResponse)
+        async def translate(self, req: TranslateRequest) -> TranslateResponse:
+            ...
+    """
+
+    def wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
+        setattr(
+            fn,
+            TASK_HANDLER_ATTR,
+            {
+                "request_schema": request_model.model_json_schema(),
+                "response_schema": response_model.model_json_schema(),
             },
         )
         return fn
