@@ -162,11 +162,14 @@ Sections canoniques (pattern Sprint 20 gold) :
    ```
 6. **Plan Phase outline A..F** — une section courte par phase
    avec son scope, son critère d'acceptation et son commit
-   cible
+   cible. **Sprints pairs** (S28, S30...) : une phase est
+   réservée dette (§6.2.1 Règle 1), le kickoff l'identifie
+   et liste les items déférés absorbés.
 7. **Items carry/dette** — reclassification explicite des
-   carry-overs (cap G7 = 2/2), avec pour chaque item :
-   classification (carry confirmé / scope intégré / tech debt
-   long-terme / post-Gate-N), rationale, conséquences
+   carry-overs, avec pour chaque item : classification
+   (carry confirmé / scope intégré / supprimé DEPRECATED),
+   nombre de reports consécutifs, rationale, conséquences.
+   Items à 3 reports : plan obligatoire (§6.2.1 Règle 2).
 8. **Scope cuts** — liste **exhaustive** (10-14 items) des
    choses qu'on ne fera PAS dans ce sprint et pour quel
    sprint elles sont gardées. Pattern S20 : chaque item avec
@@ -307,12 +310,23 @@ Sections canoniques (pattern Sprint 6/7) :
    - Méthodes concrètes (commandes à rouler, grep à lancer,
      tests à écrire)
    - Signal d'audit (qu'est-ce qui est P0, P1, P2, P3)
-3. **Verdict global attendu** — trois scénarios :
+3. **Track HARDENING drift (P2 informatif)** — comparer
+   `HARDENING_ROADMAP.md §3` ligne S{N} (items prescrits) vs
+   ce que le sprint a reellement livre. Pour chaque item prescrit
+   non livre, verifier :
+   - scope-cut justifie dans le kickoff §7 ? → OK
+   - blocker externe documente ? → OK
+   - ni l'un ni l'autre → **P2** (drift non justifie)
+   Cette track est informative (P2), pas bloquante (P1). Son
+   objectif est la visibilite, pas la punition. Si le drift
+   cumule sur 3+ sprints sans justification, l'auditeur remonte
+   le signal pour revalider le HARDENING_ROADMAP lui-meme.
+4. **Verdict global attendu** — trois scénarios :
    - PASS : 0 P0, 0 P1 → sprint N+1 Phase A démarre direct
    - CONDITIONAL PASS : 1-3 P1 fixables → N+1 Phase A bloqué
      tant que les `fix(sprint{N}): ...` ne sont pas landed
    - FAIL : ≥ 1 P0 ou ≥ 3 P1 → re-conception partielle
-4. **Out of scope pour l'audit** — liste explicite de ce que
+5. **Out of scope pour l'audit** — liste explicite de ce que
    l'auditeur ne doit PAS rebattre (les D1..D5 gelées, les
    scope cuts, les choix de pin de dep)
 5. **Livrable final attendu** — format exact de
@@ -856,114 +870,87 @@ le pattern le plus couteux identifie dans le projet — il
 retarde des features quasi-pretes en les traitant comme des
 chantiers majeurs.
 
-#### 6.2.1 Cap carry-overs : max 2 par sprint (G7)
+#### 6.2.1 Carry-overs, escalade et dette (G7)
 
-Anti-pattern observe Sprint 18→19 : C-1 (DHT quorum wire) reporte
-S19 documente seulement en commit body + PATTERNS.md, sans entree
-explicite dans `sprint19_audit_plan.md`. Sprint 19 Phase B reporte
-runtime gossip wire S20 sans aucune entree carry. Le report devient
-gratuit → choix par defaut sous pression de fin de sprint.
+Anti-pattern observe Sprint 18→26 : les items autonomes < 500 LOC
+(journald, oslog, 8 events wire, RAG sanitization) sont reportes
+sprint apres sprint, jamais prioritaires face aux features, puis
+« reclassifies long-term » ce qui les enterre. Le cap 2/2 et la
+reclassification a 3 sprints ne resolvent pas le probleme — ils
+le cachent.
 
-**Regle** :
+**3 regles (amendement 2026-04-24)** :
 
-- **Max 2 carry-overs par sprint** (scope cuts vers S{N+1} via Phase
-  B/C/etc. report). Au-dela, soit livrer dans le sprint courant,
-  soit abandonner explicitement (entree `docs/DEPRECATED.md` avec
-  rationale).
+##### Regle 1 — Phase dette 1 sprint sur 2
+
+Les **sprints pairs** (S28, S30, S32...) reservent une phase
+(typiquement Phase B) exclusivement dediee aux items differes.
+Cette phase n'est pas negociable et ne peut pas etre convertie en
+feature. Les sprints impairs (S27, S29, S31...) n'ont pas cette
+contrainte.
+
+Rationale : un budget dette de 1 phase sur 10 (~2 sprints × 5
+phases) est absorbable sans degrader les features. Le rythme alterne
+empeche l'accumulation tout en laissant de la place aux features
+monolithiques.
+
+##### Regle 2 — Escalade automatique a 3 reports
+
+Un item differe **3 sprints consecutifs** devient **obligatoire**
+au sprint suivant — il doit etre integre dans le plan, pas dans
+le cap carry-overs. Pas de reclassification « long-term » pour les
+items < 500 LOC : ils restent carry actif jusqu'a livraison ou
+suppression explicite (`docs/DEPRECATED.md` avec rationale).
+
+**Exemptions** (avec justification renouvelee a chaque kickoff) :
+
+- **Blocker externe** : dependance amont instable (arti pre-1.0),
+  legal review en cours. La justification doit etre factuelle et
+  re-evaluee (pas « meme raison que S-1 » copie-colle).
+- **Dependance sequentielle interne** : l'item depend d'un output
+  de phase pas encore livre. La dependance doit etre nommee
+  (« attend Phase C output X du sprint courant »).
+
+Sans exemption valide, un item a 3 reports entre dans le plan
+comme phase obligatoire, pas comme carry.
+
+**Items > 500 LOC avec blocker externe** : seuls ceux-ci peuvent
+etre reclassifies dans `docs/release/ROADMAP_COMMITMENTS.md` avec
+les 7 champs (ID, Title, Origine, Condition de declenchement,
+Owner, Runbook pointer, Derniere revue). Condition : le blocker
+est verifiable et externe au projet (API upstream, legal, budget).
+
+##### Regle 3 — Check ROADMAP_COMMITMENTS au kickoff
+
+Le kickoff §4 "Phase 0" inclut un check obligatoire des conditions
+de declenchement de `ROADMAP_COMMITMENTS.md`. Pour chaque item LT :
+
+```bash
+# Evaluer chaque condition de declenchement
+grep -A 5 "Condition de declenchement" docs/release/ROADMAP_COMMITMENTS.md
+```
+
+Si une condition est remplie (tag v1.0 pose, iroh > 0.97 publie,
+Gini > 0.70 observe), l'item redevient carry actif dans le kickoff.
+Pas de re-activation silencieuse — le kickoff documente le
+declenchement avec evidence.
+
+##### Mecanique carry-over (inchange)
+
 - **Phase F wrap-up genere `sprint{N+1}_carry_summary.md`** (pas
   optionnel) listant les carry-overs avec :
   - ID + description (1 ligne)
   - Source : phase qui a reporte + commit SHA
   - Severite : P1 (Gate-blocker) / P2 (debt) / P3 (cosmetic)
+  - Nombre de reports consecutifs (compteur incremente)
   - Owner : `<github-handle>` ou `S{N+1}` par defaut
 - **Kickoff S{N+1} doit re-confirmer** chaque carry via une ligne
   explicite dans §6 "Items carry/dette" : `[x] C-1 carry confirme
-  pour S{N+1} Phase A` ou `[deferred] C-1 differe S{N+2}`.
-
-Decision P1 vs P2 vs P3 : prise par l'auditeur Phase 0 du sprint
-suivant en jouant `sprint{N}_audit_plan.md`. Pas par l'agent qui
-livre le carry (auto-evaluation biaisee).
-
-**Pourquoi cap a 2** : empiriquement (S17→S18→S19), 2 carry-overs
-sont absorbables sans diluer le scope du sprint suivant. 3+ degrade
-le sprint cible en "rattrapage du sprint precedent" → escalade.
-
-**Reclassification long-term commitments (amendement 2026-04-18,
-audit gate S20)** : anti-pattern observe Sprint 18→21 : Meta-1
-« Radicle-v1.0 activation tracking » est carry depuis S18 jusqu'a
-S21 (4 sprints consecutifs). Chaque sprint le porte dans le cap
-2/2 bien qu'il soit en realite un **engagement conditionnel au
-tag v1.0 go-live**, pas une dette a resorber. Une slot du cap G7
-est occupee en permanence par un item sans chemin d'atterrissage
-dans le sprint courant. Le cap devient gaming-able — un carry
-permanent squatte une place, les vrais carries courts se battent
-pour la slot restante.
-
-**Regle** : apres **3 sprints consecutifs** en carry sans livraison
-(ni PASS ni reject explicit via `docs/DEPRECATED.md`), un item est
-automatiquement reclassifie **long-term commitment** et sort du
-cap G7. Le cap redevient 2/2 exclusif pour les vrais carries
-< 3 sprints.
-
-**Ou vivent les long-term commitments** : un doc dedie
-`docs/release/ROADMAP_COMMITMENTS.md` (cree a l'occasion du premier
-item reclassifie, pas avant). Chaque entree contient 7 champs :
-
-- **ID** (meme que dans le dernier carry_summary, ex: Meta-1)
-- **Title** (1 ligne courte)
-- **Origine** : sprint + commit SHA ou l'item a ete carry en premier
-- **Condition de declenchement** : evenement externe qui reouvre
-  l'item comme carry actif (ex: « tag v1.0 go-live », « release
-  iroh > 1.0 », « CVE sur dep critique »)
-- **Owner** : `<github-handle>` ou placeholder `<post-v1.0>`
-- **Runbook pointer** : fichier `.md` dans `docs/release/` qui
-  contient la procedure d'activation quand la condition est
-  declenchee (ex: `docs/release/MIRROR_FALLBACK.md §3` pour Meta-1
-  Radicle)
-- **Derniere revue** : date + SHA commit qui a confirme que la
-  condition n'est toujours pas declenchee
-
-**Mecanique de reclassification** :
-
-- Phase F wrap-up du sprint N+2 (= 3e sprint consecutif de carry) :
-  lors de la generation de `sprint{N+3}_carry_summary.md`, l'agent
-  detecte les IDs presents dans 3 carry_summary consecutifs et les
-  deplace vers `ROADMAP_COMMITMENTS.md` au lieu de les propager.
-- Kickoff S{N+3} : la liste des carry-overs ne re-confirme PAS ces
-  items reclassifies (ils ne sont plus carry). Le kickoff §6 pointe
-  vers `ROADMAP_COMMITMENTS.md` pour rappel.
-- Audit gate S{N+3} Phase 0 : l'auditeur verifie que les items
-  reclassifies sont bien presents dans `ROADMAP_COMMITMENTS.md`
-  avec les 7 champs. Absence = P2 (dette documentaire, pas
-  Gate-blocker).
-
-**Re-activation** : un long-term commitment peut redevenir carry
-actif (re-entrer dans le cap 2/2) si sa **condition de declenchement**
-s'est realisee. Exemple : Meta-1 Radicle passe de long-term a carry
-actif le jour ou le tag v1.0 go-live est pose. Le commit qui pose
-le tag inclut une entree carry explicite dans son body pour le
-sprint suivant. Pas de re-activation silencieuse — le declencheur
-doit etre trace.
-
-**Quand skipper** : jamais. La mecanique est automatique au niveau
-de la generation carry_summary. Pas de reclassification manuelle
-sous pression de fin de sprint (ce qui serait un moyen detourne
-de vider le cap G7).
-
-**Exemple concret 2026-04-18** : Meta-1 Radicle-v1.0 activation
-tracking est sur le fil (S18 → S19 → S20 → carry S21 = 4e sprint).
-A la cloture S21 Phase F, Meta-1 sera reclassifie long-term
-commitment et sortira du carry_summary S22. Le cap G7 S22 sera
-donc 2/2 disponible pour de vrais carries courts. Meta-1 reste
-visible dans `ROADMAP_COMMITMENTS.md` avec condition « tag v1.0
-go-live » et runbook `docs/release/MIRROR_FALLBACK.md §3`.
-
-Rationale : le cap G7 protege la focus d'un sprint (empiriquement
-2 carries absorbables). Les long-term commitments ne consomment
-pas la focus du sprint — ils vivent dans la roadmap release, pas
-dans le plan sprint. Les garder dans le cap melange deux concepts :
-dette resorbable court-terme (vrai carry) vs engagement conditionnel
-long-terme (commitment). La reclassification les separe proprement.
+  pour S{N+1} Phase A` ou `[deferred] C-1 differe S{N+2} (report
+  N/3, justification : ...)`.
+- **Items a 3 reports** : le kickoff NE PEUT PAS les re-confirmer
+  comme carry. Soit ils entrent dans le plan comme phase, soit ils
+  sont supprimes via `docs/DEPRECATED.md`.
 
 ### 6.3 Pas de band-aid fixes
 
@@ -1052,11 +1039,9 @@ horizon long terme + documentation AVANT code ») :
   HARDENING_ROADMAP §3 fournit des bornes indicatives par item
   pour le séquençage multi-sprint (~500, ~300, etc.) — ces
   chiffres sont des **bornes de scoping** admises pour évaluer si
-  un sprint dépasse la norme ~2500 LOC totale, pas des métriques
-  de succès ni des plafonds de phase. Un plan ne les reprend pas
-  en "budget" par phase. Le commit body documente la LOC
-  rétrospective réelle si elle dévie significativement (>2×) de
-  la borne — cf. pattern observé 3× en S22 (P2-E-2).
+  un sprint est dimensionné par objectif fonctionnel (pas par
+  budget LOC), pas des métriques de succès ni des plafonds de
+  phase. Un plan ne les reprend pas en "budget" par phase.
 
 Preuve empirique : S14 Keyoxide, S17 VALIDATED_BLUEPRINT, S18
 supply-chain → research-first, zero rework majeur.
@@ -1273,7 +1258,7 @@ la règle. `[STRUCT]` = structure du cycle, jamais drop.
 | G4 (§3 + auditor) | `[DETECT]` | Phase review + audit gate | Rigor signal : 0 P0/P1 + ≥1 P2+ pour PASS | Verdict PASS/CONCERN/FAIL |
 | ~~G5~~ | — | ~~Supprimé S24~~ | ~~Working tree audit~~ | ~~Hook lightcheck couvre~~ |
 | G6 (§5.1.1) | `[STRUCT]` | Post-commit feat + Phase F | Memory update §Tip + carry-over | `nexus_grid_pivot.md` updated |
-| G7 (§6.2.1) | `[STRUCT]` | Phase F carry generation | Cap 2 carry-overs/sprint | `sprint{N}_carry_summary.md` |
+| G7 (§6.2.1) | `[STRUCT]` | Phase F carry generation | Escalade 3 reports + phase dette sprints pairs | `sprint{N}_carry_summary.md` |
 | G8 (§6.9) | `[DETECT]` | Pre-implementation phase | 5 scans factuels OSS prior art + SOTA deps + history + threat + wire | `phase_{X}_preflight.md` |
 | G9 (§6.10) | `[DETER]` | Avant proposition D-choice | Factual research gate on D-decisions | §Research consulté dans kickoff |
 
@@ -1531,9 +1516,10 @@ Compare ce que tu vois avec :
                -> verifier staging coherent (hook lightcheck le fait
                automatiquement). Separer chore(planning) si docs
                planning modifies hors-phase.
-    Avant scope cut S+1 (G7) : verifier cap 2 carry-overs/sprint
-               max. Si depassement, livrer en sprint courant ou
-               ajouter a docs/DEPRECATED.md.
+    Avant scope cut S+1 (G7) : verifier compteur reports de
+               chaque carry. Items a 3 reports = obligatoire sprint
+               suivant (§6.2.1 Regle 2). Items < 500 LOC ne peuvent
+               pas etre reclassifies long-term.
 
   Cas C — Nouveau sprint à ouvrir
     Signal : .planning/active/ contient au max le

@@ -453,14 +453,12 @@ median app) :
 
 ### Sprint 25 — fondations securitaires pre-tool-calling
 
-> **Note realisme** (ajoutee 2026-04-22 post-S25) : la prescription
-> originale ci-dessous listait ~3700 LOC / 9 features. S25 a livre
-> 1/9 features prescrites (D5 capabilities) + 3 items hors-
-> prescription (key rotation carry + C3 handoffs carry + P2 batch
-> DNS). Les 8 features restantes sont re-sequencees S26+. La norme
-> empirique est ~2500 LOC / 4 phases par sprint. Cette section sert
+> **Note realisme** (mise a jour 2026-04-24) : cette section sert
 > de **backlog prioritise**, pas de plan sprint — le kickoff de
-> chaque sprint arbitre le scope reel.
+> chaque sprint arbitre le scope reel par objectif fonctionnel
+> (pas par budget LOC). Le drift entre prescription et livraison
+> est audite en Phase 0 via la track HARDENING drift (P2
+> informatif, cf. `docs/claude/README.md §2.4`).
 
 - **Goal** : poser les fondations securitaires pre-tool-calling (key
   rotation Ed25519, guardrails multi-stage, capability gates).
