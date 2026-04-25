@@ -59,8 +59,8 @@ pub mod verification;
 
 pub use attestations::{
     AgeWitness, AgeWitnessError, ContributorAttestation, ContributorAttestationError,
-    ContributorPredicate, DelegationCert, DelegationCertError,
-    CONTRIBUTOR_ATTESTATION_PREDICATE_TYPE, CONTRIBUTOR_ATTESTATION_STATEMENT_TYPE,
+    ContributorPredicate, DelegationCert, DelegationCertError, DelegationScope, ForgeContribution,
+    SigType, CONTRIBUTOR_ATTESTATION_PREDICATE_TYPE, CONTRIBUTOR_ATTESTATION_STATEMENT_TYPE,
     DELEGATION_ALGO_OPENPGP_ED25519, DELEGATION_ALGO_SSH_ED25519, DELEGATION_ALGO_SSH_RSA,
     MIN_AGE_DAYS, MIN_WITNESS_AGE_DAYS,
 };

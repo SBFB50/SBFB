@@ -118,6 +118,18 @@ rand = { workspace = true }
 # pattern, keeping the workspace single-style.
 async-trait = { workspace = true }
 
+# Sprint 27 Phase C : TrustCache stores forge contribution records
+# in SQLite (WAL mode, TTL 7 days). Follows the same pattern as
+# nexus-worker-core's allowlist SQLite. `bundled` compiles SQLite
+# from C source for zero external dep. `rusqlite_migration` gives
+# schema versioning for forward compat.
+rusqlite = { workspace = true }
+rusqlite_migration = { workspace = true }
+
+# Sprint 27 Phase C : TrustWebManager reads trust_web_seeds.toml
+# at boot. chrono used for TTL expiry checks.
+chrono = { workspace = true }
+
 # Sprint 18 audit fix D-1: file-watcher pour tokens.json, picked up
 # par le daemon HTTP layer pour rotation effective sans restart.
 # Meme crate / meme version que ConsentWatcher cote nexus-worker-core

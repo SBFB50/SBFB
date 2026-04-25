@@ -117,9 +117,14 @@ keys (or GPG), not Ed25519 SBFB node_id keys. The parser needs a
 tamper-proof bridge from a node_id to the SSH signer
 fingerprint the contributor uses on each forge.
 
-### Format
+### Format (v1 — pre-launch stable, redefined S27 Phase C)
 
 ```rust
+pub struct DelegationScope {
+    pub org_name: String,       // e.g. "FlowUP"
+    pub forge_urls: Vec<String>, // e.g. ["https://github.com/SBFB50/SBFB"]
+}
+
 pub struct DelegationCert {
     pub node_id: NodeId,            // Ed25519 SBFB pubkey, 32 bytes
     pub delegated_pubkey_algo: String, // "ssh-ed25519" | "ssh-rsa" |
@@ -129,6 +134,9 @@ pub struct DelegationCert {
                                               // matches `ssh-keygen -lf`
     pub issued_at_ts: i64,           // UTC unix seconds
     pub expires_at_ts: Option<i64>,  // optional TTL
+    pub trust_level: u8,             // 1-5, default 3. Decays -1/hop
+                                     // in trust-web delegation chains
+    pub scope: Option<DelegationScope>, // optional org + forge URLs
     pub node_sig: Ed25519Signature,  // over canonical JCS of above,
                                      // under domain
                                      // DOMAIN_DELEGATION_CERT_V1
@@ -137,6 +145,35 @@ pub struct DelegationCert {
 pub const DOMAIN_DELEGATION_CERT_V1: &[u8]
     = b"nexus-delegation-cert-v1";
 ```
+
+#### DelegationCert v1 field specification
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `node_id` | `[u8; 32]` | yes | — | Ed25519 SBFB pubkey of the issuer |
+| `delegated_pubkey_algo` | `String` | yes | — | `"ssh-ed25519"` / `"ssh-rsa"` / `"openpgp-ed25519"` |
+| `delegated_pubkey_fingerprint` | `String` | yes | — | SHA-256 hex lowercase, 64 chars |
+| `issued_at_ts` | `i64` | yes | — | UTC unix seconds |
+| `expires_at_ts` | `Option<i64>` | no | `None` | Optional expiry. `None` = no expiry |
+| `trust_level` | `u8` | no | `3` | Trust level delegated (1=minimal, 5=full) |
+| `scope` | `Option<DelegationScope>` | no | `None` | Optional scope restriction (org + forges) |
+| `node_sig` | `[u8; 64]` | yes | — | Ed25519 signature over JCS canonical of all fields except `node_sig` |
+
+#### C2PA mapping (informational)
+
+The DelegationCert maps to C2PA Assertion structures as follows :
+
+| DelegationCert field | C2PA Assertion concept |
+|---|---|
+| `node_id` | `claim_generator` — the identity making the claim |
+| `delegated_pubkey_*` + `scope` | `signer_payload` — the assertion content |
+| `trust_level` | `trust_list` confidence level — how much trust the issuer delegates |
+| `node_sig` | C2PA Claim Signature — integrity proof over the claim |
+| `DOMAIN_DELEGATION_CERT_V1` | Claim label namespace — prevents cross-type replay |
+
+This mapping is informational for interoperability analysis. SBFB does
+not implement C2PA natively ; the canonical serialization uses RFC 8785
+JCS with domain-separated Ed25519 signatures.
 
 ### Semantics
 
@@ -149,6 +186,9 @@ pub const DOMAIN_DELEGATION_CERT_V1: &[u8]
 - Multiple DelegationCerts per node_id are permitted (one per
   SSH key). Revocation = publish a new DelegationCert with
   `expires_at_ts: <past>` for the revoked key.
+- `trust_level` decays by 1 per delegation hop in the trust-web
+  chain (minimum 1). A seed anchor has effective level 5.
+- `scope` restricts the delegation to named forges. `None` = unbounded.
 
 ### Attack surface
 

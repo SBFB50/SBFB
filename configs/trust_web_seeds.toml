@@ -1,0 +1,24 @@
+# Trust-web seed anchors — bootstrap for Couche 3 Sybil-resistance.
+#
+# Each seed is a root anchor in the delegation chain. Trust decays
+# -1 per hop from these anchors (minimum 1). S28 outreach will
+# add real ONG seeds (Amnesty, EFF, CPJ, HRW).
+
+[[seeds]]
+org_name = "FlowUP (bootstrap)"
+fingerprint = "80b439cb0000000000000000000000000000000000000000000000000000abcd"
+forge_urls = ["https://github.com/SBFB50/SBFB"]
+description = "Bootstrap anchor — sera remplace par ONG S28"
+
+# Placeholders S28 outreach
+# [[seeds]]
+# org_name = "Amnesty International"
+# fingerprint = "..."
+# forge_urls = ["https://github.com/amnesty/..."]
+# description = "Human rights witness anchor"
+
+# [[seeds]]
+# org_name = "Electronic Frontier Foundation"
+# fingerprint = "..."
+# forge_urls = ["https://github.com/EFForg/..."]
+# description = "Digital rights witness anchor"

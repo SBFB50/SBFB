@@ -63,6 +63,8 @@ pub mod publish;
 pub mod registry;
 pub mod state;
 pub mod transport_probe;
+pub mod trust_cache;
+pub mod trust_web;
 
 /// Version of the `nexus-shell-daemon-core` crate, taken from
 /// `CARGO_PKG_VERSION` at compile time. The `nexus-shell-daemon`

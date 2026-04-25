@@ -52,7 +52,10 @@ pub use contributor::{
     ContributorAttestation, ContributorAttestationError, ContributorPredicate,
     CONTRIBUTOR_ATTESTATION_PREDICATE_TYPE, CONTRIBUTOR_ATTESTATION_STATEMENT_TYPE,
 };
+pub mod forge_parser;
+
 pub use delegation::{
-    DelegationCert, DelegationCertError, DELEGATION_ALGO_OPENPGP_ED25519,
+    DelegationCert, DelegationCertError, DelegationScope, DELEGATION_ALGO_OPENPGP_ED25519,
     DELEGATION_ALGO_SSH_ED25519, DELEGATION_ALGO_SSH_RSA,
 };
+pub use forge_parser::{ForgeContribution, SigType};
