@@ -105,7 +105,7 @@ nexus-grid/
 │   ├── active/                        # sprint en cours uniquement (kickoff, plan, audit_findings du precedent, verification, audit_plan)
 │   ├── archive/v1.0/                  # S0-13 (pivot, P2P, universal render, bridge, launcher)
 │   ├── archive/v1.1/                  # S14-15 (verified deploy, bridge bidirectionnel, watchdog)
-│   └── archive/v1.2/                  # S16-25 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites, rate-limit + PII defense-in-depth, Sybil-resistance, ephemeral workers, guardrails + hooks + re-run + DNS fallback, key rotation + C3 handoffs + D5 capabilities)
+│   └── archive/v1.2/                  # S16-27 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites, rate-limit + PII defense-in-depth, Sybil-resistance, ephemeral workers, guardrails + hooks + re-run + DNS fallback, key rotation + C3 handoffs + D5 capabilities, MCP server + OS audit + task_handler, watermark SynthID + Couche 3 multi-forge + Gate 3 showcase)
 ├── docs/
 │   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
 │   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
@@ -121,13 +121,13 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-26 CLOSED**, v1.2 en cours. Audit gate S26 = S27
-  Phase 0 (`.planning/archive/v1.2/sprint26_audit_plan.md`).
-- **~1752 tests total** (802 Rust / 193 SDK / 377+6 coord / 46
+- **Sprints 0-27 CLOSED**, v1.2 en cours. Audit gate S27 = S28
+  Phase 0 (`.planning/archive/v1.2/sprint28_audit_plan.md`).
+- **~1802 tests total** (821 Rust / 195 SDK / 391+36f+6s coord / 46
   app-gov / 264 Vitest / 43 Playwright / 7/7 size-limit) — tous
-  verts code (45 coord fail PyO3 wheel stale + 4 gov collect errors
-  + 16 PW env fail — meme root cause wheel stale, pas regression).
-- Carry S27 : T-NN+2 iframe Rust-wasm (PATTERNS §P34).
+  verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
+  meme root cause wheel stale, pas regression).
+- Carry S28 : T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
