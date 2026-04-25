@@ -174,6 +174,17 @@ pub struct Task {
     /// invalid state.
     #[serde(default = "default_redundancy_factor")]
     pub redundancy_factor: u8,
+
+    /// Shared secret for the watermark PRF. The coordinator
+    /// generates a per-task seed and embeds it in the dispatch
+    /// payload. Workers that opt in to watermark injection use
+    /// this seed to bias green-list tokens during sampling.
+    /// Empty means no watermark requested for this task.
+    ///
+    /// `#[serde(default)]` — runtime tolerance: clients that omit
+    /// the field get an empty vec (no watermark), not a parse error.
+    #[serde(default)]
+    pub watermark_seed: Vec<u8>,
 }
 
 fn default_redundancy_factor() -> u8 {
@@ -212,6 +223,7 @@ impl Task {
             estimated_vram_mb: 0,
             estimated_hours: 0.0,
             redundancy_factor: 1,
+            watermark_seed: Vec::new(),
         }
     }
 
@@ -237,6 +249,13 @@ impl Task {
     /// Set the redundancy factor (number of independent workers).
     pub fn with_redundancy_factor(mut self, factor: u8) -> Self {
         self.redundancy_factor = factor;
+        self
+    }
+
+    /// Attach a watermark seed so workers that opt in to injection
+    /// can bias green-list tokens during sampling.
+    pub fn with_watermark_seed(mut self, seed: Vec<u8>) -> Self {
+        self.watermark_seed = seed;
         self
     }
 }
@@ -333,6 +352,16 @@ pub struct ResultPayload {
 
     /// Unix timestamp when the worker finished inference.
     pub finished_at: u64,
+
+    /// Raw token IDs produced during generation. The coordinator
+    /// uses these to run the watermark z-test detector on the
+    /// output. Empty when the worker does not report token IDs
+    /// (e.g. Ollama backend where the HTTP API returns text only).
+    ///
+    /// `#[serde(default)]` — runtime tolerance: workers that omit
+    /// the field get an empty vec, not a parse error.
+    #[serde(default)]
+    pub output_token_ids: Vec<u32>,
 }
 
 /// A signed ResultPayload, ready to be written to the results doc.
@@ -507,6 +536,7 @@ mod tests {
             logprobs_hash: [0xBB; 32],
             started_at: 1_712_345_680,
             finished_at: 1_712_345_680,
+            output_token_ids: vec![],
         }
     }
 

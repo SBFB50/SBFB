@@ -1059,6 +1059,7 @@ impl Engine {
                     logprobs_hash: [0u8; 32],
                     started_at: now,
                     finished_at: now,
+                    output_token_ids: vec![],
                 };
                 let result_entry = match ResultEntry::sign(payload, &self.keypair) {
                     Ok(e) => e,

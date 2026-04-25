@@ -227,6 +227,8 @@ pub struct WorkerConfig {
     pub logging: Logging,
     #[serde(default)]
     pub ephemeral: crate::ephemeral::EphemeralConfig,
+    #[serde(default)]
+    pub watermark: WatermarkConfig,
 }
 
 /// `[identity]` section: who this worker is.
@@ -415,6 +417,32 @@ impl Default for Logging {
     fn default() -> Self {
         Self {
             level: "info".to_string(),
+        }
+    }
+}
+
+/// `[watermark]` section: output watermark injection (opt-in).
+///
+/// When enabled and the Task carries a non-empty `watermark_seed`,
+/// the llama.cpp backend biases green-list tokens by `delta_logit`
+/// during sampling. The coordinator-side detector runs a z-test on
+/// the output token IDs to verify the watermark.
+///
+/// Disabled by default — workers that do not set `[watermark]
+/// enabled = true` in `worker.toml` skip injection entirely.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WatermarkConfig {
+    pub enabled: bool,
+    pub delta_logit: f32,
+    pub window_size: usize,
+}
+
+impl Default for WatermarkConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            delta_logit: 2.0,
+            window_size: 4,
         }
     }
 }

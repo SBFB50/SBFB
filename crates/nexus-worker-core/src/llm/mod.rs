@@ -52,6 +52,7 @@ pub mod factory;
 pub mod llama_cpp;
 pub mod ollama;
 pub mod schema_bridge;
+pub mod watermark;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

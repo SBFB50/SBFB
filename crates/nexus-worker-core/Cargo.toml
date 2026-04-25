@@ -165,6 +165,13 @@ cudarc = { workspace = true, optional = true }
 # non-zero constructor for `NonZeroU32`.
 nonzero_ext = { workspace = true }
 
+# Sprint 27 Phase B: HMAC-SHA256 for watermark PRF (pseudo-random
+# function). The PRF classifies tokens as green/red based on
+# HMAC(secret, context || token_id) — identical algorithm runs
+# coordinator-side in Python for detection.
+hmac = { workspace = true }
+sha2 = { workspace = true }
+
 
 # Deliberately excluded: clap, ratatui, crossterm, dialoguer.
 # This crate is UI-free by design (see the 2026-04-10 Sprint 3

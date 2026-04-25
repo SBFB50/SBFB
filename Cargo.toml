@@ -66,6 +66,7 @@ rand = "0.8"
 # `sha2` is the canonical RustCrypto SHA256 crate, unchanged API
 # since 2017, zero transitive churn.
 sha2 = "0.10"
+hmac = "0.12"
 
 # Error handling and observability
 thiserror = "1.0"

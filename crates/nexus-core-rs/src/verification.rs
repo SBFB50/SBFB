@@ -284,6 +284,7 @@ mod tests {
             logprobs_hash,
             started_at: 1_712_345_680,
             finished_at: 1_712_345_680,
+            output_token_ids: vec![],
         };
         let entry = ResultEntry::sign(payload, &kp).unwrap();
         (kp, entry)
