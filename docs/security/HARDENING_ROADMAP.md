@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-22  # G2 — Sprint 26 kickoff : 11 triggers re-scanned (all INACTIVE, leverage S25 same-day scan). S26 scope: B2 MCP server local + A3 OS audit + C2 @task_handler SDK + P2 batch. Reclassification P2-D-1 → LT-5, P2-E-1-iroh → LT-6. Compteurs 790 Rust / 185 SDK / 372+5 coord / 46 gov / 264 Vitest / 43 Playwright / 7/7 size / ~1712 tests.
+last_validated: 2026-04-25  # G2 — Sprint 27 Phase D : 12 triggers re-scanned (all INACTIVE except openai-agents-python v2.x — no S27 impact, autonomous guardrails.py). S27 scope: SynthID watermark output + Couche 3 multi-forge parser + trust-web ONG bootstrap + Gate 3 showcase docs + P2 batch S26 7 fixes. Compteurs ~821 Rust / ~195 SDK / ~419+14 coord / ~46 gov / ~264 Vitest / ~41+2 PW / ~1797 total.
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -21,6 +21,7 @@ audited_findings:
   - "2026-04-19 S21 CLOSED : 5 phases A-E livrées sur le thème rate-limit + PII SDK defense-in-depth + output filter + quarantine queue + tech debt batch. Phase A `63afe4e` rate-limit governor 0.10.2 GCRA worker-engine R1 (axum 0.7→0.8 bump prereq workspace-wide `5e67ce0` post-G8 pivot Option C). Phase B `d5b0035` PII SDK iframe (onnxruntime-web 1.24.3 + GLiNER PII edge ONNX). Phase C `23abb11` PII coord (presidio-analyzer 2.2.362 + GLiNERRecognizer extra [gliner] même modèle ONNX SoT + InvisibleText scanner curated + EED Levenshtein 0.85). Phase D `f830579` quarantine queue SQLite WAL + Typer CLI (réalignement coord-Python G8 SCOPE-CUT-CONSISTENT `a82e8db`). Phase E `49f0d32` tech debt batch — T-NN canary_wire_bytes JCS canonical (RFC 8785) + T-NN+1 CanaryRegistry verify Ed25519 at ingest via nexus_core.verify_canary PyO3 binding (path-dep nexus-shell-daemon-core ajoutée à nexus-core-py) + plan docs S20 §6 wire-point fix C-PLAN-1 + PATTERNS.md §P34 closeout (T-NN résolu + T-NN+1 résolu + T-NN+2 ouvert S22+ blocked tract opset 19 / ort wasm32-browser / gline-rs wasm-bindgen). Premier sprint avec G8 systématique 5/5 phases : 1 DESIGN-CONFLICT (Phase A axum bump) + 4 SCOPE-CUT-CONSISTENT (B/C/D/E). Cap G7 carry-overs respecté 2/2 → S22 : Meta-1 Radicle-v1.0 re-carry + T-NN+2 PATTERNS hors cap formel. Compteurs finals : 659 Rust / 185 SDK / 249+3 coord / 46 gov / 256 Vitest / 38 Playwright / ~1436 tests (+65 vs baseline 1371). Carries S22 audit_plan : P2-E-DURESS-ACK verify_duress_ack hors-scope explicit + P2-E-WIRE-PRE-LAUNCH-FIX check maturin develop --release fresh dans bootstrap §7 + P3-E-2 align build_canary serde_json → JCS pour cohérence + Meta-track hook coverage gap Phase D sans review.md + Phase A R1 rate_limit_policy.toml.sample manquant + Phase B drift Playwright PII end-to-end."
   - "2026-04-18 S21 open : D2 PII SDK requalifié post-research G2. Libellé roadmap §3 S21 original S17 'spaCy NER wasm ~500 LOC' obsolète 2026 (spaCy pas de port wasm officiel maintenu). Stack retenue defense-in-depth : client iframe = onnxruntime-web 1.24.3 (Microsoft, npm mars 2026) + @huggingface/transformers v4 tokenizer + knowledgator/gliner-pii-edge-v1.0 (Apache-2.0, 2024-01-29, F1 0.755, backbone à confirmer Phase B G8 S1 scan pre-first-line-of-code) + regex fallback curated ; coord-side = presidio-analyzer 2.2.362 (Microsoft MIT, 2026-03-15) + GLiNERRecognizer extra [gliner] + même modèle ONNX source-of-truth unique. Full Rust-first iframe (tract + GLiNER + wasm-bindgen) rejeté factuellement : tract 0.22.1 teste opset 9-18 vs GLiNER export opset 19 (DisentangledSelfAttention DeBERTa-v3 non documenté), tract wasm32-unknown-unknown (browser) non documenté officiellement (seul wasm32-wasi wasmtime), zero precedent production, gline-rs v1.0.1 (Rust GLiNER mainstream 01/2026) a choisi ort pas tract. Rust-wasm iframe realignement Option G reporté S22+ via tech debt T-NN+2 (re-evaluate triggers: tract opset 19 coverage OR ort wasm32-browser stable OR gline-rs wasm-bindgen target). Decisions D1 governor 0.10.2 GCRA + D3 LLM Guard 0.3.16 InvisibleText + PLeak EED + D4 SQLite WAL pattern S19 reuse + CLI sbfb quarantine. Cf. sprint21_kickoff.md §D1-D5 + sprint21_design_review.md."
   - "2026-04-20 S22 hors-sprint agents_sudo integration : analyse deep openai-agents-python + microsoft/sudo → 18 features produit identifiées (4 agents parallèles independants cluster A observability / B guardrails / C SDK+streaming / D process+OS integration). Mapping factuel S22 Phase F → S29 + LT-4 tracé dans `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md`. S22 Phase F absorption : D1 three-mode trade-off doc (`docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md` 3 tiers AUTO/CONFIRM_PROMPT/BIOMETRIC_GATE + consent.json threat_note field). S23 amendement : B1 guardrails refactor pipeline déclaratif (6 primitives S16-S22 → contrat Guardrail unifié `docs/security/GUARDRAILS_ARCHITECTURE.md`) + D5 design `docs/security/CAPABILITY_TOGGLES.md` capabilities gate-off-by-default via binaire `nexus-admin`. S24 amendement : A1 `TaskDispatchHooks` + C3 handoffs semantic dispatcher. S25 amendement : D5-implem + A3 OS audit channel ETW/journald/oslog + B2 MCP server expose + C2 `@task_handler` SDK + C5 streaming bridge (5 features = FAT, split recommandé). S26 amendement : C1 SQLiteSession abstraction crate + A4 process role tagging. S28 amendement : D2 broker/executor split + D3 Windows RPC + C4 task-scoped sandbox (cohérence runtime isolation). S29 amendement : A2 TraceProvider OTEL backend-agnostic + B4 per-mode residual risk doc THREAT_MODEL §9 pre-audit Cure53/ToB. LT-4 net-new : D4 OS biometric gate cross-platform post-v1.0 (trigger v1.0 + S30 FROST N1 + partnership OpSec signal). Cap G7 bilan : 0 slot carry-over formel consommé pre-v1.0 (tout via amendements §3 + items net-new + chore hors-sprint + Phase F absorption). Pre-launch protocol respectée (nouveaux DOMAIN_TRACE_EVENT_V1 + DOMAIN_OS_AUDIT_EVENT_V1 + capabilities.toml + bridge.schema.json extension P24 additif = design-only pre-launch stable, zéro bump *_VERSION). Arbitrages user différés kickoff S23 + S25 : B1 timing (dédié/distribué/défer), S25 split (D5+B2 priorité vs A3+C2+C5 carry), D5 enforcement (Semgrep strict vs CI manuel)."
+  - "2026-04-25 S27 Phase D : SynthID-inspired PRF z-test watermark output remplace Kirchenbauer KGW (BIRA-resistant, arXiv:2509.23019 sept 2025). Couche 3 mature : ForgeParser git-log offline GPG/SSH + TrustCache SQLite LRU 7j + TrustWebManager cross-forge score + DelegationCert v1 étendu trust_level + trust-web seed FlowUP bootstrap (ONG S28). P2 batch S26 7 fixes (validate_stage_guard_map wire + emit_capability_event logger + TaskHandlerDescriptor description + JsonFileWriter rotation + TracingWriter rename + MCP lifespan comment + no-LOC convention). Gate 3 prerequisites checklist mise à jour : Alexandria showcase reframing. SELF_DISTRIBUTION.md design doc (binaries = blobs P2P). ~821 Rust / ~195 SDK / ~419+14 coord / ~46 gov / ~264 Vitest / ~41+2 PW / ~1797 total."
   - "2026-04-20 S22 CLOSED (Phase F wrap-up) : 5 phases A-E livrées sur le thème Sybil-resistance composition 3 couches + rate-limit engine wire + GLiNER span-decoder + NVML baseline + watermark canari primitive + process fixes. Phase A `0bc499f` rate-limit engine wire-up runtime.rs ClaimEntry gate + Arc swap hot-reload + policy sample (absorbe P2-S21-1/2/6 + P3-S21-4). Phase B `e9530c2` GLiNER span-logits decoder iframe SDK (absorbe P2-S21-3, `web/src/sdk/pii/decoder.ts` decodeSpans + greedyDedup + toFinding). Phase C `cf3918c` Sybil-resistance composition 3 couches : Couche 1 `AgeWitness` peer-attestation Ed25519 domain `DOMAIN_AGE_WITNESS_V1` + bootstrap allowlist `BootstrapAllowlistWatcher` hot-reload (P0-G1-1 ack) + `join_topic_with_age_witness` gossip admission ≥7j ; Couche 2 `ContributorAttestation` in-toto v1.0 predicate `nexus-grid/contributor-attestation/v1` + `ContributorRegistry` coord-side SQLite + `curator::verify_with_contributor_registry` + daemon proxy + Matthew-effect TODO inline LT-1 Kudos-v2 commitment (P0-G1-2 + P2-G1-3 acks) ; Couche 3 RFC design-only `docs/security/CONTRIBUTOR_ATTESTATION_RFC.md` multi-forge cross-validate + `DelegationCert` + trust-web Amnesty S27 integration. Phase D `56211f2` NVML util+duree profile log-only baseline foundation S24 (`nvml-wrapper 0.12.1` workspace-pinned + `crates/nexus-worker-core/src/gpu/profile.rs` + SQLite `nvml_samples` + `NvmlWindowStats` stats-only pas anomaly). Phase E `690fab3` watermark canari-input primitive consumer 1/N (`canary_input.py` ~520 LOC + `CanaryInputSet` Ed25519 signé coord rotatable + `CanaryInputInjector` hook pre-dispatch + `CanaryInputObserver` rapidfuzz Levenshtein similarity + Typer CLI `canary rotate/status` + hot-reload pattern output_filter S21). Phase F `<HEAD>` wrap-up + verification + audit plan S23 + process fixes P2-S21-4 `docs/claude/README.md §4.4` règle parse phase_[A-F]_review.md vers audit_plan Track + P2-S21-5 GHA `.github/workflows/phase-review-cross-check.yml` PR check + `.claude/.bypass_audit_trail.log` append-only + migration PARA active→archive/v1.2/. **Deuxième sprint avec G8 systématique 6/6 phases A-F (0 DESIGN-CONFLICT déclenché — G1 pre-gel post-S21 robuste)**. Cap G7 carry-overs respecté 1/2 → S23 : T-NN+2 iframe Rust-wasm Option G PATTERNS §P34 hors cap formel. LT-2 Meta-1 Radicle-v1.0 **reclassification sortie cap G7** régularisée kickoff §4 D5 (trigger unique tag v1.0 go-live, runbook `docs/release/MIRROR_FALLBACK.md §3`). LT-3 Contribution family Sybil matrix + LT-4 OS biometric gate ouverts hors-sprint (post-v1.0). Compteurs finals : 710 Rust / 185 SDK / 263+3 skipped coord / 46 gov / 264 Vitest / 38 Playwright / 7/7 size / 246+ SPDX (~1509 tests, +73 vs baseline 1436). Over-delivery +30 vs projection §11 documentée verification.md §4 (tests d'infrastructure bonus cross-couches Phase A + integration tests Phase C + bonus Phase E helpers). Wire formats nouveaux pre-launch stable : `AGE_WITNESS_VERSION = 1` + `CONTRIBUTOR_ATTESTATION_VERSION = 1` + `DELEGATION_CERT_VERSION = 1` (design-only Couche 3). Aucun tolerant decoder multi-version. Pas de nouvelle zone rouge. Carries S23 audit_plan : P2-S22A-1 dashmap dep unused post-refacto (worker-core Cargo.toml cleanup) + P2-S22A-3 PATTERNS.md §P33 structure obsolète (post-wire update) + P2-B-1 ONNX end-to-end non exercé CI (fixture model mini dédiée carry) + P2-B-2 wrapper.ts:308-311 fallbackDetect trigger 0 entities (sémantique explicit) + P2-E-1 `_reload_policy_locked` suffix trompeur (naming convention) + P2-E-2 pattern LOC estimations prospectives plans (3 occurrences S22, chore planning README §6.7 amend) + P3-E-1 `/api/canary/observed-divergence` expose expected_answer (carry S23 B1 alerting) + Meta-track Playwright PII end-to-end carry S23 Track B fixture model."
 -->
 
@@ -609,26 +610,49 @@ median app) :
   minoritaires + ECH restent — demandent legal partnership prealable.
   Arti library-embed differe S25→S26 sur condition API stable.
 
-### Sprint 27 — Watermark model + Couche 3 mature + Gate 3 push
+### Sprint 27 — Watermark SynthID output + Couche 3 mature multi-forge + Gate 3 showcase docs
 
-- **Goal** : PolitiScan-ready suite complete.
+> **Post-delivery S27** (2026-04-25) : 4 phases A-D livrées. Phase A
+> P2 batch S26 audit 7 fixes. Phase B WatermarkDetector coord-side
+> z-test PRF HMAC-SHA256 + WatermarkInjector llama.cpp logit bias
+> opt-in (SynthID-inspired, Kirchenbauer KGW rejeté BIRA
+> arXiv:2509.23019). Phase C Couche 3 mature : ForgeParser git-log
+> --show-signature offline (GPG RFC 4880 + SSH RFC 8709) +
+> TrustCache SQLite LRU 7j WAL + TrustWebManager cross-forge score
+> (forge_count x tenure x delegation_depth decay -1/hop) +
+> DelegationCert v1 étendu (trust_level 1-5 + DelegationScope) +
+> trust-web seed FlowUP bootstrap (ONG S28 outreach) + gossip topic
+> nexus-grid/trust-web/v1 + spec DelegationCert dans
+> CONTRIBUTOR_ATTESTATION_RFC.md §3. Phase D Gate 3 showcase docs +
+> SELF_DISTRIBUTION.md design doc. +19 tests (7 watermark + 9 Couche
+> 3 + 3 P2 batch). ~821 Rust / ~1797 total.
+
+- **Goal** : Gate 3 suite technique — watermark output SynthID-
+  inspired + Couche 3 Sybil-resistance mature + Gate 3 showcase
+  docs.
 - **Items** :
-  - Watermark injection opt-in (technique Kirchenbauer 2023
-    green-list tokens biased) — ~500 LOC
+  - Watermark output SynthID-inspired : WatermarkDetector coord-
+    side (z-test binomial PRF HMAC-SHA256, BIRA-resistant) +
+    WatermarkInjector worker-side llama.cpp logit bias +2.0 opt-in
+    (`watermark.toml`). Kirchenbauer KGW rejeté (BIRA vulnérable
+    arXiv:2509.23019 sept 2025).
   - **Couche 3 mature (multi-forge cross-validate + trust-web
-    Amnesty integration)** — ~700 LOC **(remplace "Sybil kudos-
-    weighted mature" 2026-04-19 pivot, même flag FAIRNESS implicite
-    que S22 item 1 original — cf. `sprint22_carry_summary.md §5`)**.
-    Implem parser `git log --show-signature` offline + cache LRU
-    SQLite + trust-web Amnesty-class ONG bootstrap seed.
-  - PolitiScan-specific hardening items (audit S16-S26 gaps) —
-    ~300 LOC
-- **LOC total** : ~1500 (vs 1200 initial, +300 Couche 3 LOC)
-- **Tests delta** : +50
+    ONG bootstrap)** — ForgeParser Rust git-log --show-signature
+    offline (GPG+SSH), TrustCache SQLite LRU 7j WAL, TrustWeb-
+    Manager cross-forge scoring, DelegationCert v1 étendu
+    (trust_level + scope + valid_until), trust-web seed config
+    FlowUP bootstrap (ONG réelles S28 outreach).
+  - P2 batch S26 audit 7 fixes (Phase A) : validate_stage_guard_map
+    wire, emit_capability_event logger, TaskHandlerDescriptor
+    description, JsonFileWriter rotation 10 MiB, TracingWriter
+    rename, MCP lifespan comment, no-LOC convention.
+  - Gate 3 showcase docs : HARDENING_ROADMAP update SynthID,
+    COMPUTE_THREATS update, Gate 3 prerequisites checklist,
+    PATTERNS.md P37-P38, SELF_DISTRIBUTION.md design doc.
+- **Tests delta** : +19 (7 watermark + 9 Couche 3 + 3 P2 batch)
 - **Dependencies** : S22 Sybil base (Couches 1+2), S23 Couche 3
-  design finalisé, S25-S26 Couche 3 implem partielle, S26 Tor
-  complete
-- **Gate unlock** : Gate 3 (PolitiScan, NEXUS cold-case) debloqué
+  design finalisé
+- **Gate unlock** : Gate 3 (Alexandria, showcase apps) débloqué
   post-audit externe S29.
 
 ### Sprint 28 — Nym mixnet + MIG + external audit prep
@@ -875,13 +899,37 @@ Phase E) vs Sprint debloquant.
 |---|---|---|---|
 | **Gate 1** (DnD Forge, hello-world) | T0-T1 | S18 | Quick-wins S18 + audit S16 leve (deja fait) |
 | **Gate 2** (TransLingua, FamilyScan) | T0-T2 | S22 | +encryption at rest (S20) +rate-limit (S21) +Sybil base (S22) +supply chain (S18) |
-| **Gate 3** (PolitiScan, NEXUS cold-case) | T0-T3 + partial T4 | **S29** (tech S27 + audit externe S29) | +Tor transport (S26) +redundancy voting (S22) +client-side redaction (S21) +RAG sanitization (S25) +reliable-worker curator (S26) +Sybil mature (S27) +audit externe Cure53/ToB publie (S29) |
+| **Gate 3** (Alexandria, showcase apps) | T0-T3 + partial T4 | **S29** (tech S27 + audit externe S29) | +watermark output SynthID (S27) +Couche 3 multi-forge trust-web (S27) +redundancy voting (S23) +client-side redaction (S21) +Sybil 3 couches mature (S22+S27) +audit externe Cure53/ToB publié (S29). Tor transport déféré post-Gate 3 (arti pre-1.0). Alexandria = première app showcase (stockage distribué + MCP tools, pas de GPU requis). |
 | **Gate 4** (LibanLive, war-crime doc) | T0-T5 | **~S35-38** | +Nym mixnet (S28-30+) +TEE H100 (S30+) +MIG (S28) +audit externe comprehensive (S29) +partenariat Amnesty/HRW/CPJ sign-off +18 mois beta ferme + ethics review board + formation OpSec contributeurs |
 
 **Gate 3 effectif = fin S29** : S27 livre la suite technique
-(Sybil mature, watermark, PolitiScan-specific hardening) mais Gate
-3 operationnel requiert l'audit externe Cure53/ToB publie avec
-remediation incluse (Sprint 29).
+(Sybil mature Couche 3, watermark SynthID output, Gate 3 showcase
+docs) mais Gate 3 opérationnel requiert l'audit externe Cure53/ToB
+publié avec remédiation incluse (Sprint 29). **Reframing S27** :
+Gate 3 showcase apps = Alexandria (bibliothèque de connaissance
+multilingue, stockage distribué + MCP tools, pas de GPU requis),
+Surveillance forêt, D&D P2P. Remplace l'ancien "PolitiScan, NEXUS
+cold-case" (cf. `docs/apps/LAUNCH_SHOWCASE.md`).
+
+**Items Gate 3 livrés S22-S27** :
+- Couche 1 AgeWitness ≥7j (S22 Phase C)
+- Couche 2 ContributorAttestation in-toto v1.0 (S22 Phase C)
+- Couche 3 ForgeParser + TrustCache + TrustWebManager (S27 Phase C)
+- Watermark canary-input (S22 Phase E)
+- Watermark output SynthID-inspired (S27 Phase B)
+- Rate-limit GCRA per-(consumer, worker, model) (S21 Phase A / S22 Phase A)
+- Escalating PoW géométrique (S23 Phase C)
+- Redundancy voting 3-worker majority (S23 Phase D)
+- Ephemeral workers restart + VRAM wipe (S23 Phase B)
+- Guardrails pipeline ABC + GuardrailChain (S24 Phase B)
+- Capabilities gate-off-by-default (S25 Phase A)
+- Key rotation Ed25519 + gossip revocation (S25 Phase B)
+- OS audit SecurityEvent ETW/journald (S26 Phase B)
+- MCP server local-only (S26 Phase A)
+
+**Items Gate 3 restants** :
+- Audit externe Cure53/ToB (S29) — ship-blocker
+- Tor transport phase 1 (S28+, conditionnel arti ≥ 1.0)
 
 **Gate 4 n'est pas "fin S30"** : S30 livre TEE attestation qui
 est un prerequis, mais les items non-code (partnership, beta

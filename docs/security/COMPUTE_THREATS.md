@@ -406,7 +406,7 @@ emis mais pas les **queries per worker-model-consumer** triplet.
 |---|---|---|---|
 | **Rate limit per (consumer, model)** | Med : ralentit sans empecher | Med (sliding window per-pair) | Consumer identity |
 | **Pattern detection** (ML anomaly on prompt distribution) | Med-High | High (model-dep) | Research track |
-| **Watermarking outputs** (Kirchenbauer 2023) | Med : post-hoc traceable | Med | Model support |
+| **Watermarking outputs** (SynthID-inspired PRF z-test, BIRA-resistant) | Med : post-hoc traceable | Med | Model support |
 | **Rejection on suspicious pattern** (heuristics) | Low-Med | Low | Prompt filter lib |
 | **Separate worker pool per tier** (public model vs proprietary) | High structurelle : extraction d'un public = rien | Low | Model registry |
 | **Differential privacy training** (DP-SGD amont) | High preventif | Very High (retrain) | Out-of-SBFB-scope |
@@ -423,7 +423,10 @@ emis mais pas les **queries per worker-model-consumer** triplet.
   aux kudos (qui restent un signal de reputation, pas une
   monnaie).
 - **Sprint 27** : watermark injection (pour workers opt-in) —
-  technique Kirchenbauer 2023 (green-list tokens biased).
+  technique SynthID-inspired PRF z-test (BIRA-resistant). Kirchenbauer
+  KGW (ICML 2023) rejeté — vulnérable BIRA attack (arXiv:2509.23019,
+  sept 2025). Détection coordinator-side z-test binomial + injection
+  llama.cpp backend logit bias opt-in. Ollama backend déféré S28+.
 - **Hors v1** : DP-SGD training (relevance post-LLM-hosting),
   pattern detection ML-based (effort vs retour).
 

@@ -2106,6 +2106,73 @@ float or coordinator-free gossip consensus.
 
 ---
 
+## §P37 — Sprint 27 Phase B : watermark output SynthID-inspired (PRF z-test)
+
+Two-component watermark for compute-theft detection (C-ComputeTheft,
+COMPUTE_THREATS §4). Complements canary-input S22 Phase E (watermark
+INPUT prompt probe).
+
+**Detector (coordinator-side, Python)** :
+`packages/nexus-coordinator/src/nexus_coordinator/watermark_detector.py`
+— `WatermarkDetector` performs binomial z-test on green token ratio.
+PRF = `HMAC-SHA256(secret, context_window || token_id) mod 1.0`.
+Tokens with PRF score > 0.5 = green. Z-score above threshold (default
+2.0) = watermarked. Non-blocking: log warning if non-watermarked
+(worker may be non-opt-in), no task rejection.
+
+**Injector (worker-side, Rust)** :
+`crates/nexus-worker-core/src/llm/llama_cpp.rs` — logit bias
+`+delta_logit` (default 2.0) on green tokens before sampling step.
+Same PRF function. Opt-in via `watermark.toml` (`watermark.enabled`,
+`watermark.delta_logit`, `watermark.window_size`).
+
+**Design choice** : SynthID-inspired additive bias (Nature 2024 Google
+DeepMind) rather than Kirchenbauer KGW (ICML 2023). KGW rejected:
+vulnerable to BIRA attack (arXiv:2509.23019, sept 2025) — deterministic
+green-list partitioning exploitable via iterative rewriting. Our
+multi-token context hash + rotatable secret makes partitioning
+non-reproducible by attacker.
+
+**Scope cuts** : Ollama backend injection → S28+ (API no logit hook).
+Full SynthID Tournament Sampling → S28+ (CDF modification complex).
+
+---
+
+## §P38 — Sprint 27 Phase C : trust-web multi-forge cross-validate
+
+Couche 3 Sybil-resistance (CONTRIBUTOR_ATTESTATION_RFC.md). Provides
+offline verification that a contributor has signed commits on 2+ forges
+(jurisdictional diversity = Sybil-expensive).
+
+**ForgeParser** : `crates/nexus-core-rs/src/attestations/forge_parser.rs`
+— executes `git log --show-signature --format=<custom>` on local clones.
+Parses GPG (RFC 4880) and SSH (RFC 8709) signatures. Aggregates by
+fingerprint: commit count, first/last seen, forge URL, sig type.
+No `git2-rs` dep (overhead for a one-shot parser).
+
+**TrustCache** : `crates/nexus-shell-daemon-core/src/trust_cache.rs`
+— SQLite LRU cache (rusqlite 0.32, WAL mode). TTL 7 days. Schema:
+`forge_contributions(repo_url, fingerprint, commit_count, first_seen,
+last_seen, sig_type, cached_at)`. Pattern reuse quarantine_queue S21.
+
+**TrustWebManager** : `crates/nexus-shell-daemon-core/src/trust_web.rs`
+— aggregates cross-forge contributions. Trust score = `forge_count ×
+commit_tenure × delegation_depth_decay` (decay -1 trust_level per hop
+from anchor seed, minimum 1). Gossip topic
+`nexus-grid/trust-web/v1` for DelegationCert publication/subscription.
+
+**DelegationCert v1 extended** : `crates/nexus-core-rs/src/attestations/
+delegation.rs` — added `trust_level: u8` (1-5), `valid_until:
+Option<DateTime<Utc>>`, `scope: DelegationScope { org_name,
+forge_urls }`. Canonical JCS domain `DOMAIN_DELEGATION_CERT_V1`
+unchanged (pre-launch protocol redefinition).
+
+**Bootstrap** : `configs/trust_web_seeds.toml` — placeholder FlowUP
+Ed25519 key as sole seed anchor. Real ONG anchors (Amnesty, HRW, CPJ,
+EFF) target S28 outreach.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13
