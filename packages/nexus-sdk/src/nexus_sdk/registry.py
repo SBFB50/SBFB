@@ -76,6 +76,7 @@ def collect_decorators(
                     "name": name,
                     "request_schema": meta["request_schema"],
                     "response_schema": meta["response_schema"],
+                    "description": meta.get("description", ""),
                     "fn": attr,
                 }
             )

@@ -91,7 +91,7 @@ def _emit_capability_event(name: str, enabled: bool) -> None:
             )
         )
     except (ImportError, Exception):
-        pass
+        _log.debug("emit_capability_event failed", exc_info=True)
 
 
 class CapabilitiesStore:

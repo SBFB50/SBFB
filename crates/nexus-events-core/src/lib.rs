@@ -3,10 +3,10 @@
 //!
 //! Typed [`SecurityEvent`] enum covering 12 security-relevant event
 //! categories across the SBFB stack. [`EventWriter`] trait abstracts
-//! platform-specific output: [`JsonFileWriter`] (append-only JSONL,
-//! primary), [`EtwWriter`] (Windows ETW via tracing structured
-//! events), [`JournaldWriter`] and [`OsLogWriter`] (stubs for future
-//! Linux/macOS integration).
+//! platform-specific output: [`JsonFileWriter`] (append-only JSONL with
+//! size-based rotation, primary), [`TracingWriter`] (cross-platform
+//! tracing structured events), [`JournaldWriter`] and [`OsLogWriter`]
+//! (stubs for future Linux/macOS integration).
 //!
 //! A global [`emit_event`] singleton routes events to the writer
 //! initialized at daemon/worker startup via [`init_emitter`].
@@ -74,22 +74,56 @@ pub trait EventWriter: Send + Sync {
 // JsonFileWriter — append-only JSONL audit log
 // ======================================================================
 
+const DEFAULT_MAX_BYTES: u64 = 10 * 1024 * 1024; // 10 MiB
+const MAX_ROTATED_FILES: u32 = 5;
+
 pub struct JsonFileWriter {
     path: PathBuf,
+    max_bytes: u64,
 }
 
 impl JsonFileWriter {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            max_bytes: DEFAULT_MAX_BYTES,
+        }
+    }
+
+    pub fn with_max_bytes(path: impl Into<PathBuf>, max_bytes: u64) -> Self {
+        Self {
+            path: path.into(),
+            max_bytes,
+        }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    fn rotate(&self) -> Result<(), EventError> {
+        for i in (1..MAX_ROTATED_FILES).rev() {
+            let src = self.path.with_extension(format!("jsonl.{i}"));
+            let dst = self.path.with_extension(format!("jsonl.{}", i + 1));
+            if src.exists() {
+                std::fs::rename(&src, &dst)?;
+            }
+        }
+        let dst = self.path.with_extension("jsonl.1");
+        std::fs::rename(&self.path, &dst)?;
+        Ok(())
+    }
 }
 
 impl EventWriter for JsonFileWriter {
     fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError> {
+        if self.path.exists() {
+            if let Ok(meta) = std::fs::metadata(&self.path) {
+                if meta.len() >= self.max_bytes {
+                    self.rotate()?;
+                }
+            }
+        }
         let record = AuditRecord {
             timestamp: Utc::now().to_rfc3339(),
             event: event.clone(),
@@ -105,18 +139,18 @@ impl EventWriter for JsonFileWriter {
 }
 
 // ======================================================================
-// EtwWriter — Windows ETW via tracing structured events
+// TracingWriter — cross-platform tracing structured events
 // ======================================================================
 //
 // Emits security events as tracing::info! with target
-// `sbfb_security_events`. When the binary configures a tracing-etw
-// subscriber layer, these events flow to Windows ETW automatically.
-// When no ETW layer is present, they appear as regular tracing output
-// (zero-cost if no subscriber is active).
+// `sbfb_security_events`. When the binary configures a platform-specific
+// subscriber layer (ETW on Windows, journald on Linux), these events
+// flow to the OS audit system. Otherwise they appear as regular tracing
+// output (zero-cost if no subscriber is active).
 
-pub struct EtwWriter;
+pub struct TracingWriter;
 
-impl EventWriter for EtwWriter {
+impl EventWriter for TracingWriter {
     fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError> {
         let json = serde_json::to_string(event)?;
         tracing::info!(
@@ -334,14 +368,6 @@ mod tests {
     }
 
     #[test]
-    fn etw_writer_compiles() {
-        let writer = EtwWriter;
-        let _ = writer.write_event(&SecurityEvent::PanicFired {
-            trigger: "test".into(),
-        });
-    }
-
-    #[test]
     fn stub_writers_noop() {
         let j = JournaldWriter;
         let o = OsLogWriter;
@@ -372,6 +398,43 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(matches!(events[0], SecurityEvent::CapabilityChanged { .. }));
         assert!(matches!(events[1], SecurityEvent::PanicFired { .. }));
+    }
+
+    #[test]
+    fn json_file_writer_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+
+        // Use a tiny max_bytes to trigger rotation quickly.
+        let writer = JsonFileWriter::with_max_bytes(&path, 100);
+        // Write events until we exceed max_bytes.
+        for i in 0..10 {
+            writer
+                .write_event(&SecurityEvent::PanicFired {
+                    trigger: format!("event-{i}"),
+                })
+                .unwrap();
+        }
+
+        // The current file should exist, plus at least one rotated file.
+        assert!(path.exists());
+        let rotated_1 = path.with_extension("jsonl.1");
+        assert!(
+            rotated_1.exists(),
+            "expected audit.jsonl.1 to exist after rotation"
+        );
+
+        // Rotated files cap at MAX_ROTATED_FILES (5).
+        let rotated_6 = path.with_extension("jsonl.6");
+        assert!(!rotated_6.exists(), "should not exceed 5 rotated files");
+    }
+
+    #[test]
+    fn tracing_writer_compiles() {
+        let writer = TracingWriter;
+        let _ = writer.write_event(&SecurityEvent::PanicFired {
+            trigger: "test".into(),
+        });
     }
 
     #[test]

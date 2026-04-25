@@ -66,6 +66,8 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
         limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
         app.state.daemon_httpx_client = httpx.AsyncClient(timeout=timeout, limits=limits)
         # Sprint 26 Phase B: MCP session manager lifecycle.
+        # Explicit __aenter__/__aexit__ because the context manager
+        # must span the FastAPI lifespan yield boundary.
         mcp_srv = getattr(app.state, "mcp_server", None)
         mcp_ctx = mcp_srv.session_manager.run() if mcp_srv else None
         if mcp_ctx:

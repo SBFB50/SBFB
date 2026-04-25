@@ -40,6 +40,7 @@ from nexus_coordinator.guardrails import (
     GuardrailChain,
     GuardrailContext,
     StageGuardrailMap,
+    validate_stage_guard_map,
 )
 from nexus_coordinator.hooks import HookRunner
 from nexus_coordinator.pii_redactor import PiiRedactor
@@ -124,6 +125,7 @@ class Dispatcher:
         self._pii_redactor = pii_redactor
         self._redundancy_dispatcher = redundancy_dispatcher
         if stage_guards is not None:
+            validate_stage_guard_map(stage_guards)
             self._stage_guards: StageGuardrailMap = stage_guards
         elif input_chain is not None:
             self._stage_guards = {"on_task_dispatched": input_chain}

@@ -103,6 +103,7 @@ class TaskHandlerDescriptor:
     request_schema: dict[str, Any]
     response_schema: dict[str, Any]
     fn: Callable[..., Any]
+    description: str = ""
 
 
 @dataclass
@@ -291,6 +292,7 @@ class NexusApp(ABC):
                 request_schema=t["request_schema"],
                 response_schema=t["response_schema"],
                 fn=t["fn"],
+                description=t.get("description", ""),
             )
             for t in self._task_handlers
         ]

@@ -96,6 +96,7 @@ async def app_manifest(request: Request, name: str) -> dict[str, Any]:
         "task_handlers": [
             {
                 "name": th.name,
+                "description": th.description,
                 "request_schema": th.request_schema,
                 "response_schema": th.response_schema,
             }

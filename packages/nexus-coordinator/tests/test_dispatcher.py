@@ -16,6 +16,25 @@ from nexus_coordinator.coordinator import Coordinator
 from nexus_coordinator.dispatcher import SubmitRequest
 
 
+def test_dispatcher_rejects_invalid_stage_guard_key() -> None:
+    from unittest.mock import MagicMock
+
+    from nexus_coordinator.dispatcher import Dispatcher
+    from nexus_coordinator.guardrails import GuardrailChain
+
+    chain = GuardrailChain(guardrails=[])
+    invalid_map = {"totally_bogus_stage": chain}
+
+    with pytest.raises(ValueError, match="Invalid guardrail stages"):
+        Dispatcher(
+            db_path=Path("/tmp/dummy.db"),
+            doc=MagicMock(),
+            author_id="test",
+            coord_secret=b"\x00" * 32,
+            stage_guards=invalid_map,
+        )
+
+
 @pytest.mark.asyncio
 async def test_submit_creates_doc_entry_and_state_row(
     nexus_grid_tmp: Path,

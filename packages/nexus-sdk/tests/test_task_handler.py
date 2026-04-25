@@ -123,6 +123,44 @@ def test_task_handler_descriptor_has_schemas() -> None:
     assert "translated" in translate.response_schema["properties"]
 
 
+def test_task_handler_captures_docstring() -> None:
+    @task_handler(TranslateRequest, TranslateResponse)
+    async def documented_handler(req: TranslateRequest) -> TranslateResponse:
+        """Translate text into target language."""
+        return TranslateResponse(translated="x")
+
+    meta = getattr(documented_handler, TASK_HANDLER_ATTR)
+    assert meta["description"] == "Translate text into target language."
+
+    @task_handler(TranslateRequest, TranslateResponse)
+    async def undocumented_handler(req: TranslateRequest) -> TranslateResponse:
+        return TranslateResponse(translated="x")
+
+    meta2 = getattr(undocumented_handler, TASK_HANDLER_ATTR)
+    assert meta2["description"] == ""
+
+
+def test_task_handler_descriptor_has_description() -> None:
+    class DocApp(NexusApp):
+        manifest = AppManifest(name="doc-test", version="0.1.0")
+
+        @task_handler(TranslateRequest, TranslateResponse)
+        async def translate(self, req: TranslateRequest) -> TranslateResponse:
+            """Translate things."""
+            return TranslateResponse(translated="x")
+
+        async def on_start(self, ctx: AppContext) -> None:
+            pass
+
+        async def on_stop(self) -> None:
+            pass
+
+    app = DocApp()
+    handlers = app.task_handlers()
+    assert len(handlers) == 1
+    assert handlers[0].description == "Translate things."
+
+
 def test_app_without_task_handlers_returns_empty() -> None:
     class PlainApp(NexusApp):
         manifest = AppManifest(name="plain", version="0.1.0")

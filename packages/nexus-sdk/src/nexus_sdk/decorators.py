@@ -155,6 +155,7 @@ def task_handler(
             {
                 "request_schema": request_model.model_json_schema(),
                 "response_schema": response_model.model_json_schema(),
+                "description": fn.__doc__ or "",
             },
         )
         return fn
