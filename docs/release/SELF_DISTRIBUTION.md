@@ -136,9 +136,10 @@ La chaine de confiance est identique :
 5. Le recepteur verifie : signature valide + provenance coherente
    + hash BLAKE3 match
 
-Le code S14 (`crates/nexus-core-rs/src/provenance.rs` +
-`packages/nexus-coordinator/src/nexus_coordinator/verified_deploy.py`)
-est reutilise tel quel. Zero duplication crypto.
+Le code S14 (`crates/nexus-core-rs/src/attestations/contributor.rs`
+`ProvenanceRecord` + `packages/nexus-coordinator/src/nexus_coordinator/
+provenance.py` + `api/deploy.py`) est reutilise tel quel. Zero
+duplication crypto.
 
 ---
 
