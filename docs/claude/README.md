@@ -310,7 +310,12 @@ Sections canoniques (pattern Sprint 6/7) :
    - Méthodes concrètes (commandes à rouler, grep à lancer,
      tests à écrire)
    - Signal d'audit (qu'est-ce qui est P0, P1, P2, P3)
-3. **Track HARDENING drift (P2 informatif)** — comparer
+3. **Track G1 presence (P1 bloquant si absent)** — verifier
+   que `sprint{N}_design_review.md` existe dans archive/v{X}/.
+   Absent sur sprint non-trivial = **P1** (gate bypasse, cf.
+   S26 gap). Present mais sans scoring = P2. Present avec
+   5/5 scores = OK. Exception : kickoff contient "G1 skipped".
+4. **Track HARDENING drift (P2 informatif)** — comparer
    `HARDENING_ROADMAP.md §3` ligne S{N} (items prescrits) vs
    ce que le sprint a reellement livre. Pour chaque item prescrit
    non livre, verifier :
@@ -321,15 +326,15 @@ Sections canoniques (pattern Sprint 6/7) :
    objectif est la visibilite, pas la punition. Si le drift
    cumule sur 3+ sprints sans justification, l'auditeur remonte
    le signal pour revalider le HARDENING_ROADMAP lui-meme.
-4. **Verdict global attendu** — trois scénarios :
+5. **Verdict global attendu** — trois scénarios :
    - PASS : 0 P0, 0 P1 → sprint N+1 Phase A démarre direct
    - CONDITIONAL PASS : 1-3 P1 fixables → N+1 Phase A bloqué
      tant que les `fix(sprint{N}): ...` ne sont pas landed
    - FAIL : ≥ 1 P0 ou ≥ 3 P1 → re-conception partielle
-5. **Out of scope pour l'audit** — liste explicite de ce que
+6. **Out of scope pour l'audit** — liste explicite de ce que
    l'auditeur ne doit PAS rebattre (les D1..D5 gelées, les
    scope cuts, les choix de pin de dep)
-5. **Livrable final attendu** — format exact de
+7. **Livrable final attendu** — format exact de
    `audit_findings.md` + critère de clôture
 
 ### 2.5 audit_findings.md — le rapport d'audit indépendant
@@ -848,6 +853,13 @@ nexus-pii-rs gap — `sprint21_kickoff.md §Sources`) :
 
 **Quand skipper G1** : sprint pure-docs (S17), hotfix (cas D §7),
 phase trivial refactor sans decision Day-0.
+
+**Enforcement mécanique** : le hook `phase-precommit-lightcheck.sh`
+Check 5 bloque tout commit `feat(sprint{N}): Phase A` si
+`sprint{N}_design_review.md` n'existe ni dans `.planning/active/`
+ni dans `.planning/archive/v*/`. Exemption : kickoff contient
+"G1 skipped". Ajouté 2026-04-25 après constat que S26 a skippé G1
+sans que l'audit gate ne le détecte (rule doc-based sans enforcement).
 
 ### 6.2 Scope cuts — stricts DANS un sprint, reevalues ENTRE sprints
 
@@ -1502,6 +1514,13 @@ Compare ce que tu vois avec :
            verdict G8 = DESIGN-CONFLICT, mode bascule "emit
            pivot_proposal + STOP".
     Livrable : 1 commit feat(scope): Sprint N Phase X — titre.
+    Avant Phase A UNIQUEMENT — G1 Design Review Board (§6.1.1) :
+               verifier que sprint{N}_design_review.md existe dans
+               .planning/active/ ou .planning/archive/v{X}/. Si
+               absent et sprint non-trivial : STOP, lancer agent
+               Explore independant pour scorer D1..D5 AVANT de coder.
+               Le hook lightcheck Check 5 bloque mecaniquement le
+               commit Phase A sans ce fichier.
     Avant la PREMIERE LIGNE DE CODE phase (G8) : invoquer skill
                nexus-phase-preflight pour 5 scans factuels (S1a OSS
                prior art + S1b deps SOTA + S2 historical decisions +

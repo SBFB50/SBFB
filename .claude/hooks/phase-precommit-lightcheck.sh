@@ -43,6 +43,10 @@ REPO_ROOT=$(pwd)
 ERRORS=0
 WARNINGS=0
 
+# === Extract SPRINT + PHASE from commit message (shared by checks 4, 5) ===
+SPRINT=$(echo "$CMD" | grep -oE '(feat|fix|docs|chore|test)\(sprint[0-9]+\)' | head -1 | grep -oE '[0-9]+' || true)
+PHASE=$(echo "$CMD" | grep -oE 'Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $2}' || true)
+
 # === Check 1 : coherence staging pub mod (STRICT) ===
 CURRENT_FILE=""
 while IFS= read -r line; do
@@ -154,10 +158,46 @@ if [ -n "$WIRE_FILES" ]; then
   fi
 fi
 
+# === Check 5 : G1 Design Review Board gate (STRICT for Phase A) ===
+# §6.1.1 : G1 obligatoire sauf sprint pure-docs ou trivial.
+# Le hook bloque Phase A si sprint{N}_design_review.md n'existe nulle part.
+# Exemption : kickoff contient "G1 skipped" (decision documentee §3.5).
+if [ "$PHASE" = "A" ] && [ -n "$SPRINT" ]; then
+  DR_ACTIVE=".planning/active/sprint${SPRINT}_design_review.md"
+  DR_ARCHIVE=$(ls .planning/archive/v*/sprint${SPRINT}_design_review.md 2>/dev/null | head -1 || true)
+
+  if [ ! -f "$DR_ACTIVE" ] && [ -z "$DR_ARCHIVE" ]; then
+    # Check exemption in kickoff
+    KICKOFF_FILE=""
+    [ -f ".planning/active/sprint${SPRINT}_kickoff.md" ] && KICKOFF_FILE=".planning/active/sprint${SPRINT}_kickoff.md"
+    [ -z "$KICKOFF_FILE" ] && KICKOFF_FILE=$(ls .planning/archive/v*/sprint${SPRINT}_kickoff.md 2>/dev/null | head -1 || true)
+
+    G1_EXEMPT=0
+    if [ -n "$KICKOFF_FILE" ]; then
+      grep -qiE 'G1[[:space:]]+(skip|exempt)|design[[:space:]]+review[[:space:]]+(skip|exempt)|Phase 0 audit skipped' "$KICKOFF_FILE" 2>/dev/null && G1_EXEMPT=1
+    fi
+
+    if [ "$G1_EXEMPT" -eq 0 ]; then
+      echo "" >&2
+      echo "[lightcheck] BLOCK: G1 Design Review Board manquant (§6.1.1)" >&2
+      echo "" >&2
+      echo "  Sprint ${SPRINT} Phase A requiert sprint${SPRINT}_design_review.md" >&2
+      echo "  Attendu: ${DR_ACTIVE}" >&2
+      echo "" >&2
+      echo "  Action: lancer un agent Explore independant pour scorer D1..D5" >&2
+      echo "    du kickoff avant de coder Phase A (cf. README §6.1.1)." >&2
+      echo "" >&2
+      echo "  Exemption: ajouter 'G1 skipped per user decision YYYY-MM-DD'" >&2
+      echo "    dans le kickoff si sprint pure-docs ou trivial (§3.5)." >&2
+      echo "" >&2
+      ERRORS=$((ERRORS + 1))
+    fi
+  fi
+fi
+
 if [ "$ERRORS" -gt 0 ]; then
   echo "" >&2
-  echo "[lightcheck] BLOCK: ${ERRORS} erreur(s) coherence staging" >&2
-  echo "  Fix les fichiers untracked (git add) OU drop les pub mod ajoutes" >&2
+  echo "[lightcheck] BLOCK: ${ERRORS} erreur(s) pre-commit" >&2
   echo "  Bypass d'urgence : NEXUS_SKIP_PHASE_AUDITOR=1 git commit ..." >&2
   echo "" >&2
   exit 2
