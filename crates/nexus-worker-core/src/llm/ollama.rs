@@ -211,6 +211,7 @@ impl LlmBackend for OllamaBackend {
             model,
             prompt_tokens: response.prompt_eval_count.map(u64::from),
             completion_tokens: response.eval_count.map(u64::from),
+            output_token_ids: vec![],
         })
     }
 }
@@ -306,6 +307,7 @@ impl LlmBackend for StubBackend {
             model: params.model.clone(),
             prompt_tokens: Some((params.prompt.len() / 4).max(1) as u64),
             completion_tokens: Some(16),
+            output_token_ids: vec![],
         })
     }
 }

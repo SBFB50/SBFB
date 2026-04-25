@@ -192,6 +192,14 @@ pub struct GenerateParams {
     /// marker inside the value without touching the trait.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<serde_json::Value>,
+    #[serde(default)]
+    pub watermark_seed: Vec<u8>,
+    #[serde(default)]
+    pub watermark_enabled: bool,
+    #[serde(default)]
+    pub watermark_delta: f32,
+    #[serde(default)]
+    pub watermark_window_size: usize,
 }
 
 impl GenerateParams {
@@ -203,6 +211,10 @@ impl GenerateParams {
             system: None,
             temperature: None,
             schema: None,
+            watermark_seed: Vec::new(),
+            watermark_enabled: false,
+            watermark_delta: 0.0,
+            watermark_window_size: 0,
         }
     }
 
@@ -224,6 +236,21 @@ impl GenerateParams {
         self.schema = Some(schema);
         self
     }
+
+    /// Attach watermark injection parameters.
+    pub fn with_watermark(
+        mut self,
+        enabled: bool,
+        seed: Vec<u8>,
+        delta: f32,
+        window_size: usize,
+    ) -> Self {
+        self.watermark_enabled = enabled;
+        self.watermark_seed = seed;
+        self.watermark_delta = delta;
+        self.watermark_window_size = window_size;
+        self
+    }
 }
 
 /// Response from [`LlmBackend::generate`].
@@ -242,6 +269,9 @@ pub struct GenerateResponse {
     /// Completion token count if the backend reported it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_tokens: Option<u64>,
+    /// Output token IDs for watermark z-test detection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_token_ids: Vec<u32>,
 }
 
 // =================================================================
@@ -333,11 +363,50 @@ mod tests {
     }
 
     #[test]
+    fn generate_params_watermark_builder_sets_fields() {
+        let p = GenerateParams::new("m", "p").with_watermark(
+            true,
+            b"seed-32-bytes-exactly-here!12345".to_vec(),
+            2.5,
+            4,
+        );
+        assert!(p.watermark_enabled);
+        assert_eq!(p.watermark_seed.len(), 32);
+        assert!((p.watermark_delta - 2.5).abs() < f32::EPSILON);
+        assert_eq!(p.watermark_window_size, 4);
+    }
+
+    #[test]
     fn generate_params_schema_roundtrip_through_serde() {
         let p = GenerateParams::new("m", "p").with_schema(serde_json::json!({"foo": 42}));
         let wire = serde_json::to_string(&p).unwrap();
         let back: GenerateParams = serde_json::from_str(&wire).unwrap();
         assert_eq!(p, back);
+    }
+
+    #[test]
+    fn generate_response_output_token_ids_serde() {
+        let r = GenerateResponse {
+            text: "hello".into(),
+            model: "m".into(),
+            prompt_tokens: Some(5),
+            completion_tokens: Some(3),
+            output_token_ids: vec![10, 20, 30],
+        };
+        let wire = serde_json::to_string(&r).unwrap();
+        assert!(wire.contains("output_token_ids"));
+        let back: GenerateResponse = serde_json::from_str(&wire).unwrap();
+        assert_eq!(back.output_token_ids, vec![10, 20, 30]);
+
+        let r_empty = GenerateResponse {
+            output_token_ids: vec![],
+            ..r.clone()
+        };
+        let wire_empty = serde_json::to_string(&r_empty).unwrap();
+        assert!(
+            !wire_empty.contains("output_token_ids"),
+            "empty vec should be skipped in serialization"
+        );
     }
 
     #[test]

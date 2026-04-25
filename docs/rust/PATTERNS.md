@@ -2121,10 +2121,15 @@ Tokens with PRF score > 0.5 = green. Z-score above threshold (default
 (worker may be non-opt-in), no task rejection.
 
 **Injector (worker-side, Rust)** :
-`crates/nexus-worker-core/src/llm/llama_cpp.rs` — logit bias
-`+delta_logit` (default 2.0) on green tokens before sampling step.
-Same PRF function. Opt-in via `watermark.toml` (`watermark.enabled`,
-`watermark.delta_logit`, `watermark.window_size`).
+- PRF module : `crates/nexus-worker-core/src/llm/watermark.rs` —
+  `compute_bias`, `should_inject`, `prf_score` (pure crypto, no
+  llama.cpp dep).
+- Integration call site : `crates/nexus-worker-core/src/llm/llama_cpp.rs`
+  — per-step `LlamaSampler::logit_bias` chain with `+delta_logit`
+  (default 2.0) on green tokens before sampling. Context window of
+  last N token IDs hashed via PRF. Opt-in via `[watermark]` section
+  in `worker.toml` (`enabled`, `delta_logit`, `window_size`).
+  Sample config : `configs/watermark.toml.sample`.
 
 **Design choice** : SynthID-inspired additive bias (Nature 2024 Google
 DeepMind) rather than Kirchenbauer KGW (ICML 2023). KGW rejected:

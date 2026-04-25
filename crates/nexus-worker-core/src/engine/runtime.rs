@@ -1029,7 +1029,13 @@ impl Engine {
                     task_entry.task.model.clone(),
                     task_entry.task.prompt.clone(),
                 )
-                .with_system(task_entry.task.system_prompt.clone());
+                .with_system(task_entry.task.system_prompt.clone())
+                .with_watermark(
+                    self.worker_config.watermark.enabled,
+                    task_entry.task.watermark_seed.clone(),
+                    self.worker_config.watermark.delta_logit,
+                    self.worker_config.watermark.window_size,
+                );
 
                 let generated = match self.llm.generate(params).await {
                     Ok(r) => r,
@@ -1059,7 +1065,7 @@ impl Engine {
                     logprobs_hash: [0u8; 32],
                     started_at: now,
                     finished_at: now,
-                    output_token_ids: vec![],
+                    output_token_ids: generated.output_token_ids,
                 };
                 let result_entry = match ResultEntry::sign(payload, &self.keypair) {
                     Ok(e) => e,

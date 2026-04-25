@@ -204,6 +204,10 @@ impl LlmBackend for LlamaCppBackend {
         let system = params.system.clone();
         let temperature = params.temperature;
         let schema = params.schema.clone();
+        let wm_enabled = params.watermark_enabled;
+        let wm_seed = params.watermark_seed.clone();
+        let wm_delta = params.watermark_delta;
+        let wm_window_size = params.watermark_window_size;
         let backend = shared_backend()?;
 
         let blocking = tokio::task::spawn_blocking(move || {
@@ -216,6 +220,10 @@ impl LlmBackend for LlamaCppBackend {
                 system,
                 temperature,
                 schema,
+                wm_enabled,
+                wm_seed,
+                wm_delta,
+                wm_window_size,
             )
         })
         .await
@@ -230,6 +238,7 @@ impl LlmBackend for LlamaCppBackend {
             model: params.model,
             prompt_tokens: Some(blocking.prompt_tokens),
             completion_tokens: Some(blocking.completion_tokens),
+            output_token_ids: blocking.output_token_ids,
         })
     }
 }
@@ -243,6 +252,7 @@ struct BlockingResult {
     prompt_tokens: u64,
     completion_tokens: u64,
     schema_checked: bool,
+    output_token_ids: Vec<u32>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -255,6 +265,10 @@ fn generate_blocking(
     system: Option<String>,
     temperature: Option<f32>,
     schema: Option<serde_json::Value>,
+    wm_enabled: bool,
+    wm_seed: Vec<u8>,
+    wm_delta: f32,
+    wm_window_size: usize,
 ) -> LlmBackendResult<BlockingResult> {
     use llama_cpp_2::context::params::LlamaContextParams;
     use llama_cpp_2::llama_batch::LlamaBatch;
@@ -303,20 +317,15 @@ fn generate_blocking(
         None => None,
     };
 
-    // Sampler chain : temperature + greedy / distribution. The
-    // matcher state is advanced inside `apply_matcher_mask` (mask
-    // computation + ff_tokens consume), but at Sprint 20 we do NOT
-    // yet push a logit-bias frame before `sampler.sample` — the
-    // sampler picks freely and the matcher's `consume_token` raises
-    // `SchemaViolation` post-hoc when a rejected token slipped
-    // through. Pre-sample logit-bias enforcement is carried as
-    // P3-D3 for Sprint 21+. See `apply_matcher_mask` docstring +
-    // `docs/rust/PATTERNS.md §P30 Defense-in-depth` table.
     let temp = temperature.unwrap_or(0.7);
     let mut sampler =
         LlamaSampler::chain_simple([LlamaSampler::temp(temp), LlamaSampler::greedy()]);
 
+    let wm_active = super::watermark::should_inject(wm_enabled, &wm_seed);
+    let n_vocab = model.n_vocab();
+
     let mut output_tokens = Vec::new();
+    let mut generated_ids: Vec<u32> = Vec::new();
     let mut cur_pos = tokens.len() as i32;
     let max_new = 512i32.min(n_ctx as i32 / 2);
     let mut completion_tokens: u64 = 0;
@@ -328,7 +337,42 @@ fn generate_blocking(
             apply_matcher_mask(m, &mut sampler, &ctx, batch.n_tokens() - 1)?;
         }
 
-        let token = sampler.sample(&ctx, batch.n_tokens() - 1);
+        // Watermark bias injection: build a per-step sampler chain
+        // with logit_bias so green tokens get +delta before sampling.
+        let token = if wm_active {
+            let context_window: Vec<u32> = generated_ids
+                .iter()
+                .rev()
+                .take(wm_window_size)
+                .copied()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            let bias =
+                super::watermark::compute_bias(&wm_seed, &context_window, n_vocab as u32, wm_delta);
+            let logit_biases: Vec<llama_cpp_2::token::logit_bias::LlamaLogitBias> = bias
+                .iter()
+                .enumerate()
+                .filter(|(_, &b)| b != 0.0)
+                .map(|(i, &b)| {
+                    llama_cpp_2::token::logit_bias::LlamaLogitBias::new(
+                        llama_cpp_2::token::LlamaToken::new(i as i32),
+                        b,
+                    )
+                })
+                .collect();
+            let mut biased_sampler = LlamaSampler::chain_simple([
+                LlamaSampler::logit_bias(n_vocab, &logit_biases),
+                LlamaSampler::temp(temp),
+                LlamaSampler::greedy(),
+            ]);
+            let t = biased_sampler.sample(&ctx, batch.n_tokens() - 1);
+            biased_sampler.accept(t);
+            t
+        } else {
+            sampler.sample(&ctx, batch.n_tokens() - 1)
+        };
         sampler.accept(token);
         if let Some(m) = matcher.as_mut() {
             m.consume_token(token.0 as u32).map_err(|e| {
@@ -349,6 +393,7 @@ fn generate_blocking(
         }
 
         output_tokens.push(token);
+        generated_ids.push(token.0 as u32);
         completion_tokens += 1;
 
         // Prepare the next batch step
@@ -371,6 +416,7 @@ fn generate_blocking(
         prompt_tokens,
         completion_tokens,
         schema_checked: schema.is_some(),
+        output_token_ids: generated_ids,
     })
 }
 
@@ -560,6 +606,76 @@ mod tests {
     fn expand_tilde_handles_bare_paths() {
         assert_eq!(expand_tilde("/abs/path"), "/abs/path");
         assert_eq!(expand_tilde("rel/path"), "rel/path");
+    }
+
+    #[test]
+    fn watermark_bias_construction_matches_generate_blocking_pattern() {
+        use crate::llm::watermark;
+        let seed = b"test-watermark-secret-32-bytes!!";
+        let generated_ids: Vec<u32> = vec![10, 20, 30, 40, 50];
+        let window_size = 4;
+        let delta = 2.0f32;
+        let n_vocab = 100u32;
+
+        let context_window: Vec<u32> = generated_ids
+            .iter()
+            .rev()
+            .take(window_size)
+            .copied()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        assert_eq!(context_window, vec![20, 30, 40, 50]);
+
+        let bias = watermark::compute_bias(seed, &context_window, n_vocab, delta);
+        assert_eq!(bias.len(), n_vocab as usize);
+        let green_count = bias.iter().filter(|&&b| b > 0.0).count();
+        assert!(
+            green_count > 0,
+            "watermark bias should mark some tokens green"
+        );
+        assert!(
+            green_count < n_vocab as usize,
+            "not all tokens should be green"
+        );
+
+        assert!(
+            watermark::should_inject(true, seed),
+            "should_inject must be true when enabled + non-empty seed"
+        );
+        assert!(
+            !watermark::should_inject(false, seed),
+            "should_inject must be false when disabled"
+        );
+        assert!(
+            !watermark::should_inject(true, &[]),
+            "should_inject must be false with empty seed"
+        );
+    }
+
+    #[test]
+    fn watermark_context_window_handles_short_sequences() {
+        use crate::llm::watermark;
+        let seed = b"test-watermark-secret-32-bytes!!";
+        let generated_ids: Vec<u32> = vec![10];
+        let window_size = 4;
+
+        let context_window: Vec<u32> = generated_ids
+            .iter()
+            .rev()
+            .take(window_size)
+            .copied()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        assert_eq!(context_window, vec![10]);
+
+        let bias = watermark::compute_bias(seed, &context_window, 50, 2.0);
+        assert_eq!(bias.len(), 50);
+        let green = bias.iter().filter(|&&b| b > 0.0).count();
+        assert!(green > 0);
     }
 
     /// Healthcheck is a lightweight probe so CI without a GGUF on

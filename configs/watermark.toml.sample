@@ -1,0 +1,23 @@
+# Watermark configuration — opt-in per-worker
+# Integrated into worker.toml under [watermark] section.
+#
+# When enabled and a Task carries a non-empty watermark_seed,
+# the llama.cpp backend biases green-list tokens by delta_logit
+# during sampling. The coordinator-side detector runs a z-test
+# on the output token IDs to verify the watermark.
+
+[watermark]
+# Enable watermark injection in sampling pipeline (LlamaCpp backend only).
+# Ollama backend does not expose a logit-hook API — injection is skipped.
+enabled = false
+
+# Logit bias delta for green tokens (PRF score >= 0.5).
+# Higher values produce a stronger watermark signal at the cost
+# of slightly more perplexity. 2.0 is the SynthID-recommended default.
+delta_logit = 2.0
+
+# Context window size for PRF hash computation.
+# The last `window_size` output token IDs are hashed with the
+# watermark seed to determine the green/red partition for the
+# next token. Must match the coordinator detector's window_size.
+window_size = 4

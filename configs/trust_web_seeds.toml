@@ -6,9 +6,11 @@
 
 [[seeds]]
 org_name = "FlowUP (bootstrap)"
-fingerprint = "80b439cb0000000000000000000000000000000000000000000000000000abcd"
+# PLACEHOLDER — replace with real Ed25519 fingerprint at go-live.
+# Generate via: ssh-keygen -t ed25519 → fingerprint from public key.
+fingerprint = "PLACEHOLDER_ED25519_REPLACE_AT_GO_LIVE_0000000000000000000000000000"
 forge_urls = ["https://github.com/SBFB50/SBFB"]
-description = "Bootstrap anchor — sera remplace par ONG S28"
+description = "Bootstrap anchor — fingerprint placeholder until go-live keygen"
 
 # Placeholders S28 outreach
 # [[seeds]]
