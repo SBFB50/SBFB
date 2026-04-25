@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Sprint 26 Phase C — OS audit SecurityEvent system.
+//! OS audit SecurityEvent system.
 //!
 //! Typed [`SecurityEvent`] enum covering 12 security-relevant event
 //! categories across the SBFB stack. [`EventWriter`] trait abstracts
 //! platform-specific output: [`JsonFileWriter`] (append-only JSONL with
 //! size-based rotation, primary), [`TracingWriter`] (cross-platform
-//! tracing structured events), [`JournaldWriter`] and [`OsLogWriter`]
-//! (stubs for future Linux/macOS integration).
+//! tracing structured events), [`JournaldWriter`] (Linux journald via
+//! `libsystemd` pure-Rust), [`OsLogWriter`] (macOS Unified Logging
+//! via `oslog`). Non-target platforms get stub fallbacks.
 //!
 //! A global [`emit_event`] singleton routes events to the writer
-//! initialized at daemon/worker startup via [`init_emitter`].
+//! initialized at daemon/worker startup via [`init_emitter`] or
+//! [`init_platform_emitter`] (auto-selects per platform).
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -60,6 +62,8 @@ pub enum EventError {
     Io(#[from] std::io::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("platform: {0}")]
+    Platform(String),
 }
 
 // ======================================================================
@@ -163,27 +167,97 @@ impl EventWriter for TracingWriter {
 }
 
 // ======================================================================
-// JournaldWriter — Linux journald (stub)
+// Shared format helpers (testable cross-platform)
 // ======================================================================
 
+pub fn event_type_name(event: &SecurityEvent) -> &'static str {
+    match event {
+        SecurityEvent::ConsentChange { .. } => "ConsentChange",
+        SecurityEvent::PanicFired { .. } => "PanicFired",
+        SecurityEvent::TokenRotation { .. } => "TokenRotation",
+        SecurityEvent::DuressUnlock { .. } => "DuressUnlock",
+        SecurityEvent::QuarantineDrop { .. } => "QuarantineDrop",
+        SecurityEvent::SybilAdmissionReject { .. } => "SybilAdmissionReject",
+        SecurityEvent::PowVerifyFail { .. } => "PowVerifyFail",
+        SecurityEvent::CanaryPublished { .. } => "CanaryPublished",
+        SecurityEvent::CanaryDeadMansSwitchTripped { .. } => "CanaryDeadMansSwitchTripped",
+        SecurityEvent::TransportDegraded { .. } => "TransportDegraded",
+        SecurityEvent::RateLimitTierBreach { .. } => "RateLimitTierBreach",
+        SecurityEvent::CapabilityChanged { .. } => "CapabilityChanged",
+    }
+}
+
+pub fn format_journal_fields(event: &SecurityEvent) -> Vec<(&'static str, String)> {
+    let json = serde_json::to_string(event).unwrap_or_default();
+    vec![
+        ("SBFB_EVENT_TYPE", event_type_name(event).to_string()),
+        ("SBFB_DETAILS", json),
+    ]
+}
+
+pub fn format_oslog_message(event: &SecurityEvent) -> String {
+    let json = serde_json::to_string(event).unwrap_or_default();
+    format!("[sbfb:{}] {}", event_type_name(event), json)
+}
+
+// ======================================================================
+// JournaldWriter — Linux journald
+// ======================================================================
+
+#[cfg(target_os = "linux")]
 pub struct JournaldWriter;
 
+#[cfg(target_os = "linux")]
+impl EventWriter for JournaldWriter {
+    fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError> {
+        use libsystemd::logging::{journal_send, Priority};
+        let fields = format_journal_fields(event);
+        let msg = format!("sbfb security event: {}", event_type_name(event));
+        journal_send(
+            Priority::Info,
+            &msg,
+            fields.iter().map(|(k, v)| (*k, v.as_str())),
+        )
+        .map_err(|e| EventError::Platform(e.to_string()))?;
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub struct JournaldWriter;
+
+#[cfg(not(target_os = "linux"))]
 impl EventWriter for JournaldWriter {
     fn write_event(&self, _event: &SecurityEvent) -> Result<(), EventError> {
-        tracing::debug!("journald writer stub — using JsonFileWriter fallback");
+        tracing::debug!("journald writer stub — not on Linux");
         Ok(())
     }
 }
 
 // ======================================================================
-// OsLogWriter — macOS Unified Logging (stub)
+// OsLogWriter — macOS Unified Logging
 // ======================================================================
 
+#[cfg(target_os = "macos")]
 pub struct OsLogWriter;
 
+#[cfg(target_os = "macos")]
+impl EventWriter for OsLogWriter {
+    fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError> {
+        let log = oslog::OsLog::new("com.sbfb.security", "events");
+        let msg = format_oslog_message(event);
+        log.with_level(oslog::Level::Default, &msg);
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub struct OsLogWriter;
+
+#[cfg(not(target_os = "macos"))]
 impl EventWriter for OsLogWriter {
     fn write_event(&self, _event: &SecurityEvent) -> Result<(), EventError> {
-        tracing::debug!("oslog writer stub — using JsonFileWriter fallback");
+        tracing::debug!("oslog writer stub — not on macOS");
         Ok(())
     }
 }
@@ -204,6 +278,17 @@ pub fn emit_event(event: &SecurityEvent) {
             tracing::warn!(error = %e, "failed to emit security event");
         }
     }
+}
+
+pub fn init_platform_emitter() {
+    #[cfg(target_os = "linux")]
+    init_emitter(Box::new(JournaldWriter));
+
+    #[cfg(target_os = "macos")]
+    init_emitter(Box::new(OsLogWriter));
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    init_emitter(Box::new(TracingWriter));
 }
 
 // ======================================================================
@@ -379,6 +464,59 @@ mod tests {
             trigger: "test".into(),
         })
         .unwrap();
+    }
+
+    #[test]
+    fn event_type_name_matches_serde_tag() {
+        for event in all_variants() {
+            let name = event_type_name(&event);
+            let json = serde_json::to_string(&event).unwrap();
+            assert!(
+                json.contains(&format!(r#""event_type":"{name}""#)),
+                "event_type_name mismatch for {name}: {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn format_journal_fields_structured() {
+        let event = SecurityEvent::PanicFired {
+            trigger: "5-tap".into(),
+        };
+        let fields = format_journal_fields(&event);
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].0, "SBFB_EVENT_TYPE");
+        assert_eq!(fields[0].1, "PanicFired");
+        assert_eq!(fields[1].0, "SBFB_DETAILS");
+        assert!(fields[1].1.contains("PanicFired"));
+        assert!(fields[1].1.contains("5-tap"));
+    }
+
+    #[test]
+    fn format_oslog_message_structured() {
+        let event = SecurityEvent::CanaryPublished { version: 3 };
+        let msg = format_oslog_message(&event);
+        assert!(msg.starts_with("[sbfb:CanaryPublished]"));
+        assert!(msg.contains(r#""version":3"#));
+    }
+
+    #[test]
+    fn format_journal_fields_all_variants() {
+        for event in all_variants() {
+            let fields = format_journal_fields(&event);
+            assert_eq!(fields.len(), 2);
+            let json: serde_json::Value = serde_json::from_str(&fields[1].1).unwrap();
+            assert!(json.get("event_type").is_some());
+        }
+    }
+
+    #[test]
+    fn format_oslog_message_all_variants() {
+        for event in all_variants() {
+            let msg = format_oslog_message(&event);
+            let name = event_type_name(&event);
+            assert!(msg.starts_with(&format!("[sbfb:{name}]")));
+        }
     }
 
     #[test]
