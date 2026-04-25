@@ -428,6 +428,12 @@ plan for Sprint N+1` :
 
 **Sans ces deux fichiers, le sprint ne peut pas être fermé.**
 
+**Lecture obligatoire avant d'écrire ces livrables** : §2.3
+(9 sections canoniques verification.md), §2.4 (6 sections
+canoniques audit_plan.md), et §4.4 (routing des findings des
+phase reviews dans l'audit_plan). Ne pas dériver ces fichiers
+depuis le plan ou un sprint précédent — lire la spec d'abord.
+
 ### 3.4 Pourquoi
 
 Un fail-fast self-reporté confirme « le code compile, les
@@ -1723,11 +1729,17 @@ Co-Authored-By: Claude <model> <noreply@anthropic.com>
 
 **Cas C — docs (clôture sprint, sortie Phase E)** :
 
+**Pré-requis lecture** : §2.3 (verification.md 9 sections), §2.4
+(audit_plan.md 6 sections), §4.4 (routing findings phase reviews).
+Parser les `sprint{N}_phase_[A-F]_review.md` AVANT d'écrire
+l'audit_plan.
+
 ```
 docs(sprint{N}): verification + audit plan for Sprint N+1
 
 Verification : NN/NN fail-fast verts, delta tests +NN cumulé
 Audit plan : N tracks A..G pour Sprint N+1 Phase 0
+  + §4.4 routing : N findings P2/P3 des phase reviews routés
 PATTERNS.md : <ajouts pattern + tech debt T-NN>
 
 Tip d'entrée : {SHA}
