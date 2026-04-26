@@ -3811,9 +3811,13 @@ dependencies = [
 name = "nexus-executor"
 version = "1.0.0"
 dependencies = [
+ "clap",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3883,6 +3887,7 @@ dependencies = [
  "directories",
  "frost-ed25519",
  "hex",
+ "hmac",
  "iroh",
  "iroh-blobs",
  "nexus-core-rs",
@@ -3894,6 +3899,7 @@ dependencies = [
  "serde",
  "serde_jcs",
  "serde_json",
+ "sha2 0.10.9",
  "sysinfo",
  "tempfile",
  "thiserror 1.0.69",

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! OS audit SecurityEvent system.
 //!
-//! Typed [`SecurityEvent`] enum covering 12 security-relevant event
+//! Typed [`SecurityEvent`] enum covering 14 security-relevant event
 //! categories across the SBFB stack. [`EventWriter`] trait abstracts
 //! platform-specific output: [`JsonFileWriter`] (append-only JSONL with
 //! size-based rotation, primary), [`TracingWriter`] (cross-platform
@@ -28,18 +28,57 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "event_type", content = "payload")]
 pub enum SecurityEvent {
-    ConsentChange { previous: String, current: String },
-    PanicFired { trigger: String },
-    TokenRotation { rotated_at: String },
-    DuressUnlock { mode: String },
-    QuarantineDrop { task_id: String, reason: String },
-    SybilAdmissionReject { node_id: String, reason: String },
-    PowVerifyFail { difficulty: u32, peer: String },
-    CanaryPublished { version: u32 },
-    CanaryDeadMansSwitchTripped { last_seen: String },
-    TransportDegraded { mode: String, reason: String },
-    RateLimitTierBreach { consumer: String, tier: String },
-    CapabilityChanged { name: String, enabled: bool },
+    ConsentChange {
+        previous: String,
+        current: String,
+    },
+    PanicFired {
+        trigger: String,
+    },
+    TokenRotation {
+        rotated_at: String,
+    },
+    DuressUnlock {
+        mode: String,
+    },
+    QuarantineDrop {
+        task_id: String,
+        reason: String,
+    },
+    SybilAdmissionReject {
+        node_id: String,
+        reason: String,
+    },
+    PowVerifyFail {
+        difficulty: u32,
+        peer: String,
+    },
+    CanaryPublished {
+        version: u32,
+    },
+    CanaryDeadMansSwitchTripped {
+        last_seen: String,
+    },
+    TransportDegraded {
+        mode: String,
+        reason: String,
+    },
+    RateLimitTierBreach {
+        consumer: String,
+        tier: String,
+    },
+    CapabilityChanged {
+        name: String,
+        enabled: bool,
+    },
+    ExecutorCrash {
+        pid: u32,
+        exit_code: Option<i32>,
+        restart_count: u32,
+    },
+    BrokerCrash {
+        reason: String,
+    },
 }
 
 // ======================================================================
@@ -184,6 +223,8 @@ pub fn event_type_name(event: &SecurityEvent) -> &'static str {
         SecurityEvent::TransportDegraded { .. } => "TransportDegraded",
         SecurityEvent::RateLimitTierBreach { .. } => "RateLimitTierBreach",
         SecurityEvent::CapabilityChanged { .. } => "CapabilityChanged",
+        SecurityEvent::ExecutorCrash { .. } => "ExecutorCrash",
+        SecurityEvent::BrokerCrash { .. } => "BrokerCrash",
     }
 }
 
@@ -365,6 +406,14 @@ mod tests {
             SecurityEvent::CapabilityChanged {
                 name: "tool_calling".into(),
                 enabled: true,
+            },
+            SecurityEvent::ExecutorCrash {
+                pid: 12345,
+                exit_code: Some(137),
+                restart_count: 3,
+            },
+            SecurityEvent::BrokerCrash {
+                reason: "ipc-disconnect".into(),
             },
         ]
     }
@@ -594,6 +643,27 @@ mod tests {
         emit_event(&SecurityEvent::PanicFired {
             trigger: "platform-test".into(),
         });
+    }
+
+    #[test]
+    fn security_event_executor_crash_serde() {
+        let event = SecurityEvent::ExecutorCrash {
+            pid: 9999,
+            exit_code: Some(137),
+            restart_count: 2,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains(r#""event_type":"ExecutorCrash""#));
+        assert!(json.contains(r#""pid":9999"#));
+        let roundtrip: SecurityEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, roundtrip);
+
+        let broker = SecurityEvent::BrokerCrash {
+            reason: "heartbeat timeout".into(),
+        };
+        let json2 = serde_json::to_string(&broker).unwrap();
+        let rt2: SecurityEvent = serde_json::from_str(&json2).unwrap();
+        assert_eq!(broker, rt2);
     }
 
     #[test]

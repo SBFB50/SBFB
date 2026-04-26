@@ -97,6 +97,9 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+hmac = { workspace = true }
+sha2 = { workspace = true }
+
 # Sprint 12 Phase A: zip archive decompression for the blob-serve
 # cache. Used by `blob_serve::BlobServeCache` to extract archived
 # web apps and serve them file-by-file.

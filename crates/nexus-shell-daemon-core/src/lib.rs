@@ -55,6 +55,7 @@ pub mod bootstrap_allowlist;
 pub mod browse;
 pub mod canary;
 pub mod config;
+pub mod ipc_broker;
 pub mod iroh_runtime;
 pub mod key_rotation_handler;
 pub mod paths;
