@@ -240,6 +240,19 @@ def output_filter_policy_path() -> Path:
     return Path.home() / ".sbfb" / "output_filter_policy.toml"
 
 
+def tor_config_path() -> Path:
+    """Path to the ``tor.toml`` transport configuration.
+
+    Sprint 31 Phase C: the Tor transport reads this file at boot
+    to decide whether outbound HTTP goes through Tor. Per-user
+    under ``~/.sbfb/`` — same layout as the other per-user configs.
+    """
+    override = os.environ.get(_ROOT_OVERRIDE_ENV)
+    if override:
+        return Path(override) / "sbfb" / "tor.toml"
+    return Path.home() / ".sbfb" / "tor.toml"
+
+
 def contributor_registry_path() -> Path:
     """Path to the contributor attestation registry SQLite file.
 

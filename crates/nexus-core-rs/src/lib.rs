@@ -55,6 +55,7 @@ pub mod relay_pow_policy;
 pub mod schemas;
 pub mod task;
 pub mod tls_pinning;
+pub mod tor_transport;
 pub mod verification;
 
 pub use attestations::{
@@ -139,4 +140,5 @@ pub use tls_pinning::{
     PinValidator, RelayPin, RelayPinsFile, CUSTOM_PINS_FILE_ENV, PIN_FILE_FORMAT_VERSION,
     RELAY_PINS_FILE_NAME,
 };
+pub use tor_transport::{TorConfig, TorTransport};
 pub use verification::{spot_check_rate, CheckStatus, LayerResult, VerificationReport, Verifier};

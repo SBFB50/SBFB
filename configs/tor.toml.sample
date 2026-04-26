@@ -1,0 +1,14 @@
+# SBFB Tor transport configuration.
+#
+# Copy to `<sbfb_home>/tor.toml` and set `enabled = true` to route
+# coordinator outbound HTTP through the Tor network (arti-client).
+#
+# Sprint 31 Phase C.
+
+[tor]
+# Master switch. When false (default), all connections go direct.
+enabled = false
+
+# Seconds to wait for Tor network bootstrap. If the timeout fires,
+# the coordinator falls back to direct connections silently.
+bootstrap_timeout_s = 30

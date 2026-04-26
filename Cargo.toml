@@ -423,6 +423,14 @@ hickory-resolver = { version = "0.24", features = [
     "dns-over-rustls",
 ] }
 
+# Sprint 31 Phase C : Tor transport phase 1. Config infrastructure,
+# feature gate, fallback mechanism delivered. arti-client dep deferred
+# to Phase 2 (rusqlite 0.32→0.36 workspace upgrade required — arti-
+# client 0.41 pulls tor-dirmgr which needs rusqlite >=0.36, conflicting
+# with our libsqlite3-sys links constraint). The `tor` feature on
+# nexus-core-rs is declared but empty until the dep lands.
+# arti-client = "0.41"  # Phase 2 — blocked on rusqlite upgrade
+
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto
 # attestation (Sprint 18 Phase B). Two builds of the same commit

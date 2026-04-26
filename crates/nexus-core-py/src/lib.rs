@@ -1272,6 +1272,18 @@ fn verify_bytes(
     nexus_core_rs::verify(&pk, message.as_bytes(), &sig_arr).map_err(|e| py_err("verify_bytes", e))
 }
 
+/// Check whether the `tor` Cargo feature was compiled in.
+///
+/// Returns `true` when the binary includes arti-client support,
+/// `false` otherwise. The coordinator uses this to decide whether
+/// Tor-routed outbound HTTP is structurally possible (the runtime
+/// availability is a separate check via `TorTransport::is_available`
+/// on the Rust side).
+#[pyfunction]
+fn tor_feature_compiled() -> bool {
+    cfg!(feature = "tor")
+}
+
 /// Emit a typed security event through the global audit emitter.
 ///
 /// Sprint 26 Phase C. The `event_json` argument must be a JSON
@@ -1346,6 +1358,7 @@ fn nexus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify_age_witness, m)?)?;
     m.add_function(wrap_pyfunction!(verify_key_rotation, m)?)?;
     m.add_function(wrap_pyfunction!(emit_security_event, m)?)?;
+    m.add_function(wrap_pyfunction!(tor_feature_compiled, m)?)?;
 
     Ok(())
 }

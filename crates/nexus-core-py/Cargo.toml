@@ -61,6 +61,9 @@ futures-lite = "2.3"
 
 tracing = { workspace = true }
 
+[features]
+tor = ["nexus-core-rs/tor"]
+
 [build-dependencies]
 # maturin reads the Cargo.toml + the pyproject.toml next to it to
 # produce the Python wheel. No explicit build script needed for a

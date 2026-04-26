@@ -77,6 +77,7 @@ from nexus_coordinator.paths import (
     project_dir,
 )
 from nexus_coordinator.quarantine_queue import QuarantineQueue
+from nexus_coordinator.tor_client import TorClientWrapper
 from nexus_coordinator.upload_queue import UploadQueue
 from nexus_coordinator.validator import Validator
 
@@ -204,6 +205,7 @@ class Coordinator:
         # key). The pre-start attribute is ``None`` so the API
         # endpoints return 503 cleanly before boot.
         self.canary_input: CanaryInputManager | None = None
+        self.tor_client: TorClientWrapper | None = None
         self.apps: dict[str, NexusApp] = {}
         self.app_contexts: dict[str, AppContext] = {}
 
@@ -364,6 +366,18 @@ class Coordinator:
             sweep_interval_s=qq_cfg.sweep_interval_s,
         )
         await self.quarantine_queue.start()
+
+        # Sprint 31 Phase C — Tor transport (arti-client 2.0).
+        # Phase 1: config infrastructure + availability check +
+        # fallback. Full HTTP-over-Tor routing is Phase 2.
+        from nexus_coordinator.paths import tor_config_path
+
+        self.tor_client = TorClientWrapper.from_toml(tor_config_path())
+        await self.tor_client.bootstrap()
+        if self.tor_client.is_available():
+            _log.info("Tor transport available for outbound HTTP")
+        else:
+            _log.info("Tor transport not available, using direct connections")
 
         self.validator = Validator(
             doc=self.state.doc,
