@@ -1,0 +1,9 @@
+# RFC 9116 — https://www.rfc-editor.org/rfc/rfc9116
+# nexus-grid / SBFB security contact
+
+Contact: https://github.com/SBFB50/SBFB/security/advisories/new
+Contact: mailto:security@sbfb.network
+Expires: 2027-04-26T00:00:00.000Z
+Preferred-Languages: fr, en
+Canonical: https://raw.githubusercontent.com/SBFB50/SBFB/master/.well-known/security.txt
+Policy: https://github.com/SBFB50/SBFB/blob/master/SECURITY.md

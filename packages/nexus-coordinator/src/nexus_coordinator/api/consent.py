@@ -84,24 +84,50 @@ class Caps(BaseModel):
     max_hours_day: float | None = Field(default=12.0, ge=0.0, le=24.0)
 
 
+_LEVEL_THREAT_NOTES: dict[int, str] = {
+    1: "Aucune exposition tierce. Seules vos propres apps s'exécutent.",
+    2: "Apps open source vérifiées (SLSA L1). Exposition Sybil si contributeur malveillant.",
+    3: "Apps sélectionnées manuellement. Vous êtes responsable de la vérification.",
+    4: "Toute app publique du réseau. Risque maximum de consommation abusive.",
+}
+
+_LEVEL_RESIDUAL_THREATS: dict[int, list[str]] = {
+    1: [],
+    2: ["R2-supply-chain", "R5-kudos-linkability"],
+    3: ["R2-supply-chain", "R3-rate-limit-absent", "R5-kudos-linkability"],
+    4: ["R2-supply-chain", "R3-rate-limit-absent", "R4-consent-race", "R5-kudos-linkability"],
+}
+
+
 class ConsentConfig(BaseModel):
-    """Wire format: byte-identical to the Rust ConsentConfig."""
+    """Wire format: byte-identical to the Rust ConsentConfig.
+
+    ``level_threat_note`` and ``residual_threats_acknowledged`` are
+    computed server-side per level (cf. THREAT_MODEL §9.1).  The
+    Rust worker ignores these fields (no ``deny_unknown_fields``).
+    """
 
     level: Literal[1, 2, 3, 4] = 1
     caps: Caps = Field(default_factory=Caps)
     allowed_project_ids: list[str] = Field(default_factory=list)
     own_node_id: str = ""
+    level_threat_note: str = ""
+    residual_threats_acknowledged: list[str] = Field(default_factory=list)
 
     @field_validator("allowed_project_ids")
     @classmethod
     def _validate_node_ids(cls, v: list[str]) -> list[str]:
-        # Reject anything that doesn't look like a node_id hex
-        # so the L3 whitelist can't be polluted with arbitrary
-        # text. Empty list is fine.
         for item in v:
             if not _NODE_ID_RE.match(item):
                 raise ValueError(f"invalid node_id format: {item!r}")
         return v
+
+
+def _populate_threat_fields(cfg: ConsentConfig) -> ConsentConfig:
+    """Fill derived threat fields from the consent level."""
+    cfg.level_threat_note = _LEVEL_THREAT_NOTES.get(cfg.level, "")
+    cfg.residual_threats_acknowledged = list(_LEVEL_RESIDUAL_THREATS.get(cfg.level, []))
+    return cfg
 
 
 class WhitelistEntry(BaseModel):
@@ -162,13 +188,14 @@ def _save_atomic(cfg: ConsentConfig) -> None:
 async def get_consent() -> ConsentConfig:
     """Return the current preferences, or built-in defaults if
     the user has never opened the dialog."""
-    return _load_atomic()
+    return _populate_threat_fields(_load_atomic())
 
 
 @router.post("/set")
 async def set_consent(cfg: ConsentConfig) -> ConsentConfig:
     """Replace the full consent payload. Pydantic validates the
     level / caps / whitelist shape before we touch disk."""
+    _populate_threat_fields(cfg)
     _save_atomic(cfg)
     _log.info(
         "consent.json updated",

@@ -31,6 +31,8 @@ const baseConfig: ConsentConfig = {
   },
   allowed_project_ids: [],
   own_node_id: "self",
+  level_threat_note: "",
+  residual_threats_acknowledged: [],
 };
 
 beforeEach(() => {
@@ -217,6 +219,14 @@ describe("<GpuConsentDialog>", () => {
       "data-checked",
       "",
     );
+  });
+
+  it("affiche une icône tooltip threat_note pour chaque niveau", () => {
+    renderDialog();
+    expect(screen.getByTestId("consent-threat-note-1")).toBeInTheDocument();
+    expect(screen.getByTestId("consent-threat-note-2")).toBeInTheDocument();
+    expect(screen.getByTestId("consent-threat-note-3")).toBeInTheDocument();
+    expect(screen.getByTestId("consent-threat-note-4")).toBeInTheDocument();
   });
 
   it("expose DEFAULT_CONSENT compatible avec le coordinator par défaut", () => {

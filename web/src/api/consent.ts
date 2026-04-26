@@ -39,6 +39,8 @@ export const ConsentConfigSchema = z.object({
   caps: CapsSchema,
   allowed_project_ids: z.array(z.string().regex(/^[0-9a-fA-F]{64}$/)),
   own_node_id: z.string(),
+  level_threat_note: z.string().default(""),
+  residual_threats_acknowledged: z.array(z.string()).default([]),
 });
 export type ConsentConfig = z.infer<typeof ConsentConfigSchema>;
 
@@ -56,6 +58,8 @@ export const DEFAULT_CONSENT: ConsentConfig = {
   },
   allowed_project_ids: [],
   own_node_id: "",
+  level_threat_note: "",
+  residual_threats_acknowledged: [],
 };
 
 // =================================================================

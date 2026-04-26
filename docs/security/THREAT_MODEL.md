@@ -372,7 +372,100 @@ Apres Sprint 16, les risques les plus serieux encore presents :
 
 ---
 
-## 9. Revue et evolution
+## 9. Residual risks per-configuration
+
+Les risques residuels §8 s'appliquent uniformement. Cette section
+decompose l'exposition reelle **par configuration active** : le
+choix de consent level, de trust tier, de duress mode, de rate-limit
+policy, de guardrails toggle et de capability gate change la surface
+d'attaque effective. L'auditeur peut ainsi evaluer la posture de
+securite d'un user L1 vs L4 sans ambiguite.
+
+### 9.1 Consent GPU 4 niveaux (Sprint 16 Phase C)
+
+Le dialog `GpuConsentDialog.tsx` offre 4 niveaux. Le worker
+(`nexus-worker-core::consent::should_accept_task`) enforce les caps
+et le niveau selectionne.
+
+| Niveau | Surface exposee | Residuals §8 actifs | Impact incremental |
+|---|---|---|---|
+| **L1** — Mes projets uniquement | Zero exposition tierce. Le worker n'accepte que les tasks dont le `project_id` == `own_node_id`. | R1, R4, R6 (baseline) | Aucun — posture la plus securisee. |
+| **L2** — Open source verifies | Apps deployees depuis un repo public, provenance SLSA L1 + Keyoxide Ed25519. | R1, R2, R4, R5, R6 | +R2 supply chain (code tiers compile et execute) +R5 kudos linkability (contribution cross-projets) |
+| **L3** — Whitelist manuelle | Apps selectionnees explicitement par l'user. Pas de verification provenance automatique. | R1, R2, R3, R4, R5, R6 | +R3 rate-limit (user peut whitelister un projet abusif) |
+| **L4** — Tous les projets publics | Toute app acceptee par au moins un curator souscrit. | R1, R2, R3, R4, R5, R6 | Exposition maximale. R2 amplifie (plus de code tiers). R3 amplifie (plus de projets potentiellement abusifs). |
+
+**Annotation in-product** : `consent.json` porte un champ
+`level_threat_note` (texte court, tooltip UI) et
+`residual_threats_acknowledged` (liste threats §8 actifs pour le
+niveau choisi). Le coordinator les calcule au `GET /consent/get` et
+au `POST /consent/set`. Cf. `LOOPBACK_ENDPOINTS_TRUST_TIERS.md` §4.
+
+### 9.2 Loopback 3 trust tiers (Sprint 22 Phase F)
+
+Cf. `LOOPBACK_ENDPOINTS_TRUST_TIERS.md`. 3 tiers de confiance
+loopback, configures par le host, pas par l'user final.
+
+| Tier | Surface | Residuals §8 actifs | Impact |
+|---|---|---|---|
+| **AUTO** | Requetes loopback acceptees si bearer + Host + Origin valides. Default. | R1 (keypair plaintext = bearer exposable via AD2) | Si bearer leak via AD2 : acces complet API loopback. |
+| **CONFIRM_PROMPT** | Requetes sensibles (deploy, consent change) exigent confirmation UI. | R1 (attenue — AD2 ne peut pas confirmer sans UI) | Elevation via AD2 bloquee pour les actions destructrices. |
+| **BIOMETRIC_GATE** | Actions critiques (key export, consent L4) exigent biometrie OS. | R1 (quasi-elimine — keypair inaccessible sans biometrie) | Posture la plus securisee. Prerequis : LT-4 (post-v1.0). |
+
+### 9.3 Duress PIN (Sprint 20 Phase B)
+
+Le duress PIN permet a un user sous contrainte d'activer un mode
+degrade qui detruit les cles et envoie un signal canari silent.
+
+| Mode | Comportement | Residuals | Impact |
+|---|---|---|---|
+| **Normal** | Operations standard. Keypair active. | R1 (keypair accessible) | Posture courante. |
+| **Duress** | Keypair detruite, canari emis, sessions invalidees. | Aucun residual (autodestruction) | Donnees perdues, identite P2P revelee. |
+
+Limites : le duress mode est une defense against AD2 (malware
+user-mode) et scenario coercition physique. Il ne protege pas
+contre AD7 (nation-state root access).
+
+### 9.4 Rate-limit tiers (Sprint 22 Phase A)
+
+Le rate-limit engine (`governor 0.10.2` GCRA) gate les claims
+worker-side. Configuration via `rate_limit_policy.toml`.
+
+| Tier | Config | Residuals | Impact |
+|---|---|---|---|
+| **Disabled** (`policy: none`) | Aucun rate limit. Worker accepte au max throughput. | R3 amplifie (DoS disque via flood claims) | Deconseille en production L3/L4. |
+| **Default** (`policy: default`) | 10 claims/min, burst 20. | R3 attenue | Posture recommandee. |
+| **Strict** (`policy: strict`) | 2 claims/min, burst 5. | R3 quasi-elimine | Pour nodes a bande passante limitee. |
+
+### 9.5 Pipeline guardrails disabled combos (Sprint 23 Phase B)
+
+Le pipeline declaratif (`GUARDRAILS_ARCHITECTURE.md`) chaine les
+guardrails : PII filter, watermark, output filter, rate limit.
+Chaque guardrail est togglable.
+
+| Combo desactive | Risque residuel | Impact |
+|---|---|---|
+| PII filter OFF | Donnees personnelles dans les outputs ne sont pas detectees. | R5 linkability amplifie + RGPD Art.25 non-conformite. |
+| Watermark OFF | Outputs non-traces. Repudiation complete. | R6 detectabilite perdue, pas d'audit trail output. |
+| Output filter OFF | Contenu non filtre (toxicite, CSAM potential). | Reputation reseau, risque legal operateur. |
+| **Tous OFF** | Zero defense-in-depth. Worker = proxy GPU brut. | Posture de securite pre-S21 (inacceptable post-Gate 3). |
+
+### 9.6 Capability toggles (Sprint 25 Phase D)
+
+Capabilities gate-off-by-default via `capabilities.toml` et le
+binaire `nexus-admin`. Cf. `CAPABILITY_TOGGLES.md`.
+
+| Capability | Default | Si active sans prerequis | Residual |
+|---|---|---|---|
+| `compute.gpu` | OFF | Worker accepte tasks GPU sans consent dialog complete. | R4 race (consent non enforce). |
+| `network.gossip` | ON | — | R6 detectabilite (inherent). |
+| `deploy.verified` | ON | — | R2 supply chain (inherent avec code tiers). |
+| `deploy.unverified` | OFF | Accepte du code non-verifie SLSA. | R2 amplifie (aucune provenance). |
+| `admin.key_export` | OFF | Export keypair Ed25519 en clair via CLI. | R1 critique (keypair exposable). |
+| `admin.consent_override` | OFF | Bypass consent dialog programmatiquement. | R4 amplifie (consent race sans UI gate). |
+
+---
+
+## 10. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -382,10 +475,14 @@ ou deplace un residual doit :
    severite.
 3. Si nouveau composant : ajouter §5.x STRIDE + §6 LINDDUN
    + ligne dans §2 Assets + §4 DFD.
-4. En fin de sprint, le verification.md du sprint pointe vers
+4. §9 per-configuration : ajouter une sous-section si un
+   nouveau mode ou toggle change la surface d'attaque.
+5. En fin de sprint, le verification.md du sprint pointe vers
    les lignes modifiees ici.
 
 Historique versions :
 
 - **v1 (Sprint 16 Phase E, 2026-04-14)** : version initiale post-
   livraison des 4 phases hardening A-D. Baseline pour Sprint 17+.
+- **v2 (Sprint 29 Phase B, 2026-04-26)** : ajout §9 residual risks
+  per-configuration (6 sous-sections), renommage §9→§10.

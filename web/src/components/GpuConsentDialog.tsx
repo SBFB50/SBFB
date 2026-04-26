@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Heart, Loader2, Plus, X } from "lucide-react";
+import { Heart, Info, Loader2, Plus, X } from "lucide-react";
 
 import {
   Dialog,
@@ -30,6 +30,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   type ConsentConfig,
   type ConsentLevel,
@@ -47,22 +53,33 @@ interface Props {
 
 const NODE_ID_RE = /^[0-9a-fA-F]{64}$/;
 
-const LEVEL_LABELS: Record<ConsentLevel, { title: string; hint: string }> = {
+const LEVEL_LABELS: Record<
+  ConsentLevel,
+  { title: string; hint: string; threatNote: string }
+> = {
   1: {
     title: "Mes projets uniquement",
     hint: "Aucun partage avec le réseau public. Sécurisé par défaut.",
+    threatNote:
+      "Aucune exposition tierce. Seules vos propres apps s'exécutent.",
   },
   2: {
     title: "Projets open source vérifiés",
     hint: "Accepte les apps publiées depuis un dépôt Git public et signées.",
+    threatNote:
+      "Apps open source vérifiées (SLSA L1). Exposition Sybil si contributeur malveillant.",
   },
   3: {
     title: "Projets spécifiques (whitelist)",
     hint: "Tu choisis manuellement chaque projet auquel tu contribues.",
+    threatNote:
+      "Apps sélectionnées manuellement. Vous êtes responsable de la vérification.",
   },
   4: {
     title: "Tous les projets publics",
     hint: "Le worker accepte n'importe quelle tâche publique du réseau.",
+    threatNote:
+      "Toute app publique du réseau. Risque maximum de consommation abusive.",
   },
 };
 
@@ -117,8 +134,10 @@ export function GpuConsentDialog({
       },
       allowed_project_ids: allowedIds,
       own_node_id: baseline.own_node_id,
+      level_threat_note: baseline.level_threat_note,
+      residual_threats_acknowledged: baseline.residual_threats_acknowledged,
     }),
-    [level, maxWatts, maxVramMb, maxHoursDay, allowedIds, baseline.own_node_id],
+    [level, maxWatts, maxVramMb, maxHoursDay, allowedIds, baseline.own_node_id, baseline.level_threat_note, baseline.residual_threats_acknowledged],
   );
 
   function handleAddPending() {
@@ -166,32 +185,49 @@ export function GpuConsentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <RadioGroup<ConsentLevel>
-          value={level}
-          onValueChange={(v) => setLevel(v as ConsentLevel)}
-          aria-label="Niveau de partage GPU"
-        >
-          {([1, 2, 3, 4] as const).map((lvl) => (
-            <label
-              key={lvl}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/[0.06] p-3 hover:bg-white/[0.04]"
-            >
-              <RadioGroupItem
-                value={lvl}
-                aria-label={LEVEL_LABELS[lvl].title}
-                data-testid={`consent-level-${lvl}`}
-              />
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">
-                  L{lvl} — {LEVEL_LABELS[lvl].title}
-                </p>
-                <p className="text-xs text-white/50">
-                  {LEVEL_LABELS[lvl].hint}
-                </p>
-              </div>
-            </label>
-          ))}
-        </RadioGroup>
+        <TooltipProvider>
+          <RadioGroup<ConsentLevel>
+            value={level}
+            onValueChange={(v) => setLevel(v as ConsentLevel)}
+            aria-label="Niveau de partage GPU"
+          >
+            {([1, 2, 3, 4] as const).map((lvl) => (
+              <label
+                key={lvl}
+                className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/[0.06] p-3 hover:bg-white/[0.04]"
+              >
+                <RadioGroupItem
+                  value={lvl}
+                  aria-label={LEVEL_LABELS[lvl].title}
+                  data-testid={`consent-level-${lvl}`}
+                />
+                <div className="flex-1 space-y-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-medium">
+                      L{lvl} — {LEVEL_LABELS[lvl].title}
+                    </p>
+                    <Tooltip>
+                      <TooltipTrigger
+                        className="inline-flex shrink-0 text-white/30 hover:text-white/60"
+                        data-testid={`consent-threat-note-${lvl}`}
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        <p className="text-xs">
+                          {LEVEL_LABELS[lvl].threatNote}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <p className="text-xs text-white/50">
+                    {LEVEL_LABELS[lvl].hint}
+                  </p>
+                </div>
+              </label>
+            ))}
+          </RadioGroup>
+        </TooltipProvider>
 
         {level === 3 && (
           <section

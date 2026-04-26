@@ -131,6 +131,46 @@ def test_whitelist_remove_is_idempotent(consent_client: TestClient, tmp_path: Pa
     assert again.json()["allowed_project_ids"] == [_NODE_ID_B]
 
 
+def test_consent_residual_threats_field(consent_client: TestClient) -> None:
+    """GET /consent/get populates residual_threats_acknowledged per level."""
+    # Default level 1 — no residual threats.
+    r1 = consent_client.get("/consent/get")
+    assert r1.status_code == 200
+    assert r1.json()["level_threat_note"] != ""
+    assert r1.json()["residual_threats_acknowledged"] == []
+
+    # Set to level 4 — maximum exposure.
+    payload = {
+        "level": 4,
+        "caps": {"max_watts": 400, "max_vram_mb": 16384, "max_hours_day": 12.0},
+        "allowed_project_ids": [],
+        "own_node_id": "self",
+    }
+    r4 = consent_client.post("/consent/set", json=payload)
+    assert r4.status_code == 200
+    body = r4.json()
+    assert "R2-supply-chain" in body["residual_threats_acknowledged"]
+    assert "R5-kudos-linkability" in body["residual_threats_acknowledged"]
+    assert body["level_threat_note"] != ""
+
+    # Re-read persisted value via GET to confirm round-trip.
+    again = consent_client.get("/consent/get").json()
+    assert again["residual_threats_acknowledged"] == body["residual_threats_acknowledged"]
+    assert again["level_threat_note"] == body["level_threat_note"]
+
+
+def test_security_txt_valid() -> None:
+    """Verify .well-known/security.txt follows RFC 9116."""
+    from pathlib import Path
+
+    txt = Path(__file__).resolve().parents[3] / ".well-known" / "security.txt"
+    assert txt.exists(), "security.txt missing"
+    content = txt.read_text(encoding="utf-8")
+    assert "Expires:" in content
+    assert "Contact:" in content
+    assert "Preferred-Languages:" in content
+
+
 def test_atomic_write_leaves_no_tmp_behind(
     consent_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
