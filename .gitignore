@@ -129,6 +129,9 @@ test_libc.pdb
 /node_modules/
 test-results/
 
+# Git bundles (backup artifacts, never commit)
+*.bundle
+
 # In-progress app design docs (pre-sprint intake, not planning)
 docs/DND_P2P_DESIGN.md
 docs/VISION_USE_CASES.md
