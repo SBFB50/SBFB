@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-25  # G2 — Sprint 27 Phase D : 12 triggers re-scanned (all INACTIVE except openai-agents-python v2.x — no S27 impact, autonomous guardrails.py). S27 scope: SynthID watermark output + Couche 3 multi-forge parser + trust-web ONG bootstrap + Gate 3 showcase docs + P2 batch S26 7 fixes. Compteurs ~821 Rust / ~195 SDK / ~419+14 coord / ~46 gov / ~264 Vitest / ~41+2 PW / ~1797 total.
+last_validated: 2026-04-26  # G2 — Sprint 28 Phase D : 12 triggers re-scanned (all INACTIVE, no S28 impact — openai-agents-python autonomous guardrails, arti pre-1.0, iroh 0.97 stable). S28 scope: watermark end-to-end wiring (Phase A) + platform writers journald/oslog + ONNX CI fixture dette (Phase B) + PROCESS_ARCHITECTURE.md design doc (Phase C) + EXTERNAL_AUDIT_SCOPE.md + HARDENING_ROADMAP update (Phase D). Nym deferred S30+ (SDK beta 200-800ms). MIG deferred post-v1.0 (A100/H100 only). Compteurs ~828 Rust / ~195 SDK / ~391+36f+6s coord / ~46 gov / ~268 Vitest / ~1813 total.
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -22,6 +22,7 @@ audited_findings:
   - "2026-04-18 S21 open : D2 PII SDK requalifié post-research G2. Libellé roadmap §3 S21 original S17 'spaCy NER wasm ~500 LOC' obsolète 2026 (spaCy pas de port wasm officiel maintenu). Stack retenue defense-in-depth : client iframe = onnxruntime-web 1.24.3 (Microsoft, npm mars 2026) + @huggingface/transformers v4 tokenizer + knowledgator/gliner-pii-edge-v1.0 (Apache-2.0, 2024-01-29, F1 0.755, backbone à confirmer Phase B G8 S1 scan pre-first-line-of-code) + regex fallback curated ; coord-side = presidio-analyzer 2.2.362 (Microsoft MIT, 2026-03-15) + GLiNERRecognizer extra [gliner] + même modèle ONNX source-of-truth unique. Full Rust-first iframe (tract + GLiNER + wasm-bindgen) rejeté factuellement : tract 0.22.1 teste opset 9-18 vs GLiNER export opset 19 (DisentangledSelfAttention DeBERTa-v3 non documenté), tract wasm32-unknown-unknown (browser) non documenté officiellement (seul wasm32-wasi wasmtime), zero precedent production, gline-rs v1.0.1 (Rust GLiNER mainstream 01/2026) a choisi ort pas tract. Rust-wasm iframe realignement Option G reporté S22+ via tech debt T-NN+2 (re-evaluate triggers: tract opset 19 coverage OR ort wasm32-browser stable OR gline-rs wasm-bindgen target). Decisions D1 governor 0.10.2 GCRA + D3 LLM Guard 0.3.16 InvisibleText + PLeak EED + D4 SQLite WAL pattern S19 reuse + CLI sbfb quarantine. Cf. sprint21_kickoff.md §D1-D5 + sprint21_design_review.md."
   - "2026-04-20 S22 hors-sprint agents_sudo integration : analyse deep openai-agents-python + microsoft/sudo → 18 features produit identifiées (4 agents parallèles independants cluster A observability / B guardrails / C SDK+streaming / D process+OS integration). Mapping factuel S22 Phase F → S29 + LT-4 tracé dans `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md`. S22 Phase F absorption : D1 three-mode trade-off doc (`docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md` 3 tiers AUTO/CONFIRM_PROMPT/BIOMETRIC_GATE + consent.json threat_note field). S23 amendement : B1 guardrails refactor pipeline déclaratif (6 primitives S16-S22 → contrat Guardrail unifié `docs/security/GUARDRAILS_ARCHITECTURE.md`) + D5 design `docs/security/CAPABILITY_TOGGLES.md` capabilities gate-off-by-default via binaire `nexus-admin`. S24 amendement : A1 `TaskDispatchHooks` + C3 handoffs semantic dispatcher. S25 amendement : D5-implem + A3 OS audit channel ETW/journald/oslog + B2 MCP server expose + C2 `@task_handler` SDK + C5 streaming bridge (5 features = FAT, split recommandé). S26 amendement : C1 SQLiteSession abstraction crate + A4 process role tagging. S28 amendement : D2 broker/executor split + D3 Windows RPC + C4 task-scoped sandbox (cohérence runtime isolation). S29 amendement : A2 TraceProvider OTEL backend-agnostic + B4 per-mode residual risk doc THREAT_MODEL §9 pre-audit Cure53/ToB. LT-4 net-new : D4 OS biometric gate cross-platform post-v1.0 (trigger v1.0 + S30 FROST N1 + partnership OpSec signal). Cap G7 bilan : 0 slot carry-over formel consommé pre-v1.0 (tout via amendements §3 + items net-new + chore hors-sprint + Phase F absorption). Pre-launch protocol respectée (nouveaux DOMAIN_TRACE_EVENT_V1 + DOMAIN_OS_AUDIT_EVENT_V1 + capabilities.toml + bridge.schema.json extension P24 additif = design-only pre-launch stable, zéro bump *_VERSION). Arbitrages user différés kickoff S23 + S25 : B1 timing (dédié/distribué/défer), S25 split (D5+B2 priorité vs A3+C2+C5 carry), D5 enforcement (Semgrep strict vs CI manuel)."
   - "2026-04-25 S27 Phase D : SynthID-inspired PRF z-test watermark output remplace Kirchenbauer KGW (BIRA-resistant, arXiv:2509.23019 sept 2025). Couche 3 mature : ForgeParser git-log offline GPG/SSH + TrustCache SQLite LRU 7j + TrustWebManager cross-forge score + DelegationCert v1 étendu trust_level + trust-web seed FlowUP bootstrap (ONG S28). P2 batch S26 7 fixes (validate_stage_guard_map wire + emit_capability_event logger + TaskHandlerDescriptor description + JsonFileWriter rotation + TracingWriter rename + MCP lifespan comment + no-LOC convention). Gate 3 prerequisites checklist mise à jour : Alexandria showcase reframing. SELF_DISTRIBUTION.md design doc (binaries = blobs P2P). ~821 Rust / ~195 SDK / ~419+14 coord / ~46 gov / ~264 Vitest / ~41+2 PW / ~1797 total."
+  - "2026-04-26 S28 Phase D : sprint consolidation. Phase A watermark end-to-end wiring (compute_bias llama_cpp.rs + output_token_ids runtime.rs) + P2 batch S27 4 items. Phase B platform writers réels JournaldWriter libsystemd + OsLogWriter oslog (cfg-gated) + ONNX CI fixture mini-model GLiNER (dette sprint pair). Phase C PROCESS_ARCHITECTURE.md design doc broker/executor split 11 sections (IPC JSON-RPC 2.0, pool mode, cold-start <5s, fault isolation). Phase D EXTERNAL_AUDIT_SCOPE.md (7 crypto + 6 wire + auth + transport + sandbox, vendor matrix Cure53/ToB) + HARDENING_ROADMAP update (Nym S30+, MIG post-v1.0). Nym deferred S30+ (SDK beta 200-800ms, VALIDATED_BLUEPRINT CAUTION). MIG deferred post-v1.0 (A100/H100 only, RTX 5080 no MIG). ~828 Rust / ~195 SDK / ~391+36f+6s coord / ~46 gov / ~268 Vitest / ~1813 total."
   - "2026-04-20 S22 CLOSED (Phase F wrap-up) : 5 phases A-E livrées sur le thème Sybil-resistance composition 3 couches + rate-limit engine wire + GLiNER span-decoder + NVML baseline + watermark canari primitive + process fixes. Phase A `0bc499f` rate-limit engine wire-up runtime.rs ClaimEntry gate + Arc swap hot-reload + policy sample (absorbe P2-S21-1/2/6 + P3-S21-4). Phase B `e9530c2` GLiNER span-logits decoder iframe SDK (absorbe P2-S21-3, `web/src/sdk/pii/decoder.ts` decodeSpans + greedyDedup + toFinding). Phase C `cf3918c` Sybil-resistance composition 3 couches : Couche 1 `AgeWitness` peer-attestation Ed25519 domain `DOMAIN_AGE_WITNESS_V1` + bootstrap allowlist `BootstrapAllowlistWatcher` hot-reload (P0-G1-1 ack) + `join_topic_with_age_witness` gossip admission ≥7j ; Couche 2 `ContributorAttestation` in-toto v1.0 predicate `nexus-grid/contributor-attestation/v1` + `ContributorRegistry` coord-side SQLite + `curator::verify_with_contributor_registry` + daemon proxy + Matthew-effect TODO inline LT-1 Kudos-v2 commitment (P0-G1-2 + P2-G1-3 acks) ; Couche 3 RFC design-only `docs/security/CONTRIBUTOR_ATTESTATION_RFC.md` multi-forge cross-validate + `DelegationCert` + trust-web Amnesty S27 integration. Phase D `56211f2` NVML util+duree profile log-only baseline foundation S24 (`nvml-wrapper 0.12.1` workspace-pinned + `crates/nexus-worker-core/src/gpu/profile.rs` + SQLite `nvml_samples` + `NvmlWindowStats` stats-only pas anomaly). Phase E `690fab3` watermark canari-input primitive consumer 1/N (`canary_input.py` ~520 LOC + `CanaryInputSet` Ed25519 signé coord rotatable + `CanaryInputInjector` hook pre-dispatch + `CanaryInputObserver` rapidfuzz Levenshtein similarity + Typer CLI `canary rotate/status` + hot-reload pattern output_filter S21). Phase F `<HEAD>` wrap-up + verification + audit plan S23 + process fixes P2-S21-4 `docs/claude/README.md §4.4` règle parse phase_[A-F]_review.md vers audit_plan Track + P2-S21-5 GHA `.github/workflows/phase-review-cross-check.yml` PR check + `.claude/.bypass_audit_trail.log` append-only + migration PARA active→archive/v1.2/. **Deuxième sprint avec G8 systématique 6/6 phases A-F (0 DESIGN-CONFLICT déclenché — G1 pre-gel post-S21 robuste)**. Cap G7 carry-overs respecté 1/2 → S23 : T-NN+2 iframe Rust-wasm Option G PATTERNS §P34 hors cap formel. LT-2 Meta-1 Radicle-v1.0 **reclassification sortie cap G7** régularisée kickoff §4 D5 (trigger unique tag v1.0 go-live, runbook `docs/release/MIRROR_FALLBACK.md §3`). LT-3 Contribution family Sybil matrix + LT-4 OS biometric gate ouverts hors-sprint (post-v1.0). Compteurs finals : 710 Rust / 185 SDK / 263+3 skipped coord / 46 gov / 264 Vitest / 38 Playwright / 7/7 size / 246+ SPDX (~1509 tests, +73 vs baseline 1436). Over-delivery +30 vs projection §11 documentée verification.md §4 (tests d'infrastructure bonus cross-couches Phase A + integration tests Phase C + bonus Phase E helpers). Wire formats nouveaux pre-launch stable : `AGE_WITNESS_VERSION = 1` + `CONTRIBUTOR_ATTESTATION_VERSION = 1` + `DELEGATION_CERT_VERSION = 1` (design-only Couche 3). Aucun tolerant decoder multi-version. Pas de nouvelle zone rouge. Carries S23 audit_plan : P2-S22A-1 dashmap dep unused post-refacto (worker-core Cargo.toml cleanup) + P2-S22A-3 PATTERNS.md §P33 structure obsolète (post-wire update) + P2-B-1 ONNX end-to-end non exercé CI (fixture model mini dédiée carry) + P2-B-2 wrapper.ts:308-311 fallbackDetect trigger 0 entities (sémantique explicit) + P2-E-1 `_reload_policy_locked` suffix trompeur (naming convention) + P2-E-2 pattern LOC estimations prospectives plans (3 occurrences S22, chore planning README §6.7 amend) + P3-E-1 `/api/canary/observed-divergence` expose expected_answer (carry S23 B1 alerting) + Meta-track Playwright PII end-to-end carry S23 Track B fixture model."
 -->
 
@@ -655,57 +656,54 @@ median app) :
 - **Gate unlock** : Gate 3 (Alexandria, showcase apps) débloqué
   post-audit externe S29.
 
-### Sprint 28 — Nym mixnet + MIG + external audit prep
+### Sprint 28 — Watermark end-to-end + dette + process isolation design + audit prep
 
-- **Goal** : Gate 4 prep — metadata protection maximum + isolation
-  hardware.
-- **Items** :
-  - Nym mixnet integration phase 1 (SOCKS wrapper, test
-    feasibility) — ~1500 LOC
-  - MIG partitioning A100/H100 opt-in config — ~500 LOC
-  - External audit scope doc + RFP Cure53/ToB — ~200 LOC (docs)
-  - Amnesty/HRW/CPJ partnership outreach (non-code) — 0 LOC
-  - **agents_sudo D2 broker/executor process split** (cluster D
-    feature D2, amendement alignement `RUNTIME_ISOLATION.md §3
-    Phase C` WSL2/Virtualization.framework/systemd-nspawn) :
-    split strict broker Rust (peer-cred gated, long-lived,
-    surface minimale = bearer auth + routing) vs executor
-    (short-lived, load model Ollama/llama.cpp, crash indep).
-    Design doc long-life `docs/security/PROCESS_ARCHITECTURE.md`
-    préalable. Split `nexus-shell-daemon` broker vs nouveau
-    `nexus-executor` binaire. **Bench cold-start Ollama re-load
-    obligatoire pre-commit** (budget < 5s consumer-facing).
-    **~800 LOC + ~50 tests + ~400 LOC design doc**.
-  - **agents_sudo D3 Windows RPC + OS-auth handle forward**
-    (cluster D feature D3, co-landing D2) : remplacer
-    `named_pipe_server.rs` SDDL DACL manuel S16 Phase B par
-    Windows RPC via `windows-rs` `RpcBindingInqAuthClient*` API.
-    OS fournit SID caller authentifié + handle forwarding auto
-    = **~300 LOC custom supprimés** + surface attaque réduite.
-    **~500 LOC + ~30 tests**. Fallback D3 → S30 si `windows-rs`
-    binding immature fin 2026.
-  - **agents_sudo C4 task-scoped sandbox** (cluster C feature C4,
-    cohérence thème isolation) : refactor `crates/nexus-shell-
-    daemon-core/src/blob_serve.rs` iframe renderer génère iframe
-    per-task via `?task_id=<uuid>` query + cache LRU
-    `(app_hash, task_id)` TTL 30s post-task + event `task-done`
-    postMessage trigger iframe destruction + fresh Pyodide
-    interpreter per-task. Design doc long-life
-    `docs/shell/TASK_SCOPED_SANDBOX.md` + opt-in flag
-    AppManifest `requires_task_scoped_sandbox: bool` (défaut
-    false backward-compat Gate 2 apps, true obligatoire Gate 3+
-    T3+ apps). Dep C5 streaming S25 (correlation ID stable
-    cross-iframe-instance, design C5 doit anticiper). **~500 LOC
-    + ~40 tests + ~300 LOC design doc**.
-- **LOC total** : ~2200 initial + 1800 (D2 + D3 + C4) = **~4000
-  LOC** — **dépasse norme ~45%**. Arbitrage user kickoff S28 :
-  D3 peut défer S30 ou LT-4 (dep `windows-rs` crate maturité) ;
-  D2 + C4 obligatoires co-landing (cohérence thème isolation
-  pré-audit S29).
-- **Tests delta** : +40 initial + 120 (D2 + D3 + C4) = **+160**
-- **Dependencies** : S27 Sybil mature. **D2/D3/C4 deps** : S20
-  Phase A/B ✓ (keypair encryption + duress PIN), S27 Couche 3
-  mature, C5 streaming S25.
+> **Post-delivery S28** (2026-04-26) : sprint consolidation 4 phases
+> A-D. Scope redimensionné post-G9 factual kickoff : Nym deferred
+> S30+ (SDK beta 200-800ms, VALIDATED_BLUEPRINT CAUTION), MIG deferred
+> post-v1.0 (A100/H100 enterprise only, RTX 5080 dev = no MIG).
+> D2/D3/C4 broker/executor = design-only (PROCESS_ARCHITECTURE.md),
+> code S29. Sprint pair → phase dette obligatoire (§6.2.1 Règle 1).
+
+- **Goal** : consolider livrables S27 (watermark end-to-end wiring),
+  resoudre dette accumulee (platform writers, ONNX), preparer terrain
+  S29 (process isolation design doc, audit externe scope doc).
+- **Items livres** :
+  - Phase A `c5f35f7` : watermark end-to-end wiring (`compute_bias`
+    dans `llama_cpp.rs` sampling loop + `output_token_ids` populate
+    dans `runtime.rs`) + P2 batch S27 audit 4 items (P2-B-1 injection
+    wire, P2-B-2 `watermark.toml.sample`, P2-C-1 trust_web_seeds.toml
+    fingerprint reel, P2-D-1 PATTERNS P37 path fix)
+  - Phase B `a43a1a1` : platform writers reels (`JournaldWriter`
+    `libsystemd` FFI + `OsLogWriter` `oslog` crate, cfg-gated) +
+    ONNX CI fixture mini-model PII GLiNER Vitest (phase dette sprint
+    pair)
+  - Phase C `ccbb6ca` : `docs/security/PROCESS_ARCHITECTURE.md` design
+    doc (~350 LOC, 11 sections) — broker/executor split, IPC JSON-RPC
+    2.0 UDS/Named Pipe, pool mode N=1 default, cold-start budget <5s,
+    fault isolation backoff exp. Prior art OSS BOINC/Golem/Ollama
+    APPROACH-ALIGNED
+  - Phase D : `docs/security/EXTERNAL_AUDIT_SCOPE.md` — scope audit
+    externe (7 crypto primitives, 6 wire formats, auth loopback,
+    transport iroh, sandbox iframe, vendor matrix Cure53/ToB) +
+    HARDENING_ROADMAP §3 S28 update + Nym/MIG deferrals documentes
+- **Nym mixnet** : **G9 2026-04-25 — SDK beta (`nym-sdk 1.27.0`,
+  VALIDATED_BLUEPRINT rate CAUTION), latences 200-800ms, zero
+  fondation code codebase, pas de transport SOCKS abstraction dans
+  iroh 0.97. Deferred S30+ post-Gate 3.**
+- **MIG partitioning** : **G9 2026-04-25 — MIG = feature A100/H100/
+  H200 enterprise datacenter (NVIDIA MIG User Guide). RTX 5080 =
+  consumer GPU, pas de MIG. Deferred post-v1.0 quand workers
+  enterprise H100 disponibles.**
+- **D2 broker/executor code** : deferred S29 (design doc prerequis
+  PROCESS_ARCHITECTURE.md livre S28 Phase C, cold-start benchmark
+  Ollama 7B requis pre-commit, co-landing C4 task-scoped sandbox)
+- **D3 Windows RPC** : deferred S29 (co-landing D2 + `windows-rs`
+  crate maturite)
+- **C4 task-scoped sandbox** : deferred S29 (co-landing D2)
+- **Tests delta** : +16 (7 watermark Phase A + 5 platform writers
+  Phase B + 4 ONNX fixture Phase B)
+- **Dependencies** : S27 Sybil mature, S27 watermark primitives
 - **Gate unlock** : —
 
 ### Sprint 29 — External audit + remediation buffer
@@ -754,11 +752,17 @@ median app) :
   B1, capabilities D5).
 - **Gate unlock** : —
 
-### Sprint 30 — TEE H100 eval + split inference research
+### Sprint 30 — Nym mixnet phase 1 + TEE H100 eval + split inference research
 
-- **Goal** : Gate 4 eligibility partielle. TEE attestation
-  big-rock pour Gate 4 complet.
+- **Goal** : Gate 4 eligibility partielle. Nym phase 1 (carry S28)
+  + TEE attestation big-rock pour Gate 4 complet.
 - **Items** :
+  - **Nym mixnet integration phase 1** (carry S28 — deferred
+    2026-04-25 post-G9 factual) : SOCKS5 wrapper iroh relay
+    over Nym, test feasibility latence vs UX. Conditionnel
+    `nym-sdk` sortie beta stable (trigger VALIDATED_BLUEPRINT
+    rate CAUTION 2026-04-25). Si SDK toujours beta au kickoff
+    S30, re-defer S32+. — ~1500 LOC
   - TEE H100 attestation integration (hardware partenaire ONG) —
     ~1200 LOC
   - Split inference research prototype (hors v1, document
@@ -773,7 +777,7 @@ median app) :
     TEE-attested) — ~600 LOC + ops runbook
 - **LOC total** : ~2100
 - **Tests delta** : +35
-- **Dependencies** : S28 MIG, S29 audit, S20 Phase E.2/E.5
+- **Dependencies** : S29 audit, S20 Phase E.2/E.5
   primitives (CanarySigner trait, FrostCanarySigner, Attestation
   Provider trait, NoopAttestation impl)
 - **Gate unlock** : Gate 4 eligibility partielle (prerequisites
@@ -864,7 +868,8 @@ S22 NVML baseline profile ────────> S24 random re-run sampling
 S25 Tor phase 1 ──────────────────> S26 Tor prod-ready
                                         └──> S28 Nym mixnet phase 1
 
-S27 Sybil mature + S28 Nym + S28 MIG ─> S29 external audit
+S27 Sybil mature + S28 audit scope doc ──> S29 external audit
+S30 Nym mixnet phase 1 (carry S28) ─────> S30+ Nym prod (Gate 4)
                                              └──> S30 TEE H100 (Gate 4 prep)
 
 S29 external audit remediation ───> S30 Gate 4 eligibility
@@ -911,12 +916,13 @@ multilingue, stockage distribué + MCP tools, pas de GPU requis),
 Surveillance forêt, D&D P2P. Remplace l'ancien "PolitiScan, NEXUS
 cold-case" (cf. `docs/apps/LAUNCH_SHOWCASE.md`).
 
-**Items Gate 3 livrés S22-S27** :
+**Items Gate 3 livrés S22-S28** :
 - Couche 1 AgeWitness ≥7j (S22 Phase C)
 - Couche 2 ContributorAttestation in-toto v1.0 (S22 Phase C)
 - Couche 3 ForgeParser + TrustCache + TrustWebManager (S27 Phase C)
 - Watermark canary-input (S22 Phase E)
 - Watermark output SynthID-inspired (S27 Phase B)
+- Watermark end-to-end wiring llama_cpp.rs + runtime.rs (S28 Phase A)
 - Rate-limit GCRA per-(consumer, worker, model) (S21 Phase A / S22 Phase A)
 - Escalating PoW géométrique (S23 Phase C)
 - Redundancy voting 3-worker majority (S23 Phase D)
@@ -924,12 +930,15 @@ cold-case" (cf. `docs/apps/LAUNCH_SHOWCASE.md`).
 - Guardrails pipeline ABC + GuardrailChain (S24 Phase B)
 - Capabilities gate-off-by-default (S25 Phase A)
 - Key rotation Ed25519 + gossip revocation (S25 Phase B)
-- OS audit SecurityEvent ETW/journald (S26 Phase B)
+- OS audit SecurityEvent ETW/journald/oslog (S26 Phase B + S28 Phase B platform writers)
 - MCP server local-only (S26 Phase A)
+- Process isolation design doc PROCESS_ARCHITECTURE.md (S28 Phase C)
+- External audit scope doc EXTERNAL_AUDIT_SCOPE.md (S28 Phase D)
 
 **Items Gate 3 restants** :
-- Audit externe Cure53/ToB (S29) — ship-blocker
-- Tor transport phase 1 (S28+, conditionnel arti ≥ 1.0)
+- Audit externe Cure53/ToB (S29) ��� ship-blocker
+- THREAT_MODEL §9 per-mode residual risk doc (S29 Phase B4)
+- Tor transport phase 1 (S30+, conditionnel arti ≥ 1.0)
 
 **Gate 4 n'est pas "fin S30"** : S30 livre TEE attestation qui
 est un prerequis, mais les items non-code (partnership, beta
