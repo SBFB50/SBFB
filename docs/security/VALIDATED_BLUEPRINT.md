@@ -272,11 +272,12 @@ partitioning H100/A100 opt-in.
 **Redundancy voting** : k-of-n (3+ workers) majority via
 `Task.redundancy_factor`, spot-check watermark canari aleatoire.
 
-**Watermark injection opt-in** : Kirchenbauer 2023 green-list
-tokens biased.
+**Watermark injection opt-in** : SynthID-inspired PRF z-test
+watermark (arXiv:2509.23019 sept 2025, BIRA-resistant). Replaces
+Kirchenbauer 2023 green-list bias approach (Sprint 27 Phase D).
 
-**Prompt redaction client-side** : regex PII + spaCy NER wasm
-before submission.
+**Prompt redaction client-side** : regex PII + GLiNER span-logits
+NER decoder (replaces spaCy wasm, Sprint 22 Phase B).
 
 **Output filtering** : `llama.cpp` grammar JSON schema
 enforcement + beacon chars scan + prompt injection detection.

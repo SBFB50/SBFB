@@ -255,6 +255,16 @@ Combiner les lecons des 4 patterns :
    filet de securite continu. Le split ne remplace pas la
    verification probabiliste.
 
+5. **`confidence_score` field** : chaque `TaskExecuteResult`
+   devra porter un `confidence_score: f64` (0.0–1.0) reflétant
+   le degré de confiance de la vérification. Exemples : 3/3
+   worker agreement = 1.0, 2/3 majority = 0.66, single worker
+   sans spot-check = 0.33. Le consumer et le coordinator
+   utilisent ce score pour décider d'afficher, re-dispatcher,
+   ou rejeter le résultat. Champ optionnel pré-split (0.0 =
+   non calculé) ; obligatoire post-Gate 4 quand le split est
+   actif.
+
 ### 4.2 Ce que SBFB ne devrait PAS faire
 
 - **Ne pas implementer de split inference avant Gate 4**. Les

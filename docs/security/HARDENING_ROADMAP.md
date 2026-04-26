@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-26  # G2 — Sprint 30 Phase D : 3 triggers ACTIFS scannés (iroh 0.98.0 2026-04-17, arti-client 2.0.0 2026-02-07, openai-agents-python 0.14.6 2026-04-25). S30 scope: P2 batch S29 audit (Phase A) + dette pair CI cross-platform + blob-serve COOP/COEP (Phase B) + warrant canary Niveau 1 FROST DKG code wiring (Phase C) + G2 HARDENING refresh + SPLIT_INFERENCE_DESIGN.md (Phase D). Nym re-deferred S32+ (SDK paused crates.io). TEE scope-cut (no hardware partner). Compteurs ~864 Rust / ~195 SDK / ~394+36f+6s coord / ~46 gov / ~269 Vitest / ~1854 total.
+last_validated: 2026-04-27  # G2 — Sprint 31 Phase D : Tor transport phase 1 delivered (arti-client 2.0 coordinator outbound HTTP, feature gate tor, TorConfig TOML + TorTransport + TorClientWrapper Python). task_runner réel wired (LlmBackend Ollama executor). §9.5 output filter wired E2E post-verify (OutputSafetyGuardrail + rejected + 0 kudos). WebAppFrame orphelin supprimé. iroh 0.98 deferred S32 (Day 0 #3 pin + risque cascade). Carries S31 résolus : P2 task_runner 2/3→closed, P2 output filter 2/3→closed, P2 VALIDATED_BLUEPRINT stale→closed (SynthID+GLiNER), P3 confidence_score→closed, P2 HTTP FROST tests→closed. Triggers ACTIFS inchangés : iroh 0.98.0, arti-client 2.0.0 (intégré S31), openai-agents-python 0.14.6. Compteurs ~878 Rust / ~195 SDK / ~401+36f+6s coord / ~46 gov / ~267 Vitest / ~1870 total.
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -824,32 +824,38 @@ median app) :
   HTTP integration tests FROST endpoints (P2 NEW), whitelist
   inconsistance canary (P3 NEW)
 
-### Sprint 31 — Tor transport phase 1 + carries S30
+### Sprint 31 — Tor transport phase 1 + carries S30 (DELIVERED)
 
 - **Goal** : premiere integration Tor transport via arti-client
   2.0.0 LTS stable (trigger ACTIF rempli S30 kickoff). Feature
   principale + carries S30 resolus.
-- **Items prescrits** :
-  - **Tor transport phase 1** (carry S25→S26→S30→S31 : arti
-    pre-1.0 bloquait, arti-client 2.0.0 LTS stable depuis
-    2026-02-07 debloque — API `TorClient::create_bootstrapped()`
-    + `.connect()` async, standalone SOCKS proxy `arti proxy -p
-    9150`, onion service support. Pas de hybride I2P/Snowflake
-    requis pour phase 1 scope). Wire iroh relay HTTPS fallback
-    over Tor SOCKS5, NOT QUIC direct (UDP impossible via Tor par
-    design). Test regression latence + UX baseline.
-  - §9.5 output filter wire end-to-end (carry 2/3 S30)
-  - task_runner implementation reelle (carry 2/3 S30)
-  - P2 carries S30 Phase B/C reviews
-- **Dependencies** : S30 Phase C (DKG wiring for canary
-  integration test path), S25 Tor phase 1 design docs
-- **Gate unlock** : — (prerequis Gate 3 partiel : Tor transport
-  requis pour B-BGP/B-ISPBlock defense)
-- **Note realisme** : scope exact determine au kickoff S31 post-
-  audit gate S30. Les items prescrits ici sont indicatifs.
+- **Delivered** (2026-04-27, 4 phases A-D) :
+  - **Phase A** : task_runner reel executor wire LlmBackend Ollama
+    (carry 2/3 → closed). OllamaBackend generate(), error path,
+    stub-mode fallback tests.
+  - **Phase B** : §9.5 output filter wired E2E post-verify
+    (carry 2/3 → closed). OutputSafetyGuardrail adapter dans
+    GuardrailChain. Results invalides rejected, 0 kudos credit.
+    WebAppFrame.tsx orphelin supprime (P3-AUDIT-1 closed).
+  - **Phase C** : Tor transport phase 1 coordinator outbound HTTP.
+    TorConfig TOML parse + TorTransport struct + feature gate
+    `tor` sur nexus-core-rs + PyO3 binding + TorClientWrapper
+    Python coord-side + configs/tor.toml.sample. Dep arti-client
+    bloquee par conflit libsqlite3-sys (feature declaree vide,
+    code cfg(feature=tor) pret). Carry S32 : arti-client dep
+    activation post-rusqlite upgrade.
+  - **Phase D** : P2 batch S30 carries (VALIDATED_BLUEPRINT
+    Couche 6 SynthID+GLiNER refresh, SPLIT_INFERENCE confidence_
+    score field, HTTP FROST integration tests) + G2 HARDENING
+    update.
+- **Scope-cut S32** : iroh 0.98 upgrade (Day 0 #3 pin + risque
+  cascade iroh-blobs 0.99). iroh relay over Tor = phase 2 (iroh
+  0.97 pas de proxy config).
+- **Gate unlock** : prerequis Gate 3 partiel (Tor transport
+  coordinator-side delivered, iroh relay Tor = phase 2 S32+)
 
 **Total S18-31** : ~24000 LOC estimees, ~680 tests delta, 14
-sprints.
+sprints. S31 delivered 2026-04-27.
 
 ---
 
