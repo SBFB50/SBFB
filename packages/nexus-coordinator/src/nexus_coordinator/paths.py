@@ -226,6 +226,20 @@ def canary_input_set_path() -> Path:
     return Path.home() / ".sbfb" / "canary_input_set.json"
 
 
+def output_filter_policy_path() -> Path:
+    """Path to the ``output_filter_policy.toml`` hot-reload config.
+
+    Sprint 31 Phase B: the :class:`OutputFilter` watches this file
+    for threshold + toggle overrides. Lives under ``~/.sbfb/`` (not
+    under the project dir) because the policy is per-user, not
+    per-project — same rationale as :func:`canary_input_policy_path`.
+    """
+    override = os.environ.get(_ROOT_OVERRIDE_ENV)
+    if override:
+        return Path(override) / "sbfb" / "output_filter_policy.toml"
+    return Path.home() / ".sbfb" / "output_filter_policy.toml"
+
+
 def contributor_registry_path() -> Path:
     """Path to the contributor attestation registry SQLite file.
 

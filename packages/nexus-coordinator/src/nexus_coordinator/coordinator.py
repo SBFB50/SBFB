@@ -61,6 +61,7 @@ from nexus_coordinator.dispatcher import Dispatcher, SubmitRequest
 from nexus_coordinator.invite import InviteLedger
 from nexus_coordinator.keystore import LoadedKeypair, load_or_generate_keypair
 from nexus_coordinator.kudos import KudosLedger
+from nexus_coordinator.output_filter import OutputFilter
 from nexus_coordinator.paths import (
     app_db_path,
     app_storage_path,
@@ -72,6 +73,7 @@ from nexus_coordinator.paths import (
     coord_config_path,
     coord_key_path,
     iroh_data_path,
+    output_filter_policy_path,
     project_dir,
 )
 from nexus_coordinator.quarantine_queue import QuarantineQueue
@@ -369,6 +371,7 @@ class Coordinator:
             dispatcher=self.dispatcher,
             kudos=self.kudos_ledger,
             db_path=state_db,
+            output_filter=OutputFilter(policy_path=output_filter_policy_path()),
         )
         await self.validator.start()
 
