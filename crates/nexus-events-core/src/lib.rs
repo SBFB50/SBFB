@@ -576,6 +576,27 @@ mod tests {
     }
 
     #[test]
+    fn init_platform_emitter_does_not_panic() {
+        init_platform_emitter();
+        assert!(
+            SECURITY_EMITTER.get().is_some(),
+            "emitter singleton should be initialized"
+        );
+    }
+
+    #[test]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn init_platform_emitter_selects_tracing_on_windows() {
+        // On Windows (neither linux nor macOS), init_platform_emitter
+        // picks TracingWriter. Verify the emitter handles an event
+        // without error after init.
+        init_platform_emitter();
+        emit_event(&SecurityEvent::PanicFired {
+            trigger: "platform-test".into(),
+        });
+    }
+
+    #[test]
     fn emit_capability_changed_produces_jsonl() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("emit_test.jsonl");

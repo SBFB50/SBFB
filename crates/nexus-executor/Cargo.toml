@@ -1,0 +1,25 @@
+[package]
+name = "nexus-executor"
+description = "SBFB executor binary — isolated compute process for task execution (broker/executor split)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[[bin]]
+name = "nexus-executor"
+path = "src/main.rs"
+
+[[bench]]
+name = "cold_start"
+harness = false
+
+[dependencies]
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+reqwest = { workspace = true }

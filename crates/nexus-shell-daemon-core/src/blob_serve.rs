@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// Process isolation note: blob-serve runs inside the broker process
+// (not the executor). A dedicated blob-serve executor is deferred to
+// S30+ (PROCESS_ARCHITECTURE.md §9 Q4, Option B).
 //! Sprint 12 Phase A — blob-serve cache for archived web apps.
 //!
 //! The daemon serves web app archives (zip files stored as iroh

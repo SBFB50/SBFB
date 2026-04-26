@@ -708,6 +708,16 @@ median app) :
 
 ### Sprint 29 — External audit + remediation buffer
 
+> **Note realisme S29-S30** (mise a jour 2026-04-26 kickoff S29) :
+> l'audit externe est un engagement de 4-8 semaines avec un tiers
+> (Trail of Bits ou Cure53). S29 prepare le package audit (process
+> isolation code, TraceProvider, THREAT_MODEL §9, SECURITY.md,
+> BUILDING.md, scope freeze) et livre les prerequis techniques.
+> L'engagement vendor demarre fin S29 ou S30 selon timeline
+> disponibilite. La remediation sera absorbee dans le sprint
+> post-audit (S30 ou S31). Le budget ~1500 LOC remediation est une
+> estimation — il sera affine quand les findings arriveront.
+
 - **Goal** : audit externe paid Cure53 ou Trail of Bits +
   remediation.
 - **Items** :

@@ -118,6 +118,28 @@ parameter injection.
 avant l'engagement audit (S29 Phase D2), inclure dans le scope.
 Sinon, differer a un audit follow-up.
 
+### 2.7 Version verification at RFP time
+
+Before sending the RFP to the audit vendor, verify that all
+dependency versions listed in §2.1-§2.6 match the actual
+`Cargo.lock` / `pyproject.toml` at the scope freeze commit.
+Concrete checklist:
+
+| Check | Command |
+|---|---|
+| Ed25519 dalek version | `cargo tree -p ed25519-dalek --depth 0` |
+| AES-GCM version | `cargo tree -p aes-gcm --depth 0` |
+| FROST version | `cargo tree -p frost-ed25519 --depth 0` |
+| iroh pinned | `cargo tree -p iroh --depth 0` |
+| iroh-blobs pinned | `cargo tree -p iroh-blobs --depth 0` |
+| opentelemetry (if wired) | `cargo tree -p opentelemetry --depth 0` |
+| Scope freeze commit | `git rev-parse --short HEAD` at freeze time |
+
+The scope freeze commit must be recorded in §7 Timeline and
+communicated to the vendor as the exact revision to audit. Any
+code merged after the freeze commit is out of scope for the
+initial engagement.
+
 ---
 
 ## 3. Scope out

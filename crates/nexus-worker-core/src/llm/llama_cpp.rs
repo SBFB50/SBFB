@@ -255,6 +255,10 @@ struct BlockingResult {
     output_token_ids: Vec<u32>,
 }
 
+// 12 params = full LLM generation context (backend, model, ctx/threads,
+// prompt/system, temperature, schema, watermark 4-tuple). All independent
+// config dimensions passed once at call boundary — a transient struct
+// would add indirection for a single callsite.
 #[allow(clippy::too_many_arguments)]
 fn generate_blocking(
     backend: &'static llama_cpp_2::llama_backend::LlamaBackend,
@@ -339,6 +343,9 @@ fn generate_blocking(
 
         // Watermark bias injection: build a per-step sampler chain
         // with logit_bias so green tokens get +delta before sampling.
+        // Sampler chain rebuilt each step because the green-list shifts
+        // with the sliding context window. Cost: 3 primitives alloc/step
+        // (~µs) vs inference cost (~5-50ms/token) — acceptable < 100 req/s.
         let token = if wm_active {
             let context_window: Vec<u32> = generated_ids
                 .iter()
