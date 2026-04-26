@@ -10,6 +10,7 @@ members = [
     "crates/nexus-launcher",
     "crates/nexus-events-core",
     "crates/nexus-executor",
+    "crates/nexus-trace-core",
 ]
 
 # Shared package metadata. Individual crates override name/description.
@@ -74,6 +75,15 @@ thiserror = "1.0"
 anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# OpenTelemetry 0.31 — backend-agnostic tracing infrastructure.
+# Sprint 29 Phase D (D3 PLAN-ADAPT from roadmap 0.27): pinned to
+# 0.31 (latest stable Sept 2025). Key 0.28+ migrations already
+# landed: SdkTracerProvider replaces TracerProvider::builder(),
+# BatchSpanProcessor uses its own background thread (no async
+# runtime), attribute renames (code.filepath → code.file.path).
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["trace"] }
 
 # Async primitives used by the worker engine (W5 Ollama client
 # retry logic and W9 state-machine transitions).

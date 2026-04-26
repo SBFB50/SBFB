@@ -57,6 +57,8 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
+use nexus_trace_core::batch_log::BatchLogProcessor;
+
 use crate::http::{build_router, DaemonHttpState, GossipSenderHandle};
 
 // Sprint 20 Phase A : the env var name used by the launcher to
@@ -443,6 +445,22 @@ impl DaemonRuntime {
                 )
             }
         };
+
+        // 5f. Sprint 29 Phase D: initialize the trace processor
+        //     pipeline with a BatchLogProcessor writing to
+        //     `<root>/traces/daemon.jsonl`. The processor is
+        //     registered globally via `set_trace_processors` so
+        //     any crate in the daemon process can call `emit()`.
+        let trace_log_path = opts.paths.root.join("traces").join("daemon.jsonl");
+        match BatchLogProcessor::new(&trace_log_path, 10 * 1024 * 1024) {
+            Ok(proc) => {
+                nexus_trace_core::set_trace_processors(vec![Box::new(proc)]);
+                info!(path = %trace_log_path.display(), "trace processor pipeline initialized");
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to initialize trace processor — tracing disabled");
+            }
+        }
 
         // 6. Build the shared HTTP state + spawn the serve task.
         let http_state = Arc::new(DaemonHttpState {

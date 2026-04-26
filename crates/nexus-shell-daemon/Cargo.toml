@@ -20,6 +20,7 @@ path = "src/main.rs"
 # the split rationale.
 nexus-shell-daemon-core = { path = "../nexus-shell-daemon-core" }
 nexus-events-core = { path = "../nexus-events-core" }
+nexus-trace-core = { path = "../nexus-trace-core" }
 
 # Direct dependency on nexus-core-rs so the runtime can call
 # `create_node()` at boot. Phase A only uses `create_node` and

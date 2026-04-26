@@ -10,6 +10,8 @@ use clap::Parser;
 use tokio::io::BufReader;
 use tracing::{error, info, warn};
 
+use nexus_trace_core::batch_log::BatchLogProcessor;
+
 use crate::ipc::{
     read_message, write_message, HealthReportParams, JsonRpcNotification, JsonRpcRequest,
     JsonRpcResponse, ShutdownParams, TaskExecuteParams,
@@ -28,6 +30,11 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 async fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
     tracing_subscriber::fmt::init();
+
+    if let Ok(proc) = BatchLogProcessor::new("traces/executor.jsonl", 10 * 1024 * 1024) {
+        nexus_trace_core::set_trace_processors(vec![Box::new(proc)]);
+    }
+
     info!(ipc_path = %cli.ipc_path, "executor starting");
 
     let (read_half, write_half) = connect_ipc(&cli.ipc_path).await?;

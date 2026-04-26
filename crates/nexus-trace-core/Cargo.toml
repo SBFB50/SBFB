@@ -1,0 +1,23 @@
+[package]
+name = "nexus-trace-core"
+description = "SBFB backend-agnostic trace infrastructure — TraceProcessor pipeline + W3C Trace Context propagation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+tracing = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
