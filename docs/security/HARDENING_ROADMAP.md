@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-26  # G2 — Sprint 28 Phase D : 12 triggers re-scanned (all INACTIVE, no S28 impact — openai-agents-python autonomous guardrails, arti pre-1.0, iroh 0.97 stable). S28 scope: watermark end-to-end wiring (Phase A) + platform writers journald/oslog + ONNX CI fixture dette (Phase B) + PROCESS_ARCHITECTURE.md design doc (Phase C) + EXTERNAL_AUDIT_SCOPE.md + HARDENING_ROADMAP update (Phase D). Nym deferred S30+ (SDK beta 200-800ms). MIG deferred post-v1.0 (A100/H100 only). Compteurs ~828 Rust / ~195 SDK / ~391+36f+6s coord / ~46 gov / ~268 Vitest / ~1813 total.
+last_validated: 2026-04-26  # G2 — Sprint 30 Phase D : 3 triggers ACTIFS scannés (iroh 0.98.0 2026-04-17, arti-client 2.0.0 2026-02-07, openai-agents-python 0.14.6 2026-04-25). S30 scope: P2 batch S29 audit (Phase A) + dette pair CI cross-platform + blob-serve COOP/COEP (Phase B) + warrant canary Niveau 1 FROST DKG code wiring (Phase C) + G2 HARDENING refresh + SPLIT_INFERENCE_DESIGN.md (Phase D). Nym re-deferred S32+ (SDK paused crates.io). TEE scope-cut (no hardware partner). Compteurs ~864 Rust / ~195 SDK / ~394+36f+6s coord / ~46 gov / ~269 Vitest / ~1854 total.
 triggers_revalidate:
   - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -23,6 +23,7 @@ audited_findings:
   - "2026-04-20 S22 hors-sprint agents_sudo integration : analyse deep openai-agents-python + microsoft/sudo → 18 features produit identifiées (4 agents parallèles independants cluster A observability / B guardrails / C SDK+streaming / D process+OS integration). Mapping factuel S22 Phase F → S29 + LT-4 tracé dans `.planning/research/S23_to_S29_agents_sudo_integration_matrix.md`. S22 Phase F absorption : D1 three-mode trade-off doc (`docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md` 3 tiers AUTO/CONFIRM_PROMPT/BIOMETRIC_GATE + consent.json threat_note field). S23 amendement : B1 guardrails refactor pipeline déclaratif (6 primitives S16-S22 → contrat Guardrail unifié `docs/security/GUARDRAILS_ARCHITECTURE.md`) + D5 design `docs/security/CAPABILITY_TOGGLES.md` capabilities gate-off-by-default via binaire `nexus-admin`. S24 amendement : A1 `TaskDispatchHooks` + C3 handoffs semantic dispatcher. S25 amendement : D5-implem + A3 OS audit channel ETW/journald/oslog + B2 MCP server expose + C2 `@task_handler` SDK + C5 streaming bridge (5 features = FAT, split recommandé). S26 amendement : C1 SQLiteSession abstraction crate + A4 process role tagging. S28 amendement : D2 broker/executor split + D3 Windows RPC + C4 task-scoped sandbox (cohérence runtime isolation). S29 amendement : A2 TraceProvider OTEL backend-agnostic + B4 per-mode residual risk doc THREAT_MODEL §9 pre-audit Cure53/ToB. LT-4 net-new : D4 OS biometric gate cross-platform post-v1.0 (trigger v1.0 + S30 FROST N1 + partnership OpSec signal). Cap G7 bilan : 0 slot carry-over formel consommé pre-v1.0 (tout via amendements §3 + items net-new + chore hors-sprint + Phase F absorption). Pre-launch protocol respectée (nouveaux DOMAIN_TRACE_EVENT_V1 + DOMAIN_OS_AUDIT_EVENT_V1 + capabilities.toml + bridge.schema.json extension P24 additif = design-only pre-launch stable, zéro bump *_VERSION). Arbitrages user différés kickoff S23 + S25 : B1 timing (dédié/distribué/défer), S25 split (D5+B2 priorité vs A3+C2+C5 carry), D5 enforcement (Semgrep strict vs CI manuel)."
   - "2026-04-25 S27 Phase D : SynthID-inspired PRF z-test watermark output remplace Kirchenbauer KGW (BIRA-resistant, arXiv:2509.23019 sept 2025). Couche 3 mature : ForgeParser git-log offline GPG/SSH + TrustCache SQLite LRU 7j + TrustWebManager cross-forge score + DelegationCert v1 étendu trust_level + trust-web seed FlowUP bootstrap (ONG S28). P2 batch S26 7 fixes (validate_stage_guard_map wire + emit_capability_event logger + TaskHandlerDescriptor description + JsonFileWriter rotation + TracingWriter rename + MCP lifespan comment + no-LOC convention). Gate 3 prerequisites checklist mise à jour : Alexandria showcase reframing. SELF_DISTRIBUTION.md design doc (binaries = blobs P2P). ~821 Rust / ~195 SDK / ~419+14 coord / ~46 gov / ~264 Vitest / ~41+2 PW / ~1797 total."
   - "2026-04-26 S28 Phase D : sprint consolidation. Phase A watermark end-to-end wiring (compute_bias llama_cpp.rs + output_token_ids runtime.rs) + P2 batch S27 4 items. Phase B platform writers réels JournaldWriter libsystemd + OsLogWriter oslog (cfg-gated) + ONNX CI fixture mini-model GLiNER (dette sprint pair). Phase C PROCESS_ARCHITECTURE.md design doc broker/executor split 11 sections (IPC JSON-RPC 2.0, pool mode, cold-start <5s, fault isolation). Phase D EXTERNAL_AUDIT_SCOPE.md (7 crypto + 6 wire + auth + transport + sandbox, vendor matrix Cure53/ToB) + HARDENING_ROADMAP update (Nym S30+, MIG post-v1.0). Nym deferred S30+ (SDK beta 200-800ms, VALIDATED_BLUEPRINT CAUTION). MIG deferred post-v1.0 (A100/H100 only, RTX 5080 no MIG). ~828 Rust / ~195 SDK / ~391+36f+6s coord / ~46 gov / ~268 Vitest / ~1813 total."
+  - "2026-04-26 S30 Phase D : 3 triggers ACTIFS documentés. (1) iroh 0.98.0 publié 2026-04-17 (trigger 'iroh > 0.97' ACTIF — Day 0 #3 pin bloque upgrade, LT-6 condition partiellement remplie, awareness only). (2) arti-client 2.0.0 stable 2026-02-07 (trigger 'arti > 1.x stable' ACTIF — Tor transport phase 1 faisable, reporté S31 comme feature principale). (3) openai-agents-python 0.14.6 publié 2026-04-25 (trigger '> 0.7.0' ACTIF — informationnel, pas de dep directe SBFB). Triggers INACTIFS : frost-ed25519 (2.1.0 stable), wasmtime, Tor PoW hspow, NIST PQC FIPS, NVIDIA H100 CCM, RFC 9591, MCP spec, microsoft/sudo. S30 sprint pair : Phase A P2 batch S29 audit 7 items. Phase B dette CI cross-platform GitHub Actions (ubuntu+macOS nexus-events-core) + blob-serve COOP/COEP isolation headers. Phase C warrant canary Niveau 1 FROST DKG code wiring (canary/dkg.rs + canary/ceremony.rs + 5 CLI subcommands + 4 HTTP endpoints T0 + configs/canary.toml.sample + ops runbook). Phase D G2 HARDENING_ROADMAP refresh + SPLIT_INFERENCE_DESIGN.md research doc. S30 scope-cuts : Nym re-deferred S32+ (SDK paused crates.io), TEE scope-cut (no hardware partner), DKG distribué post-v1.0, Tor transport S31, task_runner + §9.5 output filter wire S31. ~864 Rust / ~195 SDK / ~394+36f+6s coord / ~46 gov / ~269 Vitest / ~1854 total."
   - "2026-04-20 S22 CLOSED (Phase F wrap-up) : 5 phases A-E livrées sur le thème Sybil-resistance composition 3 couches + rate-limit engine wire + GLiNER span-decoder + NVML baseline + watermark canari primitive + process fixes. Phase A `0bc499f` rate-limit engine wire-up runtime.rs ClaimEntry gate + Arc swap hot-reload + policy sample (absorbe P2-S21-1/2/6 + P3-S21-4). Phase B `e9530c2` GLiNER span-logits decoder iframe SDK (absorbe P2-S21-3, `web/src/sdk/pii/decoder.ts` decodeSpans + greedyDedup + toFinding). Phase C `cf3918c` Sybil-resistance composition 3 couches : Couche 1 `AgeWitness` peer-attestation Ed25519 domain `DOMAIN_AGE_WITNESS_V1` + bootstrap allowlist `BootstrapAllowlistWatcher` hot-reload (P0-G1-1 ack) + `join_topic_with_age_witness` gossip admission ≥7j ; Couche 2 `ContributorAttestation` in-toto v1.0 predicate `nexus-grid/contributor-attestation/v1` + `ContributorRegistry` coord-side SQLite + `curator::verify_with_contributor_registry` + daemon proxy + Matthew-effect TODO inline LT-1 Kudos-v2 commitment (P0-G1-2 + P2-G1-3 acks) ; Couche 3 RFC design-only `docs/security/CONTRIBUTOR_ATTESTATION_RFC.md` multi-forge cross-validate + `DelegationCert` + trust-web Amnesty S27 integration. Phase D `56211f2` NVML util+duree profile log-only baseline foundation S24 (`nvml-wrapper 0.12.1` workspace-pinned + `crates/nexus-worker-core/src/gpu/profile.rs` + SQLite `nvml_samples` + `NvmlWindowStats` stats-only pas anomaly). Phase E `690fab3` watermark canari-input primitive consumer 1/N (`canary_input.py` ~520 LOC + `CanaryInputSet` Ed25519 signé coord rotatable + `CanaryInputInjector` hook pre-dispatch + `CanaryInputObserver` rapidfuzz Levenshtein similarity + Typer CLI `canary rotate/status` + hot-reload pattern output_filter S21). Phase F `<HEAD>` wrap-up + verification + audit plan S23 + process fixes P2-S21-4 `docs/claude/README.md §4.4` règle parse phase_[A-F]_review.md vers audit_plan Track + P2-S21-5 GHA `.github/workflows/phase-review-cross-check.yml` PR check + `.claude/.bypass_audit_trail.log` append-only + migration PARA active→archive/v1.2/. **Deuxième sprint avec G8 systématique 6/6 phases A-F (0 DESIGN-CONFLICT déclenché — G1 pre-gel post-S21 robuste)**. Cap G7 carry-overs respecté 1/2 → S23 : T-NN+2 iframe Rust-wasm Option G PATTERNS §P34 hors cap formel. LT-2 Meta-1 Radicle-v1.0 **reclassification sortie cap G7** régularisée kickoff §4 D5 (trigger unique tag v1.0 go-live, runbook `docs/release/MIRROR_FALLBACK.md §3`). LT-3 Contribution family Sybil matrix + LT-4 OS biometric gate ouverts hors-sprint (post-v1.0). Compteurs finals : 710 Rust / 185 SDK / 263+3 skipped coord / 46 gov / 264 Vitest / 38 Playwright / 7/7 size / 246+ SPDX (~1509 tests, +73 vs baseline 1436). Over-delivery +30 vs projection §11 documentée verification.md §4 (tests d'infrastructure bonus cross-couches Phase A + integration tests Phase C + bonus Phase E helpers). Wire formats nouveaux pre-launch stable : `AGE_WITNESS_VERSION = 1` + `CONTRIBUTOR_ATTESTATION_VERSION = 1` + `DELEGATION_CERT_VERSION = 1` (design-only Couche 3). Aucun tolerant decoder multi-version. Pas de nouvelle zone rouge. Carries S23 audit_plan : P2-S22A-1 dashmap dep unused post-refacto (worker-core Cargo.toml cleanup) + P2-S22A-3 PATTERNS.md §P33 structure obsolète (post-wire update) + P2-B-1 ONNX end-to-end non exercé CI (fixture model mini dédiée carry) + P2-B-2 wrapper.ts:308-311 fallbackDetect trigger 0 entities (sémantique explicit) + P2-E-1 `_reload_policy_locked` suffix trompeur (naming convention) + P2-E-2 pattern LOC estimations prospectives plans (3 occurrences S22, chore planning README §6.7 amend) + P3-E-1 `/api/canary/observed-divergence` expose expected_answer (carry S23 B1 alerting) + Meta-track Playwright PII end-to-end carry S23 Track B fixture model."
 -->
 
@@ -762,39 +763,93 @@ median app) :
   B1, capabilities D5).
 - **Gate unlock** : —
 
-### Sprint 30 — Nym mixnet phase 1 + TEE H100 eval + split inference research
+### Sprint 30 — Dette pair + warrant canary Niveau 1 DKG + G2 remediation + split inference research
 
-- **Goal** : Gate 4 eligibility partielle. Nym phase 1 (carry S28)
-  + TEE attestation big-rock pour Gate 4 complet.
-- **Items** :
-  - **Nym mixnet integration phase 1** (carry S28 — deferred
-    2026-04-25 post-G9 factual) : SOCKS5 wrapper iroh relay
-    over Nym, test feasibility latence vs UX. Conditionnel
-    `nym-sdk` sortie beta stable (trigger VALIDATED_BLUEPRINT
-    rate CAUTION 2026-04-25). Si SDK toujours beta au kickoff
-    S30, re-defer S32+. — ~1500 LOC
-  - TEE H100 attestation integration (hardware partenaire ONG) —
-    ~1200 LOC
-  - Split inference research prototype (hors v1, document
-    findings) — ~300 LOC (docs)
-  - **Warrant canary Niveau 1 enforcement** (consumer of S20
-    Phase E.2 + E.5 federation foundations) — recruit 3+
-    cross-juridiction maintainers, distribute K=2/N=3 FROST
-    shares per `WARRANT_CANARY_HARDENING.md §FROST DKG procedure`,
-    wire `AttestationProvider` impl to TEE H100 quote backend ;
-    flips warrant canary from Niveau 0 (single-key, this-machine
-    trust root) to Niveau 1 (threshold-distributed,
-    TEE-attested) — ~600 LOC + ops runbook
-- **LOC total** : ~2100
-- **Tests delta** : +35
-- **Dependencies** : S29 audit, S20 Phase E.2/E.5
-  primitives (CanarySigner trait, FrostCanarySigner, Attestation
-  Provider trait, NoopAttestation impl)
-- **Gate unlock** : Gate 4 eligibility partielle (prerequisites
-  complets ; release reel requiert S31+ partnership + beta ferme
-  18 mois)
+> **Post-delivery S30** (2026-04-26) : sprint pair redimensionne
+> post-G9 factual kickoff. Prescrit original (S17) : Nym phase 1 +
+> TEE H100 + split inference + Niveau 1 enforcement (~2100 LOC).
+> Livre effectivement : dette pair obligatoire (CI cross-platform +
+> blob-serve COOP/COEP) + warrant canary Niveau 1 DKG code wiring
+> (sans recrutement, sans TEE) + G2 HARDENING refresh (3 triggers
+> actifs) + SPLIT_INFERENCE_DESIGN.md research doc.
 
-**Total S18-30** : ~22700 LOC, ~660 tests delta, 13 sprints.
+- **Goal** : dette pair obligatoire (CI cross-platform MANDATORY +
+  blob-serve isolation) + wiring code warrant canary Niveau 1 FROST
+  DKG + remediation G2 HARDENING_ROADMAP (3 triggers actifs) +
+  research doc split inference.
+- **Items prescrits — statut reel** :
+  - **Nym mixnet integration phase 1** — **RE-DEFERRED S32+**.
+    `nym-sdk` publication crates.io **paused** depuis v1.20.4
+    (travaux Lewes Protocol non publies). Import Git-only, zero
+    fondation code codebase, pas de transport SOCKS abstraction
+    dans iroh 0.97. Trigger condition non remplie au kickoff S30.
+  - **TEE H100 attestation** — **SCOPE-CUT**. Pas de partenaire
+    hardware ONG. RTX 5080 = consumer GPU, pas de CC mode. TEE =
+    prerequis LT-4 condition (c), post-v1.0.
+  - **Split inference research** — **LIVRE Phase D**.
+    `docs/security/SPLIT_INFERENCE_DESIGN.md` research doc
+    (BOINC/Truebit/Golem/split learning patterns, threat model
+    C-PromptLeak implications, recommendations sprint dedie
+    post-Gate 4).
+  - **Warrant canary Niveau 1 enforcement** — **PARTIELLEMENT
+    LIVRE Phase C** (scope reduit : code wiring DKG ceremony sans
+    recrutement mainteneurs ni TEE attestation). `canary/dkg.rs`
+    (DKG distribution layer, `generate_dkg` + `load_share` +
+    `load_pubkey`), `canary/ceremony.rs` (step-by-step round1/
+    round2/aggregate FROST hex-serialized types), 5 CLI sous-
+    commandes `canary frost`, 4 HTTP endpoints `POST /api/canary/
+    frost/*` (T0 admin), `configs/canary.toml.sample`,
+    WARRANT_CANARY_HARDENING.md §4 ops runbook mis a jour.
+    Recrutement mainteneurs = ops post-v1.0. TEE attestation =
+    prerequis LT-4. `NoopAttestation` maintenu.
+- **Items supplementaires (dette pair + G2)** :
+  - Phase A : P2 batch S29 audit 7 items (HARDENING_ROADMAP
+    otel fix, consent.py pure function refactor, executor trace
+    path, THREAT_MODEL §9.5 gap note, task_runner defense-in-
+    depth)
+  - Phase B (dette §6.2.1 Regle 1) : CI cross-platform GitHub
+    Actions `ubuntu-latest` + `macos-latest` scope
+    `nexus-events-core` (P2-B-1-S28 3/3 MANDATORY ferme) +
+    blob-serve COOP/COEP + X-Content-Type-Options headers
+    (P2-C-1-S28 2/3→3/3 ferme)
+- **Tests delta** : +10 (8 Rust canary DKG/ceremony + 2 Rust
+  blob-serve headers)
+- **Dependencies** : S29 audit (satisfait `dcdda7e`), S20
+  Phase E.2/E.5 primitives (CanarySigner, FrostCanarySigner,
+  AttestationProvider, NoopAttestation)
+- **Gate unlock** : — (Gate 4 prerequisites toujours incomplets —
+  Nym + TEE + recrutement = post-v1.0)
+- **Carries S31** : §9.5 output filter wire (2/3), task_runner
+  implementation (2/3), Playwright COEP regression (P2 NEW),
+  HTTP integration tests FROST endpoints (P2 NEW), whitelist
+  inconsistance canary (P3 NEW)
+
+### Sprint 31 — Tor transport phase 1 + carries S30
+
+- **Goal** : premiere integration Tor transport via arti-client
+  2.0.0 LTS stable (trigger ACTIF rempli S30 kickoff). Feature
+  principale + carries S30 resolus.
+- **Items prescrits** :
+  - **Tor transport phase 1** (carry S25→S26→S30→S31 : arti
+    pre-1.0 bloquait, arti-client 2.0.0 LTS stable depuis
+    2026-02-07 debloque — API `TorClient::create_bootstrapped()`
+    + `.connect()` async, standalone SOCKS proxy `arti proxy -p
+    9150`, onion service support. Pas de hybride I2P/Snowflake
+    requis pour phase 1 scope). Wire iroh relay HTTPS fallback
+    over Tor SOCKS5, NOT QUIC direct (UDP impossible via Tor par
+    design). Test regression latence + UX baseline.
+  - §9.5 output filter wire end-to-end (carry 2/3 S30)
+  - task_runner implementation reelle (carry 2/3 S30)
+  - P2 carries S30 Phase B/C reviews
+- **Dependencies** : S30 Phase C (DKG wiring for canary
+  integration test path), S25 Tor phase 1 design docs
+- **Gate unlock** : — (prerequis Gate 3 partiel : Tor transport
+  requis pour B-BGP/B-ISPBlock defense)
+- **Note realisme** : scope exact determine au kickoff S31 post-
+  audit gate S30. Les items prescrits ici sont indicatifs.
+
+**Total S18-31** : ~24000 LOC estimees, ~680 tests delta, 14
+sprints.
 
 ---
 
@@ -882,7 +937,11 @@ S27 Sybil mature + S28 audit scope doc ──> S29 external audit
 S30 Nym mixnet phase 1 (carry S28) ─────> S30+ Nym prod (Gate 4)
                                              └──> S30 TEE H100 (Gate 4 prep)
 
-S29 external audit remediation ───> S30 Gate 4 eligibility
+S29 external audit remediation ───> S30 Gate 4 eligibility (partiel)
+
+S30 warrant canary DKG ───────────> S31 Tor transport phase 1
+     ( Niveau 1 code wiring )           ( arti 2.0 LTS + carries S30 )
+S30 SPLIT_INFERENCE_DESIGN.md ────> post-Gate 4 split inference sprint
 ```
 
 **Invariants critiques** :
