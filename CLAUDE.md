@@ -121,16 +121,15 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-28 CLOSED**, v1.2 en cours. Audit gate S28 = S29
-  Phase 0 (`.planning/active/sprint29_audit_plan.md`).
-- **~1813 tests total** (828 Rust / 195 SDK / 391+36f+6s coord / 46
-  app-gov / 268 Vitest / 43 Playwright / 7/7 size-limit) — tous
+- **Sprints 0-29 CLOSED**, v1.2 en cours. Audit gate S29 = S30
+  Phase 0 (`.planning/active/sprint30_audit_plan.md`).
+- **~1845 tests total** (856 Rust / 195 SDK / 393+36f+6s coord / 46
+  app-gov / 269 Vitest / 43 Playwright / 4/4 size-limit) — tous
   verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
   meme root cause wheel stale, pas regression).
-- Carry S29 : 8 P2 phase reviews (generate_blocking params,
-  sampler alloc, CI Linux/macOS writers, init_platform_emitter,
-  blob-serve isolation, cold-start benchmark, Note realisme S29-S30,
-  version note audit RFP).
+- Carry S30 : 6 P2 phase reviews (CI Linux/macOS **MANDATORY 3/3**,
+  blob-serve isolation 2/3, consent.py mutation, §9.5 output filter,
+  task_runner stub, executor trace log path).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).

@@ -214,12 +214,24 @@ Avant engagement audit, les items suivants doivent etre livres :
 
 ```
 S28 Phase D (ce document)     → scope finalise
-S29 Phase A                   → RFP envoi + engagement vendor
-S29 Phase B                   → THREAT_MODEL §9 per-mode doc
-S29 Phase C                   → audit execution (4-6 semaines)
-S29 Phase D                   → findings reception + remediation
-S29 Phase E                   → remediation verification + public report
+S29 Phase A                   → P2 batch + cold-start benchmark
+S29 Phase B                   → THREAT_MODEL §9 + SECURITY.md + BUILDING.md
+S29 Phase C                   → broker/executor split (process isolation MVP)
+S29 Phase D                   → TraceProvider opentelemetry 0.31
+S29 Phase E (scope freeze)    → tip documente ci-dessous
+S30                           → RFP envoi + engagement vendor (4-8 semaines)
+S30+                          → findings reception + remediation
+Post-audit                    → public report + Gate 3
 ```
+
+### Scope freeze point
+
+**Tip commit** : sera le commit Phase E de Sprint 29.
+**Date** : 2026-04-26.
+
+Ce tip + BUILDING.md + THREAT_MODEL.md §9 + SECURITY.md + security.txt
+= package envoyable au vendor. Tout code merge apres ce tip est hors
+scope de l'engagement initial.
 
 **Ship-blocker Gate 3** : le rapport d'audit public avec
 remediation verifiee est un prerequis au deblocage Gate 3
