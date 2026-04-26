@@ -121,20 +121,21 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-29 CLOSED**, v1.2 en cours. Audit gate S29 = S30
-  Phase 0 (`.planning/active/sprint30_audit_plan.md`).
-- **~1845 tests total** (856 Rust / 195 SDK / 393+36f+6s coord / 46
-  app-gov / 269 Vitest / 43 Playwright / 4/4 size-limit) — tous
+- **Sprints 0-30 CLOSED**, v1.2 en cours. Audit gate S30 = S31
+  Phase 0 (`.planning/active/sprint31_audit_plan.md`).
+- **~1854 tests total** (864 Rust / 195 SDK / 394+36f+6s coord / 46
+  app-gov / 269 Vitest / 43 Playwright / 7/7 size-limit) — tous
   verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
   meme root cause wheel stale, pas regression).
-- Carry S30 : 6 P2 phase reviews (CI Linux/macOS **MANDATORY 3/3**,
-  blob-serve isolation 2/3, consent.py mutation, §9.5 output filter,
-  task_runner stub, executor trace log path).
+- Carry S31 : 6 P2 phase reviews (§9.5 output filter 2/3,
+  task_runner stub 2/3, Playwright COEP test 1/3,
+  VALIDATED_BLUEPRINT Couche 6 stale 1/3, HTTP FROST tests 1/3,
+  confidence_score field 1/3).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
-  LT-6 iroh neighborhood enrichment (ex-P2-E-1-iroh, reclassifie S26).
+  LT-6 iroh neighborhood enrichment (trigger met iroh 0.98.0, bloque Day 0 #3).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
