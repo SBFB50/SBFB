@@ -5,7 +5,7 @@
 //!
 //! - [`batch_log::BatchLogProcessor`] — JSON structured → rotating
 //!   JSONL file (default backend, zero external deps).
-//! - [`otel::OtelProcessor`] — bridge to OpenTelemetry 0.28+
+//! - [`otel::OtelProcessor`] — bridge to OpenTelemetry 0.31
 //!   `SdkTracerProvider`. Plug any OTel exporter (OTLP, stdout,
 //!   Jaeger) at construction time.
 //! - [`signed::SignedCanaryProcessor`] — Ed25519-signed trace

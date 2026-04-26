@@ -442,6 +442,10 @@ Le pipeline declaratif (`GUARDRAILS_ARCHITECTURE.md`) chaine les
 guardrails : PII filter, watermark, output filter, rate limit.
 Chaque guardrail est togglable.
 
+> **Status** : output filter designed Sprint 23, wire end-to-end
+> target Sprint 31. PII filter + watermark + rate limit sont wired
+> (S21-S24). Output filter reste design-only (carry P2-REVIEW-B-2).
+
 | Combo desactive | Risque residuel | Impact |
 |---|---|---|
 | PII filter OFF | Donnees personnelles dans les outputs ne sont pas detectees. | R5 linkability amplifie + RGPD Art.25 non-conformite. |

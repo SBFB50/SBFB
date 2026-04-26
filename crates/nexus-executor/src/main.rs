@@ -31,6 +31,9 @@ async fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
     tracing_subscriber::fmt::init();
 
+    // Intentional relative path: the executor runs as a child process
+    // of the broker and must NOT share the daemon's trace directory.
+    // Process isolation requires each binary to own its trace output.
     if let Ok(proc) = BatchLogProcessor::new("traces/executor.jsonl", 10 * 1024 * 1024) {
         nexus_trace_core::set_trace_processors(vec![Box::new(proc)]);
     }

@@ -159,6 +159,26 @@ def test_consent_residual_threats_field(consent_client: TestClient) -> None:
     assert again["level_threat_note"] == body["level_threat_note"]
 
 
+def test_consent_threat_fields_pure(consent_client: TestClient) -> None:
+    """_threat_fields_for_level is a pure function: POST /set does
+    not persist derived threat fields, but the response includes them."""
+    payload = {
+        "level": 3,
+        "caps": {"max_watts": 200, "max_vram_mb": 8192, "max_hours_day": 6.0},
+        "allowed_project_ids": [],
+        "own_node_id": "self",
+    }
+    resp = consent_client.post("/consent/set", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["level_threat_note"] != ""
+    assert "R3-rate-limit-absent" in body["residual_threats_acknowledged"]
+
+    raw = json.loads(consent_path().read_text(encoding="utf-8"))
+    assert raw.get("level_threat_note", "") == ""
+    assert raw.get("residual_threats_acknowledged", []) == []
+
+
 def test_security_txt_valid() -> None:
     """Verify .well-known/security.txt follows RFC 9116."""
     from pathlib import Path

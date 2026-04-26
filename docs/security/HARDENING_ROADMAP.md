@@ -731,7 +731,7 @@ median app) :
     `nexus-trace-core`) + Python sibling via PyO3. Backends :
     `BatchLogProcessor` JSON structured → file default ;
     `OtelProcessor` OTLP/gRPC Grafana Tempo / Jaeger via
-    `opentelemetry 0.27` ; `SignedCanaryProcessor` Ed25519-signed
+    `opentelemetry 0.31` ; `SignedCanaryProcessor` Ed25519-signed
     trace events (`DOMAIN_TRACE_EVENT_V1` nouveau domain design-
     only pre-launch stable) — réutilise `nexus-core-py::sign_bytes`
     pattern S14/S20 Phase E. W3C Trace Context propagation

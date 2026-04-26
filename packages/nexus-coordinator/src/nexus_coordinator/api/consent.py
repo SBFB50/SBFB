@@ -123,11 +123,12 @@ class ConsentConfig(BaseModel):
         return v
 
 
-def _populate_threat_fields(cfg: ConsentConfig) -> ConsentConfig:
-    """Fill derived threat fields from the consent level."""
-    cfg.level_threat_note = _LEVEL_THREAT_NOTES.get(cfg.level, "")
-    cfg.residual_threats_acknowledged = list(_LEVEL_RESIDUAL_THREATS.get(cfg.level, []))
-    return cfg
+def _threat_fields_for_level(level: int) -> dict[str, str | list[str]]:
+    """Return derived threat fields for a consent level (pure function)."""
+    return {
+        "level_threat_note": _LEVEL_THREAT_NOTES.get(level, ""),
+        "residual_threats_acknowledged": list(_LEVEL_RESIDUAL_THREATS.get(level, [])),
+    }
 
 
 class WhitelistEntry(BaseModel):
@@ -188,21 +189,21 @@ def _save_atomic(cfg: ConsentConfig) -> None:
 async def get_consent() -> ConsentConfig:
     """Return the current preferences, or built-in defaults if
     the user has never opened the dialog."""
-    return _populate_threat_fields(_load_atomic())
+    cfg = _load_atomic()
+    return cfg.model_copy(update=_threat_fields_for_level(cfg.level))
 
 
 @router.post("/set")
 async def set_consent(cfg: ConsentConfig) -> ConsentConfig:
     """Replace the full consent payload. Pydantic validates the
     level / caps / whitelist shape before we touch disk."""
-    _populate_threat_fields(cfg)
     _save_atomic(cfg)
     _log.info(
         "consent.json updated",
         level=cfg.level,
         whitelist_size=len(cfg.allowed_project_ids),
     )
-    return cfg
+    return cfg.model_copy(update=_threat_fields_for_level(cfg.level))
 
 
 @router.post("/whitelist/add")
