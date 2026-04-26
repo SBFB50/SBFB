@@ -24,6 +24,10 @@
 //!   injects `Content-Security-Policy: connect-src 'none'` on
 //!   every response so scripts inside the iframe cannot make
 //!   outbound network requests.
+//! - **COOP/COEP headers** — `Cross-Origin-Opener-Policy:
+//!   same-origin` isolates the browsing context group,
+//!   `Cross-Origin-Embedder-Policy: require-corp` blocks
+//!   cross-origin resources lacking explicit CORP opt-in.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -266,6 +270,10 @@ pub fn detect_content_type(filename: &str, data: &[u8]) -> &'static str {
 /// running inside the sandboxed iframe.
 pub const BLOB_SERVE_CSP: &str =
     "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'none'; frame-ancestors *";
+
+pub const BLOB_SERVE_COOP: &str = "same-origin";
+
+pub const BLOB_SERVE_COEP: &str = "require-corp";
 
 // =================================================================
 // Tests

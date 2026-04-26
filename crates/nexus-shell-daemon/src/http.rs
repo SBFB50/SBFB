@@ -248,18 +248,24 @@ pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
         .layer(loopback_cors_layer())
 }
 
-/// Middleware that injects CSP + X-Content-Type-Options headers
-/// on every blob-serve response, including error responses.
-/// Sprint 13 Phase A (T37).
+/// Middleware that injects security headers on every blob-serve
+/// response, including error responses.
 async fn blob_serve_csp_middleware(request: Request, next: Next) -> impl IntoResponse {
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
-    // Safe to unwrap: both values are compile-time constants.
     headers.insert(
         "content-security-policy",
         blob_serve::BLOB_SERVE_CSP.parse().unwrap(),
     );
     headers.insert("x-content-type-options", "nosniff".parse().unwrap());
+    headers.insert(
+        "cross-origin-opener-policy",
+        blob_serve::BLOB_SERVE_COOP.parse().unwrap(),
+    );
+    headers.insert(
+        "cross-origin-embedder-policy",
+        blob_serve::BLOB_SERVE_COEP.parse().unwrap(),
+    );
     response
 }
 
@@ -1868,6 +1874,24 @@ mod tests {
             "nosniff"
         );
 
+        // Check COOP/COEP isolation headers.
+        assert_eq!(
+            resp.headers()
+                .get("Cross-Origin-Opener-Policy")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "same-origin"
+        );
+        assert_eq!(
+            resp.headers()
+                .get("Cross-Origin-Embedder-Policy")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "require-corp"
+        );
+
         // Check content.
         let body = to_bytes(resp.into_body(), 4096).await.unwrap();
         assert_eq!(&body[..], b"<h1>Hello SBFB</h1>");
@@ -2020,6 +2044,14 @@ mod tests {
         assert!(
             resp.headers().get("x-content-type-options").is_some(),
             "X-Content-Type-Options header missing on 404 blob-serve response",
+        );
+        assert!(
+            resp.headers().get("cross-origin-opener-policy").is_some(),
+            "COOP header missing on 404 blob-serve response",
+        );
+        assert!(
+            resp.headers().get("cross-origin-embedder-policy").is_some(),
+            "COEP header missing on 404 blob-serve response",
         );
     }
 
