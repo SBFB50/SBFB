@@ -24,6 +24,8 @@ tokio = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+ollama-rs = { workspace = true }
+url = { workspace = true }
 nexus-trace-core = { path = "../nexus-trace-core" }
 
 [dev-dependencies]

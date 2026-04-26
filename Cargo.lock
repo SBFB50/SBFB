@@ -3814,12 +3814,14 @@ version = "1.0.0"
 dependencies = [
  "clap",
  "nexus-trace-core",
+ "ollama-rs",
  "reqwest",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

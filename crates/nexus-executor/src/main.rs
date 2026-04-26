@@ -7,8 +7,10 @@ mod task_runner;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
+use ollama_rs::Ollama;
 use tokio::io::BufReader;
 use tracing::{error, info, warn};
+use url::Url;
 
 use nexus_trace_core::batch_log::BatchLogProcessor;
 
@@ -22,6 +24,8 @@ use crate::ipc::{
 struct Cli {
     #[arg(long)]
     ipc_path: String,
+    #[arg(long)]
+    ollama_endpoint: Option<String>,
 }
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
@@ -36,6 +40,31 @@ async fn main() -> std::io::Result<()> {
     // Process isolation requires each binary to own its trace output.
     if let Ok(proc) = BatchLogProcessor::new("traces/executor.jsonl", 10 * 1024 * 1024) {
         nexus_trace_core::set_trace_processors(vec![Box::new(proc)]);
+    }
+
+    let ollama = cli
+        .ollama_endpoint
+        .as_ref()
+        .map(|endpoint| {
+            let url = Url::parse(endpoint).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("invalid --ollama-endpoint: {e}"),
+                )
+            })?;
+            let host = format!(
+                "{}://{}",
+                url.scheme(),
+                url.host_str().unwrap_or("localhost")
+            );
+            let port = url.port_or_known_default().unwrap_or(11434);
+            info!(endpoint = %endpoint, "ollama backend configured");
+            Ok::<_, std::io::Error>(Ollama::new(host, port))
+        })
+        .transpose()?;
+
+    if ollama.is_none() {
+        info!("no --ollama-endpoint, running in stub mode");
     }
 
     info!(ipc_path = %cli.ipc_path, "executor starting");
@@ -54,7 +83,7 @@ async fn main() -> std::io::Result<()> {
             msg = read_message(&mut reader) => {
                 match msg {
                     Ok(value) => {
-                        if let Err(e) = handle(value, &mut writer, &start).await {
+                        if let Err(e) = handle(value, &mut writer, &start, ollama.as_ref()).await {
                             if e.to_string() == "shutdown" {
                                 info!("graceful shutdown");
                                 return Ok(());
@@ -84,6 +113,7 @@ async fn handle<W: tokio::io::AsyncWrite + Unpin>(
     value: serde_json::Value,
     writer: &mut W,
     _start: &Instant,
+    ollama: Option<&Ollama>,
 ) -> std::io::Result<()> {
     let method = value.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let id = value.get("id").and_then(|i| i.as_u64());
@@ -102,14 +132,21 @@ async fn handle<W: tokio::io::AsyncWrite + Unpin>(
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
             let t0 = Instant::now();
-            let mut result = task_runner::execute_task(&params);
-            result.duration_ms = t0.elapsed().as_millis() as u64;
-
-            let resp = JsonRpcResponse::success(
-                id,
-                serde_json::to_value(&result).expect("result serializes"),
-            );
-            write_message(writer, &resp).await?;
+            match task_runner::execute_task(&params, ollama).await {
+                Ok(mut result) => {
+                    result.duration_ms = t0.elapsed().as_millis() as u64;
+                    let resp = JsonRpcResponse::success(
+                        id,
+                        serde_json::to_value(&result).expect("result serializes"),
+                    );
+                    write_message(writer, &resp).await?;
+                }
+                Err(e) => {
+                    let resp =
+                        JsonRpcResponse::error(id, -32000, format!("task execution failed: {e}"));
+                    write_message(writer, &resp).await?;
+                }
+            }
         }
         "executor.shutdown" => {
             let id = id.ok_or_else(|| {
@@ -194,4 +231,31 @@ async fn connect_ipc(
         }
     };
     Ok(tokio::io::split(client))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_parses_ollama_endpoint() {
+        let cli = Cli::try_parse_from([
+            "nexus-executor",
+            "--ipc-path",
+            "test",
+            "--ollama-endpoint",
+            "http://localhost:11434",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.ollama_endpoint.as_deref(),
+            Some("http://localhost:11434")
+        );
+    }
+
+    #[test]
+    fn cli_ollama_endpoint_optional() {
+        let cli = Cli::try_parse_from(["nexus-executor", "--ipc-path", "test"]).unwrap();
+        assert!(cli.ollama_endpoint.is_none());
+    }
 }
