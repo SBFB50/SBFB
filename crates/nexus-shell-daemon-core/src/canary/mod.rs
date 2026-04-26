@@ -50,11 +50,18 @@ use thiserror::Error;
 use time::{Date, Duration, OffsetDateTime};
 
 pub mod attestation;
+pub mod ceremony;
+pub mod dkg;
 pub mod duress_ack;
 pub mod frost;
 pub mod signer;
 
 pub use attestation::{Attestation, AttestationProvider, NoopAttestation};
+pub use ceremony::{
+    build_signing_package, ceremony_aggregate, ceremony_round1, ceremony_round2,
+    CeremonyCommitment, CeremonyNonces, CeremonySignatureShare, CeremonySigningPackage,
+};
+pub use dkg::{generate_dkg, load_pubkey, load_share, DkgPubkeyFile, DkgShareFile};
 pub use duress_ack::{
     build_duress_ack, duress_ack_topic_id, verify_duress_ack, DuressAck, DuressAckSigned,
     DURESS_ACK_TOPIC_SEED,

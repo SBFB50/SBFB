@@ -103,19 +103,38 @@ Phase E.2 baseline = **trusted dealer** (un mainteneur principal
 genere les K shares localement et distribue). Pour Niveau 1 :
 
 1. Le maintainer principal (par convention le tag `OWNER` du
-   repo) execute `sbfb canary frost trusted-dealer --k 2 --n 3`
-   localement sur une machine **air-gapped** (preferablement un
-   live-USB Tails ou equivalent).
-2. La sortie : 3 fichiers `canary-share-{1,2,3}.frost` + 1
-   fichier `canary-pubkey-package.frost` (public).
+   repo) execute sur une machine **air-gapped** (preferablement
+   un live-USB Tails ou equivalent) :
+
+   ```bash
+   nexus-shell-daemon canary frost trusted-dealer \
+     --k 2 --n 3 --output-dir ./frost-shares/
+   ```
+
+2. La sortie : 3 fichiers `canary-share-{1,2,3}.frost.json` + 1
+   fichier `canary-pubkey-package.frost.json` (public). Les
+   fichiers JSON contiennent les `KeyPackage` serialises en hex
+   (postcard format).
 3. Le maintainer principal **detruit** le RNG seed (zeroize
    memory + reboot machine) puis distribue chaque share via 3
    canaux **distincts** (PGP-encrypted email + Signal +
    physical USB key in person).
 4. Chaque participant range sa share dans son OS keyring sous le
    service `sbfb-canary-frost-share`. Aucune copie sur disque clair.
-5. Le maintainer principal publie le `canary-pubkey-package.frost`
+5. Le maintainer principal publie le `canary-pubkey-package.frost.json`
    public dans `CANARY.txt` et/ou un commit dedie au repo.
+
+Fichier share exemple :
+```json
+{
+  "participant": 1,
+  "key_package_hex": "...",
+  "min_signers": 2,
+  "max_signers": 3
+}
+```
+
+Config reference : `configs/canary.toml.sample`.
 
 **Critical** : `generate_with_dealer` du trusted dealer concentre
 le risque de compromise initial sur la machine du maintainer
@@ -132,21 +151,66 @@ aggregate. Sequence operationnelle :
 1. Le coordinator (un des K participants, role tournant) collecte
    le headline du jour (typiquement `nytimes.com` first-page
    headline 2026-04-15 UTC) + la date.
+
 2. Coordinator demarre un canal de coordination (Signal group
    chat, video call, etc.) avec K-1 autres participants.
-3. Coordinator emet `sbfb canary frost round1` qui produit un
-   `commitment.json` ; chaque participant fait pareil sur sa
-   machine (jamais en remote-desktop, jamais en CI).
-4. Tous envoient leur `commitment.json` au coordinator (Signal
-   attachment, BLAKE3-verified).
-5. Coordinator construit le `signing_package.json` et le diffuse
-   aux K-1 participants.
-6. Chaque participant emet `sbfb canary frost round2 --signing-
-   package signing_package.json` qui produit un
-   `share.json` signe par leur share.
-7. Coordinator collecte les K shares et execute
-   `sbfb canary frost aggregate` qui produit le `Canary` final
-   (wire-identique a un Canary single-key).
+
+3. Chaque participant (incluant le coordinator) execute sur sa
+   machine locale :
+
+   ```bash
+   nexus-shell-daemon canary frost round1 \
+     --share canary-share-{N}.frost.json \
+     --commitment commitment-{N}.json \
+     --nonces nonces-{N}.json
+   ```
+
+   Le fichier `commitment-{N}.json` est **public** (envoye au
+   coordinator). Le fichier `nonces-{N}.json` est **SECRET**
+   (garde local, detruit apres round 2).
+
+4. Tous envoient leur `commitment-{N}.json` au coordinator
+   (Signal attachment, BLAKE3-verified).
+
+5. Coordinator construit le signing package :
+
+   ```bash
+   nexus-shell-daemon canary frost build-signing-package \
+     --commitments commitment-1.json,commitment-2.json \
+     --pubkey-package canary-pubkey-package.frost.json \
+     --headline "NYT 2026-04-26: headline text" \
+     --output signing-package.json
+   ```
+
+   Et diffuse `signing-package.json` aux K-1 participants.
+
+6. Chaque participant execute :
+
+   ```bash
+   nexus-shell-daemon canary frost round2 \
+     --share canary-share-{N}.frost.json \
+     --nonces nonces-{N}.json \
+     --signing-package signing-package.json \
+     --output sig-share-{N}.json
+   ```
+
+   Puis **detruit** `nonces-{N}.json` immediatement.
+
+7. Coordinator collecte les K sig-shares et execute :
+
+   ```bash
+   nexus-shell-daemon canary frost aggregate \
+     --pubkey-package canary-pubkey-package.frost.json \
+     --signing-package signing-package.json \
+     --shares sig-share-1.json,sig-share-2.json \
+     --headline "NYT 2026-04-26: headline text" \
+     --output CANARY.txt
+   ```
+
+   Le `CANARY.txt` produit est wire-identique a un canary
+   single-key (la signature FROST aggregee est une Ed25519
+   RFC 8032 standard). Le self-verify est automatique.
+
 8. Coordinator broadcast le canary sur gossip + commit
    `CANARY.txt` au repo (PR review par K-1 autres participants
    avant merge).
@@ -156,6 +220,10 @@ interactif). Un participant indisponible bloque la procedure
 jusqu'a ce qu'un autre prenne le relai (ce qui est le point :
 **l'indisponibilite signale un probleme**, exactement le
 comportement dead-man switch attendu).
+
+Les HTTP endpoints equivalents (`POST /api/canary/frost/*`)
+sont disponibles pour l'integration programmatique derriere le
+meme loopback bearer + Host + Origin gate (trust tier T0).
 
 ## 5. AttestationProvider — TEE roadmap
 

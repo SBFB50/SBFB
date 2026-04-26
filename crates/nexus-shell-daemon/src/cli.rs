@@ -157,6 +157,105 @@ pub enum CanaryCommand {
         #[arg(long, value_name = "PATH", default_value = "CANARY.txt")]
         input: std::path::PathBuf,
     },
+
+    /// FROST threshold signing operations (Sprint 30 Phase C).
+    ///
+    /// Air-gapped DKG + interactive signing ceremony for warrant
+    /// canary Niveau 1 per `WARRANT_CANARY_HARDENING.md §4`.
+    #[command(subcommand)]
+    Frost(FrostCommand),
+}
+
+/// Subcommands for `nexus-shell-daemon canary frost ...`.
+#[derive(Debug, Subcommand)]
+pub enum FrostCommand {
+    /// Generate K-of-N FROST key shares via trusted dealer.
+    ///
+    /// Writes `canary-share-{1..N}.frost.json` and
+    /// `canary-pubkey-package.frost.json` to the output directory.
+    /// Run on an air-gapped machine; distribute each share file
+    /// to its participant via a separate secure channel.
+    TrustedDealer {
+        /// K threshold (minimum signers required).
+        #[arg(long, value_name = "K", default_value = "2")]
+        k: u16,
+        /// N total shares to deal.
+        #[arg(long, value_name = "N", default_value = "3")]
+        n: u16,
+        /// Output directory for share and pubkey files.
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        output_dir: std::path::PathBuf,
+    },
+
+    /// Round 1: generate commitment + nonces from a key share.
+    ///
+    /// The commitment file is sent to the coordinator; the nonces
+    /// file is SECRET and must be kept locally for round 2.
+    Round1 {
+        /// Path to the participant's `canary-share-{N}.frost.json`.
+        #[arg(long, value_name = "PATH")]
+        share: std::path::PathBuf,
+        /// Output path for the commitment (public).
+        #[arg(long, value_name = "PATH", default_value = "commitment.json")]
+        commitment: std::path::PathBuf,
+        /// Output path for the nonces (SECRET — local only).
+        #[arg(long, value_name = "PATH", default_value = "nonces.json")]
+        nonces: std::path::PathBuf,
+    },
+
+    /// Coordinator: build the signing package from K commitments.
+    BuildSigningPackage {
+        /// Comma-separated paths to commitment JSON files.
+        #[arg(long, value_name = "PATHS", value_delimiter = ',')]
+        commitments: Vec<std::path::PathBuf>,
+        /// Path to the pubkey package from trusted-dealer.
+        #[arg(long, value_name = "PATH")]
+        pubkey_package: std::path::PathBuf,
+        /// The canary headline (message to sign).
+        #[arg(long, value_name = "TEXT")]
+        headline: String,
+        /// Output path for the signing package.
+        #[arg(long, value_name = "PATH", default_value = "signing-package.json")]
+        output: std::path::PathBuf,
+    },
+
+    /// Round 2: produce a signature share.
+    ///
+    /// Each participant runs this with their nonces, the signing
+    /// package from the coordinator, and their key share.
+    Round2 {
+        /// Path to the participant's `canary-share-{N}.frost.json`.
+        #[arg(long, value_name = "PATH")]
+        share: std::path::PathBuf,
+        /// Path to the nonces file from round 1 (SECRET).
+        #[arg(long, value_name = "PATH")]
+        nonces: std::path::PathBuf,
+        /// Path to the coordinator's signing package.
+        #[arg(long, value_name = "PATH")]
+        signing_package: std::path::PathBuf,
+        /// Output path for the signature share.
+        #[arg(long, value_name = "PATH", default_value = "sig-share.json")]
+        output: std::path::PathBuf,
+    },
+
+    /// Coordinator: aggregate K signature shares into a canary.
+    Aggregate {
+        /// Path to the pubkey package from trusted-dealer.
+        #[arg(long, value_name = "PATH")]
+        pubkey_package: std::path::PathBuf,
+        /// Path to the signing package from build-signing-package.
+        #[arg(long, value_name = "PATH")]
+        signing_package: std::path::PathBuf,
+        /// Comma-separated paths to signature share JSON files.
+        #[arg(long, value_name = "PATHS", value_delimiter = ',')]
+        shares: Vec<std::path::PathBuf>,
+        /// The canary headline (must match build-signing-package).
+        #[arg(long, value_name = "TEXT")]
+        headline: String,
+        /// Output path for CANARY.txt.
+        #[arg(long, value_name = "PATH", default_value = "CANARY.txt")]
+        output: std::path::PathBuf,
+    },
 }
 
 /// Subcommands for `nexus-shell-daemon config ...`.

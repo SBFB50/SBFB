@@ -42,7 +42,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use nexus_shell_daemon_core::config::{ShellDaemonConfig, ShellDaemonPaths};
 
-use cli::{CanaryCommand, Cli, Command, ConfigCommand};
+use cli::{CanaryCommand, Cli, Command, ConfigCommand, FrostCommand};
 use runtime::{DaemonRuntime, DaemonStartOptions};
 
 #[tokio::main]
@@ -255,6 +255,8 @@ async fn handle_canary(cmd: CanaryCommand) -> Result<()> {
             Ok(())
         }
 
+        CanaryCommand::Frost(frost_cmd) => handle_frost(frost_cmd).await,
+
         CanaryCommand::Verify { input } => {
             let text = std::fs::read_to_string(&input)
                 .with_context(|| format!("failed to read {}", input.display()))?;
@@ -268,6 +270,237 @@ async fn handle_canary(cmd: CanaryCommand) -> Result<()> {
             println!("  headline:     {}", canary.signed.headline);
             println!("  next update:  {}", canary.signed.next_update);
             println!("  pubkey:       {}", canary.signed.pubkey_hex);
+            Ok(())
+        }
+    }
+}
+
+async fn handle_frost(cmd: FrostCommand) -> Result<()> {
+    use nexus_core_rs::canonical::{canonical_bytes, DOMAIN_WARRANT_CANARY_V1};
+    use nexus_shell_daemon_core::canary::{
+        build_signing_package, ceremony_aggregate, ceremony_round1, ceremony_round2,
+        dkg::{generate_dkg, load_pubkey, load_share},
+        format_canary_txt, today_utc, verify_canary, Canary, CanarySigned, CANARY_VALIDITY_DAYS,
+        CANARY_VERSION,
+    };
+    use time::Duration;
+
+    match cmd {
+        FrostCommand::TrustedDealer { k, n, output_dir } => {
+            std::fs::create_dir_all(&output_dir)
+                .with_context(|| format!("failed to create output dir {}", output_dir.display()))?;
+
+            let (share_files, pubkey_file) = generate_dkg(k, n)
+                .with_context(|| format!("FROST trusted dealer DKG failed (K={k}, N={n})"))?;
+
+            for sf in &share_files {
+                let path = output_dir.join(format!("canary-share-{}.frost.json", sf.participant));
+                let json = serde_json::to_string_pretty(sf).context("serialize share file")?;
+                std::fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+                println!("  share {}: {}", sf.participant, path.display());
+            }
+
+            let pp_path = output_dir.join("canary-pubkey-package.frost.json");
+            let pp_json =
+                serde_json::to_string_pretty(&pubkey_file).context("serialize pubkey file")?;
+            std::fs::write(&pp_path, pp_json)
+                .with_context(|| format!("write {}", pp_path.display()))?;
+
+            println!("  pubkey:   {}", pp_path.display());
+            println!("  K={k}, N={n}");
+            println!("  verifying key: {}", pubkey_file.verifying_key_hex);
+            println!();
+            println!("Distribute each share file to its participant via a");
+            println!("separate secure channel. Destroy this machine's RNG");
+            println!("seed after distribution (cf. WARRANT_CANARY_HARDENING §4.2).");
+            Ok(())
+        }
+
+        FrostCommand::Round1 {
+            share,
+            commitment,
+            nonces,
+        } => {
+            let share_json = std::fs::read_to_string(&share)
+                .with_context(|| format!("read {}", share.display()))?;
+            let share_file: nexus_shell_daemon_core::canary::DkgShareFile =
+                serde_json::from_str(&share_json).context("parse share file")?;
+            let frost_share = load_share(&share_file).context("load FROST share")?;
+
+            let (c, n) = ceremony_round1(share_file.participant, &frost_share.key_package)
+                .context("round 1 failed")?;
+
+            let c_json = serde_json::to_string_pretty(&c).context("serialize commitment")?;
+            std::fs::write(&commitment, &c_json)
+                .with_context(|| format!("write {}", commitment.display()))?;
+
+            let n_json = serde_json::to_string_pretty(&n).context("serialize nonces")?;
+            std::fs::write(&nonces, &n_json)
+                .with_context(|| format!("write {}", nonces.display()))?;
+
+            println!("  participant: {}", share_file.participant);
+            println!("  commitment:  {}", commitment.display());
+            println!(
+                "  nonces:      {} (SECRET — do not share)",
+                nonces.display()
+            );
+            Ok(())
+        }
+
+        FrostCommand::BuildSigningPackage {
+            commitments,
+            pubkey_package: pp_path,
+            headline,
+            output,
+        } => {
+            let mut commitment_list = Vec::with_capacity(commitments.len());
+            for path in &commitments {
+                let json = std::fs::read_to_string(path)
+                    .with_context(|| format!("read {}", path.display()))?;
+                let c: nexus_shell_daemon_core::canary::CeremonyCommitment =
+                    serde_json::from_str(&json).context("parse commitment")?;
+                commitment_list.push(c);
+            }
+
+            let pp_json = std::fs::read_to_string(&pp_path)
+                .with_context(|| format!("read {}", pp_path.display()))?;
+            let pp_file: nexus_shell_daemon_core::canary::DkgPubkeyFile =
+                serde_json::from_str(&pp_json).context("parse pubkey package")?;
+
+            let date = today_utc();
+            let next_update = date.saturating_add(Duration::days(CANARY_VALIDITY_DAYS));
+            let signed = CanarySigned {
+                version: CANARY_VERSION,
+                date: format!(
+                    "{:04}-{:02}-{:02}",
+                    date.year(),
+                    u8::from(date.month()),
+                    date.day()
+                ),
+                headline: headline.clone(),
+                next_update: format!(
+                    "{:04}-{:02}-{:02}",
+                    next_update.year(),
+                    u8::from(next_update.month()),
+                    next_update.day()
+                ),
+                pubkey_hex: pp_file.verifying_key_hex,
+            };
+            let canonical =
+                canonical_bytes(&signed, DOMAIN_WARRANT_CANARY_V1).context("canonical bytes")?;
+
+            let sp = build_signing_package(&commitment_list, &canonical)
+                .context("build signing package")?;
+
+            let sp_json = serde_json::to_string_pretty(&sp).context("serialize signing package")?;
+            std::fs::write(&output, &sp_json)
+                .with_context(|| format!("write {}", output.display()))?;
+
+            println!("  signing package: {}", output.display());
+            println!("  headline:        {}", headline);
+            println!("  commitments:     {}", commitments.len());
+            Ok(())
+        }
+
+        FrostCommand::Round2 {
+            share,
+            nonces,
+            signing_package,
+            output,
+        } => {
+            let share_json = std::fs::read_to_string(&share)
+                .with_context(|| format!("read {}", share.display()))?;
+            let share_file: nexus_shell_daemon_core::canary::DkgShareFile =
+                serde_json::from_str(&share_json).context("parse share")?;
+            let frost_share = load_share(&share_file).context("load share")?;
+
+            let nonces_json = std::fs::read_to_string(&nonces)
+                .with_context(|| format!("read {}", nonces.display()))?;
+            let nonces_data: nexus_shell_daemon_core::canary::CeremonyNonces =
+                serde_json::from_str(&nonces_json).context("parse nonces")?;
+
+            let sp_json = std::fs::read_to_string(&signing_package)
+                .with_context(|| format!("read {}", signing_package.display()))?;
+            let sp: nexus_shell_daemon_core::canary::CeremonySigningPackage =
+                serde_json::from_str(&sp_json).context("parse signing package")?;
+
+            let ss = ceremony_round2(&nonces_data, &sp, &frost_share.key_package)
+                .context("round 2 failed")?;
+
+            let ss_json = serde_json::to_string_pretty(&ss).context("serialize sig share")?;
+            std::fs::write(&output, &ss_json)
+                .with_context(|| format!("write {}", output.display()))?;
+
+            println!("  participant:  {}", share_file.participant);
+            println!("  sig share:    {}", output.display());
+            println!("  (destroy nonces file now)");
+            Ok(())
+        }
+
+        FrostCommand::Aggregate {
+            pubkey_package,
+            signing_package,
+            shares,
+            headline,
+            output,
+        } => {
+            let pp_json = std::fs::read_to_string(&pubkey_package)
+                .with_context(|| format!("read {}", pubkey_package.display()))?;
+            let pp_file: nexus_shell_daemon_core::canary::DkgPubkeyFile =
+                serde_json::from_str(&pp_json).context("parse pubkey package")?;
+            let pubkey = load_pubkey(&pp_file).context("load pubkey")?;
+
+            let sp_json = std::fs::read_to_string(&signing_package)
+                .with_context(|| format!("read {}", signing_package.display()))?;
+            let sp: nexus_shell_daemon_core::canary::CeremonySigningPackage =
+                serde_json::from_str(&sp_json).context("parse signing package")?;
+
+            let mut sig_shares = Vec::with_capacity(shares.len());
+            for path in &shares {
+                let json = std::fs::read_to_string(path)
+                    .with_context(|| format!("read {}", path.display()))?;
+                let ss: nexus_shell_daemon_core::canary::CeremonySignatureShare =
+                    serde_json::from_str(&json).context("parse sig share")?;
+                sig_shares.push(ss);
+            }
+
+            let sig = ceremony_aggregate(&sp, &sig_shares, pubkey.package())
+                .context("aggregate failed")?;
+
+            let date = today_utc();
+            let next_update = date.saturating_add(Duration::days(CANARY_VALIDITY_DAYS));
+            let canary = Canary {
+                signed: CanarySigned {
+                    version: CANARY_VERSION,
+                    date: format!(
+                        "{:04}-{:02}-{:02}",
+                        date.year(),
+                        u8::from(date.month()),
+                        date.day()
+                    ),
+                    headline,
+                    next_update: format!(
+                        "{:04}-{:02}-{:02}",
+                        next_update.year(),
+                        u8::from(next_update.month()),
+                        next_update.day()
+                    ),
+                    pubkey_hex: pp_file.verifying_key_hex.clone(),
+                },
+                signature_hex: hex::encode(sig),
+            };
+
+            verify_canary(&canary).context("self-verification of aggregated canary")?;
+
+            let txt = format_canary_txt(&canary);
+            std::fs::write(&output, &txt).with_context(|| format!("write {}", output.display()))?;
+
+            println!("FROST canary aggregated and verified.");
+            println!("  date:         {}", canary.signed.date);
+            println!("  headline:     {}", canary.signed.headline);
+            println!("  next update:  {}", canary.signed.next_update);
+            println!("  pubkey:       {}", canary.signed.pubkey_hex);
+            println!("  output:       {}", output.display());
             Ok(())
         }
     }

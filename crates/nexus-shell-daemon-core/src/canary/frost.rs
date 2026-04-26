@@ -123,6 +123,11 @@ pub struct FrostPubkey {
 }
 
 impl FrostPubkey {
+    /// Construct from a deserialized [`PublicKeyPackage`].
+    pub fn from_package(pkg: PublicKeyPackage) -> Self {
+        Self { inner: pkg }
+    }
+
     /// Borrow the underlying FROST public key package.
     pub fn package(&self) -> &PublicKeyPackage {
         &self.inner
@@ -264,6 +269,16 @@ impl FrostCanarySigner {
             pubkey,
             min_signers,
         })
+    }
+
+    /// Construct from pre-existing shares and pubkey (e.g. loaded
+    /// from DKG share files via [`super::dkg::load_share`]).
+    pub fn from_parts(shares: Vec<FrostKeyShare>, pubkey: FrostPubkey, min_signers: u16) -> Self {
+        Self {
+            shares,
+            pubkey,
+            min_signers,
+        }
     }
 
     /// Borrow the K shares the signer holds. Useful for tests

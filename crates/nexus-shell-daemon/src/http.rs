@@ -239,6 +239,16 @@ pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
         // iroh endpoint's remote info table. Diagnostic-only, no
         // wire format impact.
         .route("/diagnostic/neighborhood", get(diagnostic_neighborhood))
+        // Sprint 30 Phase C : FROST DKG + ceremony admin endpoints.
+        // Trust tier T0 — behind the same loopback bearer + Host +
+        // Origin gate as every other authenticated route.
+        .route(
+            "/api/canary/frost/trusted-dealer",
+            post(frost_trusted_dealer),
+        )
+        .route("/api/canary/frost/round1", post(frost_round1))
+        .route("/api/canary/frost/round2", post(frost_round2))
+        .route("/api/canary/frost/aggregate", post(frost_aggregate))
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -1038,6 +1048,170 @@ async fn diagnostic_neighborhood(State(state): State<Arc<DaemonHttpState>>) -> i
             peers,
         }),
     )
+}
+
+// =================================================================
+// FROST DKG + ceremony endpoints (Sprint 30 Phase C)
+// =================================================================
+
+#[derive(Debug, Deserialize)]
+struct FrostTrustedDealerRequest {
+    k: u16,
+    n: u16,
+}
+
+#[derive(Debug, Serialize)]
+struct FrostTrustedDealerResponse {
+    shares: Vec<nexus_shell_daemon_core::canary::DkgShareFile>,
+    pubkey_package: nexus_shell_daemon_core::canary::DkgPubkeyFile,
+}
+
+async fn frost_trusted_dealer(Json(body): Json<FrostTrustedDealerRequest>) -> impl IntoResponse {
+    match nexus_shell_daemon_core::canary::generate_dkg(body.k, body.n) {
+        Ok((shares, pubkey_package)) => (
+            StatusCode::OK,
+            Json(serde_json::json!(FrostTrustedDealerResponse {
+                shares,
+                pubkey_package
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct FrostRound1Request {
+    participant: u16,
+    key_package_hex: String,
+}
+
+#[derive(Debug, Serialize)]
+struct FrostRound1Response {
+    commitment: nexus_shell_daemon_core::canary::CeremonyCommitment,
+    nonces: nexus_shell_daemon_core::canary::CeremonyNonces,
+}
+
+async fn frost_round1(Json(body): Json<FrostRound1Request>) -> impl IntoResponse {
+    let share_file = nexus_shell_daemon_core::canary::DkgShareFile {
+        participant: body.participant,
+        key_package_hex: body.key_package_hex,
+        min_signers: 0,
+        max_signers: 0,
+    };
+    let frost_share = match nexus_shell_daemon_core::canary::load_share(&share_file) {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    };
+    match nexus_shell_daemon_core::canary::ceremony_round1(
+        body.participant,
+        &frost_share.key_package,
+    ) {
+        Ok((commitment, nonces)) => (
+            StatusCode::OK,
+            Json(serde_json::json!(FrostRound1Response {
+                commitment,
+                nonces
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct FrostRound2Request {
+    nonces: nexus_shell_daemon_core::canary::CeremonyNonces,
+    signing_package: nexus_shell_daemon_core::canary::CeremonySigningPackage,
+    key_package_hex: String,
+    participant: u16,
+}
+
+async fn frost_round2(Json(body): Json<FrostRound2Request>) -> impl IntoResponse {
+    let share_file = nexus_shell_daemon_core::canary::DkgShareFile {
+        participant: body.participant,
+        key_package_hex: body.key_package_hex,
+        min_signers: 0,
+        max_signers: 0,
+    };
+    let frost_share = match nexus_shell_daemon_core::canary::load_share(&share_file) {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    };
+    match nexus_shell_daemon_core::canary::ceremony_round2(
+        &body.nonces,
+        &body.signing_package,
+        &frost_share.key_package,
+    ) {
+        Ok(sig_share) => (StatusCode::OK, Json(serde_json::json!(sig_share))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct FrostAggregateRequest {
+    signing_package: nexus_shell_daemon_core::canary::CeremonySigningPackage,
+    shares: Vec<nexus_shell_daemon_core::canary::CeremonySignatureShare>,
+    pubkey_package_hex: String,
+}
+
+async fn frost_aggregate(Json(body): Json<FrostAggregateRequest>) -> impl IntoResponse {
+    let pubkey_file = nexus_shell_daemon_core::canary::DkgPubkeyFile {
+        verifying_key_hex: String::new(),
+        pubkey_package_hex: body.pubkey_package_hex,
+        min_signers: 0,
+        max_signers: 0,
+    };
+    let pubkey = match nexus_shell_daemon_core::canary::load_pubkey(&pubkey_file) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    };
+    match nexus_shell_daemon_core::canary::ceremony_aggregate(
+        &body.signing_package,
+        &body.shares,
+        pubkey.package(),
+    ) {
+        Ok(sig) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "signature_hex": hex::encode(sig) })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
 }
 
 // =================================================================

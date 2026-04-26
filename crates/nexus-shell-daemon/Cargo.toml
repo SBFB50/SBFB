@@ -95,6 +95,10 @@ hyper-util = { workspace = true }
 # the client strictly goes over plain TCP).
 reqwest = { workspace = true }
 
+# Sprint 30 Phase C: FROST DKG ceremony CLI handler constructs
+# CanarySigned with date arithmetic (today_utc + CANARY_VALIDITY_DAYS).
+time = { workspace = true }
+
 # Sprint 16 Phase B (Unix): SO_PEERCRED + getsockopt for the UDS
 # accept loop's peer-uid check. The launcher already pulls libc
 # on Unix for SIGTERM signalling — declared explicitly here so
