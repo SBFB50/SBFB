@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# nexus-worker — GPU compute contributor for the SBFB P2P network.
+# Connects to projects via allowlist and serves LLM inference tasks
+# through a local Ollama backend.
+#
+# Prerequisites:
+#   - nexus-worker register <name>   (one-time identity setup)
+#   - nexus-worker join <invite>     (enroll in at least one project)
+#   - Ollama running locally         (default http://localhost:11434)
+#
+# Install:
+#   sudo cp nexus-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nexus-worker
+
+[Unit]
+Description=SBFB Worker (GPU compute contributor)
+Documentation=https://github.com/user/nexus-grid
+After=network-online.target nexus-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nexus
+Group=nexus
+WorkingDirectory=/opt/nexus-grid
+Environment=RUST_LOG=info
+ExecStart=/opt/nexus-grid/target/release/nexus-worker start --headless
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGINT
+TimeoutStopSec=60
+
+# Logging — stdout/stderr captured by journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus-worker
+
+[Install]
+WantedBy=multi-user.target

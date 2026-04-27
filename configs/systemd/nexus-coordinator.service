@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# nexus-coordinator — FastAPI control plane for a SBFB project.
+# Dispatches tasks to workers, manages kudos ledger, proxies the
+# daemon API, and serves the TabView pre-render pipeline.
+#
+# Prerequisites:
+#   - nexus-coordinator init <project>   (one-time project setup)
+#   - uv installed (Python package manager)
+#
+# Install:
+#   sudo cp nexus-coordinator.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nexus-coordinator
+#
+# Override project name or bind address:
+#   sudo systemctl edit nexus-coordinator
+#   [Service]
+#   ExecStart=
+#   ExecStart=/opt/nexus-grid/.venv/bin/nexus-coordinator start my-project --host 0.0.0.0 --port 8765 --cors-origin http://192.168.1.10:3000
+
+[Unit]
+Description=SBFB Coordinator (FastAPI control plane)
+Documentation=https://github.com/user/nexus-grid
+After=network-online.target nexus-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nexus
+Group=nexus
+WorkingDirectory=/opt/nexus-grid
+Environment=RUST_LOG=info
+Environment=UV_PYTHON=/opt/nexus-grid/.venv/bin/python
+ExecStart=/opt/nexus-grid/.venv/bin/nexus-coordinator start my-project --host 0.0.0.0 --port 8765
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# Logging — stdout/stderr captured by journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus-coordinator
+
+[Install]
+WantedBy=multi-user.target

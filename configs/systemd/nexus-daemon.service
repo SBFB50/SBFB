@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# nexus-shell-daemon — P2P discovery + curator pipeline + blob-serve.
+# One instance per node. Binds an ephemeral loopback HTTP port and
+# writes running.json for service discovery.
+#
+# Install:
+#   sudo cp nexus-daemon.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nexus-daemon
+#
+# Override ExecStart for custom flags:
+#   sudo systemctl edit nexus-daemon
+#   [Service]
+#   ExecStart=
+#   ExecStart=/opt/nexus-grid/target/release/nexus-shell-daemon start --headless --cors-origin http://192.168.1.10:8080
+
+[Unit]
+Description=SBFB Shell Daemon (P2P discovery + blob-serve)
+Documentation=https://github.com/user/nexus-grid
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nexus
+Group=nexus
+WorkingDirectory=/opt/nexus-grid
+Environment=RUST_LOG=info
+ExecStart=/opt/nexus-grid/target/release/nexus-shell-daemon start --headless
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# Logging — stdout/stderr captured by journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus-daemon
+
+[Install]
+WantedBy=multi-user.target
