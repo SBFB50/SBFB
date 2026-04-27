@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use ollama_rs::generation::completion::request::GenerationRequest;
+use ollama_rs::generation::options::GenerationOptions;
 use ollama_rs::Ollama;
 
 use crate::ipc::{TaskExecuteParams, TaskExecuteResult};
@@ -13,7 +14,8 @@ pub async fn execute_task(
         return Ok(stub_result(params));
     };
 
-    let req = GenerationRequest::new(params.model.clone(), params.prompt.clone());
+    let opts = GenerationOptions::default().num_predict(params.max_tokens as i32);
+    let req = GenerationRequest::new(params.model.clone(), params.prompt.clone()).options(opts);
     let resp = client.generate(req).await.map_err(|e| e.to_string())?;
 
     Ok(TaskExecuteResult {
@@ -89,6 +91,41 @@ mod tests {
         assert_eq!(result.output, "42 is the answer");
         assert_eq!(result.model_used, "mock-7b");
         assert_eq!(result.duration_ms, 2000);
+    }
+
+    #[tokio::test]
+    async fn execute_task_ollama_mock_respects_max_tokens() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 16384];
+            let n = stream.read(&mut buf).await.unwrap();
+            let raw = String::from_utf8_lossy(&buf[..n]).to_string();
+            let body_start = raw.find("\r\n\r\n").map(|i| i + 4).unwrap_or(0);
+            let _ = tx.send(raw[body_start..].to_string());
+
+            let resp_body = r#"{"model":"m","created_at":"2026-01-01T00:00:00Z","response":"ok","done":true,"total_duration":1000000}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                resp_body.len(),
+                resp_body
+            );
+            stream.write_all(resp.as_bytes()).await.unwrap();
+        });
+
+        let ollama = Ollama::new("http://127.0.0.1", port);
+        let mut params = test_params();
+        params.max_tokens = 256;
+        let _ = execute_task(&params, Some(&ollama)).await.unwrap();
+
+        let sent_body = rx.await.unwrap();
+        let json: serde_json::Value = serde_json::from_str(&sent_body).unwrap();
+        assert_eq!(json["options"]["num_predict"], 256);
     }
 
     #[tokio::test]

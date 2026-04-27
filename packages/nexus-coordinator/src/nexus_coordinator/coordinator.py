@@ -376,8 +376,8 @@ class Coordinator:
         await self.tor_client.bootstrap()
         if self.tor_client.is_available():
             _log.info("Tor transport available for outbound HTTP")
-        else:
-            _log.info("Tor transport not available, using direct connections")
+        elif self.tor_client.config.enabled:
+            _log.info("Tor transport enabled but not available, using direct connections")
 
         self.validator = Validator(
             doc=self.state.doc,

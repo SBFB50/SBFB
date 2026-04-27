@@ -2691,4 +2691,112 @@ mod tests {
         nexus_core_rs::crypto::verify(&vk, message, &sig)
             .expect("aggregated FROST sig must verify as Ed25519");
     }
+
+    #[tokio::test]
+    async fn frost_http_invalid_threshold_k_gt_n() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/canary/frost/trusted-dealer")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"k":5,"n":3}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert!(body["error"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn frost_http_malformed_json_body() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/canary/frost/trusted-dealer")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"k": not valid json"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            resp.status().is_client_error(),
+            "malformed JSON should return 4xx"
+        );
+    }
+
+    #[tokio::test]
+    async fn frost_http_round1_invalid_key_package() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/canary/frost/round1")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"participant":1,"key_package_hex":"deadbeef"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert!(body["error"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn frost_http_aggregate_invalid_pubkey() {
+        let state = mk_state().await;
+
+        let app = build_test_router(Arc::clone(&state));
+        let dealer_resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/canary/frost/trusted-dealer")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"k":2,"n":3}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let dj: serde_json::Value =
+            serde_json::from_slice(&to_bytes(dealer_resp.into_body(), 16384).await.unwrap())
+                .unwrap();
+
+        let agg_body = serde_json::json!({
+            "signing_package": { "signing_package_hex": "deadbeef" },
+            "shares": [],
+            "pubkey_package_hex": dj["pubkey_package"]["pubkey_package_hex"]
+        });
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/canary/frost/aggregate")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(agg_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert!(body["error"].as_str().is_some());
+    }
 }
