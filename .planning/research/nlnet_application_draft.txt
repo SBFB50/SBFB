@@ -1,0 +1,239 @@
+====================================================================
+NLNET NGI0 COMMONS FUND — DRAFT APPLICATION (à personnaliser)
+Date brouillon : 2026-04-27
+Deadline : 1er juin 2026 12:00 CEST
+====================================================================
+
+CALL: NGI Zero Commons Fund
+NAME: Théophile Vasseur
+EMAIL: theophile.vasseur@gmail.com
+COUNTRY: France
+PROPOSAL NAME: SBFB — Security Audit for a Decentralized P2P Compute Platform
+WEBSITE: https://github.com/[ton-repo]
+
+====================================================================
+ABSTRACT (max 1200 characters — currently ~1100)
+====================================================================
+
+SBFB is a peer-to-peer compute network where anyone can publish and
+run web applications without central servers. Apps are distributed
+as signed web archives via the iroh P2P stack, rendered in sandboxed
+iframes, and verified from source using Ed25519 + SLSA L1 provenance.
+
+The project is feature-complete for a first public release (107k LOC,
+~1900 tests, 32 sprints of development, AGPL-3.0) but has never been
+independently audited. As a solo-maintainer open-source project with
+no commercial funding, I cannot afford a professional security audit.
+
+I am requesting NLnet support specifically for an independent security
+audit covering: (1) the P2P protocol and wire format (iroh-based
+gossip, docs, blobs), (2) cryptographic primitives (Ed25519, FROST
+threshold signatures, Argon2id keystore, AES-256-GCM), (3) iframe
+sandbox and CSP isolation for untrusted apps, (4) loopback HTTP API
+authentication. All findings will be published publicly.
+
+Expected outcome: a published audit report, remediation of critical
+findings, and a v1.0 release that users can trust. The code, threat
+model, and audit results will all be open.
+
+====================================================================
+RELEVANT EXPERIENCE (max 2500 chars — currently ~800)
+====================================================================
+
+I am the sole developer of SBFB, built over 32 sprints since April
+2026. The project spans three languages:
+
+- Rust (53k LOC, 10 crates): P2P networking via iroh 0.98, Ed25519
+  and FROST cryptography, PyO3 FFI, GPU compute orchestration
+- Python (37k LOC): FastAPI coordinator, task dispatch, SLSA
+  provenance generation, Keyoxide identity verification
+- TypeScript (17k LOC): React shell, iframe host for sandboxed apps
+
+Security work already completed without external review:
+- Threat model (STRIDE + LINDDUN), published in the repository
+- Loopback hardening: bearer token + peer credentials + origin check
+- Encryption at rest: Argon2id + AES-256-GCM double-layer keystore
+- Warrant canary with FROST threshold signatures (RFC 9591)
+- Rate limiting (GCRA multi-tier), PII redaction, Tor transport
+- Verified deploy from Git source (Ed25519 + SLSA L1 provenance)
+
+I have no formal security training, which is precisely why an
+independent audit matters.
+
+====================================================================
+REQUESTED AMOUNT: 5000 EUR
+====================================================================
+
+====================================================================
+BUDGET BREAKDOWN (max 2500 chars — currently ~600)
+====================================================================
+
+The entire budget covers the independent security audit:
+
+1. Security audit — 5 000 EUR
+   - Professional review by NLnet audit partners (e.g. Radically
+     Open Security) of the cryptographic primitives, P2P protocol,
+     iframe sandbox, and loopback API
+   - Deliverable: public audit report
+
+I am not requesting funding for development, infrastructure, or
+travel. All remediation work on audit findings will be done by me
+on a volunteer basis. The project has no other funding sources and
+I intend to keep it that way — SBFB follows a solo-maintainer
+open-source model with zero commercial ambition.
+
+====================================================================
+COMPARE WITH EXISTING EFFORTS (max 4000 chars — currently ~2800)
+====================================================================
+
+SBFB occupies a unique position at the intersection of P2P compute
+networks and open-source app distribution:
+
+vs BOINC / Folding@Home / Golem:
+Traditional volunteer compute projects use a central coordinator.
+SBFB has no central server — each project creator runs their own
+coordinator, workers choose which projects to serve via
+cryptographic allowlists, and reputation propagates via Ed25519-
+signed curator lists over gossip. The compute model is LLM
+inference (Ollama), not batch scientific computation.
+
+vs IPFS / libp2p:
+These provide P2P content distribution but not compute. SBFB uses
+iroh (a Rust P2P stack by n0, inc.) for networking and adds: task
+dispatch with result verification, GPU consent, structured output
+validation, and an application rendering layer via sandboxed iframes.
+
+vs F-Droid / Flathub:
+Traditional app stores require a central review process. SBFB apps
+are verified from source automatically: the coordinator clones the
+Git repository, verifies the developer's Ed25519 identity via
+Keyoxide, builds the archive, and signs SLSA L1 provenance. Users
+can fork any app and deploy their own version in one click.
+
+vs Tauri / Electron:
+Desktop app frameworks bundle a browser engine per app. SBFB uses
+the user's existing browser: a Rust launcher spawns the daemon,
+which serves apps in sandboxed iframes. Any web technology (React,
+WASM, Pyodide, plain HTML) works without per-app packaging.
+
+vs Fediverse (Mastodon, Matrix):
+Federated systems still require server administrators. SBFB
+requires zero administration — nodes self-organize via DHT
+discovery (pkarr), and the only trust anchor is the developer's
+Ed25519 key.
+
+Key novelties:
+- Hybrid Rust+Python architecture with JCS canonical byte-identical
+  signatures across the FFI boundary
+- Warrant canary with FROST threshold signatures (K-of-N across
+  jurisdictions)
+- Universal web archive rendering in sandboxed iframes
+- Verified deploy from source with zero OAuth (multi-forge via
+  Keyoxide)
+
+====================================================================
+TECHNICAL CHALLENGES (max 5000 chars — currently ~1600)
+====================================================================
+
+The audit needs to evaluate several non-trivial attack surfaces:
+
+1. iframe sandbox escape: apps run with sandbox="allow-scripts"
+   (no allow-same-origin) and CSP connect-src 'none'. The auditor
+   must validate that no browser-specific behavior allows sandbox
+   escape, host origin access, or data exfiltration. This is the
+   highest-impact attack surface.
+
+2. Wire format integrity: all signed structures use JCS (RFC 8785)
+   canonical JSON with Ed25519 domain separation. The auditor must
+   verify that canonicalization is correct and that no malleability
+   exists in the wire format before it is frozen at v1.0.
+
+3. Loopback API authentication: the daemon serves an HTTP API on
+   localhost with bearer token + SO_PEERCRED/DACL + Host/Origin
+   validation. The auditor must verify that a malicious browser
+   extension or local process cannot bypass these layers.
+
+4. Keystore security: Ed25519 private keys are encrypted with
+   Argon2id (64 MiB, t=3) + AES-256-GCM, wrapped in OS keyring.
+   The auditor must verify the key derivation parameters resist
+   GPU brute-force and that the double-layer defense is sound.
+
+5. FROST ceremony: warrant canaries use K-of-N threshold
+   signatures. The auditor must verify the DKG implementation
+   and that no single participant can forge a signature.
+
+====================================================================
+ECOSYSTEM & ENGAGEMENT (max 2500 chars — currently ~1200)
+====================================================================
+
+The audit results will benefit several communities:
+
+- iroh ecosystem: SBFB is one of the first non-trivial applications
+  built on iroh 0.98. Audit findings related to the P2P layer will
+  be reported upstream to n0, inc.
+
+- Tor / arti-client: SBFB embeds arti-client for Tor transport.
+  Real-world usage findings will be reported to the Tor Project.
+
+- FROST implementers: the warrant canary is a novel application of
+  FROST threshold signatures outside of cryptocurrency. Audit
+  findings will be relevant to other FROST adopters.
+
+- Keyoxide: SBFB uses Keyoxide for developer identity. Any issues
+  found will be shared with the Keyoxide project.
+
+All audit findings will be published in the project repository
+under a Creative Commons license. The threat model (already public)
+and the audit report together will serve as reference documentation
+for other P2P projects facing similar security challenges.
+
+Target users: independent journalists, NGOs needing censorship-
+resistant publishing, open-source developers wanting to distribute
+apps without platform gatekeepers, privacy-conscious contributors.
+
+Long-term sustainability: SBFB is a solo-maintainer project with
+no commercial ambition. The network is self-sustaining by design
+(no servers beyond bootstrap peers). This grant does not create
+funding dependency — it provides a one-time security validation
+that the project cannot obtain otherwise.
+
+====================================================================
+GENERATIVE AI DISCLOSURE
+====================================================================
+
+Check: "I have used generative AI in writing this proposal"
+
+Model: Claude Opus 4.6 (Anthropic, via Claude Code CLI)
+Used for:
+- Gathering project statistics from the codebase (LOC, test counts,
+  security features inventory)
+- Researching NLnet evaluation criteria and recently funded projects
+- Producing an initial draft of application text
+- All text was reviewed, edited, and adapted by the applicant
+
+====================================================================
+NOTES POUR TOI (ne pas soumettre)
+====================================================================
+
+1. 5000 EUR = le minimum NLnet. L'audit vaut 15-30k sur le marché.
+   NLnet peut decider d'allouer plus pour couvrir un audit complet
+   via Radically Open Security — ils le font regulierement. Tu
+   demandes 5k, ils peuvent proposer plus si le projet les interesse.
+
+2. ALTERNATIVE : demander 10-15k EUR pour mieux couvrir l'audit
+   complet. 5k est peut-etre trop bas pour un audit crypto + P2P
+   + iframe. A toi de voir — NLnet apprecie la frugalite mais
+   5k pour auditer 107k LOC c'est peut-etre irréaliste. Un audit
+   ROS typique = 20-40h a 150-250 EUR/h = 5-10k EUR pour un scope
+   cible.
+
+3. WEBSITE obligatoire — il faut un repo public. Meme un repo
+   avec README + LICENSE + THREAT_MODEL.md + lien docs suffit.
+
+4. Soumets avant le 30 mai (48h de marge).
+
+5. Si accepte, NLnet offre EN PLUS : audit accessibilite, conseils
+   licensing, mentoring technique — tout ca gratuit.
+
+6. OTF Red Team Lab est l'autre option (rolling, pas de deadline).
+   Tu peux candidater aux deux en parallele.
