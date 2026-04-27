@@ -105,7 +105,7 @@ nexus-grid/
 │   ├── active/                        # sprint en cours uniquement (kickoff, plan, audit_findings du precedent, verification, audit_plan)
 │   ├── archive/v1.0/                  # S0-13 (pivot, P2P, universal render, bridge, launcher)
 │   ├── archive/v1.1/                  # S14-15 (verified deploy, bridge bidirectionnel, watchdog)
-│   └── archive/v1.2/                  # S16-27 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites, rate-limit + PII defense-in-depth, Sybil-resistance, ephemeral workers, guardrails + hooks + re-run + DNS fallback, key rotation + C3 handoffs + D5 capabilities, MCP server + OS audit + task_handler, watermark SynthID + Couche 3 multi-forge + Gate 3 showcase)
+│   └── archive/v1.2/                  # S16-31 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites, rate-limit + PII defense-in-depth, Sybil-resistance, ephemeral workers, guardrails + hooks + re-run + DNS fallback, key rotation + C3 handoffs + D5 capabilities, MCP server + OS audit + task_handler, watermark SynthID + Couche 3 multi-forge + Gate 3 showcase, dette pair blob-serve COOP/COEP + warrant canary FROST DKG, task_runner reel + output filter E2E + Tor transport phase 1)
 ├── docs/
 │   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
 │   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
@@ -121,21 +121,24 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-30 CLOSED**, v1.2 en cours. Audit gate S30 = S31
-  Phase 0 (`.planning/active/sprint31_audit_plan.md`).
-- **~1854 tests total** (864 Rust / 195 SDK / 394+36f+6s coord / 46
-  app-gov / 269 Vitest / 43 Playwright / 7/7 size-limit) — tous
-  verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
-  meme root cause wheel stale, pas regression).
-- Carry S31 : 6 P2 phase reviews (§9.5 output filter 2/3,
-  task_runner stub 2/3, Playwright COEP test 1/3,
-  VALIDATED_BLUEPRINT Couche 6 stale 1/3, HTTP FROST tests 1/3,
-  confidence_score field 1/3).
+- **Sprints 0-31 CLOSED**, v1.2 en cours. Audit gate S31 = S32
+  Phase 0 (`.planning/active/sprint32_audit_plan.md`).
+- **~1877 tests total** (878 Rust / 195 SDK / 406+36f+6s coord / 46
+  app-gov / 267 Vitest / 43 Playwright / 7/7 size-limit) — tous
+  verts code (36 coord fail PyO3 wheel stale + 2 PW env fail +
+  1 SDK flaky Windows file-lock — meme root cause wheel/env stale,
+  pas regression).
+- Carry S32 : P2-REVIEW-B-1-S30 Playwright COEP iframe test 2/3
+  (MANDATORY S33 si non resolu) ; P2-REVIEW-C-1 rusqlite
+  0.32→0.36 + arti-client dep activation 1/3 ;
+  P2-REVIEW-A-1 LOC plan meta-process 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
-  LT-6 iroh neighborhood enrichment (trigger met iroh 0.98.0, bloque Day 0 #3).
+  LT-6 iroh neighborhood enrichment — **trigger met (iroh 0.98.0)
+  scheduled S32 upgrade dedie** (Day 0 #3 a lever, sprint pair
+  S32 = phase dette ideale).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
