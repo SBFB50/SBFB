@@ -101,20 +101,20 @@ pub fn read_running_info(path: &std::path::Path) -> Option<RunningInfo> {
     serde_json::from_str(&body).ok()
 }
 
-/// Return the expected path of `running.json` under the SBFB
-/// grid root. Checks `NEXUS_GRID_ROOT` env var first, then
-/// falls back to `~/.nexus-grid`.
+/// Return the expected path of `running.json` — delegates to
+/// `nexus_shell_daemon_core::paths::running_json_path()` so
+/// launcher and daemon always agree on the location (platform
+/// `data_dir` via `dirs`, overridable via `NEXUS_GRID_ROOT`).
 pub fn find_running_json() -> PathBuf {
-    let root = match std::env::var("NEXUS_GRID_ROOT") {
-        Ok(val) if !val.is_empty() => PathBuf::from(val),
-        _ => {
-            let home = std::env::var("USERPROFILE")
-                .or_else(|_| std::env::var("HOME"))
-                .unwrap_or_else(|_| ".".to_string());
-            PathBuf::from(home).join(".nexus-grid")
-        }
-    };
-    root.join("shell-daemon").join("running.json")
+    nexus_shell_daemon_core::paths::running_json_path().unwrap_or_else(|| {
+        let home = std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home)
+            .join(".nexus-grid")
+            .join("shell-daemon")
+            .join("running.json")
+    })
 }
 
 /// Poll `running.json` until it appears and parses correctly,
