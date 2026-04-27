@@ -1958,6 +1958,21 @@ mod tests {
         assert!(!is_valid_origin("http://example.com/path"));
     }
 
+    #[test]
+    fn valid_origin_rejects_javascript_scheme() {
+        assert!(!is_valid_origin("javascript:alert('xss')"));
+    }
+
+    #[test]
+    fn valid_origin_rejects_data_scheme() {
+        assert!(!is_valid_origin("data:text/html,<script>alert(1)</script>"));
+    }
+
+    #[test]
+    fn valid_origin_rejects_file_scheme() {
+        assert!(!is_valid_origin("file:///etc/passwd"));
+    }
+
     fn build_cors_test_router(state: Arc<DaemonHttpState>, cors: &[String]) -> Router {
         build_router(state, AuthState::new(TEST_TOKEN.to_string()), cors)
     }
