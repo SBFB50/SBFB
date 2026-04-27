@@ -275,6 +275,42 @@ install_systemd_units() {
     fi
 }
 
+
+
+# -- Desktop entry (Linux .desktop + icon) --------------------
+
+install_desktop_entry() {
+    if [[ "$OS" != "linux" ]]; then
+        return
+    fi
+
+    local launcher_bin="$INSTALL_DIR/target/release/nexus-launcher"
+    if [[ ! -x "$launcher_bin" ]]; then
+        return
+    fi
+
+    if ! confirm "Install desktop menu entry for nexus-launcher?"; then
+        return
+    fi
+
+    local apps_dir="$HOME/.local/share/applications"
+    local icons_dir="$HOME/.local/share/icons/hicolor/256x256/apps"
+
+    mkdir -p "$apps_dir" "$icons_dir"
+
+    sed "s|Exec=.*|Exec=$launcher_bin|"         "$INSTALL_DIR/configs/desktop/nexus-launcher.desktop"         > "$apps_dir/nexus-launcher.desktop"
+
+    if [[ -f "$INSTALL_DIR/assets/nexus-launcher.png" ]]; then
+        cp "$INSTALL_DIR/assets/nexus-launcher.png" "$icons_dir/nexus-launcher.png"
+    fi
+
+    if command_exists gtk-update-icon-cache; then
+        gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+    fi
+
+    info "Desktop entry installed to $apps_dir/nexus-launcher.desktop"
+}
+
 # ── Summary ──────────────────────────────────────────────────
 
 print_summary() {
@@ -351,6 +387,7 @@ main() {
     build_components
     post_build_note
     install_systemd_units
+    install_desktop_entry
     print_summary
 }
 

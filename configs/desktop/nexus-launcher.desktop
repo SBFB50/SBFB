@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SBFB Nexus Grid
+GenericName=P2P Compute Network
+Comment=Decentralized P2P compute network for apps
+Exec=/opt/nexus-grid/target/release/nexus-launcher
+Icon=nexus-launcher
+Terminal=false
+Categories=Network;P2P;
+StartupNotify=true
