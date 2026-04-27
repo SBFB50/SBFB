@@ -188,3 +188,101 @@ Relire ce document quand :
 
 Aucune décision à prendre maintenant. Doc de référence en attente du tag v1.0.
 À ce moment-là, candidat fort pour première application phare du réseau SBFB.
+
+## Note 2026-04-27 — re-évaluation table A-I quand Babel devient timely
+
+La table A-I (~7 sprints v1.0 publique) reflète la cadence SBFB actuelle
+(1 sprint = 1 phase A-F + verification, ~5-7 jours, overhead structurel
+~2j de planning/preflight/audit). Elle ne soustrait pas explicitement les
+briques réutilisables (worker-core, dispatcher, Kudos, Ed25519/SLSA-L1,
+app SDK) du budget — donc partiellement double comptabilité.
+
+Re-évaluer au moment du tag v1.0 en fonction de :
+
+- État réel des briques réutilisables (peut-être plus solides qu'imaginé)
+- Choix runtime NLLB (HF transformers Python vs ctranslate2 vs ONNX —
+  influence le scope de Sprint A)
+- Mode projet : solo OpenBSD-style (cadence A-I conservée, ~7-8 sprints)
+  vs équipe dédiée 1-2 personnes 3-4 mois (compression possible à 4-5
+  sprints équivalents)
+
+L'estimation est **un range, pas un chiffre fixe**. Ne pas figer la table
+A-I comme un plan engagé — elle est une borne supérieure conservative
+pour budgétisation grossière post-v1.0.
+
+## Plan d'action quand Babel devient timely
+
+**Trigger** : tag SBFB v1.0 posé OU décision explicite d'évaluer Babel
+(par exemple si la communauté demande "quelle première grande app ?").
+À ce moment-là, ne PAS commencer à coder — d'abord tester le signal
+demande à coût quasi-nul.
+
+### Phase 1 — Signal testing (~10 jours, asymétrique)
+
+Quatre actions parallèles, faible effort, valeur d'information énorme :
+
+1. **Email Greg Newby (directeur Project Gutenberg)** — envoyer ce doc
+   avec intro courte. Réponse ou non-réponse change le terrain
+   (légitimité institutionnelle). Coût : 30 min.
+2. **Email Brewster Kahle (Internet Archive, `brewster@archive.org`)** —
+   même principe. Brewster est connu pour répondre directement. Une
+   réponse, même tiède, est de l'or pur. Coût : 30 min.
+3. **Application NLnet NGI Zero Commons Fund** ([nlnet.nl/commonsfund](https://nlnet.nl/commonsfund/))
+   — formulaire ~10 pages, 5k-50k€ non-dilutif, alignement parfait
+   (open-source + biens communs + multilinguisme + décentralisation).
+   Coût : 1 semaine de rédaction. Réponse 2-3 mois.
+4. **Post sur Masakhane Slack** ([masakhane.io](https://www.masakhane.io))
+   — communauté NLP-Afrique, ~3000 membres, alignement parfait. Si
+   quelqu'un de sérieux veut co-construire, c'est le co-fondateur.
+   Silence radio en 2 semaines = signal négatif clair. Coût : 1h.
+
+Optionnel canal francophone : poste sur ATALA mailing-list
+([atala.fr](https://www.atala.fr)).
+
+### Phase 2A — Signaux positifs (au moins 2/3 mordent)
+
+Babel passe de research-note à launch vehicle SBFB. Stratégie :
+
+- Continuer SBFB normalement (S32+) jusqu'à fermeture P0 et tag v1.0
+- En parallèle : négocier partenariats institutionnels (UNESCO IDIL
+  2022-2032 pour langues autochtones, SIL pour pivot biblique)
+- Cadrer Babel comme **projet collectif** avec co-fondateur identifié
+  via Masakhane/ATALA — pas comme side-project solo (rupture explicite
+  avec pattern OpenBSD `vision_model.md`, à assumer)
+- Au tag v1.0 SBFB, lancer Babel publiquement avec récit pré-construit
+  + financement NLnet sécurisé + endorsement Project Gutenberg ou
+  Internet Archive
+
+Cible : ~3-4 mois MVP focused équipe, puis lancement publique avec
+récit "1500 livres canon × langues qui meurent × communauté 24/7".
+
+### Phase 2B — Signaux négatifs ou tièdes (0-1 sur 3)
+
+Le récit ne porte pas comme attendu. Interprétations possibles :
+
+- Timing pas bon (marché AI translation saturé, fatigue post-Web3)
+- Pitch à affiner (peut-être "préservation des langues" plutôt que
+  "traduire Gutenberg")
+- Porteur attendu = nom connu (académique/ONG), pas dev solo
+
+Deux options :
+
+- Réajuster le pitch et retester dans 6 mois (Babel reste post-v1.0,
+  doc préservé tel quel)
+- Accepter SBFB lancement **sans** flagship app, mode slow-build
+  OpenBSD pur, laisser apps émerger organiquement (mode initialement
+  prévu, cohérent avec `vision_model.md`)
+
+### Anti-patterns à éviter
+
+- Rebattre les Day 0 SBFB sur la base des discussions Babel pre-v1.0
+- Commencer à coder Babel avant les signaux Phase 1
+- Annoncer Babel publiquement avant au moins un endorsement
+  institutionnel sécurisé (la première impression ne se répète pas)
+
+### En une phrase
+
+Le plan : ferme v1.0 SBFB d'abord, puis 1.5 semaine de signal-testing
+(3 emails + NLnet + Masakhane post), puis décision binaire à ~3 mois
+sur la base de signaux réels — pas spéculations. Ce doc reste la
+référence canonique pour la décision le moment venu.
