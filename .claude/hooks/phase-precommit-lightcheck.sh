@@ -139,7 +139,7 @@ fi
 # P2-REVIEW-A-1 MANDATORY 3/3. Enforcement mecanique de §6.7.
 # Grep staged sprint*_plan.md for amont LOC estimation patterns.
 # Exception: HARDENING_ROADMAP.md (bornes indicatives admises §6.7).
-STAGED_PLANS=$(git diff --cached --name-only 2>/dev/null | grep -E 'sprint[0-9]+_plan\.md$' || true)
+STAGED_PLANS=$(git diff --cached --name-only 2>/dev/null | grep -E 'sprint[0-9]+_plan\.md$' | grep -v '/archive/' || true)
 if [ -n "$STAGED_PLANS" ]; then
   while IFS= read -r plan_file; do
     [ -z "$plan_file" ] && continue

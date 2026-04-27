@@ -121,18 +121,18 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-32 CLOSED**, v1.2 en cours. Audit gate S32 = S33
-  Phase 0 (`.planning/active/sprint33_audit_plan.md`).
-- **~1883 tests total** (883 Rust / 195 SDK / 406+36f+6s coord / 46
+- **Sprints 0-33 CLOSED**, v1.2 en cours. Audit gate S33 = S34
+  Phase 0 (`.planning/active/sprint34_audit_plan.md`).
+- **~1901 tests total** (898 Rust / 195 SDK / 409+36f+6s coord / 46
   app-gov / 267 Vitest / 44 Playwright / 7/7 size-limit) — tous
-  verts code (36 coord fail PyO3 wheel stale + 2 PW env fail +
-  1 SDK flaky Windows file-lock — meme root cause wheel/env stale,
-  pas regression).
-- Carry S33 : **P2-REVIEW-A-1 LOC plan meta-process 3/3 MANDATORY** ;
-  P2-A-1 rand dual version 1/3 ; P2-B-1 tor-rtcompat 1/3 ;
-  P2-REVIEW-C-2 daemon COEP E2E 1/3 ;
-  P3-grammar executor 1/3 ; P3-watermark executor 1/3 ;
-  P3-iroh-comments stale 1/3.
+  verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
+  meme root cause wheel/env stale, pas regression).
+- Carry S34 : **P2-A-1 rand triple 3/3 MANDATORY** ;
+  **P2-B-1 tor-rtcompat 3/3 MANDATORY** ;
+  **P2-REVIEW-C-2 COEP E2E 3/3 MANDATORY** ;
+  P3-grammar executor 3/3 ; P3-watermark executor 3/3 ;
+  P2-B-1-S33 shellcheck CI 1/3 ; P2-B-2-S33 REPO_URL 1/3 ;
+  P2-C-1-S33 cross-daemon E2E 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
