@@ -73,6 +73,13 @@ pub enum Command {
         /// is a no-op.
         #[arg(long)]
         headless: bool,
+
+        /// Extra CORS origins to allow (repeatable). Each value
+        /// must be a valid HTTP(S) origin (`http://host[:port]`).
+        /// Loopback origins are always allowed regardless.
+        /// Env fallback: `NEXUS_DAEMON_CORS_ORIGINS` (comma-separated).
+        #[arg(long = "cors-origin", value_name = "ORIGIN")]
+        cors_origins: Vec<String>,
     },
 
     /// Stop a running shell daemon.
@@ -295,7 +302,13 @@ mod tests {
     fn parses_start_without_flags() {
         let cli = Cli::try_parse_from(["nexus-shell-daemon", "start"]).unwrap();
         match cli.command {
-            Command::Start { headless } => assert!(!headless),
+            Command::Start {
+                headless,
+                cors_origins,
+            } => {
+                assert!(!headless);
+                assert!(cors_origins.is_empty());
+            }
             other => panic!("expected Start, got {other:?}"),
         }
     }
@@ -304,7 +317,34 @@ mod tests {
     fn parses_start_with_headless() {
         let cli = Cli::try_parse_from(["nexus-shell-daemon", "start", "--headless"]).unwrap();
         match cli.command {
-            Command::Start { headless } => assert!(headless),
+            Command::Start {
+                headless,
+                cors_origins,
+            } => {
+                assert!(headless);
+                assert!(cors_origins.is_empty());
+            }
+            other => panic!("expected Start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_start_with_cors_origins() {
+        let cli = Cli::try_parse_from([
+            "nexus-shell-daemon",
+            "start",
+            "--cors-origin",
+            "http://192.168.1.10:8080",
+            "--cors-origin",
+            "https://example.com",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Start { cors_origins, .. } => {
+                assert_eq!(cors_origins.len(), 2);
+                assert_eq!(cors_origins[0], "http://192.168.1.10:8080");
+                assert_eq!(cors_origins[1], "https://example.com");
+            }
             other => panic!("expected Start, got {other:?}"),
         }
     }

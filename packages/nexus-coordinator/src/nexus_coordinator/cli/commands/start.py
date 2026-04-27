@@ -36,6 +36,11 @@ def start_cmd(
         "--host",
         help="Override the bind host (defaults to coordinator.toml network.api_host).",
     ),
+    cors_origin: list[str] | None = typer.Option(
+        None,
+        "--cors-origin",
+        help="Extra CORS origins to allow (repeatable). Env fallback: NEXUS_COORD__NETWORK__CORS_ORIGINS (comma-separated).",
+    ),
 ) -> None:
     """Boot the iroh Node, open the project doc, and serve the
     FastAPI control plane.
@@ -60,10 +65,22 @@ def start_cmd(
         project_dir=str(project_dir(name)),
     )
 
-    asyncio.run(_run(name, port=port, host=host))
+    resolved_cors: list[str] = list(cors_origin) if cors_origin else []
+    if not resolved_cors:
+        env_cors = os.environ.get("NEXUS_COORD__NETWORK__CORS_ORIGINS", "")
+        if env_cors:
+            resolved_cors = [o.strip() for o in env_cors.split(",") if o.strip()]
+
+    asyncio.run(_run(name, port=port, host=host, cors_origins=resolved_cors or None))
 
 
-async def _run(name: str, *, port: int | None, host: str | None) -> None:
+async def _run(
+    name: str,
+    *,
+    port: int | None,
+    host: str | None,
+    cors_origins: list[str] | None,
+) -> None:
     """Inner async runner split out so the top-level command stays
     sync-friendly for Typer."""
     coord = Coordinator(name)
@@ -88,7 +105,7 @@ async def _run(name: str, *, port: int | None, host: str | None) -> None:
             error=str(e),
         )
 
-    app = create_app(coord)
+    app = create_app(coord, cors_origins=cors_origins)
 
     # uvicorn.Server lets us run the server as a coroutine inside
     # the same event loop that owns the iroh Node, so the FastAPI

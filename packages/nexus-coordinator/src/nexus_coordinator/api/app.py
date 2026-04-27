@@ -22,7 +22,10 @@ if TYPE_CHECKING:
     from nexus_coordinator.coordinator import Coordinator
 
 
-def create_app(coordinator: "Coordinator") -> FastAPI:
+def create_app(
+    coordinator: "Coordinator",
+    cors_origins: list[str] | None = None,
+) -> FastAPI:
     """Build a FastAPI app bound to an already-started coordinator.
 
     The ``coordinator`` argument must have had :meth:`start`
@@ -116,13 +119,15 @@ def create_app(coordinator: "Coordinator") -> FastAPI:
     # Added LAST so the CORS layer wraps the auth layer: OPTIONS
     # preflight requests are answered directly by CORS, while
     # real GET/POST/DELETE requests still traverse auth first.
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$",
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    cors_kwargs: dict = {
+        "allow_origin_regex": r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$",
+        "allow_credentials": False,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
+    if cors_origins:
+        cors_kwargs["allow_origins"] = list(cors_origins)
+    app.add_middleware(CORSMiddleware, **cors_kwargs)
 
     # Stash the coordinator on the app state so routers can reach
     # it via `request.app.state.coordinator` instead of a global.

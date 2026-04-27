@@ -139,6 +139,8 @@ pub struct DaemonStartOptions {
     /// `DaemonHttpState` so the noop routing helpers can gate
     /// every publish / subscribe / dispatch handler.
     pub identity_mode: nexus_core_rs::IdentityMode,
+    /// Sprint 33 Phase A: extra CORS origins from `--cors-origin`.
+    pub cors_origins: Vec<String>,
 }
 
 /// A live `nexus-shell-daemon` process.
@@ -530,7 +532,7 @@ impl DaemonRuntime {
             (auth::AuthState::new(static_token), None)
         };
 
-        let router = build_router(http_state, auth_state);
+        let router = build_router(http_state, auth_state, &opts.cors_origins);
 
         // 6a. Sprint 16 Phase B (D2): spawn the UDS / Named Pipe
         //     accept loop on a clone of the same router. The
@@ -1039,6 +1041,7 @@ mod tests {
             daemon_version: "0.1.0-test".to_string(),
             curator: CuratorConfig::default(),
             identity_mode: nexus_core_rs::IdentityMode::Normal,
+            cors_origins: vec![],
         }
     }
 

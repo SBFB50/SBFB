@@ -367,7 +367,7 @@ class Coordinator:
         )
         await self.quarantine_queue.start()
 
-        # Sprint 31 Phase C — Tor transport (arti-client 2.0).
+        # Sprint 31 Phase C — Tor transport (arti-client 0.41).
         # Phase 1: config infrastructure + availability check +
         # fallback. Full HTTP-over-Tor routing is Phase 2.
         from nexus_coordinator.paths import tor_config_path

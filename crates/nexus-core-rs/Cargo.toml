@@ -40,7 +40,7 @@ tracing = { workspace = true }
 async-trait = { workspace = true }
 
 # Sprint 19 Phase A : pkarr_resolver takes a url::Url at construction
-# time (matching iroh 0.97 PkarrRelayClient::new signature). Already
+# time (matching iroh 0.98 PkarrRelayClient::new signature). Already
 # a transitive dep of iroh ; made direct so the pkarr_resolver module
 # can import the type without a second-level re-export dance. Pinned
 # through the workspace like every other foundational dep.

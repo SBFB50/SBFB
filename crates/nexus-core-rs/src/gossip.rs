@@ -720,7 +720,7 @@ mod tests {
 
 // Note: end-to-end 2-node gossip message exchange is deliberately
 // not tested at this layer because it requires configuring peer
-// address injection against an iroh 0.97 API surface that is
+// address injection against an iroh 0.98 API surface that is
 // orthogonal to the GossipClient wrapper itself. The wrapper is
 // exercised end-to-end in Sprint 4 when the coordinator uses it
 // to publish curator list announcements, which is the real

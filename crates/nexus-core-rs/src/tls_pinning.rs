@@ -29,7 +29,7 @@
 //!
 //! ## What this module does NOT deliver (Sprint 19 scope)
 //!
-//! No hook into the iroh 0.97 relay client is wired in this
+//! No hook into the iroh 0.98 relay client is wired in this
 //! sprint. context7 verification of `/websites/rs_iroh` 2026-04-16
 //! confirmed that `relay::client::ClientBuilder` exposes
 //! `insecure_skip_cert_verify` only under `#[cfg(any(test,

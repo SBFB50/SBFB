@@ -72,7 +72,10 @@ async fn main() -> Result<()> {
     );
 
     match cli.command {
-        Command::Start { headless } => handle_start(paths, headless).await,
+        Command::Start {
+            headless,
+            cors_origins,
+        } => handle_start(paths, headless, cors_origins).await,
         Command::Stop => handle_stop(&paths).await,
         Command::Status => handle_status(&paths).await,
         Command::Config(cmd) => handle_config(&paths, cmd).await,
@@ -80,7 +83,11 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn handle_start(paths: ShellDaemonPaths, _headless: bool) -> Result<()> {
+async fn handle_start(
+    paths: ShellDaemonPaths,
+    _headless: bool,
+    cli_cors_origins: Vec<String>,
+) -> Result<()> {
     // Load the config to pick up any user-tuned bind host / port.
     // A missing file is fine — Phase A defaults to 127.0.0.1:0.
     let cfg = ShellDaemonConfig::load(&paths.config_file)
@@ -98,6 +105,27 @@ async fn handle_start(paths: ShellDaemonPaths, _headless: bool) -> Result<()> {
     // falls through to `Normal`. The env var is read inside the
     // daemon process and never persisted on disk, matching the
     // Phase A pattern for `SBFB_IDENTITY_SECRET_HEX`.
+    let cors_origins = if cli_cors_origins.is_empty() {
+        std::env::var("NEXUS_DAEMON_CORS_ORIGINS")
+            .ok()
+            .map(|s| {
+                s.split(',')
+                    .map(|o| o.trim().to_string())
+                    .filter(|o| !o.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    } else {
+        cli_cors_origins
+    };
+    for origin in &cors_origins {
+        if !crate::http::is_valid_origin(origin) {
+            anyhow::bail!(
+                "invalid --cors-origin value: {origin:?} (expected http(s)://host[:port])"
+            );
+        }
+    }
+
     let identity_mode = match std::env::var("SBFB_IDENTITY_MODE").ok().as_deref() {
         Some("duress") => nexus_core_rs::IdentityMode::Duress,
         _ => nexus_core_rs::IdentityMode::Normal,
@@ -111,6 +139,7 @@ async fn handle_start(paths: ShellDaemonPaths, _headless: bool) -> Result<()> {
         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
         curator: cfg.curator.clone(),
         identity_mode,
+        cors_origins,
     };
 
     let runtime = DaemonRuntime::start(opts)

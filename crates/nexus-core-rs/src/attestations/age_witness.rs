@@ -3,7 +3,7 @@
 //!
 //! Sprint 22 Phase C. A new node joining a gossip topic must prove
 //! age ≥ [`MIN_AGE_DAYS`] days on top of the Sprint 19 Hashcash PoW
-//! gate. Because `iroh 0.97` does not expose an intrinsic node-id
+//! gate. Because `iroh 0.98` does not expose an intrinsic node-id
 //! timestamp (confirmed `docs.rs/iroh` + `iroh-gossip` CHANGELOG),
 //! age is asserted via an externally-signed witness : an already-
 //! established peer (a node active in the mesh for at least
@@ -18,7 +18,7 @@
 //!   behaviour-faking.
 //! - **Tor-Guard-style dirauth-centralised age** — incompatible
 //!   with the SBFB charter "No central server".
-//! - **Node_id intrinsic timestamp** — not available in iroh 0.97.
+//! - **Node_id intrinsic timestamp** — not available in iroh 0.98.
 //!
 //! ## Wire format
 //!

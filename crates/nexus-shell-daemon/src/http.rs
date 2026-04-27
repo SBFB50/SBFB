@@ -19,15 +19,15 @@
 //!
 //! ## CORS
 //!
-//! The daemon trusts two and only two origins:
+//! By default the daemon trusts only loopback origins:
 //!
 //! - `http://127.0.0.1[:port]`
 //! - `http://localhost[:port]`
 //!
-//! Even though the shell is expected to talk through the
-//! coordinator proxy, we keep a strict loopback CORS layer on
-//! the daemon itself so a future direct-call path cannot
-//! silently widen the trust model.
+//! The `--cors-origin` CLI flag (repeatable) extends the
+//! allowlist with extra origins for multi-node access.
+//! The env fallback `NEXUS_DAEMON_CORS_ORIGINS` (comma-
+//! separated) is merged when the flag is absent.
 
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -188,7 +188,11 @@ impl DaemonHttpState {
 ///   content is already public by construction (anyone on the
 ///   P2P network can fetch the zip by hash), so exempting the
 ///   route does not leak anything new.
-pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
+pub fn build_router(
+    state: Arc<DaemonHttpState>,
+    auth: AuthState,
+    cors_origins: &[String],
+) -> Router {
     // Sprint 13 Phase A (T37): blob-serve routes get a CSP
     // middleware that injects security headers on ALL responses
     // (200, 400, 404, 500) — not just the success path.
@@ -255,7 +259,7 @@ pub fn build_router(state: Arc<DaemonHttpState>, auth: AuthState) -> Router {
         .merge(public_routes)
         .merge(authed_routes)
         .with_state(state)
-        .layer(loopback_cors_layer())
+        .layer(cors_layer(cors_origins))
 }
 
 /// Middleware that injects security headers on every blob-serve
@@ -279,13 +283,52 @@ async fn blob_serve_csp_middleware(request: Request, next: Next) -> impl IntoRes
     response
 }
 
-/// The loopback-only CORS layer. Accepts exactly the origins
-/// `http://127.0.0.1[:PORT]` and `http://localhost[:PORT]`;
-/// refuses everything else, including HTTPS variants.
-fn loopback_cors_layer() -> CorsLayer {
+/// Build a CORS layer that always accepts loopback origins and
+/// optionally accepts extra origins passed via `--cors-origin`.
+fn cors_layer(extra_origins: &[String]) -> CorsLayer {
+    if extra_origins.is_empty() {
+        return CorsLayer::new().allow_origin(AllowOrigin::predicate(
+            |origin: &HeaderValue, _request_parts: &_| is_loopback_origin(origin),
+        ));
+    }
+    let allowed: Vec<HeaderValue> = extra_origins
+        .iter()
+        .filter_map(|o| HeaderValue::from_str(o.as_str()).ok())
+        .collect();
     CorsLayer::new().allow_origin(AllowOrigin::predicate(
-        |origin: &HeaderValue, _request_parts: &_| is_loopback_origin(origin),
+        move |origin: &HeaderValue, _request_parts: &_| {
+            is_loopback_origin(origin) || allowed.iter().any(|a| a == origin)
+        },
     ))
+}
+
+/// Return `true` iff `origin` looks like a valid HTTP(S) origin
+/// (scheme + host + optional port, no path). Used to reject
+/// obviously malformed `--cors-origin` values at boot.
+pub fn is_valid_origin(s: &str) -> bool {
+    let rest = match s.strip_prefix("http://") {
+        Some(r) => r,
+        None => match s.strip_prefix("https://") {
+            Some(r) => r,
+            None => return false,
+        },
+    };
+    if rest.is_empty() || rest.contains('/') {
+        return false;
+    }
+    let (host, port_opt) = match rest.rsplit_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (rest, None),
+    };
+    if host.is_empty() {
+        return false;
+    }
+    if let Some(p) = port_opt {
+        if p.parse::<u16>().is_err() {
+            return false;
+        }
+    }
+    true
 }
 
 /// Return `true` iff `origin` is an HTTP loopback URL with an
@@ -1032,10 +1075,10 @@ async fn mint_blob_ticket(
 
 /// `GET /diagnostic/neighborhood` — Sprint 23 Phase E. Returns the
 /// node's own ID and the peer pubkeys currently in the daemon's
-/// observable neighborhood. iroh 0.97 does not expose a DHT routing
-/// table enumeration (`remote_info_iter` landed post-0.97), so the
+/// observable neighborhood. iroh 0.98 does not expose a DHT routing
+/// table enumeration (`remote_info_iter` landed post-0.98), so the
 /// observable neighborhood is the set of subscribed curator pubkeys
-/// — the peers this daemon actively tracks via gossip. Post-0.97
+/// — the peers this daemon actively tracks via gossip. Post-0.98
 /// upgrade or pkarr canary integration (S24) will enrich this with
 /// transport-layer peer discovery.
 async fn diagnostic_neighborhood(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
@@ -1251,21 +1294,27 @@ mod tests {
     /// [`auth_required`] middleware, and the 401 / 403 paths are
     /// covered by `auth::tests` in the core crate.
     fn build_test_router(state: Arc<DaemonHttpState>) -> Router {
+        build_test_router_with_cors(state, &[])
+    }
+
+    fn build_test_router_with_cors(state: Arc<DaemonHttpState>, cors: &[String]) -> Router {
         use axum::http::header::{HOST, ORIGIN};
         use axum::http::HeaderValue;
-        build_router(state, AuthState::new(TEST_TOKEN.to_string())).layer(middleware::from_fn(
-            |mut req: axum::extract::Request, next: middleware::Next| async move {
-                let h = req.headers_mut();
-                if !h.contains_key(AUTH_HEADER_NAME) {
-                    h.insert(AUTH_HEADER_NAME, HeaderValue::from_static(TEST_TOKEN));
-                }
-                if !h.contains_key(HOST) {
-                    h.insert(HOST, HeaderValue::from_static("127.0.0.1:0"));
-                }
-                h.remove(ORIGIN);
-                next.run(req).await
-            },
-        ))
+        build_router(state, AuthState::new(TEST_TOKEN.to_string()), cors).layer(
+            middleware::from_fn(
+                |mut req: axum::extract::Request, next: middleware::Next| async move {
+                    let h = req.headers_mut();
+                    if !h.contains_key(AUTH_HEADER_NAME) {
+                        h.insert(AUTH_HEADER_NAME, HeaderValue::from_static(TEST_TOKEN));
+                    }
+                    if !h.contains_key(HOST) {
+                        h.insert(HOST, HeaderValue::from_static("127.0.0.1:0"));
+                    }
+                    h.remove(ORIGIN);
+                    next.run(req).await
+                },
+            ),
+        )
     }
 
     /// Build a [`DaemonHttpState`] backed by a live iroh node.
@@ -1883,6 +1932,141 @@ mod tests {
     fn loopback_origin_rejects_suffix_trick() {
         let h = HeaderValue::from_static("http://127.0.0.1.evil.com");
         assert!(!is_loopback_origin(&h));
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 33 Phase A: CORS layer with --cors-origin
+    // ---------------------------------------------------------
+
+    #[test]
+    fn valid_origin_accepts_http_with_port() {
+        assert!(is_valid_origin("http://192.168.1.10:8080"));
+    }
+
+    #[test]
+    fn valid_origin_accepts_https_without_port() {
+        assert!(is_valid_origin("https://example.com"));
+    }
+
+    #[test]
+    fn valid_origin_rejects_no_scheme() {
+        assert!(!is_valid_origin("192.168.1.10:8080"));
+    }
+
+    #[test]
+    fn valid_origin_rejects_with_path() {
+        assert!(!is_valid_origin("http://example.com/path"));
+    }
+
+    fn build_cors_test_router(state: Arc<DaemonHttpState>, cors: &[String]) -> Router {
+        build_router(state, AuthState::new(TEST_TOKEN.to_string()), cors)
+    }
+
+    #[tokio::test]
+    async fn cors_loopback_default_allows_localhost() {
+        let app = build_cors_test_router(mk_state().await, &[]);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/health")
+                    .header("origin", "http://localhost:3000")
+                    .header("access-control-request-method", "GET")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let acao = resp.headers().get("access-control-allow-origin");
+        assert!(acao.is_some(), "loopback origin must be allowed by default");
+    }
+
+    #[tokio::test]
+    async fn cors_loopback_default_rejects_external() {
+        let app = build_cors_test_router(mk_state().await, &[]);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/health")
+                    .header("origin", "http://192.168.1.10:8080")
+                    .header("access-control-request-method", "GET")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let acao = resp.headers().get("access-control-allow-origin");
+        assert!(
+            acao.is_none(),
+            "external origin must be rejected by default"
+        );
+    }
+
+    #[tokio::test]
+    async fn cors_custom_origin_allows_configured() {
+        let origins = vec!["http://192.168.1.10:8080".to_string()];
+        let app = build_cors_test_router(mk_state().await, &origins);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/health")
+                    .header("origin", "http://192.168.1.10:8080")
+                    .header("access-control-request-method", "GET")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let acao = resp.headers().get("access-control-allow-origin");
+        assert!(acao.is_some(), "configured origin must be allowed");
+    }
+
+    #[tokio::test]
+    async fn cors_custom_origin_preserves_loopback() {
+        let origins = vec!["http://192.168.1.10:8080".to_string()];
+        let app = build_cors_test_router(mk_state().await, &origins);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/health")
+                    .header("origin", "http://localhost:3000")
+                    .header("access-control-request-method", "GET")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let acao = resp.headers().get("access-control-allow-origin");
+        assert!(
+            acao.is_some(),
+            "loopback must still be allowed with custom origins"
+        );
+    }
+
+    #[tokio::test]
+    async fn cors_rejects_unconfigured_external() {
+        let origins = vec!["http://192.168.1.10:8080".to_string()];
+        let app = build_cors_test_router(mk_state().await, &origins);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/health")
+                    .header("origin", "http://evil.com:9999")
+                    .header("access-control-request-method", "GET")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let acao = resp.headers().get("access-control-allow-origin");
+        assert!(
+            acao.is_none(),
+            "unconfigured external origin must be rejected"
+        );
     }
 
     // ---------------------------------------------------------

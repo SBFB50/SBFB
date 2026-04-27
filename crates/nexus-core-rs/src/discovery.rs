@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Discovery helpers for SBFB.
 //!
-//! In iroh 0.97 the `presets::N0` preset wires pkarr DHT discovery
+//! In iroh 0.98 the `presets::N0` preset wires pkarr DHT discovery
 //! automatically: every node we boot publishes its current
 //! [`NodeAddr`] into the pkarr DHT and subscribes to lookups for
 //! node ids it tries to dial. SBFB therefore does **not** need to
@@ -114,7 +114,7 @@ impl<'a> DiscoveryClient<'a> {
     /// Wait until the endpoint has a ready [`EndpointAddr`] and
     /// return a [`NodeAddrInfo`] snapshot.
     ///
-    /// In iroh 0.97 addressing is exposed as [`Endpoint::addr`]
+    /// In iroh 0.98 addressing is exposed as [`Endpoint::addr`]
     /// (synchronous) and [`Endpoint::watch_addr`] (watcher). This
     /// helper delegates to [`DiscoveryClient::my_endpoint_addr`]
     /// and then converts the raw `EndpointAddr` into our

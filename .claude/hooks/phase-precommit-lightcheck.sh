@@ -135,6 +135,31 @@ if [ -n "$BODY" ]; then
   fi
 fi
 
+# === Check 6 : LOC guard — block plans with LOC estimations (STRICT) ===
+# P2-REVIEW-A-1 MANDATORY 3/3. Enforcement mecanique de §6.7.
+# Grep staged sprint*_plan.md for amont LOC estimation patterns.
+# Exception: HARDENING_ROADMAP.md (bornes indicatives admises §6.7).
+STAGED_PLANS=$(git diff --cached --name-only 2>/dev/null | grep -E 'sprint[0-9]+_plan\.md$' || true)
+if [ -n "$STAGED_PLANS" ]; then
+  while IFS= read -r plan_file; do
+    [ -z "$plan_file" ] && continue
+    LOC_HITS=$(git diff --cached -- "$plan_file" 2>/dev/null | grep -E '^\+' | grep -iE '~[[:space:]]*[0-9]+[[:space:]]*(LOC|lignes)|environ[[:space:]]+[0-9]+[[:space:]]+LOC|budget[[:space:]]+LOC|LOC[[:space:]]+total' || true)
+    if [ -n "$LOC_HITS" ]; then
+      echo "" >&2
+      echo "[lightcheck] BLOCK: LOC estimation detected in staged plan (§6.7)" >&2
+      echo "  File: $plan_file" >&2
+      echo "$LOC_HITS" | head -3 | while IFS= read -r hit; do
+        echo "  $hit" >&2
+      done
+      echo "" >&2
+      echo "  Sprint scope is dimensioned by functional goal, not LOC budget." >&2
+      echo "  Remove the LOC estimation from the plan. Cf. docs/claude/README.md §6.7." >&2
+      echo "" >&2
+      ERRORS=$((ERRORS + 1))
+    fi
+  done <<< "$STAGED_PLANS"
+fi
+
 # === Check 4 : wire-format staging alert (WARN) ===
 WIRE_FILES=$(git diff --cached --name-only 2>/dev/null | grep -E 'canonical\.rs|schemas/|_VERSION' || true)
 if [ -n "$WIRE_FILES" ]; then
