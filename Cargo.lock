@@ -4822,6 +4822,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-test-harness"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "nexus-trace-core"
 version = "1.0.0"
 dependencies = [
