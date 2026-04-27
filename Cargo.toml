@@ -26,18 +26,15 @@ readme = "README.md"
 # Shared dependency versions. Crates inherit with
 # `iroh = { workspace = true }` etc. so version bumps live in one place.
 #
-# iroh stack: pinned to the 0.97.x line (published March 2026). iroh-blobs
-# uses independent versioning and is at 0.99.x for that release train.
-# See the SBFB plan section "Contraintes techniques confirmées" for why
-# these exact versions were chosen.
+# iroh stack: upgraded to the 0.98.x line (published 2026-04-17, Sprint 32
+# Phase A). iroh-blobs uses independent versioning and is at 0.100.x for
+# this release train. Day 0 #3 (iroh 0.97 pin) formally lifted Sprint 32.
+# LT-6 trigger resolved.
 [workspace.dependencies]
-iroh = "0.97"
-iroh-docs = "0.97"
-iroh-gossip = "0.97"
-iroh-blobs = "0.99"
-# iroh-pkarr-node-discovery: pkarr DHT discovery is built into iroh 0.97
-# via Endpoint::builder().discovery_n0(). No separate crate needed —
-# the SBFB plan's stack listing was out of date here.
+iroh = "0.98"
+iroh-docs = "0.98"
+iroh-gossip = "0.98"
+iroh-blobs = "0.100"
 
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }
@@ -219,7 +216,7 @@ criterion = { version = "0.5", default-features = false, features = [
 # check. default-features disabled to avoid openssl (reqwest's
 # `default-tls` feature pulls native-tls → openssl on Linux); we
 # reuse `rustls-tls` which is already pulled transitively by the
-# iroh 0.97 stack, so this adds no new TLS backend to the final
+# iroh stack, so this adds no new TLS backend to the final
 # binary. `json` gives us the `Response::json::<T>()` helper used
 # by the NVD parser. ollama-rs has its own direct reqwest
 # dependency with different features, so hoisting reqwest here
@@ -416,7 +413,7 @@ cudarc = { version = "0.12", default-features = false, features = ["driver", "cu
 # (4.4k stars, Apache-2.0), tokio-native async, DoH + DoT + DNSSEC
 # support. RustSec scan 2026-04-21 : zero active advisories.
 # `dns-over-https-rustls` and `dns-over-rustls` use the rustls TLS
-# backend already pulled transitively by the iroh 0.97 stack — no
+# backend already pulled transitively by the iroh stack — no
 # new TLS backend added to the binary.
 hickory-resolver = { version = "0.24", features = [
     "dns-over-https-rustls",
