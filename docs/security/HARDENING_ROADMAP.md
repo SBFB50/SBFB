@@ -1,10 +1,10 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-27  # G2 — Sprint 31 Phase D : Tor transport phase 1 delivered (arti-client 0.41 coordinator outbound HTTP, feature gate tor, TorConfig TOML + TorTransport + TorClientWrapper Python). task_runner réel wired (LlmBackend Ollama executor). §9.5 output filter wired E2E post-verify (OutputSafetyGuardrail + rejected + 0 kudos). WebAppFrame orphelin supprimé. iroh 0.98 deferred S32 (Day 0 #3 pin + risque cascade). Carries S31 résolus : P2 task_runner 2/3→closed, P2 output filter 2/3→closed, P2 VALIDATED_BLUEPRINT stale→closed (SynthID+GLiNER), P3 confidence_score→closed, P2 HTTP FROST tests→closed. Triggers ACTIFS inchangés : iroh 0.98.0, arti-client 0.41.0 (intégré S31), openai-agents-python 0.14.6. Compteurs ~878 Rust / ~195 SDK / ~406+36f+6s coord / ~46 gov / ~267 Vitest / ~1877 total.
+last_validated: 2026-04-27  # G2 — Sprint 32 Phase D : dette pair iroh 0.97→0.98 workspace-wide (4 crates simultane, Day 0 #3 pin LEVE). rusqlite 0.32→0.36 + rusqlite_migration 1.3→2.2.0 + arti-client 0.41 dep activation (tor feature gate compile OK). P2 batch carries audit S31 : max_tokens wired executor via GenerationOptions::num_predict (P2-AUDIT-1 CLOSED), HARDENING compteurs fixés (P2-AUDIT-2 CLOSED), Tor boot log différencié disabled/unavailable (P3-AUDIT-3 CLOSED), 4 FROST HTTP error path tests (P3-AUDIT-2 CLOSED), Playwright COEP iframe isolation test mock-only (P2-REVIEW-B-1-S30 CLOSED, real daemon E2E = P2-REVIEW-C-2 carry S33). LT-6 RESOLVED (iroh > 0.97 trigger satisfait). Triggers ACTIFS : openai-agents-python 0.14.6 (informationnel). Triggers RESOLUS S32 : iroh 0.98.0 (LT-6), arti-client 0.41.0 (dep activée). Compteurs ~883 Rust / ~195 SDK / ~406+36f+6s coord / ~46 gov / ~267 Vitest / ~44 PW / ~1883 total.
 triggers_revalidate:
-  - "iroh release > 0.97 (PkarrPublisher API + relay TLS hooks)"
+  - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
-  - "arti-client release > 1.x stable (S25-S26 reroute possible)"
+  - "arti-client release > 0.41 (next API break post-S32 activation)"
   - "Tor PoW spec hspow change (impacte D2 PoW choice S19)"
   - "NIST PQC FIPS 203/204 ecosystem default (impacte S26+)"
   - "NVIDIA H100 CCM driver release (impacte S30)"

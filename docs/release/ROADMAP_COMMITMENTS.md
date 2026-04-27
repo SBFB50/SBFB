@@ -45,7 +45,7 @@ Derniere revue).
 | LT-3 | Contribution family Sybil matrix (3 couches asymetriques post-v1.0) | latent | `<post-v1.0>`  | 2026-04-20    |
 | LT-4 | OS biometric gate cross-platform (Windows Hello / TouchID / polkit) | latent | `<post-v1.0>` | 2026-04-20    |
 | LT-5 | Redundancy persistence SQLite + wire-up prod               | latent     | `<post-v1.0>`  | 2026-04-22    |
-| LT-6 | iroh neighborhood enrichment                                | latent     | `<post-v1.0>`  | 2026-04-22    |
+| LT-6 | iroh neighborhood enrichment                                | **resolved** | Sprint 32      | 2026-04-27    |
 
 ## LT-1 Kudos-v2 fairness reform
 
@@ -301,9 +301,10 @@ Derniere revue).
   de diversifier les pairs découverts et de réduire la surface
   d'attaque Eclipse (B-Eclipse threat).
 - **Condition de déclenchement** : **iroh release > 0.97** (avec API
-  neighborhood améliorée) OU **tag `v1.0` go-live**. L'API iroh
-  0.97 actuelle expose un neighborhood minimal suffisant pour le
-  fonctionnement pre-v1.0.
+  neighborhood améliorée) OU **tag `v1.0` go-live**. **RESOLVED** :
+  iroh 0.98 déployé Sprint 32 Phase A (`90aff27`). Day 0 #3 pin levé.
+  Les 4 crates iroh upgradés simultanément (iroh 0.98, iroh-docs 0.98,
+  iroh-gossip 0.98, iroh-blobs 0.100).
 - **Owner** : `<post-v1.0>`. Sera remplacé par le handle du lead
   réseau au moment de la réactivation.
 - **Runbook pointer** : `crates/nexus-core-rs/src/` (code iroh
@@ -311,8 +312,7 @@ Derniere revue).
   activé : enrichir les callbacks de découverte dans
   `nexus-shell-daemon-core` pour propager les pairs voisins et
   diversifier la topologie du réseau.
-- **Dernière revue** : 2026-04-22 (reclassification S26 kickoff,
-  §6.2.1 auto-trigger après 3+ carry consécutifs S24/S25/S26).
+- **Dernière revue** : 2026-04-27 (resolved Sprint 32 Phase A).
 
 ## Reservation IDs futurs
 
