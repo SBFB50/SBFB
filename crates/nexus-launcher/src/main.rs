@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! Minimal SBFB launcher — spawns the shell daemon, opens the
 //! browser, waits for Ctrl+C, then shuts down gracefully.
 //!
 //! Sprint 13 Phase D (D4). No Tauri, no native window — the
 //! browser IS the client.
+//!
+//! Launcher and daemon have separate log files. Convergence = carry S35.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -35,6 +38,49 @@ mod test_util {
 /// `SBFB_TOKEN_ROTATION_INTERVAL_SECS` for manual burn-in tests
 /// on a running launcher; absent → 24 h.
 const DEFAULT_ROTATION_INTERVAL_SECS: u64 = 86_400;
+
+// =================================================================
+// File logging (windows_subsystem = "windows" makes stdout invalid)
+// =================================================================
+
+static LOG_FILE: std::sync::OnceLock<std::sync::Mutex<std::fs::File>> = std::sync::OnceLock::new();
+
+fn launcher_log_path() -> PathBuf {
+    let home = std::env::var("SBFB_HOME")
+        .or_else(|_| std::env::var("USERPROFILE").map(|h| format!("{h}/.sbfb")))
+        .or_else(|_| std::env::var("HOME").map(|h| format!("{h}/.sbfb")))
+        .unwrap_or_else(|_| ".sbfb".to_string());
+    PathBuf::from(home).join("launcher.log")
+}
+
+fn setup_file_logging() {
+    let log_path = launcher_log_path();
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(file) = std::fs::File::create(&log_path) {
+        let _ = LOG_FILE.set(std::sync::Mutex::new(file));
+    }
+    let panic_log = log_path;
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = std::fs::write(&panic_log, format!("[launcher] PANIC: {info}\n"));
+    }));
+}
+
+macro_rules! lprint {
+    ($($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+        if let Some(file) = $crate::LOG_FILE.get() {
+            if let Ok(mut f) = file.lock() {
+                use std::io::Write;
+                let _ = writeln!(f, "{msg}");
+                let _ = f.flush();
+            }
+        }
+        #[cfg(debug_assertions)]
+        println!("{msg}");
+    }};
+}
 
 // =================================================================
 // running.json schema
@@ -107,29 +153,30 @@ async fn spawn_and_wait(
     running_path: &std::path::Path,
     spawned_child: &mut Option<std::process::Child>,
 ) -> RunningInfo {
-    println!("[launcher] spawning nexus-shell-daemon start...");
+    lprint!("[launcher] spawning nexus-shell-daemon start...");
     match spawn_daemon() {
         Ok(child) => {
             *spawned_child = Some(child);
         }
         Err(e) => {
-            eprintln!("[launcher] failed to spawn daemon: {e}");
-            eprintln!("[launcher] make sure nexus-shell-daemon is in PATH or next to the launcher");
+            lprint!("[launcher] failed to spawn daemon: {e}");
+            lprint!("[launcher] make sure nexus-shell-daemon is in PATH or next to the launcher");
             std::process::exit(1);
         }
     }
 
-    println!("[launcher] waiting for daemon to start (max 15s)...");
+    lprint!("[launcher] waiting for daemon to start (max 15s)...");
     match wait_for_running(running_path, Duration::from_secs(15)).await {
         Some(info) => {
-            println!(
+            lprint!(
                 "[launcher] daemon ready on {}:{}",
-                info.api_host, info.api_port
+                info.api_host,
+                info.api_port
             );
             info
         }
         None => {
-            eprintln!("[launcher] daemon did not produce running.json within 15s");
+            lprint!("[launcher] daemon did not produce running.json within 15s");
             if let Some(ref mut child) = spawned_child {
                 let _ = child.kill();
             }
@@ -164,6 +211,8 @@ fn spawn_daemon() -> std::io::Result<std::process::Child> {
 
 #[tokio::main]
 async fn main() {
+    setup_file_logging();
+
     // Check --help / --version.
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
@@ -241,12 +290,12 @@ async fn main() {
                 report.critical_count
             ),
             None => {
-                println!("[launcher] driver check ({source}): no NVIDIA driver detected, skipping")
+                lprint!("[launcher] driver check ({source}): no NVIDIA driver detected, skipping")
             }
         }
         if report.critical_count > 0 {
             if let Some(ref v) = report.local_version {
-                eprintln!(
+                lprint!(
                     "[launcher] WARNING: NVIDIA driver {v} is affected by {} Critical CVE. Consider updating.",
                     report.critical_count
                 );
@@ -263,7 +312,7 @@ async fn main() {
     let token = match resolve_token_for_child() {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("[launcher] failed to prepare auth token: {e}");
+            lprint!("[launcher] failed to prepare auth token: {e}");
             std::process::exit(1);
         }
     };
@@ -276,17 +325,17 @@ async fn main() {
     //     ACL; the kernel Named Pipe namespace ignores filesystem
     //     paths, but we still create the dir for symmetry.
     if let Err(e) = auth::ensure_run_dir() {
-        eprintln!("[launcher] failed to prepare ~/.sbfb/run/: {e}");
+        lprint!("[launcher] failed to prepare ~/.sbfb/run/: {e}");
         std::process::exit(1);
     }
 
     let auth_server = match auth::AuthServer::start(token.clone()).await {
         Ok(s) => {
-            println!("[launcher] auth server listening on {}", s.bound());
+            lprint!("[launcher] auth server listening on {}", s.bound());
             Some(s)
         }
         Err(e) => {
-            eprintln!("[launcher] failed to start auth server: {e}");
+            lprint!("[launcher] failed to start auth server: {e}");
             std::process::exit(1);
         }
     };
@@ -304,7 +353,7 @@ async fn main() {
                 Ok(None) => {
                     let r = TokenRotator::new(token.clone());
                     if let Err(e) = r.write_atomic(&path) {
-                        eprintln!(
+                        lprint!(
                             "[launcher] failed to seed tokens.json at {}: {e}",
                             path.display()
                         );
@@ -312,13 +361,13 @@ async fn main() {
                     r
                 }
                 Err(e) => {
-                    eprintln!(
+                    lprint!(
                         "[launcher] tokens.json at {} is malformed ({e}); reseeding",
                         path.display()
                     );
                     let r = TokenRotator::new(token.clone());
                     if let Err(e) = r.write_atomic(&path) {
-                        eprintln!("[launcher] failed to rewrite tokens.json: {e}");
+                        lprint!("[launcher] failed to rewrite tokens.json: {e}");
                     }
                     r
                 }
@@ -339,7 +388,7 @@ async fn main() {
             ))
         }
         None => {
-            eprintln!("[launcher] could not resolve tokens.json path; rotation disabled");
+            lprint!("[launcher] could not resolve tokens.json path; rotation disabled");
             None
         }
     };
@@ -355,9 +404,11 @@ async fn main() {
             );
             info
         } else {
-            eprintln!(
+            lprint!(
                 "[launcher] stale running.json (pid {} not responding on {}:{}), removing",
-                info.pid, info.api_host, info.api_port
+                info.pid,
+                info.api_host,
+                info.api_port
             );
             let _ = std::fs::remove_file(&running_path);
             // Fall through to spawn a new daemon below.
@@ -370,14 +421,14 @@ async fn main() {
 
     // 4. Open the browser.
     let url = format!("http://{}:{}", info.api_host, info.api_port);
-    println!("[launcher] opening {url}");
+    lprint!("[launcher] opening {url}");
     if let Err(e) = open::that(&url) {
-        eprintln!("[launcher] failed to open browser: {e}");
+        lprint!("[launcher] failed to open browser: {e}");
         // Non-fatal — the daemon is running, the user can open manually.
     }
 
     // 5. Wait for Ctrl+C.
-    println!("[launcher] press Ctrl+C to stop");
+    lprint!("[launcher] press Ctrl+C to stop");
     tokio::signal::ctrl_c()
         .await
         .expect("failed to listen for Ctrl+C");
@@ -409,10 +460,10 @@ async fn main() {
         .await;
 
         match wait_result {
-            Ok(Ok(Ok(status))) => println!("[launcher] daemon exited with {status}"),
-            Ok(Ok(Err(e))) => eprintln!("[launcher] daemon wait error: {e}"),
-            Ok(Err(e)) => eprintln!("[launcher] daemon join error: {e}"),
-            Err(_) => eprintln!("[launcher] daemon did not exit within 5s, abandoning"),
+            Ok(Ok(Ok(status))) => lprint!("[launcher] daemon exited with {status}"),
+            Ok(Ok(Err(e))) => lprint!("[launcher] daemon wait error: {e}"),
+            Ok(Err(e)) => lprint!("[launcher] daemon join error: {e}"),
+            Err(_) => lprint!("[launcher] daemon did not exit within 5s, abandoning"),
         }
     }
 
@@ -428,7 +479,7 @@ async fn main() {
         handle.abort();
     }
 
-    println!("[launcher] goodbye");
+    lprint!("[launcher] goodbye");
 }
 
 /// Resolve the loopback bearer token: prefer an existing
