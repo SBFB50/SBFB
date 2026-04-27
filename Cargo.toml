@@ -119,8 +119,8 @@ toml = "0.8"
 # W7: embedded SQLite for the project allowlist. `rusqlite` is
 # the canonical binding; `rusqlite_migration` gives schema
 # migrations on top.
-rusqlite = { version = "0.32", features = ["bundled"] }
-rusqlite_migration = "1.3"
+rusqlite = { version = "0.36", features = ["bundled"] }
+rusqlite_migration = "2.2"
 
 # W11: rotating file appender next to tracing-subscriber.
 tracing-appender = "0.2"
@@ -421,12 +421,10 @@ hickory-resolver = { version = "0.24", features = [
 ] }
 
 # Sprint 31 Phase C : Tor transport phase 1. Config infrastructure,
-# feature gate, fallback mechanism delivered. arti-client dep deferred
-# to Phase 2 (rusqlite 0.32→0.36 workspace upgrade required — arti-
-# client 0.41 pulls tor-dirmgr which needs rusqlite >=0.36, conflicting
-# with our libsqlite3-sys links constraint). The `tor` feature on
-# nexus-core-rs is declared but empty until the dep lands.
-# arti-client = "0.41"  # Phase 2 — blocked on rusqlite upgrade
+# feature gate, fallback mechanism delivered. Sprint 32 Phase B :
+# rusqlite 0.32→0.36 resolved the libsqlite3-sys conflict — arti-client
+# dep activated. tor-dirmgr (transitive) needs rusqlite >=0.36.
+arti-client = "0.41"
 
 [profile.release]
 # Deterministic release profile — prerequisite for SLSA in-toto

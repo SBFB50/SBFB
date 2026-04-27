@@ -123,13 +123,12 @@ schemars = { workspace = true }
 # when pkarr relays are unreachable. See `src/dns_fallback.rs`.
 hickory-resolver = { workspace = true }
 
-# Sprint 31 Phase C : Tor transport phase 1. Feature gate declared,
-# config + fallback delivered. arti-client dep deferred Phase 2
-# (rusqlite 0.32→0.36 workspace upgrade blocks resolution).
-# arti-client = { workspace = true, optional = true }
+# Sprint 31 Phase C : Tor transport phase 1 (config + fallback).
+# Sprint 32 Phase B : dep activated (rusqlite 0.36 unblocked resolution).
+arti-client = { workspace = true, optional = true }
 
 [features]
-tor = []
+tor = ["dep:arti-client"]
 
 [dev-dependencies]
 tokio = { workspace = true }
