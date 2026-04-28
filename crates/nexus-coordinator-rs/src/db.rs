@@ -52,17 +52,20 @@ pub struct CoordinatorDb {
     conn: Connection,
 }
 
+impl std::fmt::Debug for CoordinatorDb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CoordinatorDb").finish_non_exhaustive()
+    }
+}
+
 impl CoordinatorDb {
     pub fn open(path: &Path) -> Result<Self, CoordinatorError> {
-        let conn = Connection::open(path)?;
+        let mut conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
 
         let migrations = Migrations::new(MIGRATIONS.to_vec());
-        migrations.to_latest(&mut { conn })?;
-
-        let conn = Connection::open(path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
+        migrations.to_latest(&mut conn)?;
 
         Ok(Self { conn })
     }
@@ -301,5 +304,60 @@ mod tests {
 
         assert_eq!(db.get_worker_kudos_total("worker-a").expect("total"), 150);
         assert_eq!(db.get_worker_kudos_total("nobody").expect("total"), 0);
+    }
+
+    #[test]
+    fn open_file_creates_db_and_returns_schema_v1() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("coordinator.db");
+        let db = CoordinatorDb::open(&path).expect("open file");
+        assert!(path.exists());
+        assert_eq!(db.schema_version().expect("version"), 1);
+    }
+
+    #[test]
+    fn open_file_activates_wal_mode() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("coordinator.db");
+        let db = CoordinatorDb::open(&path).expect("open file");
+        let mode: String = db
+            .conn
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .expect("pragma");
+        assert_eq!(mode.to_lowercase(), "wal");
+    }
+
+    #[test]
+    fn shared_db_dispatcher_persists_across_calls() {
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            CoordinatorDb::open_in_memory().expect("open"),
+        ));
+        let kp = nexus_core_rs::crypto::KeyPair::generate();
+
+        let sub = crate::types::TaskSubmission {
+            project_id: "proj".into(),
+            task_type: "analysis".into(),
+            prompt: "test".into(),
+            system_prompt: String::new(),
+            model: "llama3".into(),
+            priority: 5,
+            parent_task_id: String::new(),
+            metadata: std::collections::BTreeMap::new(),
+            is_open_source: false,
+            estimated_watts: 0,
+            estimated_vram_mb: 0,
+            estimated_hours: 0.0,
+            redundancy_factor: 1,
+        };
+
+        let task_id = {
+            let guard = db.lock().unwrap();
+            let entry = crate::dispatcher::submit_task(&guard, &kp, sub).expect("submit");
+            entry.task.task_id
+        };
+
+        let guard = db.lock().unwrap();
+        let record = guard.get_task(&task_id).expect("get").expect("found");
+        assert_eq!(record.status, crate::types::TaskStatus::Pending);
     }
 }

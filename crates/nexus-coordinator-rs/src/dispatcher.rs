@@ -15,6 +15,70 @@ use crate::db::CoordinatorDb;
 use crate::error::CoordinatorError;
 use crate::types::{TaskRecord, TaskStatus, TaskSubmission};
 
+pub fn submit_task(
+    db: &CoordinatorDb,
+    keypair: &KeyPair,
+    submission: TaskSubmission,
+) -> Result<TaskEntry, CoordinatorError> {
+    if submission.prompt.is_empty() {
+        return Err(CoordinatorError::Validation(
+            "prompt must not be empty".into(),
+        ));
+    }
+    if submission.model.is_empty() {
+        return Err(CoordinatorError::Validation(
+            "model must not be empty".into(),
+        ));
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let task_id = format!("{:016x}-{:016x}", now, rand::random::<u64>());
+
+    let task = Task {
+        version: TASK_FORMAT_VERSION,
+        task_id: task_id.clone(),
+        task_type: submission.task_type,
+        prompt: submission.prompt,
+        system_prompt: submission.system_prompt,
+        model: submission.model.clone(),
+        priority: submission.priority,
+        created_at: now,
+        parent_task_id: submission.parent_task_id,
+        metadata: submission.metadata,
+        is_open_source: submission.is_open_source,
+        estimated_watts: submission.estimated_watts,
+        estimated_vram_mb: submission.estimated_vram_mb,
+        estimated_hours: submission.estimated_hours,
+        redundancy_factor: submission.redundancy_factor,
+        watermark_seed: Vec::new(),
+    };
+
+    let entry =
+        TaskEntry::sign(task, keypair).map_err(|e| CoordinatorError::Crypto(e.to_string()))?;
+
+    let task_hash = hex::encode(entry.signature);
+
+    let record = TaskRecord {
+        task_id: entry.task.task_id.clone(),
+        status: TaskStatus::Pending,
+        project_id: submission.project_id,
+        model: submission.model,
+        created_at: now,
+        updated_at: now,
+        task_hash,
+        worker_node_id: None,
+        result_hash: None,
+    };
+
+    db.insert_task(&record)?;
+
+    Ok(entry)
+}
+
 pub struct TaskDispatcher {
     db: CoordinatorDb,
     keypair: KeyPair,
@@ -26,63 +90,7 @@ impl TaskDispatcher {
     }
 
     pub fn submit(&self, submission: TaskSubmission) -> Result<TaskEntry, CoordinatorError> {
-        if submission.prompt.is_empty() {
-            return Err(CoordinatorError::Validation(
-                "prompt must not be empty".into(),
-            ));
-        }
-        if submission.model.is_empty() {
-            return Err(CoordinatorError::Validation(
-                "model must not be empty".into(),
-            ));
-        }
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        let task_id = format!("{:016x}-{:016x}", now, rand::random::<u64>());
-
-        let task = Task {
-            version: TASK_FORMAT_VERSION,
-            task_id: task_id.clone(),
-            task_type: submission.task_type,
-            prompt: submission.prompt,
-            system_prompt: submission.system_prompt,
-            model: submission.model.clone(),
-            priority: submission.priority,
-            created_at: now,
-            parent_task_id: submission.parent_task_id,
-            metadata: submission.metadata,
-            is_open_source: submission.is_open_source,
-            estimated_watts: submission.estimated_watts,
-            estimated_vram_mb: submission.estimated_vram_mb,
-            estimated_hours: submission.estimated_hours,
-            redundancy_factor: submission.redundancy_factor,
-            watermark_seed: Vec::new(),
-        };
-
-        let entry = TaskEntry::sign(task, &self.keypair)
-            .map_err(|e| CoordinatorError::Crypto(e.to_string()))?;
-
-        let task_hash = hex::encode(entry.signature);
-
-        let record = TaskRecord {
-            task_id: entry.task.task_id.clone(),
-            status: TaskStatus::Pending,
-            project_id: submission.project_id,
-            model: submission.model,
-            created_at: now,
-            updated_at: now,
-            task_hash,
-            worker_node_id: None,
-            result_hash: None,
-        };
-
-        self.db.insert_task(&record)?;
-
-        Ok(entry)
+        submit_task(&self.db, &self.keypair, submission)
     }
 
     pub fn db(&self) -> &CoordinatorDb {

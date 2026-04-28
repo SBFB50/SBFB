@@ -2178,6 +2178,28 @@ EFF) target S28 outreach.
 
 ---
 
+## §P39 — Sprint 36 Phase A : coordinator DB singleton in DaemonHttpState
+
+`nexus-coordinator-rs` owns a single SQLite database opened at daemon
+boot via `CoordinatorDb::open(~/.sbfb/coordinator.db)` with WAL mode.
+The connection lives in `DaemonHttpState` as
+`Arc<Mutex<CoordinatorDb>>`. HTTP handlers lock briefly (~1 ms) per
+SQL operation.
+
+**Lesson (P2-A-2)** : Sprint 35 Phase B shipped the submit handler
+with `open_in_memory()` per request — a proof-of-concept shortcut
+that made the endpoint functionally stateless. The fix (singleton in
+state) was deferred as P2-REVIEW-B-1. Per-request ephemeral DB
+instances should never ship even as PoC; always wire the shared state
+from the start.
+
+The `submit_task` free function in `dispatcher.rs` takes `&CoordinatorDb`
+by reference so both owned (`TaskDispatcher` for unit tests) and shared
+(`Arc<Mutex<CoordinatorDb>>` for handlers) usage patterns work without
+lifetime gymnastics.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

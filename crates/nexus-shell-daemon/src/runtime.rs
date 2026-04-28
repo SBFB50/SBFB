@@ -464,7 +464,13 @@ impl DaemonRuntime {
             }
         }
 
-        // 6. Build the shared HTTP state + spawn the serve task.
+        // 6a. Open the coordinator SQLite database (persistent).
+        let coordinator_db_path = opts.paths.root.join("coordinator.db");
+        let coordinator_db = nexus_coordinator_rs::db::CoordinatorDb::open(&coordinator_db_path)
+            .map_err(|e| anyhow::anyhow!("coordinator DB open failed: {e}"))?;
+        let coordinator_db = std::sync::Arc::new(std::sync::Mutex::new(coordinator_db));
+
+        // 6b. Build the shared HTTP state + spawn the serve task.
         let http_state = Arc::new(DaemonHttpState {
             node_id,
             daemon_version: opts.daemon_version.clone(),
@@ -497,6 +503,7 @@ impl DaemonRuntime {
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
             coord_base_url: crate::http::resolve_coord_base_url(),
+            coordinator_db,
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being

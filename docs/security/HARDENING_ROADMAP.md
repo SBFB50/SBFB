@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-28  # G2 — Sprint 34 Phase D : UX launcher cross-platform + dette pair. 3 MANDATORY FERMES (P2-A-1 rand blocker upstream, P2-B-1 tor-rtcompat deja S33, P2-REVIEW-C-2 COEP E2E real zip). frost-ed25519 G2 trigger SATISFAIT (2.1→3.0 upgraded, Ed25519 byte-identical). Phase A dette + COEP E2E test real zip. Phase B Windows launcher icon + subsystem + file logging. Phase C macOS .app bundle + Linux .desktop. Triggers ACTIFS : openai-agents-python 0.14.6 (informationnel). Compteurs ~902 Rust / ~195 SDK / ~408+37f+6s coord / ~46 gov / ~267 Vitest / ~44 PW / ~1905 total.
+last_validated: 2026-04-28  # G2 — Sprint 36 Phase A : dette pair + DaemonHttpState persistent CoordinatorDb. S35 migration Rust native Phase 1 fondations (3 MANDATORY fermes, crate nexus-coordinator-rs, 21 tests). S36 integre coordinator-rs dans daemon (persistent DB, handler refactor). 0 trigger actif. Compteurs ~927 Rust / ~195 SDK / ~409+36f+6s coord / ~46 gov / ~267 Vitest / ~42+2f PW / ~1930 total.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"

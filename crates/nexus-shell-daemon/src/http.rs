@@ -144,6 +144,11 @@ pub struct DaemonHttpState {
     /// Resolved at boot by [`resolve_coord_base_url`] which reads
     /// `SBFB_COORD_URL` and falls back to a loopback default.
     pub coord_base_url: String,
+    /// Sprint 36 Phase A : shared coordinator DB for the Rust-native
+    /// task dispatcher and result validator. Opened once at boot from
+    /// `~/.sbfb/coordinator.db` (WAL mode). Handlers lock briefly
+    /// for each SQL operation (~1 ms).
+    pub coordinator_db: std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
 }
 
 impl DaemonHttpState {
@@ -1266,10 +1271,10 @@ async fn coordinator_submit_task(
     State(state): State<Arc<DaemonHttpState>>,
     axum::Json(submission): axum::Json<nexus_coordinator_rs::types::TaskSubmission>,
 ) -> impl IntoResponse {
-    let db = match nexus_coordinator_rs::db::CoordinatorDb::open_in_memory() {
-        Ok(db) => db,
-        Err(e) => {
-            tracing::error!("coordinator DB open failed: {e}");
+    let db = match state.coordinator_db.lock() {
+        Ok(guard) => guard,
+        Err(_poisoned) => {
+            tracing::error!("coordinator DB mutex poisoned");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "internal"})),
@@ -1278,8 +1283,7 @@ async fn coordinator_submit_task(
         }
     };
     let keypair = (*state.pow_keypair).clone();
-    let dispatcher = nexus_coordinator_rs::dispatcher::TaskDispatcher::new(db, keypair);
-    match dispatcher.submit(submission) {
+    match nexus_coordinator_rs::dispatcher::submit_task(&db, &keypair, submission) {
         Ok(entry) => {
             let body = serde_json::to_value(&entry).unwrap_or_default();
             (StatusCode::OK, Json(body)).into_response()
@@ -1406,6 +1410,10 @@ mod tests {
             curator_gossip_topic: nexus_shell_daemon_core::iroh_runtime::curator_topic_id(),
             coord_http_client: reqwest::Client::new(),
             coord_base_url: "http://127.0.0.1:9".into(),
+            coordinator_db: std::sync::Arc::new(std::sync::Mutex::new(
+                nexus_coordinator_rs::db::CoordinatorDb::open_in_memory()
+                    .expect("test coordinator DB"),
+            )),
         })
     }
 
@@ -2183,6 +2191,10 @@ mod tests {
             curator_gossip_topic: nexus_shell_daemon_core::iroh_runtime::curator_topic_id(),
             coord_http_client: reqwest::Client::new(),
             coord_base_url: "http://127.0.0.1:9".into(),
+            coordinator_db: std::sync::Arc::new(std::sync::Mutex::new(
+                nexus_coordinator_rs::db::CoordinatorDb::open_in_memory()
+                    .expect("test coordinator DB"),
+            )),
         });
         let app = build_test_router(state);
         let resp = app
