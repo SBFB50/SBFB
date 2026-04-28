@@ -259,6 +259,7 @@ pub fn build_router(
         .route("/api/canary/frost/round2", post(frost_round2))
         .route("/api/canary/frost/aggregate", post(frost_aggregate))
         .route("/api/v1/tasks/submit", post(coordinator_submit_task))
+        .route("/api/v1/results/submit", post(coordinator_submit_result))
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -1295,6 +1296,61 @@ async fn coordinator_submit_task(
             .into_response(),
         Err(e) => {
             tracing::error!("task submit failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+// =================================================================
+// Sprint 36 Phase B — Coordinator Rust-native result submission
+// =================================================================
+
+async fn coordinator_submit_result(
+    State(state): State<Arc<DaemonHttpState>>,
+    axum::Json(entry): axum::Json<nexus_core_rs::task::ResultEntry>,
+) -> impl IntoResponse {
+    let db = match state.coordinator_db.lock() {
+        Ok(guard) => guard,
+        Err(_poisoned) => {
+            tracing::error!("coordinator DB mutex poisoned");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+    match nexus_coordinator_rs::validator::validate_result(&db, &entry) {
+        Ok(nexus_coordinator_rs::validator::ValidationOutcome::Accepted) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"outcome": "accepted"})),
+        )
+            .into_response(),
+        Ok(outcome) => {
+            let reason = match outcome {
+                nexus_coordinator_rs::validator::ValidationOutcome::RejectedBadSignature => {
+                    "bad_signature"
+                }
+                nexus_coordinator_rs::validator::ValidationOutcome::RejectedTaskNotFound => {
+                    "task_not_found"
+                }
+                nexus_coordinator_rs::validator::ValidationOutcome::RejectedTaskNotPending => {
+                    "task_not_pending"
+                }
+                nexus_coordinator_rs::validator::ValidationOutcome::Accepted => unreachable!(),
+            };
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"outcome": "rejected", "reason": reason})),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("result validation failed: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "internal"})),
@@ -3052,5 +3108,188 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
         assert!(body["error"].as_str().is_some());
+    }
+
+    // ===============================================================
+    // Sprint 36 Phase B — result submission integration tests
+    // ===============================================================
+
+    fn make_test_submission() -> nexus_coordinator_rs::types::TaskSubmission {
+        nexus_coordinator_rs::types::TaskSubmission {
+            project_id: "test-project".into(),
+            task_type: "analysis".into(),
+            prompt: "Analyze this".into(),
+            system_prompt: String::new(),
+            model: "llama3".into(),
+            priority: 5,
+            parent_task_id: String::new(),
+            metadata: std::collections::BTreeMap::new(),
+            is_open_source: false,
+            estimated_watts: 0,
+            estimated_vram_mb: 0,
+            estimated_hours: 0.0,
+            redundancy_factor: 1,
+        }
+    }
+
+    fn make_result_entry(task_id: &str, worker_kp: &KeyPair) -> nexus_core_rs::task::ResultEntry {
+        let payload = nexus_core_rs::task::ResultPayload {
+            version: nexus_core_rs::task::TASK_FORMAT_VERSION,
+            task_id: task_id.to_string(),
+            result_text: "result text".into(),
+            tokens_generated: 42,
+            generation_time_ms: 1000,
+            model_digest: [0u8; 32],
+            logprobs_hash: [0u8; 32],
+            started_at: 100,
+            finished_at: 200,
+            output_token_ids: vec![],
+        };
+        nexus_core_rs::task::ResultEntry::sign(payload, worker_kp).expect("sign result")
+    }
+
+    #[tokio::test]
+    async fn result_submit_accepts_valid() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+
+        let task_entry = {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .expect("submit task")
+        };
+
+        let worker_kp = KeyPair::generate();
+        let result_entry = make_result_entry(&task_entry.task.task_id, &worker_kp);
+
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/results/submit")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&result_entry).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(body["outcome"], "accepted");
+
+        let db = state.coordinator_db.lock().unwrap();
+        let task = db
+            .get_task(&task_entry.task.task_id)
+            .expect("get")
+            .expect("found");
+        assert_eq!(
+            task.status,
+            nexus_coordinator_rs::types::TaskStatus::Completed
+        );
+    }
+
+    #[tokio::test]
+    async fn result_submit_rejects_bad_signature() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+
+        let task_entry = {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .expect("submit task")
+        };
+
+        let worker_kp = KeyPair::generate();
+        let mut result_entry = make_result_entry(&task_entry.task.task_id, &worker_kp);
+        result_entry.signature[0] ^= 0xff;
+
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/results/submit")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&result_entry).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(body["reason"], "bad_signature");
+    }
+
+    #[tokio::test]
+    async fn result_submit_rejects_unknown_task() {
+        let state = mk_state().await;
+        let worker_kp = KeyPair::generate();
+        let result_entry = make_result_entry("nonexistent-task-id", &worker_kp);
+
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/results/submit")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&result_entry).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(body["reason"], "task_not_found");
+    }
+
+    #[tokio::test]
+    async fn result_submit_rejects_completed_task() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+
+        let task_entry = {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .expect("submit task")
+        };
+
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            db.set_task_result(&task_entry.task.task_id, "w1", "r1", 100)
+                .expect("complete");
+        }
+
+        let worker_kp = KeyPair::generate();
+        let result_entry = make_result_entry(&task_entry.task.task_id, &worker_kp);
+
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/results/submit")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&result_entry).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(body["reason"], "task_not_pending");
     }
 }

@@ -20,6 +20,58 @@ pub enum ValidationOutcome {
     RejectedTaskNotPending,
 }
 
+pub fn validate_result(
+    db: &CoordinatorDb,
+    entry: &ResultEntry,
+) -> Result<ValidationOutcome, CoordinatorError> {
+    if entry.verify_signature().is_err() {
+        tracing::warn!(
+            task_id = %entry.payload.task_id,
+            "result signature verification failed"
+        );
+        return Ok(ValidationOutcome::RejectedBadSignature);
+    }
+
+    let task = match db.get_task(&entry.payload.task_id)? {
+        Some(t) => t,
+        None => {
+            tracing::warn!(
+                task_id = %entry.payload.task_id,
+                "result references unknown task"
+            );
+            return Ok(ValidationOutcome::RejectedTaskNotFound);
+        }
+    };
+
+    if task.status != TaskStatus::Pending && task.status != TaskStatus::Dispatched {
+        tracing::debug!(
+            task_id = %entry.payload.task_id,
+            status = %task.status.as_str(),
+            "result for task not in pending/dispatched state"
+        );
+        return Ok(ValidationOutcome::RejectedTaskNotPending);
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let worker_id = hex::encode(entry.worker_pubkey);
+    let result_hash = hex::encode(entry.signature);
+
+    db.set_task_result(&entry.payload.task_id, &worker_id, &result_hash, now)?;
+
+    tracing::info!(
+        task_id = %entry.payload.task_id,
+        worker = %worker_id[..16],
+        tokens = entry.payload.tokens_generated,
+        "result accepted"
+    );
+
+    Ok(ValidationOutcome::Accepted)
+}
+
 pub struct ResultValidator {
     db: CoordinatorDb,
 }
@@ -30,53 +82,7 @@ impl ResultValidator {
     }
 
     pub fn validate(&self, entry: &ResultEntry) -> Result<ValidationOutcome, CoordinatorError> {
-        if entry.verify_signature().is_err() {
-            tracing::warn!(
-                task_id = %entry.payload.task_id,
-                "result signature verification failed"
-            );
-            return Ok(ValidationOutcome::RejectedBadSignature);
-        }
-
-        let task = match self.db.get_task(&entry.payload.task_id)? {
-            Some(t) => t,
-            None => {
-                tracing::warn!(
-                    task_id = %entry.payload.task_id,
-                    "result references unknown task"
-                );
-                return Ok(ValidationOutcome::RejectedTaskNotFound);
-            }
-        };
-
-        if task.status != TaskStatus::Pending && task.status != TaskStatus::Dispatched {
-            tracing::debug!(
-                task_id = %entry.payload.task_id,
-                status = %task.status.as_str(),
-                "result for task not in pending/dispatched state"
-            );
-            return Ok(ValidationOutcome::RejectedTaskNotPending);
-        }
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        let worker_id = hex::encode(entry.worker_pubkey);
-        let result_hash = hex::encode(entry.signature);
-
-        self.db
-            .set_task_result(&entry.payload.task_id, &worker_id, &result_hash, now)?;
-
-        tracing::info!(
-            task_id = %entry.payload.task_id,
-            worker = %worker_id[..16],
-            tokens = entry.payload.tokens_generated,
-            "result accepted"
-        );
-
-        Ok(ValidationOutcome::Accepted)
+        validate_result(&self.db, entry)
     }
 
     pub fn db(&self) -> &CoordinatorDb {
