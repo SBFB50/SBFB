@@ -260,6 +260,7 @@ pub fn build_router(
         .route("/api/canary/frost/aggregate", post(frost_aggregate))
         .route("/api/v1/tasks/submit", post(coordinator_submit_task))
         .route("/api/v1/results/submit", post(coordinator_submit_result))
+        .route("/api/v1/kudos/{project_id}", get(coordinator_get_kudos))
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -1325,11 +1326,27 @@ async fn coordinator_submit_result(
         }
     };
     match nexus_coordinator_rs::validator::validate_result(&db, &entry) {
-        Ok(nexus_coordinator_rs::validator::ValidationOutcome::Accepted) => (
-            StatusCode::OK,
-            Json(serde_json::json!({"outcome": "accepted"})),
-        )
-            .into_response(),
+        Ok(nexus_coordinator_rs::validator::ValidationOutcome::Accepted) => {
+            let worker_id = hex::encode(entry.worker_pubkey);
+            if let Err(e) = nexus_coordinator_rs::kudos_ledger::credit(
+                &db,
+                &db.get_task(&entry.payload.task_id)
+                    .ok()
+                    .flatten()
+                    .map(|t| t.project_id)
+                    .unwrap_or_default(),
+                &worker_id,
+                &entry.payload.task_id,
+                entry.payload.tokens_generated,
+            ) {
+                tracing::warn!("kudos credit failed (non-fatal): {e}");
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"outcome": "accepted"})),
+            )
+                .into_response()
+        }
         Ok(outcome) => {
             let reason = match outcome {
                 nexus_coordinator_rs::validator::ValidationOutcome::RejectedBadSignature => {
@@ -1351,6 +1368,42 @@ async fn coordinator_submit_result(
         }
         Err(e) => {
             tracing::error!("result validation failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+// =================================================================
+// Sprint 36 Phase C — Kudos read endpoint
+// =================================================================
+
+async fn coordinator_get_kudos(
+    State(state): State<Arc<DaemonHttpState>>,
+    axum::extract::Path(project_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let db = match state.coordinator_db.lock() {
+        Ok(guard) => guard,
+        Err(_poisoned) => {
+            tracing::error!("coordinator DB mutex poisoned");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+    match nexus_coordinator_rs::kudos_ledger::get_project_kudos(&db, &project_id) {
+        Ok(kudos) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(&kudos).unwrap_or_default()),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("kudos query failed: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "internal"})),
@@ -3291,5 +3344,81 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
         assert_eq!(body["reason"], "task_not_pending");
+    }
+
+    // ===============================================================
+    // Sprint 36 Phase C — kudos integration tests
+    // ===============================================================
+
+    #[tokio::test]
+    async fn e2e_task_result_kudos_credited() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+
+        let task_entry = {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .expect("submit task")
+        };
+
+        let worker_kp = KeyPair::generate();
+        let result_entry = make_result_entry(&task_entry.task.task_id, &worker_kp);
+
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/results/submit")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&result_entry).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let db = state.coordinator_db.lock().unwrap();
+        let total = db
+            .get_project_kudos_total("test-project")
+            .expect("kudos total");
+        assert!(total > 0, "kudos must be credited after accepted result");
+    }
+
+    #[tokio::test]
+    async fn kudos_endpoint_returns_json() {
+        let state = mk_state().await;
+
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(
+                &db,
+                "proj-abc",
+                "worker-xyz",
+                "task-1",
+                100,
+            )
+            .expect("credit");
+        }
+
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/proj-abc")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(body["project_id"], "proj-abc");
+        assert_eq!(body["total"], 100);
+        assert_eq!(body["contributors"][0]["worker_node_id"], "worker-xyz");
     }
 }

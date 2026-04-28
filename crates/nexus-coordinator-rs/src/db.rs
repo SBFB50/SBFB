@@ -184,6 +184,32 @@ impl CoordinatorDb {
         )?;
         Ok(total as u64)
     }
+
+    pub fn get_project_kudos_total(&self, project_id: &str) -> Result<u64, CoordinatorError> {
+        let total: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(amount), 0) FROM kudos WHERE project_id = ?1",
+            rusqlite::params![project_id],
+            |row| row.get(0),
+        )?;
+        Ok(total as u64)
+    }
+
+    pub fn get_project_contributors(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<(String, u64)>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT worker_node_id, SUM(amount) FROM kudos WHERE project_id = ?1 GROUP BY worker_node_id ORDER BY SUM(amount) DESC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![project_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
