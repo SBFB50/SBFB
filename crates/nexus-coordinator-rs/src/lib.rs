@@ -9,5 +9,6 @@
 //! HTTP server.
 
 pub mod db;
+pub mod dispatcher;
 pub mod error;
 pub mod types;

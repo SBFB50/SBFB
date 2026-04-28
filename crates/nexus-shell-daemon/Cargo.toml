@@ -27,6 +27,7 @@ nexus-trace-core = { path = "../nexus-trace-core" }
 # `Node::shutdown`; Phase C will reach into `Node::gossip()` and
 # `Node::blobs_store()` for the curator subscribe pipeline.
 nexus-core-rs = { path = "../nexus-core-rs" }
+nexus-coordinator-rs = { path = "../nexus-coordinator-rs" }
 
 tokio = { workspace = true }
 

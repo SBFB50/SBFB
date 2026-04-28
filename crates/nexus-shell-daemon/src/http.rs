@@ -253,6 +253,7 @@ pub fn build_router(
         .route("/api/canary/frost/round1", post(frost_round1))
         .route("/api/canary/frost/round2", post(frost_round2))
         .route("/api/canary/frost/aggregate", post(frost_aggregate))
+        .route("/api/v1/tasks/submit", post(coordinator_submit_task))
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -1254,6 +1255,48 @@ async fn frost_aggregate(Json(body): Json<FrostAggregateRequest>) -> impl IntoRe
             Json(serde_json::json!({ "error": e.to_string() })),
         )
             .into_response(),
+    }
+}
+
+// =================================================================
+// Sprint 35 Phase B — Coordinator Rust-native task submission
+// =================================================================
+
+async fn coordinator_submit_task(
+    State(state): State<Arc<DaemonHttpState>>,
+    axum::Json(submission): axum::Json<nexus_coordinator_rs::types::TaskSubmission>,
+) -> impl IntoResponse {
+    let db = match nexus_coordinator_rs::db::CoordinatorDb::open_in_memory() {
+        Ok(db) => db,
+        Err(e) => {
+            tracing::error!("coordinator DB open failed: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+    let keypair = (*state.pow_keypair).clone();
+    let dispatcher = nexus_coordinator_rs::dispatcher::TaskDispatcher::new(db, keypair);
+    match dispatcher.submit(submission) {
+        Ok(entry) => {
+            let body = serde_json::to_value(&entry).unwrap_or_default();
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(nexus_coordinator_rs::error::CoordinatorError::Validation(msg)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": msg})),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("task submit failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
     }
 }
 
