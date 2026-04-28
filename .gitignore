@@ -141,3 +141,12 @@ docs/VISION_USE_CASES.md
 /SBFB_EXPLAINED.txt
 /lettre_villepin.md
 /villepin.md
+
+# External agent framework artifacts (S34 audit P3-AUDIT-1)
+.githooks/
+AGENTS.md
+docs/agent/
+prompts/
+scripts/agent/
+tests/test_agentctl.py
+packages/nexus-coordinator/nexus-coordinator.spec
