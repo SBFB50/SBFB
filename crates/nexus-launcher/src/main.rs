@@ -202,7 +202,17 @@ fn spawn_daemon() -> std::io::Result<std::process::Child> {
         _ => "nexus-shell-daemon".into(),
     };
 
-    Command::new(program).arg("start").spawn()
+    let mut cmd = Command::new(program);
+    cmd.arg("start");
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd.spawn()
 }
 
 // =================================================================
