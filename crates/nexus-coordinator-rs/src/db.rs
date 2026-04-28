@@ -1,0 +1,305 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Coordinator SQLite persistence layer.
+//!
+//! Owns `~/.sbfb/coordinator.db` with schema versioning to prevent
+//! silent drift during the Python→Rust gradual migration (G1 D3 ⚠️).
+
+use std::path::Path;
+
+use rusqlite::Connection;
+use rusqlite_migration::{Migrations, M};
+
+use crate::error::CoordinatorError;
+use crate::types::{KudosEntry, TaskRecord, TaskStatus};
+
+static MIGRATIONS: &[M<'static>] = &[M::up(
+    "CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER NOT NULL
+    );
+    INSERT INTO schema_version (version) VALUES (1);
+
+    CREATE TABLE IF NOT EXISTS tasks (
+        task_id       TEXT PRIMARY KEY,
+        status        TEXT NOT NULL DEFAULT 'pending',
+        project_id    TEXT NOT NULL,
+        model         TEXT NOT NULL,
+        created_at    INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL,
+        task_hash     TEXT NOT NULL,
+        worker_node_id TEXT,
+        result_hash   TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project_id);
+
+    CREATE TABLE IF NOT EXISTS kudos (
+        entry_id      TEXT PRIMARY KEY,
+        worker_node_id TEXT NOT NULL,
+        task_id       TEXT NOT NULL,
+        project_id    TEXT NOT NULL,
+        amount        INTEGER NOT NULL,
+        created_at    INTEGER NOT NULL,
+        prev_hash     TEXT NOT NULL,
+        entry_hash    TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_kudos_worker ON kudos (worker_node_id);
+    CREATE INDEX IF NOT EXISTS idx_kudos_project ON kudos (project_id);",
+)];
+
+pub struct CoordinatorDb {
+    conn: Connection,
+}
+
+impl CoordinatorDb {
+    pub fn open(path: &Path) -> Result<Self, CoordinatorError> {
+        let conn = Connection::open(path)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+
+        let migrations = Migrations::new(MIGRATIONS.to_vec());
+        migrations.to_latest(&mut { conn })?;
+
+        let conn = Connection::open(path)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+
+        Ok(Self { conn })
+    }
+
+    pub fn open_in_memory() -> Result<Self, CoordinatorError> {
+        let mut conn = Connection::open_in_memory()?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+
+        let migrations = Migrations::new(MIGRATIONS.to_vec());
+        migrations.to_latest(&mut conn)?;
+
+        Ok(Self { conn })
+    }
+
+    pub fn schema_version(&self) -> Result<i64, CoordinatorError> {
+        let version: i64 =
+            self.conn
+                .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+                    row.get(0)
+                })?;
+        Ok(version)
+    }
+
+    pub fn insert_task(&self, record: &TaskRecord) -> Result<(), CoordinatorError> {
+        self.conn.execute(
+            "INSERT INTO tasks (task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                record.task_id,
+                record.status.as_str(),
+                record.project_id,
+                record.model,
+                record.created_at,
+                record.updated_at,
+                record.task_hash,
+                record.worker_node_id,
+                record.result_hash,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_task(&self, task_id: &str) -> Result<Option<TaskRecord>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash
+             FROM tasks WHERE task_id = ?1",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![task_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(TaskRecord {
+                task_id: row.get(0)?,
+                status: TaskStatus::from_str_lossy(&row.get::<_, String>(1)?),
+                project_id: row.get(2)?,
+                model: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+                task_hash: row.get(6)?,
+                worker_node_id: row.get(7)?,
+                result_hash: row.get(8)?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub fn update_task_status(
+        &self,
+        task_id: &str,
+        status: TaskStatus,
+        updated_at: u64,
+    ) -> Result<bool, CoordinatorError> {
+        let changed = self.conn.execute(
+            "UPDATE tasks SET status = ?1, updated_at = ?2 WHERE task_id = ?3",
+            rusqlite::params![status.as_str(), updated_at, task_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn set_task_result(
+        &self,
+        task_id: &str,
+        worker_node_id: &str,
+        result_hash: &str,
+        updated_at: u64,
+    ) -> Result<bool, CoordinatorError> {
+        let changed = self.conn.execute(
+            "UPDATE tasks SET status = 'completed', worker_node_id = ?1, result_hash = ?2, updated_at = ?3
+             WHERE task_id = ?4 AND status IN ('pending', 'dispatched')",
+            rusqlite::params![worker_node_id, result_hash, updated_at, task_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn insert_kudos(&self, entry: &KudosEntry) -> Result<(), CoordinatorError> {
+        self.conn.execute(
+            "INSERT INTO kudos (entry_id, worker_node_id, task_id, project_id, amount, created_at, prev_hash, entry_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                entry.entry_id,
+                entry.worker_node_id,
+                entry.task_id,
+                entry.project_id,
+                entry.amount,
+                entry.created_at,
+                entry.prev_hash,
+                entry.entry_hash,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_worker_kudos_total(&self, worker_node_id: &str) -> Result<u64, CoordinatorError> {
+        let total: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(amount), 0) FROM kudos WHERE worker_node_id = ?1",
+            rusqlite::params![worker_node_id],
+            |row| row.get(0),
+        )?;
+        Ok(total as u64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_task_record(task_id: &str) -> TaskRecord {
+        TaskRecord {
+            task_id: task_id.to_string(),
+            status: TaskStatus::Pending,
+            project_id: "proj-1".to_string(),
+            model: "llama3".to_string(),
+            created_at: 1714300000,
+            updated_at: 1714300000,
+            task_hash: "abc123".to_string(),
+            worker_node_id: None,
+            result_hash: None,
+        }
+    }
+
+    #[test]
+    fn open_in_memory_and_check_schema_version() {
+        let db = CoordinatorDb::open_in_memory().expect("open in-memory");
+        assert_eq!(db.schema_version().expect("version"), 1);
+    }
+
+    #[test]
+    fn insert_and_get_task() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let record = make_task_record("task-001");
+        db.insert_task(&record).expect("insert");
+
+        let fetched = db.get_task("task-001").expect("get").expect("found");
+        assert_eq!(fetched.task_id, "task-001");
+        assert_eq!(fetched.status, TaskStatus::Pending);
+        assert_eq!(fetched.model, "llama3");
+    }
+
+    #[test]
+    fn update_task_status() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.insert_task(&make_task_record("task-002"))
+            .expect("insert");
+
+        let updated = db
+            .update_task_status("task-002", TaskStatus::Dispatched, 1714300100)
+            .expect("update");
+        assert!(updated);
+
+        let fetched = db.get_task("task-002").expect("get").expect("found");
+        assert_eq!(fetched.status, TaskStatus::Dispatched);
+        assert_eq!(fetched.updated_at, 1714300100);
+    }
+
+    #[test]
+    fn set_task_result_transitions_to_completed() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.insert_task(&make_task_record("task-003"))
+            .expect("insert");
+
+        let ok = db
+            .set_task_result("task-003", "worker-a", "result-hash-x", 1714300200)
+            .expect("set result");
+        assert!(ok);
+
+        let fetched = db.get_task("task-003").expect("get").expect("found");
+        assert_eq!(fetched.status, TaskStatus::Completed);
+        assert_eq!(fetched.worker_node_id.as_deref(), Some("worker-a"));
+        assert_eq!(fetched.result_hash.as_deref(), Some("result-hash-x"));
+    }
+
+    #[test]
+    fn set_task_result_rejects_already_completed() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.insert_task(&make_task_record("task-004"))
+            .expect("insert");
+        db.set_task_result("task-004", "w1", "r1", 100)
+            .expect("first");
+
+        let second = db
+            .set_task_result("task-004", "w2", "r2", 200)
+            .expect("second");
+        assert!(!second, "already-completed task must reject second result");
+    }
+
+    #[test]
+    fn get_nonexistent_task_returns_none() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        assert!(db.get_task("nope").expect("get").is_none());
+    }
+
+    #[test]
+    fn insert_and_sum_kudos() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let entry = KudosEntry {
+            entry_id: "k1".into(),
+            worker_node_id: "worker-a".into(),
+            task_id: "task-001".into(),
+            project_id: "proj-1".into(),
+            amount: 100,
+            created_at: 1714300000,
+            prev_hash: "genesis".into(),
+            entry_hash: "hash-k1".into(),
+        };
+        db.insert_kudos(&entry).expect("insert k1");
+
+        let entry2 = KudosEntry {
+            entry_id: "k2".into(),
+            worker_node_id: "worker-a".into(),
+            task_id: "task-002".into(),
+            project_id: "proj-1".into(),
+            amount: 50,
+            created_at: 1714300100,
+            prev_hash: "hash-k1".into(),
+            entry_hash: "hash-k2".into(),
+        };
+        db.insert_kudos(&entry2).expect("insert k2");
+
+        assert_eq!(db.get_worker_kudos_total("worker-a").expect("total"), 150);
+        assert_eq!(db.get_worker_kudos_total("nobody").expect("total"), 0);
+    }
+}
