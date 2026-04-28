@@ -121,29 +121,29 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-34 CLOSED**, v1.2 en cours. Audit gate S34 = S35
-  Phase 0 (`.planning/active/sprint35_audit_plan.md`).
-- **~1905 tests total** (902 Rust / 195 SDK / 408+37f+6s coord / 46
-  app-gov / 267 Vitest / 44 Playwright / 7/7 size-limit) — tous
-  verts code (37 coord fail PyO3 wheel stale + 2 PW env fail —
+- **Sprints 0-35 CLOSED**, v1.2 en cours. Audit gate S35 = S36
+  Phase 0 (`.planning/active/sprint36_audit_plan.md`).
+- **~1927 tests total** (924 Rust / 195 SDK / 409+36f+6s coord / 46
+  app-gov / 267 Vitest / 42+2f Playwright / 7/7 size-limit) — tous
+  verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
   meme root cause wheel/env stale, pas regression).
-- Carry S35 : P2-A-1 rand blocker upstream (re-evaluer) ;
+- Carry S36 : P2-A-1 rand blocker upstream (re-evaluer) ;
   P2-A-2 aggressive update PATTERNS.md lesson ;
-  P2-B-1-S34 log convergence launcher/daemon ;
-  P2-C-1-S34 .icns macOS absent (.png fallback) ;
-  P3-grammar executor 3/3 ; P3-watermark executor 3/3 ;
-  P2-B-1-S33 shellcheck CI 2/3 ; P2-B-2-S33 REPO_URL 2/3 ;
-  P2-C-1-S33 cross-daemon E2E 2/3.
+  P2-B-1-S34 log convergence launcher/daemon 2/3 ;
+  P2-C-1-S34 .icns macOS absent (.png fallback) 2/3 ;
+  P3-grammar executor 3/3+ (defer Rust pipeline) ;
+  P3-watermark executor 3/3+ (defer Rust pipeline) ;
+  P2-REVIEW-A-1 LOC kickoff ; P2-REVIEW-A-2 double-open DB ;
+  P2-REVIEW-B-1 dispatcher persistent DaemonHttpState ;
+  P2-REVIEW-C-1 validator_loop tokio ; P2-REVIEW-C-2 kudos credit.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
-  LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**
-  (iroh 0.98 deploye, Day 0 #3 pin leve).
-- MANDATORY S34 : **P2-A-1 rand 3/3 FERME** (blocker upstream
-  documente), **P2-B-1 tor-rtcompat 3/3 FERME** (S33 audit),
-  **P2-REVIEW-C-2 COEP E2E 3/3 FERME** (test real zip).
-  frost-ed25519 G2 trigger SATISFAIT (2.1→3.0 Phase A).
+  LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
+- MANDATORY S35 : **P2-B-1-S33 shellcheck CI 3/3 FERME** (workflow),
+  **P2-C-1-S33 cross-daemon E2E 3/3 FERME** (harness test),
+  **P2-B-2-S33 REPO_URL 3/3 FERME** (TODO(v1.0) documente).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
