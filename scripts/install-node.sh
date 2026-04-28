@@ -22,7 +22,9 @@ AUTO_YES=false
 INSTALL_DAEMON=true
 INSTALL_WORKER=true
 INSTALL_COORDINATOR=true
-REPO_URL="https://github.com/user/nexus-grid.git"
+# TODO(v1.0): replace with actual public repo URL once published.
+# Blocked: repo is private pre-launch (P2-B-2-S33 carry 3/3).
+REPO_URL="https://github.com/SBFB50/SBFB.git"
 
 # ── Helpers ───────────────────────────────────────────────────
 

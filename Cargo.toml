@@ -12,6 +12,7 @@ members = [
     "crates/nexus-executor",
     "crates/nexus-trace-core",
     "crates/nexus-test-harness",
+    "crates/nexus-coordinator-rs",
 ]
 
 # Shared package metadata. Individual crates override name/description.

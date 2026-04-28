@@ -4631,6 +4631,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-coordinator-rs"
+version = "1.0.0"
+dependencies = [
+ "hex",
+ "nexus-core-rs",
+ "rusqlite",
+ "rusqlite_migration",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "nexus-core-py"
 version = "1.0.0"
 dependencies = [
