@@ -133,6 +133,10 @@ pub fn default_output_chain() -> GuardrailChain {
     GuardrailChain::new().push(Box::new(OutputSafetyGuardrail::default()))
 }
 
+pub fn default_input_chain() -> GuardrailChain {
+    GuardrailChain::new().push(Box::new(crate::pii_redactor::PiiInputGuardrail::default()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

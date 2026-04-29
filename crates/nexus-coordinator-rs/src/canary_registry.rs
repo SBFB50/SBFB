@@ -89,6 +89,7 @@ struct PersistedRegistry {
     duress_acks: Vec<DuressAckObservation>,
 }
 
+#[derive(Debug)]
 pub struct CanaryRegistry {
     canaries: HashMap<String, CanaryObservation>,
     duress_acks: HashMap<String, DuressAckObservation>,

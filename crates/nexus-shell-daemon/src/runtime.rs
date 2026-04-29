@@ -511,6 +511,15 @@ impl DaemonRuntime {
             coord_base_url: crate::http::resolve_coord_base_url(),
             coordinator_db: Arc::clone(&coordinator_db),
             result_event_tx,
+            canary_registry: {
+                let dir = nexus_shell_daemon_core::paths::shell_daemon_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from(".sbfb"));
+                Arc::new(std::sync::Mutex::new(
+                    nexus_coordinator_rs::canary_registry::CanaryRegistry::new(
+                        dir.join("canary_registry.json"),
+                    ),
+                ))
+            },
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being

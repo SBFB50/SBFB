@@ -156,6 +156,11 @@ pub struct DaemonHttpState {
     /// for the gossip-originated result path.
     #[allow(dead_code)]
     pub result_event_tx: crate::validator_loop::ResultEventSender,
+    /// Sprint 39 Phase B : warrant canary observation registry (Rust
+    /// port of canary_registry.py). Tracks observed canary signings
+    /// and duress acks, computes per-pubkey freshness.
+    pub canary_registry:
+        std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::canary_registry::CanaryRegistry>>,
 }
 
 impl DaemonHttpState {
@@ -272,6 +277,9 @@ pub fn build_router(
             "/api/v1/kudos/{project_id}/verify",
             get(coordinator_verify_chain),
         )
+        .route("/api/canary/observed", post(canary_observed))
+        .route("/api/canary/network-health", get(canary_network_health))
+        .route("/api/canary/freshness/{pubkey}", get(canary_freshness))
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -1284,6 +1292,28 @@ async fn coordinator_submit_task(
     State(state): State<Arc<DaemonHttpState>>,
     axum::Json(submission): axum::Json<nexus_coordinator_rs::types::TaskSubmission>,
 ) -> impl IntoResponse {
+    let input_ctx = nexus_coordinator_rs::guardrails::GuardrailContext {
+        system_prompt: &submission.system_prompt,
+        user_prompt: &submission.prompt,
+        model_output: "",
+    };
+    let input_check = nexus_coordinator_rs::guardrails::default_input_chain().run(&input_ctx);
+    if !input_check.passed {
+        let reason = input_check
+            .tripwire
+            .unwrap_or_else(|| "input_guardrail_rejected".into());
+        tracing::warn!(
+            project_id = %submission.project_id,
+            %reason,
+            "task rejected by input guardrail"
+        );
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "input_rejected", "reason": reason})),
+        )
+            .into_response();
+    }
+
     let db = match state.coordinator_db.lock() {
         Ok(guard) => guard,
         Err(_poisoned) => {
@@ -1488,6 +1518,85 @@ async fn coordinator_verify_chain(
 }
 
 // =================================================================
+// Sprint 39 Phase C — Canary registry HTTP endpoints
+// =================================================================
+
+async fn canary_observed(
+    State(state): State<Arc<DaemonHttpState>>,
+    axum::Json(payload): axum::Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let obs = match nexus_coordinator_rs::canary_registry::coerce_canary_payload(&payload) {
+        Ok(o) => o,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e})),
+            )
+                .into_response();
+        }
+    };
+    match state.canary_registry.lock() {
+        Ok(mut reg) => {
+            reg.observe_canary(obs);
+            (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
+        }
+        Err(_poisoned) => {
+            tracing::error!("canary registry mutex poisoned");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn canary_network_health(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    match state.canary_registry.lock() {
+        Ok(reg) => {
+            let health = reg.network_health();
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(&health).unwrap_or_default()),
+            )
+                .into_response()
+        }
+        Err(_poisoned) => {
+            tracing::error!("canary registry mutex poisoned");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn canary_freshness(
+    State(state): State<Arc<DaemonHttpState>>,
+    axum::extract::Path(pubkey): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.canary_registry.lock() {
+        Ok(reg) => {
+            let freshness = reg.freshness(&pubkey);
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(&freshness).unwrap_or_default()),
+            )
+                .into_response()
+        }
+        Err(_poisoned) => {
+            tracing::error!("canary registry mutex poisoned");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+// =================================================================
 // Tests
 // =================================================================
 
@@ -1598,6 +1707,14 @@ mod tests {
                     .expect("test coordinator DB"),
             )),
             result_event_tx: tokio::sync::broadcast::channel(8).0,
+            canary_registry: {
+                let tmp = tempfile::tempdir().expect("canary tmp");
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    nexus_coordinator_rs::canary_registry::CanaryRegistry::new(
+                        tmp.keep().join("canary_registry.json"),
+                    ),
+                ))
+            },
         })
     }
 
@@ -2380,6 +2497,14 @@ mod tests {
                     .expect("test coordinator DB"),
             )),
             result_event_tx: tokio::sync::broadcast::channel(8).0,
+            canary_registry: {
+                let tmp = tempfile::tempdir().expect("canary tmp");
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    nexus_coordinator_rs::canary_registry::CanaryRegistry::new(
+                        tmp.keep().join("canary_registry.json"),
+                    ),
+                ))
+            },
         });
         let app = build_test_router(state);
         let resp = app
