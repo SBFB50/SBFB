@@ -154,6 +154,7 @@ pub struct DaemonHttpState {
     /// event-driven validation. Currently the HTTP POST handler
     /// remains the synchronous path; the channel is infrastructure
     /// for the gossip-originated result path.
+    #[allow(dead_code)]
     pub result_event_tx: crate::validator_loop::ResultEventSender,
 }
 
@@ -1344,6 +1345,28 @@ async fn coordinator_submit_result(
     };
     match nexus_coordinator_rs::validator::validate_result(&db, &entry) {
         Ok((nexus_coordinator_rs::validator::ValidationOutcome::Accepted, Some(task_record))) => {
+            let guardrail_ctx = nexus_coordinator_rs::guardrails::GuardrailContext {
+                system_prompt: "",
+                user_prompt: "",
+                model_output: &entry.payload.result_text,
+            };
+            let chain = nexus_coordinator_rs::guardrails::default_output_chain();
+            let gr = chain.run(&guardrail_ctx);
+            if !gr.passed {
+                let reason = gr.tripwire.unwrap_or_else(|| "guardrail_rejected".into());
+                tracing::warn!(
+                    task_id = %entry.payload.task_id,
+                    %reason,
+                    "result rejected by output guardrail — no kudos credited"
+                );
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        serde_json::json!({"outcome": "rejected", "reason": "guardrail_rejected"}),
+                    ),
+                )
+                    .into_response();
+            }
             let worker_id = hex::encode(entry.worker_pubkey);
             if let Err(e) = nexus_coordinator_rs::kudos_ledger::credit(
                 &db,

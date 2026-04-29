@@ -11,6 +11,7 @@
 pub mod db;
 pub mod dispatcher;
 pub mod error;
+pub mod guardrails;
 pub mod kudos_ledger;
 pub mod output_filter;
 pub mod types;

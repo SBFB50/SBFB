@@ -19,6 +19,7 @@ use nexus_core_rs::task::ResultEntry;
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ResultEvent {
     NewResult(ResultEntry),
 }
