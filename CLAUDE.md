@@ -121,30 +121,26 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-36 CLOSED**, v1.2 en cours. Audit gate S36 = S37
-  Phase 0 (`.planning/active/sprint37_audit_plan.md`).
-- **~1939 tests total** (936 Rust / 195 SDK / 409+36f+6s coord / 46
+- **Sprints 0-37 CLOSED**, v1.2 en cours. Audit gate S37 = S38
+  Phase 0 (`.planning/active/sprint38_audit_plan.md`).
+- **~1949 tests total** (946 Rust / 195 SDK / 409+36f+6s coord / 46
   app-gov / 267 Vitest / 42+2f Playwright / 7/7 size-limit) — tous
   verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
   meme root cause wheel/env stale, pas regression).
-- Carry S37 : P2-A-1 rand blocker upstream (re-evaluer) ;
-  P2-B-1-S34 log convergence launcher/daemon 3/3 **MANDATORY** ;
-  P2-C-1-S34 .icns macOS absent (.png fallback) 3/3 **MANDATORY** ;
+- Carry S38 : P2-A-1 rand blocker upstream (exemption externe) ;
+  P2-REVIEW-C-1-S35 validator_loop tokio 3/3 **MANDATORY** ;
+  P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
   P3-grammar executor 3/3+ (defer Rust pipeline) ;
   P3-watermark executor 3/3+ (defer Rust pipeline) ;
-  P2-REVIEW-A-1 mutex poisoned branch (S36) ;
-  P2-REVIEW-C-1 hash-chain vide (S36) ;
-  P2-REVIEW-C-2 double query project_id (S36) ;
-  P2-REVIEW-C-1-S35 validator_loop tokio 2/3 ;
-  P2-AUDIT-2 pre-release transitives iroh.
+  P2-REVIEW-A-1-S37 launcher logging test 1/3 ;
+  P2-REVIEW-B-1-S37 rowid documentation 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
-- MANDATORY S37 : **P2-B-1-S34 log convergence 3/3** (design log
-  directory partagee), **P2-C-1-S34 .icns macOS 3/3** (exemption
-  possible blocker externe Windows dev).
+- MANDATORY S38 : **P2-REVIEW-C-1-S35 validator_loop tokio 3/3**
+  (refactor CuratorRuntimeHandle pour exposer LiveEvents).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
