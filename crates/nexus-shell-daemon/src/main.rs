@@ -37,6 +37,7 @@ mod panic;
 mod runtime;
 #[cfg(unix)]
 mod uds_server;
+mod validator_loop;
 
 use anyhow::{Context, Result};
 use clap::Parser;

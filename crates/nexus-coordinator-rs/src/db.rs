@@ -198,6 +198,8 @@ impl CoordinatorDb {
         &self,
         project_id: &str,
     ) -> Result<Option<String>, CoordinatorError> {
+        // rowid tiebreaker ensures deterministic ordering when
+        // multiple entries share the same created_at second.
         let mut stmt = self.conn.prepare(
             "SELECT entry_hash FROM kudos WHERE project_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1",
         )?;
@@ -212,6 +214,7 @@ impl CoordinatorDb {
         &self,
         project_id: &str,
     ) -> Result<Vec<KudosEntry>, CoordinatorError> {
+        // rowid tiebreaker: same rationale as get_last_entry_hash.
         let mut stmt = self.conn.prepare(
             "SELECT entry_id, worker_node_id, task_id, project_id, amount, created_at, prev_hash, entry_hash
              FROM kudos WHERE project_id = ?1 ORDER BY created_at ASC, rowid ASC",

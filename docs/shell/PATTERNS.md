@@ -2084,6 +2084,21 @@ working because iroh handled the fallback automatically. See
 
 ---
 
+## Sprint 38 patterns
+
+### P33 — rowid tiebreaker in kudos ORDER BY queries
+
+SQLite `created_at` is stored as seconds (INTEGER). When two kudos
+entries share the same second (burst credit, tests), `ORDER BY
+created_at` alone is non-deterministic. Both `get_last_entry_hash`
+and `get_project_entries` add `, rowid ASC/DESC` as tiebreaker.
+`rowid` is SQLite's implicit auto-increment and reflects insertion
+order within the same connection. The hash-chain depends on
+deterministic entry ordering (prev_hash = previous entry_hash), so
+the tiebreaker is a correctness invariant, not a preference.
+
+---
+
 ## Sprint 24 patterns
 
 ### PyO3 wheel rebuild procedure

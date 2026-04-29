@@ -589,4 +589,25 @@ mod tests {
         };
         assert!(!is_daemon_alive(&info).await);
     }
+
+    #[test]
+    fn launcher_log_dir_matches_daemon_log_dir() {
+        let _guard = crate::test_util::env_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::env::set_var(
+            nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV,
+            tmp.path(),
+        );
+
+        let launcher = launcher_log_dir();
+        let daemon = nexus_shell_daemon_core::paths::log_dir().expect("log_dir");
+        assert_eq!(
+            launcher, daemon,
+            "launcher and daemon must share the same log directory"
+        );
+
+        std::env::remove_var(nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV);
+    }
 }

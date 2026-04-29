@@ -470,7 +470,13 @@ impl DaemonRuntime {
             .map_err(|e| anyhow::anyhow!("coordinator DB open failed: {e}"))?;
         let coordinator_db = std::sync::Arc::new(std::sync::Mutex::new(coordinator_db));
 
-        // 6b. Build the shared HTTP state + spawn the serve task.
+        // 6b. Sprint 38 Phase A: create the result event broadcast
+        //     channel for the validator loop. The sender is stored in
+        //     DaemonHttpState so future gossip wiring can forward
+        //     result events to the loop.
+        let (result_event_tx, result_event_rx) = crate::validator_loop::create_result_channel();
+
+        // 6c. Build the shared HTTP state + spawn the serve task.
         let http_state = Arc::new(DaemonHttpState {
             node_id,
             daemon_version: opts.daemon_version.clone(),
@@ -503,7 +509,8 @@ impl DaemonRuntime {
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
             coord_base_url: crate::http::resolve_coord_base_url(),
-            coordinator_db,
+            coordinator_db: Arc::clone(&coordinator_db),
+            result_event_tx,
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
@@ -560,6 +567,13 @@ impl DaemonRuntime {
                 warn!(error = %e, "axum serve exited with an error");
             }
         });
+
+        // 6d. Sprint 38 Phase A: spawn the validator loop. It
+        //     drains ResultEvents from the broadcast channel and
+        //     validates+credits each result. Runs until the sender
+        //     half is dropped (shutdown).
+        let validator_db = Arc::clone(&coordinator_db);
+        tokio::spawn(crate::validator_loop::run(validator_db, result_event_rx));
 
         // 7. Spawn the gossip subscribe task. It joins the
         //    curator topic, streams events, and forwards each

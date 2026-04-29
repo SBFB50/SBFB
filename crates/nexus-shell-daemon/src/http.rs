@@ -149,6 +149,12 @@ pub struct DaemonHttpState {
     /// `~/.sbfb/coordinator.db` (WAL mode). Handlers lock briefly
     /// for each SQL operation (~1 ms).
     pub coordinator_db: std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    /// Sprint 38 Phase A : broadcast sender for the validator loop.
+    /// Future gossip wiring will forward result events here for
+    /// event-driven validation. Currently the HTTP POST handler
+    /// remains the synchronous path; the channel is infrastructure
+    /// for the gossip-originated result path.
+    pub result_event_tx: crate::validator_loop::ResultEventSender,
 }
 
 impl DaemonHttpState {
@@ -261,6 +267,10 @@ pub fn build_router(
         .route("/api/v1/tasks/submit", post(coordinator_submit_task))
         .route("/api/v1/results/submit", post(coordinator_submit_result))
         .route("/api/v1/kudos/{project_id}", get(coordinator_get_kudos))
+        .route(
+            "/api/v1/kudos/{project_id}/verify",
+            get(coordinator_verify_chain),
+        )
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -1423,6 +1433,38 @@ async fn coordinator_get_kudos(
 }
 
 // =================================================================
+// Sprint 38 Phase A — verify_chain endpoint
+// =================================================================
+
+async fn coordinator_verify_chain(
+    State(state): State<Arc<DaemonHttpState>>,
+    axum::extract::Path(project_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let db = match state.coordinator_db.lock() {
+        Ok(guard) => guard,
+        Err(_poisoned) => {
+            tracing::error!("coordinator DB mutex poisoned");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+    match nexus_coordinator_rs::kudos_ledger::verify_chain(&db, &project_id) {
+        Ok(valid) => (StatusCode::OK, Json(serde_json::json!({"valid": valid}))).into_response(),
+        Err(e) => {
+            tracing::error!("verify_chain failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+// =================================================================
 // Tests
 // =================================================================
 
@@ -1532,6 +1574,7 @@ mod tests {
                 nexus_coordinator_rs::db::CoordinatorDb::open_in_memory()
                     .expect("test coordinator DB"),
             )),
+            result_event_tx: tokio::sync::broadcast::channel(8).0,
         })
     }
 
@@ -2313,6 +2356,7 @@ mod tests {
                 nexus_coordinator_rs::db::CoordinatorDb::open_in_memory()
                     .expect("test coordinator DB"),
             )),
+            result_event_tx: tokio::sync::broadcast::channel(8).0,
         });
         let app = build_test_router(state);
         let resp = app
@@ -3533,5 +3577,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn verify_chain_endpoint_returns_valid() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "proj-vc", "worker-a", "task-1", 10)
+                .expect("credit");
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/proj-vc/verify")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(body["valid"], true);
     }
 }
