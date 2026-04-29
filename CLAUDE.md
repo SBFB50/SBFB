@@ -121,23 +121,23 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-39 CLOSED**, v1.2 en cours. Audit gate S39 = S40
-  Phase 0 (`.planning/active/sprint40_audit_plan.md`).
-- **~1994 tests total** (991 Rust / 195 SDK / 409+36f+6s coord / 46
+- **Sprints 0-40 CLOSED**, v1.2 en cours. Audit gate S40 = S41
+  Phase 0 (`.planning/active/sprint41_audit_plan.md`).
+- **~2026 tests total** (1023 Rust / 195 SDK / 409+36f+6s coord / 46
   app-gov / 267 Vitest / 42+2f Playwright / 7/7 size-limit) — tous
   verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
   meme root cause wheel/env stale, pas regression).
-- Carry S40 : P2-A-1 rand blocker upstream (exemption externe) ;
+- Carry S41 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P3-grammar executor 3/3+ (defer Rust pipeline S40) ;
-  P3-watermark executor 3/3+ (defer Rust pipeline S40) ;
-  P2-REVIEW-A-1-S38 result_event_tx dead code 2/3 ;
-  P2-REVIEW-B-1-S38 substring O(n*m) 2/3 ;
-  P2-REVIEW-C-1-S38 chain Arc singleton 2/3 ;
-  P3-AUDIT-A-2b-S38 lowercase divergence 2/3 ;
   P2-REVIEW-A-1-S39 Tripwire vs Mutation 1/3 ;
   P2-REVIEW-B-1-S39 warn threshold 1/3 ;
-  P2-REVIEW-C-1-S39 HTTP integration tests 1/3.
+  P2-REVIEW-B-1-S40 rand_range non-random 1/3 ;
+  P2-REVIEW-C-1-S40 SHA-256 vs BLAKE3 1/3 ;
+  P3-REVIEW-A-2-S39 LOC kickoff 1/3 ;
+  P3-REVIEW-B-2-S39 persist error silent 1/3 ;
+  P3-AUDIT-A-1-S39 URL single-quote 1/3 ;
+  P3-REVIEW-B-1-S40 Manager multiple Mutex 1/3 ;
+  P3-REVIEW-C-1-S40 rerun deterministic hash 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
