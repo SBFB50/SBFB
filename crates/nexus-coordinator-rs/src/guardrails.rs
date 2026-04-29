@@ -129,12 +129,19 @@ impl Guardrail for OutputSafetyGuardrail {
     }
 }
 
-pub fn default_output_chain() -> GuardrailChain {
-    GuardrailChain::new().push(Box::new(OutputSafetyGuardrail::default()))
+static OUTPUT_CHAIN: std::sync::OnceLock<GuardrailChain> = std::sync::OnceLock::new();
+static INPUT_CHAIN: std::sync::OnceLock<GuardrailChain> = std::sync::OnceLock::new();
+
+pub fn default_output_chain() -> &'static GuardrailChain {
+    OUTPUT_CHAIN.get_or_init(|| {
+        GuardrailChain::new().push(Box::new(OutputSafetyGuardrail::default()))
+    })
 }
 
-pub fn default_input_chain() -> GuardrailChain {
-    GuardrailChain::new().push(Box::new(crate::pii_redactor::PiiInputGuardrail::default()))
+pub fn default_input_chain() -> &'static GuardrailChain {
+    INPUT_CHAIN.get_or_init(|| {
+        GuardrailChain::new().push(Box::new(crate::pii_redactor::PiiInputGuardrail::default()))
+    })
 }
 
 #[cfg(test)]

@@ -62,7 +62,6 @@ fn check_prompt_echo_substring(prompt: &str, output: &str, min_len: usize) -> bo
     if prompt.len() < min_len {
         return false;
     }
-    let prompt_chars: Vec<char> = prompt.chars().collect();
     let output_lower = output.to_lowercase();
     let prompt_lower = prompt.to_lowercase();
     let prompt_lower_chars: Vec<char> = prompt_lower.chars().collect();
@@ -74,7 +73,6 @@ fn check_prompt_echo_substring(prompt: &str, output: &str, min_len: usize) -> bo
             return true;
         }
     }
-    let _ = prompt_chars;
     false
 }
 

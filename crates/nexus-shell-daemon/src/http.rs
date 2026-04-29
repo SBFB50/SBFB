@@ -149,12 +149,6 @@ pub struct DaemonHttpState {
     /// `~/.sbfb/coordinator.db` (WAL mode). Handlers lock briefly
     /// for each SQL operation (~1 ms).
     pub coordinator_db: std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
-    /// Sprint 38 Phase A : broadcast sender for the validator loop.
-    /// Future gossip wiring will forward result events here for
-    /// event-driven validation. Currently the HTTP POST handler
-    /// remains the synchronous path; the channel is infrastructure
-    /// for the gossip-originated result path.
-    #[allow(dead_code)]
     pub result_event_tx: crate::validator_loop::ResultEventSender,
     /// Sprint 39 Phase B : warrant canary observation registry (Rust
     /// port of canary_registry.py). Tracks observed canary signings
@@ -1380,8 +1374,7 @@ async fn coordinator_submit_result(
                 user_prompt: "",
                 model_output: &entry.payload.result_text,
             };
-            let chain = nexus_coordinator_rs::guardrails::default_output_chain();
-            let gr = chain.run(&guardrail_ctx);
+            let gr = nexus_coordinator_rs::guardrails::default_output_chain().run(&guardrail_ctx);
             if !gr.passed {
                 let reason = gr.tripwire.unwrap_or_else(|| "guardrail_rejected".into());
                 tracing::warn!(
@@ -1407,6 +1400,9 @@ async fn coordinator_submit_result(
             ) {
                 tracing::warn!("kudos credit failed (non-fatal): {e}");
             }
+            let _ = state
+                .result_event_tx
+                .send(crate::validator_loop::ResultEvent::NewResult(entry));
             (
                 StatusCode::OK,
                 Json(serde_json::json!({"outcome": "accepted"})),
@@ -3750,5 +3746,84 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
         assert_eq!(body["valid"], true);
+    }
+
+    #[tokio::test]
+    async fn submit_task_pii_rejected() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+        let mut sub = make_test_submission();
+        sub.prompt = "Contact me at test@example.com for details".into();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/tasks/submit")
+                    .header("content-type", "application/json")
+                    .header("host", "127.0.0.1")
+                    .header("authorization", format!("Bearer {TEST_TOKEN}"))
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&sub).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(body["error"], "input_rejected");
+    }
+
+    #[tokio::test]
+    async fn canary_observed_post_ok() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+        let payload = serde_json::json!({
+            "version": 1,
+            "pubkey_hex": "aa".repeat(32),
+            "date": "2026-04-29",
+            "headline": "All clear",
+            "next_update": "2026-05-29",
+            "signature_hex": "bb".repeat(64)
+        });
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/canary/observed")
+                    .header("content-type", "application/json")
+                    .header("host", "127.0.0.1")
+                    .header("authorization", format!("Bearer {TEST_TOKEN}"))
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&payload).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(body["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn canary_network_health_get_ok() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/canary/network-health")
+                    .header("host", "127.0.0.1")
+                    .header("authorization", format!("Bearer {TEST_TOKEN}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }

@@ -2200,6 +2200,18 @@ lifetime gymnastics.
 
 ---
 
+## §P40 — Sprint 40 Phase A : case-sensitivity convention Rust vs Python wire identifiers
+
+Python coordinator uses `.lower()` on wire identifiers (pubkey_hex,
+project_id) before storage/comparison. Rust coordinator-rs preserves
+the original case. Both are valid pre-launch (no cross-language wire
+traffic yet). Post-v1.0, when Python coordinator is removed (S45),
+the Rust convention becomes authoritative. Until then, any wire
+comparison that crosses the Python/Rust boundary must normalize case
+explicitly. The `hex::encode` function already outputs lowercase.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13
