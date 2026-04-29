@@ -121,21 +121,23 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-38 CLOSED**, v1.2 en cours. Audit gate S38 PASS
-  (1 P2 fixe + 1 P3 carry). S39 pret a ouvrir.
-- **~1971 tests total** (968 Rust / 195 SDK / 409+36f+6s coord / 46
+- **Sprints 0-39 CLOSED**, v1.2 en cours. Audit gate S39 = S40
+  Phase 0 (`.planning/active/sprint40_audit_plan.md`).
+- **~1994 tests total** (991 Rust / 195 SDK / 409+36f+6s coord / 46
   app-gov / 267 Vitest / 42+2f Playwright / 7/7 size-limit) — tous
   verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
   meme root cause wheel/env stale, pas regression).
-- Carry S39 : P2-A-1 rand blocker upstream (exemption externe) ;
+- Carry S40 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
   P3-grammar executor 3/3+ (defer Rust pipeline S40) ;
   P3-watermark executor 3/3+ (defer Rust pipeline S40) ;
-  P2-REVIEW-A-1-S38 result_event_tx dead code 1/3 ;
-  P2-REVIEW-B-1-S38 substring O(n*m) 1/3 ;
-  P2-REVIEW-C-1-S38 chain Arc singleton 1/3 ;
-  P2-REVIEW-A-1-S37 launcher logging test 2/3 ;
-  P3-AUDIT-A-2b-S38 lowercase divergence 1/3.
+  P2-REVIEW-A-1-S38 result_event_tx dead code 2/3 ;
+  P2-REVIEW-B-1-S38 substring O(n*m) 2/3 ;
+  P2-REVIEW-C-1-S38 chain Arc singleton 2/3 ;
+  P3-AUDIT-A-2b-S38 lowercase divergence 2/3 ;
+  P2-REVIEW-A-1-S39 Tripwire vs Mutation 1/3 ;
+  P2-REVIEW-B-1-S39 warn threshold 1/3 ;
+  P2-REVIEW-C-1-S39 HTTP integration tests 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).

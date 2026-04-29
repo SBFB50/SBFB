@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-29  # G2 — Sprint 38 CLOSED : Phase A MANDATORY validator_loop tokio 3/3 + dette pair, Phase B OutputFilter Rust migration, Phase C Guardrails pipeline Rust + wire submit_result. Compteurs 967 Rust / 195 SDK / 409+36f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~1970 total. 0 trigger actif.
+last_validated: 2026-04-29  # G2 — Sprint 39 CLOSED : Phase A PiiRedactor Rust regex-only, Phase B CanaryRegistry Rust, Phase C wire PiiInput guardrail + CanaryRegistry HTTP + P2 batch. Compteurs 991 Rust / 195 SDK / 409+36f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~1994 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
