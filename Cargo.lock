@@ -4708,6 +4708,7 @@ name = "nexus-coordinator-rs"
 version = "1.0.0"
 dependencies = [
  "blake3",
+ "chrono",
  "hex",
  "hmac",
  "nexus-core-rs",

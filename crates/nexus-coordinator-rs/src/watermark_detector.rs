@@ -81,8 +81,7 @@ impl WatermarkDetector {
 }
 
 fn prf_score(secret: &[u8], context: &[u32], token_id: u32) -> f64 {
-    let mut mac =
-        HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts any key length");
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts any key length");
     for &ctx_tok in context {
         mac.update(&ctx_tok.to_le_bytes());
     }

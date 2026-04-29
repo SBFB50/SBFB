@@ -168,20 +168,15 @@ pub fn verify_canary_input_set(
             return Err("canary_input_set signed by unexpected pubkey".into());
         }
     }
-    nexus_core_rs::crypto::verify(
-        &pubkey_bytes,
-        set.signable_json().as_bytes(),
-        &sig_bytes,
-    )
-    .map_err(|e| format!("signature verification failed: {e}"))
+    nexus_core_rs::crypto::verify(&pubkey_bytes, set.signable_json().as_bytes(), &sig_bytes)
+        .map_err(|e| format!("signature verification failed: {e}"))
 }
 
 pub fn save_canary_input_set(set: &CanaryInputSet, path: &Path) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(set)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(set).map_err(io::Error::other)?;
     std::fs::write(path, json)
 }
 
@@ -189,10 +184,9 @@ pub fn load_canary_input_set(
     path: &Path,
     expected_pubkey: Option<&[u8; 32]>,
 ) -> Result<CanaryInputSet, String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("read failed: {e}"))?;
-    let set: CanaryInputSet = serde_json::from_str(&text)
-        .map_err(|e| format!("JSON parse failed: {e}"))?;
+    let text = std::fs::read_to_string(path).map_err(|e| format!("read failed: {e}"))?;
+    let set: CanaryInputSet =
+        serde_json::from_str(&text).map_err(|e| format!("JSON parse failed: {e}"))?;
     verify_canary_input_set(&set, expected_pubkey)?;
     Ok(set)
 }
@@ -410,20 +404,23 @@ impl CanaryInputManager {
                         policy = p;
                     }
                 }
-                policy_mtime = pp.metadata().ok().and_then(|m| {
-                    m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                }).map(|d| d.as_secs_f64());
+                policy_mtime = pp
+                    .metadata()
+                    .ok()
+                    .and_then(|m| {
+                        m.modified()
+                            .ok()
+                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    })
+                    .map(|d| d.as_secs_f64());
             }
         }
 
         let initial_set = Self::try_load_set(&canary_set_path, &policy, coord_pubkey.as_ref());
 
         let injector = CanaryInputInjector::new(initial_set.clone(), policy.inject_rate);
-        let observer = CanaryInputObserver::new(
-            initial_set,
-            policy.default_tolerance,
-            RING_CAPACITY,
-        );
+        let observer =
+            CanaryInputObserver::new(initial_set, policy.default_tolerance, RING_CAPACITY);
 
         Self {
             policy_path,
@@ -439,7 +436,10 @@ impl CanaryInputManager {
     }
 
     pub fn policy(&self) -> CanaryInputPolicy {
-        self.policy.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        self.policy
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     pub fn maybe_inject(&self) -> Option<CanaryPrompt> {
@@ -462,7 +462,8 @@ impl CanaryInputManager {
         worker_pubkey_hex: Option<&str>,
     ) -> bool {
         self.maybe_reload();
-        self.observer.observe(prompt_id, observed_answer, worker_pubkey_hex)
+        self.observer
+            .observe(prompt_id, observed_answer, worker_pubkey_hex)
     }
 
     fn effective_set_path(&self) -> Option<PathBuf> {
@@ -476,7 +477,10 @@ impl CanaryInputManager {
     fn maybe_reload(&self) {
         let now = monotonic_secs();
         {
-            let mut last = self.last_reload_check.lock().unwrap_or_else(|p| p.into_inner());
+            let mut last = self
+                .last_reload_check
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             if now - *last < MTIME_DEBOUNCE_SECS {
                 return;
             }
@@ -496,8 +500,11 @@ impl CanaryInputManager {
             None => return,
         };
         {
-            let cached = self.reload_policy_mtime.lock().unwrap_or_else(|p| p.into_inner());
-            if cached.map_or(false, |c| mtime <= c) {
+            let cached = self
+                .reload_policy_mtime
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if cached.is_some_and(|c| mtime <= c) {
                 return;
             }
         }
@@ -511,7 +518,10 @@ impl CanaryInputManager {
         };
         self.injector.set_inject_rate(new_policy.inject_rate);
         *self.policy.lock().unwrap_or_else(|p| p.into_inner()) = new_policy;
-        *self.reload_policy_mtime.lock().unwrap_or_else(|p| p.into_inner()) = Some(mtime);
+        *self
+            .reload_policy_mtime
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(mtime);
     }
 
     fn reload_set(&self) {
@@ -524,8 +534,11 @@ impl CanaryInputManager {
             None => return,
         };
         {
-            let cached = self.reload_set_mtime.lock().unwrap_or_else(|p| p.into_inner());
-            if cached.map_or(false, |c| mtime <= c) {
+            let cached = self
+                .reload_set_mtime
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if cached.is_some_and(|c| mtime <= c) {
                 return;
             }
         }
@@ -535,7 +548,10 @@ impl CanaryInputManager {
         };
         self.injector.set_canary_set(Some(new_set.clone()));
         self.observer.set_canary_set(Some(new_set));
-        *self.reload_set_mtime.lock().unwrap_or_else(|p| p.into_inner()) = Some(mtime);
+        *self
+            .reload_set_mtime
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(mtime);
     }
 
     fn try_load_set(
@@ -595,13 +611,14 @@ impl crate::guardrails::Guardrail for CanaryInputGuardrail {
         crate::guardrails::GuardrailDirection::Input
     }
 
-    fn check(&self, _ctx: &crate::guardrails::GuardrailContext<'_>) -> crate::guardrails::GuardrailOutcome {
-        if self.injector.should_inject() {
-            if self.injector.next_prompt().is_some() {
-                return crate::guardrails::GuardrailOutcome::Tripwire {
-                    reason: "canary_input_injected".into(),
-                };
-            }
+    fn check(
+        &self,
+        _ctx: &crate::guardrails::GuardrailContext<'_>,
+    ) -> crate::guardrails::GuardrailOutcome {
+        if self.injector.should_inject() && self.injector.next_prompt().is_some() {
+            return crate::guardrails::GuardrailOutcome::Tripwire {
+                reason: "canary_input_injected".into(),
+            };
         }
         crate::guardrails::GuardrailOutcome::Pass
     }
@@ -612,11 +629,31 @@ impl crate::guardrails::Guardrail for CanaryInputGuardrail {
 // ---------------------------------------------------------------------------
 
 pub const DEFAULT_SEED_PROMPTS: &[(&str, &str, &str)] = &[
-    ("canary.arith.01", "What is 17 plus 42? Answer with a number only.", "59"),
-    ("canary.arith.02", "What is 8 times 9? Answer with a number only.", "72"),
-    ("canary.fact.01", "What is the chemical symbol for gold? Answer with the symbol only.", "Au"),
-    ("canary.fact.02", "How many continents are there? Answer with a number only.", "7"),
-    ("canary.geo.01", "What is the capital of France? Answer with the city name only.", "Paris"),
+    (
+        "canary.arith.01",
+        "What is 17 plus 42? Answer with a number only.",
+        "59",
+    ),
+    (
+        "canary.arith.02",
+        "What is 8 times 9? Answer with a number only.",
+        "72",
+    ),
+    (
+        "canary.fact.01",
+        "What is the chemical symbol for gold? Answer with the symbol only.",
+        "Au",
+    ),
+    (
+        "canary.fact.02",
+        "How many continents are there? Answer with a number only.",
+        "7",
+    ),
+    (
+        "canary.geo.01",
+        "What is the capital of France? Answer with the city name only.",
+        "Paris",
+    ),
 ];
 
 pub fn seed_prompts() -> Vec<CanaryPrompt> {
@@ -830,6 +867,9 @@ default_tolerance = 0.9
             model_output: "",
         };
         let outcome = guard.check(&ctx);
-        assert!(matches!(outcome, crate::guardrails::GuardrailOutcome::Tripwire { .. }));
+        assert!(matches!(
+            outcome,
+            crate::guardrails::GuardrailOutcome::Tripwire { .. }
+        ));
     }
 }

@@ -12,8 +12,9 @@ use rusqlite_migration::{Migrations, M};
 use crate::error::CoordinatorError;
 use crate::types::{KudosEntry, TaskRecord, TaskStatus};
 
-static MIGRATIONS: &[M<'static>] = &[M::up(
-    "CREATE TABLE IF NOT EXISTS schema_version (
+static MIGRATIONS: &[M<'static>] = &[
+    M::up(
+        "CREATE TABLE IF NOT EXISTS schema_version (
         version INTEGER NOT NULL
     );
     INSERT INTO schema_version (version) VALUES (1);
@@ -46,7 +47,17 @@ static MIGRATIONS: &[M<'static>] = &[M::up(
 
     CREATE INDEX IF NOT EXISTS idx_kudos_worker ON kudos (worker_node_id);
     CREATE INDEX IF NOT EXISTS idx_kudos_project ON kudos (project_id);",
-)];
+    ),
+    M::up(
+        "CREATE TABLE IF NOT EXISTS pow_task_counts (
+        consumer_id    TEXT NOT NULL,
+        model_id       TEXT NOT NULL,
+        count          INTEGER NOT NULL DEFAULT 0,
+        last_reset_utc TEXT NOT NULL,
+        PRIMARY KEY (consumer_id, model_id)
+    );",
+    ),
+];
 
 pub struct CoordinatorDb {
     conn: Connection,
@@ -238,7 +249,6 @@ impl CoordinatorDb {
         Ok(result)
     }
 
-    #[cfg(test)]
     pub fn conn(&self) -> &Connection {
         &self.conn
     }

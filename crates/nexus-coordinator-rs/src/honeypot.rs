@@ -61,11 +61,7 @@ impl EclipseDetector {
         }
     }
 
-    pub fn report_neighborhood(
-        &mut self,
-        worker_id: &str,
-        canary_pubkeys: &HashSet<String>,
-    ) {
+    pub fn report_neighborhood(&mut self, worker_id: &str, canary_pubkeys: &HashSet<String>) {
         let existing = self
             .current_sightings
             .entry(worker_id.to_string())
@@ -91,7 +87,10 @@ impl EclipseDetector {
 
         let mut workers_above = HashSet::new();
         for (worker_id, seen) in &self.current_sightings {
-            let overlap = seen.iter().filter(|k| canary_keys.contains(k.as_str())).count();
+            let overlap = seen
+                .iter()
+                .filter(|k| canary_keys.contains(k.as_str()))
+                .count();
             let pct = overlap as f64 / total as f64;
             if pct >= self.threshold {
                 workers_above.insert(worker_id.clone());
@@ -195,10 +194,7 @@ mod tests {
     fn eclipse_alert_threshold() {
         let mut det = EclipseDetector::new(0.8, 3);
         let canaries = CanaryPeerFactory::generate(5);
-        let all_keys: HashSet<String> = canaries
-            .iter()
-            .map(|c| c.public_key_hex.clone())
-            .collect();
+        let all_keys: HashSet<String> = canaries.iter().map(|c| c.public_key_hex.clone()).collect();
 
         for _ in 0..3 {
             det.report_neighborhood("w1", &all_keys);

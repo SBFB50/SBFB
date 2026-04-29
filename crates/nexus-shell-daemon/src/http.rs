@@ -3762,9 +3762,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .header("host", "127.0.0.1")
                     .header("authorization", format!("Bearer {TEST_TOKEN}"))
-                    .body(axum::body::Body::from(
-                        serde_json::to_vec(&sub).unwrap(),
-                    ))
+                    .body(axum::body::Body::from(serde_json::to_vec(&sub).unwrap()))
                     .unwrap(),
             )
             .await

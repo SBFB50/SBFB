@@ -133,9 +133,8 @@ static OUTPUT_CHAIN: std::sync::OnceLock<GuardrailChain> = std::sync::OnceLock::
 static INPUT_CHAIN: std::sync::OnceLock<GuardrailChain> = std::sync::OnceLock::new();
 
 pub fn default_output_chain() -> &'static GuardrailChain {
-    OUTPUT_CHAIN.get_or_init(|| {
-        GuardrailChain::new().push(Box::new(OutputSafetyGuardrail::default()))
-    })
+    OUTPUT_CHAIN
+        .get_or_init(|| GuardrailChain::new().push(Box::new(OutputSafetyGuardrail::default())))
 }
 
 pub fn default_input_chain() -> &'static GuardrailChain {
