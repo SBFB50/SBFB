@@ -67,7 +67,7 @@ fn check_prompt_echo_substring(prompt: &str, output: &str, min_len: usize) -> bo
     let prompt_lower = prompt.to_lowercase();
     let prompt_lower_chars: Vec<char> = prompt_lower.chars().collect();
 
-    for start in 0..prompt_lower_chars.len().saturating_sub(min_len) {
+    for start in 0..=prompt_lower_chars.len().saturating_sub(min_len) {
         let end = (start + min_len).min(prompt_lower_chars.len());
         let slice: String = prompt_lower_chars[start..end].iter().collect();
         if output_lower.contains(&slice) {
@@ -256,5 +256,13 @@ mod tests {
         assert!(!v.is_valid);
         assert_eq!(v.reason, FilterReason::InvisibleText);
         assert_eq!(v.sanitized_output, "normaltextwithhidden");
+    }
+
+    #[test]
+    fn prompt_echo_substring_exact_min_len() {
+        let prompt = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123";
+        assert_eq!(prompt.len(), 40);
+        let output = "prefix abcdefghijklmnopqrstuvwxyzabcdefghij0123 suffix";
+        assert!(check_prompt_echo_substring(prompt, output, 40));
     }
 }
