@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-29  # G2 — Sprint 40 CLOSED : Phase A dette pair 5 P2/P3 resolus, Phase B CanaryInput Rust, Phase C Tier 3 batch (redundancy + watermark_detector + rerun + honeypot). Compteurs 1023 Rust / 195 SDK / 409+36f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~2026 total. 0 trigger actif.
+last_validated: 2026-04-29  # G2 — Sprint 41 CLOSED : Tier 4 infra batch 7/7 modules (fairness + pow_counter + contributor_registry + invite + capability_store + quarantine_queue + upload_queue). Jalon "Python supprimable" atteint. Compteurs 1059 Rust / 195 SDK / 409+36f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~2062 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
