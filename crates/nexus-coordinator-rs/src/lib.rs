@@ -8,6 +8,7 @@
 //! (`nexus-shell-daemon`) calls into this crate from its axum
 //! HTTP server.
 
+pub mod canary_input;
 pub mod canary_registry;
 pub mod db;
 pub mod dispatcher;
