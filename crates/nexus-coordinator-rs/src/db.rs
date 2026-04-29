@@ -57,6 +57,37 @@ static MIGRATIONS: &[M<'static>] = &[
         PRIMARY KEY (consumer_id, model_id)
     );",
     ),
+    M::up(
+        "CREATE TABLE IF NOT EXISTS contributor_attestations (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id           TEXT NOT NULL,
+        contributor_node_id  TEXT NOT NULL,
+        first_deploy_ts      INTEGER NOT NULL,
+        commit_sha           TEXT NOT NULL,
+        repo_url             TEXT NOT NULL,
+        coord_sig_hex        TEXT NOT NULL,
+        attestation_json     TEXT NOT NULL,
+        recorded_at          INTEGER NOT NULL,
+        UNIQUE (project_id, contributor_node_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_contrib_project ON contributor_attestations(project_id);
+    CREATE INDEX IF NOT EXISTS idx_contrib_node ON contributor_attestations(contributor_node_id);
+
+    CREATE TABLE IF NOT EXISTS invites (
+        id            TEXT PRIMARY KEY,
+        wire          TEXT NOT NULL UNIQUE,
+        scope         TEXT NOT NULL,
+        project_id    TEXT NOT NULL,
+        project_name  TEXT NOT NULL,
+        expires_at    INTEGER NOT NULL,
+        max_uses      INTEGER,
+        uses_count    INTEGER NOT NULL DEFAULT 0,
+        revoked_at    INTEGER,
+        note          TEXT,
+        created_at    INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_invites_expires ON invites(expires_at);",
+    ),
 ];
 
 pub struct CoordinatorDb {

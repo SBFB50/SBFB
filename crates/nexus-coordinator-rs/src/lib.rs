@@ -10,12 +10,15 @@
 
 pub mod canary_input;
 pub mod canary_registry;
+pub mod capability_store;
+pub mod contributor_registry;
 pub mod db;
 pub mod dispatcher;
 pub mod error;
 pub mod fairness;
 pub mod guardrails;
 pub mod honeypot;
+pub mod invite;
 pub mod kudos_ledger;
 pub mod output_filter;
 pub mod pii_redactor;
