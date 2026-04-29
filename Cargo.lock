@@ -4711,6 +4711,7 @@ dependencies = [
  "hex",
  "nexus-core-rs",
  "rand 0.8.6",
+ "regex",
  "rusqlite",
  "rusqlite_migration",
  "serde",

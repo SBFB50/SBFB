@@ -14,5 +14,6 @@ pub mod error;
 pub mod guardrails;
 pub mod kudos_ledger;
 pub mod output_filter;
+pub mod pii_redactor;
 pub mod types;
 pub mod validator;

@@ -130,6 +130,7 @@ tracing-appender = "0.2"
 
 # String similarity for OutputFilter prompt echo detection (EED).
 strsim = "0.11"
+regex = "1"
 
 # Hex / base32 for keypair display and invite token encoding.
 hex = "0.4"
