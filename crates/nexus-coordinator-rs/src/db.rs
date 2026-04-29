@@ -88,6 +88,29 @@ static MIGRATIONS: &[M<'static>] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_invites_expires ON invites(expires_at);",
     ),
+    M::up(
+        "CREATE TABLE IF NOT EXISTS quarantine_messages (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        topic               TEXT NOT NULL,
+        sender_pubkey_hex   TEXT NOT NULL,
+        payload_json        TEXT NOT NULL,
+        received_at         INTEGER NOT NULL,
+        rate_strikes        INTEGER NOT NULL,
+        pow_status          TEXT NOT NULL,
+        flush_status        TEXT NOT NULL DEFAULT 'pending'
+    );
+    CREATE INDEX IF NOT EXISTS idx_quarantine_received ON quarantine_messages(received_at);
+    CREATE INDEX IF NOT EXISTS idx_quarantine_sender ON quarantine_messages(sender_pubkey_hex);
+
+    CREATE TABLE IF NOT EXISTS delayed_uploads (
+        upload_id           TEXT PRIMARY KEY,
+        deliver_at          REAL NOT NULL,
+        task_payload_json   TEXT NOT NULL,
+        enqueued_at         REAL NOT NULL,
+        status              TEXT NOT NULL DEFAULT 'pending'
+    );
+    CREATE INDEX IF NOT EXISTS idx_delayed_uploads_deliver ON delayed_uploads(deliver_at);",
+    ),
 ];
 
 pub struct CoordinatorDb {
