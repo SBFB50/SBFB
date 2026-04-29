@@ -4707,6 +4707,7 @@ dependencies = [
 name = "nexus-coordinator-rs"
 version = "1.0.0"
 dependencies = [
+ "blake3",
  "hex",
  "nexus-core-rs",
  "rand 0.8.6",
