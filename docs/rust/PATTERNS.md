@@ -2212,6 +2212,33 @@ explicitly. The `hex::encode` function already outputs lowercase.
 
 ---
 
+## §P41 — Sprint 42 Phase A : warrant canary WARN/ALARM threshold rationale
+
+Canary registry uses two time-based thresholds for dead-man-switch
+detection (`canary_registry.rs` / `canary_registry.py`):
+
+- `WARN_THRESHOLD_DAYS = 30` — expected refresh cadence. A canary
+  older than 30 days triggers a warning-level status. Aligned with
+  RFC 9591 (FROST DKG) recommended signing cadence for periodic
+  attestations (monthly rotation).
+- `ALARM_THRESHOLD_DAYS = 45` — hard dead-man-switch boundary.
+  Equal to `CANARY_VALIDITY_DAYS`. Past this age, the canary is
+  considered expired and the dead-man-switch fires.
+
+**Why 30/45 and not 7/14 or 90/180?** The 30-day warn window
+gives operators one full calendar month to refresh. Shorter windows
+(weekly) create noise for solo operators without oncall rotation.
+Longer windows (quarterly) delay detection of compromise. The 45-day
+alarm provides a 15-day grace period after warn — enough for a
+human to act on the warning before the switch fires.
+
+These values are constants in both Python and Rust coordinators.
+Pre-v1.0, the Python values are authoritative. Post-v1.0 (S45,
+Python coordinator removed), the Rust constants become sole
+source of truth.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

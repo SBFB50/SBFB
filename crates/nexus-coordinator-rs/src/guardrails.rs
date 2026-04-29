@@ -19,6 +19,7 @@ pub enum GuardrailOutcome {
     Pass,
     Flag { reason: String },
     Tripwire { reason: String },
+    Mutation { reason: String, replacement: String },
 }
 
 pub struct GuardrailContext<'a> {
@@ -37,6 +38,7 @@ pub struct ChainResult {
     pub passed: bool,
     pub flags: Vec<String>,
     pub tripwire: Option<String>,
+    pub mutations: Vec<(String, String)>,
 }
 
 pub struct GuardrailChain {
@@ -57,6 +59,7 @@ impl GuardrailChain {
 
     pub fn run(&self, ctx: &GuardrailContext<'_>) -> ChainResult {
         let mut flags = Vec::new();
+        let mut mutations = Vec::new();
 
         for g in &self.guardrails {
             match g.check(ctx) {
@@ -71,7 +74,15 @@ impl GuardrailChain {
                         passed: false,
                         flags,
                         tripwire: Some(reason),
+                        mutations,
                     };
+                }
+                GuardrailOutcome::Mutation {
+                    reason,
+                    replacement,
+                } => {
+                    tracing::info!(guardrail = g.name(), %reason, "guardrail mutation");
+                    mutations.push((reason, replacement));
                 }
             }
         }
@@ -80,6 +91,7 @@ impl GuardrailChain {
             passed: true,
             flags,
             tripwire: None,
+            mutations,
         }
     }
 }
@@ -232,6 +244,34 @@ mod tests {
         let result = chain.run(&ctx("text"));
         assert!(!result.passed);
         assert!(result.tripwire.is_some());
+    }
+
+    struct AlwaysMutate;
+    impl Guardrail for AlwaysMutate {
+        fn name(&self) -> &str {
+            "always_mutate"
+        }
+        fn direction(&self) -> GuardrailDirection {
+            GuardrailDirection::Input
+        }
+        fn check(&self, _ctx: &GuardrailContext<'_>) -> GuardrailOutcome {
+            GuardrailOutcome::Mutation {
+                reason: "injected".into(),
+                replacement: "replaced".into(),
+            }
+        }
+    }
+
+    #[test]
+    fn chain_mutation_collects_and_passes() {
+        let chain = GuardrailChain::new()
+            .push(Box::new(AlwaysMutate))
+            .push(Box::new(AlwaysPass));
+        let result = chain.run(&ctx("text"));
+        assert!(result.passed);
+        assert_eq!(result.mutations.len(), 1);
+        assert_eq!(result.mutations[0].0, "injected");
+        assert_eq!(result.mutations[0].1, "replaced");
     }
 
     #[test]

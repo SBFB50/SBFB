@@ -6,6 +6,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::db::CoordinatorDb;
@@ -103,7 +104,7 @@ impl<'a> UploadQueue<'a> {
     }
 
     pub fn compute_jitter(&self) -> f64 {
-        let u = pseudo_random_f64();
+        let u: f64 = rand::thread_rng().gen();
         let u_safe = if u <= 0.0 { 1e-18 } else { u };
         let raw = -self.mean_jitter * u_safe.ln();
         raw.min(self.max_jitter)
@@ -115,20 +116,6 @@ fn now_f64() -> f64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64()
-}
-
-fn pseudo_random_f64() -> f64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    std::thread::current().id().hash(&mut hasher);
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-        .hash(&mut hasher);
-    let h = hasher.finish();
-    (h as f64) / (u64::MAX as f64)
 }
 
 fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<UploadEntry> {

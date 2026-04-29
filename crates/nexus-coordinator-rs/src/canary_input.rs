@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 pub const CANARY_INPUT_SET_VERSION: u32 = 1;
@@ -226,7 +227,7 @@ impl CanaryInputInjector {
             self.injected_count.fetch_add(1, Ordering::Relaxed);
             return true;
         }
-        let draw = rand_range(1, rate);
+        let draw = rand::thread_rng().gen_range(1..=rate);
         if draw == 1 {
             self.injected_count.fetch_add(1, Ordering::Relaxed);
             return true;
@@ -260,20 +261,6 @@ impl CanaryInputInjector {
             self.injected_count.load(Ordering::Relaxed),
         )
     }
-}
-
-fn rand_range(min: usize, max: usize) -> usize {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    std::thread::current().id().hash(&mut hasher);
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-        .hash(&mut hasher);
-    let h = hasher.finish() as usize;
-    min + (h % (max - min + 1))
 }
 
 // ---------------------------------------------------------------------------
