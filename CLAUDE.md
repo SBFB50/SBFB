@@ -121,26 +121,25 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-37 CLOSED**, v1.2 en cours. Audit gate S37 = S38
-  Phase 0 (`.planning/active/sprint38_audit_plan.md`).
-- **~1949 tests total** (946 Rust / 195 SDK / 409+36f+6s coord / 46
+- **Sprints 0-38 CLOSED**, v1.2 en cours. Audit gate S38 = S39
+  Phase 0 (`.planning/active/sprint39_audit_plan.md`).
+- **~1970 tests total** (967 Rust / 195 SDK / 409+36f+6s coord / 46
   app-gov / 267 Vitest / 42+2f Playwright / 7/7 size-limit) — tous
   verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
   meme root cause wheel/env stale, pas regression).
-- Carry S38 : P2-A-1 rand blocker upstream (exemption externe) ;
-  P2-REVIEW-C-1-S35 validator_loop tokio 3/3 **MANDATORY** ;
+- Carry S39 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P3-grammar executor 3/3+ (defer Rust pipeline) ;
-  P3-watermark executor 3/3+ (defer Rust pipeline) ;
-  P2-REVIEW-A-1-S37 launcher logging test 1/3 ;
-  P2-REVIEW-B-1-S37 rowid documentation 1/3.
+  P3-grammar executor 3/3+ (defer Rust pipeline S40) ;
+  P3-watermark executor 3/3+ (defer Rust pipeline S40) ;
+  P2-REVIEW-A-1-S38 result_event_tx dead code 1/3 ;
+  P2-REVIEW-B-1-S38 substring O(n*m) 1/3 ;
+  P2-REVIEW-C-1-S38 chain Arc singleton 1/3 ;
+  P2-REVIEW-A-1-S37 launcher logging test 2/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
-- MANDATORY S38 : **P2-REVIEW-C-1-S35 validator_loop tokio 3/3**
-  (refactor CuratorRuntimeHandle pour exposer LiveEvents).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.

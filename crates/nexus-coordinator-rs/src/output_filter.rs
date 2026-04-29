@@ -49,7 +49,9 @@ pub fn strip_invisible(input: &str) -> String {
 }
 
 pub fn has_invisible_text(input: &str) -> bool {
-    input.chars().any(|c| is_invisible_char(c) && !is_bidi_format(c))
+    input
+        .chars()
+        .any(|c| is_invisible_char(c) && !is_bidi_format(c))
 }
 
 fn check_prompt_echo_exact(prompt: &str, output: &str) -> bool {
@@ -109,12 +111,7 @@ impl OutputFilter {
         }
     }
 
-    pub fn filter(
-        &self,
-        system_prompt: &str,
-        _user_prompt: &str,
-        output: &str,
-    ) -> FilterVerdict {
+    pub fn filter(&self, system_prompt: &str, _user_prompt: &str, output: &str) -> FilterVerdict {
         let sanitized = strip_invisible(output);
         let had_invisible = sanitized.len() != output.len();
 
@@ -194,14 +191,19 @@ mod tests {
     #[test]
     fn prompt_echo_exact_detected() {
         let filter = OutputFilter::default();
-        let v = filter.filter("secret system prompt", "", "The secret system prompt is here");
+        let v = filter.filter(
+            "secret system prompt",
+            "",
+            "The secret system prompt is here",
+        );
         assert!(!v.is_valid);
         assert_eq!(v.reason, FilterReason::PromptEchoExact);
     }
 
     #[test]
     fn prompt_echo_substring_detected() {
-        let long_prompt = "the quick brown fox jumps over the lazy dog and then runs back again quickly";
+        let long_prompt =
+            "the quick brown fox jumps over the lazy dog and then runs back again quickly";
         let snippet = &long_prompt[10..55];
         let output = format!("model says: {snippet} and more");
         let filter = OutputFilter::new(0.85, 40);
