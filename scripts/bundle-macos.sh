@@ -24,10 +24,17 @@ cp "$BINARY" "$CONTENTS/MacOS/nexus-launcher"
 chmod +x "$CONTENTS/MacOS/nexus-launcher"
 cp "$REPO_ROOT/configs/macos/Info.plist" "$CONTENTS/Info.plist"
 
+# Generate .icns from PNG using the cross-platform Rust tool (S37 D2).
+if [[ -f "$REPO_ROOT/assets/nexus-launcher.png" ]]; then
+    cargo run -p png-to-icns --release -- \
+        "$REPO_ROOT/assets/nexus-launcher.png" \
+        "$REPO_ROOT/assets/nexus-launcher.icns"
+fi
+
 if [[ -f "$REPO_ROOT/assets/nexus-launcher.icns" ]]; then
     cp "$REPO_ROOT/assets/nexus-launcher.icns" "$CONTENTS/Resources/nexus-launcher.icns"
 elif [[ -f "$REPO_ROOT/assets/nexus-launcher.png" ]]; then
-    echo "Note: .icns not found, using .png (convert with iconutil on macOS)"
+    echo "Warning: .icns generation failed, using .png fallback"
     cp "$REPO_ROOT/assets/nexus-launcher.png" "$CONTENTS/Resources/nexus-launcher.png"
 fi
 

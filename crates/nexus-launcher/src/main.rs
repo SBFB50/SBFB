@@ -6,7 +6,7 @@
 //! Sprint 13 Phase D (D4). No Tauri, no native window — the
 //! browser IS the client.
 //!
-//! Launcher and daemon have separate log files. Convergence = carry S35.
+//! Launcher and daemon share `<nexus-grid-root>/logs/` (S37 D1).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,46 +40,75 @@ mod test_util {
 const DEFAULT_ROTATION_INTERVAL_SECS: u64 = 86_400;
 
 // =================================================================
-// File logging (windows_subsystem = "windows" makes stdout invalid)
+// Structured logging (tracing-appender, shared log dir with daemon)
 // =================================================================
 
-static LOG_FILE: std::sync::OnceLock<std::sync::Mutex<std::fs::File>> = std::sync::OnceLock::new();
-
-fn launcher_log_path() -> PathBuf {
-    let home = std::env::var("SBFB_HOME")
-        .or_else(|_| std::env::var("USERPROFILE").map(|h| format!("{h}/.sbfb")))
-        .or_else(|_| std::env::var("HOME").map(|h| format!("{h}/.sbfb")))
-        .unwrap_or_else(|_| ".sbfb".to_string());
-    PathBuf::from(home).join("launcher.log")
+fn launcher_log_dir() -> PathBuf {
+    nexus_shell_daemon_core::paths::log_dir().unwrap_or_else(|| {
+        let home = std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home).join(".nexus-grid").join("logs")
+    })
 }
 
-fn setup_file_logging() {
-    let log_path = launcher_log_path();
-    if let Some(parent) = log_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+#[must_use = "dropping the guard stops the background file writer"]
+struct LauncherLogGuard {
+    _file_guard: tracing_appender::non_blocking::WorkerGuard,
+}
+
+fn setup_tracing() -> Option<LauncherLogGuard> {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::Layer;
+
+    let log_dir = launcher_log_dir();
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        eprintln!(
+            "[launcher] failed to create log dir {}: {e}",
+            log_dir.display()
+        );
+        return None;
     }
-    if let Ok(file) = std::fs::File::create(&log_path) {
-        let _ = LOG_FILE.set(std::sync::Mutex::new(file));
+
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "launcher.log");
+    let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
+
+    let file_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_current_span(true)
+        .with_target(true)
+        .with_writer(file_writer)
+        .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
+
+    #[cfg(debug_assertions)]
+    {
+        let stdout_layer = tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_writer(std::io::stdout)
+            .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
+        tracing_subscriber::registry()
+            .with(stdout_layer)
+            .with(file_layer)
+            .init();
     }
-    let panic_log = log_path;
+
+    #[cfg(not(debug_assertions))]
+    {
+        tracing_subscriber::registry().with(file_layer).init();
+    }
+
+    let panic_dir = log_dir;
     std::panic::set_hook(Box::new(move |info| {
-        let _ = std::fs::write(&panic_log, format!("[launcher] PANIC: {info}\n"));
+        let _ = std::fs::write(
+            panic_dir.join("launcher-panic.log"),
+            format!("[launcher] PANIC: {info}\n"),
+        );
     }));
-}
 
-macro_rules! lprint {
-    ($($arg:tt)*) => {{
-        let msg = format!($($arg)*);
-        if let Some(file) = $crate::LOG_FILE.get() {
-            if let Ok(mut f) = file.lock() {
-                use std::io::Write;
-                let _ = writeln!(f, "{msg}");
-                let _ = f.flush();
-            }
-        }
-        #[cfg(debug_assertions)]
-        println!("{msg}");
-    }};
+    Some(LauncherLogGuard {
+        _file_guard: file_guard,
+    })
 }
 
 // =================================================================
@@ -153,30 +182,30 @@ async fn spawn_and_wait(
     running_path: &std::path::Path,
     spawned_child: &mut Option<std::process::Child>,
 ) -> RunningInfo {
-    lprint!("[launcher] spawning nexus-shell-daemon start...");
+    tracing::info!("spawning nexus-shell-daemon start");
     match spawn_daemon() {
         Ok(child) => {
             *spawned_child = Some(child);
         }
         Err(e) => {
-            lprint!("[launcher] failed to spawn daemon: {e}");
-            lprint!("[launcher] make sure nexus-shell-daemon is in PATH or next to the launcher");
+            tracing::error!("failed to spawn daemon: {e}");
+            tracing::error!("make sure nexus-shell-daemon is in PATH or next to the launcher");
             std::process::exit(1);
         }
     }
 
-    lprint!("[launcher] waiting for daemon to start (max 15s)...");
+    tracing::info!("waiting for daemon to start (max 15s)");
     match wait_for_running(running_path, Duration::from_secs(15)).await {
         Some(info) => {
-            lprint!(
-                "[launcher] daemon ready on {}:{}",
-                info.api_host,
-                info.api_port
+            tracing::info!(
+                host = %info.api_host,
+                port = info.api_port,
+                "daemon ready"
             );
             info
         }
         None => {
-            lprint!("[launcher] daemon did not produce running.json within 15s");
+            tracing::error!("daemon did not produce running.json within 15s");
             if let Some(ref mut child) = spawned_child {
                 let _ = child.kill();
             }
@@ -221,7 +250,7 @@ fn spawn_daemon() -> std::io::Result<std::process::Child> {
 
 #[tokio::main]
 async fn main() {
-    setup_file_logging();
+    let _log_guard = setup_tracing();
 
     // Check --help / --version.
     let args: Vec<String> = std::env::args().collect();
@@ -273,10 +302,7 @@ async fn main() {
     }
 
     let running_path = find_running_json();
-    println!(
-        "[launcher] looking for daemon at {}",
-        running_path.display()
-    );
+    tracing::info!(path = %running_path.display(), "looking for daemon");
 
     // Sprint 18 Phase E1: background NVIDIA driver CVE check.
     // Spawned as a detached task so a slow or offline NVD doesn't
@@ -294,20 +320,23 @@ async fn main() {
             "nvd"
         };
         match report.local_version.as_deref() {
-            Some(v) => println!(
-                "[launcher] driver check ({source}): local={v}, cves_affecting={}, critical={}",
-                report.cves_affecting.len(),
-                report.critical_count
+            Some(v) => tracing::info!(
+                source,
+                local = v,
+                cves = report.cves_affecting.len(),
+                critical = report.critical_count,
+                "driver check complete"
             ),
             None => {
-                lprint!("[launcher] driver check ({source}): no NVIDIA driver detected, skipping")
+                tracing::info!(source, "no NVIDIA driver detected, skipping")
             }
         }
         if report.critical_count > 0 {
             if let Some(ref v) = report.local_version {
-                lprint!(
-                    "[launcher] WARNING: NVIDIA driver {v} is affected by {} Critical CVE. Consider updating.",
-                    report.critical_count
+                tracing::warn!(
+                    driver = %v,
+                    critical = report.critical_count,
+                    "NVIDIA driver affected by Critical CVE — consider updating"
                 );
             }
         }
@@ -322,7 +351,7 @@ async fn main() {
     let token = match resolve_token_for_child() {
         Ok(t) => t,
         Err(e) => {
-            lprint!("[launcher] failed to prepare auth token: {e}");
+            tracing::error!("failed to prepare auth token: {e}");
             std::process::exit(1);
         }
     };
@@ -335,17 +364,17 @@ async fn main() {
     //     ACL; the kernel Named Pipe namespace ignores filesystem
     //     paths, but we still create the dir for symmetry.
     if let Err(e) = auth::ensure_run_dir() {
-        lprint!("[launcher] failed to prepare ~/.sbfb/run/: {e}");
+        tracing::error!("failed to prepare run dir: {e}");
         std::process::exit(1);
     }
 
     let auth_server = match auth::AuthServer::start(token.clone()).await {
         Ok(s) => {
-            lprint!("[launcher] auth server listening on {}", s.bound());
+            tracing::info!(addr = %s.bound(), "auth server listening");
             Some(s)
         }
         Err(e) => {
-            lprint!("[launcher] failed to start auth server: {e}");
+            tracing::error!("failed to start auth server: {e}");
             std::process::exit(1);
         }
     };
@@ -363,21 +392,21 @@ async fn main() {
                 Ok(None) => {
                     let r = TokenRotator::new(token.clone());
                     if let Err(e) = r.write_atomic(&path) {
-                        lprint!(
-                            "[launcher] failed to seed tokens.json at {}: {e}",
-                            path.display()
+                        tracing::warn!(
+                            path = %path.display(),
+                            "failed to seed tokens.json: {e}"
                         );
                     }
                     r
                 }
                 Err(e) => {
-                    lprint!(
-                        "[launcher] tokens.json at {} is malformed ({e}); reseeding",
-                        path.display()
+                    tracing::warn!(
+                        path = %path.display(),
+                        "tokens.json malformed ({e}); reseeding"
                     );
                     let r = TokenRotator::new(token.clone());
                     if let Err(e) = r.write_atomic(&path) {
-                        lprint!("[launcher] failed to rewrite tokens.json: {e}");
+                        tracing::warn!("failed to rewrite tokens.json: {e}");
                     }
                     r
                 }
@@ -387,9 +416,10 @@ async fn main() {
                 .ok()
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(DEFAULT_ROTATION_INTERVAL_SECS);
-            println!(
-                "[launcher] token rotation loop: interval={interval_secs}s, file={}",
-                path.display()
+            tracing::info!(
+                interval_secs,
+                path = %path.display(),
+                "token rotation loop started"
             );
             Some(token_rotation::spawn_rotation_loop(
                 rotator,
@@ -398,7 +428,7 @@ async fn main() {
             ))
         }
         None => {
-            lprint!("[launcher] could not resolve tokens.json path; rotation disabled");
+            tracing::warn!("could not resolve tokens.json path; rotation disabled");
             None
         }
     };
@@ -408,17 +438,18 @@ async fn main() {
     let info = if let Some(info) = read_running_info(&running_path) {
         // Verify the daemon is actually alive by probing its TCP port.
         if is_daemon_alive(&info).await {
-            println!(
-                "[launcher] daemon already running on {}:{}",
-                info.api_host, info.api_port
+            tracing::info!(
+                host = %info.api_host,
+                port = info.api_port,
+                "daemon already running"
             );
             info
         } else {
-            lprint!(
-                "[launcher] stale running.json (pid {} not responding on {}:{}), removing",
-                info.pid,
-                info.api_host,
-                info.api_port
+            tracing::warn!(
+                pid = info.pid,
+                host = %info.api_host,
+                port = info.api_port,
+                "stale running.json, removing"
             );
             let _ = std::fs::remove_file(&running_path);
             // Fall through to spawn a new daemon below.
@@ -431,19 +462,19 @@ async fn main() {
 
     // 4. Open the browser.
     let url = format!("http://{}:{}", info.api_host, info.api_port);
-    lprint!("[launcher] opening {url}");
+    tracing::info!(url = %url, "opening browser");
     if let Err(e) = open::that(&url) {
-        lprint!("[launcher] failed to open browser: {e}");
+        tracing::warn!("failed to open browser: {e}");
         // Non-fatal — the daemon is running, the user can open manually.
     }
 
     // 5. Wait for Ctrl+C.
-    lprint!("[launcher] press Ctrl+C to stop");
+    tracing::info!("press Ctrl+C to stop");
     tokio::signal::ctrl_c()
         .await
         .expect("failed to listen for Ctrl+C");
 
-    println!("\n[launcher] shutting down...");
+    tracing::info!("shutting down");
 
     // 6. If we spawned the daemon, kill it.
     if let Some(ref mut child) = spawned_child {
@@ -470,10 +501,10 @@ async fn main() {
         .await;
 
         match wait_result {
-            Ok(Ok(Ok(status))) => lprint!("[launcher] daemon exited with {status}"),
-            Ok(Ok(Err(e))) => lprint!("[launcher] daemon wait error: {e}"),
-            Ok(Err(e)) => lprint!("[launcher] daemon join error: {e}"),
-            Err(_) => lprint!("[launcher] daemon did not exit within 5s, abandoning"),
+            Ok(Ok(Ok(status))) => tracing::info!(%status, "daemon exited"),
+            Ok(Ok(Err(e))) => tracing::error!("daemon wait error: {e}"),
+            Ok(Err(e)) => tracing::error!("daemon join error: {e}"),
+            Err(_) => tracing::warn!("daemon did not exit within 5s, abandoning"),
         }
     }
 
@@ -489,7 +520,7 @@ async fn main() {
         handle.abort();
     }
 
-    lprint!("[launcher] goodbye");
+    tracing::info!("goodbye");
 }
 
 /// Resolve the loopback bearer token: prefer an existing

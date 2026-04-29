@@ -1286,10 +1286,17 @@ async fn coordinator_submit_task(
     };
     let keypair = (*state.pow_keypair).clone();
     match nexus_coordinator_rs::dispatcher::submit_task(&db, &keypair, submission) {
-        Ok(entry) => {
-            let body = serde_json::to_value(&entry).unwrap_or_default();
-            (StatusCode::OK, Json(body)).into_response()
-        }
+        Ok(entry) => match serde_json::to_value(&entry) {
+            Ok(body) => (StatusCode::OK, Json(body)).into_response(),
+            Err(e) => {
+                tracing::error!("task entry serialization failed: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal"})),
+                )
+                    .into_response()
+            }
+        },
         Err(nexus_coordinator_rs::error::CoordinatorError::Validation(msg)) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": msg})),
@@ -1326,15 +1333,11 @@ async fn coordinator_submit_result(
         }
     };
     match nexus_coordinator_rs::validator::validate_result(&db, &entry) {
-        Ok(nexus_coordinator_rs::validator::ValidationOutcome::Accepted) => {
+        Ok((nexus_coordinator_rs::validator::ValidationOutcome::Accepted, Some(task_record))) => {
             let worker_id = hex::encode(entry.worker_pubkey);
             if let Err(e) = nexus_coordinator_rs::kudos_ledger::credit(
                 &db,
-                &db.get_task(&entry.payload.task_id)
-                    .ok()
-                    .flatten()
-                    .map(|t| t.project_id)
-                    .unwrap_or_default(),
+                &task_record.project_id,
                 &worker_id,
                 &entry.payload.task_id,
                 entry.payload.tokens_generated,
@@ -1347,7 +1350,7 @@ async fn coordinator_submit_result(
             )
                 .into_response()
         }
-        Ok(outcome) => {
+        Ok((outcome, _)) => {
             let reason = match outcome {
                 nexus_coordinator_rs::validator::ValidationOutcome::RejectedBadSignature => {
                     "bad_signature"
@@ -1397,11 +1400,17 @@ async fn coordinator_get_kudos(
         }
     };
     match nexus_coordinator_rs::kudos_ledger::get_project_kudos(&db, &project_id) {
-        Ok(kudos) => (
-            StatusCode::OK,
-            Json(serde_json::to_value(&kudos).unwrap_or_default()),
-        )
-            .into_response(),
+        Ok(kudos) => match serde_json::to_value(&kudos) {
+            Ok(body) => (StatusCode::OK, Json(body)).into_response(),
+            Err(e) => {
+                tracing::error!("kudos serialization failed: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal"})),
+                )
+                    .into_response()
+            }
+        },
         Err(e) => {
             tracing::error!("kudos query failed: {e}");
             (
@@ -3420,5 +3429,109 @@ mod tests {
         assert_eq!(body["project_id"], "proj-abc");
         assert_eq!(body["total"], 100);
         assert_eq!(body["contributors"][0]["worker_node_id"], "worker-xyz");
+    }
+
+    // =========================================================
+    // Mutex poisoned tests (P2-REVIEW-A-1/B-1)
+    // =========================================================
+
+    #[tokio::test]
+    async fn submit_task_returns_500_on_poisoned_mutex() {
+        let state = mk_state().await;
+        // Poison the mutex by panicking while holding the guard.
+        let db_arc = Arc::clone(&state.coordinator_db);
+        let _ = std::thread::spawn(move || {
+            let _guard = db_arc.lock().unwrap();
+            panic!("intentional poison");
+        })
+        .join();
+        assert!(
+            state.coordinator_db.lock().is_err(),
+            "mutex must be poisoned"
+        );
+
+        let app = build_test_router(state);
+        let body = serde_json::json!({
+            "project_id": "p1",
+            "task_type": "inference",
+            "prompt": "test",
+            "system_prompt": "",
+            "model": "llama3"
+        });
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/tasks/submit")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn submit_result_returns_500_on_poisoned_mutex() {
+        let state = mk_state().await;
+        let db_arc = Arc::clone(&state.coordinator_db);
+        let _ = std::thread::spawn(move || {
+            let _guard = db_arc.lock().unwrap();
+            panic!("intentional poison");
+        })
+        .join();
+
+        let app = build_test_router(state);
+        let kp = KeyPair::generate();
+        let payload = nexus_core_rs::task::ResultPayload {
+            version: nexus_core_rs::task::TASK_FORMAT_VERSION,
+            task_id: "t-1".to_string(),
+            result_text: "out".to_string(),
+            tokens_generated: 1,
+            generation_time_ms: 1,
+            model_digest: [0u8; 32],
+            logprobs_hash: [0u8; 32],
+            started_at: 0,
+            finished_at: 1,
+            output_token_ids: vec![],
+        };
+        let entry = nexus_core_rs::task::ResultEntry::sign(payload, &kp).unwrap();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/results/submit")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&entry).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn get_kudos_returns_500_on_poisoned_mutex() {
+        let state = mk_state().await;
+        let db_arc = Arc::clone(&state.coordinator_db);
+        let _ = std::thread::spawn(move || {
+            let _guard = db_arc.lock().unwrap();
+            panic!("intentional poison");
+        })
+        .join();
+
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/proj-1")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

@@ -142,12 +142,13 @@ impl ShellDaemonPaths {
             });
         }
 
-        let root = paths::shell_daemon_dir()
+        let grid_root = paths::nexus_grid_root()
             .ok_or(ConfigLoadError::NoNexusGridRoot(paths::NEXUS_GRID_ROOT_ENV))?;
+        let root = grid_root.join("shell-daemon");
 
         Ok(Self {
             config_file: root.join("config.toml"),
-            log_dir: root.join("logs"),
+            log_dir: grid_root.join("logs"),
             running_json: root.join("running.json"),
             subscriptions_json: root.join("subscriptions.json"),
             root,
@@ -461,6 +462,7 @@ api_port = 0
             paths.running_json,
             tmp.path().join("shell-daemon").join("running.json")
         );
+        assert_eq!(paths.log_dir, tmp.path().join("logs"));
 
         std::env::remove_var(paths::NEXUS_GRID_ROOT_ENV);
     }

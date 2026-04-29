@@ -25,6 +25,8 @@ nexus-shell-daemon-core = { path = "../nexus-shell-daemon-core" }
 axum = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 # Sprint 20 Phase A : `sbfb init` / `sbfb unlock` subcommands use
 # the `LocalFileKeyStore` from nexus-core-rs to derive the PIN +

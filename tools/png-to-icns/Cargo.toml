@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+[package]
+name = "png-to-icns"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Convert a PNG to macOS ICNS — build-time tool."
+publish = false
+
+[[bin]]
+name = "png-to-icns"
+path = "src/main.rs"
+
+[dependencies]
+icns = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }

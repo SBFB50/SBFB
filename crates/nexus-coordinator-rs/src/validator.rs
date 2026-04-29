@@ -10,7 +10,7 @@ use nexus_core_rs::task::ResultEntry;
 
 use crate::db::CoordinatorDb;
 use crate::error::CoordinatorError;
-use crate::types::TaskStatus;
+use crate::types::{TaskRecord, TaskStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValidationOutcome {
@@ -23,13 +23,13 @@ pub enum ValidationOutcome {
 pub fn validate_result(
     db: &CoordinatorDb,
     entry: &ResultEntry,
-) -> Result<ValidationOutcome, CoordinatorError> {
+) -> Result<(ValidationOutcome, Option<TaskRecord>), CoordinatorError> {
     if entry.verify_signature().is_err() {
         tracing::warn!(
             task_id = %entry.payload.task_id,
             "result signature verification failed"
         );
-        return Ok(ValidationOutcome::RejectedBadSignature);
+        return Ok((ValidationOutcome::RejectedBadSignature, None));
     }
 
     let task = match db.get_task(&entry.payload.task_id)? {
@@ -39,7 +39,7 @@ pub fn validate_result(
                 task_id = %entry.payload.task_id,
                 "result references unknown task"
             );
-            return Ok(ValidationOutcome::RejectedTaskNotFound);
+            return Ok((ValidationOutcome::RejectedTaskNotFound, None));
         }
     };
 
@@ -49,7 +49,7 @@ pub fn validate_result(
             status = %task.status.as_str(),
             "result for task not in pending/dispatched state"
         );
-        return Ok(ValidationOutcome::RejectedTaskNotPending);
+        return Ok((ValidationOutcome::RejectedTaskNotPending, None));
     }
 
     let now = std::time::SystemTime::now()
@@ -69,7 +69,7 @@ pub fn validate_result(
         "result accepted"
     );
 
-    Ok(ValidationOutcome::Accepted)
+    Ok((ValidationOutcome::Accepted, Some(task)))
 }
 
 pub struct ResultValidator {
@@ -81,7 +81,10 @@ impl ResultValidator {
         Self { db }
     }
 
-    pub fn validate(&self, entry: &ResultEntry) -> Result<ValidationOutcome, CoordinatorError> {
+    pub fn validate(
+        &self,
+        entry: &ResultEntry,
+    ) -> Result<(ValidationOutcome, Option<TaskRecord>), CoordinatorError> {
         validate_result(&self.db, entry)
     }
 
@@ -139,8 +142,10 @@ mod tests {
         let entry = make_result("task-100", &worker_kp);
 
         let validator = ResultValidator::new(db);
-        let outcome = validator.validate(&entry).expect("validate");
+        let (outcome, record) = validator.validate(&entry).expect("validate");
         assert_eq!(outcome, ValidationOutcome::Accepted);
+        let record = record.expect("accepted must return TaskRecord");
+        assert_eq!(record.project_id, "proj-1");
 
         let task = validator
             .db()
@@ -160,8 +165,9 @@ mod tests {
         entry.signature[0] ^= 0xff;
 
         let validator = ResultValidator::new(db);
-        let outcome = validator.validate(&entry).expect("validate");
+        let (outcome, record) = validator.validate(&entry).expect("validate");
         assert_eq!(outcome, ValidationOutcome::RejectedBadSignature);
+        assert!(record.is_none());
 
         let task = validator
             .db()
@@ -182,8 +188,9 @@ mod tests {
         let entry = make_result("nonexistent", &worker_kp);
 
         let validator = ResultValidator::new(db);
-        let outcome = validator.validate(&entry).expect("validate");
+        let (outcome, record) = validator.validate(&entry).expect("validate");
         assert_eq!(outcome, ValidationOutcome::RejectedTaskNotFound);
+        assert!(record.is_none());
     }
 
     #[test]
@@ -196,8 +203,9 @@ mod tests {
 
         let entry = make_result("task-102", &worker_kp);
         let validator = ResultValidator::new(db);
-        let outcome = validator.validate(&entry).expect("validate");
+        let (outcome, record) = validator.validate(&entry).expect("validate");
         assert_eq!(outcome, ValidationOutcome::RejectedTaskNotPending);
+        assert!(record.is_none());
     }
 
     #[test]
@@ -210,7 +218,9 @@ mod tests {
         let entry = make_result("task-103", &worker_kp);
 
         let validator = ResultValidator::new(db);
-        let outcome = validator.validate(&entry).expect("validate");
+        let (outcome, record) = validator.validate(&entry).expect("validate");
         assert_eq!(outcome, ValidationOutcome::Accepted);
+        let record = record.expect("accepted must return TaskRecord");
+        assert_eq!(record.project_id, "proj-1");
     }
 }

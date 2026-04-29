@@ -96,11 +96,11 @@ pub fn config_toml_path() -> Option<PathBuf> {
     shell_daemon_dir().map(|d| d.join("config.toml"))
 }
 
-/// Return `<root>/shell-daemon/logs/` — the rotating log
-/// directory the binary's tracing-subscriber writes into. The
-/// daemon logs to `daemon.log` with the date rotated daily.
+/// Return `<root>/logs/` — the shared rotating log directory for
+/// all SBFB binaries (daemon, launcher). Each binary writes its
+/// own log file (`daemon.log`, `launcher.log`) with daily rotation.
 pub fn log_dir() -> Option<PathBuf> {
-    shell_daemon_dir().map(|d| d.join("logs"))
+    nexus_grid_root().map(|r| r.join("logs"))
 }
 
 /// Return `<root>/shell-daemon/subscriptions.json` — the
@@ -183,10 +183,27 @@ mod tests {
         assert_eq!(config, dir.join("config.toml"));
 
         let logs = log_dir().expect("log_dir");
-        assert_eq!(logs, dir.join("logs"));
+        assert_eq!(logs, tmp.path().join("logs"));
 
         let subscriptions = subscriptions_json_path().expect("subscriptions_json_path");
         assert_eq!(subscriptions, dir.join("subscriptions.json"));
+
+        std::env::remove_var(NEXUS_GRID_ROOT_ENV);
+    }
+
+    #[test]
+    fn log_dir_is_under_grid_root_not_daemon_dir() {
+        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::env::set_var(NEXUS_GRID_ROOT_ENV, tmp.path());
+
+        let logs = log_dir().expect("log_dir");
+        let daemon = shell_daemon_dir().expect("shell_daemon_dir");
+        assert_eq!(logs, tmp.path().join("logs"));
+        assert!(
+            !logs.starts_with(&daemon),
+            "log_dir must NOT be under shell-daemon/"
+        );
 
         std::env::remove_var(NEXUS_GRID_ROOT_ENV);
     }

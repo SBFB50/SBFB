@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-28  # G2 — Sprint 36 Phase A : dette pair + DaemonHttpState persistent CoordinatorDb. S35 migration Rust native Phase 1 fondations (3 MANDATORY fermes, crate nexus-coordinator-rs, 21 tests). S36 integre coordinator-rs dans daemon (persistent DB, handler refactor). 0 trigger actif. Compteurs ~927 Rust / ~195 SDK / ~409+36f+6s coord / ~46 gov / ~267 Vitest / ~42+2f PW / ~1930 total.
+last_validated: 2026-04-29  # G2 — Sprint 37 Phase A : MANDATORY log convergence + .icns + P2 batch. Compteurs 936 Rust / 195 SDK / 409+36f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~1939 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
