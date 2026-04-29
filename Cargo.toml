@@ -128,6 +128,9 @@ rusqlite_migration = "2.2"
 # W11: rotating file appender next to tracing-subscriber.
 tracing-appender = "0.2"
 
+# String similarity for OutputFilter prompt echo detection (EED).
+strsim = "0.11"
+
 # Hex / base32 for keypair display and invite token encoding.
 hex = "0.4"
 data-encoding = "2.6"
