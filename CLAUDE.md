@@ -121,9 +121,9 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-38 CLOSED**, v1.2 en cours. Audit gate S38 = S39
-  Phase 0 (`.planning/active/sprint39_audit_plan.md`).
-- **~1970 tests total** (967 Rust / 195 SDK / 409+36f+6s coord / 46
+- **Sprints 0-38 CLOSED**, v1.2 en cours. Audit gate S38 PASS
+  (1 P2 fixe + 1 P3 carry). S39 pret a ouvrir.
+- **~1971 tests total** (968 Rust / 195 SDK / 409+36f+6s coord / 46
   app-gov / 267 Vitest / 42+2f Playwright / 7/7 size-limit) — tous
   verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
   meme root cause wheel/env stale, pas regression).
@@ -134,7 +134,8 @@ Runtime isolation roadmap dans
   P2-REVIEW-A-1-S38 result_event_tx dead code 1/3 ;
   P2-REVIEW-B-1-S38 substring O(n*m) 1/3 ;
   P2-REVIEW-C-1-S38 chain Arc singleton 1/3 ;
-  P2-REVIEW-A-1-S37 launcher logging test 2/3.
+  P2-REVIEW-A-1-S37 launcher logging test 2/3 ;
+  P3-AUDIT-A-2b-S38 lowercase divergence 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
