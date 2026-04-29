@@ -194,6 +194,52 @@ impl CoordinatorDb {
         Ok(total as u64)
     }
 
+    pub fn get_last_entry_hash(
+        &self,
+        project_id: &str,
+    ) -> Result<Option<String>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT entry_hash FROM kudos WHERE project_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![project_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get_project_entries(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<KudosEntry>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT entry_id, worker_node_id, task_id, project_id, amount, created_at, prev_hash, entry_hash
+             FROM kudos WHERE project_id = ?1 ORDER BY created_at ASC, rowid ASC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![project_id], |row| {
+            Ok(KudosEntry {
+                entry_id: row.get(0)?,
+                worker_node_id: row.get(1)?,
+                task_id: row.get(2)?,
+                project_id: row.get(3)?,
+                amount: row.get::<_, i64>(4)? as u64,
+                created_at: row.get::<_, i64>(5)? as u64,
+                prev_hash: row.get(6)?,
+                entry_hash: row.get(7)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    #[cfg(test)]
+    pub fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
     pub fn get_project_contributors(
         &self,
         project_id: &str,
