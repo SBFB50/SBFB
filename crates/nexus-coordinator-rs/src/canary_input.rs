@@ -369,6 +369,15 @@ struct ReloadState {
     last_check: f64,
 }
 
+impl std::fmt::Debug for CanaryInputManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CanaryInputManager")
+            .field("policy_path", &self.policy_path)
+            .field("canary_set_path", &self.canary_set_path)
+            .finish_non_exhaustive()
+    }
+}
+
 pub struct CanaryInputManager {
     policy_path: Option<PathBuf>,
     canary_set_path: Option<PathBuf>,
@@ -457,6 +466,14 @@ impl CanaryInputManager {
         self.maybe_reload();
         self.observer
             .observe(prompt_id, observed_answer, worker_pubkey_hex)
+    }
+
+    pub fn set_inject_rate(&self, new_rate: usize) {
+        self.injector.set_inject_rate(new_rate);
+    }
+
+    pub fn recent_divergences(&self, limit: usize) -> Vec<DivergenceRecord> {
+        self.observer.recent_divergences(limit)
     }
 
     fn effective_set_path(&self) -> Option<PathBuf> {

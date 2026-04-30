@@ -137,12 +137,14 @@ pub struct DaemonHttpState {
     /// client is built with the workspace `rustls-tls` features so
     /// a future `/metrics/*` cross-HTTPS call (post-`v1.0`) can
     /// land without a second dep.
+    #[allow(dead_code)]
     pub coord_http_client: reqwest::Client,
     /// Sprint 22 Phase C : base URL of the co-located coordinator
     /// (e.g. `http://127.0.0.1:8787`). The proxy route concatenates
     /// this with the suffix it received to build the upstream URL.
     /// Resolved at boot by [`resolve_coord_base_url`] which reads
     /// `SBFB_COORD_URL` and falls back to a loopback default.
+    #[allow(dead_code)]
     pub coord_base_url: String,
     /// Sprint 36 Phase A : shared coordinator DB for the Rust-native
     /// task dispatcher and result validator. Opened once at boot from
@@ -155,6 +157,8 @@ pub struct DaemonHttpState {
     /// and duress acks, computes per-pubkey freshness.
     pub canary_registry:
         std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::canary_registry::CanaryRegistry>>,
+    pub canary_input:
+        Option<std::sync::Arc<nexus_coordinator_rs::canary_input::CanaryInputManager>>,
 }
 
 impl DaemonHttpState {
@@ -238,16 +242,17 @@ pub fn build_router(
         // other authenticated route so only a co-located shell
         // with the rotated token can trigger it.
         .route("/panic/wipe", post(panic_wipe))
-        // Sprint 22 Phase C (Couche 2) : contributor attestation
-        // registry proxy. Loopback-only forwarding to the
-        // co-located coordinator's `/api/contributor/verify/...`
-        // endpoint. The proxy mirrors the S13 "coord-endpoint via
-        // daemon" pattern : shell clients always hit the daemon on
-        // its loopback port, the daemon forwards to coord when the
-        // data lives there.
         .route(
             "/api/contributor/verify/{project_id}/{node_id_hex}",
-            get(proxy_contributor_verify),
+            get(crate::contributor_api::verify_contributor),
+        )
+        .route(
+            "/api/contributor/project/{project_id}",
+            get(crate::contributor_api::list_contributors),
+        )
+        .route(
+            "/api/contributor/envelope/{project_id}/{node_id_hex}",
+            get(crate::contributor_api::envelope),
         )
         // Sprint 23 Phase E : diagnostic neighborhood snapshot.
         // Returns the node's own ID and known peer IDs from the
@@ -274,6 +279,14 @@ pub fn build_router(
         .route("/api/canary/observed", post(canary_observed))
         .route("/api/canary/network-health", get(canary_network_health))
         .route("/api/canary/freshness/{pubkey}", get(canary_freshness))
+        .route(
+            "/api/canary/inject-rate",
+            post(crate::canary_api::set_inject_rate),
+        )
+        .route(
+            "/api/canary/observed-divergence",
+            get(crate::canary_api::observed_divergence),
+        )
         .route("/api/v1/apps", get(crate::apps::list_apps))
         .route("/api/v1/apps/{project_id}", get(crate::apps::get_app))
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
@@ -854,84 +867,6 @@ pub const DEFAULT_COORD_BASE_URL: &str = "http://127.0.0.1:8787";
 pub fn resolve_coord_base_url() -> String {
     let raw = std::env::var(COORD_BASE_URL_ENV).unwrap_or_else(|_| DEFAULT_COORD_BASE_URL.into());
     raw.trim_end_matches('/').to_string()
-}
-
-/// `GET /api/contributor/verify/{project_id}/{node_id_hex}` —
-/// Sprint 22 Phase C (Couche 2). Loopback proxy to the
-/// coordinator's same-path endpoint. Forwards the path parameters
-/// verbatim (already validated by axum's `Path` extractor as UTF-8
-/// strings ; the coord re-validates hex shape on its side). The
-/// `X-SBFB-Token` header the shell's request carries is passed
-/// through so the coord's `LoopbackAuthMiddleware` accepts the
-/// forwarded call under the same rotating token.
-async fn proxy_contributor_verify(
-    State(state): State<Arc<DaemonHttpState>>,
-    Path((project_id, node_id_hex)): Path<(String, String)>,
-    headers: axum::http::HeaderMap,
-) -> impl IntoResponse {
-    // Basic hex shape guard so a malformed request fails fast at
-    // the daemon before we burn a round-trip. The coord re-checks
-    // but the daemon-side check costs nanoseconds.
-    if !is_64_lowercase_hex(&project_id) || !is_64_lowercase_hex(&node_id_hex) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "project_id and node_id_hex must be 64 lowercase hex chars".into(),
-            }),
-        )
-            .into_response();
-    }
-    let url = format!(
-        "{}/api/contributor/verify/{}/{}",
-        state.coord_base_url, project_id, node_id_hex
-    );
-    let mut req = state.coord_http_client.get(&url);
-    // Forward the SBFB bearer token so the coord authenticates the
-    // proxied call the same way it authenticates direct coord
-    // requests. Any other header is stripped to avoid forwarding
-    // host / accept / cookie drift.
-    if let Some(tok) = headers.get("X-SBFB-Token") {
-        req = req.header("X-SBFB-Token", tok);
-    }
-    match req.send().await {
-        Ok(resp) => {
-            let status = resp.status();
-            match resp.json::<serde_json::Value>().await {
-                Ok(body) => (
-                    StatusCode::from_u16(status.as_u16())
-                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-                    Json(body),
-                )
-                    .into_response(),
-                Err(e) => {
-                    warn!(error = %e, url = %url, "coord proxy returned bad JSON");
-                    (
-                        StatusCode::BAD_GATEWAY,
-                        Json(ErrorResponse {
-                            error: format!("coord response not JSON: {e}"),
-                        }),
-                    )
-                        .into_response()
-                }
-            }
-        }
-        Err(e) => {
-            warn!(error = %e, url = %url, "coord proxy request failed");
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(ErrorResponse {
-                    error: format!("coord unreachable: {e}"),
-                }),
-            )
-                .into_response()
-        }
-    }
-}
-
-fn is_64_lowercase_hex(s: &str) -> bool {
-    s.len() == 64
-        && s.chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 /// `GET /default-curators` — return the daemon's configured
@@ -1734,16 +1669,12 @@ mod tests {
                     ),
                 ))
             },
+            canary_input: None,
         })
     }
 
     #[tokio::test]
-    async fn proxy_contributor_verify_rejects_non_hex_path_params() {
-        // Sprint 22 Phase C. The daemon-side hex guard must reject
-        // malformed path parameters before touching the coord. The
-        // state carries an unreachable coord URL (port 9) so any
-        // outbound call would fail ; a passing test proves the
-        // daemon short-circuited at the 64-lowercase-hex guard.
+    async fn contributor_verify_rejects_non_hex_path_params() {
         let app = build_test_router(mk_state().await);
         let bad_project = "NOT-HEX";
         let node_hex = "a".repeat(64);
@@ -1759,29 +1690,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn proxy_contributor_verify_bad_gateway_when_coord_unreachable() {
-        // Sprint 22 Phase C. Valid hex path params routed to an
-        // unreachable coord URL → 502 Bad Gateway with a structured
-        // error. Proves the proxy handler's connection-error branch
-        // is wired and does not panic.
-        let app = build_test_router(mk_state().await);
-        let project_hex = "b".repeat(64);
-        let node_hex = "a".repeat(64);
-        let uri = format!("/api/contributor/verify/{project_hex}/{node_hex}");
-        let resp = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri(&uri)
-                    .body(axum::body::Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
     }
 
     #[test]
@@ -2524,6 +2432,7 @@ mod tests {
                     ),
                 ))
             },
+            canary_input: None,
         });
         let app = build_test_router(state);
         let resp = app

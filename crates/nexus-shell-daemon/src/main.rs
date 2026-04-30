@@ -28,8 +28,10 @@
 //! proxy + the shell pages. **None of those are in Phase A.**
 
 mod apps;
+mod canary_api;
 mod cli;
 mod consent;
+mod contributor_api;
 mod deploy;
 mod files;
 mod http;
