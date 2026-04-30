@@ -40,7 +40,7 @@ Derniere revue).
 
 | ID   | Title                                                         | Status     | Owner          | Last reviewed |
 |------|---------------------------------------------------------------|------------|----------------|---------------|
-| LT-1 | Kudos-v2 fairness reform (log-utility + DRF + EMA fitness)    | latent     | `<post-v1.0>`  | 2026-04-19    |
+| LT-1 | Kudos-v2 fairness reform (log-utility + DRF + EMA fitness)    | **reclassifie pre-v1.0** | S50 | 2026-04-30 |
 | LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | latent   | `<post-v1.0>`  | 2026-04-19    |
 | LT-3 | Contribution family Sybil matrix (3 couches asymetriques post-v1.0) | latent | `<post-v1.0>`  | 2026-04-20    |
 | LT-4 | OS biometric gate cross-platform (Windows Hello / TouchID / polkit) | latent | `<post-v1.0>` | 2026-04-20    |
@@ -66,44 +66,26 @@ Derniere revue).
   et `.planning/research/S21_research_fair_allocation_mechanisms.md`.
   Item net-new (pas issu d'un carry reclassifie) — entre directement
   dans ce registre via la voie 2 du preambule.
-- **Condition de declenchement** : les trois sous-conditions
-  suivantes doivent etre simultanement satisfaites pour reouvrir
-  LT-1 comme carry actif (reintegration dans le cap G7 du sprint qui
-  pose le declenchement) :
-  - (a) tag `v1.0` go-live pose sur master ;
-  - (b) design doc `docs/FAIRNESS_VISION.md` valide par les
-    stakeholders (user + au moins un contributeur externe), acte par
-    un commit de validation explicite dans l'historique ;
-  - (c) au moins une des trois conditions empiriques suivantes
-    verifiable dans le kudos ledger de production :
-    - (c1) Gini coefficient kudos > 0.70 mesure sur 30+ workers
-      actifs sur une fenetre de 30 jours glissants,
-    - (c2) top-5% des workers captent > 50% du total kudos emis
-      sur la meme fenetre,
-    - (c3) correlation statistiquement significative entre le
-      churn-rate workers et le hardware-tier (les petits workers
-      decrochent plus vite que les gros).
-  Tant qu'aucun des trois seuils (c1/c2/c3) n'est atteint, le
-  reseau n'a pas encore le Matthew effect empiriquement mesurable
-  et le commitment reste latent. Les trois seuils sont des
-  indicateurs factuels, pas des opinions — ils se calculent sur
-  le kudos ledger existant.
-- **Owner** : `<post-v1.0>`. Sera remplace par le handle du lead
-  fairness au moment de la reactivation. Pas d'owner assigne tant
-  que la condition de declenchement n'est pas remplie (le cap G7
-  n'est pas consomme).
+- **Condition de declenchement** : **RECLASSIFIE pre-v1.0**
+  (decision utilisateur 2026-04-30 post-S44). Rationale : app
+  trust/review S52 doit utiliser un signal de contribution
+  corrige, pas le kudos v1 compute-only qui propage le Matthew
+  effect 40x dans la gouvernance. Les conditions empiriques
+  (c1/c2/c3) restent les seuils de monitoring post-deploy pour
+  valider que la formule v2 resout effectivement le probleme.
+  Sprint cible : **S50** (per roadmap_v1_migration_rust.md).
+  Les anciennes conditions de declenchement (tag v1.0 + validation
+  stakeholders + seuils Gini) deviennent des criteres de succes
+  post-deploy, pas des prerequisites d'activation.
+- **Owner** : S50 kickoff. Planification active.
 - **Runbook pointer** : `docs/FAIRNESS_VISION.md` §« Direction
   produit pour Kudos v2 » (document cree en parallele de ce fichier
   le 2026-04-19). Contient la vision produit, le rationale academique
   des trois briques (log-utility / DRF / EMA fitness-aging), et la
   procedure d'activation quand la condition est declenchee.
-- **Derniere revue** : 2026-04-19 (creation du registre). Aucun
-  commit de revalidation posterieur — les recherches factuelles
-  S21 `.planning/research/S21_research_p2p_compute_scoring_systems.md`
-  et `.planning/research/S21_research_fair_allocation_mechanisms.md`
-  sont confirmees fraiches au meme jour. Prochaine revue attendue
-  en Phase 0 audit du sprint qui detecte le premier seuil (c1/c2/c3)
-  franchi, ou en Phase F wrap-up du sprint qui pose le tag v1.0.
+- **Derniere revue** : 2026-04-30 (reclassification pre-v1.0).
+  Recherches factuelles S21 toujours valides (< 2 semaines).
+  Prochaine revue : S50 kickoff (G2 trigger sur research S21).
 
 ## LT-2 Meta-1 Radicle-v1.0 activation tracking
 

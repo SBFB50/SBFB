@@ -7,13 +7,14 @@ triggers_revalidate:
   - "Nouveau blocker dep (ex: ONNX Rust binding instable) → re-evaluer tier"
 -->
 
-# Roadmap migration Python coordinator → Rust natif (S38-S48)
+# Roadmap migration Python → Rust + features pre-v1.0 (S38-S56)
 
-Decision utilisateur 2026-04-29 post-S37 wrap-up. Le coordinator
-Python (`packages/nexus-coordinator/`) est progressivement remplace
-par le crate Rust `nexus-coordinator-rs` wire dans le daemon. Le
-core path (submit → validate → kudos) est livre S35-S37. Cette
-roadmap planifie la suite jusqu'a suppression Python + tag v1.0.
+Decision utilisateur 2026-04-29 post-S37 wrap-up, etendue 2026-04-30
+post-S44 (ajout S49-S56 features pre-v1.0). Le coordinator Python
+est progressivement remplace par le crate Rust. Le core path est
+livre S35-S44. Cette roadmap planifie la suite : suppression Python,
+CI/CD, deploy, Kudos v2, app package/trust/review, plugin
+capabilities, privacy, Babel, puis freeze + tag v1.0.
 
 ## Etat d'entree (tip S37 `c53f663`)
 
@@ -91,13 +92,111 @@ roadmap planifie la suite jusqu'a suppression Python + tag v1.0.
 - Smoke test P2P multi-noeuds (2-3 noeuds, task submit → result)
 - Monitoring baseline (uptime, latency)
 
-### S48 — Polish UX + docs + tag v1.0
+### S48 — Polish UX + docs utilisateur
 
 - README utilisateur (pas dev)
 - Guide d'installation + troubleshooting
-- Onboarding first-run UX
-- Tag `v1.0`
+- Onboarding first-run UX (launcher double-click → reseau)
+- Error messages francais/anglais
+- Pas de tag v1.0 ici — S56
+
+### S49 — Stabilisation + buffer migration
+
+- Integration tests E2E multi-daemon (3+ noeuds)
+- Cleanup carries techniques residuels (S45 dead_code etc.)
+- Performance profiling baseline (latence task submit → result)
+- Buffer sprint pour absorber le slippage S45-S48
+
+### S50 — Kudos v2 pre-v1 (LT-1 reclassifie)
+
+- Reclassification LT-1 : declenchement avance pre-v1.0 (decision
+  utilisateur 2026-04-30, cf. ROADMAP_COMMITMENTS.md)
+- Migration DB kudos_v2 : schema familles contribution
+  (Compute / Code / Review / Relay / Storage / Docs / Design /
+  Accessibility / Moderation)
+- Formule : log-utility (rendement decroissant hardware) + decay
+  EMA fitness-aging (anti-decrochage nouveaux noeuds)
+- Score composite multi-famille par worker
+- API : GET /api/v1/kudos/v2/{project_id} avec breakdown famille
+- Shell UI minimale : table par famille dans ProjectDetail
+- Ref : docs/FAIRNESS_VISION.md + research S21
+
+### S51 — App Package Protocol v1
+
+- SBFB.json v2 manifest : version semantique app, categories
+  structurees, dependencies manifest (min_bridge_version,
+  required_capabilities), licence SPDX, artifact_hash canonical
+- Source snapshot enrichi : commit_sha + tree_hash + provenance
+  chain complete
+- Build provenance v2 : etendre provenance.json (build env,
+  reproducibility hints, dep lockfile hash)
+- Distribution P2P : app package = blob iroh-blobs, resolvable
+  par artifact_hash, partage hors internet via sync local
+- Backward compat : ancien zip sans SBFB.json v2 = app legacy,
+  fonctionne mais pas reviewable
+
+### S52 — App Review / Trust / Vote v1
+
+- AppReviewEntry payload signe Ed25519 : lie a artifact_hash +
+  commit_sha + provenance_hash. Score 1-5 + texte optionnel
+- Aggregation locale (pas de consensus global) : chaque daemon
+  calcule son trust score a partir de ses curator lists +
+  attestations + trust-web + kudos v2
+- Poids plafonnes : aucun signal ne depasse 30% du score
+  (anti-gaming). Signaux : curator trust, contributor attestation,
+  trust-web cross-forge, kudos v2 score composite, anciennete
+  node_id, diversite geographique (IP prefix heuristique)
+- UI Browse : badge trust (high/medium/low/unknown), reviews
+  visibles dans ProjectDetail
+- Wire format : APP_REVIEW_VERSION = 1, DOMAIN_APP_REVIEW_V1
+
+### S53 — Plugin System / Capabilities apps
+
+- Capabilities manifest dans SBFB.json v2 : declarations
+  (compute_request, storage_read, storage_write, network_peer,
+  bridge_extended)
+- Permission prompt UI : "App X demande compute GPU — accepter ?"
+  pattern Android/iOS
+- Bridge etendu : methodes additionnelles gate-par-capability
+  (pas dans le bridge 3-methodes de base)
+- Sandbox enforcement : iframe CSP adapte par capability
+  (connect-src selective, pas blanket)
+- Pas d'execution code natif — tout reste dans l'iframe sandbox
+
+### S54 — Privacy modes
+
+- Mode 1 "visible" (defaut) : IP visible, contenu/provenance
+  proteges par Ed25519, pas d'anonymat pretendu. Documentation
+  claire "ce que le reseau voit de vous"
+- Mode 2 "privacy experimental" : warning explicite dans le
+  launcher, VPN recommande, Tor coordinator HTTP via Arti
+  (feature-gate active), iroh-tor preparation (feature-gated
+  non-stable). Pas promettre "anonyme" tant que pas teste
+- Threat model §9 update : residual risks par mode
+- UI : toggle dans settings avec avertissement
+
+### S55 — Babel corpus / legal prep
+
+- Babel comme premiere app vitrine SBFB
+- Corpus initial : subset Gutenberg domaine public
+- Pipeline traduction NLLB-200 via taches SBFB distribuees
+- Legal : verification domaine public par juridiction, licence
+  corpus output, DMCA/EUCD policy
+- Signal-testing plan (cf. babel_translation_protocol.md) :
+  Newby/Kahle/NLnet/Masakhane outreach au tag v1.0
+
+### S56 — Freeze / Audit / Tag v1.0
+
+- Code freeze (merge freeze sauf P0/P1 hotfix)
+- Docs securite finaux : THREAT_MODEL visible vs privacy modes,
+  EXTERNAL_AUDIT_SCOPE update, release notes
+- Tests migration complet : fresh install → onboard → deploy app →
+  contribute → earn kudos → review app → trust score visible
+- Smoke test reseau (VPS + machine locale + invite link)
+- Security self-audit final (Semgrep sweep + OWASP check)
+- Tag v1.0 sur master
 - Trigger LT-2 Radicle, Babel signal-testing plan
+- Post-tag : annonce README, CHANGELOG.md, release artifacts
 
 ## Carries herites qui doivent etre resolus en route
 
