@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-30  # G2 — Sprint 44 CLOSED : dette pair 7 MANDATORY 3/3 RESOLUS + Tier 5 routes API fin (health_api 45 + shell_api 40 + kudos_api 130 + diagnostic_api 70 + tasks_api 170 + worker_state_api 120 = 575 LOC nouveau, 8 routes portees). Compteurs 1127 Rust / 195 SDK / 409+36f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~2130 total. 0 trigger actif.
+last_validated: 2026-04-30  # G2 — Sprint 45 CLOSED : suppression maximale coordinator Python (invite+quarantine portees, 14 routes DELETE, 12 tests DELETE, dead code Rust supprime, 7 carries resolus dont SHA-256→BLAKE3). Compteurs 1132 Rust / 195 SDK / 323+23f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~1948 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
