@@ -75,11 +75,11 @@ impl DivergenceScorer {
 }
 
 fn simple_hash(s: &str) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    s.hash(&mut hasher);
-    hasher.finish()
+    let hash = blake3::hash(s.as_bytes());
+    let bytes = hash.as_bytes();
+    u64::from_le_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+    ])
 }
 
 #[cfg(test)]
@@ -118,5 +118,14 @@ mod tests {
     #[test]
     fn divergence_scorer_mismatch() {
         assert!((DivergenceScorer::score(b"hash-a", b"hash-b") - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn simple_hash_deterministic() {
+        let a = simple_hash("task-abc-123");
+        let b = simple_hash("task-abc-123");
+        assert_eq!(a, b);
+        let c = simple_hash("task-abc-124");
+        assert_ne!(a, c);
     }
 }

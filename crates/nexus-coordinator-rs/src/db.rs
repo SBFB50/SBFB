@@ -303,7 +303,7 @@ impl CoordinatorDb {
         Ok(result)
     }
 
-    pub fn conn(&self) -> &Connection {
+    pub(crate) fn conn(&self) -> &Connection {
         &self.conn
     }
 

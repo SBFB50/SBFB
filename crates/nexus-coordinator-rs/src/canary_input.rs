@@ -363,6 +363,12 @@ impl CanaryInputObserver {
 // Manager (policy hot-reload + signed set reload)
 // ---------------------------------------------------------------------------
 
+struct ReloadState {
+    policy_mtime: Option<f64>,
+    set_mtime: Option<f64>,
+    last_check: f64,
+}
+
 pub struct CanaryInputManager {
     policy_path: Option<PathBuf>,
     canary_set_path: Option<PathBuf>,
@@ -370,9 +376,7 @@ pub struct CanaryInputManager {
     policy: Mutex<CanaryInputPolicy>,
     injector: CanaryInputInjector,
     observer: CanaryInputObserver,
-    reload_policy_mtime: Mutex<Option<f64>>,
-    reload_set_mtime: Mutex<Option<f64>>,
-    last_reload_check: Mutex<f64>,
+    reload: Mutex<ReloadState>,
 }
 
 impl CanaryInputManager {
@@ -416,9 +420,11 @@ impl CanaryInputManager {
             policy: Mutex::new(policy),
             injector,
             observer,
-            reload_policy_mtime: Mutex::new(policy_mtime),
-            reload_set_mtime: Mutex::new(None),
-            last_reload_check: Mutex::new(0.0),
+            reload: Mutex::new(ReloadState {
+                policy_mtime,
+                set_mtime: None,
+                last_check: 0.0,
+            }),
         }
     }
 
@@ -464,14 +470,11 @@ impl CanaryInputManager {
     fn maybe_reload(&self) {
         let now = monotonic_secs();
         {
-            let mut last = self
-                .last_reload_check
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if now - *last < MTIME_DEBOUNCE_SECS {
+            let mut rs = self.reload.lock().unwrap_or_else(|p| p.into_inner());
+            if now - rs.last_check < MTIME_DEBOUNCE_SECS {
                 return;
             }
-            *last = now;
+            rs.last_check = now;
         }
         self.reload_policy();
         self.reload_set();
@@ -487,11 +490,8 @@ impl CanaryInputManager {
             None => return,
         };
         {
-            let cached = self
-                .reload_policy_mtime
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if cached.is_some_and(|c| mtime <= c) {
+            let rs = self.reload.lock().unwrap_or_else(|p| p.into_inner());
+            if rs.policy_mtime.is_some_and(|c| mtime <= c) {
                 return;
             }
         }
@@ -505,10 +505,10 @@ impl CanaryInputManager {
         };
         self.injector.set_inject_rate(new_policy.inject_rate);
         *self.policy.lock().unwrap_or_else(|p| p.into_inner()) = new_policy;
-        *self
-            .reload_policy_mtime
+        self.reload
             .lock()
-            .unwrap_or_else(|p| p.into_inner()) = Some(mtime);
+            .unwrap_or_else(|p| p.into_inner())
+            .policy_mtime = Some(mtime);
     }
 
     fn reload_set(&self) {
@@ -521,11 +521,8 @@ impl CanaryInputManager {
             None => return,
         };
         {
-            let cached = self
-                .reload_set_mtime
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if cached.is_some_and(|c| mtime <= c) {
+            let rs = self.reload.lock().unwrap_or_else(|p| p.into_inner());
+            if rs.set_mtime.is_some_and(|c| mtime <= c) {
                 return;
             }
         }
@@ -535,10 +532,10 @@ impl CanaryInputManager {
         };
         self.injector.set_canary_set(Some(new_set.clone()));
         self.observer.set_canary_set(Some(new_set));
-        *self
-            .reload_set_mtime
+        self.reload
             .lock()
-            .unwrap_or_else(|p| p.into_inner()) = Some(mtime);
+            .unwrap_or_else(|p| p.into_inner())
+            .set_mtime = Some(mtime);
     }
 
     fn try_load_set(

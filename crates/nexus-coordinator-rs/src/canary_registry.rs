@@ -155,7 +155,9 @@ impl CanaryRegistry {
             }
         }
         self.canaries.insert(obs.pubkey_hex.clone(), obs);
-        let _ = self.persist();
+        if let Err(e) = self.persist() {
+            tracing::warn!("canary registry persist failed: {e}");
+        }
     }
 
     pub fn observe_duress_ack(&mut self, obs: DuressAckObservation) {
@@ -165,7 +167,9 @@ impl CanaryRegistry {
             }
         }
         self.duress_acks.insert(obs.pubkey_hex.clone(), obs);
-        let _ = self.persist();
+        if let Err(e) = self.persist() {
+            tracing::warn!("canary registry persist failed: {e}");
+        }
     }
 
     pub fn known_pubkeys(&self) -> Vec<String> {

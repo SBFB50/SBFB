@@ -35,6 +35,28 @@ pub struct MintRequest<'b> {
     pub note: Option<&'b str>,
 }
 
+impl<'b> MintRequest<'b> {
+    pub fn new(
+        id: &'b str,
+        wire: &'b str,
+        scope: &'b str,
+        project_id: &'b str,
+        project_name: &'b str,
+        expires_at: i64,
+    ) -> Self {
+        Self {
+            id,
+            wire,
+            scope,
+            project_id,
+            project_name,
+            expires_at,
+            max_uses: None,
+            note: None,
+        }
+    }
+}
+
 pub struct InviteLedger<'a> {
     db: &'a CoordinatorDb,
 }
@@ -149,16 +171,16 @@ mod tests {
     }
 
     fn mk_req<'b>(id: &'b str, wire: &'b str, scope: &'b str) -> MintRequest<'b> {
-        MintRequest {
-            id,
-            wire,
-            scope,
-            project_id: "proj1",
-            project_name: "TestProject",
-            expires_at: 9999999999,
-            max_uses: None,
-            note: None,
-        }
+        MintRequest::new(id, wire, scope, "proj1", "TestProject", 9999999999)
+    }
+
+    #[test]
+    fn mint_request_new_defaults() {
+        let req = MintRequest::new("id1", "nx1", "worker", "p1", "Proj", 1000);
+        assert_eq!(req.id, "id1");
+        assert_eq!(req.project_id, "p1");
+        assert!(req.max_uses.is_none());
+        assert!(req.note.is_none());
     }
 
     #[test]
