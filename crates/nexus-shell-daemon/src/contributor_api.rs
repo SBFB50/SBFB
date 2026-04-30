@@ -41,6 +41,8 @@ pub async fn verify_contributor(
 ) -> Result<Json<VerifyResponse>, (StatusCode, String)> {
     validate_hex(&project_id, 64, "project_id")?;
     validate_hex(&node_id_hex, 64, "node_id_hex")?;
+    let project_id = project_id.to_ascii_lowercase();
+    let node_id_hex = node_id_hex.to_ascii_lowercase();
 
     let db = state
         .coordinator_db
@@ -78,6 +80,7 @@ pub async fn list_contributors(
     Path(project_id): Path<String>,
 ) -> Result<Json<ListResponse>, (StatusCode, String)> {
     validate_hex(&project_id, 64, "project_id")?;
+    let project_id = project_id.to_ascii_lowercase();
 
     let db = state
         .coordinator_db
@@ -112,6 +115,8 @@ pub async fn envelope(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     validate_hex(&project_id, 64, "project_id")?;
     validate_hex(&node_id_hex, 64, "node_id_hex")?;
+    let project_id = project_id.to_ascii_lowercase();
+    let node_id_hex = node_id_hex.to_ascii_lowercase();
 
     let db = state
         .coordinator_db

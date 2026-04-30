@@ -32,7 +32,7 @@ pub async fn get_worker_state(State(_state): State<Arc<DaemonHttpState>>) -> imp
         }
     };
 
-    let content = match std::fs::read_to_string(&path) {
+    let content = match tokio::fs::read_to_string(&path).await {
         Ok(c) => c,
         Err(_) => {
             return (StatusCode::OK, Json(serde_json::json!({"running": false}))).into_response()

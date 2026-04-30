@@ -29,8 +29,6 @@ pub async fn coordinator_health(State(state): State<Arc<DaemonHttpState>>) -> im
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn health_json_shape() {
         let json = serde_json::json!({

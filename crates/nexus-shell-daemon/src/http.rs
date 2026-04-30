@@ -332,6 +332,28 @@ pub fn build_router(
             "/api/v1/worker/state",
             get(crate::worker_state_api::get_worker_state),
         )
+        // Sprint 45 Phase A : invite + quarantine
+        .route(
+            "/api/v1/invite/create",
+            post(crate::invite_api::create_invite),
+        )
+        .route("/api/v1/invite", get(crate::invite_api::list_invites))
+        .route(
+            "/api/v1/invite/{invite_id}",
+            delete(crate::invite_api::revoke_invite),
+        )
+        .route(
+            "/api/v1/quarantine",
+            get(crate::quarantine_api::list_quarantine),
+        )
+        .route(
+            "/api/v1/quarantine/{row_id}/flush",
+            post(crate::quarantine_api::flush_quarantine),
+        )
+        .route(
+            "/api/v1/quarantine/{row_id}/drop",
+            post(crate::quarantine_api::drop_quarantine),
+        )
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()

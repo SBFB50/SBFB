@@ -46,6 +46,22 @@ pub async fn list_tasks(
     Query(query): Query<TaskListQuery>,
 ) -> impl IntoResponse {
     debug!(?query.state, query.limit, "GET /api/v1/tasks");
+    const VALID_STATES: &[&str] = &[
+        "pending",
+        "dispatched",
+        "completed",
+        "rejected",
+        "timed_out",
+    ];
+    if let Some(ref s) = query.state {
+        if !VALID_STATES.contains(&s.as_str()) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("invalid state: {s}. valid: {VALID_STATES:?}")})),
+            )
+                .into_response();
+        }
+    }
     let db = match state.coordinator_db.lock() {
         Ok(db) => db,
         Err(_) => {

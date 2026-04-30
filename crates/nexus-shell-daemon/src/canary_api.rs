@@ -69,7 +69,7 @@ pub async fn observed_divergence(
     let records = manager.recent_divergences(capped);
     let divergences: Vec<serde_json::Value> = records
         .iter()
-        .map(|r| serde_json::to_value(r).unwrap_or_default())
+        .filter_map(|r| serde_json::to_value(r).ok())
         .collect();
     let count = divergences.len();
     Ok(Json(DivergenceResponse { divergences, count }))

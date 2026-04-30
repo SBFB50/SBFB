@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use sha2::{Digest, Sha256};
+use blake3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoteVerdict {
@@ -21,8 +21,8 @@ pub struct VoteOutcome {
 }
 
 pub fn hash_result_bytes(data: &[u8]) -> String {
-    let digest = Sha256::digest(data);
-    hex::encode(digest)
+    let hash = blake3::hash(data);
+    hex::encode(hash.as_bytes())
 }
 
 pub struct RedundancyDispatcher {

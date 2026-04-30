@@ -37,12 +37,14 @@ mod diagnostic_api;
 mod files;
 mod health_api;
 mod http;
+mod invite_api;
 mod kudos_api;
 mod logging;
 #[cfg(windows)]
 mod named_pipe_server;
 mod noop_identity;
 mod panic;
+mod quarantine_api;
 mod runtime;
 mod shell_api;
 mod tasks_api;

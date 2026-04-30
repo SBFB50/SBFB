@@ -506,12 +506,12 @@ impl CanaryInputManager {
             Some(m) => m,
             None => return,
         };
-        {
-            let rs = self.reload.lock().unwrap_or_else(|p| p.into_inner());
-            if rs.policy_mtime.is_some_and(|c| mtime <= c) {
-                return;
-            }
+        let mut rs = self.reload.lock().unwrap_or_else(|p| p.into_inner());
+        if rs.policy_mtime.is_some_and(|c| mtime <= c) {
+            return;
         }
+        rs.policy_mtime = Some(mtime);
+        drop(rs);
         let text = match std::fs::read_to_string(pp) {
             Ok(t) => t,
             Err(_) => return,
@@ -522,10 +522,6 @@ impl CanaryInputManager {
         };
         self.injector.set_inject_rate(new_policy.inject_rate);
         *self.policy.lock().unwrap_or_else(|p| p.into_inner()) = new_policy;
-        self.reload
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .policy_mtime = Some(mtime);
     }
 
     fn reload_set(&self) {
@@ -537,22 +533,18 @@ impl CanaryInputManager {
             Some(m) => m,
             None => return,
         };
-        {
-            let rs = self.reload.lock().unwrap_or_else(|p| p.into_inner());
-            if rs.set_mtime.is_some_and(|c| mtime <= c) {
-                return;
-            }
+        let mut rs = self.reload.lock().unwrap_or_else(|p| p.into_inner());
+        if rs.set_mtime.is_some_and(|c| mtime <= c) {
+            return;
         }
+        rs.set_mtime = Some(mtime);
+        drop(rs);
         let new_set = match load_canary_input_set(&target, self.coord_pubkey.as_ref()) {
             Ok(s) => s,
             Err(_) => return,
         };
         self.injector.set_canary_set(Some(new_set.clone()));
         self.observer.set_canary_set(Some(new_set));
-        self.reload
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .set_mtime = Some(mtime);
     }
 
     fn try_load_set(

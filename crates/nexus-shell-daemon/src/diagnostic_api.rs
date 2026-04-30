@@ -33,7 +33,13 @@ pub async fn fairness_metrics(State(state): State<Arc<DaemonHttpState>>) -> impl
 
     let contributions = match db.worker_contributions() {
         Ok(c) => c,
-        Err(_) => vec![],
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("worker_contributions: {e}")})),
+            )
+                .into_response()
+        }
     };
 
     let now = SystemTime::now()
