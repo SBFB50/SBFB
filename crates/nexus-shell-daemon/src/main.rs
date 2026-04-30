@@ -45,9 +45,11 @@ mod noop_identity;
 mod panic;
 mod runtime;
 mod shell_api;
+mod tasks_api;
 #[cfg(unix)]
 mod uds_server;
 mod validator_loop;
+mod worker_state_api;
 
 use anyhow::{Context, Result};
 use clap::Parser;

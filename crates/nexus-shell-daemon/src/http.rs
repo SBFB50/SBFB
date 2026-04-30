@@ -315,14 +315,8 @@ pub fn build_router(
             "/api/v1/coordinator/health",
             get(crate::health_api::coordinator_health),
         )
-        .route(
-            "/api/v1/shell/discover",
-            get(crate::shell_api::discover),
-        )
-        .route(
-            "/api/v1/kudos/entries",
-            get(crate::kudos_api::list_entries),
-        )
+        .route("/api/v1/shell/discover", get(crate::shell_api::discover))
+        .route("/api/v1/kudos/entries", get(crate::kudos_api::list_entries))
         .route(
             "/api/v1/kudos/{project_id}/leaderboard",
             get(crate::kudos_api::leaderboard),
@@ -330,6 +324,13 @@ pub fn build_router(
         .route(
             "/api/v1/diagnostic/fairness",
             get(crate::diagnostic_api::fairness_metrics),
+        )
+        // Sprint 44 Phase C : tasks + worker_state
+        .route("/api/v1/tasks", get(crate::tasks_api::list_tasks))
+        .route("/api/v1/tasks/{task_id}", get(crate::tasks_api::get_task))
+        .route(
+            "/api/v1/worker/state",
+            get(crate::worker_state_api::get_worker_state),
         )
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
