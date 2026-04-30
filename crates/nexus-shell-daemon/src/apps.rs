@@ -34,6 +34,7 @@ pub struct AppSummary {
 pub struct AppListResponse {
     pub apps: Vec<AppSummary>,
     pub count: usize,
+    pub total_count: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -60,14 +61,18 @@ pub struct AppListQuery {
     pub category: Option<String>,
     #[serde(default)]
     pub open_source: Option<bool>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
-fn status_str(entry: &BrowseEntry) -> String {
-    format!("{:?}", entry.status).to_lowercase()
+fn status_str(entry: &BrowseEntry) -> &'static str {
+    entry.status.as_str()
 }
 
-fn source_str(entry: &BrowseEntry) -> String {
-    format!("{:?}", entry.source).to_lowercase()
+fn source_str(entry: &BrowseEntry) -> &'static str {
+    entry.source.as_str()
 }
 
 fn to_summary(entry: &BrowseEntry) -> AppSummary {
@@ -80,8 +85,8 @@ fn to_summary(entry: &BrowseEntry) -> AppSummary {
         archive_hash: entry.archive_hash.clone(),
         repo_url: entry.repo_url.clone(),
         has_provenance: entry.provenance_hash.is_some(),
-        status: status_str(entry),
-        source: source_str(entry),
+        status: status_str(entry).to_owned(),
+        source: source_str(entry).to_owned(),
     }
 }
 
@@ -96,8 +101,8 @@ fn to_detail(entry: &BrowseEntry) -> AppDetailResponse {
         archive_ticket: entry.archive_ticket.clone(),
         repo_url: entry.repo_url.clone(),
         provenance_hash: entry.provenance_hash.clone(),
-        status: status_str(entry),
-        source: source_str(entry),
+        status: status_str(entry).to_owned(),
+        source: source_str(entry).to_owned(),
         curator_pubkey: entry.curator_pubkey.clone(),
         curator_name: entry.curator_name.clone(),
         last_probed_at: entry.last_probed_at.clone(),
@@ -134,8 +139,19 @@ pub async fn list_apps(
 
     apps.dedup_by(|a, b| a.project_id == b.project_id);
 
+    let total_count = apps.len();
+    let offset = query.offset.unwrap_or(0);
+    let limit = query.limit.unwrap_or(50).min(500);
+    let apps: Vec<AppSummary> = apps.into_iter().skip(offset).take(limit).collect();
     let count = apps.len();
-    (StatusCode::OK, Json(AppListResponse { apps, count }))
+    (
+        StatusCode::OK,
+        Json(AppListResponse {
+            apps,
+            count,
+            total_count,
+        }),
+    )
 }
 
 pub async fn get_app(
@@ -263,6 +279,8 @@ mod tests {
         let q: AppListQuery = serde_json::from_str("{}").unwrap();
         assert!(q.category.is_none());
         assert!(q.open_source.is_none());
+        assert!(q.limit.is_none());
+        assert!(q.offset.is_none());
     }
 
     #[test]
@@ -271,5 +289,25 @@ mod tests {
             serde_json::from_str(r#"{"category":"gov","open_source":true}"#).unwrap();
         assert_eq!(q.category.as_deref(), Some("gov"));
         assert_eq!(q.open_source, Some(true));
+    }
+
+    #[test]
+    fn app_list_query_pagination() {
+        let q: AppListQuery =
+            serde_json::from_str(r#"{"limit":10,"offset":5}"#).unwrap();
+        assert_eq!(q.limit, Some(10));
+        assert_eq!(q.offset, Some(5));
+    }
+
+    #[test]
+    fn app_list_response_total_count() {
+        let resp = AppListResponse {
+            apps: vec![],
+            count: 0,
+            total_count: 42,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["total_count"], 42);
+        assert_eq!(json["count"], 0);
     }
 }

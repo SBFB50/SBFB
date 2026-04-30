@@ -129,7 +129,7 @@ pub struct DaemonHttpState {
     /// every broadcast.
     pub curator_gossip_topic: [u8; 32],
     /// Sprint 22 Phase C : outbound HTTP client used by the
-    /// `/api/contributor/verify/...` proxy to reach the co-located
+    /// `/api/v1/contributor/verify/...` proxy to reach the co-located
     /// coordinator. Shared (cloned cheaply via
     /// [`reqwest::Client`]'s internal `Arc`) so every in-flight
     /// verify request reuses the same TLS/connection pool. Phase C
@@ -243,15 +243,15 @@ pub fn build_router(
         // with the rotated token can trigger it.
         .route("/panic/wipe", post(panic_wipe))
         .route(
-            "/api/contributor/verify/{project_id}/{node_id_hex}",
+            "/api/v1/contributor/verify/{project_id}/{node_id_hex}",
             get(crate::contributor_api::verify_contributor),
         )
         .route(
-            "/api/contributor/project/{project_id}",
+            "/api/v1/contributor/project/{project_id}",
             get(crate::contributor_api::list_contributors),
         )
         .route(
-            "/api/contributor/envelope/{project_id}/{node_id_hex}",
+            "/api/v1/contributor/envelope/{project_id}/{node_id_hex}",
             get(crate::contributor_api::envelope),
         )
         // Sprint 23 Phase E : diagnostic neighborhood snapshot.
@@ -1678,7 +1678,7 @@ mod tests {
         let app = build_test_router(mk_state().await);
         let bad_project = "NOT-HEX";
         let node_hex = "a".repeat(64);
-        let uri = format!("/api/contributor/verify/{bad_project}/{node_hex}");
+        let uri = format!("/api/v1/contributor/verify/{bad_project}/{node_hex}");
         let resp = app
             .oneshot(
                 Request::builder()

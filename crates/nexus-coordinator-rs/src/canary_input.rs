@@ -782,6 +782,31 @@ mod tests {
     }
 
     #[test]
+    fn injector_rate_probabilistic() {
+        let set = CanaryInputSet {
+            version: 1,
+            created_at_unix: 0,
+            prompts: make_prompts(),
+            coord_pubkey_hex: String::new(),
+            signature_hex: String::new(),
+        };
+        let inj = CanaryInputInjector::new(Some(set), 5);
+        let mut hits = 0;
+        let n = 2000;
+        for _ in 0..n {
+            if inj.should_inject() {
+                hits += 1;
+            }
+        }
+        let ratio = hits as f64 / n as f64;
+        assert!(
+            (0.10..=0.35).contains(&ratio),
+            "expected ~20% injection rate at rate=5, got {:.1}% ({hits}/{n})",
+            ratio * 100.0
+        );
+    }
+
+    #[test]
     fn observer_divergence_below_tolerance() {
         let set = CanaryInputSet {
             version: 1,

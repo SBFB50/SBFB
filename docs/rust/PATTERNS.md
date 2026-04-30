@@ -2239,6 +2239,46 @@ source of truth.
 
 ---
 
+## §P42 — Sprint 44 Phase A : ChainResult mutations contract
+
+`guardrails.rs` `ChainResult` carries a `mutations: Vec<(String,
+String)>` field — pairs of `(reason, replacement)`. As of S44, no
+guardrail implementation emits `Mutation` outcomes: the three active
+guardrails (`OutputSafetyGuardrail`, `PiiGuardrail`,
+`CanaryInputGuardrail`) return only `Pass` or `Reject`.
+
+The mutations vector exists for post-v1.0 guardrails that transform
+content instead of rejecting it (e.g. PII masking, profanity
+substitution). When the first Mutation consumer is implemented:
+- `reason` = human-readable string (e.g. `"pii_redacted"`)
+- `replacement` = the transformed text to substitute into the
+  response
+- The chain runner in `run()` collects mutations from *all*
+  guardrails, even after a `Reject` from a later guardrail — the
+  caller decides whether to use mutations from a partially-rejected
+  chain.
+
+---
+
+## §P43 — Sprint 44 Phase A : pow_keypair identity equivalence
+
+`DaemonHttpState.pow_keypair: Arc<KeyPair>` is the daemon's
+long-lived Ed25519 identity. Despite its historical name (PoW
+challenge context Sprint 19), it serves three roles:
+
+1. **iroh node identity** — derived from the same keypair that the
+   iroh `Endpoint` uses for peer-to-peer connections
+2. **provenance signer** — `deploy.rs` signs artifact hashes and
+   provenance attestations with this keypair
+3. **coordinator identity** — equivalent to the Python
+   `coordinator.keypair` used for task signing and kudos ledger
+
+This equivalence holds through v1.0. Post-S45 (Python coordinator
+removed), `pow_keypair` becomes the sole source of truth for all
+daemon identity operations.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

@@ -119,6 +119,15 @@ pub enum BrowseSource {
     Direct,
 }
 
+impl BrowseSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Curator => "curator",
+            Self::Direct => "direct",
+        }
+    }
+}
+
 /// Reachability bucket for a single [`BrowseEntry`].
 ///
 /// `Unknown` is the initial state for entries that haven't been
@@ -136,6 +145,16 @@ pub enum BrowseStatus {
     /// cached probe has expired and a re-probe has not
     /// completed yet.
     Unknown,
+}
+
+impl BrowseStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reachable => "reachable",
+            Self::Unreachable => "unreachable",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 /// A single project row the React shell renders on the Browse
