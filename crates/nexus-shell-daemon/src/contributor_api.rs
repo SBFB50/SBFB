@@ -16,7 +16,10 @@ fn validate_hex(value: &str, expected_len: usize, label: &str) -> Result<(), (St
     if value.len() != expected_len {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!("{label}: expected {expected_len} chars, got {}", value.len()),
+            format!(
+                "{label}: expected {expected_len} chars, got {}",
+                value.len()
+            ),
         ));
     }
     if !value.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -120,8 +123,8 @@ pub async fn envelope(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "attestation not found".into()))?;
 
-    let envelope_obj: serde_json::Value = serde_json::from_str(&record.attestation_json)
-        .map_err(|e| {
+    let envelope_obj: serde_json::Value =
+        serde_json::from_str(&record.attestation_json).map_err(|e| {
             tracing::error!(
                 project_id = %project_id,
                 contributor_node_id = %node_id_hex,

@@ -11,9 +11,7 @@ use tracing::debug;
 
 use crate::http::DaemonHttpState;
 
-pub async fn coordinator_health(
-    State(state): State<Arc<DaemonHttpState>>,
-) -> impl IntoResponse {
+pub async fn coordinator_health(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
     debug!("GET /api/v1/coordinator/health");
     let uptime_secs = SystemTime::now()
         .duration_since(state.boot_time)

@@ -18,9 +18,7 @@ use crate::http::DaemonHttpState;
 
 const DAY_SECS: u64 = 86400;
 
-pub async fn fairness_metrics(
-    State(state): State<Arc<DaemonHttpState>>,
-) -> impl IntoResponse {
+pub async fn fairness_metrics(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
     debug!("GET /api/v1/diagnostic/fairness");
     let db = match state.coordinator_db.lock() {
         Ok(db) => db,
@@ -43,7 +41,9 @@ pub async fn fairness_metrics(
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let current_workers = db.active_workers_since(now.saturating_sub(DAY_SECS)).unwrap_or_default();
+    let current_workers = db
+        .active_workers_since(now.saturating_sub(DAY_SECS))
+        .unwrap_or_default();
     let previous_workers = db
         .active_workers_since(now.saturating_sub(2 * DAY_SECS))
         .unwrap_or_default();

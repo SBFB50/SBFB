@@ -91,10 +91,7 @@ fn threat_note_for_level(level: u8) -> &'static str {
 fn residual_threats_for_level(level: u8) -> Vec<String> {
     match level {
         1 => vec![],
-        2 => vec![
-            "R2-supply-chain".into(),
-            "R5-kudos-linkability".into(),
-        ],
+        2 => vec!["R2-supply-chain".into(), "R5-kudos-linkability".into()],
         3 => vec![
             "R2-supply-chain".into(),
             "R3-rate-limit-absent".into(),
@@ -144,9 +141,7 @@ fn validate_node_id(id: &str) -> bool {
     id.len() == 64 && id.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-pub async fn get_consent(
-    State(_state): State<Arc<DaemonHttpState>>,
-) -> Json<ConsentConfig> {
+pub async fn get_consent(State(_state): State<Arc<DaemonHttpState>>) -> Json<ConsentConfig> {
     Json(enrich(load_consent()))
 }
 
@@ -166,7 +161,11 @@ pub async fn set_consent(
         }
     }
     save_consent(&cfg).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    tracing::info!(level = cfg.level, whitelist_size = cfg.allowed_project_ids.len(), "consent.json updated");
+    tracing::info!(
+        level = cfg.level,
+        whitelist_size = cfg.allowed_project_ids.len(),
+        "consent.json updated"
+    );
     Ok(Json(enrich(cfg)))
 }
 
@@ -183,7 +182,10 @@ pub async fn whitelist_add(
     let pid = match entry.project_id {
         Some(ref id) => {
             if !validate_node_id(id) {
-                return Err((StatusCode::BAD_REQUEST, format!("invalid node_id format: {id}")));
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid node_id format: {id}"),
+                ));
             }
             id.clone()
         }
@@ -191,10 +193,14 @@ pub async fn whitelist_add(
             if entry.repo_url.is_some() {
                 return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "repo_url -> node_id resolution not yet wired; paste the node_id hex instead".into(),
+                    "repo_url -> node_id resolution not yet wired; paste the node_id hex instead"
+                        .into(),
                 ));
             }
-            return Err((StatusCode::UNPROCESSABLE_ENTITY, "project_id or repo_url required".into()));
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "project_id or repo_url required".into(),
+            ));
         }
     };
 
@@ -211,9 +217,10 @@ pub async fn whitelist_remove(
     State(_state): State<Arc<DaemonHttpState>>,
     Json(entry): Json<WhitelistEntry>,
 ) -> Result<Json<ConsentConfig>, (StatusCode, String)> {
-    let pid = entry
-        .project_id
-        .ok_or((StatusCode::UNPROCESSABLE_ENTITY, "project_id required".into()))?;
+    let pid = entry.project_id.ok_or((
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "project_id required".into(),
+    ))?;
 
     let mut cfg = load_consent();
     if let Some(pos) = cfg.allowed_project_ids.iter().position(|x| x == &pid) {
@@ -237,9 +244,14 @@ mod tests {
 
     #[test]
     fn enrich_adds_threat_fields() {
-        let cfg = enrich(ConsentConfig { level: 3, ..Default::default() });
+        let cfg = enrich(ConsentConfig {
+            level: 3,
+            ..Default::default()
+        });
         assert!(!cfg.level_threat_note.is_empty());
-        assert!(cfg.residual_threats_acknowledged.contains(&"R3-rate-limit-absent".to_string()));
+        assert!(cfg
+            .residual_threats_acknowledged
+            .contains(&"R3-rate-limit-absent".to_string()));
     }
 
     #[test]

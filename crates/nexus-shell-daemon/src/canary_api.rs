@@ -72,10 +72,7 @@ pub async fn observed_divergence(
         .map(|r| serde_json::to_value(r).unwrap_or_default())
         .collect();
     let count = divergences.len();
-    Ok(Json(DivergenceResponse {
-        divergences,
-        count,
-    }))
+    Ok(Json(DivergenceResponse { divergences, count }))
 }
 
 #[cfg(test)]

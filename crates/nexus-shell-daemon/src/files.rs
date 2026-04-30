@@ -100,8 +100,7 @@ pub async fn upload_file(
         original_name,
     };
 
-    std::fs::write(&bp, &body)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    std::fs::write(&bp, &body).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let manifest_json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     std::fs::write(&mp, &manifest_json)
@@ -127,8 +126,12 @@ pub async fn get_manifest(
         StatusCode::INTERNAL_SERVER_ERROR,
         "cannot resolve SBFB_HOME".into(),
     ))?;
-    let body = std::fs::read_to_string(&mp)
-        .map_err(|_| (StatusCode::NOT_FOUND, format!("no manifest for sha256={sha256}")))?;
+    let body = std::fs::read_to_string(&mp).map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("no manifest for sha256={sha256}"),
+        )
+    })?;
     let manifest: FileManifest = serde_json::from_str(&body)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(manifest))
@@ -145,8 +148,12 @@ pub async fn stream_file(
         StatusCode::INTERNAL_SERVER_ERROR,
         "cannot resolve SBFB_HOME".into(),
     ))?;
-    let manifest_body = std::fs::read_to_string(&mp)
-        .map_err(|_| (StatusCode::NOT_FOUND, format!("no manifest for sha256={sha256}")))?;
+    let manifest_body = std::fs::read_to_string(&mp).map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("no manifest for sha256={sha256}"),
+        )
+    })?;
     let manifest: FileManifest = serde_json::from_str(&manifest_body)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -154,8 +161,12 @@ pub async fn stream_file(
         StatusCode::INTERNAL_SERVER_ERROR,
         "cannot resolve SBFB_HOME".into(),
     ))?;
-    let data = std::fs::read(&bp)
-        .map_err(|_| (StatusCode::NOT_FOUND, format!("CAS blob missing for sha256={sha256}")))?;
+    let data = std::fs::read(&bp).map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("CAS blob missing for sha256={sha256}"),
+        )
+    })?;
 
     let response = axum::http::Response::builder()
         .header("content-type", &manifest.content_type)

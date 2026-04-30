@@ -293,8 +293,7 @@ mod tests {
 
     #[test]
     fn app_list_query_pagination() {
-        let q: AppListQuery =
-            serde_json::from_str(r#"{"limit":10,"offset":5}"#).unwrap();
+        let q: AppListQuery = serde_json::from_str(r#"{"limit":10,"offset":5}"#).unwrap();
         assert_eq!(q.limit, Some(10));
         assert_eq!(q.offset, Some(5));
     }
