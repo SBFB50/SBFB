@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-30  # G2 — Sprint 42 CLOSED : dette pair P2 (4 items rand_range+pseudo_random+Mutation+warn_threshold RESOLUS) + Tier 5 routes API debut (deploy.rs 679 LOC + apps.rs 275 LOC + forge.rs 139 + provenance.rs 187 = 1280 LOC nouveau). Compteurs 1089 Rust / 195 SDK / 409+36f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~2092 total. 0 trigger actif.
+last_validated: 2026-04-30  # G2 — Sprint 43 CLOSED : MANDATORY batch 7 items RESOLUS + Tier 5 routes API complet (consent.rs 230 + files.rs 190 + canary_api.rs 100 + contributor_api.rs 140 = 660 LOC nouveau, proxy contributor→direct). Compteurs 1111 Rust / 195 SDK / 409+36f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~2114 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
