@@ -162,6 +162,20 @@ capabilities, privacy, Babel, puis freeze + tag v1.0.
 - Sandbox enforcement : iframe CSP adapte par capability
   (connect-src selective, pas blanket)
 - Pas d'execution code natif — tout reste dans l'iframe sandbox
+- **Garde-fou : S53 Phase A (manifest) et Phase B (prompt UI) ne
+  conferent aucune permission reelle.** Le bridge reste 3 methodes
+  jusqu'a Phase C. Phase A declare, Phase B demande le consentement,
+  Phase C enforce. Si Phase C deborde, ship A+B et defer C+D en
+  S53.1. Chaque phase est testable independamment.
+- **Dette securite active : blob-serve renderer reste dans le
+  process broker (cf. PROCESS_ARCHITECTURE.md §broker-renderer
+  colocation).** Ce n'est pas une note de release — c'est une
+  surface d'attaque vivante. La migration vers un executor/renderer
+  dedie est planifiee post-v1.0 mais les capabilities S53 doivent
+  etre designees en supposant que blob-serve est untrusted-adjacent.
+  Implication : aucune capability ne peut accorder a une app un
+  acces direct au filesystem ou au reseau du broker. Tout transit
+  par le bridge postMessage, valide cote daemon.
 
 ### S54 — Privacy modes
 
