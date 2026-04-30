@@ -234,6 +234,11 @@ fn spawn_daemon() -> std::io::Result<std::process::Child> {
     let mut cmd = Command::new(program);
     cmd.arg("start");
 
+    if let Some(web_root) = resolve_web_root() {
+        cmd.arg("--web-root").arg(&web_root);
+        tracing::info!(path = %web_root.display(), "passing --web-root to daemon");
+    }
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -242,6 +247,31 @@ fn spawn_daemon() -> std::io::Result<std::process::Child> {
     }
 
     cmd.spawn()
+}
+
+/// Locate the built React shell (`web/dist/`). Search order:
+/// 1. `SBFB_WEB_ROOT` env var
+/// 2. `<launcher_dir>/web-dist/` (bundled deployment)
+/// 3. `<launcher_dir>/../../web/dist/` (dev: target/{debug,release}/
+///    → project root → web/dist)
+fn resolve_web_root() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("SBFB_WEB_ROOT") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.join("index.html").exists() {
+            return Some(pb);
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let bundled = dir.join("web-dist");
+    if bundled.join("index.html").exists() {
+        return Some(bundled);
+    }
+    let dev = dir.join("../../web/dist");
+    if dev.join("index.html").exists() {
+        return Some(dev.canonicalize().unwrap_or(dev));
+    }
+    None
 }
 
 // =================================================================

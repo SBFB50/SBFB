@@ -80,6 +80,13 @@ pub enum Command {
         /// Env fallback: `NEXUS_DAEMON_CORS_ORIGINS` (comma-separated).
         #[arg(long = "cors-origin", value_name = "ORIGIN")]
         cors_origins: Vec<String>,
+
+        /// Path to the built React shell directory (e.g. `web/dist`).
+        /// When set, the daemon serves these static files on `/`
+        /// without bearer auth so the browser can load the shell.
+        /// Env fallback: `SBFB_WEB_ROOT`.
+        #[arg(long, value_name = "PATH")]
+        web_root: Option<std::path::PathBuf>,
     },
 
     /// Stop a running shell daemon.
@@ -305,9 +312,11 @@ mod tests {
             Command::Start {
                 headless,
                 cors_origins,
+                web_root,
             } => {
                 assert!(!headless);
                 assert!(cors_origins.is_empty());
+                assert!(web_root.is_none());
             }
             other => panic!("expected Start, got {other:?}"),
         }
@@ -320,6 +329,7 @@ mod tests {
             Command::Start {
                 headless,
                 cors_origins,
+                ..
             } => {
                 assert!(headless);
                 assert!(cors_origins.is_empty());

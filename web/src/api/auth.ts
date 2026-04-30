@@ -74,25 +74,42 @@ function resolveLauncherUrl(): string | null {
 }
 
 /**
- * Fetch the loopback token from the launcher, caching the
- * result for the lifetime of the page. Subsequent calls return
- * the cache without a network hit.
+ * Fetch the loopback token, caching the result for the lifetime
+ * of the page. Subsequent calls return the cache without a
+ * network hit.
+ *
+ * Resolution order:
+ *  1. Seeded token (Playwright / tests)
+ *  2. Launcher auth server (VITE_SBFB_LAUNCHER_URL / setLauncherUrl)
+ *  3. Same-origin `/auth/token` on the daemon (when the daemon
+ *     serves the shell via `--web-root`)
  */
 export async function fetchAuthToken(): Promise<string> {
   if (cachedToken) return cachedToken;
+
   const base = resolveLauncherUrl();
-  if (!base) {
-    throw new Error(
-      "launcher URL unknown — set VITE_SBFB_LAUNCHER_URL or call setLauncherUrl()",
-    );
+  if (base) {
+    const res = await fetch(`${base}/auth/token`, { method: "GET" });
+    if (!res.ok) {
+      throw new Error(`launcher /auth/token returned ${res.status}`);
+    }
+    const body = (await res.json()) as TokenResponse;
+    if (typeof body.token !== "string" || body.token.length !== 64) {
+      throw new Error("launcher /auth/token returned malformed body");
+    }
+    cachedToken = body.token;
+    return body.token;
   }
-  const res = await fetch(`${base}/auth/token`, { method: "GET" });
+
+  // Fallback: daemon serves the shell and exposes /auth/token
+  // on the same origin (loopback Host+Origin checks only).
+  const res = await fetch("/auth/token", { method: "GET" });
   if (!res.ok) {
-    throw new Error(`launcher /auth/token returned ${res.status}`);
+    throw new Error(`daemon /auth/token returned ${res.status}`);
   }
   const body = (await res.json()) as TokenResponse;
   if (typeof body.token !== "string" || body.token.length !== 64) {
-    throw new Error("launcher /auth/token returned malformed body");
+    throw new Error("daemon /auth/token returned malformed body");
   }
   cachedToken = body.token;
   return body.token;

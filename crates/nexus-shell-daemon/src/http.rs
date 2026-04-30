@@ -29,6 +29,7 @@
 //! The env fallback `NEXUS_DAEMON_CORS_ORIGINS` (comma-
 //! separated) is merged when the flag is absent.
 
+use std::path::Path as FsPath;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -55,6 +56,7 @@ use nexus_shell_daemon_core::state::{DaemonStateSnapshot, StateInputs};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
 use tracing::{debug, warn};
 
 /// Shared handle to the gossip topic sender. `None` until the
@@ -189,6 +191,7 @@ pub fn build_router(
     state: Arc<DaemonHttpState>,
     auth: AuthState,
     cors_origins: &[String],
+    web_root: Option<&FsPath>,
 ) -> Router {
     // Sprint 13 Phase A (T37): blob-serve routes get a CSP
     // middleware that injects security headers on ALL responses
@@ -201,6 +204,16 @@ pub fn build_router(
     let public_routes = Router::new()
         .route("/health", get(health))
         .nest("/blob-serve", blob_serve_routes);
+
+    // Public token bootstrap: the React shell served by this
+    // daemon needs the bearer token to call authenticated routes.
+    // Host + Origin loopback checks (inside handler) prevent
+    // DNS rebinding and cross-origin leaks — same checks as
+    // auth_required minus the bearer token itself.
+    let auth_for_token = auth.clone();
+    let token_route = Router::new()
+        .route("/auth/token", get(auth_token_public))
+        .with_state(auth_for_token);
 
     // Sprint 18 audit fix D-1 : the caller picks the variant
     // (`AuthState::Static` for the legacy single-token boot path,
@@ -338,11 +351,49 @@ pub fn build_router(
         )
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
-    Router::new()
+    let app = Router::new()
         .merge(public_routes)
+        .merge(token_route)
         .merge(authed_routes)
         .with_state(state)
-        .layer(cors_layer(cors_origins))
+        .layer(cors_layer(cors_origins));
+
+    if let Some(root) = web_root {
+        let serve = ServeDir::new(root).fallback(ServeFile::new(root.join("index.html")));
+        app.fallback_service(serve)
+    } else {
+        app
+    }
+}
+
+/// Public endpoint returning the bearer token so the React shell
+/// can bootstrap auth from the same origin. Protected by
+/// Host + Origin loopback checks (no bearer required — that's
+/// what we're handing out).
+async fn auth_token_public(State(auth): State<AuthState>, req: Request) -> impl IntoResponse {
+    let host_ok = req
+        .headers()
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(nexus_shell_daemon_core::auth::is_loopback_host)
+        .unwrap_or(false);
+    if !host_ok {
+        return (StatusCode::FORBIDDEN, "host not allowed").into_response();
+    }
+    if let Some(origin) = req.headers().get(axum::http::header::ORIGIN) {
+        let ok = origin
+            .to_str()
+            .ok()
+            .map(nexus_shell_daemon_core::auth::is_loopback_origin)
+            .unwrap_or(false);
+        if !ok {
+            return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
+        }
+    }
+    match auth.current_token() {
+        Some(token) => Json(serde_json::json!({ "token": token })).into_response(),
+        None => (StatusCode::SERVICE_UNAVAILABLE, "token unavailable").into_response(),
+    }
 }
 
 /// Middleware that injects security headers on every blob-serve
@@ -1596,7 +1647,7 @@ mod tests {
     fn build_test_router_with_cors(state: Arc<DaemonHttpState>, cors: &[String]) -> Router {
         use axum::http::header::{HOST, ORIGIN};
         use axum::http::HeaderValue;
-        build_router(state, AuthState::new(TEST_TOKEN.to_string()), cors).layer(
+        build_router(state, AuthState::new(TEST_TOKEN.to_string()), cors, None).layer(
             middleware::from_fn(
                 |mut req: axum::extract::Request, next: middleware::Next| async move {
                     let h = req.headers_mut();
@@ -2241,7 +2292,7 @@ mod tests {
     }
 
     fn build_cors_test_router(state: Arc<DaemonHttpState>, cors: &[String]) -> Router {
-        build_router(state, AuthState::new(TEST_TOKEN.to_string()), cors)
+        build_router(state, AuthState::new(TEST_TOKEN.to_string()), cors, None)
     }
 
     #[tokio::test]

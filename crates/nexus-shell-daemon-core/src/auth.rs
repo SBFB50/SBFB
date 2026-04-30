@@ -338,6 +338,16 @@ impl AuthState {
         Self::Rotated(rotator)
     }
 
+    /// Return the current active token. Used by the public
+    /// `/auth/token` endpoint so the React shell can bootstrap
+    /// bearer auth from the same origin.
+    pub fn current_token(&self) -> Option<String> {
+        match self {
+            Self::Static(t) => Some(t.clone()),
+            Self::Rotated(rotator) => rotator.read().ok().map(|g| g.current().to_string()),
+        }
+    }
+
     /// Constant-time predicate the middleware calls on every
     /// request. Returns `true` when `request_token` matches the
     /// static token, the rotator's current, or the rotator's

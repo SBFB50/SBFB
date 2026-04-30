@@ -90,7 +90,8 @@ async fn main() -> Result<()> {
         Command::Start {
             headless,
             cors_origins,
-        } => handle_start(paths, headless, cors_origins).await,
+            web_root,
+        } => handle_start(paths, headless, cors_origins, web_root).await,
         Command::Stop => handle_stop(&paths).await,
         Command::Status => handle_status(&paths).await,
         Command::Config(cmd) => handle_config(&paths, cmd).await,
@@ -102,6 +103,7 @@ async fn handle_start(
     paths: ShellDaemonPaths,
     _headless: bool,
     cli_cors_origins: Vec<String>,
+    cli_web_root: Option<std::path::PathBuf>,
 ) -> Result<()> {
     // Load the config to pick up any user-tuned bind host / port.
     // A missing file is fine — Phase A defaults to 127.0.0.1:0.
@@ -147,6 +149,17 @@ async fn handle_start(
     };
     std::env::remove_var("SBFB_IDENTITY_MODE");
 
+    let web_root = cli_web_root
+        .or_else(|| {
+            std::env::var("SBFB_WEB_ROOT")
+                .ok()
+                .map(std::path::PathBuf::from)
+        })
+        .filter(|p| p.join("index.html").exists());
+    if let Some(ref wr) = web_root {
+        println!("  web root:     {}", wr.display());
+    }
+
     let opts = DaemonStartOptions {
         paths,
         api_host: cfg.network.api_host.clone(),
@@ -155,6 +168,7 @@ async fn handle_start(
         curator: cfg.curator.clone(),
         identity_mode,
         cors_origins,
+        web_root,
     };
 
     let runtime = DaemonRuntime::start(opts)

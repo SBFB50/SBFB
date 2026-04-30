@@ -141,6 +141,9 @@ pub struct DaemonStartOptions {
     pub identity_mode: nexus_core_rs::IdentityMode,
     /// Sprint 33 Phase A: extra CORS origins from `--cors-origin`.
     pub cors_origins: Vec<String>,
+    /// Path to built React shell directory. When set, the daemon
+    /// serves static files on `/` without bearer auth.
+    pub web_root: Option<PathBuf>,
 }
 
 /// A live `nexus-shell-daemon` process.
@@ -546,7 +549,12 @@ impl DaemonRuntime {
             (auth::AuthState::new(static_token), None)
         };
 
-        let router = build_router(http_state, auth_state, &opts.cors_origins);
+        let router = build_router(
+            http_state,
+            auth_state,
+            &opts.cors_origins,
+            opts.web_root.as_deref(),
+        );
 
         // 6a. Sprint 16 Phase B (D2): spawn the UDS / Named Pipe
         //     accept loop on a clone of the same router. The
@@ -1063,6 +1071,7 @@ mod tests {
             curator: CuratorConfig::default(),
             identity_mode: nexus_core_rs::IdentityMode::Normal,
             cors_origins: vec![],
+            web_root: None,
         }
     }
 

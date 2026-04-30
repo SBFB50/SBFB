@@ -159,7 +159,7 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 # compression, tracing, rate-limit, or auth layers from tower-http.
 axum = "0.8"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
 
 # Sprint 16 Phase B: the daemon UDS / Named Pipe accept loops
 # wrap connections in hyper directly because axum's `axum::serve`

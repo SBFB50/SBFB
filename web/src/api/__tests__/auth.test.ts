@@ -35,8 +35,24 @@ describe("api/auth", () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it("rejects when the launcher URL is unknown", async () => {
-      await expect(fetchAuthToken()).rejects.toThrow(/launcher URL unknown/);
+    it("falls back to same-origin /auth/token when no launcher URL", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ token: VALID_TOKEN }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      await expect(fetchAuthToken()).resolves.toBe(VALID_TOKEN);
+      expect(globalThis.fetch).toHaveBeenCalledWith("/auth/token", {
+        method: "GET",
+      });
+    });
+
+    it("rejects when same-origin fallback returns non-2xx", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("nope", { status: 403 }),
+      );
+      await expect(fetchAuthToken()).rejects.toThrow(/403/);
     });
 
     it("rejects when the launcher returns a non-2xx", async () => {
