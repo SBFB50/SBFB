@@ -152,6 +152,13 @@ capabilities, privacy, Babel, puis freeze + tag v1.0.
 
 ### S53 — Plugin System / Capabilities apps
 
+- **Garde-fou : Phase A/B ne conferent aucune permission reelle.**
+  Phase A = manifest declaratif (capabilities listees dans
+  SBFB.json v2, parsees et validees, mais 0 enforcement runtime).
+  Phase B = permission prompt UI (user consent enregistre, mais
+  le bridge ne change pas). Seules Phase C (bridge etendu) et
+  Phase D (CSP selective) conferent des permissions reelles. Si
+  S53 deborde, on ship A+B et on defere C+D en S53.1.
 - Capabilities manifest dans SBFB.json v2 : declarations
   (compute_request, storage_read, storage_write, network_peer,
   bridge_extended)
@@ -162,20 +169,18 @@ capabilities, privacy, Babel, puis freeze + tag v1.0.
 - Sandbox enforcement : iframe CSP adapte par capability
   (connect-src selective, pas blanket)
 - Pas d'execution code natif — tout reste dans l'iframe sandbox
-- **Garde-fou : S53 Phase A (manifest) et Phase B (prompt UI) ne
-  conferent aucune permission reelle.** Le bridge reste 3 methodes
-  jusqu'a Phase C. Phase A declare, Phase B demande le consentement,
-  Phase C enforce. Si Phase C deborde, ship A+B et defer C+D en
-  S53.1. Chaque phase est testable independamment.
-- **Dette securite active : blob-serve renderer reste dans le
-  process broker (cf. PROCESS_ARCHITECTURE.md §broker-renderer
-  colocation).** Ce n'est pas une note de release — c'est une
-  surface d'attaque vivante. La migration vers un executor/renderer
-  dedie est planifiee post-v1.0 mais les capabilities S53 doivent
-  etre designees en supposant que blob-serve est untrusted-adjacent.
-  Implication : aucune capability ne peut accorder a une app un
-  acces direct au filesystem ou au reseau du broker. Tout transit
-  par le bridge postMessage, valide cote daemon.
+- **Dette securite active : blob-serve renderer.** Le daemon
+  blob-serve decompresse et sert les zips dans le meme process
+  que le broker (cf. PROCESS_ARCHITECTURE.md §broker). Cette
+  surface d'attaque est reconnue et documentee dans
+  RUNTIME_ISOLATION.md comme migration post-v1.0 vers un
+  executor/renderer dedie. S53 ne doit PAS aggraver cette
+  surface : les capabilities ne donnent jamais d'acces direct
+  au filesystem ou au process broker. Tout passe par le bridge
+  postMessage, le daemon valide cote serveur. Cette dette
+  influence directement la qualite de S53 et doit etre visible
+  dans le kickoff S53 D-decision (pas seulement dans les
+  release notes S56)
 
 ### S54 — Privacy modes
 
