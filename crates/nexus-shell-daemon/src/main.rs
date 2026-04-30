@@ -33,14 +33,18 @@ mod cli;
 mod consent;
 mod contributor_api;
 mod deploy;
+mod diagnostic_api;
 mod files;
+mod health_api;
 mod http;
+mod kudos_api;
 mod logging;
 #[cfg(windows)]
 mod named_pipe_server;
 mod noop_identity;
 mod panic;
 mod runtime;
+mod shell_api;
 #[cfg(unix)]
 mod uds_server;
 mod validator_loop;

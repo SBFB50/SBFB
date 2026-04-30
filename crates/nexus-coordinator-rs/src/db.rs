@@ -323,6 +323,70 @@ impl CoordinatorDb {
         }
         Ok(result)
     }
+    pub fn list_kudos_entries(
+        &self,
+        worker_node_id: Option<&str>,
+    ) -> Result<Vec<KudosEntry>, CoordinatorError> {
+        let (sql, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match worker_node_id {
+            Some(w) => (
+                "SELECT entry_id, worker_node_id, task_id, project_id, amount, created_at, prev_hash, entry_hash
+                 FROM kudos WHERE worker_node_id = ?1 ORDER BY created_at DESC, rowid DESC",
+                vec![Box::new(w.to_string())],
+            ),
+            None => (
+                "SELECT entry_id, worker_node_id, task_id, project_id, amount, created_at, prev_hash, entry_hash
+                 FROM kudos ORDER BY created_at DESC, rowid DESC",
+                vec![],
+            ),
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            Ok(KudosEntry {
+                entry_id: row.get(0)?,
+                worker_node_id: row.get(1)?,
+                task_id: row.get(2)?,
+                project_id: row.get(3)?,
+                amount: row.get::<_, i64>(4)? as u64,
+                created_at: row.get::<_, i64>(5)? as u64,
+                prev_hash: row.get(6)?,
+                entry_hash: row.get(7)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn worker_contributions(&self) -> Result<Vec<f64>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COALESCE(SUM(amount), 0) FROM kudos GROUP BY worker_node_id",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, f64>(0))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn active_workers_since(
+        &self,
+        since_epoch: u64,
+    ) -> Result<std::collections::HashSet<String>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT worker_node_id FROM kudos WHERE created_at >= ?1",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![since_epoch as i64], |row| {
+            row.get::<_, String>(0)
+        })?;
+        let mut result = std::collections::HashSet::new();
+        for row in rows {
+            result.insert(row?);
+        }
+        Ok(result)
+    }
 }
 
 #[cfg(test)]

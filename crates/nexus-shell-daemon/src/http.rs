@@ -310,6 +310,27 @@ pub fn build_router(
             get(crate::files::get_manifest),
         )
         .route("/api/v1/files/{sha256}", get(crate::files::stream_file))
+        // Sprint 44 Phase B : health + shell + kudos + diagnostic
+        .route(
+            "/api/v1/coordinator/health",
+            get(crate::health_api::coordinator_health),
+        )
+        .route(
+            "/api/v1/shell/discover",
+            get(crate::shell_api::discover),
+        )
+        .route(
+            "/api/v1/kudos/entries",
+            get(crate::kudos_api::list_entries),
+        )
+        .route(
+            "/api/v1/kudos/{project_id}/leaderboard",
+            get(crate::kudos_api::leaderboard),
+        )
+        .route(
+            "/api/v1/diagnostic/fairness",
+            get(crate::diagnostic_api::fairness_metrics),
+        )
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
