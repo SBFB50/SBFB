@@ -96,6 +96,11 @@ hyper-util = { workspace = true }
 # the client strictly goes over plain TCP).
 reqwest = { workspace = true }
 
+# Sprint 42 Phase B: verified deploy from source — zip creation
+# and temporary clone directory.
+zip = { workspace = true }
+tempfile = "3.12"
+
 # Sprint 30 Phase C: FROST DKG ceremony CLI handler constructs
 # CanarySigned with date arithmetic (today_utc + CANARY_VALIDITY_DAYS).
 time = { workspace = true }

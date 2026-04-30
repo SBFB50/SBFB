@@ -274,6 +274,11 @@ pub fn build_router(
         .route("/api/canary/observed", post(canary_observed))
         .route("/api/canary/network-health", get(canary_network_health))
         .route("/api/canary/freshness/{pubkey}", get(canary_freshness))
+        .route("/api/v1/deploy", post(crate::deploy::deploy_private))
+        .route(
+            "/api/v1/deploy-from-repo",
+            post(crate::deploy::deploy_from_repo),
+        )
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
@@ -648,7 +653,7 @@ async fn list_browse(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResp
 /// zero (misconfigured policy — loud failure rather than silent
 /// bypass) or if the Hashcash solve times out (default 30 s, cf.
 /// `SOLVE_TIMEOUT` in `pow_gossip`).
-fn wrap_payload_with_pow(
+pub(crate) fn wrap_payload_with_pow(
     state: &DaemonHttpState,
     payload: &[u8],
 ) -> Result<Vec<u8>, nexus_core_rs::PowGossipError> {
@@ -1069,7 +1074,7 @@ async fn blob_serve(
 }
 
 /// Mint a BlobTicket from a hex hash in the local blob store.
-async fn mint_blob_ticket(
+pub(crate) async fn mint_blob_ticket(
     state: &DaemonHttpState,
     hash_hex: &str,
 ) -> Result<String, anyhow::Error> {

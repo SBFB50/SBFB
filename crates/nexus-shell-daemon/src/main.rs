@@ -28,6 +28,7 @@
 //! proxy + the shell pages. **None of those are in Phase A.**
 
 mod cli;
+mod deploy;
 mod http;
 mod logging;
 #[cfg(windows)]
