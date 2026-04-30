@@ -274,6 +274,8 @@ pub fn build_router(
         .route("/api/canary/observed", post(canary_observed))
         .route("/api/canary/network-health", get(canary_network_health))
         .route("/api/canary/freshness/{pubkey}", get(canary_freshness))
+        .route("/api/v1/apps", get(crate::apps::list_apps))
+        .route("/api/v1/apps/{project_id}", get(crate::apps::get_app))
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
             "/api/v1/deploy-from-repo",

@@ -27,6 +27,7 @@
 //! adds pkarr browse resolution; Phase E adds the coordinator
 //! proxy + the shell pages. **None of those are in Phase A.**
 
+mod apps;
 mod cli;
 mod deploy;
 mod http;
