@@ -121,26 +121,25 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-43 CLOSED**, v1.2 en cours. Audit gate S43 = S44
-  Phase 0 (`.planning/active/sprint44_audit_plan.md`).
-- **~2114 tests total** (1111 Rust / 195 SDK / 409+36f+6s coord / 46
+- **Sprints 0-44 CLOSED**, v1.2 en cours. Audit gate S44 = S45
+  Phase 0 (`.planning/active/sprint45_audit_plan.md`).
+- **~2130 tests total** (1127 Rust / 195 SDK / 409+36f+6s coord / 46
   app-gov / 267 Vitest / 42+2f Playwright / 7/7 size-limit) — tous
   verts code (36 coord fail PyO3 wheel stale + 2 PW env fail —
   meme root cause wheel/env stale, pas regression).
-- Carry S44 : P2-A-1 rand blocker upstream (exemption externe) ;
+- Carry S45 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P2-REVIEW-C-1-S40 SHA-256 vs BLAKE3 5/3 (exemption S45 dep) ;
-  P2-REVIEW-A-1-S42 ChainResult mutations target 2/3 ;
-  P2-REVIEW-B-1-S42 pow_keypair identity doc 2/3 ;
-  P2-REVIEW-B-1-S43 coord dead_code cleanup 1/3 ;
-  P3-REVIEW-A-2-S42 babel-scraper untracked 2/3 ;
-  P3-REVIEW-C-1-S42 list_apps aggregate probe 2/3 ;
-  P3-AUDIT-A-1-S42 couverture RNG rate>1 2/3 ;
-  P3-AUDIT-C-1-S42 Debug vs serde 2/3 ;
-  P3-AUDIT-C-2-S42 pagination limit/offset 2/3 ;
-  P3-REVIEW-B-1-S43 tests HTTP integration 1/3 ;
-  P3-REVIEW-C-1-S43 prefix route contributor 1/3 ;
-  P3-REVIEW-A-1-S43 TOCTOU canary reload 1/3.
+  P2-REVIEW-C-1-S40 SHA-256 vs BLAKE3 6/3 (exemption dep S45) ;
+  P2-REVIEW-B-1-S43 coord dead_code cleanup 2/3 ;
+  P2-AUDIT-A-1-S43 integration test gap 12 routes 2/3 ;
+  P2-REVIEW-A-1-S44 as_str/serde coupling 1/3 ;
+  P2-REVIEW-B-1-S44 kudos entries pagination 1/3 ;
+  P2-REVIEW-C-1-S44 worker_state tokio::fs 1/3 ;
+  P3-REVIEW-A-1-S43 TOCTOU canary reload 2/3 ;
+  P3-AUDIT-A-2-S43 silent null canary_api 2/3 ;
+  P3-AUDIT-A-3-S43 hex case-sensitivity 2/3 ;
+  P3-REVIEW-B-2-S44 shell discover self-only 1/3 ;
+  P3-REVIEW-C-2-S44 list_tasks status non valide 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
