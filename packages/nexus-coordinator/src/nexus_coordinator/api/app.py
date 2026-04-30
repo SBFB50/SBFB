@@ -33,22 +33,8 @@ def create_app(
     manages its own iroh Node lifecycle — we don't want uvicorn to
     spin a second one up.
     """
-    from nexus_coordinator.api.apps import router as apps_router
-    from nexus_coordinator.api.canary import router as canary_router
-    from nexus_coordinator.api.consent import router as consent_router
-    from nexus_coordinator.api.contributor import router as contributor_router
     from nexus_coordinator.api.daemon import router as daemon_router
-    from nexus_coordinator.api.deploy import router as deploy_router
-    from nexus_coordinator.api.diagnostic import router as diagnostic_router
     from nexus_coordinator.api.events import router as events_router
-    from nexus_coordinator.api.files import router as files_router
-    from nexus_coordinator.api.health import router as health_router
-    from nexus_coordinator.api.invites import router as invites_router
-    from nexus_coordinator.api.kudos import router as kudos_router
-    from nexus_coordinator.api.quarantine import router as quarantine_router
-    from nexus_coordinator.api.shell import router as shell_router
-    from nexus_coordinator.api.tasks import router as tasks_router
-    from nexus_coordinator.api.worker_state import router as worker_state_router
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -132,22 +118,8 @@ def create_app(
     # Stash the coordinator on the app state so routers can reach
     # it via `request.app.state.coordinator` instead of a global.
     app.state.coordinator = coordinator  # type: ignore[attr-defined]
-    app.include_router(health_router)
-    app.include_router(tasks_router)
-    app.include_router(kudos_router)
-    app.include_router(invites_router)
-    app.include_router(apps_router)
     app.include_router(events_router)
-    app.include_router(files_router)
-    app.include_router(shell_router)
-    app.include_router(worker_state_router)
     app.include_router(daemon_router)
-    app.include_router(deploy_router)
-    app.include_router(consent_router)
-    app.include_router(canary_router)
-    app.include_router(contributor_router)
-    app.include_router(quarantine_router)
-    app.include_router(diagnostic_router)
 
     # Sprint 26 Phase B (D1): MCP server local-only Streamable HTTP.
     # Mounted AFTER all routers so it sits at /mcp. The

@@ -128,24 +128,6 @@ pub struct DaemonHttpState {
     /// [`PowSolveCache`] instead of recomputing the BLAKE3 hash on
     /// every broadcast.
     pub curator_gossip_topic: [u8; 32],
-    /// Sprint 22 Phase C : outbound HTTP client used by the
-    /// `/api/v1/contributor/verify/...` proxy to reach the co-located
-    /// coordinator. Shared (cloned cheaply via
-    /// [`reqwest::Client`]'s internal `Arc`) so every in-flight
-    /// verify request reuses the same TLS/connection pool. Phase C
-    /// only pings the coord over plain HTTP loopback, but the
-    /// client is built with the workspace `rustls-tls` features so
-    /// a future `/metrics/*` cross-HTTPS call (post-`v1.0`) can
-    /// land without a second dep.
-    #[allow(dead_code)]
-    pub coord_http_client: reqwest::Client,
-    /// Sprint 22 Phase C : base URL of the co-located coordinator
-    /// (e.g. `http://127.0.0.1:8787`). The proxy route concatenates
-    /// this with the suffix it received to build the upstream URL.
-    /// Resolved at boot by [`resolve_coord_base_url`] which reads
-    /// `SBFB_COORD_URL` and falls back to a loopback default.
-    #[allow(dead_code)]
-    pub coord_base_url: String,
     /// Sprint 36 Phase A : shared coordinator DB for the Rust-native
     /// task dispatcher and result validator. Opened once at boot from
     /// `~/.sbfb/coordinator.db` (WAL mode). Handlers lock briefly
@@ -888,29 +870,6 @@ async fn publish_project(
     state.browse_aggregator.add_direct_entry(browse_entry);
 
     (StatusCode::OK, Json(PublishResponse { published: true })).into_response()
-}
-
-/// Environment variable naming the coordinator base URL used by
-/// the Sprint 22 Phase C contributor-verify proxy. Optional ; if
-/// absent the daemon falls back to
-/// [`DEFAULT_COORD_BASE_URL`].
-pub const COORD_BASE_URL_ENV: &str = "SBFB_COORD_URL";
-
-/// Fallback coordinator URL when [`COORD_BASE_URL_ENV`] is unset.
-/// Matches the default port the coordinator binds to on a fresh
-/// dev install (`packages/nexus-coordinator/src/nexus_coordinator/
-/// config.py` `api_port = 8787`). Operators running the coord on
-/// a non-default port must set the env var.
-pub const DEFAULT_COORD_BASE_URL: &str = "http://127.0.0.1:8787";
-
-/// Resolve the coordinator base URL at boot. `SBFB_COORD_URL`
-/// wins ; else [`DEFAULT_COORD_BASE_URL`] (loopback, default
-/// coord port). Trailing slashes are trimmed so the proxy can
-/// concatenate a leading-slash path suffix without double-slash
-/// collisions.
-pub fn resolve_coord_base_url() -> String {
-    let raw = std::env::var(COORD_BASE_URL_ENV).unwrap_or_else(|_| DEFAULT_COORD_BASE_URL.into());
-    raw.trim_end_matches('/').to_string()
 }
 
 /// `GET /default-curators` — return the daemon's configured
@@ -1698,8 +1657,6 @@ mod tests {
             pow_policy: nexus_shell_daemon_core::pow_policy_loader::shared_default_policy(),
             pow_keypair: Arc::new(KeyPair::generate()),
             curator_gossip_topic: nexus_shell_daemon_core::iroh_runtime::curator_topic_id(),
-            coord_http_client: reqwest::Client::new(),
-            coord_base_url: "http://127.0.0.1:9".into(),
             coordinator_db: std::sync::Arc::new(std::sync::Mutex::new(
                 nexus_coordinator_rs::db::CoordinatorDb::open_in_memory()
                     .expect("test coordinator DB"),
@@ -1734,19 +1691,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[test]
-    fn resolve_coord_base_url_respects_env_var() {
-        // Sprint 22 Phase C. SBFB_COORD_URL wins over the default,
-        // and trailing slashes are trimmed so path suffixes
-        // concatenate cleanly.
-        std::env::set_var(COORD_BASE_URL_ENV, "http://127.0.0.1:12345/");
-        let resolved = resolve_coord_base_url();
-        assert_eq!(resolved, "http://127.0.0.1:12345");
-        std::env::remove_var(COORD_BASE_URL_ENV);
-        let fallback = resolve_coord_base_url();
-        assert_eq!(fallback, DEFAULT_COORD_BASE_URL);
     }
 
     #[tokio::test]
@@ -2461,8 +2405,6 @@ mod tests {
             pow_policy: nexus_shell_daemon_core::pow_policy_loader::shared_default_policy(),
             pow_keypair: Arc::new(KeyPair::generate()),
             curator_gossip_topic: nexus_shell_daemon_core::iroh_runtime::curator_topic_id(),
-            coord_http_client: reqwest::Client::new(),
-            coord_base_url: "http://127.0.0.1:9".into(),
             coordinator_db: std::sync::Arc::new(std::sync::Mutex::new(
                 nexus_coordinator_rs::db::CoordinatorDb::open_in_memory()
                     .expect("test coordinator DB"),

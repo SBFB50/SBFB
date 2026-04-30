@@ -17,8 +17,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-from nexus_coordinator.api.app import create_app
 from nexus_coordinator.coordinator import Coordinator
 
 
@@ -37,33 +35,6 @@ async def test_coordinator_boots_creates_doc_and_author(nexus_grid_tmp: Path) ->
         assert coord.config.identity.author_id == coord.state.author_id
         assert coord.config.identity.doc_id == coord.state.doc_id
         assert coord.config_path.exists()
-    finally:
-        await coord.stop()
-
-
-@pytest.mark.asyncio
-async def test_health_and_project_endpoints_respond(nexus_grid_tmp: Path) -> None:
-    coord = Coordinator(project_name="demo-http")
-    coord.config.identity.description = "integration test"
-    await coord.start()
-    try:
-        app = create_app(coord)
-        with TestClient(app) as client:
-            r = client.get("/health")
-            assert r.status_code == 200
-            body = r.json()
-            assert body["status"] == "ok"
-            assert body["project"] == "demo-http"
-            assert body["node_id"] == coord.state.node_id
-            assert body["doc_id"] == coord.state.doc_id
-
-            r = client.get("/project")
-            assert r.status_code == 200
-            body = r.json()
-            assert body["name"] == "demo-http"
-            assert body["description"] == "integration test"
-            assert body["visibility"] == "private"
-            assert body["doc_id"] == coord.state.doc_id
     finally:
         await coord.stop()
 

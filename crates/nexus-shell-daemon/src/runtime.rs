@@ -499,16 +499,6 @@ impl DaemonRuntime {
             curator_gossip_topic: curator_topic,
             // Sprint 22 Phase C : outbound HTTP client for the
             // contributor-verify proxy. Built once at boot so
-            // every in-flight request shares the connection pool.
-            // A short timeout is in order because the endpoint is
-            // strictly loopback and a coord that is up should
-            // always respond in milliseconds ; anything longer is
-            // almost certainly a hang worth surfacing early.
-            coord_http_client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(2))
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
-            coord_base_url: crate::http::resolve_coord_base_url(),
             coordinator_db: Arc::clone(&coordinator_db),
             result_event_tx,
             canary_registry: {

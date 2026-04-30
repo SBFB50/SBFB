@@ -580,31 +580,6 @@ async def test_daemon_publish_returns_503_when_daemon_down(
 
 
 @pytest.mark.asyncio
-async def test_project_publish_endpoint(nexus_grid_tmp: Path) -> None:
-    """POST /project/publish builds the payload from the coordinator
-    config and forwards to the daemon."""
-    with _FakeDaemon() as fake:
-        fake.set_response("POST", "/publish", 200, {"published": True})
-        _write_running_json(nexus_grid_tmp, port=fake.port)
-
-        coord = Coordinator(project_name="gov-publish-test")
-        await coord.start()
-        try:
-            with TestClient(create_app(coord)) as client:
-                r = client.post("/project/publish")
-                assert r.status_code == 200
-                body = r.json()
-                assert body["kind"] == "data"
-                assert body["body"]["published"] is True
-        finally:
-            await coord.stop()
-
-    post_calls = [c for c in fake.calls if c[0] == "POST" and c[1] == "/publish"]
-    assert len(post_calls) == 1
-    forwarded = json.loads(post_calls[0][2])
-    assert forwarded["project_name"] == "gov-publish-test"
-
-
 @pytest.mark.asyncio
 async def test_auto_publish_called_for_public_coordinator(
     nexus_grid_tmp: Path,

@@ -159,35 +159,3 @@ async def test_dispatcher_routes_redundant(nexus_grid_tmp: Path) -> None:
         await coord.stop()
 
 
-@pytest.mark.asyncio
-async def test_api_accepts_redundancy_factor(nexus_grid_tmp: Path) -> None:
-    """POST /tasks/submit with redundancy_factor=3 persists it."""
-    import json
-
-    from fastapi.testclient import TestClient
-    from nexus_coordinator.api.app import create_app
-    from nexus_coordinator.coordinator import Coordinator
-
-    coord = Coordinator(project_name="demo-api-rf")
-    coord.config.upload_queue.enabled = False
-    await coord.start()
-    try:
-        with TestClient(create_app(coord)) as client:
-            r = client.post(
-                "/tasks/submit",
-                json={
-                    "task_type": "a",
-                    "prompt": "p",
-                    "model": "m",
-                    "redundancy_factor": 3,
-                },
-            )
-            assert r.status_code == 200, r.json()
-
-        entries = await coord.state.doc.get_many_by_prefix(b"task:")
-        assert len(entries) == 1
-        blob = await coord.state.node.blobs().get_bytes(entries[0]["hash"])
-        entry = json.loads(blob.decode("utf-8"))
-        assert entry["task"]["redundancy_factor"] == 3
-    finally:
-        await coord.stop()

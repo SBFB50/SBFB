@@ -22,13 +22,9 @@ from __future__ import annotations
 import random
 import secrets
 from pathlib import Path
-from typing import Any
 
 import nexus_core
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from nexus_coordinator.api.canary import router as canary_router
 from nexus_coordinator.canary_input import (
     CANARY_INPUT_SET_VERSION,
     DEFAULT_INJECT_RATE,
@@ -225,115 +221,6 @@ def test_observer_pass_on_high_similarity() -> None:
     # Unknown prompt_id → also no alert, no record.
     observer.observe(prompt_id="does.not.exist", observed_answer="whatever")
     assert observer.stats["alerts"] == 0
-
-
-# ---------------------------------------------------------------------------
-# Test 5 — api_endpoints_smoke
-# ---------------------------------------------------------------------------
-
-
-class _StubCoordinator:
-    """Minimal stand-in that only exposes ``canary_input``."""
-
-    def __init__(self, manager: CanaryInputManager) -> None:
-        self.canary_input = manager
-        # ``/api/canary/network-health`` + ``/api/canary/observed``
-        # are the pre-existing endpoints on the same router. They
-        # require ``canary_registry`` which isn't under test here,
-        # so we set it to ``None`` — those endpoints return 503
-        # which is fine: our smoke test only hits the two new ones.
-        self.canary_registry = None
-
-
-def _build_app(manager: CanaryInputManager) -> FastAPI:
-    app = FastAPI()
-    app.state.coordinator = _StubCoordinator(manager)  # type: ignore[attr-defined]
-    app.include_router(canary_router)
-    return app
-
-
-def test_api_endpoints_smoke(tmp_path: Path) -> None:
-    """``/api/canary/inject-rate`` + ``/api/canary/observed-divergence``
-    wire through the manager and return 200 payloads shaped as expected."""
-    secret, public = _new_keypair()
-    canary_set = build_canary_input_set(_sample_prompts(), secret, public)
-    set_path = tmp_path / "canary_input_set.json"
-    save_canary_input_set(canary_set, set_path)
-
-    manager = CanaryInputManager(
-        policy_path=None,
-        canary_set_path=set_path,
-        coord_pubkey=public,
-    )
-    assert manager.current_set is not None
-
-    # Pre-seed the Observer with one divergence so the GET has
-    # something to return.
-    manager.observer.observe(
-        prompt_id="p.01",
-        observed_answer="completely off",
-        worker_pubkey_hex="beef" * 8,
-        now_unix=1_700_000_100,
-    )
-
-    app = _build_app(manager)
-    client = TestClient(app)
-
-    # POST /api/canary/inject-rate
-    resp = client.post("/api/canary/inject-rate", json={"inject_rate": 42})
-    assert resp.status_code == 200, resp.text
-    data: dict[str, Any] = resp.json()
-    assert data["status"] == "updated"
-    assert data["inject_rate"] == 42
-    assert manager.policy.inject_rate == 42
-    assert manager.injector.inject_rate == 42
-
-    # Bad body → 400
-    resp_bad = client.post("/api/canary/inject-rate", json={"nope": 1})
-    assert resp_bad.status_code == 400
-
-    # GET /api/canary/observed-divergence
-    resp = client.get("/api/canary/observed-divergence")
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["count"] == 1
-    assert len(data["divergences"]) == 1
-    record = data["divergences"][0]
-    assert record["prompt_id"] == "p.01"
-    assert record["worker_pubkey_hex"] == "beef" * 8
-    assert record["observed_at_unix"] == 1_700_000_100
-    assert data["observer_stats"]["alerts"] == 1
-
-
-# ---------------------------------------------------------------------------
-# Bonus — 503 when manager is missing (defence-in-depth smoke)
-# ---------------------------------------------------------------------------
-
-
-def test_api_503_when_canary_input_manager_absent() -> None:
-    """If the coordinator has no ``canary_input`` attribute the new
-    endpoints return 503. Guards against a stub coordinator breaking
-    production-like responses."""
-
-    class _CoordMissing:
-        canary_registry = None
-        canary_input = None
-
-    app = FastAPI()
-    app.state.coordinator = _CoordMissing()  # type: ignore[attr-defined]
-    app.include_router(canary_router)
-    client = TestClient(app)
-
-    resp = client.post("/api/canary/inject-rate", json={"inject_rate": 10})
-    assert resp.status_code == 503
-
-    resp = client.get("/api/canary/observed-divergence")
-    assert resp.status_code == 503
-
-
-# ---------------------------------------------------------------------------
-# Bonus — manager integration with maybe_inject + observe_result
-# ---------------------------------------------------------------------------
 
 
 def test_manager_maybe_inject_and_observe(tmp_path: Path) -> None:
