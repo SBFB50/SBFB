@@ -61,6 +61,7 @@ serde_json = { workspace = true }
 # usage to parsing the SBFB_IDENTITY_SECRET_HEX env var the
 # launcher hands to the daemon child at `sbfb unlock` time.
 hex = { workspace = true }
+sha2 = { workspace = true }
 
 # Sprint 20 Phase A : zero the hex-encoded identity secret after
 # parsing it out of the env var (see `runtime::read_optional_

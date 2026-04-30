@@ -29,7 +29,9 @@
 
 mod apps;
 mod cli;
+mod consent;
 mod deploy;
+mod files;
 mod http;
 mod logging;
 #[cfg(windows)]

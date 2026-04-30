@@ -281,6 +281,22 @@ pub fn build_router(
             "/api/v1/deploy-from-repo",
             post(crate::deploy::deploy_from_repo),
         )
+        .route("/api/v1/consent", get(crate::consent::get_consent))
+        .route("/api/v1/consent/set", post(crate::consent::set_consent))
+        .route(
+            "/api/v1/consent/whitelist/add",
+            post(crate::consent::whitelist_add),
+        )
+        .route(
+            "/api/v1/consent/whitelist/remove",
+            post(crate::consent::whitelist_remove),
+        )
+        .route("/api/v1/files/upload", post(crate::files::upload_file))
+        .route(
+            "/api/v1/files/{sha256}/manifest",
+            get(crate::files::get_manifest),
+        )
+        .route("/api/v1/files/{sha256}", get(crate::files::stream_file))
         .layer(middleware::from_fn_with_state(auth, auth_required));
 
     Router::new()
