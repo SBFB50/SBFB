@@ -4515,6 +4515,34 @@ mod tests {
     // --- Debt item 5: diagnostic error propagation ---
 
     #[tokio::test]
+    async fn diagnostic_fairness_returns_500_on_corrupted_db() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            db.execute_batch_raw("DROP TABLE IF EXISTS kudos")
+                .expect("drop kudos table");
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/diagnostic/fairness")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(body["error"]
+            .as_str()
+            .unwrap()
+            .contains("worker_contributions"));
+    }
+
+    #[tokio::test]
     async fn diagnostic_fairness_returns_500_on_poisoned_mutex() {
         let state = mk_state().await;
         let db_arc = Arc::clone(&state.coordinator_db);

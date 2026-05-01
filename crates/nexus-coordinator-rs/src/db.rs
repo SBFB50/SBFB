@@ -345,6 +345,12 @@ impl CoordinatorDb {
         &self.conn
     }
 
+    #[doc(hidden)]
+    pub fn execute_batch_raw(&self, sql: &str) -> Result<(), CoordinatorError> {
+        self.conn.execute_batch(sql)?;
+        Ok(())
+    }
+
     pub fn get_project_contributors(
         &self,
         project_id: &str,

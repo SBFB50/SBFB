@@ -77,7 +77,8 @@ pub async fn create_invite(
         .as_secs() as i64;
     let expires_at = now + body.expiry_secs;
     let seq = INVITE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let id = format!("inv-{now}-{seq}");
+    let node_prefix = &state.node_id[..8.min(state.node_id.len())];
+    let id = format!("inv-{node_prefix}-{now}-{seq}");
 
     let ledger = nexus_coordinator_rs::invite::InviteLedger::new(&db);
     let mut req =
