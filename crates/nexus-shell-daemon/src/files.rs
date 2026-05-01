@@ -19,16 +19,19 @@ use crate::http::DaemonHttpState;
 
 const MAX_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
 
-fn files_dir() -> Option<PathBuf> {
-    nexus_shell_daemon_core::auth::sbfb_home().map(|d| d.join("files"))
+fn files_dir(override_home: Option<&std::path::Path>) -> Option<PathBuf> {
+    let home = override_home
+        .map(|p| p.to_path_buf())
+        .or_else(nexus_shell_daemon_core::auth::sbfb_home);
+    home.map(|d| d.join("files"))
 }
 
-fn blob_path(sha: &str) -> Option<PathBuf> {
-    files_dir().map(|d| d.join(format!("{sha}.blob")))
+fn blob_path(sha: &str, override_home: Option<&std::path::Path>) -> Option<PathBuf> {
+    files_dir(override_home).map(|d| d.join(format!("{sha}.blob")))
 }
 
-fn manifest_path(sha: &str) -> Option<PathBuf> {
-    files_dir().map(|d| d.join(format!("{sha}.manifest.json")))
+fn manifest_path(sha: &str, override_home: Option<&std::path::Path>) -> Option<PathBuf> {
+    files_dir(override_home).map(|d| d.join(format!("{sha}.manifest.json")))
 }
 
 fn validate_sha256(s: &str) -> bool {
@@ -44,7 +47,7 @@ pub struct FileManifest {
 }
 
 pub async fn upload_file(
-    State(_state): State<Arc<DaemonHttpState>>,
+    State(state): State<Arc<DaemonHttpState>>,
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<(StatusCode, Json<FileManifest>), (StatusCode, String)> {
@@ -83,7 +86,7 @@ pub async fn upload_file(
         hex::encode(hasher.finalize())
     };
 
-    let dir = files_dir().ok_or((
+    let dir = files_dir(state.sbfb_home.as_deref()).ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "cannot resolve SBFB_HOME".into(),
     ))?;
@@ -116,13 +119,13 @@ pub async fn upload_file(
 }
 
 pub async fn get_manifest(
-    State(_state): State<Arc<DaemonHttpState>>,
+    State(state): State<Arc<DaemonHttpState>>,
     Path(sha256): Path<String>,
 ) -> Result<Json<FileManifest>, (StatusCode, String)> {
     if !validate_sha256(&sha256) {
         return Err((StatusCode::BAD_REQUEST, "invalid sha256 format".into()));
     }
-    let mp = manifest_path(&sha256).ok_or((
+    let mp = manifest_path(&sha256, state.sbfb_home.as_deref()).ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "cannot resolve SBFB_HOME".into(),
     ))?;
@@ -138,13 +141,13 @@ pub async fn get_manifest(
 }
 
 pub async fn stream_file(
-    State(_state): State<Arc<DaemonHttpState>>,
+    State(state): State<Arc<DaemonHttpState>>,
     Path(sha256): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if !validate_sha256(&sha256) {
         return Err((StatusCode::BAD_REQUEST, "invalid sha256 format".into()));
     }
-    let mp = manifest_path(&sha256).ok_or((
+    let mp = manifest_path(&sha256, state.sbfb_home.as_deref()).ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "cannot resolve SBFB_HOME".into(),
     ))?;
@@ -157,7 +160,7 @@ pub async fn stream_file(
     let manifest: FileManifest = serde_json::from_str(&manifest_body)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let bp = blob_path(&sha256).ok_or((
+    let bp = blob_path(&sha256, state.sbfb_home.as_deref()).ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "cannot resolve SBFB_HOME".into(),
     ))?;
@@ -221,9 +224,16 @@ mod tests {
 
     #[test]
     fn files_dir_uses_sbfb_home() {
-        let dir = files_dir();
+        let dir = files_dir(None);
         if let Some(d) = dir {
             assert!(d.ends_with("files"));
         }
+    }
+
+    #[test]
+    fn files_dir_override_home() {
+        let tmp = std::path::Path::new("/tmp/test-sbfb");
+        let dir = files_dir(Some(tmp)).unwrap();
+        assert_eq!(dir, tmp.join("files"));
     }
 }

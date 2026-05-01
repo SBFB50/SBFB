@@ -129,6 +129,7 @@ windows = { version = "0.57", features = [
 ] }
 
 [dev-dependencies]
+nexus-coordinator-rs = { path = "../nexus-coordinator-rs", features = ["test-support"] }
 # Sprint 12 Phase A: zip archive creation for blob-serve tests.
 zip = { workspace = true }
 # End-to-end tests spawn the real compiled binary with an

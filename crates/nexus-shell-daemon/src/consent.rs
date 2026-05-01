@@ -11,8 +11,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::http::DaemonHttpState;
 
-fn consent_path() -> Option<PathBuf> {
-    nexus_shell_daemon_core::auth::sbfb_home().map(|d| d.join("consent.json"))
+fn consent_path(override_home: Option<&std::path::Path>) -> Option<PathBuf> {
+    let home = override_home
+        .map(|p| p.to_path_buf())
+        .or_else(nexus_shell_daemon_core::auth::sbfb_home);
+    home.map(|d| d.join("consent.json"))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,8 +116,8 @@ fn enrich(mut cfg: ConsentConfig) -> ConsentConfig {
     cfg
 }
 
-fn load_consent() -> ConsentConfig {
-    let path = match consent_path() {
+fn load_consent(home: Option<&std::path::Path>) -> ConsentConfig {
+    let path = match consent_path(home) {
         Some(p) => p,
         None => return ConsentConfig::default(),
     };
@@ -125,8 +128,8 @@ fn load_consent() -> ConsentConfig {
     serde_json::from_str(&body).unwrap_or_default()
 }
 
-fn save_consent(cfg: &ConsentConfig) -> Result<(), String> {
-    let path = consent_path().ok_or("cannot resolve SBFB_HOME")?;
+fn save_consent(cfg: &ConsentConfig, home: Option<&std::path::Path>) -> Result<(), String> {
+    let path = consent_path(home).ok_or("cannot resolve SBFB_HOME")?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -141,12 +144,12 @@ fn validate_node_id(id: &str) -> bool {
     id.len() == 64 && id.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-pub async fn get_consent(State(_state): State<Arc<DaemonHttpState>>) -> Json<ConsentConfig> {
-    Json(enrich(load_consent()))
+pub async fn get_consent(State(state): State<Arc<DaemonHttpState>>) -> Json<ConsentConfig> {
+    Json(enrich(load_consent(state.sbfb_home.as_deref())))
 }
 
 pub async fn set_consent(
-    State(_state): State<Arc<DaemonHttpState>>,
+    State(state): State<Arc<DaemonHttpState>>,
     Json(cfg): Json<ConsentConfig>,
 ) -> Result<Json<ConsentConfig>, (StatusCode, String)> {
     if !(1..=4).contains(&cfg.level) {
@@ -160,7 +163,8 @@ pub async fn set_consent(
             ));
         }
     }
-    save_consent(&cfg).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    save_consent(&cfg, state.sbfb_home.as_deref())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     tracing::info!(
         level = cfg.level,
         whitelist_size = cfg.allowed_project_ids.len(),
@@ -176,7 +180,7 @@ pub struct WhitelistEntry {
 }
 
 pub async fn whitelist_add(
-    State(_state): State<Arc<DaemonHttpState>>,
+    State(state): State<Arc<DaemonHttpState>>,
     Json(entry): Json<WhitelistEntry>,
 ) -> Result<Json<ConsentConfig>, (StatusCode, String)> {
     let pid = match entry.project_id {
@@ -204,17 +208,18 @@ pub async fn whitelist_add(
         }
     };
 
-    let mut cfg = load_consent();
+    let mut cfg = load_consent(state.sbfb_home.as_deref());
     if !cfg.allowed_project_ids.contains(&pid) {
         cfg.allowed_project_ids.push(pid.clone());
-        save_consent(&cfg).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        save_consent(&cfg, state.sbfb_home.as_deref())
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
         tracing::info!(project_id = %pid, "consent whitelist add");
     }
     Ok(Json(cfg))
 }
 
 pub async fn whitelist_remove(
-    State(_state): State<Arc<DaemonHttpState>>,
+    State(state): State<Arc<DaemonHttpState>>,
     Json(entry): Json<WhitelistEntry>,
 ) -> Result<Json<ConsentConfig>, (StatusCode, String)> {
     let pid = entry.project_id.ok_or((
@@ -222,10 +227,11 @@ pub async fn whitelist_remove(
         "project_id required".into(),
     ))?;
 
-    let mut cfg = load_consent();
+    let mut cfg = load_consent(state.sbfb_home.as_deref());
     if let Some(pos) = cfg.allowed_project_ids.iter().position(|x| x == &pid) {
         cfg.allowed_project_ids.remove(pos);
-        save_consent(&cfg).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        save_consent(&cfg, state.sbfb_home.as_deref())
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
         tracing::info!(project_id = %pid, "consent whitelist remove");
     }
     Ok(Json(cfg))

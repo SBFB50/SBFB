@@ -346,6 +346,7 @@ impl CoordinatorDb {
     }
 
     #[doc(hidden)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn execute_batch_raw(&self, sql: &str) -> Result<(), CoordinatorError> {
         self.conn.execute_batch(sql)?;
         Ok(())

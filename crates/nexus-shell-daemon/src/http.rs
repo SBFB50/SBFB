@@ -143,6 +143,7 @@ pub struct DaemonHttpState {
         std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::canary_registry::CanaryRegistry>>,
     pub canary_input:
         Option<std::sync::Arc<nexus_coordinator_rs::canary_input::CanaryInputManager>>,
+    pub sbfb_home: Option<std::path::PathBuf>,
 }
 
 impl DaemonHttpState {
@@ -1675,6 +1676,12 @@ mod tests {
         mk_state_with_mode(nexus_core_rs::IdentityMode::Normal).await
     }
 
+    async fn mk_state_with_sbfb_home(home: std::path::PathBuf) -> Arc<DaemonHttpState> {
+        let mut state = (*mk_state().await).clone();
+        state.sbfb_home = Some(home);
+        Arc::new(state)
+    }
+
     async fn mk_state_with_mode(mode: nexus_core_rs::IdentityMode) -> Arc<DaemonHttpState> {
         let node = create_node().await.expect("boot test node");
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1724,6 +1731,7 @@ mod tests {
             canary_input: Some(std::sync::Arc::new(
                 nexus_coordinator_rs::canary_input::CanaryInputManager::new(None, None, None),
             )),
+            sbfb_home: None,
         })
     }
 
@@ -2474,6 +2482,7 @@ mod tests {
             canary_input: Some(std::sync::Arc::new(
                 nexus_coordinator_rs::canary_input::CanaryInputManager::new(None, None, None),
             )),
+            sbfb_home: None,
         });
         let app = build_test_router(state);
         let resp = app
@@ -4177,7 +4186,11 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::CREATED);
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
-        assert!(body["id"].as_str().is_some());
+        let id = body["id"].as_str().expect("id must be a string");
+        assert!(id.starts_with("inv-"), "invite ID must start with inv-");
+        let parts: Vec<&str> = id.split('-').collect();
+        assert_eq!(parts.len(), 4, "format inv-{{node8}}-{{ts}}-{{seq}}");
+        assert_eq!(parts[1].len(), 8, "node_id prefix must be 8 hex chars");
         assert_eq!(body["scope"], "worker");
     }
 
@@ -4809,8 +4822,7 @@ mod tests {
     #[tokio::test]
     async fn consent_set_level_2_returns_200() {
         let tmp = tempfile::tempdir().expect("tmpdir");
-        std::env::set_var("SBFB_HOME", tmp.path());
-        let app = build_test_router(mk_state().await);
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -4831,8 +4843,7 @@ mod tests {
     #[tokio::test]
     async fn consent_get_returns_persisted_level() {
         let tmp = tempfile::tempdir().expect("tmpdir");
-        std::env::set_var("SBFB_HOME", tmp.path());
-        let state = mk_state().await;
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
 
         let app1 = build_test_router(Arc::clone(&state));
         let resp = app1
@@ -4868,8 +4879,7 @@ mod tests {
     #[tokio::test]
     async fn consent_whitelist_add_returns_200() {
         let tmp = tempfile::tempdir().expect("tmpdir");
-        std::env::set_var("SBFB_HOME", tmp.path());
-        let app = build_test_router(mk_state().await);
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
         let pid = "a".repeat(64);
         let resp = app
             .oneshot(
@@ -4897,8 +4907,7 @@ mod tests {
     #[tokio::test]
     async fn consent_whitelist_remove_returns_200() {
         let tmp = tempfile::tempdir().expect("tmpdir");
-        std::env::set_var("SBFB_HOME", tmp.path());
-        let state = mk_state().await;
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
         let pid = "b".repeat(64);
 
         let app1 = build_test_router(Arc::clone(&state));
@@ -4944,8 +4953,7 @@ mod tests {
     #[tokio::test]
     async fn files_upload_small_returns_201_with_sha() {
         let tmp = tempfile::tempdir().expect("tmpdir");
-        std::env::set_var("SBFB_HOME", tmp.path());
-        let app = build_test_router(mk_state().await);
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -4969,8 +4977,7 @@ mod tests {
     #[tokio::test]
     async fn files_manifest_after_upload_returns_200() {
         let tmp = tempfile::tempdir().expect("tmpdir");
-        std::env::set_var("SBFB_HOME", tmp.path());
-        let state = mk_state().await;
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
 
         let app1 = build_test_router(Arc::clone(&state));
         let resp = app1
@@ -5009,8 +5016,7 @@ mod tests {
     #[tokio::test]
     async fn files_stream_after_upload_returns_content() {
         let tmp = tempfile::tempdir().expect("tmpdir");
-        std::env::set_var("SBFB_HOME", tmp.path());
-        let state = mk_state().await;
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
         let content = b"stream test content";
 
         let app1 = build_test_router(Arc::clone(&state));

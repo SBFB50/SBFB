@@ -514,6 +514,7 @@ impl DaemonRuntime {
                 ))
             },
             canary_input: None,
+            sbfb_home: None,
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
