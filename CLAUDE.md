@@ -121,27 +121,24 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-46 CLOSED**, v1.2 en cours. Audit gate S46 = S47
-  Phase 0 (`.planning/active/sprint47_audit_plan.md`).
-- **~1984 tests total** (1168 Rust / 195 SDK / 323+23f+6s coord / 46
+- **Sprints 0-47 CLOSED**, v1.2 en cours. Audit gate S47 = S48
+  Phase 0 (`.planning/active/sprint48_audit_plan.md`).
+- **~1936 tests total** (1185 Rust / 195 SDK / 264+17f+6s coord / 46
   app-gov / 267 Vitest / 42+2f Playwright / 5/5 size-limit) — tous
-  verts code (23 coord fail PyO3 wheel stale + 2 PW env fail —
-  meme root cause wheel/env stale, pas regression). S46 ajoute
-  +36 tests Rust (integration tests 26 routes), -1 Vitest (proxy
-  envelope test retire), -260 LOC frontend (migration daemon direct).
-- Carry S47 : P2-A-1 rand blocker upstream (exemption externe) ;
+  verts code (17 coord fail PyO3 wheel stale + 2 PW env fail —
+  meme root cause wheel/env stale, pas regression). S47 ajoute
+  +17 tests Rust (diagnostic Err + 9 integration tests 5 routes +
+  7 happy path consent/files), -65 Python (7 modules dead code
+  supprimes), deprecated aliases frontend supprimes.
+- Carry S48 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P2-REVIEW-A-1-S45 diagnostic Err path non teste 2/3 ;
-  P2-REVIEW-A-2-S45 invite ID collision multi-daemon 2/3 ;
-  P2-REVIEW-B-1-S45 modules Python suppression differee 2/3 ;
-  P3-AUDIT-B-4-S45 TOCTOU canary reload 1/3 ;
-  P2-INT-1-S46 integration tests deploy.rs + apps.rs 1/3 ;
-  P2-INT-2-S46 integration test auth/token 1/3 ;
-  P2-REVIEW-A-1-S46 consent happy path 1/3 ;
-  P2-REVIEW-A-2-S46 files upload happy path 1/3 ;
-  P2-REVIEW-B-1-S46 kudos SQL pagination 1/3 ;
-  P2-REVIEW-C-1-S46 app-specific schema drift 1/3 ;
-  P2-REVIEW-C-2-S46 deprecated error class aliases 1/3.
+  P3-AUDIT-B-4-S45 TOCTOU canary reload 2/3 ;
+  P2-REVIEW-B-1-S46 kudos SQL pagination 2/3 ;
+  P2-REVIEW-C-1-S46 app-specific schema drift 2/3 ;
+  P2-REVIEW-A-1-S47 execute_batch_raw pub 1/3 ;
+  P2-REVIEW-A-2-S47 invite format test 1/3 ;
+  P2-REVIEW-B-1-S47 deploy BlobsClient fragility 1/3 ;
+  P2-REVIEW-C-1-S47 set_var process-wide 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
