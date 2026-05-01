@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-04-30  # G2 — Sprint 45 CLOSED : suppression maximale coordinator Python (invite+quarantine portees, 14 routes DELETE, 12 tests DELETE, dead code Rust supprime, 7 carries resolus dont SHA-256→BLAKE3). Compteurs 1132 Rust / 195 SDK / 323+23f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 7/7 size / ~1948 total. 0 trigger actif.
+last_validated: 2026-05-01  # G2 — Sprint 46 CLOSED : integration tests MANDATORY 12+14 routes Router::oneshot() + dette pair S44 5 items + frontend direct-daemon migration coordinator→daemon. Compteurs 1168 Rust / 195 SDK / 323+23f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 5/5 size / ~1984 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
