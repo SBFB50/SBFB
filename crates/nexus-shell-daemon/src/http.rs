@@ -4566,4 +4566,239 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
+
+    // --- deploy.rs integration tests (2 routes) ---
+
+    fn make_test_zip() -> Vec<u8> {
+        use std::io::Write;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut zw = zip::ZipWriter::new(&mut buf);
+            let opts = zip::write::SimpleFileOptions::default();
+            zw.start_file("index.html", opts).unwrap();
+            zw.write_all(b"<html><body>test</body></html>").unwrap();
+            zw.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    #[tokio::test]
+    async fn deploy_private_valid_zip_returns_200() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+        let zip = make_test_zip();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/deploy")
+                    .body(axum::body::Body::from(zip))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["deployed"], true);
+        assert!(body["hash"].as_str().unwrap().len() >= 32);
+    }
+
+    #[tokio::test]
+    async fn deploy_private_invalid_zip_returns_400() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/deploy")
+                    .body(axum::body::Body::from(b"not a zip".to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn deploy_from_repo_non_http_url_returns_400() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/deploy-from-repo")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({
+                            "repo_url": "ssh://git@github.com/test/repo.git",
+                            "project_name": "test"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn deploy_from_repo_invalid_sha_returns_400() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/deploy-from-repo")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({
+                            "repo_url": "https://github.com/test/repo.git",
+                            "project_name": "test",
+                            "commit_sha": "not-a-sha"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // --- apps.rs integration tests (2 routes) ---
+
+    #[tokio::test]
+    async fn apps_list_empty_returns_200() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/apps")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+    }
+
+    #[tokio::test]
+    async fn apps_list_with_entries_returns_populated() {
+        use nexus_shell_daemon_core::browse::{BrowseEntry, BrowseSource, BrowseStatus};
+        let state = mk_state().await;
+        state.browse_aggregator.add_direct_entry(BrowseEntry {
+            project_id: "a".repeat(64),
+            project_name: "Test App".into(),
+            category: "test".into(),
+            description: "A test app".into(),
+            curator_pubkey: "b".repeat(64),
+            curator_name: "Test Curator".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: Some("c".repeat(64)),
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        });
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/apps")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 1);
+        assert_eq!(body["apps"][0]["project_name"], "Test App");
+    }
+
+    #[tokio::test]
+    async fn apps_get_by_id_returns_detail() {
+        use nexus_shell_daemon_core::browse::{BrowseEntry, BrowseSource, BrowseStatus};
+        let state = mk_state().await;
+        let pid = "d".repeat(64);
+        state.browse_aggregator.add_direct_entry(BrowseEntry {
+            project_id: pid.clone(),
+            project_name: "Detail App".into(),
+            category: "test".into(),
+            description: "Detailed".into(),
+            curator_pubkey: "e".repeat(64),
+            curator_name: "Curator".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: None,
+            repo_url: Some("https://example.com/repo".into()),
+            provenance_hash: None,
+            is_open_source: true,
+        });
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/apps/{pid}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["project_name"], "Detail App");
+        assert_eq!(body["is_open_source"], true);
+    }
+
+    #[tokio::test]
+    async fn apps_get_unknown_id_returns_404() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/apps/nonexistent")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    // --- auth/token integration test (1 route) ---
+
+    #[tokio::test]
+    async fn auth_token_returns_200_from_loopback() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/auth/token")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["token"], TEST_TOKEN);
+    }
 }
