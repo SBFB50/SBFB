@@ -40,21 +40,17 @@ const REMOTE_NODE_ID = "bb".repeat(32);
 // coordinator's GET /health.
 function makeDaemonInfo(nodeId: string = LOCAL_NODE_ID) {
   return {
-    kind: "data",
-    status: 200,
-    body: {
-      schema_version: 1,
-      node_id: nodeId,
-      daemon_version: "1.0.0",
-      uptime_secs: 120,
-      started_at: "2026-04-12T10:00:00Z",
-      last_updated_at: "2026-04-12T12:00:00Z",
-      api_host: "127.0.0.1",
-      api_port: 7000,
-      subscribed_curators: [],
-      known_lists: 0,
-      known_browse_entries: 1,
-    },
+    schema_version: 1,
+    node_id: nodeId,
+    daemon_version: "1.0.0",
+    uptime_secs: 120,
+    started_at: "2026-04-12T10:00:00Z",
+    last_updated_at: "2026-04-12T12:00:00Z",
+    api_host: "127.0.0.1",
+    api_port: 7000,
+    subscribed_curators: [],
+    known_lists: 0,
+    known_browse_entries: 1,
   };
 }
 
@@ -135,12 +131,8 @@ afterEach(() => {
 describe("BrowsedProject", () => {
   it("renders a back link to /browse in the auto-hide top bar", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: { entries: [makeBrowseEntry()] },
-      },
-      "/daemon/info": makeDaemonInfo(),
+      "/browse": { entries: [makeBrowseEntry()] },
+      "/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -164,12 +156,8 @@ describe("BrowsedProject", () => {
 
   it("renders 'project not found' when entry is not in browse list", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: { entries: [] },
-      },
-      "/daemon/info": makeDaemonInfo(),
+      "/browse": { entries: [] },
+      "/info": makeDaemonInfo(),
     });
     renderPage("ff".repeat(32));
     await waitFor(() => {
@@ -180,12 +168,8 @@ describe("BrowsedProject", () => {
 
   it("renders project name in auto-hide top bar when entry is found", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: { entries: [makeBrowseEntry()] },
-      },
-      "/daemon/info": makeDaemonInfo(),
+      "/browse": { entries: [makeBrowseEntry()] },
+      "/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -197,14 +181,10 @@ describe("BrowsedProject", () => {
 
   it("renders remote placeholder for non-local project without archive", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: {
+      "/browse": {
           entries: [makeBrowseEntry({ project_id: REMOTE_NODE_ID })],
-        },
       },
-      "/daemon/info": makeDaemonInfo(),
+      "/info": makeDaemonInfo(),
     });
     renderPage(REMOTE_NODE_ID);
     await waitFor(() => {
@@ -215,20 +195,16 @@ describe("BrowsedProject", () => {
 
   it("renders iframe for remote project with archive_hash", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: {
-          entries: [
-            makeBrowseEntry({
-              project_id: REMOTE_NODE_ID,
-              archive_ticket: "blobticket_abc123",
-              archive_hash: "ab".repeat(32),
-            }),
-          ],
-        },
+      "/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            archive_ticket: "blobticket_abc123",
+            archive_hash: "ab".repeat(32),
+          }),
+        ],
       },
-      "/daemon/info": makeDaemonInfo(),
+      "/info": makeDaemonInfo(),
     });
     renderPage(REMOTE_NODE_ID);
     await waitFor(() => {
@@ -245,19 +221,15 @@ describe("BrowsedProject", () => {
 
   it("renders sandbox label in top bar for iframe content", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: {
-          entries: [
-            makeBrowseEntry({
-              project_id: REMOTE_NODE_ID,
-              archive_hash: "ab".repeat(32),
-            }),
-          ],
-        },
+      "/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            archive_hash: "ab".repeat(32),
+          }),
+        ],
       },
-      "/daemon/info": makeDaemonInfo(),
+      "/info": makeDaemonInfo(),
     });
     renderPage(REMOTE_NODE_ID);
     await waitFor(() => {
@@ -268,12 +240,8 @@ describe("BrowsedProject", () => {
 
   it("renders local project apps view for matching daemon node_id", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: { entries: [makeBrowseEntry()] },
-      },
-      "/daemon/info": makeDaemonInfo(),
+      "/browse": { entries: [makeBrowseEntry()] },
+      "/info": makeDaemonInfo(),
       "/app": {
         apps: [
           {
@@ -299,12 +267,8 @@ describe("BrowsedProject", () => {
 
   it("renders 'no apps' message when local project has zero apps", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: { entries: [makeBrowseEntry()] },
-      },
-      "/daemon/info": makeDaemonInfo(),
+      "/browse": { entries: [makeBrowseEntry()] },
+      "/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -318,14 +282,10 @@ describe("BrowsedProject", () => {
 
   it("renders source badge 'Auto-publie' for direct entries in top bar", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: {
-          entries: [makeBrowseEntry({ source: "direct" })],
-        },
+      "/browse": {
+        entries: [makeBrowseEntry({ source: "direct" })],
       },
-      "/daemon/info": makeDaemonInfo(),
+      "/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -337,18 +297,14 @@ describe("BrowsedProject", () => {
 
   it("renders repo link for entry with repo_url", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: {
-          entries: [
-            makeBrowseEntry({
-              repo_url: "https://github.com/example/gov",
-            }),
-          ],
-        },
+      "/browse": {
+        entries: [
+          makeBrowseEntry({
+            repo_url: "https://github.com/example/gov",
+          }),
+        ],
       },
-      "/daemon/info": makeDaemonInfo(),
+      "/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -362,12 +318,8 @@ describe("BrowsedProject", () => {
 
   it("does not render repo link when repo_url is absent", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: { entries: [makeBrowseEntry()] },
-      },
-      "/daemon/info": makeDaemonInfo(),
+      "/browse": { entries: [makeBrowseEntry()] },
+      "/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -379,18 +331,14 @@ describe("BrowsedProject", () => {
 
   it("renders verified badge when provenance_hash is present", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: {
-          entries: [
-            makeBrowseEntry({
-              provenance_hash: "bb".repeat(32),
-            }),
-          ],
-        },
+      "/browse": {
+        entries: [
+          makeBrowseEntry({
+            provenance_hash: "bb".repeat(32),
+          }),
+        ],
       },
-      "/daemon/info": makeDaemonInfo(),
+      "/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -401,12 +349,8 @@ describe("BrowsedProject", () => {
 
   it("does not render verified badge when provenance_hash is absent", async () => {
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: { entries: [makeBrowseEntry()] },
-      },
-      "/daemon/info": makeDaemonInfo(),
+      "/browse": { entries: [makeBrowseEntry()] },
+      "/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);
@@ -421,12 +365,8 @@ describe("BrowsedProject", () => {
     // app stops emitting heartbeats. At mount the state is unknown
     // and the user sees a clean iframe, not a "ne repond plus" alert.
     mockFetch({
-      "/daemon/browse": {
-        kind: "data",
-        status: 200,
-        body: { entries: [makeBrowseEntry()] },
-      },
-      "/daemon/info": makeDaemonInfo(),
+      "/browse": { entries: [makeBrowseEntry()] },
+      "/info": makeDaemonInfo(),
       "/app": { apps: [], count: 0 },
     });
     renderPage(LOCAL_NODE_ID);

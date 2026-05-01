@@ -88,7 +88,7 @@ function IntegrityBadge({
     );
   }
   const v = verifyQuery.data!;
-  if (v.ok) {
+  if (v.valid) {
     return (
       <Card>
         <CardContent className="flex items-center gap-3 p-4">
@@ -125,8 +125,7 @@ function IntegrityBadge({
             Hash chain corrompue
           </p>
           <p className="text-xs text-muted-foreground">
-            Première ligne corrompue : {v.first_bad_row_id ?? "?"}. Ce
-            registre ne doit pas être considéré comme de confiance.
+            Ce registre ne doit pas être considéré comme de confiance.
           </p>
         </div>
         <Badge variant="outline" className="ml-auto border-destructive/40 text-destructive">
@@ -147,34 +146,30 @@ function KudosTable({
       <table className="w-full text-left text-xs">
         <thead>
           <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground">
-            <th className="py-2 pr-3">#</th>
+            <th className="py-2 pr-3">ID</th>
             <th className="py-2 pr-3">Worker</th>
             <th className="py-2 pr-3">Task</th>
-            <th className="py-2 pr-3 text-right">Tokens</th>
-            <th className="py-2 pr-3 text-right">Qualité</th>
-            <th className="py-2 pr-3 text-right">Trust</th>
+            <th className="py-2 pr-3">Projet</th>
             <th className="py-2 pr-3 text-right">Montant</th>
           </tr>
         </thead>
         <tbody>
           {entries.map((e) => (
-            <tr key={e.id} className="border-b border-border/50">
-              <td className="py-2 pr-3 text-muted-foreground">{e.id}</td>
+            <tr key={e.entry_id} className="border-b border-border/50">
+              <td className="py-2 pr-3 font-mono text-muted-foreground">
+                {formatHash(e.entry_id, 12)}
+              </td>
               <td className="py-2 pr-3 font-mono">
-                {formatHash(e.worker_pubkey_hex, 12)}
+                {formatHash(e.worker_node_id, 12)}
               </td>
               <td className="py-2 pr-3 font-mono">
                 {formatHash(e.task_id, 12)}
               </td>
-              <td className="py-2 pr-3 text-right">{e.tokens}</td>
-              <td className="py-2 pr-3 text-right">
-                {e.quality_factor.toFixed(2)}
-              </td>
-              <td className="py-2 pr-3 text-right">
-                {e.trust_multiplier.toFixed(2)}
+              <td className="py-2 pr-3 font-mono">
+                {formatHash(e.project_id, 12)}
               </td>
               <td className="py-2 pr-3 text-right font-medium">
-                {e.amount.toFixed(2)}
+                {e.amount}
               </td>
             </tr>
           ))}

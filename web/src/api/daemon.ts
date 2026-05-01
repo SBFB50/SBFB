@@ -1,67 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Typed client for the Sprint 7 Phase E coordinator
- * `/daemon/*` proxy. Every call in this module lives on top of
- * the shared `getJson` / `postJson` / `deleteJson` helpers from
- * `./coordinator.ts` and returns a **discriminated union** so
- * the React layer can render "daemon offline" as a normal UX
- * state rather than as an error boundary trip.
+ * Typed client for daemon core routes (info, curators, browse,
+ * panic wipe). Calls the daemon directly (same-origin) without
+ * any proxy envelope.
  *
- * Sprint 7 D1 freezes the path: the shell never talks to the
- * `nexus-shell-daemon` binary directly. Every call goes
- * `shell → coordinator → daemon`, and the coordinator proxy
- * wraps the upstream response in one of:
- *
- *   - `{ kind: "data",        status, body }` — the daemon
- *     answered (any HTTP status, not necessarily 2xx)
- *   - `{ kind: "unavailable", reason }`      — daemon offline
- *     or proxy transport failure
- *   - `{ kind: "error",       reason }`      — proxy-level
- *     400 (e.g. malformed request body caught before forward)
- *
- * This module mirrors that envelope in Zod and exposes helper
- * `*Result` unions so callers see the three outcomes as a
- * closed set. No `as any`, no raw fetches, no thrown errors
- * for "daemon not running" — that's a first-class return
- * value.
+ * Returns a `DaemonResult<T>` discriminated union so the React
+ * layer can render "daemon offline" as a normal UX state rather
+ * than as an error boundary trip.
  */
 
 import { z } from "zod";
 
 import { authFetch } from "@/api/auth";
 import {
-  CoordinatorHttpError,
-  CoordinatorProtocolError,
+  ApiProtocolError,
 } from "@/api/coordinator";
-
-// =================================================================
-// Proxy envelope
-// =================================================================
-
-/**
- * Shape-only validation for the proxy envelope: we check the
- * `kind` / `status` / shape-of-body, then hand the body off to
- * the caller's Zod schema separately. This split avoids a
- * generic-inference headache where `z.object({ body: bodySchema })`
- * spreads an `addQuestionMarks<...>` type back over the caller's
- * `T` — Zod's input/output asymmetry leaks through the generic
- * boundary otherwise.
- */
-const ProxyDataEnvelopeRaw = z.object({
-  kind: z.literal("data"),
-  status: z.number().int(),
-  body: z.unknown(),
-});
-
-const ProxyUnavailableEnvelope = z.object({
-  kind: z.literal("unavailable"),
-  reason: z.string(),
-});
-
-const ProxyErrorEnvelope = z.object({
-  kind: z.literal("error"),
-  reason: z.string(),
-});
 
 // =================================================================
 // Payload schemas — mirror the Rust daemon's wire types
@@ -244,10 +197,10 @@ export type DaemonResult<T> =
   | { kind: "error"; reason: string };
 
 // =================================================================
-// Internal: call the proxy + unwrap the envelope + Zod the body
+// Internal: call the daemon directly (no proxy envelope)
 // =================================================================
 
-async function callProxy<T>(
+async function callDaemon<T>(
   baseUrl: string,
   path: string,
   bodySchema: z.ZodType<T>,
@@ -270,58 +223,37 @@ async function callProxy<T>(
     };
   }
 
+  if (res.status === 503) {
+    return { kind: "unavailable", reason: "daemon unavailable" };
+  }
+
+  if (!res.ok) {
+    return {
+      kind: "error",
+      reason: `HTTP ${res.status} ${res.statusText}`,
+    };
+  }
+
   let raw: unknown;
   try {
     raw = await res.json();
   } catch (e) {
     return {
       kind: "error",
-      reason: `non-json body from proxy (status ${res.status}): ${
+      reason: `non-json response (status ${res.status}): ${
         e instanceof Error ? e.message : "parse error"
       }`,
     };
   }
 
-  // 503 → always `unavailable`
-  if (res.status === 503) {
-    const parsed = ProxyUnavailableEnvelope.safeParse(raw);
-    if (parsed.success) {
-      return { kind: "unavailable", reason: parsed.data.reason };
-    }
-    return {
-      kind: "unavailable",
-      reason: "daemon unavailable (and envelope unreadable)",
-    };
-  }
-
-  // 400 from the proxy itself → `error`
-  if (res.status === 400) {
-    const parsed = ProxyErrorEnvelope.safeParse(raw);
-    if (parsed.success) {
-      return { kind: "error", reason: parsed.data.reason };
-    }
-    return {
-      kind: "error",
-      reason: `proxy 400 (and envelope unreadable)`,
-    };
-  }
-
-  // Everything else must be the `data` envelope.
-  if (!res.ok) {
-    throw new CoordinatorHttpError(path, res.status, res.statusText);
-  }
-  const envelopeParsed = ProxyDataEnvelopeRaw.safeParse(raw);
-  if (!envelopeParsed.success) {
-    throw new CoordinatorProtocolError(path, envelopeParsed.error.issues, raw);
-  }
-  const bodyParsed = bodySchema.safeParse(envelopeParsed.data.body);
-  if (!bodyParsed.success) {
-    throw new CoordinatorProtocolError(path, bodyParsed.error.issues, raw);
+  const parsed = bodySchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ApiProtocolError(path, parsed.error.issues, raw);
   }
   return {
     kind: "data",
-    status: envelopeParsed.data.status,
-    body: bodyParsed.data,
+    status: res.status,
+    body: parsed.data,
   };
 }
 
@@ -330,20 +262,20 @@ async function callProxy<T>(
 // =================================================================
 
 export function getDaemonInfo(baseUrl: string): Promise<DaemonResult<DaemonInfo>> {
-  return callProxy(baseUrl, "/daemon/info", DaemonInfoSchema);
+  return callDaemon(baseUrl, "/info", DaemonInfoSchema);
 }
 
 export function listCurators(
   baseUrl: string,
 ): Promise<DaemonResult<DaemonCuratorsResponse>> {
-  return callProxy(baseUrl, "/daemon/curators", DaemonCuratorsResponseSchema);
+  return callDaemon(baseUrl, "/curators", DaemonCuratorsResponseSchema);
 }
 
 export function subscribeCurator(
   baseUrl: string,
   curatorPubkeyHex: string,
 ): Promise<DaemonResult<SubscriptionsResponse>> {
-  return callProxy(baseUrl, "/daemon/curators/subscribe", SubscriptionsResponseSchema, {
+  return callDaemon(baseUrl, "/curators/subscribe", SubscriptionsResponseSchema, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ curator_pubkey_hex: curatorPubkeyHex }),
@@ -354,9 +286,9 @@ export function unsubscribeCurator(
   baseUrl: string,
   curatorPubkeyHex: string,
 ): Promise<DaemonResult<SubscriptionsResponse>> {
-  return callProxy(
+  return callDaemon(
     baseUrl,
-    `/daemon/curators/${encodeURIComponent(curatorPubkeyHex)}`,
+    `/curators/${encodeURIComponent(curatorPubkeyHex)}`,
     SubscriptionsResponseSchema,
     { method: "DELETE" },
   );
@@ -365,16 +297,11 @@ export function unsubscribeCurator(
 export function listBrowse(
   baseUrl: string,
 ): Promise<DaemonResult<BrowseListResponse>> {
-  return callProxy(baseUrl, "/daemon/browse", BrowseListResponseSchema);
+  return callDaemon(baseUrl, "/browse", BrowseListResponseSchema);
 }
 
 /**
- * Sprint 20 Phase B — response shape of `POST /daemon/panic/wipe`.
- *
  * Mirrors the Rust handler's `{ "wiped": true }` success envelope.
- * On failure the daemon returns the standard `{ error: string }`
- * body and a 5xx status, which `callProxy` surfaces via the
- * `CoordinatorHttpError` path.
  */
 export const PanicWipeResponseSchema = z
   .object({ wiped: z.literal(true) })
@@ -396,7 +323,7 @@ export type PanicWipeResponse = z.infer<typeof PanicWipeResponseSchema>;
 export function triggerPanicWipe(
   baseUrl: string,
 ): Promise<DaemonResult<PanicWipeResponse>> {
-  return callProxy(baseUrl, "/daemon/panic/wipe", PanicWipeResponseSchema, {
+  return callDaemon(baseUrl, "/panic/wipe", PanicWipeResponseSchema, {
     method: "POST",
   });
 }

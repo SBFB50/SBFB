@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Typed client for the `nexus-coordinator` HTTP API.
+ * Typed client for the daemon HTTP API.
  *
- * Every response coming off the coordinator is parsed through a
- * Zod schema before reaching the React layer. No component in the
- * shell is allowed to call `fetch` directly — it must go through
- * a helper in this module. See `.planning/sprint5_plan.md` §4.3
- * and the operational rule R2 (no raw fetch, no `as any`).
+ * Every response is parsed through a Zod schema before reaching the
+ * React layer. No component in the shell is allowed to call `fetch`
+ * directly — it must go through a helper in this module.
  *
- * The types exported here (`Health`, `Project`, etc.) are
- * `z.infer`red from the schemas so every response shape has
- * exactly one source of truth.
+ * Standard routes (tasks, kudos, invites, etc.) call the daemon at
+ * `/api/v1/*`. App-specific routes (`/app/*`) still target the
+ * coordinator Python runtime.
  */
 
 import { z } from "zod";
@@ -22,13 +20,7 @@ import { TabViewSchema, type TabView } from "@/components/app/tabview/schema";
 // Generic helpers
 // =================================================================
 
-/**
- * Thrown when the coordinator returns HTTP 2xx but the body does
- * not match the expected schema. Carries the original Zod issues
- * so callers (and the React error boundary) can render a useful
- * diagnostic.
- */
-export class CoordinatorProtocolError extends Error {
+export class ApiProtocolError extends Error {
   public readonly issues: z.ZodIssue[];
   public readonly rawBody: unknown;
 
@@ -38,46 +30,45 @@ export class CoordinatorProtocolError extends Error {
     rawBody: unknown,
   ) {
     super(
-      `coordinator protocol error on ${endpoint}: ${issues
+      `API protocol error on ${endpoint}: ${issues
         .map((i) => `${i.path.join(".")}: ${i.message}`)
         .join(", ")}`,
     );
-    this.name = "CoordinatorProtocolError";
+    this.name = "ApiProtocolError";
     this.issues = issues;
     this.rawBody = rawBody;
   }
 }
 
-/**
- * Thrown when the coordinator returns a non-2xx status.
- */
-export class CoordinatorHttpError extends Error {
+export class ApiHttpError extends Error {
   public readonly status: number;
   public readonly endpoint: string;
 
   constructor(endpoint: string, status: number, statusText: string) {
     super(
-      `coordinator returned HTTP ${status} ${statusText} for ${endpoint}`,
+      `API returned HTTP ${status} ${statusText} for ${endpoint}`,
     );
-    this.name = "CoordinatorHttpError";
+    this.name = "ApiHttpError";
     this.status = status;
     this.endpoint = endpoint;
   }
 }
 
-/**
- * Normalize a user-entered coordinator URL:
- * - trims whitespace
- * - strips any trailing slash
- * - rejects empty strings (the caller shows a validation error)
- */
-export function normalizeCoordinatorUrl(raw: string): string {
+/** @deprecated Use {@link ApiProtocolError} */
+export const CoordinatorProtocolError = ApiProtocolError;
+/** @deprecated Use {@link ApiHttpError} */
+export const CoordinatorHttpError = ApiHttpError;
+
+export function normalizeApiUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, "");
   if (!trimmed) {
-    throw new Error("coordinator URL is empty");
+    throw new Error("API URL is empty");
   }
   return trimmed;
 }
+
+/** @deprecated Use {@link normalizeApiUrl} */
+export const normalizeCoordinatorUrl = normalizeApiUrl;
 
 async function getJson<T>(
   baseUrl: string,
@@ -94,12 +85,12 @@ async function getJson<T>(
     },
   });
   if (!res.ok) {
-    throw new CoordinatorHttpError(path, res.status, res.statusText);
+    throw new ApiHttpError(path, res.status, res.statusText);
   }
   const raw: unknown = await res.json();
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
-    throw new CoordinatorProtocolError(path, parsed.error.issues, raw);
+    throw new ApiProtocolError(path, parsed.error.issues, raw);
   }
   return parsed.data;
 }
@@ -120,12 +111,12 @@ async function postJson<T>(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new CoordinatorHttpError(path, res.status, res.statusText);
+    throw new ApiHttpError(path, res.status, res.statusText);
   }
   const raw: unknown = await res.json();
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
-    throw new CoordinatorProtocolError(path, parsed.error.issues, raw);
+    throw new ApiProtocolError(path, parsed.error.issues, raw);
   }
   return parsed.data;
 }
@@ -141,21 +132,28 @@ async function deleteJson<T>(
     headers: { accept: "application/json" },
   });
   if (!res.ok) {
-    throw new CoordinatorHttpError(path, res.status, res.statusText);
+    throw new ApiHttpError(path, res.status, res.statusText);
   }
   const raw: unknown = await res.json();
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
-    throw new CoordinatorProtocolError(path, parsed.error.issues, raw);
+    throw new ApiProtocolError(path, parsed.error.issues, raw);
   }
   return parsed.data;
 }
 
 // =================================================================
-// Schemas — mirror the FastAPI response shapes verified in
-// packages/nexus-coordinator/src/nexus_coordinator/api/*.py on
-// 2026-04-10 and frozen in sprint5_plan.md §1.
+// Schemas — mirror the daemon Rust handler response shapes.
 // =================================================================
+
+const DaemonHealthRawSchema = z.object({
+  status: z.string(),
+  node_id: z.string(),
+  daemon_version: z.string(),
+  api_host: z.string(),
+  api_port: z.number(),
+  uptime_secs: z.number(),
+});
 
 export const HealthSchema = z.object({
   status: z.string(),
@@ -179,11 +177,13 @@ export type Project = z.infer<typeof ProjectSchema>;
 
 export const TaskRowSchema = z.object({
   task_id: z.string(),
-  state: z.string(),
-  submitted_at: z.number().or(z.string()),
-  claimed_by: z.string().nullable().optional(),
-  claimed_at: z.number().nullable().optional(),
-  completed_at: z.number().nullable().optional(),
+  status: z.string(),
+  project_id: z.string().optional(),
+  model: z.string().optional(),
+  created_at: z.number().or(z.string()).optional(),
+  updated_at: z.number().or(z.string()).optional(),
+  task_hash: z.string().optional(),
+  worker_node_id: z.string().nullable().optional(),
   result_hash: z.string().nullable().optional(),
 });
 export type TaskRow = z.infer<typeof TaskRowSchema>;
@@ -212,15 +212,13 @@ export const SubmitTaskResponseSchema = z.object({
 export type SubmitTaskResponse = z.infer<typeof SubmitTaskResponseSchema>;
 
 export const KudosEntrySchema = z.object({
-  id: z.number(),
-  worker_pubkey_hex: z.string(),
+  entry_id: z.string(),
+  worker_node_id: z.string(),
   task_id: z.string(),
-  tokens: z.number(),
-  quality_factor: z.number(),
-  trust_multiplier: z.number(),
+  project_id: z.string(),
   amount: z.number(),
-  awarded_at: z.number().or(z.string()),
-  entry_hash_hex: z.string(),
+  created_at: z.number(),
+  entry_hash: z.string(),
 });
 export type KudosEntry = z.infer<typeof KudosEntrySchema>;
 
@@ -231,8 +229,7 @@ export const KudosListSchema = z.object({
 export type KudosList = z.infer<typeof KudosListSchema>;
 
 export const KudosVerifySchema = z.object({
-  ok: z.boolean(),
-  first_bad_row_id: z.number().nullable(),
+  valid: z.boolean(),
 });
 export type KudosVerify = z.infer<typeof KudosVerifySchema>;
 
@@ -355,29 +352,17 @@ export const AppManifestSchema = z.object({
 });
 export type AppManifest = z.infer<typeof AppManifestSchema>;
 
-export const ShellDiscoverEntrySchema = z.object({
-  schema_version: z.literal(1),
-  project_name: z.string(),
+export const ShellDiscoverCoordinatorSchema = z.object({
   node_id: z.string(),
-  doc_id: z.string(),
   api_host: z.string(),
   api_port: z.number(),
-  pid: z.number(),
-  started_at: z.string(),
-  visibility: z.enum(["public", "private"]),
+  daemon_version: z.string(),
 });
-export type ShellDiscoverEntry = z.infer<typeof ShellDiscoverEntrySchema>;
 
 export const ShellDiscoverResponseSchema = z.object({
   schema_version: z.literal(1),
-  coordinators: z.array(ShellDiscoverEntrySchema),
+  coordinators: z.array(ShellDiscoverCoordinatorSchema),
   count: z.number(),
-  self: z.object({
-    project_name: z.string(),
-    node_id: z.string().nullable(),
-    api_host: z.string(),
-    api_port: z.number(),
-  }),
 });
 export type ShellDiscoverResponse = z.infer<typeof ShellDiscoverResponseSchema>;
 
@@ -443,8 +428,16 @@ export type WorkerStateResponse = z.infer<typeof WorkerStateResponseSchema>;
 // these so the component layer never touches `fetch` directly.
 // =================================================================
 
-export function getHealth(baseUrl: string, init?: RequestInit): Promise<Health> {
-  return getJson(baseUrl, "/health", HealthSchema, init);
+export async function getHealth(baseUrl: string, init?: RequestInit): Promise<Health> {
+  const raw = await getJson(baseUrl, "/api/v1/coordinator/health", DaemonHealthRawSchema, init);
+  return {
+    status: raw.status,
+    project: "nexus-grid",
+    node_id: raw.node_id,
+    doc_id: null,
+    author_id: null,
+    version: raw.daemon_version,
+  };
 }
 
 export function getProject(baseUrl: string, init?: RequestInit): Promise<Project> {
@@ -459,7 +452,7 @@ export function listTasks(
   if (params.state) qs.set("state", params.state);
   if (params.limit !== undefined) qs.set("limit", String(params.limit));
   const query = qs.toString();
-  const path = query ? `/tasks?${query}` : "/tasks";
+  const path = query ? `/api/v1/tasks?${query}` : "/api/v1/tasks";
   return getJson(baseUrl, path, TasksListSchema);
 }
 
@@ -467,33 +460,34 @@ export function submitTask(
   baseUrl: string,
   body: SubmitTaskBody,
 ): Promise<SubmitTaskResponse> {
-  return postJson(baseUrl, "/tasks/submit", body, SubmitTaskResponseSchema);
+  return postJson(baseUrl, "/api/v1/tasks/submit", body, SubmitTaskResponseSchema);
 }
 
 export function listKudos(
   baseUrl: string,
-  params: { workerPubkeyHex?: string } = {},
+  params: { workerNodeId?: string } = {},
 ): Promise<KudosList> {
   const qs = new URLSearchParams();
-  if (params.workerPubkeyHex) qs.set("worker_pubkey_hex", params.workerPubkeyHex);
+  if (params.workerNodeId) qs.set("worker_node_id", params.workerNodeId);
   const query = qs.toString();
-  const path = query ? `/kudos?${query}` : "/kudos";
+  const path = query ? `/api/v1/kudos/entries?${query}` : "/api/v1/kudos/entries";
   return getJson(baseUrl, path, KudosListSchema);
 }
 
-export function verifyKudos(baseUrl: string): Promise<KudosVerify> {
-  return getJson(baseUrl, "/kudos/verify", KudosVerifySchema);
+export function verifyKudos(baseUrl: string, projectId?: string): Promise<KudosVerify> {
+  const pid = projectId ?? "default";
+  return getJson(baseUrl, `/api/v1/kudos/${encodeURIComponent(pid)}/verify`, KudosVerifySchema);
 }
 
 export function createInvite(
   baseUrl: string,
   body: CreateInviteBody,
 ): Promise<CreateInviteResponse> {
-  return postJson(baseUrl, "/invite/create", body, CreateInviteResponseSchema);
+  return postJson(baseUrl, "/api/v1/invite/create", body, CreateInviteResponseSchema);
 }
 
 export function listInvites(baseUrl: string): Promise<InviteList> {
-  return getJson(baseUrl, "/invite", InviteListSchema);
+  return getJson(baseUrl, "/api/v1/invite", InviteListSchema);
 }
 
 export function revokeInvite(
@@ -502,7 +496,7 @@ export function revokeInvite(
 ): Promise<RevokeInviteResponse> {
   return deleteJson(
     baseUrl,
-    `/invite/${encodeURIComponent(inviteId)}`,
+    `/api/v1/invite/${encodeURIComponent(inviteId)}`,
     RevokeInviteResponseSchema,
   );
 }
@@ -569,7 +563,7 @@ export async function getAppTabDescriptor(
     }
     return { kind: "schema", tabView: parsed.data };
   } catch (e) {
-    if (e instanceof CoordinatorHttpError || e instanceof CoordinatorProtocolError) {
+    if (e instanceof ApiHttpError || e instanceof ApiProtocolError) {
       return { kind: "error", message: e.message };
     }
     return {
@@ -712,9 +706,9 @@ export async function getProjectApps(
 }
 
 export function shellDiscover(baseUrl: string): Promise<ShellDiscoverResponse> {
-  return getJson(baseUrl, "/shell/discover", ShellDiscoverResponseSchema);
+  return getJson(baseUrl, "/api/v1/shell/discover", ShellDiscoverResponseSchema);
 }
 
 export function getWorkerState(baseUrl: string): Promise<WorkerStateResponse> {
-  return getJson(baseUrl, "/worker-state", WorkerStateResponseSchema);
+  return getJson(baseUrl, "/api/v1/worker/state", WorkerStateResponseSchema);
 }

@@ -84,22 +84,22 @@ function TasksTable({ rows }: { rows: TaskRow[] }) {
               <td className="py-2 pr-3">
                 <Badge
                   variant="outline"
-                  className={stateBadgeClass(row.state)}
+                  className={stateBadgeClass(row.status)}
                 >
-                  {row.state}
+                  {row.status}
                 </Badge>
               </td>
               <td className="py-2 pr-3 text-muted-foreground">
-                {typeof row.submitted_at === "number"
-                  ? new Date(row.submitted_at * 1000).toLocaleTimeString()
-                  : row.submitted_at}
+                {typeof row.created_at === "number"
+                  ? new Date(row.created_at * 1000).toLocaleTimeString()
+                  : row.created_at ?? "—"}
               </td>
               <td className="py-2 pr-3 font-mono text-muted-foreground">
-                {row.claimed_by ? formatHash(row.claimed_by, 10) : "—"}
+                {row.worker_node_id ? formatHash(row.worker_node_id, 10) : "—"}
               </td>
               <td className="py-2 pr-3 text-muted-foreground">
-                {row.completed_at
-                  ? new Date(row.completed_at * 1000).toLocaleTimeString()
+                {typeof row.updated_at === "number"
+                  ? new Date(row.updated_at * 1000).toLocaleTimeString()
                   : "—"}
               </td>
             </tr>
@@ -110,9 +110,9 @@ function TasksTable({ rows }: { rows: TaskRow[] }) {
   );
 }
 
-function stateBadgeClass(state: string): string {
-  if (state === "completed") return "border-emerald-500/40 text-emerald-500";
-  if (state === "claimed") return "border-yellow-500/40 text-yellow-500";
-  if (state === "failed") return "border-destructive/40 text-destructive";
+function stateBadgeClass(status: string): string {
+  if (status === "completed") return "border-emerald-500/40 text-emerald-500";
+  if (status === "dispatched") return "border-yellow-500/40 text-yellow-500";
+  if (status === "rejected" || status === "timed_out") return "border-destructive/40 text-destructive";
   return "border-border text-muted-foreground";
 }

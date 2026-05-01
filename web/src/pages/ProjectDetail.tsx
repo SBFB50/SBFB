@@ -176,7 +176,7 @@ function ProjectDetailContent({ url }: { url: string }) {
             workerCount={
               new Set(
                 (kudosQuery.data?.entries ?? []).map(
-                  (e) => e.worker_pubkey_hex,
+                  (e) => e.worker_node_id,
                 ),
               ).size
             }
