@@ -20,6 +20,14 @@ use crate::http::DaemonHttpState;
 pub struct KudosListQuery {
     #[serde(default)]
     pub worker_node_id: Option<String>,
+    #[serde(default = "default_entries_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+}
+
+fn default_entries_limit() -> usize {
+    100
 }
 
 #[derive(Debug, Serialize)]
@@ -50,9 +58,11 @@ pub async fn list_entries(
     };
     match db.list_kudos_entries(query.worker_node_id.as_deref()) {
         Ok(entries) => {
-            let count = entries.len();
+            let capped_limit = query.limit.min(500);
             let entries: Vec<KudosEntryResponse> = entries
                 .into_iter()
+                .skip(query.offset)
+                .take(capped_limit)
                 .map(|e| KudosEntryResponse {
                     entry_id: e.entry_id,
                     worker_node_id: e.worker_node_id,
@@ -63,6 +73,7 @@ pub async fn list_entries(
                     entry_hash: e.entry_hash,
                 })
                 .collect();
+            let count = entries.len();
             (
                 StatusCode::OK,
                 Json(serde_json::json!({"entries": entries, "count": count})),
@@ -160,5 +171,7 @@ mod tests {
     fn kudos_list_query_defaults() {
         let q: KudosListQuery = serde_json::from_str("{}").unwrap();
         assert!(q.worker_node_id.is_none());
+        assert_eq!(q.limit, 100);
+        assert_eq!(q.offset, 0);
     }
 }

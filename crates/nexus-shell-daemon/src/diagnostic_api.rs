@@ -47,12 +47,26 @@ pub async fn fairness_metrics(State(state): State<Arc<DaemonHttpState>>) -> impl
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let current_workers = db
-        .active_workers_since(now.saturating_sub(DAY_SECS))
-        .unwrap_or_default();
-    let previous_workers = db
-        .active_workers_since(now.saturating_sub(2 * DAY_SECS))
-        .unwrap_or_default();
+    let current_workers = match db.active_workers_since(now.saturating_sub(DAY_SECS)) {
+        Ok(w) => w,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("active_workers_current: {e}")})),
+            )
+                .into_response()
+        }
+    };
+    let previous_workers = match db.active_workers_since(now.saturating_sub(2 * DAY_SECS)) {
+        Ok(w) => w,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("active_workers_previous: {e}")})),
+            )
+                .into_response()
+        }
+    };
 
     drop(db);
 

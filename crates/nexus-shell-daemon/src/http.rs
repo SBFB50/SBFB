@@ -4152,4 +4152,390 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
+
+    // =============================================================
+    // Sprint 46 Phase B — integration tests 14 recent routes + debt
+    // =============================================================
+
+    // --- invite_api.rs (3 routes) ---
+
+    #[tokio::test]
+    async fn invite_create_success() {
+        let app = build_test_router(mk_state().await);
+        let body = serde_json::json!({});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/invite/create")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(body["id"].as_str().is_some());
+        assert_eq!(body["scope"], "worker");
+    }
+
+    #[tokio::test]
+    async fn invite_list_empty() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/invite")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["invites"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn invite_revoke_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri("/api/v1/invite/nonexistent-id")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    // --- quarantine_api.rs (3 routes) ---
+
+    #[tokio::test]
+    async fn quarantine_list_empty() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/quarantine")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+    }
+
+    #[tokio::test]
+    async fn quarantine_flush_not_found() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/quarantine/99999/flush")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn quarantine_drop_not_found() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/quarantine/99999/drop")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    // --- tasks_api.rs (2 routes) ---
+
+    #[tokio::test]
+    async fn tasks_list_default() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/tasks")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["tasks"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn tasks_get_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/tasks/nonexistent-task-id")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    // --- kudos_api.rs (2 routes) ---
+
+    #[tokio::test]
+    async fn kudos_entries_empty() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/entries")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["entries"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn kudos_leaderboard_empty() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/proj-test/leaderboard")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["leaderboard"].as_array().unwrap().is_empty());
+    }
+
+    // --- health_api.rs (1 route) ---
+
+    #[tokio::test]
+    async fn coordinator_health_ok() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/coordinator/health")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["status"], "ok");
+        assert_eq!(body["daemon_version"], "0.1.0-test");
+    }
+
+    // --- shell_api.rs (1 route) ---
+
+    #[tokio::test]
+    async fn shell_discover_returns_self() {
+        let state = mk_state().await;
+        let expected_node_id = state.node_id.clone();
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/shell/discover")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 1);
+        let coordinators = body["coordinators"].as_array().unwrap();
+        assert_eq!(coordinators.len(), 1);
+        assert_eq!(coordinators[0]["node_id"], expected_node_id);
+    }
+
+    // --- diagnostic_api.rs (1 route) ---
+
+    #[tokio::test]
+    async fn diagnostic_fairness_ok() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/diagnostic/fairness")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["worker_count"], 0);
+    }
+
+    // --- worker_state_api.rs (1 route) ---
+
+    #[tokio::test]
+    async fn worker_state_returns_200() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/worker/state")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(body.get("running").is_some());
+    }
+
+    // --- Pagination tests (debt items 2 + 4) ---
+
+    #[tokio::test]
+    async fn kudos_entries_with_limit_offset() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w1", "t1", 10).unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w2", "t2", 20).unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w3", "t3", 30).unwrap();
+        }
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/entries?limit=2&offset=0")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 2);
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp2 = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/entries?limit=2&offset=2")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp2.status(), StatusCode::OK);
+        let body2: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp2.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body2["count"], 1);
+    }
+
+    #[tokio::test]
+    async fn tasks_list_with_limit() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .unwrap();
+        }
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/tasks?limit=1")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 1);
+    }
+
+    // --- Debt item 5: diagnostic error propagation ---
+
+    #[tokio::test]
+    async fn diagnostic_fairness_returns_500_on_poisoned_mutex() {
+        let state = mk_state().await;
+        let db_arc = Arc::clone(&state.coordinator_db);
+        let _ = std::thread::spawn(move || {
+            let _guard = db_arc.lock().unwrap();
+            panic!("intentional poison");
+        })
+        .join();
+        assert!(state.coordinator_db.lock().is_err());
+
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/diagnostic/fairness")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
 }
