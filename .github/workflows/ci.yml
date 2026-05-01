@@ -49,36 +49,6 @@ jobs:
       - name: "[3] cargo test"
         run: cargo test --workspace --locked
 
-      # ── Python ────────────────────────────────────────────
-      - name: Setup Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Sync Python workspace + build PyO3 wheel
-        run: |
-          uv sync
-          uv run maturin develop --release \
-            --manifest-path crates/nexus-core-py/Cargo.toml
-
-      - name: "[4] ruff format"
-        run: uv run ruff format --check packages/ examples/
-
-      - name: "[5] ruff check"
-        run: uv run ruff check packages/ examples/
-
-      - name: "[6] pytest SDK"
-        run: uv run pytest packages/nexus-sdk/tests/ -q
-
-      - name: "[7] pytest coordinator"
-        run: uv run pytest packages/nexus-coordinator/tests/ -q
-
-      - name: "[8] pytest app-gov"
-        run: uv run pytest packages/nexus-app-gov/tests/ -q
-
       # ── Frontend ──────────────────────────────────────────
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -90,36 +60,36 @@ jobs:
       - name: Install web deps
         run: cd web && npm ci
 
-      - name: "[9] tsc"
+      - name: "[4] tsc"
         run: cd web && npx tsc --noEmit -p tsconfig.app.json
 
-      - name: "[10] eslint"
+      - name: "[5] eslint"
         run: cd web && npm run lint
 
-      - name: "[11] vitest"
+      - name: "[6] vitest"
         run: cd web && npm run test:unit
 
-      - name: "[12] coverage"
+      - name: "[7] coverage"
         run: cd web && npm run test:coverage
 
-      - name: "[13] build"
+      - name: "[8] build"
         run: cd web && npm run build
 
-      - name: "[14] size-limit"
+      - name: "[9] size-limit"
         run: cd web && npm run size
 
       - name: Install Playwright browsers
         run: cd web && npx playwright install --with-deps chromium
 
-      - name: "[15] playwright"
+      - name: "[10] playwright"
         run: cd web && xvfb-run npx playwright test
 
-      - name: "[16] scan-en-strings"
+      - name: "[11] scan-en-strings"
         run: cd web && bash scripts/scan-en-strings.sh
 
-      - name: "[17] npm audit"
+      - name: "[12] npm audit"
         run: cd web && npm audit --audit-level=high || true
 
       # ── SPDX ─────────────────────────────────────────────
-      - name: "[18] SPDX check"
+      - name: "[13] SPDX check"
         run: bash scripts/check-spdx.sh

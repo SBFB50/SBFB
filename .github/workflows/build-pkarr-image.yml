@@ -124,5 +124,5 @@ jobs:
           REGISTRY: ${{ env.REGISTRY }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           DIGEST: ${{ steps.build.outputs.digest }}
-        run: bash tests/ci-smoke/pkarr-relay-healthcheck.sh \
+        run: bash scripts/ci-smoke/pkarr-relay-healthcheck.sh \
                "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"

@@ -86,9 +86,11 @@ Cargo.lock.bak
 .cargo/*
 !.cargo/config.toml
 
-# Python build artifacts from maturin (nexus-core-py wheels)
-crates/nexus-core-py/target/
+# Python build artifacts (legacy, kept for defense-in-depth)
 wheels/
+
+# Untracked __pycache__ remnants from deleted Python packages
+packages/
 
 # uv
 .uv/
@@ -145,11 +147,12 @@ docs/VISION_USE_CASES.md
 # Babel scraper tools (post-v1.0, large corpus downloads)
 tools/babel-scraper/
 
+# Legacy Python test remnants (tracked files deleted S51, untracked cache remains)
+tests/
+
 # External agent framework artifacts (S34 audit P3-AUDIT-1)
 .githooks/
 AGENTS.md
 docs/agent/
 prompts/
 scripts/agent/
-tests/test_agentctl.py
-packages/nexus-coordinator/nexus-coordinator.spec
