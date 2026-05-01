@@ -1,7 +1,8 @@
 <!--
 written: 2026-04-29
 author: FlowUP + Claude S37 wrap-up
-status: ACTIVE
+revised: 2026-05-01 (post-S48 — constat derive S46-S48, plan migration restant)
+status: ACTIVE — REVISION S49+
 triggers_revalidate:
   - "Tier N complete ahead of schedule → compacter sprints suivants"
   - "Nouveau blocker dep (ex: ONNX Rust binding instable) → re-evaluer tier"
@@ -71,41 +72,124 @@ capabilities, privacy, Babel, puis freeze + tag v1.0.
 - S44 : routes restantes (~700 LOC, 7 fichiers : health, shell,
   tasks, kudos, events, diagnostic, worker_state)
 
-### S45 — Suppression coordinator Python + cleanup
+### S45 — Suppression coordinator Python + cleanup (REVISE)
 
-- Supprimer `packages/nexus-coordinator/` entierement
-- Supprimer `packages/nexus-app-gov/` deps Python coordinator
-- Nettoyer Cargo.toml (retirer pyo3 si plus aucun binding)
-- Nettoyer `pyproject.toml` workspace
-- Adapter les 409 tests Python coord → Rust (ou supprimer ceux
-  qui testent du code supprime)
+**Plan original** : supprimer `packages/nexus-coordinator/` entierement.
+**Realite S45** : ~2500+ LOC app runtime (AppContext, events, commands,
+state, MCP) non portables en 1 sprint. Scope reduit a "suppression
+maximale, pas totale" — 14 fichiers routes API + 12 tests DELETE,
+2 API routes portees (invite, quarantine), -5838 LOC Python.
+**S46-S48 : derive** — tests integration + carries + dette au lieu de
+continuer la migration. 3 sprints de retard sur le roadmap.
 
-### S46 — CI/CD + binaires + installer
+### Constat S48 — Etat reel de la migration (2026-05-01)
+
+**PORTE EN RUST (14 modules, actifs via daemon HTTP)** :
+dispatcher, validator, kudos_ledger, invite, canary_registry,
+canary_input, pii_redactor, output_filter, upload_queue,
+quarantine_queue, contributor_registry, capability_store, rerun,
+guardrails + 14 route modules (54 routes HTTP).
+
+**PYTHON ENCORE ACTIF (~9400 LOC, 25 modules + CLI + API)** :
+Le coordinator Python reste le proprietaire du lifecycle iroh
+(boot node, dispatch tasks, validate results, credit kudos).
+Les modules Rust dans nexus-coordinator-rs existent mais ne
+sont PAS dans le chemin runtime principal — ils servent
+uniquement les endpoints HTTP du daemon.
+
+**SANS EQUIVALENT RUST (~3165 LOC a porter ou supprimer)** :
+- coordinator.py (833) — orchestrateur lifecycle
+- CLI 8 fichiers (1025) — commandes utilisateur
+- api/daemon.py (290) — proxy FastAPI → DELETE
+- api/events.py (195) — SSE bridge
+- api/app.py (134) — FastAPI factory → DELETE
+- mcp_server.py (176) — MCP tools
+- keystore.py (114) — Ed25519 persistence
+- hooks.py (94) — dispatch hooks
+- tor_client.py (92) — Tor wrapper
+- peer_creds.py (92) — peer credentials
+- admin_check.py (74) — OS privilege
+- db/migrations.py (46) — migration runner
+
+**INSIGHT CLE** : depuis Sprint 12, le modele de rendu est
+archive-based (HTML zip dans iframe via blob-serve). Le SDK
+Python NexusApp est LEGACY. Les apps publient des archives,
+pas des plugins Python. Le systeme AppContext/commands/state
+n'est utilise que par app-gov (app officielle de gouvernance).
+La migration complete implique : (1) fusionner le coordinator
+dans le daemon Rust, (2) convertir app-gov en archive HTML,
+(3) supprimer Python/PyO3/SDK.
+
+### S49 — Coordinator lifecycle → daemon Rust
+
+**But** : le daemon Rust DEVIENT le coordinator. Plus de
+process Python separe.
+
+- **Phase A** : task dispatch actif dans le daemon
+  Le daemon appelle `dispatcher.rs` pour ecrire des TaskEntry
+  signees dans le doc iroh, au lieu de proxier au coordinator
+  Python. Le coordinator Python n'est plus necessaire pour le
+  dispatch. Wire : runtime.rs start() integre le dispatch loop.
+  Fichiers : runtime.rs, dispatcher wiring.
+
+- **Phase B** : validator subscription dans le daemon
+  Le daemon subscribe au doc iroh et valide les results/claims
+  via `validator.rs`, credite kudos via `kudos_ledger.rs`. La
+  boucle validator Python est remplacee. Le coordinator Python
+  n'est plus necessaire pour la validation.
+  Fichiers : runtime.rs, validator_loop.rs enrichi.
+
+- **Phase C** : CLI coordinator → daemon CLI
+  Les commandes `init`, `start`, `canary`, `invite`, `quarantine`,
+  `capability` sont portees dans le binaire nexus-shell-daemon
+  (clap subcommands). `start` boot le daemon directement (pas
+  uvicorn+FastAPI). ~1025 LOC Python → ~400 LOC Rust (clap derive).
+
+### S50 — Suppression Python + cleanup
+
+- **Phase A** : supprimer `packages/nexus-coordinator/` (~9400 LOC)
+  Supprimer `packages/nexus-sdk/` (~4088 LOC)
+  Supprimer `packages/nexus-app-gov/` (~2800 LOC) OU convertir en
+  archive HTML (si app-gov est encore utile comme vitrine)
+  Supprimer `crates/nexus-core-py/` (PyO3 bindings, ~2000 LOC)
+  Nettoyer Cargo.toml workspace (retirer pyo3, maturin)
+  Nettoyer pyproject.toml, uv workspace, .venv references
+  Adapter CLAUDE.md, README, docs
+
+- **Phase B** : adapter les tests
+  Tests Python coord (264 + 17f + 6s) → equivalent Rust (ceux qui
+  testent de la logique metier deja couverte par Rust) ou DELETE
+  (ceux qui testent du code supprime).
+  Tests SDK (195) → DELETE (SDK supprime)
+  Tests app-gov (46) → DELETE ou adapter si archive
+
+- **Phase C** : MCP server + hooks + events SSE + tor + peer_creds
+  + admin_check + keystore + migrations.py
+  Porter les modules restants sans equivalent Rust :
+  - MCP server : port mcp crate Rust (ou supprimer si non-critique v1.0)
+  - hooks.py : integrer dans dispatcher.rs
+  - events SSE : axum SSE (tower layer)
+  - tor_client : deja arti-client feature-gated dans nexus-core-rs
+  - peer_creds : integrer dans auth.rs daemon
+  - admin_check : integrer dans launcher
+  - keystore : le daemon gere deja les keypairs via iroh
+  - migrations.py : rusqlite_migration deja en place
+
+### S51 — CI/CD + binaires + installer (ex-S46)
 
 - GitHub Actions multi-OS (Linux/macOS/Windows)
 - Release artifacts (binaires pre-build, checksums)
 - Installer script (`curl | sh` pattern)
+- **Simplification massive** : 1 binaire Rust (daemon = coordinator),
+  plus de Python/uv/maturin a installer
 
-### S47 — VPS deployment + smoke test reseau
+### S52 — VPS deployment + smoke test reseau (ex-S47)
 
 - Premier noeud live (VPS Hetzner/OVH)
-- Smoke test P2P multi-noeuds (2-3 noeuds, task submit → result)
-- Monitoring baseline (uptime, latency)
+- Smoke test P2P multi-noeuds
+- Monitoring baseline
 
-### S48 — Polish UX + docs utilisateur
-
-- README utilisateur (pas dev)
-- Guide d'installation + troubleshooting
-- Onboarding first-run UX (launcher double-click → reseau)
-- Error messages francais/anglais
-- Pas de tag v1.0 ici — S56
-
-### S49 — Stabilisation + buffer migration
-
-- Integration tests E2E multi-daemon (3+ noeuds)
-- Cleanup carries techniques residuels (S45 dead_code etc.)
-- Performance profiling baseline (latence task submit → result)
-- Buffer sprint pour absorber le slippage S45-S48
+### S53 — Polish UX + docs utilisateur (ex-S48)
 
 ### S50 — Kudos v2 pre-v1 (LT-1 reclassifie)
 
