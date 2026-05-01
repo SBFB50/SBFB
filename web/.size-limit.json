@@ -35,13 +35,6 @@
     "gzip": false
   },
   {
-    "name": "TabViewRenderer",
-    "path": "dist/assets/TabViewRenderer-*.js",
-    "limit": "20 KB",
-    "brotli": false,
-    "gzip": false
-  },
-  {
     "name": "css",
     "path": "dist/assets/index-*.css",
     "limit": "130 KB",

@@ -20,8 +20,6 @@ readme = "README.md"
 
 [tool.uv.workspace]
 members = [
-    "crates/nexus-core-py",
-    "packages/*",
     "examples/hello-world-app",
 ]
 

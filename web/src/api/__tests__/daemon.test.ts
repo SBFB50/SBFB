@@ -374,54 +374,6 @@ describe("BrowseEntry source field", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Sprint 8 audit A-3 — cross-language canonical fixture
-// ---------------------------------------------------------------------------
-
-import { readFileSync } from "fs";
-import { resolve } from "path";
-
-import { CuratorListEntrySchema } from "@/api/daemon";
-
-const CURATOR_CANONICAL_PATH = resolve(
-  "../packages/nexus-sdk/tests/snapshots/curator_canonical.json",
-);
-const curatorCanonical = JSON.parse(
-  readFileSync(CURATOR_CANONICAL_PATH, "utf-8"),
-);
-
-describe("CuratorListEntrySchema cross-language fixture (A-3)", () => {
-  it("parses the Python-signed canonical fixture", () => {
-    const parsed = CuratorListEntrySchema.safeParse(curatorCanonical);
-    if (!parsed.success) {
-      throw new Error(
-        "cross-lang fixture failed Zod: " +
-          JSON.stringify(parsed.error.issues, null, 2),
-      );
-    }
-    expect(parsed.data.list.version).toBe(1);
-    expect(parsed.data.curator_pubkey.length).toBe(32);
-    expect(parsed.data.signature.length).toBe(64);
-    expect(parsed.data.list.entries.length).toBe(2);
-    expect(parsed.data.list.entries[0].project_name).toBe("gov");
-    expect(parsed.data.list.entries[1].project_name).toBe("coldcase");
-  });
-
-  it("enforces Sprint 8 A-4 project field length caps", () => {
-    const oversized = JSON.parse(JSON.stringify(curatorCanonical));
-    oversized.list.entries[0].description = "x".repeat(281);
-    const parsed = CuratorListEntrySchema.safeParse(oversized);
-    expect(parsed.success).toBe(false);
-  });
-
-  it("enforces category 64-char cap", () => {
-    const oversized = JSON.parse(JSON.stringify(curatorCanonical));
-    oversized.list.entries[0].category = "c".repeat(65);
-    const parsed = CuratorListEntrySchema.safeParse(oversized);
-    expect(parsed.success).toBe(false);
-  });
-});
-
 // ---------------------------------------------------------------
 // BrowseEntry archive fields + helpers
 // ---------------------------------------------------------------

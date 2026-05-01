@@ -65,10 +65,6 @@ const router = createBrowserRouter([
         path: "/curators",
         lazy: () => import("@/pages/Curators"),
       },
-      {
-        path: "/app/:appName/tabs/:tabName",
-        lazy: () => import("@/pages/AppTabPage"),
-      },
     ],
   },
 ]);

@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "crates/nexus-core-rs",
-    "crates/nexus-core-py",
     "crates/nexus-worker-core",
     "crates/nexus-worker",
     "crates/nexus-shell-daemon-core",
@@ -95,14 +94,6 @@ futures = "0.3"
 # request. url is already a transitive dep of reqwest/iroh so
 # this costs nothing at the binary level.
 url = "2.5"
-
-# PyO3 — Python bindings for nexus-core-py.
-# Plan originally pinned pyo3 0.22 + pyo3-asyncio 0.21, but the
-# ecosystem moved on: pyo3 is at 0.28 and the old pyo3-asyncio crate
-# was rolled into the PyO3 org as pyo3-async-runtimes (same author,
-# same purpose, now maintained by PyO3 itself).
-pyo3 = { version = "0.28", features = ["extension-module"] }
-pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 
 # Worker-specific deps
 clap = { version = "4.5", features = ["derive"] }
