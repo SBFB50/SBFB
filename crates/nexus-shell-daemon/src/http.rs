@@ -1721,7 +1721,9 @@ mod tests {
                     ),
                 ))
             },
-            canary_input: None,
+            canary_input: Some(std::sync::Arc::new(
+                nexus_coordinator_rs::canary_input::CanaryInputManager::new(None, None, None),
+            )),
         })
     }
 
@@ -2469,7 +2471,9 @@ mod tests {
                     ),
                 ))
             },
-            canary_input: None,
+            canary_input: Some(std::sync::Arc::new(
+                nexus_coordinator_rs::canary_input::CanaryInputManager::new(None, None, None),
+            )),
         });
         let app = build_test_router(state);
         let resp = app
@@ -3792,5 +3796,360 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // =============================================================
+    // Sprint 46 Phase A — integration tests 12 MANDATORY routes
+    // =============================================================
+
+    // --- consent.rs (4 routes) ---
+
+    #[tokio::test]
+    async fn consent_get_returns_default_config() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/consent")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["level"], 1);
+    }
+
+    #[tokio::test]
+    async fn consent_set_invalid_level_400() {
+        let app = build_test_router(mk_state().await);
+        let body = serde_json::json!({"level": 0});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/set")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn consent_set_level_5_400() {
+        let app = build_test_router(mk_state().await);
+        let body = serde_json::json!({"level": 5});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/set")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_add_invalid_node_id_400() {
+        let app = build_test_router(mk_state().await);
+        let body = serde_json::json!({"project_id": "not-valid-hex"});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/add")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_add_missing_project_id_422() {
+        let app = build_test_router(mk_state().await);
+        let body = serde_json::json!({});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/add")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_remove_missing_project_id_422() {
+        let app = build_test_router(mk_state().await);
+        let body = serde_json::json!({});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/remove")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    // --- files.rs (3 routes) ---
+
+    #[tokio::test]
+    async fn files_manifest_invalid_sha_400() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/files/not-a-valid-sha/manifest")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn files_manifest_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let sha = "a".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/files/{sha}/manifest"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn files_stream_invalid_sha_400() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/files/bad-sha")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn files_stream_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let sha = "b".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/files/{sha}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn files_upload_too_large_413() {
+        let app = build_test_router(mk_state().await);
+        let big_body = vec![0u8; 50 * 1024 * 1024 + 1];
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/files/upload")
+                    .header("content-type", "application/octet-stream")
+                    .body(axum::body::Body::from(big_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    // --- canary_api.rs (3 routes) ---
+
+    #[tokio::test]
+    async fn canary_freshness_returns_200() {
+        let app = build_test_router(mk_state().await);
+        let pubkey = "aa".repeat(32);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/canary/freshness/{pubkey}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn canary_freshness_unknown_pubkey_returns_200() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/canary/freshness/unknown-key")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn canary_inject_rate_updates() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+        let body = serde_json::json!({"inject_rate": 50});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/canary/inject-rate")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let resp_body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(resp_body["status"], "updated");
+        assert!(resp_body["inject_rate"].as_u64().is_some());
+    }
+
+    #[tokio::test]
+    async fn canary_observed_divergence_empty() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/canary/observed-divergence")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["divergences"].as_array().unwrap().is_empty());
+    }
+
+    // --- contributor_api.rs (2 routes) ---
+
+    #[tokio::test]
+    async fn contributor_project_empty_list() {
+        let app = build_test_router(mk_state().await);
+        let project_id = "a".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/contributor/project/{project_id}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["contributors"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn contributor_project_invalid_hex_400() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/contributor/project/not-a-hex")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn contributor_envelope_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let project_id = "a".repeat(64);
+        let node_id = "b".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!(
+                        "/api/v1/contributor/envelope/{project_id}/{node_id}"
+                    ))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn contributor_envelope_invalid_hex_400() {
+        let app = build_test_router(mk_state().await);
+        let valid = "a".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/contributor/envelope/bad-hex/{valid}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }
