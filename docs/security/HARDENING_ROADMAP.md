@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-01  # G2 — Sprint 46 CLOSED : integration tests MANDATORY 12+14 routes Router::oneshot() + dette pair S44 5 items + frontend direct-daemon migration coordinator→daemon. Compteurs 1168 Rust / 195 SDK / 323+23f+6s coord / 46 gov / 267 Vitest / 42+2f PW / 5/5 size / ~1984 total. 0 trigger actif.
+last_validated: 2026-05-01  # G2 — Sprint 51 CLOSED : suppression legacy nexus/ + Python workspace + CI post-Python (-72k LOC) + 3 carries S48 CLOSED (canary cap, set_var, doc accuracy) + 1 carry S50 CLOSED (nexus/ DELETE). Compteurs 1199 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1455 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"

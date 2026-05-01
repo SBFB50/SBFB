@@ -15,8 +15,8 @@ une feature, contribuer via PR, ou forker l'app et deployer leur
 propre version sur le reseau. Le modele F-Droid/Linux applique
 aux apps web P2P.
 
-Pivot 2026-04-10 depuis l'ancien NEXUS cold-case (toujours present
-sous `nexus/` comme future app mais plus le projet principal).
+Pivot 2026-04-10 depuis l'ancien NEXUS cold-case (supprime S51,
+code dans l'historique Git pour reference).
 
 ## Source de vérité pour le workflow Claude
 **Avant toute action, lire `docs/claude/README.md`.** Ce document
@@ -112,20 +112,20 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-50 CLOSED**, v1.2 en cours. Projet Rust+Frontend
-  pur depuis S50 Phase B (suppression Python). Audit gate S50 =
-  S51 Phase 0.
+- **Sprints 0-51 CLOSED**, v1.2 en cours. Projet Rust+Frontend
+  pur depuis S50 (Python supprime) + S51 (legacy nexus/ supprime,
+  -72k LOC). Audit gate S50 = S51 Phase 0.
 - **~1455 tests total** (1199 Rust / 250 Vitest / 42+2f Playwright
   / 6/6 size-limit) — tous verts code (2 PW env fail pre-existant).
-  S50 ajoute +4 tests Rust (handler integration tests), supprime
-  ~505 tests Python (packages supprimes) et 17 Vitest cross-lang.
-- Carry S51 : P2-A-1 rand blocker upstream (exemption externe) ;
+  S51 : 0 delta tests (sprint soustractif). 3 carries S48 CLOSED
+  Phase B (canary cap, set_var, doc accuracy). 1 carry S50 CLOSED
+  Phase A (nexus/ legacy DELETE).
+- Carry S52 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P2-REVIEW-A-1-S48 canary reload size cap 2/3 ;
-  P2-REVIEW-B-1-S48 auth.rs set_var residuel 2/3 ;
-  P2-AUDIT-A-1-S48 carry doc accuracy 2/3 ;
-  P2-REVIEW-A-1-S50 dispatch join order 1/3 NEW ;
-  P2-REVIEW-B-1-S50 nexus/ legacy monolith 1/3 NEW.
+  P2-REVIEW-A-1-S50 dispatch join order 2/3 ;
+  P2-REVIEW-B-1-S51 unsafe set_var futur 1/3 ;
+  P2-REVIEW-A-1-S51 release-attest.sh dead code 1/3 ;
+  P2-REVIEW-A-2-S51 docs legacy orphelines 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).

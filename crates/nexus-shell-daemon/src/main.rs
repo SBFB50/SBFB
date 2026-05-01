@@ -714,6 +714,20 @@ async fn handle_capability(paths: &ShellDaemonPaths, cmd: CapabilityCommand) -> 
     Ok(())
 }
 
+/// Uniform placeholder output for unimplemented subcommands.
+fn print_stub(name: &str, phase: &str, args: &[(&str, &str)]) {
+    println!("nexus-shell-daemon v{}", env!("CARGO_PKG_VERSION"));
+    println!("  core version: {}", nexus_shell_daemon_core::VERSION);
+    println!("  subcommand:   {name}");
+    println!("  status:       not yet implemented, see Sprint 7 {phase}");
+    if !args.is_empty() {
+        println!("  args:");
+        for (k, v) in args {
+            println!("    {k} = {v}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod handler_tests {
     use nexus_shell_daemon_core::config::ShellDaemonPaths;
@@ -790,19 +804,5 @@ mod handler_tests {
         )
         .await
         .expect("capability disable");
-    }
-}
-
-/// Uniform placeholder output for unimplemented subcommands.
-fn print_stub(name: &str, phase: &str, args: &[(&str, &str)]) {
-    println!("nexus-shell-daemon v{}", env!("CARGO_PKG_VERSION"));
-    println!("  core version: {}", nexus_shell_daemon_core::VERSION);
-    println!("  subcommand:   {name}");
-    println!("  status:       not yet implemented, see Sprint 7 {phase}");
-    if !args.is_empty() {
-        println!("  args:");
-        for (k, v) in args {
-            println!("    {k} = {v}");
-        }
     }
 }

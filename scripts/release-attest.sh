@@ -11,7 +11,6 @@
 #   - nexus-launcher
 #   - nexus-worker
 #   - nexus-shell-daemon
-#   - nexus-core-py  (wheel, built via maturin)
 #
 # Output (in $DIST, default: dist/):
 #   <binary>-<os>-<arch>[.exe]            the artifact itself
@@ -30,7 +29,7 @@ set -euo pipefail
 BINARY="${1:-}"
 if [[ -z "$BINARY" ]]; then
   echo "usage: $0 <binary>" >&2
-  echo "  where binary is nexus-launcher, nexus-worker, nexus-shell-daemon or nexus-core-py" >&2
+  echo "  where binary is nexus-launcher, nexus-worker, or nexus-shell-daemon" >&2
   exit 2
 fi
 
@@ -73,20 +72,7 @@ echo "==> release-attest: binary=$BINARY os=$OS arch=$ARCH"
 echo "    commit=$COMMIT_SHORT  SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
 
 # --- Build -----------------------------------------------------------------
-if [[ "$BINARY" == "nexus-core-py" ]]; then
-  # Python extension wheel built via maturin. Reproducibility here is
-  # best-effort: maturin honors SOURCE_DATE_EPOCH for the wheel zip
-  # timestamps and we pin the interpreter ABI via --locked + pyproject.
-  ARTIFACT_NAME="nexus_core_py"
-  echo "==> maturin build --release --locked --manifest-path crates/nexus-core-py/Cargo.toml --out $DIST"
-  maturin build --release --locked \
-    --manifest-path crates/nexus-core-py/Cargo.toml \
-    --out "$DIST"
-  WHEEL_PATH="$(ls "$DIST"/${ARTIFACT_NAME}-*.whl | head -n 1)"
-  ARTIFACT_PATH="$WHEEL_PATH"
-  ARTIFACT_BASENAME="$(basename "$ARTIFACT_PATH")"
-else
-  echo "==> cargo build --release --locked -p $BINARY"
+echo "==> cargo build --release --locked -p $BINARY"
   cargo build --release --locked -p "$BINARY"
 
   SRC="target/release/${BINARY}${EXT}"
@@ -99,7 +85,6 @@ else
   ARTIFACT_PATH="$DIST/$ARTIFACT_BASENAME"
   cp "$SRC" "$ARTIFACT_PATH"
   [[ -z "$EXT" ]] && chmod +x "$ARTIFACT_PATH"
-fi
 
 # --- SHA256 ----------------------------------------------------------------
 echo "==> sha256"
