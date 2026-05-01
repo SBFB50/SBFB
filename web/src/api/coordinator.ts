@@ -217,6 +217,7 @@ export type KudosEntry = z.infer<typeof KudosEntrySchema>;
 export const KudosListSchema = z.object({
   entries: z.array(KudosEntrySchema),
   count: z.number(),
+  total_count: z.number(),
 });
 export type KudosList = z.infer<typeof KudosListSchema>;
 

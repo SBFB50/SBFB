@@ -511,11 +511,11 @@ impl CanaryInputManager {
             return;
         }
         rs.policy_mtime = Some(mtime);
-        drop(rs);
         let text = match std::fs::read_to_string(pp) {
             Ok(t) => t,
             Err(_) => return,
         };
+        drop(rs);
         let new_policy = match CanaryInputPolicy::from_toml(&text) {
             Ok(p) => p,
             Err(_) => return,
@@ -538,11 +538,11 @@ impl CanaryInputManager {
             return;
         }
         rs.set_mtime = Some(mtime);
-        drop(rs);
         let new_set = match load_canary_input_set(&target, self.coord_pubkey.as_ref()) {
             Ok(s) => s,
             Err(_) => return,
         };
+        drop(rs);
         self.injector.set_canary_set(Some(new_set.clone()));
         self.observer.set_canary_set(Some(new_set));
     }

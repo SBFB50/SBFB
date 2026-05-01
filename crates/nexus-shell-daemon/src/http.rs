@@ -4466,6 +4466,7 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(body["count"], 2);
+        assert_eq!(body["total_count"], 3);
 
         let app2 = build_test_router(Arc::clone(&state));
         let resp2 = app2
@@ -4482,6 +4483,7 @@ mod tests {
         let body2: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp2.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(body2["count"], 1);
+        assert_eq!(body2["total_count"], 3);
     }
 
     #[tokio::test]

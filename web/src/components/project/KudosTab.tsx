@@ -38,7 +38,7 @@ export function KudosTab({ query, verifyQuery }: Props) {
           <CardTitle>Registre kudos</CardTitle>
           <CardDescription>
             Une ligne par entrée append-only.{" "}
-            {query.data?.count ?? 0} entrée(s).
+            {query.data?.total_count ?? 0} entrée(s).
           </CardDescription>
         </CardHeader>
         <CardContent>

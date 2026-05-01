@@ -57,9 +57,10 @@ pub async fn list_entries(
         }
     };
     match db.list_kudos_entries(query.worker_node_id.as_deref()) {
-        Ok(entries) => {
+        Ok(all_entries) => {
+            let total_count = all_entries.len();
             let capped_limit = query.limit.min(500);
-            let entries: Vec<KudosEntryResponse> = entries
+            let entries: Vec<KudosEntryResponse> = all_entries
                 .into_iter()
                 .skip(query.offset)
                 .take(capped_limit)
@@ -76,7 +77,7 @@ pub async fn list_entries(
             let count = entries.len();
             (
                 StatusCode::OK,
-                Json(serde_json::json!({"entries": entries, "count": count})),
+                Json(serde_json::json!({"entries": entries, "count": count, "total_count": total_count})),
             )
                 .into_response()
         }
