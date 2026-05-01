@@ -18,7 +18,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { normalizeCoordinatorUrl } from "@/api/coordinator";
+import { normalizeApiUrl } from "@/api/coordinator";
 
 export interface KnownCoordinator {
   /** Normalized URL, e.g. `http://127.0.0.1:8765` (no trailing slash). */
@@ -62,7 +62,7 @@ export const useProjectStore = create<ProjectStoreState>()(
       activeCoordinatorUrl: null,
 
       addCoordinator: (raw, opts) => {
-        const url = normalizeCoordinatorUrl(raw);
+        const url = normalizeApiUrl(raw);
         const existing = get().knownCoordinators.find((c) => c.url === url);
         if (existing) {
           // Dedupe by URL — if the caller supplied a nickname or
@@ -98,7 +98,7 @@ export const useProjectStore = create<ProjectStoreState>()(
       },
 
       removeCoordinator: (raw) => {
-        const url = normalizeCoordinatorUrl(raw);
+        const url = normalizeApiUrl(raw);
         set((s) => {
           const next = s.knownCoordinators.filter((c) => c.url !== url);
           const active =
@@ -114,7 +114,7 @@ export const useProjectStore = create<ProjectStoreState>()(
           set({ activeCoordinatorUrl: null });
           return;
         }
-        const normalized = normalizeCoordinatorUrl(url);
+        const normalized = normalizeApiUrl(url);
         const known = get().knownCoordinators.some((c) => c.url === normalized);
         if (!known) {
           throw new Error(
@@ -125,7 +125,7 @@ export const useProjectStore = create<ProjectStoreState>()(
       },
 
       updateCoordinator: (raw, patch) => {
-        const url = normalizeCoordinatorUrl(raw);
+        const url = normalizeApiUrl(raw);
         set((s) => ({
           knownCoordinators: s.knownCoordinators.map((c) =>
             c.url === url ? { ...c, ...patch } : c,

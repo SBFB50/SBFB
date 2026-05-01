@@ -37,7 +37,7 @@ import { useProjectStore } from "@/stores/projectStore";
 // imports `@/api/coordinator`.
 // ---------------------------------------------------------------
 
-// Keep the real module so collaborators (`normalizeCoordinatorUrl`
+// Keep the real module so collaborators (`normalizeApiUrl`
 // pulled in by the Zustand store) still work; only stub the three
 // Sprint 8 Phase A/E endpoints that the palette's React Query
 // calls target.

@@ -170,7 +170,7 @@ describe("submitAppTask", () => {
     expect(String(url)).toBe(`${COORD}/app/weird%20name/tasks/submit`);
   });
 
-  it("throws CoordinatorHttpError on HTTP 422 from the worker resolver", async () => {
+  it("throws ApiHttpError on HTTP 422 from the worker resolver", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse(422, { detail: "worker 'ghost' not found" })),

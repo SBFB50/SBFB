@@ -4801,4 +4801,244 @@ mod tests {
             serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(body["token"], TEST_TOKEN);
     }
+
+    // --- consent.rs happy path tests (4 routes) ---
+
+    #[tokio::test]
+    async fn consent_set_level_2_returns_200() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        std::env::set_var("SBFB_HOME", tmp.path());
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/set")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"level": 2}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["level"], 2);
+    }
+
+    #[tokio::test]
+    async fn consent_get_returns_persisted_level() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        std::env::set_var("SBFB_HOME", tmp.path());
+        let state = mk_state().await;
+
+        let app1 = build_test_router(Arc::clone(&state));
+        let resp = app1
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/set")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"level": 3}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/consent")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["level"], 3);
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_add_returns_200() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        std::env::set_var("SBFB_HOME", tmp.path());
+        let app = build_test_router(mk_state().await);
+        let pid = "a".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/add")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"project_id": pid}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(body["allowed_project_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str() == Some(&pid)));
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_remove_returns_200() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        std::env::set_var("SBFB_HOME", tmp.path());
+        let state = mk_state().await;
+        let pid = "b".repeat(64);
+
+        let app1 = build_test_router(Arc::clone(&state));
+        app1.oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/consent/whitelist/add")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    serde_json::json!({"project_id": pid}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/remove")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"project_id": pid}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(body["allowed_project_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v.as_str() != Some(&pid)));
+    }
+
+    // --- files.rs happy path tests (3 routes) ---
+
+    #[tokio::test]
+    async fn files_upload_small_returns_201_with_sha() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        std::env::set_var("SBFB_HOME", tmp.path());
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/files/upload")
+                    .header("content-type", "text/plain")
+                    .header("x-original-name", "test.txt")
+                    .body(axum::body::Body::from(b"hello world".to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["sha256"].as_str().unwrap().len(), 64);
+        assert_eq!(body["size"], 11);
+        assert_eq!(body["original_name"], "test.txt");
+    }
+
+    #[tokio::test]
+    async fn files_manifest_after_upload_returns_200() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        std::env::set_var("SBFB_HOME", tmp.path());
+        let state = mk_state().await;
+
+        let app1 = build_test_router(Arc::clone(&state));
+        let resp = app1
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/files/upload")
+                    .header("content-type", "text/plain")
+                    .body(axum::body::Body::from(b"manifest test".to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let upload_body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        let sha = upload_body["sha256"].as_str().unwrap();
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/files/{sha}/manifest"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["sha256"].as_str().unwrap(), sha);
+    }
+
+    #[tokio::test]
+    async fn files_stream_after_upload_returns_content() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        std::env::set_var("SBFB_HOME", tmp.path());
+        let state = mk_state().await;
+        let content = b"stream test content";
+
+        let app1 = build_test_router(Arc::clone(&state));
+        let resp = app1
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/files/upload")
+                    .body(axum::body::Body::from(content.to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let upload_body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        let sha = upload_body["sha256"].as_str().unwrap().to_owned();
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/files/{sha}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body_bytes = to_bytes(resp.into_body(), 4096).await.unwrap();
+        assert_eq!(&body_bytes[..], content);
+    }
 }

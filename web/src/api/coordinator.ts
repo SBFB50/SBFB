@@ -54,11 +54,6 @@ export class ApiHttpError extends Error {
   }
 }
 
-/** @deprecated Use {@link ApiProtocolError} */
-export const CoordinatorProtocolError = ApiProtocolError;
-/** @deprecated Use {@link ApiHttpError} */
-export const CoordinatorHttpError = ApiHttpError;
-
 export function normalizeApiUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, "");
   if (!trimmed) {
@@ -66,9 +61,6 @@ export function normalizeApiUrl(raw: string): string {
   }
   return trimmed;
 }
-
-/** @deprecated Use {@link normalizeApiUrl} */
-export const normalizeCoordinatorUrl = normalizeApiUrl;
 
 async function getJson<T>(
   baseUrl: string,

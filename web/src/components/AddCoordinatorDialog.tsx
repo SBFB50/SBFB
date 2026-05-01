@@ -29,10 +29,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  CoordinatorHttpError,
-  CoordinatorProtocolError,
+  ApiHttpError,
+  ApiProtocolError,
   getHealth,
-  normalizeCoordinatorUrl,
+  normalizeApiUrl,
 } from "@/api/coordinator";
 import { useProjectStore } from "@/stores/projectStore";
 
@@ -67,7 +67,7 @@ export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
   const onTest = async () => {
     setStatus({ kind: "testing" });
     try {
-      const normalized = normalizeCoordinatorUrl(url);
+      const normalized = normalizeApiUrl(url);
       const health = await getHealth(normalized);
       setStatus({
         kind: "ok",
@@ -79,9 +79,9 @@ export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
       }
     } catch (e) {
       let message = "Erreur inconnue";
-      if (e instanceof CoordinatorHttpError) {
+      if (e instanceof ApiHttpError) {
         message = `HTTP ${e.status} — le coordinateur a répondu mais refuse la requête`;
-      } else if (e instanceof CoordinatorProtocolError) {
+      } else if (e instanceof ApiProtocolError) {
         message = `Réponse invalide du coordinateur : ${e.issues[0]?.message ?? "schema mismatch"}`;
       } else if (e instanceof Error) {
         message = e.message;
