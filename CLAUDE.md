@@ -121,19 +121,22 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-48 CLOSED**, v1.2 en cours. Audit gate S48 = S49
-  Phase 0 (`.planning/active/sprint49_audit_plan.md`).
-- **~1937 tests total** (1186 Rust / 195 SDK / 264+17f+6s coord / 46
+- **Sprints 0-49 CLOSED**, v1.2 en cours. Audit gate S49 = S50
+  Phase 0 (`.planning/active/sprint50_audit_plan.md`).
+- **~1947 tests total** (1195 Rust / 195 SDK / 264+17f+6s coord / 46
   app-gov / 267 Vitest / 42+2f Playwright / 5/5 size-limit) — tous
   verts code (17 coord fail PyO3 wheel stale + 2 PW env fail —
-  meme root cause wheel/env stale, pas regression). S48 ajoute
-  +1 test Rust (files_dir_override_home), TOCTOU canary fix,
-  kudos total_count, execute_batch_raw feature gate, invite
-  format test, sbfb_home refactor (7 set_var elimines).
-- Carry S49 : P2-A-1 rand blocker upstream (exemption externe) ;
+  meme root cause wheel/env stale, pas regression). S49 ajoute
+  +9 tests Rust (dispatch_loop_writes_to_doc + 8 CLI parsing),
+  project doc iroh-docs + dispatch loop MPSC + 4 CLI subcommands
+  coordinator offline.
+- Carry S50 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
   P2-REVIEW-A-1-S48 canary reload size cap 1/3 ;
-  P2-REVIEW-B-1-S48 auth.rs set_var residuel 1/3.
+  P2-REVIEW-B-1-S48 auth.rs set_var residuel 1/3 ;
+  P2-AUDIT-A-1-S48 carry doc accuracy 1/3 ;
+  P2-REVIEW-A-1-S49 dispatch loop JoinHandle 1/3 NEW ;
+  P2-REVIEW-B-1-S49 CLI handler integration tests 1/3 NEW.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
