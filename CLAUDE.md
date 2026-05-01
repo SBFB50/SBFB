@@ -50,17 +50,17 @@ coordinateur (clone → Keyoxide Ed25519 → zip → provenance.json
 SLSA L1). Code sur le reseau = code du repo. Multi-forge, zero
 OAuth. Cf. `sprint14_keyoxide_decision.md` (memory).
 
-## Architecture Option G (hybride Rust + Python)
-- **Rust workspace** (`crates/`) : `nexus-core-rs` (iroh 0.97
-  wrapper), `nexus-core-py` (PyO3 bindings), `nexus-worker-core`
-  (headless engine lib) + `nexus-worker` (binary),
-  `nexus-shell-daemon-core` + `nexus-shell-daemon` (Sprint 7 —
-  P2P discovery + curator pipeline + pkarr browse),
-  `nexus-launcher` (Sprint 13 — spawn daemon + open browser)
-- **Python workspace** (`packages/`) : `nexus-coordinator`
-  (FastAPI + dispatcher + kudos ledger + TabView pre-render),
-  `nexus-sdk` (NexusApp ABC + TabView), `nexus-app-gov` /
-  `-coldcase` / `-forensics` (apps officielles)
+## Architecture (Rust + Frontend, post-S50)
+- **Rust workspace** (`crates/`) : `nexus-core-rs` (iroh 0.98
+  wrapper), `nexus-worker-core` (headless engine lib) +
+  `nexus-worker` (binary), `nexus-shell-daemon-core` +
+  `nexus-shell-daemon` (P2P discovery + curator pipeline + pkarr
+  browse + coordinator lifecycle + dispatch + CLI),
+  `nexus-launcher` (spawn daemon + open browser),
+  `nexus-coordinator-rs` (DB + dispatcher + validator + kudos +
+  invite + quarantine + capability + canary + guardrails),
+  `nexus-events-core`, `nexus-executor`, `nexus-trace-core`,
+  `nexus-test-harness`
 - **Frontend** (`web/`) : React + Vite + TypeScript + Tailwind
   + shadcn/ui + Zustand + React Query.
   Pages : Browse, Curators, Network, OnboardingEmpty,
@@ -71,9 +71,7 @@ OAuth. Cf. `sprint14_keyoxide_decision.md` (memory).
 
 ## Stack
 - Windows 11, RTX 5080 16GB VRAM
-- Rust 1.94 (rustup / cargo), maturin 1.13
-- Python 3.13 (uv workspace `.venv/` + miniconda base pour
-  installation wheels via `maturin develop --release`)
+- Rust 1.94 (rustup / cargo)
 - Node.js (frontend React dans `web/`)
 - Ollama (worker-side LLM runtime)
 
@@ -84,7 +82,6 @@ nexus-grid/
 ├── crates/
 │   ├── nexus-core-rs/                 # iroh wrapper (docs, gossip, blobs,
 │   │                                  # discovery, curator crypto, canonical bytes JCS)
-│   ├── nexus-core-py/                 # PyO3 bindings (sign/verify task/result/claim/curator)
 │   ├── nexus-events-core/             # SecurityEvent enum + EventWriter trait +
 │   │                                  # JsonFileWriter JSONL + EtwWriter (Windows)
 │   ├── nexus-worker-core/             # engine lib headless (state machine,
@@ -94,12 +91,6 @@ nexus-grid/
 │   │                                  # browse aggregator, registry singleton)
 │   ├── nexus-shell-daemon/            # shell daemon binary (HTTP + gossip subscribe)
 │   └── nexus-launcher/                # minimal launcher (spawn daemon + open browser)
-├── packages/
-│   ├── nexus-coordinator/             # FastAPI coord + dispatcher + kudos + /daemon proxy
-│   ├── nexus-sdk/                     # NexusApp ABC + TabView + decorators
-│   ├── nexus-app-gov/                 # gov app (WIP, 19 tabs migration Sprint 8)
-│   ├── nexus-app-coldcase/            # port de l'ancien NEXUS en tant qu'app
-│   └── nexus-app-forensics/           # BPA + acoustique + traces (legacy forensics)
 ├── web/                               # shell React (Browse, Curators, Network, etc.)
 ├── .planning/                         # sprints (active/ + archive/v{X}/ + roadmaps + research)
 │   ├── active/                        # sprint en cours uniquement (kickoff, plan, audit_findings du precedent, verification, audit_plan)
@@ -121,22 +112,20 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-49 CLOSED**, v1.2 en cours. Audit gate S49 = S50
-  Phase 0 (`.planning/active/sprint50_audit_plan.md`).
-- **~1947 tests total** (1195 Rust / 195 SDK / 264+17f+6s coord / 46
-  app-gov / 267 Vitest / 42+2f Playwright / 5/5 size-limit) — tous
-  verts code (17 coord fail PyO3 wheel stale + 2 PW env fail —
-  meme root cause wheel/env stale, pas regression). S49 ajoute
-  +9 tests Rust (dispatch_loop_writes_to_doc + 8 CLI parsing),
-  project doc iroh-docs + dispatch loop MPSC + 4 CLI subcommands
-  coordinator offline.
-- Carry S50 : P2-A-1 rand blocker upstream (exemption externe) ;
+- **Sprints 0-50 CLOSED**, v1.2 en cours. Projet Rust+Frontend
+  pur depuis S50 Phase B (suppression Python). Audit gate S50 =
+  S51 Phase 0.
+- **~1455 tests total** (1199 Rust / 250 Vitest / 42+2f Playwright
+  / 6/6 size-limit) — tous verts code (2 PW env fail pre-existant).
+  S50 ajoute +4 tests Rust (handler integration tests), supprime
+  ~505 tests Python (packages supprimes) et 17 Vitest cross-lang.
+- Carry S51 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P2-REVIEW-A-1-S48 canary reload size cap 1/3 ;
-  P2-REVIEW-B-1-S48 auth.rs set_var residuel 1/3 ;
-  P2-AUDIT-A-1-S48 carry doc accuracy 1/3 ;
-  P2-REVIEW-A-1-S49 dispatch loop JoinHandle 1/3 NEW ;
-  P2-REVIEW-B-1-S49 CLI handler integration tests 1/3 NEW.
+  P2-REVIEW-A-1-S48 canary reload size cap 2/3 ;
+  P2-REVIEW-B-1-S48 auth.rs set_var residuel 2/3 ;
+  P2-AUDIT-A-1-S48 carry doc accuracy 2/3 ;
+  P2-REVIEW-A-1-S50 dispatch join order 1/3 NEW ;
+  P2-REVIEW-B-1-S50 nexus/ legacy monolith 1/3 NEW.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
@@ -157,17 +146,6 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo nextest run --workspace --locked
 cargo test --workspace --locked --doc   # doctests only (nextest ne gere pas)
 cargo build -p nexus-shell-daemon --release
-
-# Python (trois packages tournés séparément — collision de nom tests/)
-uv run ruff format --check packages/ && uv run ruff check packages/
-uv run pytest packages/nexus-sdk/tests/ -q
-uv run pytest packages/nexus-coordinator/tests/ -q
-uv run pytest packages/nexus-app-gov/tests/ -q
-
-# Wheel PyO3 dans .venv uv (attention au conflit CONDA_PREFIX)
-unset CONDA_PREFIX CONDA_DEFAULT_ENV && \
-  VIRTUAL_ENV=$PWD/.venv maturin develop --release \
-    --manifest-path crates/nexus-core-py/Cargo.toml
 
 # Frontend
 cd web && npm install && npm run lint && \
