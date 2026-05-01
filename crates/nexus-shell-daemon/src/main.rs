@@ -714,6 +714,85 @@ async fn handle_capability(paths: &ShellDaemonPaths, cmd: CapabilityCommand) -> 
     Ok(())
 }
 
+#[cfg(test)]
+mod handler_tests {
+    use nexus_shell_daemon_core::config::ShellDaemonPaths;
+    use tempfile::tempdir;
+
+    fn test_paths(root: &std::path::Path) -> ShellDaemonPaths {
+        ShellDaemonPaths::resolve(Some(root.join("config.toml"))).expect("resolve paths")
+    }
+
+    #[tokio::test]
+    async fn init_creates_db() {
+        let tmp = tempdir().expect("tempdir");
+        let paths = test_paths(tmp.path());
+        super::handle_init(&paths).await.expect("init");
+        let db_path = paths.root.join("coordinator.db");
+        assert!(db_path.exists(), "coordinator.db must exist after init");
+        nexus_coordinator_rs::db::CoordinatorDb::open(&db_path)
+            .expect("DB must be openable after init");
+    }
+
+    #[tokio::test]
+    async fn invite_create_list_revoke_cycle() {
+        let tmp = tempdir().expect("tempdir");
+        let paths = test_paths(tmp.path());
+        super::handle_init(&paths).await.expect("init");
+
+        super::handle_invite(&paths, super::InviteCommand::Create)
+            .await
+            .expect("invite create");
+        super::handle_invite(&paths, super::InviteCommand::List { limit: 50 })
+            .await
+            .expect("invite list");
+        super::handle_invite(
+            &paths,
+            super::InviteCommand::Revoke {
+                id: "nonexistent".into(),
+            },
+        )
+        .await
+        .expect("invite revoke nonexistent");
+    }
+
+    #[tokio::test]
+    async fn quarantine_list_empty() {
+        let tmp = tempdir().expect("tempdir");
+        let paths = test_paths(tmp.path());
+        super::handle_init(&paths).await.expect("init");
+        super::handle_quarantine(&paths, super::QuarantineCommand::List)
+            .await
+            .expect("quarantine list");
+    }
+
+    #[tokio::test]
+    async fn capability_enable_disable_cycle() {
+        let tmp = tempdir().expect("tempdir");
+        let paths = test_paths(tmp.path());
+        super::handle_init(&paths).await.expect("init");
+        super::handle_capability(
+            &paths,
+            super::CapabilityCommand::Enable {
+                name: "mcp_server_expose".into(),
+            },
+        )
+        .await
+        .expect("capability enable");
+        super::handle_capability(&paths, super::CapabilityCommand::List)
+            .await
+            .expect("capability list");
+        super::handle_capability(
+            &paths,
+            super::CapabilityCommand::Disable {
+                name: "mcp_server_expose".into(),
+            },
+        )
+        .await
+        .expect("capability disable");
+    }
+}
+
 /// Uniform placeholder output for unimplemented subcommands.
 fn print_stub(name: &str, phase: &str, args: &[(&str, &str)]) {
     println!("nexus-shell-daemon v{}", env!("CARGO_PKG_VERSION"));
