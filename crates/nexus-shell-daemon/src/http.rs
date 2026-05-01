@@ -144,6 +144,16 @@ pub struct DaemonHttpState {
     pub canary_input:
         Option<std::sync::Arc<nexus_coordinator_rs::canary_input::CanaryInputManager>>,
     pub sbfb_home: Option<std::path::PathBuf>,
+    /// Sprint 49 Phase A: handle to the project iroh-docs document.
+    /// `Some` in coordinator mode (daemon start), `None` in tests
+    /// that don't need doc wiring. Read by future endpoints and the
+    /// doc subscription task.
+    #[allow(dead_code)]
+    pub project_doc: Option<std::sync::Arc<nexus_core_rs::docs::DocHandle>>,
+    /// Sprint 49 Phase A: MPSC sender for the dispatch loop. HTTP
+    /// task submit handler sends signed TaskEntry values here; the
+    /// dispatch loop writes them to the project doc sequentially.
+    pub task_dispatch_tx: Option<crate::dispatch_loop::TaskEntrySender>,
 }
 
 impl DaemonHttpState {
@@ -1334,17 +1344,24 @@ async fn coordinator_submit_task(
     };
     let keypair = (*state.pow_keypair).clone();
     match nexus_coordinator_rs::dispatcher::submit_task(&db, &keypair, submission) {
-        Ok(entry) => match serde_json::to_value(&entry) {
-            Ok(body) => (StatusCode::OK, Json(body)).into_response(),
-            Err(e) => {
-                tracing::error!("task entry serialization failed: {e}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": "internal"})),
-                )
-                    .into_response()
+        Ok(entry) => {
+            if let Some(ref tx) = state.task_dispatch_tx {
+                if let Err(e) = tx.try_send(entry.clone()) {
+                    tracing::warn!("dispatch channel full or closed: {e}");
+                }
             }
-        },
+            match serde_json::to_value(&entry) {
+                Ok(body) => (StatusCode::OK, Json(body)).into_response(),
+                Err(e) => {
+                    tracing::error!("task entry serialization failed: {e}");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": "internal"})),
+                    )
+                        .into_response()
+                }
+            }
+        }
         Err(nexus_coordinator_rs::error::CoordinatorError::Validation(msg)) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": msg})),
@@ -1732,6 +1749,8 @@ mod tests {
                 nexus_coordinator_rs::canary_input::CanaryInputManager::new(None, None, None),
             )),
             sbfb_home: None,
+            project_doc: None,
+            task_dispatch_tx: None,
         })
     }
 
@@ -2483,6 +2502,8 @@ mod tests {
                 nexus_coordinator_rs::canary_input::CanaryInputManager::new(None, None, None),
             )),
             sbfb_home: None,
+            project_doc: None,
+            task_dispatch_tx: None,
         });
         let app = build_test_router(state);
         let resp = app

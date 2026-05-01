@@ -34,6 +34,7 @@ mod consent;
 mod contributor_api;
 mod deploy;
 mod diagnostic_api;
+mod dispatch_loop;
 mod files;
 mod health_api;
 mod http;

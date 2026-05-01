@@ -479,7 +479,54 @@ impl DaemonRuntime {
         //     result events to the loop.
         let (result_event_tx, result_event_rx) = crate::validator_loop::create_result_channel();
 
-        // 6c. Build the shared HTTP state + spawn the serve task.
+        // 6c. Sprint 49 Phase A: create or reopen the project iroh-docs
+        //     document. The daemon acts as coordinator for the local
+        //     user's project — single-project mode (D1).
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let doc_author = docs_client
+            .author_default()
+            .await
+            .context("failed to get default docs author")?;
+        let project_doc = {
+            let existing = docs_client
+                .list_docs()
+                .await
+                .context("failed to list project docs")?;
+            if let Some(&first_id) = existing.first() {
+                docs_client
+                    .open_doc(first_id)
+                    .await
+                    .context("failed to open project doc")?
+                    .ok_or_else(|| anyhow!("project doc listed but failed to open"))?
+            } else {
+                docs_client
+                    .create_doc()
+                    .await
+                    .context("failed to create project doc")?
+            }
+        };
+        info!(
+            doc_id = %project_doc.id(),
+            author = %doc_author,
+            "project doc ready for coordinator dispatch"
+        );
+        let project_doc = Arc::new(project_doc);
+
+        // 6c-2. Sprint 49 Phase A: create the dispatch MPSC channel and
+        //       spawn the dispatch loop. The loop is the sole writer to
+        //       the project doc (G1 D2 ack — sequential writes, no
+        //       contention with HTTP handlers).
+        let (task_dispatch_tx, task_dispatch_rx) = crate::dispatch_loop::create_dispatch_channel();
+        {
+            let doc_clone = Arc::clone(&project_doc);
+            tokio::spawn(crate::dispatch_loop::run(
+                task_dispatch_rx,
+                doc_clone,
+                doc_author,
+            ));
+        }
+
+        // 6d. Build the shared HTTP state + spawn the serve task.
         let http_state = Arc::new(DaemonHttpState {
             node_id,
             daemon_version: opts.daemon_version.clone(),
@@ -515,6 +562,8 @@ impl DaemonRuntime {
             },
             canary_input: None,
             sbfb_home: None,
+            project_doc: Some(Arc::clone(&project_doc)),
+            task_dispatch_tx: Some(task_dispatch_tx),
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
