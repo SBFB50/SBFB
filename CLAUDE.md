@@ -121,24 +121,19 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-47 CLOSED**, v1.2 en cours. Audit gate S47 = S48
-  Phase 0 (`.planning/active/sprint48_audit_plan.md`).
-- **~1936 tests total** (1185 Rust / 195 SDK / 264+17f+6s coord / 46
+- **Sprints 0-48 CLOSED**, v1.2 en cours. Audit gate S48 = S49
+  Phase 0 (`.planning/active/sprint49_audit_plan.md`).
+- **~1937 tests total** (1186 Rust / 195 SDK / 264+17f+6s coord / 46
   app-gov / 267 Vitest / 42+2f Playwright / 5/5 size-limit) — tous
   verts code (17 coord fail PyO3 wheel stale + 2 PW env fail —
-  meme root cause wheel/env stale, pas regression). S47 ajoute
-  +17 tests Rust (diagnostic Err + 9 integration tests 5 routes +
-  7 happy path consent/files), -65 Python (7 modules dead code
-  supprimes), deprecated aliases frontend supprimes.
-- Carry S48 : P2-A-1 rand blocker upstream (exemption externe) ;
+  meme root cause wheel/env stale, pas regression). S48 ajoute
+  +1 test Rust (files_dir_override_home), TOCTOU canary fix,
+  kudos total_count, execute_batch_raw feature gate, invite
+  format test, sbfb_home refactor (7 set_var elimines).
+- Carry S49 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P3-AUDIT-B-4-S45 TOCTOU canary reload 2/3 ;
-  P2-REVIEW-B-1-S46 kudos SQL pagination 2/3 ;
-  P2-REVIEW-C-1-S46 app-specific schema drift 2/3 ;
-  P2-REVIEW-A-1-S47 execute_batch_raw pub 1/3 ;
-  P2-REVIEW-A-2-S47 invite format test 1/3 ;
-  P2-REVIEW-B-1-S47 deploy BlobsClient fragility 1/3 ;
-  P2-REVIEW-C-1-S47 set_var process-wide 1/3.
+  P2-REVIEW-A-1-S48 canary reload size cap 1/3 ;
+  P2-REVIEW-B-1-S48 auth.rs set_var residuel 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
