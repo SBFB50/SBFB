@@ -113,6 +113,33 @@ pub enum Command {
     #[command(subcommand)]
     Config(ConfigCommand),
 
+    /// Initialize project directory + coordinator database.
+    ///
+    /// Sprint 49 Phase B. Creates the shell-daemon directory
+    /// structure and coordinator.db (if not already present).
+    /// Does NOT start the daemon — use `start` for that.
+    /// Useful for pre-configuring invites/capabilities before boot.
+    Init,
+
+    /// Manage project invitations (offline — no daemon required).
+    ///
+    /// Sprint 49 Phase B. Subcommands operate directly on the
+    /// coordinator.db without a running daemon (G1 D3 ack).
+    #[command(subcommand)]
+    Invite(InviteCommand),
+
+    /// Manage quarantine queue (offline — no daemon required).
+    ///
+    /// Sprint 49 Phase B.
+    #[command(subcommand)]
+    Quarantine(QuarantineCommand),
+
+    /// Manage capability toggles (offline — no daemon required).
+    ///
+    /// Sprint 49 Phase B.
+    #[command(subcommand)]
+    Capability(CapabilityCommand),
+
     /// Publish / verify the project's monthly warrant canary.
     ///
     /// Sprint 18 Phase E2. The declaration text lives at
@@ -272,6 +299,57 @@ pub enum FrostCommand {
     },
 }
 
+/// Subcommands for `nexus-shell-daemon invite ...`.
+#[derive(Debug, Subcommand)]
+pub enum InviteCommand {
+    /// Create a new project invitation.
+    Create,
+    /// List existing invitations.
+    List {
+        #[arg(long, default_value = "50")]
+        limit: usize,
+    },
+    /// Revoke an invitation by ID.
+    Revoke {
+        /// Invite ID (format: inv-{node8}-{ts}-{seq}).
+        id: String,
+    },
+}
+
+/// Subcommands for `nexus-shell-daemon quarantine ...`.
+#[derive(Debug, Subcommand)]
+pub enum QuarantineCommand {
+    /// List pending quarantine entries.
+    List,
+    /// Flush (release) a quarantine entry by row ID.
+    Flush {
+        /// Row ID of the entry to flush.
+        row_id: i64,
+    },
+    /// Drop (discard) a quarantine entry by row ID.
+    Drop {
+        /// Row ID of the entry to drop.
+        row_id: i64,
+    },
+}
+
+/// Subcommands for `nexus-shell-daemon capability ...`.
+#[derive(Debug, Subcommand)]
+pub enum CapabilityCommand {
+    /// List all capabilities and their status.
+    List,
+    /// Enable a capability.
+    Enable {
+        /// Capability name.
+        name: String,
+    },
+    /// Disable a capability.
+    Disable {
+        /// Capability name.
+        name: String,
+    },
+}
+
 /// Subcommands for `nexus-shell-daemon config ...`.
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
@@ -423,5 +501,89 @@ mod tests {
         let cli = Cli::try_parse_from(["nexus-shell-daemon", "-vv", "start"]).unwrap();
         assert_eq!(cli.verbose, 2);
         assert!(matches!(cli.command, Command::Start { .. }));
+    }
+
+    #[test]
+    fn parses_init() {
+        let cli = Cli::try_parse_from(["nexus-shell-daemon", "init"]).unwrap();
+        assert!(matches!(cli.command, Command::Init));
+    }
+
+    #[test]
+    fn parses_invite_create() {
+        let cli = Cli::try_parse_from(["nexus-shell-daemon", "invite", "create"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Invite(InviteCommand::Create)
+        ));
+    }
+
+    #[test]
+    fn parses_invite_list() {
+        let cli =
+            Cli::try_parse_from(["nexus-shell-daemon", "invite", "list", "--limit", "10"]).unwrap();
+        match cli.command {
+            Command::Invite(InviteCommand::List { limit }) => assert_eq!(limit, 10),
+            other => panic!("expected Invite::List, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_invite_revoke() {
+        let cli =
+            Cli::try_parse_from(["nexus-shell-daemon", "invite", "revoke", "inv-abc-123-0001"])
+                .unwrap();
+        match cli.command {
+            Command::Invite(InviteCommand::Revoke { id }) => {
+                assert_eq!(id, "inv-abc-123-0001")
+            }
+            other => panic!("expected Invite::Revoke, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_quarantine_list() {
+        let cli = Cli::try_parse_from(["nexus-shell-daemon", "quarantine", "list"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Quarantine(QuarantineCommand::List)
+        ));
+    }
+
+    #[test]
+    fn parses_quarantine_flush() {
+        let cli = Cli::try_parse_from(["nexus-shell-daemon", "quarantine", "flush", "42"]).unwrap();
+        match cli.command {
+            Command::Quarantine(QuarantineCommand::Flush { row_id }) => {
+                assert_eq!(row_id, 42)
+            }
+            other => panic!("expected Quarantine::Flush, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_capability_enable() {
+        let cli = Cli::try_parse_from([
+            "nexus-shell-daemon",
+            "capability",
+            "enable",
+            "compute_request",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Capability(CapabilityCommand::Enable { name }) => {
+                assert_eq!(name, "compute_request")
+            }
+            other => panic!("expected Capability::Enable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_capability_list() {
+        let cli = Cli::try_parse_from(["nexus-shell-daemon", "capability", "list"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Capability(CapabilityCommand::List)
+        ));
     }
 }

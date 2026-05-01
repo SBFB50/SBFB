@@ -58,7 +58,10 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use nexus_shell_daemon_core::config::{ShellDaemonConfig, ShellDaemonPaths};
 
-use cli::{CanaryCommand, Cli, Command, ConfigCommand, FrostCommand};
+use cli::{
+    CanaryCommand, CapabilityCommand, Cli, Command, ConfigCommand, FrostCommand, InviteCommand,
+    QuarantineCommand,
+};
 use runtime::{DaemonRuntime, DaemonStartOptions};
 
 #[tokio::main]
@@ -95,6 +98,10 @@ async fn main() -> Result<()> {
         } => handle_start(paths, headless, cors_origins, web_root).await,
         Command::Stop => handle_stop(&paths).await,
         Command::Status => handle_status(&paths).await,
+        Command::Init => handle_init(&paths).await,
+        Command::Invite(cmd) => handle_invite(&paths, cmd).await,
+        Command::Quarantine(cmd) => handle_quarantine(&paths, cmd).await,
+        Command::Capability(cmd) => handle_capability(&paths, cmd).await,
         Command::Config(cmd) => handle_config(&paths, cmd).await,
         Command::Canary(cmd) => handle_canary(cmd).await,
     }
@@ -565,12 +572,149 @@ async fn handle_frost(cmd: FrostCommand) -> Result<()> {
     }
 }
 
+async fn handle_init(paths: &ShellDaemonPaths) -> Result<()> {
+    paths
+        .ensure_dirs()
+        .context("failed to create shell-daemon directories")?;
+    let db_path = paths.root.join("coordinator.db");
+    let _db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path)
+        .map_err(|e| anyhow::anyhow!("coordinator DB open failed: {e}"))?;
+    println!("Project initialized.");
+    println!("  root:          {}", paths.root.display());
+    println!("  coordinator.db: {}", db_path.display());
+    println!("  config:        {}", paths.config_file.display());
+    println!("\nRun `nexus-shell-daemon start` to boot the daemon.");
+    Ok(())
+}
+
+async fn handle_invite(paths: &ShellDaemonPaths, cmd: InviteCommand) -> Result<()> {
+    let db_path = paths.root.join("coordinator.db");
+    let db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path)
+        .map_err(|e| anyhow::anyhow!("coordinator DB open failed: {e}"))?;
+    let ledger = nexus_coordinator_rs::invite::InviteLedger::new(&db);
+    match cmd {
+        InviteCommand::Create => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let id = format!("inv-{:08x}-{:016x}-0001", 0u32, now as u64);
+            let expires = now + 7 * 86400;
+            let req = nexus_coordinator_rs::invite::MintRequest::new(
+                &id,
+                "json",
+                "project",
+                "local",
+                "local-project",
+                expires,
+            );
+            let record = ledger.mint(&req).map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("{}", record.id);
+        }
+        InviteCommand::List { limit } => {
+            let invites = ledger.list(limit).map_err(|e| anyhow::anyhow!("{e}"))?;
+            if invites.is_empty() {
+                println!("No invitations.");
+            } else {
+                for inv in &invites {
+                    let status = if inv.revoked_at.is_some() {
+                        "revoked"
+                    } else {
+                        "active"
+                    };
+                    println!("{} [{}] created_at={}", inv.id, status, inv.created_at);
+                }
+                println!("\n{} invitation(s) total.", invites.len());
+            }
+        }
+        InviteCommand::Revoke { id } => {
+            let revoked = ledger.revoke(&id).map_err(|e| anyhow::anyhow!("{e}"))?;
+            if revoked {
+                println!("Revoked: {id}");
+            } else {
+                println!("Not found or already revoked: {id}");
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn handle_quarantine(paths: &ShellDaemonPaths, cmd: QuarantineCommand) -> Result<()> {
+    let db_path = paths.root.join("coordinator.db");
+    let db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path)
+        .map_err(|e| anyhow::anyhow!("coordinator DB open failed: {e}"))?;
+    let queue = nexus_coordinator_rs::quarantine_queue::QuarantineQueue::new(&db, 900);
+    match cmd {
+        QuarantineCommand::List => {
+            let entries = queue.list_pending().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if entries.is_empty() {
+                println!("Quarantine queue empty.");
+            } else {
+                for e in &entries {
+                    println!(
+                        "  [{}] sender={} received_at={}",
+                        e.id, e.sender_pubkey_hex, e.received_at
+                    );
+                }
+                println!("\n{} pending entry(ies).", entries.len());
+            }
+        }
+        QuarantineCommand::Flush { row_id } => {
+            let flushed = queue.flush(row_id).map_err(|e| anyhow::anyhow!("{e}"))?;
+            if flushed {
+                println!("Flushed entry {row_id}.");
+            } else {
+                println!("Entry {row_id} not found or already processed.");
+            }
+        }
+        QuarantineCommand::Drop { row_id } => {
+            let dropped = queue
+                .drop_entry(row_id)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            if dropped {
+                println!("Dropped entry {row_id}.");
+            } else {
+                println!("Entry {row_id} not found or already processed.");
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn handle_capability(paths: &ShellDaemonPaths, cmd: CapabilityCommand) -> Result<()> {
+    let cap_path = paths.root.join("capabilities.toml");
+    match cmd {
+        CapabilityCommand::List => {
+            let store = nexus_coordinator_rs::capability_store::CapabilityStore::load(&cap_path);
+            let trail = store.audit_trail();
+            if trail.is_empty() {
+                println!("No capabilities configured.");
+            } else {
+                for (name, enabled, actor, ts) in &trail {
+                    let status = if *enabled { "ON" } else { "OFF" };
+                    println!("  {name}: {status} (by {actor} at {ts})");
+                }
+            }
+        }
+        CapabilityCommand::Enable { name } => {
+            let mut store =
+                nexus_coordinator_rs::capability_store::CapabilityStore::load(&cap_path);
+            store
+                .enable(&name, "cli")
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("Enabled: {name}");
+        }
+        CapabilityCommand::Disable { name } => {
+            let mut store =
+                nexus_coordinator_rs::capability_store::CapabilityStore::load(&cap_path);
+            store.disable(&name).map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("Disabled: {name}");
+        }
+    }
+    Ok(())
+}
+
 /// Uniform placeholder output for unimplemented subcommands.
-///
-/// Kept as a free function so the stub format is trivially
-/// grep-able across every handler: when a real implementation
-/// lands, `grep print_stub` flags any handler still on the stub
-/// path.
 fn print_stub(name: &str, phase: &str, args: &[(&str, &str)]) {
     println!("nexus-shell-daemon v{}", env!("CARGO_PKG_VERSION"));
     println!("  core version: {}", nexus_shell_daemon_core::VERSION);
