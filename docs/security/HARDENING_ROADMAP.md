@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-01  # G2 — Sprint 51 CLOSED : suppression legacy nexus/ + Python workspace + CI post-Python (-72k LOC) + 3 carries S48 CLOSED (canary cap, set_var, doc accuracy) + 1 carry S50 CLOSED (nexus/ DELETE). Compteurs 1199 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1455 total. 0 trigger actif.
+last_validated: 2026-05-02  # G2 — Sprint 52 CLOSED : dette pair (dispatch shutdown oneshot CLOSE + 20 docs legacy DELETE -13k LOC + CLAUDE.md stale carry CLOSE) + CI Woodpecker .woodpecker/ci-linux.yml + SELF_HOSTED_BUILD.md design doc 3 etages + LT-7 pre-v1.0 + GHA release.yml matrix fix (include→cross-product 9 jobs). Compteurs 1199 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1455 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"

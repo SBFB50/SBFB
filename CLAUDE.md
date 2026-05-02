@@ -112,24 +112,23 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-51 CLOSED**, v1.2 en cours. Projet Rust+Frontend
-  pur depuis S50 (Python supprime) + S51 (legacy nexus/ supprime,
-  -72k LOC). Audit gate S50 = S51 Phase 0.
+- **Sprints 0-52 CLOSED**, v1.2 en cours. Projet Rust+Frontend
+  pur depuis S50-S51. S52 pair : dette (dispatch shutdown oneshot
+  CLOSE + 20 docs legacy DELETE + CLAUDE.md fix) + CI Woodpecker
+  + design doc self-hosted build (LT-7) + GHA matrix fix.
 - **~1455 tests total** (1199 Rust / 250 Vitest / 42+2f Playwright
   / 6/6 size-limit) — tous verts code (2 PW env fail pre-existant).
-  S51 : 0 delta tests (sprint soustractif). 3 carries S48 CLOSED
-  Phase B (canary cap, set_var, doc accuracy). 1 carry S50 CLOSED
-  Phase A (nexus/ legacy DELETE).
-- Carry S52 : P2-A-1 rand blocker upstream (exemption externe) ;
+  S52 : 0 delta tests. 3 carries CLOSED Phase A (dispatch join
+  order S50, docs legacy S51, CLAUDE.md stale audit S51).
+- Carry S53 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P2-REVIEW-A-1-S50 dispatch join order 2/3 ;
-  P2-REVIEW-B-1-S51 unsafe set_var futur 1/3 ;
-  P2-REVIEW-A-2-S51 docs legacy orphelines 1/3.
+  P2-REVIEW-B-1-S51 unsafe set_var futur 2/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
+  LT-7 self-hosted build — **PRE-V1.0 OBLIGATOIRE** (S54-S55).
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
