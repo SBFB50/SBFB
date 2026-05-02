@@ -46,6 +46,7 @@ Derniere revue).
 | LT-4 | OS biometric gate cross-platform (Windows Hello / TouchID / polkit) | latent | `<post-v1.0>` | 2026-04-20    |
 | LT-5 | Redundancy persistence SQLite + wire-up prod               | latent     | `<post-v1.0>`  | 2026-04-22    |
 | LT-6 | iroh neighborhood enrichment                                | **resolved** | Sprint 32      | 2026-04-27    |
+| LT-7 | Self-hosted build — le reseau compile le reseau             | **pre-v1.0 obligatoire** | `<S54-S55>` | 2026-05-02 |
 
 ## LT-1 Kudos-v2 fairness reform
 
@@ -296,8 +297,42 @@ Derniere revue).
   diversifier la topologie du réseau.
 - **Dernière revue** : 2026-04-27 (resolved Sprint 32 Phase A).
 
+## LT-7 Self-hosted build — le reseau compile le reseau
+
+- **ID** : LT-7
+- **Title** : Self-hosted build — SBFB compile SBFB via ses propres
+  workers (task_type "build", redundancy quorum SHA256, reproducible
+  builds). Le reseau qui ne peut pas se compiler lui-meme n'est pas
+  un reseau de compute.
+- **Origine** : Discussion 2026-05-02 (session S52). Decision
+  utilisateur non-negociable : pre-v1.0 obligatoire. Le modele
+  archive-zip + workers compute + redundancy_factor + release-attest.sh
+  (SOURCE_DATE_EPOCH + SLSA provenance) fournissent deja 80% de
+  l'infra. Item net-new (voie 2 preambule).
+- **Condition de declenchement** : **PRE-V1.0 OBLIGATOIRE**. Pas de
+  tag v1.0 sans self-hosted build operationnel. GHA reste comme
+  "stage 0" bootstrap (premier build du premier noeud). Le reseau
+  prend le relais pour les builds de routine.
+- **Owner** : sprint dedie pre-v1.0 (estimatif S54-S55).
+- **Runbook pointer** : a creer au sprint kickoff. Composants
+  identifies :
+  - `task_type: "build"` dans TaskEntry (extension wire format)
+  - Worker build executor (cargo build dans sandbox)
+  - Toolchain pinning par hash dans le task descriptor
+  - Quorum SHA256 via redundancy_factor existant
+  - Fallback GHA si quorum echoue (bootstrap residuel)
+  Blockers identifies (research 2026-05-02) :
+  - Rust reproducible builds en maturation (rust-lang/rust#129080)
+  - Toolchain homogeneite cross-workers (pin Rust+LLVM+linker)
+  - Cout reseau binaires 50MB+ × redundancy (acceptable)
+  MVP : architecture homogene x86_64-linux d'abord, cross-platform
+  apres validation.
+- **Derniere revue** : 2026-05-02 (creation, feasibility check
+  positif — aucun blocker fondamental, pas de precedent P2P
+  existant = SBFB serait le premier).
+
 ## Reservation IDs futurs
 
-- **LT-7+** : IDs alloués dans l'ordre d'entrée au registre
+- **LT-8+** : IDs alloués dans l'ordre d'entrée au registre
   (reclassification carry ≥3 consecutives OU net-new identifié
   route § préambule voie 2), sans réutilisation des IDs libérés.

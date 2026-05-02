@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# nexus-grid CI Linux — Woodpecker pipeline reproducing the Linux
+# verification bloc from .github/workflows/ci.yml.
+#
+# Runs on Codeberg CI or self-hosted Woodpecker agent.
+# Sprint 52 Phase B — first step toward GHA independence.
+
+when:
+  branch: [master, main]
+  event: [push, pull_request]
+
+steps:
+  # ── Rust ──────────────────────────────────────────────────
+  - name: rust-fmt
+    image: rust:1.94
+    commands:
+      - rustup component add rustfmt
+      - cargo fmt --all --check
+
+  - name: rust-clippy
+    image: rust:1.94
+    commands:
+      - rustup component add clippy
+      - cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  - name: rust-test
+    image: rust:1.94
+    commands:
+      - cargo test --workspace --locked
+
+  - name: rust-doctest
+    image: rust:1.94
+    commands:
+      - cargo test --workspace --locked --doc
+
+  # ── Frontend ──────────────────────────────────────────────
+  - name: frontend-deps
+    image: node:20
+    commands:
+      - cd web && npm ci
+
+  - name: frontend-typecheck
+    image: node:20
+    commands:
+      - cd web && npx tsc --noEmit -p tsconfig.app.json
+
+  - name: frontend-lint
+    image: node:20
+    commands:
+      - cd web && npm run lint
+
+  - name: frontend-test
+    image: node:20
+    commands:
+      - cd web && npm run test:unit
+
+  - name: frontend-build
+    image: node:20
+    commands:
+      - cd web && npm run build
+
+  - name: frontend-size
+    image: node:20
+    commands:
+      - cd web && npm run size
+
+  - name: spdx-check
+    image: bash:5
+    commands:
+      - bash scripts/check-spdx.sh

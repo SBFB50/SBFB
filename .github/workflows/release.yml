@@ -26,6 +26,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        binary: [nexus-worker, nexus-shell-daemon, nexus-launcher]
         include:
           - os: ubuntu-latest
             os-label: linux-x86_64
@@ -36,10 +38,6 @@ jobs:
           - os: windows-latest
             os-label: windows-x86_64
             shell: bash
-        binary:
-          - nexus-worker
-          - nexus-shell-daemon
-          - nexus-launcher
     runs-on: ${{ matrix.os }}
     defaults:
       run:
