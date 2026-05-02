@@ -144,6 +144,21 @@ docs/VISION_USE_CASES.md
 /lettre_villepin.md
 /villepin.md
 
+# AFFiNE self-hosted (local dev dashboard, not production)
+docker/affine/
+
+# Architecture whiteboard (local Excalidraw exports)
+docs/architecture/WHITEBOARD_SBFB.md
+docs/architecture/whiteboard-sbfb.excalidraw
+
+# AFFiNE SBFB integration docs (local drafts)
+docs/affine-sbfb/
+
+# Project visualization tooling (local dev, output in /site/)
+scripts/affine-sync.mjs
+scripts/generate-project-graph.mjs
+tools/project-viz/
+
 # Babel scraper tools (post-v1.0, large corpus downloads)
 tools/babel-scraper/
 
