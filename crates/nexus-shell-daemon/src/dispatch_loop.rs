@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use nexus_core_rs::docs::{DocHandle, DocsAuthorId};
 use nexus_core_rs::task::TaskEntry;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 
 pub type TaskEntrySender = mpsc::Sender<TaskEntry>;
@@ -20,22 +20,37 @@ pub fn create_dispatch_channel() -> (TaskEntrySender, mpsc::Receiver<TaskEntry>)
     mpsc::channel(CHANNEL_CAPACITY)
 }
 
-pub async fn run(mut rx: mpsc::Receiver<TaskEntry>, doc: Arc<DocHandle>, author: DocsAuthorId) {
+pub async fn run(
+    mut rx: mpsc::Receiver<TaskEntry>,
+    doc: Arc<DocHandle>,
+    author: DocsAuthorId,
+    shutdown: oneshot::Receiver<()>,
+) {
     info!("dispatch_loop started");
-    while let Some(entry) = rx.recv().await {
-        let key = format!("tasks/{}", entry.task.task_id);
-        let value = match serde_json::to_vec(&entry) {
-            Ok(v) => v,
-            Err(e) => {
-                warn!(task_id = %entry.task.task_id, error = %e, "failed to serialize task entry");
-                continue;
+    tokio::pin!(shutdown);
+    loop {
+        tokio::select! {
+            entry = rx.recv() => {
+                let Some(entry) = entry else { break };
+                let key = format!("tasks/{}", entry.task.task_id);
+                let value = match serde_json::to_vec(&entry) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!(task_id = %entry.task.task_id, error = %e, "failed to serialize task entry");
+                        continue;
+                    }
+                };
+                if let Err(e) = doc.set(author, key.as_bytes().to_vec(), value).await {
+                    warn!(task_id = %entry.task.task_id, error = %e, "failed to write task entry to project doc");
+                }
             }
-        };
-        if let Err(e) = doc.set(author, key.as_bytes().to_vec(), value).await {
-            warn!(task_id = %entry.task.task_id, error = %e, "failed to write task entry to project doc");
+            _ = &mut shutdown => {
+                info!("dispatch_loop received shutdown signal");
+                break;
+            }
         }
     }
-    info!("dispatch_loop channel closed, exiting");
+    info!("dispatch_loop exiting");
 }
 
 #[cfg(test)]
@@ -76,8 +91,9 @@ mod tests {
         let doc = Arc::new(doc);
 
         let (tx, rx) = create_dispatch_channel();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         let doc_clone = Arc::clone(&doc);
-        let handle = tokio::spawn(run(rx, doc_clone, author));
+        let handle = tokio::spawn(run(rx, doc_clone, author, shutdown_rx));
 
         let entry = make_test_entry();
         let task_id = entry.task.task_id.clone();
@@ -85,6 +101,7 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         drop(tx);
+        let _ = shutdown_tx.send(());
         let _ = handle.await;
 
         let entries = doc

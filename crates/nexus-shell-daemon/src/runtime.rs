@@ -194,6 +194,7 @@ pub struct DaemonRuntime {
     #[allow(dead_code)]
     pow_policy_watcher: Option<PowPolicyWatcher>,
     dispatch_handle: Option<JoinHandle<()>>,
+    dispatch_shutdown: Option<oneshot::Sender<()>>,
     bound_addr: std::net::SocketAddr,
 }
 
@@ -518,12 +519,14 @@ impl DaemonRuntime {
         //       the project doc (G1 D2 ack — sequential writes, no
         //       contention with HTTP handlers).
         let (task_dispatch_tx, task_dispatch_rx) = crate::dispatch_loop::create_dispatch_channel();
+        let (dispatch_shutdown_tx, dispatch_shutdown_rx) = oneshot::channel::<()>();
         let dispatch_handle = {
             let doc_clone = Arc::clone(&project_doc);
             tokio::spawn(crate::dispatch_loop::run(
                 task_dispatch_rx,
                 doc_clone,
                 doc_author,
+                dispatch_shutdown_rx,
             ))
         };
 
@@ -668,6 +671,7 @@ impl DaemonRuntime {
             tokens_watcher,
             pow_policy_watcher: _pow_policy_watcher,
             dispatch_handle: Some(dispatch_handle),
+            dispatch_shutdown: Some(dispatch_shutdown_tx),
             bound_addr,
         })
     }
@@ -742,6 +746,9 @@ impl DaemonRuntime {
             warn!(error = %e, "HTTP serve task join failed");
         }
 
+        if let Some(tx) = self.dispatch_shutdown.take() {
+            let _ = tx.send(());
+        }
         if let Some(mut handle) = self.dispatch_handle.take() {
             if let Err(e) = (&mut handle).await {
                 warn!(error = %e, "dispatch loop task join failed");

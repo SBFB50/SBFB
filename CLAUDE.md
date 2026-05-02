@@ -124,7 +124,6 @@ Runtime isolation roadmap dans
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
   P2-REVIEW-A-1-S50 dispatch join order 2/3 ;
   P2-REVIEW-B-1-S51 unsafe set_var futur 1/3 ;
-  P2-REVIEW-A-1-S51 release-attest.sh dead code 1/3 ;
   P2-REVIEW-A-2-S51 docs legacy orphelines 1/3.
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
