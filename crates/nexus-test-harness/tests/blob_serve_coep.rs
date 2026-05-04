@@ -29,7 +29,7 @@ async fn blob_serve_coep_headers_on_real_zip() -> Result<()> {
 
     let zip_bytes = make_test_zip();
     let publish_resp = client
-        .post(format!("{}/publish-blob", d.http_url()))
+        .post(format!("{}/api/daemon/publish-blob", d.http_url()))
         .header("X-SBFB-Token", &d.auth_token)
         .header("Host", format!("127.0.0.1:{}", d.http_port))
         .body(zip_bytes)

@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! HTTP surface for `nexus-shell-daemon`.
 //!
-//! The daemon's HTTP listener is loopback-only and reached by
-//! the React shell exclusively through the coordinator
-//! `/daemon/*` proxy (Sprint 7 D1). Phase A exposed two routes
-//! (`/health`, `/info`); Phase C extends the surface with three
-//! more that operate on the shared [`CuratorRuntime`]:
+//! The daemon's HTTP listener is loopback-only. Daemon-specific
+//! JSON routes live under `/api/daemon/*` so they never collide
+//! with SPA document routes (`/browse`, `/curators`) when the
+//! daemon serves the React shell via `--web-root`.
 //!
-//! - `GET    /health`              — liveness probe (Phase A)
-//! - `GET    /info`                — daemon state snapshot (Phase A)
-//! - `GET    /curators`            — list every cached curator list
-//! - `POST   /curators/subscribe`  — add a curator to the attention set
-//! - `DELETE /curators/{pubkey}`   — remove a curator from the attention set
-//!
-//! Phase D will grow `/browse`. That route is deliberately
-//! **absent** here so the Phase D audit can isolate pkarr
-//! resolution correctness from subscribe correctness.
+//! - `GET    /health`                         — liveness probe (public)
+//! - `GET    /api/daemon/info`                — daemon state snapshot
+//! - `GET    /api/daemon/curators`            — list every cached curator list
+//! - `POST   /api/daemon/curators/subscribe`  — add a curator to the attention set
+//! - `DELETE /api/daemon/curators/{pubkey}`   — remove a curator
+//! - `GET    /api/daemon/browse`              — aggregated browse entries
+//! - `POST   /api/daemon/publish`             — publish a project announcement
+//! - `POST   /api/daemon/publish-blob`        — upload a zip archive blob
+//! - `GET    /api/daemon/default-curators`    — config-provided curator list
+//! - `POST   /api/daemon/panic/wipe`          — irreversible identity wipe
+//! - `GET    /api/daemon/diagnostic/neighborhood` — peer snapshot
 //!
 //! ## CORS
 //!
@@ -235,19 +236,15 @@ pub fn build_router(
     // Authenticated surface: every other route requires
     // X-SBFB-Token + loopback Host + (absent or loopback) Origin.
     let authed_routes = Router::new()
-        .route("/info", get(info))
-        .route("/curators", get(list_curators))
-        .route("/curators/subscribe", post(subscribe_curator))
-        .route("/curators/{pubkey}", delete(unsubscribe_curator))
-        .route("/browse", get(list_browse))
-        .route("/publish", post(publish_project))
-        .route("/publish-blob", post(publish_blob))
-        .route("/default-curators", get(default_curators))
-        // Sprint 20 Phase B : panic wipe endpoint. Behind the
-        // same loopback bearer + Host + Origin gate as every
-        // other authenticated route so only a co-located shell
-        // with the rotated token can trigger it.
-        .route("/panic/wipe", post(panic_wipe))
+        .route("/api/daemon/info", get(info))
+        .route("/api/daemon/curators", get(list_curators))
+        .route("/api/daemon/curators/subscribe", post(subscribe_curator))
+        .route("/api/daemon/curators/{pubkey}", delete(unsubscribe_curator))
+        .route("/api/daemon/browse", get(list_browse))
+        .route("/api/daemon/publish", post(publish_project))
+        .route("/api/daemon/publish-blob", post(publish_blob))
+        .route("/api/daemon/default-curators", get(default_curators))
+        .route("/api/daemon/panic/wipe", post(panic_wipe))
         .route(
             "/api/v1/contributor/verify/{project_id}/{node_id_hex}",
             get(crate::contributor_api::verify_contributor),
@@ -264,7 +261,10 @@ pub fn build_router(
         // Returns the node's own ID and known peer IDs from the
         // iroh endpoint's remote info table. Diagnostic-only, no
         // wire format impact.
-        .route("/diagnostic/neighborhood", get(diagnostic_neighborhood))
+        .route(
+            "/api/daemon/diagnostic/neighborhood",
+            get(diagnostic_neighborhood),
+        )
         // Sprint 30 Phase C : FROST DKG + ceremony admin endpoints.
         // Trust tier T0 — behind the same loopback bearer + Host +
         // Origin gate as every other authenticated route.
@@ -1802,7 +1802,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/info")
+                    .uri("/api/daemon/info")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -1844,7 +1844,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/curators")
+                    .uri("/api/daemon/curators")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -1874,7 +1874,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/curators/subscribe")
+                    .uri("/api/daemon/curators/subscribe")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -1892,7 +1892,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/curators")
+                    .uri("/api/daemon/curators")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -1911,7 +1911,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::DELETE)
-                    .uri(format!("/curators/{hex_key}"))
+                    .uri(format!("/api/daemon/curators/{hex_key}"))
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -1943,7 +1943,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/curators/subscribe")
+                    .uri("/api/daemon/curators/subscribe")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -1973,7 +1973,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/curators/subscribe")
+                    .uri("/api/daemon/curators/subscribe")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -1997,7 +1997,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/info")
+                    .uri("/api/daemon/info")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -2021,7 +2021,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/browse")
+                    .uri("/api/daemon/browse")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -2058,7 +2058,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/publish")
+                    .uri("/api/daemon/publish")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -2075,7 +2075,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/browse")
+                    .uri("/api/daemon/browse")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -2125,7 +2125,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/publish")
+                    .uri("/api/daemon/publish")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -2152,7 +2152,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/publish")
+                    .uri("/api/daemon/publish")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -2179,7 +2179,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/publish")
+                    .uri("/api/daemon/publish")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -2215,7 +2215,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/publish")
+                    .uri("/api/daemon/publish")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -2229,7 +2229,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/browse")
+                    .uri("/api/daemon/browse")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -2442,7 +2442,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/default-curators")
+                    .uri("/api/daemon/default-curators")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -2510,7 +2510,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/default-curators")
+                    .uri("/api/daemon/default-curators")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -2551,7 +2551,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/publish-blob")
+                    .uri("/api/daemon/publish-blob")
                     .header("content-type", "application/octet-stream")
                     .body(axum::body::Body::from(zip_bytes))
                     .unwrap(),
@@ -2701,7 +2701,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/publish")
+                    .uri("/api/daemon/publish")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -2715,7 +2715,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/browse")
+                    .uri("/api/daemon/browse")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -2824,7 +2824,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/publish")
+                    .uri("/api/daemon/publish")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -2845,7 +2845,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/browse")
+                    .uri("/api/daemon/browse")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -2878,7 +2878,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/curators/subscribe")
+                    .uri("/api/daemon/curators/subscribe")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(body))
                     .unwrap(),
@@ -2912,7 +2912,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/publish-blob")
+                    .uri("/api/daemon/publish-blob")
                     .header("content-type", "application/octet-stream")
                     .body(axum::body::Body::from(b"fake blob bytes".to_vec()))
                     .unwrap(),
@@ -2935,7 +2935,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/diagnostic/neighborhood")
+                    .uri("/api/daemon/diagnostic/neighborhood")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -2949,6 +2949,133 @@ mod tests {
             neighborhood.peers.is_empty(),
             "fresh node should have no known peers"
         );
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 53 Phase A: SPA route collision regression tests
+    // ---------------------------------------------------------
+
+    fn build_test_router_with_web_root(state: Arc<DaemonHttpState>) -> (Router, tempfile::TempDir) {
+        use axum::http::header::{HOST, ORIGIN};
+        use std::fs;
+        let tmp = tempfile::tempdir().expect("tempdir for web_root");
+        fs::write(
+            tmp.path().join("index.html"),
+            "<!doctype html><div id=root></div>",
+        )
+        .unwrap();
+        let router = build_router(
+            state,
+            AuthState::new(TEST_TOKEN.to_string()),
+            &[],
+            Some(tmp.path()),
+        )
+        .layer(middleware::from_fn(
+            |mut req: axum::extract::Request, next: middleware::Next| async move {
+                let h = req.headers_mut();
+                if !h.contains_key(AUTH_HEADER_NAME) {
+                    h.insert(AUTH_HEADER_NAME, HeaderValue::from_static(TEST_TOKEN));
+                }
+                if !h.contains_key(HOST) {
+                    h.insert(HOST, HeaderValue::from_static("127.0.0.1:0"));
+                }
+                h.remove(ORIGIN);
+                next.run(req).await
+            },
+        ));
+        (router, tmp)
+    }
+
+    #[tokio::test]
+    async fn spa_fallback_serves_browse_as_html_document() {
+        let state = mk_state().await;
+        let (app, _tmp) = build_test_router_with_web_root(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/browse")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            ct.contains("text/html"),
+            "GET /browse with web_root must serve SPA HTML, got content-type: {ct}"
+        );
+    }
+
+    #[tokio::test]
+    async fn spa_fallback_serves_curators_as_html_document() {
+        let state = mk_state().await;
+        let (app, _tmp) = build_test_router_with_web_root(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/curators")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            ct.contains("text/html"),
+            "GET /curators with web_root must serve SPA HTML, got content-type: {ct}"
+        );
+    }
+
+    #[tokio::test]
+    async fn api_daemon_browse_still_returns_json_with_web_root() {
+        let state = mk_state().await;
+        let (app, _tmp) = build_test_router_with_web_root(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/browse")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let list: BrowseListResponse = serde_json::from_slice(&body).unwrap();
+        assert!(list.entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn api_daemon_info_still_returns_json_with_web_root() {
+        let state = mk_state().await;
+        let (app, _tmp) = build_test_router_with_web_root(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/info")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let snap: DaemonStateSnapshot = serde_json::from_slice(&body).unwrap();
+        assert_eq!(snap.schema_version, 1);
     }
 
     // =============================================================

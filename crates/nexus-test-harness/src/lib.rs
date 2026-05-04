@@ -129,7 +129,7 @@ impl DaemonHandle {
     }
 
     pub async fn get_info(&self) -> Result<serde_json::Value> {
-        let url = format!("{}/info", self.http_url());
+        let url = format!("{}/api/daemon/info", self.http_url());
         let resp = reqwest::Client::new()
             .get(&url)
             .header("X-SBFB-Token", &self.auth_token)

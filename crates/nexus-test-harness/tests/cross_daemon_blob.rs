@@ -41,7 +41,7 @@ async fn cross_daemon_publish_and_serve_blob() -> Result<()> {
 
     let zip_bytes = make_test_zip("<!DOCTYPE html><html><body>cross-daemon-test</body></html>");
     let publish_resp = client
-        .post(format!("{}/publish-blob", daemon_a.http_url()))
+        .post(format!("{}/api/daemon/publish-blob", daemon_a.http_url()))
         .header("X-SBFB-Token", &daemon_a.auth_token)
         .header("Host", format!("127.0.0.1:{}", daemon_a.http_port))
         .body(zip_bytes)

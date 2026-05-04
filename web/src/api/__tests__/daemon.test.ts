@@ -208,7 +208,7 @@ describe("subscribeCurator", () => {
       RequestInit | undefined,
     ][];
     const [urlArg, initArg] = calls[0];
-    expect(String(urlArg)).toBe(`${BASE}/curators/subscribe`);
+    expect(String(urlArg)).toBe(`${BASE}/api/daemon/curators/subscribe`);
     expect(initArg?.method).toBe("POST");
     expect(initArg?.body).toBe(
       JSON.stringify({ curator_pubkey_hex: "bb".repeat(32) }),
@@ -249,7 +249,7 @@ describe("unsubscribeCurator", () => {
       RequestInit | undefined,
     ][];
     const [urlArg, initArg] = calls[0];
-    expect(String(urlArg)).toBe(`${BASE}/curators/${"cc".repeat(32)}`);
+    expect(String(urlArg)).toBe(`${BASE}/api/daemon/curators/${"cc".repeat(32)}`);
     expect(initArg?.method).toBe("DELETE");
   });
 });

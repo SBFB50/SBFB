@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Typed client for daemon core routes (info, curators, browse,
- * panic wipe). Calls the daemon directly (same-origin) without
- * any proxy envelope.
+ * Typed client for daemon core routes under `/api/daemon/*`
+ * (info, curators, browse, panic wipe). Calls the daemon
+ * directly (same-origin) without any proxy envelope.
  *
  * Returns a `DaemonResult<T>` discriminated union so the React
  * layer can render "daemon offline" as a normal UX state rather
@@ -262,20 +262,20 @@ async function callDaemon<T>(
 // =================================================================
 
 export function getDaemonInfo(baseUrl: string): Promise<DaemonResult<DaemonInfo>> {
-  return callDaemon(baseUrl, "/info", DaemonInfoSchema);
+  return callDaemon(baseUrl, "/api/daemon/info", DaemonInfoSchema);
 }
 
 export function listCurators(
   baseUrl: string,
 ): Promise<DaemonResult<DaemonCuratorsResponse>> {
-  return callDaemon(baseUrl, "/curators", DaemonCuratorsResponseSchema);
+  return callDaemon(baseUrl, "/api/daemon/curators", DaemonCuratorsResponseSchema);
 }
 
 export function subscribeCurator(
   baseUrl: string,
   curatorPubkeyHex: string,
 ): Promise<DaemonResult<SubscriptionsResponse>> {
-  return callDaemon(baseUrl, "/curators/subscribe", SubscriptionsResponseSchema, {
+  return callDaemon(baseUrl, "/api/daemon/curators/subscribe", SubscriptionsResponseSchema, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ curator_pubkey_hex: curatorPubkeyHex }),
@@ -288,7 +288,7 @@ export function unsubscribeCurator(
 ): Promise<DaemonResult<SubscriptionsResponse>> {
   return callDaemon(
     baseUrl,
-    `/curators/${encodeURIComponent(curatorPubkeyHex)}`,
+    `/api/daemon/curators/${encodeURIComponent(curatorPubkeyHex)}`,
     SubscriptionsResponseSchema,
     { method: "DELETE" },
   );
@@ -297,7 +297,7 @@ export function unsubscribeCurator(
 export function listBrowse(
   baseUrl: string,
 ): Promise<DaemonResult<BrowseListResponse>> {
-  return callDaemon(baseUrl, "/browse", BrowseListResponseSchema);
+  return callDaemon(baseUrl, "/api/daemon/browse", BrowseListResponseSchema);
 }
 
 /**
@@ -323,7 +323,7 @@ export type PanicWipeResponse = z.infer<typeof PanicWipeResponseSchema>;
 export function triggerPanicWipe(
   baseUrl: string,
 ): Promise<DaemonResult<PanicWipeResponse>> {
-  return callDaemon(baseUrl, "/panic/wipe", PanicWipeResponseSchema, {
+  return callDaemon(baseUrl, "/api/daemon/panic/wipe", PanicWipeResponseSchema, {
     method: "POST",
   });
 }

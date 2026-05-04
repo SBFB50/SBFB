@@ -96,7 +96,7 @@ async fn test_cross_daemon_blob_transfer() {
 
     let payload = b"hello from SBFB integration test";
     let resp = client
-        .post(format!("{}/publish-blob", daemon.http_url()))
+        .post(format!("{}/api/daemon/publish-blob", daemon.http_url()))
         .header("X-SBFB-Token", &daemon.auth_token)
         .header("Host", format!("127.0.0.1:{}", daemon.http_port))
         .body(payload.to_vec())

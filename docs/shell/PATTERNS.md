@@ -2084,6 +2084,31 @@ working because iroh handled the fallback automatically. See
 
 ---
 
+## Sprint 53 patterns
+
+### P34 — Daemon JSON routes namespaced under `/api/daemon/`
+
+**Rule**: daemon-specific JSON routes live under `/api/daemon/*`
+(`/api/daemon/info`, `/api/daemon/browse`, `/api/daemon/curators`,
+etc.). SPA document routes like `/browse` and `/curators` are
+React Router paths served by the `ServeDir` fallback when
+`--web-root` is active. Mixing bare JSON routes and SPA paths
+caused 401 on F5/direct navigation (the auth middleware rejected
+the document request before React could bootstrap the token).
+
+The namespace split:
+- `/api/daemon/*` — daemon JSON, requires `x-sbfb-token`
+- `/api/v1/*` — coordinator JSON, requires `x-sbfb-token`
+- `/api/canary/*` — FROST/canary JSON, requires `x-sbfb-token`
+- `/health`, `/auth/token` — public, no token
+- `/blob-serve/{hash}/*` — public, separate CSP middleware
+- `/*` — SPA fallback (when `--web-root`)
+
+SHA: Sprint 53 Phase A. Files: `crates/nexus-shell-daemon/src/http.rs`,
+`web/src/api/daemon.ts`.
+
+---
+
 ## Sprint 38 patterns
 
 ### P33 — rowid tiebreaker in kudos ORDER BY queries
