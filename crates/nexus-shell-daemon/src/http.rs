@@ -89,6 +89,9 @@ pub struct DaemonHttpState {
     /// has joined the curator topic. Used by `POST /publish` to
     /// broadcast project announcements. Sprint 11 Phase A.
     pub gossip_sender: GossipSenderHandle,
+    /// Channel to push commands to the gossip task (outbox,
+    /// republish). Sprint 53 Phase D.
+    pub gossip_cmd_tx: crate::runtime::GossipCmdTx,
     /// Default curator pubkeys from `[curator]` config section.
     /// Sprint 11 Phase B. Exposed via `GET /default-curators`.
     pub default_curators: Vec<String>,
@@ -878,37 +881,24 @@ async fn publish_project(
         }
     }
 
-    // Broadcast via gossip if the sender is available.
-    //
-    // Sprint 20 Phase C wire : every outbound payload is wrapped in
-    // a PoW envelope ([`PowEnvelope::encode`]) so receiver daemons
-    // can drop unsolicited noise before processing. The proof is
-    // minted (or reused, 15-min session window) by the shared
-    // [`PowSolveCache`] driven by the live
-    // [`RelayPowPolicy`] — a policy reload picks up on the very
-    // next broadcast that misses the cache.
-    let sender_guard = state.gossip_sender.read().await;
-    if let Some(sender) = sender_guard.as_ref() {
-        match announcement.to_gossip_bytes() {
-            Ok(payload) => match wrap_payload_with_pow(&state, &payload) {
-                Ok(envelope) => {
-                    if let Err(e) = sender.broadcast(envelope).await {
-                        debug!(error = %e, "gossip broadcast failed for project announcement");
-                        // Non-fatal: the project is still added locally.
-                    }
+    // Broadcast via gossip: wrap in PoW envelope and push to the
+    // gossip task outbox. The outbox replays on NeighborUp so
+    // announcements published while isolated reach peers later.
+    if let Ok(payload) = announcement.to_gossip_bytes() {
+        if let Ok(envelope) = wrap_payload_with_pow(&state, &payload) {
+            let sender_guard = state.gossip_sender.read().await;
+            if let Some(sender) = sender_guard.as_ref() {
+                if let Err(e) = sender.broadcast(envelope.clone()).await {
+                    debug!(error = %e, "gossip broadcast failed (non-fatal)");
                 }
-                Err(e) => {
-                    debug!(error = %e, "PoW envelope encode failed — skipping broadcast");
-                }
-            },
-            Err(e) => {
-                debug!(error = %e, "failed to serialize project announcement");
             }
+            drop(sender_guard);
+            let _ = state
+                .gossip_cmd_tx
+                .send(crate::runtime::GossipCmd::Outbox(envelope))
+                .await;
         }
-    } else {
-        debug!("gossip sender not ready, skipping broadcast");
     }
-    drop(sender_guard);
 
     // Add to the local browse aggregator so `/browse` includes
     // this project immediately without waiting for a gossip
@@ -1724,6 +1714,7 @@ mod tests {
             browse_aggregator: Arc::new(BrowseAggregator::new()),
             node: Arc::new(node),
             gossip_sender: Arc::new(RwLock::new(None)),
+            gossip_cmd_tx: tokio::sync::mpsc::channel(8).0,
             default_curators: vec![],
             blob_serve_cache: Arc::new(BlobServeCache::new(8)),
             identity_mode: mode,
@@ -2477,6 +2468,7 @@ mod tests {
             browse_aggregator: Arc::new(BrowseAggregator::new()),
             node: Arc::new(node),
             gossip_sender: Arc::new(RwLock::new(None)),
+            gossip_cmd_tx: tokio::sync::mpsc::channel(8).0,
             default_curators: vec![curator_hex.clone()],
             blob_serve_cache: Arc::new(BlobServeCache::new(8)),
             identity_mode: nexus_core_rs::IdentityMode::Normal,

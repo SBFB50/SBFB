@@ -35,9 +35,9 @@ use std::time::SystemTime;
 
 use anyhow::{anyhow, Context, Result};
 use nexus_core_rs::{
-    create_node_with_config, load_quorum_resolvers_from_env,
-    relay_pow_policy_file_path, GossipClient, GossipEvent, KeyPair, Node, NodeConfig,
-    PowSolveCache, PowVerifyCache, RelayPowPolicy,
+    create_node_with_config, load_quorum_resolvers_from_env, relay_pow_policy_file_path,
+    GossipClient, GossipEvent, KeyPair, Node, NodeConfig, PowSolveCache, PowVerifyCache,
+    RelayPowPolicy,
 };
 use nexus_shell_daemon_core::auth;
 use nexus_shell_daemon_core::browse::{
@@ -559,7 +559,9 @@ impl DaemonRuntime {
             ))
         };
 
-        // 6d. Build the shared HTTP state + spawn the serve task.
+        // 6d. Build gossip command channel + shared HTTP state +
+        //     spawn the serve task.
+        let (gossip_cmd_tx, gossip_cmd_rx) = tokio::sync::mpsc::channel::<GossipCmd>(64);
         let http_state = Arc::new(DaemonHttpState {
             node_id,
             daemon_version: opts.daemon_version.clone(),
@@ -570,6 +572,7 @@ impl DaemonRuntime {
             browse_aggregator: Arc::clone(&browse_aggregator),
             node: Arc::clone(&node),
             gossip_sender: Arc::clone(&gossip_sender),
+            gossip_cmd_tx: gossip_cmd_tx.clone(),
             default_curators: opts.curator.default_curators.clone(),
             blob_serve_cache: Arc::new(nexus_shell_daemon_core::blob_serve::BlobServeCache::new(
                 nexus_shell_daemon_core::blob_serve::DEFAULT_MAX_CACHE_ENTRIES,
@@ -687,6 +690,7 @@ impl DaemonRuntime {
             Arc::clone(&pow_policy),
             gossip_shutdown_rx,
             bootstrap_peers,
+            gossip_cmd_rx,
         );
 
         Ok(Self {
@@ -923,13 +927,21 @@ fn spawn_peer_listener(
 // Gossip subscribe task
 // =================================================================
 
-/// Spawn the background task that joins the curator gossip
-/// topic and forwards every message body to the curator
-/// runtime.
-///
-/// Lives in its own function (rather than inlined into
-/// `DaemonRuntime::start`) so the long boot body stays readable
-/// and so the task's precise lifecycle is easy to audit.
+/// Command sent to the gossip task from HTTP handlers or the
+/// curator subscribe endpoint.
+pub enum GossipCmd {
+    /// A new announcement was published locally — add it to the
+    /// outbox so it gets replayed on NeighborUp.
+    Outbox(Vec<u8>),
+}
+
+/// Channel sender for [`GossipCmd`]. Stored in [`DaemonHttpState`]
+/// so HTTP handlers can push to the gossip outbox.
+pub type GossipCmdTx = tokio::sync::mpsc::Sender<GossipCmd>;
+
+/// Spawn the background task that subscribes to the curator
+/// gossip topic (non-blocking), stores the sender immediately,
+/// and replays the outbox on every NeighborUp event.
 #[allow(clippy::too_many_arguments)]
 fn spawn_gossip_subscribe_task(
     node: Arc<Node>,
@@ -940,46 +952,36 @@ fn spawn_gossip_subscribe_task(
     pow_policy: Arc<std::sync::RwLock<RelayPowPolicy>>,
     mut shutdown_rx: oneshot::Receiver<()>,
     bootstrap_peers: Vec<String>,
+    mut cmd_rx: tokio::sync::mpsc::Receiver<GossipCmd>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let gossip = GossipClient::new(node.gossip());
         let topic_id = curator_topic_id();
 
-        if bootstrap_peers.is_empty() {
-            info!("gossip bootstrap: 0 peers in attention set — join_topic may block until a peer connects");
-        } else {
-            info!(
-                count = bootstrap_peers.len(),
-                "gossip bootstrap: seeding join_topic with attention set peers"
-            );
-        }
+        info!(
+            count = bootstrap_peers.len(),
+            "gossip: subscribing to topic (non-blocking)"
+        );
 
-        let topic = tokio::select! {
-            join = gossip.join_topic(topic_id, bootstrap_peers) => match join {
-                Ok(t) => t,
-                Err(e) => {
-                    warn!(error = %e, "curator gossip join_topic failed — subscribe task exits");
-                    return;
-                }
-            },
-            _ = &mut shutdown_rx => {
-                debug!("curator gossip task shut down before join_topic completed");
+        let topic = match gossip.subscribe_topic(topic_id, bootstrap_peers).await {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(error = %e, "gossip subscribe failed — task exits");
                 return;
             }
         };
-        info!("curator gossip topic joined");
 
         let (sender, mut receiver) = topic.split();
+        info!("gossip: sender available, topic subscribed (may be isolated until peers connect)");
 
-        // Sprint 11 Phase A: store the sender in the shared slot
-        // so POST /publish can broadcast project announcements.
         {
             let mut lock = gossip_sender_slot.write().await;
-            *lock = Some(sender);
+            *lock = Some(sender.clone());
         }
 
-        // Step 2: drain events until shutdown is signalled or
-        // the receiver stream ends.
+        let mut outbox: Vec<Vec<u8>> = Vec::new();
+        let mut neighbor_count: u32 = 0;
+
         loop {
             tokio::select! {
                 ev = receiver.next_event() => {
@@ -990,13 +992,6 @@ fn spawn_gossip_subscribe_task(
                                 bytes = content.len(),
                                 "gossip message received"
                             );
-                            // Sprint 20 Phase C wire : every inbound
-                            // gossip payload is a PoW envelope. Reject
-                            // messages that do not satisfy the current
-                            // topic difficulty BEFORE any blob fetch,
-                            // signature verify, or attention-set
-                            // lookup — the gate is the cheapest
-                            // defence against flood + Sybil noise.
                             let policy_snapshot = {
                                 match pow_policy.read() {
                                     Ok(guard) => guard.clone(),
@@ -1024,10 +1019,6 @@ fn spawn_gossip_subscribe_task(
                                     continue;
                                 }
                             };
-                            // Sprint 11 Phase A: dispatch based on
-                            // message type before curator processing.
-                            // Post-PoW unwrap, the dispatch reads the
-                            // borrowed-then-owned payload bytes.
                             if publish::is_project_announcement(&payload) {
                                 handle_project_announcement(&browse_aggregator, &payload);
                             } else {
@@ -1035,10 +1026,22 @@ fn spawn_gossip_subscribe_task(
                             }
                         }
                         Ok(Some(GossipEvent::NeighborUp { node_id })) => {
-                            debug!(neighbor = %node_id, "gossip neighbor up");
+                            neighbor_count += 1;
+                            info!(
+                                neighbor = %node_id,
+                                neighbors = neighbor_count,
+                                outbox = outbox.len(),
+                                "gossip: neighbor up — replaying outbox"
+                            );
+                            for envelope in &outbox {
+                                if let Err(e) = sender.broadcast(envelope.clone()).await {
+                                    debug!(error = %e, "outbox replay broadcast failed");
+                                }
+                            }
                         }
                         Ok(Some(GossipEvent::NeighborDown { node_id })) => {
-                            debug!(neighbor = %node_id, "gossip neighbor down");
+                            neighbor_count = neighbor_count.saturating_sub(1);
+                            debug!(neighbor = %node_id, neighbors = neighbor_count, "gossip: neighbor down");
                         }
                         Ok(Some(GossipEvent::Lagged)) => {
                             warn!("gossip receiver lagged — some messages dropped");
@@ -1049,6 +1052,22 @@ fn spawn_gossip_subscribe_task(
                         }
                         Err(e) => {
                             warn!(error = %e, "gossip next_event error");
+                            break;
+                        }
+                    }
+                }
+                cmd = cmd_rx.recv() => {
+                    match cmd {
+                        Some(GossipCmd::Outbox(envelope)) => {
+                            outbox.push(envelope.clone());
+                            if neighbor_count > 0 {
+                                if let Err(e) = sender.broadcast(envelope).await {
+                                    debug!(error = %e, "outbox broadcast failed");
+                                }
+                            }
+                        }
+                        None => {
+                            debug!("gossip cmd channel closed");
                             break;
                         }
                     }

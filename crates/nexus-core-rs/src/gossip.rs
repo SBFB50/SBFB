@@ -387,30 +387,16 @@ impl GossipClient {
     /// Subscribe to a topic and wait for at least one peer
     /// connection before returning.
     ///
-    /// `topic_bytes` is a 32-byte topic identifier. `bootstrap`
-    /// is a list of known peer public keys as strings (one per
-    /// peer, parseable by [`iroh::PublicKey::from_str`]) — pass
-    /// an empty vec if the topic is already being seeded by
-    /// peers we are connected to.
-    ///
-    /// This calls `subscribe_and_join` under the hood, so the
-    /// returned handle is ready to broadcast and receive
-    /// immediately.
+    /// **Blocks** until a NeighborUp event arrives. Use
+    /// [`Self::subscribe_topic`] for a non-blocking variant
+    /// suitable for daemon boot.
     pub async fn join_topic(
         &self,
         topic_bytes: [u8; 32],
         bootstrap: Vec<String>,
     ) -> Result<TopicHandle> {
         let topic_id = TopicId::from_bytes(topic_bytes);
-
-        let bootstrap: Result<Vec<PublicKey>> = bootstrap
-            .into_iter()
-            .map(|s| {
-                PublicKey::from_str(&s)
-                    .map_err(|e| NexusError::Gossip(format!("bad bootstrap node id {s:?}: {e}")))
-            })
-            .collect();
-        let bootstrap = bootstrap?;
+        let bootstrap = Self::parse_bootstrap(bootstrap)?;
 
         let topic = self
             .inner
@@ -418,6 +404,37 @@ impl GossipClient {
             .await
             .map_err(|e| NexusError::Gossip(format!("subscribe_and_join failed: {e}")))?;
         Ok(TopicHandle { inner: topic })
+    }
+
+    /// Subscribe to a topic **without blocking** on peer
+    /// connection. Returns a handle immediately — broadcasts
+    /// are queued until the first peer connects. The caller
+    /// should watch for [`GossipEvent::NeighborUp`] to know
+    /// when the topic is live.
+    pub async fn subscribe_topic(
+        &self,
+        topic_bytes: [u8; 32],
+        bootstrap: Vec<String>,
+    ) -> Result<TopicHandle> {
+        let topic_id = TopicId::from_bytes(topic_bytes);
+        let bootstrap = Self::parse_bootstrap(bootstrap)?;
+
+        let topic = self
+            .inner
+            .subscribe(topic_id, bootstrap)
+            .await
+            .map_err(|e| NexusError::Gossip(format!("subscribe failed: {e}")))?;
+        Ok(TopicHandle { inner: topic })
+    }
+
+    fn parse_bootstrap(bootstrap: Vec<String>) -> Result<Vec<PublicKey>> {
+        bootstrap
+            .into_iter()
+            .map(|s| {
+                PublicKey::from_str(&s)
+                    .map_err(|e| NexusError::Gossip(format!("bad bootstrap node id {s:?}: {e}")))
+            })
+            .collect()
     }
 }
 
