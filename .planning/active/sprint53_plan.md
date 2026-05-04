@@ -2,7 +2,8 @@
 
 **Tip d'entree** : `b85a3a1` (post-audit S52 PASS).
 **Phases** : A (build + smoke test LAN), B (VPS + smoke test WAN),
-C (unsafe set_var + verification + wrap-up).
+C (unsafe set_var + verification + wrap-up),
+D (gossip bootstrap from attention set — ajoutee post-smoke finding).
 
 ---
 
@@ -196,6 +197,43 @@ chore(sprint53): Phase C — unsafe set_var fix + wrap-up + verification + audit
 
 ---
 
+## §Phase D — Gossip bootstrap from attention set
+
+**But** : debloquer la propagation gossip inter-noeuds. Le smoke
+test Phase A/B a revele que `join_topic(topic_id, vec![])` sans
+bootstrap peers bloque indefiniment — le gossip_sender reste None
+et `POST /publish` ne broadcast jamais. Fix : passer les peer_ids
+de l'attention set comme bootstrap au `join_topic`.
+
+### Etapes
+
+1. **`spawn_gossip_subscribe_task`** (runtime.rs) : accepter un
+   parametre `bootstrap_peers: Vec<String>` et le passer au
+   `gossip.join_topic(topic_id, bootstrap_peers)`.
+
+2. **`DaemonRuntime::start`** (runtime.rs) : au moment du spawn,
+   lire `curator_runtime.subscribed_pubkeys_hex()` et le passer
+   comme bootstrap_peers.
+
+3. **Tests** :
+   - Test unitaire : verify gossip_sender is Some after boot
+     with at least 1 subscribed curator (mock ou integration
+     selon faisabilite)
+
+### Criteres d'acceptation
+
+- `join_topic` recoit les peers connus comme bootstrap
+- gossip_sender devient Some quand >= 1 peer est dans l'attention set
+- cargo nextest inchange (>= 1203)
+
+### Commit
+
+```
+feat(sprint53): Sprint 53 Phase D — gossip bootstrap from curator attention set
+```
+
+---
+
 ## §4 Fail-fast checklist
 
 | # | Check | Commande | Critere | Observed |
@@ -214,6 +252,8 @@ chore(sprint53): Phase C — unsafe set_var fix + wrap-up + verification + audit
 | 12 | Phase A review | verdict | | |
 | 13 | Phase B preflight G8 | verdict | | |
 | 14 | Phase B review | verdict | | |
+| 14b | Phase D preflight G8 | verdict | | |
+| 14c | Phase D review | verdict | | |
 | 15 | macOS build | `cargo build --release -p nexus-shell-daemon` | ok | |
 | 16 | macOS daemon start | `nexus-shell-daemon start` | running.json | |
 | 17 | Linux VPS build | `cargo build --release -p nexus-shell-daemon` | ok | |
