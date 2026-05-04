@@ -648,6 +648,7 @@ impl DaemonRuntime {
         //    and dropped if the proof fails to satisfy the
         //    policy's topic difficulty.
         let (gossip_shutdown_tx, gossip_shutdown_rx) = oneshot::channel::<()>();
+        let bootstrap_peers = curator_runtime.subscribed_pubkeys_hex();
         let gossip_handle = spawn_gossip_subscribe_task(
             Arc::clone(&node),
             Arc::clone(&curator_runtime),
@@ -656,6 +657,7 @@ impl DaemonRuntime {
             Arc::clone(&pow_verify_cache),
             Arc::clone(&pow_policy),
             gossip_shutdown_rx,
+            bootstrap_peers,
         );
 
         Ok(Self {
@@ -899,6 +901,7 @@ fn spawn_peer_listener(
 /// Lives in its own function (rather than inlined into
 /// `DaemonRuntime::start`) so the long boot body stays readable
 /// and so the task's precise lifecycle is easy to audit.
+#[allow(clippy::too_many_arguments)]
 fn spawn_gossip_subscribe_task(
     node: Arc<Node>,
     curator_runtime: CuratorRuntimeHandle,
@@ -907,19 +910,23 @@ fn spawn_gossip_subscribe_task(
     pow_verify_cache: Arc<PowVerifyCache>,
     pow_policy: Arc<std::sync::RwLock<RelayPowPolicy>>,
     mut shutdown_rx: oneshot::Receiver<()>,
+    bootstrap_peers: Vec<String>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        // Step 1: derive the topic id and join. We do not pass
-        // any bootstrap peer ids — the daemon relies on pkarr
-        // discovery + already-open peer connections to find
-        // neighbours on the topic swarm. If `join_topic` hangs
-        // because there are zero peers reachable, the shutdown
-        // oneshot will wake us up.
         let gossip = GossipClient::new(node.gossip());
         let topic_id = curator_topic_id();
 
+        if bootstrap_peers.is_empty() {
+            info!("gossip bootstrap: 0 peers in attention set — join_topic may block until a peer connects");
+        } else {
+            info!(
+                count = bootstrap_peers.len(),
+                "gossip bootstrap: seeding join_topic with attention set peers"
+            );
+        }
+
         let topic = tokio::select! {
-            join = gossip.join_topic(topic_id, vec![]) => match join {
+            join = gossip.join_topic(topic_id, bootstrap_peers) => match join {
                 Ok(t) => t,
                 Err(e) => {
                     warn!(error = %e, "curator gossip join_topic failed — subscribe task exits");
