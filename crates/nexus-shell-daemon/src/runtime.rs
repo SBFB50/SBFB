@@ -35,7 +35,7 @@ use std::time::SystemTime;
 
 use anyhow::{anyhow, Context, Result};
 use nexus_core_rs::{
-    create_node, create_node_with_config, load_quorum_resolvers_from_env,
+    create_node_with_config, load_quorum_resolvers_from_env,
     relay_pow_policy_file_path, GossipClient, GossipEvent, KeyPair, Node, NodeConfig,
     PowSolveCache, PowVerifyCache, RelayPowPolicy,
 };
@@ -117,6 +117,28 @@ fn read_optional_identity_env() -> Option<[u8; 32]> {
     let mut decoded = decoded;
     decoded.zeroize();
     Some(out)
+}
+
+/// Load the 32-byte Ed25519 secret from `<root>/node_key`, or
+/// generate a fresh one and persist it. This gives the daemon a
+/// stable identity across restarts without requiring the launcher
+/// keystore (`SBFB_IDENTITY_SECRET_HEX`).
+fn load_or_generate_node_key(root: &Path) -> Result<[u8; 32]> {
+    let path = root.join("node_key");
+    if path.exists() {
+        let data = std::fs::read(&path)
+            .with_context(|| format!("failed to read node_key from {}", path.display()))?;
+        if data.len() == 32 {
+            let mut out = [0u8; 32];
+            out.copy_from_slice(&data);
+            return Ok(out);
+        }
+        warn!(len = data.len(), "node_key has wrong length, regenerating");
+    }
+    let secret = KeyPair::generate().secret_bytes();
+    std::fs::write(&path, secret)
+        .with_context(|| format!("failed to write node_key to {}", path.display()))?;
+    Ok(secret)
 }
 
 /// Options the binary hands to [`DaemonRuntime::start`].
@@ -266,10 +288,17 @@ impl DaemonRuntime {
                 (n, pow_kp)
             }
             None => {
-                let n = create_node()
+                let secret_bytes = load_or_generate_node_key(&opts.paths.root)?;
+                info!(
+                    path = %opts.paths.root.join("node_key").display(),
+                    "shell daemon using file-based persistent identity"
+                );
+                let pow_kp = KeyPair::from_secret_bytes(&secret_bytes);
+                let cfg = NodeConfig::default().with_secret_key(secret_bytes);
+                let n = create_node_with_config(cfg)
                     .await
-                    .context("failed to boot iroh node for shell daemon")?;
-                (n, KeyPair::generate())
+                    .context("failed to boot iroh node with file-based identity")?;
+                (n, pow_kp)
             }
         };
         let node_id = node.node_id();
