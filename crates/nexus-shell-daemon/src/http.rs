@@ -244,6 +244,7 @@ pub fn build_router(
         .route("/api/daemon/curators/subscribe", post(subscribe_curator))
         .route("/api/daemon/curators/{pubkey}", delete(unsubscribe_curator))
         .route("/api/daemon/browse", get(list_browse))
+        .route("/api/daemon/browse/pull", post(browse_pull))
         .route("/api/daemon/publish", post(publish_project))
         .route("/api/daemon/publish-blob", post(publish_blob))
         .route("/api/daemon/default-curators", get(default_curators))
@@ -763,6 +764,24 @@ async fn list_browse(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResp
         .aggregate(&state.curator_runtime, &state.node)
         .await;
     (StatusCode::OK, Json(BrowseListResponse { entries }))
+}
+
+/// `POST /api/daemon/browse/pull` — broadcast a browse_request
+/// via gossip so peers replay their outbox. Returns immediately.
+async fn browse_pull(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({"requested": false})),
+        );
+    }
+    let _ = state
+        .gossip_cmd_tx
+        .send(crate::runtime::GossipCmd::RequestBrowse)
+        .await;
+    (StatusCode::OK, Json(serde_json::json!({"requested": true})))
 }
 
 /// Sprint 20 Phase C : wrap an outbound gossip payload in a PoW

@@ -691,6 +691,9 @@ impl DaemonRuntime {
             gossip_shutdown_rx,
             bootstrap_peers,
             gossip_cmd_rx,
+            Arc::clone(&pow_solve_cache),
+            Arc::clone(&pow_keypair),
+            curator_topic,
         );
 
         Ok(Self {
@@ -933,6 +936,9 @@ pub enum GossipCmd {
     /// A new announcement was published locally — add it to the
     /// outbox so it gets replayed on NeighborUp.
     Outbox(Vec<u8>),
+    /// Broadcast a browse_request to all peers so they replay
+    /// their outbox. Triggered by the "Rafraichir" button.
+    RequestBrowse,
 }
 
 /// Channel sender for [`GossipCmd`]. Stored in [`DaemonHttpState`]
@@ -953,6 +959,9 @@ fn spawn_gossip_subscribe_task(
     mut shutdown_rx: oneshot::Receiver<()>,
     bootstrap_peers: Vec<String>,
     mut cmd_rx: tokio::sync::mpsc::Receiver<GossipCmd>,
+    pow_solve_cache_cmd: Arc<PowSolveCache>,
+    pow_keypair_cmd: Arc<KeyPair>,
+    curator_topic: [u8; 32],
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let gossip = GossipClient::new(node.gossip());
@@ -1019,7 +1028,14 @@ fn spawn_gossip_subscribe_task(
                                     continue;
                                 }
                             };
-                            if publish::is_project_announcement(&payload) {
+                            if publish::is_browse_request(&payload) {
+                                debug!(delivered_from = %delivered_from, "browse_request received — replaying outbox");
+                                for envelope in &outbox {
+                                    if let Err(e) = sender.broadcast(envelope.clone()).await {
+                                        debug!(error = %e, "browse_request outbox replay failed");
+                                    }
+                                }
+                            } else if publish::is_project_announcement(&payload) {
                                 handle_project_announcement(&browse_aggregator, &payload);
                             } else {
                                 handle_announcement(&curator_runtime, &node, &payload).await;
@@ -1063,6 +1079,22 @@ fn spawn_gossip_subscribe_task(
                             if neighbor_count > 0 {
                                 if let Err(e) = sender.broadcast(envelope).await {
                                     debug!(error = %e, "outbox broadcast failed");
+                                }
+                            }
+                        }
+                        Some(GossipCmd::RequestBrowse) => {
+                            let req = publish::browse_request_bytes();
+                            if let Ok(envelope) = wrap_payload_with_pow_static(
+                                &pow_solve_cache_cmd,
+                                &pow_policy,
+                                &pow_keypair_cmd,
+                                &curator_topic,
+                                &req,
+                            ) {
+                                if let Err(e) = sender.broadcast(envelope).await {
+                                    debug!(error = %e, "browse_request broadcast failed");
+                                } else {
+                                    info!("browse_request broadcast sent to peers");
                                 }
                             }
                         }
@@ -1139,6 +1171,21 @@ async fn handle_announcement(curator_runtime: &CuratorRuntimeHandle, node: &Node
 /// Parse, validate, and insert into the browse aggregator.
 ///
 /// Sprint 11 Phase A.
+fn wrap_payload_with_pow_static(
+    solve_cache: &Arc<PowSolveCache>,
+    pow_policy: &Arc<std::sync::RwLock<RelayPowPolicy>>,
+    keypair: &Arc<KeyPair>,
+    topic: &[u8; 32],
+    payload: &[u8],
+) -> std::result::Result<Vec<u8>, nexus_core_rs::PowGossipError> {
+    let policy = match pow_policy.read() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+    let proof = solve_cache.ensure_proof(*topic, keypair.as_ref(), &policy)?;
+    nexus_core_rs::PowEnvelope::encode(&proof, payload)
+}
+
 fn handle_project_announcement(browse_aggregator: &BrowseAggregatorHandle, content: &[u8]) {
     match publish::ProjectAnnouncement::from_gossip_bytes(content) {
         Ok(ann) => {

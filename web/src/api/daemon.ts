@@ -300,6 +300,16 @@ export function listBrowse(
   return callDaemon(baseUrl, "/api/daemon/browse", BrowseListResponseSchema);
 }
 
+const BrowsePullResponseSchema = z.object({ requested: z.boolean() }).strict();
+
+export function browsePull(
+  baseUrl: string,
+): Promise<DaemonResult<{ requested: boolean }>> {
+  return callDaemon(baseUrl, "/api/daemon/browse/pull", BrowsePullResponseSchema, {
+    method: "POST",
+  });
+}
+
 /**
  * Mirrors the Rust handler's `{ "wiped": true }` success envelope.
  */

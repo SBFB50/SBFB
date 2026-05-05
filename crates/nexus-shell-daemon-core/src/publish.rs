@@ -186,6 +186,19 @@ pub fn is_project_announcement(bytes: &[u8]) -> bool {
     value.get("type").and_then(|v| v.as_str()) == Some("project")
 }
 
+/// Check if raw gossip bytes are a browse pull request.
+pub fn is_browse_request(bytes: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    value.get("type").and_then(|v| v.as_str()) == Some("browse_request")
+}
+
+/// Encode a browse pull request as gossip bytes.
+pub fn browse_request_bytes() -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({"type": "browse_request"})).expect("static json")
+}
+
 // =================================================================
 // Tests
 // =================================================================
@@ -520,5 +533,25 @@ mod tests {
     fn from_gossip_bytes_rejects_truncated_json() {
         let err = ProjectAnnouncement::from_gossip_bytes(b"{\"v\": 1, \"type\":").unwrap_err();
         assert!(matches!(err, ProjectAnnouncementError::Parse(_)));
+    }
+
+    #[test]
+    fn is_browse_request_accepts_valid() {
+        let bytes = browse_request_bytes();
+        assert!(is_browse_request(&bytes));
+        assert!(!is_project_announcement(&bytes));
+    }
+
+    #[test]
+    fn is_browse_request_rejects_project() {
+        let kp = nexus_core_rs::KeyPair::generate();
+        let node_id = hex::encode(kp.public_bytes());
+        let ann = ProjectAnnouncement::new(node_id, "p".into(), "c".into(), "d".into(), vec![]);
+        assert!(!is_browse_request(&ann.to_gossip_bytes().unwrap()));
+    }
+
+    #[test]
+    fn is_browse_request_rejects_garbage() {
+        assert!(!is_browse_request(b"not json"));
     }
 }

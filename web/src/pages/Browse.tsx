@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { ExternalLink, Globe, Play, RefreshCw, ShieldCheck, Signal, SignalZero, Sparkles } from "lucide-react";
 
-import { listBrowse, type BrowseEntry, type BrowseStatus } from "@/api/daemon";
+import { browsePull, listBrowse, type BrowseEntry, type BrowseStatus } from "@/api/daemon";
 import {
   selectActiveCoordinator,
   useProjectStore,
@@ -68,7 +68,10 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
           </p>
         </div>
         <button
-          onClick={() => query.refetch()}
+          onClick={async () => {
+            await browsePull(coordUrl);
+            setTimeout(() => query.refetch(), 2000);
+          }}
           disabled={query.isFetching}
           className="glass-pill flex items-center gap-2 text-xs"
           data-testid="browse-refresh"
