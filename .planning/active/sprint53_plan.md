@@ -234,6 +234,45 @@ feat(sprint53): Sprint 53 Phase D — gossip bootstrap from curator attention se
 
 ---
 
+## §Phase G — Browse pull via gossip request + bouton Rafraichir
+
+**But** : permettre au bouton "Rafraichir" de la page Browse de
+soliciter activement les browse entries des peers connectes. Sans
+ce mecanisme, un noeud qui arrive apres la publication d'une app
+ne la voit jamais (le push via outbox/NeighborUp est unidirectionnel).
+
+### Etapes
+
+1. **Discriminant gossip** : ajouter `is_browse_request()` dans
+   publish.rs (type "browse_request", payload minimal `{"type":"browse_request"}`).
+
+2. **Runtime gossip task** : quand un message `browse_request`
+   est recu, replayer l'outbox vers le gossip (meme que NeighborUp).
+
+3. **GossipCmd::RequestBrowse** : nouvelle commande pour que le
+   handler HTTP puisse declencher un broadcast de browse_request.
+
+4. **Endpoint `POST /api/daemon/browse/pull`** : envoie un
+   browse_request via gossip, retourne immediatement. Le refetch
+   cote React montre les resultats quand les reponses arrivent.
+
+5. **Frontend Browse.tsx** : le bouton "Rafraichir" appelle
+   d'abord POST /browse/pull, attend 2s, puis refetch GET /browse.
+
+### Criteres d'acceptation
+
+- Un noeud arrivant apres publication voit l'app apres "Rafraichir"
+- cargo nextest inchange (>= 1203)
+- Vitest inchange (>= 250)
+
+### Commit
+
+```
+feat(sprint53): Sprint 53 Phase G — browse pull via gossip request
+```
+
+---
+
 ## §4 Fail-fast checklist
 
 | # | Check | Commande | Critere | Observed |
