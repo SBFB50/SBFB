@@ -48,16 +48,17 @@ pour D4 OS biometric gate cross-platform).
 | Endpoint | Origine | Tier actuel | Tier cible | Justification cible |
 |---|---|---|---|---|
 | `GET /health` | S16 Phase A | AUCUN (exception) | AUCUN | Liveness probe, pas d'action |
-| `GET /curator/*` | S7 (browse aggregator) | T0 | T0 | Lecture seule, non-critique |
-| `GET /project/*` | S12 | T0 | T0 | Lecture seule |
-| `POST /project/deploy` | S14 | T0 | T1 | Deploy sign coord = déléguer action non-réversible |
-| `POST /task/submit` | S13 (bridge) | T0 | T0 | Rate-limité S21 Phase A + guardrails S21/S22 |
-| `GET /consent/status` | S16 Phase C | T0 | T0 | Lecture only |
-| `POST /consent/edit` tier `mes_projets→tous` | S16 Phase C | T0 | T1 | Escalade privilège GPU worker (expose plus de tasks acceptées) |
-| `POST /consent/edit` tier other | S16 Phase C | T0 | T0 | Descente ou tier équivalent — pas d'escalade |
-| `POST /panic/wipe` | S20 Phase B | T0 (+ Ctrl+Shift+Alt+W x5) | **T2** | Action destructive terminale, protéger contre malware browser-injected |
-| `POST /unlock-duress` | S20 Phase B | T0 (+ PIN input) | **T2** | Bypass duress mode = exposer keypair réel, critique |
-| `POST /auth/rotate-token` force | S18 Phase D | T0 | T1 | Rotation défensive = OK T1 ; rotation hostile par malware nécessite au moins UI confirm |
+| `GET /api/daemon/curators` | S7 (browse aggregator), namespace S53 | T0 | T0 | Lecture seule, non-critique |
+| `GET /api/daemon/browse` | S12, namespace S53 | T0 | T0 | Lecture seule |
+| `POST /api/daemon/browse/pull` | S53 Phase G | T0 | T0 | Gossip browse_request, PoW envelope |
+| `POST /api/v1/deploy` | S14, namespace S42 | T0 | T1 | Deploy sign coord = déléguer action non-réversible |
+| `POST /api/v1/tasks/submit` | S13 (bridge), namespace S44 | T0 | T0 | Rate-limité S21 Phase A + guardrails S21/S22 |
+| `GET /api/v1/consent` | S16 Phase C, namespace S43 | T0 | T0 | Lecture only |
+| `POST /api/v1/consent/set` tier escalade | S16 Phase C, namespace S43 | T0 | T1 | Escalade privilège GPU worker (expose plus de tasks acceptées) |
+| `POST /api/v1/consent/set` tier other | S16 Phase C, namespace S43 | T0 | T0 | Descente ou tier équivalent — pas d'escalade |
+| `POST /api/daemon/panic/wipe` | S20 Phase B, namespace S53 | T0 (+ Ctrl+Shift+Alt+W x5) | **T2** | Action destructive terminale, protéger contre malware browser-injected |
+| `POST /api/daemon/publish` | S11, namespace S53 | T0 | T0 | Broadcast gossip project announcement |
+| `GET /auth/token` | S16 Phase A | T0 (Host+Origin only) | T0 | Bootstrap bearer token |
 | `POST /canary/cosign` FROST (S30 N1) | S30 futur | N/A | **T2** | Co-signer canary = engagement cryptographique plateforme, LT-4 consumer natif |
 | `POST /quarantine/flush` | S21 Phase D CLI | T0 | T1 | Purge queue = perte d'évidence, validator humain recommandé |
 

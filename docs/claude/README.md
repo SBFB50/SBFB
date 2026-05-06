@@ -1115,6 +1115,16 @@ phase` ou lecture du plan §Phase X et le 1er `Edit`/`Write` outil).
 Pour CHAQUE phase de CHAQUE sprint, sans exception (sauf hotfix
 hors-sprint cas D).
 
+**Exemption phases post-plan** (amendement S54, constat S53 Phases
+E/F/G) : une phase insérée ad hoc pendant le sprint (découverte
+runtime, fix d'un P1 trouvé en smoke test) peut être exécutée sans
+preflight G8 si et seulement si (a) la phase est une réponse directe
+à un bug ou blocage découvert dans une phase précédente du même
+sprint, (b) elle ne touche ni wire format ni composant de sécurité
+nouveau, et (c) l'absence de preflight est documentée comme P2
+process dans la review de la phase wrap-up. L'audit gate vérifie
+cette justification.
+
 #### Les 5 scans factuels
 
 | Scan | Source | Output attendu |

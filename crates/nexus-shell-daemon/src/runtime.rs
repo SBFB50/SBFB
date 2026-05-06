@@ -139,6 +139,12 @@ fn load_or_generate_node_key(root: &Path) -> Result<[u8; 32]> {
     let secret = KeyPair::generate().secret_bytes();
     std::fs::write(&path, secret)
         .with_context(|| format!("failed to write node_key to {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("failed to set node_key permissions on {}", path.display()))?;
+    }
     Ok(secret)
 }
 
@@ -682,20 +688,20 @@ impl DaemonRuntime {
         //    policy's topic difficulty.
         let (gossip_shutdown_tx, gossip_shutdown_rx) = oneshot::channel::<()>();
         let bootstrap_peers = curator_runtime.subscribed_pubkeys_hex();
-        let gossip_handle = spawn_gossip_subscribe_task(
-            Arc::clone(&node),
-            Arc::clone(&curator_runtime),
-            Arc::clone(&browse_aggregator),
-            Arc::clone(&gossip_sender),
-            Arc::clone(&pow_verify_cache),
-            Arc::clone(&pow_policy),
-            gossip_shutdown_rx,
+        let gossip_handle = spawn_gossip_subscribe_task(GossipTaskConfig {
+            node: Arc::clone(&node),
+            curator_runtime: Arc::clone(&curator_runtime),
+            browse_aggregator: Arc::clone(&browse_aggregator),
+            gossip_sender_slot: Arc::clone(&gossip_sender),
+            pow_verify_cache: Arc::clone(&pow_verify_cache),
+            pow_policy: Arc::clone(&pow_policy),
+            shutdown_rx: gossip_shutdown_rx,
             bootstrap_peers,
-            gossip_cmd_rx,
-            Arc::clone(&pow_solve_cache),
-            Arc::clone(&pow_keypair),
+            cmd_rx: gossip_cmd_rx,
+            pow_solve_cache: Arc::clone(&pow_solve_cache),
+            pow_keypair: Arc::clone(&pow_keypair),
             curator_topic,
-        );
+        });
 
         Ok(Self {
             node: Some(node),
@@ -946,24 +952,39 @@ pub enum GossipCmd {
 /// so HTTP handlers can push to the gossip outbox.
 pub type GossipCmdTx = tokio::sync::mpsc::Sender<GossipCmd>;
 
-/// Spawn the background task that subscribes to the curator
-/// gossip topic (non-blocking), stores the sender immediately,
-/// and replays the outbox on every NeighborUp event.
-#[allow(clippy::too_many_arguments)]
-fn spawn_gossip_subscribe_task(
+struct GossipTaskConfig {
     node: Arc<Node>,
     curator_runtime: CuratorRuntimeHandle,
     browse_aggregator: BrowseAggregatorHandle,
     gossip_sender_slot: GossipSenderHandle,
     pow_verify_cache: Arc<PowVerifyCache>,
     pow_policy: Arc<std::sync::RwLock<RelayPowPolicy>>,
-    mut shutdown_rx: oneshot::Receiver<()>,
+    shutdown_rx: oneshot::Receiver<()>,
     bootstrap_peers: Vec<String>,
-    mut cmd_rx: tokio::sync::mpsc::Receiver<GossipCmd>,
-    pow_solve_cache_cmd: Arc<PowSolveCache>,
-    pow_keypair_cmd: Arc<KeyPair>,
+    cmd_rx: tokio::sync::mpsc::Receiver<GossipCmd>,
+    pow_solve_cache: Arc<PowSolveCache>,
+    pow_keypair: Arc<KeyPair>,
     curator_topic: [u8; 32],
-) -> JoinHandle<()> {
+}
+
+/// Spawn the background task that subscribes to the curator
+/// gossip topic (non-blocking), stores the sender immediately,
+/// and replays the outbox on every NeighborUp event.
+fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
+    let GossipTaskConfig {
+        node,
+        curator_runtime,
+        browse_aggregator,
+        gossip_sender_slot,
+        pow_verify_cache,
+        pow_policy,
+        mut shutdown_rx,
+        bootstrap_peers,
+        mut cmd_rx,
+        pow_solve_cache,
+        pow_keypair,
+        curator_topic,
+    } = cfg;
     tokio::spawn(async move {
         let gossip = GossipClient::new(node.gossip());
         let topic_id = curator_topic_id();
@@ -991,6 +1012,10 @@ fn spawn_gossip_subscribe_task(
 
         let mut outbox: Vec<Vec<u8>> = Vec::new();
         let mut neighbor_count: u32 = 0;
+        let republish_interval = std::time::Duration::from_secs(45);
+        let mut republish_timer = tokio::time::interval(republish_interval);
+        republish_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        republish_timer.reset();
 
         loop {
             tokio::select! {
@@ -1086,9 +1111,9 @@ fn spawn_gossip_subscribe_task(
                         Some(GossipCmd::RequestBrowse) => {
                             let req = publish::browse_request_bytes();
                             if let Ok(envelope) = wrap_payload_with_pow_static(
-                                &pow_solve_cache_cmd,
+                                &pow_solve_cache,
                                 &pow_policy,
-                                &pow_keypair_cmd,
+                                &pow_keypair,
                                 &curator_topic,
                                 &req,
                             ) {
@@ -1103,6 +1128,16 @@ fn spawn_gossip_subscribe_task(
                             debug!("gossip cmd channel closed");
                             break;
                         }
+                    }
+                }
+                _ = republish_timer.tick() => {
+                    if neighbor_count > 0 && !outbox.is_empty() {
+                        for envelope in &outbox {
+                            if let Err(e) = sender.broadcast(envelope.clone()).await {
+                                debug!(error = %e, "periodic republish broadcast failed");
+                            }
+                        }
+                        debug!(entries = outbox.len(), neighbors = neighbor_count, "periodic republish completed");
                     }
                 }
                 _ = &mut shutdown_rx => {
