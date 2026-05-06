@@ -112,23 +112,35 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-52 CLOSED**, v1.2 en cours. Projet Rust+Frontend
-  pur depuis S50-S51. S52 pair : dette (dispatch shutdown oneshot
-  CLOSE + 20 docs legacy DELETE + CLAUDE.md fix) + CI Woodpecker
-  + design doc self-hosted build (LT-7) + GHA matrix fix.
-- **~1455 tests total** (1199 Rust / 250 Vitest / 42+2f Playwright
+- **Sprints 0-53 CLOSED**, v1.2 en cours. Projet Rust+Frontend
+  pur depuis S50-S51. S53 : P2P smoke test multi-plateforme +
+  VPS bootstrap. Phases A-G livrees (7 reviews PASS). Phase C
+  wrap-up (verification + audit_plan S54).
+  P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
+  Gossip non-bloquant + outbox + browse pull implementes.
+- **~1462 tests total** (1206 Rust / 250 Vitest / 42+2f Playwright
   / 6/6 size-limit) — tous verts code (2 PW env fail pre-existant).
-  S52 : 0 delta tests. 3 carries CLOSED Phase A (dispatch join
-  order S50, docs legacy S51, CLAUDE.md stale audit S51).
-- Carry S53 : P2-A-1 rand blocker upstream (exemption externe) ;
+  S53 : +7 delta tests Rust (1199→1206). 0 delta frontend.
+- Carry S54 : P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P2-REVIEW-B-1-S51 unsafe set_var futur 2/3.
+  P2-REVIEW-B-1-S51 unsafe set_var **RE-SCOPED : edition 2024
+  upgrade requise** (edition 2021 = set_var safe, blocs unsafe
+  rejetes par clippy — le fix est l'upgrade edition, pas le
+  wrapping). Compteur reste 2/3 → 3/3 MANDATORY S55.
+  4 items a 2/3 (nextest timeout, Woodpecker E2E, GHA 9/9,
+  CI image pinning) — deviennent MANDATORY S55 si pas traites.
+  6 nouveaux P2 S53 (outbox non-persistant, browse_request
+  rate-limit, gossip params struct, node_key perms 0600,
+  route collision doc, periodic republish).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
   LT-7 self-hosted build — **PRE-V1.0 OBLIGATOIRE** (S54-S55).
+  **GAP E2E critique** : tasks_doc_ticket manquant dans invite
+  wire format (3 fichiers, ~300 LOC) — bloque le chemin
+  task→worker→result. Prerequis LT-7.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.

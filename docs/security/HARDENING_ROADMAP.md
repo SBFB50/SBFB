@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-02  # G2 — Sprint 52 CLOSED : dette pair (dispatch shutdown oneshot CLOSE + 20 docs legacy DELETE -13k LOC + CLAUDE.md stale carry CLOSE) + CI Woodpecker .woodpecker/ci-linux.yml + SELF_HOSTED_BUILD.md design doc 3 etages + LT-7 pre-v1.0 + GHA release.yml matrix fix (include→cross-product 9 jobs). Compteurs 1199 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1455 total. 0 trigger actif.
+last_validated: 2026-05-06  # G2 — Sprint 53 CLOSED : P2P smoke test multi-plateforme (LAN Win↔Mac + WAN dev↔VPS Helsinki) + gossip non-bloquant + outbox + browse pull + node identity persistent + gossip bootstrap attention set. Compteurs 1206 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1462 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
