@@ -28,6 +28,7 @@ nexus-trace-core = { path = "../nexus-trace-core" }
 # `Node::blobs_store()` for the curator subscribe pipeline.
 nexus-core-rs = { path = "../nexus-core-rs" }
 nexus-coordinator-rs = { path = "../nexus-coordinator-rs" }
+nexus-worker-core = { path = "../nexus-worker-core" }
 
 tokio = { workspace = true }
 

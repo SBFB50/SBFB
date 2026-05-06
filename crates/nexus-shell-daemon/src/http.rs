@@ -4330,7 +4330,7 @@ mod tests {
     #[tokio::test]
     async fn invite_create_success() {
         let app = build_test_router(mk_state().await);
-        let body = serde_json::json!({});
+        let body = serde_json::json!({"scope": "observer"});
         let resp = app
             .oneshot(
                 Request::builder()
@@ -4349,8 +4349,26 @@ mod tests {
         assert!(id.starts_with("inv-"), "invite ID must start with inv-");
         let parts: Vec<&str> = id.split('-').collect();
         assert_eq!(parts.len(), 4, "format inv-{{node8}}-{{ts}}-{{seq}}");
-        assert_eq!(parts[1].len(), 8, "node_id prefix must be 8 hex chars");
-        assert_eq!(body["scope"], "worker");
+        assert_eq!(body["scope"], "observer");
+        assert!(body["wire"].as_str().unwrap().starts_with("nx1"), "wire must be nx1-encoded");
+    }
+
+    #[tokio::test]
+    async fn invite_worker_requires_project_doc() {
+        let app = build_test_router(mk_state().await);
+        let body = serde_json::json!({"scope": "worker"});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/invite/create")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]

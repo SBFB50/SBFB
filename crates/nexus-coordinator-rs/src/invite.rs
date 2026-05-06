@@ -22,6 +22,8 @@ pub struct InviteRecord {
     pub revoked_at: Option<i64>,
     pub note: Option<String>,
     pub created_at: i64,
+    #[serde(default)]
+    pub tasks_doc_ticket: Option<String>,
 }
 
 pub struct MintRequest<'b> {
@@ -33,6 +35,7 @@ pub struct MintRequest<'b> {
     pub expires_at: i64,
     pub max_uses: Option<i64>,
     pub note: Option<&'b str>,
+    pub tasks_doc_ticket: Option<&'b str>,
 }
 
 impl<'b> MintRequest<'b> {
@@ -53,6 +56,7 @@ impl<'b> MintRequest<'b> {
             expires_at,
             max_uses: None,
             note: None,
+            tasks_doc_ticket: None,
         }
     }
 }
@@ -100,6 +104,7 @@ impl<'a> InviteLedger<'a> {
             revoked_at: None,
             note: req.note.map(String::from),
             created_at: now,
+            tasks_doc_ticket: req.tasks_doc_ticket.map(String::from),
         })
     }
 
@@ -159,6 +164,7 @@ fn row_to_invite(row: &rusqlite::Row<'_>) -> rusqlite::Result<InviteRecord> {
         revoked_at: row.get(8)?,
         note: row.get(9)?,
         created_at: row.get(10)?,
+        tasks_doc_ticket: None,
     })
 }
 

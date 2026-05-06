@@ -60,6 +60,70 @@ pub async fn create_invite(
             .into_response();
     }
 
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let expires_at = now + body.expiry_secs;
+    let seq = INVITE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let node_prefix = &state.node_id[..8.min(state.node_id.len())];
+    let id = format!("inv-{node_prefix}-{now}-{seq}");
+
+    let scope = match body.scope.as_str() {
+        "observer" => nexus_worker_core::invite::InviteScope::Observer,
+        _ => nexus_worker_core::invite::InviteScope::Worker,
+    };
+
+    let tasks_doc_ticket = if scope.can_serve_tasks() {
+        match state.project_doc.as_ref() {
+            Some(doc) => match doc.share_write().await {
+                Ok(ticket) => Some(ticket.to_string()),
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": format!("failed to generate tasks doc ticket: {e}")})),
+                    )
+                        .into_response();
+                }
+            },
+            None => {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(serde_json::json!({"error": "project doc not initialized — cannot mint worker invite"})),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        None
+    };
+
+    let project_id = state
+        .project_doc
+        .as_ref()
+        .map(|d| d.id().to_string())
+        .unwrap_or_default();
+
+    let invite = match nexus_worker_core::invite::Invite::mint(
+        &state.pow_keypair,
+        &project_id,
+        "sbfb",
+        None,
+        tasks_doc_ticket.clone(),
+        scope,
+        expires_at as u64,
+    ) {
+        Ok(inv) => inv,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("invite mint failed: {e}")})),
+            )
+                .into_response();
+        }
+    };
+    let wire = invite.encode();
+
     let db = match state.coordinator_db.lock() {
         Ok(db) => db,
         Err(_) => {
@@ -70,21 +134,18 @@ pub async fn create_invite(
                 .into_response();
         }
     };
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-    let expires_at = now + body.expiry_secs;
-    let seq = INVITE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let node_prefix = &state.node_id[..8.min(state.node_id.len())];
-    let id = format!("inv-{node_prefix}-{now}-{seq}");
-
     let ledger = nexus_coordinator_rs::invite::InviteLedger::new(&db);
-    let mut req =
-        nexus_coordinator_rs::invite::MintRequest::new(&id, "", &body.scope, "", "", expires_at);
+    let mut req = nexus_coordinator_rs::invite::MintRequest::new(
+        &id,
+        &wire,
+        &body.scope,
+        &project_id,
+        "sbfb",
+        expires_at,
+    );
     req.max_uses = body.max_uses;
     req.note = body.note.as_deref();
+    req.tasks_doc_ticket = tasks_doc_ticket.as_deref();
 
     match ledger.mint(&req) {
         Ok(rec) => (
@@ -93,6 +154,7 @@ pub async fn create_invite(
                 "id": rec.id,
                 "wire": rec.wire,
                 "scope": rec.scope,
+                "project_id": rec.project_id,
                 "expires_at": rec.expires_at,
                 "max_uses": rec.max_uses,
                 "note": rec.note,
