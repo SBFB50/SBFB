@@ -177,7 +177,7 @@ impl Verifier {
                     logprobs: LayerResult::skipped("signature layer failed first"),
                     trust_delta: -50,
                     ban: true,
-                }
+                };
             }
         };
 
@@ -261,7 +261,7 @@ pub fn spot_check_rate(trust_score: i32) -> f64 {
 mod tests {
     use super::*;
     use crate::crypto::KeyPair;
-    use crate::task::{ResultPayload, Task, TaskEntry, TASK_FORMAT_VERSION};
+    use crate::task::{ResultPayload, TASK_FORMAT_VERSION, Task, TaskEntry};
 
     fn sample_task(model: &str) -> TaskEntry {
         let kp = KeyPair::generate();

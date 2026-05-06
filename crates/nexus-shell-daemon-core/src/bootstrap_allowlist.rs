@@ -47,8 +47,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use nexus_core_rs::crypto::PUBLIC_KEY_LENGTH;
 use nexus_core_rs::AgeAdmissionPolicy;
+use nexus_core_rs::crypto::PUBLIC_KEY_LENGTH;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -407,18 +407,18 @@ impl BootstrapAllowlistWatcher {
                             std::thread::sleep(Duration::from_millis(50));
                             match load_bootstrap_allowlist_from(&path_thread) {
                                 Ok(fresh) => {
-                                    if let Ok(mut guard) = inner_thread.write() {
+                                    match inner_thread.write() { Ok(mut guard) => {
                                         *guard = fresh;
                                         debug!(
                                             path = %path_thread.display(),
                                             "bootstrap_allowlist.toml reloaded"
                                         );
-                                    } else {
+                                    } _ => {
                                         warn!(
                                             path = %path_thread.display(),
                                             "allowlist reload skipped — RwLock poisoned"
                                         );
-                                    }
+                                    }}
                                 }
                                 Err(e) => warn!(
                                     error = %e,

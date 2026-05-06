@@ -57,7 +57,7 @@ pub async fn run(
 mod tests {
     use super::*;
     use nexus_core_rs::crypto::KeyPair;
-    use nexus_core_rs::task::{Task, TASK_FORMAT_VERSION};
+    use nexus_core_rs::task::{TASK_FORMAT_VERSION, Task};
 
     fn make_test_entry() -> TaskEntry {
         let task = Task {

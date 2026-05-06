@@ -268,8 +268,7 @@ pub fn detect_content_type(filename: &str, data: &[u8]) -> &'static str {
 /// The Content-Security-Policy header injected on every blob-serve
 /// response. Blocks all outbound network requests from scripts
 /// running inside the sandboxed iframe.
-pub const BLOB_SERVE_CSP: &str =
-    "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'none'; frame-ancestors *";
+pub const BLOB_SERVE_CSP: &str = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'none'; frame-ancestors *";
 
 pub const BLOB_SERVE_COOP: &str = "same-origin";
 

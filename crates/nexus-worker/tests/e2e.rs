@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
 use nexus_core_rs::KeyPair;
-use nexus_worker_core::invite::{Invite, InviteScope, INVITE_PREFIX};
+use nexus_worker_core::invite::{INVITE_PREFIX, Invite, InviteScope};
 use tempfile::TempDir;
 
 // -----------------------------------------------------------------
@@ -52,15 +52,14 @@ fn fixture() -> (TempDir, PathBuf) {
 /// and return the full `Output`. Panics on spawn failure.
 fn run_cli(config_file: &PathBuf, args: &[&str]) -> Output {
     let bin = binary_path();
-    let output = Command::new(&bin)
+    Command::new(&bin)
         .arg("--config")
         .arg(config_file)
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .unwrap_or_else(|e| panic!("failed to spawn {bin:?}: {e}"));
-    output
+        .unwrap_or_else(|e| panic!("failed to spawn {bin:?}: {e}"))
 }
 
 fn assert_success(output: &Output, ctx: &str) {

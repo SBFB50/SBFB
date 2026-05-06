@@ -788,18 +788,18 @@ impl TokenRotatorWatcher {
                             std::thread::sleep(Duration::from_millis(50));
                             match TokenRotator::load(&path_thread) {
                                 Ok(Some(fresh)) => {
-                                    if let Ok(mut guard) = inner_thread.write() {
+                                    match inner_thread.write() { Ok(mut guard) => {
                                         *guard = fresh;
                                         tracing::debug!(
                                             path = %path_thread.display(),
                                             "tokens.json reloaded"
                                         );
-                                    } else {
+                                    } _ => {
                                         tracing::warn!(
                                             path = %path_thread.display(),
                                             "tokens.json reload skipped — rotator lock poisoned"
                                         );
-                                    }
+                                    }}
                                 }
                                 Ok(None) => {
                                     tracing::warn!(
@@ -848,11 +848,11 @@ mod tests {
     use super::*;
 
     use axum::{
+        Router,
         body::to_bytes,
         http::{Request, StatusCode},
         middleware,
         routing::get,
-        Router,
     };
     use tower::ServiceExt;
 
@@ -1070,12 +1070,15 @@ mod tests {
     fn sbfb_home_honours_override() {
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::var("SBFB_HOME").ok();
-        std::env::set_var("SBFB_HOME", dir.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var("SBFB_HOME", dir.path()) };
         let home = sbfb_home().unwrap();
         assert_eq!(home, dir.path());
         match prev {
-            Some(v) => std::env::set_var("SBFB_HOME", v),
-            None => std::env::remove_var("SBFB_HOME"),
+            // SAFETY: test-only; nextest runs each test in its own process.
+            Some(v) => unsafe { std::env::set_var("SBFB_HOME", v) },
+            // SAFETY: test-only; nextest runs each test in its own process.
+            None => unsafe { std::env::remove_var("SBFB_HOME") },
         }
     }
 
@@ -1083,7 +1086,8 @@ mod tests {
     fn run_dir_paths_resolve_under_sbfb_home() {
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::var("SBFB_HOME").ok();
-        std::env::set_var("SBFB_HOME", dir.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var("SBFB_HOME", dir.path()) };
 
         let run = sbfb_run_dir().unwrap();
         assert_eq!(run, dir.path().join("run"));
@@ -1093,8 +1097,10 @@ mod tests {
         assert_eq!(csock, dir.path().join("run").join("coordinator.sock"));
 
         match prev {
-            Some(v) => std::env::set_var("SBFB_HOME", v),
-            None => std::env::remove_var("SBFB_HOME"),
+            // SAFETY: test-only; nextest runs each test in its own process.
+            Some(v) => unsafe { std::env::set_var("SBFB_HOME", v) },
+            // SAFETY: test-only; nextest runs each test in its own process.
+            None => unsafe { std::env::remove_var("SBFB_HOME") },
         }
     }
 
@@ -1104,19 +1110,23 @@ mod tests {
         // to avoid collisions with a real running daemon. The
         // production path keeps the leaf stable.
         let prev = std::env::var("SBFB_PIPE_SUFFIX").ok();
-        std::env::remove_var("SBFB_PIPE_SUFFIX");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var("SBFB_PIPE_SUFFIX") };
 
         let d = daemon_pipe_name();
         assert_eq!(d, r"\\.\pipe\sbfb-daemon");
         let c = coordinator_pipe_name();
         assert_eq!(c, r"\\.\pipe\sbfb-coordinator");
 
-        std::env::set_var("SBFB_PIPE_SUFFIX", "-test123");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var("SBFB_PIPE_SUFFIX", "-test123") };
         assert_eq!(daemon_pipe_name(), r"\\.\pipe\sbfb-daemon-test123");
 
         match prev {
-            Some(v) => std::env::set_var("SBFB_PIPE_SUFFIX", v),
-            None => std::env::remove_var("SBFB_PIPE_SUFFIX"),
+            // SAFETY: test-only; nextest runs each test in its own process.
+            Some(v) => unsafe { std::env::set_var("SBFB_PIPE_SUFFIX", v) },
+            // SAFETY: test-only; nextest runs each test in its own process.
+            None => unsafe { std::env::remove_var("SBFB_PIPE_SUFFIX") },
         }
     }
 

@@ -37,7 +37,7 @@
 use std::ffi::c_void;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use axum::Router;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -49,16 +49,16 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tower::ServiceExt;
 use tracing::{debug, info, warn};
-use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree};
 use windows::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
 use windows::Win32::Security::{
-    GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
-    TOKEN_USER,
+    GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
+    TokenUser,
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows::core::{PCWSTR, PWSTR};
 
 /// A scoped wrapper around a heap-allocated `SECURITY_DESCRIPTOR`
 /// plus the matching `SECURITY_ATTRIBUTES` value. Drop frees the
@@ -325,9 +325,9 @@ fn spawn_handler(stream: NamedPipeServer, router: Arc<Router>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::routing::get;
     use axum::Router as AxumRouter;
-    use nexus_shell_daemon_core::auth::{auth_required, AuthState};
+    use axum::routing::get;
+    use nexus_shell_daemon_core::auth::{AuthState, auth_required};
     use std::sync::atomic::{AtomicU64, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::windows::named_pipe::ClientOptions;

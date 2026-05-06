@@ -43,8 +43,8 @@
 //! 15-day grace period before verifiers should alarm.
 
 use async_trait::async_trait;
-use nexus_core_rs::canonical::{canonical_bytes, DOMAIN_WARRANT_CANARY_V1};
-use nexus_core_rs::crypto::{verify, PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
+use nexus_core_rs::canonical::{DOMAIN_WARRANT_CANARY_V1, canonical_bytes};
+use nexus_core_rs::crypto::{PUBLIC_KEY_LENGTH, SIGNATURE_BYTES, verify};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use time::{Date, Duration, OffsetDateTime};
@@ -58,16 +58,16 @@ pub mod signer;
 
 pub use attestation::{Attestation, AttestationProvider, NoopAttestation};
 pub use ceremony::{
-    build_signing_package, ceremony_aggregate, ceremony_round1, ceremony_round2,
     CeremonyCommitment, CeremonyNonces, CeremonySignatureShare, CeremonySigningPackage,
+    build_signing_package, ceremony_aggregate, ceremony_round1, ceremony_round2,
 };
-pub use dkg::{generate_dkg, load_pubkey, load_share, DkgPubkeyFile, DkgShareFile};
+pub use dkg::{DkgPubkeyFile, DkgShareFile, generate_dkg, load_pubkey, load_share};
 pub use duress_ack::{
-    build_duress_ack, duress_ack_topic_id, verify_duress_ack, DuressAck, DuressAckSigned,
-    DURESS_ACK_TOPIC_SEED,
+    DURESS_ACK_TOPIC_SEED, DuressAck, DuressAckSigned, build_duress_ack, duress_ack_topic_id,
+    verify_duress_ack,
 };
 pub use frost::{
-    frost_keygen_trusted_dealer, FrostCanarySigner, FrostError, FrostKeyShare, FrostPubkey,
+    FrostCanarySigner, FrostError, FrostKeyShare, FrostPubkey, frost_keygen_trusted_dealer,
 };
 pub use signer::{CanarySigner, Ed25519CanarySigner};
 

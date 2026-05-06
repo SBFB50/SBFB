@@ -450,7 +450,8 @@ api_port = 0
             .unwrap_or_else(|e| e.into_inner());
 
         let tmp = tempdir().unwrap();
-        std::env::set_var(paths::NEXUS_GRID_ROOT_ENV, tmp.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(paths::NEXUS_GRID_ROOT_ENV, tmp.path()) };
 
         let paths = ShellDaemonPaths::resolve(None).unwrap();
         assert_eq!(paths.root, tmp.path().join("shell-daemon"));
@@ -464,7 +465,8 @@ api_port = 0
         );
         assert_eq!(paths.log_dir, tmp.path().join("logs"));
 
-        std::env::remove_var(paths::NEXUS_GRID_ROOT_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(paths::NEXUS_GRID_ROOT_ENV) };
     }
 
     #[test]

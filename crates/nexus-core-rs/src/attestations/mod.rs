@@ -49,13 +49,13 @@ pub use age_witness::{
     AgeWitness, AgeWitnessError, MIN_AGE_DAYS, MIN_WITNESS_AGE_DAYS, SECONDS_PER_DAY,
 };
 pub use contributor::{
-    ContributorAttestation, ContributorAttestationError, ContributorPredicate,
     CONTRIBUTOR_ATTESTATION_PREDICATE_TYPE, CONTRIBUTOR_ATTESTATION_STATEMENT_TYPE,
+    ContributorAttestation, ContributorAttestationError, ContributorPredicate,
 };
 pub mod forge_parser;
 
 pub use delegation::{
-    DelegationCert, DelegationCertError, DelegationScope, DELEGATION_ALGO_OPENPGP_ED25519,
-    DELEGATION_ALGO_SSH_ED25519, DELEGATION_ALGO_SSH_RSA,
+    DELEGATION_ALGO_OPENPGP_ED25519, DELEGATION_ALGO_SSH_ED25519, DELEGATION_ALGO_SSH_RSA,
+    DelegationCert, DelegationCertError, DelegationScope,
 };
 pub use forge_parser::{ForgeContribution, SigType};

@@ -48,7 +48,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::canonical::{canonical_bytes, DOMAIN_CURATOR_LIST_V1};
+use crate::canonical::{DOMAIN_CURATOR_LIST_V1, canonical_bytes};
 use crate::crypto::{KeyPair, PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
 use crate::error::{NexusError, Result};
 use crate::key_rotation::RevocationCache;
@@ -510,9 +510,9 @@ mod tests {
         let kp = KeyPair::generate();
         let mut list = sample_list(kp.public_bytes());
         list.version = 99; // future / unknown
-                           // Re-sign with the bumped version so the signature is
-                           // internally consistent — verify must still refuse based
-                           // on the version field alone.
+        // Re-sign with the bumped version so the signature is
+        // internally consistent — verify must still refuse based
+        // on the version field alone.
         let bytes = canonical_bytes(&list, DOMAIN_CURATOR_LIST_V1).unwrap();
         let signature = kp.sign(&bytes);
         let entry = CuratorListEntry {

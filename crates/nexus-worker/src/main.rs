@@ -34,7 +34,7 @@ use nexus_core_rs::KeyPair;
 use nexus_worker_core::allowlist::{Allowlist, NewProject};
 use nexus_worker_core::config::{WorkerConfig, WorkerPaths};
 use nexus_worker_core::engine::{Engine, EngineBoot, WorkerState};
-use nexus_worker_core::invite::{current_unix_secs, Invite};
+use nexus_worker_core::invite::{Invite, current_unix_secs};
 
 use cli::{Cli, Command, ConfigCommand, ProjectsCommand};
 

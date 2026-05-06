@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::Deserialize;
 use tracing::debug;
 
@@ -36,7 +36,7 @@ pub async fn list_quarantine(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -52,7 +52,7 @@ pub async fn list_quarantine(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(serde_json::json!({"error": format!("{e}")})),
                     )
-                        .into_response()
+                        .into_response();
                 }
             }
         }
@@ -105,7 +105,7 @@ pub async fn flush_quarantine(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -142,7 +142,7 @@ pub async fn drop_quarantine(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 

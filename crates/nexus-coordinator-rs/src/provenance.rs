@@ -9,7 +9,7 @@
 //! 3. The artifact content matches the recorded BLAKE3 hash.
 
 use nexus_core_rs::canonical::DOMAIN_PROVENANCE_V1;
-use nexus_core_rs::crypto::{blake3_hash, KeyPair};
+use nexus_core_rs::crypto::{KeyPair, blake3_hash};
 use serde::{Deserialize, Serialize};
 
 pub const PROVENANCE_SCHEMA_VERSION: u32 = 1;

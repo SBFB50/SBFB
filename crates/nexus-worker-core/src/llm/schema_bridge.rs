@@ -27,7 +27,7 @@
 //! `serde_json::Value` (e.g. the `$id` JSON-Schema field) rather
 //! than growing the trait signature.
 
-use nexus_core_rs::{task_response_schema, TaskResponse};
+use nexus_core_rs::{TaskResponse, task_response_schema};
 use ollama_rs::generation::parameters::JsonStructure;
 
 /// Canonical `serde_json::Value` for the Sprint 20 `TaskResponse`

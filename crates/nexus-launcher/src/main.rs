@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use nexus_shell_daemon_core::auth::{tokens_file_path, TokenRotator};
+use nexus_shell_daemon_core::auth::{TokenRotator, tokens_file_path};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
@@ -58,9 +58,9 @@ struct LauncherLogGuard {
 }
 
 fn setup_tracing() -> Option<LauncherLogGuard> {
+    use tracing_subscriber::Layer;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
-    use tracing_subscriber::Layer;
 
     let log_dir = launcher_log_dir();
     if let Err(e) = std::fs::create_dir_all(&log_dir) {
@@ -206,7 +206,7 @@ async fn spawn_and_wait(
         }
         None => {
             tracing::error!("daemon did not produce running.json within 15s");
-            if let Some(ref mut child) = spawned_child {
+            if let Some(child) = spawned_child {
                 let _ = child.kill();
             }
             std::process::exit(1);
@@ -361,14 +361,14 @@ async fn main() {
                 tracing::info!(source, "no NVIDIA driver detected, skipping")
             }
         }
-        if report.critical_count > 0 {
-            if let Some(ref v) = report.local_version {
-                tracing::warn!(
-                    driver = %v,
-                    critical = report.critical_count,
-                    "NVIDIA driver affected by Critical CVE — consider updating"
-                );
-            }
+        if report.critical_count > 0
+            && let Some(ref v) = report.local_version
+        {
+            tracing::warn!(
+                driver = %v,
+                critical = report.critical_count,
+                "NVIDIA driver affected by Critical CVE — consider updating"
+            );
         }
     });
 
@@ -385,7 +385,8 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    std::env::set_var(nexus_shell_daemon_core::auth::AUTH_TOKEN_ENV, &token);
+    // SAFETY: called before tokio runtime spawn, single-threaded startup.
+    unsafe { std::env::set_var(nexus_shell_daemon_core::auth::AUTH_TOKEN_ENV, &token) };
 
     // 0b. Sprint 16 Phase B (D2): create ~/.sbfb/run/ at mode 0700
     //     so the daemon can drop daemon.sock there and the
@@ -558,7 +559,7 @@ async fn main() {
 /// token and persist it at mode `0600` (Unix) / user-owned
 /// ACL (Windows).
 fn resolve_token_for_child() -> anyhow::Result<String> {
-    use anyhow::{anyhow, Context};
+    use anyhow::{Context, anyhow};
     let path = nexus_shell_daemon_core::auth::auth_token_path()
         .ok_or_else(|| anyhow!("cannot resolve ~/.sbfb/auth_token path for this platform"))?;
     nexus_shell_daemon_core::auth::load_or_generate_token(&path)
@@ -626,10 +627,13 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::env::set_var(
-            nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV,
-            tmp.path(),
-        );
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe {
+            std::env::set_var(
+                nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV,
+                tmp.path(),
+            )
+        };
 
         let launcher = launcher_log_dir();
         let daemon = nexus_shell_daemon_core::paths::log_dir().expect("log_dir");
@@ -638,6 +642,7 @@ mod tests {
             "launcher and daemon must share the same log directory"
         );
 
-        std::env::remove_var(nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV) };
     }
 }

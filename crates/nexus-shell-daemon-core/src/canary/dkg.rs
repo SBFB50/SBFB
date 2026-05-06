@@ -10,7 +10,7 @@ use frost::keys::{KeyPackage, PublicKeyPackage};
 use frost_ed25519 as frost;
 use serde::{Deserialize, Serialize};
 
-use super::frost::{frost_keygen_trusted_dealer, FrostError, FrostKeyShare, FrostPubkey};
+use super::frost::{FrostError, FrostKeyShare, FrostPubkey, frost_keygen_trusted_dealer};
 
 /// JSON-serializable individual FROST key share for distribution
 /// to one participant's air-gapped machine.

@@ -33,11 +33,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use nexus_core_rs::{
-    create_node_with_config, load_quorum_resolvers_from_env, relay_pow_policy_file_path,
     GossipClient, GossipEvent, KeyPair, Node, NodeConfig, PowSolveCache, PowVerifyCache,
-    RelayPowPolicy,
+    RelayPowPolicy, create_node_with_config, load_quorum_resolvers_from_env,
+    relay_pow_policy_file_path,
 };
 use nexus_shell_daemon_core::auth;
 use nexus_shell_daemon_core::browse::{
@@ -45,12 +45,12 @@ use nexus_shell_daemon_core::browse::{
 };
 use nexus_shell_daemon_core::config::{CuratorConfig, ShellDaemonPaths};
 use nexus_shell_daemon_core::iroh_runtime::{
-    curator_topic_id, CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle,
+    CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle, curator_topic_id,
 };
 use nexus_shell_daemon_core::pow_policy_loader::PowPolicyWatcher;
 use nexus_shell_daemon_core::publish;
 use nexus_shell_daemon_core::registry::{
-    self, new_running_state, remove_running, write_running, StaleOutcome,
+    self, StaleOutcome, new_running_state, remove_running, write_running,
 };
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -59,7 +59,7 @@ use tracing::{debug, info, warn};
 
 use nexus_trace_core::batch_log::BatchLogProcessor;
 
-use crate::http::{build_router, DaemonHttpState, GossipSenderHandle};
+use crate::http::{DaemonHttpState, GossipSenderHandle, build_router};
 
 // Sprint 20 Phase A : the env var name used by the launcher to
 // hand the unlocked 32-byte Ed25519 secret key to the daemon child
@@ -88,7 +88,8 @@ fn read_optional_identity_env() -> Option<[u8; 32]> {
     // whether the parse succeeds. If the var is malformed we want
     // the daemon to fall back to legacy mode rather than a second
     // parse attempt later picking up stale state.
-    std::env::remove_var(SBFB_IDENTITY_SECRET_HEX_ENV);
+    // SAFETY: called during early daemon init, before async runtime.
+    unsafe { std::env::remove_var(SBFB_IDENTITY_SECRET_HEX_ENV) };
 
     let decoded = match hex::decode(raw.trim()) {
         Ok(v) => v,

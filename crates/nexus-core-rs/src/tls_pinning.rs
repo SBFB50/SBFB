@@ -62,11 +62,11 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Utc};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -896,7 +896,8 @@ mod tests {
     impl EnvGuard {
         fn set(key: &str, value: &str) -> Self {
             let prior = env::var(key).ok();
-            env::set_var(key, value);
+            // SAFETY: test-only; nextest runs each test in its own process.
+            unsafe { env::set_var(key, value) };
             Self {
                 key: key.to_string(),
                 prior,
@@ -904,7 +905,8 @@ mod tests {
         }
         fn unset(key: &str) -> Self {
             let prior = env::var(key).ok();
-            env::remove_var(key);
+            // SAFETY: test-only; nextest runs each test in its own process.
+            unsafe { env::remove_var(key) };
             Self {
                 key: key.to_string(),
                 prior,
@@ -915,8 +917,10 @@ mod tests {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             match &self.prior {
-                Some(v) => env::set_var(&self.key, v),
-                None => env::remove_var(&self.key),
+                // SAFETY: test-only; nextest runs each test in its own process.
+                Some(v) => unsafe { env::set_var(&self.key, v) },
+                // SAFETY: test-only; nextest runs each test in its own process.
+                None => unsafe { env::remove_var(&self.key) },
             }
         }
     }

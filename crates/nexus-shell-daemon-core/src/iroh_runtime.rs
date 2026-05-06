@@ -718,7 +718,7 @@ pub type CuratorRuntimeHandle = Arc<CuratorRuntime>;
 mod tests {
     use super::*;
     use nexus_core_rs::{
-        create_node, CuratorList, CuratorListEntry, CuratorProjectRef, KeyPair, Node,
+        CuratorList, CuratorListEntry, CuratorProjectRef, KeyPair, Node, create_node,
     };
     use tempfile::tempdir;
 

@@ -527,7 +527,7 @@ mod tests {
     use super::*;
     use crate::attestations::SECONDS_PER_DAY;
     use crate::crypto::KeyPair;
-    use crate::{create_node, Node};
+    use crate::{Node, create_node};
     use std::collections::HashMap;
     use std::time::Duration;
     use tokio::time::timeout;

@@ -12,12 +12,12 @@
 //! already covers the Argon2id + AEAD path without the keyring
 //! layer.
 
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use nexus_core_rs::keystore::{
-    KdfParams, KeyStore, LocalFileKeyStore, UnlockError, BLOB_FILE_NAME,
+    BLOB_FILE_NAME, KdfParams, KeyStore, LocalFileKeyStore, UnlockError,
 };
 use tempfile::TempDir;
 

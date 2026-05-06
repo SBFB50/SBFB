@@ -224,8 +224,8 @@ fn count_distinct_forges(contributions: &[ForgeContribution]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexus_core_rs::attestations::forge_parser::SigType;
     use nexus_core_rs::attestations::DelegationScope;
+    use nexus_core_rs::attestations::forge_parser::SigType;
 
     fn make_contributions() -> Vec<ForgeContribution> {
         vec![

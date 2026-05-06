@@ -180,11 +180,12 @@ impl LlmBackend for LlamaCppBackend {
         // healthcheck time to keep the probe cheap.
         match shared_backend() {
             Ok(_) => HealthCheck::Ready {
-                models: vec![self
-                    .model_path
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| endpoint.clone())],
+                models: vec![
+                    self.model_path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| endpoint.clone()),
+                ],
             },
             Err(e) => HealthCheck::Error {
                 endpoint,
@@ -475,7 +476,7 @@ fn apply_matcher_mask(
 /// schema is malformed — the worker should not be allowed to sign
 /// a response against a grammar it could not compile.
 fn build_matcher(schema: &serde_json::Value) -> LlmBackendResult<llguidance::Matcher> {
-    use llguidance::{api::TopLevelGrammar, toktrie::ApproximateTokEnv, ParserFactory};
+    use llguidance::{ParserFactory, api::TopLevelGrammar, toktrie::ApproximateTokEnv};
 
     let tok_env = ApproximateTokEnv::single_byte_env();
     let factory = Arc::new(ParserFactory::new_simple(&tok_env).map_err(|e| {

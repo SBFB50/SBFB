@@ -35,9 +35,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use iroh::address_lookup::pkarr::PkarrRelayClient;
-use iroh::tls::{default_provider, CaRootsConfig};
 use iroh::EndpointId;
+use iroh::address_lookup::pkarr::PkarrRelayClient;
+use iroh::tls::{CaRootsConfig, default_provider};
 use url::Url;
 
 use crate::dht_quorum::QuorumResolver;
@@ -257,7 +257,8 @@ mod tests {
     #[test]
     fn load_quorum_resolvers_from_env_returns_none_when_unset() {
         let _g = ENV_GUARD.lock().unwrap();
-        std::env::remove_var(CUSTOM_PKARR_RELAYS_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(CUSTOM_PKARR_RELAYS_ENV) };
         let got = load_quorum_resolvers_from_env().expect("env unset must never error");
         assert!(
             got.is_none(),
@@ -268,10 +269,13 @@ mod tests {
     #[test]
     fn load_quorum_resolvers_from_env_parses_comma_separated_urls() {
         let _g = ENV_GUARD.lock().unwrap();
-        std::env::set_var(
-            CUSTOM_PKARR_RELAYS_ENV,
-            "https://one.example/pkarr, https://two.example/pkarr,https://three.example/pkarr",
-        );
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe {
+            std::env::set_var(
+                CUSTOM_PKARR_RELAYS_ENV,
+                "https://one.example/pkarr, https://two.example/pkarr,https://three.example/pkarr",
+            )
+        };
         let set = load_quorum_resolvers_from_env()
             .expect("three valid URLs must succeed")
             .expect("env set must produce Some");
@@ -279,13 +283,15 @@ mod tests {
         assert_eq!(set[0].label(), "one.example");
         assert_eq!(set[1].label(), "two.example");
         assert_eq!(set[2].label(), "three.example");
-        std::env::remove_var(CUSTOM_PKARR_RELAYS_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(CUSTOM_PKARR_RELAYS_ENV) };
     }
 
     #[test]
     fn load_quorum_resolvers_from_env_fails_loud_on_bad_url() {
         let _g = ENV_GUARD.lock().unwrap();
-        std::env::set_var(CUSTOM_PKARR_RELAYS_ENV, "not a url at all");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(CUSTOM_PKARR_RELAYS_ENV, "not a url at all") };
         // Can't use `expect_err` here : the Ok type is
         // `Option<Vec<Arc<dyn QuorumResolver>>>` and `dyn
         // QuorumResolver` is deliberately not `Debug`, so the
@@ -302,6 +308,7 @@ mod tests {
                 );
             }
         }
-        std::env::remove_var(CUSTOM_PKARR_RELAYS_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(CUSTOM_PKARR_RELAYS_ENV) };
     }
 }

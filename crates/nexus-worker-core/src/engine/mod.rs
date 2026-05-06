@@ -22,6 +22,6 @@ pub mod state_writer;
 pub use runtime::{Engine, EngineBoot};
 pub use state::{StateMachine, TransitionError, WorkerEvent, WorkerState};
 pub use state_writer::{
-    flush as flush_state, serialize_to, SnapshotInputs, StateWriterError, WorkerStateSnapshot,
-    SCHEMA_VERSION,
+    SCHEMA_VERSION, SnapshotInputs, StateWriterError, WorkerStateSnapshot, flush as flush_state,
+    serialize_to,
 };

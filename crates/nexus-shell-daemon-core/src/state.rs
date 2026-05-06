@@ -24,8 +24,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 /// On-wire schema version for [`DaemonStateSnapshot`]. Must be
 /// bumped on any breaking change (field rename, field removal,

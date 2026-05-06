@@ -34,20 +34,20 @@
 
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use futures_lite::StreamExt;
+use iroh::Endpoint;
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
-use iroh::Endpoint;
-use iroh_blobs::store::mem::MemStore;
-use iroh_blobs::BlobsProtocol;
 use iroh_blobs::ALPN as BLOBS_ALPN;
+use iroh_blobs::BlobsProtocol;
+use iroh_blobs::store::mem::MemStore;
+use iroh_docs::ALPN as DOCS_ALPN;
 use iroh_docs::api::protocol::{AddrInfoOptions, ShareMode};
 use iroh_docs::engine::LiveEvent;
 use iroh_docs::protocol::Docs;
-use iroh_docs::ALPN as DOCS_ALPN;
-use iroh_gossip::net::Gossip;
 use iroh_gossip::ALPN as GOSSIP_ALPN;
+use iroh_gossip::net::Gossip;
 use tokio::time::timeout;
 use tracing::info;
 

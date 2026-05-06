@@ -331,8 +331,8 @@ impl CanarySigner for FrostCanarySigner {
 mod tests {
     use super::*;
     use crate::canary::{build_canary, signer::Ed25519CanarySigner, verify_canary};
-    use nexus_core_rs::crypto::verify;
     use nexus_core_rs::KeyPair;
+    use nexus_core_rs::crypto::verify;
     use time::Date;
 
     fn a_date() -> Date {

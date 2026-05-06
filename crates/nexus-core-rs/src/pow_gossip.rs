@@ -75,7 +75,7 @@ use thiserror::Error;
 
 use crate::crypto::{KeyPair, PUBLIC_KEY_LENGTH};
 use crate::pow::{
-    solve, verify_at, HashcashChallenge, HashcashProof, PowError, POW_FORMAT_VERSION,
+    HashcashChallenge, HashcashProof, POW_FORMAT_VERSION, PowError, solve, verify_at,
 };
 use crate::relay_pow_policy::RelayPowPolicy;
 

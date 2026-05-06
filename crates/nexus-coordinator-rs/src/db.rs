@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use rusqlite::Connection;
-use rusqlite_migration::{Migrations, M};
+use rusqlite_migration::{M, Migrations};
 
 use crate::error::CoordinatorError;
 use crate::types::{KudosEntry, TaskRecord, TaskStatus};

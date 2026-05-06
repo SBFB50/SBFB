@@ -25,13 +25,13 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use axum::{
+    Router,
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Json},
     routing::get,
-    Router,
 };
 use nexus_shell_daemon_core::auth::{self as core_auth};
 use serde::{Deserialize, Serialize};
@@ -270,7 +270,8 @@ mod tests {
         fn new(path: &Path) -> Self {
             let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
             let prev = std::env::var("SBFB_HOME").ok();
-            std::env::set_var("SBFB_HOME", path);
+            // SAFETY: test-only; nextest runs each test in its own process.
+            unsafe { std::env::set_var("SBFB_HOME", path) };
             Self { prev, _guard }
         }
     }
@@ -278,8 +279,10 @@ mod tests {
     impl Drop for SbfbHomeGuard {
         fn drop(&mut self) {
             match self.prev.take() {
-                Some(v) => std::env::set_var("SBFB_HOME", v),
-                None => std::env::remove_var("SBFB_HOME"),
+                // SAFETY: test-only; nextest runs each test in its own process.
+                Some(v) => unsafe { std::env::set_var("SBFB_HOME", v) },
+                // SAFETY: test-only; nextest runs each test in its own process.
+                None => unsafe { std::env::remove_var("SBFB_HOME") },
             }
         }
     }

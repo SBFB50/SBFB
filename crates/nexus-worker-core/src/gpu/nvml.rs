@@ -16,9 +16,9 @@
 
 use std::sync::Arc;
 
+use nvml_wrapper::Nvml;
 use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
 use nvml_wrapper::error::NvmlError;
-use nvml_wrapper::Nvml;
 
 use super::{GpuError, GpuInfo, GpuMonitor, GpuStats};
 

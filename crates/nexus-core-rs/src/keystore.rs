@@ -84,8 +84,8 @@ use std::path::{Path, PathBuf};
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Algorithm, Argon2, Params, Version};
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use secrecy::{ExposeSecret, SecretBox};
 use zeroize::Zeroize;
 

@@ -48,6 +48,7 @@
 // Relaxing the forbid to a deny-by-default lint keeps the safety
 // bar high without blocking the transitive dep.
 #![deny(unsafe_code)]
+#![cfg_attr(test, allow(unsafe_code))]
 #![deny(rust_2018_idioms)]
 
 pub mod allowlist;

@@ -35,18 +35,18 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use axum::{
+    Router,
     body::Bytes,
     extract::{Path, Request, State},
     http::{HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
     routing::{delete, get, post},
-    Router,
 };
 use nexus_core_rs::{
     BlobsClient, KeyPair, Node, PowEnvelope, PowSolveCache, RelayPowPolicy, TopicSender,
 };
-use nexus_shell_daemon_core::auth::{auth_required, AuthState};
+use nexus_shell_daemon_core::auth::{AuthState, auth_required};
 use nexus_shell_daemon_core::blob_serve::{self, BlobServeCache};
 use nexus_shell_daemon_core::browse::{
     BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
@@ -1206,7 +1206,7 @@ async fn frost_round1(Json(body): Json<FrostRound1Request>) -> impl IntoResponse
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": e.to_string() })),
             )
-                .into_response()
+                .into_response();
         }
     };
     match nexus_shell_daemon_core::canary::ceremony_round1(
@@ -1251,7 +1251,7 @@ async fn frost_round2(Json(body): Json<FrostRound2Request>) -> impl IntoResponse
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": e.to_string() })),
             )
-                .into_response()
+                .into_response();
         }
     };
     match nexus_shell_daemon_core::canary::ceremony_round2(
@@ -1289,7 +1289,7 @@ async fn frost_aggregate(Json(body): Json<FrostAggregateRequest>) -> impl IntoRe
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": e.to_string() })),
             )
-                .into_response()
+                .into_response();
         }
     };
     match nexus_shell_daemon_core::canary::ceremony_aggregate(
@@ -1640,7 +1640,7 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use axum::http::{Method, Request};
-    use nexus_core_rs::{create_node, KeyPair};
+    use nexus_core_rs::{KeyPair, create_node};
     use nexus_shell_daemon_core::blob_serve::BlobServeCache;
     use nexus_shell_daemon_core::browse::BrowseAggregator;
     use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
@@ -1672,8 +1672,8 @@ mod tests {
     }
 
     fn build_test_router_with_cors(state: Arc<DaemonHttpState>, cors: &[String]) -> Router {
-        use axum::http::header::{HOST, ORIGIN};
         use axum::http::HeaderValue;
+        use axum::http::header::{HOST, ORIGIN};
         build_router(state, AuthState::new(TEST_TOKEN.to_string()), cors, None).layer(
             middleware::from_fn(
                 |mut req: axum::extract::Request, next: middleware::Next| async move {
@@ -4710,10 +4710,12 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
-        assert!(body["error"]
-            .as_str()
-            .unwrap()
-            .contains("worker_contributions"));
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("worker_contributions")
+        );
     }
 
     #[tokio::test]
@@ -5056,11 +5058,13 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
-        assert!(body["allowed_project_ids"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|v| v.as_str() == Some(&pid)));
+        assert!(
+            body["allowed_project_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str() == Some(&pid))
+        );
     }
 
     #[tokio::test]
@@ -5100,11 +5104,13 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
-        assert!(body["allowed_project_ids"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|v| v.as_str() != Some(&pid)));
+        assert!(
+            body["allowed_project_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|v| v.as_str() != Some(&pid))
+        );
     }
 
     // --- files.rs happy path tests (3 routes) ---

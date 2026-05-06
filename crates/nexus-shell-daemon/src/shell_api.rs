@@ -7,9 +7,9 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::Json;
 use tracing::debug;
 
 use crate::http::DaemonHttpState;

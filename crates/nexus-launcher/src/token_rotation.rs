@@ -30,7 +30,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use nexus_shell_daemon_core::auth::{generate_token, TokenRotator};
+use nexus_shell_daemon_core::auth::{TokenRotator, generate_token};
 use tokio::sync::RwLock;
 
 /// Spawn a task that rotates the token at a fixed interval and
@@ -83,7 +83,7 @@ pub fn spawn_rotation_loop(
 mod tests {
     use super::*;
     use nexus_shell_daemon_core::auth::{
-        tokens_file_path, validate_token_with_rotator, TokensFile, TOKEN_OVERLAP_DURATION,
+        TOKEN_OVERLAP_DURATION, TokensFile, tokens_file_path, validate_token_with_rotator,
     };
     use std::path::Path;
     use std::time::Instant;
@@ -104,7 +104,8 @@ mod tests {
         fn new(path: &Path) -> Self {
             let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
             let prev = std::env::var("SBFB_HOME").ok();
-            std::env::set_var("SBFB_HOME", path);
+            // SAFETY: test-only; nextest runs each test in its own process.
+            unsafe { std::env::set_var("SBFB_HOME", path) };
             Self { prev, _guard }
         }
     }
@@ -112,8 +113,10 @@ mod tests {
     impl Drop for SbfbHomeGuard {
         fn drop(&mut self) {
             match self.prev.take() {
-                Some(v) => std::env::set_var("SBFB_HOME", v),
-                None => std::env::remove_var("SBFB_HOME"),
+                // SAFETY: test-only; nextest runs each test in its own process.
+                Some(v) => unsafe { std::env::set_var("SBFB_HOME", v) },
+                // SAFETY: test-only; nextest runs each test in its own process.
+                None => unsafe { std::env::remove_var("SBFB_HOME") },
             }
         }
     }

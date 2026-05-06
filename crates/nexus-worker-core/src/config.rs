@@ -607,7 +607,8 @@ mod tests {
         let _guard = env_var_test_lock()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT") };
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("worker.toml");
@@ -642,7 +643,8 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         // Paranoid cleanup so a leaked env var from a hypothetical
         // third test cannot contaminate this one either.
-        std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT") };
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("missing.toml");
@@ -672,7 +674,8 @@ mod tests {
         let _guard = env_var_test_lock()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT") };
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("partial.toml");
@@ -817,12 +820,16 @@ endpoint = "http://from-file:11434"
 
         // SAFETY: guarded by env_var_test_lock above so no
         // parallel test can observe the transient mutation.
-        std::env::set_var(
-            "NEXUS_WORKER__LLM__OLLAMA__ENDPOINT",
-            "http://from-env:11434",
-        );
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe {
+            std::env::set_var(
+                "NEXUS_WORKER__LLM__OLLAMA__ENDPOINT",
+                "http://from-env:11434",
+            )
+        };
         let loaded = WorkerConfig::load(&path).unwrap();
-        std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var("NEXUS_WORKER__LLM__OLLAMA__ENDPOINT") };
 
         assert_eq!(
             loaded.llm.ollama.endpoint, "http://from-env:11434",

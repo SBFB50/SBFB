@@ -39,7 +39,7 @@
 //! 3. **Operator debugging** — parsing a hex-encoded blob from
 //!    the wire is easier when the JSON itself says what it is.
 
-use schemars::{schema_for, JsonSchema};
+use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
 /// The only valid `version` field value for this schema. Bumped

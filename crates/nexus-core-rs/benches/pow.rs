@@ -21,8 +21,8 @@
 
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, Criterion};
-use nexus_core_rs::pow::{solve, HashcashChallenge};
+use criterion::{Criterion, criterion_group, criterion_main};
+use nexus_core_rs::pow::{HashcashChallenge, solve};
 
 fn bench_solve_at(c: &mut Criterion, difficulty: u32, label: &str, sample_size: usize) {
     let mut group = c.benchmark_group(label);

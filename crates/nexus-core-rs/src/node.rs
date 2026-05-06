@@ -46,11 +46,11 @@ use iroh::endpoint::presets;
 use iroh::protocol::Router;
 use iroh::{Endpoint, RelayMode, SecretKey};
 use iroh_blobs::store::mem::MemStore;
-use iroh_blobs::{BlobsProtocol, ALPN as BLOBS_ALPN};
-use iroh_docs::protocol::Docs;
+use iroh_blobs::{ALPN as BLOBS_ALPN, BlobsProtocol};
 use iroh_docs::ALPN as DOCS_ALPN;
-use iroh_gossip::net::Gossip;
+use iroh_docs::protocol::Docs;
 use iroh_gossip::ALPN as GOSSIP_ALPN;
+use iroh_gossip::net::Gossip;
 use tracing::{debug, info};
 
 use crate::crypto::SECRET_KEY_BYTES;

@@ -156,9 +156,11 @@ mod tests {
         assert!(TraceContext::from_traceparent("").is_none());
         assert!(TraceContext::from_traceparent("01-abc-def-00").is_none());
         assert!(TraceContext::from_traceparent("00-short-short-00").is_none());
-        assert!(TraceContext::from_traceparent(
-            "00-zzzz0000111122223333444455556666-bbbb000011112222-01"
-        )
-        .is_none());
+        assert!(
+            TraceContext::from_traceparent(
+                "00-zzzz0000111122223333444455556666-bbbb000011112222-01"
+            )
+            .is_none()
+        );
     }
 }

@@ -47,8 +47,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sysinfo::{Pid, System};
 use thiserror::Error;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use tracing::{debug, warn};
 
 /// On-disk schema version. Bumped on breaking changes only.

@@ -251,7 +251,7 @@ pub struct JournaldWriter;
 #[cfg(target_os = "linux")]
 impl EventWriter for JournaldWriter {
     fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError> {
-        use libsystemd::logging::{journal_send, Priority};
+        use libsystemd::logging::{Priority, journal_send};
         let fields = format_journal_fields(event);
         let msg = format!("sbfb security event: {}", event_type_name(event));
         journal_send(

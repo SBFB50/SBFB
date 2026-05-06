@@ -46,7 +46,8 @@
 //!   Phase C/D can extend the shape additively without bumping
 //!   the schema version.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+#![cfg_attr(test, allow(unsafe_code))]
 #![deny(rust_2018_idioms)]
 
 pub mod auth;

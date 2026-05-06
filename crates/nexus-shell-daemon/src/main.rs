@@ -155,7 +155,8 @@ async fn handle_start(
         Some("duress") => nexus_core_rs::IdentityMode::Duress,
         _ => nexus_core_rs::IdentityMode::Normal,
     };
-    std::env::remove_var("SBFB_IDENTITY_MODE");
+    // SAFETY: called during early daemon init, before async runtime.
+    unsafe { std::env::remove_var("SBFB_IDENTITY_MODE") };
 
     let web_root = cli_web_root
         .or_else(|| {
@@ -236,8 +237,8 @@ async fn handle_config(_paths: &ShellDaemonPaths, cmd: ConfigCommand) -> Result<
 
 async fn handle_canary(cmd: CanaryCommand) -> Result<()> {
     use nexus_shell_daemon_core::canary::{
-        build_canary, format_canary_txt, parse_canary_txt, publish_canary, today_utc,
-        warrant_canary_topic_id, CanaryBroadcaster, Ed25519CanarySigner,
+        CanaryBroadcaster, Ed25519CanarySigner, build_canary, format_canary_txt, parse_canary_txt,
+        publish_canary, today_utc, warrant_canary_topic_id,
     };
 
     match cmd {
@@ -250,9 +251,9 @@ async fn handle_canary(cmd: CanaryCommand) -> Result<()> {
             //    canary key. Separate from the daemon's ephemeral
             //    node identity on purpose — see the `canary_key_path`
             //    doc for the rationale.
-            let key_path = nexus_shell_daemon_core::auth::canary_key_path().with_context(|| {
-                "could not resolve SBFB home dir — set $SBFB_HOME or $HOME/$USERPROFILE"
-            })?;
+            let key_path = nexus_shell_daemon_core::auth::canary_key_path().with_context(
+                || "could not resolve SBFB home dir — set $SBFB_HOME or $HOME/$USERPROFILE",
+            )?;
             let keypair =
                 nexus_core_rs::KeyPair::load_or_generate(&key_path).with_context(|| {
                     format!(
@@ -342,12 +343,12 @@ async fn handle_canary(cmd: CanaryCommand) -> Result<()> {
 }
 
 async fn handle_frost(cmd: FrostCommand) -> Result<()> {
-    use nexus_core_rs::canonical::{canonical_bytes, DOMAIN_WARRANT_CANARY_V1};
+    use nexus_core_rs::canonical::{DOMAIN_WARRANT_CANARY_V1, canonical_bytes};
     use nexus_shell_daemon_core::canary::{
-        build_signing_package, ceremony_aggregate, ceremony_round1, ceremony_round2,
+        CANARY_VALIDITY_DAYS, CANARY_VERSION, Canary, CanarySigned, build_signing_package,
+        ceremony_aggregate, ceremony_round1, ceremony_round2,
         dkg::{generate_dkg, load_pubkey, load_share},
-        format_canary_txt, today_utc, verify_canary, Canary, CanarySigned, CANARY_VALIDITY_DAYS,
-        CANARY_VERSION,
+        format_canary_txt, today_utc, verify_canary,
     };
     use time::Duration;
 

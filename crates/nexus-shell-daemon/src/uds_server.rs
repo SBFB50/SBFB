@@ -328,9 +328,9 @@ mod tests {
         // GET, and check the body. Proves the hyper-util glue is
         // wired correctly and that the PeerCredsVerified marker
         // makes the auth middleware skip the bearer check.
-        use axum::routing::get;
         use axum::Router as AxumRouter;
-        use nexus_shell_daemon_core::auth::{auth_required, AuthState};
+        use axum::routing::get;
+        use nexus_shell_daemon_core::auth::{AuthState, auth_required};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let auth = AuthState::new("0".repeat(64));

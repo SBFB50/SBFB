@@ -61,7 +61,7 @@ use thiserror::Error;
 // Re-exports so downstream code can write `use
 // nexus_worker_core::llm::{LlmBackend, GenerateParams, ...}` without
 // walking the submodule tree.
-pub use factory::{build_backend, FactoryError};
+pub use factory::{FactoryError, build_backend};
 pub use ollama::{OllamaBackend, StubBackend};
 
 // =================================================================
@@ -346,8 +346,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
     fn generate_params_builder_sets_fields() {
@@ -411,21 +411,27 @@ mod tests {
 
     #[test]
     fn healthcheck_is_ready_helper() {
-        assert!(HealthCheck::Ready {
-            models: vec!["m".into()],
-        }
-        .is_ready());
-        assert!(!HealthCheck::NotRunning {
-            endpoint: "e".into(),
-            reason: "r".into(),
-            hint: "h",
-        }
-        .is_ready());
-        assert!(!HealthCheck::Error {
-            endpoint: "e".into(),
-            reason: "r".into(),
-        }
-        .is_ready());
+        assert!(
+            HealthCheck::Ready {
+                models: vec!["m".into()],
+            }
+            .is_ready()
+        );
+        assert!(
+            !HealthCheck::NotRunning {
+                endpoint: "e".into(),
+                reason: "r".into(),
+                hint: "h",
+            }
+            .is_ready()
+        );
+        assert!(
+            !HealthCheck::Error {
+                endpoint: "e".into(),
+                reason: "r".into(),
+            }
+            .is_ready()
+        );
     }
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]

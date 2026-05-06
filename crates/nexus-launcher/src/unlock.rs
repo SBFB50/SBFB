@@ -40,7 +40,7 @@
 use std::path::PathBuf;
 
 use nexus_core_rs::keystore::{
-    IdentityMode, KeyStore, LocalFileKeyStore, UnlockError, SBFB_IDENTITY_SECRET_HEX_ENV,
+    IdentityMode, KeyStore, LocalFileKeyStore, SBFB_IDENTITY_SECRET_HEX_ENV, UnlockError,
 };
 use zeroize::Zeroize;
 
@@ -190,13 +190,15 @@ pub fn run_unlock_and_export_env(pin: &str) -> Result<String, i32> {
     let mut secret = id.into_secret_bytes();
     let mut hex_str = hex::encode(secret);
     secret.zeroize();
-    std::env::set_var(SBFB_IDENTITY_SECRET_HEX_ENV, &hex_str);
+    // SAFETY: called before tokio runtime spawn, single-threaded startup.
+    unsafe { std::env::set_var(SBFB_IDENTITY_SECRET_HEX_ENV, &hex_str) };
     hex_str.zeroize();
     // Sprint 20 Phase B : signal the mode to the daemon child.
     // Only set the env var on Duress — absence == Normal on the
     // reader side, which keeps the common boot path unchanged.
     if mode == IdentityMode::Duress {
-        std::env::set_var(SBFB_IDENTITY_MODE_ENV, "duress");
+        // SAFETY: called before tokio runtime spawn, single-threaded startup.
+        unsafe { std::env::set_var(SBFB_IDENTITY_MODE_ENV, "duress") };
     }
     println!(
         "[launcher] unlocked identity {} — launching daemon with persistent keypair",
@@ -272,9 +274,11 @@ mod tests {
 
     #[test]
     fn keyring_dir_respects_env_override() {
-        std::env::set_var("NEXUS_GRID_ROOT", "/tmp/test-sbfb");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var("NEXUS_GRID_ROOT", "/tmp/test-sbfb") };
         let dir = keyring_dir();
-        std::env::remove_var("NEXUS_GRID_ROOT");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var("NEXUS_GRID_ROOT") };
         assert!(dir.ends_with("shell-daemon/keyring") || dir.ends_with("shell-daemon\\keyring"));
     }
 

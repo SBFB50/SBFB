@@ -36,8 +36,8 @@
 //! versa). The wire envelope is the same shape as
 //! [`super::Canary`] : flatten signed body + `signature_hex`.
 
-use nexus_core_rs::canonical::{canonical_bytes, DOMAIN_DURESS_ACK_V1};
-use nexus_core_rs::crypto::{verify, PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
+use nexus_core_rs::canonical::{DOMAIN_DURESS_ACK_V1, canonical_bytes};
+use nexus_core_rs::crypto::{PUBLIC_KEY_LENGTH, SIGNATURE_BYTES, verify};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use time::{Date, OffsetDateTime};

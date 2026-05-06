@@ -128,7 +128,8 @@ mod tests {
         let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         // SAFETY: guarded by env_lock above; no parallel test can
         // observe the transient removal.
-        std::env::remove_var(NEXUS_GRID_ROOT_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(NEXUS_GRID_ROOT_ENV) };
 
         let root = nexus_grid_root().expect("BaseDirs must resolve on CI");
         assert!(
@@ -144,18 +145,21 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         // SAFETY: guarded by env_lock so no parallel test will
         // observe the transient set.
-        std::env::set_var(NEXUS_GRID_ROOT_ENV, tmp.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(NEXUS_GRID_ROOT_ENV, tmp.path()) };
 
         let root = nexus_grid_root().expect("override returns Some");
         assert_eq!(root, tmp.path(), "override path must be used verbatim");
 
-        std::env::remove_var(NEXUS_GRID_ROOT_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(NEXUS_GRID_ROOT_ENV) };
     }
 
     #[test]
     fn empty_override_falls_back_to_base_dirs() {
         let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var(NEXUS_GRID_ROOT_ENV, "");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(NEXUS_GRID_ROOT_ENV, "") };
 
         let root = nexus_grid_root().expect("fallback path");
         assert!(
@@ -164,14 +168,16 @@ mod tests {
             root.display()
         );
 
-        std::env::remove_var(NEXUS_GRID_ROOT_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(NEXUS_GRID_ROOT_ENV) };
     }
 
     #[test]
     fn shell_daemon_paths_are_nested_under_root() {
         let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::env::set_var(NEXUS_GRID_ROOT_ENV, tmp.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(NEXUS_GRID_ROOT_ENV, tmp.path()) };
 
         let dir = shell_daemon_dir().expect("shell_daemon_dir");
         assert_eq!(dir, tmp.path().join("shell-daemon"));
@@ -188,14 +194,16 @@ mod tests {
         let subscriptions = subscriptions_json_path().expect("subscriptions_json_path");
         assert_eq!(subscriptions, dir.join("subscriptions.json"));
 
-        std::env::remove_var(NEXUS_GRID_ROOT_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(NEXUS_GRID_ROOT_ENV) };
     }
 
     #[test]
     fn log_dir_is_under_grid_root_not_daemon_dir() {
         let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::env::set_var(NEXUS_GRID_ROOT_ENV, tmp.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(NEXUS_GRID_ROOT_ENV, tmp.path()) };
 
         let logs = log_dir().expect("log_dir");
         let daemon = shell_daemon_dir().expect("shell_daemon_dir");
@@ -205,6 +213,7 @@ mod tests {
             "log_dir must NOT be under shell-daemon/"
         );
 
-        std::env::remove_var(NEXUS_GRID_ROOT_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(NEXUS_GRID_ROOT_ENV) };
     }
 }

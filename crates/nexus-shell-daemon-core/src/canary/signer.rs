@@ -17,8 +17,8 @@
 //! Ed25519 signature), so `CanarySigned v1` wire format stays
 //! frozen across the trait migration.
 
-use nexus_core_rs::crypto::{PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
 use nexus_core_rs::KeyPair;
+use nexus_core_rs::crypto::{PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
 
 /// Abstraction over the maintainer key used to sign warrant
 /// canaries.

@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::canonical::{canonical_bytes, DOMAIN_KEY_ROTATION_V1};
+use crate::canonical::{DOMAIN_KEY_ROTATION_V1, canonical_bytes};
 use crate::crypto::{KeyPair, PUBLIC_KEY_LENGTH, SIGNATURE_BYTES};
 use crate::error::{NexusError, Result};
 

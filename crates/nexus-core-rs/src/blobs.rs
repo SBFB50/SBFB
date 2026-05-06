@@ -34,12 +34,12 @@
 
 use std::str::FromStr;
 
-use iroh::address_lookup::memory::MemoryLookup;
 use iroh::Endpoint;
+use iroh::address_lookup::memory::MemoryLookup;
+use iroh_blobs::Hash;
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::store::mem::MemStore;
 use iroh_blobs::ticket::BlobTicket;
-use iroh_blobs::Hash;
 
 use crate::error::{NexusError, Result};
 
@@ -161,7 +161,7 @@ impl<'a> BlobsClient<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{create_node, Node};
+    use crate::{Node, create_node};
 
     async fn spawn_node() -> Node {
         create_node().await.expect("boot")

@@ -9,7 +9,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nexus_core_rs::crypto::KeyPair;
-use nexus_core_rs::task::{Task, TaskEntry, TASK_FORMAT_VERSION};
+use nexus_core_rs::task::{TASK_FORMAT_VERSION, Task, TaskEntry};
 
 use crate::db::CoordinatorDb;
 use crate::error::CoordinatorError;

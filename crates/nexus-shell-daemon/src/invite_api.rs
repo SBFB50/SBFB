@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Invite endpoints (Sprint 45 Phase A, port of invites.py).
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::Deserialize;
 use tracing::debug;
 
@@ -67,7 +67,7 @@ pub async fn create_invite(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -116,7 +116,7 @@ pub async fn list_invites(State(state): State<Arc<DaemonHttpState>>) -> impl Int
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -166,7 +166,7 @@ pub async fn revoke_invite(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 

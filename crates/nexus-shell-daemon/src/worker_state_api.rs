@@ -7,10 +7,10 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use tracing::debug;
 
 use crate::http::DaemonHttpState;
@@ -28,14 +28,14 @@ pub async fn get_worker_state(State(_state): State<Arc<DaemonHttpState>>) -> imp
     let path = match worker_state_path() {
         Some(p) => p,
         None => {
-            return (StatusCode::OK, Json(serde_json::json!({"running": false}))).into_response()
+            return (StatusCode::OK, Json(serde_json::json!({"running": false}))).into_response();
         }
     };
 
     let content = match tokio::fs::read_to_string(&path).await {
         Ok(c) => c,
         Err(_) => {
-            return (StatusCode::OK, Json(serde_json::json!({"running": false}))).into_response()
+            return (StatusCode::OK, Json(serde_json::json!({"running": false}))).into_response();
         }
     };
 
@@ -49,7 +49,7 @@ pub async fn get_worker_state(State(_state): State<Arc<DaemonHttpState>>) -> imp
                     "error": "invalid JSON",
                 })),
             )
-                .into_response()
+                .into_response();
         }
     };
 

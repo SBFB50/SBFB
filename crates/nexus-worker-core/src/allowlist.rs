@@ -32,8 +32,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use rusqlite::{params, Connection, OptionalExtension, Row};
-use rusqlite_migration::{Migrations, M};
+use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite_migration::{M, Migrations};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

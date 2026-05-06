@@ -55,8 +55,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use data_encoding::BASE32_NOPAD;
-use nexus_core_rs::canonical::{canonical_bytes, DOMAIN_INVITE_V1};
-use nexus_core_rs::{verify, KeyPair};
+use nexus_core_rs::canonical::{DOMAIN_INVITE_V1, canonical_bytes};
+use nexus_core_rs::{KeyPair, verify};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

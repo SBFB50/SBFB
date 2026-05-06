@@ -3,8 +3,8 @@
 //! `SdkTracerProvider`. Plug any OTel-compatible exporter (OTLP,
 //! stdout, Jaeger) at construction time via the provider builder.
 
-use opentelemetry::trace::{Span, Tracer, TracerProvider};
 use opentelemetry::KeyValue;
+use opentelemetry::trace::{Span, Tracer, TracerProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 
 use crate::{TraceEvent, TraceProcessor};

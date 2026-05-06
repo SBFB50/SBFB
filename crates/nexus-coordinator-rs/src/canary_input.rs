@@ -5,8 +5,8 @@
 use std::collections::VecDeque;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rand::Rng;
@@ -218,7 +218,7 @@ impl CanaryInputInjector {
     pub fn should_inject(&self) -> bool {
         self.seen_count.fetch_add(1, Ordering::Relaxed);
         let guard = self.canary_set.lock().unwrap_or_else(|p| p.into_inner());
-        if guard.as_ref().map_or(true, |s| s.prompts.is_empty()) {
+        if guard.as_ref().is_none_or(|s| s.prompts.is_empty()) {
             return false;
         }
         drop(guard);

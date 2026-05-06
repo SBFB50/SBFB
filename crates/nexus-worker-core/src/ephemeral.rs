@@ -138,7 +138,7 @@ pub async fn wipe_vram() -> anyhow::Result<()> {
 
 #[cfg(feature = "gpu-ephemeral")]
 fn wipe_vram_sync() -> anyhow::Result<()> {
-    use cudarc::driver::{result as cuda_result, CudaDevice};
+    use cudarc::driver::{CudaDevice, result as cuda_result};
 
     let device_count = match CudaDevice::count() {
         Ok(n) => n,

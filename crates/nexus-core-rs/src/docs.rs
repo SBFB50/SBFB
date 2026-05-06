@@ -39,8 +39,8 @@
 //! ```
 
 use futures_lite::{Stream, StreamExt};
-use iroh_docs::api::protocol::{AddrInfoOptions, ShareMode};
 use iroh_docs::api::Doc as IrohDoc;
+use iroh_docs::api::protocol::{AddrInfoOptions, ShareMode};
 use iroh_docs::engine::LiveEvent;
 use iroh_docs::protocol::Docs;
 use iroh_docs::store::Query;
@@ -134,7 +134,7 @@ impl DocsClient {
     pub async fn import_and_subscribe(
         &self,
         ticket: DocTicket,
-    ) -> Result<(DocHandle, impl Stream<Item = Result<LiveEvent>>)> {
+    ) -> Result<(DocHandle, impl Stream<Item = Result<LiveEvent>> + use<>)> {
         let (doc, stream) = self
             .inner
             .import_and_subscribe(ticket)
@@ -315,7 +315,9 @@ impl DocHandle {
     /// The returned stream yields `NexusError::Docs` on any
     /// underlying iroh error. SBFB coordinators consume this
     /// stream to observe new results arriving from workers.
-    pub async fn subscribe(&self) -> Result<impl Stream<Item = Result<LiveEvent>> + Send + Unpin> {
+    pub async fn subscribe(
+        &self,
+    ) -> Result<impl Stream<Item = Result<LiveEvent>> + Send + Unpin + use<>> {
         let stream = self
             .inner
             .subscribe()
@@ -361,7 +363,7 @@ pub use iroh_docs::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{create_node, Node};
+    use crate::{Node, create_node};
     use std::time::Duration;
     use tokio::time::timeout;
 

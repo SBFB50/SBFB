@@ -392,10 +392,12 @@ fn cve_affects(cve: &NvdCve, local: &[u64]) -> bool {
 }
 
 fn cpe_match_covers(m: &NvdCpeMatch, local: &[u64]) -> bool {
-    if let Some(exact) = criteria_version(&m.criteria) {
-        if !exact.is_empty() && exact != "*" && exact != "-" {
-            return parse_version(&exact) == local;
-        }
+    if let Some(exact) = criteria_version(&m.criteria)
+        && !exact.is_empty()
+        && exact != "*"
+        && exact != "-"
+    {
+        return parse_version(&exact) == local;
     }
     let mut matched_any_bound = false;
     let mut ok = true;

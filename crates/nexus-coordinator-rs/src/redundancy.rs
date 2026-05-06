@@ -74,7 +74,7 @@ impl RedundancyDispatcher {
                     canonical_hash: None,
                     all_hashes: HashMap::new(),
                     outlier_worker_ids: Vec::new(),
-                }
+                };
             }
         };
 
@@ -93,7 +93,7 @@ impl RedundancyDispatcher {
 
         let (best_hash, best_count) = hash_counts
             .iter()
-            .max_by_key(|(_, &count)| count)
+            .max_by_key(|&(_, &count)| count)
             .map(|(&h, &c)| (h, c))
             .unwrap();
 

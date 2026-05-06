@@ -18,8 +18,8 @@
 //! middleware now sees).
 
 use nexus_shell_daemon_core::auth::{
-    validate_token_with_rotator, AuthState, TokenRotator, TokenRotatorWatcher, TokensFile,
-    TOKEN_OVERLAP_DURATION,
+    AuthState, TOKEN_OVERLAP_DURATION, TokenRotator, TokenRotatorWatcher, TokensFile,
+    validate_token_with_rotator,
 };
 use std::sync::{Arc, RwLock};
 use std::time::Duration;

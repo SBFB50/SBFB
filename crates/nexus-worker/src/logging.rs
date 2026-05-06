@@ -29,11 +29,11 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
+    Layer,
     filter::EnvFilter,
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
     util::SubscriberInitExt,
-    Layer,
 };
 
 /// Handle that keeps the background file-writer thread alive.

@@ -15,7 +15,7 @@
 
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use nexus_core_rs::keystore::{KdfParams, KeyStore, LocalFileKeyStore};
 use tempfile::TempDir;
 

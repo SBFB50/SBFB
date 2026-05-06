@@ -30,19 +30,19 @@ use anyhow::{Context, Result};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use nexus_worker_core::allowlist::{Allowlist, Project};
 use nexus_worker_core::config::WorkerConfig;
 use nexus_worker_core::engine::{Engine, WorkerState};
 use nexus_worker_core::gpu::GpuInfo;
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Frame, Terminal,
 };
 use tokio::sync::watch;
 

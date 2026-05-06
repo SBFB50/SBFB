@@ -252,7 +252,8 @@ mod tests {
                 .collect::<Vec<_>>();
             // Start from a clean slate for the test body.
             for (k, _) in &pairs {
-                env::remove_var(k);
+                // SAFETY: test-only; nextest runs each test in its own process.
+                unsafe { env::remove_var(k) };
             }
             EnvSnapshot { pairs }
         }
@@ -262,8 +263,10 @@ mod tests {
         fn drop(&mut self) {
             for (k, v) in &self.pairs {
                 match v {
-                    Some(val) => env::set_var(k, val),
-                    None => env::remove_var(k),
+                    // SAFETY: test-only; nextest runs each test in its own process.
+                    Some(val) => unsafe { env::set_var(k, val) },
+                    // SAFETY: test-only; nextest runs each test in its own process.
+                    None => unsafe { env::remove_var(k) },
                 }
             }
         }
@@ -274,7 +277,8 @@ mod tests {
         let _g = ENV_GUARD.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let _snap = EnvSnapshot::capture(&[CUSTOM_RELAYS_ENV, SBFB_HOME_ENV, DEV_MODE_ENV]);
-        env::set_var(SBFB_HOME_ENV, tmp.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(SBFB_HOME_ENV, tmp.path()) };
 
         let got = load_relay_map().expect("no env + no file must succeed");
         assert!(
@@ -287,10 +291,13 @@ mod tests {
     fn load_relay_map_parses_env_comma_separated() {
         let _g = ENV_GUARD.lock().unwrap();
         let _snap = EnvSnapshot::capture(&[CUSTOM_RELAYS_ENV, SBFB_HOME_ENV, DEV_MODE_ENV]);
-        env::set_var(
-            CUSTOM_RELAYS_ENV,
-            "https://relay1.example.org,https://relay2.example.org",
-        );
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe {
+            env::set_var(
+                CUSTOM_RELAYS_ENV,
+                "https://relay1.example.org,https://relay2.example.org",
+            )
+        };
 
         let map = load_relay_map()
             .expect("env parse must succeed")
@@ -310,7 +317,8 @@ mod tests {
         .unwrap();
 
         let _snap = EnvSnapshot::capture(&[CUSTOM_RELAYS_ENV, SBFB_HOME_ENV, DEV_MODE_ENV]);
-        env::set_var(SBFB_HOME_ENV, tmp.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(SBFB_HOME_ENV, tmp.path()) };
 
         let map = load_relay_map()
             .expect("file parse must succeed")
@@ -329,12 +337,16 @@ mod tests {
         .unwrap();
 
         let _snap = EnvSnapshot::capture(&[CUSTOM_RELAYS_ENV, SBFB_HOME_ENV, DEV_MODE_ENV]);
-        env::set_var(SBFB_HOME_ENV, tmp.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(SBFB_HOME_ENV, tmp.path()) };
         // Env carries TWO URLs, file carries ONE — env wins.
-        env::set_var(
-            CUSTOM_RELAYS_ENV,
-            "https://env1.example.org,https://env2.example.org",
-        );
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe {
+            env::set_var(
+                CUSTOM_RELAYS_ENV,
+                "https://env1.example.org,https://env2.example.org",
+            )
+        };
 
         let map = load_relay_map().unwrap().unwrap();
         assert_eq!(
@@ -359,7 +371,8 @@ mod tests {
     fn validate_relay_url_rejects_localhost_non_dev() {
         let _g = ENV_GUARD.lock().unwrap();
         let _snap = EnvSnapshot::capture(&[DEV_MODE_ENV]);
-        env::remove_var(DEV_MODE_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::remove_var(DEV_MODE_ENV) };
         let err = validate_relay_url("https://localhost:4433").unwrap_err();
         assert!(
             err.to_string().contains("loopback"),
@@ -371,7 +384,8 @@ mod tests {
     fn validate_relay_url_accepts_localhost_when_dev() {
         let _g = ENV_GUARD.lock().unwrap();
         let _snap = EnvSnapshot::capture(&[DEV_MODE_ENV]);
-        env::set_var(DEV_MODE_ENV, "1");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(DEV_MODE_ENV, "1") };
         validate_relay_url("https://localhost:4433")
             .expect("dev mode should allow loopback relays");
     }

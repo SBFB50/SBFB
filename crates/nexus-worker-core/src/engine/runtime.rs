@@ -48,10 +48,10 @@ use std::time::{Duration, Instant, SystemTime};
 
 use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsClient, DocsTicket};
 use nexus_core_rs::task::{
-    Claim, ClaimEntry, ResultEntry, ResultPayload, TaskEntry, TASK_FORMAT_VERSION,
+    Claim, ClaimEntry, ResultEntry, ResultPayload, TASK_FORMAT_VERSION, TaskEntry,
 };
-use nexus_core_rs::{blake3_hash, create_node_with_config, BlobsClient, KeyPair, Node, NodeConfig};
-use tokio::sync::{oneshot, watch, Mutex};
+use nexus_core_rs::{BlobsClient, KeyPair, Node, NodeConfig, blake3_hash, create_node_with_config};
+use tokio::sync::{Mutex, oneshot, watch};
 use tracing::{debug, error, info, warn};
 
 use crate::allowlist::Allowlist;
@@ -60,7 +60,7 @@ use crate::consent::{self, AllowOutcome, ConsentWatcher, RejectReason, TaskConte
 use crate::engine::state::{StateMachine, WorkerEvent, WorkerState};
 use crate::engine::state_writer::{self, LastTask, SnapshotInputs};
 use crate::ephemeral::{EphemeralLifecycle, LifecycleState};
-use crate::gpu::{create_monitor, GpuInfo, GpuMonitor};
+use crate::gpu::{GpuInfo, GpuMonitor, create_monitor};
 use crate::llm::factory::build_backend;
 use crate::llm::{GenerateParams, HealthCheck, LlmBackend};
 use crate::paths::worker_state_file;
@@ -489,7 +489,9 @@ impl Engine {
                 (rl_arc, watcher)
             }
             None => {
-                warn!("cannot resolve ~/.sbfb/ root; rate-limit runs on default policy, no hot-reload");
+                warn!(
+                    "cannot resolve ~/.sbfb/ root; rate-limit runs on default policy, no hot-reload"
+                );
                 (
                     Arc::new(
                         RateLimiter::from_policy_value(
@@ -1237,8 +1239,8 @@ fn now_unix_secs() -> u64 {
 /// on a clock failure — the shell tolerates "1970" better than a
 /// missing field.
 fn rfc3339_now() -> String {
-    use time::format_description::well_known::Rfc3339;
     use time::OffsetDateTime;
+    use time::format_description::well_known::Rfc3339;
 
     let secs = now_unix_secs() as i64;
     OffsetDateTime::from_unix_timestamp(secs)

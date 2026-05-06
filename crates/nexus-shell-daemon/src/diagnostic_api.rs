@@ -7,10 +7,10 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use nexus_coordinator_rs::fairness;
 use tracing::debug;
 
@@ -27,7 +27,7 @@ pub async fn fairness_metrics(State(state): State<Arc<DaemonHttpState>>) -> impl
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -38,7 +38,7 @@ pub async fn fairness_metrics(State(state): State<Arc<DaemonHttpState>>) -> impl
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": format!("worker_contributions: {e}")})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -54,7 +54,7 @@ pub async fn fairness_metrics(State(state): State<Arc<DaemonHttpState>>) -> impl
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": format!("active_workers_current: {e}")})),
             )
-                .into_response()
+                .into_response();
         }
     };
     let previous_workers = match db.active_workers_since(now.saturating_sub(2 * DAY_SECS)) {
@@ -64,7 +64,7 @@ pub async fn fairness_metrics(State(state): State<Arc<DaemonHttpState>>) -> impl
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": format!("active_workers_previous: {e}")})),
             )
-                .into_response()
+                .into_response();
         }
     };
 

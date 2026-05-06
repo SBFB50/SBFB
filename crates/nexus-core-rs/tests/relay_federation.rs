@@ -15,8 +15,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nexus_core_rs::{
-    load_relay_map, redundant_resolve, QuorumError, QuorumResolver, CUSTOM_RELAYS_ENV,
-    DEV_MODE_ENV, RELAYS_FILE_NAME, SBFB_HOME_ENV,
+    CUSTOM_RELAYS_ENV, DEV_MODE_ENV, QuorumError, QuorumResolver, RELAYS_FILE_NAME, SBFB_HOME_ENV,
+    load_relay_map, redundant_resolve,
 };
 
 /// Serialise env-mutating tests. Integration tests and unit
@@ -34,7 +34,8 @@ impl EnvSnapshot {
             .map(|k| (*k, std::env::var(k).ok()))
             .collect::<Vec<_>>();
         for (k, _) in &pairs {
-            std::env::remove_var(k);
+            // SAFETY: test-only; nextest runs each test in its own process.
+            unsafe { std::env::remove_var(k) };
         }
         EnvSnapshot { pairs }
     }
@@ -44,8 +45,10 @@ impl Drop for EnvSnapshot {
     fn drop(&mut self) {
         for (k, v) in &self.pairs {
             match v {
-                Some(val) => std::env::set_var(k, val),
-                None => std::env::remove_var(k),
+                // SAFETY: test-only; nextest runs each test in its own process.
+                Some(val) => unsafe { std::env::set_var(k, val) },
+                // SAFETY: test-only; nextest runs each test in its own process.
+                None => unsafe { std::env::remove_var(k) },
             }
         }
     }
@@ -62,11 +65,15 @@ fn relay_config_env_takes_precedence_over_file() {
     .unwrap();
 
     let _snap = EnvSnapshot::capture(&[CUSTOM_RELAYS_ENV, SBFB_HOME_ENV, DEV_MODE_ENV]);
-    std::env::set_var(SBFB_HOME_ENV, tmp.path());
-    std::env::set_var(
-        CUSTOM_RELAYS_ENV,
-        "https://env-a.example.org,https://env-b.example.org,https://env-c.example.org",
-    );
+    // SAFETY: test-only; nextest runs each test in its own process.
+    unsafe { std::env::set_var(SBFB_HOME_ENV, tmp.path()) };
+    // SAFETY: test-only; nextest runs each test in its own process.
+    unsafe {
+        std::env::set_var(
+            CUSTOM_RELAYS_ENV,
+            "https://env-a.example.org,https://env-b.example.org,https://env-c.example.org",
+        )
+    };
 
     let map = load_relay_map()
         .expect("both sources present should still resolve")
@@ -82,7 +89,8 @@ fn relay_config_env_takes_precedence_over_file() {
 fn relay_config_rejects_http_scheme_at_boundary() {
     let _g = ENV_GUARD.lock().unwrap();
     let _snap = EnvSnapshot::capture(&[CUSTOM_RELAYS_ENV, SBFB_HOME_ENV, DEV_MODE_ENV]);
-    std::env::set_var(CUSTOM_RELAYS_ENV, "http://insecure.example.org");
+    // SAFETY: test-only; nextest runs each test in its own process.
+    unsafe { std::env::set_var(CUSTOM_RELAYS_ENV, "http://insecure.example.org") };
 
     let err = load_relay_map().expect_err("http:// must be rejected at load_relay_map boundary");
     assert!(

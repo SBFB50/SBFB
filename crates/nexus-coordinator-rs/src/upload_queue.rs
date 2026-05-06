@@ -104,7 +104,7 @@ impl<'a> UploadQueue<'a> {
     }
 
     pub fn compute_jitter(&self) -> f64 {
-        let u: f64 = rand::thread_rng().gen();
+        let u: f64 = rand::thread_rng().r#gen();
         let u_safe = if u <= 0.0 { 1e-18 } else { u };
         let raw = -self.mean_jitter * u_safe.ln();
         raw.min(self.max_jitter)

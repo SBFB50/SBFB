@@ -41,12 +41,12 @@ use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
 use nexus_core_rs::{
-    redundant_resolve, CuratorListEntry, DiscoveryClient, DnsFallbackResolve, Node, QuorumError,
-    QuorumResolver,
+    CuratorListEntry, DiscoveryClient, DnsFallbackResolve, Node, QuorumError, QuorumResolver,
+    redundant_resolve,
 };
 use serde::{Deserialize, Serialize};
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use tracing::{debug, warn};
 
 use crate::iroh_runtime::CuratorRuntime;
@@ -646,7 +646,7 @@ fn iso_utc(t: SystemTime) -> String {
 mod tests {
     use super::*;
     use nexus_core_rs::{
-        create_node, CuratorList, CuratorListEntry, CuratorProjectRef, KeyPair, Node,
+        CuratorList, CuratorListEntry, CuratorProjectRef, KeyPair, Node, create_node,
     };
 
     async fn spawn_node() -> Node {
@@ -1478,10 +1478,12 @@ mod tests {
     fn probe_timeout_env_override_parses_valid_ms() {
         // Sprint 9 Phase E (E-1 close): verify that the env var
         // override actually influences the timeout duration.
-        std::env::set_var("NEXUS_PROBE_TIMEOUT_MS", "5000");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var("NEXUS_PROBE_TIMEOUT_MS", "5000") };
         let d = probe_timeout_from_env();
         assert_eq!(d, Duration::from_millis(5000));
-        std::env::remove_var("NEXUS_PROBE_TIMEOUT_MS");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var("NEXUS_PROBE_TIMEOUT_MS") };
 
         // Absent env var falls back to default.
         let d2 = probe_timeout_from_env();

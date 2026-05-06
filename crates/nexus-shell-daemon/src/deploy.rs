@@ -17,8 +17,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use nexus_coordinator_rs::forge::normalize_clone_url;
 use nexus_coordinator_rs::provenance;
-use nexus_core_rs::crypto::blake3_hash;
 use nexus_core_rs::BlobsClient;
+use nexus_core_rs::crypto::blake3_hash;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -92,7 +92,7 @@ pub async fn deploy_from_repo(
     let tmpdir = match tempfile::tempdir() {
         Ok(d) => d,
         Err(e) => {
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("tmpdir: {e}"))
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("tmpdir: {e}"));
         }
     };
     let clone_dir = tmpdir.path().join("repo");
@@ -148,7 +148,7 @@ pub async fn deploy_from_repo(
             return error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 &format!("zip creation: {e}"),
-            )
+            );
         }
     };
     debug!(size = zip_bytes.len(), "deploy-from-repo: zipped");
@@ -202,7 +202,7 @@ pub async fn deploy_from_repo(
             return error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 &format!("provenance inject: {e}"),
-            )
+            );
         }
     };
     debug!(size = zip_bytes.len(), "deploy-from-repo: provenance added");
@@ -214,7 +214,7 @@ pub async fn deploy_from_repo(
             return error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 &format!("blob store: {e}"),
-            )
+            );
         }
     };
     debug!(hash = %hash_hex, "deploy-from-repo: blob stored");
@@ -272,7 +272,7 @@ pub async fn deploy_private(State(state): State<Arc<DaemonHttpState>>, body: Byt
             return error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 &format!("blob store: {e}"),
-            )
+            );
         }
     };
     debug!(hash = %hash_hex, "deploy: blob stored");

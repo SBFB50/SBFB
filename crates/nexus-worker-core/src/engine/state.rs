@@ -294,7 +294,7 @@ impl StateMachine {
             (_, E::Fail { reason }) => {
                 return Ok(S::Error {
                     reason: reason.clone(),
-                })
+                });
             }
             _ => {}
         }
@@ -418,18 +418,22 @@ mod tests {
     fn can_claim_tasks_only_in_processing() {
         assert!(!WorkerState::Idle.can_claim_tasks());
         assert!(!WorkerState::Connecting.can_claim_tasks());
-        assert!(!WorkerState::PullingModel {
-            model: "m".into(),
-            progress: 50,
-        }
-        .can_claim_tasks());
+        assert!(
+            !WorkerState::PullingModel {
+                model: "m".into(),
+                progress: 50,
+            }
+            .can_claim_tasks()
+        );
         assert!(WorkerState::Processing { active_tasks: 0 }.can_claim_tasks());
         assert!(WorkerState::Processing { active_tasks: 3 }.can_claim_tasks());
         assert!(!WorkerState::Paused.can_claim_tasks());
-        assert!(!WorkerState::Error {
-            reason: "nope".into()
-        }
-        .can_claim_tasks());
+        assert!(
+            !WorkerState::Error {
+                reason: "nope".into()
+            }
+            .can_claim_tasks()
+        );
         assert!(!WorkerState::Shutdown.can_claim_tasks());
     }
 

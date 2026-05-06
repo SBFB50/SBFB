@@ -40,11 +40,11 @@
 
 use std::collections::BTreeMap;
 
-use base64::engine::general_purpose::STANDARD as B64_STANDARD;
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as B64_STANDARD;
 use serde::{Deserialize, Serialize};
 
-use crate::canonical::{canonical_bytes, DOMAIN_CONTRIBUTOR_ATTESTATION_V1};
+use crate::canonical::{DOMAIN_CONTRIBUTOR_ATTESTATION_V1, canonical_bytes};
 use crate::crypto::{KeyPair, PUBLIC_KEY_LENGTH};
 use crate::error::{NexusError, Result};
 

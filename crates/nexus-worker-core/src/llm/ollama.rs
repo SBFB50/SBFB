@@ -23,17 +23,17 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use ollama_rs::Ollama;
 use ollama_rs::generation::completion::request::GenerationRequest;
 use ollama_rs::generation::parameters::FormatType;
-use ollama_rs::Ollama;
 use url::Url;
 
 use crate::config::OllamaConfig;
 
 use super::schema_bridge::{ollama_json_structure, schema_is_task_response};
 use super::{
-    retry_with_backoff, GenerateParams, GenerateResponse, HealthCheck, LlmBackend, LlmBackendError,
-    LlmBackendResult,
+    GenerateParams, GenerateResponse, HealthCheck, LlmBackend, LlmBackendError, LlmBackendResult,
+    retry_with_backoff,
 };
 
 const INSTALL_HINT: &str = "install Ollama from https://ollama.com/download and run `ollama serve`";

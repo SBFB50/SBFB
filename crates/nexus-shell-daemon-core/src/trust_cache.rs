@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use rusqlite::Connection;
-use rusqlite_migration::{Migrations, M};
+use rusqlite_migration::{M, Migrations};
 
 use nexus_core_rs::attestations::forge_parser::{ForgeContribution, SigType};
 use nexus_core_rs::error::{NexusError, Result};

@@ -7,10 +7,10 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -53,7 +53,7 @@ pub async fn list_entries(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
     match db.list_kudos_entries(query.worker_node_id.as_deref()) {
@@ -107,7 +107,7 @@ pub async fn leaderboard(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
     match db.get_project_contributors(&project_id) {

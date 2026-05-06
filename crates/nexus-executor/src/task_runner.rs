@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use ollama_rs::Ollama;
 use ollama_rs::generation::completion::request::GenerationRequest;
 use ollama_rs::generation::options::GenerationOptions;
-use ollama_rs::Ollama;
 
 use crate::ipc::{TaskExecuteParams, TaskExecuteResult};
 

@@ -15,8 +15,8 @@ use url::Url;
 use nexus_trace_core::batch_log::BatchLogProcessor;
 
 use crate::ipc::{
-    read_message, write_message, HealthReportParams, JsonRpcNotification, JsonRpcRequest,
-    JsonRpcResponse, ShutdownParams, TaskExecuteParams,
+    HealthReportParams, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, ShutdownParams,
+    TaskExecuteParams, read_message, write_message,
 };
 
 #[derive(Parser)]
@@ -216,8 +216,8 @@ async fn connect_ipc(
 async fn connect_ipc(
     path: &str,
 ) -> std::io::Result<(
-    impl tokio::io::AsyncRead + Unpin,
-    impl tokio::io::AsyncWrite + Unpin,
+    impl tokio::io::AsyncRead + Unpin + use<>,
+    impl tokio::io::AsyncWrite + Unpin + use<>,
 )> {
     use tokio::net::windows::named_pipe::ClientOptions;
 

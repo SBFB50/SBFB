@@ -34,10 +34,10 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use hickory_resolver::TokioAsyncResolver;
 use hickory_resolver::config::{
     NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts,
 };
-use hickory_resolver::TokioAsyncResolver;
 use tracing::debug;
 
 use crate::error::{NexusError, Result};
@@ -446,8 +446,10 @@ mod tests {
     #[test]
     fn load_env_returns_none_when_unset() {
         let _g = ENV_GUARD.lock().unwrap();
-        std::env::remove_var(DNS_FALLBACK_ENABLED_ENV);
-        std::env::remove_var(DNS_FALLBACK_DOMAIN_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(DNS_FALLBACK_ENABLED_ENV) };
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(DNS_FALLBACK_DOMAIN_ENV) };
         let got = load_dns_fallback_from_env().expect("unset must not error");
         assert!(got.is_none());
     }
@@ -455,36 +457,45 @@ mod tests {
     #[test]
     fn load_env_returns_none_when_disabled() {
         let _g = ENV_GUARD.lock().unwrap();
-        std::env::set_var(DNS_FALLBACK_ENABLED_ENV, "false");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(DNS_FALLBACK_ENABLED_ENV, "false") };
         let got = load_dns_fallback_from_env().expect("disabled must not error");
         assert!(got.is_none());
-        std::env::remove_var(DNS_FALLBACK_ENABLED_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(DNS_FALLBACK_ENABLED_ENV) };
     }
 
     #[test]
     fn load_env_returns_config_when_enabled() {
         let _g = ENV_GUARD.lock().unwrap();
-        std::env::set_var(DNS_FALLBACK_ENABLED_ENV, "true");
-        std::env::remove_var(DNS_FALLBACK_DOMAIN_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(DNS_FALLBACK_ENABLED_ENV, "true") };
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(DNS_FALLBACK_DOMAIN_ENV) };
         let cfg = load_dns_fallback_from_env()
             .expect("enabled must not error")
             .expect("enabled must produce Some");
         assert!(cfg.enabled);
         assert_eq!(cfg.domain_suffix, DEFAULT_DOMAIN_SUFFIX);
-        std::env::remove_var(DNS_FALLBACK_ENABLED_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(DNS_FALLBACK_ENABLED_ENV) };
     }
 
     #[test]
     fn load_env_respects_custom_domain() {
         let _g = ENV_GUARD.lock().unwrap();
-        std::env::set_var(DNS_FALLBACK_ENABLED_ENV, "1");
-        std::env::set_var(DNS_FALLBACK_DOMAIN_ENV, "custom.example.com");
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(DNS_FALLBACK_ENABLED_ENV, "1") };
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::set_var(DNS_FALLBACK_DOMAIN_ENV, "custom.example.com") };
         let cfg = load_dns_fallback_from_env()
             .expect("must not error")
             .expect("must produce Some");
         assert_eq!(cfg.domain_suffix, "custom.example.com");
-        std::env::remove_var(DNS_FALLBACK_ENABLED_ENV);
-        std::env::remove_var(DNS_FALLBACK_DOMAIN_ENV);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(DNS_FALLBACK_ENABLED_ENV) };
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { std::env::remove_var(DNS_FALLBACK_DOMAIN_ENV) };
     }
 
     // ---------------------------------------------------------

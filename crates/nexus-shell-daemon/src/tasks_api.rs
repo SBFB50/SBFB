@@ -7,10 +7,10 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -69,7 +69,7 @@ pub async fn list_tasks(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
     let limit = query.limit.min(500);
@@ -116,7 +116,7 @@ pub async fn get_task(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "db lock poisoned"})),
             )
-                .into_response()
+                .into_response();
         }
     };
     match db.get_task(&task_id) {

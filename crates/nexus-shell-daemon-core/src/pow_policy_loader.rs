@@ -46,7 +46,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use nexus_core_rs::{
-    load_relay_pow_policy_from, RelayPowPolicy, DEFAULT_POW_POLICY as DEFAULT_POLICY,
+    DEFAULT_POW_POLICY as DEFAULT_POLICY, RelayPowPolicy, load_relay_pow_policy_from,
 };
 use tracing::{debug, warn};
 
@@ -151,18 +151,18 @@ impl PowPolicyWatcher {
                             std::thread::sleep(Duration::from_millis(50));
                             match load_relay_pow_policy_from(&path_thread) {
                                 Ok(fresh) => {
-                                    if let Ok(mut guard) = inner_thread.write() {
+                                    match inner_thread.write() { Ok(mut guard) => {
                                         *guard = fresh;
                                         debug!(
                                             path = %path_thread.display(),
                                             "relay_pow_policy.toml reloaded"
                                         );
-                                    } else {
+                                    } _ => {
                                         warn!(
                                             path = %path_thread.display(),
                                             "policy reload skipped — RwLock poisoned"
                                         );
-                                    }
+                                    }}
                                 }
                                 Err(e) => {
                                     warn!(

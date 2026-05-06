@@ -255,7 +255,8 @@ mod tests {
                 .map(|k| (*k, env::var(k).ok()))
                 .collect::<Vec<_>>();
             for (k, _) in &pairs {
-                env::remove_var(k);
+                // SAFETY: test-only; nextest runs each test in its own process.
+                unsafe { env::remove_var(k) };
             }
             EnvSnapshot { pairs }
         }
@@ -265,8 +266,10 @@ mod tests {
         fn drop(&mut self) {
             for (k, v) in &self.pairs {
                 match v {
-                    Some(val) => env::set_var(k, val),
-                    None => env::remove_var(k),
+                    // SAFETY: test-only; nextest runs each test in its own process.
+                    Some(val) => unsafe { env::set_var(k, val) },
+                    // SAFETY: test-only; nextest runs each test in its own process.
+                    None => unsafe { env::remove_var(k) },
                 }
             }
         }
@@ -285,7 +288,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let _snap =
             EnvSnapshot::capture(&[CUSTOM_POW_POLICY_ENV, crate::relay_config::SBFB_HOME_ENV]);
-        env::set_var(crate::relay_config::SBFB_HOME_ENV, tmp.path());
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(crate::relay_config::SBFB_HOME_ENV, tmp.path()) };
 
         let policy = load_relay_pow_policy().expect("no file → default");
         assert_eq!(policy, DEFAULT_POLICY);
@@ -312,7 +316,8 @@ default_difficulty = 14
 
         let _snap =
             EnvSnapshot::capture(&[CUSTOM_POW_POLICY_ENV, crate::relay_config::SBFB_HOME_ENV]);
-        env::set_var(CUSTOM_POW_POLICY_ENV, &path);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(CUSTOM_POW_POLICY_ENV, &path) };
 
         let policy = load_relay_pow_policy().expect("parse ok");
         assert_eq!(policy.default_difficulty, 14);
@@ -332,7 +337,8 @@ default_difficulty = 14
 
         let _snap =
             EnvSnapshot::capture(&[CUSTOM_POW_POLICY_ENV, crate::relay_config::SBFB_HOME_ENV]);
-        env::set_var(CUSTOM_POW_POLICY_ENV, &path);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(CUSTOM_POW_POLICY_ENV, &path) };
 
         let err = load_relay_pow_policy().expect_err("invalid TOML must surface");
         let msg = err.to_string();
@@ -348,7 +354,8 @@ default_difficulty = 14
 
         let _snap =
             EnvSnapshot::capture(&[CUSTOM_POW_POLICY_ENV, crate::relay_config::SBFB_HOME_ENV]);
-        env::set_var(CUSTOM_POW_POLICY_ENV, &path);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(CUSTOM_POW_POLICY_ENV, &path) };
 
         let err = load_relay_pow_policy().expect_err("over-max must surface");
         assert!(err.to_string().contains("exceeds MAX_DIFFICULTY_BITS"));

@@ -18,8 +18,8 @@ members = [
 # Shared package metadata. Individual crates override name/description.
 [workspace.package]
 version = "1.0.0"
-edition = "2021"
-rust-version = "1.78"
+edition = "2024"
+rust-version = "1.85"
 license = "AGPL-3.0-or-later"
 authors = ["FlowUP"]
 repository = "https://github.com/SBFB50/SBFB"

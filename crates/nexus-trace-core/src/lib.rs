@@ -88,8 +88,8 @@ pub fn shutdown_processors() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     struct CountingProcessor(Arc<AtomicU32>);
 

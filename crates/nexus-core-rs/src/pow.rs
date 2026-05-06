@@ -73,7 +73,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::canonical::{canonical_bytes, DOMAIN_POW_V1};
+use crate::canonical::{DOMAIN_POW_V1, canonical_bytes};
 use crate::crypto::PUBLIC_KEY_LENGTH;
 use crate::error::NexusError;
 

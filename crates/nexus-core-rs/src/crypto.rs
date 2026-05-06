@@ -31,11 +31,11 @@ use std::path::Path;
 
 use blake3::Hasher as Blake3Hasher;
 use ed25519_dalek::{
-    Signature as DalekSignature, Signer, SigningKey, Verifier, VerifyingKey, SECRET_KEY_LENGTH,
-    SIGNATURE_LENGTH,
+    SECRET_KEY_LENGTH, SIGNATURE_LENGTH, Signature as DalekSignature, Signer, SigningKey, Verifier,
+    VerifyingKey,
 };
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 
 use crate::error::{NexusError, Result};
 

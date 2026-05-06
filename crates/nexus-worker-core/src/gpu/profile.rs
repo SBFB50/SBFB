@@ -36,9 +36,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::Nvml;
-use rusqlite::{params, Connection, OptionalExtension};
+use nvml_wrapper::error::NvmlError;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::task::JoinHandle;
@@ -631,7 +631,10 @@ mod tests {
                 // have been applied so a window query does not
                 // panic.
                 let stats = profile.stats_for_window(Duration::from_secs(60));
-                assert!(stats.is_ok(), "stats_for_window must not error on a fresh db");
+                assert!(
+                    stats.is_ok(),
+                    "stats_for_window must not error on a fresh db"
+                );
             }
             Err(NvmlProfileError::Nvml(_)) => {
                 // CI runner without NVIDIA driver — exactly the

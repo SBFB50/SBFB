@@ -8,11 +8,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::http::DaemonHttpState;

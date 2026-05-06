@@ -6,9 +6,9 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::http::DaemonHttpState;

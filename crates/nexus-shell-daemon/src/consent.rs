@@ -4,9 +4,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::http::DaemonHttpState;
@@ -84,8 +84,12 @@ impl Default for ConsentConfig {
 fn threat_note_for_level(level: u8) -> &'static str {
     match level {
         1 => "Aucune exposition tierce. Seules vos propres apps s\u{2019}ex\u{e9}cutent.",
-        2 => "Apps open source v\u{e9}rifi\u{e9}es (SLSA L1). Exposition Sybil si contributeur malveillant.",
-        3 => "Apps s\u{e9}lectionn\u{e9}es manuellement. Vous \u{ea}tes responsable de la v\u{e9}rification.",
+        2 => {
+            "Apps open source v\u{e9}rifi\u{e9}es (SLSA L1). Exposition Sybil si contributeur malveillant."
+        }
+        3 => {
+            "Apps s\u{e9}lectionn\u{e9}es manuellement. Vous \u{ea}tes responsable de la v\u{e9}rification."
+        }
         4 => "Toute app publique du r\u{e9}seau. Risque maximum de consommation abusive.",
         _ => "",
     }
@@ -255,9 +259,10 @@ mod tests {
             ..Default::default()
         });
         assert!(!cfg.level_threat_note.is_empty());
-        assert!(cfg
-            .residual_threats_acknowledged
-            .contains(&"R3-rate-limit-absent".to_string()));
+        assert!(
+            cfg.residual_threats_acknowledged
+                .contains(&"R3-rate-limit-absent".to_string())
+        );
     }
 
     #[test]

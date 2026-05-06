@@ -231,18 +231,18 @@ impl RateLimitPolicyWatcher {
                             std::thread::sleep(Duration::from_millis(50));
                             match load_rate_limit_policy_from(&path_thread) {
                                 Ok(fresh) => {
-                                    if let Ok(mut guard) = inner_thread.write() {
+                                    match inner_thread.write() { Ok(mut guard) => {
                                         *guard = fresh.clone();
                                         debug!(
                                             path = %path_thread.display(),
                                             "rate_limit_policy.toml reloaded"
                                         );
-                                    } else {
+                                    } _ => {
                                         warn!(
                                             path = %path_thread.display(),
                                             "policy reload skipped — RwLock poisoned"
                                         );
-                                    }
+                                    }}
                                     // Notify downstream consumers
                                     // AFTER updating the shared
                                     // handle so a poll + callback

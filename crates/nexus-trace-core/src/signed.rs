@@ -15,7 +15,7 @@ use std::sync::Mutex;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
-use crate::{TraceEvent, TraceProcessor, DOMAIN_TRACE_EVENT_V1};
+use crate::{DOMAIN_TRACE_EVENT_V1, TraceEvent, TraceProcessor};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTraceEvent {
