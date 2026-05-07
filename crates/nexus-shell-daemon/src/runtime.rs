@@ -737,16 +737,6 @@ impl DaemonRuntime {
         &self.curator_runtime
     }
 
-    /// Block on ctrl+c, returning when the user (or the test
-    /// harness) signals shutdown.
-    pub async fn wait_shutdown(&self) -> Result<()> {
-        tokio::signal::ctrl_c()
-            .await
-            .context("failed to install ctrl+c handler")?;
-        info!("ctrl+c received, initiating shell daemon shutdown");
-        Ok(())
-    }
-
     /// Gracefully tear down the runtime.
     ///
     /// Order:
