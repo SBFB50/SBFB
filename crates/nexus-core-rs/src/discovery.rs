@@ -129,12 +129,10 @@ impl<'a> DiscoveryClient<'a> {
 
         for t in &ep_addr.addrs {
             match t {
-                TransportAddr::Relay(url) => {
-                    // Prefer the first relay URL we see. In
-                    // presets::N0 there is normally exactly one.
-                    if relay_url.is_none() {
-                        relay_url = Some(url.to_string());
-                    }
+                // Prefer the first relay URL we see. In
+                // presets::N0 there is normally exactly one.
+                TransportAddr::Relay(url) if relay_url.is_none() => {
+                    relay_url = Some(url.to_string());
                 }
                 TransportAddr::Ip(sa) => {
                     direct_addresses.insert(sa.to_string());
