@@ -1859,6 +1859,21 @@ Ne pas filtrer par "langage touché" — lancer les 3 blocs.
 Tout rouge bloque le commit. Pas de `--no-verify`, pas de
 `#[ignore]` ajouté pour faire passer. Root cause d'abord.
 
+**Pre-push obligatoire : test WSL Linux.** Les tests Windows ne
+couvrent pas les chemins `cfg(target_os = "linux")` (journald
+socket, `/proc/comm` truncation 15 chars, SIGINT handler via
+`libc`). Des bugs Linux-only passent inaperçus et cassent sur le
+VPS. **AVANT tout push**, lancer les tests Rust sur WSL :
+
+```powershell
+wsl -d Ubuntu -- bash -c "source ~/.cargo/env && cd /mnt/c/Users/FlowUP/Documents/Code/nexus && cargo nextest run --workspace --locked"
+```
+
+Cycle obligatoire = fix local (Windows) → test WSL Linux → test
+Windows → tout vert → commit + push. Ne JAMAIS pusher avec
+seulement les tests Windows verts. Lancer la commande WSL en
+`run_in_background` pour ne pas bloquer la conversation.
+
 ### 7.5 Mise à jour memory en fin de session
 
 Quand un sprint avance d'au moins une phase ou clôt, mettre à

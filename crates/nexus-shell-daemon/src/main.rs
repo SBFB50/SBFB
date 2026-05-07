@@ -180,6 +180,17 @@ async fn handle_start(
         web_root,
     };
 
+    // Register the SIGINT handler BEFORE start() writes running.json,
+    // so external observers (test harness, systemd) can send SIGINT as
+    // soon as running.json appears without hitting a race window.
+    // tokio::signal::unix::signal() installs the handler at creation
+    // time (not at first poll like ctrl_c()).
+    #[cfg(unix)]
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .context("failed to register SIGINT handler")?;
+    #[cfg(not(unix))]
+    let ctrl_c = tokio::signal::ctrl_c();
+
     let runtime = DaemonRuntime::start(opts)
         .await
         .context("daemon start failed")?;
@@ -189,10 +200,10 @@ async fn handle_start(
     println!("  (press ctrl+c to shut down)");
     println!();
 
-    runtime
-        .wait_shutdown()
-        .await
-        .context("ctrl+c handler failed")?;
+    #[cfg(unix)]
+    sigint.recv().await;
+    #[cfg(not(unix))]
+    ctrl_c.await.context("ctrl+c handler failed")?;
 
     println!();
     println!("nexus-shell-daemon shutting down...");
