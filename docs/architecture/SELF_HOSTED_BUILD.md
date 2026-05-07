@@ -13,7 +13,7 @@ pouvoir se builder via ses propres workers avant le tag v1.0.
 
 | Etage | Quoi | Sprint | Dependance GHA |
 |---|---|---|---|
-| **1. CI Woodpecker** | `.woodpecker/ci-linux.yml` + agent self-hosted VPS bootstrap. CI quotidienne Linux hors GHA. | S52 (config) + S54 (images pin + VPS prep) | GHA reste pour release multi-OS |
+| **1. CI Woodpecker** | `.woodpecker/ci-linux.yml` + agent self-hosted VPS. CI Linux hors GHA. | S52 (config) + S54 (images pin + VPS prep) + **S55 (server deploy)** | GHA reste pour release multi-OS |
 | **2. Build worker SBFB** | `task_type: "build"` protocol + sandbox hermetique + quorum SHA256. Le VPS bootstrap devient le premier build worker. | S54-S55 | GHA fallback seulement |
 | **3. Reseau autonome** | N builders independants, attestation signee, distribution binaires via iroh-blobs. | Pre-v1.0 | GHA optionnel (second opinion) |
 
@@ -245,7 +245,69 @@ Hors scope MVP :
 - Auto-update (le reseau build + deploy automatiquement)
 - Test suite execution distribuee (futur LT-8)
 
-## 9. Blockers connus
+## 9. VPS status — sbfb-eu (135.181.42.188)
+
+**Sprint 55 Phase A** : Woodpecker CI operationnel.
+
+| Composant | Status | Details |
+|---|---|---|
+| Docker | 29.4.3 | Installe S54 Phase D |
+| CI images | 3 pullees SHA256 | rust:1.94, node:20, bash:5 |
+| Deploy key GitHub | Active | Acces repo read-only |
+| woodpecker-cli | 3.14.0 | Installe S54 Phase D |
+| Woodpecker server | Docker Compose | `configs/woodpecker/docker-compose.yml` |
+| Woodpecker agent | Docker Compose | Side-by-side avec server |
+| Caddy reverse proxy | Auto-TLS Let's Encrypt | `configs/woodpecker/Caddyfile` |
+| systemd service | `woodpecker.service` | `configs/systemd/woodpecker.service` |
+| Pipeline | `.woodpecker/ci-linux.yml` | 12 steps, images SHA256 |
+
+### 9.1 Deploy checklist
+
+```bash
+# 1. Copier les configs sur le VPS
+scp -r configs/woodpecker/ user@135.181.42.188:/opt/woodpecker/
+
+# 2. SSH sur le VPS
+ssh user@135.181.42.188
+
+# 3. Creer .env depuis le template
+cd /opt/woodpecker
+cp .env.example .env
+# Editer .env avec les vrais secrets
+
+# 4. Installer Caddy (si pas deja fait)
+sudo apt install -y caddy
+sudo cp Caddyfile /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+
+# 5. Demarrer Woodpecker
+docker compose up -d
+
+# 6. Installer le service systemd
+sudo cp /path/to/woodpecker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable woodpecker
+
+# 7. Verifier
+curl -s https://<domain>/healthz  # → 200
+docker compose logs -f             # → healthy
+```
+
+### 9.2 GitHub OAuth App setup
+
+1. Aller sur https://github.com/settings/applications/new
+2. Application name: `SBFB Woodpecker CI`
+3. Homepage URL: `https://<domain>`
+4. Authorization callback URL: `https://<domain>/authorize`
+5. Copier Client ID et Client Secret dans `.env`
+
+### 9.3 Webhook setup
+
+Woodpecker cree automatiquement les webhooks GitHub lors de
+l'activation d'un repo dans l'UI. Prerequis : le GitHub OAuth
+App doit avoir les permissions `repo` + `admin:repo_hook`.
+
+## 10. Blockers connus
 
 | Blocker | Severite | Mitigation |
 |---|---|---|

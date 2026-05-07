@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Woodpecker CI — server + agent side-by-side.
+# Sprint 55 Phase A — first self-hosted CI deployment on VPS sbfb-eu.
+#
+# Usage:
+#   cp .env.example .env
+#   # Edit .env with real secrets (GitHub OAuth, agent secret)
+#   docker compose up -d
+#
+# Docs: https://woodpecker-ci.org/docs/administration/deployment/docker-compose
+
+services:
+  woodpecker-server:
+    image: woodpeckerci/woodpecker-server:v3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - woodpecker-data:/var/lib/woodpecker
+    environment:
+      - WOODPECKER_HOST=${WOODPECKER_HOST}
+      - WOODPECKER_OPEN=false
+      - WOODPECKER_ADMIN=${WOODPECKER_ADMIN}
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      # GitHub OAuth
+      - WOODPECKER_GITHUB=true
+      - WOODPECKER_GITHUB_CLIENT=${WOODPECKER_GITHUB_CLIENT}
+      - WOODPECKER_GITHUB_SECRET=${WOODPECKER_GITHUB_SECRET}
+      # Database — SQLite (sufficient for single agent)
+      - WOODPECKER_DATABASE_DRIVER=sqlite3
+      # gRPC for agent communication
+      - WOODPECKER_GRPC_ADDR=:9000
+    healthcheck:
+      test: ["CMD", "/bin/woodpecker-server", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:v3
+    restart: unless-stopped
+    depends_on:
+      woodpecker-server:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_MAX_WORKFLOWS=2
+      - WOODPECKER_GRPC_SECURE=false
+
+volumes:
+  woodpecker-data:
