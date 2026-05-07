@@ -385,6 +385,11 @@ pub fn process_name_matches(observed: &str, expected: &str) -> bool {
                 return true;
             }
         }
+        // Linux /proc/[pid]/comm truncates to 15 chars. Accept if the
+        // observed name is a prefix of a root and at least 15 chars long.
+        if observed_trimmed.len() >= 15 && root.starts_with(observed_trimmed) {
+            return true;
+        }
     }
     false
 }
@@ -630,6 +635,11 @@ mod tests {
         // Case-insensitive match on Windows:
         assert!(process_name_matches(
             "Nexus-Shell-Daemon.EXE",
+            EXPECTED_PROCESS_NAME
+        ));
+        // Linux /proc/[pid]/comm truncates to 15 chars:
+        assert!(process_name_matches(
+            "nexus_shell_dae",
             EXPECTED_PROCESS_NAME
         ));
     }
