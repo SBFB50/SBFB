@@ -39,7 +39,7 @@ steps:
   - name: frontend-deps
     image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
     commands:
-      - cd web && npm ci
+      - cd web && npm ci && npm install --no-save lightningcss-linux-x64-gnu
 
   - name: frontend-typecheck
     image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
