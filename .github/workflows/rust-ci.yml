@@ -5,14 +5,13 @@ name: Rust CI
 #
 # Scope:
 #   - Runs on every push and pull request that touches Rust code
-#     (path filter avoids burning CI minutes on Python / docs / web
-#     changes — those are handled by the legacy ci.yml).
+#     (path filter avoids burning CI minutes on docs / web changes
+#     — those are handled by ci.yml).
 #   - Three-OS test matrix (Linux / Windows / macOS Apple Silicon)
 #     catches OS-specific breakage early. The iroh stack compiles
 #     and runs cleanly on all three; any failure here is a bug to
 #     fix, not a platform to drop.
-#   - Binary release matrix and wheel builds live in separate
-#     workflows (build-worker.yml / build-wheels.yml) to keep this
+#   - Binary release matrix lives in build-worker.yml to keep this
 #     loop under 10 minutes wall-clock.
 
 on:
@@ -74,20 +73,13 @@ jobs:
 
   # ---------------------------------------------------------------
   # Clippy — one job, ubuntu only, full workspace with all targets.
-  # `-D warnings` promotes every lint to a hard error. The Python
-  # toolchain is installed because clippy on `nexus-core-py` needs
-  # `pyo3` to resolve the Python library at check time.
+  # `-D warnings` promotes every lint to a hard error.
   # ---------------------------------------------------------------
   clippy:
     name: clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Python 3.13 (needed by pyo3 on nexus-core-py)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
 
       - name: Install Rust toolchain (stable + clippy)
         uses: dtolnay/rust-toolchain@stable
@@ -115,11 +107,7 @@ jobs:
   # fail-fast = false, junit output).
   #
   # nextest does not run doctests, so `cargo test --doc` is added
-  # as a separate step. nexus-core-py is excluded from both
-  # because it compiles only as a Python extension module — it's
-  # validated separately by `cargo check -p nexus-core-py` above
-  # (via the clippy job which already runs `--workspace`) and
-  # fully by the build-wheels.yml workflow.
+  # as a separate step.
   # ---------------------------------------------------------------
   test:
     name: test (${{ matrix.os }})
@@ -133,11 +121,6 @@ jobs:
           - macos-14
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Python 3.13 (needed by pyo3 on nexus-core-py)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
 
       - name: Install Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -155,14 +138,11 @@ jobs:
         with:
           tool: nextest
 
-      - name: cargo check -p nexus-core-py
-        run: cargo check -p nexus-core-py --locked
+      - name: cargo nextest run (workspace)
+        run: cargo nextest run --workspace --profile ci --locked
 
-      - name: cargo nextest run (workspace, excluding nexus-core-py)
-        run: cargo nextest run --workspace --exclude nexus-core-py --profile ci --locked
-
-      - name: cargo test --doc (workspace, excluding nexus-core-py)
-        run: cargo test --workspace --exclude nexus-core-py --doc --locked
+      - name: cargo test --doc (workspace)
+        run: cargo test --workspace --doc --locked
 
       - name: Upload nextest junit.xml
         if: always()

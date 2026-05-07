@@ -13,7 +13,7 @@ pouvoir se builder via ses propres workers avant le tag v1.0.
 
 | Etage | Quoi | Sprint | Dependance GHA |
 |---|---|---|---|
-| **1. CI Woodpecker** | `.woodpecker/ci-linux.yml` + agent self-hosted VPS bootstrap. CI quotidienne Linux hors GHA. | S52 (config) + S53 (VPS agent) | GHA reste pour release multi-OS |
+| **1. CI Woodpecker** | `.woodpecker/ci-linux.yml` + agent self-hosted VPS bootstrap. CI quotidienne Linux hors GHA. | S52 (config) + S54 (images pin + VPS prep) | GHA reste pour release multi-OS |
 | **2. Build worker SBFB** | `task_type: "build"` protocol + sandbox hermetique + quorum SHA256. Le VPS bootstrap devient le premier build worker. | S54-S55 | GHA fallback seulement |
 | **3. Reseau autonome** | N builders independants, attestation signee, distribution binaires via iroh-blobs. | Pre-v1.0 | GHA optionnel (second opinion) |
 

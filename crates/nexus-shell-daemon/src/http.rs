@@ -4350,7 +4350,10 @@ mod tests {
         let parts: Vec<&str> = id.split('-').collect();
         assert_eq!(parts.len(), 4, "format inv-{{node8}}-{{ts}}-{{seq}}");
         assert_eq!(body["scope"], "observer");
-        assert!(body["wire"].as_str().unwrap().starts_with("nx1"), "wire must be nx1-encoded");
+        assert!(
+            body["wire"].as_str().unwrap().starts_with("nx1"),
+            "wire must be nx1-encoded"
+        );
     }
 
     #[tokio::test]

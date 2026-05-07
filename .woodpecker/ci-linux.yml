@@ -5,6 +5,7 @@
 #
 # Runs on Codeberg CI or self-hosted Woodpecker agent.
 # Sprint 52 Phase B — first step toward GHA independence.
+# Sprint 54 Phase D — images pinned to SHA256 digests (SLSA supply chain).
 
 when:
   branch: [master, main]
@@ -13,59 +14,59 @@ when:
 steps:
   # ── Rust ──────────────────────────────────────────────────
   - name: rust-fmt
-    image: rust:1.94
+    image: rust:1.94@sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186
     commands:
       - rustup component add rustfmt
       - cargo fmt --all --check
 
   - name: rust-clippy
-    image: rust:1.94
+    image: rust:1.94@sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186
     commands:
       - rustup component add clippy
       - cargo clippy --workspace --all-targets --locked -- -D warnings
 
   - name: rust-test
-    image: rust:1.94
+    image: rust:1.94@sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186
     commands:
       - cargo test --workspace --locked
 
   - name: rust-doctest
-    image: rust:1.94
+    image: rust:1.94@sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186
     commands:
       - cargo test --workspace --locked --doc
 
   # ── Frontend ──────────────────────────────────────────────
   - name: frontend-deps
-    image: node:20
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
     commands:
       - cd web && npm ci
 
   - name: frontend-typecheck
-    image: node:20
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
     commands:
       - cd web && npx tsc --noEmit -p tsconfig.app.json
 
   - name: frontend-lint
-    image: node:20
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
     commands:
       - cd web && npm run lint
 
   - name: frontend-test
-    image: node:20
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
     commands:
       - cd web && npm run test:unit
 
   - name: frontend-build
-    image: node:20
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
     commands:
       - cd web && npm run build
 
   - name: frontend-size
-    image: node:20
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
     commands:
       - cd web && npm run size
 
   - name: spdx-check
-    image: bash:5
+    image: bash:5@sha256:2003051c5eb5154cbd44fd4b1a2b8f1be886517b383813c998c72cb15840357f
     commands:
       - bash scripts/check-spdx.sh
