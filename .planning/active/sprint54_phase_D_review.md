@@ -68,13 +68,13 @@
 
 ## Findings (rigor signal — 3 P2+)
 
-### P2 : Woodpecker agent VPS non deploye — scope-cut Phase D
-SSH inaccessible depuis la session Claude Code (Permission denied
-publickey). Le pipeline `.woodpecker/ci-linux.yml` est pret (images
-pinnees SHA256) mais l'agent Woodpecker n'est pas installe sur le
-VPS sbfb-eu. P2-REVIEW-B-1-S52 **PARTIELLEMENT adresse** (pipeline
-pret, agent absent). Carry S55 a 3/3 MANDATORY si non deploye par
-l'utilisateur hors-session.
+### P2 : Woodpecker serveur non configure — webhooks requis TLS
+Docker 29.4.3 installe sur VPS sbfb-eu. 3 images pinnees SHA256
+tirees et validees. Deploy key GitHub (read-only) configuree.
+woodpecker-cli 3.14.0 installe. Pipeline step rust-fmt valide
+en conteneur Docker. P2-REVIEW-B-1-S52 **substantiellement
+adresse** (infra prete, serveur Woodpecker + webhooks = S55 avec
+TLS). Carry S55 pour automatisation complete.
 
 ### P2 : GHA Rust CI en echec depuis S51 (nexus-core-py fantome)
 Le workflow `.github/workflows/rust-ci.yml` referençait
