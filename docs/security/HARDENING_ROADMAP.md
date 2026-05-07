@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-06  # G2 — Sprint 53 CLOSED : P2P smoke test multi-plateforme (LAN Win↔Mac + WAN dev↔VPS Helsinki) + gossip non-bloquant + outbox + browse pull + node identity persistent + gossip bootstrap attention set. Compteurs 1206 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1462 total. 0 trigger actif.
+last_validated: 2026-05-07  # G2 — Sprint 54 CLOSED : edition 2024 upgrade + dette pair 5 P2 S53 + E2E wire tasks_doc_ticket + CI infra images pin SHA256 + Rust CI fix. Compteurs 1207 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1463 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
