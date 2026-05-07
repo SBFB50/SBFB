@@ -435,7 +435,7 @@ impl CuratorRuntime {
         // Stable ordering: oldest curator pubkey first (bytewise
         // ascending). Keeps the HTTP response deterministic under
         // concurrent inserts.
-        out.sort_by(|a, b| a.curator_pubkey.cmp(&b.curator_pubkey));
+        out.sort_by_key(|a| a.curator_pubkey);
         out
     }
 
