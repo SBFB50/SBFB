@@ -52,6 +52,7 @@
 #![deny(rust_2018_idioms)]
 
 pub mod allowlist;
+pub mod build_executor;
 pub mod config;
 pub mod consent;
 pub mod engine;

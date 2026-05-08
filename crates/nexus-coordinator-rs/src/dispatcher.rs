@@ -15,20 +15,41 @@ use crate::db::CoordinatorDb;
 use crate::error::CoordinatorError;
 use crate::types::{TaskRecord, TaskStatus, TaskSubmission};
 
+const BUILD_TASK_TYPE: &str = "build";
+const REQUIRED_BUILD_METADATA: &[&str] = &["build.repo", "build.commit", "build.binary"];
+
+fn validate_build_submission(submission: &TaskSubmission) -> Result<(), CoordinatorError> {
+    for key in REQUIRED_BUILD_METADATA {
+        match submission.metadata.get(*key) {
+            Some(v) if !v.is_empty() => {}
+            _ => {
+                return Err(CoordinatorError::Validation(format!(
+                    "build task requires non-empty metadata key '{key}'"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn submit_task(
     db: &CoordinatorDb,
     keypair: &KeyPair,
     submission: TaskSubmission,
 ) -> Result<TaskEntry, CoordinatorError> {
-    if submission.prompt.is_empty() {
-        return Err(CoordinatorError::Validation(
-            "prompt must not be empty".into(),
-        ));
-    }
-    if submission.model.is_empty() {
-        return Err(CoordinatorError::Validation(
-            "model must not be empty".into(),
-        ));
+    if submission.task_type == BUILD_TASK_TYPE {
+        validate_build_submission(&submission)?;
+    } else {
+        if submission.prompt.is_empty() {
+            return Err(CoordinatorError::Validation(
+                "prompt must not be empty".into(),
+            ));
+        }
+        if submission.model.is_empty() {
+            return Err(CoordinatorError::Validation(
+                "model must not be empty".into(),
+            ));
+        }
     }
 
     let now = SystemTime::now()
@@ -186,6 +207,51 @@ mod tests {
         let e1 = dispatcher.submit(make_submission()).expect("submit 1");
         let e2 = dispatcher.submit(make_submission()).expect("submit 2");
         assert_ne!(e1.task.task_id, e2.task.task_id);
+    }
+
+    #[test]
+    fn submit_build_task_accepts_empty_prompt() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let kp = KeyPair::generate();
+        let dispatcher = TaskDispatcher::new(db, kp);
+
+        let mut sub = make_submission();
+        sub.task_type = "build".into();
+        sub.prompt = String::new();
+        sub.model = String::new();
+        sub.metadata.insert(
+            "build.repo".into(),
+            "https://github.com/example/repo".into(),
+        );
+        sub.metadata
+            .insert("build.commit".into(), "abc123def456".into());
+        sub.metadata
+            .insert("build.binary".into(), "my-binary".into());
+
+        let entry = dispatcher
+            .submit(sub)
+            .expect("build task should be accepted");
+        assert_eq!(entry.task.task_type, "build");
+        assert!(entry.task.prompt.is_empty());
+        assert!(entry.task.model.is_empty());
+    }
+
+    #[test]
+    fn submit_build_task_requires_metadata_keys() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let kp = KeyPair::generate();
+        let dispatcher = TaskDispatcher::new(db, kp);
+
+        let mut sub = make_submission();
+        sub.task_type = "build".into();
+        sub.prompt = String::new();
+        sub.model = String::new();
+
+        let err = dispatcher
+            .submit(sub)
+            .expect_err("should reject missing metadata");
+        assert!(matches!(err, CoordinatorError::Validation(_)));
+        assert!(err.to_string().contains("build.repo"));
     }
 
     #[test]
