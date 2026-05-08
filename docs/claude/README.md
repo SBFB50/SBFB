@@ -1859,31 +1859,32 @@ Ne pas filtrer par "langage touché" — lancer les 3 blocs.
 Tout rouge bloque le commit. Pas de `--no-verify`, pas de
 `#[ignore]` ajouté pour faire passer. Root cause d'abord.
 
-**Pre-push obligatoire : Rust + Frontend sur WSL Linux.** Les
-checks Windows ne couvrent pas les chemins `cfg(target_os =
-"linux")` (journald socket, `/proc/comm` truncation 15 chars,
-SIGINT handler via `libc`). `cargo nextest` seul ne suffit pas —
-il ne vérifie pas les lints (dead code, imports inutilisés dans
-les blocs `#[cfg(unix)]`). Le build frontend peut aussi échouer
-sur Linux même s'il passe sur Windows : `npm ci` avec un lockfile
-généré sous Windows ne télécharge pas les binaires natifs Linux
-(ex. `lightningcss-linux-x64-gnu`). **AVANT tout push**, lancer
-Rust + frontend sur WSL :
+**Pre-push obligatoire : reproduction Docker du pipeline CI.**
+Le WSL Linux natif (rustc 1.95, node 22) ne reproduit PAS le VPS
+Woodpecker (rustc 1.94 conteneur, node 20 conteneur). Seul un run
+Docker avec les memes images garantit la parite. **AVANT tout
+push**, lancer les 3 blocs Docker :
 
+Bloc Rust :
 ```powershell
-wsl -d Ubuntu -- bash -c "source ~/.cargo/env && cd /mnt/c/Users/FlowUP/Documents/Code/nexus && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo nextest run --workspace --locked && cd web && npm ci && npm install --no-save lightningcss-linux-x64-gnu && npm run build"
+docker run --rm -v "${PWD}:/workspace" -w /workspace rust:1.94@sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186 sh -lc "rustup component add rustfmt clippy && cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked && cargo test --workspace --locked --doc"
 ```
 
-Note : `npm install --no-save lightningcss-linux-x64-gnu` est
-nécessaire après `npm ci` car le lockfile Windows ne contient pas
-les optional dependencies Linux. Sans cela, le build Vite échoue
-avec une erreur `lightningcss` introuvable.
+Bloc Frontend :
+```powershell
+docker run --rm -v "${PWD}:/workspace" -w /workspace node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a sh -lc "cd web && npm ci && npm install --no-save lightningcss-linux-x64-gnu && npx tsc --noEmit -p tsconfig.app.json && npm run lint && npm run test:unit && npm run build && npm run size"
+```
 
-Cycle obligatoire = fix local (Windows) → Rust + frontend WSL
-Linux → Rust + frontend Windows → tout vert → commit + push.
-Ne JAMAIS pusher avec seulement les checks Windows verts.
-Lancer la commande WSL en `run_in_background` pour ne pas
-bloquer la conversation.
+Bloc SPDX :
+```powershell
+docker run --rm -v "${PWD}:/workspace" -w /workspace bash:5@sha256:2003051c5eb5154cbd44fd4b1a2b8f1be886517b383813c998c72cb15840357f bash scripts/check-spdx.sh
+```
+
+Cycle obligatoire = fix → Docker pipeline local → tout vert →
+commit + push. Lancer les commandes Docker en `run_in_background`.
+
+Note : le WSL reste utile pour les tests rapides unitaires pendant
+le developpement, mais le gate final avant push DOIT etre Docker.
 
 ### 7.5 Mise à jour memory en fin de session
 
