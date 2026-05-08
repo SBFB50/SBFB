@@ -1870,9 +1870,9 @@ Bloc Rust :
 docker run --rm -v "${PWD}:/workspace" -w /workspace rust:1.94@sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186 sh -lc "rustup component add rustfmt clippy && cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked && cargo test --workspace --locked --doc"
 ```
 
-Bloc Frontend :
+Bloc Frontend (tsc + lint + test + build + size) :
 ```powershell
-docker run --rm -v "${PWD}:/workspace" -w /workspace node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a sh -lc "cd web && npm ci && npm install --no-save lightningcss-linux-x64-gnu && npx tsc --noEmit -p tsconfig.app.json && npm run lint && npm run test:unit && npm run build && npm run size"
+docker run --rm -v "${PWD}:/workspace" -w /workspace node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a sh -lc "cd web && npm ci && npx tsc --noEmit -p tsconfig.app.json && npm run lint && npm run test:unit && npm run build && npm run size"
 ```
 
 Bloc SPDX :

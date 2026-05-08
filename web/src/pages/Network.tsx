@@ -424,6 +424,7 @@ function ConsentBadge({ coordUrl }: { coordUrl: string }) {
         </div>
       )}
       <GpuConsentDialog
+        key={`${open}-${consentQuery.data?.level}`}
         open={open}
         onOpenChange={setOpen}
         coordinatorUrl={coordUrl}

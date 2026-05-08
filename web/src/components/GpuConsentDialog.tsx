@@ -15,7 +15,7 @@
  * the next claim tick — no restart needed.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Heart, Info, Loader2, Plus, X } from "lucide-react";
 
 import {
@@ -109,20 +109,6 @@ export function GpuConsentDialog({
   const [pendingError, setPendingError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Re-sync local state when the parent passes a new initialConfig
-  // (e.g. the dialog is reopened with a freshly fetched server state).
-  useEffect(() => {
-    if (!open) return;
-    setLevel(baseline.level);
-    setMaxWatts(baseline.caps.max_watts ?? 400);
-    setMaxVramMb(baseline.caps.max_vram_mb ?? 16 * 1024);
-    setMaxHoursDay(baseline.caps.max_hours_day ?? 12);
-    setAllowedIds(baseline.allowed_project_ids);
-    setPendingId("");
-    setPendingError(null);
-    setSaveError(null);
-  }, [open, baseline]);
 
   const builtConfig = useMemo<ConsentConfig>(
     () => ({
