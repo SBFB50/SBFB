@@ -110,6 +110,64 @@ Run ID: <a documenter post-push>
 
 ---
 
+## §4.1 Phase A.1 — CI test fiabilite (timing-dependent cleanup)
+
+### §4.1.1 Scope
+
+Phase A a deploye Woodpecker CI et revele 4 bugs Linux-only +
+1 test flaky timing-dependent. La Phase A.1 stabilise les 7 tests
+restants qui utilisent des sleep fixes au lieu de poll+deadline,
+pour que le pipeline CI soit un vrai gate de qualite (0 flaky).
+
+### §4.1.2 Fichiers touches
+
+| Fichier | Tests | Pattern actuel | Fix |
+|---|---|---|---|
+| `crates/nexus-worker-core/src/engine/runtime.rs` | `rate_limit_gate_rejects_saturated_tuple` + `rate_limit_gate_defer_preserves_task` | sleep 1.5s preuve negative | Compteur atomique tick_count ou poll+deadline |
+| `crates/nexus-shell-daemon/src/validator_loop.rs` | 3 tests validator_loop | sleep 50ms puis verif DB | poll+deadline sur DB state |
+| `crates/nexus-shell-daemon/src/dispatch_loop.rs` | `dispatch_loop_writes_to_doc` | sleep 100ms puis verif doc | poll+deadline sur doc entries |
+| `crates/nexus-shell-daemon/src/named_pipe_server.rs` | `end_to_end_named_pipe_serves_handler_response` | sleep 50ms pour bind | poll+deadline sur server ready |
+
+### §4.1.3 Tests plan
+
+Pas de nouveaux tests — transformation des 7 tests existants
+de sleep-based vers poll+deadline ou compteur atomique. Les
+assertions restent les memes, seul le mecanisme de synchronisation
+change.
+
+### §4.1.4 Critere d'acceptation
+
+- `cargo nextest run --workspace --locked` : 0 flaky sur WSL Linux
+- `cargo nextest run --workspace --locked` : 0 flaky sur Windows
+- 0 `thread::sleep` comme mecanisme de synchronisation dans les
+  7 tests cibles (grep verification)
+
+### §4.1.5 Commit cible
+
+```
+feat(sprint55): Sprint 55 Phase A.1 — CI test fiabilite (7 timing-dependent tests stabilises)
+
+## Contexte
+Phase A a deploye Woodpecker CI et revele que les tests timing-
+dependent echouent sur du hardware rapide (VPS Docker) mais
+passent en local WSL (lent I/O Hyper-V). 7 tests utilisaient
+des sleep fixes comme mecanisme de synchronisation — remplaces
+par poll+deadline ou compteurs atomiques.
+
+## Fichiers
+[table]
+
+## Tests delta cumule
+Entree: 1207 Rust / 250 Vitest
+Phase A.1: +0 Rust / +0 Vitest (refactoring tests existants)
+Cumule: 1207 / 250
+
+## Scope cuts respectes
+15/15 non touches.
+```
+
+---
+
 ## §5 Phase B — LT-7 build executor + dispatcher routing
 
 ### §5.1 Scope
@@ -340,6 +398,7 @@ ecrire verification.md et sprint56_audit_plan.md.
 |---|---|---|
 | 0 | `chore(planning): Sprint 55 kickoff + plan + design review + migration` | Planning docs |
 | 1 | `feat(sprint55): Sprint 55 Phase A — Woodpecker server deploy + GHA validation` | Infra CI |
+| 1.1 | `feat(sprint55): Sprint 55 Phase A.1 — CI test fiabilite` | CI fiabilite |
 | 2 | `feat(sprint55): Sprint 55 Phase B — LT-7 build executor + dispatcher routing` | Build protocol |
 | 3 | `feat(sprint55): Sprint 55 Phase C — LT-7 quorum SHA256 validation + build E2E test` | Quorum |
 | 4 | `feat(sprint55): Sprint 55 Phase D — P2 batch quick carries` | Dette |
@@ -398,12 +457,13 @@ Sprint 55 est clos quand :
 
 ```
 Phase A (infra) ← aucune dependance code
-Phase B (build executor) ← aucune dependance Phase A
+Phase A.1 (CI fiabilite) ← depend Phase A (pipeline deploye)
+Phase B (build executor) ← aucune dependance Phase A/A.1
 Phase C (quorum) ← depend Phase B (build task routing)
 Phase D (P2 batch) ← aucune dependance
 Phase E (wrap-up) ← depend toutes phases
 ```
 
-Phase A et B sont independantes et pourraient etre inversees.
-Phase C depend de B (quorum valide les resultats du build executor).
-Phase D est independante de B/C.
+Phase A.1 stabilise les tests pour que le pipeline CI de Phase A
+soit un vrai gate. Phases B et D sont independantes de A.1.
+Phase C depend de B.
