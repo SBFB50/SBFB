@@ -360,7 +360,8 @@ impl BrowseAggregator {
 
     #[cfg(test)]
     fn probe_call_count(&self) -> u32 {
-        self.probe_call_count.load(std::sync::atomic::Ordering::Relaxed)
+        self.probe_call_count
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Return the current cached reachability bucket for
@@ -487,7 +488,8 @@ impl BrowseAggregator {
         }
 
         #[cfg(test)]
-        self.probe_call_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.probe_call_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let disco = DiscoveryClient::new(node.endpoint());
         let now = SystemTime::now();
