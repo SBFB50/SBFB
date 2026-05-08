@@ -201,20 +201,17 @@ describe("<GpuConsentDialog>", () => {
   });
 
   it("re-sync l'état local quand initialConfig change pendant une réouverture", () => {
-    const { rerender } = renderDialog({ initialConfig: baseConfig });
+    const { unmount } = renderDialog({ initialConfig: baseConfig });
     expect(screen.getByTestId("consent-level-1")).toHaveAttribute(
       "data-checked",
       "",
     );
 
-    rerender(
-      <GpuConsentDialog
-        open
-        onOpenChange={NOOP}
-        coordinatorUrl="http://127.0.0.1:7777"
-        initialConfig={{ ...baseConfig, level: 4 }}
-      />,
-    );
+    unmount();
+
+    renderDialog({
+      initialConfig: { ...baseConfig, level: 4 },
+    });
     expect(screen.getByTestId("consent-level-4")).toHaveAttribute(
       "data-checked",
       "",

@@ -23,7 +23,6 @@
  *   never see personal data from the end user.
  */
 
-// eslint-disable-next-line no-unused-vars
 class SBFBBridge {
   /**
    * @param {Object} [options]
@@ -65,7 +64,6 @@ class SBFBBridge {
           } catch (e) {
             // Swallow callback errors so one faulty handler doesn't
             // block the others or the bridge itself.
-            // eslint-disable-next-line no-console
             if (typeof console !== "undefined") console.error("onEvent callback threw", e);
           }
         }
