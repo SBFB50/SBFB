@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 pub enum TaskStatus {
     Pending,
     Dispatched,
+    AwaitingQuorum,
     Completed,
     Rejected,
     TimedOut,
@@ -23,6 +24,7 @@ impl TaskStatus {
         match self {
             Self::Pending => "pending",
             Self::Dispatched => "dispatched",
+            Self::AwaitingQuorum => "awaiting_quorum",
             Self::Completed => "completed",
             Self::Rejected => "rejected",
             Self::TimedOut => "timed_out",
@@ -33,6 +35,7 @@ impl TaskStatus {
         match s {
             "pending" => Self::Pending,
             "dispatched" => Self::Dispatched,
+            "awaiting_quorum" => Self::AwaitingQuorum,
             "completed" => Self::Completed,
             "rejected" => Self::Rejected,
             "timed_out" => Self::TimedOut,
@@ -52,6 +55,16 @@ pub struct TaskRecord {
     pub task_hash: String,
     pub worker_node_id: Option<String>,
     pub result_hash: Option<String>,
+    pub task_type: String,
+    pub redundancy_factor: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct TaskResultRow {
+    pub task_id: String,
+    pub worker_id: String,
+    pub sha256: String,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +122,7 @@ mod tests {
         for status in [
             TaskStatus::Pending,
             TaskStatus::Dispatched,
+            TaskStatus::AwaitingQuorum,
             TaskStatus::Completed,
             TaskStatus::Rejected,
             TaskStatus::TimedOut,

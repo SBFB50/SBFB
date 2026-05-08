@@ -1448,6 +1448,11 @@ async fn coordinator_submit_result(
             )
                 .into_response()
         }
+        Ok((nexus_coordinator_rs::validator::ValidationOutcome::AwaitingQuorum, _)) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"outcome": "awaiting_quorum"})),
+        )
+            .into_response(),
         Ok((outcome, _)) => {
             let reason = match outcome {
                 nexus_coordinator_rs::validator::ValidationOutcome::RejectedBadSignature => {
@@ -1459,7 +1464,13 @@ async fn coordinator_submit_result(
                 nexus_coordinator_rs::validator::ValidationOutcome::RejectedTaskNotPending => {
                     "task_not_pending"
                 }
-                nexus_coordinator_rs::validator::ValidationOutcome::Accepted => unreachable!(),
+                nexus_coordinator_rs::validator::ValidationOutcome::QuorumRejected => {
+                    "quorum_divergence"
+                }
+                nexus_coordinator_rs::validator::ValidationOutcome::Accepted
+                | nexus_coordinator_rs::validator::ValidationOutcome::AwaitingQuorum => {
+                    unreachable!()
+                }
             };
             (
                 StatusCode::BAD_REQUEST,

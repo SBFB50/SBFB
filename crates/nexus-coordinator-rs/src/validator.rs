@@ -15,6 +15,8 @@ use crate::types::{TaskRecord, TaskStatus};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValidationOutcome {
     Accepted,
+    AwaitingQuorum,
+    QuorumRejected,
     RejectedBadSignature,
     RejectedTaskNotFound,
     RejectedTaskNotPending,
@@ -43,11 +45,14 @@ pub fn validate_result(
         }
     };
 
-    if task.status != TaskStatus::Pending && task.status != TaskStatus::Dispatched {
+    if task.status != TaskStatus::Pending
+        && task.status != TaskStatus::Dispatched
+        && task.status != TaskStatus::AwaitingQuorum
+    {
         tracing::debug!(
             task_id = %entry.payload.task_id,
             status = %task.status.as_str(),
-            "result for task not in pending/dispatched state"
+            "result for task not in pending/dispatched/awaiting_quorum state"
         );
         return Ok((ValidationOutcome::RejectedTaskNotPending, None));
     }
@@ -58,18 +63,97 @@ pub fn validate_result(
         .as_secs();
 
     let worker_id = hex::encode(entry.worker_pubkey);
-    let result_hash = hex::encode(entry.signature);
 
+    if task.redundancy_factor > 1 {
+        return validate_quorum(db, &task, &worker_id, &entry.payload.result_text, now);
+    }
+
+    let result_hash = hex::encode(entry.signature);
     db.set_task_result(&entry.payload.task_id, &worker_id, &result_hash, now)?;
 
     tracing::info!(
         task_id = %entry.payload.task_id,
-        worker = %worker_id[..16],
+        worker = %&worker_id[..16],
         tokens = entry.payload.tokens_generated,
         "result accepted"
     );
 
     Ok((ValidationOutcome::Accepted, Some(task)))
+}
+
+fn validate_quorum(
+    db: &CoordinatorDb,
+    task: &TaskRecord,
+    worker_id: &str,
+    sha256: &str,
+    now: u64,
+) -> Result<(ValidationOutcome, Option<TaskRecord>), CoordinatorError> {
+    let inserted = db.insert_task_result(&task.task_id, worker_id, sha256, now)?;
+    if !inserted {
+        return Ok((ValidationOutcome::AwaitingQuorum, Some(task.clone())));
+    }
+
+    let results = db.get_task_results(&task.task_id)?;
+    let count = results.len() as u8;
+
+    if count < task.redundancy_factor {
+        if task.status != TaskStatus::AwaitingQuorum {
+            db.update_task_status(&task.task_id, TaskStatus::AwaitingQuorum, now)?;
+        }
+        tracing::info!(
+            task_id = %task.task_id,
+            worker = %&worker_id[..16.min(worker_id.len())],
+            results = count,
+            required = task.redundancy_factor,
+            "build result stored, awaiting quorum"
+        );
+        return Ok((ValidationOutcome::AwaitingQuorum, Some(task.clone())));
+    }
+
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for r in &results {
+        *counts.entry(r.sha256.as_str()).or_insert(0) += 1;
+    }
+
+    let majority_threshold = (task.redundancy_factor as usize) / 2;
+    let (best_hash, best_count) = counts
+        .iter()
+        .max_by_key(|(_, c)| **c)
+        .map(|(&h, &c)| (h, c))
+        .unwrap_or(("", 0));
+
+    if best_count > majority_threshold {
+        db.set_task_result(&task.task_id, worker_id, best_hash, now)?;
+
+        for r in &results {
+            if r.sha256 != best_hash {
+                tracing::warn!(
+                    task_id = %task.task_id,
+                    outlier_worker = %r.worker_id,
+                    outlier_sha256 = %r.sha256,
+                    canonical_sha256 = %best_hash,
+                    "quorum outlier detected"
+                );
+            }
+        }
+
+        tracing::info!(
+            task_id = %task.task_id,
+            sha256 = %best_hash,
+            agreement = %format!("{best_count}/{count}"),
+            "build quorum reached — accepted"
+        );
+
+        Ok((ValidationOutcome::Accepted, Some(task.clone())))
+    } else {
+        db.update_task_status(&task.task_id, TaskStatus::Rejected, now)?;
+        tracing::warn!(
+            task_id = %task.task_id,
+            distinct_hashes = counts.len(),
+            "build quorum divergence — rejected"
+        );
+        Ok((ValidationOutcome::QuorumRejected, Some(task.clone())))
+    }
 }
 
 pub struct ResultValidator {
@@ -114,9 +198,46 @@ mod tests {
             task_hash: "abc".to_string(),
             worker_node_id: None,
             result_hash: None,
+            task_type: "inference".to_string(),
+            redundancy_factor: 1,
         };
         db.insert_task(&record).expect("insert");
         (db, kp)
+    }
+
+    fn setup_build_task(task_id: &str, redundancy_factor: u8) -> CoordinatorDb {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let record = TaskRecord {
+            task_id: task_id.to_string(),
+            status: TaskStatus::Pending,
+            project_id: "proj-1".to_string(),
+            model: String::new(),
+            created_at: 1714300000,
+            updated_at: 1714300000,
+            task_hash: "abc".to_string(),
+            worker_node_id: None,
+            result_hash: None,
+            task_type: "build".to_string(),
+            redundancy_factor,
+        };
+        db.insert_task(&record).expect("insert");
+        db
+    }
+
+    fn make_build_result(task_id: &str, keypair: &KeyPair, sha256: &str) -> ResultEntry {
+        let payload = ResultPayload {
+            version: TASK_FORMAT_VERSION,
+            task_id: task_id.to_string(),
+            result_text: sha256.to_string(),
+            tokens_generated: 0,
+            generation_time_ms: 0,
+            model_digest: [0u8; 32],
+            logprobs_hash: [0u8; 32],
+            started_at: 1714300000,
+            finished_at: 1714300001,
+            output_token_ids: vec![],
+        };
+        ResultEntry::sign(payload, keypair).expect("sign")
     }
 
     fn make_result(task_id: &str, keypair: &KeyPair) -> ResultEntry {
@@ -222,5 +343,106 @@ mod tests {
         assert_eq!(outcome, ValidationOutcome::Accepted);
         let record = record.expect("accepted must return TaskRecord");
         assert_eq!(record.project_id, "proj-1");
+    }
+
+    #[test]
+    fn build_result_transitions_to_awaiting_quorum() {
+        let db = setup_build_task("build-001", 3);
+        let w1 = KeyPair::generate();
+        let entry = make_build_result("build-001", &w1, "aabbccdd");
+
+        let (outcome, _) = validate_result(&db, &entry).expect("validate");
+        assert_eq!(outcome, ValidationOutcome::AwaitingQuorum);
+
+        let task = db.get_task("build-001").expect("get").expect("found");
+        assert_eq!(task.status, TaskStatus::AwaitingQuorum);
+
+        let results = db.get_task_results("build-001").expect("results");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].sha256, "aabbccdd");
+    }
+
+    #[test]
+    fn quorum_majority_sha256_accepts() {
+        let db = setup_build_task("build-002", 3);
+        let hash = "deadbeef1234567890abcdef";
+
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let w3 = KeyPair::generate();
+
+        let (o1, _) = validate_result(&db, &make_build_result("build-002", &w1, hash)).expect("v1");
+        assert_eq!(o1, ValidationOutcome::AwaitingQuorum);
+
+        let (o2, _) = validate_result(&db, &make_build_result("build-002", &w2, hash)).expect("v2");
+        assert_eq!(o2, ValidationOutcome::AwaitingQuorum);
+
+        let (o3, _) = validate_result(&db, &make_build_result("build-002", &w3, hash)).expect("v3");
+        assert_eq!(o3, ValidationOutcome::Accepted);
+
+        let task = db.get_task("build-002").expect("get").expect("found");
+        assert_eq!(task.status, TaskStatus::Completed);
+        assert_eq!(task.result_hash.as_deref(), Some(hash));
+    }
+
+    #[test]
+    fn quorum_divergence_rejects() {
+        let db = setup_build_task("build-003", 3);
+
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let w3 = KeyPair::generate();
+
+        validate_result(&db, &make_build_result("build-003", &w1, "hash_a")).expect("v1");
+        validate_result(&db, &make_build_result("build-003", &w2, "hash_b")).expect("v2");
+
+        let (o3, _) =
+            validate_result(&db, &make_build_result("build-003", &w3, "hash_c")).expect("v3");
+        assert_eq!(o3, ValidationOutcome::QuorumRejected);
+
+        let task = db.get_task("build-003").expect("get").expect("found");
+        assert_eq!(task.status, TaskStatus::Rejected);
+    }
+
+    #[test]
+    fn quorum_single_outlier_detected() {
+        let db = setup_build_task("build-004", 3);
+        let canonical = "canonical_sha256_value";
+
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let w3 = KeyPair::generate();
+
+        validate_result(&db, &make_build_result("build-004", &w1, canonical)).expect("v1");
+        validate_result(&db, &make_build_result("build-004", &w2, "outlier_hash")).expect("v2");
+
+        let (o3, _) =
+            validate_result(&db, &make_build_result("build-004", &w3, canonical)).expect("v3");
+        assert_eq!(o3, ValidationOutcome::Accepted);
+
+        let task = db.get_task("build-004").expect("get").expect("found");
+        assert_eq!(task.status, TaskStatus::Completed);
+        assert_eq!(task.result_hash.as_deref(), Some(canonical));
+
+        let results = db.get_task_results("build-004").expect("results");
+        assert_eq!(results.len(), 3);
+        let outliers: Vec<_> = results.iter().filter(|r| r.sha256 != canonical).collect();
+        assert_eq!(outliers.len(), 1);
+        assert_eq!(outliers[0].sha256, "outlier_hash");
+    }
+
+    #[test]
+    fn inference_task_bypasses_quorum() {
+        let (db, _coord_kp) = setup_db_with_task("inf-001");
+        let worker_kp = KeyPair::generate();
+        let entry = make_result("inf-001", &worker_kp);
+
+        let (outcome, record) = validate_result(&db, &entry).expect("validate");
+        assert_eq!(outcome, ValidationOutcome::Accepted);
+        assert!(record.is_some());
+
+        let task = db.get_task("inf-001").expect("get").expect("found");
+        assert_eq!(task.status, TaskStatus::Completed);
+        assert_eq!(task.redundancy_factor, 1);
     }
 }

@@ -32,12 +32,15 @@ fn validate_build_submission(submission: &TaskSubmission) -> Result<(), Coordina
     Ok(())
 }
 
+const BUILD_DEFAULT_REDUNDANCY: u8 = 3;
+
 pub fn submit_task(
     db: &CoordinatorDb,
     keypair: &KeyPair,
     submission: TaskSubmission,
 ) -> Result<TaskEntry, CoordinatorError> {
-    if submission.task_type == BUILD_TASK_TYPE {
+    let is_build = submission.task_type == BUILD_TASK_TYPE;
+    if is_build {
         validate_build_submission(&submission)?;
     } else {
         if submission.prompt.is_empty() {
@@ -52,12 +55,19 @@ pub fn submit_task(
         }
     }
 
+    let redundancy = if is_build {
+        submission.redundancy_factor.max(BUILD_DEFAULT_REDUNDANCY)
+    } else {
+        submission.redundancy_factor
+    };
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
 
     let task_id = format!("{:016x}-{:016x}", now, rand::random::<u64>());
+    let task_type = submission.task_type.clone();
 
     let task = Task {
         version: TASK_FORMAT_VERSION,
@@ -74,7 +84,7 @@ pub fn submit_task(
         estimated_watts: submission.estimated_watts,
         estimated_vram_mb: submission.estimated_vram_mb,
         estimated_hours: submission.estimated_hours,
-        redundancy_factor: submission.redundancy_factor,
+        redundancy_factor: redundancy,
         watermark_seed: Vec::new(),
     };
 
@@ -93,6 +103,8 @@ pub fn submit_task(
         task_hash,
         worker_node_id: None,
         result_hash: None,
+        task_type,
+        redundancy_factor: redundancy,
     };
 
     db.insert_task(&record)?;

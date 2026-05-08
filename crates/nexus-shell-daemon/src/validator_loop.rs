@@ -114,6 +114,8 @@ mod tests {
             task_hash: "abc".to_string(),
             worker_node_id: None,
             result_hash: None,
+            task_type: "inference".to_string(),
+            redundancy_factor: 1,
         };
         db.insert_task(&record).expect("insert");
         db

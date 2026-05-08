@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use rusqlite_migration::{M, Migrations};
 
 use crate::error::CoordinatorError;
-use crate::types::{KudosEntry, TaskRecord, TaskStatus};
+use crate::types::{KudosEntry, TaskRecord, TaskResultRow, TaskStatus};
 
 static MIGRATIONS: &[M<'static>] = &[
     M::up(
@@ -111,6 +111,20 @@ static MIGRATIONS: &[M<'static>] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_delayed_uploads_deliver ON delayed_uploads(deliver_at);",
     ),
+    M::up(
+        "ALTER TABLE tasks ADD COLUMN task_type TEXT NOT NULL DEFAULT 'inference';
+    ALTER TABLE tasks ADD COLUMN redundancy_factor INTEGER NOT NULL DEFAULT 1;
+
+    CREATE TABLE IF NOT EXISTS task_results (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id     TEXT NOT NULL,
+        worker_id   TEXT NOT NULL,
+        sha256      TEXT NOT NULL,
+        created_at  INTEGER NOT NULL,
+        UNIQUE (task_id, worker_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_results_task ON task_results(task_id);",
+    ),
 ];
 
 pub struct CoordinatorDb {
@@ -156,8 +170,8 @@ impl CoordinatorDb {
 
     pub fn insert_task(&self, record: &TaskRecord) -> Result<(), CoordinatorError> {
         self.conn.execute(
-            "INSERT INTO tasks (task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO tasks (task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash, task_type, redundancy_factor)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             rusqlite::params![
                 record.task_id,
                 record.status.as_str(),
@@ -168,6 +182,8 @@ impl CoordinatorDb {
                 record.task_hash,
                 record.worker_node_id,
                 record.result_hash,
+                record.task_type,
+                record.redundancy_factor,
             ],
         )?;
         Ok(())
@@ -175,7 +191,7 @@ impl CoordinatorDb {
 
     pub fn get_task(&self, task_id: &str) -> Result<Option<TaskRecord>, CoordinatorError> {
         let mut stmt = self.conn.prepare(
-            "SELECT task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash
+            "SELECT task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash, task_type, redundancy_factor
              FROM tasks WHERE task_id = ?1",
         )?;
         let mut rows = stmt.query(rusqlite::params![task_id])?;
@@ -190,6 +206,8 @@ impl CoordinatorDb {
                 task_hash: row.get(6)?,
                 worker_node_id: row.get(7)?,
                 result_hash: row.get(8)?,
+                task_type: row.get(9)?,
+                redundancy_factor: row.get::<_, u8>(10)?,
             })),
             None => Ok(None),
         }
@@ -202,12 +220,12 @@ impl CoordinatorDb {
     ) -> Result<Vec<TaskRecord>, CoordinatorError> {
         let (sql, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match status {
             Some(s) => (
-                "SELECT task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash
+                "SELECT task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash, task_type, redundancy_factor
                  FROM tasks WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2",
                 vec![Box::new(s.to_string()), Box::new(limit as i64)],
             ),
             None => (
-                "SELECT task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash
+                "SELECT task_id, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash, task_type, redundancy_factor
                  FROM tasks ORDER BY created_at DESC LIMIT ?1",
                 vec![Box::new(limit as i64)],
             ),
@@ -224,6 +242,8 @@ impl CoordinatorDb {
                 task_hash: row.get(6)?,
                 worker_node_id: row.get(7)?,
                 result_hash: row.get(8)?,
+                task_type: row.get(9)?,
+                redundancy_factor: row.get::<_, u8>(10)?,
             })
         })?;
         let mut result = Vec::new();
@@ -255,10 +275,45 @@ impl CoordinatorDb {
     ) -> Result<bool, CoordinatorError> {
         let changed = self.conn.execute(
             "UPDATE tasks SET status = 'completed', worker_node_id = ?1, result_hash = ?2, updated_at = ?3
-             WHERE task_id = ?4 AND status IN ('pending', 'dispatched')",
+             WHERE task_id = ?4 AND status IN ('pending', 'dispatched', 'awaiting_quorum')",
             rusqlite::params![worker_node_id, result_hash, updated_at, task_id],
         )?;
         Ok(changed > 0)
+    }
+
+    pub fn insert_task_result(
+        &self,
+        task_id: &str,
+        worker_id: &str,
+        sha256: &str,
+        created_at: u64,
+    ) -> Result<bool, CoordinatorError> {
+        let changed = self.conn.execute(
+            "INSERT OR IGNORE INTO task_results (task_id, worker_id, sha256, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![task_id, worker_id, sha256, created_at],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn get_task_results(&self, task_id: &str) -> Result<Vec<TaskResultRow>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT task_id, worker_id, sha256, created_at
+             FROM task_results WHERE task_id = ?1 ORDER BY created_at ASC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![task_id], |row| {
+            Ok(TaskResultRow {
+                task_id: row.get(0)?,
+                worker_id: row.get(1)?,
+                sha256: row.get(2)?,
+                created_at: row.get::<_, i64>(3)? as u64,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
     }
 
     pub fn insert_kudos(&self, entry: &KudosEntry) -> Result<(), CoordinatorError> {
@@ -449,6 +504,8 @@ mod tests {
             task_hash: "abc123".to_string(),
             worker_node_id: None,
             result_hash: None,
+            task_type: "inference".to_string(),
+            redundancy_factor: 1,
         }
     }
 
@@ -584,7 +641,7 @@ mod tests {
 
         let sub = crate::types::TaskSubmission {
             project_id: "proj".into(),
-            task_type: "analysis".into(),
+            task_type: "inference".into(),
             prompt: "test".into(),
             system_prompt: String::new(),
             model: "llama3".into(),
