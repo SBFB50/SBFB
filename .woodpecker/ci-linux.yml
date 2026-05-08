@@ -9,7 +9,7 @@
 
 when:
   branch: [master, main]
-  event: [push, pull_request]
+  event: [push, pull_request, manual]
 
 steps:
   # ── Rust ──────────────────────────────────────────────────
