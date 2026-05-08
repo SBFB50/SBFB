@@ -4862,6 +4862,7 @@ dependencies = [
  "nexus-shell-daemon-core",
  "nexus-trace-core",
  "nexus-worker-core",
+ "rand 0.8.6",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

@@ -120,6 +120,8 @@ pub fn build_user_only_attributes() -> Result<PipeSecurity> {
     let mut sddl_w: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
 
     let mut sd = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: sddl_w is a valid null-terminated UTF-16 string on the stack;
+    // sd receives a kernel-allocated descriptor freed in PipeSecurity::drop.
     unsafe {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
             PCWSTR(sddl_w.as_mut_ptr()),
@@ -144,12 +146,16 @@ pub fn build_user_only_attributes() -> Result<PipeSecurity> {
 /// freed before the function returns.
 pub fn current_user_string_sid() -> Result<String> {
     let mut token = HANDLE::default();
+    // SAFETY: GetCurrentProcess() always returns a valid pseudo-handle;
+    // token receives an owned handle closed below.
     unsafe {
         OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)
             .context("OpenProcessToken")?;
     }
 
-    // First call: probe the size of the TOKEN_USER blob.
+    // SAFETY (block): token is a valid handle from OpenProcessToken above.
+    // GetTokenInformation probe call (size=0) is documented to return the
+    // required buffer size. CloseHandle on early-exit is safe on owned handles.
     let mut size = 0u32;
     let _ = unsafe { GetTokenInformation(token, TokenUser, None, 0, &mut size) };
     if size == 0 {
@@ -183,10 +189,14 @@ pub fn current_user_string_sid() -> Result<String> {
     let sid = token_user.User.Sid;
 
     let mut sid_str = PWSTR::null();
+    // SAFETY: sid points into the TOKEN_USER buffer validated above;
+    // ConvertSidToStringSidW allocates sid_str via LocalAlloc, freed below.
     let conv_res = unsafe { ConvertSidToStringSidW(sid, &mut sid_str) };
     let _ = unsafe { CloseHandle(token) };
     conv_res.context("ConvertSidToStringSidW")?;
 
+    // SAFETY: sid_str was allocated by ConvertSidToStringSidW; we copy
+    // it to a Rust String then free the Win32 allocation via LocalFree.
     let s = unsafe {
         let s = sid_str.to_string()?;
         let _ = LocalFree(HLOCAL(sid_str.0 as *mut _));
@@ -205,6 +215,8 @@ pub fn resolve_pipe_name() -> String {
 /// Subsequent instances are created inside the accept loop after
 /// each client connect.
 fn create_first_instance(name: &str, attrs: &PipeSecurity) -> Result<NamedPipeServer> {
+    // SAFETY: attrs.as_attrs_ptr() returns a valid SECURITY_ATTRIBUTES pointer
+    // kept alive by the PipeSecurity borrow; tokio consumes it during CreateNamedPipe.
     unsafe {
         ServerOptions::new()
             .first_pipe_instance(true)
@@ -214,6 +226,7 @@ fn create_first_instance(name: &str, attrs: &PipeSecurity) -> Result<NamedPipeSe
 }
 
 fn create_next_instance(name: &str, attrs: &PipeSecurity) -> Result<NamedPipeServer> {
+    // SAFETY: same as create_first_instance — attrs outlives the syscall.
     unsafe {
         ServerOptions::new()
             .create_with_security_attributes_raw(name, attrs.as_attrs_ptr())

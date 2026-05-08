@@ -511,7 +511,8 @@ async fn main() {
     if let Some(ref mut child) = spawned_child {
         #[cfg(unix)]
         {
-            // Send SIGTERM for graceful shutdown.
+            // SAFETY: child.id() is a valid PID of a process we spawned; sending
+            // SIGTERM is the standard graceful-shutdown signal on Unix.
             unsafe {
                 libc::kill(child.id() as i32, libc::SIGTERM);
             }

@@ -1002,10 +1002,8 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
 
         let mut outbox: Vec<Vec<u8>> = Vec::new();
         let mut neighbor_count: u32 = 0;
-        let republish_interval = std::time::Duration::from_secs(45);
-        let mut republish_timer = tokio::time::interval(republish_interval);
-        republish_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        republish_timer.reset();
+        let republish_delay = tokio::time::sleep(jittered_republish_duration());
+        tokio::pin!(republish_delay);
 
         loop {
             tokio::select! {
@@ -1120,7 +1118,7 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                         }
                     }
                 }
-                _ = republish_timer.tick() => {
+                _ = &mut republish_delay => {
                     if neighbor_count > 0 && !outbox.is_empty() {
                         for envelope in &outbox {
                             if let Err(e) = sender.broadcast(envelope.clone()).await {
@@ -1129,6 +1127,7 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                         }
                         debug!(entries = outbox.len(), neighbors = neighbor_count, "periodic republish completed");
                     }
+                    republish_delay.as_mut().reset(tokio::time::Instant::now() + jittered_republish_duration());
                 }
                 _ = &mut shutdown_rx => {
                     info!("gossip task shut down on signal");
@@ -1137,6 +1136,12 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
             }
         }
     })
+}
+
+fn jittered_republish_duration() -> std::time::Duration {
+    use rand::Rng;
+    let secs = rand::thread_rng().gen_range(30..=60);
+    std::time::Duration::from_secs(secs)
 }
 
 /// Hand a raw gossip message body to the curator runtime and

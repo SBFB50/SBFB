@@ -70,7 +70,7 @@ use thiserror::Error;
 /// without a separate out-of-band ticket. Sprint 3 version 1
 /// invites are rejected (the Sprint 4 kickoff §2 decision C is a
 /// hard bump — no v1 was ever distributed).
-pub const INVITE_VERSION: u8 = 2;
+pub const INVITE_FORMAT_VERSION: u16 = 2;
 
 /// Human-readable prefix prepended to every invite string.
 /// Chosen so a paste-capture in a chat window is obviously a
@@ -112,9 +112,9 @@ impl InviteScope {
 /// outside this struct is covered by the signature.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvitePayload {
-    /// Wire-format version. Always equal to [`INVITE_VERSION`]
+    /// Wire-format version. Always equal to [`INVITE_FORMAT_VERSION`]
     /// at mint time.
-    pub version: u8,
+    pub version: u16,
     /// Iroh document namespace id the worker will enroll into.
     /// Stored as the opaque string form coordinators use.
     pub project_id: String,
@@ -203,8 +203,10 @@ pub enum InviteError {
 
     /// The `version` field in the decoded invite is newer than
     /// the worker knows how to handle.
-    #[error("invite has unsupported version {0} (this worker knows version {INVITE_VERSION})")]
-    UnsupportedVersion(u8),
+    #[error(
+        "invite has unsupported version {0} (this worker knows version {INVITE_FORMAT_VERSION})"
+    )]
+    UnsupportedVersion(u16),
 
     /// The Ed25519 signature did not verify against the
     /// coordinator public key inside the invite.
@@ -249,7 +251,7 @@ impl Invite {
             return Err(InviteError::MissingTasksDocTicket);
         }
         let payload = InvitePayload {
-            version: INVITE_VERSION,
+            version: INVITE_FORMAT_VERSION,
             project_id: project_id.into(),
             project_name: project_name.into(),
             coordinator_pubkey: coordinator.public_bytes(),
@@ -293,7 +295,7 @@ impl Invite {
         let invite: Invite =
             serde_json::from_slice(&bytes).map_err(|e| InviteError::BadJson(e.to_string()))?;
 
-        if invite.payload.version != INVITE_VERSION {
+        if invite.payload.version != INVITE_FORMAT_VERSION {
             return Err(InviteError::UnsupportedVersion(invite.payload.version));
         }
 
@@ -418,7 +420,7 @@ mod tests {
         let coord = KeyPair::generate();
         let invite = sample_invite(&coord, 2_000_000_000);
         invite.verify_signature().unwrap();
-        assert_eq!(invite.payload.version, INVITE_VERSION);
+        assert_eq!(invite.payload.version, INVITE_FORMAT_VERSION);
         assert_eq!(invite.payload.coordinator_pubkey, coord.public_bytes());
         assert_eq!(invite.payload.scope, InviteScope::Worker);
     }

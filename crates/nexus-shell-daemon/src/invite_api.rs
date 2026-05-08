@@ -38,6 +38,7 @@ fn default_expiry_secs() -> i64 {
 
 const VALID_SCOPES: &[&str] = &["worker", "observer"];
 const MIN_EXPIRY_SECS: i64 = 60;
+const DEFAULT_PROJECT_NAME: &str = "sbfb";
 
 pub async fn create_invite(
     State(state): State<Arc<DaemonHttpState>>,
@@ -107,7 +108,7 @@ pub async fn create_invite(
     let invite = match nexus_worker_core::invite::Invite::mint(
         &state.pow_keypair,
         &project_id,
-        "sbfb",
+        DEFAULT_PROJECT_NAME,
         None,
         tasks_doc_ticket.clone(),
         scope,
@@ -140,7 +141,7 @@ pub async fn create_invite(
         &wire,
         &body.scope,
         &project_id,
-        "sbfb",
+        DEFAULT_PROJECT_NAME,
         expires_at,
     );
     req.max_uses = body.max_uses;

@@ -144,6 +144,8 @@ impl DaemonHandle {
         #[cfg(unix)]
         {
             if let Some(pid) = self.proc.id() {
+                // SAFETY: pid is a valid PID of a daemon process we spawned;
+                // SIGINT triggers the graceful ctrl-c shutdown handler.
                 unsafe {
                     libc::kill(pid as i32, libc::SIGINT);
                 }
