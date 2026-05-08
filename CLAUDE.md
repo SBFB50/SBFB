@@ -112,34 +112,31 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-54 CLOSED**, v1.2 en cours. Projet Rust+Frontend
-  pur depuis S50-S51. S54 : edition 2024 upgrade + dette pair
-  5 items P2 S53 + E2E wire tasks_doc_ticket + CI infra images
-  pin SHA256 + Rust CI fix. Phases A-D livrees (4 reviews PASS).
-  Phase E wrap-up (verification + audit_plan S55).
+- **Sprints 0-55 CLOSED**, v1.2 en cours. Projet Rust+Frontend
+  pur depuis S50-S51. S55 : CI self-hosted build Woodpecker +
+  LT-7 foundation (build executor + quorum SHA256) + P2 batch.
+  Phases A+A.1+B+C+D livrees (5 reviews PASS, 5 preflights G8).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
-  Gossip non-bloquant + outbox + browse pull + periodic republish.
-  GAP E2E CLOSED : tasks_doc_ticket cable dans invite format.
-- **~1463 tests total** (1207 Rust / 250 Vitest / 42+2f Playwright
+  CI operationnel : Woodpecker ci.sbfb.world + GHA.
+- **~1472 tests total** (1216 Rust / 250 Vitest / 42+2f Playwright
   / 6/6 size-limit) — tous verts code (2 PW env fail pre-existant).
-  S54 : +1 delta test Rust (1206→1207 Phase C). 0 delta frontend.
-- Carry S55 : P2-A-1 rand blocker upstream (exemption externe) ;
+  S55 : +9 delta test Rust (1207→1216 Phase B +4, Phase C +5).
+  0 delta frontend.
+- Carry S56 :
+  P2-S53-outbox non-persistant **3/3 MANDATORY** ;
+  P2-S53-browse_request rate-limit **3/3 MANDATORY** ;
+  P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  P2-S53-outbox non-persistant (2/3) ;
-  P2-S53-browse_request rate-limit (2/3) ;
-  P2-REVIEW-B-1-S52 Woodpecker serveur **3/3 MANDATORY**
-  (infra prete, serveur + webhooks TLS requis) ;
-  P2-REVIEW-B-2-S52 GHA validation post-push **3/3 MANDATORY**
-  (Rust CI fix committe, run ID a documenter post-push).
-  7 nouveaux P2 S54 (forbid→deny doc, lightcheck edition faux
-  positif, jitter republish, Windows test cfg(unix), test E2E
-  multi-noeuds, project_name hardcode, rustfmt drift sessions).
+  5 P2 a 2/3 (forbid-deny-doc, lightcheck, windows-test,
+  E2E multi-noeuds, rustfmt drift sessions) ;
+  4 nouveaux P2 S55 (build-timeout, remap-path, jitter-scope,
+  invite-u16-wire).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
-  LT-7 self-hosted build — **PRE-V1.0 OBLIGATOIRE** (S55).
+  LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 S56+.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.

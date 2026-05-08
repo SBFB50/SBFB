@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-07  # G2 — Sprint 54 CLOSED : edition 2024 upgrade + dette pair 5 P2 S53 + E2E wire tasks_doc_ticket + CI infra images pin SHA256 + Rust CI fix. Compteurs 1207 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1463 total. 0 trigger actif.
+last_validated: 2026-05-08  # G2 — Sprint 55 CLOSED : CI self-hosted build Woodpecker + LT-7 foundation (build executor + quorum SHA256) + P2 batch. Compteurs 1216 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1472 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
