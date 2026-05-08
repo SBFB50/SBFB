@@ -22,14 +22,16 @@ compliant=0
 
 while IFS= read -r file; do
   # Read first 5 lines and check for SPDX tag
-  if head -n 5 "$file" | grep -qF "$SPDX_TAG"; then
+  if head -n 5 "$file" | tr -d '\r' | grep -qF "$SPDX_TAG"; then
     compliant=$((compliant + 1))
   else
     missing+=("$file")
   fi
 done < <(
   find "$REPO_ROOT/crates" -name '*.rs' -not -path '*/target/*'
-  find "$REPO_ROOT/packages" -name '*.py' -not -path '*/__pycache__/*' -not -path '*/.venv/*'
+  if [ -d "$REPO_ROOT/packages" ]; then
+    find "$REPO_ROOT/packages" -name '*.py' -not -path '*/__pycache__/*' -not -path '*/.venv/*'
+  fi
   find "$REPO_ROOT/web/src" \( -name '*.ts' -o -name '*.tsx' \) -not -path '*/node_modules/*'
 )
 
