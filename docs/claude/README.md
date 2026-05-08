@@ -1859,20 +1859,28 @@ Ne pas filtrer par "langage touché" — lancer les 3 blocs.
 Tout rouge bloque le commit. Pas de `--no-verify`, pas de
 `#[ignore]` ajouté pour faire passer. Root cause d'abord.
 
-**Pre-push obligatoire : clippy + tests WSL Linux.** Les checks
-Windows ne couvrent pas les chemins `cfg(target_os = "linux")`
-(journald socket, `/proc/comm` truncation 15 chars, SIGINT handler
-via `libc`). `cargo nextest` seul ne suffit pas — il ne vérifie
-pas les lints (dead code, imports inutilisés dans les blocs
-`#[cfg(unix)]`). **AVANT tout push**, lancer clippy + tests sur
-WSL :
+**Pre-push obligatoire : Rust + Frontend sur WSL Linux.** Les
+checks Windows ne couvrent pas les chemins `cfg(target_os =
+"linux")` (journald socket, `/proc/comm` truncation 15 chars,
+SIGINT handler via `libc`). `cargo nextest` seul ne suffit pas —
+il ne vérifie pas les lints (dead code, imports inutilisés dans
+les blocs `#[cfg(unix)]`). Le build frontend peut aussi échouer
+sur Linux même s'il passe sur Windows : `npm ci` avec un lockfile
+généré sous Windows ne télécharge pas les binaires natifs Linux
+(ex. `lightningcss-linux-x64-gnu`). **AVANT tout push**, lancer
+Rust + frontend sur WSL :
 
 ```powershell
-wsl -d Ubuntu -- bash -c "source ~/.cargo/env && cd /mnt/c/Users/FlowUP/Documents/Code/nexus && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo nextest run --workspace --locked"
+wsl -d Ubuntu -- bash -c "source ~/.cargo/env && cd /mnt/c/Users/FlowUP/Documents/Code/nexus && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo nextest run --workspace --locked && cd web && npm ci && npm install --no-save lightningcss-linux-x64-gnu && npm run build"
 ```
 
-Cycle obligatoire = fix local (Windows) → clippy + tests WSL
-Linux → clippy + tests Windows → tout vert → commit + push.
+Note : `npm install --no-save lightningcss-linux-x64-gnu` est
+nécessaire après `npm ci` car le lockfile Windows ne contient pas
+les optional dependencies Linux. Sans cela, le build Vite échoue
+avec une erreur `lightningcss` introuvable.
+
+Cycle obligatoire = fix local (Windows) → Rust + frontend WSL
+Linux → Rust + frontend Windows → tout vert → commit + push.
 Ne JAMAIS pusher avec seulement les checks Windows verts.
 Lancer la commande WSL en `run_in_background` pour ne pas
 bloquer la conversation.

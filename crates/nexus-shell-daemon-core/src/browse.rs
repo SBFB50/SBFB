@@ -271,6 +271,8 @@ pub struct BrowseAggregator {
     /// `Unreachable`. `NoMajority` (eclipse signal) is NOT
     /// overridden — DNS fallback only covers connectivity failures.
     dns_fallback: Option<Arc<dyn DnsFallbackResolve>>,
+    #[cfg(test)]
+    probe_call_count: std::sync::atomic::AtomicU32,
 }
 
 impl fmt::Debug for BrowseAggregator {
@@ -317,6 +319,8 @@ impl BrowseAggregator {
             quorum_resolvers: None,
             quorum_per_lookup_timeout: DEFAULT_QUORUM_LOOKUP_TIMEOUT,
             dns_fallback: None,
+            #[cfg(test)]
+            probe_call_count: std::sync::atomic::AtomicU32::new(0),
         }
     }
 
@@ -352,6 +356,11 @@ impl BrowseAggregator {
     /// canary gate (default for tests).
     pub fn quorum_resolver_count(&self) -> usize {
         self.quorum_resolvers.as_ref().map(|v| v.len()).unwrap_or(0)
+    }
+
+    #[cfg(test)]
+    fn probe_call_count(&self) -> u32 {
+        self.probe_call_count.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Return the current cached reachability bucket for
@@ -476,6 +485,9 @@ impl BrowseAggregator {
                 }
             }
         }
+
+        #[cfg(test)]
+        self.probe_call_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let disco = DiscoveryClient::new(node.endpoint());
         let now = SystemTime::now();
@@ -1354,24 +1366,17 @@ mod tests {
         let agg = BrowseAggregator::with_durations(DEFAULT_PROBE_TTL, Duration::from_millis(100))
             .with_quorum_resolvers(resolvers);
         assert_eq!(agg.quorum_resolver_count(), 3);
+        assert_eq!(agg.probe_call_count(), 0);
 
         let node = spawn_node().await;
         let unknown_id = "d".repeat(64);
 
-        let start = std::time::Instant::now();
         let (status, _ts) = agg.probe_and_cache(&node, &unknown_id).await;
-        let elapsed = start.elapsed();
 
-        assert!(
-            elapsed >= Duration::from_millis(3),
-            "quorum happy path must let probe_reachable run, got {elapsed:?} — \
-             a < 1 ms result indicates the dial path was skipped like the \
-             short-circuit branches, i.e. an Eclipse-by-DHT regression where \
-             the quorum gate now blocks even on agreement"
-        );
-        assert!(
-            elapsed < Duration::from_secs(2),
-            "probe_timeout (100 ms) must dominate ; 2 s is a sanity cap, got {elapsed:?}"
+        assert_eq!(
+            agg.probe_call_count(),
+            1,
+            "quorum happy path must call probe_reachable exactly once"
         );
         assert_eq!(
             status,
@@ -1411,21 +1416,19 @@ mod tests {
         let agg = BrowseAggregator::with_durations(DEFAULT_PROBE_TTL, Duration::from_millis(100))
             .with_quorum_resolvers(resolvers)
             .with_dns_fallback(dns);
+        assert_eq!(agg.probe_call_count(), 0);
 
         let node = spawn_node().await;
         let unknown_id = "e".repeat(64);
 
-        let start = std::time::Instant::now();
         let (status, _ts) = agg.probe_and_cache(&node, &unknown_id).await;
-        let elapsed = start.elapsed();
 
-        // The probe fires (DNS fallback green-lit it), but the
-        // peer is random/unknown so it probes as Unreachable.
-        assert_eq!(status, BrowseStatus::Unreachable);
-        assert!(
-            elapsed >= Duration::from_millis(3),
-            "DNS fallback must let probe_reachable run after AllFailed, got {elapsed:?}"
+        assert_eq!(
+            agg.probe_call_count(),
+            1,
+            "DNS fallback must let probe_reachable run after AllFailed"
         );
+        assert_eq!(status, BrowseStatus::Unreachable);
 
         node.shutdown().await.ok();
     }
