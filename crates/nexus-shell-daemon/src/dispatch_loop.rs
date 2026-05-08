@@ -99,10 +99,13 @@ mod tests {
         let task_id = entry.task.task_id.clone();
         tx.send(entry).await.expect("send");
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Yield to let the spawned task process the buffered message,
+        // then signal shutdown. The mpsc message is already in the
+        // channel buffer so recv() will return it before shutdown fires.
+        tokio::task::yield_now().await;
         drop(tx);
         let _ = shutdown_tx.send(());
-        let _ = handle.await;
+        handle.await.expect("dispatch loop joins");
 
         let entries = doc
             .get_many_by_prefix(b"tasks/")

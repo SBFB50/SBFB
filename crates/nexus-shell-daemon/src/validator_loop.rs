@@ -148,9 +148,8 @@ mod tests {
         let handle = tokio::spawn(run(db_clone, rx));
 
         tx.send(ResultEvent::NewResult(entry)).expect("send");
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         drop(tx);
-        let _ = handle.await;
+        handle.await.expect("validator loop joins");
 
         let guard = db.lock().unwrap();
         let task = guard.get_task("task-vl-1").expect("get").expect("found");
@@ -173,9 +172,8 @@ mod tests {
         tx.send(ResultEvent::NewResult(entry.clone()))
             .expect("send 1");
         tx.send(ResultEvent::NewResult(entry)).expect("send 2");
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         drop(tx);
-        let _ = handle.await;
+        handle.await.expect("validator loop joins");
 
         let guard = db.lock().unwrap();
         assert_eq!(
@@ -199,9 +197,8 @@ mod tests {
         let handle = tokio::spawn(run(db_clone, rx));
 
         tx.send(ResultEvent::NewResult(entry)).expect("send");
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         drop(tx);
-        let _ = handle.await;
+        handle.await.expect("validator loop joins");
 
         let guard = db.lock().unwrap();
         let task = guard.get_task("task-vl-3").expect("get").expect("found");

@@ -1693,12 +1693,14 @@ burst_multiplier = 1.0
         let tx = engine.take_shutdown_sender().unwrap();
         let handle = tokio::spawn(async move { engine.run_until_shutdown().await });
 
-        // Give the engine enough ticks to observe the task and run
-        // the gate. 1.5s at `task_poll_interval_ms = 100` is ~15
-        // scan cycles — plenty to confirm the gate rejected the
-        // task (if a claim were going to be written, it would have
-        // been written by now).
-        tokio::time::sleep(Duration::from_millis(1500)).await;
+        // Advance time deterministically so the engine sees enough
+        // ticks to observe the task. Using tokio::time::pause +
+        // advance avoids wall-clock sensitivity across fast/slow CI.
+        tokio::time::pause();
+        for _ in 0..15 {
+            tokio::time::advance(Duration::from_millis(100)).await;
+            tokio::task::yield_now().await;
+        }
 
         let claims = doc.get_many_by_prefix(b"claim:").await.unwrap();
         assert!(
@@ -1708,6 +1710,7 @@ burst_multiplier = 1.0
         );
 
         let _ = tx.send(());
+        tokio::time::resume();
         handle.await.unwrap().unwrap();
     }
 
@@ -1748,7 +1751,11 @@ burst_multiplier = 1.0
         let tx = engine.take_shutdown_sender().unwrap();
         let handle = tokio::spawn(async move { engine.run_until_shutdown().await });
 
-        tokio::time::sleep(Duration::from_millis(1500)).await;
+        tokio::time::pause();
+        for _ in 0..15 {
+            tokio::time::advance(Duration::from_millis(100)).await;
+            tokio::task::yield_now().await;
+        }
 
         let tasks = doc.get_many_by_prefix(b"task:").await.unwrap();
         assert_eq!(
@@ -1770,6 +1777,7 @@ burst_multiplier = 1.0
         );
 
         let _ = tx.send(());
+        tokio::time::resume();
         handle.await.unwrap().unwrap();
     }
 
