@@ -28,6 +28,7 @@ import {
   setAppState,
   SubmitAppTaskBodySchema,
 } from "@/api/coordinator";
+import { authFetch } from "@/api/auth";
 import { detectAndRedact, type PiiPolicy } from "@/sdk/pii";
 
 /**
@@ -238,7 +239,7 @@ async function dispatch(
       case "storage_get": {
         const key = String(req.payload.key ?? "");
         if (!key) throw new Error("storage_get requires payload.key");
-        const resp = await fetch(
+        const resp = await authFetch(
           `${coordUrl}/app/${encodeURIComponent(appName)}/state/${encodeURIComponent(key)}`,
           { signal: controller.signal },
         );
@@ -257,7 +258,7 @@ async function dispatch(
       case "storage_list": {
         const prefix = String(req.payload.prefix ?? "");
         const qs = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
-        const resp = await fetch(
+        const resp = await authFetch(
           `${coordUrl}/app/${encodeURIComponent(appName)}/state${qs}`,
           { signal: controller.signal },
         );
@@ -268,7 +269,7 @@ async function dispatch(
       case "storage_delete": {
         const key = String(req.payload.key ?? "");
         if (!key) throw new Error("storage_delete requires payload.key");
-        const resp = await fetch(
+        const resp = await authFetch(
           `${coordUrl}/app/${encodeURIComponent(appName)}/state/${encodeURIComponent(key)}`,
           { method: "DELETE", signal: controller.signal },
         );
@@ -277,7 +278,7 @@ async function dispatch(
       }
 
       case "identity_pubkey": {
-        const resp = await fetch(`${coordUrl}/api/daemon/info`, {
+        const resp = await authFetch(`${coordUrl}/api/daemon/info`, {
           signal: controller.signal,
         });
         if (!resp.ok) throw new Error(`identity_pubkey failed: ${resp.status}`);
@@ -286,16 +287,24 @@ async function dispatch(
       }
 
       case "node_status": {
-        const resp = await fetch(
-          `${coordUrl}/api/v1/coordinator/health`,
-          { signal: controller.signal },
-        );
-        if (!resp.ok) throw new Error(`node_status failed: ${resp.status}`);
-        return await resp.json();
+        const [healthResp, infoResp] = await Promise.all([
+          authFetch(`${coordUrl}/api/v1/coordinator/health`, {
+            signal: controller.signal,
+          }),
+          authFetch(`${coordUrl}/api/daemon/info`, {
+            signal: controller.signal,
+          }),
+        ]);
+        if (!healthResp.ok) throw new Error(`node_status failed: ${healthResp.status}`);
+        const health = await healthResp.json();
+        const peers = infoResp.ok
+          ? ((await infoResp.json()) as { known_browse_entries?: number; subscribed_curators?: string[] }).subscribed_curators?.length ?? 0
+          : 0;
+        return { ...health, peers };
       }
 
       case "browse_list": {
-        const resp = await fetch(`${coordUrl}/api/daemon/browse`, {
+        const resp = await authFetch(`${coordUrl}/api/daemon/browse`, {
           signal: controller.signal,
         });
         if (!resp.ok) throw new Error(`browse_list failed: ${resp.status}`);

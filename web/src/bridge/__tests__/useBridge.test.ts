@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 
 import { useBridge } from "../useBridge";
+import { primeAuthToken } from "@/api/auth";
 import type { BridgeRequest, BridgeResponse } from "../protocol";
 
 function makeRequest(overrides: Partial<BridgeRequest> = {}): BridgeRequest {
@@ -34,9 +35,11 @@ describe("useBridge", () => {
         contentWindow: fakeWindow as unknown as Window,
       } as HTMLIFrameElement,
     };
+    primeAuthToken("deadbeefcafebabe0123456789abcdef0123456789abcdef0123456789abcdef");
   });
 
   afterEach(() => {
+    primeAuthToken(null);
     vi.restoreAllMocks();
   });
 
@@ -213,13 +216,20 @@ describe("useBridge", () => {
       expect((resp.data as { pubkey: string }).pubkey).toBe("abc123def456");
     });
 
-    it("dispatches node_status via coordinator health", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ status: "ok", uptime_secs: 42 }),
-          { status: 200 },
-        ),
-      );
+    it("dispatches node_status with peers enrichment", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ status: "ok", uptime_secs: 42 }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ subscribed_curators: ["aaa", "bbb"] }),
+            { status: 200 },
+          ),
+        );
       renderHook(() => useBridge("http://localhost:8000", "gov", iframeRef));
 
       const req = makeRequest({
@@ -240,7 +250,10 @@ describe("useBridge", () => {
 
       const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
       expect(resp.success).toBe(true);
-      expect((resp.data as { status: string }).status).toBe("ok");
+      const data = resp.data as { status: string; peers: number };
+      expect(data.status).toBe("ok");
+      expect(data.peers).toBe(2);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 
     it("dispatches browse_list via daemon browse", async () => {
@@ -273,6 +286,35 @@ describe("useBridge", () => {
       const data = resp.data as { entries: Array<{ project_name: string }> };
       expect(data.entries).toHaveLength(1);
       expect(data.entries[0].project_name).toBe("Hello");
+    });
+
+    it("injects x-sbfb-token header via authFetch", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ entries: [] }), { status: 200 }),
+      );
+      renderHook(() => useBridge("http://localhost:8000", "gov", iframeRef));
+
+      const req = makeRequest({
+        id: "77777777-7777-4777-8777-777777777777",
+        method: "browse_list",
+        payload: {},
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const [, init] = fetchSpy.mock.calls[0];
+      const headers = init?.headers as Headers;
+      expect(headers.get("x-sbfb-token")).toBe(
+        "deadbeefcafebabe0123456789abcdef0123456789abcdef0123456789abcdef",
+      );
     });
   });
 
