@@ -1109,6 +1109,9 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                 cmd = cmd_rx.recv() => {
                     match cmd {
                         Some(GossipCmd::Outbox(envelope)) => {
+                            // Best-effort DB persistence: gossip broadcast is the
+                            // primary transport, DB insert is boot-recovery only.
+                            // A failed insert still allows in-memory replay + broadcast.
                             if let Ok(guard) = coordinator_db.lock() {
                                 if let Err(e) = guard.insert_outbox(&envelope) {
                                     warn!(error = %e, "outbox DB insert failed");
