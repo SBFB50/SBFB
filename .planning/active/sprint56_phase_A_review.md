@@ -56,11 +56,24 @@ Rigor signal : 2 findings P2+ documentes / >=1 requis pour PASS.
 - P2 : clear_outbox() non wire dans runtime — table croit
   indefiniment. MVP acceptable (scope cut §6 "Outbox
   rotation/compaction TTL — S57+"). Carry S57.
+- P2 : le SMART kickoff dit "outbox survit un restart daemon
+  dans test", mais la preuve est DB reopen + wiring runtime
+  lineaire (5 LOC, pas de branche). Un test DaemonRuntime
+  restart/replay E2E (>150 LOC, mock iroh) releve du track
+  P2-S54-test-E2E-multi-noeuds (carry S57 3/3 MANDATORY).
+  La couche DB est prouvee, le wiring est trivial-by-inspection.
+- P2 : la durabilite au publish est best-effort par design
+  (gossip broadcast = transport primaire, DB = boot-recovery).
+  Documente inline runtime.rs:1112. Le send(GossipCmd::Outbox)
+  cote HTTP peut aussi echouer silencieusement (http.rs:915) —
+  meme rationale best-effort, a logger si volume gossip augmente.
 - P3 : insert_outbox() lock Mutex meme CoordinatorDb que HTTP
   handlers. Contention faible (1 insert par publish). A surveiller
   post-v1.0.
 
 ## Recommendation
 - Ready to commit : oui
-- Carry-overs S57 : outbox rotation/compaction TTL (P2)
+- Carry-overs S57 : outbox rotation/compaction TTL (P2),
+  test daemon restart/replay E2E (subsume par E2E multi-noeuds
+  3/3 MANDATORY S57)
 - Corrections : aucune
