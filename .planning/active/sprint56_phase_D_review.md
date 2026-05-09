@@ -21,7 +21,7 @@ Rigor signal : 1 P2 + 1 P3 documentes (>=1 P2+ requis pour PASS rigoureux)
 - cargo build --release : OK
 - npm lint : 0 error (5 warnings pre-existants)
 - tsc : 0 error
-- Vitest : 212 pass / 44 fail pre-existant (Node v25.2.1 localStorage conflit zustand/jsdom — 0 delta Phase D, aucun fichier frontend touche)
+- Vitest : 212 pass / 44 fail pre-existant (Node v25.2.1 localStorage conflit zustand/jsdom — 256 total, 0 delta Phase D, aucun fichier frontend touche)
 - npm build : OK
 - size-limit : 6/6
 
@@ -29,9 +29,11 @@ Rigor signal : 1 P2 + 1 P3 documentes (>=1 P2+ requis pour PASS rigoureux)
 | Suite | Entree S56 | Phase A | Phase B | Phase C | Phase D | Cumule |
 |---|---|---|---|---|---|---|
 | Rust nextest | 1216 | +3 | +4 | +2 | +2 | 1227 |
-| Vitest | 250 | +0 | +0 | +5 | +0 | 255 |
+| Vitest | 250 | +0 | +0 | +5 (+1 fix) | +0 | 256 |
 
 Plan attendait Phase D : +2 Rust / +0 Vitest — **exact match**.
+Note : fix commit `89f8a2f` (post-Phase C GPT review) a ajoute
++1 Vitest (auth header test), portant le total de 255 a 256.
 
 ## Commit body validation
 - Format titre : `feat(sprint56): Sprint 56 Phase D — dette pair P2 batch`
@@ -67,6 +69,14 @@ Plan attendait Phase D : +2 Rust / +0 Vitest — **exact match**.
 
 - **P3** : `docker/ci/Dockerfile` passe de `rust:1.95.0` a `rust:1.94` sans SHA256 digest. Le Woodpecker CI utilise des digests (supply chain S54). Le Docker helper est local seulement (commentaire "NOT the CI pipeline"), donc le risque supply chain est mineur. Coherent avec le scope dette.
 
+## Post-commit corrections (GPT 5.5 review)
+- Compteur Vitest corrige : 256 (pas 255). Le fix `89f8a2f` post-Phase C avait ajoute +1 Vitest non comptabilise dans le plan cumule.
+- Ajout carry-over : timeout global execute_build (git clone/checkout utilisent .output() sans timeout — seul cargo build est protege).
+- Lightcheck fix = reduction des faux positifs (whitespace-only filtre), pas elimination de la classe entiere (un reorder d'imports qui change aussi du contenu non-whitespace passerait le filtre).
+
 ## Recommendation
-- Ready to commit : **oui**
-- Carry-overs S57+ : build executor pipe deadlock prevention si piped stdout ajoute (P2)
+- Ready to commit : **oui** (deja committe `cff6d06`)
+- Carry-overs S57+ :
+  - Build executor pipe deadlock prevention si piped stdout ajoute (P2)
+  - Build executor timeout global (git clone/checkout sans timeout) (P3)
+  - Node v25 localStorage zustand/jsdom conflit — 44 Vitest fails pre-existants (P2)
