@@ -688,6 +688,14 @@ impl DaemonRuntime {
         //    policy's topic difficulty.
         let (gossip_shutdown_tx, gossip_shutdown_rx) = oneshot::channel::<()>();
         let bootstrap_peers = curator_runtime.subscribed_pubkeys_hex();
+        let initial_outbox = {
+            let guard = coordinator_db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
+            guard
+                .load_outbox()
+                .map_err(|e| anyhow::anyhow!("outbox load failed: {e}"))?
+        };
         let gossip_handle = spawn_gossip_subscribe_task(GossipTaskConfig {
             node: Arc::clone(&node),
             curator_runtime: Arc::clone(&curator_runtime),
@@ -701,6 +709,8 @@ impl DaemonRuntime {
             pow_solve_cache: Arc::clone(&pow_solve_cache),
             pow_keypair: Arc::clone(&pow_keypair),
             curator_topic,
+            coordinator_db: Arc::clone(&coordinator_db),
+            initial_outbox,
         });
 
         Ok(Self {
@@ -955,6 +965,8 @@ struct GossipTaskConfig {
     pow_solve_cache: Arc<PowSolveCache>,
     pow_keypair: Arc<KeyPair>,
     curator_topic: [u8; 32],
+    coordinator_db: std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    initial_outbox: Vec<Vec<u8>>,
 }
 
 /// Spawn the background task that subscribes to the curator
@@ -974,6 +986,8 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
         pow_solve_cache,
         pow_keypair,
         curator_topic,
+        coordinator_db,
+        initial_outbox,
     } = cfg;
     tokio::spawn(async move {
         let gossip = GossipClient::new(node.gossip());
@@ -1000,7 +1014,13 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
             *lock = Some(sender.clone());
         }
 
-        let mut outbox: Vec<Vec<u8>> = Vec::new();
+        let mut outbox: Vec<Vec<u8>> = initial_outbox;
+        if !outbox.is_empty() {
+            info!(
+                entries = outbox.len(),
+                "gossip: loaded persisted outbox from DB"
+            );
+        }
         let mut neighbor_count: u32 = 0;
         let republish_delay = tokio::time::sleep(jittered_republish_duration());
         tokio::pin!(republish_delay);
@@ -1089,6 +1109,11 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                 cmd = cmd_rx.recv() => {
                     match cmd {
                         Some(GossipCmd::Outbox(envelope)) => {
+                            if let Ok(guard) = coordinator_db.lock() {
+                                if let Err(e) = guard.insert_outbox(&envelope) {
+                                    warn!(error = %e, "outbox DB insert failed");
+                                }
+                            }
                             outbox.push(envelope.clone());
                             if neighbor_count > 0 {
                                 if let Err(e) = sender.broadcast(envelope).await {

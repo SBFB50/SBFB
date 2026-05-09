@@ -125,6 +125,14 @@ static MIGRATIONS: &[M<'static>] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_task_results_task ON task_results(task_id);",
     ),
+    // M6: gossip outbox persistence (Sprint 56 Phase A)
+    M::up(
+        "CREATE TABLE IF NOT EXISTS gossip_outbox (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        envelope   BLOB NOT NULL,
+        added_at   INTEGER NOT NULL
+    );",
+    ),
 ];
 
 pub struct CoordinatorDb {
@@ -396,6 +404,35 @@ impl CoordinatorDb {
         Ok(result)
     }
 
+    pub fn load_outbox(&self) -> Result<Vec<Vec<u8>>, CoordinatorError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT envelope FROM gossip_outbox ORDER BY id ASC")?;
+        let rows = stmt.query_map([], |row| row.get::<_, Vec<u8>>(0))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn insert_outbox(&self, envelope: &[u8]) -> Result<(), CoordinatorError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.conn.execute(
+            "INSERT INTO gossip_outbox (envelope, added_at) VALUES (?1, ?2)",
+            rusqlite::params![envelope, now as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_outbox(&self) -> Result<(), CoordinatorError> {
+        self.conn.execute("DELETE FROM gossip_outbox", [])?;
+        Ok(())
+    }
+
     pub(crate) fn conn(&self) -> &Connection {
         &self.conn
     }
@@ -630,6 +667,46 @@ mod tests {
             .pragma_query_value(None, "journal_mode", |row| row.get(0))
             .expect("pragma");
         assert_eq!(mode.to_lowercase(), "wal");
+    }
+
+    #[test]
+    fn insert_and_load_outbox() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.insert_outbox(b"envelope-1").expect("insert 1");
+        db.insert_outbox(b"envelope-2").expect("insert 2");
+        db.insert_outbox(b"envelope-3").expect("insert 3");
+
+        let loaded = db.load_outbox().expect("load");
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded[0], b"envelope-1");
+        assert_eq!(loaded[1], b"envelope-2");
+        assert_eq!(loaded[2], b"envelope-3");
+    }
+
+    #[test]
+    fn clear_outbox() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.insert_outbox(b"envelope-a").expect("insert");
+        assert_eq!(db.load_outbox().expect("load").len(), 1);
+
+        db.clear_outbox().expect("clear");
+        assert!(db.load_outbox().expect("load").is_empty());
+    }
+
+    #[test]
+    fn outbox_survives_reopen() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("coordinator.db");
+
+        {
+            let db = CoordinatorDb::open(&path).expect("open");
+            db.insert_outbox(b"persistent-envelope").expect("insert");
+        }
+
+        let db2 = CoordinatorDb::open(&path).expect("reopen");
+        let loaded = db2.load_outbox().expect("load");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0], b"persistent-envelope");
     }
 
     #[test]
