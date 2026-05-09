@@ -254,6 +254,54 @@ async function dispatch(
         return await setAppState(coordUrl, appName, key, body as Record<string, unknown>);
       }
 
+      case "storage_list": {
+        const prefix = String(req.payload.prefix ?? "");
+        const qs = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
+        const resp = await fetch(
+          `${coordUrl}/app/${encodeURIComponent(appName)}/state${qs}`,
+          { signal: controller.signal },
+        );
+        if (!resp.ok) throw new Error(`storage_list failed: ${resp.status}`);
+        return await resp.json();
+      }
+
+      case "storage_delete": {
+        const key = String(req.payload.key ?? "");
+        if (!key) throw new Error("storage_delete requires payload.key");
+        const resp = await fetch(
+          `${coordUrl}/app/${encodeURIComponent(appName)}/state/${encodeURIComponent(key)}`,
+          { method: "DELETE", signal: controller.signal },
+        );
+        if (!resp.ok) throw new Error(`storage_delete failed: ${resp.status}`);
+        return await resp.json();
+      }
+
+      case "identity_pubkey": {
+        const resp = await fetch(`${coordUrl}/api/daemon/info`, {
+          signal: controller.signal,
+        });
+        if (!resp.ok) throw new Error(`identity_pubkey failed: ${resp.status}`);
+        const info = await resp.json();
+        return { pubkey: info.node_id };
+      }
+
+      case "node_status": {
+        const resp = await fetch(
+          `${coordUrl}/api/v1/coordinator/health`,
+          { signal: controller.signal },
+        );
+        if (!resp.ok) throw new Error(`node_status failed: ${resp.status}`);
+        return await resp.json();
+      }
+
+      case "browse_list": {
+        const resp = await fetch(`${coordUrl}/api/daemon/browse`, {
+          signal: controller.signal,
+        });
+        if (!resp.ok) throw new Error(`browse_list failed: ${resp.status}`);
+        return await resp.json();
+      }
+
       default:
         throw new Error(`unknown bridge method: ${req.method}`);
     }

@@ -125,6 +125,157 @@ describe("useBridge", () => {
     });
   });
 
+  describe("bridge extensions Sprint 56 Phase C", () => {
+    it("dispatches storage_list via fetch", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ entries: [], count: 0 }), { status: 200 }),
+      );
+      renderHook(() => useBridge("http://localhost:8000", "gov", iframeRef));
+
+      const req = makeRequest({
+        id: "22222222-2222-4222-8222-222222222222",
+        method: "storage_list",
+        payload: { prefix: "user:" },
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/app/gov/state?prefix=user%3A"),
+        expect.any(Object),
+      );
+    });
+
+    it("dispatches storage_delete via DELETE fetch", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+      renderHook(() => useBridge("http://localhost:8000", "gov", iframeRef));
+
+      const req = makeRequest({
+        id: "33333333-3333-4333-8333-333333333333",
+        method: "storage_delete",
+        payload: { key: "temp" },
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/app/gov/state/temp"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+
+    it("dispatches identity_pubkey via daemon info", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ node_id: "abc123def456" }), { status: 200 }),
+      );
+      renderHook(() => useBridge("http://localhost:8000", "gov", iframeRef));
+
+      const req = makeRequest({
+        id: "44444444-4444-4444-8444-444444444444",
+        method: "identity_pubkey",
+        payload: {},
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      expect((resp.data as { pubkey: string }).pubkey).toBe("abc123def456");
+    });
+
+    it("dispatches node_status via coordinator health", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ status: "ok", uptime_secs: 42 }),
+          { status: 200 },
+        ),
+      );
+      renderHook(() => useBridge("http://localhost:8000", "gov", iframeRef));
+
+      const req = makeRequest({
+        id: "55555555-5555-4555-8555-555555555555",
+        method: "node_status",
+        payload: {},
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      expect((resp.data as { status: string }).status).toBe("ok");
+    });
+
+    it("dispatches browse_list via daemon browse", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ entries: [{ project_name: "Hello" }] }),
+          { status: 200 },
+        ),
+      );
+      renderHook(() => useBridge("http://localhost:8000", "gov", iframeRef));
+
+      const req = makeRequest({
+        id: "66666666-6666-4666-8666-666666666666",
+        method: "browse_list",
+        payload: {},
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      const data = resp.data as { entries: Array<{ project_name: string }> };
+      expect(data.entries).toHaveLength(1);
+      expect(data.entries[0].project_name).toBe("Hello");
+    });
+  });
+
   describe("pushEvent (Sprint 15 Phase A)", () => {
     it("posts a bridge-event to the iframe contentWindow", () => {
       const { result } = renderHook(() =>

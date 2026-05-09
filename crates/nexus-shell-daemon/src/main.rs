@@ -48,6 +48,7 @@ mod panic;
 mod quarantine_api;
 mod runtime;
 mod shell_api;
+mod storage_api;
 mod tasks_api;
 #[cfg(unix)]
 mod uds_server;

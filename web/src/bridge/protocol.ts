@@ -25,6 +25,12 @@ export const BridgeMethodSchema = z.enum([
   // locally in the host shell (no coordinator round-trip) so apps
   // can redact prompts before calling `task_submit`.
   "pii_redact",
+  // Sprint 56 Phase C — bridge extensions for pre-v1.0 apps.
+  "storage_list",
+  "storage_delete",
+  "identity_pubkey",
+  "node_status",
+  "browse_list",
 ]);
 
 export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;

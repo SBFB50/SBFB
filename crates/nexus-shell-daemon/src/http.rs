@@ -158,6 +158,9 @@ pub struct DaemonHttpState {
     /// task submit handler sends signed TaskEntry values here; the
     /// dispatch loop writes them to the project doc sequentially.
     pub task_dispatch_tx: Option<crate::dispatch_loop::TaskEntrySender>,
+    /// Sprint 56 Phase C: per-app in-memory key-value storage for the
+    /// bridge `storage_*` methods.
+    pub app_storage: crate::storage_api::AppStorage,
 }
 
 impl DaemonHttpState {
@@ -299,6 +302,13 @@ pub fn build_router(
         )
         .route("/api/v1/apps", get(crate::apps::list_apps))
         .route("/api/v1/apps/{project_id}", get(crate::apps::get_app))
+        .route("/app/{name}/state", get(crate::storage_api::storage_list))
+        .route(
+            "/app/{name}/state/{key}",
+            get(crate::storage_api::storage_get)
+                .post(crate::storage_api::storage_set)
+                .delete(crate::storage_api::storage_delete),
+        )
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
             "/api/v1/deploy-from-repo",
@@ -1772,6 +1782,7 @@ mod tests {
             sbfb_home: None,
             project_doc: None,
             task_dispatch_tx: None,
+            app_storage: crate::storage_api::new_app_storage(),
         })
     }
 
@@ -2526,6 +2537,7 @@ mod tests {
             sbfb_home: None,
             project_doc: None,
             task_dispatch_tx: None,
+            app_storage: crate::storage_api::new_app_storage(),
         });
         let app = build_test_router(state);
         let resp = app

@@ -608,6 +608,7 @@ impl DaemonRuntime {
             sbfb_home: None,
             project_doc: Some(Arc::clone(&project_doc)),
             task_dispatch_tx: Some(task_dispatch_tx),
+            app_storage: crate::storage_api::new_app_storage(),
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being

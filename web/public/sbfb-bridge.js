@@ -204,6 +204,50 @@ class SBFBBridge {
   }
 
   /**
+   * List keys in the app's storage, optionally filtered by prefix.
+   * Sprint 56 Phase C.
+   * @param {string} [prefix] — key prefix filter (empty = all)
+   * @returns {Promise<{ entries: Array<{key: string, value: *}>, count: number }>}
+   */
+  listStorage(prefix) {
+    return this._call("storage_list", { prefix: prefix || "" });
+  }
+
+  /**
+   * Delete a key from the app's storage. Sprint 56 Phase C.
+   * @param {string} key — storage key to remove
+   * @returns {Promise<{ ok: boolean }>}
+   */
+  deleteStorage(key) {
+    return this._call("storage_delete", { key: key });
+  }
+
+  /**
+   * Get the local node's Ed25519 public key. Sprint 56 Phase C.
+   * @returns {Promise<{ pubkey: string }>}
+   */
+  getIdentityPubkey() {
+    return this._call("identity_pubkey", {});
+  }
+
+  /**
+   * Get the daemon's current status (peers, uptime, version).
+   * Sprint 56 Phase C.
+   * @returns {Promise<Object>}
+   */
+  getNodeStatus() {
+    return this._call("node_status", {});
+  }
+
+  /**
+   * List apps available on the network. Sprint 56 Phase C.
+   * @returns {Promise<{ entries: Array<Object> }>}
+   */
+  getBrowseList() {
+    return this._call("browse_list", {});
+  }
+
+  /**
    * @private
    * @param {string} method
    * @param {Object} payload
