@@ -123,6 +123,70 @@ async fn test_cross_daemon_blob_transfer() {
     cluster.shutdown().await.expect("graceful shutdown");
 }
 
+/// Sprint 57 Phase A — E2E gossip exchange: daemon B subscribes
+/// to daemon A as curator, A publishes a project, B discovers it
+/// via browse after gossip relay.
+///
+/// Requires iroh relay connectivity (`SBFB_INTEGRATION=1`).
+#[tokio::test]
+async fn test_cross_daemon_gossip_exchange() {
+    if !integration_enabled() {
+        eprintln!("skipping: set SBFB_INTEGRATION=1 to enable gossip E2E");
+        return;
+    }
+
+    let mut cluster = DaemonCluster::spawn(2).await.expect("spawn 2 daemons");
+
+    let node_a_id = cluster.nodes[0].node_id.clone();
+
+    // B subscribes to A as curator
+    let sub_resp = cluster.nodes[1]
+        .subscribe_curator(&node_a_id)
+        .await
+        .expect("subscribe curator");
+    assert!(
+        sub_resp["subscribed_curators"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "B must have A in subscribed curators"
+    );
+
+    // A publishes a project
+    let pub_resp = cluster.nodes[0]
+        .publish_project("e2e-gossip-test")
+        .await
+        .expect("publish project");
+    assert!(
+        pub_resp.get("published").is_some() || pub_resp.get("project_name").is_some(),
+        "publish must return confirmation"
+    );
+
+    // Wait for gossip relay (poll B's browse for up to 30s)
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut found = false;
+    while tokio::time::Instant::now() < deadline {
+        let entries = cluster.nodes[1].browse_projects().await.unwrap_or_default();
+        if entries.iter().any(|e| {
+            e["project_name"]
+                .as_str()
+                .map(|n| n == "e2e-gossip-test")
+                .unwrap_or(false)
+        }) {
+            found = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
+    assert!(
+        found,
+        "B must discover A's published project via gossip within 30s"
+    );
+
+    cluster.shutdown().await.expect("graceful shutdown");
+}
+
 /// Row 33 — cross-daemon task stub: verify the daemon exposes
 /// its API surface and can accept authenticated requests.
 ///

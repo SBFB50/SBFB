@@ -2343,6 +2343,47 @@ upgrading Rust.
 
 ---
 
+## §P46 — Sprint 57 Phase A : cross-platform cfg strategy
+
+The workspace targets Linux (CI + VPS) and Windows (dev machine).
+macOS is tested in GHA but has no VPS deployment.
+
+### Platform-gated production code
+
+21 `cfg(unix)` / 12 `cfg(windows)` occurrences across 11 files.
+All production code is correctly dual-gated:
+
+| Feature | Unix | Windows | Files |
+|---|---|---|---|
+| File permissions (0o600) | `set_mode()` / `set_owner_only_perms()` | Inherited ACL (no-op) | auth.rs, crypto.rs, keystore.rs, runtime.rs |
+| IPC socket | `uds_server` (Unix domain socket) | `named_pipe_server` (Win32 named pipe) | main.rs |
+| Signal handling | `tokio::signal::unix::SignalKind::interrupt()` | `tokio::signal::ctrl_c()` | main.rs |
+| Process kill | `libc::kill(pid, SIGINT)` | `child.kill()` | main.rs (launcher), lib.rs (test-harness) |
+| IPC connect | `tokio::net::UnixStream` | `tokio::net::windows::named_pipe` | executor/main.rs |
+| Build test | `Command::new("sleep")` | `Command::new("timeout")` | build_executor.rs |
+
+### Platform-gated tests
+
+Two test functions are gated `#[cfg(unix)] #[test]`:
+- `auth.rs::unix_permissions_0600` (shell-daemon-core)
+- `auth.rs::unix_permissions_0600` (launcher)
+
+These test unix file permission enforcement (mode 0o600). No
+Windows equivalent exists because Windows uses inherited ACLs
+from the parent directory. The security property (only the owning
+user can read the token file) is maintained on Windows via default
+user-profile ACLs.
+
+### CI coverage
+
+GHA `rust-ci.yml` runs `cargo nextest run --workspace` on three
+OS: ubuntu-latest, windows-latest, macos-14. All 1227+ tests pass
+on all three platforms (unix-gated tests are skipped on Windows
+via `cfg`, not via `#[ignore]`). Woodpecker CI (ci.sbfb.world)
+runs Linux only.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

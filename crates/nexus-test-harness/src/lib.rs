@@ -163,6 +163,54 @@ impl DaemonHandle {
     pub fn root_path(&self) -> &Path {
         self.root.path()
     }
+
+    pub async fn subscribe_curator(&self, pubkey_hex: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/api/daemon/curators/subscribe", self.http_url());
+        let resp = reqwest::Client::new()
+            .post(&url)
+            .header("X-SBFB-Token", &self.auth_token)
+            .header("Host", format!("127.0.0.1:{}", self.http_port))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({ "curator_pubkey_hex": pubkey_hex }))
+            .send()
+            .await
+            .context("subscribe_curator request")?;
+        let body: serde_json::Value = resp.json().await.context("subscribe_curator parse")?;
+        Ok(body)
+    }
+
+    pub async fn publish_project(&self, name: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/api/daemon/publish", self.http_url());
+        let resp = reqwest::Client::new()
+            .post(&url)
+            .header("X-SBFB-Token", &self.auth_token)
+            .header("Host", format!("127.0.0.1:{}", self.http_port))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "project_name": name,
+                "category": "test",
+                "description": format!("E2E test project {}", name),
+            }))
+            .send()
+            .await
+            .context("publish_project request")?;
+        let body: serde_json::Value = resp.json().await.context("publish_project parse")?;
+        Ok(body)
+    }
+
+    pub async fn browse_projects(&self) -> Result<Vec<serde_json::Value>> {
+        let url = format!("{}/api/daemon/browse", self.http_url());
+        let resp = reqwest::Client::new()
+            .get(&url)
+            .header("X-SBFB-Token", &self.auth_token)
+            .header("Host", format!("127.0.0.1:{}", self.http_port))
+            .send()
+            .await
+            .context("browse_projects request")?;
+        let body: serde_json::Value = resp.json().await.context("browse_projects parse")?;
+        let entries = body["entries"].as_array().cloned().unwrap_or_default();
+        Ok(entries)
+    }
 }
 
 pub struct DaemonCluster {
