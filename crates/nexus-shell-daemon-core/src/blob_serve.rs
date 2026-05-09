@@ -266,14 +266,17 @@ pub fn detect_content_type(filename: &str, data: &[u8]) -> &'static str {
 // =================================================================
 
 /// The Content-Security-Policy header injected on every blob-serve
-/// response. Defense-in-depth: even if the URL is opened directly
-/// in a top-level tab (not via the shell iframe), `sandbox` gives
-/// the document an opaque origin so it cannot read `/auth/token`
-/// or other same-origin daemon endpoints. `worker-src 'none'`
-/// prevents persistent Service Worker registration. `frame-src`,
-/// `object-src`, `form-action` close exfiltration channels that
-/// `connect-src 'none'` does not cover.
-pub const BLOB_SERVE_CSP: &str = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors *; sandbox allow-scripts";
+/// response. The iframe `sandbox="allow-scripts"` attribute (set by
+/// the shell in BrowsedProject.tsx) is the primary isolation: it
+/// gives the document an opaque origin. The CSP below is defense-in-
+/// depth for direct URL navigation (pasted in address bar):
+/// `worker-src 'none'` blocks Service Worker registration on the
+/// daemon origin, `frame-src 'none'` blocks nested iframes that
+/// could load `/auth/token`, `form-action 'none'` blocks form-based
+/// exfiltration. Note: CSP `sandbox` is deliberately omitted because
+/// it makes `'self'` unresolvable (opaque origin), which breaks
+/// loading of the app's own CSS/JS resources.
+pub const BLOB_SERVE_CSP: &str = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors *";
 
 pub const BLOB_SERVE_COOP: &str = "same-origin";
 
