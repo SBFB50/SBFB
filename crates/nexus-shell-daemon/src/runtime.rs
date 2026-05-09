@@ -43,6 +43,7 @@ use nexus_shell_daemon_core::auth;
 use nexus_shell_daemon_core::browse::{
     BrowseAggregator, BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
 };
+use nexus_shell_daemon_core::browse_limiter::BrowseRequestLimiter;
 use nexus_shell_daemon_core::config::{CuratorConfig, ShellDaemonPaths};
 use nexus_shell_daemon_core::iroh_runtime::{
     CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle, curator_topic_id,
@@ -1022,6 +1023,7 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
             );
         }
         let mut neighbor_count: u32 = 0;
+        let browse_limiter = BrowseRequestLimiter::new();
         let republish_delay = tokio::time::sleep(jittered_republish_duration());
         tokio::pin!(republish_delay);
 
@@ -1063,6 +1065,13 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                 }
                             };
                             if publish::is_browse_request(&payload) {
+                                if !browse_limiter.check_peer(&delivered_from) {
+                                    debug!(
+                                        delivered_from = %delivered_from,
+                                        "browse_request rate-limited — dropping"
+                                    );
+                                    continue;
+                                }
                                 debug!(delivered_from = %delivered_from, "browse_request received — replaying outbox");
                                 for envelope in &outbox {
                                     if let Err(e) = sender.broadcast(envelope.clone()).await {

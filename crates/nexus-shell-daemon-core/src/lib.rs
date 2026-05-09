@@ -54,6 +54,7 @@ pub mod auth;
 pub mod blob_serve;
 pub mod bootstrap_allowlist;
 pub mod browse;
+pub mod browse_limiter;
 pub mod canary;
 pub mod config;
 pub mod ipc_broker;

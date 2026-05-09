@@ -100,6 +100,11 @@ thiserror = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 
+# Sprint 56 Phase B: GCRA rate limiter for browse_request gossip
+# messages. Keyed per-peer (NodeId hex), 10 req/min. Same crate
+# as nexus-worker-core's multi-tier rate_limit.rs (S21 Phase A).
+governor = { workspace = true }
+
 # Sprint 12 Phase A: zip archive decompression for the blob-serve
 # cache. Used by `blob_serve::BlobServeCache` to extract archived
 # web apps and serve them file-by-file.

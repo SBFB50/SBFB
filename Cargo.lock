@@ -4893,6 +4893,7 @@ dependencies = [
  "dashmap",
  "directories 5.0.1",
  "frost-ed25519",
+ "governor",
  "hex",
  "hmac",
  "iroh",
