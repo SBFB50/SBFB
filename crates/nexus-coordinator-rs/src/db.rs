@@ -133,6 +133,15 @@ static MIGRATIONS: &[M<'static>] = &[
         added_at   INTEGER NOT NULL
     );",
     ),
+    // M7: per-app key-value storage persistence (Sprint 57 Phase B)
+    M::up(
+        "CREATE TABLE IF NOT EXISTS app_storage (
+        app_name   TEXT NOT NULL,
+        key        TEXT NOT NULL,
+        value      TEXT NOT NULL,
+        PRIMARY KEY (app_name, key)
+    );",
+    ),
 ];
 
 pub struct CoordinatorDb {
@@ -430,6 +439,58 @@ impl CoordinatorDb {
 
     pub fn clear_outbox(&self) -> Result<(), CoordinatorError> {
         self.conn.execute("DELETE FROM gossip_outbox", [])?;
+        Ok(())
+    }
+
+    pub fn load_all_storage(
+        &self,
+    ) -> Result<
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+        CoordinatorError,
+    > {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT app_name, key, value FROM app_storage")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut map: std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, serde_json::Value>,
+        > = std::collections::HashMap::new();
+        for row in rows {
+            let (app_name, key, value_str) = row?;
+            let value: serde_json::Value =
+                serde_json::from_str(&value_str).unwrap_or(serde_json::Value::String(value_str));
+            map.entry(app_name).or_default().insert(key, value);
+        }
+        Ok(map)
+    }
+
+    pub fn upsert_storage(
+        &self,
+        app_name: &str,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), CoordinatorError> {
+        let value_str = serde_json::to_string(value).unwrap_or_default();
+        self.conn.execute(
+            "INSERT INTO app_storage (app_name, key, value) VALUES (?1, ?2, ?3)
+             ON CONFLICT(app_name, key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![app_name, key, value_str],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_storage(&self, app_name: &str, key: &str) -> Result<(), CoordinatorError> {
+        self.conn.execute(
+            "DELETE FROM app_storage WHERE app_name = ?1 AND key = ?2",
+            rusqlite::params![app_name, key],
+        )?;
         Ok(())
     }
 
@@ -741,5 +802,65 @@ mod tests {
         let guard = db.lock().unwrap();
         let record = guard.get_task(&task_id).expect("get").expect("found");
         assert_eq!(record.status, crate::types::TaskStatus::Pending);
+    }
+
+    #[test]
+    fn storage_persistence_survives_reopen() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("coordinator.db");
+
+        {
+            let db = CoordinatorDb::open(&path).expect("open");
+            db.upsert_storage("myapp", "theme", &serde_json::json!("dark"))
+                .expect("upsert");
+        }
+
+        let db2 = CoordinatorDb::open(&path).expect("reopen");
+        let loaded = db2.load_all_storage().expect("load");
+        let val = loaded
+            .get("myapp")
+            .and_then(|m| m.get("theme"))
+            .expect("key present");
+        assert_eq!(val, &serde_json::json!("dark"));
+    }
+
+    #[test]
+    fn upsert_storage_overwrite() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.upsert_storage("app1", "counter", &serde_json::json!(1))
+            .expect("first");
+        db.upsert_storage("app1", "counter", &serde_json::json!(42))
+            .expect("second");
+
+        let loaded = db.load_all_storage().expect("load");
+        let val = loaded
+            .get("app1")
+            .and_then(|m| m.get("counter"))
+            .expect("key present");
+        assert_eq!(val, &serde_json::json!(42));
+    }
+
+    #[test]
+    fn delete_storage_nonexistent() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.delete_storage("noapp", "nokey").expect("no error");
+    }
+
+    #[test]
+    fn load_all_storage_multiple_apps() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.upsert_storage("app-a", "k1", &serde_json::json!("v1"))
+            .expect("upsert");
+        db.upsert_storage("app-b", "k2", &serde_json::json!(99))
+            .expect("upsert");
+        db.upsert_storage("app-a", "k3", &serde_json::json!(true))
+            .expect("upsert");
+
+        let loaded = db.load_all_storage().expect("load");
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded["app-a"].len(), 2);
+        assert_eq!(loaded["app-b"].len(), 1);
+        assert_eq!(loaded["app-a"]["k1"], serde_json::json!("v1"));
+        assert_eq!(loaded["app-b"]["k2"], serde_json::json!(99));
     }
 }

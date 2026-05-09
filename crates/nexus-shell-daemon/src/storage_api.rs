@@ -20,8 +20,27 @@ use crate::http::DaemonHttpState;
 
 pub type AppStorage = Arc<RwLock<HashMap<String, HashMap<String, serde_json::Value>>>>;
 
+#[cfg(test)]
 pub fn new_app_storage() -> AppStorage {
     Arc::new(RwLock::new(HashMap::new()))
+}
+
+pub fn load_app_storage_from_db(
+    db: &std::sync::MutexGuard<'_, nexus_coordinator_rs::db::CoordinatorDb>,
+) -> AppStorage {
+    match db.load_all_storage() {
+        Ok(map) => {
+            let count: usize = map.values().map(|m| m.len()).sum();
+            if count > 0 {
+                tracing::info!(apps = map.len(), keys = count, "loaded app storage from DB");
+            }
+            Arc::new(RwLock::new(map))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load app storage from DB, starting empty");
+            Arc::new(RwLock::new(HashMap::new()))
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,6 +101,11 @@ pub async fn storage_set(
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     debug!(app = %app_name, key = %key, "POST /app/:name/state/:key");
+    if let Ok(db) = state.coordinator_db.lock() {
+        if let Err(e) = db.upsert_storage(&app_name, &key, &body) {
+            tracing::warn!(error = %e, "storage write-through failed");
+        }
+    }
     let mut store = state.app_storage.write().await;
     store.entry(app_name).or_default().insert(key, body);
     (StatusCode::OK, Json(serde_json::json!({ "ok": true })))
@@ -98,6 +122,11 @@ pub async fn storage_delete(
         .and_then(|m| m.remove(&key))
         .is_some();
     if removed {
+        if let Ok(db) = state.coordinator_db.lock() {
+            if let Err(e) = db.delete_storage(&app_name, &key) {
+                tracing::warn!(error = %e, "storage delete write-through failed");
+            }
+        }
         (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
     } else {
         (
