@@ -101,9 +101,23 @@ pub async fn storage_set(
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     debug!(app = %app_name, key = %key, "POST /app/:name/state/:key");
-    if let Ok(db) = state.coordinator_db.lock() {
+    {
+        let db = match state.coordinator_db.lock() {
+            Ok(db) => db,
+            Err(e) => {
+                tracing::error!(error = %e, "coordinator DB mutex poisoned");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "storage unavailable" })),
+                );
+            }
+        };
         if let Err(e) = db.upsert_storage(&app_name, &key, &body) {
-            tracing::warn!(error = %e, "storage write-through failed");
+            tracing::error!(error = %e, "storage persistence failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "storage persistence failed" })),
+            );
         }
     }
     let mut store = state.app_storage.write().await;
@@ -116,25 +130,41 @@ pub async fn storage_delete(
     Path((app_name, key)): Path<(String, String)>,
 ) -> impl IntoResponse {
     debug!(app = %app_name, key = %key, "DELETE /app/:name/state/:key");
-    let mut store = state.app_storage.write().await;
-    let removed = store
-        .get_mut(&app_name)
-        .and_then(|m| m.remove(&key))
-        .is_some();
-    if removed {
-        if let Ok(db) = state.coordinator_db.lock() {
-            if let Err(e) = db.delete_storage(&app_name, &key) {
-                tracing::warn!(error = %e, "storage delete write-through failed");
-            }
+    {
+        let store = state.app_storage.read().await;
+        let exists = store.get(&app_name).and_then(|m| m.get(&key)).is_some();
+        if !exists {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": format!("key '{}' not found", key) })),
+            )
+                .into_response();
         }
-        (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
-    } else {
-        (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": format!("key '{}' not found", key) })),
-        )
-            .into_response()
     }
+    {
+        let db = match state.coordinator_db.lock() {
+            Ok(db) => db,
+            Err(e) => {
+                tracing::error!(error = %e, "coordinator DB mutex poisoned");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "storage unavailable" })),
+                )
+                    .into_response();
+            }
+        };
+        if let Err(e) = db.delete_storage(&app_name, &key) {
+            tracing::error!(error = %e, "storage delete persistence failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "storage persistence failed" })),
+            )
+                .into_response();
+        }
+    }
+    let mut store = state.app_storage.write().await;
+    store.get_mut(&app_name).and_then(|m| m.remove(&key));
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
 }
 
 #[cfg(test)]
