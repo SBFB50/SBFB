@@ -4,15 +4,18 @@
 //! Tier 2 of the LT-7 self-hosted build pipeline. Clones a git
 //! repository, runs `cargo build --release --locked`, and computes
 //! the SHA256 of the resulting binary. Sandbox isolation (podman
-//! rootless) is deferred to S56+.
+//! rootless) is deferred to S57+.
 
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+
+const DEFAULT_BUILD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Debug, Error)]
 pub enum BuildError {
@@ -24,6 +27,8 @@ pub enum BuildError {
     CheckoutFailed(String),
     #[error("cargo build failed: {0}")]
     BuildFailed(String),
+    #[error("build timed out after {0:?}")]
+    BuildTimeout(Duration),
     #[error("binary not found at {0}")]
     BinaryNotFound(PathBuf),
     #[error("io error: {0}")]
@@ -83,11 +88,50 @@ pub fn sha256_file(path: &Path) -> Result<String, BuildError> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+fn wait_child_with_timeout(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> Result<(), BuildError> {
+    let start = Instant::now();
+    loop {
+        match child.try_wait().map_err(BuildError::Io)? {
+            Some(status) => {
+                if status.success() {
+                    return Ok(());
+                }
+                return Err(BuildError::BuildFailed(format!(
+                    "process exited with {status}"
+                )));
+            }
+            None => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(BuildError::BuildTimeout(timeout));
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+    }
+}
+
+fn remap_path_flag(source_dir: &Path) -> String {
+    format!("--remap-path-prefix={}=/build", source_dir.display())
+}
+
 /// Execute a build task in `work_dir`.
 ///
 /// Clone → checkout → `cargo build --release --locked` → SHA256.
 /// The caller manages the lifetime of `work_dir`.
 pub fn execute_build(params: &BuildParams, work_dir: &Path) -> Result<BuildResult, BuildError> {
+    execute_build_with_timeout(params, work_dir, DEFAULT_BUILD_TIMEOUT)
+}
+
+pub fn execute_build_with_timeout(
+    params: &BuildParams,
+    work_dir: &Path,
+    timeout: Duration,
+) -> Result<BuildResult, BuildError> {
     let source_dir = work_dir.join("source");
 
     let clone_out = Command::new("git")
@@ -119,18 +163,18 @@ pub fn execute_build(params: &BuildParams, work_dir: &Path) -> Result<BuildResul
         .map_err(|e| BuildError::BuildFailed(format!("git log timestamp: {e}")))?;
     let source_date_epoch = String::from_utf8_lossy(&ts_out.stdout).trim().to_string();
 
-    let build_out = Command::new("cargo")
+    let remap = remap_path_flag(&source_dir);
+
+    let mut child = Command::new("cargo")
         .args(["build", "--release", "--locked", "-p", &params.binary])
         .env("SOURCE_DATE_EPOCH", &source_date_epoch)
         .env("CARGO_INCREMENTAL", "0")
+        .env("RUSTFLAGS", &remap)
         .current_dir(&source_dir)
-        .output()
+        .spawn()
         .map_err(|e| BuildError::BuildFailed(e.to_string()))?;
-    if !build_out.status.success() {
-        return Err(BuildError::BuildFailed(
-            String::from_utf8_lossy(&build_out.stderr).into_owned(),
-        ));
-    }
+
+    wait_child_with_timeout(&mut child, timeout)?;
 
     let binary_path = source_dir
         .join("target")
@@ -176,5 +220,35 @@ mod tests {
         let err = BuildParams::from_metadata(&metadata).expect_err("should reject");
         assert!(matches!(err, BuildError::MissingParam(_)));
         assert!(err.to_string().contains("build.repo"));
+    }
+
+    #[test]
+    fn build_timeout_expires() {
+        #[cfg(unix)]
+        let mut child = Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn sleep");
+        #[cfg(windows)]
+        let mut child = Command::new("ping")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn ping");
+
+        let result = wait_child_with_timeout(&mut child, Duration::from_millis(100));
+        assert!(
+            matches!(result, Err(BuildError::BuildTimeout(_))),
+            "expected BuildTimeout, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn remap_path_flag_contains_prefix() {
+        let dir = Path::new("/tmp/sbfb/source");
+        let flag = remap_path_flag(dir);
+        assert!(flag.starts_with("--remap-path-prefix="));
+        assert!(flag.ends_with("=/build"));
+        assert!(flag.contains("/tmp/sbfb/source"));
     }
 }

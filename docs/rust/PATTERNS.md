@@ -2279,6 +2279,70 @@ daemon identity operations.
 
 ---
 
+## §P44 — Sprint 56 Phase D : forbid vs deny unsafe_code convention
+
+Workspace convention for `#![forbid(unsafe_code)]` vs
+`#![deny(unsafe_code)]` + `#![cfg_attr(test, allow(unsafe_code))]`:
+
+- **`#![forbid(unsafe_code)]`** — used by crates with zero transitive
+  FFI and no need for `unsafe` in tests (e.g. `nexus-trace-core`).
+  `forbid` cannot be overridden by inner `#[allow]` attributes, so
+  it provides the strongest guarantee.
+- **`#![deny(unsafe_code)]`** + **`#![cfg_attr(test, allow(unsafe_code))]`**
+  — used by crates that depend on transitive FFI (e.g.
+  `nexus-worker-core` depends on `llama-cpp-2` behind the
+  `llm_llama_cpp` feature, whose C bindings contain `unsafe`) or
+  whose tests call APIs that became `unsafe` in edition 2024
+  (e.g. `std::env::set_var`). `deny` provides the same safety bar
+  as `forbid` in production code while allowing test-only
+  flexibility.
+
+Why not `forbid` + `cfg_attr(test, allow(…))`? Because `forbid`
+is a hard ceiling — `#[allow]` cannot override it even under
+`cfg_attr`. The compiler emits E0453 "allow(unsafe_code)
+incompatible with previous forbid". This was the root cause of
+build failures when transitioning to edition 2024 (set_var
+unsafe).
+
+Current crate usage (Sprint 56):
+| Crate | Lint | Reason |
+|---|---|---|
+| `nexus-trace-core` | `forbid` | pure Rust, no FFI, no unsafe tests |
+| `nexus-core-rs` | `deny` + `cfg_attr` | tests use set_var (edition 2024 unsafe) |
+| `nexus-shell-daemon-core` | `deny` + `cfg_attr` | same |
+| `nexus-worker-core` | `deny` + `cfg_attr` | llama-cpp-2 FFI + set_var |
+
+---
+
+## §P45 — Sprint 56 Phase D : rustfmt version drift between sessions
+
+**Root cause**: Woodpecker CI pins `rust:1.94` (with SHA256
+digest for supply chain), while the local dev environment runs
+rustc 1.95 / rustfmt 1.9.0. Formatting output differs between
+rustfmt versions for certain patterns (edition 2024 import
+reordering, trailing comma placement, match arm formatting).
+
+**Symptom**: `cargo fmt --check` passes locally (1.95) but fails
+in CI (1.94), or vice versa. Developers reformat for CI, then the
+next session with a different rustfmt version re-introduces drift.
+
+**Solution applied (Sprint 56)**:
+1. `docker/ci/Dockerfile` pinned to `rust:1.94` to match
+   Woodpecker CI — the local Docker pipeline now catches drift
+   before push.
+2. Developer workflow: always run the Docker CI pipeline before
+   push (per `feedback_wsl_before_push.md` memory). This ensures
+   `cargo fmt --check` runs under the same rustfmt as CI.
+
+**Recommended future fix**: add `rust-toolchain.toml` at repo
+root pinning `channel = "1.94.0"`. This makes `rustup` use the
+CI-matching toolchain for all local `cargo` commands, eliminating
+drift without Docker. Update all three files (rust-toolchain.toml,
+Woodpecker CI image, docker/ci/Dockerfile) atomically when
+upgrading Rust.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

@@ -161,10 +161,24 @@ if [ -n "$STAGED_PLANS" ]; then
 fi
 
 # === Check 4 : wire-format staging alert (WARN) ===
+# Filter: skip files with whitespace-only changes (edition 2024
+# import reorder, rustfmt drift) to avoid false positives (§P45).
 WIRE_FILES=$(git diff --cached --name-only 2>/dev/null | grep -E 'canonical\.rs|schemas/|_VERSION' || true)
+SUBSTANTIVE_WIRE=""
 if [ -n "$WIRE_FILES" ]; then
+  while IFS= read -r wf; do
+    [ -z "$wf" ] && continue
+    NON_WS_DIFF=$(git diff --cached --ignore-all-space -- "$wf" 2>/dev/null)
+    if [ -n "$NON_WS_DIFF" ]; then
+      SUBSTANTIVE_WIRE="$SUBSTANTIVE_WIRE
+$wf"
+    fi
+  done <<< "$WIRE_FILES"
+  SUBSTANTIVE_WIRE=$(echo "$SUBSTANTIVE_WIRE" | sed '/^$/d')
+fi
+if [ -n "$SUBSTANTIVE_WIRE" ]; then
   echo "[lightcheck] WARN: wire-format files staged:" >&2
-  echo "$WIRE_FILES" | while IFS= read -r wf; do
+  echo "$SUBSTANTIVE_WIRE" | while IFS= read -r wf; do
     echo "  $wf" >&2
   done
   PREFLIGHT_PHASE=""
