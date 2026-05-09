@@ -82,7 +82,7 @@
 - forbid-deny-doc : PATTERNS.md §P44 convention documentee
 - rustfmt-drift-sessions : investigation + documentation PATTERNS.md §P45
 - lightcheck-edition-faux-positif : Dockerfile lightcheck fix
-- BUILD-TIMEOUT : Duration param + tokio::time::timeout 30min
+- BUILD-TIMEOUT : Duration param + try_wait polling 30min default
 - REMAP-PATH : --remap-path-prefix dans build_executor
 - +2 tests Rust (1225→1227)
 - CLOSE 5 items P2 dette pair

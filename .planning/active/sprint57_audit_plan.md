@@ -1,7 +1,7 @@
 # Sprint 57 — Audit Plan (pour session fraiche S57)
 
 **Sprint audite** : S56 (gossip resilience + bridge extensions + dette pair).
-**Tip a auditer** : `852c71b` (HEAD post-Phase D fixes).
+**Tip a auditer** : `852c71b` (tip code S56, Phase D fix — wrap-up docs dans `bd2a62e`).
 **Phases** : A (outbox persistent), B (browse rate-limit), C (bridge extensions), D (dette pair).
 **Compteurs S56 sortie** : 1227 Rust / 256 Vitest / 42+2f PW / 6/6 size / ~1489 total.
 
@@ -70,7 +70,7 @@ securisees et fonctionnelles.
    `grep -n "edition\|2024" .claude/hooks/` ou Dockerfile
    → faux positif corrige
 4. `grep -n timeout crates/nexus-worker-core/src/build_executor.rs`
-   → Duration param + tokio::time::timeout
+   → Duration param + try_wait polling
 5. `grep -n remap_path crates/nexus-worker-core/src/build_executor.rs`
    → --remap-path-prefix present
 
