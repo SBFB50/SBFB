@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SBFB Protocol Explorer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top-bar">
+    <h1 class="logo">SBFB Protocol Explorer</h1>
+    <nav class="nav">
+      <a href="#architecture">Architecture</a>
+      <a href="#app-lifecycle">Apps</a>
+      <a href="#task-lifecycle">Tâches</a>
+      <a href="#security">Sécurité</a>
+      <a href="#philosophy">Philosophie</a>
+    </nav>
+    <button class="status-toggle" id="status-toggle" aria-label="Afficher le statut réseau">
+      <span class="status-dot" id="status-dot"></span>
+      Statut
+    </button>
+  </header>
+
+  <aside class="status-panel" id="status-panel" hidden>
+    <h2>Statut réseau</h2>
+    <div class="status-section">
+      <h3>Noeud local</h3>
+      <dl class="status-grid">
+        <dt>Node ID</dt>
+        <dd id="node-id" class="mono">—</dd>
+        <dt>Clé publique</dt>
+        <dd id="pubkey" class="mono">—</dd>
+        <dt>Version</dt>
+        <dd id="version">—</dd>
+        <dt>Uptime</dt>
+        <dd id="uptime">—</dd>
+        <dt>Pairs connectés</dt>
+        <dd id="peers">—</dd>
+      </dl>
+    </div>
+    <div class="status-section">
+      <h3>Apps disponibles</h3>
+      <ul id="app-list" class="app-list">
+        <li class="placeholder">Chargement…</li>
+      </ul>
+    </div>
+    <p class="status-footer" id="status-footer">Connexion au daemon…</p>
+  </aside>
+
+  <main class="content">
+
+    <!-- Section 1 : Architecture du réseau -->
+    <section id="architecture" class="section">
+      <h2>Architecture du réseau</h2>
+      <p>
+        SBFB est un réseau P2P décentralisé de compute et d'hébergement d'apps.
+        Pas de serveur central, pas d'administrateur — uniquement le protocole.
+      </p>
+      <div class="diagram">
+        <pre class="ascii-art">
+┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
+│  Navigateur  │────▶│  Shell Daemon    │────▶│  Workers    │
+│  (iframe)    │◀────│  (P2P + HTTP)    │◀────│  (compute)  │
+└─────────────┘     └──────────────────┘     └─────────────┘
+       │                     │                      │
+       │              ┌──────┴──────┐               │
+       │              │ Coordinator │               │
+       │              │ (dispatch + │               │
+       │              │  validation)│               │
+       │              └─────────────┘               │
+       │                     │                      │
+       └─────────────────────┴──────────────────────┘
+                        iroh P2P
+                   (gossip + blobs + docs)
+        </pre>
+      </div>
+      <h3>Composants principaux</h3>
+      <dl class="def-list">
+        <dt>Shell Daemon</dt>
+        <dd>
+          Processus singleton Rust qui gère la couche P2P (iroh 0.98),
+          le discovery des pairs, le pipeline curator, et l'API HTTP
+          loopback. Il orchestre tout sans jamais exposer de port réseau
+          public.
+        </dd>
+        <dt>Coordinator</dt>
+        <dd>
+          Module intégré au daemon responsable du dispatch des tâches
+          vers les workers, de la validation des résultats, de
+          l'attribution des kudos, et du stockage applicatif. Base
+          SQLite locale.
+        </dd>
+        <dt>Workers</dt>
+        <dd>
+          Noeuds de compute headless qui exécutent les tâches (LLM via
+          Ollama, WASM, scripts). Chaque worker dispose d'une allowlist
+          de tâches acceptées et d'un consentement GPU à 4 niveaux.
+        </dd>
+        <dt>iroh P2P</dt>
+        <dd>
+          Substrat réseau basé sur iroh 0.98 : gossip pour la
+          propagation en temps réel, blobs pour le transfert de données
+          volumineuses, docs pour le stockage répliqué. Fonctionne en
+          LAN et WAN sans configuration.
+        </dd>
+      </dl>
+      <div class="source-links">
+        <h4>Code source</h4>
+        <ul>
+          <li><a class="src" data-path="crates/nexus-shell-daemon/">crates/nexus-shell-daemon/</a> — Shell Daemon binary</li>
+          <li><a class="src" data-path="crates/nexus-shell-daemon-core/">crates/nexus-shell-daemon-core/</a> — P2P discovery lib</li>
+          <li><a class="src" data-path="crates/nexus-coordinator-rs/">crates/nexus-coordinator-rs/</a> — Coordinator</li>
+          <li><a class="src" data-path="crates/nexus-worker/">crates/nexus-worker/</a> — Worker binary</li>
+          <li><a class="src" data-path="crates/nexus-core-rs/">crates/nexus-core-rs/</a> — iroh wrapper</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Section 2 : Cycle de vie d'une app -->
+    <section id="app-lifecycle" class="section">
+      <h2>Cycle de vie d'une app</h2>
+      <p>
+        N'importe qui publie une app sur le réseau. Le processus est
+        entièrement vérifiable : du code source au zip déployé, chaque
+        étape est traçable.
+      </p>
+      <ol class="lifecycle">
+        <li>
+          <strong>Code source</strong>
+          <p>
+            L'app vit dans un dépôt Git public. Toute techno qui produit
+            du HTML est supportée : React, Vue, Python/Pyodide, WASM,
+            Jupyter, HTML pur.
+          </p>
+        </li>
+        <li>
+          <strong>Verified deploy</strong>
+          <p>
+            Le coordinator clone le dépôt, vérifie la signature Ed25519
+            du développeur via Keyoxide, construit l'archive, et génère
+            un fichier <code>provenance.json</code> SLSA L1. Le code sur
+            le réseau = le code du dépôt.
+          </p>
+        </li>
+        <li>
+          <strong>Archive zip</strong>
+          <p>
+            L'app est empaquetée en une archive zip contenant un
+            <code>index.html</code> et ses ressources. Format universel,
+            aucune dépendance à un framework ou runtime spécifique.
+          </p>
+        </li>
+        <li>
+          <strong>Distribution P2P</strong>
+          <p>
+            L'archive est distribuée via iroh-blobs. Chaque noeud qui
+            la télécharge peut la re-servir aux autres pairs.
+          </p>
+        </li>
+        <li>
+          <strong>Rendu en iframe</strong>
+          <p>
+            Le daemon Rust <code>blob-serve</code> décompresse le zip,
+            cache les fichiers en LRU mémoire, et les sert dans un
+            iframe sandboxé (<code>sandbox="allow-scripts"</code> sans
+            <code>allow-same-origin</code>, CSP
+            <code>connect-src 'none'</code>).
+          </p>
+        </li>
+      </ol>
+      <div class="source-links">
+        <h4>Code source</h4>
+        <ul>
+          <li><a class="src" data-path="crates/nexus-core-rs/src/blob_serve.rs">blob_serve.rs</a> — Daemon blob-serve</li>
+          <li><a class="src" data-path="crates/nexus-coordinator-rs/src/validator.rs">validator.rs</a> — Validator deploy</li>
+          <li><a class="src" data-path="web/public/sbfb-bridge.js">sbfb-bridge.js</a> — SDK Bridge</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Section 3 : Cycle de vie d'une tâche -->
+    <section id="task-lifecycle" class="section">
+      <h2>Cycle de vie d'une tâche</h2>
+      <p>
+        Le réseau SBFB permet aux apps d'envoyer des tâches de compute
+        (inférence LLM, traitement de données, etc.) aux workers du
+        réseau. Voici le cycle complet.
+      </p>
+      <ol class="lifecycle">
+        <li>
+          <strong>Soumission</strong>
+          <p>
+            L'app dans l'iframe appelle
+            <code>bridge.submitTask({prompt, task_type})</code>.
+            Le message traverse le bridge postMessage vers le shell
+            host, qui le forward au coordinator.
+          </p>
+        </li>
+        <li>
+          <strong>Dispatch</strong>
+          <p>
+            Le coordinator évalue les workers disponibles selon leur
+            allowlist, leur capacité GPU, et leur charge actuelle.
+            La tâche est envoyée au worker le plus adapté via le
+            protocole P2P.
+          </p>
+        </li>
+        <li>
+          <strong>Exécution</strong>
+          <p>
+            Le worker exécute la tâche dans son runtime (Ollama pour
+            LLM, WASM pour compute pur). Le résultat est renvoyé au
+            coordinator avec les métriques d'exécution.
+          </p>
+        </li>
+        <li>
+          <strong>Validation</strong>
+          <p>
+            Le coordinator valide le résultat : conformité au format
+            attendu, filtrage PII (GLiNER + regex), vérification
+            d'intégrité. Les résultats invalides sont rejetés.
+          </p>
+        </li>
+        <li>
+          <strong>Kudos</strong>
+          <p>
+            Si le résultat est valide, le worker reçoit des kudos — un
+            score de réputation non-monétaire, non-transférable, lié au
+            projet. Les kudos reflètent la contribution sans jamais
+            devenir une monnaie.
+          </p>
+        </li>
+      </ol>
+      <div class="source-links">
+        <h4>Code source</h4>
+        <ul>
+          <li><a class="src" data-path="crates/nexus-coordinator-rs/src/dispatcher.rs">dispatcher.rs</a> — Dispatch tâches</li>
+          <li><a class="src" data-path="crates/nexus-coordinator-rs/src/validator.rs">validator.rs</a> — Validation résultats</li>
+          <li><a class="src" data-path="crates/nexus-coordinator-rs/src/kudos.rs">kudos.rs</a> — Attribution kudos</li>
+          <li><a class="src" data-path="crates/nexus-worker-core/">nexus-worker-core/</a> — Engine worker</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Section 4 : Modèle de sécurité -->
+    <section id="security" class="section">
+      <h2>Modèle de sécurité</h2>
+      <p>
+        La sécurité de SBFB repose sur plusieurs couches de défense en
+        profondeur. Aucune couche n'est suffisante seule — c'est leur
+        combinaison qui protège le réseau.
+      </p>
+      <div class="security-grid">
+        <article class="security-card">
+          <h3>Loopback HTTP durci</h3>
+          <p>
+            L'API HTTP du daemon n'est accessible que via loopback
+            (127.0.0.1). Chaque requête est vérifiée : token bearer,
+            headers Host et Origin, et credentials du processus pair
+            (UDS/Named Pipes sur Windows).
+          </p>
+        </article>
+        <article class="security-card">
+          <h3>Sandbox iframe</h3>
+          <p>
+            Les apps tournent dans un iframe avec
+            <code>sandbox="allow-scripts"</code> — pas de
+            <code>allow-same-origin</code>, donc aucun accès aux
+            cookies, au localStorage, ou aux APIs du domaine parent.
+            CSP <code>connect-src 'none'</code> bloque les requêtes
+            réseau directes.
+          </p>
+        </article>
+        <article class="security-card">
+          <h3>Curators Ed25519</h3>
+          <p>
+            Les listes d'apps sont maintenues par des curators qui
+            signent avec leur clé Ed25519. Pas de modération centrale :
+            chaque utilisateur choisit les curators qu'il suit.
+            Les listes sont propagées via gossip et vérifiées
+            cryptographiquement.
+          </p>
+        </article>
+        <article class="security-card">
+          <h3>Résistance Sybil</h3>
+          <p>
+            Le système d'invitations et de kudos per-project empêche la
+            création massive de fausses identités. Un noeud sans
+            historique de contribution vérifié ne peut pas influencer le
+            réseau.
+          </p>
+        </article>
+        <article class="security-card">
+          <h3>Deploy vérifié</h3>
+          <p>
+            Chaque app publique est déployée depuis son code source via
+            Keyoxide + provenance SLSA L1. Il est impossible de
+            déployer un binaire qui ne correspond pas au code du dépôt.
+          </p>
+        </article>
+        <article class="security-card">
+          <h3>Protection PII</h3>
+          <p>
+            Le bridge offre <code>piiRedact()</code> : filtrage des
+            données personnelles (GLiNER ONNX + regex) avant qu'elles
+            n'atteignent les workers. Défense en profondeur côté
+            transport et côté output.
+          </p>
+        </article>
+      </div>
+      <div class="source-links">
+        <h4>Code source</h4>
+        <ul>
+          <li><a class="src" data-path="docs/security/THREAT_MODEL.md">THREAT_MODEL.md</a> — Modèle de menaces complet</li>
+          <li><a class="src" data-path="docs/security/HARDENING_ROADMAP.md">HARDENING_ROADMAP.md</a> — Feuille de route durcissement</li>
+          <li><a class="src" data-path="docs/security/RUNTIME_ISOLATION.md">RUNTIME_ISOLATION.md</a> — Isolation runtime</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Section 5 : Philosophie -->
+    <section id="philosophy" class="section">
+      <h2>Philosophie</h2>
+      <div class="philosophy-grid">
+        <article class="philosophy-card">
+          <h3>Zéro administration</h3>
+          <p>
+            Pas de compte à créer, pas de serveur à configurer.
+            Lancez le daemon, rejoignez le réseau, publiez une app.
+            Le protocole gère tout : discovery, distribution,
+            validation.
+          </p>
+        </article>
+        <article class="philosophy-card">
+          <h3>Open source par construction</h3>
+          <p>
+            Chaque app publique est déployée depuis un dépôt Git
+            vérifié. Les utilisateurs peuvent en un clic voir le code
+            source, signaler un bug, proposer une feature, contribuer
+            via PR, ou forker l'app et déployer leur propre version.
+            Le modèle F-Droid/Linux appliqué aux apps web P2P.
+          </p>
+        </article>
+        <article class="philosophy-card">
+          <h3>Pas de monnaie</h3>
+          <p>
+            Les kudos sont un score de réputation, pas une monnaie.
+            Pas de dépôt, pas de mise, pas de transfert, pas de
+            brûlage. La contribution est reconnue, jamais monétisée.
+          </p>
+        </article>
+        <article class="philosophy-card">
+          <h3>Décentralisation réelle</h3>
+          <p>
+            Pas de noeud bootstrap privilégié, pas de fondation, pas
+            de gouvernance centralisée. Le modèle OpenBSD : un
+            maintainer, un protocole documenté, une communauté qui
+            contribue librement.
+          </p>
+        </article>
+      </div>
+      <div class="source-links">
+        <h4>Code source</h4>
+        <ul>
+          <li><a class="src" data-path="CLAUDE.md">CLAUDE.md</a> — Documentation projet</li>
+          <li><a class="src" data-path="LICENSE">LICENSE</a> — AGPL-3.0</li>
+        </ul>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <p>
+      SBFB Protocol Explorer — une app
+      <a class="src" data-path="examples/sbfb-explorer/">open source</a>
+      déployée sur le réseau SBFB.
+    </p>
+  </footer>
+
+  <script src="sbfb-bridge.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

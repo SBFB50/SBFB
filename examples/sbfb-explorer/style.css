@@ -1,0 +1,477 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #0d1117;
+  --bg-surface: #161b22;
+  --bg-card: #1c2128;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-dim: #1f6feb;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --radius: 8px;
+  --header-h: 56px;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--header-h) + 16px);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+    Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* === Top bar === */
+
+.top-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: var(--header-h);
+  padding: 0 24px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+.nav {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nav a {
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav a:hover {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.status-toggle {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.status-toggle:hover {
+  border-color: var(--accent-dim);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.3s;
+}
+
+.status-dot.online {
+  background: var(--green);
+}
+
+.status-dot.offline {
+  background: var(--red);
+}
+
+/* === Status panel (aside) === */
+
+.status-panel {
+  position: fixed;
+  top: var(--header-h);
+  right: 0;
+  width: 340px;
+  max-width: 90vw;
+  height: calc(100vh - var(--header-h));
+  overflow-y: auto;
+  padding: 20px;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  z-index: 90;
+  transition: transform 0.2s ease;
+}
+
+.status-panel[hidden] {
+  display: block;
+  transform: translateX(100%);
+  pointer-events: none;
+}
+
+.status-panel:not([hidden]) {
+  transform: translateX(0);
+}
+
+.status-panel h2 {
+  font-size: 1rem;
+  margin-bottom: 16px;
+  color: var(--accent);
+}
+
+.status-panel h3 {
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.status-section {
+  margin-bottom: 20px;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 0.8125rem;
+}
+
+.status-grid dt {
+  color: var(--text-muted);
+}
+
+.status-grid dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.75rem;
+}
+
+.app-list {
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.app-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-list li:last-child {
+  border-bottom: none;
+}
+
+.app-list .placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.status-footer {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 12px;
+}
+
+/* === Main content === */
+
+.content {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
+
+.section {
+  margin-bottom: 64px;
+}
+
+.section h2 {
+  font-size: 1.5rem;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section h3 {
+  font-size: 1.1rem;
+  margin: 24px 0 12px;
+}
+
+.section p {
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+/* === Diagram === */
+
+.diagram {
+  margin: 20px 0;
+  overflow-x: auto;
+}
+
+.ascii-art {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--accent);
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  white-space: pre;
+}
+
+/* === Definition list === */
+
+.def-list {
+  margin: 16px 0;
+}
+
+.def-list dt {
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 12px;
+}
+
+.def-list dd {
+  margin-left: 0;
+  padding-left: 16px;
+  border-left: 2px solid var(--border);
+  margin-top: 4px;
+}
+
+/* === Lifecycle (ordered steps) === */
+
+.lifecycle {
+  counter-reset: step;
+  list-style: none;
+  margin: 16px 0;
+}
+
+.lifecycle li {
+  position: relative;
+  padding-left: 40px;
+  margin-bottom: 20px;
+}
+
+.lifecycle li::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lifecycle li strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.lifecycle li p {
+  margin-bottom: 0;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+}
+
+/* === Security grid === */
+
+.security-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.security-card {
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.security-card h3 {
+  font-size: 0.9375rem;
+  margin: 0 0 8px;
+  color: var(--accent);
+}
+
+.security-card p {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* === Philosophy grid === */
+
+.philosophy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.philosophy-card {
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.philosophy-card h3 {
+  font-size: 0.9375rem;
+  margin: 0 0 8px;
+  color: var(--green);
+}
+
+.philosophy-card p {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* === Source links (F2) === */
+
+.source-links {
+  margin-top: 20px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.source-links h4 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.source-links ul {
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.source-links li {
+  padding: 2px 0;
+}
+
+a.src {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.8125rem;
+}
+
+a.src:hover {
+  text-decoration: underline;
+}
+
+code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.8125em;
+  padding: 2px 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* === Footer === */
+
+.footer {
+  text-align: center;
+  padding: 24px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+.footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.footer a:hover {
+  text-decoration: underline;
+}
+
+/* === Responsive === */
+
+@media (max-width: 640px) {
+  .top-bar {
+    padding: 0 12px;
+    gap: 8px;
+  }
+
+  .logo {
+    font-size: 0.875rem;
+  }
+
+  .nav a {
+    padding: 4px 8px;
+    font-size: 0.8125rem;
+  }
+
+  .content {
+    padding: 20px 16px 60px;
+  }
+
+  .section h2 {
+    font-size: 1.25rem;
+  }
+
+  .security-grid,
+  .philosophy-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .status-panel {
+    width: 100vw;
+  }
+}
