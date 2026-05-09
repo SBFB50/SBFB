@@ -139,12 +139,78 @@ Scope cuts: verified deploy E2E S58, full gossip validation S58.
 
 ---
 
-### Phase B — Protocol Explorer MVP
+### Phase B — Storage persistence SQLite (M7)
 
-**Dependencies** : Phase A (pas fonctionnelle, mais sequencage
-commit — Phase B peut etre codee en parallele).
+**Dependencies** : aucune (backend pur, independant des apps).
 
 #### §B.1 Scope
+
+Migration M7 dans coordinator.db. Table `app_storage(app_name
+TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY
+(app_name, key))`. Le champ `value` stocke du JSON serialise
+(TEXT, pas BLOB, pour debug SQLite).
+
+Helpers DB : `load_all_storage()` retourne
+`HashMap<String, HashMap<String, Value>>`, `upsert_storage(app, key, value)`,
+`delete_storage(app, key)`.
+
+Le storage_api.rs charge le HashMap au boot depuis la DB et
+ecrit-through sur chaque mutation (set → upsert, delete → delete).
+Le HashMap in-memory reste le cache de lecture (zero changement
+pour les readers existants).
+
+#### §B.2 Fichiers touches
+
+| Fichier | Role |
+|---|---|
+| `crates/nexus-coordinator-rs/src/db.rs` | Migration M7 + load_all_storage() + upsert_storage() + delete_storage() |
+| `crates/nexus-shell-daemon/src/storage_api.rs` | Boot load from DB + write-through on set/delete |
+| `crates/nexus-shell-daemon/src/runtime.rs` | Passer le storage charge au boot a DaemonHttpState |
+
+#### §B.3 Tests plan
+
+1. `test_storage_persistence_survives_reopen` : insert → close DB →
+   reopen → load → verify present. (Rust, dans db.rs)
+2. `test_upsert_storage_overwrite` : double upsert meme cle →
+   derniere valeur gagne. (Rust, dans db.rs)
+3. `test_delete_storage_nonexistent` : delete cle absente → pas
+   d'erreur. (Rust, dans db.rs)
+4. `test_storage_api_boot_loads_persisted` : integration storage_api
+   charge depuis DB au boot. (Rust, dans storage_api.rs)
+
+#### §B.4 Critere d'acceptation
+
+```bash
+cargo nextest run --workspace --locked
+# >= 1232 (1228 + 4 storage tests)
+cargo clippy --workspace --all-targets --locked -- -D warnings
+```
+
+#### §B.5 Commit cible
+
+```
+feat(sprint57): Sprint 57 Phase B — storage persistence SQLite M7
+
+Migration M7 app_storage table in coordinator.db.
+load_all_storage() at boot, write-through upsert/delete on
+mutation. In-memory HashMap remains read cache. App data
+survives daemon restart.
+
+CLOSE P2-STORAGE-SQLITE (1/3).
+
+Delta tests: +4 Rust (1228→1232, storage persistence tests).
+Scope cuts: AppStorage replication P2P post-v1.0.
+```
+
+---
+
+### Phase C — Protocol Explorer MVP
+
+**Dependencies** : Phase A (sequencage commit). Phase B non
+requise (Protocol Explorer utilise storage_get/set pour
+preferences mais fonctionne sans persistence pour le MVP).
+
+#### §C.1 Scope
 
 Creer `examples/sbfb-explorer/` avec :
 - `index.html` : page principale, navigation par ancres (#)
@@ -165,7 +231,7 @@ Creer `examples/sbfb-explorer/` avec :
 Cible : < 500KB zip, 0 dependance externe, fonctionne offline
 (F1+F2 statiques).
 
-#### §B.2 Fichiers touches
+#### §C.2 Fichiers touches
 
 | Fichier | Role |
 |---|---|
@@ -174,29 +240,25 @@ Cible : < 500KB zip, 0 dependance externe, fonctionne offline
 | `examples/sbfb-explorer/app.js` | Bridge F3 : node_status + browse_list + identity_pubkey |
 | `examples/sbfb-explorer/sbfb-bridge.js` | Copie SDK bridge |
 
-#### §B.3 Tests plan
+#### §C.3 Tests plan
 
-1. Test Vitest : `useBridge` dispatch correctement les methodes
-   existantes (couverture pre-existante S56).
+1. Test Vitest : couverture bridge pre-existante S56 (pas de
+   nouveau test — l'app est du HTML/JS pur hors workspace).
 2. Test manuel : zip examples/sbfb-explorer/ → blob-serve →
    iframe → F3 live status affiche.
-3. Validation taille : `du -sh examples/sbfb-explorer/` < 500KB.
+3. Validation taille : < 500KB.
 
-#### §B.4 Critere d'acceptation
+#### §C.4 Critere d'acceptation
 
 ```bash
-# App statique, pas de build step
 ls examples/sbfb-explorer/index.html
-# Validation taille
-du -sh examples/sbfb-explorer/
-# Validation HTML (pas d'erreurs de syntaxe critiques)
 grep -c "</html>" examples/sbfb-explorer/index.html
 ```
 
-#### §B.5 Commit cible
+#### §C.5 Commit cible
 
 ```
-feat(sprint57): Sprint 57 Phase B — Protocol Explorer MVP (sbfb-explorer)
+feat(sprint57): Sprint 57 Phase C — Protocol Explorer MVP (sbfb-explorer)
 
 First SBFB app: interactive protocol documentation deployed
 as a static HTML/CSS/JS archive in the iframe sandbox.
@@ -216,25 +278,14 @@ Scope cuts: F4 tutorial interactif S58, gossip stats S58.
 
 ---
 
-### Phase C — Ideas Hub MVP + storage persistence SQLite
+### Phase D — Ideas Hub MVP
 
-**Dependencies** : Phase A (pas fonctionnelle). Phase B
-(sequencage). D4 storage persistence requis pour Ideas Hub.
+**Dependencies** : Phase B (storage persistence requise pour
+que les idees survivent au restart daemon).
 
-#### §C.1 Scope
+#### §D.1 Scope
 
-**Storage persistence** : migration M7 dans coordinator.db.
-Table `app_storage(app_name TEXT NOT NULL, key TEXT NOT NULL,
-value TEXT NOT NULL, PRIMARY KEY(app_name, key))`. Le champ
-`value` stocke du JSON serialise (TEXT, pas BLOB, pour debug
-SQLite). Helpers DB : `load_all_storage()` retourne
-`HashMap<String, HashMap<String, Value>>`, `upsert_storage(app, key, value)`,
-`delete_storage(app, key)`. Le storage_api.rs charge le HashMap
-au boot depuis la DB et ecrit-through sur chaque mutation
-(set → upsert, delete → delete). Le HashMap in-memory reste
-le cache de lecture (zero changement pour les readers).
-
-**Ideas Hub** : creer `examples/sbfb-ideas/` avec :
+Creer `examples/sbfb-ideas/` avec :
 - `index.html` : formulaire proposition + liste des idees + vote
 - `style.css` : dark theme minimaliste
 - `app.js` : bridge CRUD
@@ -251,91 +302,75 @@ le cache de lecture (zero changement pour les readers).
 
 Cible : < 300KB zip, 0 dependance externe.
 
-#### §C.2 Fichiers touches
+#### §D.2 Fichiers touches
 
 | Fichier | Role |
 |---|---|
-| `crates/nexus-coordinator-rs/src/db.rs` | Migration M7 + load_all_storage() + upsert_storage() + delete_storage() |
-| `crates/nexus-shell-daemon/src/storage_api.rs` | Boot load from DB + write-through on set/delete |
 | `examples/sbfb-ideas/index.html` | Formulaire + liste + vote UI |
 | `examples/sbfb-ideas/style.css` | Dark theme CSS |
 | `examples/sbfb-ideas/app.js` | Bridge CRUD : storage_set + storage_list + storage_delete + identity_pubkey |
 | `examples/sbfb-ideas/sbfb-bridge.js` | Copie SDK bridge |
 
-#### §C.3 Tests plan
+#### §D.3 Tests plan
 
-1. `test_storage_persistence_survives_reopen` : insert → close DB →
-   reopen → load → verify present. (Rust, dans db.rs)
-2. `test_upsert_storage_overwrite` : double upsert meme cle →
-   derniere valeur gagne. (Rust, dans db.rs)
-3. `test_delete_storage_nonexistent` : delete cle absente → pas
-   d'erreur. (Rust, dans db.rs)
-4. `test_storage_api_boot_loads_persisted` : integration storage_api
-   charge depuis DB au boot. (Rust, dans storage_api.rs)
-5. Test manuel : Ideas Hub dans iframe → creer idee → restart
-   daemon → idee survit.
-6. Validation taille : `du -sh examples/sbfb-ideas/` < 300KB.
+1. Test manuel : Ideas Hub dans iframe → creer idee → restart
+   daemon → idee survit (grace a Phase B).
+2. Validation taille : < 300KB.
 
-#### §C.4 Critere d'acceptation
+#### §D.4 Critere d'acceptation
 
 ```bash
-cargo nextest run --workspace --locked
-# >= 1231 (1227 + 4 storage tests)
 ls examples/sbfb-ideas/index.html
-du -sh examples/sbfb-ideas/
+grep -c "</html>" examples/sbfb-ideas/index.html
 ```
 
-#### §C.5 Commit cible
+#### §D.5 Commit cible
 
 ```
-feat(sprint57): Sprint 57 Phase C — Ideas Hub MVP + storage persistence SQLite
+feat(sprint57): Sprint 57 Phase D — Ideas Hub MVP (sbfb-ideas)
 
-Storage persistence: migration M7 app_storage table in
-coordinator.db. load_all_storage() at boot, write-through
-upsert/delete on mutation. In-memory HashMap remains read
-cache. Data survives daemon restart.
+Second SBFB app: decentralized community idea board. Propose
+ideas (title + description), vote (1 upvote per identity per
+idea, toggle). Identity via bridge identity_pubkey (no login).
 
-Ideas Hub MVP: propose ideas (title + description) and vote
-(1 upvote per identity per idea). Identity via bridge
-identity_pubkey. Data stored via bridge storage_set/list/delete.
-Pure HTML/CSS/JS, < 300KB.
+Data stored via bridge storage_set/list/delete, persisted in
+SQLite via Phase B storage persistence. Pure HTML/CSS/JS,
+zero dependencies, < 300KB.
 
-CLOSE P2-STORAGE-SQLITE (1/3).
-
-Delta tests: +4 Rust (1228→1232, storage persistence tests).
+Delta tests: +0 (static HTML app, no Rust/Vitest changes).
 Scope cuts: F3 repo links S58, F4 groups post-v1.0,
 Kudos-weighted voting S58.
 ```
 
 ---
 
-### Phase D — Wrap-up + verification + audit plan S58
+### Phase E — Wrap-up + verification + audit plan S58
 
-**Dependencies** : Phase A + B + C toutes livrees.
+**Dependencies** : Phase A + B + C + D toutes livrees.
 
-#### §D.1 Scope
+#### §E.1 Scope
 
 - CLAUDE.md : update S57 CLOSED, carries S58, compteurs
 - HARDENING_ROADMAP.md : update last_validated S57
 - docs/claude/SPRINT_LOG.md : ajouter row S57
-- verification.md : 24+ fail-fast rows
+- verification.md : 26+ fail-fast rows
 - sprint58_audit_plan.md : 7+ tracks
 - memory : update nexus_grid_pivot.md
 
-#### §D.2 Fichiers touches
+#### §E.2 Fichiers touches
 
 | Fichier | Role |
 |---|---|
 | `CLAUDE.md` | S57 CLOSED, carries S58 |
 | `docs/security/HARDENING_ROADMAP.md` | last_validated S57 |
 | `docs/claude/SPRINT_LOG.md` | +1 row S57 |
-| `.planning/active/sprint57_verification.md` | NEW 24+ rows |
+| `.planning/active/sprint57_verification.md` | NEW 26+ rows |
 | `.planning/active/sprint58_audit_plan.md` | NEW 7+ tracks |
 
-#### §D.3 Commit cible
+#### §E.3 Commit cible
 
 ```
-chore(sprint57): Phase D — wrap-up + verification + audit plan S58
+chore(sprint57): Phase E — wrap-up + verification + audit plan S58
 ```
 
 ---
@@ -347,6 +382,7 @@ chore(sprint57): Phase D — wrap-up + verification + audit plan S58
 | 1 | cargo fmt | `cargo fmt --all --check` | 0 diff | |
 | 2 | cargo clippy | `cargo clippy --workspace --all-targets --locked -- -D warnings` | 0 warnings | |
 | 3 | cargo nextest | `cargo nextest run --workspace --locked` | >= 1232, 0 fail | |
+| 3b | cargo nextest (Docker) | Docker sbfb-ci pipeline | >= 1232, 0 fail | |
 | 4 | cargo doctests | `cargo test --workspace --locked --doc` | ok | |
 | 5 | release build | `cargo build -p nexus-shell-daemon --release` | ok | |
 | 6 | npm lint | `npm run lint` (web/) | 0 error | |
@@ -361,13 +397,15 @@ chore(sprint57): Phase D — wrap-up + verification + audit plan S58
 | 15 | Phase B review | verdict | PASS | |
 | 16 | Phase C preflight G8 | verdict | EXECUTE | |
 | 17 | Phase C review | verdict | PASS | |
-| 18 | §P46 cross-platform doc | `grep "§P46" docs/rust/PATTERNS.md` | present | |
-| 19 | E2E gossip test exists | `grep "gossip_exchange" crates/nexus-test-harness/tests/multi_daemon.rs` | present | |
-| 20 | Protocol Explorer exists | `ls examples/sbfb-explorer/index.html` | present | |
-| 21 | Ideas Hub exists | `ls examples/sbfb-ideas/index.html` | present | |
+| 18 | Phase D preflight G8 | verdict | EXECUTE | |
+| 19 | Phase D review | verdict | PASS | |
+| 20 | §P46 cross-platform doc | `grep "§P46" docs/rust/PATTERNS.md` | present | |
+| 21 | E2E gossip test exists | `grep "gossip_exchange" crates/nexus-test-harness/tests/multi_daemon.rs` | present | |
 | 22 | Storage persistence | `grep "app_storage" crates/nexus-coordinator-rs/src/db.rs` | present | |
-| 23 | Scope cuts | 13/13 respectes | all checked | |
-| 24 | Delta tests | cumule documente | documented | |
+| 23 | Protocol Explorer exists | `ls examples/sbfb-explorer/index.html` | present | |
+| 24 | Ideas Hub exists | `ls examples/sbfb-ideas/index.html` | present | |
+| 25 | Scope cuts | 13/13 respectes | all checked | |
+| 26 | Delta tests | cumule documente | documented | |
 
 ---
 
@@ -377,9 +415,10 @@ chore(sprint57): Phase D — wrap-up + verification + audit plan S58
 |---|---|---|
 | 1 | chore | `chore(planning): Sprint 57 kickoff + plan + design review + migration S56→archive` |
 | 2 | Phase A | `feat(sprint57): Sprint 57 Phase A — MANDATORY carries windows-test + E2E multi-noeuds` |
-| 3 | Phase B | `feat(sprint57): Sprint 57 Phase B — Protocol Explorer MVP (sbfb-explorer)` |
-| 4 | Phase C | `feat(sprint57): Sprint 57 Phase C — Ideas Hub MVP + storage persistence SQLite` |
-| 5 | Phase D | `chore(sprint57): Phase D — wrap-up + verification + audit plan S58` |
+| 3 | Phase B | `feat(sprint57): Sprint 57 Phase B — storage persistence SQLite M7` |
+| 4 | Phase C | `feat(sprint57): Sprint 57 Phase C — Protocol Explorer MVP (sbfb-explorer)` |
+| 5 | Phase D | `feat(sprint57): Sprint 57 Phase D — Ideas Hub MVP (sbfb-ideas)` |
+| 6 | Phase E | `chore(sprint57): Phase E — wrap-up + verification + audit plan S58` |
 
 ---
 

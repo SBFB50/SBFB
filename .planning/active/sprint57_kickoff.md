@@ -262,7 +262,7 @@ le job existant couvre les tests correctement gates.
 
 ---
 
-## §5 Plan Phase outline A..D
+## §5 Plan Phase outline A..E
 
 ### Phase A — MANDATORY carries (windows-test + E2E multi-noeuds)
 
@@ -278,49 +278,55 @@ CLOSE P2-S54-windows-test-cfg-unix + P2-S54-test-E2E-multi-noeuds.
 - Commit : `feat(sprint57): Sprint 57 Phase A — MANDATORY carries
   windows-test + E2E multi-noeuds`
 
-### Phase B — Protocol Explorer MVP
+### Phase B — Storage persistence SQLite (M7)
+
+**But** : persister le storage des apps dans coordinator.db pour
+que les donnees survivent au restart du daemon. Prerequis Ideas Hub.
+
+- Migration M7 : table app_storage dans coordinator.db
+- Helpers DB : load_all_storage() + upsert_storage() + delete_storage()
+- storage_api.rs : load at boot + write-through sur set/delete
+- 4 tests Rust (persistence, overwrite, delete, boot load)
+- Commit : `feat(sprint57): Sprint 57 Phase B — storage persistence
+  SQLite M7`
+
+### Phase C — Protocol Explorer MVP
 
 **But** : premiere app SBFB fonctionnelle dans l'iframe sandbox.
 
 - `examples/sbfb-explorer/index.html` : structure + navigation
-- `examples/sbfb-explorer/style.css` : CSS minimal (dark theme,
-  sans framework)
+- `examples/sbfb-explorer/style.css` : CSS minimal (dark theme)
 - `examples/sbfb-explorer/app.js` : bridge integration F3 live
   status (node_status + browse_list + identity_pubkey)
-- Contenu F1 : explication protocole (architecture, cycle de vie
-  app/tache, securite, philosophie) avec diagrammes SVG
-- Contenu F2 : liens vers le code source (fichiers cles du repo)
+- Contenu F1 : 5 sections protocole (architecture, cycle app,
+  cycle tache, securite, philosophie)
+- Contenu F2 : liens vers le code source
 - sbfb-bridge.js copie depuis web/public/
-- Test : zip + blob-serve → iframe → bridge F3 fonctionne
-- Commit : `feat(sprint57): Sprint 57 Phase B — Protocol Explorer
+- Commit : `feat(sprint57): Sprint 57 Phase C — Protocol Explorer
   MVP (sbfb-explorer)`
 
-### Phase C — Ideas Hub MVP + storage persistence
+### Phase D — Ideas Hub MVP
 
-**But** : deuxieme app SBFB + persistence storage pour toutes
-les apps.
+**But** : deuxieme app SBFB. Consomme la persistence Phase B.
 
-- Migration M7 : table app_storage dans coordinator.db
-- Helpers DB : load_storage() + upsert_storage() + delete_storage()
-- storage_api.rs : load at boot + write-through sur set/delete
-- `examples/sbfb-ideas/index.html` : formulaire + liste d'idees
+- `examples/sbfb-ideas/index.html` : formulaire + liste + vote
 - `examples/sbfb-ideas/style.css` : CSS minimal (dark theme)
 - `examples/sbfb-ideas/app.js` : bridge CRUD (storage_set +
-  storage_get + storage_list + storage_delete + identity_pubkey)
-- Test : zip + blob-serve → iframe → CRUD idees fonctionne
-- Test : storage survit restart daemon
-- Commit : `feat(sprint57): Sprint 57 Phase C — Ideas Hub MVP +
-  storage persistence SQLite`
+  storage_list + storage_delete + identity_pubkey)
+- F1 : proposer idee (titre + description, auteur = identity)
+- F2 : voter (1 vote/identite/idee, toggle upvote)
+- Commit : `feat(sprint57): Sprint 57 Phase D — Ideas Hub MVP
+  (sbfb-ideas)`
 
-### Phase D — Wrap-up + verification + audit plan S58
+### Phase E — Wrap-up + verification + audit plan S58
 
 **But** : cloturer le sprint.
 
 - CLAUDE.md : update S57 CLOSED, carries S58
 - HARDENING_ROADMAP : update last_validated S57
-- verification.md : 24+ fail-fast rows
+- verification.md : 26+ fail-fast rows
 - sprint58_audit_plan.md : 7+ tracks
-- Commit : `chore(sprint57): Phase D — wrap-up + verification +
+- Commit : `chore(sprint57): Phase E — wrap-up + verification +
   audit plan S58`
 
 ---
@@ -420,3 +426,9 @@ sprint58_audit_plan.md pour la session fraiche S58.
    → oui (pattern TestHarness existant, pas besoin de Docker/VPS)
 4. **D4** : Storage persistence = SQLite M7 dans coordinator.db ?
    → oui (consistent avec outbox M6, rusqlite deja dans workspace)
+
+**Re-decoupage Phase B/C/D (post-Phase A)** : la Phase B
+initiale (Protocol Explorer) et Phase C initiale (Ideas Hub +
+storage) ont ete re-decoupees en 3 phases pour respecter la
+discipline de commit atomique. Le backend Rust (storage M7) est
+separe des apps HTML/JS, et chaque app a sa propre phase.
