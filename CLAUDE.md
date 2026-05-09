@@ -96,7 +96,7 @@ nexus-grid/
 │   ├── active/                        # sprint en cours uniquement (kickoff, plan, audit_findings du precedent, verification, audit_plan)
 │   ├── archive/v1.0/                  # S0-13 (pivot, P2P, universal render, bridge, launcher)
 │   ├── archive/v1.1/                  # S14-15 (verified deploy, bridge bidirectionnel, watchdog)
-│   └── archive/v1.2/                  # S16-32 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites, rate-limit + PII defense-in-depth, Sybil-resistance, ephemeral workers, guardrails + hooks + re-run + DNS fallback, key rotation + C3 handoffs + D5 capabilities, MCP server + OS audit + task_handler, watermark SynthID + Couche 3 multi-forge + Gate 3 showcase, dette pair blob-serve COOP/COEP + warrant canary FROST DKG, task_runner reel + output filter E2E + Tor transport phase 1, dette pair iroh 0.98 + rusqlite 0.36 + arti-client activation)
+│   └── archive/v1.2/                  # S16-32 (loopback hardening, research, supply chain, transport hardening, Gate 2 prerequisites, rate-limit + PII defense-in-depth, Sybil-resistance, ephemeral workers, guardrails + hooks + re-run + DNS fallback, key rotation + C3 handoffs + D5 capabilities, MCP server + OS audit + task_handler, watermark SynthID + Couche 3 multi-forge + Gate 3 showcase, dette pair blob-serve COOP/COEP + warrant canary FROST DKG, task_runner reel + output filter E2E + Tor transport phase 1, dette pair iroh 0.98 + rusqlite 0.36 + arti-client activation, gossip resilience + bridge extensions + dette pair)
 ├── docs/
 │   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
 │   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
@@ -112,31 +112,30 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-55 CLOSED**, v1.2 en cours. Projet Rust+Frontend
-  pur depuis S50-S51. S55 : CI self-hosted build Woodpecker +
-  LT-7 foundation (build executor + quorum SHA256) + P2 batch.
-  Phases A+A.1+B+C+D livrees (5 reviews PASS, 5 preflights G8).
+- **Sprints 0-56 CLOSED**, v1.2 en cours. Projet Rust+Frontend
+  pur depuis S50-S51. S56 : gossip resilience (outbox persistent
+  SQLite + browse rate-limit governor per-peer) + bridge
+  extensions 5 methodes + dette pair P2 batch 5 items.
+  Phases A+B+C+D livrees (4 reviews PASS, 4 preflights G8).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1472 tests total** (1216 Rust / 250 Vitest / 42+2f Playwright
+- **~1489 tests total** (1227 Rust / 256 Vitest / 42+2f Playwright
   / 6/6 size-limit) — tous verts code (2 PW env fail pre-existant).
-  S55 : +9 delta test Rust (1207→1216 Phase B +4, Phase C +5).
-  0 delta frontend.
-- Carry S56 :
-  P2-S53-outbox non-persistant **3/3 MANDATORY** ;
-  P2-S53-browse_request rate-limit **3/3 MANDATORY** ;
+  S56 : +11 delta test Rust (1216→1227 Phase A +3, B +4, C +2,
+  D +2). +6 delta Vitest (250→256 Phase C +5, C-fix +1).
+- Carry S57 :
+  P2-S54-windows-test-cfg-unix **3/3 MANDATORY** ;
+  P2-S54-test-E2E-multi-noeuds **3/3 MANDATORY** ;
+  P2-JITTER-SCOPE 2/3 ;
+  P2-INVITE-U16-WIRE 2/3 ;
   P2-A-1 rand blocker upstream (exemption externe) ;
-  P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98) ;
-  5 P2 a 2/3 (forbid-deny-doc, lightcheck, windows-test,
-  E2E multi-noeuds, rustfmt drift sessions) ;
-  4 nouveaux P2 S55 (build-timeout, remap-path, jitter-scope,
-  invite-u16-wire).
+  P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
-  LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 S56+.
+  LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 S57+.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.

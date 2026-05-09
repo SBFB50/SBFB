@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-08  # G2 — Sprint 55 CLOSED : CI self-hosted build Woodpecker + LT-7 foundation (build executor + quorum SHA256) + P2 batch. Compteurs 1216 Rust / 250 Vitest / 42+2f PW / 6/6 size / ~1472 total. 0 trigger actif.
+last_validated: 2026-05-09  # G2 — Sprint 56 CLOSED : Gossip resilience (outbox persistent SQLite + browse rate-limit governor per-peer) + bridge extensions 5 methodes + dette pair P2 batch 5 items. Compteurs 1227 Rust / 256 Vitest / 42+2f PW / 6/6 size / ~1489 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
