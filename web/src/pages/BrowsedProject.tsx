@@ -219,10 +219,6 @@ function FullScreenApp({
     [barVisible],
   );
 
-  const daemonUrl = daemonInfo
-    ? daemonBaseUrlFromInfo(daemonInfo)
-    : null;
-
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col bg-[#0a0a0f]"
@@ -270,18 +266,6 @@ function FullScreenApp({
               <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400/70">
                 blob:{truncateHex(entry.archive_hash)}
               </span>
-            )}
-
-            {entry.archive_hash && daemonUrl && (
-              <a
-                href={blobServeUrl(daemonUrl, entry.archive_hash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 rounded-full bg-white/[0.06] px-3 py-1.5 text-[11px] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-              >
-                <ExternalLink className="h-3 w-3" />
-                Nouvel onglet
-              </a>
             )}
 
             {entry.provenance_hash && (
