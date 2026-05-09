@@ -439,6 +439,15 @@ async fn blob_serve_csp_middleware(request: Request, next: Next) -> impl IntoRes
         "cross-origin-embedder-policy",
         blob_serve::BLOB_SERVE_COEP.parse().unwrap(),
     );
+    // CORP: allow sub-resources (CSS, JS, images) to load even when
+    // the document has an opaque origin (from CSP sandbox or iframe
+    // sandbox attribute). Without this, COEP require-corp blocks
+    // same-path resources that appear cross-origin to the opaque
+    // origin.
+    headers.insert(
+        "cross-origin-resource-policy",
+        "cross-origin".parse().unwrap(),
+    );
     response
 }
 
