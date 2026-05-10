@@ -1030,6 +1030,8 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
         let browse_limiter = BrowseRequestLimiter::new();
         let republish_delay = tokio::time::sleep(jittered_republish_duration());
         tokio::pin!(republish_delay);
+        let mut retain_interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        retain_interval.tick().await; // consume the immediate first tick
 
         loop {
             tokio::select! {
@@ -1169,6 +1171,9 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                         debug!(entries = outbox.len(), neighbors = neighbor_count, "periodic republish completed");
                     }
                     republish_delay.as_mut().reset(tokio::time::Instant::now() + jittered_republish_duration());
+                }
+                _ = retain_interval.tick() => {
+                    browse_limiter.retain_recent();
                 }
                 _ = &mut shutdown_rx => {
                     info!("gossip task shut down on signal");
