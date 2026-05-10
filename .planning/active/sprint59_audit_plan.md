@@ -1,7 +1,7 @@
 # Sprint 59 — Audit plan
 
-**Ecrit** : 2026-05-10 (Phase E Sprint 58)
-**Scope attendu S59** : stabilisation pre-v1.0 + verified deploy E2E + LT-1 Kudos-v2 + tag v1.0
+**Ecrit** : 2026-05-10 (Phase E Sprint 58), mis a jour 2026-05-10 (roadmap revision)
+**Scope attendu S59** : launcher readiness (bundle + MessageBox + seed demo) + verified deploy E2E + stabilisation — early adopter ready (tag v1.0 reporte S60 pour qualite end user)
 
 ---
 
@@ -58,7 +58,8 @@
 1. CLAUDE.md S58 CLOSED avec carries S59 corrects
 2. HARDENING_ROADMAP last_validated = S58
 3. SPRINT_LOG row S58 presente et complete
-4. Memory nexus_grid_pivot.md tip = `3ca0ba1` post-Phase E
-5. Roadmap S59 = stabilisation + verified deploy E2E + LT-1 + tag v1.0
-6. 0 P0/P1 residuels bloquant le tag v1.0
-7. AppStorage P2P Phase 2 (manifest) correctement scope S59+
+4. Memory nexus_grid_pivot.md tip = `1734cfb` post-Phase E
+5. Roadmap : S59 = launcher readiness + verified deploy E2E + stabilisation (early adopter) → S60 = installer + tag v1.0 (end user)
+6. 0 P0/P1 residuels bloquant S59
+7. AppStorage P2P Phase 2 (manifest) correctement scope S60+
+8. LT-1 Kudos-v2 : confirmer S59 ou S60 selon capacite sprint

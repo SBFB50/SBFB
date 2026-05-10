@@ -130,12 +130,17 @@ Runtime isolation roadmap dans
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
-  LT-1 Kudos-v2 fairness reform — **PRE-V1.0**.
+  LT-1 Kudos-v2 fairness reform — **PRE-V1.0** (S59 ou S60).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
   LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 S59+.
+- **Roadmap pre-v1.0** :
+  S59 = launcher readiness (bundle + MessageBox + seed demo) +
+  verified deploy E2E + stabilisation → **early adopter ready**.
+  S60 = installer NSIS/WiX + tray + frontend P2P distribution
+  → **end user ready** → tag v1.0.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
