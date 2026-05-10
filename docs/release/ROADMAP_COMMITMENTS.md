@@ -327,9 +327,16 @@ Derniere revue).
   - Cout reseau binaires 50MB+ × redundancy (acceptable)
   MVP : architecture homogene x86_64-linux d'abord, cross-platform
   apres validation.
-- **Derniere revue** : 2026-05-02 (creation, feasibility check
-  positif — aucun blocker fondamental, pas de precedent P2P
-  existant = SBFB serait le premier).
+- **Derniere revue** : 2026-05-10 (S58 CLOSED). Tier 1 (Woodpecker
+  CI pipeline) + Tier 2 (build_executor.rs + quorum SHA256
+  validation TaskStatus::AwaitingQuorum + redundancy=3) = **DONE
+  S55**. "Operationnel" au sens pre-launch = code path E2E
+  fonctionnel, capable de dispatcher build tasks et valider par
+  consensus SHA256. Tier 3 (N builders independants sur le reseau)
+  est inherent au post-v1.0 (aucun worker tiers ne tourne avant le
+  tag). Le gate pre-v1.0 est satisfait par Tier 2. Tier 3 est un
+  objectif post-launch progressive (premiers users = premiers
+  builders).
 
 ## Reservation IDs futurs
 

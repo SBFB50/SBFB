@@ -58,7 +58,7 @@
 1. CLAUDE.md S58 CLOSED avec carries S59 corrects
 2. HARDENING_ROADMAP last_validated = S58
 3. SPRINT_LOG row S58 presente et complete
-4. Memory nexus_grid_pivot.md tip = `1734cfb` post-Phase E
+4. Memory nexus_grid_pivot.md tip = post-Phase E (tip evolue avec chaque commit planning)
 5. Roadmap : S59 = launcher readiness + verified deploy E2E + stabilisation (early adopter) → S60 = installer + tag v1.0 (end user)
 6. 0 P0/P1 residuels bloquant S59
 7. AppStorage P2P Phase 2 (manifest) correctement scope S60+
