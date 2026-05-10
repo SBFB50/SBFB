@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-10  # G2 — Sprint 57 CLOSED : Protocol Explorer + Ideas Hub MVPs + MANDATORY carries (windows-test + E2E multi-noeuds) + storage persistence SQLite M7. Compteurs 1232 Rust / 256 Vitest / 42+2f PW / 6/6 size / ~1494 total. 0 trigger actif.
+last_validated: 2026-05-10  # G2 — Sprint 58 CLOSED : AppStorage P2P replication iroh-docs (namespace + live events + sync E2E) + 2 MANDATORY CLOSED (JITTER-SCOPE + INVITE-U16-WIRE) + dette pair (retain_recent + bridge sync). Compteurs 1240 Rust / 256 Vitest / 42+2f PW / 6/6 size / ~1502 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
