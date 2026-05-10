@@ -77,8 +77,8 @@
 
 | Item | Compteur entree | Resolution | Commit |
 |---|---|---|---|
-| P2-JITTER-SCOPE | 3/3 MANDATORY | CLOSED Phase A | `373f18d` (feat) |
-| P2-INVITE-U16-WIRE | 3/3 MANDATORY | CLOSED Phase A | `373f18d` (feat) |
+| P2-JITTER-SCOPE | 3/3 MANDATORY | CLOSED Phase A | `b449d62` (feat) |
+| P2-INVITE-U16-WIRE | 3/3 MANDATORY | CLOSED Phase A | `b449d62` (feat) |
 | P2-RETAIN-RECENT | 2/3 | CLOSED Phase B | `c287c61` (feat) |
 | P2-BRIDGE-SYNC | NEW 1/3 | CLOSED Phase B | `c287c61` (feat) |
 

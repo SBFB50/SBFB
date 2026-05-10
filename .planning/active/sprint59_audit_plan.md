@@ -26,8 +26,8 @@
 3. Migration M8 `storage_namespaces` table dans db.rs
 4. Tombstone filtering : entries `{ "deleted": true }` filtrees dans get_many
 5. DocsClient helpers : `get_many_latest_per_key_prefix` (dedup) + `get_latest_by_key` dans docs.rs
-6. Ticket Write generation : endpoint `/api/v1/storage/ticket` dans http.rs
-7. Ticket join : endpoint `/api/v1/storage/join` dans http.rs
+6. Ticket Write generation : endpoint `/api/daemon/storage/ticket/{app}` dans http.rs
+7. Ticket join : endpoint `/api/daemon/storage/join` dans http.rs
 
 ## Track D — Live events + sync E2E
 
