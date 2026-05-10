@@ -4851,6 +4851,7 @@ dependencies = [
  "async-trait",
  "axum",
  "clap",
+ "futures-lite",
  "hex",
  "hyper",
  "hyper-util",

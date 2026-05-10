@@ -248,6 +248,63 @@ class SBFBBridge {
   }
 
   /**
+   * Get the storage version counter for an app. Sprint 58 Phase D.
+   * Incremented on each remote insert received via iroh-docs sync.
+   * @param {string} appName — replicated app name
+   * @returns {Promise<{ app: string, version: number }>}
+   */
+  getStorageVersion(appName) {
+    return this._call("storage_version", { app: appName });
+  }
+
+  /**
+   * Register a callback invoked when the storage version changes
+   * (remote sync detected). Polls every 3s. Sprint 58 Phase D.
+   * @param {string} appName — replicated app name
+   * @param {() => void} callback — called on each version change
+   * @returns {() => void} — stop polling (idempotent)
+   */
+  onStorageUpdate(appName, callback) {
+    if (typeof appName !== "string" || !appName.length) {
+      throw new Error("onStorageUpdate: appName must be a non-empty string");
+    }
+    if (typeof callback !== "function") {
+      throw new Error("onStorageUpdate: callback must be a function");
+    }
+    var self = this;
+    var lastVersion = -1;
+    var stopped = false;
+    var timer = setInterval(function () {
+      if (stopped) return;
+      self
+        .getStorageVersion(appName)
+        .then(function (data) {
+          if (stopped) return;
+          var v = typeof data.version === "number" ? data.version : -1;
+          if (lastVersion === -1) {
+            lastVersion = v;
+            return;
+          }
+          if (v !== lastVersion) {
+            lastVersion = v;
+            try {
+              callback();
+            } catch (e) {
+              if (typeof console !== "undefined") console.error("onStorageUpdate callback threw", e);
+            }
+          }
+        })
+        .catch(function () {
+          // Swallow poll errors silently.
+        });
+    }, 3000);
+    return function () {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }
+
+  /**
    * @private
    * @param {string} method
    * @param {Object} payload

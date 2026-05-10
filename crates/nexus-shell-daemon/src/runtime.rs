@@ -584,10 +584,15 @@ impl DaemonRuntime {
                             doc_id = %ns_state.doc.id(),
                             "storage namespace ready"
                         );
+                        let ns_arc = Arc::new(ns_state);
+                        crate::storage_api::spawn_storage_subscribe(
+                            app_name.to_string(),
+                            Arc::clone(&ns_arc),
+                        );
                         storage_namespaces
                             .write()
                             .await
-                            .insert(app_name.to_string(), Arc::new(ns_state));
+                            .insert(app_name.to_string(), ns_arc);
                     }
                     Err(e) => {
                         warn!(app = %app_name, error = %e, "failed to boot storage namespace");

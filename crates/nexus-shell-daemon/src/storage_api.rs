@@ -14,12 +14,13 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use futures_lite::StreamExt;
 use serde::Deserialize;
 use tokio::sync::RwLock;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use nexus_core_rs::BlobsClient;
-use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsEntry, DocsTicket};
+use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsEntry, DocsLiveEvent, DocsTicket};
 
 use crate::http::DaemonHttpState;
 
@@ -543,7 +544,10 @@ pub async fn storage_join(
     }
 
     let mut ns = state.storage_namespaces.write().await;
-    ns.insert(body.app.clone(), ns_state);
+    ns.insert(body.app.clone(), Arc::clone(&ns_state));
+    drop(ns);
+
+    spawn_storage_subscribe(body.app.clone(), ns_state);
 
     (
         StatusCode::OK,
@@ -553,7 +557,38 @@ pub async fn storage_join(
 }
 
 // ---------------------------------------------------------------------------
-// Version endpoint (Phase D will wire InsertRemote → increment)
+// Subscribe InsertRemote → version increment (Sprint 58 Phase D)
+// ---------------------------------------------------------------------------
+
+pub fn spawn_storage_subscribe(app_name: String, ns_state: Arc<StorageNamespaceState>) {
+    tokio::spawn(async move {
+        let mut stream = match ns_state.doc.subscribe().await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(app = %app_name, error = %e, "storage subscribe failed");
+                return;
+            }
+        };
+        info!(app = %app_name, "storage subscribe active");
+        while let Some(event) = stream.next().await {
+            match event {
+                Ok(DocsLiveEvent::InsertRemote { .. }) => {
+                    ns_state.version.fetch_add(1, Ordering::Relaxed);
+                    debug!(app = %app_name, version = ns_state.version.load(Ordering::Relaxed), "remote insert received");
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!(app = %app_name, error = %e, "storage subscribe stream error");
+                    break;
+                }
+            }
+        }
+        info!(app = %app_name, "storage subscribe ended");
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Version endpoint (Sprint 58 Phase D)
 // ---------------------------------------------------------------------------
 
 pub async fn storage_version(

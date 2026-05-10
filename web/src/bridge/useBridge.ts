@@ -311,6 +311,16 @@ async function dispatch(
         return await resp.json();
       }
 
+      case "storage_version": {
+        const vApp = String(req.payload.app ?? appName);
+        const resp = await authFetch(
+          `${coordUrl}/api/daemon/storage/${encodeURIComponent(vApp)}/version`,
+          { signal: controller.signal },
+        );
+        if (!resp.ok) throw new Error(`storage_version failed: ${resp.status}`);
+        return await resp.json();
+      }
+
       default:
         throw new Error(`unknown bridge method: ${req.method}`);
     }

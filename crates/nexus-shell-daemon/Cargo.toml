@@ -31,6 +31,7 @@ nexus-coordinator-rs = { path = "../nexus-coordinator-rs" }
 nexus-worker-core = { path = "../nexus-worker-core" }
 
 tokio = { workspace = true }
+futures-lite = "2.3"
 
 # clap 4.5 derive CLI parser.
 clap = { workspace = true }

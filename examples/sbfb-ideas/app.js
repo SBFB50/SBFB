@@ -317,6 +317,27 @@
       });
   });
 
+  // --- Live sync (Sprint 58 Phase D) ---
+
+  var syncEl = document.getElementById("sync-status");
+
+  function updateSyncIndicator() {
+    if (syncEl) {
+      var now = new Date();
+      syncEl.textContent =
+        "Dernière sync : " +
+        now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      syncEl.style.opacity = "1";
+      setTimeout(function () {
+        syncEl.style.opacity = "0.6";
+      }, 1000);
+    }
+  }
+
+  bridge.onStorageUpdate("sbfb-ideas", function () {
+    loadAll().then(updateSyncIndicator);
+  });
+
   // --- Init ---
 
   bridge

@@ -187,6 +187,148 @@ async fn test_cross_daemon_gossip_exchange() {
     cluster.shutdown().await.expect("graceful shutdown");
 }
 
+/// Sprint 58 Phase D — cross-daemon storage sync: daemon A writes
+/// an idea, daemon B imports the ticket and receives the entry via
+/// iroh-docs replication.
+///
+/// Requires iroh relay connectivity (`SBFB_INTEGRATION=1`).
+#[tokio::test]
+async fn test_cross_daemon_storage_sync() {
+    if !integration_enabled() {
+        eprintln!("skipping: set SBFB_INTEGRATION=1 to enable storage sync E2E");
+        return;
+    }
+
+    let mut cluster = DaemonCluster::spawn(2).await.expect("spawn 2 daemons");
+    let client = reqwest::Client::new();
+
+    // Daemon A: write an idea via the storage API
+    let set_resp = client
+        .post(format!(
+            "{}/app/sbfb-ideas/state/ideas/test-sync-1",
+            cluster.nodes[0].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "title": "E2E sync test idea",
+            "description": "Written by daemon A",
+            "author": "test-pubkey-a",
+            "created_at": "2026-05-10T12:00:00Z"
+        }))
+        .send()
+        .await
+        .expect("storage_set on daemon A");
+    assert!(
+        set_resp.status().is_success(),
+        "storage_set returned {}",
+        set_resp.status()
+    );
+
+    // Daemon A: get the storage ticket
+    let ticket_resp = client
+        .get(format!(
+            "{}/api/daemon/storage/ticket/sbfb-ideas",
+            cluster.nodes[0].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
+        .send()
+        .await
+        .expect("storage_ticket on daemon A");
+    assert!(ticket_resp.status().is_success());
+    let ticket_body: serde_json::Value = ticket_resp.json().await.expect("parse ticket response");
+    let ticket = ticket_body["ticket"]
+        .as_str()
+        .expect("ticket field present");
+    assert!(!ticket.is_empty(), "ticket must be non-empty");
+
+    // Daemon B: join the storage namespace
+    let join_resp = client
+        .post(format!(
+            "{}/api/daemon/storage/join",
+            cluster.nodes[1].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "app": "sbfb-ideas",
+            "ticket": ticket
+        }))
+        .send()
+        .await
+        .expect("storage_join on daemon B");
+    assert!(
+        join_resp.status().is_success(),
+        "storage_join returned {}",
+        join_resp.status()
+    );
+
+    // Poll daemon B for the synced entry (up to 30s)
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut found = false;
+    while tokio::time::Instant::now() < deadline {
+        let list_resp = client
+            .get(format!(
+                "{}/app/sbfb-ideas/state?prefix=ideas/",
+                cluster.nodes[1].http_url()
+            ))
+            .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+            .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+            .send()
+            .await;
+
+        if let Ok(resp) = list_resp {
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                let entries = body["entries"].as_array();
+                if let Some(entries) = entries {
+                    if entries.iter().any(|e| {
+                        e["key"]
+                            .as_str()
+                            .map(|k| k == "ideas/test-sync-1")
+                            .unwrap_or(false)
+                    }) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
+    assert!(
+        found,
+        "daemon B must see ideas/test-sync-1 via iroh-docs sync within 30s"
+    );
+
+    // Verify version counter incremented on daemon B
+    let version_resp = client
+        .get(format!(
+            "{}/api/daemon/storage/sbfb-ideas/version",
+            cluster.nodes[1].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+        .send()
+        .await
+        .expect("storage_version on daemon B");
+    assert!(version_resp.status().is_success());
+    let version_body: serde_json::Value =
+        version_resp.json().await.expect("parse version response");
+    let version = version_body["version"].as_u64().unwrap_or(0);
+    assert!(
+        version >= 1,
+        "version counter must have incremented (got {})",
+        version
+    );
+
+    cluster.shutdown().await.expect("graceful shutdown");
+}
+
 /// Row 33 — cross-daemon task stub: verify the daemon exposes
 /// its API surface and can accept authenticated requests.
 ///

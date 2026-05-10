@@ -31,6 +31,8 @@ export const BridgeMethodSchema = z.enum([
   "identity_pubkey",
   "node_status",
   "browse_list",
+  // Sprint 58 Phase D — storage version polling for live updates.
+  "storage_version",
 ]);
 
 export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;
