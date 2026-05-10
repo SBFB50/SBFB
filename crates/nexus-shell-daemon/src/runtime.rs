@@ -1460,4 +1460,15 @@ mod tests {
         assert_eq!(rt2.curator_runtime().subscribed_pubkeys_hex().len(), 1);
         rt2.shutdown().await.unwrap();
     }
+
+    #[test]
+    fn jitter_bounds_are_within_range() {
+        for _ in 0..200 {
+            let d = jittered_republish_duration();
+            assert!(
+                d.as_secs() >= 30 && d.as_secs() <= 60,
+                "jitter {d:?} out of [30s, 60s]"
+            );
+        }
+    }
 }

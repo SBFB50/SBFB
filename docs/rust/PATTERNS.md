@@ -2384,6 +2384,34 @@ runs Linux only.
 
 ---
 
+## §P47 — Sprint 58 Phase A : INVITE_FORMAT_VERSION wire format policy
+
+Sprint 55 Phase D renamed `INVITE_VERSION` (u8) to
+`INVITE_FORMAT_VERSION` (u16) in `nexus-worker-core/src/invite.rs`
+for naming consistency with `TASK_FORMAT_VERSION`.
+
+Current value: `INVITE_FORMAT_VERSION: u16 = 2`. Version 1 was the
+original Sprint 3 format (never distributed to external nodes, hard
+bumped to 2 in Sprint 4 when the signed invite envelope was added).
+
+**Pre-launch policy** (applies until tag v1.0):
+- Version = 2, hardcoded. No multi-version decoder.
+- Decoder rejects `version != INVITE_FORMAT_VERSION` immediately.
+- Changes to the invite wire format redefine v2, they do not bump
+  to v3. There is no external state to be backwards-compatible with.
+
+**Post-v1.0 policy** (activates at tag v1.0):
+- Each breaking change to the invite format bumps the version.
+- Decoder accepts a range `[MIN_SUPPORTED..=CURRENT]`.
+- New optional fields use `#[serde(default)]` with inline rationale
+  for runtime tolerance (not historical compat).
+- u16 range [0, 65535] provides decades of runway.
+
+Cross-ref: `CLAUDE.md §Pre-launch protocol policy`,
+`nexus-worker-core/src/invite.rs:73`.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13
