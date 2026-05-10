@@ -299,8 +299,7 @@
 
   // --- Form submit ---
 
-  formEl.addEventListener("submit", function (e) {
-    e.preventDefault();
+  submitBtn.addEventListener("click", function () {
     var title = titleEl.value.trim();
     if (!title) return;
     var desc = descEl.value.trim();
