@@ -306,6 +306,53 @@ impl DocHandle {
         Ok(out)
     }
 
+    /// Return the latest entry per key for entries matching `prefix`.
+    ///
+    /// Uses `Query::single_latest_per_key()` to deduplicate: when
+    /// multiple authors wrote to the same key, only the entry with
+    /// the highest timestamp is returned. Useful for "ideas/{uuid}"
+    /// style keys where each idea is unique.
+    pub async fn get_many_latest_per_key_prefix(
+        &self,
+        prefix: impl AsRef<[u8]>,
+    ) -> Result<Vec<iroh_docs::Entry>> {
+        let query = Query::single_latest_per_key().key_prefix(prefix);
+        let stream = self
+            .inner
+            .get_many(query)
+            .await
+            .map_err(|e| NexusError::Docs(format!("get_many latest_per_key failed: {e}")))?;
+        tokio::pin!(stream);
+        let mut out = Vec::new();
+        while let Some(res) = stream.next().await {
+            out.push(res.map_err(|e| {
+                NexusError::Docs(format!("get_many latest_per_key stream error: {e}"))
+            })?);
+        }
+        Ok(out)
+    }
+
+    /// Return a single entry for a key, taking the latest across
+    /// all authors. Returns `None` if no entry exists for the key.
+    pub async fn get_latest_by_key(
+        &self,
+        key: impl AsRef<[u8]>,
+    ) -> Result<Option<iroh_docs::Entry>> {
+        let query = Query::single_latest_per_key().key_exact(key);
+        let stream = self
+            .inner
+            .get_many(query)
+            .await
+            .map_err(|e| NexusError::Docs(format!("get_latest_by_key failed: {e}")))?;
+        tokio::pin!(stream);
+        match stream.next().await {
+            Some(res) => Ok(Some(res.map_err(|e| {
+                NexusError::Docs(format!("get_latest_by_key stream error: {e}"))
+            })?)),
+            None => Ok(None),
+        }
+    }
+
     // ------------------------------------------------------------------
     // Live sync
     // ------------------------------------------------------------------
@@ -357,7 +404,8 @@ impl DocHandle {
 // Re-export the iroh-docs types that appear in our public API so
 // downstream callers don't need to add iroh-docs as a direct dep.
 pub use iroh_docs::{
-    AuthorId as DocsAuthorId, DocTicket as DocsTicket, NamespaceId as DocsNamespaceId,
+    AuthorId as DocsAuthorId, DocTicket as DocsTicket, Entry as DocsEntry,
+    NamespaceId as DocsNamespaceId,
 };
 
 #[cfg(test)]
@@ -517,5 +565,135 @@ mod tests {
 
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn get_latest_by_key_returns_most_recent_across_authors() {
+        let node = spawn_node().await;
+        let docs = DocsClient::new(node.docs());
+        let blobs = crate::BlobsClient::new(node.blobs_store());
+
+        let author_a = docs.author_create().await.unwrap();
+        let author_b = docs.author_create().await.unwrap();
+        let doc = docs.create_doc().await.unwrap();
+
+        doc.set(
+            author_a,
+            b"ideas/001".to_vec(),
+            b"{\"title\":\"old\"}".to_vec(),
+        )
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        doc.set(
+            author_b,
+            b"ideas/001".to_vec(),
+            b"{\"title\":\"new\"}".to_vec(),
+        )
+        .await
+        .unwrap();
+
+        let entry = doc
+            .get_latest_by_key(b"ideas/001")
+            .await
+            .unwrap()
+            .expect("entry must exist");
+
+        let content = blobs
+            .get_bytes(*entry.content_hash().as_bytes())
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&content).unwrap();
+        assert_eq!(json["title"], "new", "latest entry wins across authors");
+
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn get_many_latest_per_key_prefix_deduplicates() {
+        let node = spawn_node().await;
+        let docs = DocsClient::new(node.docs());
+
+        let author_a = docs.author_create().await.unwrap();
+        let author_b = docs.author_create().await.unwrap();
+        let doc = docs.create_doc().await.unwrap();
+
+        doc.set(author_a, b"ideas/001".to_vec(), b"v1".to_vec())
+            .await
+            .unwrap();
+        doc.set(author_b, b"ideas/001".to_vec(), b"v2".to_vec())
+            .await
+            .unwrap();
+        doc.set(author_a, b"ideas/002".to_vec(), b"v3".to_vec())
+            .await
+            .unwrap();
+
+        let entries = doc.get_many_latest_per_key_prefix(b"ideas/").await.unwrap();
+        assert_eq!(
+            entries.len(),
+            2,
+            "single_latest_per_key should return 1 entry per key"
+        );
+
+        let all_entries = doc.get_many_by_prefix(b"ideas/").await.unwrap();
+        assert_eq!(
+            all_entries.len(),
+            3,
+            "get_many_by_prefix returns all entries including multi-author"
+        );
+
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn storage_crud_via_iroh_docs() {
+        let node = spawn_node().await;
+        let docs = DocsClient::new(node.docs());
+        let blobs = crate::BlobsClient::new(node.blobs_store());
+
+        let author = docs.author_create().await.unwrap();
+        let doc = docs.create_doc().await.unwrap();
+
+        doc.set(
+            author,
+            b"ideas/abc".to_vec(),
+            b"{\"title\":\"test idea\"}".to_vec(),
+        )
+        .await
+        .unwrap();
+
+        let entry = doc
+            .get_latest_by_key(b"ideas/abc")
+            .await
+            .unwrap()
+            .expect("entry must exist after set");
+        let content = blobs
+            .get_bytes(*entry.content_hash().as_bytes())
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&content).unwrap();
+        assert_eq!(json["title"], "test idea");
+
+        doc.set(
+            author,
+            b"ideas/abc".to_vec(),
+            b"{\"deleted\":true}".to_vec(),
+        )
+        .await
+        .unwrap();
+
+        let tombstone_entry = doc
+            .get_latest_by_key(b"ideas/abc")
+            .await
+            .unwrap()
+            .expect("tombstone entry must exist");
+        let tombstone_content = blobs
+            .get_bytes(*tombstone_entry.content_hash().as_bytes())
+            .await
+            .unwrap();
+        let tombstone_json: serde_json::Value = serde_json::from_slice(&tombstone_content).unwrap();
+        assert_eq!(tombstone_json["deleted"], true, "tombstone marks deletion");
+
+        node.shutdown().await.ok();
     }
 }

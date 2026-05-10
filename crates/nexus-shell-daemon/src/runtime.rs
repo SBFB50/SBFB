@@ -567,6 +567,35 @@ impl DaemonRuntime {
             ))
         };
 
+        // 6c-3. Sprint 58 Phase C: create or reopen iroh-docs storage
+        //       namespaces for replicated apps. Uses the
+        //       storage_namespaces M8 table to persist namespace IDs
+        //       across restarts.
+        let storage_namespaces = crate::storage_api::new_storage_namespaces();
+        {
+            let replicated_apps: &[&str] = &["sbfb-ideas"];
+            for app_name in replicated_apps {
+                match boot_storage_namespace(&docs_client, &coordinator_db, app_name, doc_author)
+                    .await
+                {
+                    Ok(ns_state) => {
+                        info!(
+                            app = %app_name,
+                            doc_id = %ns_state.doc.id(),
+                            "storage namespace ready"
+                        );
+                        storage_namespaces
+                            .write()
+                            .await
+                            .insert(app_name.to_string(), Arc::new(ns_state));
+                    }
+                    Err(e) => {
+                        warn!(app = %app_name, error = %e, "failed to boot storage namespace");
+                    }
+                }
+            }
+        }
+
         // 6d. Build gossip command channel + shared HTTP state +
         //     spawn the serve task.
         let (gossip_cmd_tx, gossip_cmd_rx) = tokio::sync::mpsc::channel::<GossipCmd>(64);
@@ -612,6 +641,7 @@ impl DaemonRuntime {
                 let guard = coordinator_db.lock().unwrap();
                 crate::storage_api::load_app_storage_from_db(&guard)
             },
+            storage_namespaces: Arc::clone(&storage_namespaces),
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
@@ -1292,6 +1322,67 @@ fn handle_project_announcement(browse_aggregator: &BrowseAggregatorHandle, conte
             warn!(error = %e, "failed to parse project announcement");
         }
     }
+}
+
+/// Boot or reopen an iroh-docs storage namespace for a replicated
+/// app. Checks the M8 `storage_namespaces` table for a persisted
+/// NamespaceId. If found, reopens; otherwise creates a new namespace,
+/// generates a Write ticket, and persists both.
+async fn boot_storage_namespace(
+    docs_client: &nexus_core_rs::docs::DocsClient,
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    app_name: &str,
+    author: nexus_core_rs::docs::DocsAuthorId,
+) -> Result<crate::storage_api::StorageNamespaceState> {
+    use std::sync::atomic::AtomicU64;
+
+    let existing = {
+        let db = coordinator_db
+            .lock()
+            .map_err(|e| anyhow!("coordinator DB lock failed: {e}"))?;
+        db.get_storage_namespace(app_name).ok().flatten()
+    };
+
+    let (doc, ticket_str) = match existing {
+        Some(row) => {
+            let bytes: [u8; 32] = row
+                .namespace_id
+                .as_slice()
+                .try_into()
+                .map_err(|_| anyhow!("invalid namespace_id length in DB"))?;
+            let ns_id = nexus_core_rs::docs::DocsNamespaceId::from(bytes);
+            let doc = docs_client
+                .open_doc(ns_id)
+                .await?
+                .ok_or_else(|| anyhow!("storage namespace listed in DB but not found in iroh"))?;
+            let ticket_str = match row.doc_ticket {
+                Some(t) => t,
+                None => {
+                    let ticket = doc.share_write().await?;
+                    let t = ticket.to_string();
+                    let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+                    let _ = db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&t));
+                    t
+                }
+            };
+            (doc, ticket_str)
+        }
+        None => {
+            let doc = docs_client.create_doc().await?;
+            let ticket = doc.share_write().await?;
+            let ticket_str = ticket.to_string();
+            let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+            let _ = db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&ticket_str));
+            (doc, ticket_str)
+        }
+    };
+
+    Ok(crate::storage_api::StorageNamespaceState {
+        doc: Arc::new(doc),
+        author,
+        ticket: ticket_str,
+        version: AtomicU64::new(0),
+    })
 }
 
 // =================================================================

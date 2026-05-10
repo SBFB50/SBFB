@@ -161,6 +161,9 @@ pub struct DaemonHttpState {
     /// Sprint 56 Phase C: per-app in-memory key-value storage for the
     /// bridge `storage_*` methods.
     pub app_storage: crate::storage_api::AppStorage,
+    /// Sprint 58 Phase C: per-app iroh-docs storage namespaces for
+    /// P2P replicated apps. Keyed by app name (e.g. "sbfb-ideas").
+    pub storage_namespaces: crate::storage_api::StorageNamespaces,
 }
 
 impl DaemonHttpState {
@@ -308,6 +311,18 @@ pub fn build_router(
             get(crate::storage_api::storage_get)
                 .post(crate::storage_api::storage_set)
                 .delete(crate::storage_api::storage_delete),
+        )
+        .route(
+            "/api/daemon/storage/ticket/{app}",
+            get(crate::storage_api::storage_ticket),
+        )
+        .route(
+            "/api/daemon/storage/join",
+            post(crate::storage_api::storage_join),
+        )
+        .route(
+            "/api/daemon/storage/{app}/version",
+            get(crate::storage_api::storage_version),
         )
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
@@ -1792,6 +1807,7 @@ mod tests {
             project_doc: None,
             task_dispatch_tx: None,
             app_storage: crate::storage_api::new_app_storage(),
+            storage_namespaces: crate::storage_api::new_storage_namespaces(),
         })
     }
 
@@ -2547,6 +2563,7 @@ mod tests {
             project_doc: None,
             task_dispatch_tx: None,
             app_storage: crate::storage_api::new_app_storage(),
+            storage_namespaces: crate::storage_api::new_storage_namespaces(),
         });
         let app = build_test_router(state);
         let resp = app

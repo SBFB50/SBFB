@@ -142,7 +142,20 @@ static MIGRATIONS: &[M<'static>] = &[
         PRIMARY KEY (app_name, key)
     );",
     ),
+    // M8: per-app iroh-docs storage namespace persistence (Sprint 58 Phase C)
+    M::up(
+        "CREATE TABLE IF NOT EXISTS storage_namespaces (
+        app_name       TEXT PRIMARY KEY,
+        namespace_id   BLOB NOT NULL,
+        doc_ticket     TEXT
+    );",
+    ),
 ];
+
+pub struct StorageNamespaceRow {
+    pub namespace_id: Vec<u8>,
+    pub doc_ticket: Option<String>,
+}
 
 pub struct CoordinatorDb {
     conn: Connection,
@@ -490,6 +503,38 @@ impl CoordinatorDb {
         self.conn.execute(
             "DELETE FROM app_storage WHERE app_name = ?1 AND key = ?2",
             rusqlite::params![app_name, key],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_storage_namespace(
+        &self,
+        app_name: &str,
+    ) -> Result<Option<StorageNamespaceRow>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT namespace_id, doc_ticket FROM storage_namespaces WHERE app_name = ?1",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![app_name])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(StorageNamespaceRow {
+                namespace_id: row.get(0)?,
+                doc_ticket: row.get(1)?,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_storage_namespace(
+        &self,
+        app_name: &str,
+        namespace_id: &[u8],
+        ticket: Option<&str>,
+    ) -> Result<(), CoordinatorError> {
+        self.conn.execute(
+            "INSERT INTO storage_namespaces (app_name, namespace_id, doc_ticket)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(app_name) DO UPDATE SET namespace_id = excluded.namespace_id, doc_ticket = excluded.doc_ticket",
+            rusqlite::params![app_name, namespace_id, ticket],
         )?;
         Ok(())
     }
@@ -862,5 +907,30 @@ mod tests {
         assert_eq!(loaded["app-b"].len(), 1);
         assert_eq!(loaded["app-a"]["k1"], serde_json::json!("v1"));
         assert_eq!(loaded["app-b"]["k2"], serde_json::json!(99));
+    }
+
+    #[test]
+    fn storage_namespace_crud() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let ns_id = [42u8; 32];
+
+        assert!(db.get_storage_namespace("sbfb-ideas").unwrap().is_none());
+
+        db.set_storage_namespace("sbfb-ideas", &ns_id, Some("ticket-abc"))
+            .expect("set");
+        let row = db
+            .get_storage_namespace("sbfb-ideas")
+            .unwrap()
+            .expect("must exist");
+        assert_eq!(row.namespace_id, ns_id.to_vec());
+        assert_eq!(row.doc_ticket.as_deref(), Some("ticket-abc"));
+
+        db.set_storage_namespace("sbfb-ideas", &ns_id, Some("ticket-xyz"))
+            .expect("upsert");
+        let row2 = db
+            .get_storage_namespace("sbfb-ideas")
+            .unwrap()
+            .expect("must exist");
+        assert_eq!(row2.doc_ticket.as_deref(), Some("ticket-xyz"));
     }
 }
