@@ -135,7 +135,7 @@ Runtime isolation roadmap dans
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
-  LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 S59+.
+  LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 post-launch progressif.
 - **Roadmap pre-v1.0** :
   S59 = launcher readiness (bundle + MessageBox + seed demo) +
   verified deploy E2E + stabilisation → **early adopter ready**.
