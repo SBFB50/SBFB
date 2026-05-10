@@ -121,53 +121,92 @@ vers iroh-docs au lieu du HashMap+SQLite local.
 1. **Namespace storage au boot**
    - Fichier : `crates/nexus-shell-daemon/src/runtime.rs`
    - Apres le project doc (runtime.rs:547), creer/ouvrir un
-     2eme namespace dedie au storage (pattern identique :
-     list existing → open or create)
-   - Stocker le `NamespaceId` dans un fichier config ou DB
-     (coordinator.db, table `storage_namespace`)
+     2eme namespace dedie au storage
+   - **PAS de `list_docs().first()`** : utiliser la table
+     `storage_namespaces` (M8) pour retrouver le NamespaceId
+     par nom d'app. Si absent, creer un nouveau namespace et
+     persister l'ID dans la table.
    - Passer le `Doc` (Arc) dans `DaemonHttpState`
 
-2. **DaemonHttpState enrichi**
+2. **DaemonHttpState enrichi — etat mutable**
    - Fichier : `crates/nexus-shell-daemon/src/http.rs`
-   - Ajouter `storage_doc: Option<Arc<DocHandle>>` et
-     `storage_author: AuthorId` dans `DaemonHttpState`
+   - L'etat storage doit etre mutable : POST /join installe un
+     nouveau namespace APRES le demarrage du daemon. Un simple
+     `Option<Arc<DocHandle>>` est trop statique.
+   - Ajouter une structure `StorageNamespaceState { doc: Arc<DocHandle>,
+     author: AuthorId, ticket: String, version: AtomicU64 }` et
+     stocker `storage_namespaces: Arc<RwLock<HashMap<String,
+     StorageNamespaceState>>>` dans `DaemonHttpState`.
+   - Au boot, pre-remplir avec les namespaces connus de la table M8.
+   - POST /join insere un nouveau namespace dans la map.
 
 3. **Router storage_api.rs vers iroh-docs**
    - Fichier : `crates/nexus-shell-daemon/src/storage_api.rs`
+   - **Semantique multi-auteur** : iroh-docs stocke des entries
+     indexees par (author, key). Plusieurs auteurs sur la meme
+     cle = plusieurs entries distinctes.
    - `storage_set` : si app repliquee (`sbfb-ideas`), ecrire
-     via `doc.set(author, key, json)`. Sinon, HashMap+SQLite
-     existant.
+     via `doc.set(local_author, key, json)`. Chaque noeud ecrit
+     sous son propre AuthorId. Sinon, HashMap+SQLite existant.
    - `storage_get` : si app repliquee, lire via
-     `doc.get_exact(author, key)`. Sinon, HashMap.
+     `doc.get_many(Query::key_exact(key))` puis prendre l'entree
+     la plus recente tous auteurs confondus (latest timestamp).
+     **PAS `get_exact(local_author, key)`** — ca ne retournerait
+     que l'entree du noeud local, pas celle d'un autre noeud.
    - `storage_list` : si app repliquee, lire via
-     `doc.get_many_by_prefix(prefix)`. Retourne entries de TOUS
-     les auteurs (multi-node view).
+     `doc.get_many(Query::key_prefix(prefix))`. Retourne entries
+     de TOUS les auteurs (vue agregee multi-noeuds). Filtrer les
+     tombstones (`{ "deleted": true }` / `{ "retracted": true }`)
+     avant de retourner.
    - `storage_delete` : si app repliquee, ecrire tombstone
-     `{ "deleted": true }`.
+     `{ "deleted": true }` sous le local AuthorId. Seul l'auteur
+     d'une entree peut la supprimer (per-author ownership).
    - Le HashMap+SQLite local reste le fallback pour les apps
      non repliquees.
+   - **Schema app preservee** : le schema actuel de sbfb-ideas
+     (`ideas/{uuid}` + `votes/{ideaId}/{pubkey}`) fonctionne
+     avec iroh-docs. Le pubkey dans la cle de vote est une
+     **cle applicative** (node_id daemon via identity_pubkey),
+     distincte de l'AuthorId iroh-docs (identite docs). Les
+     deux coexistent : AuthorId = dimension auteur iroh-docs,
+     pubkey dans la cle = identifiant applicatif. Pas de
+     migration d'app requise pour S58 MVP.
+   - **Deduplication reads** : pour `storage_list("ideas/")`,
+     grouper par key et garder latest-per-key (via
+     `Query::single_latest_per_key().key_prefix(prefix)`) pour
+     eviter les doublons multi-auteur sur les cles `ideas/*`.
+     Pour `storage_list("votes/")`, retourner toutes les entries
+     (chaque auteur = 1 vote distinct).
 
 4. **Migration DB : table storage_namespaces (M8)**
    - Fichier : `crates/nexus-coordinator-rs/src/db.rs`
    - Table `storage_namespaces(app_name TEXT PRIMARY KEY,
-     namespace_id BLOB NOT NULL)`
-   - Helpers : `get_storage_namespace(app_name)` et
-     `set_storage_namespace(app_name, namespace_id)`
+     namespace_id BLOB NOT NULL, doc_ticket TEXT)`
+   - Helpers : `get_storage_namespace(app_name)`,
+     `set_storage_namespace(app_name, namespace_id, ticket)`
 
-5. **Ticket Write generation**
+5. **Ticket Write generation + import (OBLIGATOIRE)**
    - Au boot, si le namespace est nouveau, generer un DocTicket
      Write via `doc.share_write()`
-   - Serialiser le ticket et le rendre disponible (log info +
-     endpoint optionnel GET /api/daemon/storage/ticket)
+   - Serialiser le ticket dans la table storage_namespaces ET
+     le rendre disponible via endpoint obligatoire
+     `GET /api/daemon/storage/ticket/:app`
+   - **Endpoint import** : `POST /api/daemon/storage/join` accepte
+     un DocTicket serialise et appelle `import_and_subscribe()`.
+     Daemon B utilise cet endpoint pour rejoindre le namespace
+     de daemon A. Requis par le test E2E Phase D ET par le
+     scenario production (nouveau noeud rejoint le reseau).
    - L'embed dans l'archive zip = etape manuelle S58 (le verified
      deploy automatique est S59)
 
 6. **Tests Rust**
    - Test CRUD iroh-docs storage (set + get + list + delete/
      tombstone) via nexus-test-harness ou unit tests
+   - Test `storage_get` multi-auteur : ecrire sous 2 AuthorIds,
+     lire retourne la plus recente
+   - Test tombstone filtering dans `storage_list`
    - Test routing : app repliquee → iroh-docs, app non repliquee
      → HashMap
-   - ~4-6 tests attendus
 
 ### §C Verification
 
@@ -184,10 +223,13 @@ storage_api.rs route les operations de sbfb-ideas vers
 iroh-docs namespace dedie. HashMap+SQLite reste le fallback
 pour apps non repliquees.
 
-Schema data conflict-free : ideas/{uuid} (1 author), votes/
-{idea_uuid} (multi-author), tombstones.
+Schema app preservee (ideas/{uuid} + votes/{ideaId}/{pubkey}),
+compatible iroh-docs multi-auteur. Reads via get_many +
+latest-per-key. Tombstone filtering sur list/get.
 
-Ticket Write genere au boot, log + endpoint optionnel.
+Ticket Write genere au boot + endpoint obligatoire
+GET /api/daemon/storage/ticket/:app + import endpoint
+POST /api/daemon/storage/join (mutation runtime).
 
 Delta tests : +N Rust (1234→1234+N).
 Scope cuts :
@@ -211,40 +253,72 @@ autres noeuds recoivent l'update en temps reel.
    - Apres le boot du storage namespace, appeler
      `doc.subscribe()` et spawn un task qui ecoute les
      `LiveEvent::InsertRemote`
-   - Sur chaque InsertRemote, mettre a jour le HashMap local
-     (cache de lecture) ET emettre un event interne
+   - Sur chaque InsertRemote, emettre un event interne
+     (pas de cache HashMap local pour les apps repliquees —
+     iroh-docs EST le store, les reads passent par le Doc)
 
-2. **Bridge push event storage_remote_update**
-   - Fichier : `crates/nexus-shell-daemon/src/http.rs` ou
-     nouveau `storage_events.rs`
-   - Endpoint SSE ou WebSocket : GET /api/daemon/storage/events
-   - Quand un InsertRemote arrive, notifier les clients connectes
-   - OU : enrichir sbfb-bridge.js avec un polling fallback
-     (GET /api/daemon/storage/:app/state?since=timestamp)
-   - Decision d'implementation : SSE si simple, polling si SSE
-     trop complexe pour le MVP
+2. **Notification live : polling endpoint MVP**
+   - **Pourquoi pas SSE** : l'iframe a `connect-src 'none'`
+     (CSP sandbox). L'iframe ne peut pas ouvrir de connexion
+     HTTP/SSE vers le daemon. Mais le shell React (host) peut.
+     Un futur SSE passerait par : daemon SSE → shell React →
+     postMessage → iframe. Pour S58, polling est pragmatique.
+   - **Endpoint daemon** : `GET /api/daemon/storage/:app/version`
+     retourne un compteur atomique `AtomicU64` incremente a
+     chaque `LiveEvent::InsertRemote` recu sur le namespace.
+   - **Protocole bridge complet** :
+     1. Iframe appelle `bridge.onStorageUpdate("sbfb-ideas", cb)`
+     2. SDK `sbfb-bridge.js` lance un `setInterval(3000)` qui
+        appelle `_call("storage_version", { app: "sbfb-ideas" })`
+     3. Cet appel traverse postMessage → shell React host
+     4. `useBridge.ts dispatch("storage_version")` fait
+        `authFetch("/api/daemon/storage/sbfb-ideas/version")`
+     5. Response postMessage retourne la version au SDK iframe
+     6. Si version differente du dernier poll → SDK appelle le
+        callback enregistre
+   - **Fichiers touches** : `storage_api.rs` (endpoint version),
+     `web/src/bridge/protocol.ts` (methode storage_version),
+     `web/src/bridge/useBridge.ts` (dispatch handler),
+     `web/public/sbfb-bridge.js` (onStorageUpdate + interval)
 
 3. **sbfb-bridge.js : onStorageUpdate callback**
    - Fichier : `web/public/sbfb-bridge.js`
-   - Ajouter `onStorageUpdate(callback)` qui poll ou ecoute SSE
+   - Ajouter `storage_version` dans `BridgeMethodSchema`
+   - Ajouter `onStorageUpdate(appName, callback)` : lance
+     un interval qui poll storage_version via _call, compare
+     avec la derniere valeur, invoque le callback si change
    - Propager vers les 2 copies examples/ via sync-bridge-sdk.sh
 
 4. **Ideas Hub app.js : refresh on update**
    - Fichier : `examples/sbfb-ideas/app.js`
-   - Appeler `bridge.onStorageUpdate(() => refreshIdeas())`
-   - Afficher un indicateur "X noeuds connectes" ou "derniere
-     sync : il y a Ns"
+   - Appeler `bridge.onStorageUpdate("sbfb-ideas", loadAll)`
+   - Afficher un indicateur "derniere sync : il y a Ns"
 
 5. **Test E2E sync 2 noeuds**
    - Fichier : `crates/nexus-test-harness/tests/multi_daemon.rs`
    - Test `test_cross_daemon_storage_sync` :
-     1. Daemon A demarre, ecrit `ideas/test-1` via storage API
-     2. Daemon B demarre, rejoint le namespace via ticket
-     3. Assert : Daemon B voit `ideas/test-1` dans storage_list
+     1. Daemon A demarre, cree namespace storage
+     2. Daemon A ecrit `ideas/test-1` via
+        `POST /app/sbfb-ideas/state/ideas/test-1`
+     3. Test recupere le ticket via
+        `GET /api/daemon/storage/ticket/sbfb-ideas` sur daemon A
+     4. Daemon B demarre, importe le ticket via
+        `POST /api/daemon/storage/join` sur daemon B
+     5. Poll `GET /app/sbfb-ideas/state?prefix=ideas/` sur
+        daemon B avec timeout 30s
+     6. Assert : daemon B voit `ideas/test-1` dans la reponse
    - Gate `SBFB_INTEGRATION=1` (meme pattern que gossip E2E)
+   - Le test utilise les endpoints HTTP des 2 daemons (pas
+     d'appels internes directs — preuve que le chemin prod
+     fonctionne)
 
 6. **Update sbfb-bridge.js copies**
    - Run `scripts/sync-bridge-sdk.sh` pour propager les changes
+
+7. **Anti-spam carry S59**
+   - Documenter dans le commit body : anti-spam couches 2-3
+     (rate-limit per-author + validation applicative) = dette
+     explicite S59. Pre-v1.0 acceptable (reseau controle).
 
 ### §D Verification
 
@@ -256,17 +330,24 @@ autres noeuds recoivent l'update en temps reel.
 ```
 feat(sprint58): Sprint 58 Phase D — AppStorage P2P live events + sync E2E
 
-Subscribe InsertRemote sur storage namespace. Push event
-storage_remote_update via bridge. Ideas Hub refresh on update.
+Subscribe InsertRemote sur storage namespace. Compteur version
+atomique incremente par InsertRemote. Endpoint GET
+/api/daemon/storage/:app/version.
 
-Test E2E : 2 daemons, noeud A ecrit ideas/test-1, noeud B
-recoit via iroh-docs sync.
+Bridge polling MVP : storage_version methode bridge → shell
+authFetch → daemon endpoint. SDK onStorageUpdate(app, cb)
+lance interval 3s, compare version, invoke callback.
 
-sbfb-bridge.js : onStorageUpdate callback. Copies synced.
+Test E2E : 2 daemons, noeud A ecrit ideas/test-1, daemon B
+importe ticket via POST /api/daemon/storage/join, recoit
+l'entree via iroh-docs sync.
+
+Anti-spam couches 2-3 = dette explicite S59 (pre-v1.0
+acceptable, reseau controle).
 
 Delta tests : +N Rust (cumule).
 Scope cuts :
-- SSE temps reel si trop complexe → polling fallback
+- SSE temps reel → S59+ (polling MVP S58)
 - Indicateur "noeuds connectes" si metadata indisponible
 ```
 
