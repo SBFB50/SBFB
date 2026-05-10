@@ -67,3 +67,15 @@ Rigor signal : 2 findings P2 + 1 P3 documentes (>=1 P2+ requis pour PASS rigoure
 - Ready to commit : **oui**
 - Carry-overs S59 : anti-spam couches 2-3, storage_join validation app name
 - Corrections needed : aucune
+
+## Addendum post-review (GPT 5.5 cross-review)
+
+**P1 corrige** : test E2E `test_cross_daemon_storage_sync` echouait avec
+`SBFB_INTEGRATION=1` — la cle `ideas/test-sync-1` n'etait pas percent-
+encodee dans l'URL du test. Route `/app/{name}/state/{key}` matche un
+seul segment. Fix `7fb817b` : `ideas%2Ftest-sync-1`. Test PASS confirme.
+
+**P2 corrige inline** : `onStorageUpdate()` absorbait silencieusement une
+sync arrivee entre loadAll() initial et premier poll (baseline -1 → N
+sans callback). Fix : fire callback si premiere version > 0. Pas besoin
+de SSE pour corriger ce point.

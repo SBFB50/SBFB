@@ -283,6 +283,13 @@ class SBFBBridge {
           var v = typeof data.version === "number" ? data.version : -1;
           if (lastVersion === -1) {
             lastVersion = v;
+            if (v > 0) {
+              try {
+                callback();
+              } catch (e) {
+                if (typeof console !== "undefined") console.error("onStorageUpdate callback threw", e);
+              }
+            }
             return;
           }
           if (v !== lastVersion) {
