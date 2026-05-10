@@ -8,6 +8,8 @@
 Un reseau de compute qui depend de GitHub Actions pour se compiler
 n'est pas un reseau de compute — c'est un wrapper. SBFB doit
 pouvoir se builder via ses propres workers avant le tag v1.0.
+Validation pre-tag = quorum controle sur 3 machines reelles
+(Win+VPS+Mac). Diversite publique = post-launch progressif.
 
 ## 1.1 Strategie 3 etages
 
@@ -15,7 +17,7 @@ pouvoir se builder via ses propres workers avant le tag v1.0.
 |---|---|---|---|
 | **1. CI Woodpecker** | `.woodpecker/ci-linux.yml` + agent self-hosted VPS. CI Linux hors GHA. | S52 (config) + S54 (images pin + VPS prep) + **S55 (server deploy)** | GHA reste pour release multi-OS |
 | **2. Build worker SBFB** | `task_type: "build"` protocol + sandbox hermetique + quorum SHA256. Le VPS bootstrap devient le premier build worker. | S54-S55 | GHA fallback seulement |
-| **3. Reseau autonome** | N builders independants, attestation signee, distribution binaires via iroh-blobs. | Pre-v1.0 | GHA optionnel (second opinion) |
+| **3. Reseau autonome** | N builders independants, attestation signee, distribution binaires via iroh-blobs. Validation controlee S60 pre-tag (Win+VPS+Mac, redundancy=3). Diversite publique post-launch. | S60 (validation) + post-launch (diversite) | GHA optionnel (second opinion) |
 
 GHA descend progressivement : CI principale (aujourd'hui) →
 release seulement (etage 1) → fallback (etage 2) → optionnel
@@ -201,10 +203,13 @@ Phase 3 — Quorum operationnel
   Le reseau se compile lui-meme.
   GHA devient fallback uniquement.
 
-Phase 4 — GHA optionnel
-  Le reseau produit les binaires officiels.
+Phase 4 — Validation controlee S60 pre-tag
+  Win dev + VPS Helsinki + Mac : 3 builders, 1 build task reel,
+  redundancy_factor=3, consensus SHA256 2/3 → AwaitingQuorum → Completed.
+  Prouve le chemin E2E sur machines reelles.
   GHA sert de "second opinion" (cross-validation externe).
-  Le tag v1.0 peut etre pose.
+  Le tag v1.0 peut etre pose apres ce quorum valide.
+  Diversite publique (N builders non-controles) = post-launch progressif.
 ```
 
 ## 7. Trust model

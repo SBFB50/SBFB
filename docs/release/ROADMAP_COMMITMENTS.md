@@ -332,11 +332,15 @@ Derniere revue).
   validation TaskStatus::AwaitingQuorum + redundancy=3) = **DONE
   S55**. "Operationnel" au sens pre-launch = code path E2E
   fonctionnel, capable de dispatcher build tasks et valider par
-  consensus SHA256. Tier 3 (N builders independants sur le reseau)
-  est inherent au post-v1.0 (aucun worker tiers ne tourne avant le
-  tag). Le gate pre-v1.0 est satisfait par Tier 2. Tier 3 est un
-  objectif post-launch progressive (premiers users = premiers
-  builders).
+  consensus SHA256. Gate pre-v1.0 satisfait par Tier 2.
+  **Tier 3 validation controlee S60 pre-tag** : Win dev + VPS
+  Helsinki + Mac executent un build task reel avec
+  redundancy_factor=3. Validator passe AwaitingQuorum → Completed
+  sur consensus SHA256 2/3. Prouve le chemin E2E sur 3 machines
+  reelles.
+  **Tier 3 diversite publique post-launch** : la decentralisation
+  organique (N builders independants non-controles) ne peut exister
+  qu'avec des nœuds tiers. Premiers users = premiers builders.
 
 ## Reservation IDs futurs
 
