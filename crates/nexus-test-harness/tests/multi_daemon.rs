@@ -203,9 +203,11 @@ async fn test_cross_daemon_storage_sync() {
     let client = reqwest::Client::new();
 
     // Daemon A: write an idea via the storage API
+    // Key contains a slash — must be percent-encoded in path (same as
+    // the bridge frontend's encodeURIComponent).
     let set_resp = client
         .post(format!(
-            "{}/app/sbfb-ideas/state/ideas/test-sync-1",
+            "{}/app/sbfb-ideas/state/ideas%2Ftest-sync-1",
             cluster.nodes[0].http_url()
         ))
         .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
