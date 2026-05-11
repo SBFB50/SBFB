@@ -19,6 +19,7 @@ use tokio::sync::RwLock;
 mod auth;
 mod driver_check;
 mod token_rotation;
+mod tray;
 mod unlock;
 
 #[cfg(windows)]
@@ -301,6 +302,10 @@ fn resolve_web_root() -> Option<std::path::PathBuf> {
     }
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
+    let installed = dir.join("web");
+    if installed.join("index.html").exists() {
+        return Some(installed);
+    }
     let bundled = dir.join("web-dist");
     if bundled.join("index.html").exists() {
         return Some(bundled);
@@ -316,17 +321,15 @@ fn resolve_web_root() -> Option<std::path::PathBuf> {
 // Main
 // =================================================================
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let _log_guard = setup_tracing();
 
-    // Check --help / --version.
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("nexus-launcher — Minimal SBFB launcher");
+        println!("nexus-launcher — SBFB launcher");
         println!();
         println!("Spawns nexus-shell-daemon, opens the default browser,");
-        println!("waits for Ctrl+C, then shuts down gracefully.");
+        println!("shows a tray icon for control.");
         println!();
         println!("Usage:");
         println!(
@@ -337,85 +340,22 @@ async fn main() {
         return;
     }
 
-    // Sprint 20 Phase A : dispatch `init` / `unlock` subcommands.
-    // `init` is a pure one-shot (no daemon spawn). `unlock` decrypts
-    // and exports the identity bytes in an env var that the daemon
-    // child will pick up at `NodeConfig::with_secret_key` time, then
-    // falls through to the normal spawn path below.
     match unlock::parse_subcommand(&args) {
         Some(unlock::Subcommand::Init { pin }) => {
             std::process::exit(unlock::run_init(&pin));
         }
         Some(unlock::Subcommand::InitDuress { pin }) => {
-            // Sprint 20 Phase B : one-shot, no daemon spawn.
-            // Provisions the duress slot next to the normal one.
             std::process::exit(unlock::run_init_duress(&pin));
         }
         Some(unlock::Subcommand::Unlock { pin }) => {
             if let Err(code) = unlock::run_unlock_and_export_env(&pin) {
                 std::process::exit(code);
             }
-            // Fall through — the env var is set, continue with the
-            // normal daemon spawn sequence. The daemon reads
-            // SBFB_IDENTITY_SECRET_HEX via
-            // `nexus_shell_daemon::runtime::read_optional_identity_env`.
-            // Sprint 20 Phase B also plumbs SBFB_IDENTITY_MODE when
-            // the duress slot matched.
         }
-        None => {
-            // Legacy path — daemon boots with an ephemeral iroh
-            // keypair. This preserves dev / smoke-test UX until the
-            // user opts into the encrypted identity flow.
-        }
+        None => {}
     }
 
-    let running_path = find_running_json();
-    tracing::info!(path = %running_path.display(), "looking for daemon");
-
-    // Sprint 18 Phase E1: background NVIDIA driver CVE check.
-    // Spawned as a detached task so a slow or offline NVD doesn't
-    // stall the daemon spawn / browser open path. The report is
-    // printed asynchronously whenever it lands; fail-open by
-    // design (offline hosts and machines without an NVIDIA GPU
-    // simply produce an empty report).
-    tokio::spawn(async move {
-        let report = driver_check::check_nvidia_drivers().await;
-        let source = if report.fetched_from_cache {
-            "cache"
-        } else if report.fetch_failed {
-            "fetch-failed"
-        } else {
-            "nvd"
-        };
-        match report.local_version.as_deref() {
-            Some(v) => tracing::info!(
-                source,
-                local = v,
-                cves = report.cves_affecting.len(),
-                critical = report.critical_count,
-                "driver check complete"
-            ),
-            None => {
-                tracing::info!(source, "no NVIDIA driver detected, skipping")
-            }
-        }
-        if report.critical_count > 0
-            && let Some(ref v) = report.local_version
-        {
-            tracing::warn!(
-                driver = %v,
-                critical = report.critical_count,
-                "NVIDIA driver affected by Critical CVE — consider updating"
-            );
-        }
-    });
-
-    // 0. Sprint 16 Phase A (D1): resolve the loopback bearer
-    //    token before anything else. Generates + persists
-    //    ~/.sbfb/auth_token on first boot, reuses the existing
-    //    file on subsequent runs. The daemon child will pick up
-    //    the same token either via the SBFB_AUTH_TOKEN env (set
-    //    below) or by reading the same file.
+    // Pre-thread: resolve token + set env before any worker threads.
     let token = match resolve_token_for_child() {
         Ok(t) => t,
         Err(e) => {
@@ -425,15 +365,9 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    // SAFETY: called before tokio runtime spawn, single-threaded startup.
+    // SAFETY: called before tokio runtime creation, single-threaded.
     unsafe { std::env::set_var(nexus_shell_daemon_core::auth::AUTH_TOKEN_ENV, &token) };
 
-    // 0b. Sprint 16 Phase B (D2): create ~/.sbfb/run/ at mode 0700
-    //     so the daemon can drop daemon.sock there and the
-    //     coordinator can drop coordinator.sock. On Windows the
-    //     dir lives in the user profile and inherits the user
-    //     ACL; the kernel Named Pipe namespace ignores filesystem
-    //     paths, but we still create the dir for symmetry.
     if let Err(e) = auth::ensure_run_dir() {
         let msg = format!("Failed to prepare run directory: {e}");
         tracing::error!("{msg}");
@@ -441,160 +375,198 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let auth_server = match auth::AuthServer::start(token.clone()).await {
-        Ok(s) => {
-            tracing::info!(addr = %s.bound(), "auth server listening");
-            Some(s)
-        }
-        Err(e) => {
-            let msg = format!("Failed to start auth server: {e}");
-            tracing::error!("{msg}");
-            error_msgbox("SBFB Launcher", &msg);
-            std::process::exit(1);
-        }
-    };
+    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
 
-    // 0c. Sprint 18 Phase D: bootstrap the rotation state file
-    //     from the current token and spawn the rotation loop.
-    //     Reloading an existing `tokens.json` preserves a running
-    //     overlap window across launcher restarts; absent file
-    //     seeds a fresh rotator from the token the daemon already
-    //     picked up via `SBFB_AUTH_TOKEN`.
-    let rotation_handle = match tokens_file_path() {
-        Some(path) => {
-            let rotator = match TokenRotator::load(&path) {
-                Ok(Some(r)) => r,
-                Ok(None) => {
-                    let r = TokenRotator::new(token.clone());
-                    if let Err(e) = r.write_atomic(&path) {
+    // Ctrl+C forwarding: spawned on the runtime, signals the main
+    // thread's tray event loop via a std channel.
+    let (ctrl_c_tx, ctrl_c_rx) = std::sync::mpsc::channel::<()>();
+    rt.spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        let _ = ctrl_c_tx.send(());
+    });
+
+    // --- Async init phase ---
+    let (url, spawned_child, auth_server, rotation_handle) = rt.block_on(async {
+        tokio::spawn(async move {
+            let report = driver_check::check_nvidia_drivers().await;
+            let source = if report.fetched_from_cache {
+                "cache"
+            } else if report.fetch_failed {
+                "fetch-failed"
+            } else {
+                "nvd"
+            };
+            match report.local_version.as_deref() {
+                Some(v) => tracing::info!(
+                    source,
+                    local = v,
+                    cves = report.cves_affecting.len(),
+                    critical = report.critical_count,
+                    "driver check complete"
+                ),
+                None => {
+                    tracing::info!(source, "no NVIDIA driver detected, skipping")
+                }
+            }
+            if report.critical_count > 0
+                && let Some(ref v) = report.local_version
+            {
+                tracing::warn!(
+                    driver = %v,
+                    critical = report.critical_count,
+                    "NVIDIA driver affected by Critical CVE — consider updating"
+                );
+            }
+        });
+
+        let auth_server = match auth::AuthServer::start(token.clone()).await {
+            Ok(s) => {
+                tracing::info!(addr = %s.bound(), "auth server listening");
+                Some(s)
+            }
+            Err(e) => {
+                let msg = format!("Failed to start auth server: {e}");
+                tracing::error!("{msg}");
+                error_msgbox("SBFB Launcher", &msg);
+                std::process::exit(1);
+            }
+        };
+
+        let rotation_handle = match tokens_file_path() {
+            Some(path) => {
+                let rotator = match TokenRotator::load(&path) {
+                    Ok(Some(r)) => r,
+                    Ok(None) => {
+                        let r = TokenRotator::new(token.clone());
+                        if let Err(e) = r.write_atomic(&path) {
+                            tracing::warn!(
+                                path = %path.display(),
+                                "failed to seed tokens.json: {e}"
+                            );
+                        }
+                        r
+                    }
+                    Err(e) => {
                         tracing::warn!(
                             path = %path.display(),
-                            "failed to seed tokens.json: {e}"
+                            "tokens.json malformed ({e}); reseeding"
                         );
+                        let r = TokenRotator::new(token.clone());
+                        if let Err(e) = r.write_atomic(&path) {
+                            tracing::warn!("failed to rewrite tokens.json: {e}");
+                        }
+                        r
                     }
-                    r
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        path = %path.display(),
-                        "tokens.json malformed ({e}); reseeding"
-                    );
-                    let r = TokenRotator::new(token.clone());
-                    if let Err(e) = r.write_atomic(&path) {
-                        tracing::warn!("failed to rewrite tokens.json: {e}");
-                    }
-                    r
-                }
-            };
-            let rotator = Arc::new(RwLock::new(rotator));
-            let interval_secs = std::env::var("SBFB_TOKEN_ROTATION_INTERVAL_SECS")
-                .ok()
-                .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(DEFAULT_ROTATION_INTERVAL_SECS);
-            tracing::info!(
-                interval_secs,
-                path = %path.display(),
-                "token rotation loop started"
-            );
-            Some(token_rotation::spawn_rotation_loop(
-                rotator,
-                path,
-                Duration::from_secs(interval_secs),
-            ))
-        }
-        None => {
-            tracing::warn!("could not resolve tokens.json path; rotation disabled");
-            None
-        }
-    };
+                };
+                let rotator = Arc::new(RwLock::new(rotator));
+                let interval_secs = std::env::var("SBFB_TOKEN_ROTATION_INTERVAL_SECS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(DEFAULT_ROTATION_INTERVAL_SECS);
+                tracing::info!(
+                    interval_secs,
+                    path = %path.display(),
+                    "token rotation loop started"
+                );
+                Some(token_rotation::spawn_rotation_loop(
+                    rotator,
+                    path,
+                    Duration::from_secs(interval_secs),
+                ))
+            }
+            None => {
+                tracing::warn!("could not resolve tokens.json path; rotation disabled");
+                None
+            }
+        };
 
-    // 1. Check if daemon already running (with stale detection).
-    let mut spawned_child: Option<std::process::Child> = None;
-    let info = if let Some(info) = read_running_info(&running_path) {
-        // Verify the daemon is actually alive by probing its TCP port.
-        if is_daemon_alive(&info).await {
-            tracing::info!(
-                host = %info.api_host,
-                port = info.api_port,
-                "daemon already running"
-            );
-            info
+        let running_path = find_running_json();
+        tracing::info!(path = %running_path.display(), "looking for daemon");
+
+        let mut spawned_child: Option<std::process::Child> = None;
+        let info = if let Some(info) = read_running_info(&running_path) {
+            if is_daemon_alive(&info).await {
+                tracing::info!(
+                    host = %info.api_host,
+                    port = info.api_port,
+                    "daemon already running"
+                );
+                info
+            } else {
+                tracing::warn!(
+                    pid = info.pid,
+                    host = %info.api_host,
+                    port = info.api_port,
+                    "stale running.json, removing"
+                );
+                let _ = std::fs::remove_file(&running_path);
+                spawn_and_wait(&running_path, &mut spawned_child).await
+            }
         } else {
-            tracing::warn!(
-                pid = info.pid,
-                host = %info.api_host,
-                port = info.api_port,
-                "stale running.json, removing"
-            );
-            let _ = std::fs::remove_file(&running_path);
-            // Fall through to spawn a new daemon below.
             spawn_and_wait(&running_path, &mut spawned_child).await
-        }
-    } else {
-        // 2. No running.json — spawn fresh.
-        spawn_and_wait(&running_path, &mut spawned_child).await
-    };
+        };
 
-    // 4. Open the browser.
-    let url = format!("http://{}:{}", info.api_host, info.api_port);
-    tracing::info!(url = %url, "opening browser");
-    if let Err(e) = open::that(&url) {
-        tracing::warn!("failed to open browser: {e}");
-        // Non-fatal — the daemon is running, the user can open manually.
+        let url = format!("http://{}:{}", info.api_host, info.api_port);
+        tracing::info!(url = %url, "opening browser");
+        if let Err(e) = open::that(&url) {
+            tracing::warn!("failed to open browser: {e}");
+        }
+
+        (url, spawned_child, auth_server, rotation_handle)
+    });
+
+    // --- Tray event loop (main thread) ---
+    match tray::create_tray() {
+        Ok(state) => {
+            tracing::info!("tray icon active, right-click for menu");
+            tray::run_event_loop(&state, &url, &ctrl_c_rx);
+        }
+        Err(e) => {
+            tracing::warn!("tray icon init failed ({e}), falling back to Ctrl+C");
+            tracing::info!("press Ctrl+C to stop");
+            let _ = ctrl_c_rx.recv();
+        }
     }
 
-    // 5. Wait for Ctrl+C.
-    tracing::info!("press Ctrl+C to stop");
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to listen for Ctrl+C");
-
+    // --- Shutdown ---
     tracing::info!("shutting down");
 
-    // 6. If we spawned the daemon, kill it.
-    if let Some(ref mut child) = spawned_child {
-        #[cfg(unix)]
-        {
-            // SAFETY: child.id() is a valid PID of a process we spawned; sending
-            // SIGTERM is the standard graceful-shutdown signal on Unix.
-            unsafe {
-                libc::kill(child.id() as i32, libc::SIGTERM);
+    rt.block_on(async {
+        if let Some(mut child) = spawned_child {
+            #[cfg(unix)]
+            {
+                // SAFETY: child.id() is a valid PID of a process we spawned.
+                unsafe {
+                    libc::kill(child.id() as i32, libc::SIGTERM);
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = child.kill();
+            }
+
+            let wait_result = tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio::task::spawn_blocking(move || child.wait()),
+            )
+            .await;
+
+            match wait_result {
+                Ok(Ok(Ok(status))) => tracing::info!(%status, "daemon exited"),
+                Ok(Ok(Err(e))) => tracing::error!("daemon wait error: {e}"),
+                Ok(Err(e)) => tracing::error!("daemon join error: {e}"),
+                Err(_) => tracing::warn!("daemon did not exit within 5s, abandoning"),
             }
         }
-        #[cfg(not(unix))]
-        {
-            let _ = child.kill();
+
+        if let Some(server) = auth_server {
+            server.shutdown().await;
         }
 
-        // Wait for the child to exit (max 5s).
-        let wait_result = tokio::time::timeout(
-            Duration::from_secs(5),
-            tokio::task::spawn_blocking({
-                let mut child = spawned_child.take().unwrap();
-                move || child.wait()
-            }),
-        )
-        .await;
-
-        match wait_result {
-            Ok(Ok(Ok(status))) => tracing::info!(%status, "daemon exited"),
-            Ok(Ok(Err(e))) => tracing::error!("daemon wait error: {e}"),
-            Ok(Err(e)) => tracing::error!("daemon join error: {e}"),
-            Err(_) => tracing::warn!("daemon did not exit within 5s, abandoning"),
+        if let Some(handle) = rotation_handle {
+            handle.abort();
         }
-    }
-
-    // 7. Shut down the launcher auth server + remove launcher.json.
-    if let Some(server) = auth_server {
-        server.shutdown().await;
-    }
-
-    // 8. Stop the rotation loop so the task does not outlive the
-    //    tokio runtime (the process is about to exit but aborting
-    //    cleanly keeps the tracing output tidy).
-    if let Some(handle) = rotation_handle {
-        handle.abort();
-    }
+    });
 
     tracing::info!("goodbye");
 }
@@ -664,6 +636,24 @@ mod tests {
             pid: 99999,
         };
         assert!(!is_daemon_alive(&info).await);
+    }
+
+    #[test]
+    fn resolve_web_root_respects_env_var() {
+        let _guard = crate::test_util::env_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("index.html"), "<!doctype html>").unwrap();
+
+        unsafe { std::env::set_var("SBFB_WEB_ROOT", tmp.path()) };
+        let result = resolve_web_root();
+        unsafe { std::env::remove_var("SBFB_WEB_ROOT") };
+
+        assert_eq!(
+            result.expect("should find web root via env var"),
+            tmp.path()
+        );
     }
 
     #[test]
