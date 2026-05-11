@@ -5351,6 +5351,13 @@ mod tests {
             StatusCode::BAD_REQUEST,
             "non-replicated app must be rejected with 400"
         );
+        let body_bytes = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let err = body["error"].as_str().unwrap();
+        assert!(
+            err.contains("not a replicated app"),
+            "error must identify the replicated-app guard, got: {err}"
+        );
     }
 
     #[tokio::test]
