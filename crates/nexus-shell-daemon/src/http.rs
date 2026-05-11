@@ -4668,6 +4668,36 @@ mod tests {
         assert_eq!(body["worker_count"], 0);
     }
 
+    #[tokio::test]
+    async fn diagnostic_fairness_ema_on_nonempty_ledger() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w1", "t1", 100).unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w2", "t2", 100).unwrap();
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/diagnostic/fairness")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["worker_count"], 2);
+        let gini = body["gini"].as_f64().unwrap();
+        assert!(
+            gini < 0.01,
+            "two equal-contribution workers must have near-zero Gini (got {gini})"
+        );
+    }
+
     // --- worker_state_api.rs (1 route) ---
 
     #[tokio::test]
@@ -4787,12 +4817,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
-        assert!(
-            body["error"]
-                .as_str()
-                .unwrap()
-                .contains("kudos_entries")
-        );
+        assert!(body["error"].as_str().unwrap().contains("kudos_entries"));
     }
 
     #[tokio::test]
