@@ -281,10 +281,21 @@ process Python separe.
 ### S55 — Babel corpus / legal prep
 
 - Babel comme premiere app vitrine SBFB
-- Corpus initial : subset Gutenberg domaine public
+- Corpus initial : subset Gutenberg domaine public, mais modele
+  evolutif multi-source (Gutenberg, Wikisource, Internet Archive,
+  BnF/Gallica si source-policy valide)
+- Source-policy gate obligatoire pour toute source, Gutenberg inclus :
+  domaine public/licence par juridiction, redistribution P2P,
+  traduisibilite, attribution, takedown/opt-out
 - Pipeline traduction NLLB-200 via taches SBFB distribuees
-- Legal : verification domaine public par juridiction, licence
-  corpus output, DMCA/EUCD policy
+- Registre de provenance contributive : source -> chunks -> draft LLM
+  -> validations automatiques -> corrections/revues humaines ->
+  attestations consensus -> traduction publiee
+- Kudos par role : worker GPU, validateur automatique, traducteur /
+  correcteur humain, reviewer native-speaker, temoin consensus,
+  replicateur corpus
+- Legal : licence corpus output, DMCA/EUCD policy, preuves
+  redistribuable/traduisible inscrites dans les manifests
 - Signal-testing plan (cf. babel_translation_protocol.md) :
   Newby/Kahle/NLnet/Masakhane outreach au tag v1.0
 

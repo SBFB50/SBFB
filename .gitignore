@@ -151,8 +151,10 @@ docker/affine/
 docs/architecture/WHITEBOARD_SBFB.md
 docs/architecture/whiteboard-sbfb.excalidraw
 
-# AFFiNE SBFB integration docs (local drafts)
-docs/affine-sbfb/
+# AFFiNE SBFB integration docs: keep Markdown projections versionable,
+# ignore local render/export artifacts.
+docs/affine-sbfb/*.html
+docs/affine-sbfb/*.svg
 
 # Project visualization tooling (local dev, output in /site/)
 scripts/affine-sync.mjs

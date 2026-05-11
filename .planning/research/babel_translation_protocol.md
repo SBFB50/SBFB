@@ -7,9 +7,11 @@
 
 ## Pitch en une phrase
 
-Traduire l'intégralité de Project Gutenberg (~75 000 livres) dans toutes les langues du monde
-(~8 000), via NLLB-200 + bootstrap biblique, distribué sur le réseau SBFB par des volontaires GPU,
-avec provenance signée Ed25519 et stockage iroh-blobs immuable.
+Démarrer par Project Gutenberg (~75 000 livres) comme corpus domaine public borné, puis évoluer
+vers une bibliothèque multilingue P2P multi-source (Gutenberg, Wikisource, Internet Archive,
+BnF/Gallica si la politique source le permet), traduite et validée par le réseau SBFB via NLLB-200
+et validations humaines, avec registre complet de provenance contributive signé Ed25519 et stockage
+iroh-blobs immuable.
 
 ## Le gap vérifié (recherche du 2026-04-27)
 
@@ -42,20 +44,83 @@ Le gap est exactement la forme du réseau.
 ## Architecture haut niveau
 
 ```
-Project Gutenberg (~75k livres)
-    ↓ scraper one-shot → blobs iroh signés
-    ↓
+Sources domaine public vérifiées
+  (Gutenberg v1, puis Wikisource / Internet Archive / BnF-Gallica / autres sources curatées)
+    ↓ source-policy gate
+      - public_domain_check par juridiction
+      - redistribution_check
+      - translation_output_policy
+      - attribution / takedown / opt-out
+    ↓ manifest source signé (hash texte, URL/ARK, droits, version OCR si applicable)
 work queue (gossip)
     ↓
-[volontaires GPU exécutant NLLB-200 ou silnlp pipeline]
-    ↓ chunks traduits, 3-worker consensus + BLEU
+[workers traduction NLLB-200/silnlp] + [validateurs automatiques] + [humains traducteurs/correcteurs]
+    ↓ drafts machine + scores + corrections + votes + attestations consensus
     ↓
-blob signé Ed25519 + provenance SLSA-L1
+blob texte signé Ed25519 + graphe de provenance SLSA-L1 étendu
     ↓
 catalogue distribué (par langue / par auteur / par sujet)
     ↓
 reader app (front-end : Alexandria globe + library Interstellar)
 ```
+
+## Evolution corpus et droits
+
+Gutenberg n'est pas une dispense de droits. C'est le corpus de démarrage parce qu'il est plus
+simple à borner : texte brut disponible, domaine public visé, surface légale plus homogène.
+Toute source, Gutenberg inclus, doit passer le même gate minimal avant d'entrer dans Babel :
+
+- `source_id` stable : URL canonique, ARK, identifiant dump ou équivalent ;
+- `source_hash` : hash du texte source normalisé et du manifeste d'entrée ;
+- `rights_basis` : raison documentée de redistribuabilité, pas seulement "trouvé en ligne" ;
+- `jurisdictions` : pays ou zones où le statut domaine public / licence est considéré valide ;
+- `redistribution_check` : le texte peut être recopié dans des blobs P2P ;
+- `translation_check` : la production d'une traduction dérivée est autorisée dans ce cadre ;
+- `output_license_policy` : licence ou politique de diffusion de la traduction Babel ;
+- `attribution` : mention source obligatoire et texte d'attribution ;
+- `takedown_policy` : procédure de retrait / masquage si le statut est contesté.
+
+BnF/Gallica, Internet Archive ou Wikisource ne sont donc pas des exceptions conceptuelles :
+ce sont des `source_policy` plus riches. Pour Gallica par exemple, le manifeste doit conserver
+l'ARK, la qualité/forme OCR, les conditions de réutilisation, la mention source et la preuve que
+le document précis est redistribuable/traduisible. Pas de miroir massif non filtré.
+
+## Registre de provenance contributive
+
+La provenance Babel ne doit pas seulement prouver que le blob final existe. Elle doit inscrire
+tout le chemin de production et de validation :
+
+```text
+SourceWork
+  -> SourceManifest
+  -> SourceChunk
+  -> MachineDraft
+  -> AutoValidationRecord
+  -> HumanCorrectionRecord
+  -> HumanReviewRecord
+  -> ConsensusAttestation
+  -> PublishedTranslation
+```
+
+Chaque record est signé par le noeud ou le contributeur qui l'émet. Les champs minimaux attendus :
+
+- hash d'entrée et hash de sortie ;
+- rôle du contributeur (`translator_worker`, `auto_validator`, `human_translator`,
+  `human_corrector`, `human_reviewer`, `consensus_witness`, `replicator`) ;
+- `node_id` / clé publique / signature / timestamp ;
+- modèle et version pour une traduction machine ;
+- langue source, langue cible, plage de chunks ;
+- score automatique ou décision humaine ;
+- diff/correction hashé quand un humain modifie le texte ;
+- seuil de consensus atteint, rejets et abstentions inclus.
+
+Les noeuds Babel ne sont donc pas seulement des donneurs de GPU. Le réseau valorise aussi la
+validation, la correction, le vote, le témoignage de consensus et la réplication du corpus.
+Kudos doit pouvoir créditer ces familles séparément, sinon la qualité humaine sera invisible.
+
+Ce registre ne remplace pas le droit : il prouve qui a fait quoi, sur quelle base, avec quel
+texte, quel modèle et quelles validations. Le gate légal précède la traduction ; la provenance
+rend le résultat auditable après coup.
 
 ## Ce que SBFB a déjà — réutilisable tel quel
 
@@ -64,7 +129,7 @@ reader app (front-end : Alexandria globe + library Interstellar)
 - nexus-worker-core + LlmBackend : pattern Ollama existant (Sprint 31)
   → calque pour NLLB-200
 - coordinator FastAPI + dispatcher : task scheduling
-- Kudos : reputation par contributeur GPU et par valideur natif
+- Kudos : reputation par rôle (GPU, validation automatique, correction humaine, revue native-speaker)
 - Signature Ed25519 + SLSA-L1 (Sprint 14 verified deploy)
 - App SDK + bridge postMessage : front-end iframe
 
@@ -74,13 +139,13 @@ reader app (front-end : Alexandria globe + library Interstellar)
 |---|---|---|
 | A | Backend NLLB-200 dans nexus-worker-core (calque LlmBackend Ollama) | 1 |
 | B | Wire format `TranslationTask` + coordinator dispatch | 1 |
-| C | Scraper Gutenberg + chunking livre + reassembly | 1 |
+| C | Ingestion corpus v1 : Gutenberg + source-policy gate + chunking livre + reassembly | 1 |
 | D | Pipeline e2e : 1 livre → 1 langue → blob signé | 1 |
-| E | Consensus 3-workers + BLEU score validation | 1 |
+| E | Consensus multi-workers + validations automatiques + attestations signées | 1 |
 | F | nexus-app-babel (lecteur + browse) | 2 |
 | G | Dashboard couverture (réutilise globe Alexandria) | 1 |
 | H | Bible bootstrap (eBible ingestion + fine-tune par langue) | 2 |
-| I | Validation native-speaker UI + Kudos integration | 1 |
+| I | Validation native-speaker UI + corrections humaines + Kudos par rôle | 1 |
 
 **v1.0 publique (200 langues NLLB auto) : ~7 sprints**
 **v2.0 (Bible bootstrap, ~1500 langues) : +3 sprints**
@@ -141,8 +206,10 @@ Avec Babel, le réseau est l'infrastructure.
 3. **Validation** : qui dit qu'une trad est bonne ? → BLEU round-trip + signalement utilisateur
    + kudos négatifs. Validation native-speaker post-v2.
 4. **Énergie** : compute distribué = transparence wattheures par contribution.
-5. **Légal** : domaine public Gutenberg strict. Stockage P2P sans entité légale centrale.
-   Opt-out par langue/communauté respecté.
+5. **Légal** : gate source strict pour toute entrée, y compris Gutenberg. Le statut domaine public,
+   la redistribuabilité P2P, la traduisibilité, la licence de sortie, l'attribution et le takedown
+   doivent être inscrits dans le manifeste. Stockage P2P sans entité légale centrale. Opt-out par
+   langue/communauté respecté.
 6. **Pression diplomatique** : possible que Meta ait tué sa démo NLLB pour cette raison.
    → Forkable et opt-out par construction.
 7. **Biais culturel Bible-pivot** : utilisation silencieuse en bootstrap, pas exposé à
