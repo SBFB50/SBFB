@@ -676,4 +676,62 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         assert!(read_sbfb_json(tmp.path()).is_err());
     }
+
+    #[test]
+    fn sbfb_json_node_id_mismatch_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("SBFB.json"),
+            r#"{"node_id": "aaaa1111bbbb2222cccc3333dddd4444"}"#,
+        )
+        .unwrap();
+        let sbfb = read_sbfb_json(tmp.path()).unwrap();
+        let daemon_node_id = "ffff9999eeee8888dddd7777cccc6666";
+        assert_ne!(sbfb.node_id, daemon_node_id);
+    }
+
+    #[test]
+    fn deploy_pipeline_zip_with_provenance() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("index.html"),
+            "<html><body>app</body></html>",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join("SBFB.json"),
+            r#"{"node_id": "test_node", "name": "test-app"}"#,
+        )
+        .unwrap();
+
+        let sbfb = read_sbfb_json(tmp.path()).unwrap();
+        assert_eq!(sbfb.node_id, "test_node");
+
+        let zip_bytes = zip_directory(tmp.path()).unwrap();
+        assert!(validate_zip(&zip_bytes).is_ok());
+
+        let zip_bytes =
+            add_to_zip(&zip_bytes, "provenance.json", r#"{"builder": "test"}"#).unwrap();
+        let reader = io::Cursor::new(&zip_bytes);
+        let archive = zip::ZipArchive::new(reader).unwrap();
+        let names: Vec<&str> = archive.file_names().collect();
+        assert!(names.contains(&"index.html"));
+        assert!(names.contains(&"SBFB.json"));
+        assert!(names.contains(&"provenance.json"));
+    }
+
+    #[test]
+    fn zip_excludes_dot_git_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("index.html"), "<html></html>").unwrap();
+        std::fs::create_dir(tmp.path().join(".git")).unwrap();
+        std::fs::write(tmp.path().join(".git").join("HEAD"), "ref: refs/heads/main").unwrap();
+
+        let zip_bytes = zip_directory(tmp.path()).unwrap();
+        let reader = io::Cursor::new(&zip_bytes);
+        let archive = zip::ZipArchive::new(reader).unwrap();
+        let names: Vec<String> = archive.file_names().map(String::from).collect();
+        assert!(names.contains(&"index.html".to_string()));
+        assert!(!names.iter().any(|n| n.starts_with(".git")));
+    }
 }

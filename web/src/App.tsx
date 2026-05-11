@@ -65,6 +65,10 @@ const router = createBrowserRouter([
         path: "/curators",
         lazy: () => import("@/pages/Curators"),
       },
+      {
+        path: "/deploy",
+        lazy: () => import("@/pages/Deploy"),
+      },
     ],
   },
 ]);

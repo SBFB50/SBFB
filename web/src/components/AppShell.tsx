@@ -9,6 +9,7 @@ import {
   Cpu,
   Compass,
   BookmarkPlus,
+  Rocket,
   Plus,
   Check,
   Trash2,
@@ -59,6 +60,7 @@ const NAV_ENTRIES: NavEntry[] = [
   { to: "/my-projects", label: "Projets", icon: FolderKanban },
   { to: "/my-network", label: "Reseau", icon: Cpu },
   { to: "/curators", label: "Curators", icon: BookmarkPlus },
+  { to: "/deploy", label: "Deployer", icon: Rocket },
 ];
 
 export function AppShell() {

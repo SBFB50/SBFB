@@ -29,6 +29,7 @@ import {
   Cpu,
   Compass,
   BookmarkPlus,
+  Rocket,
   Plus,
   RefreshCw,
   Folder,
@@ -179,6 +180,10 @@ export function CommandPalette({ palette, onAddCoordinator }: Props) {
           <CommandItem onSelect={() => go("/curators")}>
             <BookmarkPlus className="size-4" />
             <span>Curators</span>
+          </CommandItem>
+          <CommandItem onSelect={() => go("/deploy")}>
+            <Rocket className="size-4" />
+            <span>Deployer</span>
           </CommandItem>
         </CommandGroup>
 

@@ -31,4 +31,10 @@ if [ "$FAIL" -ne 0 ]; then
   exit 1
 fi
 
+for app_dir in examples/*/; do
+  if [ ! -f "${app_dir}SBFB.json" ]; then
+    echo "WARN: ${app_dir}SBFB.json missing (app not deployable via deploy-from-repo)" >&2
+  fi
+done
+
 echo "sync-bridge-sdk: all copies match ($SOURCE_HASH)"

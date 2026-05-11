@@ -339,6 +339,40 @@ export function triggerPanicWipe(
 }
 
 // =================================================================
+// Deploy
+// =================================================================
+
+export const DeployResponseSchema = z
+  .object({
+    deployed: z.boolean(),
+    hash: z.string(),
+    provenance_hash: z.string().optional(),
+    commit_sha: z.string().optional(),
+  })
+  .strict();
+
+export type DeployResponse = z.infer<typeof DeployResponseSchema>;
+
+export interface DeployFromRepoRequest {
+  repo_url: string;
+  project_name: string;
+  description?: string;
+  category?: string;
+  commit_sha?: string;
+}
+
+export function deployFromRepo(
+  baseUrl: string,
+  req: DeployFromRepoRequest,
+): Promise<DaemonResult<DeployResponse>> {
+  return callDaemon(baseUrl, "/api/v1/deploy-from-repo", DeployResponseSchema, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+// =================================================================
 // Helpers
 // =================================================================
 
