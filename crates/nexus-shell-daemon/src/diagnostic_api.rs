@@ -31,21 +31,46 @@ pub async fn fairness_metrics(State(state): State<Arc<DaemonHttpState>>) -> impl
         }
     };
 
-    let contributions = match db.worker_contributions() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("worker_contributions: {e}")})),
-            )
-                .into_response();
-        }
-    };
-
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+
+    let contributions: Vec<f64> = match db.list_kudos_entries(None) {
+        Ok(entries) => {
+            let mut by_worker: std::collections::HashMap<
+                &str,
+                Vec<&nexus_coordinator_rs::types::KudosEntry>,
+            > = std::collections::HashMap::new();
+            for entry in &entries {
+                by_worker
+                    .entry(&entry.worker_node_id)
+                    .or_default()
+                    .push(entry);
+            }
+            by_worker
+                .values()
+                .map(|worker_entries| {
+                    worker_entries
+                        .iter()
+                        .map(|e| {
+                            let age_days = now.saturating_sub(e.created_at) / 86400;
+                            e.amount as f64
+                                * nexus_coordinator_rs::kudos_ledger::KUDOS_EMA_ALPHA
+                                    .powi(age_days as i32)
+                        })
+                        .sum()
+                })
+                .collect()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("kudos_entries: {e}")})),
+            )
+                .into_response();
+        }
+    };
 
     let current_workers = match db.active_workers_since(now.saturating_sub(DAY_SECS)) {
         Ok(w) => w,

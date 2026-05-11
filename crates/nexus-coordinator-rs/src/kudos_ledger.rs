@@ -15,7 +15,7 @@ use crate::types::KudosEntry;
 const KUDOS_LOG_SCALE: f64 = 1000.0;
 // Half-life ~23 days at 1 entry/day. Pre-launch frequency is low;
 // alpha=0.95 (S21 research) decays too fast for occasional contributors.
-const KUDOS_EMA_ALPHA: f64 = 0.97;
+pub const KUDOS_EMA_ALPHA: f64 = 0.97;
 
 pub fn log_utility(tokens: u64) -> u64 {
     (KUDOS_LOG_SCALE * (1.0 + tokens as f64).log2()).max(1.0) as u64

@@ -4791,7 +4791,7 @@ mod tests {
             body["error"]
                 .as_str()
                 .unwrap()
-                .contains("worker_contributions")
+                .contains("kudos_entries")
         );
     }
 
