@@ -2,7 +2,7 @@
 
 **Ecrit** : 2026-05-11
 **Sprint audite** : Sprint 59
-**Tip de sortie S59** : `4d0f7b2` (pre-wrap-up)
+**Tip de sortie S59** : `5412d9b` (implementation tip `4d0f7b2`, closing tip `5412d9b` incluant chore(docs) `6c76568` + wrap-up `5412d9b`)
 
 ---
 
@@ -93,7 +93,7 @@ Verifier que les changements S59 respectent le pre-launch protocol :
 3. Pas de carry cache : tous les items planifies S59 ont ete
    livres ou scope-cut (14/14).
 
-### Track G — Delta tests et regression
+### Track G — Delta tests, regression, et meta-process
 
 1. Delta Rust +17 (1240→1257) : coherent avec les commit bodies ?
 2. Delta Vitest +2 (256→258) : coherent ?
@@ -102,6 +102,10 @@ Verifier que les changements S59 respectent le pre-launch protocol :
 4. Aucun test supprime ?
 5. Coverage tests sur les nouvelles fonctions : credit() formula,
    effective_score(), storage validation, rate-limit ?
+6. Release build exe lock (P2 Phase D review) : le pattern
+   `target/release/nexus-shell-daemon.exe` verrouille (os error 5)
+   s'est-il reproduit ? Si oui, identifier le processus responsable
+   (antivirus, IDE indexer, daemon residuel).
 
 ---
 

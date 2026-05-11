@@ -2,7 +2,7 @@
 
 **Date** : 2026-05-11
 **Tip d'entree** : `80ec664`
-**Tip de sortie** : `4d0f7b2` (pre-Phase D wrap-up)
+**Tip de sortie** : `5412d9b` (Phase D wrap-up inclus)
 **Theme** : Launcher readiness + verified deploy E2E + LT-1 Kudos-v2
 + stabilisation (early adopter ready)
 
@@ -132,9 +132,10 @@ Node 20, pas regression S59).
 | 10 | `9f42ec4` | feat(sprint59) | Sprint 59 Phase C — Launcher MessageBox + storage validation + rate-limit |
 | 11 | `f63ecef` | fix(sprint59) | storage retain_recent housekeeping + 2 handler tests |
 | 12 | `4d0f7b2` | fix(sprint59) | assert replicated-app guard in storage_join test |
+| 13 | `6c76568` | chore(docs) | AFFiNE SBFB integration docs + babel protocol update + roadmap migration update |
+| 14 | `5412d9b` | chore(sprint59) | Phase D — wrap-up + verification + audit plan S60 |
 
-3 feat + 4 fix + 5 chore planning = 12 commits.
-Phase D ajoutera 1 chore wrap-up = 13 commits total.
+3 feat + 4 fix + 5 chore planning + 1 chore docs + 1 chore wrap-up = 14 commits.
 
 ---
 
