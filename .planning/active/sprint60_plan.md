@@ -34,7 +34,7 @@ ouvrir le navigateur et quitter via le context menu.
 
 ### Detail technique
 
-1. **Deps** : ajouter `tray-icon = "0.21"` et `muda = "0.17"`
+1. **Deps** : ajouter `tray-icon = "0.24"` et `muda = "0.19"`
    sous `[dependencies]`. Pas de cfg gate Windows-only — tray-icon
    est cross-platform (compile en no-op sur les OS non supportes).
 
@@ -288,12 +288,13 @@ chore(sprint60): Phase E — wrap-up + verification + audit plan S61 + tag v1.0
 
 | Source | Date | Pertinence |
 |--------|------|------------|
-| cargo-packager crates.io | 2026-05-11 | D1 version + features |
-| NSIS 3.11 release notes | 2026-04 | D1 securite CVE-2025-43715 |
-| tray-icon crates.io + GitHub | 2026-05-11 | D2 version + API |
-| muda crates.io | 2026-05-11 | D2 context menu companion |
-| iroh crates.io | 2026-05-11 | G2 trigger check (0.98.2 latest) |
+| cargo-packager crates.io | 2026-05-11 | D1 v0.11.8 confirme |
+| NSIS 3.12 nsis.sourceforge.io | 2026-04-19 | D1 current stable |
+| tray-icon crates.io | 2026-05-11 | D2 v0.24.0 (corrige de 0.21.3) |
+| muda crates.io | 2026-05-11 | D2 v0.19.1 (corrige de 0.17) |
+| iroh crates.io | 2026-05-11 | G2 trigger ACTIF (1.0.0-rc.0 > 0.98) |
+| iroh-docs/gossip/blobs crates.io | 2026-05-11 | 0.99/0.99/0.101 |
 | Rust reproducible builds | 2026-04 | D4 blocker cross-OS |
 | WiX Toolset v7 | 2026-04 | D1 rejete (cargo-wix gap) |
-| Inno Setup 7.0-preview | 2025-11 | D1 rejete (pas de plugin Rust) |
+| Inno Setup v6.6.0/7.0-preview | 2025-11 | D1 rejete (pas de plugin Rust) |
 | systray2 GitHub | 2021-2022 | D2 rejete (abandonne) |

@@ -12,29 +12,37 @@
 
 - **G2 trigger scan** : last_validated 2026-05-11 (0j). 5 fichiers
   security avec triggers_revalidate. 1 trigger a evaluer : "iroh
-  release > 0.98". **Resultat** : iroh 0.98.2 est le latest sur
-  crates.io (pas 1.0.0-rc.0 comme suggere par `cargo search` brut
-  en S59 audit — l'output incluait un pre-release non publie).
-  iroh-docs = 0.98.0, iroh-gossip = 0.98.0. **Trigger NON actif**.
-  0 CVE iroh entre 0.98.0 et 0.98.2. Rester sur 0.98 pour v1.0 =
-  safe. Pas de pre-research supplementaire sur iroh.
+  release > 0.98". **Resultat** : `cargo search iroh` retourne
+  `iroh = "1.0.0-rc.0"` (publie 2026-05-07 sur crates.io).
+  iroh-docs = 0.99.0, iroh-gossip = 0.99.0, iroh-blobs = 0.101.0.
+  **Trigger ACTIF** — iroh 1.0.0-rc.0 > 0.98.
+  **Evaluation** : c'est un release candidate (pre-release), pas
+  une version stable. Le workspace pin iroh 0.98 / iroh-docs 0.98 /
+  iroh-gossip 0.98 / iroh-blobs 0.100. Upgrade de 0.98 vers 1.0-rc
+  pendant le sprint tag v1.0 = risque eleve (breaking changes non
+  documentes, RC non stabilise). 0 CVE iroh entre 0.98 et 1.0-rc.
+  **Decision** : rester sur iroh 0.98 pour le tag v1.0. L'upgrade
+  iroh 1.0 stable sera un sprint dedie post-v1.0. Le trigger est
+  documente comme "evalue et defere" (pas "ignore"). Politique
+  clarifiee : les triggers_revalidate INCLUENT les pre-releases
+  (RC) — l'evaluation est obligatoire, l'action (upgrade) ne l'est
+  pas si le risque est documente.
 
 - **cargo-packager context7** : v0.11.8 (CrabNebula, Nov 2025).
   Supporte NSIS comme output format. Config TOML (`[nsis]` section)
   avec install-mode, languages, appdata-paths. Produit un .exe
   installer. Licence Apache-2.0 — compatible AGPL-3.0.
 
-- **tray-icon context7** : v0.21.3 (Tauri team, Jan 2026). 60
-  versions, 11.7M+ downloads. Safe API
-  `TrayIconBuilder::new().with_icon().with_menu().with_tooltip()
-  .build()`. Message pump interne Windows (pas besoin winit).
-  Context menu via `muda` crate (meme equipe). MIT/Apache-2.0 —
-  compatible AGPL-3.0. `windows-sys` deja en transitive dep dans
-  le workspace.
+- **tray-icon context7** : v0.24.0 (Tauri team, crates.io latest).
+  Safe API `TrayIconBuilder::new().with_icon().with_menu()
+  .with_tooltip().build()`. Message pump interne Windows (pas
+  besoin winit). Context menu via `muda` v0.19.1 (meme equipe).
+  MIT/Apache-2.0 — compatible AGPL-3.0. `windows-sys` deja en
+  transitive dep dans le workspace.
 
-- **NSIS** : v3.11 (avril 2026). Licence zlib — compatible AGPL.
-  CVE-2025-43715 patche en 3.11. Silent install `/S`, shortcuts,
-  uninstaller natifs.
+- **NSIS** : v3.12 (19 avril 2026). Licence zlib — compatible AGPL.
+  CVE-2025-43715 patche en 3.11, 3.12 = current stable. Silent
+  install `/S`, shortcuts, uninstaller natifs.
 
 - **WiX Toolset** : v7.0.0 (avril 2026). cargo-wix v0.3.9 target
   WiX v3 (legacy). MSI format enterprise. Evalue comme fallback,
@@ -187,17 +195,46 @@ cargo packager --release
   un produit P2P. Le daemon n'est pas un Windows Service —
   `ServiceInstall` MSI inutile. Defer post-v1.0 si demande
   enterprise.
-- Inno Setup : pas de plugin Rust. Maintenance manuelle fichier
-  .iss separe. Effort superieur sans avantage.
+- Inno Setup v6.6.0/7.0-preview : pas de plugin Rust. Maintenance
+  manuelle fichier .iss separe. Effort superieur sans avantage.
 - Raw NSIS script (.nsi) : verbose (centaines de lignes), pas de
   tooling Rust. cargo-packager abstrait la complexite.
 
 **Implications code** : `Packager.toml` (NEW), `scripts/
 build-installer.sh` (NEW), modifications build-release.sh.
 
+### D5 — Scope change explicite : frontend bundling remplace frontend P2P distribution
+
+**Retenu** : CLAUDE.md §Etat actuel et les roadmaps precedentes
+mentionnent "frontend P2P distribution" comme objectif S60. Apres
+evaluation (cf. §Sources pre-gel, agent research frontend P2P), le
+frontend sera **bundle dans l'installer** et servi depuis le disque
+via `--web-root`. La "P2P distribution" (mise a jour du frontend
+via iroh-blobs) est **scope cut post-v1.0** (§7.1).
+
+**Rationale** : pour le premier install v1.0, l'utilisateur
+telecharge l'installer qui inclut tout. Il n'y a pas d'update a
+distribuer en P2P puisque c'est la premiere version. La P2P
+distribution devient utile uniquement pour les **updates post-
+v1.0** — c'est un mecanisme d'auto-update, pas un prerequis v1.0.
+Le blob-serve existant sert les **apps** (contenu tiers sandboxe),
+pas le **shell** (qui a besoin d'appeler l'API daemon sans CSP
+restrictif). Un chemin de serving dedie serait necessaire.
+
+**Rejete** :
+- Garder "frontend P2P" dans le scope S60 : ajoute 200+ LOC pour
+  un mecanisme d'update inutile au premier lancement. Risque
+  d'allonger le sprint au-dela du budget.
+- Ne pas documenter le changement : cree un drift silencieux entre
+  CLAUDE.md et le kickoff (violation prompt universel §gate).
+
+**Action** : CLAUDE.md sera mis a jour en Phase E wrap-up pour
+refleter "frontend bundling" au lieu de "frontend P2P distribution"
+dans la section roadmap S60.
+
 ### D2 — Tray icon : crate tray-icon (Tauri team)
 
-**Retenu** : ajouter `tray-icon` v0.21 + `muda` v0.17 comme deps
+**Retenu** : ajouter `tray-icon` v0.24 + `muda` v0.19 comme deps
 du launcher. Le launcher passe de "spawn → browser → Ctrl+C → exit"
 a "spawn → browser → tray icon → message loop → menu Quit → exit".
 
@@ -302,8 +339,9 @@ manuelle + script de test.
 
 ### Acknowledged review findings (G1)
 
-Scoring : D1 ✅, D2 ⚠️, D3 ✅, D4 ⚠️.
-Rigor signal G4 satisfait (2 ⚠️ sur 4, 0 ❌).
+Scoring : D1 ✅, D2 ⚠️, D3 ✅, D4 ⚠️, D5 ✅.
+Rigor signal G4 satisfait (2 ⚠️ sur 5, 0 ❌).
+G1 Verdict : **PASS** (cf. sprint60_design_review.md).
 
 **D2 ⚠️ (tray-icon message pump standalone sans winit)** : le
 reviewer note que la documentation ne detaille pas le mode message
@@ -409,8 +447,8 @@ Ctrl+C.
   compatible iroh 0.98. Aucun changement depuis S59.
 - [carry] **P2-AUDIT-2** iroh transitives : herite pin 0.98.
   Justification : iroh 0.98 pinne (Day 0 #3), transitives
-  non controlables. iroh 0.98.2 est le latest, pas de 1.0
-  publie.
+  non controlables. iroh 1.0.0-rc.0 publie (trigger G2 ACTIF,
+  evalue et defere — cf. §Sources pre-gel).
 
 ### Carries residuels post-S60
 
