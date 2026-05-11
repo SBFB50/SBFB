@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-10  # G2 — Sprint 58 CLOSED : AppStorage P2P replication iroh-docs (namespace + live events + sync E2E) + 2 MANDATORY CLOSED (JITTER-SCOPE + INVITE-U16-WIRE) + dette pair (retain_recent + bridge sync). Compteurs 1240 Rust / 256 Vitest / 42+2f PW / 6/6 size / ~1502 total. 0 trigger actif.
+last_validated: 2026-05-11  # G2 — Sprint 59 CLOSED : LT-1 Kudos-v2 log-utility + EMA fairness reform CLOSED + verified deploy E2E (SBFB.json seeds + Deploy page) + launcher MessageBox raw FFI cfg(windows) + P2-STORAGE-JOIN-VALIDATE CLOSED + P2-STORAGE-ANTISPAM CLOSED (GCRA 10 writes/min). Compteurs 1257 Rust / 258 Vitest / 42+2f PW / 6/6 size / ~1521 total. 0 trigger actif.
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"

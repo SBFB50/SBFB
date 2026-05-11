@@ -112,35 +112,32 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-58 CLOSED**, v1.2 en cours. Projet Rust+Frontend
-  pur depuis S50-S51. S58 : AppStorage P2P replication via
-  iroh-docs (namespace dedie, live events, sync E2E) + 2
-  MANDATORY carries CLOSED (JITTER-SCOPE + INVITE-U16-WIRE) +
-  dette pair (retain_recent timer + bridge SDK sync script).
-  Phases A+B+C+D livrees (4 reviews PASS, 4 preflights G8).
-  2 fixes post-Phase D (percent-encode key + onStorageUpdate
-  first poll).
+- **Sprints 0-59 CLOSED**, v1.2 en cours. Projet Rust+Frontend
+  pur depuis S50-S51. S59 : LT-1 Kudos-v2 fairness reform CLOSED
+  (log-utility credit() + EMA effective_score() alpha=0.97) +
+  verified deploy E2E (SBFB.json seeds + Deploy page React + 2
+  tests validation) + launcher MessageBox raw FFI cfg(windows) 5
+  erreurs fatales + P2-STORAGE-JOIN-VALIDATE CLOSED (is_replicated
+  check) + P2-STORAGE-ANTISPAM CLOSED (StorageWriteLimiter GCRA
+  10 writes/min per-author per-app). Phases A+B+C+D livrees (4
+  reviews PASS, 4 preflights G8). 4 fixes post-phases.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1502 tests total** (1240 Rust / 256 Vitest / 42+2f Playwright
+- **~1521 tests total** (1257 Rust / 258 Vitest / 42+2f Playwright
   / 6/6 size-limit) — tous verts code (2 PW env fail pre-existant).
-  S58 : +8 delta test Rust (1232→1240 Phase A +1, C +6, D +1).
-  +0 delta Vitest (256→256).
-- Carry S59 :
+  S59 : +17 delta Rust (1240→1257), +2 delta Vitest (256→258).
+- Carry S60 :
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
-  P2-STORAGE-JOIN-VALIDATE NEW 1/3 (storage_join sans check REPLICATED_APPS, audit S58).
-  P2-STORAGE-ANTISPAM NEW 1/3 (rate-limit per-author + validation applicative storage, Phase D S58).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
-  LT-1 Kudos-v2 fairness reform — **PRE-V1.0** (S59 ou S60).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
   LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 validation controlee S60 pre-tag (Win+VPS+Mac, redundancy=3). Diversite publique post-launch.
 - **Roadmap pre-v1.0** :
-  S59 = launcher readiness (bundle + MessageBox + seed demo) +
-  verified deploy E2E + stabilisation → **early adopter ready**.
+  S59 = launcher readiness + verified deploy E2E + LT-1 Kudos-v2
+  + stabilisation → **early adopter ready** ✓ DONE.
   S60 = installer NSIS/WiX + tray + frontend P2P distribution
   → **end user ready** → tag v1.0.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
