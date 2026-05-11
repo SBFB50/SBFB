@@ -129,6 +129,8 @@ Runtime isolation roadmap dans
 - Carry S59 :
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
+  P2-STORAGE-JOIN-VALIDATE NEW 1/3 (storage_join sans check REPLICATED_APPS, audit S58).
+  P2-STORAGE-ANTISPAM NEW 1/3 (rate-limit per-author + validation applicative storage, Phase D S58).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-1 Kudos-v2 fairness reform — **PRE-V1.0** (S59 ou S60).
   LT-2 Radicle sortie cap G7 (trigger tag v1.0).

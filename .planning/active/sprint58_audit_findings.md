@@ -116,8 +116,8 @@ Sous `authed_routes` (bearer + Host + Origin). PASS.
 `http.rs:320` — route POST `/api/daemon/storage/join`.
 `storage_api.rs:481` — handler parse ticket, import via DocsClient,
 cree StorageNamespaceState, insere dans map, spawn subscribe.
-Sous `authed_routes`. PASS (voir P2-AUDIT-2 ci-dessous pour
-l'absence de validation app name).
+Sous `authed_routes`. PASS (voir P2-AUDIT-S58-1 ci-dessous pour
+l'absence de validation app name et anti-spam).
 
 ---
 
@@ -225,18 +225,34 @@ le kickoff S59.
 **Action** : update `nexus_grid_pivot.md` tip → `1b9c1d5` dans
 cette session d'audit.
 
-### P2-AUDIT-2 : storage_join pas de validation app name
+### P2-AUDIT-S58-1 : storage_join + anti-spam storage — scope incomplet
 
+Deux lacunes liees au storage P2P, reconnues Phase D commit body
+("Anti-spam couches 2-3 = dette explicite S59") mais non propagees
+dans les surfaces de tracabilite repo (CLAUDE.md carry, audit_plan
+Track F) :
+
+**(a) storage_join pas de validation app name**
 `storage_api.rs:481` — `storage_join` accepte n'importe quel
 `body.app` sans verifier que l'app est dans `REPLICATED_APPS`.
 Un client loopback pourrait creer une entree storage_namespaces
 pour une app non prevue.
 
+**(b) Anti-spam couches 2-3 non implementees**
+Phase D scope cut (sprint58_phase_D_review.md:62) mentionne
+"anti-spam per-author → S59". Cela couvre : rate-limit per-author
+sur les ecritures iroh-docs + validation applicative (schema
+ideas/{uuid}, format JSON, taille payload). L'audit initial
+reduisait cela au seul storage_join validation, ce qui ne couvre
+pas tout le sujet.
+
 **Mitigation existante** : endpoint derriere loopback bearer auth,
 reseau pre-v1.0 controle.
-**Reconnaissance** : Phase D commit body documente explicitement
-"storage_join validation app name = S59".
-**Action** : tracker P2-STORAGE-JOIN-VALIDATE dans carries S59.
+**Action** : tracker dans carries S59 :
+- P2-STORAGE-JOIN-VALIDATE NEW 1/3 (validation app name)
+- P2-STORAGE-ANTISPAM NEW 1/3 (rate-limit per-author + validation
+  applicative). Propager dans CLAUDE.md carry S59 + audit_plan
+  Track F.
 
 ### P3-AUDIT-3 : Ordering::Relaxed sur version AtomicU64
 
@@ -271,6 +287,8 @@ E2E) avec une execution propre (4/4 G8 EXECUTE, 5/5 reviews PASS,
 delta tests coherent +8, 12/12 scope cuts respectes, 2 fixes post-D
 documentes).
 
-Les 2 P2 sont des items de housekeeping (memory stale) et de
-validation manquante deja scoped S59 (storage_join app name).
-Aucun ne bloque le demarrage de S59.
+Les 2 P2 sont : (1) memory tip stale — fixe dans cette session,
+et (2) storage_join validation + anti-spam couches 2-3, reconnu
+Phase D mais non propage dans les surfaces repo. Aucun ne bloque
+le demarrage de S59, mais une correction de planning/carry dans
+CLAUDE.md + audit_plan Track F doit etre faite au kickoff S59.

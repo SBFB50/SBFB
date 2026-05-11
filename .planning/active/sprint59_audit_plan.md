@@ -51,6 +51,8 @@
 |---|---|---|
 | P2-A-1 rand blocker upstream | 18+/3 | exemption externe |
 | P2-AUDIT-2 iroh transitives | herite | pin 0.98 |
+| P2-STORAGE-JOIN-VALIDATE | NEW 1/3 | audit S58 P2-AUDIT-S58-1(a) |
+| P2-STORAGE-ANTISPAM | NEW 1/3 | audit S58 P2-AUDIT-S58-1(b) + Phase D S58 scope cut |
 | LT-1 Kudos-v2 | pre-v1.0 | ROADMAP_COMMITMENTS |
 
 ## Track G — Roadmap coherence + pre-v1.0 readiness
