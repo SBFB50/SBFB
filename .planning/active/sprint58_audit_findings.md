@@ -190,8 +190,10 @@ testable. PASS.
 | P2-AUDIT-2 iroh transitives | herite | pin 0.98 — coherent |
 | LT-1 Kudos-v2 | pre-v1.0 | ROADMAP_COMMITMENTS — coherent CLAUDE.md |
 
-Les 3 carries sont documentes de maniere coherente entre kickoff §6,
-verification §4-§5, et CLAUDE.md. PASS.
+Les 3 carries pre-audit sont documentes de maniere coherente entre
+kickoff §6, verification §4-§5, et CLAUDE.md. 2 carries supplementaires
+(P2-STORAGE-JOIN-VALIDATE + P2-STORAGE-ANTISPAM) identifies par cet
+audit — propages dans CLAUDE.md + Track F par `fd852ed`. PASS.
 
 ---
 
@@ -290,5 +292,5 @@ documentes).
 Les 2 P2 sont : (1) memory tip stale — fixe dans cette session,
 et (2) storage_join validation + anti-spam couches 2-3, reconnu
 Phase D mais non propage dans les surfaces repo. Aucun ne bloque
-le demarrage de S59, mais une correction de planning/carry dans
-CLAUDE.md + audit_plan Track F doit etre faite au kickoff S59.
+le demarrage de S59. Propagation corrigee par `fd852ed` (CLAUDE.md
+carry S59 + audit_plan Track F). A verifier au kickoff S59.
