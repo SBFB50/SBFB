@@ -685,6 +685,17 @@ impl DaemonRuntime {
             (auth::AuthState::new(static_token), None)
         };
 
+        {
+            let limiter = Arc::clone(&http_state.storage_write_limiter);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+                loop {
+                    interval.tick().await;
+                    limiter.retain_recent();
+                }
+            });
+        }
+
         let router = build_router(
             http_state,
             auth_state,

@@ -5325,4 +5325,58 @@ mod tests {
         let body_bytes = to_bytes(resp.into_body(), 4096).await.unwrap();
         assert_eq!(&body_bytes[..], content);
     }
+
+    #[tokio::test]
+    async fn storage_join_rejects_non_replicated_app() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/storage/join")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_string(&serde_json::json!({
+                            "app": "unknown-app",
+                            "ticket": "placeholder"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "non-replicated app must be rejected with 400"
+        );
+    }
+
+    #[tokio::test]
+    async fn storage_set_rate_limited_returns_429() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+
+        for i in 0..15 {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/app/test-app/state/key1")
+                        .header("content-type", "application/json")
+                        .body(axum::body::Body::from(
+                            serde_json::to_string(&serde_json::json!({ "v": i })).unwrap(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+                return;
+            }
+        }
+        panic!("expected at least one 429 TOO_MANY_REQUESTS after 15 rapid writes");
+    }
 }
