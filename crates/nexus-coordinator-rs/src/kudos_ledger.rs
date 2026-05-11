@@ -10,6 +10,17 @@ use crate::db::CoordinatorDb;
 use crate::error::CoordinatorError;
 use crate::types::KudosEntry;
 
+// log2 chosen over ln for informatique intuition (doublement = +1000 kudos).
+// Constant factor vs ln is absorbed by KUDOS_LOG_SCALE.
+const KUDOS_LOG_SCALE: f64 = 1000.0;
+// Half-life ~23 days at 1 entry/day. Pre-launch frequency is low;
+// alpha=0.95 (S21 research) decays too fast for occasional contributors.
+const KUDOS_EMA_ALPHA: f64 = 0.97;
+
+pub fn log_utility(tokens: u64) -> u64 {
+    (KUDOS_LOG_SCALE * (1.0 + tokens as f64).log2()).max(1.0) as u64
+}
+
 #[derive(serde::Serialize)]
 struct HashableKudosEntry<'a> {
     entry_id: &'a str,
@@ -59,7 +70,7 @@ pub fn credit(
         worker_node_id: worker_node_id.to_string(),
         task_id: task_id.to_string(),
         project_id: project_id.to_string(),
-        amount: tokens_generated,
+        amount: log_utility(tokens_generated),
         created_at: now,
         prev_hash: prev_hash.clone(),
         entry_hash: String::new(),
@@ -110,19 +121,39 @@ pub struct ContributorKudos {
     pub total: u64,
 }
 
+pub fn effective_score(entries: &[KudosEntry], now_secs: u64) -> u64 {
+    entries
+        .iter()
+        .map(|e| {
+            let age_days = now_secs.saturating_sub(e.created_at) / 86400;
+            (e.amount as f64 * KUDOS_EMA_ALPHA.powi(age_days as i32)) as u64
+        })
+        .sum()
+}
+
 pub fn get_project_kudos(
     db: &CoordinatorDb,
     project_id: &str,
+    now_secs: u64,
 ) -> Result<ProjectKudos, CoordinatorError> {
-    let total = db.get_project_kudos_total(project_id)?;
-    let contributors = db
-        .get_project_contributors(project_id)?
+    let entries = db.get_project_entries(project_id)?;
+    let mut worker_map: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+
+    for entry in &entries {
+        let age_days = now_secs.saturating_sub(entry.created_at) / 86400;
+        let eff = (entry.amount as f64 * KUDOS_EMA_ALPHA.powi(age_days as i32)) as u64;
+        *worker_map.entry(entry.worker_node_id.clone()).or_default() += eff;
+    }
+
+    let total: u64 = worker_map.values().sum();
+    let mut contributors: Vec<ContributorKudos> = worker_map
         .into_iter()
         .map(|(worker_node_id, total)| ContributorKudos {
             worker_node_id,
             total,
         })
         .collect();
+    contributors.sort_by_key(|c| std::cmp::Reverse(c.total));
 
     Ok(ProjectKudos {
         project_id: project_id.to_string(),
@@ -139,14 +170,21 @@ mod tests {
     fn credit_increases_total() {
         let db = CoordinatorDb::open_in_memory().expect("open");
         credit(&db, "proj-1", "worker-a", "task-1", 10).expect("credit 1");
+        let after_one = db.get_project_kudos_total("proj-1").expect("total");
+        assert!(after_one > 0, "first credit must produce positive amount");
         credit(&db, "proj-1", "worker-a", "task-2", 20).expect("credit 2");
-        assert_eq!(db.get_project_kudos_total("proj-1").expect("total"), 30);
+        let after_two = db.get_project_kudos_total("proj-1").expect("total");
+        assert!(after_two > after_one, "second credit must increase total");
     }
 
     #[test]
     fn get_project_kudos_empty() {
         let db = CoordinatorDb::open_in_memory().expect("open");
-        let kudos = get_project_kudos(&db, "nonexistent").expect("get");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let kudos = get_project_kudos(&db, "nonexistent", now).expect("get");
         assert_eq!(kudos.total, 0);
         assert!(kudos.contributors.is_empty());
     }
@@ -158,13 +196,27 @@ mod tests {
         credit(&db, "proj-1", "worker-b", "t2", 30).expect("c2");
         credit(&db, "proj-1", "worker-a", "t3", 20).expect("c3");
 
-        let kudos = get_project_kudos(&db, "proj-1").expect("get");
-        assert_eq!(kudos.total, 100);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let kudos = get_project_kudos(&db, "proj-1", now).expect("get");
+        assert!(kudos.total > 0);
         assert_eq!(kudos.contributors.len(), 2);
-        assert_eq!(kudos.contributors[0].worker_node_id, "worker-a");
-        assert_eq!(kudos.contributors[0].total, 70);
-        assert_eq!(kudos.contributors[1].worker_node_id, "worker-b");
-        assert_eq!(kudos.contributors[1].total, 30);
+        let worker_a = kudos
+            .contributors
+            .iter()
+            .find(|c| c.worker_node_id == "worker-a")
+            .unwrap();
+        let worker_b = kudos
+            .contributors
+            .iter()
+            .find(|c| c.worker_node_id == "worker-b")
+            .unwrap();
+        assert!(
+            worker_a.total > worker_b.total,
+            "worker-a (70 tokens) > worker-b (30 tokens)"
+        );
     }
 
     #[test]
@@ -232,5 +284,113 @@ mod tests {
         assert_eq!(entries_a[0].prev_hash, "genesis");
         assert_eq!(entries_b[0].prev_hash, "genesis");
         assert_ne!(entries_a[0].entry_hash, entries_b[0].entry_hash);
+    }
+
+    #[test]
+    fn log_utility_compression() {
+        let low = log_utility(1);
+        let high = log_utility(100);
+        assert!(low > 0, "log_utility(1) must be positive");
+        assert!(high > low, "more tokens = more kudos");
+        let ratio = high as f64 / low as f64;
+        assert!(
+            ratio < 10.0,
+            "100x tokens must compress to < 10x kudos (got {ratio:.1}x)"
+        );
+    }
+
+    #[test]
+    fn log_utility_minimum() {
+        assert!(
+            log_utility(0) >= 1,
+            "tokens=0 must produce at least 1 kudos"
+        );
+    }
+
+    #[test]
+    fn effective_score_decays_with_age() {
+        let now = 10_000_000u64;
+        let recent = KudosEntry {
+            entry_id: "e1".into(),
+            worker_node_id: "w".into(),
+            task_id: "t1".into(),
+            project_id: "p".into(),
+            amount: 1000,
+            created_at: now - 86400,
+            prev_hash: "genesis".into(),
+            entry_hash: "h1".into(),
+        };
+        let old = KudosEntry {
+            entry_id: "e2".into(),
+            worker_node_id: "w".into(),
+            task_id: "t2".into(),
+            project_id: "p".into(),
+            amount: 1000,
+            created_at: now - 86400 * 90,
+            prev_hash: "h1".into(),
+            entry_hash: "h2".into(),
+        };
+        let score_recent = effective_score(&[recent], now);
+        let score_old = effective_score(&[old], now);
+        assert!(
+            score_recent > score_old,
+            "recent entry ({score_recent}) must score higher than 90-day old ({score_old})"
+        );
+    }
+
+    #[test]
+    fn effective_score_no_decay_fresh() {
+        let now = 1_000_000u64;
+        let entry = KudosEntry {
+            entry_id: "e1".into(),
+            worker_node_id: "w".into(),
+            task_id: "t1".into(),
+            project_id: "p".into(),
+            amount: 5000,
+            created_at: now,
+            prev_hash: "genesis".into(),
+            entry_hash: "h1".into(),
+        };
+        let score = effective_score(&[entry], now);
+        assert_eq!(
+            score, 5000,
+            "fresh entry must have full score (alpha^0 = 1)"
+        );
+    }
+
+    #[test]
+    fn get_project_kudos_uses_ema() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        credit(&db, "proj-1", "worker-a", "t1", 100).expect("c1");
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let kudos_now = get_project_kudos(&db, "proj-1", now).expect("now");
+        let kudos_future = get_project_kudos(&db, "proj-1", now + 86400 * 30).expect("future");
+        assert!(
+            kudos_now.total > kudos_future.total,
+            "score must decrease over 30 days ({} vs {})",
+            kudos_now.total,
+            kudos_future.total
+        );
+    }
+
+    #[test]
+    fn log_utility_preserves_chain() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        credit(&db, "proj-1", "worker-a", "t1", 50).expect("c1");
+        credit(&db, "proj-1", "worker-a", "t2", 100).expect("c2");
+        credit(&db, "proj-1", "worker-a", "t3", 200).expect("c3");
+        assert!(
+            verify_chain(&db, "proj-1").expect("verify"),
+            "hash chain must be valid after log-utility credits"
+        );
+    }
+
+    #[test]
+    fn effective_score_empty() {
+        assert_eq!(effective_score(&[], 1_000_000), 0);
     }
 }

@@ -1542,7 +1542,11 @@ async fn coordinator_get_kudos(
                 .into_response();
         }
     };
-    match nexus_coordinator_rs::kudos_ledger::get_project_kudos(&db, &project_id) {
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    match nexus_coordinator_rs::kudos_ledger::get_project_kudos(&db, &project_id, now_secs) {
         Ok(kudos) => match serde_json::to_value(&kudos) {
             Ok(body) => (StatusCode::OK, Json(body)).into_response(),
             Err(e) => {
@@ -3805,7 +3809,10 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
         assert_eq!(body["project_id"], "proj-abc");
-        assert_eq!(body["total"], 100);
+        assert!(
+            body["total"].as_u64().unwrap() > 0,
+            "total must be positive after credit"
+        );
         assert_eq!(body["contributors"][0]["worker_node_id"], "worker-xyz");
     }
 

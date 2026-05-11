@@ -110,13 +110,18 @@ pub async fn leaderboard(
                 .into_response();
         }
     };
-    match db.get_project_contributors(&project_id) {
-        Ok(contributors) => {
-            let entries: Vec<LeaderboardEntry> = contributors
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    match nexus_coordinator_rs::kudos_ledger::get_project_kudos(&db, &project_id, now_secs) {
+        Ok(kudos) => {
+            let entries: Vec<LeaderboardEntry> = kudos
+                .contributors
                 .into_iter()
-                .map(|(worker, total)| LeaderboardEntry {
-                    worker_node_id: worker,
-                    total_kudos: total,
+                .map(|c| LeaderboardEntry {
+                    worker_node_id: c.worker_node_id,
+                    total_kudos: c.total,
                 })
                 .collect();
             let count = entries.len();

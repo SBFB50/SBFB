@@ -156,7 +156,8 @@ mod tests {
         let guard = db.lock().unwrap();
         let task = guard.get_task("task-vl-1").expect("get").expect("found");
         assert_eq!(task.status, TaskStatus::Completed);
-        assert_eq!(guard.get_project_kudos_total("proj-1").expect("k"), 42);
+        let kudos = guard.get_project_kudos_total("proj-1").expect("k");
+        assert!(kudos > 0, "kudos must be credited after accepted result");
     }
 
     #[tokio::test]
@@ -178,9 +179,10 @@ mod tests {
         handle.await.expect("validator loop joins");
 
         let guard = db.lock().unwrap();
+        let single_credit = nexus_coordinator_rs::kudos_ledger::log_utility(42);
         assert_eq!(
             guard.get_project_kudos_total("proj-1").expect("k"),
-            42,
+            single_credit,
             "double submit must credit only once"
         );
     }
