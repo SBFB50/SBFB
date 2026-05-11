@@ -647,6 +647,9 @@ impl DaemonRuntime {
                 crate::storage_api::load_app_storage_from_db(&guard)
             },
             storage_namespaces: Arc::clone(&storage_namespaces),
+            storage_write_limiter: Arc::new(
+                nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter::new(),
+            ),
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being

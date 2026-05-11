@@ -21,6 +21,37 @@ mod driver_check;
 mod token_rotation;
 mod unlock;
 
+#[cfg(windows)]
+fn error_msgbox(title: &str, msg: &str) {
+    unsafe extern "system" {
+        fn MessageBoxW(
+            hwnd: *mut core::ffi::c_void,
+            text: *const u16,
+            caption: *const u16,
+            utype: u32,
+        ) -> i32;
+    }
+    const MB_ICONERROR: u32 = 0x10;
+    const MB_OK: u32 = 0x0;
+    let text: Vec<u16> = msg.encode_utf16().chain(std::iter::once(0)).collect();
+    let caption: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+    // SAFETY: text and caption are valid null-terminated UTF-16 slices,
+    // hwnd is null (no parent window).
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            caption.as_ptr(),
+            MB_ICONERROR | MB_OK,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn error_msgbox(_title: &str, msg: &str) {
+    eprintln!("{msg}");
+}
+
 #[cfg(test)]
 mod test_util {
     //! Shared test plumbing for the launcher. Right now: a
@@ -188,8 +219,12 @@ async fn spawn_and_wait(
             *spawned_child = Some(child);
         }
         Err(e) => {
-            tracing::error!("failed to spawn daemon: {e}");
-            tracing::error!("make sure nexus-shell-daemon is in PATH or next to the launcher");
+            let msg = format!(
+                "Failed to spawn nexus-shell-daemon: {e}\n\n\
+                 Make sure nexus-shell-daemon is in PATH or next to the launcher."
+            );
+            tracing::error!("{msg}");
+            error_msgbox("SBFB Launcher", &msg);
             std::process::exit(1);
         }
     }
@@ -205,7 +240,10 @@ async fn spawn_and_wait(
             info
         }
         None => {
-            tracing::error!("daemon did not produce running.json within 15s");
+            let msg = "Daemon did not start within 15 seconds.\n\n\
+                       Check logs in ~/.nexus-grid/logs/ for details.";
+            tracing::error!("{msg}");
+            error_msgbox("SBFB Launcher", msg);
             if let Some(child) = spawned_child {
                 let _ = child.kill();
             }
@@ -381,7 +419,9 @@ async fn main() {
     let token = match resolve_token_for_child() {
         Ok(t) => t,
         Err(e) => {
-            tracing::error!("failed to prepare auth token: {e}");
+            let msg = format!("Failed to prepare auth token: {e}");
+            tracing::error!("{msg}");
+            error_msgbox("SBFB Launcher", &msg);
             std::process::exit(1);
         }
     };
@@ -395,7 +435,9 @@ async fn main() {
     //     ACL; the kernel Named Pipe namespace ignores filesystem
     //     paths, but we still create the dir for symmetry.
     if let Err(e) = auth::ensure_run_dir() {
-        tracing::error!("failed to prepare run dir: {e}");
+        let msg = format!("Failed to prepare run directory: {e}");
+        tracing::error!("{msg}");
+        error_msgbox("SBFB Launcher", &msg);
         std::process::exit(1);
     }
 
@@ -405,7 +447,9 @@ async fn main() {
             Some(s)
         }
         Err(e) => {
-            tracing::error!("failed to start auth server: {e}");
+            let msg = format!("Failed to start auth server: {e}");
+            tracing::error!("{msg}");
+            error_msgbox("SBFB Launcher", &msg);
             std::process::exit(1);
         }
     };

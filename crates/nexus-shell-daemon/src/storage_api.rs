@@ -297,6 +297,18 @@ pub async fn storage_set(
 ) -> impl IntoResponse {
     debug!(app = %app_name, key = %key, "POST /app/:name/state/:key");
 
+    if !state
+        .storage_write_limiter
+        .check_write(&state.node_id, &app_name)
+    {
+        warn!(app = %app_name, "storage write rate-limited");
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({ "error": "rate limit exceeded" })),
+        )
+            .into_response();
+    }
+
     if is_replicated(&app_name) {
         return storage_set_replicated(&state, &app_name, &key, &body).await;
     }
@@ -371,6 +383,18 @@ pub async fn storage_delete(
     Path((app_name, key)): Path<(String, String)>,
 ) -> impl IntoResponse {
     debug!(app = %app_name, key = %key, "DELETE /app/:name/state/:key");
+
+    if !state
+        .storage_write_limiter
+        .check_write(&state.node_id, &app_name)
+    {
+        warn!(app = %app_name, "storage delete rate-limited");
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({ "error": "rate limit exceeded" })),
+        )
+            .into_response();
+    }
 
     if is_replicated(&app_name) {
         return storage_delete_replicated(&state, &app_name, &key).await;
@@ -482,6 +506,16 @@ pub async fn storage_join(
     State(state): State<Arc<DaemonHttpState>>,
     Json(body): Json<JoinRequest>,
 ) -> impl IntoResponse {
+    if !is_replicated(&body.app) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("app '{}' is not a replicated app", body.app)
+            })),
+        )
+            .into_response();
+    }
+
     let ticket: DocsTicket = match body.ticket.parse() {
         Ok(t) => t,
         Err(e) => {

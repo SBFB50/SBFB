@@ -65,6 +65,7 @@ pub mod pow_policy_loader;
 pub mod publish;
 pub mod registry;
 pub mod state;
+pub mod storage_limiter;
 pub mod transport_probe;
 pub mod trust_cache;
 pub mod trust_web;

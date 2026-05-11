@@ -164,6 +164,9 @@ pub struct DaemonHttpState {
     /// Sprint 58 Phase C: per-app iroh-docs storage namespaces for
     /// P2P replicated apps. Keyed by app name (e.g. "sbfb-ideas").
     pub storage_namespaces: crate::storage_api::StorageNamespaces,
+    /// Sprint 59 Phase C: per-author per-app GCRA rate limiter for
+    /// storage write endpoints. 10 writes/min/author/app.
+    pub storage_write_limiter: Arc<nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter>,
 }
 
 impl DaemonHttpState {
@@ -1812,6 +1815,9 @@ mod tests {
             task_dispatch_tx: None,
             app_storage: crate::storage_api::new_app_storage(),
             storage_namespaces: crate::storage_api::new_storage_namespaces(),
+            storage_write_limiter: Arc::new(
+                nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter::new(),
+            ),
         })
     }
 
@@ -2568,6 +2574,9 @@ mod tests {
             task_dispatch_tx: None,
             app_storage: crate::storage_api::new_app_storage(),
             storage_namespaces: crate::storage_api::new_storage_namespaces(),
+            storage_write_limiter: Arc::new(
+                nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter::new(),
+            ),
         });
         let app = build_test_router(state);
         let resp = app
