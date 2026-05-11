@@ -159,7 +159,7 @@ exemption + 1 carry P2 dev-env pour S60 (cf. §1.1).
 
 ---
 
-## §4 Decisions Day 0 (D1..D4 gelees)
+## §4 Decisions Day 0 (D1..D5 gelees)
 
 ### D1 — Installer Windows : cargo-packager + NSIS
 
@@ -527,3 +527,6 @@ sprint61_audit_plan.md pour la session fraiche S61.
    → oui (mecanisme existant --web-root, zero code backend)
 4. **D4** : LT-7 Tier 3 = 3 machines, redundancy=3, SHA256 ?
    → oui (infra existante build_executor + quorum validator)
+5. **D5** : scope change frontend P2P → bundling installer ?
+   → oui (premier install = pas d'update P2P, blob-serve CSP
+   incompatible shell, CLAUDE.md synchronise Phase E)
