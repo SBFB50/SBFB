@@ -22,7 +22,7 @@ npm --prefix web run build
 
 echo ""
 echo "==> Building Rust release binaries..."
-cargo build --release -p nexus-worker -p nexus-shell-daemon -p nexus-launcher
+cargo build --release --locked -p nexus-worker -p nexus-shell-daemon -p nexus-launcher
 
 # Detect platform and copy binaries
 case "$(uname -s)" in
