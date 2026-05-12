@@ -1,7 +1,7 @@
 # Sprint 60 Phase D - LT-7 Tier 3 + Installer Report
 
 Date: 2026-05-12
-Status: INSTALLERS VALIDATED / LT-7 GOSSIP VALIDATED / QUORUM E2E CARRY
+Status: INSTALLERS VALIDATED / LT-7 P2P INFRA VALIDATED / WORKER QUORUM CARRY
 
 This report separates two Phase D tracks:
 
@@ -136,7 +136,7 @@ Uninstall model:
 
 ## LT-7 Tier 3 Quorum
 
-Status: **GOSSIP CONNECTIVITY VALIDATED / QUORUM E2E CARRY POST-TAG**.
+Status: **GOSSIP + API + TASK SUBMIT VALIDATED / WORKER QUORUM CARRY POST-TAG**.
 
 ### Gossip connectivity (VALIDATED 2026-05-12)
 
@@ -148,7 +148,7 @@ Three daemons started simultaneously, gossip connections observed:
 | VPS Helsinki | Hetzner | Debian 13 | x86_64 | `6592b2be01` |
 | Mac | Paris (LAN) | macOS 26.3.1 | arm64 | `6944503a3c` |
 
-VPS daemon log (source of truth) — gossip connections to both peers:
+VPS daemon log — gossip connections to both peers:
 
 ```
 2026-05-12T17:22:15 router.accept{me=6592b2be01 alpn="/iroh-gossip/1" remote=fe7a4898a1}
@@ -157,28 +157,56 @@ VPS daemon log (source of truth) — gossip connections to both peers:
   → Mac ↔ VPS gossip active (IP 176.150.28.203 + IPv6 2001:861:...)
 ```
 
-Conclusion : le reseau P2P iroh decouvre et connecte 3 machines
-heterogenes (Win+Linux+Mac, LAN+WAN) via pkarr + relay N0.
+### API mutual discovery (VALIDATED 2026-05-12)
 
-### Quorum E2E task flow (CARRY post-tag)
+Auth corrigee : le header est `x-sbfb-token` (pas `Authorization:
+Bearer`), et `GET /auth/token` retourne le token courant sans auth.
+Erreur initiale de diagnostic (utilisait le mauvais header).
 
-Blocked by : le daemon HTTP API utilise un `TokenRotator` (Sprint
-16 loopback security). Le token file (`~/.sbfb/auth_token`) est le
-seed initial, mais le rotator genere de nouveaux tokens a chaque
-intervalle. Sans le launcher (qui synchronise le token avec le
-browser via env var), les appels API directs via `curl` sont
-rejetes (`missing or invalid token`).
+Chaque daemon voit les 2 autres dans `subscribed_curators` :
 
-Le quorum E2E (task submit → dispatch → execute → SHA256 compare
-→ AwaitingQuorum → Completed) necessite le launcher interactif
-sur au moins 1 machine (pour obtenir un token valide), ce qui est
-hors scope d'une session CLI.
+```
+Win:  subscribed_curators = [6592b2be01 (VPS), 6944503a3c (Mac)]
+VPS:  subscribed_curators = [fe7a4898a1 (Win), 6944503a3c (Mac), 1a96e287c5]
+Mac:  subscribed_curators = [fe7a4898a1 (Win), 6592b2be01 (VPS), 1a96e287c5]
+```
+
+### Task submission (VALIDATED 2026-05-12)
+
+Task soumise via `POST /api/v1/tasks/submit` sur le daemon Win :
+
+```json
+{
+  "project_id": "lt7-tier3-test",
+  "task_type": "inference",
+  "prompt": "Hello LT-7 Tier 3 quorum test",
+  "model": "echo",
+  "priority": 5
+}
+```
+
+Reponse : task ID `000000006a03641e-e46a17bd431cfec2`, signee
+Ed25519, `redundancy_factor: 1`, persistee dans coordinator.db.
+
+### Worker quorum E2E (CARRY post-tag)
+
+Le chemin valide : gossip 3 machines ✓ → API auth ✓ → task submit ✓.
+
+Le maillon manquant : **workers** (nexus-worker binary) qui claim
+la tache, executent le build, et soumettent le SHA256 via
+`/api/v1/results/submit`. Le quorum validator compare les SHA256
+et fait la transition AwaitingQuorum → Completed.
+
+Raison du carry : les workers ne sont pas deployes sur VPS/Mac
+(seul le daemon y tourne). Le worker necessite Ollama (pour les
+inference tasks) ou le build_executor (pour les build tasks).
+Deployer et configurer les workers sur 3 machines heterogenes
+depasse le timebox de la session.
 
 Reclassification :
-- **Tier 3 gossip connectivity** : VALIDATED (evidence ci-dessus)
-- **Tier 3 quorum E2E** : carry post-tag (requires interactive
-  launcher session with browser). Tier 1+2 quorum logic validated
-  by unit tests (S55 Phase C, 1259 nextest green).
+- **Tier 3 P2P infrastructure** : VALIDATED (gossip + API + task submit cross-machine)
+- **Tier 3 worker quorum** : carry post-tag. Tier 1+2 quorum
+  logic validated by unit tests (S55 Phase C, 1259 nextest green).
 
 Important limitation (D4) :
 - Reproducible Rust build outputs are meaningful inside the same
