@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# cargo-packager configuration — produces an NSIS Windows installer.
+# Run: cargo packager -c Packager.toml
+# Ref: context7 /crabnebula-dev/cargo-packager (queried 2026-05-12)
+
+name = "sbfb-nexus-grid"
+product-name = "SBFB Nexus Grid"
+version = "1.0.0"
+identifier = "world.sbfb.nexus-grid"
+description = "Decentralized P2P compute network for apps"
+homepage = "https://sbfb.world"
+license-file = "LICENSE"
+copyright = "Copyright 2026 FlowUP — AGPL-3.0-or-later"
+category = "Utility"
+
+before-packaging-command = "cargo build --release --locked -p nexus-launcher -p nexus-shell-daemon"
+out-dir = "./target/release"
+
+icons = ["assets/nexus-launcher.ico", "assets/nexus-launcher.png"]
+
+binaries = [
+  { path = "nexus-launcher", main = true },
+  { path = "nexus-shell-daemon" },
+]
+
+resources = [
+  { src = "web/dist", target = "web" },
+]
+
+[nsis]
+installer-mode = "currentUser"
+languages = ["English", "French"]
+display-language-selector = false
+appdata-paths = ["$LOCALAPPDATA/$IDENTIFIER"]
