@@ -1,7 +1,7 @@
 # Sprint 60 Phase D - LT-7 Tier 3 + Installer Report
 
 Date: 2026-05-12
-Status: INSTALLERS VALIDATED / LT-7 QUORUM PENDING
+Status: INSTALLERS VALIDATED / LT-7 GOSSIP VALIDATED / QUORUM E2E CARRY
 
 This report separates two Phase D tracks:
 
@@ -136,23 +136,51 @@ Uninstall model:
 
 ## LT-7 Tier 3 Quorum
 
-Status: PENDING.
+Status: **GOSSIP CONNECTIVITY VALIDATED / QUORUM E2E CARRY POST-TAG**.
 
-Not yet validated in this report:
+### Gossip connectivity (VALIDATED 2026-05-12)
 
-- Three machines simultaneously connected to the same gossip network.
-- Build task submitted and executed by all selected builders.
-- 2/3 SHA256 consensus accepted by the validator.
-- Task status observed from `AwaitingQuorum` to `Completed`.
+Three daemons started simultaneously, gossip connections observed:
 
-Important limitation:
+| Machine | Location | OS | Arch | node_id (prefix) |
+|---|---|---|---|---|
+| Win dev | Paris (LAN) | Windows 11 | x86_64 | `fe7a4898a1` |
+| VPS Helsinki | Hetzner | Debian 13 | x86_64 | `6592b2be01` |
+| Mac | Paris (LAN) | macOS 26.3.1 | arm64 | `6944503a3c` |
 
-- Reproducible Rust build outputs are meaningful inside the same OS/toolchain triplet. Cross-OS byte-identical build consensus remains a stretch goal, not the MVP proof.
+VPS daemon log (source of truth) — gossip connections to both peers:
 
-Next required evidence:
+```
+2026-05-12T17:22:15 router.accept{me=6592b2be01 alpn="/iroh-gossip/1" remote=fe7a4898a1}
+  → Win ↔ VPS gossip active (IP 104.28.158.14 + IPv6 2a09:bac1:...)
+2026-05-12T17:22:19 gossip{me=6592b2be01 alpn=/iroh-gossip/1 remote=6944503a3c}
+  → Mac ↔ VPS gossip active (IP 176.150.28.203 + IPv6 2001:861:...)
+```
 
-- Machine list and commit SHA.
-- Toolchain versions per machine.
-- Build task id.
-- Submitted SHA256 per machine.
-- Validator transition log showing quorum acceptance.
+Conclusion : le reseau P2P iroh decouvre et connecte 3 machines
+heterogenes (Win+Linux+Mac, LAN+WAN) via pkarr + relay N0.
+
+### Quorum E2E task flow (CARRY post-tag)
+
+Blocked by : le daemon HTTP API utilise un `TokenRotator` (Sprint
+16 loopback security). Le token file (`~/.sbfb/auth_token`) est le
+seed initial, mais le rotator genere de nouveaux tokens a chaque
+intervalle. Sans le launcher (qui synchronise le token avec le
+browser via env var), les appels API directs via `curl` sont
+rejetes (`missing or invalid token`).
+
+Le quorum E2E (task submit → dispatch → execute → SHA256 compare
+→ AwaitingQuorum → Completed) necessite le launcher interactif
+sur au moins 1 machine (pour obtenir un token valide), ce qui est
+hors scope d'une session CLI.
+
+Reclassification :
+- **Tier 3 gossip connectivity** : VALIDATED (evidence ci-dessus)
+- **Tier 3 quorum E2E** : carry post-tag (requires interactive
+  launcher session with browser). Tier 1+2 quorum logic validated
+  by unit tests (S55 Phase C, 1259 nextest green).
+
+Important limitation (D4) :
+- Reproducible Rust build outputs are meaningful inside the same
+  OS/toolchain triplet. Cross-OS byte-identical build consensus
+  remains a stretch goal, not the MVP proof.
