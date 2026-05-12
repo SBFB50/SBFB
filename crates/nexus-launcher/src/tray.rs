@@ -48,6 +48,9 @@ pub fn run_event_loop(state: &TrayState, url: &str, ctrl_c: &std::sync::mpsc::Re
     let tray_rx = TrayIconEvent::receiver();
 
     loop {
+        #[cfg(windows)]
+        pump_win32_messages();
+
         if let Ok(event) = menu_rx.try_recv() {
             if event.id == state.open_id {
                 let _ = open::that(url);
@@ -62,6 +65,48 @@ pub fn run_event_loop(state: &TrayState, url: &str, ctrl_c: &std::sync::mpsc::Re
             break;
         }
         std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Drain the Win32 message queue for the current thread so the
+/// tray-icon hidden window's `tray_proc` receives WM_USER events.
+/// tray-icon 0.24 does NOT create its own message pump — the caller
+/// must pump messages on the thread that called `TrayIconBuilder::build`.
+#[cfg(windows)]
+fn pump_win32_messages() {
+    #[repr(C)]
+    struct Msg {
+        hwnd: *mut core::ffi::c_void,
+        message: u32,
+        wparam: usize,
+        lparam: isize,
+        time: u32,
+        pt_x: i32,
+        pt_y: i32,
+    }
+
+    unsafe extern "system" {
+        fn PeekMessageW(
+            msg: *mut Msg,
+            hwnd: *mut core::ffi::c_void,
+            filter_min: u32,
+            filter_max: u32,
+            remove: u32,
+        ) -> i32;
+        fn TranslateMessage(msg: *const Msg) -> i32;
+        fn DispatchMessageW(msg: *const Msg) -> isize;
+    }
+
+    const PM_REMOVE: u32 = 0x0001;
+
+    // SAFETY: msg is zeroed, PeekMessageW fills it on success.
+    // hwnd = null → drain all windows owned by this thread.
+    unsafe {
+        let mut msg: Msg = std::mem::zeroed();
+        while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
     }
 }
 
