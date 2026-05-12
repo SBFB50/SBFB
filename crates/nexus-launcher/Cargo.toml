@@ -55,10 +55,11 @@ zeroize = { workspace = true }
 nvml-wrapper = { workspace = true }
 reqwest = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
+muda = { version = "0.19", default-features = false, features = ["gtk"] }
+
 [target.'cfg(unix)'.dependencies]
-# Unix-only: used by the graceful SIGTERM shutdown path in
-# `main.rs`. Kept out of the Windows target so the dependency
-# doesn't balloon the Win32 build.
 libc = "0.2"
 
 [target.'cfg(windows)'.build-dependencies]
