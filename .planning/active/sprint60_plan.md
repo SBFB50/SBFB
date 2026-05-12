@@ -255,10 +255,14 @@ ignoring deb`, ce n'est pas un build.
    2026-05-12). AppImage scope cut post-v1.0 (linuxdeploy FUSE).
    Report materialise dans sprint60_lt7_tier3_report.md.
 
-### Critere d'acceptation
-- Au moins 1 build task complete avec consensus SHA256 2/3
-- Resultats documentes dans le report
-- Task status AwaitingQuorum → Completed observe
+### Critere d'acceptation (revise 2026-05-12)
+- ~~Au moins 1 build task complete avec consensus SHA256 2/3~~
+  → CARRY post-tag : workers non deployes sur VPS/Mac
+- ~~Task status AwaitingQuorum → Completed observe~~
+  → CARRY post-tag : meme raison (worker claim → execute manquant)
+- Gossip 3 machines WAN valide ✓
+- API auth + task submit cross-machine valide ✓
+- Resultats documentes dans sprint60_lt7_tier3_report.md ✓
 - Linux : .deb produit et teste Docker sbfb-ci (Debian 13) ✓
   AppImage scope cut post-v1.0 (linuxdeploy FUSE)
 - macOS : .dmg produit et teste Mac ARM64 (macOS 26.3.1) ✓

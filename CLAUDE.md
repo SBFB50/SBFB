@@ -134,7 +134,7 @@ Runtime isolation roadmap dans
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
-  LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 validation controlee S60 pre-tag (Win+VPS+Mac, redundancy=3). Diversite publique post-launch.
+  LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 S60 : P2P infra validee (gossip+API+task submit 3 machines), worker quorum E2E carry post-tag. Gate pre-v1.0 satisfait Tier 2. Diversite publique post-launch.
 - **Roadmap pre-v1.0** :
   S59 = launcher readiness + verified deploy E2E + LT-1 Kudos-v2
   + stabilisation → **early adopter ready** ✓ DONE.

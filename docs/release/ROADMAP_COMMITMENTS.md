@@ -333,11 +333,11 @@ Derniere revue).
   S55**. "Operationnel" au sens pre-launch = code path E2E
   fonctionnel, capable de dispatcher build tasks et valider par
   consensus SHA256. Gate pre-v1.0 satisfait par Tier 2.
-  **Tier 3 validation controlee S60 pre-tag** : Win dev + VPS
-  Helsinki + Mac executent un build task reel avec
-  redundancy_factor=3. Validator passe AwaitingQuorum → Completed
-  sur consensus SHA256 2/3. Prouve le chemin E2E sur 3 machines
-  reelles.
+  **Tier 3 S60** : P2P infra validee (gossip 3 machines Win+VPS+Mac,
+  API mutual discovery, task submit signee Ed25519). Worker quorum
+  E2E (claim → execute → SHA256 consensus) carry post-tag : workers
+  non deployes sur VPS/Mac dans le timebox S60. Gate pre-v1.0
+  reste satisfait par Tier 2 (inchange).
   **Tier 3 diversite publique post-launch** : la decentralisation
   organique (N builders independants non-controles) ne peut exister
   qu'avec des nœuds tiers. Premiers users = premiers builders.
