@@ -41,7 +41,7 @@ Derniere revue).
 | ID   | Title                                                         | Status     | Owner          | Last reviewed |
 |------|---------------------------------------------------------------|------------|----------------|---------------|
 | LT-1 | Kudos-v2 fairness reform (log-utility + DRF + EMA fitness)    | **reclassifie pre-v1.0** | S50 | 2026-04-30 |
-| LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | **trigger ACTIVE** | `<post-v1.0>` | 2026-05-12 |
+| LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | **trigger PENDING** | `<post-v1.0>` | 2026-05-12 |
 | LT-3 | Contribution family Sybil matrix (3 couches asymetriques post-v1.0) | latent | `<post-v1.0>`  | 2026-04-20    |
 | LT-4 | OS biometric gate cross-platform (Windows Hello / TouchID / polkit) | latent | `<post-v1.0>` | 2026-04-20    |
 | LT-5 | Redundancy persistence SQLite + wire-up prod               | latent     | `<post-v1.0>`  | 2026-04-22    |
@@ -124,12 +124,15 @@ Derniere revue).
     self-hosted docker image (S19 Phase E `2fd4d72`).
   - Re-calibration Radicle adoption vs S22 Couche 3 Radicle cross-
     validate (S25-S27 implem).
-- **Derniere revue** : 2026-05-12 (tag v1.0 pose S60 Phase E).
-  **Trigger ACTIVE** : tag v1.0 go-live pose sur master. Condition
-  de declenchement satisfaite. Execution flip sequence = action
-  post-sprint (pas dans scope S60). Prochaine action : reouvrir
-  Meta-1 comme carry actif au sprint S61, executer flip sequence
-  `docs/release/MIRROR_FALLBACK.md §3`.
+- **Derniere revue** : 2026-05-12 (tag v1.0 pose localement S60
+  Phase E). **Trigger PENDING** : tag v1.0 existe sur master local
+  mais n'a pas ete pousse vers origin. La condition "tag go-live
+  pose sur master" est satisfaite localement. Le trigger devient
+  pleinement ACTIVE quand le tag est pousse + GitHub Release draft
+  publiee (`.github/workflows/release.yml` declenche sur push
+  tag `v*`). Prochaine action : pousser le tag, verifier la
+  release draft, puis reouvrir Meta-1 comme carry actif au sprint
+  S61 et executer flip sequence `docs/release/MIRROR_FALLBACK.md §3`.
 
 ## LT-3 Contribution family Sybil matrix
 

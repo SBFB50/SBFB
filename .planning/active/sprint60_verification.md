@@ -132,6 +132,9 @@ code nouveau — delivrables = report + fixes.
 | P2-A-1 rand blocker upstream | 21+/3 | exemption externe |
 | P2-AUDIT-2 iroh transitives | herite | pin 0.98 |
 | P2-NSIS-UNINSTALL multi-binary | NEW 1/3 | Phase D report |
+| P2-IMAGE-DEP image 0.25 footprint | NEW 1/3 | Phase A review — ~15 crates transitives, png crate non evalue |
+| P2-G-1 exe lock intermittent | reouvert | Phase E review — revit durant verification finale |
+| P2-PLAYWRIGHT-REFACTOR | NEW 1/3 | Phase E review — 42 tests bloques global-setup pyproject.toml S50 |
 
 ---
 

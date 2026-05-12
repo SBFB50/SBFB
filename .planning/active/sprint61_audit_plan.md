@@ -88,6 +88,9 @@ Tier 3 validation + cross-platform installer validation → tag v1.0
 | P2-A-1 rand blocker upstream | 21+/3 | exemption externe |
 | P2-AUDIT-2 iroh transitives | herite | pin 0.98 |
 | P2-NSIS-UNINSTALL multi-binary | NEW 1/3 | Phase D report |
+| P2-IMAGE-DEP image 0.25 footprint | NEW 1/3 | Phase A review P2 — image crate ~15 transitives, png crate non evalue |
+| P2-G-1 exe lock intermittent | reouvert | Phase E review P2 — revit durant verification, monitoring |
+| P2-PLAYWRIGHT-REFACTOR | NEW 1/3 | Phase E review P2 — global-setup pyproject.toml, 42 tests inaccessibles depuis S50 |
 
 ## Track H — Pre-launch → post-launch policy transition
 

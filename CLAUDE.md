@@ -134,9 +134,12 @@ Runtime isolation roadmap dans
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
   P2-NSIS-UNINSTALL multi-binary residuel (NEW S60).
+  P2-IMAGE-DEP image 0.25 footprint (NEW S60 Phase A review).
+  P2-G-1 exe lock intermittent (reouvert S60 Phase E review).
+  P2-PLAYWRIGHT-REFACTOR global-setup (NEW S60 Phase E review).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
-  LT-2 Radicle sortie cap G7 — **trigger ACTIVE** (tag v1.0 pose,
-  flip sequence post-sprint).
+  LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
+  localement, pas encore pousse vers origin).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
