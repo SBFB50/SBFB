@@ -249,19 +249,19 @@ ignoring deb`, ce n'est pas un build.
      ctrl+c documente)
 
 7. **Report addendum** : documenter pour chaque OS : artefact
-   produit (nom + taille), install OK, launch OK, uninstall OK.
-   **Si bloquant (build echoue, machine indisponible, dep manquante) :
-   scope cut post-v1.0 obligatoire** — ne PAS bloquer le tag v1.0.
-   Windows NSIS est le seul installer requis pour v1.0.
+   produit (nom + taille + arch), install OK, launch OK, uninstall
+   OK. Resultats valides : Windows NSIS (Phase C), Linux .deb
+   (b6a93a8 Docker sbfb-ci), macOS .dmg (SSH Mac ARM64 session
+   2026-05-12). AppImage scope cut post-v1.0 (linuxdeploy FUSE).
+   Report a materialiser dans sprint60_lt7_tier3_report.md.
 
 ### Critere d'acceptation
 - Au moins 1 build task complete avec consensus SHA256 2/3
 - Resultats documentes dans le report
 - Task status AwaitingQuorum → Completed observe
-- Linux : au moins .deb OU .AppImage produit et teste sur VPS
-  (best effort — si bloquant, scope cut post-v1.0)
-- macOS : .dmg produit et teste sur Mac (best effort — si
-  bloquant, scope cut post-v1.0)
+- Linux : .deb produit et teste Docker sbfb-ci (Debian 13) ✓
+  AppImage scope cut post-v1.0 (linuxdeploy FUSE)
+- macOS : .dmg produit et teste Mac ARM64 (macOS 26.3.1) ✓
 
 ### Delta tests attendu
 - +0 (validation manuelle, pas de code nouveau)
