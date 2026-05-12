@@ -311,8 +311,9 @@ sortie.
 
 5. **ROADMAP_COMMITMENTS** :
    - LT-1 : deja RESOLVED (S59)
-   - LT-7 : Tier 3 RESOLVED (S60). Note : Tier 3 diversite
-     publique = post-launch.
+   - LT-7 : Tier 2 gate satisfied (S55). Tier 3 P2P infra validated
+     (S60). Worker quorum E2E carry post-tag. Diversite publique
+     post-launch.
    - LT-2 : trigger note "tag v1.0 pose, flip sequence post-sprint"
 
 ### Commit

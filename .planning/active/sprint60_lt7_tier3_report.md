@@ -6,7 +6,7 @@ Status: INSTALLERS VALIDATED / LT-7 P2P INFRA VALIDATED / WORKER QUORUM CARRY
 This report separates two Phase D tracks:
 
 - Cross-platform installer validation: Windows NSIS, Linux `.deb`, and macOS `.dmg` are validated with concrete artefact evidence below.
-- LT-7 Tier 3 build quorum: not run yet. It still requires simultaneous gossip connectivity across the selected 3-machine set.
+- LT-7 Tier 3: P2P infra validated (gossip + API + task submit). Worker quorum E2E (claim → execute → SHA256 consensus) not run — workers not deployed on VPS/Mac.
 
 ## Installer Summary
 
