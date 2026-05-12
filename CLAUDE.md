@@ -112,34 +112,42 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-59 CLOSED**, v1.2 en cours. Projet Rust+Frontend
-  pur depuis S50-S51. S59 : LT-1 Kudos-v2 fairness reform CLOSED
-  (log-utility credit() + EMA effective_score() alpha=0.97) +
-  verified deploy E2E (SBFB.json seeds + Deploy page React + 2
-  tests validation) + launcher MessageBox raw FFI cfg(windows) 5
-  erreurs fatales + P2-STORAGE-JOIN-VALIDATE CLOSED (is_replicated
-  check) + P2-STORAGE-ANTISPAM CLOSED (StorageWriteLimiter GCRA
-  10 writes/min per-author per-app). Phases A+B+C+D livrees (4
-  reviews PASS, 4 preflights G8). 4 fixes post-phases.
+- **Sprints 0-60 CLOSED**, v1.2 livree. **Tag v1.0 pose.**
+  Projet Rust+Frontend pur depuis S50-S51. S60 : installer Windows
+  NSIS (cargo-packager v0.11.8, 16.81 MB) + tray icon (tray-icon
+  0.24 + muda 0.19, message loop main thread) + dette pair
+  (P2-G-1 FERME non-repro + build-release.sh + PATTERNS §P48-50)
+  + installer Linux .deb (26.04 MB Docker sbfb-ci) + installer
+  macOS .dmg (23.32 MB ARM64) + LT-7 Tier 3 P2P infra validee
+  (gossip 3 machines WAN + API + task submit). Phases A+B+C
+  livrees (3 reviews PASS, 4 preflights G8). Phase D validation
+  manuelle (report materialise). 4 fixes post-phases. AppImage
+  scope cut post-v1.0 (linuxdeploy FUSE). Worker quorum E2E
+  carry post-tag.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1521 tests total** (1257 Rust / 258 Vitest / 42+2f Playwright
-  / 6/6 size-limit) — tous verts code (2 PW env fail pre-existant).
-  S59 : +17 delta Rust (1240→1257), +2 delta Vitest (256→258).
-- Carry S60 :
+- **~1523 tests total** (1259 Rust / 258 Vitest / 6/6 size-limit)
+  — tous verts code. Playwright bloque par global-setup
+  (pyproject.toml manquant post-S50, refactor PW = post-v1.0).
+  S60 : +2 delta Rust (1257→1259, Phase A tray tests).
+- Carry S61 :
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
+  P2-NSIS-UNINSTALL multi-binary residuel (NEW S60).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
-  LT-2 Radicle sortie cap G7 (trigger tag v1.0).
+  LT-2 Radicle sortie cap G7 — **trigger ACTIVE** (tag v1.0 pose,
+  flip sequence post-sprint).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
-  LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 S60 : P2P infra validee (gossip+API+task submit 3 machines), worker quorum E2E carry post-tag. Gate pre-v1.0 satisfait Tier 2. Diversite publique post-launch.
-- **Roadmap pre-v1.0** :
+  LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 P2P infra
+  validee (S60). Worker quorum E2E carry post-tag. Diversite
+  publique post-launch.
+- **Roadmap v1.0 livree** :
   S59 = launcher readiness + verified deploy E2E + LT-1 Kudos-v2
   + stabilisation → **early adopter ready** ✓ DONE.
-  S60 = installer NSIS/WiX + tray + frontend P2P distribution
-  → **end user ready** → tag v1.0.
+  S60 = installer NSIS + tray icon + LT-7 Tier 3 + frontend
+  bundling → **end user ready** ✓ DONE → **tag v1.0**.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.

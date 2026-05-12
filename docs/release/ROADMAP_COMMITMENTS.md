@@ -41,12 +41,12 @@ Derniere revue).
 | ID   | Title                                                         | Status     | Owner          | Last reviewed |
 |------|---------------------------------------------------------------|------------|----------------|---------------|
 | LT-1 | Kudos-v2 fairness reform (log-utility + DRF + EMA fitness)    | **reclassifie pre-v1.0** | S50 | 2026-04-30 |
-| LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | latent   | `<post-v1.0>`  | 2026-04-19    |
+| LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | **trigger ACTIVE** | `<post-v1.0>` | 2026-05-12 |
 | LT-3 | Contribution family Sybil matrix (3 couches asymetriques post-v1.0) | latent | `<post-v1.0>`  | 2026-04-20    |
 | LT-4 | OS biometric gate cross-platform (Windows Hello / TouchID / polkit) | latent | `<post-v1.0>` | 2026-04-20    |
 | LT-5 | Redundancy persistence SQLite + wire-up prod               | latent     | `<post-v1.0>`  | 2026-04-22    |
 | LT-6 | iroh neighborhood enrichment                                | **resolved** | Sprint 32      | 2026-04-27    |
-| LT-7 | Self-hosted build — le reseau compile le reseau             | **pre-v1.0 obligatoire** | `<S54-S55>` | 2026-05-02 |
+| LT-7 | Self-hosted build — le reseau compile le reseau             | **gate satisfait** | S55 (Tier 1+2) + S60 (Tier 3) | 2026-05-12 |
 
 ## LT-1 Kudos-v2 fairness reform
 
@@ -124,11 +124,12 @@ Derniere revue).
     self-hosted docker image (S19 Phase E `2fd4d72`).
   - Re-calibration Radicle adoption vs S22 Couche 3 Radicle cross-
     validate (S25-S27 implem).
-- **Derniere revue** : 2026-04-19 (régularisation reclassification
-  kickoff S22 via §6.2.1 auto-trigger + audit gate S21 PASS).
-  Prochaine revue attendue au sprint qui pose le tag `v1.0` OU
-  lors d'une revue trimestrielle long-term commitments si tag
-  retardé.
+- **Derniere revue** : 2026-05-12 (tag v1.0 pose S60 Phase E).
+  **Trigger ACTIVE** : tag v1.0 go-live pose sur master. Condition
+  de declenchement satisfaite. Execution flip sequence = action
+  post-sprint (pas dans scope S60). Prochaine action : reouvrir
+  Meta-1 comme carry actif au sprint S61, executer flip sequence
+  `docs/release/MIRROR_FALLBACK.md §3`.
 
 ## LT-3 Contribution family Sybil matrix
 
@@ -327,17 +328,16 @@ Derniere revue).
   - Cout reseau binaires 50MB+ × redundancy (acceptable)
   MVP : architecture homogene x86_64-linux d'abord, cross-platform
   apres validation.
-- **Derniere revue** : 2026-05-10 (S58 CLOSED). Tier 1 (Woodpecker
-  CI pipeline) + Tier 2 (build_executor.rs + quorum SHA256
-  validation TaskStatus::AwaitingQuorum + redundancy=3) = **DONE
-  S55**. "Operationnel" au sens pre-launch = code path E2E
-  fonctionnel, capable de dispatcher build tasks et valider par
-  consensus SHA256. Gate pre-v1.0 satisfait par Tier 2.
+- **Derniere revue** : 2026-05-12 (S60 CLOSED, tag v1.0 pose).
+  Tier 1 (Woodpecker CI pipeline) + Tier 2 (build_executor.rs +
+  quorum SHA256 validation TaskStatus::AwaitingQuorum +
+  redundancy=3) = **DONE S55**. Gate pre-v1.0 satisfait par Tier 2.
   **Tier 3 S60** : P2P infra validee (gossip 3 machines Win+VPS+Mac,
   API mutual discovery, task submit signee Ed25519). Worker quorum
   E2E (claim → execute → SHA256 consensus) carry post-tag : workers
-  non deployes sur VPS/Mac dans le timebox S60. Gate pre-v1.0
-  reste satisfait par Tier 2 (inchange).
+  non deployes sur VPS/Mac dans le timebox S60.
+  **Tag v1.0 pose** : gate pre-v1.0 satisfait. LT-7 reste ouvert
+  pour le worker quorum E2E et la diversite publique post-launch.
   **Tier 3 diversite publique post-launch** : la decentralisation
   organique (N builders independants non-controles) ne peut exister
   qu'avec des nœuds tiers. Premiers users = premiers builders.

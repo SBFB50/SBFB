@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-11  # G2 — Sprint 59 CLOSED : LT-1 Kudos-v2 log-utility + EMA fairness reform CLOSED + verified deploy E2E (SBFB.json seeds + Deploy page) + launcher MessageBox raw FFI cfg(windows) + P2-STORAGE-JOIN-VALIDATE CLOSED + P2-STORAGE-ANTISPAM CLOSED (GCRA 10 writes/min). Compteurs 1257 Rust / 258 Vitest / 42+2f PW / 6/6 size / ~1521 total. 0 trigger actif.
+last_validated: 2026-05-12  # G2 — Sprint 60 CLOSED + tag v1.0 : installer Windows NSIS 16.81 MB + tray icon (tray-icon 0.24 + muda 0.19) + dette pair (P2-G-1 FERME + build-release.sh + PATTERNS §P48-50) + installer Linux .deb 26.04 MB + installer macOS .dmg 23.32 MB + LT-7 Tier 3 P2P infra validee (gossip 3 machines WAN + API + task submit). Compteurs 1259 Rust / 258 Vitest / 6/6 size / ~1523 total. 1 trigger actif : iroh 1.0.0-rc.0 > 0.98 (evalue et defere S60 kickoff).
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
