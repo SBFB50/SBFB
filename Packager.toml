@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# cargo-packager configuration — produces an NSIS Windows installer.
+# cargo-packager configuration — cross-platform installers.
+# Windows: NSIS .exe | Linux: .deb + .AppImage | macOS: .dmg
 # Run: cargo packager -c Packager.toml
 # Ref: context7 /crabnebula-dev/cargo-packager (queried 2026-05-12)
 
@@ -28,8 +29,38 @@ resources = [
   { src = "web/dist", target = "web" },
 ]
 
+# --- Windows ---
+
 [nsis]
 installer-mode = "currentUser"
 languages = ["English", "French"]
 display-language-selector = false
 appdata-paths = ["$LOCALAPPDATA/$IDENTIFIER"]
+
+# --- Linux ---
+
+[deb]
+depends = ["libgtk-3-0", "libayatana-appindicator3-1"]
+section = "net"
+priority = "optional"
+
+[appimage]
+bins = ["/usr/bin/xdg-open"]
+
+# --- macOS ---
+
+[macos]
+minimum-system-version = "11.0"
+
+[dmg]
+[dmg.window-size]
+width = 660
+height = 400
+
+[dmg.app-position]
+x = 180
+y = 170
+
+[dmg.application-folder-position]
+x = 480
+y = 170
