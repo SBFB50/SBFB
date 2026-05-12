@@ -253,7 +253,7 @@ ignoring deb`, ce n'est pas un build.
    OK. Resultats valides : Windows NSIS (Phase C), Linux .deb
    (b6a93a8 Docker sbfb-ci), macOS .dmg (SSH Mac ARM64 session
    2026-05-12). AppImage scope cut post-v1.0 (linuxdeploy FUSE).
-   Report a materialiser dans sprint60_lt7_tier3_report.md.
+   Report materialise dans sprint60_lt7_tier3_report.md.
 
 ### Critere d'acceptation
 - Au moins 1 build task complete avec consensus SHA256 2/3
