@@ -250,16 +250,18 @@ ignoring deb`, ce n'est pas un build.
 
 7. **Report addendum** : documenter pour chaque OS : artefact
    produit (nom + taille), install OK, launch OK, uninstall OK.
-   Tout echec = P2 carry S61 (pas bloquant tag v1.0 puisque
-   Windows est la plateforme primaire).
+   **Si bloquant (build echoue, machine indisponible, dep manquante) :
+   scope cut post-v1.0 obligatoire** — ne PAS bloquer le tag v1.0.
+   Windows NSIS est le seul installer requis pour v1.0.
 
 ### Critere d'acceptation
 - Au moins 1 build task complete avec consensus SHA256 2/3
 - Resultats documentes dans le report
 - Task status AwaitingQuorum → Completed observe
 - Linux : au moins .deb OU .AppImage produit et teste sur VPS
-- macOS : .dmg produit et teste sur Mac (stretch — si Mac
-  indisponible, documenter comme non-teste)
+  (best effort — si bloquant, scope cut post-v1.0)
+- macOS : .dmg produit et teste sur Mac (best effort — si
+  bloquant, scope cut post-v1.0)
 
 ### Delta tests attendu
 - +0 (validation manuelle, pas de code nouveau)
