@@ -189,19 +189,26 @@ feat(sprint60): Sprint 60 Phase C — Windows installer cargo-packager NSIS
 
 ---
 
-## §5 Phase D — LT-7 Tier 3 validation controlee
+## §5 Phase D — LT-7 Tier 3 validation + installers cross-platform
 
 ### But
 Prouver que le build self-hosted fonctionne sur 3 machines reelles
-avec quorum SHA256.
+avec quorum SHA256. **Addendum scope** (decision user 2026-05-12) :
+valider les installers Linux (deb/AppImage) et macOS (dmg) sur
+machines natives. La config Packager.toml cross-platform a ete
+ajoutee post-Phase C (`a045502`) mais n'a pas ete prouvee — un
+`cargo packager --formats deb` depuis Windows fait `exit 0 +
+ignoring deb`, ce n'est pas un build.
 
 ### Fichiers touches
 | Fichier | Role |
 |---------|------|
-| `scripts/test-lt7-tier3.sh` | NEW — script validation |
-| `.planning/active/sprint60_lt7_tier3_report.md` | NEW — resultats |
+| `scripts/test-lt7-tier3.sh` | NEW — script validation LT-7 |
+| `.planning/active/sprint60_lt7_tier3_report.md` | NEW — resultats LT-7 + installers |
 
 ### Detail technique
+
+**Volet 1 — LT-7 Tier 3 quorum**
 
 1. **Pre-requis** : les 3 machines (Win dev + VPS Helsinki + Mac)
    doivent executer `nexus-shell-daemon start` et etre sur le meme
@@ -224,17 +231,42 @@ avec quorum SHA256.
    en 2026). MVP = 3 machines Linux (VPS × 3) OU 3 machines
    Windows. Cross-OS = stretch goal.
 
+**Volet 2 — Validation installers cross-platform (addendum)**
+
+5. **VPS Helsinki (Linux)** :
+   - `cargo install cargo-packager --locked`
+   - `./scripts/build-installer.sh deb,appimage`
+   - Verifier : .deb produit, `dpkg -i` installe, binaires
+     fonctionnels, `dpkg -r` desinstalle proprement
+   - Verifier : .AppImage produit, executable, lance le daemon
+
+6. **Mac** :
+   - `cargo install cargo-packager --locked`
+   - Generer .icns (`cargo run -p png-to-icns --release`)
+   - `./scripts/build-installer.sh dmg`
+   - Verifier : .dmg produit, .app bundle visible, lance le
+     launcher, tray icon (si GTK/AppKit init ok, sinon fallback
+     ctrl+c documente)
+
+7. **Report addendum** : documenter pour chaque OS : artefact
+   produit (nom + taille), install OK, launch OK, uninstall OK.
+   Tout echec = P2 carry S61 (pas bloquant tag v1.0 puisque
+   Windows est la plateforme primaire).
+
 ### Critere d'acceptation
 - Au moins 1 build task complete avec consensus SHA256 2/3
 - Resultats documentes dans le report
 - Task status AwaitingQuorum → Completed observe
+- Linux : au moins .deb OU .AppImage produit et teste sur VPS
+- macOS : .dmg produit et teste sur Mac (stretch — si Mac
+  indisponible, documenter comme non-teste)
 
 ### Delta tests attendu
 - +0 (validation manuelle, pas de code nouveau)
 
 ### Commit
 ```
-feat(sprint60): Sprint 60 Phase D — LT-7 Tier 3 cross-platform build quorum validation
+feat(sprint60): Sprint 60 Phase D — LT-7 Tier 3 + cross-platform installer validation
 ```
 
 ---
