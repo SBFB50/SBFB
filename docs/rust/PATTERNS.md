@@ -2412,6 +2412,145 @@ Cross-ref: `CLAUDE.md §Pre-launch protocol policy`,
 
 ---
 
+## §P48 — Sprint 59 Phase C : StorageWriteLimiter GCRA per-author per-app
+
+Storage write endpoints (`storage_set`, `storage_delete`) are
+rate-limited to prevent a single author from flooding an app's
+iroh-docs namespace.
+
+### Implementation
+
+`StorageWriteLimiter` in `nexus-shell-daemon-core/src/storage_limiter.rs`
+wraps `governor::DefaultKeyedRateLimiter<String>`. The composite key
+is `"{author}:{app_name}"`, giving independent quotas per author per
+app.
+
+```rust
+pub const STORAGE_WRITES_PER_MINUTE: u32 = 10;
+
+pub fn check_write(&self, author: &str, app: &str) -> bool {
+    let key = format!("{author}:{app}");
+    self.limiter.check_key(&key).is_ok()
+}
+```
+
+The limiter lives in `DaemonHttpState` as `Arc<StorageWriteLimiter>`.
+HTTP handlers call `check_write` before writing; rejection returns
+HTTP 429.
+
+### Design rationale
+
+- GCRA (Generic Cell Rate Algorithm) via governor provides smooth
+  rate limiting without hard window boundaries — a burst of 10
+  writes is allowed, then the bucket refills continuously.
+- Keyed by `{author}:{app}` rather than just author: one author
+  contributing to many apps does not exhaust a shared quota.
+- `retain_recent()` is called periodically to garbage-collect
+  stale keys from the internal DashMap.
+
+Cross-ref: `nexus-shell-daemon/src/storage_api.rs` (HTTP handler
+integration), `nexus-shell-daemon/src/runtime.rs` (state wiring).
+
+---
+
+## §P49 — Sprint 59 Phase A : Kudos-v2 log-utility + EMA fairness
+
+LT-1 reform: replace linear `credit(tokens)` with a logarithmic
+utility function + exponential moving average decay.
+
+### Log-utility credit
+
+```rust
+const KUDOS_LOG_SCALE: f64 = 1000.0;
+
+pub fn log_utility(tokens: u64) -> u64 {
+    (KUDOS_LOG_SCALE * (1.0 + tokens as f64).log2()).max(1.0) as u64
+}
+```
+
+`log2` is chosen for informatics intuition: doubling the token
+output adds exactly +1000 kudos. This compresses the reward gap
+between large GPU tasks and small tasks (Matthew effect mitigation).
+
+### EMA effective score
+
+```rust
+pub const KUDOS_EMA_ALPHA: f64 = 0.97;
+
+pub fn effective_score(entries: &[KudosEntry], now_secs: u64) -> u64 {
+    entries.iter().map(|e| {
+        let age_days = now_secs.saturating_sub(e.created_at) / 86400;
+        (e.amount as f64 * KUDOS_EMA_ALPHA.powi(age_days as i32)) as u64
+    }).sum()
+}
+```
+
+Each entry decays by `alpha^age_days`. Half-life ~23 days at
+alpha=0.97. Inactive workers naturally lose score; consistent
+contributors maintain theirs. Alpha=0.95 (S21 research) decayed
+too fast for pre-launch contribution frequency.
+
+### Invariants
+
+- `log_utility(0) >= 1` — every accepted result earns something.
+- `effective_score(&[], _) == 0` — no entries = zero score.
+- Kudos remain non-monetary, non-transferable (Day 0 decision #7).
+- Hash chain integrity preserved: `compute_entry_hash` uses
+  `canonical_bytes + DOMAIN_KUDOS_V1 + BLAKE3`.
+
+Cross-ref: `nexus-coordinator-rs/src/kudos_ledger.rs`,
+`memory/fairness_vision.md`.
+
+---
+
+## §P50 — Sprint 60 Phase A : tray icon main-thread message loop
+
+The launcher uses `tray-icon` 0.24 + `muda` 0.19 for a Windows
+notification area icon with context menu.
+
+### Architecture constraint
+
+Win32 requires the tray icon's hidden HWND and message pump to live
+on the thread that created them. `tray-icon` 0.24 does NOT create
+its own message pump — the caller must call `PeekMessageW` /
+`TranslateMessage` / `DispatchMessageW` on the builder thread.
+
+This means the main thread runs the tray event loop (blocking
+polling with `thread::sleep(100ms)`), while the tokio runtime runs
+on a background thread:
+
+```rust
+// main.rs — simplified
+fn main() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all().build().unwrap();
+    // spawn daemon, browser, identity init on rt...
+    let tray_state = tray::create_tray()?;
+    tray::run_event_loop(&tray_state, &url, &ctrl_c_rx);
+    // on exit: rt drops, daemon shuts down
+}
+```
+
+### Win32 message pump
+
+`pump_win32_messages()` is a `#[cfg(windows)]` function using
+direct FFI (`PeekMessageW` / `TranslateMessage` / `DispatchMessageW`)
+rather than pulling in `windows-sys` as a dependency. The `Msg`
+struct is a minimal `#[repr(C)]` layout matching Win32 `MSG`.
+
+This is called every iteration of the event loop before checking
+`MenuEvent::receiver()` and `TrayIconEvent::receiver()`.
+
+### Fallback
+
+On non-Windows platforms, `create_tray()` may fail (no GTK, no
+AppKit). The launcher falls back to `ctrl_c().await` (pre-S60
+behavior) with a warning log.
+
+Cross-ref: `nexus-launcher/src/tray.rs`, `nexus-launcher/src/main.rs`.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

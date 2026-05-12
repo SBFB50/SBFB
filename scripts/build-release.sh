@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# Sprint 10 Phase D — build release binaries and Python wheels.
+# Build release binaries and frontend for distribution.
 #
 # Usage:
-#   ./scripts/build-release.sh              # build for current platform
-#   ./scripts/build-release.sh --all        # build all platforms (CI)
+#   ./scripts/build-release.sh
 #
-# Output: dist/ directory with binaries and wheels.
+# Output: dist/ directory with binaries + web/.
 
 set -euo pipefail
 
@@ -18,43 +17,42 @@ cd "$REPO_ROOT"
 DIST="$REPO_ROOT/dist"
 mkdir -p "$DIST"
 
-ALL=0
-if [[ "${1:-}" == "--all" ]]; then
-  ALL=1
-fi
+echo "==> Building frontend..."
+npm --prefix web run build
 
+echo ""
 echo "==> Building Rust release binaries..."
-cargo build --release -p nexus-worker -p nexus-shell-daemon
+cargo build --release -p nexus-worker -p nexus-shell-daemon -p nexus-launcher
 
 # Detect platform and copy binaries
 case "$(uname -s)" in
   Linux*)
     cp target/release/nexus-worker "$DIST/nexus-worker-linux-x86_64"
     cp target/release/nexus-shell-daemon "$DIST/nexus-shell-daemon-linux-x86_64"
+    cp target/release/nexus-launcher "$DIST/nexus-launcher-linux-x86_64"
     chmod +x "$DIST"/nexus-*-linux-*
     echo "  Linux binaries copied to dist/"
     ;;
   MINGW*|MSYS*|CYGWIN*)
     cp target/release/nexus-worker.exe "$DIST/nexus-worker-windows-x86_64.exe"
     cp target/release/nexus-shell-daemon.exe "$DIST/nexus-shell-daemon-windows-x86_64.exe"
+    cp target/release/nexus-launcher.exe "$DIST/nexus-launcher-windows-x86_64.exe"
     echo "  Windows binaries copied to dist/"
     ;;
   Darwin*)
     cp target/release/nexus-worker "$DIST/nexus-worker-macos-x86_64"
     cp target/release/nexus-shell-daemon "$DIST/nexus-shell-daemon-macos-x86_64"
+    cp target/release/nexus-launcher "$DIST/nexus-launcher-macos-x86_64"
     chmod +x "$DIST"/nexus-*-macos-*
     echo "  macOS binaries copied to dist/"
     ;;
 esac
 
 echo ""
-echo "==> Building Python wheels..."
-uv build packages/nexus-sdk --wheel --out-dir "$DIST/"
-uv build packages/nexus-coordinator --wheel --out-dir "$DIST/"
+echo "==> Copying frontend build..."
+rm -rf "$DIST/web"
+cp -r web/dist "$DIST/web"
 
 echo ""
 echo "==> Release artifacts in dist/:"
-ls -lh "$DIST/"
-
-echo ""
-echo "==> To validate wheels: pip install twine && twine check dist/*.whl"
+ls -lhR "$DIST/"
