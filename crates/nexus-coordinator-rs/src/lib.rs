@@ -16,6 +16,7 @@ pub mod db;
 pub mod dispatcher;
 pub mod error;
 pub mod fairness;
+pub mod feed_materializer;
 pub mod forge;
 pub mod guardrails;
 pub mod honeypot;

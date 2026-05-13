@@ -164,6 +164,14 @@ static MIGRATIONS: &[M<'static>] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_feed_created ON public_feed(created_at);",
     ),
+    // M10: feed cursor for materializer checkpoint (Sprint 61 Phase C)
+    M::up(
+        "CREATE TABLE IF NOT EXISTS feed_cursor (
+        id               INTEGER PRIMARY KEY CHECK (id = 1),
+        last_seq         INTEGER NOT NULL,
+        last_entry_hash  TEXT NOT NULL
+    );",
+    ),
 ];
 
 pub struct StorageNamespaceRow {
@@ -641,6 +649,64 @@ impl CoordinatorDb {
         let mut result = std::collections::HashSet::new();
         for row in rows {
             result.insert(row?);
+        }
+        Ok(result)
+    }
+
+    // -- Feed cursor methods (Sprint 61 Phase C) --
+
+    pub fn load_feed_cursor(&self) -> Result<Option<(u64, String)>, CoordinatorError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT last_seq, last_entry_hash FROM feed_cursor WHERE id = 1")?;
+        let mut rows = stmt.query([])?;
+        match rows.next()? {
+            Some(row) => {
+                let seq: u64 = row.get::<_, i64>(0)? as u64;
+                let hash: String = row.get(1)?;
+                Ok(Some((seq, hash)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn save_feed_cursor(
+        &self,
+        last_seq: u64,
+        last_entry_hash: &str,
+    ) -> Result<(), CoordinatorError> {
+        self.conn.execute(
+            "INSERT INTO feed_cursor (id, last_seq, last_entry_hash)
+             VALUES (1, ?1, ?2)
+             ON CONFLICT(id) DO UPDATE SET last_seq = excluded.last_seq, last_entry_hash = excluded.last_entry_hash",
+            rusqlite::params![last_seq as i64, last_entry_hash],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_feed_entries_after_seq(
+        &self,
+        after_seq: u64,
+    ) -> Result<Vec<FeedEntryRow>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT seq, op_type, payload, author, signature, entry_hash, prev_hash, created_at
+             FROM public_feed WHERE seq > ?1 ORDER BY seq ASC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![after_seq as i64], |row| {
+            Ok(FeedEntryRow {
+                seq: row.get::<_, i64>(0)? as u64,
+                op_type: row.get(1)?,
+                payload: row.get(2)?,
+                author: row.get(3)?,
+                signature: row.get(4)?,
+                entry_hash: row.get(5)?,
+                prev_hash: row.get(6)?,
+                created_at: row.get::<_, i64>(7)? as u64,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
         }
         Ok(result)
     }
