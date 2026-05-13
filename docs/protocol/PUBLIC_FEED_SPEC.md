@@ -235,10 +235,18 @@ Input:
 }
 ```
 
-Expected canonical bytes (JCS produces deterministic key ordering):
-domain prefix `nexus-feed-v1` + null byte + JCS-serialized JSON.
+Expected canonical bytes: domain prefix `nexus-feed-v1` + null
+byte `0x00` + JCS-serialized JSON (deterministic key ordering per
+RFC 8785).
 
-The entry hash is `BLAKE3(canonical_bytes)` encoded as hex.
+Expected entry hash (BLAKE3 of canonical bytes, hex-encoded):
+
+```
+f81ced7da512d9615a63e67e99b70fa89a1116b7101c0d3f313d83caf569ae2a
+```
+
+This value is verified by
+`test_compute_feed_entry_hash_deterministic` in `public_feed.rs`.
 
 ---
 
@@ -249,8 +257,9 @@ The entry hash is `BLAKE3(canonical_bytes)` encoded as hex.
 - Decoders SHOULD accept `version <= FEED_FORMAT_VERSION` (range)
 - New optional fields carry `#[serde(default)]` for forward
   compatibility within the same version
-- Adding a new `PublicFeedOperation` variant is NOT a breaking
-  change (existing consumers skip unknown variants)
+- Adding a new `PublicFeedOperation` variant IS a breaking
+  change (the enum is closed — unknown variants cause a
+  deserialization error, not a silent skip)
 - Changing the hash algorithm or domain tag IS a breaking change
 
 This is the first wire format designed under the post-v1.0

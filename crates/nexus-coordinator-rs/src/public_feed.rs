@@ -172,4 +172,38 @@ mod tests {
     fn test_feed_format_version() {
         assert_eq!(FEED_FORMAT_VERSION, 1);
     }
+
+    #[test]
+    fn test_compute_feed_entry_hash_deterministic() {
+        let canonical = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: "d".repeat(64),
+            timestamp: 1_700_000_000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let hash1 = compute_feed_entry_hash(&canonical).unwrap();
+        let hash2 = compute_feed_entry_hash(&canonical).unwrap();
+        assert_eq!(hash1, hash2);
+        assert_eq!(hash1.len(), 64);
+        assert_eq!(
+            hash1,
+            "f81ced7da512d9615a63e67e99b70fa89a1116b7101c0d3f313d83caf569ae2a"
+        );
+    }
+
+    #[test]
+    fn test_entry_hash_changes_with_prev_hash() {
+        let mut canonical = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: "d".repeat(64),
+            timestamp: 1_700_000_000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let hash_genesis = compute_feed_entry_hash(&canonical).unwrap();
+        canonical.prev_hash = "f".repeat(64);
+        let hash_chained = compute_feed_entry_hash(&canonical).unwrap();
+        assert_ne!(hash_genesis, hash_chained);
+    }
 }
