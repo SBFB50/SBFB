@@ -12,6 +12,14 @@ Pour le sprint en cours, voir
 
 ---
 
+## v2.0 — Public Verifiable Protocol Feed (OPEN)
+
+| Sprint | Etat | Tip cloture | Nb commits | Docs |
+|---|---|---|---|---|
+| 61 | EN COURS — spec executable + feed local rejouable | | | `.planning/active/sprint61_*.md` |
+
+---
+
 ## v1.2 — Security hardening + Gate 2 prerequisites (CLOSED — tag v1.0)
 
 | Sprint | Etat | Tip cloture | Nb commits | Docs |
