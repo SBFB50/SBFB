@@ -150,6 +150,20 @@ static MIGRATIONS: &[M<'static>] = &[
         doc_ticket     TEXT
     );",
     ),
+    // M9: public feed append-only log (Sprint 61 Phase B)
+    M::up(
+        "CREATE TABLE IF NOT EXISTS public_feed (
+        seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+        op_type     TEXT NOT NULL,
+        payload     TEXT NOT NULL,
+        author      TEXT NOT NULL,
+        signature   TEXT NOT NULL,
+        entry_hash  TEXT NOT NULL,
+        prev_hash   TEXT NOT NULL,
+        created_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_feed_created ON public_feed(created_at);",
+    ),
 ];
 
 pub struct StorageNamespaceRow {
@@ -630,6 +644,71 @@ impl CoordinatorDb {
         }
         Ok(result)
     }
+
+    // -- Public feed methods (Sprint 61 Phase B) --
+
+    pub fn insert_feed_entry(&self, row: &FeedEntryRow) -> Result<u64, CoordinatorError> {
+        self.conn.execute(
+            "INSERT INTO public_feed (op_type, payload, author, signature, entry_hash, prev_hash, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                row.op_type,
+                row.payload,
+                row.author,
+                row.signature,
+                row.entry_hash,
+                row.prev_hash,
+                row.created_at as i64
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid() as u64)
+    }
+
+    pub fn get_feed_entries(&self) -> Result<Vec<FeedEntryRow>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT seq, op_type, payload, author, signature, entry_hash, prev_hash, created_at
+             FROM public_feed ORDER BY seq ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(FeedEntryRow {
+                seq: row.get::<_, i64>(0)? as u64,
+                op_type: row.get(1)?,
+                payload: row.get(2)?,
+                author: row.get(3)?,
+                signature: row.get(4)?,
+                entry_hash: row.get(5)?,
+                prev_hash: row.get(6)?,
+                created_at: row.get::<_, i64>(7)? as u64,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn get_last_feed_entry_hash(&self) -> Result<Option<String>, CoordinatorError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT entry_hash FROM public_feed ORDER BY seq DESC LIMIT 1")?;
+        let mut rows = stmt.query([])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+}
+
+pub struct FeedEntryRow {
+    pub seq: u64,
+    pub op_type: String,
+    pub payload: String,
+    pub author: String,
+    pub signature: String,
+    pub entry_hash: String,
+    pub prev_hash: String,
+    pub created_at: u64,
 }
 
 #[cfg(test)]

@@ -121,6 +121,131 @@ pub fn compute_feed_canonical_bytes(canonical: &FeedEntryCanonical) -> Result<Ve
         .map_err(|e| format!("canonical serialization failed: {e}"))
 }
 
+// ---------------------------------------------------------------------------
+// FeedStore — append-only persistence + hash-chain
+// ---------------------------------------------------------------------------
+
+use crate::db::CoordinatorDb;
+
+/// Insert a new operation into the feed with hash-chain and signature.
+///
+/// The caller provides the operation, author identity, and a signing
+/// closure. The function atomically reads the previous hash, computes
+/// the canonical bytes, signs, hashes, and persists.
+pub fn insert_feed_operation(
+    db: &CoordinatorDb,
+    op: PublicFeedOperation,
+    author_pubkey: &str,
+    sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
+) -> Result<FeedEntry, String> {
+    let prev_hash = db
+        .get_last_feed_entry_hash()
+        .map_err(|e| format!("db error: {e}"))?
+        .unwrap_or_else(|| GENESIS_PREV_HASH.to_string());
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let canonical = FeedEntryCanonical {
+        version: FEED_FORMAT_VERSION,
+        op: op.clone(),
+        author_pubkey: author_pubkey.to_string(),
+        timestamp,
+        prev_hash: prev_hash.clone(),
+    };
+
+    let canonical_bytes = compute_feed_canonical_bytes(&canonical)?;
+    let signature = sign_fn(&canonical_bytes);
+    let entry_hash = compute_feed_entry_hash(&canonical)?;
+
+    let op_type = match &op {
+        PublicFeedOperation::ReleasePublished(_) => "ReleasePublished",
+        PublicFeedOperation::SourceBecameStale(_) => "SourceBecameStale",
+    };
+    let payload = serde_json::to_string(&op).map_err(|e| format!("payload serialization: {e}"))?;
+
+    let row = crate::db::FeedEntryRow {
+        seq: 0,
+        op_type: op_type.to_string(),
+        payload,
+        author: author_pubkey.to_string(),
+        signature: hex::encode(&signature),
+        entry_hash: entry_hash.clone(),
+        prev_hash: prev_hash.clone(),
+        created_at: timestamp,
+    };
+
+    let seq = db
+        .insert_feed_entry(&row)
+        .map_err(|e| format!("db insert: {e}"))?;
+
+    Ok(FeedEntry {
+        version: FEED_FORMAT_VERSION,
+        seq,
+        op,
+        author_pubkey: author_pubkey.to_string(),
+        timestamp,
+        entry_hash,
+        prev_hash,
+        signature: hex::encode(signature),
+    })
+}
+
+/// Replay all feed entries from genesis in sequence order.
+pub fn replay_all(db: &CoordinatorDb) -> Result<Vec<FeedEntry>, String> {
+    let rows = db
+        .get_feed_entries()
+        .map_err(|e| format!("db error: {e}"))?;
+
+    let mut entries = Vec::with_capacity(rows.len());
+    for row in rows {
+        let op: PublicFeedOperation =
+            serde_json::from_str(&row.payload).map_err(|e| format!("payload parse: {e}"))?;
+        entries.push(FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: row.seq,
+            op,
+            author_pubkey: row.author,
+            timestamp: row.created_at,
+            entry_hash: row.entry_hash,
+            prev_hash: row.prev_hash,
+            signature: row.signature,
+        });
+    }
+    Ok(entries)
+}
+
+/// Verify the hash-chain integrity of a sequence of feed entries.
+///
+/// Checks that each entry's `entry_hash` matches the recomputed
+/// BLAKE3 hash, and that `prev_hash` links are consistent.
+pub fn verify_chain(entries: &[FeedEntry]) -> Result<(), String> {
+    let mut expected_prev = GENESIS_PREV_HASH.to_string();
+
+    for (i, entry) in entries.iter().enumerate() {
+        if entry.prev_hash != expected_prev {
+            return Err(format!(
+                "entry {i} (seq {}): prev_hash mismatch: expected {expected_prev}, got {}",
+                entry.seq, entry.prev_hash
+            ));
+        }
+
+        let canonical = entry.to_canonical();
+        let recomputed = compute_feed_entry_hash(&canonical)?;
+        if entry.entry_hash != recomputed {
+            return Err(format!(
+                "entry {i} (seq {}): entry_hash mismatch: stored {}, recomputed {recomputed}",
+                entry.seq, entry.entry_hash
+            ));
+        }
+
+        expected_prev = entry.entry_hash.clone();
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +330,69 @@ mod tests {
         canonical.prev_hash = "f".repeat(64);
         let hash_chained = compute_feed_entry_hash(&canonical).unwrap();
         assert_ne!(hash_genesis, hash_chained);
+    }
+
+    // -- Phase B tests: FeedStore persistence + hash-chain --
+
+    fn dummy_sign(data: &[u8]) -> Vec<u8> {
+        blake3::hash(data).as_bytes().to_vec()
+    }
+
+    #[test]
+    fn test_insert_operation_persists() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let entry =
+            insert_feed_operation(&db, sample_release_published(), &"d".repeat(64), dummy_sign)
+                .unwrap();
+        assert_eq!(entry.seq, 1);
+        assert_eq!(entry.prev_hash, GENESIS_PREV_HASH);
+        assert!(!entry.entry_hash.is_empty());
+
+        let entries = replay_all(&db).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].op, sample_release_published());
+    }
+
+    #[test]
+    fn test_replay_all_ordered() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        insert_feed_operation(&db, sample_release_published(), &"d".repeat(64), dummy_sign)
+            .unwrap();
+        insert_feed_operation(&db, sample_source_stale(), &"d".repeat(64), dummy_sign).unwrap();
+        insert_feed_operation(&db, sample_release_published(), &"e".repeat(64), dummy_sign)
+            .unwrap();
+
+        let entries = replay_all(&db).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert!(entries[0].seq < entries[1].seq);
+        assert!(entries[1].seq < entries[2].seq);
+    }
+
+    #[test]
+    fn test_hash_chain_valid() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        insert_feed_operation(&db, sample_release_published(), &"d".repeat(64), dummy_sign)
+            .unwrap();
+        insert_feed_operation(&db, sample_source_stale(), &"d".repeat(64), dummy_sign).unwrap();
+        insert_feed_operation(&db, sample_release_published(), &"e".repeat(64), dummy_sign)
+            .unwrap();
+
+        let entries = replay_all(&db).unwrap();
+        assert!(verify_chain(&entries).is_ok());
+    }
+
+    #[test]
+    fn test_hash_chain_genesis() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let entry =
+            insert_feed_operation(&db, sample_release_published(), &"d".repeat(64), dummy_sign)
+                .unwrap();
+        assert_eq!(entry.prev_hash, GENESIS_PREV_HASH);
+    }
+
+    #[test]
+    fn test_verify_chain_empty() {
+        let entries: Vec<FeedEntry> = vec![];
+        assert!(verify_chain(&entries).is_ok());
     }
 }
