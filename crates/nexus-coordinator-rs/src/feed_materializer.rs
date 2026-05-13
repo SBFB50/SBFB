@@ -73,8 +73,26 @@ impl PublicRegistryView {
 }
 
 /// Materialize the full `PublicRegistryView` from genesis (seq=0).
+///
+/// This is a pure projection (fold) over feed entries. It does NOT
+/// verify the hash-chain or signatures — call [`verify_chain`] first
+/// if the feed source is untrusted. For local feeds written by
+/// [`insert_feed_operation`], the chain is maintained at write time.
 pub fn materialize_full(db: &CoordinatorDb) -> Result<PublicRegistryView, String> {
     let entries = crate::public_feed::replay_all(db)?;
+    let mut view = PublicRegistryView::new();
+    for entry in &entries {
+        view.apply(entry);
+    }
+    Ok(view)
+}
+
+/// Materialize after verifying the hash-chain and Ed25519 signatures.
+///
+/// Returns an error if the chain is corrupt or any signature is invalid.
+pub fn materialize_verified(db: &CoordinatorDb) -> Result<PublicRegistryView, String> {
+    let entries = crate::public_feed::replay_all(db)?;
+    crate::public_feed::verify_chain(&entries)?;
     let mut view = PublicRegistryView::new();
     for entry in &entries {
         view.apply(entry);
@@ -107,9 +125,10 @@ pub fn materialize_incremental(
                     .map_err(|e| format!("db error: {e}"))?;
                 let new_entries = rows_to_entries(rows)?;
 
-                let mut view = existing_view.unwrap_or_else(|| {
-                    materialize_up_to(db, last_seq).unwrap_or_else(|_| PublicRegistryView::new())
-                });
+                let mut view = match existing_view {
+                    Some(v) => v,
+                    None => materialize_up_to(db, last_seq)?,
+                };
 
                 for entry in &new_entries {
                     view.apply(entry);
@@ -122,7 +141,14 @@ pub fn materialize_incremental(
 
                 Ok(view)
             } else {
-                let view = materialize_full(db)?;
+                // Hash mismatch — feed was truncated or replaced.
+                // Full re-materialization with verify_chain for safety.
+                let entries = crate::public_feed::replay_all(db)?;
+                crate::public_feed::verify_chain(&entries)?;
+                let mut view = PublicRegistryView::new();
+                for entry in &entries {
+                    view.apply(entry);
+                }
                 save_cursor_from_db(db)?;
                 Ok(view)
             }
@@ -236,7 +262,10 @@ mod tests {
         assert!(status.published);
         assert!(!status.source_stale);
         let expected_hash = "b".repeat(64);
-        assert_eq!(status.latest_release_hash.as_deref(), Some(expected_hash.as_str()));
+        assert_eq!(
+            status.latest_release_hash.as_deref(),
+            Some(expected_hash.as_str())
+        );
         assert_eq!(
             status.repo_url.as_deref(),
             Some("https://github.com/org/app")
@@ -283,5 +312,74 @@ mod tests {
 
         let full = materialize_full(&db).unwrap();
         assert_eq!(view2, full);
+    }
+
+    #[test]
+    fn test_cursor_hash_mismatch_triggers_full_rebuild() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        insert_feed_operation(&db, sample_release("proj-f"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_stale("proj-f"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+
+        // Save a cursor with a wrong hash to simulate DB replacement
+        db.save_feed_cursor(2, "badhash").unwrap();
+
+        // Incremental should detect mismatch, verify chain, and rebuild
+        let view = materialize_incremental(&db, None).unwrap();
+        assert_eq!(view.projects.len(), 1);
+        assert!(view.projects["proj-f"].source_stale);
+
+        // Cursor should be updated to the real last entry
+        let cursor = db.load_feed_cursor().unwrap().expect("cursor updated");
+        assert_eq!(cursor.0, 2);
+        assert_ne!(cursor.1, "badhash");
+    }
+
+    #[test]
+    fn test_cursor_persist_reopen_file_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        {
+            let db = CoordinatorDb::open(&db_path).unwrap();
+            insert_feed_operation(&db, sample_release("proj-g"), &pk, |d| kp.sign(d).to_vec())
+                .unwrap();
+            let _ = materialize_incremental(&db, None).unwrap();
+        }
+
+        {
+            let db = CoordinatorDb::open(&db_path).unwrap();
+            insert_feed_operation(&db, sample_stale("proj-g"), &pk, |d| kp.sign(d).to_vec())
+                .unwrap();
+            let view = materialize_incremental(&db, None).unwrap();
+            assert_eq!(view.projects.len(), 1);
+            assert!(view.projects["proj-g"].source_stale);
+
+            let full = materialize_full(&db).unwrap();
+            assert_eq!(view, full);
+        }
+    }
+
+    #[test]
+    fn test_incremental_no_existing_view_rebuilds_prefix() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        insert_feed_operation(&db, sample_release("proj-h"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        let _ = materialize_incremental(&db, None).unwrap();
+
+        insert_feed_operation(&db, sample_stale("proj-h"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+
+        // Call without existing_view — should rebuild from DB up to cursor, then apply new
+        let view = materialize_incremental(&db, None).unwrap();
+        assert!(view.projects["proj-h"].source_stale);
+
+        let full = materialize_full(&db).unwrap();
+        assert_eq!(view, full);
     }
 }
