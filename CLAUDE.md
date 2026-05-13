@@ -151,6 +151,12 @@ Runtime isolation roadmap dans
   + stabilisation → **early adopter ready** ✓ DONE.
   S60 = installer NSIS + tray icon + LT-7 Tier 3 + frontend
   bundling → **end user ready** ✓ DONE → **tag v1.0**.
+- **Roadmap post-v1.0 — Public Verifiable Protocol Feed** :
+  6 sprints (5+1 reserve) pour credibilite publique protocole
+  verifiable (decision PO 2026-05-13). S1 spec+feed local →
+  S2 sync P2P+anti-spam (gate scission Phase C) → S3 verification
+  tiers+UX → S4 hardening public → S5 go-live → S6 reserve.
+  Detail : `.planning/research/public_verifiable_feed_roadmap.md`.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
