@@ -127,10 +127,30 @@ pub fn compute_feed_canonical_bytes(canonical: &FeedEntryCanonical) -> Result<Ve
 
 use crate::db::CoordinatorDb;
 
+/// Validate semantic constraints on a feed operation before persistence.
+///
+/// Spec §2.1: `is_open_source: true` requires the full verification
+/// chain (repo_url + commit_sha + artifact_hash + provenance_hash).
+pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
+    if let PublicFeedOperation::ReleasePublished(p) = op {
+        if p.is_open_source && p.provenance_hash.is_none() {
+            return Err("is_open_source=true requires provenance_hash (spec §2.1)".to_string());
+        }
+        if p.is_open_source
+            && (p.repo_url.is_empty() || p.commit_sha.is_empty() || p.artifact_hash.is_empty())
+        {
+            return Err(
+                "is_open_source=true requires repo_url, commit_sha, artifact_hash (spec §2.1)"
+                    .to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Insert a new operation into the feed with hash-chain and signature.
 ///
-/// The caller provides the operation, author identity, and a signing
-/// closure. The function atomically reads the previous hash, computes
+/// Validates semantic constraints, reads the previous hash, computes
 /// the canonical bytes, signs, hashes, and persists.
 pub fn insert_feed_operation(
     db: &CoordinatorDb,
@@ -138,6 +158,8 @@ pub fn insert_feed_operation(
     author_pubkey: &str,
     sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
 ) -> Result<FeedEntry, String> {
+    validate_feed_operation(&op)?;
+
     let prev_hash = db
         .get_last_feed_entry_hash()
         .map_err(|e| format!("db error: {e}"))?
@@ -217,10 +239,10 @@ pub fn replay_all(db: &CoordinatorDb) -> Result<Vec<FeedEntry>, String> {
     Ok(entries)
 }
 
-/// Verify the hash-chain integrity of a sequence of feed entries.
+/// Verify the hash-chain integrity and Ed25519 signatures of feed entries.
 ///
-/// Checks that each entry's `entry_hash` matches the recomputed
-/// BLAKE3 hash, and that `prev_hash` links are consistent.
+/// For each entry: (1) prev_hash links, (2) entry_hash recomputation,
+/// (3) Ed25519 signature over canonical bytes. Spec §4 verification.
 pub fn verify_chain(entries: &[FeedEntry]) -> Result<(), String> {
     let mut expected_prev = GENESIS_PREV_HASH.to_string();
 
@@ -233,11 +255,33 @@ pub fn verify_chain(entries: &[FeedEntry]) -> Result<(), String> {
         }
 
         let canonical = entry.to_canonical();
+        let canonical_bytes = compute_feed_canonical_bytes(&canonical)?;
         let recomputed = compute_feed_entry_hash(&canonical)?;
         if entry.entry_hash != recomputed {
             return Err(format!(
                 "entry {i} (seq {}): entry_hash mismatch: stored {}, recomputed {recomputed}",
                 entry.seq, entry.entry_hash
+            ));
+        }
+
+        let pubkey_bytes = hex::decode(&entry.author_pubkey)
+            .map_err(|e| format!("entry {i}: bad pubkey hex: {e}"))?;
+        let sig_bytes = hex::decode(&entry.signature)
+            .map_err(|e| format!("entry {i}: bad signature hex: {e}"))?;
+
+        if pubkey_bytes.len() == 32 && sig_bytes.len() == 64 {
+            let pubkey: [u8; 32] = pubkey_bytes.try_into().unwrap();
+            let sig: [u8; 64] = sig_bytes.try_into().unwrap();
+            nexus_core_rs::verify(&pubkey, &canonical_bytes, &sig).map_err(|_| {
+                format!(
+                    "entry {i} (seq {}): Ed25519 signature verification failed",
+                    entry.seq
+                )
+            })?;
+        } else {
+            return Err(format!(
+                "entry {i} (seq {}): invalid pubkey/signature length (expected 32/64 bytes)",
+                entry.seq
             ));
         }
 
@@ -334,16 +378,22 @@ mod tests {
 
     // -- Phase B tests: FeedStore persistence + hash-chain --
 
-    fn dummy_sign(data: &[u8]) -> Vec<u8> {
-        blake3::hash(data).as_bytes().to_vec()
+    fn test_keypair() -> nexus_core_rs::KeyPair {
+        nexus_core_rs::KeyPair::from_secret_bytes(&[42u8; 32])
+    }
+
+    fn pubkey_hex(kp: &nexus_core_rs::KeyPair) -> String {
+        hex::encode(kp.public_bytes())
     }
 
     #[test]
     fn test_insert_operation_persists() {
         let db = CoordinatorDb::open_in_memory().unwrap();
-        let entry =
-            insert_feed_operation(&db, sample_release_published(), &"d".repeat(64), dummy_sign)
-                .unwrap();
+        let kp = test_keypair();
+        let entry = insert_feed_operation(&db, sample_release_published(), &pubkey_hex(&kp), |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
         assert_eq!(entry.seq, 1);
         assert_eq!(entry.prev_hash, GENESIS_PREV_HASH);
         assert!(!entry.entry_hash.is_empty());
@@ -356,11 +406,17 @@ mod tests {
     #[test]
     fn test_replay_all_ordered() {
         let db = CoordinatorDb::open_in_memory().unwrap();
-        insert_feed_operation(&db, sample_release_published(), &"d".repeat(64), dummy_sign)
-            .unwrap();
-        insert_feed_operation(&db, sample_source_stale(), &"d".repeat(64), dummy_sign).unwrap();
-        insert_feed_operation(&db, sample_release_published(), &"e".repeat(64), dummy_sign)
-            .unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+        insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+        insert_feed_operation(&db, sample_source_stale(), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
 
         let entries = replay_all(&db).unwrap();
         assert_eq!(entries.len(), 3);
@@ -369,13 +425,15 @@ mod tests {
     }
 
     #[test]
-    fn test_hash_chain_valid() {
+    fn test_hash_chain_valid_with_ed25519() {
         let db = CoordinatorDb::open_in_memory().unwrap();
-        insert_feed_operation(&db, sample_release_published(), &"d".repeat(64), dummy_sign)
-            .unwrap();
-        insert_feed_operation(&db, sample_source_stale(), &"d".repeat(64), dummy_sign).unwrap();
-        insert_feed_operation(&db, sample_release_published(), &"e".repeat(64), dummy_sign)
-            .unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+        insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+        insert_feed_operation(&db, sample_source_stale(), &pk, |d| kp.sign(d).to_vec()).unwrap();
 
         let entries = replay_all(&db).unwrap();
         assert!(verify_chain(&entries).is_ok());
@@ -384,9 +442,11 @@ mod tests {
     #[test]
     fn test_hash_chain_genesis() {
         let db = CoordinatorDb::open_in_memory().unwrap();
-        let entry =
-            insert_feed_operation(&db, sample_release_published(), &"d".repeat(64), dummy_sign)
-                .unwrap();
+        let kp = test_keypair();
+        let entry = insert_feed_operation(&db, sample_release_published(), &pubkey_hex(&kp), |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
         assert_eq!(entry.prev_hash, GENESIS_PREV_HASH);
     }
 
@@ -394,5 +454,90 @@ mod tests {
     fn test_verify_chain_empty() {
         let entries: Vec<FeedEntry> = vec![];
         assert!(verify_chain(&entries).is_ok());
+    }
+
+    #[test]
+    fn test_validate_is_open_source_missing_provenance() {
+        let op = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
+            project_id: "abc".to_string(),
+            repo_url: "https://github.com/org/app".to_string(),
+            commit_sha: "a".repeat(40),
+            artifact_hash: "b".repeat(64),
+            provenance_hash: None,
+            is_open_source: true,
+        });
+        let result = validate_feed_operation(&op);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("provenance_hash"));
+    }
+
+    #[test]
+    fn test_validate_is_open_source_valid() {
+        let result = validate_feed_operation(&sample_release_published());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_chain_forged_signature() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+        insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+
+        let mut entries = replay_all(&db).unwrap();
+        entries[0].signature = hex::encode([0u8; 64]);
+        let result = verify_chain(&entries);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("signature verification failed")
+        );
+    }
+
+    #[test]
+    fn test_verify_chain_tampered_hash() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+        insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+
+        let mut entries = replay_all(&db).unwrap();
+        entries[0].entry_hash = "f".repeat(64);
+        let result = verify_chain(&entries);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("entry_hash mismatch"));
+    }
+
+    #[test]
+    fn test_feed_persist_reopen_verify() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        {
+            let db = CoordinatorDb::open(&db_path).unwrap();
+            insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+                kp.sign(d).to_vec()
+            })
+            .unwrap();
+            insert_feed_operation(&db, sample_source_stale(), &pk, |d| kp.sign(d).to_vec())
+                .unwrap();
+        }
+
+        {
+            let db = CoordinatorDb::open(&db_path).unwrap();
+            let entries = replay_all(&db).unwrap();
+            assert_eq!(entries.len(), 2);
+            assert!(verify_chain(&entries).is_ok());
+        }
     }
 }
