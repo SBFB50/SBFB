@@ -188,6 +188,16 @@ pub const DOMAIN_KEY_ROTATION_V1: &[u8] = b"nexus-key-rotation-v1";
 /// format specification and attack surface analysis.
 pub const DOMAIN_DELEGATION_CERT_V1: &[u8] = b"nexus-delegation-cert-v1";
 
+/// Domain separation tag for public feed operations canonical bytes.
+///
+/// Sprint 61 Phase A — Public Verifiable Protocol Feed. Each
+/// operation in the public feed (ReleasePublished, SourceBecameStale,
+/// etc.) is signed with this domain so a feed signature cannot be
+/// replayed as any other signed payload family. The feed is an
+/// append-only log with BLAKE3 hash-chain (pattern kudos_ledger)
+/// and Ed25519 per-entry signature.
+pub const DOMAIN_FEED_V1: &[u8] = b"nexus-feed-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///

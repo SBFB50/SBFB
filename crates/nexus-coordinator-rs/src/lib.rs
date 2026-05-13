@@ -25,6 +25,7 @@ pub mod output_filter;
 pub mod pii_redactor;
 pub mod pow_counter;
 pub mod provenance;
+pub mod public_feed;
 pub mod quarantine_queue;
 pub mod redundancy;
 pub mod rerun;
