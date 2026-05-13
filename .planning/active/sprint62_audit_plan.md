@@ -75,6 +75,26 @@ Sprint 61 a livre :
   pas resolus S62.
 - P2-PLAYWRIGHT-REFACTOR a 2/3 → idem.
 
+### 2.8 Findings review externe GPT 5.5 (post-Phase D)
+
+Verifier que les items suivants sont correctement documentes :
+
+- **P2 iroh infra timeouts** : 0-8 tests iroh (blobs/discovery/
+  docs/gossip/node) timeout intermittent en run local (90s).
+  Pre-existant, pas regression S61. Verifier si resolution
+  (gate SBFB_INTEGRATION ou slow-timeout ajuste) est planifiee.
+- **P2 incremental no verify_chain** : chemin incremental normal
+  ne verifie pas la chain sur les nouvelles entrees quand cursor
+  matche. Acceptable single-writer, a recarry AVANT sync P2P S62.
+- **P2 spec §5 trust contract** : spec ne documente pas
+  explicitement le contrat trust local-only pour materialize_full.
+- **P2 validation stricte** : validate_feed_operation ne verifie
+  que presence/non-vide, pas formats hex/URL/reason.
+- **P2 transaction atomique insert** : get_last_feed_entry_hash()
+  + insert_feed_entry() en appels separes (pas de transaction).
+- **P2 plan delta** : Phase D prevoyait +4 tests, reel +2 (2
+  pre-livres en fix commits). Calibration plans futurs.
+
 ---
 
 ## §3 Fichiers cles a inspecter

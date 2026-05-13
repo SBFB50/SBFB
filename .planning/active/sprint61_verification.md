@@ -41,7 +41,7 @@ Critere SMART : toutes les rows fail-fast vertes.
 |---|---|---|---|---|
 | 1 | cargo fmt | `cargo fmt --all --check` | 0 diff | 0 diff ✓ |
 | 2 | cargo clippy | `cargo clippy --workspace --all-targets --locked -- -D warnings` | 0 warnings | 0 warnings ✓ |
-| 3 | cargo nextest | `cargo nextest run --workspace --locked` | >= 1274, 0 fail | 1282 pass, 0 fail ✓ |
+| 3 | cargo nextest | `cargo nextest run --workspace --locked` | >= 1274, 0 fail | 1282 registered, 1281 pass / 1 fail intermittent iroh infra (⚠️ voir §3.1) |
 | 4 | cargo doctests | `cargo test --workspace --locked --doc` | ok | 0 pass, 1 ignored ✓ |
 | 5 | release build | `cargo build -p nexus-shell-daemon --release` | ok | ok ✓ |
 | 6 | npm lint | `npm run lint` (web/) | 0 error | 0 error ✓ |
@@ -59,7 +59,32 @@ Critere SMART : toutes les rows fail-fast vertes.
 | 18 | Phase C review | sprint61_phase_C_review.md | PASS | PASS ✓ |
 | 19 | Phase D preflight G8 | sprint61_phase_D_preflight.md | EXECUTE | EXECUTE ✓ |
 
-**Resultat : 19/19 vert.**
+**Resultat : 18/19 vert, 1 ⚠️ (iroh infra pre-existant).**
+
+### §3.1 Note sur les timeouts nexus-core-rs (review externe GPT 5.5)
+
+Le workspace nextest montre 0-8 timeouts intermittents dans les tests
+iroh infrastructure (blobs, discovery, docs, gossip, node). Ces tests
+spawnent de vrais noeuds iroh et dependent du relay reseau + binding
+de ports locaux. Le profil nextest default a `slow-timeout = 90s`
+sans retries (le profil CI a 1 retry).
+
+**Diagnostic** : PAS une regression S61. nexus-core-rs n'a eu qu'un
+seul changement S61 = ajout de la constante `DOMAIN_FEED_V1` (10
+lignes doc + 1 ligne code dans canonical.rs). Les tests iroh infra
+existent depuis S53-S58. Ils passent sur CI Docker (environnement
+controle, retry). Sur machine dev locale, ils timeout de facon
+intermittente selon la charge (1281/1282 pass sur un run, 1274/1282
+sur un autre).
+
+Le comptage "1282" dans ce document et dans le commit body represente
+le nombre de tests enregistres (`nextest list`). Le nombre de tests
+passant en run local varie entre 1274 et 1282 selon l'etat du relay
+iroh. Le code feed (nexus-coordinator-rs) est 199/199 stable.
+
+**Classification** : P2 pre-existant, carry pour resolution S62+
+(augmenter slow-timeout ou gater les iroh infra tests avec
+`SBFB_INTEGRATION=1` comme les tests multi-daemon).
 
 ---
 
