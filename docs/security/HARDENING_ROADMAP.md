@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-12  # G2 — Sprint 60 CLOSED + tag v1.0 : installer Windows NSIS 16.81 MB + tray icon (tray-icon 0.24 + muda 0.19) + dette pair (P2-G-1 FERME + build-release.sh + PATTERNS §P48-50) + installer Linux .deb 26.04 MB + installer macOS .dmg 23.32 MB + LT-7 Tier 3 P2P infra validee (gossip 3 machines WAN + API + task submit). Compteurs 1259 Rust / 258 Vitest / 6/6 size / ~1523 total. 1 trigger actif : iroh 1.0.0-rc.0 > 0.98 (evalue et defere S60 kickoff).
+last_validated: 2026-05-13  # G2 — Sprint 61 DONE + spec executable + feed local rejouable : PUBLIC_FEED_SPEC.md + PublicFeedOperation enum + FeedStore SQLite M9 hash-chain BLAKE3 + FeedMaterializer PublicRegistryView cursor M10 + verify_chain Ed25519 + tests adversariaux. Compteurs 1282 Rust / 258 Vitest / 6/6 size / ~1546 total (+23 Rust S61). Premier format protocolaire post-v1.0. Triggers inchanges (iroh 1.0.0-rc.0 defere, arti-client 0.42 defere).
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"

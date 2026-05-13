@@ -112,31 +112,30 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-60 CLOSED**, v1.2 livree. **Tag v1.0 pose.**
-  Projet Rust+Frontend pur depuis S50-S51. S60 : installer Windows
-  NSIS (cargo-packager v0.11.8, 16.81 MB) + tray icon (tray-icon
-  0.24 + muda 0.19, message loop main thread) + dette pair
-  (P2-G-1 FERME non-repro + build-release.sh + PATTERNS §P48-50)
-  + installer Linux .deb (26.04 MB Docker sbfb-ci) + installer
-  macOS .dmg (23.32 MB ARM64) + LT-7 Tier 3 P2P infra validee
-  (gossip 3 machines WAN + API + task submit). Phases A+B+C
-  livrees (3 reviews PASS, 4 preflights G8). Phase D validation
-  manuelle (report materialise). 4 fixes post-phases. AppImage
-  scope cut post-v1.0 (linuxdeploy FUSE). Worker quorum E2E
-  carry post-tag.
+- **Sprints 0-61 CLOSED**, v1.2 livree. **Tag v1.0 pose.**
+  Projet Rust+Frontend pur depuis S50-S51. S61 : spec executable
+  PUBLIC_FEED_SPEC.md + types PublicFeedOperation (ReleasePublished
+  + SourceBecameStale) + FeedStore SQLite M9 append-only hash-chain
+  BLAKE3 + FeedMaterializer PublicRegistryView cursor persistant
+  M10 + verify_chain Ed25519 + tests adversariaux (chain tamper +
+  forged signature + orphan stale + cursor restart). Premier format
+  protocolaire post-v1.0 (FEED_FORMAT_VERSION = 1). 4 phases A-D
+  livrees (3 reviews PASS, 4 preflights G8 EXECUTE). 3 fixes
+  inter-phases (coverage proactive). Feed local rejouable
+  operationnel, pret sync P2P Sprint 62.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1523 tests total** (1259 Rust / 258 Vitest / 6/6 size-limit)
+- **~1546 tests total** (1282 Rust / 258 Vitest / 6/6 size-limit)
   — tous verts code. Playwright bloque par global-setup
   (pyproject.toml manquant post-S50, refactor PW = post-v1.0).
-  S60 : +2 delta Rust (1257→1259, Phase A tray tests).
-- Carry S61 :
+  S61 : +23 delta Rust (1259→1282, 4 phases + 3 fixes).
+- Carry S62 :
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
-  P2-NSIS-UNINSTALL multi-binary residuel (NEW S60).
-  P2-IMAGE-DEP image 0.25 footprint (NEW S60 Phase A review).
-  P2-G-1 exe lock intermittent (reouvert S60 Phase E review).
-  P2-PLAYWRIGHT-REFACTOR global-setup (NEW S60 Phase E review).
+  P2-NSIS-UNINSTALL multi-binary residuel (2/3).
+  P2-IMAGE-DEP image 0.25 footprint (2/3).
+  P2-G-1 exe lock intermittent (reouvert).
+  P2-PLAYWRIGHT-REFACTOR global-setup (2/3).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).

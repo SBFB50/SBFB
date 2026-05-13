@@ -365,6 +365,44 @@ mod tests {
     }
 
     #[test]
+    fn test_source_stale_without_release() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+        insert_feed_operation(&db, sample_stale("proj-orphan"), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+
+        let view = materialize_full(&db).unwrap();
+        assert_eq!(view.projects.len(), 1);
+        let status = &view.projects["proj-orphan"];
+        assert!(!status.published);
+        assert!(status.source_stale);
+        assert!(status.latest_release_hash.is_none());
+    }
+
+    #[test]
+    fn test_cursor_restart_consistency() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        insert_feed_operation(&db, sample_release("proj-r1"), &pk, |d| kp.sign(d).to_vec())
+            .unwrap();
+        insert_feed_operation(&db, sample_stale("proj-r1"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_release("proj-r2"), &pk, |d| kp.sign(d).to_vec())
+            .unwrap();
+
+        let view_inc = materialize_incremental(&db, None).unwrap();
+        let view_full = materialize_full(&db).unwrap();
+        assert_eq!(view_inc, view_full);
+
+        let view_restart = materialize_full(&db).unwrap();
+        assert_eq!(view_inc, view_restart);
+    }
+
+    #[test]
     fn test_incremental_no_existing_view_rebuilds_prefix() {
         let db = CoordinatorDb::open_in_memory().unwrap();
         let kp = test_keypair();
