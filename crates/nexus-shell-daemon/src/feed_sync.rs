@@ -104,13 +104,30 @@ async fn ingest_doc_entry(
         return;
     }
 
+    // Blob content may not be downloaded yet when InsertRemote fires
+    // (iroh-docs syncs metadata before content). Retry with backoff.
     let blobs = BlobsClient::new(node.blobs_store());
     let hash_bytes = *doc_entry.content_hash().as_bytes();
-    let content = match blobs.get_bytes(hash_bytes).await {
-        Ok(b) => b,
-        Err(e) => {
-            warn!(key = %key_str, error = %e, "failed to read feed entry blob");
-            return;
+    let content = {
+        let mut backoff = std::time::Duration::from_millis(50);
+        let max_backoff = std::time::Duration::from_secs(2);
+        loop {
+            match blobs.get_bytes(hash_bytes).await {
+                Ok(b) => break b,
+                Err(e) => {
+                    if backoff > max_backoff {
+                        warn!(key = %key_str, error = %e, "blob unavailable after retries");
+                        return;
+                    }
+                    debug!(
+                        key = %key_str,
+                        wait_ms = backoff.as_millis(),
+                        "blob not ready, retrying"
+                    );
+                    tokio::time::sleep(backoff).await;
+                    backoff = backoff.saturating_mul(3);
+                }
+            }
         }
     };
 
