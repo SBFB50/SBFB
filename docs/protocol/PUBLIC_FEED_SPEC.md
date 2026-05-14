@@ -151,7 +151,50 @@ If any step fails, the chain is corrupt.
 
 ---
 
-## 5. Replay rules
+## 5. Trust model
+
+### 5.1 Local vs. remote trust
+
+The feed operates under two trust regimes depending on the
+source of entries:
+
+**Local DB (self-authored entries):**
+Trust is implicit. Entries written by `insert_feed_operation()`
+are signed and hashed at write time — the local process is the
+sole writer and the chain is maintained atomically (BEGIN
+IMMEDIATE transaction). The materializer MAY skip verification
+for local entries (performance optimization), though
+`materialize_verified()` always verifies.
+
+**Remote sync (entries received from peers):**
+Trust nothing — verify everything. For each received entry:
+
+1. **Ed25519 signature** over canonical bytes (reject if invalid)
+2. **entry_hash** recomputation from canonical (reject if mismatch)
+3. **Per-author prev_hash** chain linkage (each author's entries
+   form an independent chain, verified separately)
+4. **Field format validation** (project_id hex-64, repo_url
+   HTTPS, commit_sha hex-40, artifact_hash hex-64)
+5. **Deduplication** by entry_hash (skip if already present)
+
+This is the SSB model: per-feed (per-author) append-only
+verification with Ed25519. The global feed interleaves entries
+from multiple authors; verification is per-author, not global.
+
+### 5.2 Multi-author chain verification
+
+`verify_chain()` accepts entries from N authors. For each entry,
+it tracks the last known `entry_hash` per author. An author's
+first entry must have `prev_hash = "genesis"`. Subsequent
+entries must chain to that author's previous entry_hash.
+
+This enables replay verification of a merged feed containing
+entries from multiple nodes without requiring a single global
+chain ordering.
+
+---
+
+## 6. Replay rules
 
 ### Ordering
 
@@ -185,7 +228,7 @@ Only projects that have completed the verified deploy pipeline
 
 ---
 
-## 6. Cursor format
+## 7. Cursor format
 
 A cursor is a checkpoint for incremental materialization:
 
@@ -211,7 +254,7 @@ truncation.
 
 ---
 
-## 7. Test vectors
+## 8. Test vectors
 
 ### ReleasePublished canonical bytes
 
@@ -250,7 +293,7 @@ This value is verified by
 
 ---
 
-## 8. Versioning policy
+## 9. Versioning policy
 
 - `FEED_FORMAT_VERSION` starts at `1`
 - Each breaking change to the canonical format bumps the version

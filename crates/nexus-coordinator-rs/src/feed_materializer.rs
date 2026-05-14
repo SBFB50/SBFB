@@ -131,6 +131,7 @@ pub fn materialize_incremental(
                 };
 
                 for entry in &new_entries {
+                    crate::public_feed::verify_entry(entry)?;
                     view.apply(entry);
                 }
 
@@ -231,6 +232,10 @@ mod tests {
         hex::encode(kp.public_bytes())
     }
 
+    fn hex_project(byte: u8) -> String {
+        format!("{byte:02x}").repeat(32)
+    }
+
     fn sample_release(project_id: &str) -> PublicFeedOperation {
         PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
             project_id: project_id.to_string(),
@@ -254,11 +259,12 @@ mod tests {
         let db = CoordinatorDb::open_in_memory().unwrap();
         let kp = test_keypair();
         let pk = pubkey_hex(&kp);
-        insert_feed_operation(&db, sample_release("proj-a"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        let pa = hex_project(0xaa);
+        insert_feed_operation(&db, sample_release(&pa), &pk, |d| kp.sign(d).to_vec()).unwrap();
 
         let view = materialize_full(&db).unwrap();
         assert_eq!(view.projects.len(), 1);
-        let status = &view.projects["proj-a"];
+        let status = &view.projects[&pa];
         assert!(status.published);
         assert!(!status.source_stale);
         let expected_hash = "b".repeat(64);
@@ -277,11 +283,12 @@ mod tests {
         let db = CoordinatorDb::open_in_memory().unwrap();
         let kp = test_keypair();
         let pk = pubkey_hex(&kp);
-        insert_feed_operation(&db, sample_release("proj-b"), &pk, |d| kp.sign(d).to_vec()).unwrap();
-        insert_feed_operation(&db, sample_stale("proj-b"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        let pb = hex_project(0xbb);
+        insert_feed_operation(&db, sample_release(&pb), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_stale(&pb), &pk, |d| kp.sign(d).to_vec()).unwrap();
 
         let view = materialize_full(&db).unwrap();
-        let status = &view.projects["proj-b"];
+        let status = &view.projects[&pb];
         assert!(status.published);
         assert!(status.source_stale);
     }
@@ -291,10 +298,13 @@ mod tests {
         let db = CoordinatorDb::open_in_memory().unwrap();
         let kp = test_keypair();
         let pk = pubkey_hex(&kp);
+        let pc = hex_project(0xcc);
+        let pd = hex_project(0xdd);
+        let pe = hex_project(0xee);
 
-        insert_feed_operation(&db, sample_release("proj-c"), &pk, |d| kp.sign(d).to_vec()).unwrap();
-        insert_feed_operation(&db, sample_stale("proj-c"), &pk, |d| kp.sign(d).to_vec()).unwrap();
-        insert_feed_operation(&db, sample_release("proj-d"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_release(&pc), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_stale(&pc), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_release(&pd), &pk, |d| kp.sign(d).to_vec()).unwrap();
 
         let view1 = materialize_incremental(&db, None).unwrap();
         assert_eq!(view1.projects.len(), 2);
@@ -302,13 +312,13 @@ mod tests {
         let cursor = db.load_feed_cursor().unwrap().expect("cursor saved");
         assert_eq!(cursor.0, 3);
 
-        insert_feed_operation(&db, sample_stale("proj-d"), &pk, |d| kp.sign(d).to_vec()).unwrap();
-        insert_feed_operation(&db, sample_release("proj-e"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_stale(&pd), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_release(&pe), &pk, |d| kp.sign(d).to_vec()).unwrap();
 
         let view2 = materialize_incremental(&db, Some(view1)).unwrap();
         assert_eq!(view2.projects.len(), 3);
-        assert!(view2.projects["proj-d"].source_stale);
-        assert!(view2.projects["proj-e"].published);
+        assert!(view2.projects[&pd].source_stale);
+        assert!(view2.projects[&pe].published);
 
         let full = materialize_full(&db).unwrap();
         assert_eq!(view2, full);
@@ -319,9 +329,10 @@ mod tests {
         let db = CoordinatorDb::open_in_memory().unwrap();
         let kp = test_keypair();
         let pk = pubkey_hex(&kp);
+        let pf = hex_project(0xff);
 
-        insert_feed_operation(&db, sample_release("proj-f"), &pk, |d| kp.sign(d).to_vec()).unwrap();
-        insert_feed_operation(&db, sample_stale("proj-f"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_release(&pf), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_stale(&pf), &pk, |d| kp.sign(d).to_vec()).unwrap();
 
         // Save a cursor with a wrong hash to simulate DB replacement
         db.save_feed_cursor(2, "badhash").unwrap();
@@ -329,7 +340,7 @@ mod tests {
         // Incremental should detect mismatch, verify chain, and rebuild
         let view = materialize_incremental(&db, None).unwrap();
         assert_eq!(view.projects.len(), 1);
-        assert!(view.projects["proj-f"].source_stale);
+        assert!(view.projects[&pf].source_stale);
 
         // Cursor should be updated to the real last entry
         let cursor = db.load_feed_cursor().unwrap().expect("cursor updated");
@@ -343,21 +354,20 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let kp = test_keypair();
         let pk = pubkey_hex(&kp);
+        let pg = hex_project(0x11);
 
         {
             let db = CoordinatorDb::open(&db_path).unwrap();
-            insert_feed_operation(&db, sample_release("proj-g"), &pk, |d| kp.sign(d).to_vec())
-                .unwrap();
+            insert_feed_operation(&db, sample_release(&pg), &pk, |d| kp.sign(d).to_vec()).unwrap();
             let _ = materialize_incremental(&db, None).unwrap();
         }
 
         {
             let db = CoordinatorDb::open(&db_path).unwrap();
-            insert_feed_operation(&db, sample_stale("proj-g"), &pk, |d| kp.sign(d).to_vec())
-                .unwrap();
+            insert_feed_operation(&db, sample_stale(&pg), &pk, |d| kp.sign(d).to_vec()).unwrap();
             let view = materialize_incremental(&db, None).unwrap();
             assert_eq!(view.projects.len(), 1);
-            assert!(view.projects["proj-g"].source_stale);
+            assert!(view.projects[&pg].source_stale);
 
             let full = materialize_full(&db).unwrap();
             assert_eq!(view, full);
@@ -369,14 +379,12 @@ mod tests {
         let db = CoordinatorDb::open_in_memory().unwrap();
         let kp = test_keypair();
         let pk = pubkey_hex(&kp);
-        insert_feed_operation(&db, sample_stale("proj-orphan"), &pk, |d| {
-            kp.sign(d).to_vec()
-        })
-        .unwrap();
+        let p_orphan = hex_project(0x22);
+        insert_feed_operation(&db, sample_stale(&p_orphan), &pk, |d| kp.sign(d).to_vec()).unwrap();
 
         let view = materialize_full(&db).unwrap();
         assert_eq!(view.projects.len(), 1);
-        let status = &view.projects["proj-orphan"];
+        let status = &view.projects[&p_orphan];
         assert!(!status.published);
         assert!(status.source_stale);
         assert!(status.latest_release_hash.is_none());
@@ -387,12 +395,12 @@ mod tests {
         let db = CoordinatorDb::open_in_memory().unwrap();
         let kp = test_keypair();
         let pk = pubkey_hex(&kp);
+        let pr1 = hex_project(0x33);
+        let pr2 = hex_project(0x44);
 
-        insert_feed_operation(&db, sample_release("proj-r1"), &pk, |d| kp.sign(d).to_vec())
-            .unwrap();
-        insert_feed_operation(&db, sample_stale("proj-r1"), &pk, |d| kp.sign(d).to_vec()).unwrap();
-        insert_feed_operation(&db, sample_release("proj-r2"), &pk, |d| kp.sign(d).to_vec())
-            .unwrap();
+        insert_feed_operation(&db, sample_release(&pr1), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_stale(&pr1), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_release(&pr2), &pk, |d| kp.sign(d).to_vec()).unwrap();
 
         let view_inc = materialize_incremental(&db, None).unwrap();
         let view_full = materialize_full(&db).unwrap();
@@ -407,17 +415,47 @@ mod tests {
         let db = CoordinatorDb::open_in_memory().unwrap();
         let kp = test_keypair();
         let pk = pubkey_hex(&kp);
+        let ph = hex_project(0x55);
 
-        insert_feed_operation(&db, sample_release("proj-h"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_release(&ph), &pk, |d| kp.sign(d).to_vec()).unwrap();
         let _ = materialize_incremental(&db, None).unwrap();
 
-        insert_feed_operation(&db, sample_stale("proj-h"), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        insert_feed_operation(&db, sample_stale(&ph), &pk, |d| kp.sign(d).to_vec()).unwrap();
 
         // Call without existing_view — should rebuild from DB up to cursor, then apply new
         let view = materialize_incremental(&db, None).unwrap();
-        assert!(view.projects["proj-h"].source_stale);
+        assert!(view.projects[&ph].source_stale);
 
         let full = materialize_full(&db).unwrap();
         assert_eq!(view, full);
+    }
+
+    #[test]
+    fn test_incremental_verify_per_entry() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+        let pi = hex_project(0x66);
+
+        insert_feed_operation(&db, sample_release(&pi), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        let _ = materialize_incremental(&db, None).unwrap();
+
+        insert_feed_operation(&db, sample_stale(&pi), &pk, |d| kp.sign(d).to_vec()).unwrap();
+
+        // Corrupt the second entry's signature in the DB
+        db.execute_batch_raw(&format!(
+            "UPDATE public_feed SET signature = '{}' WHERE seq = 2",
+            "00".repeat(64)
+        ))
+        .unwrap();
+
+        // Incremental should reject the corrupted entry
+        let result = materialize_incremental(&db, None);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("signature verification failed")
+        );
     }
 }

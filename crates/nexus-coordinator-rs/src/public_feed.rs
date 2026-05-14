@@ -10,6 +10,8 @@
 //! post-v1.0 versioning regime (each break bumps the version,
 //! decoders accept a range, `#[serde(default)]` for compat).
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Wire format version for the public feed.
@@ -127,22 +129,46 @@ pub fn compute_feed_canonical_bytes(canonical: &FeedEntryCanonical) -> Result<Ve
 
 use crate::db::CoordinatorDb;
 
-/// Validate semantic constraints on a feed operation before persistence.
+fn is_hex_exact(s: &str, len: usize) -> bool {
+    s.len() == len && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Validate format and semantic constraints on a feed operation.
 ///
-/// Spec §2.1: `is_open_source: true` requires the full verification
-/// chain (repo_url + commit_sha + artifact_hash + provenance_hash).
+/// Format: project_id hex-64, repo_url HTTPS, commit_sha hex-40,
+/// artifact_hash hex-64, reason non-empty.
+/// Semantic (spec §2.1): `is_open_source: true` requires provenance_hash.
 pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
-    if let PublicFeedOperation::ReleasePublished(p) = op {
-        if p.is_open_source && p.provenance_hash.is_none() {
-            return Err("is_open_source=true requires provenance_hash (spec §2.1)".to_string());
+    match op {
+        PublicFeedOperation::ReleasePublished(p) => {
+            if !is_hex_exact(&p.project_id, 64) {
+                return Err("project_id must be 64 hex characters".to_string());
+            }
+            if !p.repo_url.starts_with("https://") {
+                return Err("repo_url must start with https://".to_string());
+            }
+            if !is_hex_exact(&p.commit_sha, 40) {
+                return Err("commit_sha must be 40 hex characters".to_string());
+            }
+            if !is_hex_exact(&p.artifact_hash, 64) {
+                return Err("artifact_hash must be 64 hex characters".to_string());
+            }
+            if let Some(ref ph) = p.provenance_hash {
+                if !is_hex_exact(ph, 64) {
+                    return Err("provenance_hash must be 64 hex characters".to_string());
+                }
+            }
+            if p.is_open_source && p.provenance_hash.is_none() {
+                return Err("is_open_source=true requires provenance_hash (spec §2.1)".to_string());
+            }
         }
-        if p.is_open_source
-            && (p.repo_url.is_empty() || p.commit_sha.is_empty() || p.artifact_hash.is_empty())
-        {
-            return Err(
-                "is_open_source=true requires repo_url, commit_sha, artifact_hash (spec §2.1)"
-                    .to_string(),
-            );
+        PublicFeedOperation::SourceBecameStale(p) => {
+            if !is_hex_exact(&p.project_id, 64) {
+                return Err("project_id must be 64 hex characters".to_string());
+            }
+            if p.reason.is_empty() {
+                return Err("reason must not be empty".to_string());
+            }
         }
     }
     Ok(())
@@ -150,8 +176,9 @@ pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
 
 /// Insert a new operation into the feed with hash-chain and signature.
 ///
-/// Validates semantic constraints, reads the previous hash, computes
-/// the canonical bytes, signs, hashes, and persists.
+/// Validates semantic constraints, then atomically (BEGIN IMMEDIATE)
+/// reads the previous hash, computes canonical bytes, signs, hashes,
+/// and persists. Rolls back on any error.
 pub fn insert_feed_operation(
     db: &CoordinatorDb,
     op: PublicFeedOperation,
@@ -160,6 +187,30 @@ pub fn insert_feed_operation(
 ) -> Result<FeedEntry, String> {
     validate_feed_operation(&op)?;
 
+    db.conn()
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| format!("begin tx: {e}"))?;
+
+    match insert_feed_operation_inner(db, op, author_pubkey, sign_fn) {
+        Ok(entry) => {
+            db.conn()
+                .execute_batch("COMMIT")
+                .map_err(|e| format!("commit tx: {e}"))?;
+            Ok(entry)
+        }
+        Err(e) => {
+            let _ = db.conn().execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
+}
+
+fn insert_feed_operation_inner(
+    db: &CoordinatorDb,
+    op: PublicFeedOperation,
+    author_pubkey: &str,
+    sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
+) -> Result<FeedEntry, String> {
     let prev_hash = db
         .get_last_feed_entry_hash()
         .map_err(|e| format!("db error: {e}"))?
@@ -239,53 +290,73 @@ pub fn replay_all(db: &CoordinatorDb) -> Result<Vec<FeedEntry>, String> {
     Ok(entries)
 }
 
-/// Verify the hash-chain integrity and Ed25519 signatures of feed entries.
+/// Verify entry_hash and Ed25519 signature for a single entry.
 ///
-/// For each entry: (1) prev_hash links, (2) entry_hash recomputation,
-/// (3) Ed25519 signature over canonical bytes. Spec §4 verification.
+/// Does NOT check prev_hash linkage — use [`verify_chain`] for
+/// full chain verification. Useful for incremental verification
+/// of newly received entries.
+pub fn verify_entry(entry: &FeedEntry) -> Result<(), String> {
+    let canonical = entry.to_canonical();
+    let canonical_bytes = compute_feed_canonical_bytes(&canonical)?;
+    let recomputed = compute_feed_entry_hash(&canonical)?;
+    if entry.entry_hash != recomputed {
+        return Err(format!(
+            "entry seq {}: entry_hash mismatch: stored {}, recomputed {recomputed}",
+            entry.seq, entry.entry_hash
+        ));
+    }
+
+    let pubkey_bytes = hex::decode(&entry.author_pubkey)
+        .map_err(|e| format!("entry seq {}: bad pubkey hex: {e}", entry.seq))?;
+    let sig_bytes = hex::decode(&entry.signature)
+        .map_err(|e| format!("entry seq {}: bad signature hex: {e}", entry.seq))?;
+
+    if pubkey_bytes.len() == 32 && sig_bytes.len() == 64 {
+        let pubkey: [u8; 32] = pubkey_bytes.try_into().unwrap();
+        let sig: [u8; 64] = sig_bytes.try_into().unwrap();
+        nexus_core_rs::verify(&pubkey, &canonical_bytes, &sig).map_err(|_| {
+            format!(
+                "entry seq {}: Ed25519 signature verification failed",
+                entry.seq
+            )
+        })?;
+    } else {
+        return Err(format!(
+            "entry seq {}: invalid pubkey/signature length (expected 32/64 bytes)",
+            entry.seq
+        ));
+    }
+
+    Ok(())
+}
+
+/// Verify hash-chain integrity and Ed25519 signatures of feed entries.
+///
+/// Supports multi-author feeds: each author's entries form an
+/// independent chain (per-author prev_hash linkage). For each
+/// entry: (1) per-author prev_hash link, (2) entry_hash
+/// recomputation, (3) Ed25519 signature. Spec §4 verification.
 pub fn verify_chain(entries: &[FeedEntry]) -> Result<(), String> {
-    let mut expected_prev = GENESIS_PREV_HASH.to_string();
+    let mut author_prev: HashMap<&str, String> = HashMap::new();
 
     for (i, entry) in entries.iter().enumerate() {
+        let expected_prev = author_prev
+            .get(entry.author_pubkey.as_str())
+            .cloned()
+            .unwrap_or_else(|| GENESIS_PREV_HASH.to_string());
+
         if entry.prev_hash != expected_prev {
             return Err(format!(
-                "entry {i} (seq {}): prev_hash mismatch: expected {expected_prev}, got {}",
-                entry.seq, entry.prev_hash
+                "entry {i} (seq {}): prev_hash mismatch for author {}...: expected {expected_prev}, got {}",
+                entry.seq,
+                &entry.author_pubkey[..std::cmp::min(8, entry.author_pubkey.len())],
+                entry.prev_hash
             ));
         }
 
-        let canonical = entry.to_canonical();
-        let canonical_bytes = compute_feed_canonical_bytes(&canonical)?;
-        let recomputed = compute_feed_entry_hash(&canonical)?;
-        if entry.entry_hash != recomputed {
-            return Err(format!(
-                "entry {i} (seq {}): entry_hash mismatch: stored {}, recomputed {recomputed}",
-                entry.seq, entry.entry_hash
-            ));
-        }
+        verify_entry(entry).map_err(|e| format!("entry {i}: {e}"))?;
 
-        let pubkey_bytes = hex::decode(&entry.author_pubkey)
-            .map_err(|e| format!("entry {i}: bad pubkey hex: {e}"))?;
-        let sig_bytes = hex::decode(&entry.signature)
-            .map_err(|e| format!("entry {i}: bad signature hex: {e}"))?;
-
-        if pubkey_bytes.len() == 32 && sig_bytes.len() == 64 {
-            let pubkey: [u8; 32] = pubkey_bytes.try_into().unwrap();
-            let sig: [u8; 64] = sig_bytes.try_into().unwrap();
-            nexus_core_rs::verify(&pubkey, &canonical_bytes, &sig).map_err(|_| {
-                format!(
-                    "entry {i} (seq {}): Ed25519 signature verification failed",
-                    entry.seq
-                )
-            })?;
-        } else {
-            return Err(format!(
-                "entry {i} (seq {}): invalid pubkey/signature length (expected 32/64 bytes)",
-                entry.seq
-            ));
-        }
-
-        expected_prev = entry.entry_hash.clone();
+        author_prev.insert(&entry.author_pubkey, entry.entry_hash.clone());
     }
     Ok(())
 }
@@ -296,7 +367,7 @@ mod tests {
 
     fn sample_release_published() -> PublicFeedOperation {
         PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-            project_id: "abc123def456".to_string(),
+            project_id: "a1".repeat(32),
             repo_url: "https://github.com/org/app".to_string(),
             commit_sha: "a".repeat(40),
             artifact_hash: "b".repeat(64),
@@ -307,7 +378,7 @@ mod tests {
 
     fn sample_source_stale() -> PublicFeedOperation {
         PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
-            project_id: "abc123def456".to_string(),
+            project_id: "a1".repeat(32),
             reason: "repo_unreachable".to_string(),
         })
     }
@@ -344,9 +415,17 @@ mod tests {
 
     #[test]
     fn test_compute_feed_entry_hash_deterministic() {
+        // Spec §7 test vector — inline data to keep vector stable
         let canonical = FeedEntryCanonical {
             version: FEED_FORMAT_VERSION,
-            op: sample_release_published(),
+            op: PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
+                project_id: "abc123def456".to_string(),
+                repo_url: "https://github.com/org/app".to_string(),
+                commit_sha: "a".repeat(40),
+                artifact_hash: "b".repeat(64),
+                provenance_hash: Some("c".repeat(64)),
+                is_open_source: true,
+            }),
             author_pubkey: "d".repeat(64),
             timestamp: 1_700_000_000,
             prev_hash: GENESIS_PREV_HASH.to_string(),
@@ -459,7 +538,7 @@ mod tests {
     #[test]
     fn test_validate_is_open_source_missing_provenance() {
         let op = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-            project_id: "abc".to_string(),
+            project_id: "a1".repeat(32),
             repo_url: "https://github.com/org/app".to_string(),
             commit_sha: "a".repeat(40),
             artifact_hash: "b".repeat(64),
@@ -513,6 +592,196 @@ mod tests {
         let result = verify_chain(&entries);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("entry_hash mismatch"));
+    }
+
+    #[test]
+    fn test_validate_feed_operation_strict() {
+        // project_id not hex-64
+        let bad_pid = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
+            project_id: "short".to_string(),
+            repo_url: "https://github.com/org/app".to_string(),
+            commit_sha: "a".repeat(40),
+            artifact_hash: "b".repeat(64),
+            provenance_hash: Some("c".repeat(64)),
+            is_open_source: true,
+        });
+        assert!(
+            validate_feed_operation(&bad_pid)
+                .unwrap_err()
+                .contains("project_id")
+        );
+
+        // repo_url not HTTPS
+        let bad_url = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
+            project_id: "a1".repeat(32),
+            repo_url: "http://github.com/org/app".to_string(),
+            commit_sha: "a".repeat(40),
+            artifact_hash: "b".repeat(64),
+            provenance_hash: Some("c".repeat(64)),
+            is_open_source: true,
+        });
+        assert!(
+            validate_feed_operation(&bad_url)
+                .unwrap_err()
+                .contains("repo_url")
+        );
+
+        // commit_sha not hex-40
+        let bad_sha = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
+            project_id: "a1".repeat(32),
+            repo_url: "https://github.com/org/app".to_string(),
+            commit_sha: "z".repeat(40),
+            artifact_hash: "b".repeat(64),
+            provenance_hash: Some("c".repeat(64)),
+            is_open_source: true,
+        });
+        assert!(
+            validate_feed_operation(&bad_sha)
+                .unwrap_err()
+                .contains("commit_sha")
+        );
+
+        // artifact_hash not hex-64
+        let bad_art = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
+            project_id: "a1".repeat(32),
+            repo_url: "https://github.com/org/app".to_string(),
+            commit_sha: "a".repeat(40),
+            artifact_hash: "short".to_string(),
+            provenance_hash: Some("c".repeat(64)),
+            is_open_source: true,
+        });
+        assert!(
+            validate_feed_operation(&bad_art)
+                .unwrap_err()
+                .contains("artifact_hash")
+        );
+
+        // SourceBecameStale empty reason
+        let bad_reason = PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
+            project_id: "a1".repeat(32),
+            reason: "".to_string(),
+        });
+        assert!(
+            validate_feed_operation(&bad_reason)
+                .unwrap_err()
+                .contains("reason")
+        );
+
+        // SourceBecameStale bad project_id
+        let bad_stale_pid = PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
+            project_id: "not-hex".to_string(),
+            reason: "repo_unreachable".to_string(),
+        });
+        assert!(
+            validate_feed_operation(&bad_stale_pid)
+                .unwrap_err()
+                .contains("project_id")
+        );
+
+        // Valid operations pass
+        assert!(validate_feed_operation(&sample_release_published()).is_ok());
+        assert!(validate_feed_operation(&sample_source_stale()).is_ok());
+    }
+
+    #[test]
+    fn test_insert_feed_transaction_atomic() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        let e1 = insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+        let e2 = insert_feed_operation(&db, sample_source_stale(), &pk, |d| kp.sign(d).to_vec())
+            .unwrap();
+        let e3 = insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+
+        assert_eq!(e1.prev_hash, GENESIS_PREV_HASH);
+        assert_eq!(e2.prev_hash, e1.entry_hash);
+        assert_eq!(e3.prev_hash, e2.entry_hash);
+
+        let entries = replay_all(&db).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert!(verify_chain(&entries).is_ok());
+    }
+
+    #[test]
+    fn test_verify_chain_multi_author() {
+        let kp_a = nexus_core_rs::KeyPair::from_secret_bytes(&[1u8; 32]);
+        let kp_b = nexus_core_rs::KeyPair::from_secret_bytes(&[2u8; 32]);
+        let pk_a = hex::encode(kp_a.public_bytes());
+        let pk_b = hex::encode(kp_b.public_bytes());
+
+        // Author A entry 1: genesis → a1
+        let can_a1 = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: pk_a.clone(),
+            timestamp: 1000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let bytes_a1 = compute_feed_canonical_bytes(&can_a1).unwrap();
+        let hash_a1 = compute_feed_entry_hash(&can_a1).unwrap();
+        let entry_a1 = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: pk_a.clone(),
+            timestamp: 1000,
+            entry_hash: hash_a1.clone(),
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: hex::encode(kp_a.sign(&bytes_a1)),
+        };
+
+        // Author B entry 1: genesis → b1 (independent chain)
+        let can_b1 = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_source_stale(),
+            author_pubkey: pk_b.clone(),
+            timestamp: 1001,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let bytes_b1 = compute_feed_canonical_bytes(&can_b1).unwrap();
+        let hash_b1 = compute_feed_entry_hash(&can_b1).unwrap();
+        let entry_b1 = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 2,
+            op: sample_source_stale(),
+            author_pubkey: pk_b.clone(),
+            timestamp: 1001,
+            entry_hash: hash_b1,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: hex::encode(kp_b.sign(&bytes_b1)),
+        };
+
+        // Author A entry 2: a1 → a2
+        let can_a2 = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: pk_a.clone(),
+            timestamp: 1002,
+            prev_hash: hash_a1.clone(),
+        };
+        let bytes_a2 = compute_feed_canonical_bytes(&can_a2).unwrap();
+        let hash_a2 = compute_feed_entry_hash(&can_a2).unwrap();
+        let entry_a2 = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 3,
+            op: sample_release_published(),
+            author_pubkey: pk_a.clone(),
+            timestamp: 1002,
+            entry_hash: hash_a2,
+            prev_hash: hash_a1,
+            signature: hex::encode(kp_a.sign(&bytes_a2)),
+        };
+
+        // Interleaved: A1, B1, A2 — per-author chains are valid
+        let entries = vec![entry_a1, entry_b1, entry_a2];
+        assert!(verify_chain(&entries).is_ok());
     }
 
     #[test]
