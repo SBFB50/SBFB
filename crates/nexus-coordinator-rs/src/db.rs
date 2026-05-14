@@ -788,6 +788,41 @@ impl CoordinatorDb {
             None => Ok(None),
         }
     }
+
+    pub fn count_feed_entries(&self) -> Result<u64, CoordinatorError> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM public_feed", [], |row| row.get(0))?;
+        Ok(count as u64)
+    }
+
+    pub fn get_feed_last_seq(&self) -> Result<Option<u64>, CoordinatorError> {
+        let mut stmt = self.conn.prepare("SELECT MAX(seq) FROM public_feed")?;
+        let mut rows = stmt.query([])?;
+        match rows.next()? {
+            Some(row) => {
+                let val: Option<i64> = row.get(0)?;
+                Ok(val.map(|v| v as u64))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn get_feed_author_stats(&self) -> Result<Vec<(String, u64)>, CoordinatorError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT author, COUNT(*) FROM public_feed GROUP BY author ORDER BY author")?;
+        let rows = stmt.query_map([], |row| {
+            let pubkey: String = row.get(0)?;
+            let count: i64 = row.get(1)?;
+            Ok((pubkey, count as u64))
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
 }
 
 pub struct FeedEntryRow {

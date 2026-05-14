@@ -40,7 +40,6 @@ impl std::fmt::Debug for FeedSyncState {
     }
 }
 
-#[allow(dead_code)]
 fn format_feed_key(author_hex: &str, seq: u64) -> String {
     format!("feed/{author_hex}/{seq:010}")
 }
@@ -49,7 +48,6 @@ fn format_feed_key(author_hex: &str, seq: u64) -> String {
 // Publish local entry → iroh-docs
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code)]
 pub async fn publish_feed_entry_to_docs(
     feed_state: &FeedSyncState,
     entry: &FeedEntry,
@@ -75,6 +73,10 @@ pub async fn publish_feed_entry_to_docs(
 /// `publish_feed_entry_to_docs()` (iroh-docs namespace) so the
 /// daemon never inserts without publishing. Acceptance criterion
 /// Phase B §5.4: "Un daemon qui insere publie dans iroh-docs".
+///
+/// Not used by the HTTP endpoint (which splits DB lock and async
+/// publish to avoid holding a mutex across an await point) but
+/// available for internal coordinator flows.
 #[allow(dead_code)]
 pub async fn insert_and_publish_feed_operation(
     feed_state: &FeedSyncState,
@@ -252,6 +254,132 @@ pub fn spawn_feed_subscribe(
 // ---------------------------------------------------------------------------
 // HTTP endpoints
 // ---------------------------------------------------------------------------
+
+pub async fn feed_status(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    let db = match state.coordinator_db.lock() {
+        Ok(db) => db,
+        Err(e) => {
+            warn!(error = %e, "coordinator DB lock failed in feed_status");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "DB unavailable" })),
+            )
+                .into_response();
+        }
+    };
+
+    let count = match db.count_feed_entries() {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("count: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    let last_seq = match db.get_feed_last_seq() {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("last_seq: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    let authors = match db.get_feed_author_stats() {
+        Ok(a) => a,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("authors: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    let author_list: Vec<serde_json::Value> = authors
+        .into_iter()
+        .map(|(pubkey, count)| serde_json::json!({ "pubkey": pubkey, "count": count }))
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "count": count,
+            "last_seq": last_seq,
+            "authors": author_list,
+        })),
+    )
+        .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FeedInsertRequest {
+    pub op: nexus_coordinator_rs::public_feed::PublicFeedOperation,
+}
+
+pub async fn feed_insert(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(body): Json<FeedInsertRequest>,
+) -> impl IntoResponse {
+    let feed_state = match &state.feed_sync_state {
+        Some(fs) => Arc::clone(fs),
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "feed sync not initialized" })),
+            )
+                .into_response();
+        }
+    };
+
+    let keypair = Arc::clone(&state.pow_keypair);
+    let author_pubkey = hex::encode(keypair.public_bytes());
+
+    let entry = {
+        let db = match state.coordinator_db.lock() {
+            Ok(db) => db,
+            Err(e) => {
+                warn!(error = %e, "coordinator DB lock failed in feed_insert");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "DB unavailable" })),
+                )
+                    .into_response();
+            }
+        };
+        match public_feed::insert_feed_operation(&db, body.op, &author_pubkey, |data| {
+            keypair.sign(data).to_vec()
+        }) {
+            Ok(e) => e,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": e })),
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    if let Err(e) = publish_feed_entry_to_docs(&feed_state, &entry).await {
+        warn!(error = %e, "feed entry published to DB but iroh-docs publish failed");
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "seq": entry.seq,
+            "entry_hash": entry.entry_hash,
+            "author_pubkey": entry.author_pubkey,
+        })),
+    )
+        .into_response()
+}
 
 pub async fn feed_ticket(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
     match &state.feed_sync_state {

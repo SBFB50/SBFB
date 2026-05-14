@@ -331,6 +331,402 @@ async fn test_cross_daemon_storage_sync() {
     cluster.shutdown().await.expect("graceful shutdown");
 }
 
+/// Sprint 62 Phase C — cross-daemon feed sync: daemon A inserts
+/// 3 feed operations, daemon B joins via DocTicket, and observes
+/// all 3 entries via iroh-docs replication.
+///
+/// Requires iroh relay connectivity (`SBFB_INTEGRATION=1`).
+#[tokio::test]
+async fn test_cross_daemon_feed_sync() {
+    if !integration_enabled() {
+        eprintln!("skipping: set SBFB_INTEGRATION=1 to enable feed sync E2E");
+        return;
+    }
+
+    let mut cluster = DaemonCluster::spawn(2).await.expect("spawn 2 daemons");
+    let client = reqwest::Client::new();
+
+    // Daemon A: insert 3 feed operations
+    for i in 0..3u8 {
+        let project_id = format!("{:02x}", 0xa0 + i).repeat(32);
+        let resp = client
+            .post(format!(
+                "{}/api/daemon/feed/insert",
+                cluster.nodes[0].http_url()
+            ))
+            .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
+            .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "op": {
+                    "op_type": "ReleasePublished",
+                    "project_id": project_id,
+                    "repo_url": "https://github.com/org/app",
+                    "commit_sha": "a".repeat(40),
+                    "artifact_hash": "b".repeat(64),
+                    "provenance_hash": "c".repeat(64),
+                    "is_open_source": true
+                }
+            }))
+            .send()
+            .await
+            .expect("feed insert request");
+        assert!(
+            resp.status().is_success(),
+            "feed insert {} returned {}",
+            i,
+            resp.status()
+        );
+    }
+
+    // Verify daemon A has 3 entries
+    let status_a: serde_json::Value = client
+        .get(format!(
+            "{}/api/daemon/feed/status",
+            cluster.nodes[0].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
+        .send()
+        .await
+        .expect("feed status A")
+        .json()
+        .await
+        .expect("parse feed status A");
+    assert_eq!(
+        status_a["count"].as_u64(),
+        Some(3),
+        "daemon A must have 3 feed entries"
+    );
+
+    // Daemon A: get feed ticket
+    let ticket_resp: serde_json::Value = client
+        .get(format!(
+            "{}/api/daemon/feed/ticket",
+            cluster.nodes[0].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
+        .send()
+        .await
+        .expect("feed ticket")
+        .json()
+        .await
+        .expect("parse feed ticket");
+    let ticket = ticket_resp["ticket"]
+        .as_str()
+        .expect("ticket field present");
+    assert!(!ticket.is_empty(), "ticket must be non-empty");
+
+    // Daemon B: join feed namespace
+    let join_resp = client
+        .post(format!(
+            "{}/api/daemon/feed/join",
+            cluster.nodes[1].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "ticket": ticket }))
+        .send()
+        .await
+        .expect("feed join");
+    assert!(
+        join_resp.status().is_success(),
+        "feed join returned {}",
+        join_resp.status()
+    );
+
+    // Poll daemon B for synced entries (up to 30s)
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut synced = false;
+    while tokio::time::Instant::now() < deadline {
+        let resp = client
+            .get(format!(
+                "{}/api/daemon/feed/status",
+                cluster.nodes[1].http_url()
+            ))
+            .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+            .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+            .send()
+            .await;
+
+        if let Ok(resp) = resp {
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                if body["count"].as_u64() == Some(3) {
+                    synced = true;
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
+    assert!(
+        synced,
+        "daemon B must see 3 feed entries via iroh-docs sync within 30s"
+    );
+
+    cluster.shutdown().await.expect("graceful shutdown");
+}
+
+/// Sprint 62 Phase C — feed offline catch-up: daemon A publishes
+/// N entries, daemon B joins AFTER publication and catches up the
+/// full history via iroh-docs range reconciliation.
+///
+/// Requires iroh relay connectivity (`SBFB_INTEGRATION=1`).
+#[tokio::test]
+async fn test_feed_offline_catchup() {
+    if !integration_enabled() {
+        eprintln!("skipping: set SBFB_INTEGRATION=1 to enable feed offline catchup E2E");
+        return;
+    }
+
+    let mut cluster = DaemonCluster::spawn(2).await.expect("spawn 2 daemons");
+    let client = reqwest::Client::new();
+
+    // Daemon A: insert 5 operations BEFORE B joins
+    for i in 0..5u8 {
+        let project_id = format!("{:02x}", 0xc0 + i).repeat(32);
+        let resp = client
+            .post(format!(
+                "{}/api/daemon/feed/insert",
+                cluster.nodes[0].http_url()
+            ))
+            .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
+            .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "op": {
+                    "op_type": "ReleasePublished",
+                    "project_id": project_id,
+                    "repo_url": "https://github.com/org/offline-test",
+                    "commit_sha": "d".repeat(40),
+                    "artifact_hash": "e".repeat(64),
+                    "provenance_hash": "f".repeat(64),
+                    "is_open_source": true
+                }
+            }))
+            .send()
+            .await
+            .expect("feed insert");
+        assert!(resp.status().is_success());
+    }
+
+    // Daemon A: get feed ticket
+    let ticket_resp: serde_json::Value = client
+        .get(format!(
+            "{}/api/daemon/feed/ticket",
+            cluster.nodes[0].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
+        .send()
+        .await
+        .expect("feed ticket")
+        .json()
+        .await
+        .expect("parse ticket");
+    let ticket = ticket_resp["ticket"].as_str().expect("ticket");
+
+    // Daemon B: join AFTER all entries published (offline catch-up)
+    let join_resp = client
+        .post(format!(
+            "{}/api/daemon/feed/join",
+            cluster.nodes[1].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "ticket": ticket }))
+        .send()
+        .await
+        .expect("feed join");
+    assert!(join_resp.status().is_success());
+
+    // Poll until B catches up
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut caught_up = false;
+    while tokio::time::Instant::now() < deadline {
+        let resp = client
+            .get(format!(
+                "{}/api/daemon/feed/status",
+                cluster.nodes[1].http_url()
+            ))
+            .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+            .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+            .send()
+            .await;
+
+        if let Ok(resp) = resp {
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                if body["count"].as_u64() == Some(5) {
+                    // Verify author stats match
+                    let authors = body["authors"].as_array();
+                    if let Some(authors) = authors {
+                        if authors.len() == 1 && authors[0]["count"].as_u64() == Some(5) {
+                            caught_up = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
+    assert!(
+        caught_up,
+        "daemon B must catch up all 5 entries from daemon A within 30s"
+    );
+
+    cluster.shutdown().await.expect("graceful shutdown");
+}
+
+/// Sprint 62 Phase C — feed replay idempotent: daemon B joins,
+/// syncs, then re-joins the same namespace. The second join must
+/// NOT create duplicate entries in the local feed.
+///
+/// Requires iroh relay connectivity (`SBFB_INTEGRATION=1`).
+#[tokio::test]
+async fn test_feed_replay_idempotent() {
+    if !integration_enabled() {
+        eprintln!("skipping: set SBFB_INTEGRATION=1 to enable feed replay idempotent E2E");
+        return;
+    }
+
+    let mut cluster = DaemonCluster::spawn(2).await.expect("spawn 2 daemons");
+    let client = reqwest::Client::new();
+
+    // Daemon A: insert 2 feed operations
+    for i in 0..2u8 {
+        let project_id = format!("{:02x}", 0xe0 + i).repeat(32);
+        let resp = client
+            .post(format!(
+                "{}/api/daemon/feed/insert",
+                cluster.nodes[0].http_url()
+            ))
+            .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
+            .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "op": {
+                    "op_type": "ReleasePublished",
+                    "project_id": project_id,
+                    "repo_url": "https://github.com/org/replay-test",
+                    "commit_sha": "1".repeat(40),
+                    "artifact_hash": "2".repeat(64),
+                    "provenance_hash": "3".repeat(64),
+                    "is_open_source": true
+                }
+            }))
+            .send()
+            .await
+            .expect("feed insert");
+        assert!(resp.status().is_success());
+    }
+
+    let ticket_resp: serde_json::Value = client
+        .get(format!(
+            "{}/api/daemon/feed/ticket",
+            cluster.nodes[0].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
+        .send()
+        .await
+        .expect("feed ticket")
+        .json()
+        .await
+        .expect("parse ticket");
+    let ticket = ticket_resp["ticket"].as_str().expect("ticket");
+
+    // First join — daemon B syncs
+    let join1 = client
+        .post(format!(
+            "{}/api/daemon/feed/join",
+            cluster.nodes[1].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "ticket": ticket }))
+        .send()
+        .await
+        .expect("feed join 1");
+    assert!(join1.status().is_success());
+
+    // Wait for first sync
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut first_sync = false;
+    while tokio::time::Instant::now() < deadline {
+        let resp = client
+            .get(format!(
+                "{}/api/daemon/feed/status",
+                cluster.nodes[1].http_url()
+            ))
+            .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+            .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+            .send()
+            .await;
+        if let Ok(resp) = resp {
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                if body["count"].as_u64() == Some(2) {
+                    first_sync = true;
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(first_sync, "first sync must complete within 30s");
+
+    // Second join — re-import same ticket (replay)
+    let join2 = client
+        .post(format!(
+            "{}/api/daemon/feed/join",
+            cluster.nodes[1].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "ticket": ticket }))
+        .send()
+        .await
+        .expect("feed join 2");
+    assert!(join2.status().is_success());
+
+    // Wait a bit for any duplicate processing
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    // Verify count is still 2 (no duplicates)
+    let final_status: serde_json::Value = client
+        .get(format!(
+            "{}/api/daemon/feed/status",
+            cluster.nodes[1].http_url()
+        ))
+        .header("X-SBFB-Token", &cluster.nodes[1].auth_token)
+        .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
+        .send()
+        .await
+        .expect("final feed status")
+        .json()
+        .await
+        .expect("parse final status");
+
+    assert_eq!(
+        final_status["count"].as_u64(),
+        Some(2),
+        "replay must not create duplicates: expected 2, got {:?}",
+        final_status["count"]
+    );
+
+    cluster.shutdown().await.expect("graceful shutdown");
+}
+
 /// Row 33 — cross-daemon task stub: verify the daemon exposes
 /// its API surface and can accept authenticated requests.
 ///

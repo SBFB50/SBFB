@@ -335,6 +335,14 @@ pub fn build_router(
             get(crate::feed_sync::feed_ticket),
         )
         .route("/api/daemon/feed/join", post(crate::feed_sync::feed_join))
+        .route(
+            "/api/daemon/feed/status",
+            get(crate::feed_sync::feed_status),
+        )
+        .route(
+            "/api/daemon/feed/insert",
+            post(crate::feed_sync::feed_insert),
+        )
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
             "/api/v1/deploy-from-repo",
