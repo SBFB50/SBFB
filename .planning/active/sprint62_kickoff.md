@@ -17,10 +17,14 @@ Sprint 2 sur 6 (5+1 reserve). **Sprint a haut risque** (sync P2P
 - **G2 trigger scan** : last_validated 2026-05-13.
   3 triggers evalues (inchanges depuis S61) :
 
-  1. **iroh > 0.98** : `cargo search iroh` retourne `iroh = "1.0.0-rc.0"`.
-     Trigger ACTIF mais RC pre-release, pas stable.
-     **Decision** : deja evalue et defere S60-S61. Rester sur iroh 0.98.
-     Upgrade iroh 1.0 stable = sprint dedie post-feed.
+  1. **iroh > 0.98 + iroh-docs > 0.98** : `cargo search iroh` retourne
+     `iroh = "1.0.0-rc.0"`. `cargo search iroh-docs` retourne
+     `iroh-docs = "0.99.0"` (publie 2026-05-08). iroh-docs 0.99
+     depend de iroh 1.0.0-rc.0. Triggers ACTIFS mais RC pre-release.
+     **Decision** : deja evalue et defere S60-S61. Rester sur
+     iroh 0.98 / iroh-docs 0.98. Upgrade iroh 1.0 + iroh-docs
+     0.99 = sprint dedie post-feed. Le pin iroh 0.98 dans
+     Cargo.toml implique iroh-docs 0.98 (dep transitive).
 
   2. **arti-client > 0.41** : `cargo search arti-client` retourne
      `arti-client = "0.42.0"`. Trigger **ACTIF** mais non cable.
@@ -225,8 +229,13 @@ reutilisant les primitives existantes avec instanciation feed :
 1. **Rate-limit GCRA** (keyed `author_pubkey`) : 5 operations/min
    par auteur. Instantiation de `governor::DefaultKeyedRateLimiter`
    (pattern `storage_limiter.rs`).
-2. **PoW Hashcash** : chaque operation porte une preuve PoW
-   (`HashcashChallenge` avec topic="public-feed", publisher=auteur).
+2. **PoW Hashcash** : champ `pow_nonce: Option<u64>` dans
+   `FeedEntry` (`#[serde(default)]` — backwards compatible, les
+   entrees locales existantes n'en ont pas). **Optionnel en wire
+   format**, mais **enforce pour les entrees distantes recues via
+   sync** : le subscribe handler rejette les entrees remote sans
+   PoW valide. Les entrees locales (coordinator self-sign) ne
+   requirent pas de PoW (le coordinateur se fait confiance).
    Verification stateless (`pow.rs:verify()`). 18 bits = ~100ms.
 3. **Validation stricte** : `validate_feed_operation()` durci (F3)
    — format hex, URL valide, reason enum fermee.
@@ -252,9 +261,9 @@ pour un reseau de 2-3 noeuds pilotes).
 - `crates/nexus-shell-daemon-core/src/feed_limiter.rs` (nouveau —
   GCRA keyed author pour feed)
 - `crates/nexus-coordinator-rs/src/public_feed.rs` : champ
-  `pow_proof` optionnel dans FeedEntry (ajout de champ
-  `#[serde(default)]` — pas de bump FEED_FORMAT_VERSION, c'est
-  un ajout backwards-compatible)
+  `pow_nonce: Option<u64>` dans FeedEntry (`#[serde(default)]`
+  — pas de bump FEED_FORMAT_VERSION, ajout backwards-compatible.
+  Optionnel wire, enforce sur remote sync uniquement)
 
 ### D4 — Phase dette A : S61 P2 critique + carry 2/3
 
@@ -274,8 +283,11 @@ sur les 4 P2 audit S61 bloquants pour sync + resolution d'1 carry
 4. **F6 P2-SPEC-TRUST-CONTRACT** : ajouter section §5.1 "Trust
    model" dans `PUBLIC_FEED_SPEC.md` — local (trust DB) vs remote
    (verify everything).
-5. **P2-NSIS-UNINSTALL** (2/3) : lister les 3 binaires (launcher,
-   daemon, worker) dans la section uninstall du script NSIS.
+5. **P2-NSIS-UNINSTALL** (2/3) : verifier que `Packager.toml`
+   binaries (launcher + daemon) et appdata-paths couvrent la
+   desinstallation complete. Pas de .nsi manuel — cargo-packager
+   genere le NSIS. Worker n'est pas dans l'installer (distribue
+   separement).
 
 **Rejete** :
 - Reporter F2-F4 a une phase ulterieure : ils sont prerequis pour
@@ -290,12 +302,12 @@ sur les 4 P2 audit S61 bloquants pour sync + resolution d'1 carry
 - `crates/nexus-coordinator-rs/src/feed_materializer.rs` (F2)
 - `crates/nexus-coordinator-rs/src/public_feed.rs` (F3, F4)
 - `docs/protocol/PUBLIC_FEED_SPEC.md` (F6)
-- `packaging/windows/installer.nsi` (NSIS)
+- `Packager.toml` (cargo-packager NSIS config)
 
 ### D5 — Gate de scission + criteres E2E
 
-**Retenu** : evaluation gate a la review Phase C. 4 criteres
-binaires, tous requis pour que Sprint 62 soit considere complet :
+**Retenu** : evaluation gate a la review Phase C. 3 criteres
+sync binaires, tous requis pour continuer vers Phase D :
 
 1. **Offline catch-up** : noeud B offline pendant que noeud A
    publie N operations. B redemarre, rejoint, et son
@@ -304,12 +316,14 @@ binaires, tous requis pour que Sprint 62 soit considere complet :
    creent pas de doublons dans le feed local.
 3. **2+ noeuds** : test multi-daemon avec DaemonCluster, gate
    `SBFB_INTEGRATION=1`.
-4. **Anti-spam hot path** : au moins rate-limit + PoW cables et
-   testes (pas necessairement quarantine/age witness).
 
-Si 1 des 4 criteres echoue a Phase C review → **scission** :
+Si 1 des 3 criteres echoue a Phase C review → **scission** :
 Sprint 62 se termine a Phase C, Phase D (anti-spam) et les criteres
 restants deviennent Sprint 63. Le plan passe de 6 a 7 sprints.
+
+Phase D (anti-spam) a ses propres criteres d'acceptation
+(rate-limit + PoW) qui ne font PAS partie du gate de scission —
+ils sont evalues independamment a la review Phase D.
 
 **Rejete** :
 - Pas de gate : le risque sync P2P justifie un checkpoint formel.
@@ -317,9 +331,10 @@ restants deviennent Sprint 63. Le plan passe de 6 a 7 sprints.
   sprint entier perdu.
 - Gate apres Phase D : trop tard. Si Phase C echoue, Phase D
   (anti-spam) est construite sur du sable.
-- Criteres partiels (2/4 suffit) : les 4 sont necessaires. Un
-  feed qui sync sans anti-spam ou qui a du anti-spam sans catch-up
-  n'est pas deployable.
+- Anti-spam dans le gate Phase C : contradiction logique — le
+  critere serait evalue avant son implementation (Phase D).
+  L'anti-spam est un acceptance criteria Phase D, pas un gate
+  Phase C.
 
 **Implications code** :
 - `crates/nexus-test-harness/tests/multi_daemon.rs` (tests E2E)
@@ -351,10 +366,18 @@ iroh-docs mais ne sont jamais materialisees. Cout reconciliation =
 risque acceptable 2-3 noeuds. Namespace cleanup → carry S63.
 
 D5 ⚠️ (mineur) : critere "anti-spam hot path" vague.
-Decision : ajustement — clarification des 3 deliverables exacts :
-(1) `FeedRateLimiter` instancie dans subscribe handler, (2) test
-prouvant > 5 ops/min rejete, (3) `pow_nonce: Option<u64>` champ
-dans FeedEntry avec `#[serde(default)]`.
+Decision : ajustement — anti-spam retire du gate Phase C (il est
+implemente en Phase D, impossible a evaluer en Phase C). Le gate
+porte sur 3 criteres sync (offline catch-up, replay idempotent,
+2+ noeuds). Anti-spam = acceptance criteria Phase D avec 3
+deliverables exacts : (1) `FeedRateLimiter` instancie dans
+subscribe handler, (2) test prouvant > 5 ops/min rejete, (3)
+`pow_nonce: Option<u64>` dans FeedEntry (`#[serde(default)]`,
+enforce remote only).
+
+**CONCERN G1 levee** : les 3 incoherences (gate Phase C, contrat
+PoW, G2 iroh-docs) sont corrigees dans ce patch. Verdict G1
+final : **PASS** (2 ⚠️ acknowledges, 0 ❌, CONCERN levee).
 
 ---
 
@@ -386,16 +409,17 @@ Tests multi-daemon : `test_cross_daemon_feed_sync()` (2 noeuds,
 publish → join → observe), `test_feed_offline_catchup()` (B offline
 → A publie → B rejoint → rattrapage), `test_feed_replay_idempotent()`
 (re-sync ne duplique pas). Cursor sync persistant. Validation
-hash-chain apres sync. **Gate de scission : 4/4 criteres D5.**
+hash-chain apres sync. **Gate de scission : 3/3 criteres sync D5.**
 
 **Commit cible** : `feat(feed): Sprint 62 Phase C — multi-daemon feed sync E2E + offline catch-up`
 
 ### Phase D — Anti-spam minimal + wrap-up
 
 Wire `FeedRateLimiter` (GCRA 5/min par auteur) + PoW verification
-sur le hot path feed sync. Test : operations sans PoW rejetees,
-operations au-dela du rate-limit rejetees. Verification + audit_plan
-S63.
+sur le hot path feed sync (remote entries only). Test : entrees
+remote sans PoW rejetees, entrees au-dela du rate-limit rejetees,
+entrees locales sans PoW acceptees (self-trust). Verification +
+audit_plan S63.
 
 **Commit cible** : `feat(feed): Sprint 62 Phase D — anti-spam feed PoW + rate-limit + wrap-up`
 

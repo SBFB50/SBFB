@@ -28,7 +28,7 @@
 - **D2** : hash-chains per-auteur + merge local (seq autoincrement), verification independante par auteur
 - **D3** : pipeline anti-spam 4 gates (rate-limit GCRA + PoW Hashcash + validation stricte + Ed25519)
 - **D4** : Phase A dette pair — F2/F3/F4/F6 (S61 audit P2) + P2-NSIS-UNINSTALL
-- **D5** : gate de scission Phase C review — 4 criteres binaires (offline catch-up, replay idempotent, 2+ noeuds, anti-spam)
+- **D5** : gate de scission Phase C review — 3 criteres sync binaires (offline catch-up, replay idempotent, 2+ noeuds). Anti-spam = acceptance Phase D
 
 ---
 
@@ -88,7 +88,7 @@ S61 bloquants + 1 carry 2/3.
 | A3 | F2 : dans `materialize_incremental()`, apres cursor match et lecture des nouvelles entrees, verifier signature Ed25519 + entry_hash per-entree | `feed_materializer.rs` |
 | A4 | F6 : ajouter §5.1 "Trust model" dans la spec — local DB = trust implicit, remote sync = verify everything (signature + hash + validation) | `PUBLIC_FEED_SPEC.md` |
 | A5 | Preparer multi-auteur : ajouter tracking per-auteur dans verify logic — `verify_chain()` accepte des entrees de N auteurs, verifie chaque chaine independamment | `public_feed.rs` |
-| A6 | P2-NSIS-UNINSTALL : lister launcher.exe + nexus-shell-daemon.exe + nexus-worker.exe dans la section Delete du script uninstall | `packaging/windows/installer.nsi` |
+| A6 | P2-NSIS-UNINSTALL : verifier que Packager.toml binaries (launcher + daemon) et appdata-paths couvrent la desinstallation complete (cargo-packager genere le NSIS, pas de .nsi manuel) | `Packager.toml` |
 
 ### §4.3 Tests attendus
 
@@ -187,13 +187,9 @@ y compris apres deconnexion offline. C'est la phase gate — si les
    B.PublicRegistryView == A.PublicRegistryView ✓
 2. **Replay idempotent** : re-sync ne cree pas de doublons ✓
 3. **2+ noeuds E2E** : test multi-daemon PASS avec DaemonCluster ✓
-4. **Anti-spam hot path** : _evalue Phase D_ (si Phase C review
-   identifie un blocker sync, anti-spam est scope-cut et gate
-   declenchee sur les 3 premiers criteres)
 
-**Gate de scission** : 3/4 minimum pour continuer Phase D.
-4/4 = sprint complet. 3/4 (anti-spam reportee) = sprint complet
-avec carry anti-spam. <3/4 = scission.
+**Gate de scission** : 3/3 requis pour continuer Phase D.
+Si <3/3 → scission (Phase D + criteres restants → Sprint 63).
 
 ---
 
@@ -210,9 +206,9 @@ d'entrees distantes) et produire les artefacts de fin de sprint.
 |---|---|---|---|
 | D1 | `FeedRateLimiter` : GCRA keyed par `author_pubkey`, quota 5 ops/min. Pattern `storage_limiter.rs` (governor, DashMap) | `feed_limiter.rs` (nouveau) |
 | D2 | Integrer `FeedRateLimiter` dans `spawn_feed_subscribe()` : avant insert, check rate-limit. Si depasse → log + drop entree | `feed_sync.rs` |
-| D3 | PoW champ optionnel : ajouter `pow_nonce: Option<u64>` dans `FeedEntry` (`#[serde(default)]`). Verification dans subscribe handler si present | `public_feed.rs` + `feed_sync.rs` |
+| D3 | PoW champ : ajouter `pow_nonce: Option<u64>` dans `FeedEntry` (`#[serde(default)]` — backwards compat). Optionnel wire format, enforce pour entrees remote dans subscribe handler (rejet si absent ou invalide). Entrees locales exemptees (self-trust) | `public_feed.rs` + `feed_sync.rs` |
 | D4 | Test rate-limit feed : inserer > 5 ops/min d'un meme auteur → entrees au-dela rejetees | `feed_sync.rs` tests |
-| D5 | Test PoW feed : entree avec pow_nonce invalide → rejetee. Entree sans pow_nonce → acceptee (backwards compat) | `public_feed.rs` tests |
+| D5 | Test PoW feed : entree remote sans pow_nonce → rejetee. Entree remote avec pow_nonce invalide → rejetee. Entree locale sans pow_nonce → acceptee (self-trust) | `public_feed.rs` + `feed_sync.rs` tests |
 | D6 | verification.md : fail-fast checklist complete | `.planning/active/` | doc |
 | D7 | audit_plan S63 : dimensions a auditer pour le prochain sprint | `.planning/active/` | doc |
 
@@ -228,7 +224,7 @@ d'entrees distantes) et produire les artefacts de fin de sprint.
 ### §7.4 Criteres d'acceptation Phase D
 
 - `FeedRateLimiter` rejette > 5 ops/min par auteur
-- PoW champ optionnel (backwards compat, `#[serde(default)]`)
+- PoW champ : optionnel wire (`#[serde(default)]`), enforce remote sync, exempt local
 - verification.md redigee avec toutes les rows fail-fast
 - audit_plan S63 pret
 
@@ -252,7 +248,7 @@ d'entrees distantes) et produire les artefacts de fin de sprint.
 | 12 | sync-bridge-sdk | `bash scripts/sync-bridge-sdk.sh` | exit 0 |
 | 13-16 | Phase A-D preflights G8 | sprint62_phase_{A..D}_preflight.md | EXECUTE |
 | 17-20 | Phase A-D reviews | sprint62_phase_{A..D}_review.md | PASS |
-| 21 | Gate scission Phase C | 4/4 criteres D5 (ou 3/4 avec carry) | PASS |
+| 21 | Gate scission Phase C | 3/3 criteres sync D5 | PASS |
 | 22 | Multi-daemon E2E | `test_cross_daemon_feed_sync` | PASS (SBFB_INTEGRATION=1) |
 | 23 | Offline catch-up E2E | `test_feed_offline_catchup` | PASS |
 
@@ -264,10 +260,9 @@ d'entrees distantes) et produire les artefacts de fin de sprint.
 
 Si Phase C review identifie un blocker :
 
-- **1 critere echoue (anti-spam)** : Phase D reduite a wrap-up
-  sans anti-spam. Anti-spam → Sprint 63 Phase A. Sprint complet.
-- **2+ criteres echouent** : Sprint 62 se termine. Phases restantes
-  → Sprint 63. Le plan passe de 6 a 7 sprints. Phase D = wrap-up
-  minimal (verification.md + audit_plan).
+- **3/3 sync PASS** : continuer Phase D (anti-spam). Sprint complet.
+- **<3/3 sync** : Sprint 62 se termine a Phase C. Phase D + criteres
+  restants → Sprint 63. Le plan passe de 6 a 7 sprints. Phase D
+  = wrap-up minimal (verification.md + audit_plan).
 - **Scission propre** : le code livre en Phase A-C est stable et
   committé. Pas de code a moitie fini.

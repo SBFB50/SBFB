@@ -87,3 +87,23 @@ Ambiguite mineure : "anti-spam hot path" pas defini en termes
 de deliverables exacts (FeedEntry field? test coverage?).
 
 **Recommandation** : clarifier le critere dans verification.md.
+
+---
+
+## Verdict: CONCERN
+
+2 ⚠️ sur 5, 0 ❌. Les D-decisions sont globalement solides mais
+3 incoherences factuelles doivent etre resolues avant Phase A code :
+
+1. Gate Phase C : le critere "anti-spam hot path" est implemente
+   en Phase D mais evalue en Phase C — contradiction logique.
+   Le gate devrait porter sur 3 criteres sync (offline catch-up,
+   replay idempotent, 2+ noeuds). Anti-spam = acceptance Phase D.
+2. Contrat PoW : kickoff dit "chaque operation porte une preuve PoW"
+   (mandatoire) et "pow_proof optionnel" (serde default). Figer :
+   optionnel wire format (compat), enforce sur remote sync.
+3. G2 iroh-docs : kickoff evalue "iroh > 0.98" mais pas "iroh-docs
+   > 0.98". crates.io montre iroh-docs 0.99.0 (2026-05-08). Meme
+   conclusion (defere, depend iroh 1.0.0-rc.0) mais a documenter.
+
+CONCERN levee quand kickoff + plan corrigent ces 3 points.
