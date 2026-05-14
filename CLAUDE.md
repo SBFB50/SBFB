@@ -123,19 +123,26 @@ Runtime isolation roadmap dans
   livrees (3 reviews PASS, 4 preflights G8 EXECUTE). 3 fixes
   inter-phases (coverage proactive). Feed local rejouable
   operationnel, pret sync P2P Sprint 62.
+  S62 Phase A (dette pair F2-F4/F6 + NSIS) + Phase B (feed sync
+  infra iroh-docs : FeedSyncState, boot_feed_namespace,
+  spawn_feed_subscribe LiveEvent::InsertRemote, endpoints
+  feed/ticket + feed/join, M11 unique index entry_hash) + 3 P1
+  fix review croisee (verify_chain order-independent, wrapper
+  insert_and_publish pub API, feed_join cle distincte).
+  Infrastructure sync prete — preuve runtime = Phase C E2E gate.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1546 tests total** (1282 Rust / 258 Vitest / 6/6 size-limit)
+- **~1554 tests total** (1290 Rust / 258 Vitest / 6/6 size-limit)
   — tous verts code. Playwright bloque par global-setup
   (pyproject.toml manquant post-S50, refactor PW = post-v1.0).
-  S61 : +23 delta Rust (1259→1282, 4 phases + 3 fixes).
-- Carry S62 :
+  S62 : +8 delta Rust (1282→1290, 2 phases + 1 fix).
+- Carry S63 :
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
   P2-NSIS-UNINSTALL multi-binary residuel (2/3).
-  P2-IMAGE-DEP image 0.25 footprint (2/3).
+  P2-IMAGE-DEP image 0.25 footprint (3/3 MANDATORY S63).
   P2-G-1 exe lock intermittent (reouvert).
-  P2-PLAYWRIGHT-REFACTOR global-setup (2/3).
+  P2-PLAYWRIGHT-REFACTOR global-setup (3/3 MANDATORY S63).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).

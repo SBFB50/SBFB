@@ -70,3 +70,43 @@ Rigor signal : 1 P2 + 1 P3 documentes (>=1 P2+ requis pour PASS rigoureux).
 - Ready to commit : oui
 - Carry-overs S63 : P2 publish auto-wire (si non resolu Phase D)
 - Corrections needed : aucune
+
+---
+
+## Post-commit : review croisee GPT 5.5 + fix cedadd3
+
+### 3 P1 confirmes et corriges (cedadd3)
+
+1. **P1 verify_chain() order-dependent** : refactored en chain-linkage
+   walk per-author. DB verifiable quel que soit l'ordre d'insertion.
+   +1 test test_verify_chain_out_of_order_insertion.
+2. **P1 publish pas wire** : insert_and_publish_feed_operation() wrapper
+   pub API cree. `#[allow(dead_code)]` — 0 caller production (wiring
+   coordinator = Phase D). Phase C E2E doit l'appeler explicitement.
+3. **P1 feed_join() collision key** : cle "sbfb-feed-joined-{ns_id}"
+   au lieu de FEED_NAMESPACE_KEY.
+
+### 4 P2 documentes (non-bloquants)
+
+- import_ticket vs import_and_subscribe — meme pattern storage_api.rs
+- Subscribe JoinHandle non trackee — dette codebase-wide (spawn_storage_subscribe idem)
+- 0 test 401/403 feed routes — auth testee centralement dans auth::tests
+- Tests Phase B = format + roundtrip — E2E = Phase C scope
+
+### Nuances second pass GPT 5.5
+
+- **Sur-claim corrigee** : insert_and_publish n'est PAS auto-wire
+  production. C'est une API prete pour Phase C E2E, pas une preuve
+  que "un daemon qui insere publie". Le wiring production
+  (coordinator deploy event → insert_and_publish) = Phase D.
+- **Materializer order** : materialize_verified() applique les entrees
+  dans l'ordre SQLite local (seq AUTOINCREMENT). verify_chain() est
+  maintenant order-independent, mais la vue materialisee pourrait
+  diverger entre noeuds si l'ordre local differe. Phase C
+  test_feed_offline_catchup DOIT comparer PublicRegistryView
+  convergence entre A et B, pas juste le count.
+
+### Delta tests final post-fix
+
+Rust workspace : 1286 -> 1290 (+4 : 3 Phase B + 1 out-of-order fix)
+Vitest : 258/258 (Node 25 : NODE_OPTIONS=--no-experimental-webstorage)
