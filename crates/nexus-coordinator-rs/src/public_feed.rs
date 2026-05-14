@@ -133,10 +133,12 @@ fn is_hex_exact(s: &str, len: usize) -> bool {
     s.len() == len && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+const VALID_STALE_REASONS: &[&str] = &["repo_unreachable", "commit_diverged", "manual"];
+
 /// Validate format and semantic constraints on a feed operation.
 ///
 /// Format: project_id hex-64, repo_url HTTPS, commit_sha hex-40,
-/// artifact_hash hex-64, reason non-empty.
+/// artifact_hash hex-64, reason in the protocol allowlist.
 /// Semantic (spec §2.1): `is_open_source: true` requires provenance_hash.
 pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
     match op {
@@ -168,6 +170,11 @@ pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
             }
             if p.reason.is_empty() {
                 return Err("reason must not be empty".to_string());
+            }
+            if !VALID_STALE_REASONS.contains(&p.reason.as_str()) {
+                return Err(
+                    "reason must be one of: repo_unreachable, commit_diverged, manual".to_string(),
+                );
             }
         }
     }
@@ -667,6 +674,17 @@ mod tests {
                 .contains("reason")
         );
 
+        // SourceBecameStale unknown reason
+        let bad_unknown_reason = PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
+            project_id: "a1".repeat(32),
+            reason: "unknown".to_string(),
+        });
+        assert!(
+            validate_feed_operation(&bad_unknown_reason)
+                .unwrap_err()
+                .contains("reason")
+        );
+
         // SourceBecameStale bad project_id
         let bad_stale_pid = PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
             project_id: "not-hex".to_string(),
@@ -681,6 +699,17 @@ mod tests {
         // Valid operations pass
         assert!(validate_feed_operation(&sample_release_published()).is_ok());
         assert!(validate_feed_operation(&sample_source_stale()).is_ok());
+        for reason in VALID_STALE_REASONS {
+            assert!(
+                validate_feed_operation(&PublicFeedOperation::SourceBecameStale(
+                    SourceBecameStalePayload {
+                        project_id: "a1".repeat(32),
+                        reason: (*reason).to_string(),
+                    },
+                ))
+                .is_ok()
+            );
+        }
     }
 
     #[test]
