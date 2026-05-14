@@ -340,30 +340,47 @@ pub fn verify_entry(entry: &FeedEntry) -> Result<(), String> {
 /// Verify hash-chain integrity and Ed25519 signatures of feed entries.
 ///
 /// Supports multi-author feeds: each author's entries form an
-/// independent chain (per-author prev_hash linkage). For each
-/// entry: (1) per-author prev_hash link, (2) entry_hash
-/// recomputation, (3) Ed25519 signature. Spec §4 verification.
+/// independent chain (per-author prev_hash linkage). Order-
+/// independent: entries may be stored in any DB insertion order —
+/// the function rebuilds each per-author chain via prev_hash →
+/// entry_hash linkage, then verifies (1) chain completeness,
+/// (2) entry_hash recomputation, (3) Ed25519 signature. Spec §4.
 pub fn verify_chain(entries: &[FeedEntry]) -> Result<(), String> {
-    let mut author_prev: HashMap<&str, String> = HashMap::new();
+    let mut by_author: HashMap<&str, Vec<&FeedEntry>> = HashMap::new();
+    for entry in entries {
+        by_author
+            .entry(entry.author_pubkey.as_str())
+            .or_default()
+            .push(entry);
+    }
 
-    for (i, entry) in entries.iter().enumerate() {
-        let expected_prev = author_prev
-            .get(entry.author_pubkey.as_str())
-            .cloned()
-            .unwrap_or_else(|| GENESIS_PREV_HASH.to_string());
-
-        if entry.prev_hash != expected_prev {
-            return Err(format!(
-                "entry {i} (seq {}): prev_hash mismatch for author {}...: expected {expected_prev}, got {}",
-                entry.seq,
-                &entry.author_pubkey[..std::cmp::min(8, entry.author_pubkey.len())],
-                entry.prev_hash
-            ));
+    for (author_key, author_entries) in &by_author {
+        let mut by_prev: HashMap<&str, &FeedEntry> = HashMap::new();
+        for entry in author_entries {
+            by_prev.insert(entry.prev_hash.as_str(), entry);
         }
 
-        verify_entry(entry).map_err(|e| format!("entry {i}: {e}"))?;
+        let mut current_prev: &str = GENESIS_PREV_HASH;
+        let mut verified_count = 0usize;
+        while let Some(entry) = by_prev.remove(current_prev) {
+            verify_entry(entry).map_err(|e| {
+                format!(
+                    "author {}...: {e}",
+                    &author_key[..std::cmp::min(8, author_key.len())]
+                )
+            })?;
+            current_prev = entry.entry_hash.as_str();
+            verified_count += 1;
+        }
 
-        author_prev.insert(&entry.author_pubkey, entry.entry_hash.clone());
+        if verified_count != author_entries.len() {
+            return Err(format!(
+                "author {}...: chain has {} linked entries but {} total (broken linkage or fork)",
+                &author_key[..std::cmp::min(8, author_key.len())],
+                verified_count,
+                author_entries.len()
+            ));
+        }
     }
     Ok(())
 }
@@ -837,5 +854,58 @@ mod tests {
             assert_eq!(entries.len(), 2);
             assert!(verify_chain(&entries).is_ok());
         }
+    }
+
+    #[test]
+    fn test_verify_chain_out_of_order_insertion() {
+        let kp = nexus_core_rs::KeyPair::from_secret_bytes(&[7u8; 32]);
+        let pk = hex::encode(kp.public_bytes());
+
+        let can1 = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: pk.clone(),
+            timestamp: 1000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let bytes1 = compute_feed_canonical_bytes(&can1).unwrap();
+        let hash1 = compute_feed_entry_hash(&can1).unwrap();
+        let entry1 = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: pk.clone(),
+            timestamp: 1000,
+            entry_hash: hash1.clone(),
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: hex::encode(kp.sign(&bytes1)),
+        };
+
+        let can2 = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_source_stale(),
+            author_pubkey: pk.clone(),
+            timestamp: 1001,
+            prev_hash: hash1.clone(),
+        };
+        let bytes2 = compute_feed_canonical_bytes(&can2).unwrap();
+        let hash2 = compute_feed_entry_hash(&can2).unwrap();
+        let entry2 = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 2,
+            op: sample_source_stale(),
+            author_pubkey: pk,
+            timestamp: 1001,
+            entry_hash: hash2,
+            prev_hash: hash1,
+            signature: hex::encode(kp.sign(&bytes2)),
+        };
+
+        // Reversed order (simulates out-of-order iroh-docs arrival)
+        let entries = vec![entry2, entry1];
+        assert!(
+            verify_chain(&entries).is_ok(),
+            "verify_chain must handle out-of-order entries via chain linkage"
+        );
     }
 }

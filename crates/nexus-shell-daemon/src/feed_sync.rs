@@ -40,6 +40,7 @@ impl std::fmt::Debug for FeedSyncState {
     }
 }
 
+#[allow(dead_code)]
 fn format_feed_key(author_hex: &str, seq: u64) -> String {
     format!("feed/{author_hex}/{seq:010}")
 }
@@ -66,6 +67,26 @@ pub async fn publish_feed_entry_to_docs(
         "feed entry published to iroh-docs"
     );
     Ok(())
+}
+
+/// Insert a feed operation into SQLite AND publish to iroh-docs.
+///
+/// Combines `insert_feed_operation()` (coordinator DB) with
+/// `publish_feed_entry_to_docs()` (iroh-docs namespace) so the
+/// daemon never inserts without publishing. Acceptance criterion
+/// Phase B §5.4: "Un daemon qui insere publie dans iroh-docs".
+#[allow(dead_code)]
+pub async fn insert_and_publish_feed_operation(
+    feed_state: &FeedSyncState,
+    db: &CoordinatorDb,
+    op: nexus_coordinator_rs::public_feed::PublicFeedOperation,
+    author_pubkey: &str,
+    sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
+) -> Result<FeedEntry, String> {
+    let entry =
+        nexus_coordinator_rs::public_feed::insert_feed_operation(db, op, author_pubkey, sign_fn)?;
+    publish_feed_entry_to_docs(feed_state, &entry).await?;
+    Ok(entry)
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +314,7 @@ pub async fn feed_join(
     };
 
     let ns_id_bytes = doc_handle.id().as_bytes().to_vec();
+    let joined_key = format!("sbfb-feed-joined-{}", hex::encode(&ns_id_bytes[..4]));
     let joined_state = Arc::new(FeedSyncState {
         doc: Arc::new(doc_handle),
         author,
@@ -311,9 +333,7 @@ pub async fn feed_join(
                     .into_response();
             }
         };
-        if let Err(e) =
-            db.set_storage_namespace(FEED_NAMESPACE_KEY, &ns_id_bytes, Some(&body.ticket))
-        {
+        if let Err(e) = db.set_storage_namespace(&joined_key, &ns_id_bytes, Some(&body.ticket)) {
             warn!(error = %e, "failed to persist joined feed namespace");
         }
     }
