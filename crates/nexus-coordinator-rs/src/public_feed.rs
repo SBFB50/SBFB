@@ -24,9 +24,9 @@ pub const FEED_FORMAT_VERSION: u16 = 1;
 
 /// Payload for a release-published event.
 ///
-/// `is_open_source` is server-derived at publish time (not user-settable).
-/// Valid only when the full verification chain is present:
-/// `repo_url + commit_sha + artifact_hash + provenance_hash`.
+/// `is_open_source` is validated at insert time: `true` requires
+/// `provenance_hash` (spec §2.1). The constraint is enforced by
+/// `validate_feed_operation()`, not by struct construction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReleasePublishedPayload {
     pub project_id: String,
@@ -219,7 +219,7 @@ fn insert_feed_operation_inner(
     sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
 ) -> Result<FeedEntry, String> {
     let prev_hash = db
-        .get_last_feed_entry_hash()
+        .get_last_feed_entry_hash_by_author(author_pubkey)
         .map_err(|e| format!("db error: {e}"))?
         .unwrap_or_else(|| GENESIS_PREV_HASH.to_string());
 

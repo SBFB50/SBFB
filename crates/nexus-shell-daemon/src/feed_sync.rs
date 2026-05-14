@@ -15,11 +15,9 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use nexus_coordinator_rs::db::CoordinatorDb;
-use nexus_coordinator_rs::public_feed::{
-    self, FeedEntry, GENESIS_PREV_HASH, validate_feed_operation,
-};
+use nexus_coordinator_rs::public_feed::{self, FeedEntry, validate_feed_operation};
 use nexus_core_rs::BlobsClient;
-use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsLiveEvent, DocsTicket};
+use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsEntry, DocsLiveEvent, DocsTicket};
 
 use crate::http::DaemonHttpState;
 
@@ -92,7 +90,123 @@ pub async fn insert_and_publish_feed_operation(
 }
 
 // ---------------------------------------------------------------------------
-// Subscribe — ingest remote entries
+// Ingest a single iroh-docs entry into the local feed DB
+// ---------------------------------------------------------------------------
+
+async fn ingest_doc_entry(
+    doc_entry: &DocsEntry,
+    node: &nexus_core_rs::Node,
+    coordinator_db: &std::sync::Mutex<CoordinatorDb>,
+) {
+    let key_bytes = doc_entry.key();
+    let key_str = String::from_utf8_lossy(key_bytes);
+    if !key_str.starts_with("feed/") {
+        return;
+    }
+
+    let blobs = BlobsClient::new(node.blobs_store());
+    let hash_bytes = *doc_entry.content_hash().as_bytes();
+    let content = match blobs.get_bytes(hash_bytes).await {
+        Ok(b) => b,
+        Err(e) => {
+            warn!(key = %key_str, error = %e, "failed to read feed entry blob");
+            return;
+        }
+    };
+
+    let feed_entry: FeedEntry = match serde_json::from_slice(&content) {
+        Ok(e) => e,
+        Err(e) => {
+            warn!(key = %key_str, error = %e, "invalid feed entry JSON");
+            return;
+        }
+    };
+
+    if let Err(e) = public_feed::verify_entry(&feed_entry) {
+        warn!(key = %key_str, error = %e, "feed entry verification failed");
+        return;
+    }
+
+    if let Err(e) = validate_feed_operation(&feed_entry.op) {
+        warn!(key = %key_str, error = %e, "feed operation validation failed");
+        return;
+    }
+
+    let db = match coordinator_db.lock() {
+        Ok(db) => db,
+        Err(e) => {
+            warn!(error = %e, "coordinator DB lock failed in feed ingest");
+            return;
+        }
+    };
+
+    match db.feed_entry_exists_by_hash(&feed_entry.entry_hash) {
+        Ok(true) => {
+            debug!(
+                hash = &feed_entry.entry_hash[..8],
+                "feed entry already exists, skipping"
+            );
+            return;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            warn!(error = %e, "feed dedup check failed");
+            return;
+        }
+    }
+
+    let op_type = match &feed_entry.op {
+        nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(_) => {
+            "ReleasePublished"
+        }
+        nexus_coordinator_rs::public_feed::PublicFeedOperation::SourceBecameStale(_) => {
+            "SourceBecameStale"
+        }
+    };
+    let payload = match serde_json::to_string(&feed_entry.op) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(error = %e, "feed op re-serialization failed");
+            return;
+        }
+    };
+
+    let row = nexus_coordinator_rs::db::FeedEntryRow {
+        seq: 0,
+        op_type: op_type.to_string(),
+        payload,
+        author: feed_entry.author_pubkey.clone(),
+        signature: feed_entry.signature.clone(),
+        entry_hash: feed_entry.entry_hash.clone(),
+        prev_hash: feed_entry.prev_hash.clone(),
+        created_at: feed_entry.timestamp,
+    };
+
+    match db.insert_feed_entry(&row) {
+        Ok(seq) => {
+            info!(
+                seq,
+                author = &feed_entry.author_pubkey[..8],
+                hash = &feed_entry.entry_hash[..8],
+                "remote feed entry inserted"
+            );
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("UNIQUE constraint") {
+                debug!(
+                    hash = &feed_entry.entry_hash[..8],
+                    "feed entry duplicate (race)"
+                );
+            } else {
+                warn!(error = %e, "feed entry insert failed");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Subscribe — ingest remote entries (boot path, own namespace)
 // ---------------------------------------------------------------------------
 
 pub fn spawn_feed_subscribe(
@@ -114,131 +228,7 @@ pub fn spawn_feed_subscribe(
                 Ok(DocsLiveEvent::InsertRemote {
                     entry: doc_entry, ..
                 }) => {
-                    let key_bytes = doc_entry.key();
-                    let key_str = String::from_utf8_lossy(key_bytes);
-                    if !key_str.starts_with("feed/") {
-                        continue;
-                    }
-
-                    let blobs = BlobsClient::new(node.blobs_store());
-                    let hash_bytes = *doc_entry.content_hash().as_bytes();
-                    let content = match blobs.get_bytes(hash_bytes).await {
-                        Ok(b) => b,
-                        Err(e) => {
-                            warn!(key = %key_str, error = %e, "failed to read feed entry blob");
-                            continue;
-                        }
-                    };
-
-                    let feed_entry: FeedEntry = match serde_json::from_slice(&content) {
-                        Ok(e) => e,
-                        Err(e) => {
-                            warn!(key = %key_str, error = %e, "invalid feed entry JSON");
-                            continue;
-                        }
-                    };
-
-                    if let Err(e) = public_feed::verify_entry(&feed_entry) {
-                        warn!(key = %key_str, error = %e, "feed entry verification failed");
-                        continue;
-                    }
-
-                    if let Err(e) = validate_feed_operation(&feed_entry.op) {
-                        warn!(key = %key_str, error = %e, "feed operation validation failed");
-                        continue;
-                    }
-
-                    let db = match coordinator_db.lock() {
-                        Ok(db) => db,
-                        Err(e) => {
-                            warn!(error = %e, "coordinator DB lock failed in feed subscribe");
-                            continue;
-                        }
-                    };
-
-                    match db.feed_entry_exists_by_hash(&feed_entry.entry_hash) {
-                        Ok(true) => {
-                            debug!(
-                                hash = &feed_entry.entry_hash[..8],
-                                "feed entry already exists, skipping"
-                            );
-                            continue;
-                        }
-                        Ok(false) => {}
-                        Err(e) => {
-                            warn!(error = %e, "feed dedup check failed");
-                            continue;
-                        }
-                    }
-
-                    // Per-author prev_hash verification
-                    let expected_prev = db
-                        .get_last_feed_entry_hash_by_author(&feed_entry.author_pubkey)
-                        .unwrap_or(None)
-                        .unwrap_or_else(|| GENESIS_PREV_HASH.to_string());
-
-                    if feed_entry.prev_hash != expected_prev {
-                        debug!(
-                            author = &feed_entry.author_pubkey[..8],
-                            expected = &expected_prev[..std::cmp::min(8, expected_prev.len())],
-                            got = &feed_entry.prev_hash
-                                [..std::cmp::min(8, feed_entry.prev_hash.len())],
-                            "prev_hash mismatch — buffering for later (out-of-order arrival)"
-                        );
-                        // Out-of-order arrival during catch-up: insert anyway.
-                        // Chain integrity is verified at materialization time
-                        // by verify_chain(). Individual entry hash + Ed25519
-                        // are already verified above.
-                    }
-
-                    let op_type = match &feed_entry.op {
-                        nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(
-                            _,
-                        ) => "ReleasePublished",
-                        nexus_coordinator_rs::public_feed::PublicFeedOperation::SourceBecameStale(
-                            _,
-                        ) => "SourceBecameStale",
-                    };
-                    let payload = match serde_json::to_string(&feed_entry.op) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            warn!(error = %e, "feed op re-serialization failed");
-                            continue;
-                        }
-                    };
-
-                    let row = nexus_coordinator_rs::db::FeedEntryRow {
-                        seq: 0,
-                        op_type: op_type.to_string(),
-                        payload,
-                        author: feed_entry.author_pubkey.clone(),
-                        signature: feed_entry.signature.clone(),
-                        entry_hash: feed_entry.entry_hash.clone(),
-                        prev_hash: feed_entry.prev_hash.clone(),
-                        created_at: feed_entry.timestamp,
-                    };
-
-                    match db.insert_feed_entry(&row) {
-                        Ok(seq) => {
-                            info!(
-                                seq,
-                                author = &feed_entry.author_pubkey[..8],
-                                hash = &feed_entry.entry_hash[..8],
-                                "remote feed entry inserted"
-                            );
-                        }
-                        Err(e) => {
-                            let msg = e.to_string();
-                            if msg.contains("UNIQUE constraint") {
-                                debug!(
-                                    hash = &feed_entry.entry_hash[..8],
-                                    "feed entry duplicate (race)"
-                                );
-                            } else {
-                                warn!(error = %e, "feed entry insert failed");
-                            }
-                        }
-                    }
+                    ingest_doc_entry(&doc_entry, &node, &coordinator_db).await;
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -367,7 +357,16 @@ pub async fn feed_insert(
     };
 
     if let Err(e) = publish_feed_entry_to_docs(&feed_state, &entry).await {
-        warn!(error = %e, "feed entry published to DB but iroh-docs publish failed");
+        warn!(error = %e, "feed entry in DB but iroh-docs publish failed");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("publish failed: {e}"),
+                "seq": entry.seq,
+                "entry_hash": entry.entry_hash,
+            })),
+        )
+            .into_response();
     }
 
     (
@@ -417,10 +416,13 @@ pub async fn feed_join(
     };
 
     let docs_client = nexus_core_rs::docs::DocsClient::new(state.node.docs());
-    let doc_handle = match docs_client.import_ticket(ticket).await {
-        Ok(d) => d,
+
+    // import_and_subscribe atomically: no window between import and
+    // subscribe where initial sync events could be missed.
+    let (doc_handle, live_stream) = match docs_client.import_and_subscribe(ticket).await {
+        Ok(pair) => pair,
         Err(e) => {
-            warn!(error = %e, "feed import ticket failed");
+            warn!(error = %e, "feed import_and_subscribe failed");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": "import failed" })),
@@ -466,11 +468,43 @@ pub async fn feed_join(
         }
     }
 
-    spawn_feed_subscribe(
-        Arc::clone(&joined_state),
-        Arc::clone(&state.coordinator_db),
-        Arc::clone(&state.node),
-    );
+    // Spawn a task that first backfills existing entries (from the
+    // iroh-docs namespace) then processes the live event stream.
+    // Dedup via entry_hash UNIQUE index handles overlap.
+    let feed_st = Arc::clone(&joined_state);
+    let db_sp = Arc::clone(&state.coordinator_db);
+    let node_sp = Arc::clone(&state.node);
+    tokio::spawn(async move {
+        // Backfill: iterate entries already present in the doc.
+        match feed_st.doc.get_many_by_prefix(b"feed/").await {
+            Ok(entries) => {
+                info!(count = entries.len(), "backfilling existing feed entries");
+                for doc_entry in &entries {
+                    ingest_doc_entry(doc_entry, &node_sp, &db_sp).await;
+                }
+            }
+            Err(e) => warn!(error = %e, "feed backfill scan failed"),
+        }
+
+        // Process live stream (captures events from import time).
+        futures_lite::pin!(live_stream);
+        info!("feed join subscribe active");
+        while let Some(event) = live_stream.next().await {
+            match event {
+                Ok(DocsLiveEvent::InsertRemote {
+                    entry: doc_entry, ..
+                }) => {
+                    ingest_doc_entry(&doc_entry, &node_sp, &db_sp).await;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!(error = %e, "feed join stream error");
+                    break;
+                }
+            }
+        }
+        info!("feed join subscribe ended");
+    });
 
     (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
 }
@@ -478,6 +512,7 @@ pub async fn feed_join(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_coordinator_rs::public_feed::GENESIS_PREV_HASH;
 
     #[test]
     fn test_format_feed_key() {
