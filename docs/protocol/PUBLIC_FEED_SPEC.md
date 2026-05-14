@@ -49,12 +49,11 @@ Records that a project has published a new release from source.
 }
 ```
 
-**`is_open_source` validation rule:** this field is server-derived
-at publish time, not user-settable. It is `true` only when the
-complete verification chain is present and valid:
-`repo_url + commit_sha + artifact_hash + provenance_hash`.
-A `ReleasePublished` with `is_open_source: true` but missing any
-of the four fields is invalid.
+**`is_open_source` validation rule:** `true` requires the complete
+verification chain: `repo_url + commit_sha + artifact_hash +
+provenance_hash`. Enforced by `validate_feed_operation()` at
+insert time. A `ReleasePublished` with `is_open_source: true` but
+missing `provenance_hash` is rejected.
 
 #### `SourceBecameStale`
 
