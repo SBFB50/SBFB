@@ -172,6 +172,8 @@ static MIGRATIONS: &[M<'static>] = &[
         last_entry_hash  TEXT NOT NULL
     );",
     ),
+    // M11: unique index on entry_hash for feed sync dedup (Sprint 62 Phase B)
+    M::up("CREATE UNIQUE INDEX IF NOT EXISTS idx_feed_entry_hash ON public_feed(entry_hash);"),
 ];
 
 pub struct StorageNamespaceRow {
@@ -759,6 +761,28 @@ impl CoordinatorDb {
             .conn
             .prepare("SELECT entry_hash FROM public_feed ORDER BY seq DESC LIMIT 1")?;
         let mut rows = stmt.query([])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn feed_entry_exists_by_hash(&self, entry_hash: &str) -> Result<bool, CoordinatorError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT 1 FROM public_feed WHERE entry_hash = ?1 LIMIT 1")?;
+        let mut rows = stmt.query(rusqlite::params![entry_hash])?;
+        Ok(rows.next()?.is_some())
+    }
+
+    pub fn get_last_feed_entry_hash_by_author(
+        &self,
+        author: &str,
+    ) -> Result<Option<String>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT entry_hash FROM public_feed WHERE author = ?1 ORDER BY seq DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![author])?;
         match rows.next()? {
             Some(row) => Ok(Some(row.get(0)?)),
             None => Ok(None),

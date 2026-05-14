@@ -35,6 +35,7 @@ mod contributor_api;
 mod deploy;
 mod diagnostic_api;
 mod dispatch_loop;
+mod feed_sync;
 mod files;
 mod health_api;
 mod http;

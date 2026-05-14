@@ -601,6 +601,30 @@ impl DaemonRuntime {
             }
         }
 
+        // 6c-4. Sprint 62 Phase B: create or reopen iroh-docs feed
+        //       namespace for public feed P2P sync. Reuses the M8
+        //       storage_namespaces table with key "sbfb-feed".
+        let feed_sync_state =
+            match boot_feed_namespace(&docs_client, &coordinator_db, doc_author).await {
+                Ok(fs) => {
+                    info!(
+                        doc_id = %fs.doc.id(),
+                        "feed sync namespace ready"
+                    );
+                    let fs_arc = Arc::new(fs);
+                    crate::feed_sync::spawn_feed_subscribe(
+                        Arc::clone(&fs_arc),
+                        Arc::clone(&coordinator_db),
+                        Arc::clone(&node),
+                    );
+                    Some(fs_arc)
+                }
+                Err(e) => {
+                    warn!(error = %e, "failed to boot feed sync namespace");
+                    None
+                }
+            };
+
         // 6d. Build gossip command channel + shared HTTP state +
         //     spawn the serve task.
         let (gossip_cmd_tx, gossip_cmd_rx) = tokio::sync::mpsc::channel::<GossipCmd>(64);
@@ -650,6 +674,7 @@ impl DaemonRuntime {
             storage_write_limiter: Arc::new(
                 nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter::new(),
             ),
+            feed_sync_state,
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
@@ -1401,6 +1426,65 @@ async fn boot_storage_namespace(
         author,
         ticket: ticket_str,
         version: AtomicU64::new(0),
+    })
+}
+
+/// Boot or reopen the iroh-docs namespace for the public feed
+/// P2P sync. Mirrors `boot_storage_namespace` but produces a
+/// `FeedSyncState` without the version counter (feed dedup is
+/// hash-based, not version-based).
+async fn boot_feed_namespace(
+    docs_client: &nexus_core_rs::docs::DocsClient,
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    author: nexus_core_rs::docs::DocsAuthorId,
+) -> Result<crate::feed_sync::FeedSyncState> {
+    let feed_key = crate::feed_sync::FEED_NAMESPACE_KEY;
+
+    let existing = {
+        let db = coordinator_db
+            .lock()
+            .map_err(|e| anyhow!("coordinator DB lock failed: {e}"))?;
+        db.get_storage_namespace(feed_key).ok().flatten()
+    };
+
+    let (doc, ticket_str) = match existing {
+        Some(row) => {
+            let bytes: [u8; 32] = row
+                .namespace_id
+                .as_slice()
+                .try_into()
+                .map_err(|_| anyhow!("invalid namespace_id length in DB"))?;
+            let ns_id = nexus_core_rs::docs::DocsNamespaceId::from(bytes);
+            let doc = docs_client
+                .open_doc(ns_id)
+                .await?
+                .ok_or_else(|| anyhow!("feed namespace listed in DB but not found in iroh"))?;
+            let ticket_str = match row.doc_ticket {
+                Some(t) => t,
+                None => {
+                    let ticket = doc.share_write().await?;
+                    let t = ticket.to_string();
+                    let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+                    let _ = db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&t));
+                    t
+                }
+            };
+            (doc, ticket_str)
+        }
+        None => {
+            let doc = docs_client.create_doc().await?;
+            let ticket = doc.share_write().await?;
+            let ticket_str = ticket.to_string();
+            let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+            let _ = db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&ticket_str));
+            (doc, ticket_str)
+        }
+    };
+
+    Ok(crate::feed_sync::FeedSyncState {
+        doc: Arc::new(doc),
+        author,
+        ticket: ticket_str,
     })
 }
 

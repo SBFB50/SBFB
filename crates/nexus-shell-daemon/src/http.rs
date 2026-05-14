@@ -167,6 +167,9 @@ pub struct DaemonHttpState {
     /// Sprint 59 Phase C: per-author per-app GCRA rate limiter for
     /// storage write endpoints. 10 writes/min/author/app.
     pub storage_write_limiter: Arc<nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter>,
+    /// Sprint 62 Phase B: feed sync state (iroh-docs namespace for
+    /// the public feed). `None` if boot_feed_namespace failed.
+    pub feed_sync_state: Option<Arc<crate::feed_sync::FeedSyncState>>,
 }
 
 impl DaemonHttpState {
@@ -327,6 +330,11 @@ pub fn build_router(
             "/api/daemon/storage/{app}/version",
             get(crate::storage_api::storage_version),
         )
+        .route(
+            "/api/daemon/feed/ticket",
+            get(crate::feed_sync::feed_ticket),
+        )
+        .route("/api/daemon/feed/join", post(crate::feed_sync::feed_join))
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
             "/api/v1/deploy-from-repo",
@@ -1818,6 +1826,7 @@ mod tests {
             storage_write_limiter: Arc::new(
                 nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter::new(),
             ),
+            feed_sync_state: None,
         })
     }
 
@@ -2577,6 +2586,7 @@ mod tests {
             storage_write_limiter: Arc::new(
                 nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter::new(),
             ),
+            feed_sync_state: None,
         });
         let app = build_test_router(state);
         let resp = app
