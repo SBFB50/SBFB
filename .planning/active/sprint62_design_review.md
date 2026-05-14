@@ -82,28 +82,22 @@ pourrait etre O(N²) worst-case mais acceptable pour pilot.
 
 ## D5 ✅ — Gate de scission
 
-4 criteres mesurables et binaires. Gate Phase C appropriee.
-Ambiguite mineure : "anti-spam hot path" pas defini en termes
-de deliverables exacts (FeedEntry field? test coverage?).
-
-**Recommandation** : clarifier le critere dans verification.md.
+3 criteres sync mesurables et binaires (offline catch-up, replay
+idempotent, 2+ noeuds). Gate Phase C appropriee. Anti-spam retire
+du gate (implemente Phase D, evalue separement).
 
 ---
 
-## Verdict: CONCERN
+## Verdict: PASS
 
-2 ⚠️ sur 5, 0 ❌. Les D-decisions sont globalement solides mais
-3 incoherences factuelles doivent etre resolues avant Phase A code :
+2 ⚠️ sur 5, 0 ❌. Les D-decisions sont solides.
 
-1. Gate Phase C : le critere "anti-spam hot path" est implemente
-   en Phase D mais evalue en Phase C — contradiction logique.
-   Le gate devrait porter sur 3 criteres sync (offline catch-up,
-   replay idempotent, 2+ noeuds). Anti-spam = acceptance Phase D.
-2. Contrat PoW : kickoff dit "chaque operation porte une preuve PoW"
-   (mandatoire) et "pow_proof optionnel" (serde default). Figer :
-   optionnel wire format (compat), enforce sur remote sync.
-3. G2 iroh-docs : kickoff evalue "iroh > 0.98" mais pas "iroh-docs
-   > 0.98". crates.io montre iroh-docs 0.99.0 (2026-05-08). Meme
-   conclusion (defere, depend iroh 1.0.0-rc.0) mais a documenter.
+CONCERN initiale sur 3 incoherences — toutes resolues dans
+`61b41fc` (fix(planning)) :
 
-CONCERN levee quand kickoff + plan corrigent ces 3 points.
+1. Gate Phase C : anti-spam retire du gate (Phase D acceptance).
+   Gate = 3 criteres sync. **Corrige.**
+2. Contrat PoW : fige optionnel wire format + enforce remote sync.
+   **Corrige.**
+3. G2 iroh-docs 0.99.0 : documente dans kickoff, meme conclusion
+   (defere, depend iroh 1.0.0-rc.0). **Corrige.**

@@ -63,7 +63,7 @@ Phase B (feed sync foundation)
     ↓
 Phase C (catch-up + E2E) ← GATE DE SCISSION
     │
-    │ si 4/4 criteres PASS
+    │ si 3/3 criteres sync PASS
     ↓
 Phase D (anti-spam + wrap-up)
 ```
@@ -159,7 +159,7 @@ feed local.
 
 Prouver que la sync feed fonctionne end-to-end entre 2-3 noeuds,
 y compris apres deconnexion offline. C'est la phase gate — si les
-4 criteres D5 ne sont pas atteints, scission.
+3 criteres sync D5 ne sont pas atteints, scission.
 
 ### §6.2 Taches
 
