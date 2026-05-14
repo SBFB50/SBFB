@@ -604,6 +604,8 @@ impl DaemonRuntime {
         // 6c-4. Sprint 62 Phase B: create or reopen iroh-docs feed
         //       namespace for public feed P2P sync. Reuses the M8
         //       storage_namespaces table with key "sbfb-feed".
+        let feed_rate_limiter =
+            Arc::new(nexus_shell_daemon_core::feed_limiter::FeedRateLimiter::new());
         let feed_sync_state =
             match boot_feed_namespace(&docs_client, &coordinator_db, doc_author).await {
                 Ok(fs) => {
@@ -616,6 +618,7 @@ impl DaemonRuntime {
                         Arc::clone(&fs_arc),
                         Arc::clone(&coordinator_db),
                         Arc::clone(&node),
+                        Arc::clone(&feed_rate_limiter),
                     );
                     Some(fs_arc)
                 }
@@ -675,6 +678,7 @@ impl DaemonRuntime {
                 nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter::new(),
             ),
             feed_sync_state,
+            feed_rate_limiter,
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
@@ -712,6 +716,17 @@ impl DaemonRuntime {
 
         {
             let limiter = Arc::clone(&http_state.storage_write_limiter);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+                loop {
+                    interval.tick().await;
+                    limiter.retain_recent();
+                }
+            });
+        }
+
+        {
+            let limiter = Arc::clone(&http_state.feed_rate_limiter);
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
                 loop {

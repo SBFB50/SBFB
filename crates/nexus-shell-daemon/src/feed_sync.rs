@@ -18,6 +18,7 @@ use nexus_coordinator_rs::db::CoordinatorDb;
 use nexus_coordinator_rs::public_feed::{self, FeedEntry, validate_feed_operation};
 use nexus_core_rs::BlobsClient;
 use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsEntry, DocsLiveEvent, DocsTicket};
+use nexus_shell_daemon_core::feed_limiter::FeedRateLimiter;
 
 use crate::http::DaemonHttpState;
 
@@ -50,8 +51,13 @@ pub async fn publish_feed_entry_to_docs(
     feed_state: &FeedSyncState,
     entry: &FeedEntry,
 ) -> Result<(), String> {
+    let mut entry_with_pow = entry.clone();
+    if entry_with_pow.pow_nonce.is_none() {
+        entry_with_pow.pow_nonce = Some(public_feed::compute_feed_pow(&entry.entry_hash));
+    }
     let key = format_feed_key(&entry.author_pubkey, entry.seq);
-    let value = serde_json::to_vec(entry).map_err(|e| format!("feed entry serialization: {e}"))?;
+    let value = serde_json::to_vec(&entry_with_pow)
+        .map_err(|e| format!("feed entry serialization: {e}"))?;
     feed_state
         .doc
         .set(feed_state.author, key.into_bytes(), value)
@@ -97,6 +103,7 @@ async fn ingest_doc_entry(
     doc_entry: &DocsEntry,
     node: &nexus_core_rs::Node,
     coordinator_db: &std::sync::Mutex<CoordinatorDb>,
+    feed_limiter: &FeedRateLimiter,
 ) {
     let key_bytes = doc_entry.key();
     let key_str = String::from_utf8_lossy(key_bytes);
@@ -146,6 +153,28 @@ async fn ingest_doc_entry(
 
     if let Err(e) = validate_feed_operation(&feed_entry.op) {
         warn!(key = %key_str, error = %e, "feed operation validation failed");
+        return;
+    }
+
+    match feed_entry.pow_nonce {
+        Some(nonce) => {
+            if !public_feed::verify_feed_pow(&feed_entry.entry_hash, nonce) {
+                warn!(key = %key_str, "feed entry rejected: invalid PoW nonce");
+                return;
+            }
+        }
+        None => {
+            warn!(key = %key_str, "feed entry rejected: missing PoW nonce");
+            return;
+        }
+    }
+
+    if !feed_limiter.check_author(&feed_entry.author_pubkey) {
+        warn!(
+            key = %key_str,
+            author = &feed_entry.author_pubkey[..8],
+            "feed entry rejected: author rate limit exceeded"
+        );
         return;
     }
 
@@ -230,6 +259,7 @@ pub fn spawn_feed_subscribe(
     feed_state: Arc<FeedSyncState>,
     coordinator_db: Arc<std::sync::Mutex<CoordinatorDb>>,
     node: Arc<nexus_core_rs::Node>,
+    feed_limiter: Arc<FeedRateLimiter>,
 ) {
     tokio::spawn(async move {
         let mut stream = match feed_state.doc.subscribe().await {
@@ -245,7 +275,7 @@ pub fn spawn_feed_subscribe(
                 Ok(DocsLiveEvent::InsertRemote {
                     entry: doc_entry, ..
                 }) => {
-                    ingest_doc_entry(&doc_entry, &node, &coordinator_db).await;
+                    ingest_doc_entry(&doc_entry, &node, &coordinator_db, &feed_limiter).await;
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -491,13 +521,14 @@ pub async fn feed_join(
     let feed_st = Arc::clone(&joined_state);
     let db_sp = Arc::clone(&state.coordinator_db);
     let node_sp = Arc::clone(&state.node);
+    let limiter_sp = Arc::clone(&state.feed_rate_limiter);
     tokio::spawn(async move {
         // Backfill: iterate entries already present in the doc.
         match feed_st.doc.get_many_by_prefix(b"feed/").await {
             Ok(entries) => {
                 info!(count = entries.len(), "backfilling existing feed entries");
                 for doc_entry in &entries {
-                    ingest_doc_entry(doc_entry, &node_sp, &db_sp).await;
+                    ingest_doc_entry(doc_entry, &node_sp, &db_sp, &limiter_sp).await;
                 }
             }
             Err(e) => warn!(error = %e, "feed backfill scan failed"),
@@ -511,7 +542,7 @@ pub async fn feed_join(
                 Ok(DocsLiveEvent::InsertRemote {
                     entry: doc_entry, ..
                 }) => {
-                    ingest_doc_entry(&doc_entry, &node_sp, &db_sp).await;
+                    ingest_doc_entry(&doc_entry, &node_sp, &db_sp, &limiter_sp).await;
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -564,6 +595,7 @@ mod tests {
             entry_hash: "e".repeat(64),
             prev_hash: GENESIS_PREV_HASH.to_string(),
             signature: "f".repeat(128),
+            pow_nonce: Some(42),
         };
         let json = serde_json::to_vec(&entry).unwrap();
         let back: FeedEntry = serde_json::from_slice(&json).unwrap();

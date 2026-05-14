@@ -170,6 +170,9 @@ pub struct DaemonHttpState {
     /// Sprint 62 Phase B: feed sync state (iroh-docs namespace for
     /// the public feed). `None` if boot_feed_namespace failed.
     pub feed_sync_state: Option<Arc<crate::feed_sync::FeedSyncState>>,
+    /// Sprint 62 Phase D: per-author GCRA rate limiter for remote
+    /// feed entry ingestion. 5 ops/min/author.
+    pub feed_rate_limiter: Arc<nexus_shell_daemon_core::feed_limiter::FeedRateLimiter>,
 }
 
 impl DaemonHttpState {
@@ -1835,6 +1838,9 @@ mod tests {
                 nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter::new(),
             ),
             feed_sync_state: None,
+            feed_rate_limiter: Arc::new(
+                nexus_shell_daemon_core::feed_limiter::FeedRateLimiter::new(),
+            ),
         })
     }
 
@@ -2595,6 +2601,9 @@ mod tests {
                 nexus_shell_daemon_core::storage_limiter::StorageWriteLimiter::new(),
             ),
             feed_sync_state: None,
+            feed_rate_limiter: Arc::new(
+                nexus_shell_daemon_core::feed_limiter::FeedRateLimiter::new(),
+            ),
         });
         let app = build_test_router(state);
         let resp = app

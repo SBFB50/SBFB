@@ -200,6 +200,7 @@ fn rows_to_entries(rows: Vec<crate::db::FeedEntryRow>) -> Result<Vec<FeedEntry>,
             entry_hash: row.entry_hash,
             prev_hash: row.prev_hash,
             signature: row.signature,
+            pow_nonce: None,
         });
     }
     Ok(entries)

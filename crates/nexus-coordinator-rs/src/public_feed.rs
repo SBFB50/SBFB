@@ -76,6 +76,12 @@ pub struct FeedEntry {
     pub entry_hash: String,
     pub prev_hash: String,
     pub signature: String,
+    /// Transport-level proof of work nonce for anti-spam.
+    /// Not part of `FeedEntryCanonical` (does not affect entry_hash
+    /// or signature). `#[serde(default)]` for runtime tolerance:
+    /// local entries omit it (self-trust), remote sync enforces it.
+    #[serde(default)]
+    pub pow_nonce: Option<u64>,
 }
 
 /// Canonical representation of a feed entry for hashing and signing.
@@ -121,6 +127,54 @@ pub fn compute_feed_entry_hash(canonical: &FeedEntryCanonical) -> Result<String,
 pub fn compute_feed_canonical_bytes(canonical: &FeedEntryCanonical) -> Result<Vec<u8>, String> {
     nexus_core_rs::canonical_bytes(canonical, nexus_core_rs::DOMAIN_FEED_V1)
         .map_err(|e| format!("canonical serialization failed: {e}"))
+}
+
+// ---------------------------------------------------------------------------
+// Proof of work — transport-level anti-spam (Sprint 62 Phase D)
+// ---------------------------------------------------------------------------
+
+/// Minimum leading zero bits required in the PoW hash.
+/// 16 bits ≈ 65k average iterations ≈ 10-50 ms on modern CPU.
+pub const FEED_POW_DIFFICULTY: u32 = 16;
+
+fn leading_zero_bits(bytes: &[u8]) -> u32 {
+    let mut count = 0;
+    for &b in bytes {
+        if b == 0 {
+            count += 8;
+        } else {
+            count += b.leading_zeros();
+            break;
+        }
+    }
+    count
+}
+
+/// Verify that `nonce` satisfies the PoW difficulty for `entry_hash`.
+///
+/// Computes `BLAKE3(entry_hash_ascii || nonce_le_bytes)` and checks
+/// that the result has at least `FEED_POW_DIFFICULTY` leading zero bits.
+pub fn verify_feed_pow(entry_hash: &str, nonce: u64) -> bool {
+    let mut input = Vec::with_capacity(entry_hash.len() + 8);
+    input.extend_from_slice(entry_hash.as_bytes());
+    input.extend_from_slice(&nonce.to_le_bytes());
+    let hash = blake3::hash(&input);
+    leading_zero_bits(hash.as_bytes()) >= FEED_POW_DIFFICULTY
+}
+
+/// Brute-force a valid PoW nonce for `entry_hash`.
+pub fn compute_feed_pow(entry_hash: &str) -> u64 {
+    let prefix = entry_hash.as_bytes();
+    for nonce in 0u64.. {
+        let mut input = Vec::with_capacity(prefix.len() + 8);
+        input.extend_from_slice(prefix);
+        input.extend_from_slice(&nonce.to_le_bytes());
+        let hash = blake3::hash(&input);
+        if leading_zero_bits(hash.as_bytes()) >= FEED_POW_DIFFICULTY {
+            return nonce;
+        }
+    }
+    unreachable!()
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +324,7 @@ fn insert_feed_operation_inner(
         entry_hash,
         prev_hash,
         signature: hex::encode(signature),
+        pow_nonce: None,
     })
 }
 
@@ -292,6 +347,7 @@ pub fn replay_all(db: &CoordinatorDb) -> Result<Vec<FeedEntry>, String> {
             entry_hash: row.entry_hash,
             prev_hash: row.prev_hash,
             signature: row.signature,
+            pow_nonce: None,
         });
     }
     Ok(entries)
@@ -781,6 +837,7 @@ mod tests {
             entry_hash: hash_a1.clone(),
             prev_hash: GENESIS_PREV_HASH.to_string(),
             signature: hex::encode(kp_a.sign(&bytes_a1)),
+            pow_nonce: None,
         };
 
         // Author B entry 1: genesis → b1 (independent chain)
@@ -802,6 +859,7 @@ mod tests {
             entry_hash: hash_b1,
             prev_hash: GENESIS_PREV_HASH.to_string(),
             signature: hex::encode(kp_b.sign(&bytes_b1)),
+            pow_nonce: None,
         };
 
         // Author A entry 2: a1 → a2
@@ -823,6 +881,7 @@ mod tests {
             entry_hash: hash_a2,
             prev_hash: hash_a1,
             signature: hex::encode(kp_a.sign(&bytes_a2)),
+            pow_nonce: None,
         };
 
         // Interleaved: A1, B1, A2 — per-author chains are valid
@@ -879,6 +938,7 @@ mod tests {
             entry_hash: hash1.clone(),
             prev_hash: GENESIS_PREV_HASH.to_string(),
             signature: hex::encode(kp.sign(&bytes1)),
+            pow_nonce: None,
         };
 
         let can2 = FeedEntryCanonical {
@@ -899,6 +959,7 @@ mod tests {
             entry_hash: hash2,
             prev_hash: hash1,
             signature: hex::encode(kp.sign(&bytes2)),
+            pow_nonce: None,
         };
 
         // Reversed order (simulates out-of-order iroh-docs arrival)
@@ -907,5 +968,62 @@ mod tests {
             verify_chain(&entries).is_ok(),
             "verify_chain must handle out-of-order entries via chain linkage"
         );
+    }
+
+    #[test]
+    fn test_feed_pow_verification() {
+        let entry_hash = "a".repeat(64);
+        let nonce = compute_feed_pow(&entry_hash);
+        assert!(
+            verify_feed_pow(&entry_hash, nonce),
+            "computed nonce must verify"
+        );
+        assert!(
+            !verify_feed_pow(&entry_hash, u64::MAX),
+            "random nonce should almost certainly fail"
+        );
+    }
+
+    #[test]
+    fn test_feed_pow_different_hashes_different_nonces() {
+        let hash_a = "a".repeat(64);
+        let hash_b = "b".repeat(64);
+        let nonce_a = compute_feed_pow(&hash_a);
+        let nonce_b = compute_feed_pow(&hash_b);
+        assert!(verify_feed_pow(&hash_a, nonce_a));
+        assert!(verify_feed_pow(&hash_b, nonce_b));
+        assert!(
+            !verify_feed_pow(&hash_a, nonce_b) || nonce_a == nonce_b,
+            "cross-hash nonce should not verify (unless coincidence)"
+        );
+    }
+
+    #[test]
+    fn test_pow_nonce_serde_default() {
+        let entry = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: "d".repeat(64),
+            timestamp: 1_700_000_000,
+            entry_hash: "e".repeat(64),
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: "f".repeat(128),
+            pow_nonce: None,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        // Deserialize without pow_nonce field → defaults to None
+        let without_pow: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let mut obj = without_pow.as_object().unwrap().clone();
+        obj.remove("pow_nonce");
+        let back: FeedEntry = serde_json::from_value(serde_json::Value::Object(obj)).unwrap();
+        assert_eq!(back.pow_nonce, None);
+
+        // Deserialize with pow_nonce field → picks up value
+        let mut entry_with = entry.clone();
+        entry_with.pow_nonce = Some(42);
+        let json2 = serde_json::to_string(&entry_with).unwrap();
+        let back2: FeedEntry = serde_json::from_str(&json2).unwrap();
+        assert_eq!(back2.pow_nonce, Some(42));
     }
 }

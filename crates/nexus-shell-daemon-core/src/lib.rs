@@ -57,6 +57,7 @@ pub mod browse;
 pub mod browse_limiter;
 pub mod canary;
 pub mod config;
+pub mod feed_limiter;
 pub mod ipc_broker;
 pub mod iroh_runtime;
 pub mod key_rotation_handler;
