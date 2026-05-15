@@ -321,6 +321,41 @@ async function dispatch(
         return await resp.json();
       }
 
+      case "provenance_get": {
+        const pid = String(req.payload.project_id ?? "");
+        if (!pid) throw new Error("provenance_get requires payload.project_id");
+        const resp = await authFetch(
+          `${coordUrl}/api/v1/project/${encodeURIComponent(pid)}/provenance`,
+          { signal: controller.signal },
+        );
+        if (resp.status === 404) return { record: null };
+        if (!resp.ok) throw new Error(`provenance_get failed: ${resp.status}`);
+        const data = (await resp.json()) as { record: unknown };
+        return { record: data.record };
+      }
+
+      case "provenance_verify": {
+        const pid = String(req.payload.project_id ?? "");
+        if (!pid) throw new Error("provenance_verify requires payload.project_id");
+        const resp = await authFetch(
+          `${coordUrl}/api/v1/project/${encodeURIComponent(pid)}/provenance`,
+          { signal: controller.signal },
+        );
+        if (resp.status === 404) return { verified: false, record: null };
+        if (!resp.ok) throw new Error(`provenance_verify failed: ${resp.status}`);
+        const data = (await resp.json()) as { record: unknown; verified: boolean };
+        return { verified: data.verified, record: data.record };
+      }
+
+      case "feed_cursor_get": {
+        const resp = await authFetch(
+          `${coordUrl}/api/daemon/feed/cursor`,
+          { signal: controller.signal },
+        );
+        if (!resp.ok) throw new Error(`feed_cursor_get failed: ${resp.status}`);
+        return await resp.json();
+      }
+
       default:
         throw new Error(`unknown bridge method: ${req.method}`);
     }

@@ -258,6 +258,34 @@ class SBFBBridge {
   }
 
   /**
+   * Get the full provenance record for a project. Sprint 63 Phase C.
+   * @param {string} projectId — project identifier
+   * @returns {Promise<{ record: Object | null }>}
+   */
+  getProvenanceRecord(projectId) {
+    return this._call("provenance_get", { project_id: projectId });
+  }
+
+  /**
+   * Verify a release via the daemon's live Ed25519 check.
+   * Sprint 63 Phase C.
+   * @param {string} projectId — project identifier
+   * @returns {Promise<{ verified: boolean, record: Object | null }>}
+   */
+  verifyRelease(projectId) {
+    return this._call("provenance_verify", { project_id: projectId });
+  }
+
+  /**
+   * Get the local feed materializer cursor position. Sprint 63
+   * Phase C.
+   * @returns {Promise<{ last_seq: number, last_entry_hash: string | null }>}
+   */
+  getPublicFeedCursor() {
+    return this._call("feed_cursor_get", {});
+  }
+
+  /**
    * Register a callback invoked when the storage version changes
    * (remote sync detected). Polls every 3s. Sprint 58 Phase D.
    * @param {string} appName — replicated app name

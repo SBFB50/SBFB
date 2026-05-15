@@ -33,6 +33,10 @@ export const BridgeMethodSchema = z.enum([
   "browse_list",
   // Sprint 58 Phase D — storage version polling for live updates.
   "storage_version",
+  // Sprint 63 Phase C — verification bridge methods.
+  "provenance_get",
+  "provenance_verify",
+  "feed_cursor_get",
 ]);
 
 export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;

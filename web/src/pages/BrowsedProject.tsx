@@ -20,6 +20,7 @@ import {
   Shield,
   ShieldCheck,
 } from "lucide-react";
+import { VerificationDetail } from "@/components/VerificationDetail";
 
 import {
   addToWhitelist,
@@ -173,6 +174,7 @@ function FullScreenApp({
   coordUrl: string;
 }) {
   const [barVisible, setBarVisible] = useState(true);
+  const [verifyOpen, setVerifyOpen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
@@ -269,13 +271,15 @@ function FullScreenApp({
             )}
 
             {entry.provenance_hash && (
-              <span
-                className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1.5 text-[11px] font-medium text-emerald-400"
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1.5 text-[11px] font-medium text-emerald-400 transition-colors hover:bg-emerald-500/25"
                 data-testid="verified-badge"
+                onClick={() => setVerifyOpen(true)}
               >
                 <ShieldCheck className="h-3 w-3" />
                 Verifie
-              </span>
+              </button>
             )}
 
             {entry.repo_url && (
@@ -371,6 +375,13 @@ function FullScreenApp({
           </div>
         )}
       </div>
+
+      <VerificationDetail
+        open={verifyOpen}
+        onOpenChange={setVerifyOpen}
+        coordUrl={coordUrl}
+        projectId={entry.project_id}
+      />
     </div>
   );
 }

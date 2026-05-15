@@ -346,6 +346,7 @@ pub fn build_router(
             "/api/daemon/feed/insert",
             post(crate::feed_sync::feed_insert),
         )
+        .route("/api/daemon/feed/cursor", get(get_feed_cursor))
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
             "/api/v1/deploy-from-repo",
@@ -1746,6 +1747,49 @@ async fn get_provenance(
             .into_response(),
         Err(e) => {
             tracing::error!("provenance DB query failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+// =================================================================
+// Sprint 63 Phase C — Feed cursor endpoint
+// =================================================================
+
+async fn get_feed_cursor(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    let db = match state.coordinator_db.lock() {
+        Ok(guard) => guard,
+        Err(_poisoned) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+    match db.load_feed_cursor() {
+        Ok(Some((last_seq, last_entry_hash))) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "last_seq": last_seq,
+                "last_entry_hash": last_entry_hash,
+            })),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "last_seq": 0,
+                "last_entry_hash": null,
+            })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("feed cursor query failed: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "internal"})),
@@ -5560,5 +5604,53 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["verified"], false);
         assert!(json["record"]["repo_url"].as_str().is_some());
+    }
+
+    // -- Sprint 63 Phase C: feed cursor endpoint tests --
+
+    #[tokio::test]
+    async fn feed_cursor_empty_returns_zero() {
+        let state = mk_state().await;
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/feed/cursor")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["last_seq"], 0);
+        assert!(json["last_entry_hash"].is_null());
+    }
+
+    #[tokio::test]
+    async fn feed_cursor_returns_saved_position() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            db.save_feed_cursor(42, "abcdef1234567890").expect("save");
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/feed/cursor")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["last_seq"], 42);
+        assert_eq!(json["last_entry_hash"], "abcdef1234567890");
     }
 }
