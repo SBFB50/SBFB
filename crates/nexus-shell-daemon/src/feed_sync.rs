@@ -169,15 +169,9 @@ async fn ingest_doc_entry(
         }
     }
 
-    if !feed_limiter.check_author(&feed_entry.author_pubkey) {
-        warn!(
-            key = %key_str,
-            author = &feed_entry.author_pubkey[..8],
-            "feed entry rejected: author rate limit exceeded"
-        );
-        return;
-    }
-
+    // Dedup BEFORE rate-limit: existing entries skip without
+    // consuming a GCRA token. Prevents backfill of 6+ historical
+    // entries from exhausting the author's quota.
     let db = match coordinator_db.lock() {
         Ok(db) => db,
         Err(e) => {
@@ -200,6 +194,27 @@ async fn ingest_doc_entry(
             return;
         }
     }
+
+    // Release DB lock before rate-limit check so the token is
+    // consumed only for genuinely new entries.
+    drop(db);
+
+    if !feed_limiter.check_author(&feed_entry.author_pubkey) {
+        warn!(
+            key = %key_str,
+            author = &feed_entry.author_pubkey[..8],
+            "feed entry rejected: author rate limit exceeded"
+        );
+        return;
+    }
+
+    let db = match coordinator_db.lock() {
+        Ok(db) => db,
+        Err(e) => {
+            warn!(error = %e, "coordinator DB lock failed in feed ingest");
+            return;
+        }
+    };
 
     let op_type = match &feed_entry.op {
         nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(_) => {

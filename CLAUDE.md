@@ -128,18 +128,23 @@ Runtime isolation roadmap dans
   spawn_feed_subscribe LiveEvent::InsertRemote, endpoints
   feed/ticket + feed/join, M11 unique index entry_hash) + 3 P1
   fix review croisee (verify_chain order-independent, wrapper
-  insert_and_publish pub API, feed_join cle distincte).
-  Infrastructure sync prete — preuve runtime = Phase C E2E gate.
+  insert_and_publish pub API, feed_join cle distincte) +
+  Phase C multi-daemon E2E gate D5 3/3 (import_and_subscribe
+  atomique, blob read retry backoff, offline catch-up) + 2 fix
+  (spec is_open_source align, blob read retry) + Phase D anti-spam
+  minimal (FeedRateLimiter GCRA 5/min/auteur, PoW 16-bit
+  BLAKE3 sur entry_hash, pow_nonce transport-level #[serde(default)]
+  hors FeedEntryCanonical, enforce remote ingest, exempt local) +
+  1 fix (dedup avant rate-limit pour backfill historique).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1554 tests total** (1290 Rust / 258 Vitest / 6/6 size-limit)
+- **~1563 tests total** (1299 Rust / 258 Vitest / 6/6 size-limit)
   — tous verts code. Playwright bloque par global-setup
   (pyproject.toml manquant post-S50, refactor PW = post-v1.0).
-  S62 : +8 delta Rust (1282→1290, 2 phases + 1 fix).
+  S62 : +17 delta Rust (1282→1299, 4 phases + 7 fix).
 - Carry S63 :
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
-  P2-NSIS-UNINSTALL multi-binary residuel (2/3).
   P2-IMAGE-DEP image 0.25 footprint (3/3 MANDATORY S63).
   P2-G-1 exe lock intermittent (reouvert).
   P2-PLAYWRIGHT-REFACTOR global-setup (3/3 MANDATORY S63).
