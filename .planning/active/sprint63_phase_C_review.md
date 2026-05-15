@@ -29,7 +29,7 @@ Rigor signal : 2 findings P2 documentes (>=1 requis pour PASS rigoureux).
 
 ## Commit body validation
 - Format titre : ✅ `feat(web+bridge): Sprint 63 Phase C — bridge verification + UI VerificationDetail`
-- Delta tests coherent : ✅ (Rust +6 cumule, Vitest +6 cumule = +12 total)
+- Delta tests coherent : ✅ (Rust +6 cumule, Vitest +7 cumule = +13 total)
 - Scope cuts honoured : ✅ (10 items kickoff §7 non touches)
 - Co-Authored-By present : ✅
 
@@ -83,5 +83,5 @@ Rigor signal : 2 findings P2 documentes (>=1 requis pour PASS rigoureux).
 
 ## Recommendation
 - Ready to commit : oui (commit feat `272523c` + fix `fa7cd52`)
-- Carry-overs S64 : P2-PROCESS-FORMAT (herite), P2-PROVENANCE-404-BRIDGE (cosmetic), P2-BADGE-WORDING-PREMATURE (pre-existant S14), P2-COMMIT-TITLE-FORMAT (clarification process)
+- Carry-overs S64 : P2-PROCESS-FORMAT (herite), P2-PROVENANCE-404-BRIDGE (cosmetic), P2-BADGE-WORDING-PREMATURE (pre-existant S14), P2-COMMIT-TITLE-FORMAT (clarification process), P2-REVIEW-ORDER (clarifier si chore review doit preceder feat), P2-PYTHON-BLOCK-EXEMPTION (ajouter clause exemption SKILL.md Step 2)
 - Corrections applied : P1-PROVENANCE-HASH-LINKAGE fixe par `fa7cd52`
