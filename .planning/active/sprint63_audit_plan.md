@@ -55,6 +55,8 @@ Sprint 62 a livre en 4 phases + 8 fix inter-phases :
 - P2-FEED-INSERT-NO-AUTH-TIER (S64+)
 - P2-FEED-SUBSCRIBE-JOINHANDLE : subscribe JoinHandle non trackee
 - P2-BACKFILL-6PLUS-TEST : P1 code ferme par 5d52b6c (backfill exempt rate-limit), preuve test integration manquante. Test multi_daemon avec 6+ entries meme auteur, gate SBFB_INTEGRATION=1.
+- P2-FEED-PUBLISH-ORPHAN (audit S62 F1) : feed_insert split DB/iroh-docs — si publish echoue, entree orpheline locale. Owner: shell-daemon feed_sync.rs. Trigger: iroh-docs set failure. Exit: retry mechanism ou rollback transactionnel.
+- P2-SUBSCRIBE-STREAM-BREAK (audit S62 F2) : subscribe stream break sans reconnexion — desync silencieuse. Owner: shell-daemon feed_sync.rs. Trigger: erreur reseau transitoire. Exit: reconnexion avec backoff exponentiel.
 
 ---
 
