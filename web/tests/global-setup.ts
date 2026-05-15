@@ -1,17 +1,19 @@
 /**
- * Playwright globalSetup — spawns a real nexus-coordinator
- * subprocess against a hermetic NEXUS_GRID_ROOT directory, then
- * waits for `/health` to return 200 before handing off to the
- * test runner.
+ * Playwright globalSetup — spawns a real nexus-shell-daemon
+ * subprocess against a hermetic directory, then waits for
+ * `/health` to return 200 before handing off to the test runner.
  *
- * The coordinator PID is written to `.playwright-state.json`
+ * The daemon PID is written to `.playwright-state.json`
  * so `global-teardown.ts` can kill the process even if a test
  * fails mid-run. The hermetic root is `tests/.tmp/nexus-grid/`
  * relative to the web/ directory.
+ *
+ * Sprint 63 Phase A: rewritten from Python coordinator spawn
+ * to Rust daemon spawn (Python removed S50-S51).
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,16 +21,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export const TEST_COORD_URL = "http://127.0.0.1:18765";
-export const TEST_COORD_NAME = "pw-demo";
 const STATE_FILE = resolve(__dirname, ".playwright-state.json");
+const TEST_PORT = 18765;
 
 /** Sprint 16 Phase A (D1): fixed 64-char hex token shared by the
- *  coordinator subprocess and the Playwright page. Hard-coded so
- *  each `test.beforeEach` in a spec can `addInitScript` it into
- *  `window.__SBFB_AUTH_TOKEN` without round-tripping through the
- *  state file. */
+ *  coordinator subprocess and the Playwright page. */
 export const TEST_AUTH_TOKEN =
   "deadbeefcafebabefeedfaceabadc0de0123456789abcdef0123456789abcdef";
+
+function findDaemonBin(): string {
+  if (process.env.SBFB_DAEMON_BIN) return process.env.SBFB_DAEMON_BIN;
+  const ext = process.platform === "win32" ? ".exe" : "";
+  const repoRoot = resolve(__dirname, "../..");
+  const release = resolve(repoRoot, `target/release/nexus-shell-daemon${ext}`);
+  if (existsSync(release)) return release;
+  const debug = resolve(repoRoot, `target/debug/nexus-shell-daemon${ext}`);
+  if (existsSync(debug)) return debug;
+  return `nexus-shell-daemon${ext}`;
+}
 
 async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -43,36 +53,15 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error(`coordinator /health did not respond in ${timeoutMs} ms: ${lastError}`);
+  throw new Error(`daemon /health did not respond in ${timeoutMs} ms: ${lastError}`);
 }
 
-async function initProject(gridRoot: string): Promise<void> {
+async function initDaemon(configPath: string, daemonBin: string): Promise<void> {
   return new Promise((resolvePromise, reject) => {
-    const proc = spawn(
-      "uv",
-      [
-        "run",
-        "--package",
-        "nexus-coordinator",
-        "nexus-coordinator",
-        "init",
-        TEST_COORD_NAME,
-      ],
-      {
-        cwd: resolve(__dirname, "../.."),
-        env: {
-        ...process.env,
-        NEXUS_GRID_ROOT: gridRoot,
-        SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN,
-        // Force Rich / structlog to write utf-8 so the checkmark
-        // Rich prints in `init` success output does not crash the
-        // subprocess on a Windows cp1252 code page.
-        PYTHONIOENCODING: "utf-8",
-      },
-        stdio: ["ignore", "pipe", "pipe"],
-        shell: true,
-      },
-    );
+    const proc = spawn(daemonBin, ["--config", configPath, "init"], {
+      env: { ...process.env, SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     let stderr = "";
     proc.stderr.on("data", (chunk) => {
@@ -81,7 +70,7 @@ async function initProject(gridRoot: string): Promise<void> {
     proc.on("error", reject);
     proc.on("exit", (code) => {
       if (code === 0) resolvePromise();
-      else reject(new Error(`init exit ${code}: ${stderr}`));
+      else reject(new Error(`daemon init exit ${code}: ${stderr}`));
     });
   });
 }
@@ -91,48 +80,35 @@ async function globalSetup() {
   rmSync(gridRoot, { recursive: true, force: true });
   mkdirSync(gridRoot, { recursive: true });
 
-   
-  console.log(`[pw] NEXUS_GRID_ROOT=${gridRoot}`);
+  const configPath = resolve(gridRoot, "config.toml");
+  writeFileSync(
+    configPath,
+    `[network]\napi_host = "127.0.0.1"\napi_port = ${TEST_PORT}\n`,
+    "utf-8",
+  );
 
-   
-  console.log("[pw] initialising test coordinator project");
-  await initProject(gridRoot);
+  const daemonBin = findDaemonBin();
+  console.log(`[pw] daemon binary: ${daemonBin}`);
+  console.log(`[pw] hermetic root: ${gridRoot}`);
 
-   
-  console.log("[pw] spawning nexus-coordinator start");
+  console.log("[pw] initialising daemon");
+  await initDaemon(configPath, daemonBin);
+
+  console.log("[pw] spawning daemon start");
   const startProc: ChildProcessWithoutNullStreams = spawn(
-    "uv",
-    [
-      "run",
-      "--package",
-      "nexus-coordinator",
-      "nexus-coordinator",
-      "start",
-      TEST_COORD_NAME,
-      "--port",
-      "18765",
-    ],
+    daemonBin,
+    ["--config", configPath, "start"],
     {
-      cwd: resolve(__dirname, "../.."),
-      env: {
-        ...process.env,
-        NEXUS_GRID_ROOT: gridRoot,
-        SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN,
-        // Force Rich / structlog to write utf-8 so the checkmark
-        // Rich prints in `init` success output does not crash the
-        // subprocess on a Windows cp1252 code page.
-        PYTHONIOENCODING: "utf-8",
-      },
+      env: { ...process.env, SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN },
       stdio: ["ignore", "pipe", "pipe"],
-      shell: true,
     },
   );
 
   startProc.stdout.on("data", (chunk) => {
-    process.stdout.write(`[coord stdout] ${chunk}`);
+    process.stdout.write(`[daemon stdout] ${chunk}`);
   });
   startProc.stderr.on("data", (chunk) => {
-    process.stdout.write(`[coord stderr] ${chunk}`);
+    process.stdout.write(`[daemon stderr] ${chunk}`);
   });
 
   writeFileSync(
@@ -142,8 +118,7 @@ async function globalSetup() {
   );
 
   await waitForHealth(TEST_COORD_URL, 30_000);
-   
-  console.log(`[pw] coordinator ready on ${TEST_COORD_URL}`);
+  console.log(`[pw] daemon ready on ${TEST_COORD_URL}`);
 }
 
 export default globalSetup;

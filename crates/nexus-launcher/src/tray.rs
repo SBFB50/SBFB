@@ -12,11 +12,19 @@ pub struct TrayState {
 
 pub fn create_tray() -> anyhow::Result<TrayState> {
     let png_bytes = include_bytes!("../../../assets/nexus-launcher.png");
-    let img = image::load_from_memory(png_bytes)
+    let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    let mut reader = decoder
+        .read_info()
         .map_err(|e| anyhow::anyhow!("icon decode failed: {e}"))?;
-    let rgba = img.to_rgba8();
-    let (w, h) = rgba.dimensions();
-    let icon = tray_icon::Icon::from_rgba(rgba.into_raw(), w, h)
+    let buf_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| anyhow::anyhow!("icon buffer size unknown"))?;
+    let mut buf = vec![0u8; buf_size];
+    let info = reader
+        .next_frame(&mut buf)
+        .map_err(|e| anyhow::anyhow!("icon frame failed: {e}"))?;
+    buf.truncate(info.buffer_size());
+    let icon = tray_icon::Icon::from_rgba(buf, info.width, info.height)
         .map_err(|e| anyhow::anyhow!("icon creation failed: {e}"))?;
 
     let open_item = MenuItem::new("Open browser", true, None);
@@ -115,10 +123,13 @@ mod tests {
     #[test]
     fn embedded_icon_decodes_to_valid_rgba() {
         let png_bytes = include_bytes!("../../../assets/nexus-launcher.png");
-        let img = image::load_from_memory(png_bytes).expect("PNG decode");
-        let rgba = img.to_rgba8();
-        let (w, h) = rgba.dimensions();
-        assert!(w > 0 && h > 0);
-        assert_eq!(rgba.len() as u32, w * h * 4);
+        let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+        let mut reader = decoder.read_info().expect("PNG decode");
+        let buf_size = reader.output_buffer_size().expect("PNG buffer size");
+        let mut buf = vec![0u8; buf_size];
+        let info = reader.next_frame(&mut buf).expect("PNG frame");
+        buf.truncate(info.buffer_size());
+        assert!(info.width > 0 && info.height > 0);
+        assert_eq!(buf.len() as u32, info.width * info.height * 4);
     }
 }

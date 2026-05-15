@@ -1,5 +1,5 @@
 /**
- * Playwright globalTeardown — kills the coordinator subprocess
+ * Playwright globalTeardown — kills the daemon subprocess
  * spawned by `global-setup.ts`. Reads the PID from the state
  * file and issues `process.kill` (or taskkill on Windows).
  */
@@ -25,10 +25,9 @@ async function globalTeardown() {
   };
 
    
-  console.log(`[pw] killing coordinator pid=${pid}`);
+  console.log(`[pw] killing daemon pid=${pid}`);
   if (process.platform === "win32") {
-    // /T kills the entire process tree including any uv / uvicorn
-    // children. /F is force.
+    // /T kills the entire process tree. /F is force.
     spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
       stdio: "inherit",
     });
