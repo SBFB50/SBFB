@@ -710,7 +710,7 @@ impl CoordinatorDb {
         let mut stmt = self.conn.prepare(
             "SELECT repo_url, commit_sha, artifact_hash, node_id, signature, timestamp, schema_version
              FROM provenance_records WHERE project_id = ?1
-             ORDER BY created_at DESC LIMIT 1",
+             ORDER BY created_at DESC, rowid DESC LIMIT 1",
         )?;
         let mut rows = stmt.query(rusqlite::params![project_id])?;
         match rows.next()? {
