@@ -1,7 +1,7 @@
 # Sprint 64 — Audit plan
 
 **Sprint audite** : Sprint 63 (verification tiers + UX).
-**Tip de reference** : `7198ae5` (a completer).
+**Tip de reference** : `7198ae5`.
 **Auditeur** : session fraiche, independante du sprint 63.
 
 ---
@@ -84,6 +84,9 @@ Sprint 63 a livre 4 phases (A-D) + 2 fix inter-phases sur le theme
 | P2-AUDIT-2 iroh transitives | exemption externe | upstream | iroh 1.0 upgrade sprint | iroh 1.0 stable + upgrade sprint dedie |
 | P2-G-1 exe lock | monitoring | dev-env | reproductible 3x consecutif | root cause identifiee + fix |
 | P2-EXPLORER-ESCAPE-SINGLE-QUOTE | 1/3 | planner S64+ | defensive hardening | escapeAttr inclut single quote |
+| P2-PLAYWRIGHT-SPECS-STALE | 1/3 | planner S64 | test maintenance | specs Playwright reecrites pour daemon Rust (Phase A = setup only, pas specs) |
+| P2-VERIFY-LOCAL-KEY-ONLY | 1/3 | planner S64+ | cross-node verification | resoudre cle publique depuis pkarr/node_id pour verification cross-node |
+| P2-COVERAGE-DEPLOY-E2E | 1/3 | planner S64+ | test coverage | test integration deploy E2E (clone+build+provenance roundtrip) |
 
 ---
 

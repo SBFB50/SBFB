@@ -2,7 +2,7 @@
 
 **Ecrit** : 2026-05-15.
 **Tip d'entree** : `1405c0c` (post-audit gate S62 PASS).
-**Tip de sortie** : `7198ae5` (a completer).
+**Tip de sortie** : `7198ae5`.
 
 ---
 
