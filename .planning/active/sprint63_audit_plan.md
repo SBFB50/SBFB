@@ -8,12 +8,12 @@
 
 ## §1 Perimetre de l'audit
 
-Sprint 62 a livre en 4 phases + 6 fix inter-phases :
+Sprint 62 a livre en 4 phases + 8 fix inter-phases :
 - Phase A : dette pair F2/F3/F4/F6 (S61 audit P2) + P2-NSIS-UNINSTALL
 - Phase B : feed sync foundation iroh-docs (FeedSyncState, boot_feed_namespace, spawn_feed_subscribe, endpoints feed/ticket + feed/join)
 - Phase C : catch-up offline + multi-daemon E2E (import_and_subscribe atomique, blob read retry backoff, backfill on join)
 - Phase D : anti-spam minimal (FeedRateLimiter GCRA 5/min, PoW 16-bit sur FeedEntry, integration subscribe handler)
-- 6 fix : 3 P1 review croisee Phase B + 3 fix Phase C (backfill join, per-author chain hash, publish error propagation, blob read retry, spec is_open_source alignment)
+- 8 fix : 3 P1 review croisee Phase B + 3 fix Phase C (backfill join, per-author chain hash, publish error propagation, blob read retry, spec is_open_source alignment) + 2 fix Phase D cross-review (d391b1b dedup avant rate-limit, 5d52b6c backfill exempt rate-limit — P1 ferme)
 - Delta tests : +17 Rust (1282 → 1299), +0 Vitest
 
 ---

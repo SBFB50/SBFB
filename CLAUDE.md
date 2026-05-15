@@ -135,7 +135,8 @@ Runtime isolation roadmap dans
   minimal (FeedRateLimiter GCRA 5/min/auteur, PoW 16-bit
   BLAKE3 sur entry_hash, pow_nonce transport-level #[serde(default)]
   hors FeedEntryCanonical, enforce remote ingest, exempt local) +
-  1 fix (dedup avant rate-limit pour backfill historique).
+  2 fix cross-review (d391b1b dedup avant rate-limit +
+  5d52b6c backfill exempt rate-limit, P1 ferme).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
 - **~1563 tests total** (1299 Rust / 258 Vitest / 6/6 size-limit)
