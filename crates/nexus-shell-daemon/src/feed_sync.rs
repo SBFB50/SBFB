@@ -104,6 +104,7 @@ async fn ingest_doc_entry(
     node: &nexus_core_rs::Node,
     coordinator_db: &std::sync::Mutex<CoordinatorDb>,
     feed_limiter: &FeedRateLimiter,
+    apply_rate_limit: bool,
 ) {
     let key_bytes = doc_entry.key();
     let key_str = String::from_utf8_lossy(key_bytes);
@@ -199,7 +200,7 @@ async fn ingest_doc_entry(
     // consumed only for genuinely new entries.
     drop(db);
 
-    if !feed_limiter.check_author(&feed_entry.author_pubkey) {
+    if apply_rate_limit && !feed_limiter.check_author(&feed_entry.author_pubkey) {
         warn!(
             key = %key_str,
             author = &feed_entry.author_pubkey[..8],
@@ -290,7 +291,7 @@ pub fn spawn_feed_subscribe(
                 Ok(DocsLiveEvent::InsertRemote {
                     entry: doc_entry, ..
                 }) => {
-                    ingest_doc_entry(&doc_entry, &node, &coordinator_db, &feed_limiter).await;
+                    ingest_doc_entry(&doc_entry, &node, &coordinator_db, &feed_limiter, true).await;
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -543,7 +544,7 @@ pub async fn feed_join(
             Ok(entries) => {
                 info!(count = entries.len(), "backfilling existing feed entries");
                 for doc_entry in &entries {
-                    ingest_doc_entry(doc_entry, &node_sp, &db_sp, &limiter_sp).await;
+                    ingest_doc_entry(doc_entry, &node_sp, &db_sp, &limiter_sp, false).await;
                 }
             }
             Err(e) => warn!(error = %e, "feed backfill scan failed"),
@@ -557,7 +558,7 @@ pub async fn feed_join(
                 Ok(DocsLiveEvent::InsertRemote {
                     entry: doc_entry, ..
                 }) => {
-                    ingest_doc_entry(&doc_entry, &node_sp, &db_sp, &limiter_sp).await;
+                    ingest_doc_entry(&doc_entry, &node_sp, &db_sp, &limiter_sp, true).await;
                 }
                 Ok(_) => {}
                 Err(e) => {
