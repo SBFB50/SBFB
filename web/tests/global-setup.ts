@@ -21,6 +21,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export const TEST_COORD_URL = "http://127.0.0.1:18765";
+export const TEST_COORD_NAME = "pw-demo";
 const STATE_FILE = resolve(__dirname, ".playwright-state.json");
 const TEST_PORT = 18765;
 
