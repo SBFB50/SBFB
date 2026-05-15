@@ -1,7 +1,7 @@
 # Sprint 64 — Audit plan
 
 **Sprint audite** : Sprint 63 (verification tiers + UX).
-**Tip de reference** : `<Phase D commit SHA>` (a completer).
+**Tip de reference** : `7198ae5` (a completer).
 **Auditeur** : session fraiche, independante du sprint 63.
 
 ---
@@ -59,22 +59,31 @@ Sprint 63 a livre 4 phases (A-D) + 2 fix inter-phases sur le theme
 
 ### Track 5 — Process compliance
 - 4 preflights G8 presents avec verdicts documentes
-- 3 reviews PASS + 1 review Phase D (a verifier)
+- 4 reviews PASS (A, B, C, D)
 - Commit discipline : feat scope + body riche + delta tests
 - Scope cuts respectes (10 items kickoff §7)
 
 ### Track 6 — Carries S64
 
-Items a verifier :
-- F1 P2-VERSION-NOT-STORED **3/3 MANDATORY** : plan obligatoire S64
-- F5 P2-IROH-INFRA-TIMEOUT **3/3 MANDATORY** : plan obligatoire S64
-- 6 P2 cosmetic/process carries (PROCESS-FORMAT, PROVENANCE-404-BRIDGE,
-  BADGE-WORDING-PREMATURE, COMMIT-TITLE-FORMAT, REVIEW-ORDER,
-  PYTHON-BLOCK-EXEMPTION)
-- 5 carries reconduits 2/3 (FEED-INSERT-NO-AUTH-TIER,
-  FEED-SUBSCRIBE-JOINHANDLE, BACKFILL-6PLUS-TEST,
-  FEED-PUBLISH-ORPHAN, SUBSCRIBE-STREAM-BREAK)
-- 3 carries permanents (P2-A-1 rand, P2-AUDIT-2 iroh, P2-G-1 exe lock)
+| Item | Compteur | Owner | Trigger | Exit condition |
+|---|---|---|---|---|
+| F1 P2-VERSION-NOT-STORED | **3/3 MANDATORY** | planner S64 | §6.2.1 Regle 2 | version stockee en DB a l'insert provenance |
+| F5 P2-IROH-INFRA-TIMEOUT | **3/3 MANDATORY** | planner S64 | §6.2.1 Regle 2 | SBFB_INTEGRATION tests stables (0 timeout 5 runs consecutifs) |
+| P2-PROCESS-FORMAT | herite | planner S64 | audit S63 | supprimer §6 LOC plan.md OU ajouter exemption retroactive |
+| P2-PROVENANCE-404-BRIDGE | 1/3 | planner S64+ | enrichissement provenance UX | endpoint retourne code distinct projet-inconnu vs provenance-absente |
+| P2-BADGE-WORDING-PREMATURE | pre-existant S14 | planner S64 | UI pass verification | renommer badge "Provenance disponible" ou conditionner sur verified |
+| P2-COMMIT-TITLE-FORMAT | 1/3 | planner S64 | process clarification | PROCESS.md accepte domain scopes OU commits alignes feat(sprintN) |
+| P2-REVIEW-ORDER | 1/3 | planner S64 | process clarification | README.md/PROCESS.md clarifie review artifact timing |
+| P2-PYTHON-BLOCK-EXEMPTION | 1/3 | planner S64 | process hygiene | SKILL.md Step 2 ajoute clause exemption projets sans Python |
+| P2-FEED-INSERT-NO-AUTH-TIER | 2/3 | planner S64+ | auth tier feed | feed_insert handler verifie auth tier avant insert |
+| P2-FEED-SUBSCRIBE-JOINHANDLE | 2/3 | planner S64 | subscribe cleanup | subscribe JoinHandle trackee + joined au shutdown |
+| P2-BACKFILL-6PLUS-TEST | 2/3 | planner S64 | test coverage | test integration backfill >= 6 entries present |
+| P2-FEED-PUBLISH-ORPHAN | 2/3 | planner S64 | feed hardening | retry/rollback split DB/iroh-docs insert |
+| P2-SUBSCRIBE-STREAM-BREAK | 2/3 | planner S64 | feed resilience | subscribe reconnexion auto apres stream break |
+| P2-A-1 rand blocker | exemption permanente | upstream | rand 0.9 release | crate rand publie 0.9 stable |
+| P2-AUDIT-2 iroh transitives | exemption externe | upstream | iroh 1.0 upgrade sprint | iroh 1.0 stable + upgrade sprint dedie |
+| P2-G-1 exe lock | monitoring | dev-env | reproductible 3x consecutif | root cause identifiee + fix |
+| P2-EXPLORER-ESCAPE-SINGLE-QUOTE | 1/3 | planner S64+ | defensive hardening | escapeAttr inclut single quote |
 
 ---
 

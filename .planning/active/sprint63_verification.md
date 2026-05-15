@@ -2,7 +2,7 @@
 
 **Ecrit** : 2026-05-15.
 **Tip d'entree** : `1405c0c` (post-audit gate S62 PASS).
-**Tip de sortie** : `<Phase D commit>` (a completer).
+**Tip de sortie** : `7198ae5` (a completer).
 
 ---
 
@@ -24,7 +24,7 @@
 | 12 | sync-bridge-sdk | diff web/public/sbfb-bridge.js vs examples/ | identical (SHA256 match) | exit 0 |
 | 13 | Playwright setup | N/A (Phase A PLAYWRIGHT-REFACTOR resolue, setup operationnel) | ✅ | global-setup OK |
 | 14 | Phase A-D preflights G8 | 4 fichiers sprint63_phase_{A..D}_preflight.md | 4x EXECUTE | EXECUTE |
-| 15 | Phase A-D reviews | 3 fichiers sprint63_phase_{A..C}_review.md + Phase D review pending | 3x PASS + 1 pending | PASS |
+| 15 | Phase A-D reviews | 4 fichiers sprint63_phase_{A..D}_review.md | 4x PASS | PASS |
 
 **Verdict** : toutes les rows vertes. Sprint 63 livrable.
 
@@ -52,7 +52,7 @@
 | C | feat(web+bridge): Sprint 63 Phase C — bridge verification + UI VerificationDetail | `272523c` | Rust +2, Vitest +7 |
 | Fix | fix(feed): provenance hash linkage — proof-chain integrity | `fa7cd52` | Rust +0 (fix runtime) |
 | Fix | fix(feed): provenance insert after blob store + rowid tiebreaker | `5f6a77d` | Rust +0 (fix runtime) |
-| D | feat(examples): Sprint 63 Phase D — Protocol Explorer verification + wrap-up | `<pending>` | Rust +0, Vitest +0 (HTML pur) |
+| D | feat(examples): Sprint 63 Phase D — Protocol Explorer verification + wrap-up | `7198ae5` | Rust +0, Vitest +0 (HTML pur) |
 
 ---
 
