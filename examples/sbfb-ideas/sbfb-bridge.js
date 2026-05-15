@@ -260,7 +260,11 @@ class SBFBBridge {
   /**
    * Get the full provenance record for a project. Sprint 63 Phase C.
    * @param {string} projectId — project identifier
-   * @returns {Promise<{ record: Object | null }>}
+   * @returns {Promise<{ record: Object | null, provenance_hash: string | null }>}
+   *   `provenance_hash` is the BLAKE3 hex digest of the record's
+   *   JSON (via `provenance_to_json` pretty-print). Compare with
+   *   the `provenance_hash` in the project's browse entry to verify
+   *   the record matches the announced deployment.
    */
   getProvenanceRecord(projectId) {
     return this._call("provenance_get", { project_id: projectId });
@@ -270,7 +274,11 @@ class SBFBBridge {
    * Verify a release via the daemon's live Ed25519 check.
    * Sprint 63 Phase C.
    * @param {string} projectId — project identifier
-   * @returns {Promise<{ verified: boolean, record: Object | null }>}
+   * @returns {Promise<{ verified: boolean, record: Object | null, provenance_hash: string | null }>}
+   *   `verified` is the result of live Ed25519 signature check.
+   *   `provenance_hash` is the BLAKE3 hex digest of the record's
+   *   JSON — compare with the browse entry's `provenance_hash`
+   *   to confirm proof-chain integrity.
    */
   verifyRelease(projectId) {
     return this._call("provenance_verify", { project_id: projectId });

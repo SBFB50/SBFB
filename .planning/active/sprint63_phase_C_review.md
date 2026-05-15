@@ -20,7 +20,7 @@ Rigor signal : 2 findings P2 documentes (>=1 requis pour PASS rigoureux).
 - Rust doctests : ok ✅
 - npm lint : 0 errors (5 warnings pre-existants) ✅
 - tsc : 0 errors ✅
-- Vitest : 258 -> 264 (+6 : 3 bridge dispatch + 3 VerificationDetail) ✅
+- Vitest : 258 -> 265 (+7 : 3 bridge dispatch + 3 VerificationDetail + 1 hash mismatch) ✅
 - npm build : ok ✅
 - size-limit : 6/6 ✅
 - scan-en-strings : clean ✅
@@ -75,9 +75,9 @@ Rigor signal : 2 findings P2 documentes (>=1 requis pour PASS rigoureux).
 | Finding | Verdict | Resolution |
 |---|---|---|
 | P1 provenance_hash linkage gap | **CONFIRME** — plan §3.3 attendait provenanceHash prop, non implemente. Proof chain incomplète. | **FIXE** `fa7cd52` : backend retourne provenance_hash BLAKE3, frontend compare au hash annonce, warning mismatch. |
-| P1 review avant commit | **INVALIDE** — le review artifact est produit avant commit feat ; le chore(planning) review est metadata post-commit. Pattern historique. | Aucune action. |
-| P1 commit title format | **P2** (pas P1) — `feat(web+bridge):` vs `feat(sprint63):` documenté. Incohérence historique, pas un bug Phase C. | Carry-over clarification process S64. |
-| P1/P2 Python block manquant | **FAUX POSITIF** — projet Rust+Frontend pur depuis S50. Pas de Python a tester. | Aucune action. SKILL.md devrait documenter l'exception. |
+| P1 review avant commit | **NON RESOLU FORMELLEMENT** — docs/agent/PROCESS.md:37 demande review avant commit, et l'artifact review (5b6ec41) est committe apres le feat (272523c). Pattern historique mais non prouve comme conforme. | Carry-over S64 : clarifier si le verdict review doit etre committe AVANT le feat ou si le chore(planning) est metadata post-commit acceptable. |
+| P1 commit title format | **P2 PROCESS** — `feat(web+bridge):` vs `feat(sprint63):` attendu par PROCESS.md:41 et SKILL.md Step 4. Incohérence historique (S63 A+B aussi), mais si agentctl est gate, le regex bloque. | Carry-over S64 : soit aligner les commits sur feat(sprintN), soit mettre a jour PROCESS.md pour accepter domain scopes. |
+| P1/P2 Python block manquant | **DRIFT PROCESS/DOC** — le repo est Rust+Frontend pur (S50), mais SKILL.md Step 2 et PROCESS.md demandent encore le bloc Python sans clause d'exemption. Pas un P1 runtime, un P2 doc. | Carry-over S64 : ajouter exemption explicite dans SKILL.md Step 2 pour projets sans packages/ Python. |
 | P2 badge "Verifie" premature | **VALIDE** (pré-existant S14) — badge affiché à l'existence du hash, pas après vérification live. Phase C n'a pas changé ce comportement. | Carry-over S64 (renommer "Provenance disponible" ?). |
 | P2 feed_cursor_get naming | **VALIDE mais correct** — le materializer cursor EST la position locale dans le feed public. JSDoc précis. | Aucune action nécessaire. |
 
