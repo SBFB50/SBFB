@@ -68,7 +68,20 @@ Rigor signal : 2 findings P2 documentes (>=1 requis pour PASS rigoureux).
 - **P2-PROCESS-FORMAT** : plan.md §6 contient `Estimation LOC par phase` — feedback_approach.md §6.7 interdit les budgets LOC au plan (dimensionner par objectif fonctionnel). P2 herite du kickoff/plan, non modifiable en Phase C. Carry-over S64 audit. Note : ce P2 a ete identifie et reclassifie dans la review Phase B (`51aff78`). Le plan a ete redige avant la consolidation de la regle §6.7 dans feedback_approach.md.
 - **P2-PROVENANCE-404-BRIDGE** : les dispatch cases `provenance_get` et `provenance_verify` dans useBridge.ts gerent le 404 en retournant `{ record: null }` / `{ verified: false, record: null }` sans distinguer "projet inconnu" de "provenance non enregistree pour un projet existant". Le daemon retourne 404 dans les deux cas. Non-bloquant car le UX (VerificationDetail empty state) est correct, mais un futur enrichissement pourrait vouloir distinguer les cas. Carry-over S64 si pertinent.
 
+## Cross-review GPT 5.5 (post-commit)
+
+5 findings analyses par team 4 agents Explore :
+
+| Finding | Verdict | Resolution |
+|---|---|---|
+| P1 provenance_hash linkage gap | **CONFIRME** — plan §3.3 attendait provenanceHash prop, non implemente. Proof chain incomplète. | **FIXE** `fa7cd52` : backend retourne provenance_hash BLAKE3, frontend compare au hash annonce, warning mismatch. |
+| P1 review avant commit | **INVALIDE** — le review artifact est produit avant commit feat ; le chore(planning) review est metadata post-commit. Pattern historique. | Aucune action. |
+| P1 commit title format | **P2** (pas P1) — `feat(web+bridge):` vs `feat(sprint63):` documenté. Incohérence historique, pas un bug Phase C. | Carry-over clarification process S64. |
+| P1/P2 Python block manquant | **FAUX POSITIF** — projet Rust+Frontend pur depuis S50. Pas de Python a tester. | Aucune action. SKILL.md devrait documenter l'exception. |
+| P2 badge "Verifie" premature | **VALIDE** (pré-existant S14) — badge affiché à l'existence du hash, pas après vérification live. Phase C n'a pas changé ce comportement. | Carry-over S64 (renommer "Provenance disponible" ?). |
+| P2 feed_cursor_get naming | **VALIDE mais correct** — le materializer cursor EST la position locale dans le feed public. JSDoc précis. | Aucune action nécessaire. |
+
 ## Recommendation
-- Ready to commit : oui (commit deja fait `272523c`)
-- Carry-overs S64 : P2-PROCESS-FORMAT (herite), P2-PROVENANCE-404-BRIDGE (cosmetic)
-- Corrections needed : aucune
+- Ready to commit : oui (commit feat `272523c` + fix `fa7cd52`)
+- Carry-overs S64 : P2-PROCESS-FORMAT (herite), P2-PROVENANCE-404-BRIDGE (cosmetic), P2-BADGE-WORDING-PREMATURE (pre-existant S14), P2-COMMIT-TITLE-FORMAT (clarification process)
+- Corrections applied : P1-PROVENANCE-HASH-LINKAGE fixe par `fa7cd52`
