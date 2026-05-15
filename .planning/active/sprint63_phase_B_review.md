@@ -65,7 +65,42 @@
 
 - **P2-PLAN-LOC-ESTIMATE** : plan.md §6 contient des estimations LOC prospectives (~150, ~310, etc.). Contraire a feedback_approach.md §6.7 ("Pas d'estimation LOC"). Pre-existant dans le plan (pas introduit par Phase B code). Carry note pour futurs plans.
 
+## Cross-review findings (GPT 5.5, 2026-05-15)
+
+6 findings soumis, 2 confirmes + 2 faux positifs + 2 deja documentes.
+
+### Confirmes — fixes appliques
+
+- **P1-PROVENANCE-PERSIST-BEFORE-PUBLISH** : insert_provenance_record()
+  etait a deploy.rs:172, AVANT blob store (221) et announcement (234).
+  Si blob echoue, orphan provenance record en DB. **Fix** : deplace
+  l'insert APRES blob store reussi (apres ligne 230).
+
+- **P2-LATEST-NON-DETERMINISTIC** : ORDER BY created_at DESC LIMIT 1
+  sans rowid tiebreaker dans get_provenance_by_project. Inconsistant
+  avec le pattern kudos (db.rs:434). created_at = secondes, deux
+  deploys rapides = non-deterministe. **Fix** : ajoute rowid DESC.
+
+### Faux positifs (analyses par team 4 agents)
+
+- **P1-VITEST-REPRO** : issue pre-existante documentee dans
+  vitest_env_variance.md (2026-05-10). Phase B = 0 fichiers frontend.
+  CI pin Node 20 = vert. Node 22+ experimental-webstorage = cause
+  connue. NON attribuable a Phase B.
+
+- **P2-PROCESS-FORMAT** : sections "Pre-launch protocol",
+  "Verification 7.4", "Carry closure / Unblock", "Risk" NE SONT PAS
+  des sections obligatoires du template §4.1. Le review skill valide
+  6 items (titre, contexte, fichiers, delta tests, scope cuts,
+  Co-Authored-By), tous presents.
+
+### Deja documentes
+
+- P2-VERIFY-LOCAL-KEY-ONLY : deja dans la review originale §Findings
+- P2-COVERAGE-DEPLOY-E2E : trade-off accepte (deploy E2E = clone git
+  + pipeline complet, hors scope unit test). Carry S64.
+
 ## Recommendation
-- Ready to commit : **oui** (apres chore(planning) preflight)
-- Carry-overs S64 : P2-VERIFY-LOCAL-KEY-ONLY (verification cross-node)
-- Corrections needed : aucune
+- Ready to commit : **oui** (fixes appliques, re-verification en cours)
+- Carry-overs S64 : P2-VERIFY-LOCAL-KEY-ONLY, P2-COVERAGE-DEPLOY-E2E
+- Corrections applied : P1-PROVENANCE-PERSIST-BEFORE-PUBLISH, P2-LATEST-NON-DETERMINISTIC
