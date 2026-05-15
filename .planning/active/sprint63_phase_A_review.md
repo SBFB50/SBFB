@@ -57,6 +57,25 @@ Rigor signal : 1 finding P2 documente (>=1 requis pour PASS rigoureux).
 ## Findings
 - **P2-LOC-ESTIMATES** : plan.md §6 contient estimations LOC par phase (contraire §6.7 README.md). Process finding, pas code. Carry audit S64.
 
+## Post-commit fix (cross-review GPT 5.5)
+
+- **P1 FIXED** (`c250293`) : `TEST_COORD_NAME` export manquant dans
+  global-setup.ts — 20+ specs l'importent. Restaure l'export. Root
+  cause : rewrite n'a pas audite les consumers downstream. `npx
+  playwright test --list` passe (44 tests / 28 files).
+- **P1 runtime pre-existant** : 2 routes mortes Python-era dans les
+  specs (GET /project dans loopback-auth.spec.ts:63, POST
+  /app/gov/events/_publish dans gov-party-refresh-event.spec.ts).
+  Herite de la suppression Python S50-S51, pas une regression Phase A.
+  Le scope PLAYWRIGHT-REFACTOR = setup fonctionnel (spawn daemon Rust),
+  pas reecriture des specs. Carry P2-PLAYWRIGHT-SPECS-STALE S64.
+- **P2 transitives corrige** : delta reel per-launcher = -4 crates
+  (image, bytemuck, byteorder-lite, moxcms). num-traits persiste via
+  chrono (dep transitive nexus-core-rs). image reste globalement via
+  tools/png-to-icns.
+- **P3 naming** : 3 commentaires stale "coordinator" dans specs
+  (sur 54 occurrences, ~80% legitimes UI/exports). Mineur.
+
 ## Recommendation
-- Ready to commit : **oui**
+- Ready to commit : **oui** (apres fix `c250293`)
 - Carry-overs : P2-LOC-ESTIMATES → sprint64_audit_plan.md
