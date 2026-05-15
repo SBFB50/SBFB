@@ -325,9 +325,10 @@
       <h2>Vérification &amp; Provenance</h2>
       <p>
         Chaque app publique SBFB est déployée depuis son code source via un
-        processus vérifiable. Le coordinator clone le dépôt, vérifie la signature
-        Ed25519 du développeur via Keyoxide, construit l'archive zip, et génère
-        un enregistrement de provenance SLSA L1 signé. Le résultat est un
+        processus vérifiable. Le coordinator clone le dépôt, vérifie que le
+        <code>node_id</code> du <code>SBFB.json</code> correspond au noeud
+        local, construit l'archive zip, et génère un enregistrement de
+        provenance SLSA L1 signé avec sa clé Ed25519. Le résultat est un
         <code>provenance.json</code> intégré à l'archive, dont le hash BLAKE3
         est propagé dans l'annonce réseau.
       </p>
@@ -335,7 +336,7 @@
       <h3>Chaîne de preuve</h3>
       <div class="diagram">
         <pre class="ascii-art">
-Dépôt Git ──▶ Clone ──▶ Keyoxide Ed25519 ──▶ Build zip ──▶ provenance.json
+Dépôt Git ──▶ Clone ──▶ node_id check ──▶ Build zip ──▶ provenance.json
                                                     │
                                             BLAKE3 hash ──▶ Annonce réseau
                                                     │

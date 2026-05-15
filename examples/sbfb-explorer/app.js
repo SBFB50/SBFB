@@ -153,6 +153,7 @@
         for (var k = 0; k < entries.length; k++) {
           var opt = document.createElement("option");
           opt.value = entries[k].project_id || entries[k].id || "";
+          opt.setAttribute("data-hash", entries[k].provenance_hash || "");
           opt.textContent = entries[k].name || entries[k].project_name || "Projet sans nom";
           projectSelect.appendChild(opt);
         }
@@ -174,6 +175,9 @@
     var projectId = projectSelect.value;
     if (!projectId) return;
 
+    var selectedOpt = projectSelect.options[projectSelect.selectedIndex];
+    var announceHash = selectedOpt ? selectedOpt.getAttribute("data-hash") : "";
+
     verifyBtn.disabled = true;
     verifyResult.removeAttribute("hidden");
     verifyStatus.className = "verify-status loading";
@@ -183,9 +187,19 @@
     bridge
       .verifyRelease(projectId)
       .then(function (data) {
-        if (data.verified) {
+        var hashMismatch =
+          data.verified &&
+          announceHash &&
+          data.provenance_hash &&
+          data.provenance_hash !== announceHash;
+
+        if (data.verified && !hashMismatch) {
           verifyStatus.className = "verify-status verified";
           verifyStatus.textContent = "Provenance vérifiée";
+        } else if (data.verified && hashMismatch) {
+          verifyStatus.className = "verify-status unverified";
+          verifyStatus.textContent =
+            "Signature valide mais hash ne correspond pas à l'annonce réseau";
         } else {
           verifyStatus.className = "verify-status unverified";
           verifyStatus.textContent = data.error || "Provenance non vérifiée";
