@@ -81,18 +81,24 @@
   avec le pattern kudos (db.rs:434). created_at = secondes, deux
   deploys rapides = non-deterministe. **Fix** : ajoute rowid DESC.
 
-### Faux positifs (analyses par team 4 agents)
+### Confirme P2 process (non-code)
 
-- **P1-VITEST-REPRO** : issue pre-existante documentee dans
-  vitest_env_variance.md (2026-05-10). Phase B = 0 fichiers frontend.
-  CI pin Node 20 = vert. Node 22+ experimental-webstorage = cause
-  connue. NON attribuable a Phase B.
+- **P2-PROCESS-FORMAT** : commit body e362092 manque les sections
+  "Verification §7.4", "G8 traceability", "Pre-launch protocol",
+  "Carry closure / Unblock" requises par docs/claude/README.md §4.1
+  (lignes 502-521). Ecart process reel, pas blocker code. Les
+  informations sont presentes mais dispersees (Review section
+  consolide G8 + findings, Delta tests cumule remplace Verification
+  §7.4). A corriger dans les futurs commits phase.
 
-- **P2-PROCESS-FORMAT** : sections "Pre-launch protocol",
-  "Verification 7.4", "Carry closure / Unblock", "Risk" NE SONT PAS
-  des sections obligatoires du template §4.1. Le review skill valide
-  6 items (titre, contexte, fichiers, delta tests, scope cuts,
-  Co-Authored-By), tous presents.
+### Faux positif (1 sur 6)
+
+- **P1-VITEST-REPRO** : issue pre-existante documentee dans le
+  memory system (`memory/vitest_env_variance.md`, 2026-05-10 — fichier
+  hors git, dans le repertoire memory Claude). Phase B = 0 fichiers
+  frontend. CI pin Node 20 (.github/workflows/ci.yml ligne 56) = vert
+  sans workaround. Node 22+ experimental-webstorage = cause connue.
+  NON attribuable a Phase B.
 
 ### Deja documentes
 
