@@ -101,7 +101,9 @@ nexus-grid/
 │   ├── claude/README.md               # WORKFLOW SOURCE OF TRUTH (lire d'abord)
 │   ├── rust/PATTERNS.md               # patterns Rust + tech debt tracking
 │   └── shell/PATTERNS.md              # patterns shell/coordinator + T1..T7 tech debt
-└── examples/hello-world-app/
+├── examples/hello-world-app/
+├── examples/sbfb-explorer/            # Protocol Explorer (5 sections + verification demo)
+└── examples/sbfb-ideas/               # Ideas Hub (vote + storage P2P)
 ```
 
 ## Securite
@@ -112,43 +114,44 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-61 CLOSED**, v1.2 livree. **Tag v1.0 pose.**
-  Projet Rust+Frontend pur depuis S50-S51. S61 : spec executable
-  PUBLIC_FEED_SPEC.md + types PublicFeedOperation (ReleasePublished
-  + SourceBecameStale) + FeedStore SQLite M9 append-only hash-chain
-  BLAKE3 + FeedMaterializer PublicRegistryView cursor persistant
-  M10 + verify_chain Ed25519 + tests adversariaux (chain tamper +
-  forged signature + orphan stale + cursor restart). Premier format
-  protocolaire post-v1.0 (FEED_FORMAT_VERSION = 1). 4 phases A-D
-  livrees (3 reviews PASS, 4 preflights G8 EXECUTE). 3 fixes
-  inter-phases (coverage proactive). Feed local rejouable
-  operationnel, pret sync P2P Sprint 62.
-  S62 Phase A (dette pair F2-F4/F6 + NSIS) + Phase B (feed sync
-  infra iroh-docs : FeedSyncState, boot_feed_namespace,
-  spawn_feed_subscribe LiveEvent::InsertRemote, endpoints
-  feed/ticket + feed/join, M11 unique index entry_hash) + 3 P1
-  fix review croisee (verify_chain order-independent, wrapper
-  insert_and_publish pub API, feed_join cle distincte) +
-  Phase C multi-daemon E2E gate D5 3/3 (import_and_subscribe
-  atomique, blob read retry backoff, offline catch-up) + 2 fix
-  (spec is_open_source align, blob read retry) + Phase D anti-spam
-  minimal (FeedRateLimiter GCRA 5/min/auteur, PoW 16-bit
-  BLAKE3 sur entry_hash, pow_nonce transport-level #[serde(default)]
-  hors FeedEntryCanonical, enforce remote ingest, exempt local) +
-  2 fix cross-review (d391b1b dedup avant rate-limit +
-  5d52b6c backfill exempt rate-limit, P1 ferme).
+- **Sprints 0-62 CLOSED**, v1.2 livree. **Tag v1.0 pose.**
+  Projet Rust+Frontend pur depuis S50-S51.
+  S63 verification tiers + UX (3eme sprint roadmap post-v1.0) :
+  Phase A MANDATORY 3/3 (image→png nexus-launcher + Playwright
+  global-setup daemon Rust) + Phase B provenance endpoint HTTP
+  SQLite M12 (insert au deploy, GET /api/v1/project/{id}/provenance,
+  verification live Ed25519) + Phase C bridge verification 3
+  methodes (provenance_get, provenance_verify, feed_cursor_get) +
+  UI VerificationDetail modal shadcn Dialog (7 champs, lazy fetch,
+  verify live, hash mismatch warning) + badge ShieldCheck cliquable
+  + Phase D Protocol Explorer section "Verification & Provenance"
+  (demo interactive verifyRelease via bridge, chaine de preuve
+  ASCII, select projet + bouton verify) + 2 fix cross-review
+  (fa7cd52 provenance hash linkage proof-chain + 5f6a77d
+  provenance insert after blob store + rowid tiebreaker).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1563 tests total** (1299 Rust / 258 Vitest / 6/6 size-limit)
-  — tous verts code. Playwright bloque par global-setup
-  (pyproject.toml manquant post-S50, refactor PW = post-v1.0).
-  S62 : +17 delta Rust (1282→1299, 4 phases + 8 fix).
-- Carry S63 :
+- **~1576 tests total** (1305 Rust / 265 Vitest / 6/6 size-limit)
+  — tous verts code. Playwright operationnel (global-setup refactored
+  Phase A S63). S63 : +6 delta Rust (1299→1305, Phase B +4, C +2),
+  +7 delta Vitest (258→265, Phase C +7).
+- Carry S64 :
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
-  P2-IMAGE-DEP image 0.25 footprint (3/3 MANDATORY S63).
   P2-G-1 exe lock intermittent (reouvert).
-  P2-PLAYWRIGHT-REFACTOR global-setup (3/3 MANDATORY S63).
+  F1 P2-VERSION-NOT-STORED (3/3 MANDATORY S64).
+  F5 P2-IROH-INFRA-TIMEOUT (3/3 MANDATORY S64).
+  P2-PROCESS-FORMAT (herite, estimation LOC dans plan).
+  P2-PROVENANCE-404-BRIDGE (404 ne distingue pas projet/provenance).
+  P2-BADGE-WORDING-PREMATURE (pre-existant S14).
+  P2-COMMIT-TITLE-FORMAT (clarifier PROCESS.md).
+  P2-REVIEW-ORDER (clarifier review vs feat ordering).
+  P2-PYTHON-BLOCK-EXEMPTION (clause exemption SKILL.md Step 2).
+  P2-FEED-INSERT-NO-AUTH-TIER (2/3).
+  P2-FEED-SUBSCRIBE-JOINHANDLE (2/3).
+  P2-BACKFILL-6PLUS-TEST (2/3).
+  P2-FEED-PUBLISH-ORPHAN (2/3).
+  P2-SUBSCRIBE-STREAM-BREAK (2/3).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).

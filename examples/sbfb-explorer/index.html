@@ -14,6 +14,7 @@
       <a href="#app-lifecycle">Apps</a>
       <a href="#task-lifecycle">Tâches</a>
       <a href="#security">Sécurité</a>
+      <a href="#verification">Vérification</a>
       <a href="#philosophy">Philosophie</a>
     </nav>
     <button class="status-toggle" id="status-toggle" aria-label="Afficher le statut réseau">
@@ -315,6 +316,78 @@
           <li><a class="src" data-path="docs/security/THREAT_MODEL.md">THREAT_MODEL.md</a> — Modèle de menaces complet</li>
           <li><a class="src" data-path="docs/security/HARDENING_ROADMAP.md">HARDENING_ROADMAP.md</a> — Feuille de route durcissement</li>
           <li><a class="src" data-path="docs/security/RUNTIME_ISOLATION.md">RUNTIME_ISOLATION.md</a> — Isolation runtime</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Section 6 : Vérification & Provenance -->
+    <section id="verification" class="section">
+      <h2>Vérification &amp; Provenance</h2>
+      <p>
+        Chaque app publique SBFB est déployée depuis son code source via un
+        processus vérifiable. Le coordinator clone le dépôt, vérifie la signature
+        Ed25519 du développeur via Keyoxide, construit l'archive zip, et génère
+        un enregistrement de provenance SLSA L1 signé. Le résultat est un
+        <code>provenance.json</code> intégré à l'archive, dont le hash BLAKE3
+        est propagé dans l'annonce réseau.
+      </p>
+
+      <h3>Chaîne de preuve</h3>
+      <div class="diagram">
+        <pre class="ascii-art">
+Dépôt Git ──▶ Clone ──▶ Keyoxide Ed25519 ──▶ Build zip ──▶ provenance.json
+                                                    │
+                                            BLAKE3 hash ──▶ Annonce réseau
+                                                    │
+                                            Signature Ed25519 ──▶ Vérification
+        </pre>
+      </div>
+
+      <h3>Champs de provenance</h3>
+      <dl class="def-list">
+        <dt>repo_url</dt>
+        <dd>URL du dépôt source Git d'où l'app a été clonée.</dd>
+        <dt>commit_sha</dt>
+        <dd>Hash du commit exact utilisé pour construire l'archive.</dd>
+        <dt>artifact_hash</dt>
+        <dd>Hash BLAKE3 de l'archive zip produite.</dd>
+        <dt>signature</dt>
+        <dd>Signature Ed25519 de l'enregistrement de provenance par le noeud coordinator.</dd>
+        <dt>node_id</dt>
+        <dd>Identifiant du noeud coordinator qui a effectué le deploy vérifié.</dd>
+        <dt>timestamp</dt>
+        <dd>Date et heure du deploy.</dd>
+        <dt>schema_version</dt>
+        <dd>Version du format de provenance (actuellement 1).</dd>
+      </dl>
+
+      <h3>Vérification interactive</h3>
+      <p>
+        Sélectionnez un projet et vérifiez sa provenance en temps réel.
+        La vérification appelle le daemon local qui valide la signature
+        Ed25519 de l'enregistrement de provenance.
+      </p>
+      <div class="verify-demo">
+        <div class="verify-select">
+          <label for="verify-project">Projet</label>
+          <select id="verify-project">
+            <option value="">Chargement des projets…</option>
+          </select>
+        </div>
+        <button class="verify-btn" id="verify-btn" disabled>Vérifier la provenance</button>
+        <div class="verify-result" id="verify-result" hidden>
+          <div class="verify-status" id="verify-status"></div>
+          <dl class="verify-fields status-grid" id="verify-fields"></dl>
+        </div>
+      </div>
+
+      <div class="source-links">
+        <h4>Code source</h4>
+        <ul>
+          <li><a class="src" data-path="crates/nexus-core-rs/src/provenance.rs">provenance.rs</a> — Génération &amp; vérification provenance</li>
+          <li><a class="src" data-path="crates/nexus-coordinator-rs/src/db.rs">db.rs</a> — Stockage provenance M12</li>
+          <li><a class="src" data-path="crates/nexus-shell-daemon/src/deploy.rs">deploy.rs</a> — Deploy vérifié from source</li>
+          <li><a class="src" data-path="web/public/sbfb-bridge.js">sbfb-bridge.js</a> — Bridge SDK (provenance_get, provenance_verify)</li>
         </ul>
       </div>
     </section>

@@ -422,6 +422,106 @@ code {
   border-radius: 4px;
 }
 
+/* === Verification demo === */
+
+.verify-demo {
+  margin: 16px 0;
+  padding: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.verify-select {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.verify-select label {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.verify-select select {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  background: var(--bg-surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.verify-btn {
+  padding: 8px 20px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  font-weight: 600;
+  background: var(--accent-dim);
+  color: var(--text);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.verify-btn:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+.verify-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.verify-result {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.verify-status {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.verify-status.verified {
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--green);
+}
+
+.verify-status.unverified {
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--red);
+}
+
+.verify-status.loading {
+  background: rgba(210, 153, 34, 0.15);
+  color: var(--yellow);
+}
+
+.verify-fields dt {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.verify-fields dd {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* === Footer === */
 
 .footer {

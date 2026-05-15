@@ -128,4 +128,105 @@
 
   fetchStatus();
   setInterval(fetchStatus, 15000);
+
+  // F4: verification & provenance demo
+  var projectSelect = document.getElementById("verify-project");
+  var verifyBtn = document.getElementById("verify-btn");
+  var verifyResult = document.getElementById("verify-result");
+  var verifyStatus = document.getElementById("verify-status");
+  var verifyFields = document.getElementById("verify-fields");
+
+  function populateProjects() {
+    bridge
+      .getBrowseList()
+      .then(function (data) {
+        var entries = data.entries || [];
+        projectSelect.innerHTML = "";
+        if (entries.length === 0) {
+          var opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "Aucun projet disponible";
+          projectSelect.appendChild(opt);
+          verifyBtn.disabled = true;
+          return;
+        }
+        for (var k = 0; k < entries.length; k++) {
+          var opt = document.createElement("option");
+          opt.value = entries[k].project_id || entries[k].id || "";
+          opt.textContent = entries[k].name || entries[k].project_name || "Projet sans nom";
+          projectSelect.appendChild(opt);
+        }
+        verifyBtn.disabled = false;
+      })
+      .catch(function () {
+        projectSelect.innerHTML = "";
+        var opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "Erreur de chargement";
+        projectSelect.appendChild(opt);
+        verifyBtn.disabled = true;
+      });
+  }
+
+  populateProjects();
+
+  verifyBtn.addEventListener("click", function () {
+    var projectId = projectSelect.value;
+    if (!projectId) return;
+
+    verifyBtn.disabled = true;
+    verifyResult.removeAttribute("hidden");
+    verifyStatus.className = "verify-status loading";
+    verifyStatus.textContent = "Vérification en cours…";
+    verifyFields.innerHTML = "";
+
+    bridge
+      .verifyRelease(projectId)
+      .then(function (data) {
+        if (data.verified) {
+          verifyStatus.className = "verify-status verified";
+          verifyStatus.textContent = "Provenance vérifiée";
+        } else {
+          verifyStatus.className = "verify-status unverified";
+          verifyStatus.textContent = data.error || "Provenance non vérifiée";
+        }
+
+        var record = data.record;
+        if (record) {
+          var fields = [
+            ["Dépôt", record.repo_url || "—"],
+            ["Commit", record.commit_sha || "—"],
+            ["Artifact hash", record.artifact_hash || "—"],
+            ["Signature", truncateId(record.signature)],
+            ["Noeud", truncateId(record.node_id)],
+            ["Date", record.timestamp || "—"],
+            ["Schema", "v" + (record.schema_version || 1)]
+          ];
+          var html = "";
+          for (var m = 0; m < fields.length; m++) {
+            html +=
+              "<dt>" + fields[m][0] + "</dt>" +
+              '<dd title="' + escapeAttr(fields[m][1]) + '">' + escapeHtml(fields[m][1]) + "</dd>";
+          }
+          verifyFields.innerHTML = html;
+        }
+
+        verifyBtn.disabled = false;
+      })
+      .catch(function (err) {
+        verifyStatus.className = "verify-status unverified";
+        verifyStatus.textContent = "Erreur : " + (err.message || "requête échouée");
+        verifyBtn.disabled = false;
+      });
+  });
+
+  function escapeHtml(str) {
+    if (!str) return "";
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function escapeAttr(str) {
+    if (!str) return "";
+    return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
 })();
