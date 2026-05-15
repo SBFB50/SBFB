@@ -351,6 +351,10 @@ pub fn build_router(
             "/api/v1/deploy-from-repo",
             post(crate::deploy::deploy_from_repo),
         )
+        .route(
+            "/api/v1/project/{project_id}/provenance",
+            get(get_provenance),
+        )
         .route("/api/v1/consent", get(crate::consent::get_consent))
         .route("/api/v1/consent/set", post(crate::consent::set_consent))
         .route(
@@ -1693,6 +1697,55 @@ async fn canary_freshness(
         }
         Err(_poisoned) => {
             tracing::error!("canary registry mutex poisoned");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+// =================================================================
+// Sprint 63 Phase B — Provenance endpoint
+// =================================================================
+
+async fn get_provenance(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(project_id): Path<String>,
+) -> impl IntoResponse {
+    let db = match state.coordinator_db.lock() {
+        Ok(guard) => guard,
+        Err(_poisoned) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+    match db.get_provenance_by_project(&project_id) {
+        Ok(Some(record)) => {
+            let record_json = nexus_coordinator_rs::provenance::provenance_to_json(&record);
+            let pub_bytes = state.pow_keypair.public_bytes();
+            let verified =
+                nexus_coordinator_rs::provenance::verify_provenance(&record_json, &pub_bytes);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "record": record,
+                    "verified": verified,
+                })),
+            )
+                .into_response()
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no provenance record for this project"})),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("provenance DB query failed: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "internal"})),
@@ -5412,5 +5465,100 @@ mod tests {
             }
         }
         panic!("expected at least one 429 TOO_MANY_REQUESTS after 15 rapid writes");
+    }
+
+    #[tokio::test]
+    async fn provenance_endpoint_not_found() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/project/nonexistent/provenance")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let body = to_bytes(resp.into_body(), 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["error"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn provenance_endpoint_found_and_verified() {
+        let state = mk_state().await;
+        let project_id = state.node_id.clone();
+        let kp = &state.pow_keypair;
+        let record = nexus_coordinator_rs::provenance::generate_provenance(
+            "https://github.com/user/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+            &hex::encode(kp.public_bytes()),
+            kp,
+        );
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            db.insert_provenance_record(&project_id, &record)
+                .expect("insert");
+        }
+
+        let app = build_test_router(state);
+        let uri = format!("/api/v1/project/{project_id}/provenance");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["verified"], true);
+        assert_eq!(json["record"]["repo_url"], "https://github.com/user/repo");
+        assert_eq!(json["record"]["artifact_hash"], "deadbeef");
+        assert_eq!(json["record"]["schema_version"], 1);
+    }
+
+    #[tokio::test]
+    async fn provenance_endpoint_found_wrong_key_not_verified() {
+        let state = mk_state().await;
+        let project_id = state.node_id.clone();
+        let other_kp = KeyPair::generate();
+        let record = nexus_coordinator_rs::provenance::generate_provenance(
+            "https://github.com/other/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "cafebabe",
+            &hex::encode(other_kp.public_bytes()),
+            &other_kp,
+        );
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            db.insert_provenance_record(&project_id, &record)
+                .expect("insert");
+        }
+
+        let app = build_test_router(state);
+        let uri = format!("/api/v1/project/{project_id}/provenance");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["verified"], false);
+        assert!(json["record"]["repo_url"].as_str().is_some());
     }
 }

@@ -164,6 +164,16 @@ pub async fn deploy_from_repo(
         &state.pow_keypair,
     );
 
+    {
+        let db_guard = state
+            .coordinator_db
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Err(e) = db_guard.insert_provenance_record(&state.node_id, &prov) {
+            debug!(error = %e, "provenance record insert failed (non-fatal)");
+        }
+    }
+
     // Best-effort contributor attestation (Couche 2 Sybil gate).
     {
         let db_guard = state

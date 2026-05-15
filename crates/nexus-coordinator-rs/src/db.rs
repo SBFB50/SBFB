@@ -10,6 +10,7 @@ use rusqlite::Connection;
 use rusqlite_migration::{M, Migrations};
 
 use crate::error::CoordinatorError;
+use crate::provenance::ProvenanceRecord;
 use crate::types::{KudosEntry, TaskRecord, TaskResultRow, TaskStatus};
 
 static MIGRATIONS: &[M<'static>] = &[
@@ -174,6 +175,23 @@ static MIGRATIONS: &[M<'static>] = &[
     ),
     // M11: unique index on entry_hash for feed sync dedup (Sprint 62 Phase B)
     M::up("CREATE UNIQUE INDEX IF NOT EXISTS idx_feed_entry_hash ON public_feed(entry_hash);"),
+    // M12: provenance records for verified deploy (Sprint 63 Phase B)
+    M::up(
+        "CREATE TABLE IF NOT EXISTS provenance_records (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id      TEXT NOT NULL,
+        repo_url        TEXT NOT NULL,
+        commit_sha      TEXT NOT NULL,
+        artifact_hash   TEXT NOT NULL,
+        node_id         TEXT NOT NULL,
+        signature       TEXT NOT NULL,
+        timestamp       TEXT NOT NULL,
+        schema_version  INTEGER NOT NULL DEFAULT 1,
+        created_at      INTEGER NOT NULL,
+        UNIQUE (project_id, artifact_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_prov_project ON provenance_records(project_id);",
+    ),
 ];
 
 pub struct StorageNamespaceRow {
@@ -653,6 +671,60 @@ impl CoordinatorDb {
             result.insert(row?);
         }
         Ok(result)
+    }
+
+    // -- Provenance methods (Sprint 63 Phase B) --
+
+    pub fn insert_provenance_record(
+        &self,
+        project_id: &str,
+        record: &ProvenanceRecord,
+    ) -> Result<(), CoordinatorError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.conn.execute(
+            "INSERT OR REPLACE INTO provenance_records
+             (project_id, repo_url, commit_sha, artifact_hash, node_id, signature, timestamp, schema_version, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                project_id,
+                record.repo_url,
+                record.commit_sha,
+                record.artifact_hash,
+                record.node_id,
+                record.signature,
+                record.timestamp,
+                record.schema_version,
+                now as i64,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_provenance_by_project(
+        &self,
+        project_id: &str,
+    ) -> Result<Option<ProvenanceRecord>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT repo_url, commit_sha, artifact_hash, node_id, signature, timestamp, schema_version
+             FROM provenance_records WHERE project_id = ?1
+             ORDER BY created_at DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![project_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(ProvenanceRecord {
+                repo_url: row.get(0)?,
+                commit_sha: row.get(1)?,
+                artifact_hash: row.get(2)?,
+                node_id: row.get(3)?,
+                signature: row.get(4)?,
+                timestamp: row.get(5)?,
+                schema_version: row.get::<_, u32>(6)?,
+            })),
+            None => Ok(None),
+        }
     }
 
     // -- Feed cursor methods (Sprint 61 Phase C) --
@@ -1136,5 +1208,37 @@ mod tests {
             .unwrap()
             .expect("must exist");
         assert_eq!(row2.doc_ticket.as_deref(), Some("ticket-xyz"));
+    }
+
+    #[test]
+    fn provenance_insert_and_retrieve() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let kp = nexus_core_rs::crypto::KeyPair::generate();
+        let record = crate::provenance::generate_provenance(
+            "https://github.com/user/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+            &hex::encode(kp.public_bytes()),
+            &kp,
+        );
+        db.insert_provenance_record("proj-test", &record)
+            .expect("insert");
+        let fetched = db
+            .get_provenance_by_project("proj-test")
+            .expect("get")
+            .expect("found");
+        assert_eq!(fetched.repo_url, record.repo_url);
+        assert_eq!(fetched.commit_sha, record.commit_sha);
+        assert_eq!(fetched.artifact_hash, record.artifact_hash);
+        assert_eq!(fetched.node_id, record.node_id);
+        assert_eq!(fetched.signature, record.signature);
+        assert_eq!(fetched.timestamp, record.timestamp);
+        assert_eq!(fetched.schema_version, record.schema_version);
+
+        assert!(
+            db.get_provenance_by_project("nonexistent")
+                .expect("get")
+                .is_none()
+        );
     }
 }
