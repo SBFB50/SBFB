@@ -8,6 +8,8 @@ import { primeAuthToken } from "@/api/auth";
 
 const NOOP = () => {};
 
+const MOCK_HASH = "aabb1122aabb1122aabb1122aabb1122aabb1122aabb1122aabb1122aabb1122";
+
 const MOCK_RECORD = {
   repo_url: "https://github.com/test/repo",
   commit_sha: "abc123def456abc123def456abc123def456abc1",
@@ -31,7 +33,7 @@ describe("VerificationDetail", () => {
   it("shows loading then provenance fields on open", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ record: MOCK_RECORD, verified: true }),
+        JSON.stringify({ record: MOCK_RECORD, verified: true, provenance_hash: MOCK_HASH }),
         { status: 200 },
       ),
     );
@@ -42,6 +44,7 @@ describe("VerificationDetail", () => {
         onOpenChange={NOOP}
         coordUrl="http://localhost:8000"
         projectId="proj1"
+        provenanceHash={MOCK_HASH}
       />,
     );
 
@@ -61,6 +64,7 @@ describe("VerificationDetail", () => {
     expect(screen.getByTestId("prov-signature")).toBeInTheDocument();
     expect(screen.getByTestId("prov-node-id")).toBeInTheDocument();
     expect(screen.getByTestId("prov-timestamp")).toBeInTheDocument();
+    expect(screen.queryByTestId("hash-mismatch-warning")).not.toBeInTheDocument();
   });
 
   it("shows empty state when 404", async () => {
@@ -74,6 +78,7 @@ describe("VerificationDetail", () => {
         onOpenChange={NOOP}
         coordUrl="http://localhost:8000"
         projectId="unknown"
+        provenanceHash={null}
       />,
     );
 
@@ -86,13 +91,13 @@ describe("VerificationDetail", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ record: MOCK_RECORD, verified: true }),
+          JSON.stringify({ record: MOCK_RECORD, verified: true, provenance_hash: MOCK_HASH }),
           { status: 200 },
         ),
       )
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ record: MOCK_RECORD, verified: false }),
+          JSON.stringify({ record: MOCK_RECORD, verified: false, provenance_hash: MOCK_HASH }),
           { status: 200 },
         ),
       );
@@ -104,6 +109,7 @@ describe("VerificationDetail", () => {
         onOpenChange={NOOP}
         coordUrl="http://localhost:8000"
         projectId="proj1"
+        provenanceHash={MOCK_HASH}
       />,
     );
 
@@ -120,5 +126,36 @@ describe("VerificationDetail", () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows hash mismatch warning when hashes differ", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          record: MOCK_RECORD,
+          verified: true,
+          provenance_hash: "different_hash_from_backend",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    render(
+      <VerificationDetail
+        open
+        onOpenChange={NOOP}
+        coordUrl="http://localhost:8000"
+        projectId="proj1"
+        provenanceHash={MOCK_HASH}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("hash-mismatch-warning")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("verification-result").textContent).toContain(
+      "Hash de provenance incoherent",
+    );
   });
 });

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, Loader2, ShieldCheck, ShieldX } from "lucide-react";
+import { AlertTriangle, Check, Copy, Loader2, ShieldCheck, ShieldX } from "lucide-react";
 
 import {
   Dialog,
@@ -27,10 +27,11 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   coordUrl: string;
   projectId: string;
+  provenanceHash: string | null;
 }
 
 type FetchResult =
-  | { kind: "loaded"; record: ProvenanceRecord; verified: boolean }
+  | { kind: "loaded"; record: ProvenanceRecord; verified: boolean; provenance_hash: string }
   | { kind: "empty" }
   | { kind: "error"; message: string };
 
@@ -51,8 +52,14 @@ async function doFetch(
     const data = (await resp.json()) as {
       record: ProvenanceRecord;
       verified: boolean;
+      provenance_hash: string;
     };
-    return { kind: "loaded", record: data.record, verified: data.verified };
+    return {
+      kind: "loaded",
+      record: data.record,
+      verified: data.verified,
+      provenance_hash: data.provenance_hash,
+    };
   } catch (e) {
     return {
       kind: "error",
@@ -66,6 +73,7 @@ export function VerificationDetail({
   onOpenChange,
   coordUrl,
   projectId,
+  provenanceHash,
 }: Props) {
   const [result, setResult] = useState<FetchResult | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -107,6 +115,11 @@ export function VerificationDetail({
 
   const loading = open && result === null;
 
+  const hashMismatch =
+    result?.kind === "loaded" &&
+    provenanceHash != null &&
+    result.provenance_hash !== provenanceHash;
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md" data-testid="verification-detail">
@@ -137,17 +150,31 @@ export function VerificationDetail({
 
         {result?.kind === "loaded" && (
           <div className="space-y-3">
+            {hashMismatch && (
+              <div
+                className="flex items-center gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-400"
+                data-testid="hash-mismatch-warning"
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                Le hash de provenance retourne ne correspond pas au hash annonce dans le reseau.
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
-              {result.verified ? (
+              {result.verified && !hashMismatch ? (
                 <ShieldCheck className="h-5 w-5 text-emerald-400" />
               ) : (
                 <ShieldX className="h-5 w-5 text-red-400" />
               )}
               <span
-                className={`text-sm font-medium ${result.verified ? "text-emerald-400" : "text-red-400"}`}
+                className={`text-sm font-medium ${result.verified && !hashMismatch ? "text-emerald-400" : "text-red-400"}`}
                 data-testid="verification-result"
               >
-                {result.verified ? "Signature valide" : "Signature invalide"}
+                {result.verified && !hashMismatch
+                  ? "Signature valide"
+                  : hashMismatch
+                    ? "Hash de provenance incoherent"
+                    : "Signature invalide"}
               </span>
             </div>
 

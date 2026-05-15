@@ -1731,11 +1731,13 @@ async fn get_provenance(
             let pub_bytes = state.pow_keypair.public_bytes();
             let verified =
                 nexus_coordinator_rs::provenance::verify_provenance(&record_json, &pub_bytes);
+            let provenance_hash = nexus_coordinator_rs::provenance::provenance_blake3_hex(&record);
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
                     "record": record,
                     "verified": verified,
+                    "provenance_hash": provenance_hash,
                 })),
             )
                 .into_response()
@@ -5567,6 +5569,11 @@ mod tests {
         assert_eq!(json["record"]["repo_url"], "https://github.com/user/repo");
         assert_eq!(json["record"]["artifact_hash"], "deadbeef");
         assert_eq!(json["record"]["schema_version"], 1);
+        assert!(
+            json["provenance_hash"].as_str().is_some(),
+            "response must include provenance_hash"
+        );
+        assert_eq!(json["provenance_hash"].as_str().unwrap().len(), 64);
     }
 
     #[tokio::test]

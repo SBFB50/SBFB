@@ -381,6 +381,7 @@ function FullScreenApp({
         onOpenChange={setVerifyOpen}
         coordUrl={coordUrl}
         projectId={entry.project_id}
+        provenanceHash={entry.provenance_hash ?? null}
       />
     </div>
   );

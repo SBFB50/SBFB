@@ -328,10 +328,10 @@ async function dispatch(
           `${coordUrl}/api/v1/project/${encodeURIComponent(pid)}/provenance`,
           { signal: controller.signal },
         );
-        if (resp.status === 404) return { record: null };
+        if (resp.status === 404) return { record: null, provenance_hash: null };
         if (!resp.ok) throw new Error(`provenance_get failed: ${resp.status}`);
-        const data = (await resp.json()) as { record: unknown };
-        return { record: data.record };
+        const data = (await resp.json()) as { record: unknown; provenance_hash: string };
+        return { record: data.record, provenance_hash: data.provenance_hash };
       }
 
       case "provenance_verify": {
@@ -341,10 +341,10 @@ async function dispatch(
           `${coordUrl}/api/v1/project/${encodeURIComponent(pid)}/provenance`,
           { signal: controller.signal },
         );
-        if (resp.status === 404) return { verified: false, record: null };
+        if (resp.status === 404) return { verified: false, record: null, provenance_hash: null };
         if (!resp.ok) throw new Error(`provenance_verify failed: ${resp.status}`);
-        const data = (await resp.json()) as { record: unknown; verified: boolean };
-        return { verified: data.verified, record: data.record };
+        const data = (await resp.json()) as { record: unknown; verified: boolean; provenance_hash: string };
+        return { verified: data.verified, record: data.record, provenance_hash: data.provenance_hash };
       }
 
       case "feed_cursor_get": {

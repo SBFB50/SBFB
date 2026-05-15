@@ -322,7 +322,7 @@ describe("useBridge", () => {
     it("dispatches provenance_get via project provenance endpoint", async () => {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ record: { repo_url: "https://example.com" }, verified: true }),
+          JSON.stringify({ record: { repo_url: "https://example.com" }, verified: true, provenance_hash: "abc123" }),
           { status: 200 },
         ),
       );
@@ -346,19 +346,19 @@ describe("useBridge", () => {
 
       const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
       expect(resp.success).toBe(true);
-      expect((resp.data as { record: { repo_url: string } }).record.repo_url).toBe(
-        "https://example.com",
-      );
+      const data = resp.data as { record: { repo_url: string }; provenance_hash: string };
+      expect(data.record.repo_url).toBe("https://example.com");
+      expect(data.provenance_hash).toBe("abc123");
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining("/api/v1/project/proj42/provenance"),
         expect.any(Object),
       );
     });
 
-    it("dispatches provenance_verify with verified field", async () => {
+    it("dispatches provenance_verify with verified field and hash", async () => {
       vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ record: { repo_url: "https://example.com" }, verified: true }),
+          JSON.stringify({ record: { repo_url: "https://example.com" }, verified: true, provenance_hash: "abc123" }),
           { status: 200 },
         ),
       );
@@ -382,9 +382,10 @@ describe("useBridge", () => {
 
       const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
       expect(resp.success).toBe(true);
-      const data = resp.data as { verified: boolean; record: { repo_url: string } };
+      const data = resp.data as { verified: boolean; record: { repo_url: string }; provenance_hash: string };
       expect(data.verified).toBe(true);
       expect(data.record.repo_url).toBe("https://example.com");
+      expect(data.provenance_hash).toBe("abc123");
     });
 
     it("dispatches feed_cursor_get via daemon feed cursor endpoint", async () => {
