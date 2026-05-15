@@ -141,7 +141,7 @@ Runtime isolation roadmap dans
 - **~1563 tests total** (1299 Rust / 258 Vitest / 6/6 size-limit)
   — tous verts code. Playwright bloque par global-setup
   (pyproject.toml manquant post-S50, refactor PW = post-v1.0).
-  S62 : +17 delta Rust (1282→1299, 4 phases + 7 fix).
+  S62 : +17 delta Rust (1282→1299, 4 phases + 8 fix).
 - Carry S63 :
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).

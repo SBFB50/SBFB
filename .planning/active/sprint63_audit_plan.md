@@ -53,7 +53,8 @@ Sprint 62 a livre en 4 phases + 6 fix inter-phases :
 - P2-PLAYWRIGHT-REFACTOR global-setup (3/3 MANDATORY S63)
 - P2-G-1 exe lock intermittent (reouvert)
 - P2-FEED-INSERT-NO-AUTH-TIER (S64+)
-- subscribe JoinHandle non trackee
+- P2-FEED-SUBSCRIBE-JOINHANDLE : subscribe JoinHandle non trackee
+- P2-BACKFILL-6PLUS-TEST : P1 code ferme par 5d52b6c (backfill exempt rate-limit), preuve test integration manquante. Test multi_daemon avec 6+ entries meme auteur, gate SBFB_INTEGRATION=1.
 
 ---
 
@@ -65,4 +66,4 @@ Sprint 62 a livre en 4 phases + 6 fix inter-phases :
 | Vitest | >= 258 |
 | size-limit | 6/6 |
 | clippy | 0 warnings |
-| Phases | 4 (A-D) + 6 fix = 10 commits |
+| Phases | 4 (A-D) + 8 fix = 12 commits |

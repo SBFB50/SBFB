@@ -75,4 +75,5 @@ Les 10 scope cuts du kickoff §7 sont tous respectes :
   - P2-FEED-INSERT-NO-AUTH-TIER (S64+ auth tier feed insert)
   - F1 P2-VERSION-NOT-STORED (1/3)
   - F5 P2-IROH-INFRA-TIMEOUT (1/3)
-  - subscribe JoinHandle non trackee (P2)
+  - P2-FEED-SUBSCRIBE-JOINHANDLE : subscribe JoinHandle non trackee
+  - P2-BACKFILL-6PLUS-TEST : P1 code ferme (5d52b6c backfill exempt rate-limit), preuve test manquante. Ajouter test integration multi_daemon backfill avec 6+ entries meme auteur, gate SBFB_INTEGRATION=1.
