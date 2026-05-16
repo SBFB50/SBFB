@@ -16,6 +16,39 @@
 
 import "@testing-library/jest-dom/vitest";
 
+function createMemoryStorage(): Storage {
+  const data = new Map<string, string>();
+  return {
+    get length() {
+      return data.size;
+    },
+    clear: () => data.clear(),
+    getItem: (key: string) => data.get(String(key)) ?? null,
+    key: (index: number) => Array.from(data.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      data.delete(String(key));
+    },
+    setItem: (key: string, value: string) => {
+      data.set(String(key), String(value));
+    },
+  };
+}
+
+if (typeof window !== "undefined") {
+  const storage =
+    typeof window.localStorage?.setItem === "function"
+      ? window.localStorage
+      : createMemoryStorage();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+}
+
 if (typeof window !== "undefined" && !("matchMedia" in window)) {
   Object.defineProperty(window, "matchMedia", {
     writable: true,

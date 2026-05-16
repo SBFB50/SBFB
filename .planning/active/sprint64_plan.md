@@ -50,11 +50,12 @@ scenarios couverts.
 
 ---
 
-## §4 Phase A — MANDATORY 3/3 (F1 version + F5 timeout)
+## §4 Phase A — F1 CLOSED + F5 code delivered
 
 ### §4.1 Scope
 
-Resout les 2 items MANDATORY 3/3 :
+Resout F1 et livre le code F5. La preuve E2E F5 reste une sortie
+Phase D, car elle depend du scenario multi-daemon nouveau noeud.
 
 **F1 P2-VERSION-NOT-STORED** :
 - Ajouter field `version` dans SBFB.json schema (examples/)
@@ -68,7 +69,8 @@ Resout les 2 items MANDATORY 3/3 :
 **F5 P2-IROH-INFRA-TIMEOUT** :
 - `feed_sync.rs` : envelopper subscribe dans
   `tokio::time::timeout(Duration::from_secs(30))` avec retry
-- Test SBFB_INTEGRATION : subscribe reconnecte apres timeout
+- `runtime.rs` : track `JoinHandle` et join au shutdown
+- Test SBFB_INTEGRATION : preuve de stabilite routee Phase D
 
 ### §4.2 Fichiers touches
 
@@ -79,22 +81,23 @@ Resout les 2 items MANDATORY 3/3 :
 | `crates/nexus-coordinator-rs/src/db.rs` | M13 migration ALTER TABLE + insert fn signature |
 | `crates/nexus-shell-daemon/src/deploy.rs` | Lire version SBFB.json + passer a insert |
 | `crates/nexus-shell-daemon/src/http.rs` | Endpoint provenance retourne app_version |
-| `web/public/sbfb-bridge.js` | provenance_get inclut version |
 | `crates/nexus-shell-daemon/src/feed_sync.rs` | Timeout wrapper subscribe + retry |
-| `crates/nexus-coordinator-rs/tests/multi_daemon.rs` | Test stabilite subscribe timeout |
+| `crates/nexus-shell-daemon/src/runtime.rs` | JoinHandle feed tracke + join shutdown |
 
 ### §4.3 Tests plan
 
 1. `test_insert_provenance_with_version` — insert avec version, select retourne version
 2. `test_insert_provenance_without_version` — insert NULL version, backward safe
 3. `test_provenance_endpoint_returns_version` — HTTP GET provenance inclut app_version
-4. `test_subscribe_timeout_reconnects` — subscribe timeout simule → reconnexion auto (SBFB_INTEGRATION)
+4. `blake3_hash_stable_without_app_version` — fix inter-phase, hash legacy sans `app_version: null`
+
+Preuve F5 residuelle : `test_new_node_full_sync_and_verify` en Phase D
+exerce le subscribe dans un scenario multi-daemon reel.
 
 ### §4.4 Critere d'acceptation
 
 ```bash
 cargo nextest run -p nexus-coordinator-rs --locked -E 'test(provenance)'
-cargo nextest run -p nexus-coordinator-rs --locked -E 'test(subscribe_timeout)' # si SBFB_INTEGRATION=1
 cargo nextest run --workspace --locked  # 0 regression
 cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
@@ -111,7 +114,7 @@ F1 P2-VERSION-NOT-STORED (3/3 MANDATORY) CLOSED:
 - sbfb-bridge.js: provenance_get includes version
 - examples/SBFB.json: add "version" field
 
-F5 P2-IROH-INFRA-TIMEOUT (3/3 MANDATORY) — code delivered:
+F5 P2-IROH-INFRA-TIMEOUT (3/3 item) — code delivered, proof Phase D:
 - feed_sync.rs: tokio::time::timeout(30s) on subscribe + retry + reconnect
 - runtime.rs: JoinHandle tracked + joined at shutdown
 - E2E stability proof: deferred Phase D (test_new_node_full_sync_and_verify)
@@ -132,12 +135,14 @@ Scope cuts respectes: 12/12 items non touches.
 
 ### §5.1 Scope
 
-Sprint pair — phase dette obligatoire (§6.2.1 Regle 1). 5 items :
+Sprint pair — phase dette obligatoire (§6.2.1 Regle 1). Phase A a
+deja livre deux chemins feed (`JoinHandle` et stream break). Phase B
+ferme les 5 items par preuves/tests et code restant :
 
 1. **P2-FEED-SUBSCRIBE-JOINHANDLE** (2/3) :
-   `spawn_feed_subscribe()` retourne `JoinHandle<()>`.
-   `DaemonRuntime` stocke `feed_handle: Option<JoinHandle<()>>`.
-   `shutdown()` join le handle.
+   Code livre Phase A (`spawn_feed_subscribe()` retourne
+   `JoinHandle<()>`, `DaemonRuntime` stocke et join le handle).
+   Phase B ajoute la preuve test/review de shutdown sans leak.
 
 2. **P2-BACKFILL-6PLUS-TEST** (2/3) :
    Test integration : setup doc avec 8 feed entries → join →
@@ -148,8 +153,8 @@ Sprint pair — phase dette obligatoire (§6.2.1 Regle 1). 5 items :
    echoue → rollback (DELETE row DB). Garantit atomicite.
 
 4. **P2-SUBSCRIBE-STREAM-BREAK** (2/3) :
-   Subscribe loop detect stream end (`None` de `stream.next()`) →
-   log + backoff + re-subscribe. Pas de crash silencieux.
+   Code livre Phase A (`stream.next()` `None` ou erreur → log +
+   backoff + re-subscribe). Phase B ajoute la preuve test/review.
 
 5. **P2-PROCESS-FORMAT** (herite) :
    Ajouter dans `docs/claude/README.md` §6.7 une clause exemption :
@@ -161,8 +166,8 @@ Sprint pair — phase dette obligatoire (§6.2.1 Regle 1). 5 items :
 
 | Fichier | Role |
 |---|---|
-| `crates/nexus-shell-daemon/src/feed_sync.rs` | JoinHandle return + stream break reconnexion |
-| `crates/nexus-shell-daemon/src/runtime.rs` | feed_handle field + join shutdown |
+| `crates/nexus-shell-daemon/src/feed_sync.rs` | tests/proof paths JoinHandle + stream break ; code deja livre Phase A sauf bug trouve |
+| `crates/nexus-shell-daemon/src/runtime.rs` | tests/proof feed_handle shutdown ; code deja livre Phase A sauf bug trouve |
 | `crates/nexus-coordinator-rs/src/public_feed.rs` | rollback orphan insert |
 | `crates/nexus-coordinator-rs/tests/multi_daemon.rs` | test backfill 6+ entries |
 | `docs/claude/README.md` | §6.7 exemption LOC |
@@ -189,8 +194,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 feat(feed+docs): Sprint 64 Phase B — dette pair 5 items P2
 
 P2-FEED-SUBSCRIBE-JOINHANDLE (2/3) CLOSED:
-- feed_sync.rs: spawn_feed_subscribe returns JoinHandle
-- runtime.rs: feed_handle stored + joined at shutdown
+- proof/test: feed subscribe handle is stored and joined at shutdown
 
 P2-BACKFILL-6PLUS-TEST (2/3) CLOSED:
 - multi_daemon.rs: test_backfill_six_plus_entries (8 entries, SBFB_INTEGRATION)
@@ -199,7 +203,7 @@ P2-FEED-PUBLISH-ORPHAN (2/3) CLOSED:
 - public_feed.rs: rollback DB row on iroh-docs insert failure
 
 P2-SUBSCRIBE-STREAM-BREAK (2/3) CLOSED:
-- feed_sync.rs: stream None detection + backoff + re-subscribe
+- proof/test: stream None/error triggers backoff + re-subscribe
 
 P2-PROCESS-FORMAT (herite) CLOSED:
 - docs/claude/README.md §6.7: LOC estimation exemption clause
@@ -476,7 +480,7 @@ Scope cuts respectes: 12/12 items non touches.
 1. 18/18 fail-fast rows vertes
 2. 5 commits atomiques (A-E) en sequence
 3. Sprint delta : Rust +19 (1305 → 1324), Vitest +0 (265)
-4. 2 MANDATORY CLOSED (F1 + F5)
+4. F1 CLOSED ; F5 code delivered Phase A + E2E proof Phase D
 5. 5 items dette CLOSED (Phase B)
 6. PUBLIC_FEED_SPEC.md 12 sections
 7. sprint65_audit_plan.md ecrit

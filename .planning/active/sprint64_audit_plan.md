@@ -68,7 +68,7 @@ Sprint 63 a livre 4 phases (A-D) + 2 fix inter-phases sur le theme
 | Item | Compteur | Owner | Trigger | Exit condition |
 |---|---|---|---|---|
 | F1 P2-VERSION-NOT-STORED | **3/3 MANDATORY** | planner S64 | §6.2.1 Regle 2 | version stockee en DB a l'insert provenance |
-| F5 P2-IROH-INFRA-TIMEOUT | **3/3 code delivered Phase A** | planner S64 | §6.2.1 Regle 2 | code timeout+retry+JoinHandle livre. Preuve E2E Phase D (test_new_node exercera subscribe). Exit residuelle : 0 timeout 5 runs |
+| F5 P2-IROH-INFRA-TIMEOUT | **3/3 code delivered Phase A** | planner S64 | §6.2.1 Regle 2 | code timeout+retry+JoinHandle livre. Preuve E2E Phase D (`test_new_node_full_sync_and_verify` exercera subscribe). Exit residuelle : 0 timeout 5 runs |
 | P2-PROCESS-FORMAT | herite | planner S64 | audit S63 | supprimer §6 LOC plan.md OU ajouter exemption retroactive |
 | P2-PROVENANCE-404-BRIDGE | 1/3 | planner S64+ | enrichissement provenance UX | endpoint retourne code distinct projet-inconnu vs provenance-absente |
 | P2-BADGE-WORDING-PREMATURE | pre-existant S14 | planner S64 | UI pass verification | renommer badge "Provenance disponible" ou conditionner sur verified |
@@ -76,10 +76,10 @@ Sprint 63 a livre 4 phases (A-D) + 2 fix inter-phases sur le theme
 | P2-REVIEW-ORDER | 1/3 | planner S64 | process clarification | README.md/PROCESS.md clarifie review artifact timing |
 | P2-PYTHON-BLOCK-EXEMPTION | 1/3 | planner S64 | process hygiene | SKILL.md Step 2 ajoute clause exemption projets sans Python |
 | P2-FEED-INSERT-NO-AUTH-TIER | 2/3 | planner S64+ | auth tier feed | feed_insert handler verifie auth tier avant insert |
-| P2-FEED-SUBSCRIBE-JOINHANDLE | 2/3 | planner S64 | subscribe cleanup | subscribe JoinHandle trackee + joined au shutdown |
+| P2-FEED-SUBSCRIBE-JOINHANDLE | 2/3 | planner S64 | subscribe cleanup | code livre Phase A ; Phase B doit fermer par preuve/test shutdown sans leak |
 | P2-BACKFILL-6PLUS-TEST | 2/3 | planner S64 | test coverage | test integration backfill >= 6 entries present |
 | P2-FEED-PUBLISH-ORPHAN | 2/3 | planner S64 | feed hardening | retry/rollback split DB/iroh-docs insert |
-| P2-SUBSCRIBE-STREAM-BREAK | 2/3 | planner S64 | feed resilience | subscribe reconnexion auto apres stream break |
+| P2-SUBSCRIBE-STREAM-BREAK | 2/3 | planner S64 | feed resilience | code livre Phase A ; Phase B doit fermer par preuve/test stream break reconnect |
 | P2-A-1 rand blocker | exemption permanente | upstream | rand 0.9 release | crate rand publie 0.9 stable |
 | P2-AUDIT-2 iroh transitives | exemption externe | upstream | iroh 1.0 upgrade sprint | iroh 1.0 stable + upgrade sprint dedie |
 | P2-G-1 exe lock | monitoring | dev-env | reproductible 3x consecutif | root cause identifiee + fix |

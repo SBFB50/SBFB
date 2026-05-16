@@ -2,8 +2,9 @@
 
 **Ecrit** : 2026-05-16 (post-audit gate S63 PASS `ebebe89`).
 **Type** : **sprint pair** — phase dette obligatoire (Regle 1 §6.2.1).
-Deux MANDATORY 3/3 (Regle 2) : F1 P2-VERSION-NOT-STORED +
-F5 P2-IROH-INFRA-TIMEOUT.
+Deux items 3/3 (Regle 2) a traiter : F1 P2-VERSION-NOT-STORED +
+F5 P2-IROH-INFRA-TIMEOUT. Etat post-Phase A : F1 CLOSED ; F5 code
+delivered, preuve E2E residuelle Phase D.
 **Tip master d'entree** : `ebebe89` (audit findings S63 P2 routing
 metadata — PASS verdict `15d8fbf`).
 **Phase 0 audit Sprint 63** : **DEJA JOUE** — `15d8fbf` PASS
@@ -40,8 +41,8 @@ Sprint 4 sur 6 (5+1 reserve).
      `spawn_feed_subscribe()` n'a pas de timeout sur le subscribe
      call iroh-docs. Tests SBFB_INTEGRATION absents du codebase
      Rust (les E2E multi-daemon existent mais ne testent pas le
-     scenario timeout). Fix = timeout wrapper + test stabilite.
-     ~20 LOC.
+     scenario timeout). Fix = timeout wrapper Phase A + preuve
+     stabilite E2E Phase D.
 
   3. **Tests adversariaux** : 5 tests adversariaux existants
      (4 dans `public_feed.rs` + 1 dans `feed_materializer.rs`).
@@ -115,9 +116,10 @@ legitime pour robustesse runtime.
 Le sprint durcit le feed public face aux attaques adversariales :
 tests de forgery, spam, corruption, payloads invalides couvrent
 les 7 primitives crypto × les wire formats. Un nouveau noeud from
-scratch peut rattraper et verifier le feed complet. Les 2 MANDATORY
-3/3 (version stockee + timeout stabilite) sont resolus, et la
-dette pair absorbe les resource leaks identifies.
+scratch peut rattraper et verifier le feed complet. Phase A ferme F1
+(version stockee) et livre le code F5 (timeout/retry/JoinHandle) ;
+la preuve E2E de stabilite F5 reste une exit Phase D, et la dette
+pair absorbe les resource leaks identifies.
 **Critere SMART : toutes les rows fail-fast vertes au
 verification.md, mesure binaire au Phase E wrap-up.**
 
@@ -260,27 +262,32 @@ Corrige dans le plan ci-dessus.
 
 ## §5 Plan Phase outline A..E
 
-### Phase A — MANDATORY 3/3 (F1 version + F5 timeout) [MANDATORY]
+### Phase A — F1 CLOSED + F5 code delivered [MANDATORY]
 
-Resout les 2 items 3/3 obligatoires :
+Resout F1 et livre le code F5. La preuve E2E F5 reste explicitement
+attachee a Phase D :
 - F1 : Migration M13 `app_version` + insert deploy.rs + endpoint
   response + bridge SDK
-- F5 : Timeout subscribe + test stabilite SBFB_INTEGRATION
+- F5 : timeout subscribe + retry/reconnect + JoinHandle shutdown ;
+  preuve stabilite SBFB_INTEGRATION differee Phase D
 
 **Commit cible** : `feat(feed): Sprint 64 Phase A — MANDATORY version stored + subscribe timeout`
-**Critere** : M13 schema OK, version visible endpoint, subscribe timeout 30s, test stabilite vert.
+**Critere** : M13 schema OK, version visible endpoint, subscribe
+timeout 30s, retry/reconnect present, preuve E2E F5 routee Phase D.
 
 ### Phase B — Dette pair (5 items P2) [DETTE OBLIGATOIRE §6.2.1]
 
 Sprint pair — phase dette non-negociable. Absorbe 5 items :
-- P2-FEED-SUBSCRIBE-JOINHANDLE (2/3) : JoinHandle trackee + join shutdown
+- P2-FEED-SUBSCRIBE-JOINHANDLE (2/3) : code livre Phase A ; Phase B ferme par preuve/test shutdown sans leak
 - P2-BACKFILL-6PLUS-TEST (2/3) : test integration backfill >= 6
 - P2-FEED-PUBLISH-ORPHAN (2/3) : retry/rollback split DB/iroh-docs insert
-- P2-SUBSCRIBE-STREAM-BREAK (2/3) : reconnexion auto apres stream break
+- P2-SUBSCRIBE-STREAM-BREAK (2/3) : code livre Phase A ; Phase B ferme par preuve/test reconnexion apres stream break
 - P2-PROCESS-FORMAT (herite) : exemption retroactive README.md
 
 **Commit cible** : `feat(feed+docs): Sprint 64 Phase B �� dette pair 5 items P2`
-**Critere** : JoinHandle join au shutdown, test backfill 6+ vert, orphan retry/rollback, reconnexion test, exemption doc.
+**Critere** : preuves/tests des deux chemins deja livres Phase A
+(JoinHandle + stream break), test backfill 6+ vert, orphan
+retry/rollback, exemption doc.
 
 ### Phase C — Tests adversariaux feed [HARDENING]
 
@@ -319,21 +326,21 @@ Scenarios adversariaux feed public :
 
 ## §6 Items carry/dette
 
-### MANDATORY 3/3 (resolus dans ce sprint)
+### Items 3/3 (traitement Sprint 64)
 
 | Item | Reports | Phase S64 | Exit condition |
 |---|---|---|---|
 | F1 P2-VERSION-NOT-STORED | 3/3 | Phase A | version stockee DB + visible endpoint |
-| F5 P2-IROH-INFRA-TIMEOUT | 3/3 | Phase A | subscribe timeout + test stabilite |
+| F5 P2-IROH-INFRA-TIMEOUT | 3/3 | Phase A + D | code timeout/retry/JoinHandle livre Phase A ; preuve E2E stabilite Phase D |
 
 ### Dette Phase B (resolue dans ce sprint)
 
 | Item | Reports | Phase S64 | Exit condition |
 |---|---|---|---|
-| P2-FEED-SUBSCRIBE-JOINHANDLE | 2/3 | Phase B | JoinHandle join shutdown |
+| P2-FEED-SUBSCRIBE-JOINHANDLE | 2/3 | Phase B | code livre Phase A ; preuve/test shutdown sans leak |
 | P2-BACKFILL-6PLUS-TEST | 2/3 | Phase B | test integration backfill 6+ |
 | P2-FEED-PUBLISH-ORPHAN | 2/3 | Phase B | retry/rollback DB/iroh-docs |
-| P2-SUBSCRIBE-STREAM-BREAK | 2/3 | Phase B | reconnexion auto stream break |
+| P2-SUBSCRIBE-STREAM-BREAK | 2/3 | Phase B | code livre Phase A ; preuve/test reconnexion apres stream break |
 | P2-PROCESS-FORMAT | herite | Phase B | exemption retroactive README.md |
 
 ### Carries reconduits S65

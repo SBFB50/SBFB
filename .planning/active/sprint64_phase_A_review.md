@@ -1,8 +1,8 @@
 # Sprint 64 Phase A — review
 
 **Date** : 2026-05-16.
-**Commit** : `daa3a8e` (initial) + fix inter-phase (hash stability + hook gate).
-**Phase** : A — MANDATORY 3/3 (F1 version + F5 timeout).
+**Commit** : `daa3a8e` (initial) + fixes inter-phase `9b8abfa`/`956a1a7`.
+**Phase** : A — F1 CLOSED ; F5 code delivered, preuve E2E Phase D.
 
 ---
 
@@ -28,11 +28,30 @@
 
 ---
 
+## Post-fix targeted proof (2026-05-16)
+
+| Commande | Resultat |
+|---|---|
+| `cargo nextest run --workspace --locked` | 1309/1309 PASS, nextest run `8d4c2fc5-439e-4004-8759-33a80fee02c4` |
+| `cargo test -p nexus-coordinator-rs --locked blake3_hash_stable_without_app_version -- --nocapture` | 1/1 PASS |
+| `python -m py_compile scripts\agent\agentctl.py` | PASS |
+| `phase_from_title("feat(feed): Sprint 64 Phase A - test")` | `('64', 'A')` |
+| `agentctl.py auditor-gate` on `feat(feed): Sprint 64 Phase A - test` | rc=0 |
+| `npm run test:unit` (web/) | 265/265 PASS apres hardening localStorage Node v25 |
+| `npm run build` (web/) | PASS |
+| `npm run size` (web/) | 6/6 PASS |
+| `npm run lint` (web/) | 0 error, 5 warnings fast-refresh preexistants |
+
+---
+
 ## Delta tests
 
-| Prevu plan | Reel | Ecart |
+| Reference | Delta | Commentaire |
 |---|---|---|
-| +4 (1305→1309) | +3 (1305→1308) | -1 test (subscribe_timeout_reconnects differe Phase D) |
+| Plan initial Phase A | +4 attendu | incluait `test_subscribe_timeout_reconnects` |
+| Livraison Phase A initiale `daa3a8e` | +3 (1305→1308) | 2 DB + 1 endpoint provenance |
+| Fix inter-phase `9b8abfa` | +1 (1308→1309) | hash provenance legacy |
+| Ecart fonctionnel restant | preuve E2E Phase D | subscribe timeout/reconnect en scenario multi-daemon |
 
 **Justification ecart** : `test_subscribe_timeout_reconnects` requiert
 un multi-daemon E2E setup (gate SBFB_INTEGRATION=1) pour simuler un
@@ -75,19 +94,18 @@ dans un scenario multi-daemon reel.
    `"app_version": null` dans le JSON serialise → hash BLAKE3 stable.
    Test ajoute : `blake3_hash_stable_without_app_version`.
 
-2. **P1 hook gate bypass** : `phase-precommit-lightcheck.sh` regex corrigee
-   pour detecter Sprint+Phase meme dans les domain scopes (`feat(feed):
-   Sprint 64 Phase A` desormais detecte).
+2. **P1 hook gate bypass** : `.claude/hooks/*` et
+   `scripts/agent/agentctl.py` detectent maintenant Sprint+Phase meme
+   dans les domain scopes (`feat(feed): Sprint 64 Phase A`).
 
 ---
 
 ## Scope cuts respectes
 
+Phase A livrable apres fix inter-phase (hash stability + hook gate).
+F5 reclasse "preuve Phase D" — pas un bloquant Phase B.
 12/12 items non touches (confirme via grep sur fichiers stages).
 
 ---
 
-## Verdict : PASS
-
-Phase A livrable apres fix inter-phase (hash stability + hook gate).
-F5 reclasse "preuve Phase D" — pas un bloquant Phase B.
+## Verdict: PASS

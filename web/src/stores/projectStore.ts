@@ -20,6 +20,13 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { normalizeApiUrl } from "@/api/coordinator";
 
+function projectStoreStorage(): Storage {
+  if (typeof window !== "undefined") {
+    return window.localStorage;
+  }
+  return globalThis.localStorage;
+}
+
 export interface KnownCoordinator {
   /** Normalized URL, e.g. `http://127.0.0.1:8765` (no trailing slash). */
   url: string;
@@ -137,7 +144,7 @@ export const useProjectStore = create<ProjectStoreState>()(
     }),
     {
       name: "nexus-grid:shell:v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(projectStoreStorage),
     },
   ),
 );
