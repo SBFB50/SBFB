@@ -5613,6 +5613,43 @@ mod tests {
         assert!(json["record"]["repo_url"].as_str().is_some());
     }
 
+    #[tokio::test]
+    async fn provenance_endpoint_returns_app_version() {
+        let state = mk_state().await;
+        let project_id = state.node_id.clone();
+        let kp = &state.pow_keypair;
+        let mut record = nexus_coordinator_rs::provenance::generate_provenance(
+            "https://github.com/user/versioned",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+            &hex::encode(kp.public_bytes()),
+            kp,
+        );
+        record.app_version = Some("3.2.1".to_string());
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            db.insert_provenance_record(&project_id, &record)
+                .expect("insert");
+        }
+
+        let app = build_test_router(state);
+        let uri = format!("/api/v1/project/{project_id}/provenance");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["record"]["app_version"], "3.2.1");
+    }
+
     // -- Sprint 63 Phase C: feed cursor endpoint tests --
 
     #[tokio::test]

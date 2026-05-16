@@ -276,32 +276,79 @@ pub fn spawn_feed_subscribe(
     coordinator_db: Arc<std::sync::Mutex<CoordinatorDb>>,
     node: Arc<nexus_core_rs::Node>,
     feed_limiter: Arc<FeedRateLimiter>,
-) {
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut stream = match feed_state.doc.subscribe().await {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(error = %e, "feed subscribe failed");
-                return;
-            }
-        };
-        info!("feed subscribe active");
-        while let Some(event) = stream.next().await {
-            match event {
-                Ok(DocsLiveEvent::InsertRemote {
-                    entry: doc_entry, ..
-                }) => {
-                    ingest_doc_entry(&doc_entry, &node, &coordinator_db, &feed_limiter, true).await;
+        let mut backoff = std::time::Duration::from_millis(500);
+        let max_backoff = std::time::Duration::from_secs(30);
+        let mut shutdown = shutdown;
+
+        loop {
+            let stream = match tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                feed_state.doc.subscribe(),
+            )
+            .await
+            {
+                Ok(Ok(s)) => s,
+                Ok(Err(e)) => {
+                    warn!(error = %e, "feed subscribe failed, retrying");
+                    tokio::select! {
+                        _ = tokio::time::sleep(backoff) => {}
+                        _ = shutdown.changed() => { return; }
+                    }
+                    backoff = (backoff * 2).min(max_backoff);
+                    continue;
                 }
-                Ok(_) => {}
-                Err(e) => {
-                    warn!(error = %e, "feed subscribe stream error");
-                    break;
+                Err(_) => {
+                    warn!("feed subscribe timed out (30s), retrying");
+                    tokio::select! {
+                        _ = tokio::time::sleep(backoff) => {}
+                        _ = shutdown.changed() => { return; }
+                    }
+                    backoff = (backoff * 2).min(max_backoff);
+                    continue;
+                }
+            };
+
+            info!("feed subscribe active");
+            backoff = std::time::Duration::from_millis(500);
+            let mut stream = stream;
+
+            loop {
+                tokio::select! {
+                    event = stream.next() => {
+                        match event {
+                            Some(Ok(DocsLiveEvent::InsertRemote {
+                                entry: doc_entry, ..
+                            })) => {
+                                ingest_doc_entry(&doc_entry, &node, &coordinator_db, &feed_limiter, true).await;
+                            }
+                            Some(Ok(_)) => {}
+                            Some(Err(e)) => {
+                                warn!(error = %e, "feed subscribe stream error, reconnecting");
+                                break;
+                            }
+                            None => {
+                                info!("feed subscribe stream ended, reconnecting");
+                                break;
+                            }
+                        }
+                    }
+                    _ = shutdown.changed() => {
+                        info!("feed subscribe shutting down");
+                        return;
+                    }
                 }
             }
+
+            tokio::select! {
+                _ = tokio::time::sleep(backoff) => {}
+                _ = shutdown.changed() => { return; }
+            }
+            backoff = (backoff * 2).min(max_backoff);
         }
-        info!("feed subscribe ended");
-    });
+    })
 }
 
 // ---------------------------------------------------------------------------

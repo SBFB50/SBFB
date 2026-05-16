@@ -23,6 +23,9 @@ pub struct ProvenanceRecord {
     pub node_id: String,
     pub timestamp: String,
     pub signature: String,
+    /// Application version from SBFB.json (not part of signed canonical bytes).
+    #[serde(default)]
+    pub app_version: Option<String>,
 }
 
 pub fn generate_provenance(
@@ -50,6 +53,7 @@ pub fn generate_provenance(
         node_id: node_id_hex.to_string(),
         timestamp,
         signature: hex::encode(sig),
+        app_version: None,
     }
 }
 

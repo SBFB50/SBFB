@@ -225,6 +225,8 @@ pub struct DaemonRuntime {
     pow_policy_watcher: Option<PowPolicyWatcher>,
     dispatch_handle: Option<JoinHandle<()>>,
     dispatch_shutdown: Option<oneshot::Sender<()>>,
+    feed_handle: Option<JoinHandle<()>>,
+    feed_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     bound_addr: std::net::SocketAddr,
 }
 
@@ -606,7 +608,8 @@ impl DaemonRuntime {
         //       storage_namespaces table with key "sbfb-feed".
         let feed_rate_limiter =
             Arc::new(nexus_shell_daemon_core::feed_limiter::FeedRateLimiter::new());
-        let feed_sync_state =
+        let (feed_shutdown_tx, feed_shutdown_rx) = tokio::sync::watch::channel(false);
+        let (feed_sync_state, feed_handle) =
             match boot_feed_namespace(&docs_client, &coordinator_db, doc_author).await {
                 Ok(fs) => {
                     info!(
@@ -614,17 +617,18 @@ impl DaemonRuntime {
                         "feed sync namespace ready"
                     );
                     let fs_arc = Arc::new(fs);
-                    crate::feed_sync::spawn_feed_subscribe(
+                    let handle = crate::feed_sync::spawn_feed_subscribe(
                         Arc::clone(&fs_arc),
                         Arc::clone(&coordinator_db),
                         Arc::clone(&node),
                         Arc::clone(&feed_rate_limiter),
+                        feed_shutdown_rx,
                     );
-                    Some(fs_arc)
+                    (Some(fs_arc), Some(handle))
                 }
                 Err(e) => {
                     warn!(error = %e, "failed to boot feed sync namespace");
-                    None
+                    (None, None)
                 }
             };
 
@@ -821,6 +825,8 @@ impl DaemonRuntime {
             pow_policy_watcher: _pow_policy_watcher,
             dispatch_handle: Some(dispatch_handle),
             dispatch_shutdown: Some(dispatch_shutdown_tx),
+            feed_handle,
+            feed_shutdown: Some(feed_shutdown_tx),
             bound_addr,
         })
     }
@@ -883,6 +889,15 @@ impl DaemonRuntime {
         }
         if let Err(e) = (&mut self.http_handle).await {
             warn!(error = %e, "HTTP serve task join failed");
+        }
+
+        if let Some(tx) = self.feed_shutdown.take() {
+            let _ = tx.send(true);
+        }
+        if let Some(mut handle) = self.feed_handle.take() {
+            if let Err(e) = (&mut handle).await {
+                warn!(error = %e, "feed subscribe task join failed");
+            }
         }
 
         if let Some(tx) = self.dispatch_shutdown.take() {

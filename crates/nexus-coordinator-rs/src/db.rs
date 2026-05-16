@@ -192,6 +192,8 @@ static MIGRATIONS: &[M<'static>] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_prov_project ON provenance_records(project_id);",
     ),
+    // M13: add app_version column to provenance_records (Sprint 64 Phase A)
+    M::up("ALTER TABLE provenance_records ADD COLUMN app_version TEXT;"),
 ];
 
 pub struct StorageNamespaceRow {
@@ -686,8 +688,8 @@ impl CoordinatorDb {
             .unwrap_or(0);
         self.conn.execute(
             "INSERT OR REPLACE INTO provenance_records
-             (project_id, repo_url, commit_sha, artifact_hash, node_id, signature, timestamp, schema_version, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (project_id, repo_url, commit_sha, artifact_hash, node_id, signature, timestamp, schema_version, created_at, app_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
                 project_id,
                 record.repo_url,
@@ -698,6 +700,7 @@ impl CoordinatorDb {
                 record.timestamp,
                 record.schema_version,
                 now as i64,
+                record.app_version,
             ],
         )?;
         Ok(())
@@ -708,7 +711,7 @@ impl CoordinatorDb {
         project_id: &str,
     ) -> Result<Option<ProvenanceRecord>, CoordinatorError> {
         let mut stmt = self.conn.prepare(
-            "SELECT repo_url, commit_sha, artifact_hash, node_id, signature, timestamp, schema_version
+            "SELECT repo_url, commit_sha, artifact_hash, node_id, signature, timestamp, schema_version, app_version
              FROM provenance_records WHERE project_id = ?1
              ORDER BY created_at DESC, rowid DESC LIMIT 1",
         )?;
@@ -722,6 +725,7 @@ impl CoordinatorDb {
                 signature: row.get(4)?,
                 timestamp: row.get(5)?,
                 schema_version: row.get::<_, u32>(6)?,
+                app_version: row.get(7)?,
             })),
             None => Ok(None),
         }
@@ -1240,5 +1244,46 @@ mod tests {
                 .expect("get")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn provenance_insert_with_version() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let kp = nexus_core_rs::crypto::KeyPair::generate();
+        let mut record = crate::provenance::generate_provenance(
+            "https://github.com/user/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+            &hex::encode(kp.public_bytes()),
+            &kp,
+        );
+        record.app_version = Some("2.1.0".to_string());
+        db.insert_provenance_record("proj-versioned", &record)
+            .expect("insert");
+        let fetched = db
+            .get_provenance_by_project("proj-versioned")
+            .expect("get")
+            .expect("found");
+        assert_eq!(fetched.app_version, Some("2.1.0".to_string()));
+    }
+
+    #[test]
+    fn provenance_insert_without_version_backward_safe() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let kp = nexus_core_rs::crypto::KeyPair::generate();
+        let record = crate::provenance::generate_provenance(
+            "https://github.com/user/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+            &hex::encode(kp.public_bytes()),
+            &kp,
+        );
+        db.insert_provenance_record("proj-no-version", &record)
+            .expect("insert");
+        let fetched = db
+            .get_provenance_by_project("proj-no-version")
+            .expect("get")
+            .expect("found");
+        assert_eq!(fetched.app_version, None);
     }
 }

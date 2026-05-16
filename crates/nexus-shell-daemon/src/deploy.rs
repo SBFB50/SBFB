@@ -156,13 +156,14 @@ pub async fn deploy_from_repo(
     let artifact_hash_bytes = blake3_hash(&zip_bytes);
     let artifact_hash_hex = hex::encode(artifact_hash_bytes);
 
-    let prov = provenance::generate_provenance(
+    let mut prov = provenance::generate_provenance(
         &repo_url,
         &commit_sha,
         &artifact_hash_hex,
         &state.node_id,
         &state.pow_keypair,
     );
+    prov.app_version = sbfb.version.clone();
 
     // Best-effort contributor attestation (Couche 2 Sybil gate).
     {
@@ -493,6 +494,8 @@ async fn git_rev_parse(repo_dir: &Path) -> Result<String, String> {
 #[derive(Debug, Deserialize)]
 struct SbfbJson {
     node_id: String,
+    #[serde(default)]
+    version: Option<String>,
 }
 
 fn read_sbfb_json(repo_dir: &Path) -> Result<SbfbJson, String> {
