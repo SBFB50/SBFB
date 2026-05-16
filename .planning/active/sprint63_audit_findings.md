@@ -98,10 +98,13 @@ Audit plan §6 documente 16+ carries avec compteurs. Verification :
 
 Phase C commit `272523c` body annonce "Vitest: 258 -> 264 (+6: 3
 bridge dispatch + 3 VerificationDetail)" mais livraison reelle = +7
-(258→265, incluant +1 hash mismatch test). Discrepance corrigee dans
-le commit Phase D ("Phase C +3 bridge dispatch + 3 VerificationDetail
-+ 1 hash mismatch"). verification.md §2 a le bon compte. Impact nul
-(verification.md autoritatif) mais discipline commit body incomplete.
+(258→265, incluant +1 hash mismatch test dans
+`web/src/components/__tests__/VerificationDetail.test.tsx:131`).
+Le test manquant au decompte provient du fix `fa7cd52` (hash linkage),
+le compteur est corrige dans les commits planning `fc13cae`/`81bf69d`
+puis repris correctement dans le body Phase D. verification.md §2 a le
+bon compte. Impact nul (verification.md autoritatif, commit body
+historique non-amendable) — **ACCEPTED/CLOSED, pas de carry S64**.
 
 **Evidence** : `git log --format="%b" 272523c | grep "Vitest"` →
 "258 -> 264 (+6)" vs verification.md ligne 39 "258 → 265 (+7)".
@@ -119,7 +122,8 @@ en defense-in-depth. Deja documente comme carry dans audit plan §6.
 ### P3 — PHASE-C-BODY-MINOR-UNDERCOUNT
 
 Nit : le commit body Phase C dit "+6 Vitest" (omet le hash mismatch
-test). Auto-corrige Phase D. Aucune action requise.
+test). Corrige via fix fa7cd52 + planning fc13cae/81bf69d, repris
+correctement dans body Phase D. Aucune action requise.
 
 ---
 
@@ -140,11 +144,13 @@ Aucun — verdict PASS, 0 P0, 0 P1.
 
 ---
 
-## P2 a logger en carry S64
+## P2 routing
 
-- P2-VITEST-DELTA-COMMIT-BODY-DRIFT : nit process, aucune action code.
-  Carry optionnel (le planner S64 peut ignorer).
-- P2-EXPLORER-ESCAPE-SINGLE-QUOTE : deja carry (1/3 → planner S64+).
+- **P2-VITEST-DELTA-COMMIT-BODY-DRIFT** : **ACCEPTED/CLOSED** — commit body
+  historique (`272523c`) non modifiable sans rewrite history (interdit).
+  verification.md autoritatif. Zero impact code. Pas de carry S64.
+- **P2-EXPLORER-ESCAPE-SINGLE-QUOTE** : deja carry (1/3 → planner S64+,
+  route dans sprint64_audit_plan.md §6 ligne 86).
 
 ---
 
