@@ -68,7 +68,7 @@ Sprint 63 a livre 4 phases (A-D) + 2 fix inter-phases sur le theme
 | Item | Compteur | Owner | Trigger | Exit condition |
 |---|---|---|---|---|
 | F1 P2-VERSION-NOT-STORED | **3/3 MANDATORY** | planner S64 | §6.2.1 Regle 2 | version stockee en DB a l'insert provenance |
-| F5 P2-IROH-INFRA-TIMEOUT | **3/3 MANDATORY** | planner S64 | §6.2.1 Regle 2 | SBFB_INTEGRATION tests stables (0 timeout 5 runs consecutifs) |
+| F5 P2-IROH-INFRA-TIMEOUT | **3/3 code delivered Phase A** | planner S64 | §6.2.1 Regle 2 | code timeout+retry+JoinHandle livre. Preuve E2E Phase D (test_new_node exercera subscribe). Exit residuelle : 0 timeout 5 runs |
 | P2-PROCESS-FORMAT | herite | planner S64 | audit S63 | supprimer §6 LOC plan.md OU ajouter exemption retroactive |
 | P2-PROVENANCE-404-BRIDGE | 1/3 | planner S64+ | enrichissement provenance UX | endpoint retourne code distinct projet-inconnu vs provenance-absente |
 | P2-BADGE-WORDING-PREMATURE | pre-existant S14 | planner S64 | UI pass verification | renommer badge "Provenance disponible" ou conditionner sur verified |

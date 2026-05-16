@@ -28,6 +28,10 @@ PHASE_TITLE_RE = re.compile(
     r"^(feat|fix|docs|chore|test|refactor)\(sprint(?P<sprint>\d+)\):\s*"
     r"Sprint\s+\d+\s+Phase\s+(?P<phase>[A-Z][0-9]?)\b"
 )
+PHASE_TITLE_FALLBACK_RE = re.compile(
+    r"^(feat|fix|docs|chore|test|refactor)\([^)]+\):\s*"
+    r"Sprint\s+(?P<sprint>\d+)\s+Phase\s+(?P<phase>[A-Z][0-9]?)\b"
+)
 
 
 def repo_root() -> Path:
@@ -447,6 +451,8 @@ def wire_warnings(files: list[str], diff: str, sprint: str | None, phase: str | 
 
 def phase_from_title(title: str) -> tuple[str | None, str | None]:
     m = PHASE_TITLE_RE.match(title)
+    if not m:
+        m = PHASE_TITLE_FALLBACK_RE.match(title)
     if not m:
         return None, None
     return m.group("sprint"), m.group("phase")

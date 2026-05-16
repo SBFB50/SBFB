@@ -111,11 +111,17 @@ F1 P2-VERSION-NOT-STORED (3/3 MANDATORY) CLOSED:
 - sbfb-bridge.js: provenance_get includes version
 - examples/SBFB.json: add "version" field
 
-F5 P2-IROH-INFRA-TIMEOUT (3/3 MANDATORY) CLOSED:
-- feed_sync.rs: tokio::time::timeout(30s) on subscribe + retry
-- multi_daemon.rs: test_subscribe_timeout_reconnects (SBFB_INTEGRATION)
+F5 P2-IROH-INFRA-TIMEOUT (3/3 MANDATORY) — code delivered:
+- feed_sync.rs: tokio::time::timeout(30s) on subscribe + retry + reconnect
+- runtime.rs: JoinHandle tracked + joined at shutdown
+- E2E stability proof: deferred Phase D (test_new_node_full_sync_and_verify)
 
-Delta tests: Rust +4 (2 provenance version + 1 endpoint + 1 subscribe), Vitest +0.
+Fix inter-phase (post cross-review):
+- provenance.rs: skip_serializing_if Option::is_none (hash stability)
+- hooks: title-only extraction + domain scope fallback
+- Test: blake3_hash_stable_without_app_version
+
+Delta tests: Rust +4 (3 Phase A + 1 fix inter-phase), Vitest +0.
 Cumule sprint: Rust 1305 → 1309, Vitest 265, size 6/6.
 Scope cuts respectes: 12/12 items non touches.
 ```

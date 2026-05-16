@@ -20,7 +20,7 @@
 |---|---|
 | cargo fmt --all --check | 0 diff |
 | cargo clippy --workspace --all-targets --locked -- -D warnings | 0 warnings |
-| cargo nextest run --workspace --locked | 1308/1308 PASS |
+| cargo nextest run --workspace --locked | 1309/1309 PASS |
 | cargo test --workspace --locked --doc | ok (1 ignored) |
 | cargo build -p nexus-shell-daemon --release | ok |
 | npm run test:unit (web/) | 265/265 PASS |
