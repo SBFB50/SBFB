@@ -42,10 +42,16 @@ if [ ! -f "$REPO_ROOT/Cargo.toml" ] || [ ! -d "$REPO_ROOT/crates/nexus-core-rs" 
   exit 0
 fi
 
-# Extraire sprint N et Phase X du commit message (anywhere in cmd)
-# Le titre est suppose etre sur une ligne (convention nexus §4.1 README).
-SPRINT=$(echo "$CMD" | grep -oE '(feat|fix|docs|chore|test)\(sprint[0-9]+\)' | head -1 | grep -oE '[0-9]+' || true)
-PHASE=$(echo "$CMD" | grep -oE 'Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $2}' || true)
+# Extraire sprint N et Phase X du commit TITLE only (premiere ligne).
+COMMIT_TITLE=$(echo "$CMD" | sed -n "s/.*-m[[:space:]]*[\"']\?\([^\n\"]*\).*/\1/p" | head -1 || true)
+[ -z "$COMMIT_TITLE" ] && COMMIT_TITLE="$CMD"
+# Primary: scope-based (feat(sprint64): Sprint 64 Phase A)
+SPRINT=$(echo "$COMMIT_TITLE" | grep -oE '(feat|fix|docs|chore|test|refactor)\(sprint[0-9]+\)' | head -1 | grep -oE '[0-9]+' || true)
+# Fallback: title-based (feat(feed): Sprint 64 Phase A)
+if [ -z "$SPRINT" ]; then
+  SPRINT=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' | head -1 | grep -oE '[0-9]+' || true)
+fi
+PHASE=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $NF}' || true)
 
 # Pas de sprint+phase ? no-op (commit lambda)
 [ -z "$SPRINT" ] && exit 0

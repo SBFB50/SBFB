@@ -24,7 +24,7 @@ pub struct ProvenanceRecord {
     pub timestamp: String,
     pub signature: String,
     /// Application version from SBFB.json (not part of signed canonical bytes).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_version: Option<String>,
 }
 
@@ -187,5 +187,25 @@ mod tests {
         let h2 = provenance_blake3_hex(&record);
         assert_eq!(h1, h2);
         assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn blake3_hash_stable_without_app_version() {
+        let kp = KeyPair::generate();
+        let record = generate_provenance(
+            "https://github.com/user/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+            &hex::encode(kp.public_bytes()),
+            &kp,
+        );
+        assert_eq!(record.app_version, None);
+        let json = provenance_to_json(&record);
+        assert!(
+            !json.contains("app_version"),
+            "None app_version must not appear in serialized JSON"
+        );
+        let hash = provenance_blake3_hex(&record);
+        assert_eq!(hash.len(), 64);
     }
 }
