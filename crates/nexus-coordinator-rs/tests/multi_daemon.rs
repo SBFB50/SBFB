@@ -20,8 +20,12 @@ async fn test_new_node_full_sync_and_verify() {
 
     let client = reqwest::Client::new();
 
-    // Insert 3 feed operations on daemon 1
-    for i in 0..3 {
+    // Insert 3 feed operations on daemon 1 (all hex-valid fixtures)
+    for i in 0u64..3 {
+        let project_id = format!("{:0>64x}", i + 1);
+        let commit_sha = format!("{:0>40x}", i + 100);
+        let artifact_hash = format!("{:0>64x}", i + 200);
+        let provenance_hash = format!("{:0>64x}", i + 300);
         let resp = client
             .post(format!("{}/api/daemon/feed/insert", d1.http_url()))
             .header("X-SBFB-Token", &d1.auth_token)
@@ -29,11 +33,11 @@ async fn test_new_node_full_sync_and_verify() {
             .json(&serde_json::json!({
                 "op": {
                     "op_type": "ReleasePublished",
-                    "project_id": format!("{:0>64}", format!("project{i}")),
+                    "project_id": project_id,
                     "repo_url": format!("https://github.com/org/app{i}"),
-                    "commit_sha": format!("{:0>40}", format!("commit{i}")),
-                    "artifact_hash": format!("{:0>64}", format!("artifact{i}")),
-                    "provenance_hash": format!("{:0>64}", format!("prov{i}")),
+                    "commit_sha": commit_sha,
+                    "artifact_hash": artifact_hash,
+                    "provenance_hash": provenance_hash,
                     "is_open_source": true,
                 }
             }))
@@ -87,7 +91,7 @@ async fn test_new_node_full_sync_and_verify() {
             .await;
         if let Ok(resp) = status_resp {
             if let Ok(body) = resp.json::<serde_json::Value>().await {
-                if let Some(count) = body["entry_count"].as_u64() {
+                if let Some(count) = body["count"].as_u64() {
                     if count >= 3 {
                         synced = true;
                         break;
@@ -108,10 +112,10 @@ async fn test_new_node_full_sync_and_verify() {
         .await
         .expect("cursor request");
     let cursor_body: serde_json::Value = cursor_resp.json().await.expect("cursor json");
-    let cursor_seq = cursor_body["seq"].as_u64().unwrap_or(0);
+    let cursor_seq = cursor_body["last_seq"].as_u64().unwrap_or(0);
     assert!(
         cursor_seq >= 3,
-        "cursor seq must be >= 3 after sync, got {cursor_seq}"
+        "last_seq must be >= 3 after sync, got {cursor_seq}"
     );
 
     cluster.shutdown().await.expect("cluster shutdown");

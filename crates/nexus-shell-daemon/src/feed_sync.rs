@@ -163,6 +163,15 @@ async fn ingest_doc_entry(
         return;
     }
 
+    let now_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if let Err(e) = public_feed::validate_feed_entry_timestamp(&feed_entry, now_epoch) {
+        warn!(key = %key_str, error = %e, "feed entry timestamp rejected");
+        return;
+    }
+
     if let Err(e) = validate_feed_operation(&feed_entry.op) {
         warn!(key = %key_str, error = %e, "feed operation validation failed");
         return;

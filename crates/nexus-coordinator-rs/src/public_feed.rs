@@ -1447,23 +1447,52 @@ mod tests {
 
     #[test]
     fn test_adversarial_blake3_tamper_canonical() {
+        let kp = nexus_core_rs::KeyPair::from_secret_bytes(&[13u8; 32]);
+        let pk = hex::encode(kp.public_bytes());
+
         let canonical = FeedEntryCanonical {
             version: FEED_FORMAT_VERSION,
             op: sample_release_published(),
-            author_pubkey: "d".repeat(64),
+            author_pubkey: pk.clone(),
             timestamp: 1_700_000_000,
             prev_hash: GENESIS_PREV_HASH.to_string(),
         };
-        let original_bytes = compute_feed_canonical_bytes(&canonical).unwrap();
-        let original_hash = compute_feed_entry_hash(&canonical).unwrap();
+        let canonical_bytes = compute_feed_canonical_bytes(&canonical).unwrap();
+        let entry_hash = compute_feed_entry_hash(&canonical).unwrap();
+        let signature = hex::encode(kp.sign(&canonical_bytes));
 
-        let mut tampered = original_bytes.clone();
-        tampered[0] ^= 0x01;
-        let tampered_hash = hex::encode(blake3::hash(&tampered).as_bytes());
+        // Valid entry passes verify_entry
+        let valid_entry = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: pk.clone(),
+            timestamp: 1_700_000_000,
+            entry_hash: entry_hash.clone(),
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: signature.clone(),
+            pow_nonce: None,
+        };
+        assert!(verify_entry(&valid_entry).is_ok(), "valid entry must pass");
 
-        assert_ne!(
-            original_hash, tampered_hash,
-            "1-bit flip in canonical bytes must produce different BLAKE3 hash"
+        // Tampered entry: change timestamp (1 bit flip in canonical input)
+        // This makes the stored entry_hash not match recomputed hash
+        let tampered_entry = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: pk,
+            timestamp: 1_700_000_001,
+            entry_hash,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature,
+            pow_nonce: None,
+        };
+        let result = verify_entry(&tampered_entry);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("entry_hash mismatch"),
+            "tampered canonical field must cause hash mismatch in verify_entry"
         );
     }
 
@@ -1483,7 +1512,7 @@ mod tests {
     }
 
     #[test]
-    fn test_adversarial_age_witness_future_timestamp() {
+    fn test_adversarial_future_timestamp_rejected() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
