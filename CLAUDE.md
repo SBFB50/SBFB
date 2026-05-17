@@ -131,34 +131,43 @@ Runtime isolation roadmap dans
   provenance insert after blob store + rowid tiebreaker).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1580 tests total** (1309 Rust / 265 Vitest / 6/6 size-limit)
+- **~1586 tests total** (1315 Rust / 265 Vitest / 6/6 size-limit)
   — tous verts code. Playwright operationnel (global-setup refactored
   Phase A S63). S63 : +6 delta Rust (1299→1305, Phase B +4, C +2),
   +7 delta Vitest (258→265, Phase C +7).
-- Sprint 64 Phase A closee :
+- Sprint 64 Phase A closee, Phase B closee + fix cross-review :
   F1 P2-VERSION-NOT-STORED CLOSED (M13 `app_version`, endpoint,
   tests DB+HTTP). F5 P2-IROH-INFRA-TIMEOUT code delivered
   (timeout/retry/reconnect + JoinHandle shutdown), preuve E2E
   residuelle Phase D (`test_new_node_full_sync_and_verify`).
+  Phase B dette pair 5 items P2 CLOSED + P1 tail-safe rollback
+  fix (`490e491`). delete_feed_entry_if_tail atomique SQL (refuse
+  DELETE si entry chainee). Tests +6 Rust (5 Phase B + 1 fix).
 - Carry S64 :
   P2-A-1 rand blocker upstream (exemption externe) ;
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
   P2-G-1 exe lock intermittent (reouvert).
   F1 P2-VERSION-NOT-STORED CLOSED Phase A.
   F5 P2-IROH-INFRA-TIMEOUT code delivered Phase A, preuve E2E Phase D.
-  P2-PROCESS-FORMAT (herite, estimation LOC dans plan).
+  P2-PROCESS-FORMAT CLOSED Phase B (exemption LOC retroactive).
+  P2-FEED-SUBSCRIBE-JOINHANDLE CLOSED Phase B (boot path).
+  P2-BACKFILL-6PLUS-TEST CLOSED Phase B (primitive DB).
+  P2-FEED-PUBLISH-ORPHAN CLOSED Phase B + fix tail-safe.
+  P2-SUBSCRIBE-STREAM-BREAK CLOSED Phase B (backoff arithmetic).
   P2-PROVENANCE-404-BRIDGE (404 ne distingue pas projet/provenance).
   P2-BADGE-WORDING-PREMATURE (pre-existant S14).
   P2-COMMIT-TITLE-FORMAT (clarifier PROCESS.md).
   P2-REVIEW-ORDER (clarifier review vs feat ordering).
   P2-PYTHON-BLOCK-EXEMPTION (clause exemption SKILL.md Step 2).
   P2-FEED-INSERT-NO-AUTH-TIER (2/3).
-  P2-FEED-SUBSCRIBE-JOINHANDLE (2/3, code delivered Phase A,
-  preuve/test Phase B).
-  P2-BACKFILL-6PLUS-TEST (2/3).
-  P2-FEED-PUBLISH-ORPHAN (2/3).
-  P2-SUBSCRIBE-STREAM-BREAK (2/3, code delivered Phase A,
-  preuve/test Phase B).
+  P2-FEED-JOIN-HANDLE-LEAK (feed_join tokio::spawn fire-and-forget,
+  pas de shutdown channel, pas de reconnect — owner S65 dette feed,
+  trigger modif feed_join, exit JoinHandle stocke + reconnect loop).
+  P2-VERIFY-ENTRY-VERSION-GUARD (verify_entry ne check pas version
+  field — policy pre-launch exempte v==1, obligatoire before go-live,
+  owner S65, trigger tag v1.0 pousse).
+  P2-ORPHAN-REPUBLISH-RECOVERY (entry local-only apres publish fail
+  + tail-safe skip — pas de republish DB→iroh-docs, owner S65).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).
