@@ -114,60 +114,55 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-63 CLOSED**, v1.2 livree. **Tag v1.0 pose.**
+- **Sprints 0-64 CLOSED**, v1.2 livree. **Tag v1.0 pose.**
   Projet Rust+Frontend pur depuis S50-S51.
-  S63 verification tiers + UX (3eme sprint roadmap post-v1.0) :
-  Phase A MANDATORY 3/3 (image→png nexus-launcher + Playwright
-  global-setup daemon Rust) + Phase B provenance endpoint HTTP
-  SQLite M12 (insert au deploy, GET /api/v1/project/{id}/provenance,
-  verification live Ed25519) + Phase C bridge verification 3
-  methodes (provenance_get, provenance_verify, feed_cursor_get) +
-  UI VerificationDetail modal shadcn Dialog (7 champs, lazy fetch,
-  verify live, hash mismatch warning) + badge ShieldCheck cliquable
-  + Phase D Protocol Explorer section "Verification & Provenance"
-  (demo interactive verifyRelease via bridge, chaine de preuve
-  ASCII, select projet + bouton verify) + 2 fix cross-review
-  (fa7cd52 provenance hash linkage proof-chain + 5f6a77d
-  provenance insert after blob store + rowid tiebreaker).
+  S64 hardening public cible (4eme sprint roadmap post-v1.0) :
+  Phase A MANDATORY F1 VERSION-NOT-STORED 3/3 (M13 `app_version`
+  TEXT nullable, deploy.rs insert, endpoint retourne version) +
+  F5 IROH-INFRA-TIMEOUT code (timeout 30s subscribe + retry
+  backoff + JoinHandle tracked + joined at shutdown) +
+  Phase B dette pair 5 items P2 CLOSED (joinhandle shutdown proof,
+  backfill 6+ test, orphan rollback tail-safe, stream-break
+  reconnect proof, process-format exemption retroactive) +
+  Phase C 6 tests adversariaux feed (fork-bomb spam rate-limited
+  5/min, payload oversized >64KB, bad repo URL, bad artifact hash,
+  seq gap detection, cross-author forgery) +
+  Phase D 4 tests adversariaux crypto (Ed25519 forgery random sig,
+  BLAKE3 tamper 1-bit flip, PoW nonce 16-bit difficulty, future
+  timestamp >30d) + 1 E2E nouveau noeud (daemon neuf → join ticket
+  → sync 3 entries → verify count+seq) +
+  Phase E PUBLIC_FEED_SPEC.md §10 adversarial scenarios (15
+  vecteurs documentes) + §11 bootstrap procedure + §12 security
+  considerations + 4 fix inter-phases (rate limiter per-author,
+  tail-safe orphan rollback, Phase D cross-review 4 P1, E2E
+  feed_status).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1586 tests total** (1315 Rust / 265 Vitest / 6/6 size-limit)
-  — tous verts code. Playwright operationnel (global-setup refactored
-  Phase A S63). S63 : +6 delta Rust (1299→1305, Phase B +4, C +2),
-  +7 delta Vitest (258→265, Phase C +7).
-- Sprint 64 Phase A closee, Phase B closee + fix cross-review :
-  F1 P2-VERSION-NOT-STORED CLOSED (M13 `app_version`, endpoint,
-  tests DB+HTTP). F5 P2-IROH-INFRA-TIMEOUT code delivered
-  (timeout/retry/reconnect + JoinHandle shutdown), preuve E2E
-  residuelle Phase D (`test_new_node_full_sync_and_verify`).
-  Phase B dette pair 5 items P2 CLOSED + P1 tail-safe rollback
-  fix (`490e491`). delete_feed_entry_if_tail atomique SQL (refuse
-  DELETE si entry chainee). Tests +6 Rust (5 Phase B + 1 fix).
-- Carry S64 :
-  P2-A-1 rand blocker upstream (exemption externe) ;
+- **~1597 tests total** (1326 Rust / 265 Vitest / 6/6 size-limit)
+  — tous verts code. S64 : +21 delta Rust (1305→1326,
+  Phase A +4, A-fix +1, B +5, B-fix +1, C +6, C-fix +2, D +5,
+  D-fix -3 renommage), +0 delta Vitest (265→265).
+- Carry S65 :
+  P2-A-1 rand blocker upstream (exemption externe).
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
-  P2-G-1 exe lock intermittent (reouvert).
-  F1 P2-VERSION-NOT-STORED CLOSED Phase A.
-  F5 P2-IROH-INFRA-TIMEOUT code delivered Phase A, preuve E2E Phase D.
-  P2-PROCESS-FORMAT CLOSED Phase B (exemption LOC retroactive).
-  P2-FEED-SUBSCRIBE-JOINHANDLE CLOSED Phase B (boot path).
-  P2-BACKFILL-6PLUS-TEST CLOSED Phase B (primitive DB).
-  P2-FEED-PUBLISH-ORPHAN CLOSED Phase B + fix tail-safe.
-  P2-SUBSCRIBE-STREAM-BREAK CLOSED Phase B (backoff arithmetic).
-  P2-PROVENANCE-404-BRIDGE (404 ne distingue pas projet/provenance).
+  P2-G-1 exe lock intermittent (monitoring).
+  **P2-FEED-INSERT-NO-AUTH-TIER (3/3 MANDATORY S65)** — feed_insert
+  handler doit verifier auth tier avant insert.
+  P2-PROVENANCE-404-BRIDGE (2/3).
   P2-BADGE-WORDING-PREMATURE (pre-existant S14).
-  P2-COMMIT-TITLE-FORMAT (clarifier PROCESS.md).
-  P2-REVIEW-ORDER (clarifier review vs feat ordering).
-  P2-PYTHON-BLOCK-EXEMPTION (clause exemption SKILL.md Step 2).
-  P2-FEED-INSERT-NO-AUTH-TIER (2/3).
-  P2-FEED-JOIN-HANDLE-LEAK (feed_join tokio::spawn fire-and-forget,
-  pas de shutdown channel, pas de reconnect — owner S65 dette feed,
-  trigger modif feed_join, exit JoinHandle stocke + reconnect loop).
-  P2-VERIFY-ENTRY-VERSION-GUARD (verify_entry ne check pas version
-  field — policy pre-launch exempte v==1, obligatoire before go-live,
-  owner S65, trigger tag v1.0 pousse).
-  P2-ORPHAN-REPUBLISH-RECOVERY (entry local-only apres publish fail
-  + tail-safe skip — pas de republish DB→iroh-docs, owner S65).
+  P2-COMMIT-TITLE-FORMAT (2/3).
+  P2-REVIEW-ORDER (2/3).
+  P2-PYTHON-BLOCK-EXEMPTION (2/3).
+  P2-EXPLORER-ESCAPE-SINGLE-QUOTE (2/3).
+  P2-PLAYWRIGHT-SPECS-STALE (2/3).
+  P2-VERIFY-LOCAL-KEY-ONLY (2/3).
+  P2-COVERAGE-DEPLOY-E2E (2/3).
+  P2-FEED-JOIN-HANDLE-LEAK (1/3 — feed_join fire-and-forget,
+  pas de shutdown channel, owner S65).
+  P2-VERIFY-ENTRY-VERSION-GUARD (1/3 — verify_entry ne check pas
+  version, exempte pre-launch v==1, obligatoire before go-live).
+  P2-ORPHAN-REPUBLISH-RECOVERY (1/3 — pas de republish DB→iroh-docs
+  apres publish fail + tail-safe skip).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).

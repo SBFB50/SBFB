@@ -1,7 +1,7 @@
 # SBFB Public Feed Protocol Specification
 
 **Version:** `FEED_FORMAT_VERSION = 1`
-**Status:** Sprint 61 — initial specification
+**Status:** Sprint 64 — complete (§1-9 initial S61, §10-12 hardening S64)
 **Versioning regime:** post-v1.0 (each breaking change bumps
 `FEED_FORMAT_VERSION`, decoders accept a range, new optional
 fields carry `#[serde(default)]` for forward compatibility)
@@ -306,3 +306,178 @@ This value is verified by
 
 This is the first wire format designed under the post-v1.0
 versioning regime.
+
+---
+
+## 10. Adversarial scenarios & mitigations
+
+The following attack vectors are covered by deterministic tests
+(Sprint 62–64). Each row names the test function and the
+defense layer that rejects the attack.
+
+### 10.1 Feed-level attacks
+
+| # | Vector | Test | Defense |
+|---|--------|------|---------|
+| 1 | **Fork-bomb spam** — same author floods 1000+ operations | `test_adversarial_fork_bomb_spam_rejected` | Per-author rate limiter (`FEED_RATE_LIMIT_PER_MINUTE = 5`). Ops beyond quota return `rate limit exceeded`. |
+| 2 | **Payload oversized** — operation JSON > 64 KB | `test_adversarial_payload_oversized_rejected` | `validate_feed_operation()` rejects payloads exceeding `MAX_OPERATION_JSON_SIZE`. |
+| 3 | **Bad repo URL** — `javascript:`, `file:///`, `ftp://`, empty | `test_adversarial_bad_repo_url_rejected` | URL validation requires `https://` scheme with non-empty path. |
+| 4 | **Bad artifact hash** — non-hex, wrong length, null bytes | `test_adversarial_bad_artifact_hash_rejected` | Hex-64 regex validation on `artifact_hash` (and `provenance_hash`). |
+| 5 | **Seq gap injection** — entry with fabricated `prev_hash` | `test_adversarial_seq_gap_detection` | `verify_chain()` tracks per-author last hash; broken linkage detected. |
+| 6 | **Cross-author forgery** — attacker signs entry claiming another author | `test_adversarial_cross_author_forgery_rejected` | `verify_entry()` verifies Ed25519 signature against declared `author_pubkey`. Mismatch = rejected. |
+
+### 10.2 Cryptographic attacks
+
+| # | Vector | Test | Defense |
+|---|--------|------|---------|
+| 7 | **Ed25519 forgery** — random 64-byte signature | `test_adversarial_ed25519_forgery_feed_entry` | `verify_entry()` recomputes canonical bytes and verifies Ed25519 signature. Random bytes fail. |
+| 8 | **BLAKE3 tamper** — 1-bit change in canonical field | `test_adversarial_blake3_tamper_canonical` | `verify_entry()` recomputes `BLAKE3(canonical_bytes)` and compares to stored `entry_hash`. Any field change causes mismatch. |
+| 9 | **PoW nonce brute-force** — random nonces vs 16-bit difficulty | `test_adversarial_pow_nonce_difficulty_check` | `verify_feed_pow()` checks leading zero bits. Random nonces fail with overwhelming probability (< 0.2% pass rate). |
+| 10 | **Future timestamp** — entry timestamp > now + 30 days | `test_adversarial_future_timestamp_rejected` | `validate_feed_entry_timestamp()` rejects entries more than 30 days in the future. Entries up to 1h ahead are tolerated (clock skew). |
+
+### 10.3 Chain integrity (pre-S64 baseline)
+
+| # | Vector | Test | Defense |
+|---|--------|------|---------|
+| 11 | **Forged signature on chain** | `test_verify_chain_forged_signature` | `verify_chain()` validates every entry signature during replay. |
+| 12 | **Tampered hash in chain** | `test_verify_chain_tampered_hash` | `verify_chain()` recomputes and compares every `entry_hash`. |
+| 13 | **Multi-author interleaving** | `test_verify_chain_multi_author` | Per-author chain tracking (SSB model): each author's `prev_hash` links to their own last entry. |
+| 14 | **Out-of-order insertion** | `test_verify_chain_out_of_order_insertion` | `verify_chain()` detects seq ordering violations. |
+| 15 | **Cursor hash mismatch** | `test_cursor_hash_mismatch_triggers_full_rebuild` | Materializer detects corrupt cursor and triggers full replay from `seq = 0`. |
+
+### 10.4 Not covered (scope-cut)
+
+- **Fuzzing** (cargo-fuzz / proptest): deferred to post-v1.0 audit
+  preparation (Sprint 65+).
+- **Sybil attack** (many distinct authors): requires curator
+  vouching system (`CuratorVouched` operation, Sprint 65).
+- **Eclipse attack** (feed partition): requires multi-peer sync
+  protocol hardening (Sprint 65+).
+- **Replay attack** (re-inject old valid entries): mitigated by
+  deduplication on `entry_hash` at insert time, but no formal
+  anti-replay beyond dedup.
+
+---
+
+## 11. New node bootstrap procedure
+
+A fresh node with no prior state joins the network and
+reconstructs the full public registry. This procedure is
+validated by the E2E test `test_new_node_full_sync_and_verify`
+(gated behind `SBFB_INTEGRATION=1`).
+
+### 11.1 Algorithm
+
+```
+1. SPAWN    — New daemon starts with empty SQLite DB.
+2. TICKET   — Obtain a feed document ticket from an existing peer
+               (GET /api/daemon/feed/ticket on the seed node).
+3. JOIN     — POST /api/daemon/feed/join with the ticket.
+               The daemon creates a local iroh-docs replica and
+               starts subscribing to the document.
+4. SYNC     — iroh-docs syncs all entries from the seed peer.
+               The daemon's feed_subscribe loop ingests entries
+               as they arrive, inserting them into the local
+               feed_entries table via insert_remote_feed_entry().
+5. VERIFY   — For each received entry:
+               a) Recompute canonical_bytes from entry fields
+               b) Verify BLAKE3(canonical_bytes) == entry_hash
+               c) Verify Ed25519(author_pubkey, canonical_bytes, signature)
+               d) Verify per-author prev_hash chain linkage
+               e) Validate field formats (hex lengths, URL scheme)
+               f) Deduplicate by entry_hash
+6. REBUILD  — The FeedMaterializer replays verified entries to
+               reconstruct the Browse registry view (project list
+               with latest release info).
+7. CURSOR   — Save cursor (last_seq, last_entry_hash) for
+               incremental materialization on subsequent syncs.
+```
+
+### 11.2 Failure modes
+
+| Failure | Recovery |
+|---------|----------|
+| Ticket invalid or expired | Retry with a different seed peer |
+| Sync timeout (> 60s no new entries) | `feed_subscribe` timeout + backoff + re-subscribe |
+| Entry fails verification (step 5) | Entry is rejected, does not enter local DB. Chain continues from last valid entry. |
+| Cursor hash mismatch on resume | Full replay from `seq = 0` (§7 safety fallback) |
+| Seed peer disappears mid-sync | iroh-docs handles peer disconnection; re-subscribe on next tick |
+
+### 11.3 Invariants
+
+- A fresh node MUST verify all entries before materializing
+  (no trust-on-first-use for remote entries).
+- The node's local feed is eventually consistent with peers —
+  entry ordering is per-author, not globally sequenced.
+- The cursor is only saved after successful materialization,
+  preventing partial state on crash.
+
+---
+
+## 12. Security considerations
+
+### 12.1 Threat model summary
+
+The feed inherits the project-level threat model
+(`docs/security/THREAT_MODEL.md`) with feed-specific additions:
+
+- **T-FEED-INTEGRITY**: An attacker modifies a feed entry in
+  transit or at rest. Mitigated by BLAKE3 hash-chain + Ed25519
+  signatures on every entry. Tampering is detectable at
+  verification time (§4, §10.2).
+
+- **T-FEED-SPAM**: An attacker floods the feed with operations
+  to exhaust storage or hide legitimate entries. Mitigated by
+  per-author rate limiter (5 ops/min, §10.1 #1) and payload
+  size limit (64 KB, §10.1 #2).
+
+- **T-FEED-FORGERY**: An attacker publishes entries under another
+  author's identity. Mitigated by Ed25519 signature verification
+  against the declared `author_pubkey` (§10.1 #6, §10.2 #7).
+
+- **T-FEED-CLOCK-SKEW**: An attacker sets entry timestamps far
+  in the future to manipulate ordering or stale detection.
+  Mitigated by the 30-day future timestamp gate (§10.2 #10).
+
+### 12.2 Trust boundaries
+
+```
+┌─────────────────────────────────────────────┐
+│ Local process (trusted)                     │
+│  insert_feed_operation() → sign → hash →    │
+│  atomic SQLite insert                       │
+└──────────────────┬──────────────────────────┘
+                   │ iroh-docs sync (untrusted transport)
+┌──────────────────▼──────────────────────────┐
+│ Remote entries (untrusted)                  │
+│  insert_remote_feed_entry() → verify_entry  │
+│  → validate fields → dedup → insert         │
+└─────────────────────────────────────────────┘
+```
+
+Local entries are trusted because the process is the sole writer.
+Remote entries are verified before insertion — no entry from a
+peer bypasses `verify_entry()`.
+
+### 12.3 Cryptographic primitives
+
+| Primitive | Algorithm | Usage |
+|-----------|-----------|-------|
+| Signing | Ed25519 (RFC 8032) | Author signs canonical bytes of each entry |
+| Hashing | BLAKE3 | Entry hash (integrity) + hash-chain linkage |
+| Canonical | RFC 8785 JCS | Deterministic serialization for signing/hashing |
+| Domain separation | `DOMAIN_FEED_V1` prefix + null byte | Prevents cross-domain signature reuse |
+| Proof-of-work | Leading zero bits on `BLAKE3(entry_hash \|\| nonce)` | Optional anti-spam (16-bit difficulty) |
+
+### 12.4 Residual risks
+
+- **No Sybil resistance** until `CuratorVouched` operations are
+  implemented (Sprint 65). Any Ed25519 keypair can author entries.
+- **No feed-level quarantine** for suspicious authors (Sprint 65).
+- **No auth-tier check** on `insert_feed_operation()` — the
+  endpoint accepts inserts without verifying the caller's
+  permission level (P2-FEED-INSERT-NO-AUTH-TIER, mandatory
+  Sprint 65).
+- **Single-peer bootstrap** — a new node trusts the seed peer
+  to provide the complete feed. Multi-peer cross-validation is
+  future work.
