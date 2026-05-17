@@ -452,6 +452,25 @@ pub fn verify_entry(entry: &FeedEntry) -> Result<(), String> {
     Ok(())
 }
 
+/// Maximum age tolerance for incoming feed entry timestamps.
+/// Entries claiming a timestamp more than 30 days in the future are
+/// rejected as invalid (defense-in-depth against timestamp forgery).
+pub const FEED_MAX_FUTURE_SECS: u64 = 30 * 24 * 3600;
+
+/// Validate that a feed entry's timestamp is not unreasonably far in
+/// the future. Returns `Ok(())` if the timestamp is at most
+/// `FEED_MAX_FUTURE_SECS` seconds ahead of `now_epoch`.
+pub fn validate_feed_entry_timestamp(entry: &FeedEntry, now_epoch: u64) -> Result<(), String> {
+    let max_allowed = now_epoch.saturating_add(FEED_MAX_FUTURE_SECS);
+    if entry.timestamp > max_allowed {
+        return Err(format!(
+            "entry seq {}: timestamp {} is more than 30 days in the future (max {})",
+            entry.seq, entry.timestamp, max_allowed
+        ));
+    }
+    Ok(())
+}
+
 /// Verify hash-chain integrity and Ed25519 signatures of feed entries.
 ///
 /// Supports multi-author feeds: each author's entries form an
@@ -1384,6 +1403,124 @@ mod tests {
                 .unwrap_err()
                 .contains("signature verification failed"),
             "cross-author forgery must be rejected"
+        );
+    }
+
+    // -- Phase D: Adversarial crypto tests --
+
+    #[test]
+    fn test_adversarial_ed25519_forgery_feed_entry() {
+        let kp = nexus_core_rs::KeyPair::from_secret_bytes(&[12u8; 32]);
+        let pk = hex::encode(kp.public_bytes());
+
+        let canonical = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: pk.clone(),
+            timestamp: 1000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let entry_hash = compute_feed_entry_hash(&canonical).unwrap();
+
+        let forged_sig = hex::encode([0xABu8; 64]);
+        let entry = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: pk,
+            timestamp: 1000,
+            entry_hash,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: forged_sig,
+            pow_nonce: None,
+        };
+
+        let result = verify_entry(&entry);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("signature verification failed"),
+            "random bytes signature must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_blake3_tamper_canonical() {
+        let canonical = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: "d".repeat(64),
+            timestamp: 1_700_000_000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let original_bytes = compute_feed_canonical_bytes(&canonical).unwrap();
+        let original_hash = compute_feed_entry_hash(&canonical).unwrap();
+
+        let mut tampered = original_bytes.clone();
+        tampered[0] ^= 0x01;
+        let tampered_hash = hex::encode(blake3::hash(&tampered).as_bytes());
+
+        assert_ne!(
+            original_hash, tampered_hash,
+            "1-bit flip in canonical bytes must produce different BLAKE3 hash"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_pow_nonce_difficulty_check() {
+        let entry_hash = "a".repeat(64);
+        let mut pass_count = 0u32;
+        for nonce in 1000..2000u64 {
+            if verify_feed_pow(&entry_hash, nonce) {
+                pass_count += 1;
+            }
+        }
+        assert!(
+            pass_count <= 2,
+            "random nonces must overwhelmingly fail 16-bit PoW difficulty (got {pass_count}/1000 passes)"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_age_witness_future_timestamp() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let entry_ok = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: "d".repeat(64),
+            timestamp: now + 3600,
+            entry_hash: "e".repeat(64),
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: "f".repeat(128),
+            pow_nonce: None,
+        };
+        assert!(
+            validate_feed_entry_timestamp(&entry_ok, now).is_ok(),
+            "timestamp 1h in future must be accepted"
+        );
+
+        let entry_future = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 2,
+            op: sample_release_published(),
+            author_pubkey: "d".repeat(64),
+            timestamp: now + 31 * 24 * 3600,
+            entry_hash: "e".repeat(64),
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: "f".repeat(128),
+            pow_nonce: None,
+        };
+        let result = validate_feed_entry_timestamp(&entry_future, now);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("more than 30 days"),
+            "timestamp 31 days in future must be rejected"
         );
     }
 }

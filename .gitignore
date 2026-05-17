@@ -166,6 +166,7 @@ tools/babel-scraper/
 
 # Legacy Python test remnants (tracked files deleted S51, untracked cache remains)
 tests/
+!crates/*/tests/
 
 # External agent framework artifacts (S34 audit P3-AUDIT-1)
 .githooks/
