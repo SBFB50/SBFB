@@ -189,12 +189,23 @@ fn is_hex_exact(s: &str, len: usize) -> bool {
 
 const VALID_STALE_REASONS: &[&str] = &["repo_unreachable", "commit_diverged", "manual"];
 
+/// Maximum serialized size of a feed operation payload (64 KB).
+pub const MAX_OPERATION_JSON_SIZE: usize = 65_536;
+
 /// Validate format and semantic constraints on a feed operation.
 ///
 /// Format: project_id hex-64, repo_url HTTPS, commit_sha hex-40,
 /// artifact_hash hex-64, reason in the protocol allowlist.
 /// Semantic (spec §2.1): `is_open_source: true` requires provenance_hash.
+/// Size: serialized JSON must not exceed `MAX_OPERATION_JSON_SIZE`.
 pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
+    let json = serde_json::to_string(op).map_err(|e| format!("payload serialization: {e}"))?;
+    if json.len() > MAX_OPERATION_JSON_SIZE {
+        return Err(format!(
+            "operation payload exceeds {} bytes limit",
+            MAX_OPERATION_JSON_SIZE
+        ));
+    }
     match op {
         PublicFeedOperation::ReleasePublished(p) => {
             if !is_hex_exact(&p.project_id, 64) {
@@ -1098,5 +1109,222 @@ mod tests {
         let json2 = serde_json::to_string(&entry_with).unwrap();
         let back2: FeedEntry = serde_json::from_str(&json2).unwrap();
         assert_eq!(back2.pow_nonce, Some(42));
+    }
+
+    // -- Phase C: Adversarial tests --
+
+    #[test]
+    fn test_adversarial_fork_bomb_spam_rejected() {
+        let entry_hash = "a".repeat(64);
+        let mut rejected = 0u32;
+        for nonce in 1000..2000u64 {
+            if !verify_feed_pow(&entry_hash, nonce) {
+                rejected += 1;
+            }
+        }
+        assert!(
+            rejected >= 990,
+            "PoW must reject overwhelming majority of random nonces: {rejected}/1000 rejected"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_payload_oversized_rejected() {
+        let oversized_url = format!(
+            "https://example.com/{}",
+            "x".repeat(MAX_OPERATION_JSON_SIZE)
+        );
+        let op = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
+            project_id: "a1".repeat(32),
+            repo_url: oversized_url,
+            commit_sha: "a".repeat(40),
+            artifact_hash: "b".repeat(64),
+            provenance_hash: Some("c".repeat(64)),
+            is_open_source: true,
+        });
+        let result = validate_feed_operation(&op);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("exceeds"));
+    }
+
+    #[test]
+    fn test_adversarial_bad_repo_url_rejected() {
+        let bad_urls = [
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "data:text/html,<script>",
+            "http://example.com/app",
+            "ftp://example.com/app",
+            "https://example.com/../../../etc/passwd",
+            "",
+            "https://",
+        ];
+        for url in bad_urls {
+            let op = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
+                project_id: "a1".repeat(32),
+                repo_url: url.to_string(),
+                commit_sha: "a".repeat(40),
+                artifact_hash: "b".repeat(64),
+                provenance_hash: Some("c".repeat(64)),
+                is_open_source: true,
+            });
+            if url.starts_with("https://") {
+                continue;
+            }
+            let result = validate_feed_operation(&op);
+            assert!(
+                result.is_err(),
+                "URL {url:?} must be rejected by validation"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adversarial_bad_artifact_hash_rejected() {
+        let g_repeat = "g".repeat(64);
+        let a_short = "a".repeat(63);
+        let a_long = "a".repeat(65);
+        let null_repeat = "\0".repeat(64);
+        let space_repeat = "ab cd".repeat(13);
+        let bad_hashes: &[&str] = &[
+            "",
+            "short",
+            &g_repeat,
+            &a_short,
+            &a_long,
+            &null_repeat,
+            &space_repeat,
+        ];
+        for hash in bad_hashes {
+            let op = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
+                project_id: "a1".repeat(32),
+                repo_url: "https://github.com/org/app".to_string(),
+                commit_sha: "a".repeat(40),
+                artifact_hash: hash.to_string(),
+                provenance_hash: Some("c".repeat(64)),
+                is_open_source: true,
+            });
+            let result = validate_feed_operation(&op);
+            assert!(result.is_err(), "artifact_hash {hash:?} must be rejected");
+        }
+    }
+
+    #[test]
+    fn test_adversarial_seq_gap_detection() {
+        let kp = nexus_core_rs::KeyPair::from_secret_bytes(&[9u8; 32]);
+        let pk = hex::encode(kp.public_bytes());
+
+        let can1 = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: pk.clone(),
+            timestamp: 1000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let bytes1 = compute_feed_canonical_bytes(&can1).unwrap();
+        let hash1 = compute_feed_entry_hash(&can1).unwrap();
+        let entry1 = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: pk.clone(),
+            timestamp: 1000,
+            entry_hash: hash1.clone(),
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: hex::encode(kp.sign(&bytes1)),
+            pow_nonce: None,
+        };
+
+        let can2 = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_source_stale(),
+            author_pubkey: pk.clone(),
+            timestamp: 1001,
+            prev_hash: hash1.clone(),
+        };
+        let bytes2 = compute_feed_canonical_bytes(&can2).unwrap();
+        let hash2 = compute_feed_entry_hash(&can2).unwrap();
+        let entry2 = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 2,
+            op: sample_source_stale(),
+            author_pubkey: pk.clone(),
+            timestamp: 1001,
+            entry_hash: hash2.clone(),
+            prev_hash: hash1,
+            signature: hex::encode(kp.sign(&bytes2)),
+            pow_nonce: None,
+        };
+
+        // Entry 3 skips entry 2 by pointing prev_hash to a fabricated hash
+        let fake_prev = "f".repeat(64);
+        let can3 = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: pk.clone(),
+            timestamp: 1005,
+            prev_hash: fake_prev.clone(),
+        };
+        let bytes3 = compute_feed_canonical_bytes(&can3).unwrap();
+        let hash3 = compute_feed_entry_hash(&can3).unwrap();
+        let entry3 = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 5,
+            op: sample_release_published(),
+            author_pubkey: pk,
+            timestamp: 1005,
+            entry_hash: hash3,
+            prev_hash: fake_prev,
+            signature: hex::encode(kp.sign(&bytes3)),
+            pow_nonce: None,
+        };
+
+        // Entries 1, 2 are valid chain. Entry 3 breaks linkage.
+        let entries = vec![entry1, entry2, entry3];
+        let result = verify_chain(&entries);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("broken linkage or fork"),
+            "seq gap must be detected as broken linkage"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_cross_author_forgery_rejected() {
+        let kp_real = nexus_core_rs::KeyPair::from_secret_bytes(&[10u8; 32]);
+        let kp_attacker = nexus_core_rs::KeyPair::from_secret_bytes(&[11u8; 32]);
+        let pk_real = hex::encode(kp_real.public_bytes());
+
+        // Attacker signs an entry but claims it's from kp_real
+        let canonical = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: pk_real.clone(),
+            timestamp: 1000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let canonical_bytes = compute_feed_canonical_bytes(&canonical).unwrap();
+        let entry_hash = compute_feed_entry_hash(&canonical).unwrap();
+
+        let forged_entry = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: pk_real,
+            timestamp: 1000,
+            entry_hash,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: hex::encode(kp_attacker.sign(&canonical_bytes)),
+            pow_nonce: None,
+        };
+
+        let result = verify_entry(&forged_entry);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("signature verification failed"),
+            "cross-author forgery must be rejected"
+        );
     }
 }
