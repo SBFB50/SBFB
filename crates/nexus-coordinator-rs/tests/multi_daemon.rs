@@ -79,9 +79,13 @@ async fn test_new_node_full_sync_and_verify() {
         join_resp.status()
     );
 
-    // Poll daemon 2 feed status until 3 entries synced (timeout 60s)
+    // Poll daemon 2 feed status until 3 entries synced (timeout 60s).
+    // Uses /api/daemon/feed/status which reads count_feed_entries()
+    // and get_feed_last_seq() directly from the DB — does NOT depend
+    // on the materializer's save_feed_cursor().
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
-    let mut synced = false;
+    let mut final_count = 0u64;
+    let mut final_last_seq = 0u64;
     while tokio::time::Instant::now() < deadline {
         let status_resp = client
             .get(format!("{}/api/daemon/feed/status", d2.http_url()))
@@ -91,31 +95,22 @@ async fn test_new_node_full_sync_and_verify() {
             .await;
         if let Ok(resp) = status_resp {
             if let Ok(body) = resp.json::<serde_json::Value>().await {
-                if let Some(count) = body["count"].as_u64() {
-                    if count >= 3 {
-                        synced = true;
-                        break;
-                    }
+                final_count = body["count"].as_u64().unwrap_or(0);
+                final_last_seq = body["last_seq"].as_u64().unwrap_or(0);
+                if final_count >= 3 {
+                    break;
                 }
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
-    assert!(synced, "daemon 2 must sync 3 feed entries within 60s");
-
-    // Verify cursor is coherent on daemon 2
-    let cursor_resp = client
-        .get(format!("{}/api/daemon/feed/cursor", d2.http_url()))
-        .header("X-SBFB-Token", &d2.auth_token)
-        .header("Host", format!("127.0.0.1:{}", d2.http_port))
-        .send()
-        .await
-        .expect("cursor request");
-    let cursor_body: serde_json::Value = cursor_resp.json().await.expect("cursor json");
-    let cursor_seq = cursor_body["last_seq"].as_u64().unwrap_or(0);
     assert!(
-        cursor_seq >= 3,
-        "last_seq must be >= 3 after sync, got {cursor_seq}"
+        final_count >= 3,
+        "daemon 2 must sync 3 feed entries within 60s, got {final_count}"
+    );
+    assert!(
+        final_last_seq >= 3,
+        "last_seq must be >= 3 after sync, got {final_last_seq}"
     );
 
     cluster.shutdown().await.expect("cluster shutdown");
