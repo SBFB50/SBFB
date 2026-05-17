@@ -893,6 +893,19 @@ impl CoordinatorDb {
         }
     }
 
+    pub fn count_feed_entries_by_author_since(
+        &self,
+        author: &str,
+        since_epoch: u64,
+    ) -> Result<u64, CoordinatorError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM public_feed WHERE author = ?1 AND created_at >= ?2",
+            rusqlite::params![author, since_epoch as i64],
+            |row| row.get(0),
+        )?;
+        Ok(count as u64)
+    }
+
     pub fn get_feed_author_stats(&self) -> Result<Vec<(String, u64)>, CoordinatorError> {
         let mut stmt = self
             .conn

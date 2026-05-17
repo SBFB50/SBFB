@@ -192,6 +192,9 @@ const VALID_STALE_REASONS: &[&str] = &["repo_unreachable", "commit_diverged", "m
 /// Maximum serialized size of a feed operation payload (64 KB).
 pub const MAX_OPERATION_JSON_SIZE: usize = 65_536;
 
+/// Maximum feed operations per author per 60-second window.
+pub const FEED_RATE_LIMIT_PER_MINUTE: u64 = 5;
+
 /// Validate format and semantic constraints on a feed operation.
 ///
 /// Format: project_id hex-64, repo_url HTTPS, commit_sha hex-40,
@@ -248,9 +251,9 @@ pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
 
 /// Insert a new operation into the feed with hash-chain and signature.
 ///
-/// Validates semantic constraints, then atomically (BEGIN IMMEDIATE)
-/// reads the previous hash, computes canonical bytes, signs, hashes,
-/// and persists. Rolls back on any error.
+/// Local-trust path (spec §5.1): validates semantic constraints but
+/// does NOT enforce per-author rate limiting. Use for self-authored
+/// entries where the local process is the sole writer.
 pub fn insert_feed_operation(
     db: &CoordinatorDb,
     op: PublicFeedOperation,
@@ -258,6 +261,51 @@ pub fn insert_feed_operation(
     sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
 ) -> Result<FeedEntry, String> {
     validate_feed_operation(&op)?;
+
+    db.conn()
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| format!("begin tx: {e}"))?;
+
+    match insert_feed_operation_inner(db, op, author_pubkey, sign_fn) {
+        Ok(entry) => {
+            db.conn()
+                .execute_batch("COMMIT")
+                .map_err(|e| format!("commit tx: {e}"))?;
+            Ok(entry)
+        }
+        Err(e) => {
+            let _ = db.conn().execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
+}
+
+/// Insert with per-author rate limiting (spec §5.1 remote-trust path).
+///
+/// Enforces `FEED_RATE_LIMIT_PER_MINUTE` before insert. Use for entries
+/// received from peers where trust is not implicit.
+pub fn insert_feed_operation_rate_limited(
+    db: &CoordinatorDb,
+    op: PublicFeedOperation,
+    author_pubkey: &str,
+    sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
+) -> Result<FeedEntry, String> {
+    validate_feed_operation(&op)?;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let window_start = now.saturating_sub(60);
+    let recent_count = db
+        .count_feed_entries_by_author_since(author_pubkey, window_start)
+        .map_err(|e| format!("rate limit check: {e}"))?;
+    if recent_count >= FEED_RATE_LIMIT_PER_MINUTE {
+        return Err(format!(
+            "rate limit exceeded: {} ops in last 60s (max {})",
+            recent_count, FEED_RATE_LIMIT_PER_MINUTE
+        ));
+    }
 
     db.conn()
         .execute_batch("BEGIN IMMEDIATE")
@@ -1115,17 +1163,28 @@ mod tests {
 
     #[test]
     fn test_adversarial_fork_bomb_spam_rejected() {
-        let entry_hash = "a".repeat(64);
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        let mut accepted = 0u32;
         let mut rejected = 0u32;
-        for nonce in 1000..2000u64 {
-            if !verify_feed_pow(&entry_hash, nonce) {
-                rejected += 1;
+        for _ in 0..20 {
+            let result =
+                insert_feed_operation_rate_limited(&db, sample_release_published(), &pk, |d| {
+                    kp.sign(d).to_vec()
+                });
+            match result {
+                Ok(_) => accepted += 1,
+                Err(e) if e.contains("rate limit exceeded") => rejected += 1,
+                Err(e) => panic!("unexpected error: {e}"),
             }
         }
-        assert!(
-            rejected >= 990,
-            "PoW must reject overwhelming majority of random nonces: {rejected}/1000 rejected"
+        assert_eq!(
+            accepted, FEED_RATE_LIMIT_PER_MINUTE as u32,
+            "rate limiter must accept exactly {FEED_RATE_LIMIT_PER_MINUTE} ops per minute"
         );
+        assert_eq!(rejected, 15, "rate limiter must reject ops beyond quota");
     }
 
     #[test]
