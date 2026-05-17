@@ -851,6 +851,14 @@ impl CoordinatorDb {
         Ok(rows.next()?.is_some())
     }
 
+    pub fn delete_feed_entry_by_hash(&self, entry_hash: &str) -> Result<bool, CoordinatorError> {
+        let changes = self.conn.execute(
+            "DELETE FROM public_feed WHERE entry_hash = ?1",
+            rusqlite::params![entry_hash],
+        )?;
+        Ok(changes > 0)
+    }
+
     pub fn get_last_feed_entry_hash_by_author(
         &self,
         author: &str,

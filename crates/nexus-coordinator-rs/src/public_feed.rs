@@ -999,6 +999,54 @@ mod tests {
     }
 
     #[test]
+    fn test_backfill_six_plus_entries() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        for _ in 0..8 {
+            insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+                kp.sign(d).to_vec()
+            })
+            .unwrap();
+        }
+
+        let entries = replay_all(&db).unwrap();
+        assert_eq!(entries.len(), 8, "all 8 entries must be stored");
+        assert!(verify_chain(&entries).is_ok(), "8-entry chain must verify");
+
+        for i in 0..entries.len() - 1 {
+            assert_eq!(
+                entries[i + 1].prev_hash,
+                entries[i].entry_hash,
+                "entry {} prev_hash must link to entry {}",
+                i + 1,
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_feed_publish_orphan_rollback() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        let entry = insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+        assert!(db.feed_entry_exists_by_hash(&entry.entry_hash).unwrap());
+        assert_eq!(db.count_feed_entries().unwrap(), 1);
+
+        assert!(db.delete_feed_entry_by_hash(&entry.entry_hash).unwrap());
+
+        assert!(!db.feed_entry_exists_by_hash(&entry.entry_hash).unwrap());
+        assert_eq!(db.count_feed_entries().unwrap(), 0);
+        assert!(!db.delete_feed_entry_by_hash(&entry.entry_hash).unwrap());
+    }
+
+    #[test]
     fn test_pow_nonce_serde_default() {
         let entry = FeedEntry {
             version: FEED_FORMAT_VERSION,

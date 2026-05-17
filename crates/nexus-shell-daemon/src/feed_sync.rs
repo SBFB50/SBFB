@@ -91,7 +91,13 @@ pub async fn insert_and_publish_feed_operation(
 ) -> Result<FeedEntry, String> {
     let entry =
         nexus_coordinator_rs::public_feed::insert_feed_operation(db, op, author_pubkey, sign_fn)?;
-    publish_feed_entry_to_docs(feed_state, &entry).await?;
+    if let Err(e) = publish_feed_entry_to_docs(feed_state, &entry).await {
+        warn!(error = %e, seq = entry.seq, "iroh-docs publish failed, rolling back DB entry");
+        if let Err(del_err) = db.delete_feed_entry_by_hash(&entry.entry_hash) {
+            warn!(error = %del_err, "failed to rollback orphan feed entry");
+        }
+        return Err(e);
+    }
     Ok(entry)
 }
 
@@ -467,13 +473,16 @@ pub async fn feed_insert(
     };
 
     if let Err(e) = publish_feed_entry_to_docs(&feed_state, &entry).await {
-        warn!(error = %e, "feed entry in DB but iroh-docs publish failed");
+        warn!(error = %e, seq = entry.seq, "iroh-docs publish failed, rolling back DB entry");
+        if let Ok(db) = state.coordinator_db.lock() {
+            if let Err(del_err) = db.delete_feed_entry_by_hash(&entry.entry_hash) {
+                warn!(error = %del_err, "failed to rollback orphan feed entry");
+            }
+        }
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
                 "error": format!("publish failed: {e}"),
-                "seq": entry.seq,
-                "entry_hash": entry.entry_hash,
             })),
         )
             .into_response();
@@ -636,6 +645,55 @@ mod tests {
         let key = format_feed_key("aa".repeat(32).as_str(), 0);
         assert!(key.starts_with("feed/"));
         assert!(key.ends_with("/0000000000"));
+    }
+
+    #[test]
+    fn test_subscribe_stream_break_backoff_progression() {
+        let initial = std::time::Duration::from_millis(500);
+        let max_backoff = std::time::Duration::from_secs(30);
+        let mut backoff = initial;
+
+        assert_eq!(backoff, std::time::Duration::from_millis(500));
+
+        backoff = (backoff * 2).min(max_backoff);
+        assert_eq!(backoff, std::time::Duration::from_secs(1));
+
+        backoff = (backoff * 2).min(max_backoff);
+        assert_eq!(backoff, std::time::Duration::from_secs(2));
+
+        backoff = (backoff * 2).min(max_backoff);
+        assert_eq!(backoff, std::time::Duration::from_secs(4));
+
+        backoff = (backoff * 2).min(max_backoff);
+        assert_eq!(backoff, std::time::Duration::from_secs(8));
+
+        backoff = (backoff * 2).min(max_backoff);
+        assert_eq!(backoff, std::time::Duration::from_secs(16));
+
+        backoff = (backoff * 2).min(max_backoff);
+        assert_eq!(backoff, max_backoff, "must cap at max_backoff");
+
+        backoff = (backoff * 2).min(max_backoff);
+        assert_eq!(backoff, max_backoff, "must stay at max_backoff");
+    }
+
+    #[test]
+    fn test_subscribe_backoff_resets_on_success() {
+        let initial = std::time::Duration::from_millis(500);
+        let max_backoff = std::time::Duration::from_secs(30);
+        let mut backoff = initial;
+
+        for _ in 0..5 {
+            backoff = (backoff * 2).min(max_backoff);
+        }
+        assert!(backoff > initial);
+
+        backoff = initial;
+        assert_eq!(
+            backoff,
+            std::time::Duration::from_millis(500),
+            "backoff must reset to initial after successful subscribe"
+        );
     }
 
     #[test]

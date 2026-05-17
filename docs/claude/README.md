@@ -1060,6 +1060,10 @@ horizon long terme + documentation AVANT code ») :
   un sprint est dimensionné par objectif fonctionnel (pas par
   budget LOC), pas des métriques de succès ni des plafonds de
   phase. Un plan ne les reprend pas en "budget" par phase.
+- **Exemption rétrospective** : les plans écrits avant cette règle
+  (Sprint ≤ 63) qui contiennent des estimations LOC dans §X.2
+  sont exemptés. Aucun rework de plans archivés. La règle s'applique
+  à tout nouveau plan §X.2 à partir du Sprint 64.
 
 Preuve empirique : S14 Keyoxide, S17 VALIDATED_BLUEPRINT, S18
 supply-chain → research-first, zero rework majeur.

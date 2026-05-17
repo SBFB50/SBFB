@@ -1690,6 +1690,20 @@ mod tests {
         rt2.shutdown().await.unwrap();
     }
 
+    #[tokio::test]
+    async fn test_feed_subscribe_joinhandle_shutdown() {
+        let tmp = tempdir().expect("tempdir");
+        let opts = mk_opts(tmp.path());
+        let rt = DaemonRuntime::start(opts).await.expect("start");
+        assert!(
+            rt.feed_handle.is_some(),
+            "feed subscribe must be spawned at boot"
+        );
+        rt.shutdown()
+            .await
+            .expect("shutdown must join feed handle without leak");
+    }
+
     #[test]
     fn jitter_bounds_are_within_range() {
         for _ in 0..200 {
