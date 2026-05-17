@@ -1039,11 +1039,36 @@ mod tests {
         assert!(db.feed_entry_exists_by_hash(&entry.entry_hash).unwrap());
         assert_eq!(db.count_feed_entries().unwrap(), 1);
 
-        assert!(db.delete_feed_entry_by_hash(&entry.entry_hash).unwrap());
+        assert!(db.delete_feed_entry_if_tail(&entry.entry_hash).unwrap());
 
         assert!(!db.feed_entry_exists_by_hash(&entry.entry_hash).unwrap());
         assert_eq!(db.count_feed_entries().unwrap(), 0);
-        assert!(!db.delete_feed_entry_by_hash(&entry.entry_hash).unwrap());
+        assert!(!db.delete_feed_entry_if_tail(&entry.entry_hash).unwrap());
+    }
+
+    #[test]
+    fn test_feed_orphan_rollback_refuses_if_chained() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        let e1 = insert_feed_operation(&db, sample_release_published(), &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+        let _e2 = insert_feed_operation(&db, sample_source_stale(), &pk, |d| kp.sign(d).to_vec())
+            .unwrap();
+        assert_eq!(db.count_feed_entries().unwrap(), 2);
+
+        assert!(
+            !db.delete_feed_entry_if_tail(&e1.entry_hash).unwrap(),
+            "must refuse to delete entry that another entry chains on"
+        );
+        assert_eq!(
+            db.count_feed_entries().unwrap(),
+            2,
+            "chain must remain intact"
+        );
     }
 
     #[test]

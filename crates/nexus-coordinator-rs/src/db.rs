@@ -851,9 +851,10 @@ impl CoordinatorDb {
         Ok(rows.next()?.is_some())
     }
 
-    pub fn delete_feed_entry_by_hash(&self, entry_hash: &str) -> Result<bool, CoordinatorError> {
+    pub fn delete_feed_entry_if_tail(&self, entry_hash: &str) -> Result<bool, CoordinatorError> {
         let changes = self.conn.execute(
-            "DELETE FROM public_feed WHERE entry_hash = ?1",
+            "DELETE FROM public_feed WHERE entry_hash = ?1
+             AND NOT EXISTS (SELECT 1 FROM public_feed WHERE prev_hash = ?1)",
             rusqlite::params![entry_hash],
         )?;
         Ok(changes > 0)

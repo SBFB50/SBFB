@@ -92,9 +92,14 @@ pub async fn insert_and_publish_feed_operation(
     let entry =
         nexus_coordinator_rs::public_feed::insert_feed_operation(db, op, author_pubkey, sign_fn)?;
     if let Err(e) = publish_feed_entry_to_docs(feed_state, &entry).await {
-        warn!(error = %e, seq = entry.seq, "iroh-docs publish failed, rolling back DB entry");
-        if let Err(del_err) = db.delete_feed_entry_by_hash(&entry.entry_hash) {
-            warn!(error = %del_err, "failed to rollback orphan feed entry");
+        warn!(error = %e, seq = entry.seq, "iroh-docs publish failed, attempting rollback");
+        match db.delete_feed_entry_if_tail(&entry.entry_hash) {
+            Ok(true) => info!(seq = entry.seq, "orphan feed entry rolled back"),
+            Ok(false) => warn!(
+                seq = entry.seq,
+                "rollback skipped: another entry already chains on this one"
+            ),
+            Err(del_err) => warn!(error = %del_err, "rollback query failed"),
         }
         return Err(e);
     }
@@ -473,10 +478,15 @@ pub async fn feed_insert(
     };
 
     if let Err(e) = publish_feed_entry_to_docs(&feed_state, &entry).await {
-        warn!(error = %e, seq = entry.seq, "iroh-docs publish failed, rolling back DB entry");
+        warn!(error = %e, seq = entry.seq, "iroh-docs publish failed, attempting rollback");
         if let Ok(db) = state.coordinator_db.lock() {
-            if let Err(del_err) = db.delete_feed_entry_by_hash(&entry.entry_hash) {
-                warn!(error = %del_err, "failed to rollback orphan feed entry");
+            match db.delete_feed_entry_if_tail(&entry.entry_hash) {
+                Ok(true) => info!(seq = entry.seq, "orphan feed entry rolled back"),
+                Ok(false) => warn!(
+                    seq = entry.seq,
+                    "rollback skipped: another entry already chains on this one"
+                ),
+                Err(del_err) => warn!(error = %del_err, "rollback query failed"),
             }
         }
         return (
