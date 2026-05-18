@@ -360,6 +360,79 @@ describe("BrowsedProject", () => {
     expect(screen.queryByTestId("verified-badge")).not.toBeInTheDocument();
   });
 
+  it("badge shows 'Signature verifiee' after successful verification", async () => {
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [makeBrowseEntry({ provenance_hash: "bb".repeat(32) })],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+      "/provenance": {
+        record: { repo_url: "https://example.com" },
+        verified: true,
+        provenance_hash: "bb".repeat(32),
+      },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByText("Signature verifiee")).toBeInTheDocument();
+    });
+  });
+
+  it("badge shows 'Verification echouee' when verification fails", async () => {
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [makeBrowseEntry({ provenance_hash: "bb".repeat(32) })],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+      "/provenance": {
+        record: { repo_url: "https://example.com" },
+        verified: false,
+        provenance_hash: "bb".repeat(32),
+      },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByText("Verification echouee")).toBeInTheDocument();
+    });
+  });
+
+  it("badge shows 'Verification...' while loading provenance", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const path = new URL(url).pathname;
+        if (path.includes("/provenance")) {
+          return new Promise<Response>(() => {});
+        }
+        const handlers: Record<string, unknown> = {
+          "/api/daemon/browse": {
+            entries: [makeBrowseEntry({ provenance_hash: "bb".repeat(32) })],
+          },
+          "/api/daemon/info": makeDaemonInfo(),
+          "/app": { apps: [], count: 0 },
+        };
+        for (const [pattern, body] of Object.entries(handlers)) {
+          if (path.includes(pattern)) {
+            return new Response(JSON.stringify(body), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          }
+        }
+        return new Response(JSON.stringify({ detail: "not found" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByText("Verification...")).toBeInTheDocument();
+    });
+  });
+
   it("does not render watchdog overlay in unknown state (initial load)", async () => {
     // Sprint 15 Phase B: the overlay only appears after a healthy
     // app stops emitting heartbeats. At mount the state is unknown
