@@ -15,7 +15,7 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use nexus_coordinator_rs::db::CoordinatorDb;
-use nexus_coordinator_rs::public_feed::{self, FeedEntry, validate_feed_operation};
+use nexus_coordinator_rs::public_feed::{self, FeedEntry, op_type, validate_feed_operation};
 use nexus_core_rs::BlobsClient;
 use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsEntry, DocsLiveEvent, DocsTicket};
 use nexus_shell_daemon_core::feed_limiter::FeedRateLimiter;
@@ -85,7 +85,7 @@ pub async fn publish_feed_entry_to_docs(
 pub async fn insert_and_publish_feed_operation(
     feed_state: &FeedSyncState,
     db: &CoordinatorDb,
-    op: nexus_coordinator_rs::public_feed::PublicFeedOperation,
+    op: serde_json::Value,
     author_pubkey: &str,
     sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
 ) -> Result<FeedEntry, String> {
@@ -237,14 +237,7 @@ async fn ingest_doc_entry(
         }
     };
 
-    let op_type = match &feed_entry.op {
-        nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(_) => {
-            "ReleasePublished"
-        }
-        nexus_coordinator_rs::public_feed::PublicFeedOperation::SourceBecameStale(_) => {
-            "SourceBecameStale"
-        }
-    };
+    let op_type_str = op_type(&feed_entry.op).unwrap_or("Unknown");
     let payload = match serde_json::to_string(&feed_entry.op) {
         Ok(p) => p,
         Err(e) => {
@@ -255,7 +248,7 @@ async fn ingest_doc_entry(
 
     let row = nexus_coordinator_rs::db::FeedEntryRow {
         seq: 0,
-        op_type: op_type.to_string(),
+        op_type: op_type_str.to_string(),
         payload,
         author: feed_entry.author_pubkey.clone(),
         signature: feed_entry.signature.clone(),
@@ -439,13 +432,28 @@ pub async fn feed_status(State(state): State<Arc<DaemonHttpState>>) -> impl Into
 
 #[derive(Debug, Deserialize)]
 pub struct FeedInsertRequest {
-    pub op: nexus_coordinator_rs::public_feed::PublicFeedOperation,
+    pub op: serde_json::Value,
 }
 
 pub async fn feed_insert(
     State(state): State<Arc<DaemonHttpState>>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<FeedInsertRequest>,
 ) -> impl IntoResponse {
+    let internal = headers
+        .get("x-sbfb-feed-internal")
+        .and_then(|v| v.to_str().ok())
+        == Some("1");
+    if !internal {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "feed insert requires internal auth"
+            })),
+        )
+            .into_response();
+    }
+
     let feed_state = match &state.feed_sync_state {
         Some(fs) => Arc::clone(fs),
         None => {
@@ -717,10 +725,8 @@ mod tests {
 
     #[test]
     fn test_feed_entry_roundtrip_json() {
-        let entry = FeedEntry {
-            version: 1,
-            seq: 1,
-            op: nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(
+        let op = serde_json::to_value(
+            nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(
                 nexus_coordinator_rs::public_feed::ReleasePublishedPayload {
                     project_id: "a1".repeat(32),
                     repo_url: "https://github.com/org/app".to_string(),
@@ -730,6 +736,12 @@ mod tests {
                     is_open_source: true,
                 },
             ),
+        )
+        .unwrap();
+        let entry = FeedEntry {
+            version: 1,
+            seq: 1,
+            op,
             author_pubkey: "d".repeat(64),
             timestamp: 1_700_000_000,
             entry_hash: "e".repeat(64),

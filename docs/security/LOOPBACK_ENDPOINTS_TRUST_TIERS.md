@@ -58,6 +58,7 @@ pour D4 OS biometric gate cross-platform).
 | `POST /api/v1/consent/set` tier other | S16 Phase C, namespace S43 | T0 | T0 | Descente ou tier équivalent — pas d'escalade |
 | `POST /api/daemon/panic/wipe` | S20 Phase B, namespace S53 | T0 (+ Ctrl+Shift+Alt+W x5) | **T2** | Action destructive terminale, protéger contre malware browser-injected |
 | `POST /api/daemon/publish` | S11, namespace S53 | T0 | T0 | Broadcast gossip project announcement |
+| `POST /api/daemon/feed/insert` | S62, namespace S65 | T0 + `X-SBFB-Feed-Internal` header | T1 | Insert feed entry. S65 defense-in-depth: header check rejette callers externes (pas crypto, pas de nonce). Vrai T1 (CONFIRM_PROMPT + HMAC nonce temporal) programme post-pilote S69 |
 | `GET /auth/token` | S16 Phase A | T0 (Host+Origin only) | T0 | Bootstrap bearer token |
 | `POST /canary/cosign` FROST (S30 N1) | S30 futur | N/A | **T2** | Co-signer canary = engagement cryptographique plateforme, LT-4 consumer natif |
 | `POST /quarantine/flush` | S21 Phase D CLI | T0 | T1 | Purge queue = perte d'évidence, validator humain recommandé |

@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Wire format version for the public feed.
 /// Post-v1.0 regime: each breaking change bumps this value.
@@ -66,11 +67,16 @@ pub enum PublicFeedOperation {
 ///
 /// `entry_hash` and `signature` are computed from the canonical
 /// representation of `FeedEntryCanonical`.
+///
+/// `op` is a raw `serde_json::Value` for forward compatibility:
+/// nodes store and propagate unknown operation types without
+/// interpretation (CloudEvents-style extensibility). Use
+/// [`try_parse_op`] to attempt typed deserialization of known ops.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FeedEntry {
     pub version: u16,
     pub seq: u64,
-    pub op: PublicFeedOperation,
+    pub op: Value,
     pub author_pubkey: String,
     pub timestamp: u64,
     pub entry_hash: String,
@@ -93,10 +99,21 @@ pub struct FeedEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedEntryCanonical {
     pub version: u16,
-    pub op: PublicFeedOperation,
+    pub op: Value,
     pub author_pubkey: String,
     pub timestamp: u64,
     pub prev_hash: String,
+}
+
+/// Try to parse a raw `op` Value into a known `PublicFeedOperation`.
+/// Returns `None` for unknown operation types (forward compat).
+pub fn try_parse_op(op: &Value) -> Option<PublicFeedOperation> {
+    serde_json::from_value(op.clone()).ok()
+}
+
+/// Extract the `op_type` discriminant from a raw op Value.
+pub fn op_type(op: &Value) -> Option<&str> {
+    op.get("op_type").and_then(|v| v.as_str())
 }
 
 impl FeedEntry {
@@ -197,11 +214,14 @@ pub const FEED_RATE_LIMIT_PER_MINUTE: u64 = 5;
 
 /// Validate format and semantic constraints on a feed operation.
 ///
-/// Format: project_id hex-64, repo_url HTTPS, commit_sha hex-40,
-/// artifact_hash hex-64, reason in the protocol allowlist.
-/// Semantic (spec §2.1): `is_open_source: true` requires provenance_hash.
+/// For known ops (parseable via [`try_parse_op`]): validates
+/// project_id hex-64, repo_url HTTPS, commit_sha hex-40,
+/// artifact_hash hex-64, reason in the protocol allowlist,
+/// `is_open_source: true` requires provenance_hash (spec §2.1).
+///
+/// For unknown ops: accepts with size check only (store + forward).
 /// Size: serialized JSON must not exceed `MAX_OPERATION_JSON_SIZE`.
-pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
+pub fn validate_feed_operation(op: &Value) -> Result<(), String> {
     let json = serde_json::to_string(op).map_err(|e| format!("payload serialization: {e}"))?;
     if json.len() > MAX_OPERATION_JSON_SIZE {
         return Err(format!(
@@ -209,6 +229,13 @@ pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
             MAX_OPERATION_JSON_SIZE
         ));
     }
+    if let Some(typed) = try_parse_op(op) {
+        validate_known_operation(&typed)?;
+    }
+    Ok(())
+}
+
+fn validate_known_operation(op: &PublicFeedOperation) -> Result<(), String> {
     match op {
         PublicFeedOperation::ReleasePublished(p) => {
             if !is_hex_exact(&p.project_id, 64) {
@@ -256,7 +283,7 @@ pub fn validate_feed_operation(op: &PublicFeedOperation) -> Result<(), String> {
 /// entries where the local process is the sole writer.
 pub fn insert_feed_operation(
     db: &CoordinatorDb,
-    op: PublicFeedOperation,
+    op: Value,
     author_pubkey: &str,
     sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
 ) -> Result<FeedEntry, String> {
@@ -286,7 +313,7 @@ pub fn insert_feed_operation(
 /// received from peers where trust is not implicit.
 pub fn insert_feed_operation_rate_limited(
     db: &CoordinatorDb,
-    op: PublicFeedOperation,
+    op: Value,
     author_pubkey: &str,
     sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
 ) -> Result<FeedEntry, String> {
@@ -327,7 +354,7 @@ pub fn insert_feed_operation_rate_limited(
 
 fn insert_feed_operation_inner(
     db: &CoordinatorDb,
-    op: PublicFeedOperation,
+    op: Value,
     author_pubkey: &str,
     sign_fn: impl FnOnce(&[u8]) -> Vec<u8>,
 ) -> Result<FeedEntry, String> {
@@ -353,15 +380,12 @@ fn insert_feed_operation_inner(
     let signature = sign_fn(&canonical_bytes);
     let entry_hash = compute_feed_entry_hash(&canonical)?;
 
-    let op_type = match &op {
-        PublicFeedOperation::ReleasePublished(_) => "ReleasePublished",
-        PublicFeedOperation::SourceBecameStale(_) => "SourceBecameStale",
-    };
+    let op_type_str = op_type(&op).unwrap_or("Unknown").to_string();
     let payload = serde_json::to_string(&op).map_err(|e| format!("payload serialization: {e}"))?;
 
     let row = crate::db::FeedEntryRow {
         seq: 0,
-        op_type: op_type.to_string(),
+        op_type: op_type_str,
         payload,
         author: author_pubkey.to_string(),
         signature: hex::encode(&signature),
@@ -395,7 +419,7 @@ pub fn replay_all(db: &CoordinatorDb) -> Result<Vec<FeedEntry>, String> {
 
     let mut entries = Vec::with_capacity(rows.len());
     for row in rows {
-        let op: PublicFeedOperation =
+        let op: Value =
             serde_json::from_str(&row.payload).map_err(|e| format!("payload parse: {e}"))?;
         entries.push(FeedEntry {
             version: FEED_FORMAT_VERSION,
@@ -414,10 +438,18 @@ pub fn replay_all(db: &CoordinatorDb) -> Result<Vec<FeedEntry>, String> {
 
 /// Verify entry_hash and Ed25519 signature for a single entry.
 ///
+/// Rejects entries with `version != FEED_FORMAT_VERSION`.
 /// Does NOT check prev_hash linkage — use [`verify_chain`] for
 /// full chain verification. Useful for incremental verification
 /// of newly received entries.
 pub fn verify_entry(entry: &FeedEntry) -> Result<(), String> {
+    if entry.version != FEED_FORMAT_VERSION {
+        return Err(format!(
+            "unsupported feed version {}, expected {}",
+            entry.version, FEED_FORMAT_VERSION
+        ));
+    }
+
     let canonical = entry.to_canonical();
     let canonical_bytes = compute_feed_canonical_bytes(&canonical)?;
     let recomputed = compute_feed_entry_hash(&canonical)?;
@@ -523,7 +555,7 @@ pub fn verify_chain(entries: &[FeedEntry]) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn sample_release_published() -> PublicFeedOperation {
+    fn sample_release_published_typed() -> PublicFeedOperation {
         PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
             project_id: "a1".repeat(32),
             repo_url: "https://github.com/org/app".to_string(),
@@ -534,16 +566,27 @@ mod tests {
         })
     }
 
-    fn sample_source_stale() -> PublicFeedOperation {
+    fn sample_source_stale_typed() -> PublicFeedOperation {
         PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
             project_id: "a1".repeat(32),
             reason: "repo_unreachable".to_string(),
         })
     }
 
+    fn sample_release_published() -> Value {
+        serde_json::to_value(sample_release_published_typed()).unwrap()
+    }
+
+    fn sample_source_stale() -> Value {
+        serde_json::to_value(sample_source_stale_typed()).unwrap()
+    }
+
     #[test]
     fn test_feed_operation_serde_roundtrip() {
-        let ops = vec![sample_release_published(), sample_source_stale()];
+        let ops = vec![
+            sample_release_published_typed(),
+            sample_source_stale_typed(),
+        ];
         for op in ops {
             let json = serde_json::to_string(&op).unwrap();
             let back: PublicFeedOperation = serde_json::from_str(&json).unwrap();
@@ -573,17 +616,23 @@ mod tests {
 
     #[test]
     fn test_compute_feed_entry_hash_deterministic() {
-        // Spec §7 test vector — inline data to keep vector stable
+        // Spec §7 test vector — inline data to keep vector stable.
+        // The test vector was computed with the typed enum; the raw-op
+        // migration (S65) preserves the same JCS output so the hash
+        // MUST remain identical.
         let canonical = FeedEntryCanonical {
             version: FEED_FORMAT_VERSION,
-            op: PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-                project_id: "abc123def456".to_string(),
-                repo_url: "https://github.com/org/app".to_string(),
-                commit_sha: "a".repeat(40),
-                artifact_hash: "b".repeat(64),
-                provenance_hash: Some("c".repeat(64)),
-                is_open_source: true,
-            }),
+            op: serde_json::to_value(PublicFeedOperation::ReleasePublished(
+                ReleasePublishedPayload {
+                    project_id: "abc123def456".to_string(),
+                    repo_url: "https://github.com/org/app".to_string(),
+                    commit_sha: "a".repeat(40),
+                    artifact_hash: "b".repeat(64),
+                    provenance_hash: Some("c".repeat(64)),
+                    is_open_source: true,
+                },
+            ))
+            .unwrap(),
             author_pubkey: "d".repeat(64),
             timestamp: 1_700_000_000,
             prev_hash: GENESIS_PREV_HASH.to_string(),
@@ -695,14 +744,17 @@ mod tests {
 
     #[test]
     fn test_validate_is_open_source_missing_provenance() {
-        let op = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-            project_id: "a1".repeat(32),
-            repo_url: "https://github.com/org/app".to_string(),
-            commit_sha: "a".repeat(40),
-            artifact_hash: "b".repeat(64),
-            provenance_hash: None,
-            is_open_source: true,
-        });
+        let op = serde_json::to_value(PublicFeedOperation::ReleasePublished(
+            ReleasePublishedPayload {
+                project_id: "a1".repeat(32),
+                repo_url: "https://github.com/org/app".to_string(),
+                commit_sha: "a".repeat(40),
+                artifact_hash: "b".repeat(64),
+                provenance_hash: None,
+                is_open_source: true,
+            },
+        ))
+        .unwrap();
         let result = validate_feed_operation(&op);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("provenance_hash"));
@@ -754,15 +806,19 @@ mod tests {
 
     #[test]
     fn test_validate_feed_operation_strict() {
+        let to_val = |op: PublicFeedOperation| -> Value { serde_json::to_value(op).unwrap() };
+
         // project_id not hex-64
-        let bad_pid = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-            project_id: "short".to_string(),
-            repo_url: "https://github.com/org/app".to_string(),
-            commit_sha: "a".repeat(40),
-            artifact_hash: "b".repeat(64),
-            provenance_hash: Some("c".repeat(64)),
-            is_open_source: true,
-        });
+        let bad_pid = to_val(PublicFeedOperation::ReleasePublished(
+            ReleasePublishedPayload {
+                project_id: "short".to_string(),
+                repo_url: "https://github.com/org/app".to_string(),
+                commit_sha: "a".repeat(40),
+                artifact_hash: "b".repeat(64),
+                provenance_hash: Some("c".repeat(64)),
+                is_open_source: true,
+            },
+        ));
         assert!(
             validate_feed_operation(&bad_pid)
                 .unwrap_err()
@@ -770,14 +826,16 @@ mod tests {
         );
 
         // repo_url not HTTPS
-        let bad_url = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-            project_id: "a1".repeat(32),
-            repo_url: "http://github.com/org/app".to_string(),
-            commit_sha: "a".repeat(40),
-            artifact_hash: "b".repeat(64),
-            provenance_hash: Some("c".repeat(64)),
-            is_open_source: true,
-        });
+        let bad_url = to_val(PublicFeedOperation::ReleasePublished(
+            ReleasePublishedPayload {
+                project_id: "a1".repeat(32),
+                repo_url: "http://github.com/org/app".to_string(),
+                commit_sha: "a".repeat(40),
+                artifact_hash: "b".repeat(64),
+                provenance_hash: Some("c".repeat(64)),
+                is_open_source: true,
+            },
+        ));
         assert!(
             validate_feed_operation(&bad_url)
                 .unwrap_err()
@@ -785,14 +843,16 @@ mod tests {
         );
 
         // commit_sha not hex-40
-        let bad_sha = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-            project_id: "a1".repeat(32),
-            repo_url: "https://github.com/org/app".to_string(),
-            commit_sha: "z".repeat(40),
-            artifact_hash: "b".repeat(64),
-            provenance_hash: Some("c".repeat(64)),
-            is_open_source: true,
-        });
+        let bad_sha = to_val(PublicFeedOperation::ReleasePublished(
+            ReleasePublishedPayload {
+                project_id: "a1".repeat(32),
+                repo_url: "https://github.com/org/app".to_string(),
+                commit_sha: "z".repeat(40),
+                artifact_hash: "b".repeat(64),
+                provenance_hash: Some("c".repeat(64)),
+                is_open_source: true,
+            },
+        ));
         assert!(
             validate_feed_operation(&bad_sha)
                 .unwrap_err()
@@ -800,14 +860,16 @@ mod tests {
         );
 
         // artifact_hash not hex-64
-        let bad_art = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-            project_id: "a1".repeat(32),
-            repo_url: "https://github.com/org/app".to_string(),
-            commit_sha: "a".repeat(40),
-            artifact_hash: "short".to_string(),
-            provenance_hash: Some("c".repeat(64)),
-            is_open_source: true,
-        });
+        let bad_art = to_val(PublicFeedOperation::ReleasePublished(
+            ReleasePublishedPayload {
+                project_id: "a1".repeat(32),
+                repo_url: "https://github.com/org/app".to_string(),
+                commit_sha: "a".repeat(40),
+                artifact_hash: "short".to_string(),
+                provenance_hash: Some("c".repeat(64)),
+                is_open_source: true,
+            },
+        ));
         assert!(
             validate_feed_operation(&bad_art)
                 .unwrap_err()
@@ -815,10 +877,12 @@ mod tests {
         );
 
         // SourceBecameStale empty reason
-        let bad_reason = PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
-            project_id: "a1".repeat(32),
-            reason: "".to_string(),
-        });
+        let bad_reason = to_val(PublicFeedOperation::SourceBecameStale(
+            SourceBecameStalePayload {
+                project_id: "a1".repeat(32),
+                reason: "".to_string(),
+            },
+        ));
         assert!(
             validate_feed_operation(&bad_reason)
                 .unwrap_err()
@@ -826,10 +890,12 @@ mod tests {
         );
 
         // SourceBecameStale unknown reason
-        let bad_unknown_reason = PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
-            project_id: "a1".repeat(32),
-            reason: "unknown".to_string(),
-        });
+        let bad_unknown_reason = to_val(PublicFeedOperation::SourceBecameStale(
+            SourceBecameStalePayload {
+                project_id: "a1".repeat(32),
+                reason: "unknown".to_string(),
+            },
+        ));
         assert!(
             validate_feed_operation(&bad_unknown_reason)
                 .unwrap_err()
@@ -837,10 +903,12 @@ mod tests {
         );
 
         // SourceBecameStale bad project_id
-        let bad_stale_pid = PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
-            project_id: "not-hex".to_string(),
-            reason: "repo_unreachable".to_string(),
-        });
+        let bad_stale_pid = to_val(PublicFeedOperation::SourceBecameStale(
+            SourceBecameStalePayload {
+                project_id: "not-hex".to_string(),
+                reason: "repo_unreachable".to_string(),
+            },
+        ));
         assert!(
             validate_feed_operation(&bad_stale_pid)
                 .unwrap_err()
@@ -852,12 +920,12 @@ mod tests {
         assert!(validate_feed_operation(&sample_source_stale()).is_ok());
         for reason in VALID_STALE_REASONS {
             assert!(
-                validate_feed_operation(&PublicFeedOperation::SourceBecameStale(
+                validate_feed_operation(&to_val(PublicFeedOperation::SourceBecameStale(
                     SourceBecameStalePayload {
                         project_id: "a1".repeat(32),
                         reason: (*reason).to_string(),
                     },
-                ))
+                )))
                 .is_ok()
             );
         }
@@ -1212,14 +1280,17 @@ mod tests {
             "https://example.com/{}",
             "x".repeat(MAX_OPERATION_JSON_SIZE)
         );
-        let op = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-            project_id: "a1".repeat(32),
-            repo_url: oversized_url,
-            commit_sha: "a".repeat(40),
-            artifact_hash: "b".repeat(64),
-            provenance_hash: Some("c".repeat(64)),
-            is_open_source: true,
-        });
+        let op = serde_json::to_value(PublicFeedOperation::ReleasePublished(
+            ReleasePublishedPayload {
+                project_id: "a1".repeat(32),
+                repo_url: oversized_url,
+                commit_sha: "a".repeat(40),
+                artifact_hash: "b".repeat(64),
+                provenance_hash: Some("c".repeat(64)),
+                is_open_source: true,
+            },
+        ))
+        .unwrap();
         let result = validate_feed_operation(&op);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("exceeds"));
@@ -1238,14 +1309,17 @@ mod tests {
             "https://",
         ];
         for url in bad_urls {
-            let op = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-                project_id: "a1".repeat(32),
-                repo_url: url.to_string(),
-                commit_sha: "a".repeat(40),
-                artifact_hash: "b".repeat(64),
-                provenance_hash: Some("c".repeat(64)),
-                is_open_source: true,
-            });
+            let op = serde_json::to_value(PublicFeedOperation::ReleasePublished(
+                ReleasePublishedPayload {
+                    project_id: "a1".repeat(32),
+                    repo_url: url.to_string(),
+                    commit_sha: "a".repeat(40),
+                    artifact_hash: "b".repeat(64),
+                    provenance_hash: Some("c".repeat(64)),
+                    is_open_source: true,
+                },
+            ))
+            .unwrap();
             if url.starts_with("https://") {
                 continue;
             }
@@ -1274,14 +1348,17 @@ mod tests {
             &space_repeat,
         ];
         for hash in bad_hashes {
-            let op = PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-                project_id: "a1".repeat(32),
-                repo_url: "https://github.com/org/app".to_string(),
-                commit_sha: "a".repeat(40),
-                artifact_hash: hash.to_string(),
-                provenance_hash: Some("c".repeat(64)),
-                is_open_source: true,
-            });
+            let op = serde_json::to_value(PublicFeedOperation::ReleasePublished(
+                ReleasePublishedPayload {
+                    project_id: "a1".repeat(32),
+                    repo_url: "https://github.com/org/app".to_string(),
+                    commit_sha: "a".repeat(40),
+                    artifact_hash: hash.to_string(),
+                    provenance_hash: Some("c".repeat(64)),
+                    is_open_source: true,
+                },
+            ))
+            .unwrap();
             let result = validate_feed_operation(&op);
             assert!(result.is_err(), "artifact_hash {hash:?} must be rejected");
         }
@@ -1551,5 +1628,94 @@ mod tests {
             result.unwrap_err().contains("more than 30 days"),
             "timestamp 31 days in future must be rejected"
         );
+    }
+
+    // -- Sprint 65 Phase A: raw-op migration + version guard --
+
+    #[test]
+    fn test_verify_entry_rejects_wrong_version() {
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+        let canonical = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: sample_release_published(),
+            author_pubkey: pk.clone(),
+            timestamp: 1000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let bytes = compute_feed_canonical_bytes(&canonical).unwrap();
+        let hash = compute_feed_entry_hash(&canonical).unwrap();
+        let mut entry = FeedEntry {
+            version: FEED_FORMAT_VERSION,
+            seq: 1,
+            op: sample_release_published(),
+            author_pubkey: pk,
+            timestamp: 1000,
+            entry_hash: hash,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+            signature: hex::encode(kp.sign(&bytes)),
+            pow_nonce: None,
+        };
+        assert!(verify_entry(&entry).is_ok());
+        entry.version = 99;
+        let result = verify_entry(&entry);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unsupported feed version"));
+    }
+
+    #[test]
+    fn test_unknown_op_roundtrip() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        let unknown_op = serde_json::json!({
+            "op_type": "CuratorVouched",
+            "curator_pubkey": "abc123",
+            "project_id": "a1".repeat(32),
+            "reason": "looks good"
+        });
+        let entry =
+            insert_feed_operation(&db, unknown_op.clone(), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        assert_eq!(entry.seq, 1);
+        assert_eq!(op_type(&entry.op), Some("CuratorVouched"));
+        assert!(try_parse_op(&entry.op).is_none());
+
+        let entries = replay_all(&db).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].op, unknown_op);
+        assert!(verify_chain(&entries).is_ok());
+    }
+
+    #[test]
+    fn test_canonical_bytes_value_vs_typed() {
+        let typed_op = sample_release_published_typed();
+        let value_op = serde_json::to_value(&typed_op).unwrap();
+
+        let canonical_typed = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: serde_json::to_value(&typed_op).unwrap(),
+            author_pubkey: "d".repeat(64),
+            timestamp: 1_700_000_000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+        let canonical_value = FeedEntryCanonical {
+            version: FEED_FORMAT_VERSION,
+            op: value_op,
+            author_pubkey: "d".repeat(64),
+            timestamp: 1_700_000_000,
+            prev_hash: GENESIS_PREV_HASH.to_string(),
+        };
+
+        let bytes_typed = compute_feed_canonical_bytes(&canonical_typed).unwrap();
+        let bytes_value = compute_feed_canonical_bytes(&canonical_value).unwrap();
+        assert_eq!(
+            bytes_typed, bytes_value,
+            "canonical bytes must be identical for typed and Value ops"
+        );
+
+        let hash_typed = compute_feed_entry_hash(&canonical_typed).unwrap();
+        let hash_value = compute_feed_entry_hash(&canonical_value).unwrap();
+        assert_eq!(hash_typed, hash_value);
     }
 }

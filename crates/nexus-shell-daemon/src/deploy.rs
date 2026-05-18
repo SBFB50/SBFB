@@ -69,8 +69,8 @@ pub async fn deploy_from_repo(
     debug!(repo = %req.repo_url, "POST /api/v1/deploy-from-repo");
 
     let repo_url = normalize_clone_url(&req.repo_url);
-    if !repo_url.starts_with("http") {
-        return error_response(StatusCode::BAD_REQUEST, "repo_url must be an HTTP(S) URL");
+    if !repo_url.starts_with("https://") {
+        return error_response(StatusCode::BAD_REQUEST, "repo_url must be an HTTPS URL");
     }
 
     if let Some(ref sha) = req.commit_sha {
@@ -248,6 +248,55 @@ pub async fn deploy_from_repo(
         },
     )
     .await;
+
+    // Wire deploy→feed: auto-insert ReleasePublished into the public feed.
+    {
+        let release_op = serde_json::to_value(
+            nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(
+                nexus_coordinator_rs::public_feed::ReleasePublishedPayload {
+                    project_id: hex::encode(nexus_core_rs::crypto::blake3_hash(
+                        req.project_name.as_bytes(),
+                    )),
+                    repo_url: repo_url.clone(),
+                    commit_sha: commit_sha.clone(),
+                    artifact_hash: artifact_hash_hex.clone(),
+                    provenance_hash: Some(prov_hash.clone()),
+                    is_open_source: true,
+                },
+            ),
+        );
+        if let Ok(op_val) = release_op {
+            let kp = Arc::clone(&state.pow_keypair);
+            let author = hex::encode(kp.public_bytes());
+            let insert_result = {
+                let db_guard = state
+                    .coordinator_db
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                nexus_coordinator_rs::public_feed::insert_feed_operation(
+                    &db_guard,
+                    op_val,
+                    &author,
+                    |data| kp.sign(data).to_vec(),
+                )
+            };
+            match insert_result {
+                Ok(entry) => {
+                    if let Some(ref fs) = state.feed_sync_state {
+                        if let Err(e) =
+                            crate::feed_sync::publish_feed_entry_to_docs(fs, &entry).await
+                        {
+                            warn!(error = %e, "deploy→feed publish to iroh-docs failed");
+                        }
+                    }
+                    debug!(seq = entry.seq, "deploy→feed: ReleasePublished inserted");
+                }
+                Err(e) => {
+                    warn!(error = %e, "deploy→feed insert failed (non-fatal)");
+                }
+            }
+        }
+    }
 
     (
         StatusCode::OK,
@@ -748,5 +797,52 @@ mod tests {
         let names: Vec<String> = archive.file_names().map(String::from).collect();
         assert!(names.contains(&"index.html".to_string()));
         assert!(!names.iter().any(|n| n.starts_with(".git")));
+    }
+
+    #[test]
+    fn deploy_rejects_http_repo_url() {
+        let http_url = "http://github.com/org/app";
+        let normalized = nexus_coordinator_rs::forge::normalize_clone_url(http_url);
+        assert!(
+            !normalized.starts_with("https://"),
+            "http:// URL must not pass the https:// check"
+        );
+    }
+
+    #[test]
+    fn deploy_accepts_https_repo_url() {
+        let https_url = "https://github.com/org/app";
+        let normalized = nexus_coordinator_rs::forge::normalize_clone_url(https_url);
+        assert!(normalized.starts_with("https://"), "https:// URL must pass");
+    }
+
+    #[test]
+    fn deploy_release_published_project_id_is_64_hex() {
+        let project_name = "test-app";
+        let project_id = hex::encode(nexus_core_rs::crypto::blake3_hash(project_name.as_bytes()));
+        assert_eq!(project_id.len(), 64);
+        assert!(project_id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn deploy_feed_op_serializes_as_release_published() {
+        let op = serde_json::to_value(
+            nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(
+                nexus_coordinator_rs::public_feed::ReleasePublishedPayload {
+                    project_id: "a1".repeat(32),
+                    repo_url: "https://github.com/org/app".to_string(),
+                    commit_sha: "a".repeat(40),
+                    artifact_hash: "b".repeat(64),
+                    provenance_hash: Some("c".repeat(64)),
+                    is_open_source: true,
+                },
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            nexus_coordinator_rs::public_feed::op_type(&op),
+            Some("ReleasePublished")
+        );
+        assert!(nexus_coordinator_rs::public_feed::validate_feed_operation(&op).is_ok());
     }
 }

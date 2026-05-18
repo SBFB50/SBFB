@@ -299,13 +299,35 @@ This value is verified by
 - Decoders SHOULD accept `version <= FEED_FORMAT_VERSION` (range)
 - New optional fields carry `#[serde(default)]` for forward
   compatibility within the same version
-- Adding a new `PublicFeedOperation` variant IS a breaking
-  change (the enum is closed — unknown variants cause a
-  deserialization error, not a silent skip)
 - Changing the hash algorithm or domain tag IS a breaking change
 
 This is the first wire format designed under the post-v1.0
 versioning regime.
+
+### 9.1 Forward compatibility (raw-op)
+
+Adding a new operation type is **NOT a breaking change**.
+`FEED_FORMAT_VERSION` does not bump for new op types.
+
+Since Sprint 65, `FeedEntry.op` is stored as a raw
+`serde_json::Value` instead of a typed enum. This enables
+forward compatibility:
+
+- Nodes **MUST** store and propagate unknown `op_type` values
+  without interpretation. Unknown ops are carried in the
+  hash-chain and signed feed just like known ops.
+- Nodes **MUST** verify hash-chain integrity (`entry_hash`) and
+  Ed25519 signature for entries with unknown `op_type`. The
+  cryptographic verification is independent of the payload
+  semantics.
+- Nodes **MUST NOT** interpret or act on unknown `op_type` values.
+  Unknown ops are stored for replay but do not affect the
+  materialized `PublicRegistryView`.
+- The `op_type` field inside the JSON object serves as discriminant
+  (same role as the former `#[serde(tag = "op_type")]` annotation).
+- Known ops (`ReleasePublished`, `SourceBecameStale`) are validated
+  semantically at insert time. Unknown ops pass a size check only
+  (`MAX_OPERATION_JSON_SIZE`).
 
 ---
 

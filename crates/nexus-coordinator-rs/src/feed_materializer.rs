@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use crate::db::CoordinatorDb;
-use crate::public_feed::{FEED_FORMAT_VERSION, FeedEntry, PublicFeedOperation};
+use crate::public_feed::{FEED_FORMAT_VERSION, FeedEntry, PublicFeedOperation, try_parse_op};
 
 /// Per-project status derived from the feed.
 #[derive(Debug, Clone, PartialEq)]
@@ -36,7 +36,10 @@ impl PublicRegistryView {
     }
 
     fn apply(&mut self, entry: &FeedEntry) {
-        match &entry.op {
+        let Some(typed) = try_parse_op(&entry.op) else {
+            return;
+        };
+        match &typed {
             PublicFeedOperation::ReleasePublished(p) => {
                 let status =
                     self.projects
@@ -189,7 +192,7 @@ fn materialize_up_to(db: &CoordinatorDb, up_to_seq: u64) -> Result<PublicRegistr
 fn rows_to_entries(rows: Vec<crate::db::FeedEntryRow>) -> Result<Vec<FeedEntry>, String> {
     let mut entries = Vec::with_capacity(rows.len());
     for row in rows {
-        let op: PublicFeedOperation =
+        let op: serde_json::Value =
             serde_json::from_str(&row.payload).map_err(|e| format!("payload parse: {e}"))?;
         entries.push(FeedEntry {
             version: FEED_FORMAT_VERSION,
@@ -237,22 +240,28 @@ mod tests {
         format!("{byte:02x}").repeat(32)
     }
 
-    fn sample_release(project_id: &str) -> PublicFeedOperation {
-        PublicFeedOperation::ReleasePublished(ReleasePublishedPayload {
-            project_id: project_id.to_string(),
-            repo_url: "https://github.com/org/app".to_string(),
-            commit_sha: "a".repeat(40),
-            artifact_hash: "b".repeat(64),
-            provenance_hash: Some("c".repeat(64)),
-            is_open_source: true,
-        })
+    fn sample_release(project_id: &str) -> serde_json::Value {
+        serde_json::to_value(PublicFeedOperation::ReleasePublished(
+            ReleasePublishedPayload {
+                project_id: project_id.to_string(),
+                repo_url: "https://github.com/org/app".to_string(),
+                commit_sha: "a".repeat(40),
+                artifact_hash: "b".repeat(64),
+                provenance_hash: Some("c".repeat(64)),
+                is_open_source: true,
+            },
+        ))
+        .unwrap()
     }
 
-    fn sample_stale(project_id: &str) -> PublicFeedOperation {
-        PublicFeedOperation::SourceBecameStale(SourceBecameStalePayload {
-            project_id: project_id.to_string(),
-            reason: "repo_unreachable".to_string(),
-        })
+    fn sample_stale(project_id: &str) -> serde_json::Value {
+        serde_json::to_value(PublicFeedOperation::SourceBecameStale(
+            SourceBecameStalePayload {
+                project_id: project_id.to_string(),
+                reason: "repo_unreachable".to_string(),
+            },
+        ))
+        .unwrap()
     }
 
     #[test]
