@@ -242,6 +242,52 @@ if [ "$PHASE" = "A" ] && [ -n "$SPRINT" ]; then
   fi
 fi
 
+# === Check 7 : Codex verification presence (STRICT for feat Phase) ===
+# §4.5 : Codex verification croisee obligatoire sauf exemptions §4.5.6.
+# Exemptions : docs-only (0 code LOC), < 5 code LOC, hotfix, PO skip.
+if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
+  # Only enforce on feat commits (not chore/fix/docs)
+  IS_FEAT=$(echo "$COMMIT_TITLE" | grep -cE '^feat\(' || true)
+  if [ "$IS_FEAT" -gt 0 ]; then
+    CODEX_REVIEW=".planning/active/sprint${SPRINT}_phase_${PHASE}_codex_review.md"
+    CODEX_EXEMPT=0
+    # Exemption: < 5 code LOC
+    CODE_LOC=$(git diff --cached --numstat -- '*.rs' '*.ts' '*.tsx' '*.py' 2>/dev/null | awk '{s+=$1} END {print s+0}' || echo "0")
+    [ "$CODE_LOC" -lt 5 ] && CODEX_EXEMPT=1
+    # Exemption: body contains explicit Codex skip
+    if [ -n "$BODY" ]; then
+      echo "$BODY" | grep -qiE 'Codex.*skip|skip.*[Cc]odex|Codex.*exempt' && CODEX_EXEMPT=1
+    fi
+    if [ "$CODEX_EXEMPT" -eq 0 ] && [ ! -f "$CODEX_REVIEW" ]; then
+      echo "" >&2
+      echo "[lightcheck] BLOCK: Codex review manquant (§4.5)" >&2
+      echo "  Attendu: ${CODEX_REVIEW}" >&2
+      echo "  Procedure: ecrire prompt .git/CODEX_PHASE_X.txt," >&2
+      echo "    lancer codex exec, corriger GAPs, re-stage." >&2
+      echo "  Exemptions: docs-only, <5 code LOC, PO skip." >&2
+      echo "" >&2
+      ERRORS=$((ERRORS + 1))
+    fi
+  fi
+fi
+
+# === Check 8 : Preflight G8 presence (STRICT for feat Phase) ===
+# §6.9 : preflight obligatoire avant code pour chaque phase.
+if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
+  IS_FEAT=$(echo "$COMMIT_TITLE" | grep -cE '^feat\(' || true)
+  if [ "$IS_FEAT" -gt 0 ]; then
+    PREFLIGHT_FILE=".planning/active/sprint${SPRINT}_phase_${PHASE}_preflight.md"
+    if [ ! -f "$PREFLIGHT_FILE" ]; then
+      echo "" >&2
+      echo "[lightcheck] BLOCK: Preflight G8 manquant (§6.9)" >&2
+      echo "  Attendu: ${PREFLIGHT_FILE}" >&2
+      echo "  Lancer skill nexus-phase-preflight avant commit." >&2
+      echo "" >&2
+      ERRORS=$((ERRORS + 1))
+    fi
+  fi
+fi
+
 if [ "$ERRORS" -gt 0 ]; then
   echo "" >&2
   echo "[lightcheck] BLOCK: ${ERRORS} erreur(s) pre-commit" >&2

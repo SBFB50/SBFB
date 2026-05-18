@@ -244,23 +244,30 @@ Checker :
 
 Deux dimensions a verifier :
 
-#### 4bis-A — OSS prior art sur l'approche (G10)
+#### 4bis-A — Preflight G8 completeness check (G10)
 
-Le preflight G8 Step 2 / S1a doit avoir recherche comment les
-projets OSS matures resolvent le meme probleme. Verifier :
+Le preflight G8 doit avoir ete execute AVANT le code. Verifier
+l'artefact ET son contenu :
 
-1. Lire `.planning/active/sprint{N}_phase_{X}_preflight.md`
-2. La section `S1a OSS prior art` existe-t-elle ?
-3. Au moins 1 projet OSS de reference a-t-il ete consulte (context7
-   ou WebSearch) ?
+1. Verifier que `.planning/active/sprint{N}_phase_{X}_preflight.md`
+   **existe**. Si absent → P1 bloquant ("preflight G8 non execute").
+2. Verifier que le fichier contient les **5 sections de scan** :
+   ```bash
+   grep -cE "S1a|S1b|S2|S3|S4" \
+     .planning/active/sprint{N}_phase_{X}_preflight.md
+   ```
+   Si < 5 sections → P2 ("preflight incomplet, scans manquants").
+3. La section `S1a OSS prior art` contient au moins 1 projet OSS
+   de reference consulte (context7 ou WebSearch). Si 0 projet
+   nomme → P2.
 4. Si verdict PLAN-ADAPT : la section `§Plan adaptation` documente-
    t-elle l'evidence et l'approche corrigee ?
 
 Signal :
-- **PASS** : S1a documente avec >= 1 projet OSS consulte
+- **PASS** : fichier existe + 5 scans presents + S1a avec >= 1 projet OSS
 - **CONCERN** : S1a presente mais sommaire ("APPROACH-ALIGNED"
   sans nommer le projet consulte)
-- **FAIL** : S1a absente OU phase implementee avec approche naive
+- **FAIL** : fichier absent (P1) OU phase implementee avec approche naive
   que l'OSS montre inadaptee (= preflight S1a n'a pas ete fait
   ou a ete ignore). APPROACH-NAIVE non detecte pre-code = P1.
 
@@ -367,6 +374,74 @@ done
 l'utilisateur : soit re-defer a un sprint futur, soit rouvrir le cut
 dans le kickoff (mais alors le sprint doit etre re-valide).
 
+### Step 5bis — Codex verification gate (§4.5)
+
+La sequence §4.3 impose Codex verification croisee ENTRE la
+review Claude et le commit. Ce step verifie si la phase est
+exemptee, et sinon, bloque le verdict "ready to commit".
+
+**Exemptions §4.5.6** (pas besoin de Codex) :
+- Phase purement docs (0 fichier `.rs` / `.ts` / `.tsx` / `.py` dans le diff)
+- Phase < 5 LOC de code modifie
+- Hotfix cas D
+- PO dit explicitement "skip codex"
+
+**Procedure** :
+
+1. Calculer si exemptee :
+   ```bash
+   CODE_LOC=$(git diff --cached --numstat -- '*.rs' '*.ts' '*.tsx' '*.py' | \
+     awk '{s+=$1} END {print s+0}')
+   ```
+   Si `CODE_LOC < 5` → exemptee.
+
+2. Si NON exemptee :
+   - Verifier que `sprint{N}_phase_{X}_codex_review.md` existe dans
+     `.planning/active/`
+   - Si ABSENT : le verdict review NE DOIT PAS dire "Ready to commit"
+     mais **"Ready for Codex verification (§4.5)"**
+   - Ajouter dans le rapport :
+     ```
+     ## Codex gate (§4.5)
+     - Exemption : non (CODE_LOC = {N})
+     - Status : EN ATTENTE — lancer Codex §4.5 avant commit
+     - Procedure : ecrire prompt dans .git/CODEX_PHASE_X.txt
+       (template .claude/templates/codex_phase_review.txt),
+       lancer codex exec, lire rapport, corriger GAPs
+     ```
+
+3. Si exemptee :
+   - Documenter dans le rapport :
+     ```
+     ## Codex gate (§4.5)
+     - Exemption : oui ({raison})
+     - Status : SKIP
+     ```
+
+4. Si le fichier codex_review.md EXISTE deja :
+   - Verifier qu'il ne contient pas de GAPs non resolus
+   - Documenter dans le rapport :
+     ```
+     ## Codex gate (§4.5)
+     - Status : FAIT — {N} GAPs confirmes, {M} faux positifs
+     ```
+
+**Anti-pattern** : dire "ready to commit" quand Codex est requis
+mais pas fait. C'est exactement le gap qui a cause l'incident
+Sprint 65 Phase A.
+
+### Step 5ter — Artefact review.md obligatoire
+
+Ce skill DOIT produire un fichier
+`.planning/active/sprint{N}_phase_{X}_review.md` avec le rapport
+complet (template Step 6 ci-dessous). L'absence de ce fichier est
+un P2 detectable par l'audit gate (Track F "Phase review files
+present").
+
+Ecrire le fichier AVANT de rendre le verdict final. Le hook
+`phase-auditor-gate.sh` (Check A2) bloque mecaniquement le commit
+si ce fichier est absent ou ne contient pas `## Verdict : PASS`.
+
 ### Step 6 — Validation finale + rigor signal (G4)
 
 **Critere de verdict explicite** (G4 — inverse l'incitation
@@ -434,11 +509,38 @@ Produire un rapport markdown concis :
 - **P3** : <nit>
 - (si 0 P2+ : VERDICT = CONCERN, lister dimensions sous-explorees)
 
+## Codex gate (§4.5)
+- Exemption : oui ({raison}) | non (CODE_LOC = {N})
+- Status : FAIT / EN ATTENTE / SKIP
+- (si FAIT : {N} GAPs confirmes, {M} faux positifs, {K} corriges)
+
 ## Recommendation
-- Ready to commit : oui / non
+- Ready to commit : oui | oui (post-Codex) | non
 - Carry-overs S{N+1} (P2+ non resolus) : <liste pour `sprint{N+1}_audit_findings.md`>
 - Corrections needed : <liste si non>
+
+## Post-commit obligatoire
+- [ ] Update nexus_grid_pivot.md
+- [ ] Update MEMORY.md
 ```
+
+### Step 7 — Post-commit obligations reminder
+
+Apres verdict PASS (ou PASS post-Codex), rappeler dans le rapport
+les obligations post-commit. Ce step ne bloque pas — il documente.
+
+```markdown
+## Post-commit obligatoire
+- [ ] Update nexus_grid_pivot.md (tip SHA + description sprint + compteurs tests)
+- [ ] Update MEMORY.md (ligne index si pivot description changee)
+- [ ] Verifier que le fichier review.md est stage dans le commit chore(planning) suivant
+      ou dans le commit phase lui-meme (si pas de chore(planning) intermediaire)
+```
+
+**Rationale** : la memory `feedback_memory_update.md` prescrit cet
+update mais rien ne le rappelle mecaniquement apres le commit.
+L'inclusion dans le rapport review garantit que l'agent voit le
+rappel dans le flux de la session courante.
 
 ## Anti-patterns a eviter
 

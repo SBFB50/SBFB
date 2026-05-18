@@ -50,6 +50,18 @@ sur canonical.rs/schemas. S1+S2 restent full scans systematiques.
 
 ## Procedure
 
+### Step 0 — G1 pre-condition (Phase A uniquement)
+
+Si la phase visee est **Phase A** : verifier que
+`sprint{N}_design_review.md` existe dans `.planning/active/` ou
+`.planning/archive/v{X}/`. Si absent et sprint non-trivial :
+**STOP** — le Design Review Board G1 (§6.1.1) doit etre execute
+AVANT le preflight G8 pour Phase A. Le hook lightcheck Check 5
+bloque mecaniquement le commit Phase A sans ce fichier, mais le
+preflight peut detecter l'absence plus tot.
+
+Si Phase B/C/D/E/F : skip ce step (G1 ne s'applique qu'a Phase A).
+
 ### Step 1 — Identifier le contexte
 
 1. Lire `.planning/active/` pour trouver `sprint{N}_kickoff.md` et
