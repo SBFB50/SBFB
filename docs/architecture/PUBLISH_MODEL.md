@@ -9,7 +9,7 @@ Ce qui tourne en local n'est pas automatiquement ce qui est publie
 sur le protocole.
 
 ```
-Code local modifie  !=  version open source verifiee
+Code local modifie  !=  version avec provenance auto-attestee
 Version publiee SBFB = artefact immutable lie a un commit public precis
 ```
 
@@ -30,7 +30,7 @@ non publiee.
 |---|---|---|---|---|---|
 | **Local Draft** | disque dev, Vite/dev server, daemon local | aucun | non | oui (c'est du dev) | aucune |
 | **Unverified Build** | zip uploade sans provenance | "non verifie" | seulement opt-in `is_open_source=false` | non (blob immutable, mais pas de preuve source) | hash artefact seulement |
-| **Verified Release** | commit public + provenance SLSA L1 | "open source verifie" | oui, consent L2+ | non (blob + commit + hash lies) | repo_url + commit_sha + artifact_hash + provenance_hash |
+| **Verified Release** | commit public + provenance SLSA L1 | "provenance auto-attestee" | oui, consent L2+ | non (blob + commit + hash lies) | repo_url + commit_sha + artifact_hash + provenance_hash |
 | **Stale Source** | repo public disparu/inaccessible | "source indisponible" | selon politique worker | non (artefact reste, confiance degradee) | provenance existe mais non-reverifiable en temps reel |
 
 ### 2.1 Local Draft
@@ -48,7 +48,7 @@ sans passer par deploy-from-repo. Le protocole l'accepte mais :
 - `is_open_source = false`
 - Provenance absente ou non verifiee
 - Visibilite privee / dev / unverified
-- Les workers en consent L2 ("open source verifie seulement")
+- Les workers en consent L2 ("depot public seulement")
   refusent les taches de ce projet
 
 Cas d'usage : prototypage rapide, apps privees, tests internes.
@@ -125,9 +125,9 @@ ce qui laisse une trace auditable.
 L'interface shell React affiche le badge correspondant :
 
 ```
-[open source verifie]  — commit abc123 sur github.com/foo/bar
-                          provenance SLSA L1 valide
-                          artefact hash: sha256:deadbeef...
+[provenance auto-attestee] — commit abc123 sur github.com/foo/bar
+                             provenance SLSA L1 valide
+                             artefact hash: sha256:deadbeef...
 
 [non verifie]          — upload direct, pas de provenance
                           aucune preuve que le code source

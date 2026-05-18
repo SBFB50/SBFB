@@ -141,7 +141,7 @@ function CuratorsContent({ coordUrl }: { coordUrl: string }) {
         <h3 className="mb-1 font-bold">Ajouter un curator</h3>
         <p className="mb-4 text-sm text-white/50">
           Colle la cle publique Ed25519 (64 caracteres
-          hexadecimaux) d'un curator de confiance.
+          hexadecimaux) d'un curator.
         </p>
         <form
           className="flex flex-col gap-3 md:flex-row md:items-end"

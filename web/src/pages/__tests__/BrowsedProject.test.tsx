@@ -280,7 +280,7 @@ describe("BrowsedProject", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders source badge 'Auto-publie' for direct entries in top bar", async () => {
+  it("renders source badge 'Upload direct' for direct entries in top bar", async () => {
     mockFetch({
       "/api/daemon/browse": {
         entries: [makeBrowseEntry({ source: "direct" })],
@@ -292,7 +292,7 @@ describe("BrowsedProject", () => {
     await waitFor(() => {
       expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
     });
-    expect(screen.getByText("Auto-publie")).toBeInTheDocument();
+    expect(screen.getByText("Upload direct")).toBeInTheDocument();
   });
 
   it("renders repo link for entry with repo_url", async () => {

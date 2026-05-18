@@ -141,8 +141,9 @@
             Le coordinator clone le dépôt, vérifie que le
             <code>node_id</code> correspond au noeud local, construit
             l'archive, et génère un fichier <code>provenance.json</code>
-            SLSA L1 signé Ed25519. Le code sur le réseau = le code du
-            dépôt.
+            SLSA L1 signé Ed25519. L'archive réseau est construite
+            depuis le dépôt source par le noeud local. C'est une
+            auto-attestation.
           </p>
         </li>
         <li>
@@ -298,8 +299,9 @@
           <p>
             Chaque app publique est déployée depuis son code source.
             Le coordinator vérifie l'identité du noeud et signe un
-            enregistrement de provenance SLSA L1 Ed25519. Le code
-            sur le réseau correspond au code du dépôt.
+            enregistrement de provenance SLSA L1 Ed25519. L'archive
+            réseau est construite depuis le dépôt source — c'est une
+            auto-attestation, pas une preuve indépendante.
           </p>
         </article>
         <article class="security-card">
@@ -335,7 +337,7 @@
         est propagé dans l'annonce réseau.
       </p>
 
-      <h3>Chaîne de preuve</h3>
+      <h3>Chaîne de provenance</h3>
       <div class="diagram">
         <pre class="ascii-art">
 Dépôt Git ──▶ Clone ──▶ node_id check ──▶ Build zip ──▶ provenance.json
@@ -409,13 +411,14 @@ Dépôt Git ──▶ Clone ──▶ node_id check ──▶ Build zip ──�
           </p>
         </article>
         <article class="philosophy-card">
-          <h3>Open source par construction</h3>
+          <h3>Source verifiable par construction</h3>
           <p>
-            Chaque app publique est déployée depuis un dépôt Git
-            vérifié. Les utilisateurs peuvent en un clic voir le code
-            source, signaler un bug, proposer une feature, contribuer
-            via PR, ou forker l'app et déployer leur propre version.
-            Le modèle F-Droid/Linux appliqué aux apps web P2P.
+            Chaque app publique est deployee depuis un depot Git
+            public. Les utilisateurs peuvent voir le code source,
+            signaler un bug, contribuer via PR, ou forker l'app et
+            deployer leur propre version sur le reseau.
+            Inspire par F-Droid — les apps publiques sont deployees
+            depuis leur code source.
           </p>
         </article>
         <article class="philosophy-card">
@@ -450,8 +453,8 @@ Dépôt Git ──▶ Clone ──▶ node_id check ──▶ Build zip ──�
   <footer class="footer">
     <p>
       SBFB Protocol Explorer — une app
-      <a class="src" data-path="examples/sbfb-explorer/">open source</a>
-      déployée sur le réseau SBFB.
+      <a class="src" data-path="examples/sbfb-explorer/">a source verifiable</a>
+      deployee sur le reseau SBFB.
     </p>
   </footer>
 

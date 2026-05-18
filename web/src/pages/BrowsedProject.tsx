@@ -18,7 +18,7 @@ import {
   Heart,
   HeartOff,
   Shield,
-  ShieldCheck,
+  FileCheck,
 } from "lucide-react";
 import { VerificationDetail } from "@/components/VerificationDetail";
 
@@ -257,7 +257,7 @@ function FullScreenApp({
 
             {(entry.source ?? "curator") === "direct" && (
               <span className="rounded-full bg-purple-500/20 px-2 py-0.5 text-[10px] font-medium text-purple-300">
-                Auto-publie
+                Upload direct
               </span>
             )}
           </div>
@@ -276,9 +276,10 @@ function FullScreenApp({
                 className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1.5 text-[11px] font-medium text-emerald-400 transition-colors hover:bg-emerald-500/25"
                 data-testid="verified-badge"
                 onClick={() => setVerifyOpen(true)}
+                title="Provenance auto-attestee (SLSA L1)"
               >
-                <ShieldCheck className="h-3 w-3" />
-                Verifie
+                <FileCheck className="h-3 w-3" />
+                Provenance
               </button>
             )}
 

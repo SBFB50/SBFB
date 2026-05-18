@@ -64,10 +64,10 @@ const LEVEL_LABELS: Record<
       "Aucune exposition tierce. Seules vos propres apps s'exécutent.",
   },
   2: {
-    title: "Projets open source vérifiés",
-    hint: "Accepte les apps publiées depuis un dépôt Git public et signées.",
+    title: "Apps depuis un depot public",
+    hint: "Accepte les apps deployees depuis un depot Git public (provenance auto-attestee).",
     threatNote:
-      "Apps open source vérifiées (SLSA L1). Exposition Sybil si contributeur malveillant.",
+      "Apps a source verifiable (SLSA L1). Exposition Sybil si contributeur malveillant.",
   },
   3: {
     title: "Projets spécifiques (whitelist)",

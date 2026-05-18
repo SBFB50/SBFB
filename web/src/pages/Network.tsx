@@ -352,7 +352,7 @@ const CONSENT_SEEN_KEY = "sbfb-consent-seen-v1";
 
 const LEVEL_LABELS: Record<ConsentLevel, string> = {
   1: "L1 — Mes projets",
-  2: "L2 — Open source",
+  2: "L2 — Depot public",
   3: "L3 — Whitelist",
   4: "L4 — Tous publics",
 };
