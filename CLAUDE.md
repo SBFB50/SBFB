@@ -28,6 +28,21 @@ pattern entre sprints, commit discipline atomique, memory system
 externe, anti-patterns. Une session fraîche sans cette lecture
 ré-invente les règles et produit du code hors-convention.
 
+## Agents d'orchestration (depuis S65+)
+Le main thread est un **ROUTEUR**. Il detecte le cas (A/B/C/D)
+via le bootstrap §7.1 puis invoque l'agent specialise. Les agents
+ecrivent leurs artefacts dans `.planning/active/` — le main thread
+lit le verdict et avance ou s'arrete.
+
+| Agent | Cas | Artefact | Fallback |
+|---|---|---|---|
+| `nexus-audit-gate` | A | audit_findings.md | main thread + README §3 |
+| `nexus-sprint-kickoff` | C | kickoff.md + plan.md + design_review.md | main thread + README §2 |
+| `nexus-phase-preflight-deep` | B pre-code | preflight.md | skill nexus-phase-preflight |
+| `nexus-phase-review-deep` | B post-code | review.md | skill nexus-phase-review |
+
+Ref detaillee : `docs/claude/README.md §7` + `.claude/agents/*.md`.
+
 ## Modele de rendu — plateforme universelle (Sprint 12+)
 Chaque projet publie une **archive web** (zip avec index.html).
 Le reseau distribue l'archive via iroh-blobs. Les clients la

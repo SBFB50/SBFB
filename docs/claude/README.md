@@ -25,13 +25,17 @@ autre LLM) qui doit ouvrir, livrer ou auditer un sprint.
   qualite independantes au cycle sprint.
 
 **Fichiers dépendants** (à mettre à jour si ce document change) :
+- `.claude/agents/nexus-audit-gate.md` — implémente Cas A §7.1, cite §3, §8
+- `.claude/agents/nexus-sprint-kickoff.md` — implémente Cas C §7.1, cite §2.1, §6.1.1, §6.2.1
+- `.claude/agents/nexus-phase-preflight-deep.md` — implémente G8 §6.9, cite §7.1 Cas B
+- `.claude/agents/nexus-phase-review-deep.md` — implémente review §4, cite §4.5, §7.4
 - `.claude/agents/nexus-phase-auditor.md` — cite §3, §6.9
-- `.claude/skills/nexus-phase-review/SKILL.md` — cite §4.3, §6.7, §7.4
-- `.claude/skills/nexus-phase-preflight/SKILL.md` — cite §6.9, §7.1
+- `.claude/skills/nexus-phase-review/SKILL.md` — fallback review, cite §4.3, §6.7, §7.4
+- `.claude/skills/nexus-phase-preflight/SKILL.md` — fallback preflight, cite §6.9, §7.1
 - `.claude/hooks/phase-auditor-gate.sh` — implémente l'audit gate §3
 - `.claude/hooks/phase-precommit-lightcheck.sh` — implémente §4.2
 - `docs/claude/TOOLING.md` — cite §3, §4, §5
-- `CLAUDE.md` — pointe vers ce document
+- `CLAUDE.md` — pointe vers ce document + table agents §Agents d'orchestration
 
 ---
 
@@ -1664,123 +1668,96 @@ ls -la "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/" 2>/
 # (lecture rapide, signal uniquement, le scan S2 complet vit dans skill preflight)
 git log --all --grep="DEVIATION\|rejected\|threat-model\|scope-cut" --oneline | head -10
 
-# === Détection du cas ===
+# === Détection du cas + routage agent ===
 
-Compare ce que tu vois avec :
+Compare ce que tu vois avec les 4 cas ci-dessous. Le main thread
+DETECTE le cas et INVOQUE l'agent spécialisé. Il ne joue PAS la
+procédure lui-même (sauf Cas D hotfix).
 
   Cas A — Audit gate à jouer
     Signal : .planning/active/ vide OU contient SEULEMENT le
              kickoff/plan d'un sprint dont le précédent vient de
              fermer (audit_findings absent dans active/ ET dans
              archive/v{X}/).
-    Lecture ciblée : .planning/archive/v{X}/sprint{N-1}_audit_plan.md
-    Mode : audit indépendant, pas implémentation.
-    Livrable : .planning/active/sprint{N-1}_audit_findings.md +
-               commits fix(sprint{N-1}): ... pour P0/P1.
-    Verdict G4 (rigor signal) : 0 P0/P1 ET 0 P2+ trouve = CONCERN
-               (pas PASS — re-auditer dimension manquee). PASS exige
-               >=1 P2+ documente. Cf. §6.1.1 + agent-auditor.
+    ACTION : INVOQUER agent `nexus-audit-gate`.
+             L'agent lit audit_plan, ingère le diff complet du
+             sprint N-1, joue les 9 tracks (suites, security,
+             patterns, scope, tests, review files, carry-overs,
+             HARDENING, meta-process), produit
+             `.planning/active/sprint{N-1}_audit_findings.md` avec
+             verdict PASS / CONDITIONAL PASS / FAIL, et ecrit les
+             commits fix(sprint{N-1}) pour les P0/P1.
+    Verdict G4 (rigor signal) : 0 P0/P1 ET 0 P2+ = CONCERN
+             (pas PASS). PASS exige >=1 P2+ documente.
+    Fallback : si l'agent n'est pas disponible, le main thread
+             joue manuellement la procedure §3 + §8.
 
   Cas B — Sprint en cours
     Signal : .planning/active/ contient sprint{N}_kickoff.md +
              sprint{N}_plan.md mais pas verification.md.
-    Lecture ciblée : sprint{N}_plan.md §Phase X (où X = phase
-                     suivante non encore committée selon git log).
-    Mode : implémentation atomique — APRES verdict G8 positif
-           (EXECUTE OU PLAN-ADAPT OU SCOPE-CUT-CONSISTENT). Si
-           verdict G8 = DESIGN-CONFLICT, mode bascule "emit
-           pivot_proposal + STOP".
-    Livrable : 1 commit feat(scope): Sprint N Phase X — titre.
-    Avant Phase A UNIQUEMENT — G1 Design Review Board (§6.1.1) :
-               verifier que sprint{N}_design_review.md existe dans
-               .planning/active/ ou .planning/archive/v{X}/. Si
-               absent et sprint non-trivial : STOP, lancer agent
-               Explore independant pour scorer D1..D5 AVANT de coder.
-               Le hook lightcheck Check 5 bloque mecaniquement le
-               commit Phase A sans ce fichier.
-    Avant la PREMIERE LIGNE DE CODE phase (G8) : invoquer skill
-               nexus-phase-preflight pour 5 scans factuels (S1a OSS
-               prior art + S1b deps SOTA + S2 historical decisions +
-               S3 threat model + S4 wire format). S4 escalation :
-               si phase touche canonical.rs/schemas/*_VERSION → S4
-               FULL SCAN obligatoire (pas fast-path). Verdict :
-               EXECUTE plan-as-is (procéder),
-               PLAN-ADAPT (recherche OSS montre meilleure approche →
-               adapter le code inline, pas d'arrêt — require >=1
-               projet OSS nommé avec source vérifiable, ne touche
-               PAS Day-0 figées),
-               SCOPE-CUT-CONSISTENT (procéder + carry S+1 doc),
-               DESIGN-CONFLICT (STOP, emit pivot_proposal, arbitrage
-               user). Output : sprint{N}_phase_{X}_preflight.md OU
-               sprint{N}_phase_{X}_pivot_proposal.md.
-    Avant CHAQUE commit phase : invoquer skill
-               nexus-phase-review Step 1bis "staging coherence"
-               -> verifier staging coherent (hook lightcheck le fait
-               automatiquement). Separer chore(planning) si docs
-               planning modifies hors-phase.
-    Apres review Claude, AVANT commit : Codex verification
-               croisee (§4.5). Sauf si phase docs-only, < 5 LOC,
-               hotfix cas D, ou PO dit "skip codex". Procedure :
-               1. Ecrire prompt Codex dans .git/CODEX_PHASE_X.txt
-                  (template §4.5.3, adapter livrables depuis plan)
-               2. Lancer :
-                  Get-Content ".git/CODEX_PHASE_X.txt" -Raw |
-                    codex exec
-                    --dangerously-bypass-approvals-and-sandbox
-                    -o ".planning/active/sprint{N}_phase_{X}_codex_review.md"
-               3. Lire le rapport, trier GAPs vs faux positifs
-               4. Corriger les GAPs confirmes
-               5. Si > 10 LOC corriges : re-run Codex cible
-               6. Ajouter section ## Codex verification au commit body
-    Avant scope cut S+1 (G7) : verifier compteur reports de
-               chaque carry. Items a 3 reports = obligatoire sprint
-               suivant (§6.2.1 Regle 2). Items < 500 LOC ne peuvent
-               pas etre reclassifies long-term.
+    Identifier la phase X suivante : git log + plan.md.
+
+    AVANT code (G8 preflight) :
+      INVOQUER agent `nexus-phase-preflight-deep` pour la phase X.
+      L'agent execute les 5 scans (S1a OSS prior art profond +
+      S1b deps/CVE + S2 decisions historiques complet + S3 threat
+      model + S4 wire format), produit
+      `.planning/active/sprint{N}_phase_{X}_preflight.md` avec
+      verdict EXECUTE / PLAN-ADAPT / SCOPE-CUT-CONSISTENT /
+      DESIGN-CONFLICT.
+      Si DESIGN-CONFLICT : STOP, lire pivot_proposal, arbitrage
+      utilisateur sur option A/B/C.
+      Si PLAN-ADAPT : le code suit l'approche corrigée dans le
+      preflight (pas le plan original).
+      Fallback : skill nexus-phase-preflight (profondeur réduite,
+      même verdicts).
+
+    PENDANT code : le main thread implémente la phase
+      conformément au plan (ou à l'adaptation PLAN-ADAPT).
+      Avant Phase A UNIQUEMENT — verifier que
+      sprint{N}_design_review.md existe (G1, §6.1.1). Le hook
+      lightcheck Check 5 bloque mecaniquement le commit Phase A
+      sans ce fichier.
+      Avant scope cut S+1 (G7) : verifier compteur reports de
+      chaque carry (§6.2.1 Regle 2).
+
+    APRÈS code, AVANT commit (review) :
+      INVOQUER agent `nexus-phase-review-deep`.
+      L'agent lit le diff complet ligne par ligne, lance les 3
+      blocs verification §7.4, vérifie la branch coverage
+      sémantique, les scope cuts sémantiques, le research
+      grounding, la sécurité deep, les livrables, les patterns,
+      et produit `.planning/active/sprint{N}_phase_{X}_review.md`
+      avec verdict PASS / CONCERN / FAIL.
+      Si FAIL : corriger les P0/P1, re-invoquer l'agent.
+      Fallback : skill nexus-phase-review (profondeur réduite).
+
+    Livrable final : 1 commit feat(scope): Sprint N Phase X.
 
   Cas C — Nouveau sprint à ouvrir
     Signal : .planning/active/ contient au max le
              sprint{N-1}_audit_findings.md avec verdict PASS ou
              CONDITIONAL PASS levé. Le sprint N-1 est complètement
              clos.
-    Préalable : lire SPRINT_LOG.md pour décider la version cible
-                (continuer v1.x ou ouvrir v1.x+1 selon le thème).
-    Pre-research OBLIGATOIRE (G2) : avant figer D1..D5, verifier
-                triggers_revalidate sur HARDENING_ROADMAP §3 S{N}
-                + memory nexus_grid_pivot.md §Sprint S{N} carry. Si
-                trigger active depuis last_validated, re-fetch
-                context7 + WebSearch fresh AVANT le draft kickoff.
-    Design Review Board (G1, sauf sprint pure-docs ou trivial) :
-                apres draft D1..D5 mais AVANT gel, lancer agent
-                Explore independant (cf. §6.1.1) -> scoring report
-                ⚠️/✅/❌ par decision -> planner ack chaque ⚠️/❌
-                explicite dans kickoff §4 paragraphe "Acknowledged
-                review findings". Le reviewer ne propose pas, il
-                signale les angles morts.
-    Goal §2 (G3) : DOIT pointer explicite vers verification.md
-                fail-fast checklist comme critere SMART (ne pas
-                inventer 3 KPIs supplementaires — duplication).
-    Carry-overs (G7) : §6 "Items carry/dette" re-confirme chaque
-                carry avec compteur reports. Items a 3 reports =
-                obligatoire (§6.2.1 Regle 2). Items < 500 LOC ne
-                peuvent pas etre reclassifies long-term.
-                Check ROADMAP_COMMITMENTS conditions (§6.2.1
-                Regle 3) : evaluer si declencheurs remplis.
-    Phase dette (G7) : si sprint pair (S28, S30...), reserver
-                une phase dette obligatoire (§6.2.1 Regle 1).
-    Memory carry-over (G6) : fusionner manuellement
-                `sprint{N-1}_verification.md §5 Findings carry-over
-                for memory` dans nexus_grid_pivot.md / feedback_*.md
-                concernes. Pas de merge auto.
-    Mode : design + écriture planning.
-    Livrable : sprint{N}_kickoff.md + sprint{N}_plan.md +
-               sprint{N}_design_review.md (G1) + carry-over
-               summary + frontmatter triggers_revalidate sur
-               nouveaux docs long-life. D1..D5 a valider AVANT
-               toute ligne de code.
-    Migration préalable : si sprint N-1 est encore dans active/,
-    le déplacer vers archive/v{X}/ via git mv.
+    ACTION : INVOQUER agent `nexus-sprint-kickoff`.
+             L'agent lit l'état complet du projet, exécute une
+             recherche ultra-profonde pour chaque D1..D5 (context7
+             + WebSearch + code OSS), joue G1 Design Review Board,
+             G2 triggers, G7 carry-overs + ROADMAP_COMMITMENTS,
+             G9 factual research, et produit 3 fichiers :
+             `.planning/active/sprint{N}_kickoff.md` +
+             `sprint{N}_plan.md` + `sprint{N}_design_review.md`.
+    Après retour agent :
+      1. Review kickoff D1..D5 + Checkpoint §11
+      2. git mv migration active/ → archive/ si nécessaire
+      3. Memory carry-over G6 : fusionner manuellement
+         sprint{N-1}_verification.md §5 dans les memories
+      4. Commit chore(planning): Sprint N kickoff + plan
+      5. Update memory nexus_grid_pivot.md
+    Fallback : si l'agent n'est pas disponible, le main thread
+             joue manuellement la procedure §2 + §6.1.1 + §6.2.1.
 
-  Cas D — Hotfix hors sprint
+  Cas D — Hotfix hors sprint (main thread direct)
     Signal : utilisateur demande explicitement un fix urgent.
     Mode : commit fix(...) ciblé, ne touche pas .planning/.
     Hook lightcheck reste actif : staging coherence avant commit
@@ -1795,55 +1772,44 @@ Compare ce que tu vois avec :
                   grep -A 10 "Pre-launch protocol policy" CLAUDE.md
                   git log --grep="DEVIATION\|rejected" -- <fichiers hotfix>
                 Si conflit -> escalation user avant fix.
+    Pas d'agent — le main thread gère directement.
 
 # === Lecture ciblée par cas ===
 
-Tu lis dans l'ordre les fichiers PERTINENTS pour ton cas, pas
-toute la doc. Charger tout sature le contexte pour rien.
+Le main thread charge le MINIMUM nécessaire pour router vers
+l'agent. L'agent porte sa propre procédure de lecture approfondie
+(définie dans `.claude/agents/*.md`).
 
   Pour TOUS les cas (lecture commune minimale) :
-    1. CLAUDE.md (racine) — projet + pointeur workflow
+    1. CLAUDE.md (racine) — projet + table agents + pointeur workflow
     2. docs/claude/README.md §3 (audit gate) + §4 (commit
-       discipline) + §6 (conventions, dont 6.1.1 + 6.2.1 + 6.8
-       + 6.9)
+       discipline) + §6 (conventions)
     3. memory MEMORY.md (l'index)
 
-  Cas A en plus :
-    - .planning/archive/v{X}/sprint{N-1}_audit_plan.md
-    - .planning/archive/v{X}/sprint{N-1}_kickoff.md (D1..D5
-      gelées à NE PAS rebattre)
-    - docs/claude/README.md §3 et §8
-    - .claude/agents/nexus-phase-auditor.md (calibration G4)
+  Cas A — l'agent nexus-audit-gate charge lui-même :
+    audit_plan.md, kickoff.md, plan.md, verification.md du sprint
+    audité, PATTERNS.md (après opinion formée), THREAT_MODEL.md,
+    HARDENING_ROADMAP.md. Cf. `.claude/agents/nexus-audit-gate.md`
+    §3 Step 0.
 
-  Cas B en plus :
+  Cas B — le main thread charge :
     - .planning/active/sprint{N}_kickoff.md (D1..D5)
     - .planning/active/sprint{N}_plan.md §Phase X visée
-    - docs/claude/README.md §4 (atomic commit, body riche) +
-      §4.5 (dual-agent Codex verification) +
-      §6.2.1 (escalade carry-overs G7) + §6.9 (G8 phase pre-flight)
-    - .claude/skills/nexus-phase-preflight/SKILL.md (G8 5 scans
-      S1a OSS prior art + S1b deps + S2-S4, PLAN-ADAPT verdict,
-      runs AVANT code)
-    - .claude/skills/nexus-phase-review/SKILL.md (Step 1bis
-      staging, runs AVANT commit, inconditionnel)
-    - .claude/templates/codex_phase_review.txt (template prompt
-      Codex pour verification croisee post-review)
+    Les agents preflight-deep et review-deep chargent eux-mêmes
+    leurs contextes approfondis (memories, PATTERNS.md, threat
+    model, etc.). Cf. `.claude/agents/nexus-phase-preflight-deep.md`
+    et `.claude/agents/nexus-phase-review-deep.md`.
 
-  Cas C en plus :
-    - docs/claude/SPRINT_LOG.md (versions livrées + thèmes)
-    - .planning/archive/v{X}/sprint{N-1}_kickoff.md (pour reprendre
-      le format) + sprint{N-1}_verification.md §5 carry-over G6
-    - docs/claude/README.md §2.1 (goal SMART G3) + §6.1.1
-      (Design Review Board G1) + §6.2.1 (escalade + phase dette G7) +
-      §5.1.1 (memory carry-over G6) + §6.8 (triggers G2)
-    - memory nexus_grid_pivot.md (roadmap + compteurs tests)
-    - HARDENING_ROADMAP.md frontmatter triggers_revalidate (G2 —
-      verifier si trigger actif depuis last_validated)
+  Cas C — l'agent nexus-sprint-kickoff charge lui-même :
+    SPRINT_LOG.md, kickoff/plan/verification du sprint précédent,
+    roadmap, HARDENING_ROADMAP.md, memories, THREAT_MODEL.md,
+    PATTERNS.md. Cf. `.claude/agents/nexus-sprint-kickoff.md`
+    §4 Step 1.
 
   Cas D :
     - juste le code touché, rien d'autre
-    - .claude/skills/nexus-phase-review/SKILL.md Step 1bis
-      (staging coherence reste obligatoire meme hotfix)
+    - skill nexus-phase-review Step 1bis (staging coherence
+      reste obligatoire meme hotfix)
 
 # === Stale memory check (obligatoire avant tout commit) ===
 
