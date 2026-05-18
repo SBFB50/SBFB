@@ -653,6 +653,18 @@ Tout rouge bloque le commit. Aucune exception « je commit et
 je fix après » — le fix doit être dans le même commit ou
 déclenche un nouveau cycle.
 
+**Verification croisee Codex (depuis S65, cf. §4.5).** Apres que
+toutes les suites sont vertes et que la review Claude (skill
+nexus-phase-review + agent nexus-phase-auditor) a produit un
+verdict PASS, lancer la verification Codex GPT 5.5 (sauf phases
+exemptees §4.5.6). Sequence complete avant commit phase :
+
+1. Suites §7.4 vertes (Rust + Frontend)
+2. Review Claude (skill nexus-phase-review) — verdict PASS
+3. Agent nexus-phase-auditor — verdict PASS
+4. Codex verification croisee (§4.5) — GAPs corriges ou documentes
+5. Commit atomique
+
 ### 4.4 Phase F wrap-up — parse phase reviews et route les P2/P3 au audit_plan
 
 **Fix P2-S21-4 Sprint 22 Phase F.** Avant Sprint 22, le wrap-up
@@ -705,6 +717,151 @@ les route dans Tracks A-E (sous-section A-1/A-2/A-3/A-4/A-5
 etc.) + Meta-track LOC estimations (transverse P3-S22A-1 +
 P3-B-1 + P2-E-2 + Phase D déviation LOC = 4 occurrences du
 même pattern à fermer S23 chore planning).
+
+### 4.5 Dual-Agent Verification Process — Claude Teams + Codex GPT 5.5
+
+Depuis Sprint 65, chaque phase de chaque sprint est verifiee par un
+processus dual-agent : equipe d'agents Claude ultra-profonds (Opus
+4.6, 1M tokens chacun) pour le preflight, l'execution et la review,
+puis verification croisee independante par Codex CLI (GPT 5.5).
+
+Ce processus ajoute une couche de verification que ni l'auto-
+attestation (verification.md) ni l'audit gate intra-sprint (Phase 0)
+ne couvrent : une review par un modele fondamentalement different,
+sans partage de contexte avec l'executeur, sur le code reel commite.
+
+#### 4.5.1 Cycle de vie d'une phase avec dual-agent
+
+```
+Plan section Phase X lue
+  |
+  v
+Claude team preflight (skill nexus-phase-preflight + agents 1M)
+  |  5 scans factuels S1a-S4 en parallele
+  v
+Code ecrit par Claude (execution phase standard)
+  |
+  v
+Claude team phase review (skill nexus-phase-review + agent auditor)
+  |  6 dimensions, verdict PASS/CONCERN/FAIL
+  v
+Codex verification (codex exec, prompt structure, findings)
+  |  Review croisee independante GPT 5.5
+  v
+Claude correction loop (si Codex trouve des issues)
+  |  Fix + optionnel re-run Codex si > 10 LOC modifies
+  v
+Commit atomique feat(scope): Sprint N Phase X
+```
+
+Le preflight et la review Claude restent les gates primaires
+(G8 + G4). Codex est une verification supplementaire — il ne
+remplace ni le preflight, ni la review, ni l'audit gate.
+
+#### 4.5.2 Lancer Codex depuis Claude Code — pattern valide
+
+**Pattern qui fonctionne** (teste et valide S65 Gate 0) :
+
+```powershell
+# 1. Ecrire le prompt dans un fichier texte
+#    (Write tool en contexte agent, ou editeur)
+#    Chemin standard : .git/CODEX_PHASE_X.txt
+
+# 2. Pipe via stdin vers codex exec
+Get-Content ".git/CODEX_PHASE_X.txt" -Raw | codex exec `
+  --dangerously-bypass-approvals-and-sandbox `
+  -o ".planning/active/sprint{N}_phase_{X}_codex_review.md"
+```
+
+**Parametres obligatoires :**
+
+| Parametre | Role |
+|-----------|------|
+| `--dangerously-bypass-approvals-and-sandbox` | Execution sans approbation interactive (equivalent de `--yolo`) |
+| `-o fichier.md` | Ecrit l'output dans un fichier lisible par Claude apres execution |
+
+**Anti-patterns testes et echoues — NE PAS reproduire :**
+
+| Anti-pattern | Symptome | Pourquoi |
+|---|---|---|
+| `-m o3` | Erreur "model not available" | Compte ChatGPT, pas API — utiliser le default GPT 5.5 |
+| Here-string PowerShell direct | Parsing errors sur apostrophes francaises | PowerShell interprete les guillemets internes |
+| Prompt inline en argument | Codex attend stdin quand pas d'argument | Le prompt doit passer par stdin ou fichier |
+| Prompt sans `-o` | Output pas recuperable par Claude | Toujours `-o fichier.md` pour lecture post-exec |
+| Prompt trop court (<10 lignes) | Review superficielle, faux positifs | Le prompt doit lister explicitement chaque livrable |
+
+#### 4.5.3 Template de prompt Codex — verification phase
+
+Ce template est a ecrire dans `.git/CODEX_PHASE_X.txt` avant
+de lancer `codex exec`. Adapter les placeholders `{...}` a la
+phase en cours. Template complet dans
+`.claude/templates/codex_phase_review.txt`.
+
+```
+Tu es un auditeur independant. Tu verifies le code source du
+projet nexus-grid (SBFB) apres une phase de sprint.
+
+Sprint : {N}
+Phase : {X} — {titre court}
+
+## Livrables attendus de cette phase
+
+{Copier-coller les livrables depuis le plan.md section Phase X}
+
+## Ta mission
+
+Pour CHAQUE livrable :
+1. Cherche dans le code source les fichiers concernes.
+2. Verifie que le livrable est REELLEMENT implemente.
+3. Cite le fichier et les numeros de ligne exacts.
+4. Conclus : CONFIRME (evidence) ou GAP (ce qui manque).
+
+Reponse en francais.
+```
+
+#### 4.5.4 Template de prompt Codex — verification preflight G8
+
+Template dans `.claude/templates/codex_preflight_review.txt`.
+Verifie que les 5 scans S1a-S4 du preflight ont ete executes
+correctement.
+
+#### 4.5.5 Cycle de correction post-Codex
+
+Quand Codex produit des findings :
+
+1. **Claude lit le rapport Codex** (Read tool sur le fichier -o)
+2. **Triage** : GAP confirme (Claude corrige) / faux positif
+   (documente dans commit body) / GAP cosmetic (corrige si < 5 LOC)
+3. **Correction** : Claude corrige chaque GAP confirme
+4. **Re-run conditionnel** : si > 10 LOC de code metier modifie,
+   relancer Codex sur les fichiers modifies uniquement
+5. **Tracabilite** : commit body inclut section `## Codex verification`
+
+#### 4.5.6 Quand NE PAS lancer Codex
+
+| Cas | Raison |
+|-----|--------|
+| Phase purement docs | Pas de code a verifier |
+| Phase cosmetique (< 5 LOC) | Cout disproportionne |
+| Hotfix cas D | Urgence, pas de plan a verifier |
+| PO dit "skip codex" | Decision explicite documentee |
+| Phase de sortie (verification + audit_plan) | Pas de code metier |
+
+Documenter dans le commit body : `## Codex verification : skipped ({raison})`.
+
+#### 4.5.7 Parallelisation Claude teams
+
+Les 5 scans G8 sont lances en parallele via agents independants
+(Opus 4.6, 1M tokens chacun). Gain mesure : ~3x sur phases > 10
+fichiers.
+
+```
+Agent S1a (OSS prior art)    --+
+Agent S1b (deps/libs)        --+
+Agent S2  (historiques)      --+---> Orchestrateur -> verdict
+Agent S3  (threat model)     --+
+Agent S4  (wire format)      --+
+```
 
 ---
 
@@ -1146,6 +1303,12 @@ sur output stochastique = inopérant). S2 sans S3 = cohérent
 historiquement mais gap threat model. S3 sans S4 = durci mais wire
 cassé. S4 sans S1 = invariants préservés sur approche obsolète.
 
+**Parallelisation via agents ultra-profonds (depuis S65).** Les 5
+scans sont independants en entree. Lancer les 5 en parallele via
+des agents Claude independants (Opus 4.6, 1M tokens chacun).
+L'orchestrateur agrege les resultats et emit le verdict. Gain
+mesure : ~3x sur phases > 10 fichiers cibles. Detail : §4.5.7.
+
 **S1a est le scan le plus important.** Il challenge le *design* du
 plan, pas juste les versions. Un plan écrit au kickoff reflète la
 compréhension du moment. La recherche OSS pre-phase corrige les
@@ -1437,7 +1600,7 @@ But : reproductibilité audit, source pivot G8, drift detection.
 
 ---
 
-## 7. Prompt générique de bootstrap session fraîche (v2)
+## 7. Prompt générique de bootstrap session fraîche (v3)
 
 Ce prompt est conçu pour être collé tel quel au démarrage d'une
 nouvelle session Claude Code sur le projet. Il ne suppose **pas**
@@ -1555,6 +1718,20 @@ Compare ce que tu vois avec :
                -> verifier staging coherent (hook lightcheck le fait
                automatiquement). Separer chore(planning) si docs
                planning modifies hors-phase.
+    Apres review Claude, AVANT commit : Codex verification
+               croisee (§4.5). Sauf si phase docs-only, < 5 LOC,
+               hotfix cas D, ou PO dit "skip codex". Procedure :
+               1. Ecrire prompt Codex dans .git/CODEX_PHASE_X.txt
+                  (template §4.5.3, adapter livrables depuis plan)
+               2. Lancer :
+                  Get-Content ".git/CODEX_PHASE_X.txt" -Raw |
+                    codex exec
+                    --dangerously-bypass-approvals-and-sandbox
+                    -o ".planning/active/sprint{N}_phase_{X}_codex_review.md"
+               3. Lire le rapport, trier GAPs vs faux positifs
+               4. Corriger les GAPs confirmes
+               5. Si > 10 LOC corriges : re-run Codex cible
+               6. Ajouter section ## Codex verification au commit body
     Avant scope cut S+1 (G7) : verifier compteur reports de
                chaque carry. Items a 3 reports = obligatoire sprint
                suivant (§6.2.1 Regle 2). Items < 500 LOC ne peuvent
@@ -1642,12 +1819,15 @@ toute la doc. Charger tout sature le contexte pour rien.
     - .planning/active/sprint{N}_kickoff.md (D1..D5)
     - .planning/active/sprint{N}_plan.md §Phase X visée
     - docs/claude/README.md §4 (atomic commit, body riche) +
+      §4.5 (dual-agent Codex verification) +
       §6.2.1 (escalade carry-overs G7) + §6.9 (G8 phase pre-flight)
     - .claude/skills/nexus-phase-preflight/SKILL.md (G8 5 scans
       S1a OSS prior art + S1b deps + S2-S4, PLAN-ADAPT verdict,
       runs AVANT code)
     - .claude/skills/nexus-phase-review/SKILL.md (Step 1bis
       staging, runs AVANT commit, inconditionnel)
+    - .claude/templates/codex_phase_review.txt (template prompt
+      Codex pour verification croisee post-review)
 
   Cas C en plus :
     - docs/claude/SPRINT_LOG.md (versions livrées + thèmes)
@@ -2129,3 +2309,9 @@ Changements majeurs surveilles :
   communication iframe ↔ reseau, open source enforcement,
   et launcher Rust. Le pattern sprint s'est stabilise :
   les sessions livrent 4 phases en une seule session.
+- Sprint 65 : introduction du dual-agent verification process
+  (§4.5). Chaque phase est verifiee par Claude teams (Opus 4.6,
+  1M tokens, agents paralleles pour G8) puis par Codex CLI
+  GPT 5.5 en review croisee independante. Preflight G8 passe
+  de sequentiel a parallele (~3x). Templates de prompt Codex
+  normalises (§4.5.3, §4.5.4). Anti-patterns documentes (§4.5.2).

@@ -8,12 +8,14 @@ Python/Pyodide, WASM, HTML pur, notebook, etc.) sous forme
 d'archive web. Le reseau la distribue. Les clients la rendent
 dans un iframe sandboxe via le daemon Rust blob-serve.
 
-**App store open source par construction** : chaque app publique
-est deployee depuis un repo Git verifie. Les utilisateurs
-peuvent en 1 clic voir le code source, signaler un bug, proposer
-une feature, contribuer via PR, ou forker l'app et deployer leur
-propre version sur le reseau. Le modele F-Droid/Linux applique
-aux apps web P2P.
+**Plateforme a source verifiable** : chaque app publique est
+deployee depuis un repo Git avec provenance auto-attestee SLSA L1
+(clone → Ed25519 → zip → provenance.json). Les utilisateurs
+peuvent voir le code source, signaler un bug, contribuer via PR,
+ou forker l'app et deployer leur propre version sur le reseau.
+Inspire par F-Droid — les apps sont deployees depuis leur code
+source. Le terme "open source" est reserve au code SBFB lui-meme
+(AGPL-3.0 OSI). Les apps du reseau sont a "source verifiable".
 
 Pivot 2026-04-10 depuis l'ancien NEXUS cold-case (supprime S51,
 code dans l'historique Git pour reference).
@@ -47,7 +49,10 @@ inclus par les apps.
 ## Deploy verifie (Sprint 14)
 Apps publiques deployees **depuis le repo source** par le
 coordinateur (clone → Keyoxide Ed25519 → zip → provenance.json
-SLSA L1). Code sur le reseau = code du repo. Multi-forge, zero
+SLSA L1). La provenance lie un commit source au hash de l'archive
+via une signature Ed25519 du noeud qui a deploye. C'est une
+auto-attestation — un tiers peut verifier la provenance mais pas
+encore reproduire le build independamment. Multi-forge, zero
 OAuth. Cf. `sprint14_keyoxide_decision.md` (memory).
 
 ## Architecture (Rust + Frontend, post-S50)
@@ -177,12 +182,15 @@ Runtime isolation roadmap dans
   + stabilisation → **early adopter ready** ✓ DONE.
   S60 = installer NSIS + tray icon + LT-7 Tier 3 + frontend
   bundling → **end user ready** ✓ DONE → **tag v1.0**.
-- **Roadmap post-v1.0 — Public Verifiable Protocol Feed** :
-  6 sprints (5+1 reserve) pour credibilite publique protocole
-  verifiable (decision PO 2026-05-13). S1 spec+feed local →
-  S2 sync P2P+anti-spam (gate scission Phase C) → S3 verification
-  tiers+UX → S4 hardening public → S5 go-live → S6 reserve.
-  Detail : `.planning/research/public_verifiable_feed_roadmap.md`.
+- **Roadmap v3 — Confiance + Factory Canari + RRV** :
+  11 sprints (S65-S75) en 4 arcs. Arc 1 Fondations (S65 contrat
+  public + S66 durabilite). Arc 2 Factory + Canari (S67 Factory
+  Foundation + S68 Broker/Preview + S69 Babel Reader canari + pilote
+  ferme). Arc 3 Intelligence Verifiable (S70 RRV FTS5 + S71 Proof
+  Cards + S72 SearchManifest). Arc 4 Industrialisation (S73
+  Gouvernance complete + S74 Babel translation beta + S75 Pack
+  produit defendable). ~24 semaines, mai-novembre 2026.
+  Detail : `.planning/roadmap_v3_public_trust_factory_babel_rrv.md`.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
@@ -219,6 +227,13 @@ Cf. `nexus_grid_pivot.md` (memory) — **a ne PAS re-debattre** :
 - postMessage bridge = seul canal iframe ↔ reseau (3 methodes)
 - Deploy verifie from source (Keyoxide + SLSA L1 provenance)
 - Launcher Rust minimal (pas Tauri, browser = client)
+- iroh 0.98 pour Arc 1-2 (S65-S69), evaluer upgrade 1.0 Gate 1
+- OS sandbox pour Factory, pas wasmtime (12 CVE avril 2026)
+- Pilote ferme 2-3 personnes (R-iroh-audit P0 → pas public)
+- Vocabulaire "source verifiable" (pas "open source" pour apps)
+- Factory = module daemon/broker Rust, pas app iframe
+- Feed raw-op extensible (serde_json::Value), pas de bump par op
+- FTS5 pour RRV S70, Tantivy en gate post-S75 si >50K docs
 
 ## Principe de conception — sessions fraiches
 **Ne jamais propager les scope cuts des sprints precedents comme
@@ -234,13 +249,14 @@ externe ne contient d'historique, aucune installation user n'est
 en dehors de la machine dev. Consequence sur les wire formats
 (`Task`, `ProjectAnnouncement`, `CuratorList`, etc.) :
 
-- **`*_FORMAT_VERSION` / `*_ANNOUNCEMENT_VERSION` restent a 1**
-  jusqu'au premier tag `v1.0`. Un sprint qui change le canonical
-  ne bump PAS la version — il redefinit la v1 courante.
-- **Pas de tolerant decoder multi-version** (`v == 1` seul, pas
-  `v1..v5`). Pas de rationale "decode un legacy JSON qui n'a pas
-  ce champ" — le seul legacy est le master d'il y a 2 commits,
-  c'est du refactor, pas de la compat.
+- **Feed extensible via raw-op** : `FeedEntry.op` est stocke
+  comme `serde_json::Value`. Ajouter une nouvelle operation
+  (CuratorVouched, SearchManifestPublished) ne bump PAS
+  `FEED_FORMAT_VERSION`. Les noeuds anciens stockent et propagent
+  les operations inconnues sans les interpreter. Le bump n'est
+  necessaire QUE si la structure de l'enveloppe `FeedEntry` change.
+- **`*_ANNOUNCEMENT_VERSION` restent a 1** jusqu'au go-live.
+  Un sprint qui change le canonical redefinit la v1 courante.
 - **`#[serde(default)]` reste legitime** pour la **robustesse
   runtime** (un client Python qui envoie un JSON minimal a l'API
   daemon → les champs omis deserializent a zero/false plutot que

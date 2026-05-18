@@ -1,40 +1,36 @@
-# Feature Landscape: Reactive Event-Driven Architecture
+# Feature Landscape
 
-**Domain:** Event-driven system for autonomous investigation
-**Researched:** 2026-04-06
+**Domain:** P2P app factory, scaffolding, domain-specific app generation
+**Researched:** 2026-05-18
 
 ## Table Stakes
 
-Features the reactive system MUST have. Missing = system regresses from current behavior.
+Features users expect. Missing = product feels incomplete.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Typed event definitions | Type safety prevents wiring bugs at scale | Low | dataclass with frozen=True, enum for event types |
-| Async event dispatch | Core of the reactive pattern | Low | asyncio.Queue, fire-and-forget or await-result |
-| Handler registration (watches/produces) | Modules declare dependencies | Low | SpiderFoot pattern, decorator-based |
-| VRAM serialization | Prevent OOM on RTX 5080 16GB | Med | PriorityQueue replaces asyncio.Lock |
-| Graceful shutdown | Stop investigation without losing in-flight events | Med | drain queue, cancel pending, persist unprocessed |
-| Error isolation | One handler crash must not kill the bus | Low | try/except per handler, log + continue |
-| Event deduplication | Prevent processing same evidence twice | Med | Content hash or event_id tracking per cycle |
-| Audit trail integration | Existing 3-layer audit must continue working | Low | Emit audit events alongside domain events |
-| Investigation-scoped buses | Each case_id gets its own event flow | Med | Prevents cross-case contamination |
-| Status tracking per tool | Frontend shows tool status (running/done/error) | Low | Already exists via _track_tool, emit status events |
+| CLI `sbfb create` | Tout ecosysteme a un scaffolder | Low | Pattern create-vite, degit |
+| SBFB.json enrichi (permissions, category) | Le manifest doit declarer ce que l'app fait | Low | 3 champs actuel -> ~12 champs |
+| Templates HTML pur + React | Les 2 stacks les plus courantes | Med | 2 templates minimum |
+| Bridge SDK auto-copie | Ne pas forcer la copie manuelle | Low | Deja en place via sync-bridge-sdk.sh |
+| Preview avant publish | Voir l'app avant de la publier | Low | blob-serve existant = preview |
+| Publish gate (checklist) | Pas de publish sans index.html + manifest valide | Med | Extension de deploy.rs |
+| Diff review avant modification | Standard AI code gen (bolt.new, v0) | Med | Broker + UI React |
+| Audit log des actions Factory | Tracabilite = confiance | Low | JSONL simple |
+| Template verification (hash) | Un template modifie = potentiel supply chain | Low | BLAKE3 du template |
 
 ## Differentiators
 
-Features that make the reactive system genuinely better than the current OODA loop.
+Features that set product apart. Not expected, but valued.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Immediate reaction to evidence | No 30-min wait: new evidence triggers analysis in seconds | Med | Core value of the migration |
-| Model-aware batching | Group LLM calls by model to reduce VRAM swaps | High | Accumulate tasks, batch by model, flush periodically |
-| Priority-based GPU access | Deep analysis yields to urgent contradiction detection | Med | PriorityQueue with task priority levels |
-| Event replay / debugging | Replay a sequence of events to reproduce bugs | Med | Append-only event log + replay function |
-| Dependency graph visualization | Show which modules trigger which (for debugging) | Low | Auto-generate from watches/produces declarations |
-| Circuit breakers | Stop cascading event storms (evidence -> entities -> OSINT -> entities -> ...) | Med | Max events per type per cycle, cooldown timers |
-| Selective re-processing | Re-run only hypothesis evaluation without full OODA cycle | Low | Emit specific event to trigger specific module |
-| WebSocket event stream | Frontend sees events in real-time, not polling | Med | Broadcast events to connected React clients |
-| Ollama keep_alive optimization | Keep frequently-used models loaded, unload idle ones | Med | Track model usage patterns, set keep_alive dynamically |
+| factory.provenance.json | Tracer la chaine de creation (qui, quoi, quand, depuis quel template) | Med | Unique a SBFB |
+| Domain packs | Template + fixtures + config domaine = app complete en 1 commande | High | Babel, Repair Notebook |
+| Ed25519 provenance sur l'app generee | L'app generee est verifiable comme toute app SBFB | Low | Reutilise deploy-from-repo |
+| Template lui-meme verifiable | Le template passe par le meme pipeline de verification | Med | Meta-verification |
+| Broker permission model (Flatpak-like) | L'utilisateur autorise chaque action privilegiee | Med | Differencie du "vibe coding" |
+| Safety scorecard | Badge de securite automatique base sur les declarations SBFB.json | Med | Inspire par Obsidian 2025+ |
 
 ## Anti-Features
 
@@ -42,47 +38,47 @@ Features to explicitly NOT build.
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| External message broker (Redis/RabbitMQ) | Single process, adds deployment complexity, no multi-process need | In-process asyncio.Queue |
-| Full CQRS separation | NEXUS reads and writes from same process, CQRS adds complexity without benefit | Single DB connection per operation, as currently done |
-| Event schema versioning | Single process, no backward compatibility needed between services | Simple dataclass evolution, Python type checking |
-| Distributed event store | No microservices, no multi-node deployment | SQLite append-only table, evolve from existing audit |
-| Backpressure to external producers | All producers are internal modules, not external services | Simple Queue maxsize + drop-oldest or block |
-| Saga pattern / compensating transactions | Investigation actions are not transactional (no rollback needed) | Simple error handling + retry via tenacity |
-| Dead letter queue | Overkill for in-process events; log errors and move on | Log failed events with full context for debugging |
+| AI code generation automatique dans l'iframe | L'iframe est sandboxee, pas de FS/shell/git | Broker dans le daemon, UI dans le shell |
+| WebContainers dans le browser | 20+ MB WASM, overkill, SBFB a blob-serve | Utiliser blob-serve pour preview |
+| Templates dynamiques avec logique serveur | Ajoute complexite, casse le modele offline | Templates statiques avec substitution simple |
+| Publish automatique sans gate humain | Detruit le modele de confiance SBFB | Publish gate obligatoire avec checklist |
+| Methodes bridge Factory-specifiques (factory_*) | Pollue le protocole neutre | Routes HTTP daemon /api/v1/factory/* |
+| NLLB-200 dans l'iframe | Bloque par sandbox (IndexedDB, connect-src) | task_submit vers workers SBFB |
+| Multi-step interactive wizard | UX complexe, hard to test | CLI flags + form simple dans le shell |
+| Template marketplace reseau | Trop tot, zero utilisateur | Templates locaux/Git d'abord |
 
 ## Feature Dependencies
 
 ```
-Typed Events -> EventBus Core -> Handler Registration
-EventBus Core -> VRAM PriorityQueue
-EventBus Core -> Error Isolation
-EventBus Core -> Event Deduplication
-Handler Registration -> Module Migration (one by one)
-Module Migration -> Circuit Breakers (needed once cascading starts)
-EventBus Core -> Event Replay (optional, can come later)
-EventBus Core -> WebSocket Stream (optional, can come later)
-VRAM PriorityQueue -> Model Batching (optimization layer)
-Model Batching -> Ollama keep_alive Optimization
+SBFB.json v2 -> Template Engine -> CLI sbfb create -> Template verification
+                                       |
+                                       v
+                             Broker routes API -> Diff generation -> Review UI -> Publish gate
+                                                                       |
+                                                                       v
+                                                       Domain pack format -> Babel reader
+                                                                               |
+                                                                               v
+                                                                 Bridge integration -> Deploy verifie
 ```
 
 ## MVP Recommendation
 
 Prioritize:
-1. **Typed event definitions + EventBus** -- foundation, everything depends on it
-2. **Handler registration with watches/produces** -- enables incremental module migration
-3. **VRAM PriorityQueue** -- immediate performance improvement over asyncio.Lock
-4. **Error isolation + graceful shutdown** -- production safety
-5. **Circuit breakers** -- prevent event storms during first real usage
+1. SBFB.json v2 (schema_version compat) — gate d'entree pour tout le reste
+2. 3 templates (static-minimal, static-storage, react-vite) — couvrent 90% des cas
+3. CLI `sbfb create` — experience developer immediate
+4. Preview via blob-serve — zero nouveau code, reutilise l'existant
+5. Publish gate — coherent avec le modele de confiance
 
 Defer:
-- **Event replay**: Valuable for debugging but not blocking. Add after first 3 modules are migrated.
-- **Model batching**: Optimization that requires usage data to tune properly. Add after observing real workload patterns.
-- **WebSocket stream**: Nice UX improvement but the frontend already polls. Add when event bus is stable.
-- **Ollama keep_alive optimization**: Requires empirical benchmarking on RTX 5080. Add after basic PriorityQueue is working.
+- Domain packs : concept nouveau, valider d'abord les templates simples (S73) avant d'ajouter des packs (S75)
+- Safety scorecard : post-S75, quand il y a assez d'apps pour que le scorecard ait du sens
+- Template marketplace reseau : post-v1.0, quand des tiers creent des templates
 
 ## Sources
 
-- [SpiderFoot module pattern](https://deepwiki.com/smicallef/spiderfoot) -- watchedEvents/producedEvents architecture
-- [TheHive/Cortex observable analysis](https://docs.strangebee.com/cortex/) -- investigation tool event patterns
-- [Maltego transform pattern](https://www.maltego.com/blog/how-to-use-maltego-transforms-to-map-network-infrastructure-an-in-depth-guide/) -- entity-to-entity reactive transforms
-- [bubus circuit breaker patterns](https://github.com/browser-use/bubus) -- event loop prevention via event_path tracking
+- bolt.new (preview + AI generation): https://github.com/stackblitz/bolt.new
+- Flatpak portals (broker pattern): https://docs.flatpak.org/en/latest/sandbox-permissions.html
+- Obsidian safety scorecard: https://obsidian.md/blog/future-of-plugins/
+- VS Code extension trust: https://code.visualstudio.com/docs/configure/extensions/extension-runtime-security

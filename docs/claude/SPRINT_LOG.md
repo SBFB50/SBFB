@@ -12,7 +12,15 @@ Pour le sprint en cours, voir
 
 ---
 
-## v2.0 — Public Verifiable Protocol Feed (OPEN)
+## v2.1 — Confiance + Factory Canari + RRV (OPEN)
+
+| Sprint | Etat | Tip cloture | Nb commits | Docs |
+|---|---|---|---|---|
+| 65 | PLANNED — Contrat Public (raw-op + badges + auth tier + ReleasePublished wiring + TRUST_TAXONOMY + COMMONS.md + gates Factory spec) | — | — | roadmap v3 |
+
+---
+
+## v2.0 — Public Verifiable Protocol Feed (CLOSED — `cf1100b`)
 
 | Sprint | Etat | Tip cloture | Nb commits | Docs |
 |---|---|---|---|---|

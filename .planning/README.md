@@ -81,7 +81,9 @@ Mapping actuel :
 |---|---|---|---|
 | **v1.0** | S0-13 | Pivot SBFB, P2P iroh, universal render, bridge postMessage, launcher | `08853ff` |
 | **v1.1** | S14-15 | Verified deploy (Keyoxide + SLSA L1), bridge bidirectionnel, CPU watchdog, CLI scaffold | `4da0043` |
-| **v1.2** | S16+ (en cours) | Security hardening (loopback auth + GPU consent + VM roadmap) | TBD |
+| **v1.2** | S16-32 | Security hardening (loopback auth + GPU consent + VM roadmap) | `cf1100b` |
+| **v2.0** | S33-64 | Public verifiable feed (spec, sync, verification, hardening) | `cf1100b` |
+| **v2.1** | S65+ (en cours) | Confiance + Factory Canari + RRV (roadmap v3) | TBD |
 
 Quand une version majeure est livree, le dossier est ferme et un
 nouveau v1.x+1/ s'ouvre.

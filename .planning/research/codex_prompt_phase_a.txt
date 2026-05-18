@@ -1,0 +1,13 @@
+Tu es un auditeur de code pour le projet SBFB / nexus-grid. Le Sprint 65 Phase A doit livrer 5 items. Verifie chacun dans le code source avec les numeros de ligne exacts.
+
+1. Fix P2-FEED-INSERT-NO-AUTH-TIER : feed_insert() dans crates/nexus-shell-daemon/src/feed_sync.rs doit verifier le auth tier du caller. Actuellement aucun check. Confirme le gap avec les numeros de ligne.
+
+2. Fix P2-VERIFY-ENTRY-VERSION-GUARD : verify_entry() dans crates/nexus-coordinator-rs/src/public_feed.rs doit rejeter les entries avec version != FEED_FORMAT_VERSION. Confirme le gap.
+
+3. Migration FeedEntry.op vers serde_json::Value : dans crates/nexus-coordinator-rs/src/public_feed.rs, le champ op de FeedEntry est actuellement un enum PublicFeedOperation type. Confirme le type actuel et estime la complexite de migration.
+
+4. Wiring deploy -> feed ReleasePublished : dans crates/nexus-shell-daemon/src/deploy.rs, apres publish_announcement(), il n'y a PAS d'insertion ReleasePublished dans le feed. Confirme ce gap.
+
+5. Fix deploy.rs http -> https : deploy.rs accepte-t-il des repo_url en http:// ? Le feed exige HTTPS.
+
+Pour chaque point, lis le code source, donne les numeros de ligne exacts, confirme ou infirme le gap, et estime le LOC necessaire. Reponds en francais.

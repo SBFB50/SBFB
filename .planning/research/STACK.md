@@ -1,67 +1,72 @@
-# Technology Stack: Reactive Event-Driven Architecture
+# Technology Stack
 
-**Project:** NEXUS Reactive Migration
-**Researched:** 2026-04-06
+**Project:** S73-S75 Code Factory + Babel Dogfood
+**Researched:** 2026-05-18
 
 ## Recommended Stack
 
-### Core: Custom EventBus (no external dependency)
+### S73 — Template Engine
 
 | Technology | Version | Purpose | Why |
 |------------|---------|---------|-----|
-| Python asyncio.Queue | stdlib 3.13 | Event dispatch backbone | Zero dependency, native async, proven in production |
-| Python asyncio.PriorityQueue | stdlib 3.13 | VRAM-aware GPU task scheduling | Built-in priority ordering, heapq-based, efficient |
-| Python dataclasses | stdlib 3.13 | Typed event definitions | Lightweight, frozen=True for immutability, no Pydantic needed for events |
-| Python asyncio.Event/Condition | stdlib 3.13 | Synchronization primitives | Coordinate module lifecycle, shutdown signals |
+| Rust (native generator) | 1.94+ | Template substitution + file generation | Coherent avec stack existant, pas de dependance Python |
+| clap | 4.x | CLI `sbfb create` sous-commande | Deja en place dans le daemon |
+| blake3 | 1.x | Template content hash verification | Deja en place dans le workspace |
+| serde_json | 1.x | Parse SBFB.json v2, template.json | Deja en place |
 
-### Supporting Libraries (already in project)
+### S74 — Broker
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| axum | 0.8.x | Routes HTTP /api/v1/factory/* | Deja en place dans le daemon |
+| similar | 2.x | Diff computation (fichiers workspace) | Crate Rust mature pour diff text |
+| serde_json | 1.x | Audit log JSONL | Simple, auditable |
+| std::fs::canonicalize | stdlib | Path traversal prevention | Pas de dependance externe |
+
+### S75 — Babel
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| Vanilla JS + SBFBBridge | - | App reader Babel | Meme pattern qu'Explorer/Ideas |
+| NLLB-200 via worker | - | Traduction (stretch goal) | Coherent avec compute distribue |
+| ctranslate2 ou Ollama | TBD | Runtime NLLB-200 cote worker | A determiner selon maturite |
+| JSON fixtures | - | Textes domaine public pre-charges | MVP sans dependance backend |
+
+### Supporting Libraries
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| loguru | existing | Structured event logging | Every event emission and handler invocation |
-| pydantic | existing | Event payload validation (optional) | Complex events with nested data, API-facing events |
-| tenacity | existing | Retry logic for failed handlers | OSINT calls, LLM calls that may timeout |
+| giget | 2.x (npm) | Telecharger templates depuis repos Git | Si templates externes |
+| Copier | 9.x (Python) | Template generation complexe | Seulement si >10 templates |
+| Sandpack | 2.x (npm) | Browser code preview component | Si preview interactive requise |
 
-### Libraries Evaluated But NOT Recommended
+## Alternatives Considered
 
-| Library | Why Not |
-|---------|---------|
-| **bubus** (browser-use) | Promising (Pydantic events, WAL, SQLite middleware) but v0.x, 165 commits, 99 stars. Too young for a 41K-line production system. Re-evaluate in 6 months. |
-| **aiopubsub** (Quantlane) | Decent but key-based subscription is awkward for typed events. Moved to GitLab, low maintenance signal. |
-| **blinker** (Pallets) | Signal/slot pattern is too simple -- no queue, no priority, no persistence. Good for Flask, wrong for pipeline orchestration. |
-| **RxPY / reactivex** | 120+ operators but steep learning curve, functional-reactive paradigm is foreign to the codebase. Overkill for "react when input changes." |
-| **Faust (faust-streaming)** | Requires Kafka. NEXUS is single-process on one machine. Kafka adds deployment complexity for zero benefit. |
-| **Dramatiq** | Task queue, not event bus. Requires Redis/RabbitMQ broker. Right pattern for distributed systems, wrong for in-process reactive flow. |
-| **Celery** | Same as Dramatiq but heavier. External broker dependency is unnecessary. |
-| **Temporal.io** | Workflow orchestration for distributed systems. Massive overhead for single-process Python. |
-| **fastapi-events** | Request-scoped event dispatch (ASGI middleware). NEXUS events are background-task-scoped, not request-scoped. |
-| **Redis pub/sub** | Adds an external service dependency for pub/sub that asyncio.Queue does natively in-process. Would only matter if NEXUS became multi-process. |
-
-## Rationale: Why Custom Over Library
-
-1. **NEXUS is single-process.** No need for cross-process message passing (Redis, RabbitMQ, Kafka).
-2. **The codebase already uses asyncio.Lock for VRAM.** Evolving to PriorityQueue is natural.
-3. **41K lines of existing code.** A library that imposes its own patterns (RxPY, Faust) would require massive refactoring.
-4. **SpiderFoot proves the pattern works.** 207 modules, event-driven, all custom Python, no external broker.
-5. **Event bus is ~200 lines of code.** The complexity is in the module migration, not the bus itself.
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| Template engine | Rust natif | Copier (Python) | Ajoute dependance Python, overkill pour 3-5 templates |
+| Template download | giget | degit | degit non maintenu, giget a 6x plus d'adoption |
+| Diff engine | similar (Rust) | diff (npm) | Le broker est Rust, rester dans le meme ecosysteme |
+| Preview | blob-serve existant | WebContainers | 20+ MB WASM, overkill, SBFB a deja blob-serve |
+| Code edit | CSS diff viewer | Sandpack/Monaco | Trop lourd pour review de diff, pas d'edition live au MVP |
+| Babel NLP | NLLB-200 via worker | Transformers.js browser | Iframe sandbox bloque IndexedDB et connect-src |
 
 ## Installation
 
 ```bash
-# No new dependencies needed for core EventBus.
-# Everything uses Python stdlib asyncio.
+# Rust workspace — nouvelle dependance pour S74
+cargo add similar -p nexus-shell-daemon-core
 
-# If event payload validation is desired (optional, Pydantic already in project):
-# Already installed: pydantic >= 2.0
+# Frontend — pas de nouvelle dependance npm pour S73-S74
+# S74 Phase C ajoute un composant DiffViewer en React pur (pas de lib)
+
+# Babel (S75) — app standalone
+# Pas de build system, vanilla JS comme Explorer/Ideas
 ```
 
 ## Sources
 
-- [asyncio.Queue docs](https://docs.python.org/3/library/asyncio-queue.html) -- stdlib, HIGH confidence
-- [asyncio.PriorityQueue](https://superfastpython.com/asyncio-priorityqueue/) -- stdlib, HIGH confidence
-- [bubus GitHub](https://github.com/browser-use/bubus) -- evaluated, MEDIUM confidence (young project)
-- [aiopubsub GitHub](https://github.com/qntln/aiopubsub) -- evaluated, MEDIUM confidence
-- [blinker docs](https://blinker.readthedocs.io/) -- evaluated, HIGH confidence
-- [RxPY GitHub](https://github.com/ReactiveX/RxPY) -- evaluated, HIGH confidence
-- [faust-streaming GitHub](https://github.com/faust-streaming/faust) -- evaluated, HIGH confidence
-- [SpiderFoot DeepWiki](https://deepwiki.com/smicallef/spiderfoot) -- architecture reference, HIGH confidence
+- giget: https://github.com/unjs/giget (3M DL/semaine, UnJS)
+- similar: https://docs.rs/similar/ (Rust diff library)
+- Copier: https://copier.readthedocs.io/ (alternative si templates complexes)
+- Transformers.js NLLB-200: https://huggingface.co/Xenova/nllb-200-distilled-600M

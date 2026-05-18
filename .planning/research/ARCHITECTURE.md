@@ -1,332 +1,215 @@
-# Architecture Patterns: Reactive Event-Driven NEXUS
+# Architecture Patterns
 
-**Domain:** Event-driven investigation system
-**Researched:** 2026-04-06
+**Domain:** P2P app factory, broker sandbox, domain-specific app generation
+**Researched:** 2026-05-18
 
 ## Recommended Architecture
 
-### High-Level Flow
+### Overview
 
 ```
-                          +------------------+
-                          |   InvestigationBus  |  (one per case_id)
-                          |   asyncio.Queue     |
-                          +--------+---------+
-                                   |
-                    +--------------+--------------+
-                    |              |              |
-              +-----v-----+ +-----v-----+ +-----v-----+
-              | Dispatcher | | Dispatcher | | Dispatcher |  (concurrent workers)
-              +-----+-----+ +-----+-----+ +-----+-----+
-                    |              |              |
-         +----------+---------+   |   +----------+---------+
-         |                    |   |   |                    |
-   +-----v------+  +-----v---v-+ |  +-----v------+  +----v-------+
-   | Evidence    |  | Hypothesis| |  | Contradiction|  | Suspect    |
-   | Processor   |  | Engine    | |  | Detector     |  | Scorer     |
-   +-----+------+  +-----------+ |  +--------------+  +------------+
-         |                        |
-   +-----v------+          +-----v------+
-   | GPU Queue   |          | GPU Queue   |
-   | (Priority)  |          | (Priority)  |
-   +-----+------+          +-----+------+
-         |                        |
-   +-----v--------------------------v-----+
-   |         VRAM Scheduler               |
-   |   asyncio.PriorityQueue             |
-   |   (one heavy model at a time)        |
-   +--------------------------------------+
+User
+  |
+  v
+Shell React (/factory page)          CLI (sbfb create)
+  |                                     |
+  | HTTP /api/v1/factory/*              | Direct Rust calls
+  |                                     |
+  v                                     v
+Factory Broker (nexus-shell-daemon-core)
+  |
+  +-- Template Engine
+  |     - Parse template.json
+  |     - Substitute variables
+  |     - Copy bridge SDK
+  |     - Generate SBFB.json v2
+  |     - Write factory.template.lock
+  |     - Write factory.provenance.json
+  |
+  +-- Diff Generator
+  |     - Compare workspace vs proposed changes
+  |     - JSON structured diff (not unified text)
+  |     - Require user confirmation before apply
+  |
+  +-- Preview Manager
+  |     - Zip workspace
+  |     - Serve via blob-serve (existing)
+  |     - Same sandbox as production deploy
+  |
+  +-- Publish Gate
+  |     - Checklist: index.html, SBFB.json v2, bridge methods exist
+  |     - Secret scan (regex)
+  |     - Build check (if build_command in SBFB.json)
+  |     - Provenance generation
+  |
+  +-- Audit Log
+        - JSONL file (factory.audit.jsonl)
+        - Every action: timestamp + type + user_confirmed + hashes
 ```
 
 ### Component Boundaries
 
 | Component | Responsibility | Communicates With |
 |-----------|---------------|-------------------|
-| **InvestigationBus** | Per-case event queue, dispatches to registered handlers | All modules via typed events |
-| **BusManager** | Creates/destroys per-case buses, lifecycle management | InvestigationManager, FastAPI lifespan |
-| **EventDispatcher** | Pulls events from bus, routes to matching handlers | InvestigationBus, all modules |
-| **VRAMScheduler** | PriorityQueue for GPU-bound tasks, one heavy model at a time | LLMRouter, all GPU-using modules |
-| **ModuleBase** | Abstract base class for all reactive modules | InvestigationBus (subscribe/publish) |
-| **EvidenceModule** | Watches: MONITORING_RESULT_FOUND. Produces: EVIDENCE_INGESTED, ENTITIES_EXTRACTED | Bus, VRAMScheduler |
-| **HypothesisModule** | Watches: EVIDENCE_INGESTED, ENTITIES_EXTRACTED. Produces: HYPOTHESIS_SCORED | Bus, VRAMScheduler |
-| **ContradictionModule** | Watches: EVIDENCE_INGESTED. Produces: CONTRADICTION_FOUND | Bus, VRAMScheduler |
-| **SuspectModule** | Watches: HYPOTHESIS_SCORED, EVIDENCE_INGESTED. Produces: SUSPECT_SCORED | Bus, VRAMScheduler |
-| **OSINTModule** | Watches: ENTITIES_EXTRACTED. Produces: OSINT_ENRICHED | Bus (no GPU) |
-| **GeoModule** | Watches: ENTITIES_EXTRACTED. Produces: LOCATION_GEOCODED | Bus (no GPU) |
-| **ImageModule** | Watches: EVIDENCE_INGESTED (type=image). Produces: IMAGE_ANALYZED | Bus, VRAMScheduler |
-| **ForensicsModule** | Watches: EVIDENCE_INGESTED. Produces: FORENSIC_RESULT | Bus, VRAMScheduler |
-| **TimelineModule** | Watches: EVIDENCE_INGESTED, ENTITIES_EXTRACTED. Produces: TIMELINE_UPDATED | Bus (no GPU) |
-| **ReportModule** | Watches: HYPOTHESIS_SCORED (periodic). Produces: REPORT_GENERATED | Bus, VRAMScheduler |
-| **Neo4jSyncModule** | Watches: EVIDENCE_INGESTED, ENTITIES_EXTRACTED, HYPOTHESIS_SCORED. Produces: GRAPH_SYNCED | Bus (no GPU) |
-| **MonitoringTrigger** | External: APScheduler fires MONITORING_RESULT_FOUND when new results arrive | Bus |
+| Factory UI (React) | User interaction, diff display, approve/reject | Broker via HTTP |
+| Factory Broker | Authorization, execution, path validation | Template Engine, Diff, Preview, Publish |
+| Template Engine | File generation from templates | Filesystem (bounded workspace) |
+| Diff Generator | Compute changes between states | Workspace filesystem |
+| Preview Manager | Serve preview app | Blob-serve cache (existing) |
+| Publish Gate | Validate before publish | Deploy pipeline (existing deploy.rs) |
+| Audit Log | Tracability | JSONL file |
+| CLI (sbfb create) | Non-interactive scaffolding | Template Engine directly |
 
-### Data Flow: Evidence Ingestion Cascade
+### Data Flow
 
+**Scaffolding (S73):**
 ```
-1. MonitoringScheduler detects new result
-   -> emit MONITORING_RESULT_FOUND(result_id, case_id, relevance, title)
+User -> CLI sbfb create -> Template Engine -> Filesystem -> Git init
+```
 
-2. EvidenceModule handles MONITORING_RESULT_FOUND
-   - Downloads/parses content
-   - Creates Evidence record in SQLite
-   - Runs GLiNER entity extraction (CPU, no GPU)
-   - Chunks text + embeds in ChromaDB (light GPU: nomic-embed-text)
-   -> emit EVIDENCE_INGESTED(evidence_id, case_id, evidence_type)
-   -> emit ENTITIES_EXTRACTED(entity_ids, case_id)
+**Brokered creation (S74):**
+```
+User -> Shell /factory -> HTTP POST /api/v1/factory/create
+  -> Broker validates path + template
+  -> Template Engine generates files in memory
+  -> Diff Generator computes diff vs empty workspace
+  -> HTTP response: JSON diff
+User reviews diff -> Shell /factory -> HTTP POST /api/v1/factory/apply
+  -> Broker writes files to workspace
+  -> Audit log entry
+  -> HTTP response: success
+```
 
-3a. HypothesisModule handles EVIDENCE_INGESTED
-    - Runs incremental analysis (heavy GPU: nexus 26B)
-    - Re-scores existing hypotheses
-    -> emit HYPOTHESIS_SCORED(hypothesis_id, old_score, new_score)
+**Preview (S74):**
+```
+User -> Shell /factory -> HTTP POST /api/v1/factory/preview
+  -> Broker zips workspace
+  -> blob-serve loads zip into cache
+  -> HTTP response: { preview_url: "/blob-serve/{hash}/index.html" }
+User sees app in iframe sandbox (same CSP as production)
+```
 
-3b. ContradictionModule handles EVIDENCE_INGESTED
-    - Checks new evidence against existing evidence (heavy GPU: deepseek-r1 14B)
-    -> emit CONTRADICTION_FOUND(evidence_ids, description) [if any]
-
-3c. OSINTModule handles ENTITIES_EXTRACTED
-    - Runs holehe on email entities (no GPU)
-    - Runs social recon on person entities (no GPU)
-    -> emit OSINT_ENRICHED(entity_id, results)
-
-3d. GeoModule handles ENTITIES_EXTRACTED
-    - Geocodes location entities via Nominatim (no GPU)
-    -> emit LOCATION_GEOCODED(entity_id, lat, lon)
-
-3e. ImageModule handles EVIDENCE_INGESTED (filters type=image)
-    - Runs VLM analysis (heavy GPU: qwen3-vl)
-    - Indexes in DINOv2/CLIP
-    -> emit IMAGE_ANALYZED(evidence_id, description)
-
-3f. Neo4jSyncModule handles EVIDENCE_INGESTED + ENTITIES_EXTRACTED
-    - Syncs evidence node + entity nodes + links to Neo4j
-    -> emit GRAPH_SYNCED(node_count)
-
-3g. TimelineModule handles EVIDENCE_INGESTED + ENTITIES_EXTRACTED
-    - Extracts dates, builds chronological timeline
-    -> emit TIMELINE_UPDATED(event_count)
-
-4. SuspectModule handles HYPOTHESIS_SCORED
-   - Re-scores suspects based on new hypothesis scores (heavy GPU: nexus 26B)
-   -> emit SUSPECT_SCORED(suspect_id, score)
-
-5. ReportModule handles HYPOTHESIS_SCORED (batched, periodic)
-   - Generates updated investigation report
-   -> emit REPORT_GENERATED(report_id)
+**Publish (S74):**
+```
+User -> Shell /factory -> HTTP POST /api/v1/factory/publish-check
+  -> Publish Gate runs checklist
+  -> HTTP response: { checks: [{name, status, details}] }
+If all pass:
+User -> Shell /factory -> HTTP POST /api/v1/deploy-from-repo (existing)
+  -> Standard deploy pipeline
+  -> Provenance generated
+  -> Feed entry ReleasePublished
 ```
 
 ## Patterns to Follow
 
-### Pattern 1: Module Base Class (SpiderFoot-inspired)
+### Pattern 1: Flatpak Portal Broker
+**What:** Every privileged operation (filesystem write, git, shell command)
+passes through the broker which mediates access and requires user confirmation.
+**When:** Any Factory action that modifies the workspace or interacts with
+external systems.
+**Example:**
+```rust
+pub struct FactoryAction {
+    pub kind: ActionKind,
+    pub workspace_path: PathBuf,
+    pub details: serde_json::Value,
+    pub user_confirmed: bool,
+}
 
-**What:** Every reactive module inherits from ModuleBase and declares its event dependencies.
-**When:** Every module in the system.
-**Why:** Self-documenting dependencies, enables automatic wiring, enables dependency graph visualization.
+pub enum ActionKind {
+    TemplateGenerate,
+    FileWrite,
+    GitInit,
+    GitCommit,
+    BuildRun,
+    PreviewServe,
+    PublishCheck,
+}
 
-```python
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Any
-import asyncio
-
-
-class EventType(Enum):
-    """All event types in the system."""
-    MONITORING_RESULT_FOUND = auto()
-    EVIDENCE_INGESTED = auto()
-    ENTITIES_EXTRACTED = auto()
-    HYPOTHESIS_SCORED = auto()
-    CONTRADICTION_FOUND = auto()
-    SUSPECT_SCORED = auto()
-    OSINT_ENRICHED = auto()
-    LOCATION_GEOCODED = auto()
-    IMAGE_ANALYZED = auto()
-    FORENSIC_RESULT = auto()
-    TIMELINE_UPDATED = auto()
-    GRAPH_SYNCED = auto()
-    REPORT_GENERATED = auto()
-    # System events
-    CYCLE_STARTED = auto()
-    CYCLE_COMPLETED = auto()
-    MODULE_ERROR = auto()
-
-
-@dataclass(frozen=True)
-class Event:
-    """Immutable event flowing through the bus."""
-    type: EventType
-    case_id: str
-    data: dict[str, Any] = field(default_factory=dict)
-    source_module: str = ""
-    event_id: str = ""  # UUID, set by bus
-    parent_event_id: str = ""  # For tracing cascades
-    timestamp: str = ""  # ISO 8601, set by bus
-
-
-class ModuleBase:
-    """Base class for all reactive investigation modules.
-
-    Subclasses MUST define:
-    - watches: set of EventType this module consumes
-    - produces: set of EventType this module may emit
-    - handle(event): async method called when a watched event arrives
-    """
-    watches: set[EventType] = set()
-    produces: set[EventType] = set()
-    name: str = "unnamed"
-
-    def __init__(self, bus: "InvestigationBus"):
-        self._bus = bus
-
-    async def handle(self, event: Event) -> None:
-        """Process an event. Override in subclasses."""
-        raise NotImplementedError
-
-    async def emit(self, event_type: EventType, data: dict, parent: Event | None = None) -> None:
-        """Emit a new event onto the bus."""
-        await self._bus.emit(Event(
-            type=event_type,
-            case_id=parent.case_id if parent else "",
-            data=data,
-            source_module=self.name,
-            parent_event_id=parent.event_id if parent else "",
-        ))
+impl FactoryBroker {
+    pub fn execute(&self, action: FactoryAction) -> Result<ActionResult> {
+        self.validate_workspace_path(&action.workspace_path)?;
+        if !action.user_confirmed {
+            return Err(FactoryError::ConfirmationRequired);
+        }
+        // Execute + audit log
+        self.audit_log.append(&action)?;
+        Ok(result)
+    }
+}
 ```
 
-### Pattern 2: VRAM-Aware Priority Queue
+### Pattern 2: SBFB.json v2 Schema Versioning
+**What:** Schema version field allows coexistence of old and new manifests.
+**When:** Any manifest parsing in deploy.rs or template generation.
+**Example:**
+```rust
+pub fn parse_sbfb_manifest(json: &str) -> Result<SbfbManifest> {
+    let raw: serde_json::Value = serde_json::from_str(json)?;
+    let schema_version = raw.get("schema_version")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1);
 
-**What:** Replace asyncio.Lock with PriorityQueue that groups tasks by model and respects priority.
-**When:** Any module that needs GPU (LLM calls, VLM calls, embedding).
-**Why:** Reduces VRAM swaps (loading/unloading models), allows priority escalation.
-
-```python
-import asyncio
-from dataclasses import dataclass, field
-from typing import Any
-
-
-@dataclass(order=True)
-class GPUTask:
-    """A task waiting for GPU access."""
-    priority: int  # Lower = higher priority. 0=urgent, 10=normal, 20=batch
-    model_name: str = field(compare=False)
-    coroutine: Any = field(compare=False)  # The actual async work
-    future: asyncio.Future = field(compare=False)  # Result goes here
-
-
-class VRAMScheduler:
-    """Single-GPU task scheduler with priority and model batching."""
-
-    def __init__(self):
-        self._queue = asyncio.PriorityQueue()
-        self._current_model: str | None = None
-        self._running = False
-
-    async def submit(self, model: str, coro, priority: int = 10) -> Any:
-        """Submit a GPU task. Returns result when complete."""
-        future = asyncio.get_event_loop().create_future()
-        await self._queue.put(GPUTask(
-            priority=priority,
-            model_name=model,
-            coroutine=coro,
-            future=future,
-        ))
-        return await future
-
-    async def run(self):
-        """Worker loop: process GPU tasks one at a time."""
-        self._running = True
-        while self._running:
-            task = await self._queue.get()
-            try:
-                # If model changed, Ollama will swap automatically.
-                # Track it for batching optimization later.
-                if task.model_name != self._current_model:
-                    self._current_model = task.model_name
-                result = await task.coroutine
-                task.future.set_result(result)
-            except Exception as e:
-                task.future.set_exception(e)
-            finally:
-                self._queue.task_done()
+    match schema_version {
+        1 => parse_v1(raw),  // node_id, name, version only
+        2 => parse_v2(raw),  // full manifest with bridge, tech, requirements
+        _ => Err(ManifestError::UnsupportedSchemaVersion(schema_version)),
+    }
+}
 ```
 
-### Pattern 3: Circuit Breaker for Event Storms
-
-**What:** Limit cascading events to prevent infinite loops.
-**When:** Any time event A triggers module B which emits event C which triggers module D which emits event A.
-**Why:** Without this, one evidence ingest could trigger thousands of events.
-
-```python
-class CircuitBreaker:
-    """Prevents event storms by limiting events per type per cycle."""
-
-    def __init__(self, max_per_type: int = 50, cooldown_seconds: float = 5.0):
-        self._counts: dict[EventType, int] = {}
-        self._cooldowns: dict[EventType, float] = {}
-        self._max = max_per_type
-        self._cooldown = cooldown_seconds
-
-    def allow(self, event_type: EventType) -> bool:
-        """Return True if this event type is allowed to proceed."""
-        count = self._counts.get(event_type, 0)
-        if count >= self._max:
-            return False
-        self._counts[event_type] = count + 1
-        return True
-
-    def reset(self):
-        """Reset all counters. Call at cycle boundary."""
-        self._counts.clear()
+### Pattern 3: Preview = Production Path
+**What:** Preview uses exactly the same pipeline as production deploy
+(zip -> blob-serve -> iframe sandbox), ensuring WYSIWYG deploy.
+**When:** Any preview action in the Factory.
+**Example:**
+```rust
+impl PreviewManager {
+    pub fn serve_preview(&self, workspace: &Path) -> Result<String> {
+        let zip_bytes = zip_directory(workspace)?;
+        let hash = blake3::hash(&zip_bytes);
+        self.blob_cache.load(&hex::encode(hash), &zip_bytes, MAX_DECOMPRESSED)?;
+        Ok(format!("/blob-serve/{}/index.html", hex::encode(hash)))
+    }
+}
 ```
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: God Event Bus (Single Global Bus)
+### Anti-Pattern 1: Factory as Protocol Business Logic
+**What:** Adding factory-specific methods to the bridge protocol or coordinator.
+**Why bad:** Protocol must remain domain-neutral. Factory in the protocol = tight coupling.
+**Instead:** Factory uses daemon HTTP routes, not bridge methods.
 
-**What:** One global EventBus shared by all cases.
-**Why bad:** Events from Case A leak to Case B handlers. Debugging becomes impossible. Shutdown of one investigation affects all.
-**Instead:** One InvestigationBus per case_id. BusManager creates/destroys them.
+### Anti-Pattern 2: AI Generation Without Human Gate
+**What:** Factory generates code and publishes automatically without user review.
+**Why bad:** Destroys trust model. Only 33% of devs trust AI code (2025 research).
+**Instead:** Every modification shows a diff, requires explicit approval.
 
-### Anti-Pattern 2: Synchronous Event Handling
+### Anti-Pattern 3: Iframe-Based Factory
+**What:** Building Factory as a sandboxed iframe app via bridge.
+**Why bad:** Factory needs FS, git, shell — impossible from sandboxed iframe.
+**Instead:** Factory UI = React page in shell, broker = daemon module.
 
-**What:** `await bus.emit(event)` blocks until ALL handlers complete.
-**Why bad:** A slow LLM call (600s timeout for nexus 26B) blocks the entire bus. No concurrency between independent modules.
-**Instead:** Fire-and-forget dispatch. Handlers run as independent asyncio.Tasks. Collect results via Futures if needed.
-
-### Anti-Pattern 3: Fine-Grained Events (One per Entity)
-
-**What:** Emitting ENTITY_EXTRACTED once per entity instead of ENTITIES_EXTRACTED with a batch.
-**Why bad:** If GLiNER extracts 30 entities from one evidence, that is 30 events triggering 30 OSINT scans simultaneously.
-**Instead:** Batch events (ENTITIES_EXTRACTED with list of entity_ids). Let the receiving module decide how to iterate.
-
-### Anti-Pattern 4: Replacing the OODA Loop Entirely on Day 1
-
-**What:** Removing the existing 30-minute cycle before the event bus is proven.
-**Why bad:** 41K lines of working code. The OODA loop is tested and produces results. A new event bus will have bugs.
-**Instead:** Run event bus IN PARALLEL with OODA loop. OODA becomes the fallback "sweep" that catches anything the event bus missed. Remove OODA only after 100+ cycles of event bus running clean.
-
-### Anti-Pattern 5: Persistent Event Queue on Disk
-
-**What:** Writing every event to SQLite before processing (write-ahead).
-**Why bad:** Adds latency to every event. SQLite writes are fast but not zero-cost. Events are transient -- if the process crashes, re-running the OODA sweep catches up.
-**Instead:** Log events to the audit trail AFTER processing (write-behind). The audit trail is already append-only JSONL + SQLite + git.
+### Anti-Pattern 4: WebContainers for Preview
+**What:** Embedding StackBlitz WebContainers for Node.js preview.
+**Why bad:** 20+ MB WASM, complex setup. blob-serve already does this.
+**Instead:** blob-serve serves zipped workspace as preview.
 
 ## Scalability Considerations
 
-| Concern | Current (1 case) | At 5 cases | At 20 cases |
-|---------|-------------------|------------|-------------|
-| Event throughput | ~50 events/cycle, trivial | ~250 events/cycle, still trivial for asyncio.Queue | ~1000 events/cycle, may need queue maxsize limits |
-| VRAM contention | Single Lock works | PriorityQueue with per-case fairness needed | Priority starvation risk -- add case-round-robin |
-| Memory | ~100 events in flight, negligible | ~500 events, still negligible | ~2000 events, add Queue maxsize (1000) |
-| SQLite writes | Single writer, WAL handles reads | WAL handles concurrent reads fine | May need write batching to avoid lock contention |
-| Neo4j sync | 1 case sync at a time | May need batched sync across cases | Dedicated Neo4j sync worker with its own queue |
+| Concern | At 5 templates | At 50 templates | At 500+ templates |
+|---------|----------------|-----------------|-------------------|
+| Template engine | Rust native sufficient | Consider giget for Git-based | Copier with registry |
+| Storage | Embedded in binary | Templates in Git repo | Template registry |
+| Diff perf | Instant (<100ms) | Instant (<100ms) | Cache diffs, lazy compute |
+| Preview | blob-serve LRU (32) | Increase LRU capacity | Eviction policy review |
 
 ## Sources
 
-- [SpiderFoot architecture](https://deepwiki.com/smicallef/spiderfoot) -- module pattern, event types, execution loop
-- [asyncio.Queue](https://docs.python.org/3/library/asyncio-queue.html) -- event dispatch backbone
-- [asyncio.PriorityQueue](https://docs.python.org/3/library/asyncio-queue.html#priority-queue) -- GPU scheduling
-- [GPU task scheduling with asyncio](https://speakerdeck.com/pyconza/juggling-gpu-tasks-with-asyncio-by-bruce-merry) -- PyCon talk on async GPU patterns
-- [Event bus patterns](https://oneuptime.com/blog/post/2026-01-25-event-bus-asyncio-python/view) -- asyncio event bus implementation guide
-- [TheHive/Cortex](https://docs.strangebee.com/cortex/) -- observable analysis event model
-- [Ollama keep_alive FAQ](https://docs.ollama.com/faq) -- model loading/unloading behavior
+- Flatpak portal architecture: https://docs.flatpak.org/en/latest/sandbox-permissions.html
+- Factory.ai trust levels: https://sidbharath.com/blog/factory-ai-guide/
+- Internal: `.planning/research/sbfb_project_factory_rrv_oss_research.md`
+- Internal: `crates/nexus-shell-daemon/src/deploy.rs`
+- Internal: `crates/nexus-shell-daemon-core/src/blob_serve.rs`

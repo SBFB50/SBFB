@@ -1,125 +1,107 @@
-# Domain Pitfalls: Reactive Event-Driven Migration
+# Domain Pitfalls
 
-**Domain:** Migrating a sequential investigation system to event-driven
-**Researched:** 2026-04-06
+**Domain:** P2P app factory, broker sandbox, domain-specific app generation
+**Researched:** 2026-05-18
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites or major system failures.
+### Pitfall 1: Factory Becomes Protocol Business Logic
+**What goes wrong:** Factory-specific methods (factory_shell_exec, factory_write_file)
+added to bridge protocol or coordinator crate.
+**Why it happens:** Convenience — bridge already dispatches to coordinator.
+**Consequences:** Protocol loses neutrality. Every non-Factory app inherits Factory deps.
+**Prevention:** Factory = daemon module or crate, never in coordinator or bridge. Uses HTTP
+routes /api/v1/factory/*, never bridge methods. Code review gate: any PR adding "factory"
+to bridge/protocol.ts or coordinator-rs is flagged.
+**Detection:** `rg "factory" web/src/bridge/protocol.ts` or
+`rg "factory" crates/nexus-coordinator-rs/` finding non-comment matches.
 
-### Pitfall 1: Event Storm Cascade
+### Pitfall 2: SBFB.json v2 Breaks Existing Apps
+**What goes wrong:** Enriched manifest v2 made mandatory. Explorer and Ideas Hub fail deploy.
+**Why it happens:** Forgetting backward compat when schema_version is absent in old manifests.
+**Consequences:** Deploy pipeline breaks for every existing app.
+**Prevention:** schema_version absent = v1. schema_version: 1 = v1. schema_version: 2 = new.
+deploy.rs parses both. Migrate existing apps to v2 in Phase A, not as prerequisite.
+**Detection:** Deploy E2E test with old SBFB.json (3 fields only) must still pass.
 
-**What goes wrong:** One evidence ingest triggers entity extraction, which triggers OSINT for each entity, which discovers new data, which triggers more entity extraction, which triggers more OSINT -- exponential growth.
-**Why it happens:** In a sequential system, you process one thing at a time. In an event-driven system, each output can trigger N handlers, each of which produces more events.
-**Consequences:** CPU/VRAM saturation, thousands of queued events, Ollama OOM, system becomes unresponsive. Potentially infinite loops if OSINT results feed back into evidence ingestion.
-**Prevention:**
-- Circuit breaker: max events per type per cycle (start with 50)
-- Depth tracking: events carry `depth` counter, reject events deeper than 5
-- Dedup: hash-based deduplication on event payloads within a cycle window
-- Rate limiting: OSINT modules already have `auto_recon_rate_limit`, enforce it
-**Detection:** Monitor queue depth. If >100 events queued, something is looping. Log `parent_event_id` chain to trace cascades.
+### Pitfall 3: Broker Path Traversal
+**What goes wrong:** Bug in workspace path validation allows writing outside workspace.
+**Why it happens:** String comparison instead of canonicalize(). Symlinks not handled.
+Windows backslash not normalized.
+**Consequences:** Arbitrary file write on host. Security incident.
+**Prevention:** std::fs::canonicalize() + prefix check BEFORE any write. Same rigor as
+validate_zip_path() in blob_serve.rs. Tests: ../etc/passwd, ..\\Windows\\System32, symlinks.
+**Detection:** Tests must reject all traversal patterns. CI gate.
 
-### Pitfall 2: VRAM Deadlock Under Priority Inversion
-
-**What goes wrong:** A low-priority batch job (RAPTOR summary, nexus 26B) holds the GPU. A high-priority task (contradiction detection on new evidence) waits. Meanwhile, the batch job itself is waiting for a result from the contradiction detector (which needs GPU access). Deadlock.
-**Why it happens:** Priority queues prevent starvation but not circular dependencies. The current `asyncio.Lock` is simple FIFO -- it cannot deadlock because there is only one lock. A priority system introduces ordering that can create circular waits.
-**Consequences:** System hangs forever. Investigation stops. Requires manual restart.
-**Prevention:**
-- Never let a GPU-holding task await another GPU task. Design modules so GPU work is atomic (call LLM, get result, release GPU, THEN process result and emit events).
-- Timeout on GPU acquisition: if a task cannot get GPU in 5 minutes, log error and skip.
-- No re-entrant GPU access: a module currently using GPU cannot submit another GPU task.
-**Detection:** Watchdog timer on GPU queue. If no task completes in 10 minutes, log full queue state and force-release.
-
-### Pitfall 3: Big-Bang Migration Breaks Everything
-
-**What goes wrong:** Trying to migrate all 21 modules to event-driven at once. The new system has bugs. The old system is removed. Nothing works.
-**Why it happens:** Enthusiasm to "do it right" + underestimating the complexity of 41K lines of working code.
-**Consequences:** Days of debugging, lost investigation progress, user (FlowUP) loses trust in the system.
-**Prevention:**
-- Strangler Fig pattern: run event bus alongside OODA loop. Migrate one module at a time.
-- Each migrated module has a feature flag: `use_event_bus_for_X: bool = True`.
-- OODA loop remains as a periodic "sweep" that catches anything the event bus missed.
-- Only remove OODA after 2+ weeks of clean event bus operation.
-**Detection:** Compare event bus results vs OODA sweep results. If OODA catches things the bus missed, the migration is not complete.
-
-### Pitfall 4: Lost Events on Crash
-
-**What goes wrong:** Events are in-memory (asyncio.Queue). Process crashes. Events are lost. Evidence was partially processed. On restart, the system does not know what was already done.
-**Why it happens:** In-memory queues are fast but volatile. The current OODA loop does not have this problem because it re-scans everything each cycle.
-**Consequences:** Missing evidence ingestion, duplicate processing, inconsistent state between SQLite/Neo4j/ChromaDB.
-**Prevention:**
-- Keep the OODA sweep as a periodic consistency check (every 10 cycles instead of every cycle).
-- Track processing state in SQLite: each evidence has a `processing_state` column (pending, ingesting, ingested, analyzed, etc.).
-- On startup, scan for `processing_state = ingesting` and re-process those items.
-- Events themselves do not need persistence -- the database state is the source of truth.
-**Detection:** On startup, count items where `processing_state` is not a terminal state. If >0, log warning and re-queue.
+### Pitfall 4: Preview Diverges from Production
+**What goes wrong:** Factory preview serves app differently than production (different CSP,
+sandbox, base path). Apps pass preview but fail in production.
+**Why it happens:** Custom preview server or relaxed sandbox for "convenience."
+**Consequences:** False sense of security. Trust model undermined.
+**Prevention:** Preview MUST use exact same pipeline: zip -> blob-serve -> iframe
+sandbox="allow-scripts" with CSP connect-src 'none'. Zero exceptions.
+**Detection:** E2E test: preview headers == production headers.
 
 ## Moderate Pitfalls
 
-### Pitfall 5: Handler Ordering Assumptions
+### Pitfall 5: Templates Too Rigid
+**What goes wrong:** Templates impose heavy structure (linting, CI, monorepo) that doesn't
+fit user needs. User spends more time removing boilerplate than coding.
+**Prevention:** Minimal templates: index.html + app.js + style.css + sbfb-bridge.js +
+SBFB.json. The simplest template (static-minimal) should be <100 LOC.
 
-**What goes wrong:** Module A assumes it runs before Module B because that was the order in the OODA loop. In the event bus, handlers for the same event type run concurrently. Module B finishes first. Module A reads stale data.
-**Prevention:** Modules must be independent for the same event type. If Module A depends on Module B's output, Module A should watch Module B's output event, not the same input event.
+### Pitfall 6: NLLB-200 Backend Not Ready for S75
+**What goes wrong:** S75 depends on functional NLLB-200 worker not yet built.
+**Prevention:** Babel MVP uses fixture translations (pre-translated JSON). Traduction via
+task_submit is stretch goal. Factory -> app -> deploy pipeline validated without NLP infra.
 
-### Pitfall 6: Database Connection Per Handler Anti-Pattern
+### Pitfall 7: Domain Pack Scope Creep
+**What goes wrong:** Babel domain pack tries full vision (corpus pipeline, multi-source,
+1500+ languages) instead of minimal reader.
+**Prevention:** S75 Babel scope: reader + 3 fixture texts + 5 languages + storage progression
++ traduction mock. Full Babel is post-S75.
 
-**What goes wrong:** Each handler opens its own `get_db()` connection. With 10 handlers firing for one event, that is 10 concurrent SQLite connections. WAL mode handles concurrent reads but only one writer at a time.
-**Prevention:** 
-- Group write operations: handlers that write to SQLite should use a shared write queue or a single-writer pattern.
-- Read connections are fine concurrent (WAL mode).
-- Neo4j and ChromaDB connections are already shared singletons -- keep it that way.
-
-### Pitfall 7: Ollama Model Swap Thrashing
-
-**What goes wrong:** Event bus processes tasks in event order, not model order. Task 1 needs nexus 26B, task 2 needs deepseek-r1 14B, task 3 needs nexus 26B. Ollama loads/unloads/loads the same model.
-**Prevention:**
-- The VRAMScheduler should batch tasks by model. Accumulate a small buffer (3-5 tasks or 2-second window), then sort by model before processing.
-- Set `OLLAMA_KEEP_ALIVE=10m` to keep models loaded between calls (default is 5 minutes).
-- Use Ollama's per-request `keep_alive` parameter: set `-1` for the primary model (nexus 26B), `5m` for others.
-- Monitor model load/unload via Ollama `/api/ps` endpoint.
-
-### Pitfall 8: Testing Event-Driven Code Is Harder
-
-**What goes wrong:** Unit tests for the sequential OODA loop are straightforward: call function, check output. Event-driven tests need to: emit event, wait for handlers, check side effects across multiple modules.
-**Prevention:**
-- Each module is testable in isolation: call `handle(event)` directly, mock the bus.
-- Integration tests: create a test bus, register modules, emit events, collect output events, assert.
-- The bus itself is simple enough to test directly (put event, assert dispatched).
+### Pitfall 8: Audit Log as Security Theater
+**What goes wrong:** Factory writes audit logs nobody reads. No query tool.
+**Prevention:** Start minimal JSONL. Add `sbfb factory audit` CLI. Show last 5 actions
+on /factory page.
 
 ## Minor Pitfalls
 
-### Pitfall 9: Event Payload Bloat
+### Pitfall 9: CLI vs UI Confusion
+**What goes wrong:** `sbfb create` (CLI) and /factory page (UI) have different capabilities.
+**Prevention:** Both call same Template Engine function. CLI = thin wrapper. UI adds diff
+preview. Same engine, same output.
 
-**What goes wrong:** Events carry full evidence text (10KB+) instead of just IDs. Queue memory grows, serialization slows.
-**Prevention:** Events carry IDs. Handlers fetch data from the database. Events are notifications, not data carriers.
+### Pitfall 10: Template Git Drift
+**What goes wrong:** Templates updated in Git but factory.template.lock in projects still
+references old hash.
+**Prevention:** factory.template.lock records template id, version, BLAKE3 hash.
+`sbfb factory check-template` compares against current version.
 
-### Pitfall 10: Over-Granular Event Types
-
-**What goes wrong:** Creating 50+ event types for every possible state change. Wiring becomes complex, debugging is harder.
-**Prevention:** Start with ~15 event types (the ones listed in ARCHITECTURE.md). Add more only when a module genuinely needs to distinguish between subtypes.
-
-### Pitfall 11: Forgetting to Unregister Handlers on Case Stop
-
-**What goes wrong:** Investigation for case_id stops, but handlers remain registered on the bus. Next event for that case_id triggers zombie handlers.
-**Prevention:** Per-case bus instances. When investigation stops, destroy the entire bus. No handler cleanup needed.
+### Pitfall 11: French-Only Templates
+**What goes wrong:** Templates generate French UI (per CLAUDE.md) but external contributors
+expect English.
+**Prevention:** Documented in template.json metadata. i18n = template variant later.
 
 ## Phase-Specific Warnings
 
 | Phase Topic | Likely Pitfall | Mitigation |
 |-------------|---------------|------------|
-| EventBus Core | Pitfall 2 (deadlock) | Atomic GPU work, no re-entrant GPU access |
-| Module Migration | Pitfall 3 (big-bang), Pitfall 5 (ordering) | Strangler Fig, one module at a time |
-| VRAM Optimization | Pitfall 7 (model thrashing) | Batch by model, Ollama keep_alive |
-| Event Persistence | Pitfall 4 (lost events) | Database state as source of truth, not events |
-| First Production Run | Pitfall 1 (event storm) | Circuit breakers from day 1, depth tracking |
-| Testing | Pitfall 8 (testing difficulty) | Isolated module tests + integration test bus |
+| S73 Phase A (SBFB.json v2) | P2: break existing apps | schema_version compat, deploy E2E test |
+| S73 Phase B (Template engine) | P5: templates too rigid | Minimal templates, <100 LOC static-minimal |
+| S73 Phase C (CLI) | P9: CLI vs UI divergence | Same engine function called by both |
+| S74 Phase A (Broker routes) | P3: path traversal | canonicalize + prefix + traversal tests |
+| S74 Phase C (Review UI) | No major pitfall | Standard React page pattern |
+| S74 Phase D (Publish gate) | P4: preview != production | Same blob-serve pipeline, header E2E |
+| S75 Phase A (Domain packs) | P7: scope creep | Babel = reader + fixtures only |
+| S75 Phase C (Bridge) | P6: NLLB not ready | Fixture translations as fallback |
+| S75 Phase D (Deploy) | No major pitfall | Uses existing deploy-from-repo |
 
 ## Sources
 
-- [SpiderFoot event flow](https://deepwiki.com/smicallef/spiderfoot) -- how 207 modules handle cascading without storms
-- [bubus loop prevention](https://github.com/browser-use/bubus) -- event_path tracking to prevent cycles
-- [Ollama FAQ on keep_alive](https://docs.ollama.com/faq) -- model loading/unloading behavior and VRAM management
-- [Ollama VRAM management](https://markaicode.com/ollama-keep-alive-memory-management/) -- concurrent model loading rules
-- [Event bus error handling](https://dev.to/kuba_szw/how-i-fixed-my-event-bus-before-it-could-lose-money-546i) -- production lessons from event bus bugs
-- [GPU task scheduling](https://speakerdeck.com/pyconza/juggling-gpu-tasks-with-asyncio-by-bruce-merry) -- asyncio GPU serialization patterns
-- [Local LLM concurrency](https://mljourney.com/how-local-llm-apps-handle-concurrency-and-scaling/) -- how local LLM apps handle single-GPU serialization
+- Path traversal in blob_serve.rs: validate_zip_path function
+- SBFB.json parsing in deploy.rs
+- VS Code trust bypass: https://www.ox.security/blog/can-you-trust-that-verified-symbol-exploiting-ide-extensions-is-easier-than-it-should-be/
+- Developer trust in AI code: https://edmondscommerce.co.uk/research/ai/developer-trust/
+- Internal: `.planning/research/sbfb_project_factory_rrv_oss_research.md` (section 13)

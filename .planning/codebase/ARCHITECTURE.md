@@ -1,297 +1,272 @@
 # Architecture
 
-**Analysis Date:** 2026-04-06
+**Analysis Date:** 2026-05-18
 
 ## Pattern Overview
 
-**Overall:** Autonomous Agent System with OODA Loop + Layered Service Architecture
+**Overall:** Layered headless-first P2P architecture with iroh 0.98 as the networking substrate. Every binary crate (worker, daemon, launcher, executor) depends on a corresponding `-core` library crate that contains all logic, keeping binaries as thin CLI/HTTP wrappers.
 
 **Key Characteristics:**
-- Persistent autonomous investigation daemon running one OODA loop per active case
-- 3-database polyglot persistence: SQLite (relational), Neo4j (graph), ChromaDB (vectors)
-- Multi-model LLM routing with VRAM serialization (asyncio.Lock) to prevent GPU OOM on a single RTX 5080 16GB
-- Request-scoped dependency injection via FastAPI `Depends()` for all API handlers
-- Shared singletons for expensive resources (LLMRouter, Neo4j driver, ChromaDB client) on `app.state`
-- Graceful degradation: Neo4j and ChromaDB are optional; system runs in degraded mode if unavailable
+- Headless-first: every crate pair (`-core` lib + binary) is split so the engine is fully testable without CLI, HTTP, or TUI
+- Single signing surface: all signed payloads flow through `nexus_core_rs::canonical::canonical_bytes` (RFC 8785 JCS + domain separation prefix) so cross-language verification is deterministic
+- iroh 0.98 protocol stack: every node carries iroh-docs (replicated KV logs), iroh-gossip (topic pub/sub), and iroh-blobs (content-addressed storage), wired through an iroh Router by ALPN
+- SQLite for all persistent state (coordinator DB, worker allowlist, trust cache, feed store)
+- Ed25519 everywhere: node identity, task signing, curator list signing, PoW binding, key rotation, warrant canary, feed entries
+- Zero central server: the shell daemon IS the coordinator, the worker IS the executor -- no external backend
+
+## Workspace Members (12 crates)
+
+```
+crates/
+  nexus-core-rs/            # Foundation: iroh wrapper, crypto, wire types, PoW, keystore
+  nexus-coordinator-rs/     # Business logic: dispatch, validation, kudos, feed, quarantine
+  nexus-shell-daemon-core/  # Shell engine: curator runtime, browse, blob-serve, canary, auth
+  nexus-shell-daemon/       # Binary: HTTP server, gossip subscribe, CLI subcommands
+  nexus-worker-core/        # Worker engine: state machine, LLM backends, GPU, consent, rate-limit
+  nexus-worker/             # Binary: CLI + ratatui TUI
+  nexus-launcher/           # Binary: spawn daemon, open browser, tray icon, identity unlock
+  nexus-events-core/        # SecurityEvent audit system (JSONL, journald, oslog)
+  nexus-executor/           # Binary: isolated compute process (broker/executor IPC)
+  nexus-trace-core/         # Trace pipeline: BatchLog, OpenTelemetry 0.31, signed traces
+  nexus-test-harness/       # Multi-daemon integration test harness
+tools/
+  png-to-icns/              # macOS icon conversion tool
+```
+
+## Dependency Graph (crate-level)
+
+```
+nexus-core-rs  (foundation — iroh stack + crypto)
+  |
+  +-- nexus-coordinator-rs  (depends: nexus-core-rs, rusqlite)
+  |
+  +-- nexus-worker-core  (depends: nexus-core-rs, nexus-events-core)
+  |     +-- nexus-worker  (binary — nexus-worker-core, nexus-core-rs)
+  |
+  +-- nexus-shell-daemon-core  (depends: nexus-core-rs, nexus-events-core)
+  |     +-- nexus-shell-daemon  (binary — ALL crates: core, coordinator, worker-core, daemon-core, events, trace)
+  |     +-- nexus-launcher  (binary — nexus-shell-daemon-core, nexus-core-rs)
+  |
+  +-- nexus-trace-core  (depends: ed25519-dalek, opentelemetry)
+  +-- nexus-events-core  (standalone — serde + chrono + platform audit)
+  +-- nexus-executor  (binary — nexus-trace-core, ollama-rs)
+  +-- nexus-test-harness  (depends: tokio, reqwest, tempfile, zip)
+```
+
+**The shell daemon binary is the central hub** -- it imports all major crates because it hosts the coordinator logic, worker state relay, curator runtime, HTTP API, and gossip transport.
 
 ## Layers
 
-**API Layer (FastAPI Routers):**
-- Purpose: HTTP interface exposing all system capabilities as REST endpoints
-- Location: `nexus/api/`
-- Contains: 21 router files, each defining endpoints for one domain
-- Depends on: `nexus/api/deps.py` for dependency injection, `nexus/db/models.py` for Pydantic schemas
-- Used by: React frontend (`web/`), Streamlit frontend (`frontend/`), direct API calls
+**Foundation Layer (nexus-core-rs):**
+- Purpose: All iroh protocol wrappers, cryptographic primitives, wire format types, and protocol helpers
+- Location: `crates/nexus-core-rs/src/`
+- Contains: 25 modules (node, crypto, canonical, task, docs, gossip, blobs, curator, pow, keystore, verification, discovery, attestations, key_rotation, tls_pinning, dns_fallback, tor_transport, relay_config, relay_pow_policy, pkarr_resolver, dht_quorum, hooks, schemas, pow_gossip, error)
+- Depends on: iroh 0.98, iroh-docs 0.98, iroh-gossip 0.98, iroh-blobs 0.100, ed25519-dalek, blake3, sha2, serde_jcs, argon2, aes-gcm, frost-ed25519, hickory-resolver
+- Used by: Every other crate in the workspace
 
-**Dependency Injection Layer:**
-- Purpose: Build request-scoped service instances with proper DB connections and shared singletons
-- Location: `nexus/api/deps.py`
-- Contains: ~20 FastAPI dependency functions
-- Pattern: Each request gets its own `aiosqlite` connection (via `get_db()` context manager) and a fresh `Database` wrapper. Shared singletons (LLMRouter, Neo4j, ChromaDB) are pulled from `request.app.state`. Higher-level services (EvidenceProcessor, AnalysisPipeline, HypothesisEngine) are assembled per-request on top.
-- Depends on: `app.state` singletons set in lifespan, `nexus/db/sqlite_db.py` for connection management
-- Used by: All API router handlers
+**Business Logic Layer (nexus-coordinator-rs):**
+- Purpose: Task dispatch, result validation, kudos ledger, public feed, quarantine, capabilities
+- Location: `crates/nexus-coordinator-rs/src/`
+- Contains: 20 modules (db, dispatcher, validator, kudos_ledger, public_feed, feed_materializer, quarantine_queue, output_filter, pii_redactor, provenance, capability_store, guardrails, honeypot, redundancy, rerun, watermark_detector, invite, fairness, forge, pow_counter, types, error)
+- Depends on: nexus-core-rs, rusqlite + rusqlite_migration
+- Used by: nexus-shell-daemon
 
-**Core Business Logic Layer:**
-- Purpose: All investigation intelligence -- OODA loop, evidence processing, hypothesis generation, contradiction detection, suspect scoring, retrieval, forensics
-- Location: `nexus/core/`
-- Contains: 18 modules (see detailed breakdown below)
-- Depends on: `nexus/db/` for persistence, `nexus/llm/` for model access, `nexus/monitoring/` for search
-- Used by: API layer (via deps.py), autonomous loop (directly)
+**Shell Engine Layer (nexus-shell-daemon-core):**
+- Purpose: Headless engine for curator runtime, browse aggregation, blob-serve, auth, canary signing
+- Location: `crates/nexus-shell-daemon-core/src/`
+- Contains: 20 modules (iroh_runtime, browse, blob_serve, auth, canary/*, publish, config, registry, state, trust_web, trust_cache, bootstrap_allowlist, browse_limiter, feed_limiter, storage_limiter, pow_policy_loader, key_rotation_handler, ipc_broker, transport_probe, paths)
+- Depends on: nexus-core-rs, nexus-events-core, rusqlite, dashmap, frost-ed25519
+- Used by: nexus-shell-daemon, nexus-launcher
 
-**LLM Abstraction Layer:**
-- Purpose: Route tasks to the right Ollama model, manage VRAM contention, provide retry/timeout
-- Location: `nexus/llm/`
-- Contains: `router.py` (task routing), `ollama_client.py` (async SDK wrapper), `prompts.py` (25+ French prompts), `parsers.py` (robust JSON extraction)
-- Depends on: Ollama server (localhost:11434), `nexus/config.py` for model names
-- Used by: Every core module that needs LLM capabilities
+**Worker Engine Layer (nexus-worker-core):**
+- Purpose: Worker state machine, LLM backends, GPU monitoring, consent, rate limiting
+- Location: `crates/nexus-worker-core/src/`
+- Contains: 15 modules (engine/state, engine/runtime, engine/state_writer, llm/ollama, llm/llama_cpp, llm/factory, llm/schema_bridge, llm/watermark, gpu/nvml, gpu/noop, gpu/profile, config, consent, allowlist, rate_limit, invite, ephemeral, build_executor, paths)
+- Depends on: nexus-core-rs, nexus-events-core, ollama-rs, governor, nvml-wrapper, optional: llama-cpp-2, llguidance, cudarc
+- Used by: nexus-worker, nexus-shell-daemon
 
-**Database Layer:**
-- Purpose: Polyglot persistence -- relational data, graph relationships, vector embeddings
-- Location: `nexus/db/`
-- Contains: `sqlite_db.py` (async SQLite with 17 tables + FTS5), `neo4j_db.py` (async graph client), `chroma_db.py` (vector store client), `models.py` (Pydantic v2 schemas)
-- Depends on: aiosqlite, neo4j Python driver, chromadb SDK
-- Used by: Core layer, API layer (via deps.py)
+**Transport/HTTP Layer (nexus-shell-daemon binary):**
+- Purpose: axum HTTP server, gossip transport, CLI subcommands, React shell serving
+- Location: `crates/nexus-shell-daemon/src/`
+- Contains: 25 modules (http, runtime, cli, deploy, feed_sync, dispatch_loop, validator_loop, apps, tasks_api, storage_api, kudos_api, invite_api, canary_api, contributor_api, quarantine_api, health_api, diagnostic_api, shell_api, consent, worker_state_api, files, logging, panic, noop_identity, named_pipe_server, uds_server)
+- Depends on: all -core crates, axum 0.8, tower, hyper, tower-http
 
-**Monitoring Layer:**
-- Purpose: Automated web surveillance -- clearweb (SearXNG) and dark web (Robin/Tor)
-- Location: `nexus/monitoring/`
-- Contains: `scheduler.py` (APScheduler orchestration), `searxng_monitor.py`, `robin_monitor.py`, `alert_manager.py`
-- Depends on: SearXNG (port 8888), Robin (port 8502), LLMRouter for relevance filtering
-- Used by: Autonomous loop OBSERVE phase, API layer
+## Key Modules Detail
 
-**Forensics Layer:**
-- Purpose: Specialized forensic analysis -- blood patterns, traces, acoustics, physics simulation
-- Location: `nexus/forensics/`
-- Contains: `blood_pattern.py`, `trace_analyzer.py`, `acoustic_analysis.py`, `physics_sim.py`, `the_well_loader.py`
-- Depends on: LLMRouter (VLM models for image analysis, audio transcription)
-- Used by: Autonomous loop DECIDE phase
+### nexus-core-rs Modules
 
-**OSINT Recon Layer:**
-- Purpose: Open-source intelligence gathering -- email existence, social profiles, domain WHOIS/DNS
-- Location: `nexus/recon/`
-- Contains: `holehe_recon.py` (email on 120+ services), `social_recon.py` (username across platforms), `domain_recon.py` (WHOIS + DNS)
-- Depends on: External services (holehe library, HTTP requests)
-- Used by: Autonomous loop ORIENT and ACT phases
+| Module | File | Purpose |
+|--------|------|---------|
+| `node` | `src/node.rs` | `Node` struct: `Endpoint` + `Docs` + `Gossip` + `MemStore` + `Router` + `MemoryLookup`. `create_node()` / `create_node_with_config(NodeConfig)` boot the full stack. |
+| `crypto` | `src/crypto.rs` | `KeyPair` (Ed25519 sign/verify), `Blake3Chain` (append-only hash chain for kudos), `blake3_hash()`, `verify()`. Keys = `[u8; 32]`, signatures = `[u8; 64]`. |
+| `canonical` | `src/canonical.rs` | `canonical_bytes<T>(value, domain)` -- RFC 8785 JCS + domain prefix + `0x00` separator. 14 domain constants: `DOMAIN_TASK_V1` through `DOMAIN_FEED_V1`. |
+| `task` | `src/task.rs` | `Task`, `TaskEntry` (signed), `ResultPayload`, `ResultEntry` (signed), `Claim`, `ClaimEntry` (signed). Format version 1. `redundancy_factor` excluded from canonical bytes. |
+| `docs` | `src/docs.rs` | `DocsClient` / `DocHandle` wrapping iroh-docs. Author CRUD, doc lifecycle, prefix scan, live event subscription, share (read/write DocTickets). |
+| `gossip` | `src/gossip.rs` | `GossipClient` / `TopicHandle` / `TopicSender` / `TopicReceiver`. PoW-gated join, age-admission join, non-blocking subscribe. `AgeAdmissionPolicy` trait. |
+| `blobs` | `src/blobs.rs` | `BlobsClient` wrapping `MemStore`. `add_bytes`, `get_bytes`, `has`, `fetch_ticket` (download via BlobTicket from remote peer). |
+| `curator` | `src/curator.rs` | `CuratorList` / `CuratorListEntry` (signed, max 256 entries). Per-field byte-length caps. `ContributorRegistry` trait. Revocation cache integration. |
+| `pow` | `src/pow.rs` | Hashcash SHA256 PoW. `HashcashChallenge` / `HashcashProof`. `solve()`, `verify()`, `verify_at()`. Publisher-bound + topic-bound + time-bound. `EscalatingPolicy` for dynamic difficulty. |
+| `keystore` | `src/keystore.rs` | `LocalFileKeyStore` impl `KeyStore`. Double-layer: Argon2id(PIN, 64 MiB/t=3) + OS keyring(kek2) + AES-256-GCM. Blob format v1 (`SBFBK1`). Duress mode (Phase B). `Identity` with `SecretBox` zeroize-on-drop. |
+| `verification` | `src/verification.rs` | 3-layer `Verifier`: L1 Ed25519 signature, L2 model digest whitelist (BLAKE3), L3 logprob fingerprint hash. `VerificationReport` + trust delta + ban flag. |
+| `discovery` | `src/discovery.rs` | `DiscoveryClient` wrapping `Endpoint`. `my_addr()`, `my_endpoint_addr()`, `probe_reachable()` (iroh-blobs ALPN connect probe under timeout). |
+| `key_rotation` | `src/key_rotation.rs` | `KeyRotationAnnouncement` / `SignedKeyRotation`. `RevocationCache` with configurable transition window. |
+| `attestations/` | `src/attestations/` | `AgeWitness` (Couche 1 Sybil, min 7d), `ContributorAttestation` (Couche 2), `DelegationCert` (Couche 3 forge binding), `ForgeContribution`. |
+| `pow_gossip` | `src/pow_gossip.rs` | `PowEnvelope` (message + PoW proof), `PowSolveCache` (15-min publisher cache), `PowVerifyCache` (receiver amortization). |
+| `schemas/` | `src/schemas/task_response.rs` | `TaskResponse` with `#[derive(JsonSchema)]` for structured LLM output. |
 
-**Vision Layer:**
-- Purpose: Image analysis and similarity search using DINOv2 and CLIP embeddings
-- Location: `nexus/vision/`
-- Contains: `embeddings.py` (DINOv2/CLIP embedding generation), `image_search.py` (similarity search engine)
-- Depends on: PyTorch, ChromaDB for storage
-- Used by: Autonomous loop ORIENT phase, API layer
+### nexus-coordinator-rs Key Modules
 
-**Ingest Layer:**
-- Purpose: Parse uploaded files into raw text
-- Location: `nexus/ingest/`
-- Contains: `pdf_parser.py` (PyMuPDF), `text_parser.py` (plain text/HTML/CSV)
-- Depends on: PyMuPDF (fitz)
-- Used by: EvidenceProcessor
-
-**Export Layer:**
-- Purpose: Generate reports and export data
-- Location: `nexus/export/`
-- Contains: `report_generator.py` (summary reports via LLM), `pdf_export.py` (WeasyPrint + Jinja2), `timeline_export.py`, `templates/` (Jinja2 HTML templates)
-- Depends on: LLMRouter, WeasyPrint, Jinja2
-- Used by: Autonomous loop QUESTION phase, API layer
-
-**Frontend Layer (React):**
-- Purpose: Professional dark-themed investigation dashboard
-- Location: `web/src/`
-- Contains: 9 pages, 9 components, 3 hooks, 2 Zustand stores
-- Depends on: Backend API (proxied via Vite dev server)
-- Used by: End users (investigators)
+| Module | File | Purpose |
+|--------|------|---------|
+| `db` | `src/db.rs` | `CoordinatorDb` wrapping rusqlite. 13+ migrations. Tables: tasks, kudos, pow_task_counts, contributor_attestations, invites, quarantine_messages, capabilities, canary_inputs, upload_queue, public_feed, apps. |
+| `dispatcher` | `src/dispatcher.rs` | `submit_task()`: validate, sign TaskEntry, persist. Build tasks: enforce metadata + redundancy >= 3. |
+| `public_feed` | `src/public_feed.rs` | `FeedEntry` / `FeedEntryCanonical` / `PublicFeedOperation` (ReleasePublished, SourceBecameStale). BLAKE3 hash-chain + Ed25519 per-entry. |
+| `output_filter` | `src/output_filter.rs` | LLM output filtering: prompt echo detection via edit distance (strsim), PII regex patterns. |
+| `watermark_detector` | `src/watermark_detector.rs` | SynthID-style z-test on output token IDs for watermark detection. |
+| `redundancy` | `src/redundancy.rs` | Multi-worker redundancy voting (majority result acceptance). |
 
 ## Data Flow
 
-**Evidence Ingestion Pipeline (the core data flow):**
+### Task Lifecycle
 
-1. **Input**: File upload (PDF, image, text, audio) or text submission via API (`nexus/api/evidence.py`)
-2. **Save**: File saved to `data/uploads/{case_id}/{uuid}.{ext}` (`nexus/core/evidence_processor.py`)
-3. **Detect**: MIME type detection, evidence_type classification
-4. **Parse**: Extract raw text -- PDFParser for PDFs, TextParser for text, VLM for images, Voxtral for audio (`nexus/ingest/`)
-5. **Hash**: SHA-256 file hash computed for deduplication
-6. **Store**: Evidence record created in SQLite (status='processing') (`nexus/db/sqlite_db.py`)
-7. **NER**: Entity extraction via GLiNER (CPU, ~0.08s) with LLM fallback (`nexus/core/entity_extractor.py`)
-8. **Dedup Entities**: RapidFuzz Jaro-Winkler matching (threshold 82%) against existing entities
-9. **Summarize**: LLM summary generation via gemma4:e4b (`nexus/llm/router.py` -> TaskType.EVIDENCE_SUMMARY)
-10. **Chunk**: Recursive semantic chunking at 512 tokens with 128 token overlap (`nexus/core/chunker.py`)
-11. **Embed**: Batch embedding via nomic-embed-text (`nexus/core/embedding_store.py`)
-12. **Vector Store**: Chunks stored in ChromaDB `evidence_chunks` collection (`nexus/db/chroma_db.py`)
-13. **Graph Sync**: Entities synced to Neo4j as typed nodes (Person, Location, Phone, etc.) (`nexus/db/neo4j_db.py`)
-14. **Status Update**: Evidence marked as 'processed' in SQLite
+1. React shell `POST /api/daemon/tasks/submit` -> daemon HTTP -> `nexus_coordinator_rs::dispatcher::submit_task()` signs `TaskEntry` with coordinator keypair, persists to SQLite
+2. Dispatch loop reads pending tasks from DB, broadcasts signed `TaskEntry` via iroh-gossip
+3. Worker receives `TaskEntry`, checks consent/allowlist/rate-limit, signs `ClaimEntry`, writes to iroh-docs
+4. Worker engine drives LLM backend (Ollama HTTP or llama.cpp in-process), collects `ResultPayload`
+5. Worker signs `ResultEntry`, writes to iroh-docs
+6. Coordinator reads result via iroh-docs subscription, runs 3-layer verification, credits kudos or quarantines
 
-**Autonomous OODA Loop (per active case):**
+### Curator List Flow
 
-1. **OBSERVE** (`_observe`): Query SQLite for unreviewed monitoring results above relevance threshold (default 50%)
-2. **ORIENT** (`_orient`): 
-   - 2a. Auto-ingest high-relevance monitoring results through evidence pipeline
-   - 2b. OSINT recon on new email/account entities (holehe + social)
-   - 2c. Geocode location entities via Nominatim
-   - 2d. VLM analysis of unprocessed image evidence
-   - 2e. Index images in DINOv2/CLIP for visual similarity
-3. **DECIDE** (`_decide`):
-   - 3a. Run incremental analysis on each new evidence (AnalysisPipeline)
-   - 3b. Re-evaluate ALL active hypotheses (HypothesisEngine + RAG retriever)
-   - 3c. Detect contradictions between evidence pairs (ContradictionDetector via deepseek-r1)
-   - 3d. Forensic analysis on image/audio evidence (blood patterns, traces, acoustics)
-   - 3e. Rebuild chronological timeline (TimelineBuilder)
-   - 3f. Rebuild RAPTOR summary tree every 3 cycles (SummaryTree)
-4. **ACT** (`_act`):
-   - 4a. LLM generates new search queries based on current hypotheses and contradictions
-   - 4b. Create monitoring jobs from OSINT recon discoveries (holehe hits -> SearXNG jobs)
-   - 4c. Domain recon (WHOIS/DNS) on email entity domains
-5. **QUESTION** (`_question`):
-   - 5a. Adversarial self-questioning: challenge the top-scored hypothesis
-   - 5b. Periodic report generation (every N cycles, default 12 = ~6 hours)
-   - 5c. Automated database backup (every N cycles, default 24 = ~12 hours)
-6. **SLEEP**: Wait `investigation_cycle_minutes` (default 30 min) then repeat
+1. Curator signs `CuratorListEntry`, stores blob via `BlobsClient::add_bytes()`, broadcasts `{ v: 1, curator: hex, ticket: blob_ticket }` on gossip topic `blake3("nexus-grid/curator/v1")`
+2. Shell daemon gossip receiver checks curator pubkey against attention set, fetches blob via `BlobsClient::fetch_ticket()`
+3. `CuratorListEntry::verify_signature()` checks version, entry count cap (256), attribution, Ed25519 signature
+4. Verified entry stored in `DashMap<curator_pubkey, CuratorListEntry>` with revision dedup (monotonic counter)
+5. `BrowseAggregator` unions all entries, probes each project via `DiscoveryClient::probe_reachable()`, serves to React shell
 
-**RAG Retrieval Flow (used by AnalysisPipeline, HypothesisEngine):**
+### Identity Unlock Flow
 
-1. Query received (natural language or hypothesis text)
-2. Embed query via nomic-embed-text
-3. Semantic search: ChromaDB cross-collection search (evidence_chunks + entity_contexts + monitoring_results)
-4. Graph search: Find entities in query text, traverse Neo4j neighbors, fetch connected evidence
-5. Merge + deduplicate results by evidence_id + chunk_text prefix
-6. Rerank: weighted score = semantic(0.6) + graph(0.3) + recency(0.1)
-7. Return top-K chunks as context for LLM prompt
+1. `nexus-launcher` calls `LocalFileKeyStore::init(pin)`: generates Ed25519 keypair, derives KEK via Argon2id(PIN, salt, 64 MiB), wraps with AES-256-GCM, stores kek2 in OS keyring, writes blob to `identity.enc`
+2. `nexus-launcher` calls `unlock(pin)` or `unlock_differential(pin)` (tries normal then duress): reads blob, re-derives KEK, AEAD open
+3. Launcher exports secret as `SBFB_IDENTITY_SECRET_HEX` env var, spawns daemon child
+4. Daemon reads + wipes env var, passes bytes to `NodeConfig::with_secret_key()`
+
+### Public Feed Flow
+
+1. Coordinator writes `FeedEntry` with `PublicFeedOperation::ReleasePublished` to local SQLite
+2. `FeedEntryCanonical` serialized via JCS with `DOMAIN_FEED_V1`, BLAKE3-hashed, Ed25519-signed
+3. Entry hash-chained (`prev_hash` = previous entry's `entry_hash`) for append-only integrity
+4. Feed synced to peers via iroh-docs subscription
 
 **State Management:**
-- **Backend**: All state in SQLite (source of truth), mirrored to Neo4j (relationships) and ChromaDB (embeddings)
-- **Frontend**: Zustand store (`web/src/stores/caseStore.ts`) persists active case ID to localStorage. React Query (`@tanstack/react-query`) handles server state with 5s stale time and 10s refetch interval.
+- Backend: SQLite (source of truth for coordinator DB, worker allowlist, trust cache)
+- In-memory: DashMap (curator lists, browse cache, PoW verify cache)
+- Frontend: Zustand + React Query (see `web/` -- not in Rust scope)
 
-## Key Abstractions
+## Key Traits and Implementations
 
-**LLMRouter (VRAM Serialization):**
-- Purpose: Route any LLM task to the optimal model while preventing GPU OOM
-- Location: `nexus/llm/router.py`
-- Pattern: 21 TaskType enum values mapped to (model_name, timeout, heavy_flag). Heavy tasks (26B nexus, 14B deepseek-r1) acquire an `asyncio.Lock` before calling Ollama. Light tasks (4B gemma4:e4b, nomic-embed-text) run concurrently without the lock.
-- Methods: `route()` (text), `route_json()` (structured JSON), `route_vision()` (image + text), `embed()` / `embed_batch()` (embeddings)
+| Trait | Location | Implementations |
+|-------|----------|----------------|
+| `KeyStore` | `nexus-core-rs/src/keystore.rs` | `LocalFileKeyStore` (blob + OS keyring) |
+| `ContributorRegistry` | `nexus-core-rs/src/curator.rs` | Coordinator HTTP proxy, in-memory stub (tests) |
+| `AgeAdmissionPolicy` | `nexus-core-rs/src/gossip.rs` | `BootstrapAllowlist` (daemon-core), stub (tests) |
+| `QuorumResolver` | `nexus-core-rs/src/dht_quorum.rs` | `PkarrQuorumResolver` |
+| `DnsFallbackResolve` | `nexus-core-rs/src/dns_fallback.rs` | `DnsFallbackResolver` (hickory DoH/DoT) |
+| `EventWriter` | `nexus-events-core/src/lib.rs` | `JsonFileWriter`, `TracingWriter`, `JournaldWriter`, `OsLogWriter` |
+| `TraceProcessor` | `nexus-trace-core/src/lib.rs` | `BatchLogProcessor`, `OtelProcessor`, `SignedCanaryProcessor` |
+| `GpuMonitor` | `nexus-worker-core/src/gpu/mod.rs` | `NvmlBackend`, `NoopBackend` |
+| `LlmBackend` (implied) | `nexus-worker-core/src/llm/` | `OllamaBackend`, `LlamaCppBackend` (feature-gated) |
 
-**InvestigationRetriever (Hybrid RAG):**
-- Purpose: Unified retrieval combining semantic, graph, and recency signals
-- Location: `nexus/core/retriever.py`
-- Pattern: Three retrieval strategies executed in parallel, results merged and reranked with configurable weights
-- Constants: `_SEMANTIC_WEIGHT = 0.6`, `_GRAPH_WEIGHT = 0.3`, `_RECENCY_WEIGHT = 0.1`
+## HTTP API Surface
 
-**AutonomousInvestigator (OODA Daemon):**
-- Purpose: One continuous investigation loop per active case
-- Location: `nexus/core/autonomous_loop.py`
-- Pattern: Infinite async loop with 5 phases, opening one DB connection per cycle, sleeping between cycles. Error recovery: 5-minute wait on exception, continues to next cycle.
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/health` | No | Liveness probe |
+| GET | `/api/daemon/info` | Bearer | Daemon state snapshot |
+| GET | `/api/daemon/curators` | Bearer | Cached curator lists |
+| POST | `/api/daemon/curators/subscribe` | Bearer | Subscribe to curator |
+| DELETE | `/api/daemon/curators/{pubkey}` | Bearer | Unsubscribe |
+| GET | `/api/daemon/browse` | Bearer | Aggregated browse entries with reachability |
+| POST | `/api/daemon/publish` | Bearer | Publish project announcement |
+| POST | `/api/daemon/publish-blob` | Bearer | Upload zip archive blob |
+| POST | `/api/daemon/deploy` | Bearer | Deploy from Git repo (verified deploy) |
+| GET | `/api/daemon/default-curators` | Bearer | Config-provided curator list |
+| POST | `/api/daemon/panic/wipe` | Bearer | Irreversible identity wipe |
+| GET | `/api/daemon/diagnostic/neighborhood` | Bearer | Peer snapshot |
+| GET | `/blob-serve/{hash}/{path}` | No | Serve file from decompressed zip archive |
+| POST | `/api/daemon/tasks/submit` | Bearer | Submit task for dispatch |
+| GET | `/api/daemon/tasks` | Bearer | List tasks |
+| POST | `/api/daemon/storage/get` | Bearer | iroh-docs get (iframe bridge) |
+| POST | `/api/daemon/storage/set` | Bearer | iroh-docs set (iframe bridge) |
+| GET | `/api/daemon/kudos` | Bearer | Kudos ledger query |
+| POST | `/api/daemon/invites` | Bearer | Create invite token |
+| GET | `/api/daemon/worker-state` | Bearer | Worker state snapshot relay |
+| POST | `/api/daemon/consent/set` | Bearer | Set consent level |
+| GET | `/api/daemon/apps` | Bearer | App metadata |
+| GET | `/api/daemon/feed` | Bearer | Public feed entries |
 
-**InvestigationManager (Lifecycle Manager):**
-- Purpose: Manage one AutonomousInvestigator per active case
-- Location: `nexus/core/investigation_manager.py`
-- Pattern: Dict of `case_id -> AutonomousInvestigator` with corresponding `asyncio.Task`. Started in FastAPI lifespan, auto-starts investigators for all active cases.
+## Database Schema (Coordinator)
 
-**EvidenceProcessor (Ingestion Pipeline):**
-- Purpose: Full ingestion from file/text to processed+indexed evidence
-- Location: `nexus/core/evidence_processor.py`
-- Pattern: Sequential pipeline (save -> detect -> parse -> hash -> store -> NER -> summarize -> chunk -> embed -> graph sync)
+**Location:** `~/.sbfb/coordinator.db` (SQLite WAL mode)
 
-**SummaryTree (RAPTOR Hierarchical Summaries):**
-- Purpose: Multi-level summary hierarchy for efficient context building
-- Location: `nexus/core/summary_tree.py`
-- Pattern: 3 levels -- L0: individual evidence, L1: thematic clusters (agglomerative clustering on embeddings), L2: case-level summary. Rebuilt every 3 OODA cycles.
+**Schema versioning:** `rusqlite_migration` with 13+ incremental migrations in `crates/nexus-coordinator-rs/src/db.rs`.
 
-## Entry Points
-
-**FastAPI Application:**
-- Location: `nexus/main.py`
-- Triggers: `uvicorn nexus.main:app --host 0.0.0.0 --port 8000`
-- Responsibilities: Lifespan startup (init DB, create singletons, start monitoring scheduler, start investigation manager), register 21 routers, CORS middleware, error handlers
-
-**React Frontend:**
-- Location: `web/src/main.tsx` -> `web/src/App.tsx`
-- Triggers: `cd web && npx vite --host 0.0.0.0 --port 3002`
-- Responsibilities: SPA with 9 routes, Vite dev proxy routes `/api/*` to `http://localhost:8000`
-
-**Streamlit Frontend (Legacy):**
-- Location: `frontend/app.py`
-- Triggers: `streamlit run frontend/app.py --server.port 8501`
-- Responsibilities: Legacy 16-page investigation interface
+**Core tables:**
+- `tasks` (task_id PK, status, project_id, model, created_at, updated_at, task_hash, worker_node_id, result_hash)
+- `kudos` (entry_id PK, worker_node_id, task_id, project_id, amount, created_at, prev_hash, entry_hash)
+- `public_feed` (seq PK, op_type, entry_hash, prev_hash, signature, author_pubkey, timestamp, payload_json)
+- `apps` (name + project_id composite PK, metadata)
+- `contributor_attestations` (UNIQUE project_id + contributor_node_id)
+- `invites` (id PK, wire UNIQUE, scope, project_id, expires_at, max_uses, uses_count)
+- `quarantine_messages` (id PK, topic, sender_pubkey_hex, payload_json, rate_strikes, pow_status)
+- `capabilities` (node_id + name PK, enabled)
+- `pow_task_counts` (consumer_id + model_id PK, count, last_reset_utc)
 
 ## Error Handling
 
-**Strategy:** Multi-layer defensive with graceful degradation
+**Strategy:** `thiserror` for library crates (typed error enums), `anyhow` for binary crates (context chaining).
 
-**Patterns:**
-- **Lifespan startup**: Each optional service (Neo4j, ChromaDB, MonitoringScheduler, InvestigationManager) wrapped in try/except. Failure sets `app.state.{service} = None` and logs warning. System continues in degraded mode.
-- **OODA loop**: Each phase and sub-phase independently wrapped. Single sub-phase failure (e.g., geocoding) does not abort the cycle. Full cycle exception triggers 5-minute sleep then retry.
-- **LLM calls**: Ollama client uses `tenacity` retry (3 attempts, exponential backoff 1s->2s->4s) for transient network errors. Router catches `RequestError`/`ResponseError` and surfaces as 503.
-- **API layer**: Global exception handler in `nexus/main.py` catches Ollama connection errors -> 503, all others -> 500. Individual endpoints raise `HTTPException` for business logic errors (404, 400).
-- **Audit logging**: Non-blocking (`try/except` with `logger.warning`). Audit failures never disrupt main operations.
-- **Entity extraction**: GLiNER failure falls back to LLM-based extraction. Both paths tolerate partial failures gracefully.
+**Key error types:**
+- `nexus_core_rs::NexusError` -- 8 variants: Endpoint, Discovery, Docs, Gossip, Blobs, Crypto, Io, Other
+- `nexus_core_rs::keystore::KeyStoreError` / `UnlockError` -- separate types for init vs unlock (different security semantics)
+- `nexus_core_rs::pow::PowError` -- 8 variants with `PartialEq` for test assertions
+- `nexus_coordinator_rs::CoordinatorError` -- validation, DB, dispatch errors
+- `nexus_shell_daemon_core::iroh_runtime::CuratorRuntimeError` -- gossip/fetch/verify errors
 
 ## Cross-Cutting Concerns
 
-**Logging:**
-- Framework: Loguru with stdlib intercept handler
-- Pattern: All uvicorn/fastapi logs redirected to Loguru. Structured format with `{}` placeholders. Every module uses `from loguru import logger`.
+**Logging:** `tracing` crate in all libraries. Binaries use `tracing-subscriber` with `env-filter` + daily rotating file appender via `tracing-appender`. Non-blocking writer thread.
 
-**Validation:**
-- Input: Pydantic v2 models in `nexus/db/models.py` with `Literal` types for enums, `Field` constraints for ranges
-- Pattern: Base/Create/Update/Full schema hierarchy per entity. `model_config = {"from_attributes": True}` for SQLite row conversion.
+**Validation:** Domain-specific at every signing boundary. Per-field byte-length caps. Version checks on all wire formats.
 
-**Authentication:**
-- None. CORS allows all origins (`allow_origins=["*"]`). No auth middleware.
+**Authentication:** Bearer token + Host header + Origin header on all loopback HTTP. UDS peer credentials (Unix) / Named Pipe DACL (Windows). `TokenRotator` hot-reloads from `tokens.json`.
 
-**Audit Trail:**
-- 3-layer immutable audit: SQLite hash chain (tamper-detectable), append-only JSONL files (`data/audit/{case_id}.jsonl`), Git commits in `data/audit/` repo
-- Location: `nexus/core/audit.py`
-- Every autonomous loop action, evidence ingestion, hypothesis scoring, and OSINT result is logged
+**Signing:** ALL signed payloads use `canonical_bytes(value, DOMAIN_*_V1)`. 14 domain constants prevent cross-type replay.
 
-**Configuration:**
-- Centralized in `nexus/config.py` via pydantic-settings `BaseSettings`
-- Loads from `.env` file, all settings have sensible defaults
-- Singleton: `from nexus.config import settings`
+**Security events:** `nexus_events_core::SecurityEvent` (14 categories) emitted to platform-specific backends (JSONL, journald, oslog).
 
-## Database Architecture
+## Build Configuration
 
-**SQLite (Primary Relational Store):**
-- Location: `data/nexus.db`
-- Client: `nexus/db/sqlite_db.py` -- async via aiosqlite, WAL mode
-- Tables (17): `cases`, `evidence`, `entities`, `entity_mentions`, `hypotheses`, `hypothesis_snapshots`, `analysis_runs`, `monitoring_jobs`, `monitoring_results`, `alerts`, `reports`, `locations`, `audit_log`, `summary_clusters`, `suspects`, `suspect_snapshots`, `case_summaries`
-- FTS5: `evidence_fts` virtual table with auto-sync triggers (created but not queried by any endpoint yet)
-- Indexes: 20+ indexes including composite indexes for filtered queries
-- Connection pattern: `get_db()` async context manager yields a fresh connection per request/operation
+**Release profile:** opt-level=3, LTO=fat, codegen-units=1, strip=symbols, panic=abort. Deterministic for SLSA attestation.
 
-**Neo4j (Graph Store):**
-- Location: Docker container, bolt://localhost:7687
-- Client: `nexus/db/neo4j_db.py` -- async via neo4j Python driver
-- Node labels (11): Person, Location, Phone, Vehicle, Organization, Account, Event, Evidence, Money, Hypothesis, Case
-- Relationship types (17): KNOWS, RELATED_TO, COMMUNICATED_WITH, FINANCIAL_LINK, LIVES_AT, WAS_AT, WORKS_AT, OWNS, MEMBER_OF, OCCURRED_AT, INVOLVES, MENTIONS, SUPPORTS, CONTRADICTS, TRANSACTION, BELONGS_TO, PRECEDED_BY
-- Entity type mapping: SQLite entity_type -> Neo4j label (e.g., "person" -> "Person", "email" -> "Account")
-- Capabilities: Centrality analysis, betweenness, community detection, shortest path, neighbor traversal
-- Status: Often out of sync with SQLite due to pipeline crashes before sync step
+**Dev profile:** opt-level=0, debug=true, incremental=true. Dependencies at opt-level=1.
 
-**ChromaDB (Vector Store):**
-- Location: Docker container, http://localhost:8100
-- Client: `nexus/db/chroma_db.py` -- chromadb HTTP client
-- Collections (7): `evidence_chunks` (primary RAG), `entity_contexts`, `monitoring_results`, `hypothesis_reasoning`, `evidence_texts` (deprecated), `image_dinov2`, `image_clip`
-- Embedding model: nomic-embed-text via Ollama (pre-computed, ChromaDB used as pure vector store)
-- HNSW distance: cosine
-- Cross-collection search: Unified search across evidence_chunks + entity_contexts + monitoring_results
+**iroh stack pinned:** iroh 0.98 / iroh-docs 0.98 / iroh-gossip 0.98 / iroh-blobs 0.100.
 
-## Frontend-Backend Communication
+**Feature flags:**
+- `nexus-core-rs`: `tor` (optional arti-client)
+- `nexus-worker-core`: `llm_llama_cpp`, `llm_llama_cpp_cuda/metal/vulkan`, `gpu-ephemeral`
+- `nexus-coordinator-rs`: `test-support`
 
-**Transport:** HTTP REST via Axios with Vite dev proxy (`/api` -> `http://localhost:8000`)
+## Entry Points
 
-**Client:** `web/src/api/client.ts` -- centralized Axios instance + ~30 typed API functions
-
-**State Management:**
-- Server state: TanStack React Query with 5s stale time, 10s auto-refetch, 1 retry
-- Client state: Zustand with localStorage persistence for active case selection (`web/src/stores/caseStore.ts`)
-
-**Data Flow Pattern:**
-1. User selects a case on Dashboard (stored in Zustand -> localStorage)
-2. Each page reads `caseId` from Zustand store via `useActiveCase()` hook (`web/src/hooks/useCase.ts`)
-3. React Query fetches case-scoped data from `/api/cases/{caseId}/...` endpoints
-4. 10-second polling interval keeps data fresh (investigation status, alerts, evidence)
-5. Mutations (start investigation, upload evidence) invalidate relevant query cache
-
-**API Prefix:** All endpoints under `/api/` prefix. Case-scoped endpoints use `/api/cases/{case_id}/...` pattern.
+| Binary | Location | Subcommands |
+|--------|----------|-------------|
+| `nexus-shell-daemon` | `crates/nexus-shell-daemon/src/main.rs` | `start`, `stop`, `status`, `config`, `canary`, `frost`, `invite`, `capability`, `quarantine` |
+| `nexus-worker` | `crates/nexus-worker/src/main.rs` | `start`, `register`, `config` |
+| `nexus-launcher` | `crates/nexus-launcher/src/main.rs` | Spawns daemon + opens browser + tray icon |
+| `nexus-executor` | `crates/nexus-executor/src/main.rs` | IPC child process for isolated task execution |
 
 ---
 
-*Architecture analysis: 2026-04-06*
+*Architecture analysis: 2026-05-18*

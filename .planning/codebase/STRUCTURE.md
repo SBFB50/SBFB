@@ -1,333 +1,370 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-04-06
+**Analysis Date:** 2026-05-18
 
 ## Directory Layout
 
 ```
-nexus/                          # Project root
-├── nexus/                      # Backend Python package
-│   ├── __init__.py
-│   ├── main.py                 # FastAPI app entry point + lifespan
-│   ├── config.py               # Centralized settings (pydantic-settings)
-│   ├── api/                    # 21 FastAPI routers + dependency injection
-│   │   ├── __init__.py
-│   │   ├── deps.py             # DI helpers (get_database, get_*_service)
-│   │   ├── cases.py            # CRUD /api/cases
-│   │   ├── evidence.py         # Upload/text /api/cases/{id}/evidence
-│   │   ├── entities.py         # Entity endpoints
-│   │   ├── hypotheses.py       # Hypothesis CRUD + generate/evaluate
-│   │   ├── analysis.py         # Trigger analysis runs
-│   │   ├── graph.py            # Neo4j graph endpoints
-│   │   ├── search.py           # Search endpoints
-│   │   ├── monitoring.py       # Monitoring jobs management
-│   │   ├── alerts.py           # Alert CRUD
-│   │   ├── reports.py          # Report generation
-│   │   ├── timeline.py         # Timeline endpoints
-│   │   ├── geo.py              # Geocoding endpoints
-│   │   ├── recon.py            # OSINT recon endpoints
-│   │   ├── image_search.py     # Visual similarity search
-│   │   ├── vision.py           # VLM image analysis
-│   │   ├── forensics.py        # Forensic analysis endpoints
-│   │   ├── physics_sim_api.py  # Physics simulation
-│   │   ├── investigation.py    # Start/stop autonomous loop
-│   │   ├── audit.py            # Audit log endpoints
-│   │   ├── benchmark.py        # Benchmark execution + results
-│   │   └── suspects.py         # Suspect scoring + profiles
-│   ├── core/                   # Business logic (18 modules)
-│   │   ├── __init__.py
-│   │   ├── autonomous_loop.py  # OODA loop daemon (1439 lines)
-│   │   ├── investigation_manager.py  # Lifecycle for all loops
-│   │   ├── analysis_pipeline.py     # Multi-model analysis orchestrator
-│   │   ├── hypothesis_engine.py     # Hypothesis gen/eval/merge
-│   │   ├── contradiction_detector.py # Pairwise contradiction detection
-│   │   ├── evidence_processor.py    # Full ingestion pipeline
-│   │   ├── entity_extractor.py      # GLiNER + LLM hybrid NER
-│   │   ├── suspect_scorer.py        # 5-factor suspect scoring
-│   │   ├── retriever.py             # Hybrid RAG (semantic+graph+recency)
-│   │   ├── chunker.py               # Semantic text chunking (512 tokens)
-│   │   ├── embedding_store.py       # ChromaDB evidence_chunks manager
-│   │   ├── summary_tree.py          # RAPTOR hierarchical summaries
-│   │   ├── timeline_builder.py      # Chronological timeline extraction
-│   │   ├── geo_mapper.py            # Nominatim + OSRM geocoding
-│   │   ├── image_analyzer.py        # VLM image analysis
-│   │   ├── case_manager.py          # Case CRUD logic
-│   │   ├── audit.py                 # 3-layer audit trail
-│   │   └── backup.py                # Database backup management
-│   ├── db/                     # Database clients
-│   │   ├── __init__.py
-│   │   ├── sqlite_db.py        # Async SQLite (17 tables, FTS5, WAL)
-│   │   ├── neo4j_db.py         # Async Neo4j (11 labels, 17 rel types)
-│   │   ├── chroma_db.py        # ChromaDB (7 collections)
-│   │   └── models.py           # Pydantic v2 schemas (all tables)
-│   ├── llm/                    # LLM abstraction
-│   │   ├── __init__.py
-│   │   ├── router.py           # Task routing (21 TaskTypes, VRAM lock)
-│   │   ├── ollama_client.py    # Async Ollama SDK wrapper + retry
-│   │   ├── prompts.py          # 25+ French prompts
-│   │   └── parsers.py          # Robust JSON parsing (GLiNER/LLM)
-│   ├── monitoring/             # Web surveillance
-│   │   ├── __init__.py
-│   │   ├── scheduler.py        # APScheduler orchestration
-│   │   ├── searxng_monitor.py  # Clearweb search (SearXNG)
-│   │   ├── robin_monitor.py    # Dark web search (Robin/Tor)
-│   │   └── alert_manager.py    # Alert creation + management
-│   ├── forensics/              # Forensic analysis modules
-│   │   ├── __init__.py
-│   │   ├── blood_pattern.py    # Blood pattern analysis (VLM)
-│   │   ├── trace_analyzer.py   # Physical trace analysis (VLM)
-│   │   ├── acoustic_analysis.py # Audio forensic analysis
-│   │   ├── physics_sim.py      # Physics simulation engine
-│   │   └── the_well_loader.py  # The Well data loader
-│   ├── recon/                  # OSINT reconnaissance
-│   │   ├── __init__.py
-│   │   ├── holehe_recon.py     # Email existence on 120+ services
-│   │   ├── social_recon.py     # Username lookup across platforms
-│   │   └── domain_recon.py     # WHOIS + DNS reconnaissance
-│   ├── vision/                 # Computer vision
-│   │   ├── __init__.py
-│   │   ├── embeddings.py       # DINOv2 + CLIP embedding generation
-│   │   └── image_search.py     # Visual similarity search engine
-│   ├── ingest/                 # File parsing
-│   │   ├── __init__.py
-│   │   ├── pdf_parser.py       # PDF text extraction (PyMuPDF)
-│   │   └── text_parser.py      # Plain text/HTML/CSV parsing
-│   └── export/                 # Report generation + export
-│       ├── __init__.py
-│       ├── report_generator.py # LLM-generated summary reports
-│       ├── pdf_export.py       # PDF rendering (WeasyPrint + Jinja2)
-│       ├── timeline_export.py  # Timeline data export
-│       └── templates/          # Jinja2 HTML templates for PDF
-├── web/                        # React frontend
+nexus-grid/
+├── Cargo.toml                          # Workspace root (12 members)
+├── CLAUDE.md                           # Project instructions for Claude
+├── crates/
+│   ├── nexus-core-rs/                  # Foundation: iroh, crypto, wire types
+│   │   ├── Cargo.toml
+│   │   ├── src/
+│   │   │   ├── lib.rs                  # 25 public modules, re-exports
+│   │   │   ├── node.rs                 # Node + create_node()
+│   │   │   ├── crypto.rs              # KeyPair, Blake3Chain, verify()
+│   │   │   ├── canonical.rs           # JCS canonical_bytes + 14 domains
+│   │   │   ├── task.rs                # Task, ResultPayload, Claim (signed)
+│   │   │   ├── docs.rs               # DocsClient, DocHandle
+│   │   │   ├── gossip.rs             # GossipClient, TopicHandle, PoW join
+│   │   │   ├── blobs.rs              # BlobsClient (MemStore)
+│   │   │   ├── curator.rs            # CuratorList, CuratorListEntry (signed)
+│   │   │   ├── pow.rs                # Hashcash SHA256, solve/verify
+│   │   │   ├── pow_gossip.rs         # PowEnvelope, caches
+│   │   │   ├── keystore.rs           # Argon2id+AES-GCM double-layer
+│   │   │   ├── verification.rs       # 3-layer verifier
+│   │   │   ├── discovery.rs          # DiscoveryClient, probe_reachable
+│   │   │   ├── key_rotation.rs       # Rotation announcements, revocation
+│   │   │   ├── dht_quorum.rs         # Redundant pkarr resolution
+│   │   │   ├── pkarr_resolver.rs     # Pkarr relay client
+│   │   │   ├── relay_config.rs       # Custom relay map
+│   │   │   ├── relay_pow_policy.rs   # Per-topic PoW policy
+│   │   │   ├── tls_pinning.rs        # SPKI SHA256 pin validation
+│   │   │   ├── dns_fallback.rs       # DoH/DoT via hickory-resolver
+│   │   │   ├── tor_transport.rs      # Tor via arti-client (feature-gated)
+│   │   │   ├── hooks.rs              # Pre/post execution hooks
+│   │   │   ├── error.rs              # NexusError (8 variants)
+│   │   │   ├── attestations/         # AgeWitness, ContributorAttestation, DelegationCert
+│   │   │   │   ├── mod.rs
+│   │   │   │   ├── age_witness.rs
+│   │   │   │   ├── contributor.rs
+│   │   │   │   ├── delegation.rs
+│   │   │   │   └── forge_parser.rs
+│   │   │   └── schemas/              # TaskResponse with JsonSchema derive
+│   │   │       ├── mod.rs
+│   │   │       └── task_response.rs
+│   │   ├── benches/                   # pow.rs, keystore.rs (criterion)
+│   │   ├── examples/                  # two_nodes_docs_sync.rs
+│   │   └── tests/                     # keystore_integration.rs, relay_federation.rs
+│   │
+│   ├── nexus-coordinator-rs/          # Business logic (SQLite + dispatch)
+│   │   ├── Cargo.toml
+│   │   ├── src/
+│   │   │   ├── lib.rs                 # 20 public modules
+│   │   │   ├── db.rs                  # CoordinatorDb (13+ migrations)
+│   │   │   ├── dispatcher.rs          # submit_task()
+│   │   │   ├── validator.rs           # Result validation
+│   │   │   ├── kudos_ledger.rs        # BLAKE3 hash-chain kudos
+│   │   │   ├── public_feed.rs         # FeedEntry, FeedEntryCanonical
+│   │   │   ├── feed_materializer.rs   # Feed state materializer
+│   │   │   ├── quarantine_queue.rs    # Suspicious message quarantine
+│   │   │   ├── output_filter.rs       # LLM output filtering
+│   │   │   ├── pii_redactor.rs        # PII regex detection
+│   │   │   ├── provenance.rs          # SLSA L1 provenance
+│   │   │   ├── capability_store.rs    # Per-node capabilities
+│   │   │   ├── guardrails.rs          # Pre/post guardrail hooks
+│   │   │   ├── honeypot.rs            # Honeypot detection
+│   │   │   ├── redundancy.rs          # Multi-worker voting
+│   │   │   ├── rerun.rs               # Task re-execution
+│   │   │   ├── watermark_detector.rs  # SynthID z-test
+│   │   │   ├── invite.rs              # Invite token CRUD
+│   │   │   ├── fairness.rs            # Gini coefficient
+│   │   │   ├── forge.rs               # Multi-forge Git ops
+│   │   │   ├── pow_counter.rs         # Escalating difficulty counts
+│   │   │   ├── types.rs               # TaskSubmission, TaskRecord, etc.
+│   │   │   ├── canary_input.rs        # Canary input management
+│   │   │   ├── canary_registry.rs     # Canary registry
+│   │   │   ├── contributor_registry.rs # Contributor attestation registry
+│   │   │   ├── upload_queue.rs        # Blob upload queue
+│   │   │   └── error.rs              # CoordinatorError
+│   │   └── tests/
+│   │       └── multi_daemon.rs        # Multi-daemon integration test
+│   │
+│   ├── nexus-shell-daemon-core/       # Shell engine library
+│   │   ├── Cargo.toml
+│   │   ├── src/
+│   │   │   ├── lib.rs                 # 20 public modules
+│   │   │   ├── iroh_runtime.rs        # CuratorRuntime (gossip absorb)
+│   │   │   ├── browse.rs             # BrowseAggregator (probe + cache)
+│   │   │   ├── blob_serve.rs         # BlobServeCache (LRU zip decompress)
+│   │   │   ├── auth.rs               # Bearer + Host + Origin middleware
+│   │   │   ├── publish.rs            # ProjectAnnouncement wire format
+│   │   │   ├── config.rs             # ShellDaemonConfig from TOML
+│   │   │   ├── registry.rs           # running.json singleton
+│   │   │   ├── state.rs              # DaemonStateSnapshot v1
+│   │   │   ├── trust_web.rs          # Trust web (SQLite 7d TTL)
+│   │   │   ├── trust_cache.rs        # Trust score caching
+│   │   │   ├── bootstrap_allowlist.rs # Pre-v1.0 bootstrap nodes
+│   │   │   ├── browse_limiter.rs     # GCRA rate limiter (browse)
+│   │   │   ├── feed_limiter.rs       # Rate limiter (feed)
+│   │   │   ├── storage_limiter.rs    # Rate limiter (storage)
+│   │   │   ├── pow_policy_loader.rs  # Hot-reload PoW policy
+│   │   │   ├── key_rotation_handler.rs # Key rotation gossip handler
+│   │   │   ├── ipc_broker.rs         # Executor IPC broker
+│   │   │   ├── transport_probe.rs    # Connectivity diagnostics
+│   │   │   ├── paths.rs              # ~/.nexus-grid/ layout
+│   │   │   └── canary/               # Warrant canary subsystem
+│   │   │       ├── mod.rs
+│   │   │       ├── signer.rs         # Ed25519CanarySigner
+│   │   │       ├── frost.rs          # FrostCanarySigner (threshold)
+│   │   │       ├── dkg.rs            # DKG ceremony
+│   │   │       ├── ceremony.rs       # Ceremony orchestration
+│   │   │       ├── attestation.rs    # Canary attestation
+│   │   │       └── duress_ack.rs     # Duress acknowledgement
+│   │   └── tests/
+│   │       └── pow_wire.rs
+│   │
+│   ├── nexus-shell-daemon/            # Shell daemon binary (HTTP + gossip)
+│   │   ├── Cargo.toml
+│   │   ├── src/
+│   │   │   ├── main.rs               # CLI dispatch (clap)
+│   │   │   ├── runtime.rs            # DaemonRuntime::start() boot sequence
+│   │   │   ├── http.rs               # DaemonHttpState + build_router()
+│   │   │   ├── cli.rs                # Clap subcommands
+│   │   │   ├── deploy.rs             # deploy-from-repo (verified deploy)
+│   │   │   ├── feed_sync.rs          # Feed synchronization
+│   │   │   ├── dispatch_loop.rs      # Task dispatch loop
+│   │   │   ├── validator_loop.rs     # Result validation loop
+│   │   │   ├── apps.rs               # App metadata
+│   │   │   ├── tasks_api.rs          # Task HTTP endpoints
+│   │   │   ├── storage_api.rs        # iroh-docs bridge endpoints
+│   │   │   ├── kudos_api.rs          # Kudos endpoints
+│   │   │   ├── invite_api.rs         # Invite endpoints
+│   │   │   ├── canary_api.rs         # Canary endpoints
+│   │   │   ├── contributor_api.rs    # Contributor endpoints
+│   │   │   ├── quarantine_api.rs     # Quarantine endpoints
+│   │   │   ├── health_api.rs         # GET /health
+│   │   │   ├── diagnostic_api.rs     # Peer diagnostics
+│   │   │   ├── shell_api.rs          # Shell-specific endpoints
+│   │   │   ├── consent.rs            # Consent management
+│   │   │   ├── worker_state_api.rs   # Worker state relay
+│   │   │   ├── files.rs              # Static file serving
+│   │   │   ├── logging.rs            # tracing-appender daily rotation
+│   │   │   ├── panic.rs              # PanicWipeService
+│   │   │   ├── noop_identity.rs      # Duress-mode noop
+│   │   │   ├── named_pipe_server.rs  # Windows Named Pipe (cfg(windows))
+│   │   │   └── uds_server.rs         # Unix Domain Socket (cfg(unix))
+│   │   └── tests/
+│   │       ├── e2e.rs                # End-to-end daemon tests
+│   │       └── loopback_token.rs     # Auth token tests
+│   │
+│   ├── nexus-worker-core/             # Worker engine library
+│   │   ├── Cargo.toml                 # Features: llm_llama_cpp, gpu-ephemeral
+│   │   ├── src/
+│   │   │   ├── lib.rs                 # 12 public modules
+│   │   │   ├── engine/
+│   │   │   │   ├── mod.rs             # Re-exports
+│   │   │   │   ├── state.rs           # WorkerState enum + StateMachine
+│   │   │   │   ├── runtime.rs         # Engine async loop
+│   │   │   │   └── state_writer.rs    # WorkerStateSnapshot to disk
+│   │   │   ├── llm/
+│   │   │   │   ├── mod.rs             # LlmBackend trait
+│   │   │   │   ├── ollama.rs          # OllamaBackend (HTTP)
+│   │   │   │   ├── llama_cpp.rs       # LlamaCppBackend (feature-gated)
+│   │   │   │   ├── factory.rs         # Backend factory from config
+│   │   │   │   ├── schema_bridge.rs   # JSON Schema format bridging
+│   │   │   │   └── watermark.rs       # HMAC-SHA256 watermark injection
+│   │   │   ├── gpu/
+│   │   │   │   ├── mod.rs             # GpuMonitor trait
+│   │   │   │   ├── nvml.rs            # NvmlBackend
+│   │   │   │   ├── noop.rs            # NoopBackend
+│   │   │   │   └── profile.rs         # GPU profiling
+│   │   │   ├── config.rs             # WorkerConfig from worker.toml
+│   │   │   ├── consent.rs            # 4-level consent + caps + hot-reload
+│   │   │   ├── allowlist.rs          # SQLite project allowlist
+│   │   │   ├── rate_limit.rs         # GCRA multi-tier rate limiter
+│   │   │   ├── rate_limit_policy_loader.rs # Policy hot-reload
+│   │   │   ├── invite.rs             # nx1 + BASE32 invite tokens
+│   │   │   ├── ephemeral.rs          # VRAM wipe (gpu-ephemeral feature)
+│   │   │   ├── build_executor.rs     # Build task execution
+│   │   │   └── paths.rs              # WorkerPaths via directories crate
+│   │
+│   ├── nexus-worker/                  # Worker binary (CLI + TUI)
+│   │   ├── Cargo.toml
+│   │   ├── src/
+│   │   │   ├── main.rs               # CLI dispatch
+│   │   │   ├── cli.rs                # start, register, config
+│   │   │   ├── tui.rs                # ratatui + crossterm dashboard
+│   │   │   └── logging.rs            # tracing-appender
+│   │   └── tests/e2e.rs
+│   │
+│   ├── nexus-launcher/                # Launcher binary (daemon + browser + tray)
+│   │   ├── Cargo.toml
+│   │   ├── build.rs                   # Windows resource (winresource)
+│   │   └── src/
+│   │       ├── main.rs               # Tray icon, daemon spawn, browser open
+│   │       ├── unlock.rs             # sbfb init/unlock (keystore)
+│   │       ├── auth.rs               # Bearer token management
+│   │       ├── driver_check.rs       # NVIDIA driver + NVD CVE check
+│   │       ├── token_rotation.rs     # 24h token rotation
+│   │       └── tray.rs               # System tray icon
+│   │
+│   ├── nexus-events-core/             # Security audit events
+│   │   ├── Cargo.toml                 # Platform deps: libsystemd, oslog
+│   │   └── src/lib.rs                 # SecurityEvent (14), EventWriter trait
+│   │
+│   ├── nexus-executor/                # Isolated compute process
+│   │   ├── Cargo.toml
+│   │   ├── benches/cold_start.rs
+│   │   └── src/
+│   │       ├── main.rs               # IPC loop, heartbeat, dispatch
+│   │       ├── task_runner.rs         # Ollama-backed execution
+│   │       └── ipc.rs                # JSON-RPC message types
+│   │
+│   ├── nexus-trace-core/              # Trace infrastructure
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs                 # TraceEvent, TraceProcessor trait
+│   │       ├── batch_log.rs           # BatchLogProcessor (JSONL rotation)
+│   │       ├── otel.rs               # OtelProcessor (OpenTelemetry 0.31)
+│   │       ├── signed.rs             # SignedCanaryProcessor (Ed25519)
+│   │       └── propagation.rs        # W3C Trace Context
+│   │
+│   └── nexus-test-harness/            # Multi-daemon test harness
+│       ├── Cargo.toml
+│       ├── src/lib.rs                 # DaemonHandle spawn/health/shutdown
+│       └── tests/
+│           ├── multi_daemon.rs        # Multi-daemon integration
+│           ├── cross_daemon_blob.rs   # Cross-daemon blob transfer
+│           └── blob_serve_coep.rs     # COOP/COEP header tests
+│
+├── web/                               # React frontend (TypeScript)
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tsconfig.app.json
 │   ├── src/
-│   │   ├── main.tsx            # React entry point
-│   │   ├── App.tsx             # Router (9 routes)
-│   │   ├── index.css           # Global styles (Tailwind)
-│   │   ├── api/
-│   │   │   └── client.ts       # Axios client + ~30 API functions
-│   │   ├── pages/              # 9 page components
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── Evidence.tsx
-│   │   │   ├── Entities.tsx
-│   │   │   ├── Hypotheses.tsx
-│   │   │   ├── Graph.tsx
-│   │   │   ├── Timeline.tsx
-│   │   │   ├── Investigation.tsx
-│   │   │   ├── Suspects.tsx
-│   │   │   └── Benchmark.tsx
-│   │   ├── components/         # 9 shared components
-│   │   │   ├── Layout.tsx      # App shell with sidebar
-│   │   │   ├── Sidebar.tsx     # Navigation sidebar
-│   │   │   ├── TopBar.tsx      # Top bar with case selector
-│   │   │   ├── Card.tsx
-│   │   │   ├── Badge.tsx
-│   │   │   ├── DataTable.tsx
-│   │   │   ├── LoadingSpinner.tsx
-│   │   │   ├── MetricCard.tsx
-│   │   │   └── ScoreBar.tsx
-│   │   ├── hooks/              # 3 custom hooks
-│   │   │   ├── useApi.ts       # Generic API hook helpers
-│   │   │   ├── useCase.ts      # Active case hook (useActiveCase)
-│   │   │   └── useSystemStats.ts
-│   │   ├── stores/             # 2 Zustand stores
-│   │   │   ├── caseStore.ts    # Active case ID (persisted)
-│   │   │   └── systemStore.ts  # System-wide state
-│   │   └── assets/
-│   └── vite.config.ts          # Vite + React + Tailwind + /api proxy
-├── frontend/                   # Streamlit frontend (legacy)
-│   ├── app.py                  # Main entry (16 pages)
-│   ├── pages/                  # Streamlit page files
-│   └── components/             # Streamlit component files
-├── tests/                      # 233 pytest tests
-├── data/                       # Runtime data directory
-│   ├── nexus.db                # SQLite database
-│   ├── uploads/                # Uploaded evidence files
-│   ├── reports/                # Generated PDF reports
-│   ├── backups/                # Database backups
-│   ├── audit/                  # Audit logs (JSONL + git repo)
-│   ├── chroma/                 # ChromaDB data (Docker volume)
-│   ├── neo4j/                  # Neo4j data (Docker volume)
-│   ├── robin/                  # Robin data
-│   └── benchmark/              # 3 benchmark cold cases
-│       ├── kulik/              # Elodie Kulik (14 evidence files)
-│       ├── golden-state-killer/ # GSK (13 evidence files)
-│       └── affaire-moreau/     # Fictional (15 files, 7 planted contradictions)
-├── docs/                       # Documentation (468 KB)
-├── prompts/                    # Additional prompt files
-├── models/                     # Model configuration files
-├── searxng/                    # SearXNG configuration
-├── docker-compose.yml          # Neo4j + ChromaDB + Robin containers
-├── requirements.txt            # Python dependencies
-├── pytest.ini                  # Pytest configuration
-├── Modelfile                   # Ollama Modelfile for nexus model
-├── Modelfile.gemma4-heretic    # Gemma 4 Heretic Modelfile
-├── Modelfile.qwen3-30b         # Qwen3 30B Modelfile
-└── CLAUDE.md                   # Project instructions for Claude
+│   │   ├── pages/                     # Browse, Curators, Network, etc.
+│   │   ├── components/
+│   │   ├── stores/                    # Zustand
+│   │   └── api/                       # React Query + fetch
+│   └── scripts/scan-en-strings.sh
+│
+├── examples/
+│   ├── hello-world-app/               # Minimal SBFB app example
+│   ├── sbfb-explorer/                 # Protocol Explorer (5 sections)
+│   └── sbfb-ideas/                    # Ideas Hub (vote + storage P2P)
+│
+├── docs/
+│   ├── claude/README.md               # Workflow source of truth
+│   ├── claude/SPRINT_LOG.md           # Sprint history table
+│   ├── rust/PATTERNS.md               # Rust patterns + tech debt
+│   ├── shell/PATTERNS.md              # Shell/coordinator patterns
+│   └── security/                      # THREAT_MODEL.md, RUNTIME_ISOLATION.md
+│
+├── .planning/
+│   ├── active/                        # Current sprint docs
+│   ├── archive/v1.0/                  # S0-S13
+│   ├── archive/v1.1/                  # S14-S15
+│   ├── archive/v1.2/                  # S16-S64
+│   ├── research/                      # Research documents
+│   └── codebase/                      # THIS directory (architecture docs)
+│
+└── tools/png-to-icns/                 # macOS icon conversion
 ```
-
-## Directory Purposes
-
-**`nexus/api/`:**
-- Purpose: HTTP REST interface for the entire system
-- Contains: 21 FastAPI router files, each for one domain (cases, evidence, entities, etc.)
-- Key files: `deps.py` (all dependency injection functions), `cases.py` (case CRUD pattern to follow)
-- Pattern: Each router uses `APIRouter(prefix="/api/{domain}", tags=["{domain}"])`. Endpoints use `Depends()` to get request-scoped services.
-
-**`nexus/core/`:**
-- Purpose: All business logic and intelligence
-- Contains: 18 Python modules implementing investigation algorithms
-- Key files: `autonomous_loop.py` (1439 lines, the brain), `evidence_processor.py` (ingestion pipeline), `retriever.py` (hybrid RAG)
-- Pattern: Each module is a class with `__init__` taking `db` + `router` + optional `chroma`/`neo4j`. Methods are async.
-
-**`nexus/db/`:**
-- Purpose: All database interaction
-- Contains: 3 database clients + Pydantic models
-- Key files: `sqlite_db.py` (Database class with full CRUD for 17 tables), `models.py` (Pydantic v2 schemas)
-- Pattern: `Database` wraps an `aiosqlite.Connection`. Methods return `dict` (row data) or `None`. `get_db()` async context manager provides connections.
-
-**`nexus/llm/`:**
-- Purpose: LLM abstraction layer
-- Contains: 4 files -- routing, client, prompts, parsers
-- Key files: `router.py` (LLMRouter with 21 TaskTypes), `prompts.py` (25+ French prompt templates)
-- Pattern: All LLM access goes through `LLMRouter.route()` or `route_json()`. Never call OllamaClient directly.
-
-**`web/src/`:**
-- Purpose: React frontend SPA
-- Contains: Pages, components, hooks, stores, API client
-- Key files: `api/client.ts` (all API calls), `stores/caseStore.ts` (active case persistence)
-- Pattern: Page components use `useActiveCase()` hook to get current case, then TanStack React Query for data fetching.
-
-**`data/`:**
-- Purpose: All runtime data (database, uploads, reports, backups)
-- Contains: SQLite database, file uploads, generated reports, audit logs, benchmark data
-- Generated: Yes (at runtime)
-- Committed: Only `data/benchmark/` is committed (test data)
 
 ## Key File Locations
 
 **Entry Points:**
-- `nexus/main.py`: FastAPI application (startup, middleware, routers)
-- `web/src/main.tsx`: React application entry
-- `web/src/App.tsx`: React router configuration (9 routes)
-- `frontend/app.py`: Streamlit legacy frontend
+- `crates/nexus-shell-daemon/src/main.rs`: Central daemon binary (most important)
+- `crates/nexus-worker/src/main.rs`: Worker binary
+- `crates/nexus-launcher/src/main.rs`: Launcher binary
+- `crates/nexus-executor/src/main.rs`: Executor binary
 
 **Configuration:**
-- `nexus/config.py`: All settings (pydantic-settings, loads from .env)
-- `web/vite.config.ts`: Vite build config + API proxy
-- `docker-compose.yml`: Neo4j + ChromaDB + Robin containers
-- `pytest.ini`: Test runner configuration
-- `.env`: Environment overrides (exists but not committed)
+- `Cargo.toml`: Workspace root with all shared dependency versions
+- `crates/*/Cargo.toml`: Per-crate dependencies and feature flags
+- `web/vite.config.ts`: Frontend build config
+- `web/package.json`: Frontend dependencies
 
-**Core Logic:**
-- `nexus/core/autonomous_loop.py`: OODA investigation daemon (1439 lines)
-- `nexus/core/investigation_manager.py`: Manages all investigation loops
-- `nexus/core/evidence_processor.py`: Evidence ingestion pipeline
-- `nexus/core/analysis_pipeline.py`: Multi-model analysis orchestrator
-- `nexus/core/hypothesis_engine.py`: Hypothesis generation and evaluation
-- `nexus/core/retriever.py`: Hybrid RAG retriever
-- `nexus/core/entity_extractor.py`: GLiNER + LLM hybrid NER
-- `nexus/core/suspect_scorer.py`: 5-factor suspect scoring
-- `nexus/core/contradiction_detector.py`: Evidence pair contradiction detection
-
-**Database:**
-- `nexus/db/sqlite_db.py`: 17 tables, FTS5, 20+ indexes, all CRUD
-- `nexus/db/neo4j_db.py`: Graph operations (11 node types, 17 relationship types)
-- `nexus/db/chroma_db.py`: Vector store (7 collections)
-- `nexus/db/models.py`: Pydantic v2 schemas (Base/Create/Update/Full per entity)
-
-**LLM:**
-- `nexus/llm/router.py`: Task-to-model routing with VRAM lock
-- `nexus/llm/ollama_client.py`: Async Ollama SDK wrapper with retry
-- `nexus/llm/prompts.py`: 25+ French prompt templates
-- `nexus/llm/parsers.py`: Robust JSON/entity/score parsing
+**Core Logic (Rust):**
+- `crates/nexus-core-rs/src/`: All cryptographic primitives, wire types, iroh wrappers
+- `crates/nexus-coordinator-rs/src/`: All coordinator business logic
+- `crates/nexus-shell-daemon-core/src/`: Daemon engine (curator runtime, browse, auth)
+- `crates/nexus-worker-core/src/`: Worker engine (state machine, LLM, GPU)
 
 **Testing:**
-- `tests/`: 233 pytest tests
+- `crates/*/tests/`: Integration tests per crate
+- `crates/nexus-test-harness/`: Multi-daemon test infrastructure
+- `crates/nexus-core-rs/benches/`: Criterion benchmarks (pow, keystore)
 
 ## Naming Conventions
 
-**Files:**
-- Python modules: `snake_case.py` (e.g., `autonomous_loop.py`, `evidence_processor.py`)
-- API routers: `snake_case.py` matching domain (e.g., `cases.py`, `evidence.py`)
-- React pages: `PascalCase.tsx` (e.g., `Dashboard.tsx`, `Evidence.tsx`)
-- React components: `PascalCase.tsx` (e.g., `Layout.tsx`, `Sidebar.tsx`)
-- React hooks: `camelCase.ts` prefixed with `use` (e.g., `useCase.ts`)
-- React stores: `camelCase.ts` suffixed with `Store` (e.g., `caseStore.ts`)
+**Files (Rust):**
+- `snake_case.rs` for all source files (e.g., `key_rotation.rs`, `blob_serve.rs`)
+- `mod.rs` for directory modules (e.g., `engine/mod.rs`, `canary/mod.rs`)
+- Integration tests: descriptive `snake_case.rs` (e.g., `keystore_integration.rs`, `multi_daemon.rs`)
 
-**Directories:**
-- Python: `snake_case` (e.g., `nexus/core/`, `nexus/monitoring/`)
-- React: `lowercase` (e.g., `web/src/pages/`, `web/src/hooks/`)
+**Crates:**
+- Libraries: `nexus-{domain}-{suffix}` with `suffix` being `rs` (core), `core` (engine), or nothing
+- Binaries: `nexus-{role}` (worker, launcher, executor) or `nexus-shell-daemon`
+
+**Modules:**
+- Rust modules match filename: `pub mod blob_serve;` -> `src/blob_serve.rs`
+- Submodules use directories: `pub mod canary;` -> `src/canary/mod.rs`
+
+**Types (Rust):**
+- Structs/enums: `PascalCase` (e.g., `CuratorListEntry`, `WorkerState`, `HashcashProof`)
+- Traits: `PascalCase` (e.g., `KeyStore`, `ContributorRegistry`, `AgeAdmissionPolicy`)
+- Constants: `SCREAMING_SNAKE_CASE` (e.g., `CURATOR_LIST_MAX_ENTRIES`, `DOMAIN_TASK_V1`)
+- Functions: `snake_case` (e.g., `canonical_bytes`, `submit_task`, `evaluate_age_admission`)
 
 ## Where to Add New Code
 
-**New API Endpoint:**
-1. Add route handler in the appropriate router file in `nexus/api/` (or create a new router file)
-2. If new router file: register it in `nexus/main.py` (import + `app.include_router()`)
-3. Add dependency function in `nexus/api/deps.py` if the endpoint needs a new service
-4. Add Pydantic request/response models in `nexus/db/models.py`
-5. Add API function in `web/src/api/client.ts`
+**New Coordinator Feature:**
+1. Add module in `crates/nexus-coordinator-rs/src/{module}.rs`
+2. Add `pub mod {module};` in `crates/nexus-coordinator-rs/src/lib.rs`
+3. If SQLite needed: add migration in `crates/nexus-coordinator-rs/src/db.rs`
+4. Add HTTP endpoint in `crates/nexus-shell-daemon/src/{feature}_api.rs`
+5. Wire into `crates/nexus-shell-daemon/src/http.rs` router
 
-**New Core Module:**
-1. Create `nexus/core/{module_name}.py`
-2. Follow the existing pattern: class with `__init__(self, db: Database, router: LLMRouter, chroma=None, neo4j=None)`
-3. Add dependency injection function in `nexus/api/deps.py`
-4. Wire into `nexus/core/autonomous_loop.py` if it should run autonomously
+**New Wire Format Type:**
+1. Define struct in `crates/nexus-core-rs/src/{type}.rs` with `Serialize, Deserialize`
+2. Add domain constant in `crates/nexus-core-rs/src/canonical.rs` (e.g., `DOMAIN_NEWTYPE_V1`)
+3. Implement signed entry wrapper with `sign()` / `verify_signature()` pattern
+4. Re-export from `crates/nexus-core-rs/src/lib.rs`
 
-**New Database Table:**
-1. Add DDL to `_CREATE_TABLES` in `nexus/db/sqlite_db.py`
-2. Add indexes to `_CREATE_INDEXES` in `nexus/db/sqlite_db.py`
-3. Add CRUD methods to the `Database` class in `nexus/db/sqlite_db.py`
-4. Add Pydantic models (Base, Create, Update, Full) in `nexus/db/models.py`
+**New Worker LLM Backend:**
+1. Create `crates/nexus-worker-core/src/llm/{backend}.rs`
+2. Implement the backend trait pattern (see `ollama.rs` or `llama_cpp.rs`)
+3. Add feature flag in `crates/nexus-worker-core/Cargo.toml` if optional
+4. Wire into `crates/nexus-worker-core/src/llm/factory.rs`
 
-**New React Page:**
+**New Security Event:**
+1. Add variant to `SecurityEvent` enum in `crates/nexus-events-core/src/lib.rs`
+2. Emit via `emit_event()` at the appropriate callsite
+
+**New Shell Daemon Module:**
+1. Engine logic: `crates/nexus-shell-daemon-core/src/{module}.rs`
+2. HTTP surface: `crates/nexus-shell-daemon/src/{module}_api.rs`
+3. Wire both: `lib.rs` for core, `http.rs` + `main.rs` for daemon
+
+**New Frontend Page:**
 1. Create `web/src/pages/{PageName}.tsx`
 2. Add route in `web/src/App.tsx`
-3. Add navigation entry in `web/src/components/Sidebar.tsx`
-4. Add API functions in `web/src/api/client.ts`
-
-**New LLM Task Type:**
-1. Add enum value to `TaskType` in `nexus/llm/router.py`
-2. Add routing entry to `_ROUTE_TABLE` in `nexus/llm/router.py` (model, timeout, heavy flag)
-3. Add prompt template in `nexus/llm/prompts.py`
-4. Add parser in `nexus/llm/parsers.py` if structured output needed
-
-**New Forensic Module:**
-1. Create `nexus/forensics/{module_name}.py`
-2. Add dependency function in `nexus/api/deps.py`
-3. Wire into `nexus/core/autonomous_loop.py` `_decide_forensic_analysis()` method
-4. Create API router or add to existing `nexus/api/forensics.py`
-
-**Utilities / Shared Helpers:**
-- Evidence parsing: `nexus/ingest/`
-- Text processing: `nexus/core/chunker.py`
-- Entity resolution: `nexus/core/entity_extractor.py`
+3. Add API functions in `web/src/api/`
 
 ## Special Directories
 
-**`data/`:**
-- Purpose: All runtime data (database, uploads, exports, audit)
-- Generated: Yes (created at startup by lifespan)
-- Committed: Only `data/benchmark/` subdirectory committed (test data for 3 cold cases)
-
-**`data/audit/`:**
-- Purpose: Immutable audit trail with its own git repo
-- Generated: Yes (by AuditService)
-- Contains: JSONL log files per case + independent git history
-
-**`data/benchmark/`:**
-- Purpose: Test data for the 3 benchmark cold cases
-- Generated: No (manually curated)
+**`.planning/`:**
+- Purpose: Sprint planning, architecture docs, research
+- Generated: No (manually maintained)
 - Committed: Yes
-- Subfolders: `kulik/` (14 files), `golden-state-killer/` (13 files), `affaire-moreau/` (15 files, 7 planted contradictions)
+- Layout: `active/` (current sprint), `archive/v{X}/` (closed sprints), `research/`, `codebase/`
 
-**`frontend/`:**
-- Purpose: Legacy Streamlit frontend (16 pages)
-- Status: Still functional but superseded by React frontend in `web/`
+**`examples/`:**
+- Purpose: Example SBFB apps (published as zip archives, served via blob-serve)
+- Contains: `hello-world-app/`, `sbfb-explorer/`, `sbfb-ideas/`
+- Generated: No
+- Committed: Yes
 
-**`searxng/`:**
-- Purpose: SearXNG search engine configuration
-- Contains: Config files for the SearXNG Docker container
+**`docs/`:**
+- Purpose: Developer documentation
+- Key files: `claude/README.md` (workflow), `rust/PATTERNS.md` (Rust patterns), `security/THREAT_MODEL.md`
+- Generated: No
+- Committed: Yes
 
 ---
 
-*Structure analysis: 2026-04-06*
+*Structure analysis: 2026-05-18*
