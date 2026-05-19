@@ -37,8 +37,8 @@ use std::str::FromStr;
 use iroh::Endpoint;
 use iroh::address_lookup::memory::MemoryLookup;
 use iroh_blobs::Hash;
+use iroh_blobs::api::Store;
 use iroh_blobs::api::downloader::Downloader;
-use iroh_blobs::store::mem::MemStore;
 use iroh_blobs::ticket::BlobTicket;
 
 use crate::error::{NexusError, Result};
@@ -47,18 +47,18 @@ use crate::error::{NexusError, Result};
 // bindings) don't need iroh-blobs as a direct dependency.
 pub use iroh_blobs::ticket::BlobTicket as BlobsTicket;
 
-/// Thin client around an iroh-blobs [`MemStore`].
+/// Thin client around an iroh-blobs [`Store`].
 ///
-/// Constructed via [`BlobsClient::new`] from a borrowed `&MemStore`
+/// Constructed via [`BlobsClient::new`] from a borrowed `&Store`
 /// (typically [`crate::Node::blobs_store`]).
 #[derive(Debug, Clone, Copy)]
 pub struct BlobsClient<'a> {
-    inner: &'a MemStore,
+    inner: &'a Store,
 }
 
 impl<'a> BlobsClient<'a> {
-    /// Wrap a `&MemStore`.
-    pub fn new(inner: &'a MemStore) -> Self {
+    /// Wrap a `&Store`.
+    pub fn new(inner: &'a Store) -> Self {
         BlobsClient { inner }
     }
 
@@ -85,7 +85,7 @@ impl<'a> BlobsClient<'a> {
     /// Retrieve a blob by its hash.
     ///
     /// Returns the full blob content as `Vec<u8>`. For very large
-    /// blobs you should use `MemStore::reader(hash)` directly for
+    /// blobs you should use `Store::blobs().reader(hash)` for
     /// streaming access; this wrapper is intentionally simple.
     pub async fn get_bytes(&self, hash: [u8; 32]) -> Result<Vec<u8>> {
         let hash = Hash::from_bytes(hash);

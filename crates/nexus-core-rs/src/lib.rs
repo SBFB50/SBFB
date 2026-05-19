@@ -105,7 +105,7 @@ pub use keystore::{
     KeyStore, KeyStoreError, LocalFileKeyStore, NONCE_LEN, SALT_LEN, SBFB_IDENTITY_SECRET_HEX_ENV,
     TAG_LEN, UnlockError,
 };
-pub use node::{Node, NodeConfig, create_node, create_node_with_config};
+pub use node::{BlobStore, Node, NodeConfig, create_node, create_node_with_config};
 pub use pkarr_resolver::{
     CUSTOM_PKARR_RELAYS_ENV, DEFAULT_PKARR_RELAY_URL, PkarrQuorumResolver,
     load_quorum_resolvers_from_env,

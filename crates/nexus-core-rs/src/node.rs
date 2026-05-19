@@ -19,10 +19,9 @@
 //! - [`create_node_with_config`] — supply a [`NodeConfig`] with
 //!   an optional persistent secret key and custom ALPNs
 //!
-//! Sprint 4 will add:
-//! - Persistent blob store backed by filesystem (we use MemStore now)
-//! - Custom relay configuration
-//! - ALPN registration for Sprint-4 app-specific protocols
+//! Persistence (Sprint 66 Phase A):
+//! - [`BlobStore`] selects [`FsStore`] (redb) when `data_dir` is set,
+//!   [`MemStore`] otherwise. Both deref to [`Store`].
 //!
 //! ## Example
 //!
@@ -45,13 +44,15 @@ use iroh::address_lookup::memory::MemoryLookup;
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
 use iroh::{Endpoint, RelayMode, SecretKey};
+use iroh_blobs::api::Store;
+use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::store::mem::MemStore;
 use iroh_blobs::{ALPN as BLOBS_ALPN, BlobsProtocol};
 use iroh_docs::ALPN as DOCS_ALPN;
 use iroh_docs::protocol::Docs;
 use iroh_gossip::ALPN as GOSSIP_ALPN;
 use iroh_gossip::net::Gossip;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::crypto::SECRET_KEY_BYTES;
 use crate::error::{NexusError, Result};
@@ -64,15 +65,11 @@ use crate::error::{NexusError, Result};
 /// identity loaded from disk, and [`NodeConfig::with_data_dir`]
 /// to persist the docs replica + default author across reboots.
 ///
-/// Persistence scope (Sprint 4 Phase A):
+/// Persistence scope:
 ///
-/// - `data_dir` applies to the **iroh-docs** replica and default
-///   author. `docs.redb` is created inside the supplied directory
-///   along with the `default-author` key file.
-/// - Blobs currently still run on an in-memory [`MemStore`] —
-///   curator list persistence lands later with an `FsStore`
-///   wiring. The coordinator's Phase A doc flow does not rely on
-///   blobs.
+/// - `data_dir` applies to **iroh-docs** (`docs.redb` +
+///   `default-author`) and **iroh-blobs** (`blobs/` subdirectory
+///   via [`FsStore`]). Both stores survive daemon restarts.
 #[derive(Debug, Clone, Default)]
 pub struct NodeConfig {
     /// If Some, the node boots with this Ed25519 secret key
@@ -107,6 +104,27 @@ impl NodeConfig {
     }
 }
 
+/// Backend-agnostic blob store: either in-memory ([`MemStore`]) or
+/// filesystem-backed ([`FsStore`]). Both variants deref to [`Store`]
+/// so callers that only need the API surface get `&Store` from
+/// [`Node::blobs_store`] regardless of the backing implementation.
+pub enum BlobStore {
+    /// In-memory store — data lost on process exit.
+    Mem(MemStore),
+    /// Filesystem-backed store (redb) — data persists across restarts.
+    Fs(FsStore),
+}
+
+impl std::ops::Deref for BlobStore {
+    type Target = Store;
+    fn deref(&self) -> &Store {
+        match self {
+            BlobStore::Mem(s) => s,
+            BlobStore::Fs(s) => s,
+        }
+    }
+}
+
 /// A running iroh node with the full SBFB protocol stack.
 ///
 /// Holds the endpoint, the Docs/Gossip/Blobs protocol handlers
@@ -118,7 +136,7 @@ pub struct Node {
     endpoint: Endpoint,
     docs: Docs,
     gossip: Gossip,
-    blobs_store: MemStore,
+    blobs_store: BlobStore,
     router: Router,
     memory_lookup: MemoryLookup,
 }
@@ -156,7 +174,7 @@ impl Node {
     }
 
     /// Access the blobs content-addressed store.
-    pub fn blobs_store(&self) -> &MemStore {
+    pub fn blobs_store(&self) -> &Store {
         &self.blobs_store
     }
 
@@ -193,8 +211,9 @@ impl Node {
             .shutdown()
             .await
             .map_err(|e| NexusError::Endpoint(format!("router shutdown failed: {e}")))?;
-        // Drop the remaining handles explicitly. Endpoint is
-        // already closed by Router::shutdown.
+        if let Err(e) = self.blobs_store.shutdown().await {
+            warn!(error = %e, "blobs store shutdown returned an error");
+        }
         drop(self.docs);
         drop(self.gossip);
         drop(self.blobs_store);
@@ -291,7 +310,19 @@ pub async fn create_node_with_config(cfg: NodeConfig) -> Result<Node> {
     // into a Router that dispatches by ALPN. This is the full
     // SBFB protocol stack every node carries.
 
-    let blobs_store = MemStore::default();
+    let blobs_store = match &cfg.data_dir {
+        Some(path) => {
+            let blobs_dir = path.join("blobs");
+            std::fs::create_dir_all(&blobs_dir).map_err(|e| {
+                NexusError::Blobs(format!("failed to create blobs dir {blobs_dir:?}: {e}"))
+            })?;
+            let fs_store = FsStore::load(&blobs_dir).await.map_err(|e| {
+                NexusError::Blobs(format!("FsStore::load({blobs_dir:?}) failed: {e}"))
+            })?;
+            BlobStore::Fs(fs_store)
+        }
+        None => BlobStore::Mem(MemStore::default()),
+    };
     let gossip = Gossip::builder().spawn(endpoint.clone());
     let docs_builder = match &cfg.data_dir {
         Some(path) => {
@@ -312,10 +343,6 @@ pub async fn create_node_with_config(cfg: NodeConfig) -> Result<Node> {
         .accept(GOSSIP_ALPN, gossip.clone())
         .accept(DOCS_ALPN, docs.clone())
         .spawn();
-
-    // `BlobsProtocol::new` borrowed `blobs_store`, so after the
-    // router is built we can move the original MemStore into the
-    // Node. Callers get at it via `node.blobs_store()`.
 
     Ok(Node {
         endpoint,
@@ -453,5 +480,56 @@ mod tests {
             ep.is_closed(),
             "endpoint should be closed after Node::shutdown"
         );
+    }
+
+    #[tokio::test]
+    async fn persistent_fsstore_survives_reboot() {
+        use crate::blobs::BlobsClient;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let data_dir = tmp.path().to_path_buf();
+        let kp = KeyPair::generate();
+        let secret = kp.secret_bytes();
+
+        let cfg = NodeConfig::default()
+            .with_secret_key(secret)
+            .with_data_dir(data_dir.clone());
+
+        let node_a = create_node_with_config(cfg.clone()).await.unwrap();
+        let blobs_a = BlobsClient::new(node_a.blobs_store());
+        let hash = blobs_a.add_bytes(b"persistent-blob").await.unwrap();
+        assert!(blobs_a.has(hash).await.unwrap());
+        node_a.shutdown().await.unwrap();
+
+        let node_b = create_node_with_config(cfg).await.unwrap();
+        let blobs_b = BlobsClient::new(node_b.blobs_store());
+        let data = blobs_b.get_bytes(hash).await.unwrap();
+        assert_eq!(data, b"persistent-blob");
+        node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn data_dir_creates_blobs_subdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_dir = tmp.path().join("iroh");
+        let cfg = NodeConfig::default().with_data_dir(data_dir.clone());
+        let node = create_node_with_config(cfg).await.unwrap();
+        assert!(
+            data_dir.join("blobs").exists(),
+            "blobs/ subdir must be created inside data_dir"
+        );
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn memstore_still_works_without_data_dir() {
+        use crate::blobs::BlobsClient;
+
+        let node = create_node().await.unwrap();
+        let blobs = BlobsClient::new(node.blobs_store());
+        let hash = blobs.add_bytes(b"mem-mode").await.unwrap();
+        let data = blobs.get_bytes(hash).await.unwrap();
+        assert_eq!(data, b"mem-mode");
+        node.shutdown().await.ok();
     }
 }

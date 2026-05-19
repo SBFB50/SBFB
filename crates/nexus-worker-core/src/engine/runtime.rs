@@ -1503,7 +1503,7 @@ mod tests {
         .expect("worker should emit a result within 10s");
 
         // Read and verify the result entry metadata. The blob
-        // content itself lives in the same Node's MemStore and is
+        // content itself lives in the same Node's blob store and is
         // easy to fetch from the test side, but for a correctness
         // check on the W9.1 pump we just need the entry to exist
         // alongside a matching claim entry.

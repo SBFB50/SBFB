@@ -287,11 +287,14 @@ impl DaemonRuntime {
         // peers already know via gossip. A fallback ephemeral keypair
         // (generated when the launcher did not hand a secret) pairs
         // naturally with the `create_node()` ephemeral identity path.
+        let iroh_data_dir = opts.paths.root.join("iroh");
         let (node, pow_keypair) = match read_optional_identity_env() {
             Some(secret_bytes) => {
                 info!("shell daemon using persistent identity from launcher keystore");
                 let pow_kp = KeyPair::from_secret_bytes(&secret_bytes);
-                let cfg = NodeConfig::default().with_secret_key(secret_bytes);
+                let cfg = NodeConfig::default()
+                    .with_secret_key(secret_bytes)
+                    .with_data_dir(iroh_data_dir.clone());
                 let n = create_node_with_config(cfg)
                     .await
                     .context("failed to boot iroh node with persistent identity")?;
@@ -304,7 +307,9 @@ impl DaemonRuntime {
                     "shell daemon using file-based persistent identity"
                 );
                 let pow_kp = KeyPair::from_secret_bytes(&secret_bytes);
-                let cfg = NodeConfig::default().with_secret_key(secret_bytes);
+                let cfg = NodeConfig::default()
+                    .with_secret_key(secret_bytes)
+                    .with_data_dir(iroh_data_dir.clone());
                 let n = create_node_with_config(cfg)
                     .await
                     .context("failed to boot iroh node with file-based identity")?;
@@ -1425,21 +1430,35 @@ async fn boot_storage_namespace(
                 .try_into()
                 .map_err(|_| anyhow!("invalid namespace_id length in DB"))?;
             let ns_id = nexus_core_rs::docs::DocsNamespaceId::from(bytes);
-            let doc = docs_client
-                .open_doc(ns_id)
-                .await?
-                .ok_or_else(|| anyhow!("storage namespace listed in DB but not found in iroh"))?;
-            let ticket_str = match row.doc_ticket {
-                Some(t) => t,
-                None => {
-                    let ticket = doc.share_write().await?;
-                    let t = ticket.to_string();
-                    let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
-                    let _ = db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&t));
-                    t
+            match docs_client.open_doc(ns_id).await? {
+                Some(doc) => {
+                    let ticket_str = match row.doc_ticket {
+                        Some(t) => t,
+                        None => {
+                            let ticket = doc.share_write().await?;
+                            let t = ticket.to_string();
+                            let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+                            let _ =
+                                db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&t));
+                            t
+                        }
+                    };
+                    (doc, ticket_str)
                 }
-            };
-            (doc, ticket_str)
+                None => {
+                    warn!(
+                        app = %app_name,
+                        "storage namespace in DB but missing from iroh — recreating"
+                    );
+                    let doc = docs_client.create_doc().await?;
+                    let ticket = doc.share_write().await?;
+                    let ticket_str = ticket.to_string();
+                    let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+                    let _ =
+                        db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&ticket_str));
+                    (doc, ticket_str)
+                }
+            }
         }
         None => {
             let doc = docs_client.create_doc().await?;
@@ -1485,21 +1504,32 @@ async fn boot_feed_namespace(
                 .try_into()
                 .map_err(|_| anyhow!("invalid namespace_id length in DB"))?;
             let ns_id = nexus_core_rs::docs::DocsNamespaceId::from(bytes);
-            let doc = docs_client
-                .open_doc(ns_id)
-                .await?
-                .ok_or_else(|| anyhow!("feed namespace listed in DB but not found in iroh"))?;
-            let ticket_str = match row.doc_ticket {
-                Some(t) => t,
-                None => {
-                    let ticket = doc.share_write().await?;
-                    let t = ticket.to_string();
-                    let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
-                    let _ = db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&t));
-                    t
+            match docs_client.open_doc(ns_id).await? {
+                Some(doc) => {
+                    let ticket_str = match row.doc_ticket {
+                        Some(t) => t,
+                        None => {
+                            let ticket = doc.share_write().await?;
+                            let t = ticket.to_string();
+                            let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+                            let _ =
+                                db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&t));
+                            t
+                        }
+                    };
+                    (doc, ticket_str)
                 }
-            };
-            (doc, ticket_str)
+                None => {
+                    warn!("feed namespace in DB but missing from iroh — recreating");
+                    let doc = docs_client.create_doc().await?;
+                    let ticket = doc.share_write().await?;
+                    let ticket_str = ticket.to_string();
+                    let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+                    let _ =
+                        db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&ticket_str));
+                    (doc, ticket_str)
+                }
+            }
         }
         None => {
             let doc = docs_client.create_doc().await?;
@@ -1713,5 +1743,31 @@ mod tests {
                 "jitter {d:?} out of [30s, 60s]"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn boot_storage_namespace_persistent_reopen() {
+        let tmp = tempdir().expect("tempdir");
+        let opts1 = mk_opts(tmp.path());
+        let rt1 = DaemonRuntime::start(opts1).await.unwrap();
+        rt1.shutdown().await.unwrap();
+
+        let opts2 = mk_opts(tmp.path());
+        let rt2 = DaemonRuntime::start(opts2).await.unwrap();
+        rt2.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn boot_feed_namespace_persistent_reopen() {
+        let tmp = tempdir().expect("tempdir");
+        let opts1 = mk_opts(tmp.path());
+        let rt1 = DaemonRuntime::start(opts1).await.unwrap();
+        assert!(rt1.feed_handle.is_some());
+        rt1.shutdown().await.unwrap();
+
+        let opts2 = mk_opts(tmp.path());
+        let rt2 = DaemonRuntime::start(opts2).await.unwrap();
+        assert!(rt2.feed_handle.is_some());
+        rt2.shutdown().await.unwrap();
     }
 }
