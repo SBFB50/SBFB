@@ -186,10 +186,17 @@ function FullScreenApp({
       const resp = await authFetch(
         `${coordUrl}/api/v1/project/${encodeURIComponent(entry.project_id)}/provenance`,
       );
-      if (resp.status === 404) return { verified: false, empty: true } as const;
+      if (resp.status === 404) return { verified: false, status: "absent" as const };
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = (await resp.json()) as { verified: boolean; provenance_hash: string };
-      return { verified: data.verified, empty: false } as const;
+      const data = (await resp.json()) as {
+        verified: boolean;
+        provenance_hash: string;
+        status: string;
+      };
+      return {
+        verified: data.verified,
+        status: data.status as "verified" | "failed" | "absent",
+      };
     },
     enabled: !!entry.provenance_hash,
     staleTime: 5 * 60_000,
@@ -294,11 +301,13 @@ function FullScreenApp({
                 className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
                   verifyQuery.isLoading
                     ? "bg-white/[0.08] text-white/50"
-                    : verifyQuery.isSuccess && verifyQuery.data.verified
+                    : verifyQuery.isSuccess && verifyQuery.data.status === "verified"
                       ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
-                      : verifyQuery.isError || (verifyQuery.isSuccess && !verifyQuery.data.verified)
+                      : verifyQuery.isSuccess && verifyQuery.data.status === "failed"
                         ? "bg-red-500/15 text-red-400 hover:bg-red-500/25"
-                        : "bg-white/[0.08] text-white/50"
+                        : verifyQuery.isError
+                          ? "bg-red-500/15 text-red-400 hover:bg-red-500/25"
+                          : "bg-white/[0.08] text-white/50"
                 }`}
                 data-testid="verified-badge"
                 onClick={() => setVerifyOpen(true)}
@@ -309,12 +318,17 @@ function FullScreenApp({
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Verification...
                   </>
-                ) : verifyQuery.isSuccess && verifyQuery.data.verified ? (
+                ) : verifyQuery.isSuccess && verifyQuery.data.status === "verified" ? (
                   <>
                     <FileCheck className="h-3 w-3" />
                     Signature verifiee
                   </>
-                ) : verifyQuery.isError || (verifyQuery.isSuccess && !verifyQuery.data.verified) ? (
+                ) : verifyQuery.isSuccess && verifyQuery.data.status === "failed" ? (
+                  <>
+                    <AlertTriangle className="h-3 w-3" />
+                    Verification echouee
+                  </>
+                ) : verifyQuery.isError ? (
                   <>
                     <AlertTriangle className="h-3 w-3" />
                     Verification echouee

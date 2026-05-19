@@ -173,6 +173,12 @@ pub struct DaemonHttpState {
     /// Sprint 62 Phase D: per-author GCRA rate limiter for remote
     /// feed entry ingestion. 5 ops/min/author.
     pub feed_rate_limiter: Arc<nexus_shell_daemon_core::feed_limiter::FeedRateLimiter>,
+    /// Sprint 66 Phase C: tracked JoinHandles for feed_join spawned
+    /// tasks, drained at shutdown for clean join.
+    pub feed_join_handles: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    /// Sprint 66 Phase C: shutdown signal for feed_join tasks.
+    /// Each task subscribes to get a Receiver.
+    pub feed_join_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
 }
 
 impl DaemonHttpState {
@@ -1728,23 +1734,41 @@ async fn get_provenance(
     match db.get_provenance_by_project(&project_id) {
         Ok(Some(record)) => {
             let record_json = nexus_coordinator_rs::provenance::provenance_to_json(&record);
-            let pub_bytes = state.pow_keypair.public_bytes();
-            let verified =
-                nexus_coordinator_rs::provenance::verify_provenance(&record_json, &pub_bytes);
             let provenance_hash = nexus_coordinator_rs::provenance::provenance_blake3_hex(&record);
+            let (status, verified) = match hex::decode(&record.node_id) {
+                Ok(bytes) if bytes.len() == 32 => {
+                    let pub_bytes: [u8; 32] = bytes.try_into().unwrap();
+                    let v = nexus_coordinator_rs::provenance::verify_provenance(
+                        &record_json,
+                        &pub_bytes,
+                    );
+                    if v {
+                        ("verified", true)
+                    } else {
+                        ("failed", false)
+                    }
+                }
+                _ => ("failed", false),
+            };
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
                     "record": record,
                     "verified": verified,
+                    "status": status,
                     "provenance_hash": provenance_hash,
                 })),
             )
                 .into_response()
         }
         Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "no provenance record for this project"})),
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "status": "absent",
+                "verified": false,
+                "record": null,
+                "provenance_hash": null,
+            })),
         )
             .into_response(),
         Err(e) => {
@@ -1940,6 +1964,8 @@ mod tests {
             feed_rate_limiter: Arc::new(
                 nexus_shell_daemon_core::feed_limiter::FeedRateLimiter::new(),
             ),
+            feed_join_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
+            feed_join_shutdown: Arc::new(tokio::sync::watch::channel(false).0),
         })
     }
 
@@ -2703,6 +2729,8 @@ mod tests {
             feed_rate_limiter: Arc::new(
                 nexus_shell_daemon_core::feed_limiter::FeedRateLimiter::new(),
             ),
+            feed_join_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
+            feed_join_shutdown: Arc::new(tokio::sync::watch::channel(false).0),
         });
         let app = build_test_router(state);
         let resp = app
@@ -5514,7 +5542,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provenance_endpoint_not_found() {
+    async fn provenance_endpoint_absent_status() {
         let app = build_test_router(mk_state().await);
         let resp = app
             .oneshot(
@@ -5526,10 +5554,13 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.status(), StatusCode::OK);
         let body = to_bytes(resp.into_body(), 1024).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(json["error"].as_str().is_some());
+        assert_eq!(json["status"], "absent");
+        assert_eq!(json["verified"], false);
+        assert!(json["record"].is_null());
+        assert!(json["provenance_hash"].is_null());
     }
 
     #[tokio::test]
@@ -5566,6 +5597,7 @@ mod tests {
         let body = to_bytes(resp.into_body(), 4096).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["verified"], true);
+        assert_eq!(json["status"], "verified");
         assert_eq!(json["record"]["repo_url"], "https://github.com/user/repo");
         assert_eq!(json["record"]["artifact_hash"], "deadbeef");
         assert_eq!(json["record"]["schema_version"], 1);
@@ -5577,7 +5609,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provenance_endpoint_found_wrong_key_not_verified() {
+    async fn provenance_cross_node_verified() {
         let state = mk_state().await;
         let project_id = state.node_id.clone();
         let other_kp = KeyPair::generate();
@@ -5609,8 +5641,48 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = to_bytes(resp.into_body(), 4096).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["verified"], false);
+        assert_eq!(json["verified"], true);
+        assert_eq!(json["status"], "verified");
         assert!(json["record"]["repo_url"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn provenance_cross_node_tampered() {
+        let state = mk_state().await;
+        let project_id = state.node_id.clone();
+        let signer_kp = KeyPair::generate();
+        let mut record = nexus_coordinator_rs::provenance::generate_provenance(
+            "https://github.com/tampered/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+            &hex::encode(signer_kp.public_bytes()),
+            &signer_kp,
+        );
+        let impostor_kp = KeyPair::generate();
+        record.node_id = hex::encode(impostor_kp.public_bytes());
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            db.insert_provenance_record(&project_id, &record)
+                .expect("insert");
+        }
+
+        let app = build_test_router(state);
+        let uri = format!("/api/v1/project/{project_id}/provenance");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["verified"], false);
+        assert_eq!(json["status"], "failed");
     }
 
     #[tokio::test]

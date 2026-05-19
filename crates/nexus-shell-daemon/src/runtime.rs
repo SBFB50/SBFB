@@ -227,6 +227,8 @@ pub struct DaemonRuntime {
     dispatch_shutdown: Option<oneshot::Sender<()>>,
     feed_handle: Option<JoinHandle<()>>,
     feed_shutdown: Option<tokio::sync::watch::Sender<bool>>,
+    feed_join_handles: Option<Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>>,
+    feed_join_shutdown: Option<Arc<tokio::sync::watch::Sender<bool>>>,
     bound_addr: std::net::SocketAddr,
 }
 
@@ -637,6 +639,43 @@ impl DaemonRuntime {
                 }
             };
 
+        // 6c-5. Sprint 66 Phase C: republish SQLite feed entries to
+        //       iroh-docs at boot (one-shot, synchronous before HTTP).
+        if let Some(ref fs) = feed_sync_state {
+            let entries_result = {
+                let db = coordinator_db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
+                nexus_coordinator_rs::public_feed::replay_all(&db)
+            };
+            match entries_result {
+                Ok(entries) => {
+                    let mut published = 0u64;
+                    for entry in &entries {
+                        if let Err(e) =
+                            crate::feed_sync::publish_feed_entry_to_docs(fs, entry).await
+                        {
+                            warn!(seq = entry.seq, error = %e, "feed republish failed");
+                        } else {
+                            published += 1;
+                        }
+                    }
+                    info!(
+                        total = entries.len(),
+                        published, "feed entries republished to iroh-docs at boot"
+                    );
+                }
+                Err(e) => warn!(error = %e, "feed replay_all failed, skipping republish"),
+            }
+        }
+
+        // 6c-6. Sprint 66 Phase C: feed_join shutdown channel +
+        //       shared handle Vec for clean join at shutdown.
+        let (feed_join_shutdown_tx, _) = tokio::sync::watch::channel(false);
+        let feed_join_shutdown = Arc::new(feed_join_shutdown_tx);
+        let feed_join_handles: Arc<std::sync::Mutex<Vec<JoinHandle<()>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+
         // 6d. Build gossip command channel + shared HTTP state +
         //     spawn the serve task.
         let (gossip_cmd_tx, gossip_cmd_rx) = tokio::sync::mpsc::channel::<GossipCmd>(64);
@@ -688,6 +727,8 @@ impl DaemonRuntime {
             ),
             feed_sync_state,
             feed_rate_limiter,
+            feed_join_handles: Arc::clone(&feed_join_handles),
+            feed_join_shutdown: Arc::clone(&feed_join_shutdown),
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
@@ -832,6 +873,8 @@ impl DaemonRuntime {
             dispatch_shutdown: Some(dispatch_shutdown_tx),
             feed_handle,
             feed_shutdown: Some(feed_shutdown_tx),
+            feed_join_handles: Some(feed_join_handles),
+            feed_join_shutdown: Some(feed_join_shutdown),
             bound_addr,
         })
     }
@@ -902,6 +945,21 @@ impl DaemonRuntime {
         if let Some(mut handle) = self.feed_handle.take() {
             if let Err(e) = (&mut handle).await {
                 warn!(error = %e, "feed subscribe task join failed");
+            }
+        }
+
+        if let Some(sender) = self.feed_join_shutdown.take() {
+            let _ = sender.send(true);
+        }
+        if let Some(handles_arc) = self.feed_join_handles.take() {
+            let handles: Vec<_> = {
+                let mut guard = handles_arc.lock().unwrap_or_else(|e| e.into_inner());
+                std::mem::take(&mut *guard)
+            };
+            for mut h in handles {
+                if let Err(e) = (&mut h).await {
+                    warn!(error = %e, "feed join task join failed");
+                }
             }
         }
 
@@ -1779,5 +1837,64 @@ mod tests {
         let rt2 = DaemonRuntime::start(opts2).await.unwrap();
         assert!(rt2.feed_handle.is_some());
         rt2.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_feed_republish_at_boot() {
+        let tmp = tempdir().expect("tempdir");
+
+        let opts1 = mk_opts(tmp.path());
+        let db_path = opts1.paths.root.join("coordinator.db");
+        let rt1 = DaemonRuntime::start(opts1).await.unwrap();
+        rt1.shutdown().await.unwrap();
+
+        {
+            let db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path).expect("open test DB");
+            let kp = nexus_core_rs::KeyPair::generate();
+            let pubkey = hex::encode(kp.public_bytes());
+            let op = serde_json::json!({
+                "type": "ReleasePublished",
+                "project_id": "test-republish",
+                "version": "1.0.0"
+            });
+            nexus_coordinator_rs::public_feed::insert_feed_operation(&db, op, &pubkey, |data| {
+                kp.sign(data).to_vec()
+            })
+            .expect("insert feed op");
+            let entries = nexus_coordinator_rs::public_feed::replay_all(&db).unwrap();
+            assert_eq!(entries.len(), 1, "SQLite must have 1 entry before reboot");
+        }
+
+        let opts2 = mk_opts(tmp.path());
+        let rt2 = DaemonRuntime::start(opts2).await.unwrap();
+        assert!(
+            rt2.feed_handle.is_some(),
+            "feed subscribe must be active after republish boot"
+        );
+        rt2.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_feed_join_handles_tracked_and_shutdown() {
+        let tmp = tempdir().expect("tempdir");
+        let opts = mk_opts(tmp.path());
+        let rt = DaemonRuntime::start(opts).await.unwrap();
+        assert!(
+            rt.feed_join_handles.is_some(),
+            "feed_join_handles must be initialized at boot"
+        );
+        assert!(
+            rt.feed_join_shutdown.is_some(),
+            "feed_join_shutdown must be initialized at boot"
+        );
+        let handles = rt.feed_join_handles.as_ref().unwrap();
+        assert_eq!(
+            handles.lock().unwrap().len(),
+            0,
+            "no feed_join calls yet, Vec must be empty"
+        );
+        rt.shutdown()
+            .await
+            .expect("shutdown must join feed_join handles without leak");
     }
 }

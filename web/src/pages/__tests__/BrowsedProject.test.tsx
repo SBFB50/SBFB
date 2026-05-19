@@ -370,6 +370,7 @@ describe("BrowsedProject", () => {
       "/provenance": {
         record: { repo_url: "https://example.com" },
         verified: true,
+        status: "verified",
         provenance_hash: "bb".repeat(32),
       },
     });
@@ -389,12 +390,34 @@ describe("BrowsedProject", () => {
       "/provenance": {
         record: { repo_url: "https://example.com" },
         verified: false,
+        status: "failed",
         provenance_hash: "bb".repeat(32),
       },
     });
     renderPage(LOCAL_NODE_ID);
     await waitFor(() => {
       expect(screen.getByText("Verification echouee")).toBeInTheDocument();
+    });
+  });
+
+  it("badge shows 'Provenance' when status is absent", async () => {
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [makeBrowseEntry({ provenance_hash: "bb".repeat(32) })],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+      "/provenance": {
+        record: null,
+        verified: false,
+        status: "absent",
+        provenance_hash: null,
+      },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      const badge = screen.getByTestId("verified-badge");
+      expect(badge).toHaveTextContent("Provenance");
     });
   });
 

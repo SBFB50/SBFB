@@ -614,15 +614,12 @@ pub async fn feed_join(
         }
     }
 
-    // Spawn a task that first backfills existing entries (from the
-    // iroh-docs namespace) then processes the live event stream.
-    // Dedup via entry_hash UNIQUE index handles overlap.
+    let mut shutdown_rx = state.feed_join_shutdown.subscribe();
     let feed_st = Arc::clone(&joined_state);
     let db_sp = Arc::clone(&state.coordinator_db);
     let node_sp = Arc::clone(&state.node);
     let limiter_sp = Arc::clone(&state.feed_rate_limiter);
-    tokio::spawn(async move {
-        // Backfill: iterate entries already present in the doc.
+    let handle = tokio::spawn(async move {
         match feed_st.doc.get_many_by_prefix(b"feed/").await {
             Ok(entries) => {
                 info!(count = entries.len(), "backfilling existing feed entries");
@@ -633,25 +630,50 @@ pub async fn feed_join(
             Err(e) => warn!(error = %e, "feed backfill scan failed"),
         }
 
-        // Process live stream (captures events from import time).
         futures_lite::pin!(live_stream);
         info!("feed join subscribe active");
-        while let Some(event) = live_stream.next().await {
-            match event {
-                Ok(DocsLiveEvent::InsertRemote {
-                    entry: doc_entry, ..
-                }) => {
-                    ingest_doc_entry(&doc_entry, &node_sp, &db_sp, &limiter_sp, true).await;
+        loop {
+            tokio::select! {
+                event = live_stream.next() => {
+                    match event {
+                        Some(Ok(DocsLiveEvent::InsertRemote {
+                            entry: doc_entry, ..
+                        })) => {
+                            ingest_doc_entry(&doc_entry, &node_sp, &db_sp, &limiter_sp, true).await;
+                        }
+                        Some(Ok(_)) => {}
+                        Some(Err(e)) => {
+                            warn!(error = %e, "feed join stream error");
+                            break;
+                        }
+                        None => break,
+                    }
                 }
-                Ok(_) => {}
-                Err(e) => {
-                    warn!(error = %e, "feed join stream error");
+                _ = shutdown_rx.changed() => {
+                    info!("feed join subscribe shutting down");
                     break;
                 }
             }
         }
         info!("feed join subscribe ended");
     });
+
+    if let Ok(mut handles) = state.feed_join_handles.lock() {
+        handles.retain(|h| !h.is_finished());
+        const MAX_FEED_JOINS: usize = 10;
+        if handles.len() >= MAX_FEED_JOINS {
+            warn!(
+                active = handles.len(),
+                "feed_join cap reached, rejecting new join"
+            );
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({ "error": "too many active feed joins" })),
+            )
+                .into_response();
+        }
+        handles.push(handle);
+    }
 
     (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
 }

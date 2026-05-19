@@ -328,10 +328,10 @@ async function dispatch(
           `${coordUrl}/api/v1/project/${encodeURIComponent(pid)}/provenance`,
           { signal: controller.signal },
         );
-        if (resp.status === 404) return { record: null, provenance_hash: null };
+        if (resp.status === 404) return { record: null, provenance_hash: null, status: "absent" };
         if (!resp.ok) throw new Error(`provenance_get failed: ${resp.status}`);
-        const data = (await resp.json()) as { record: unknown; provenance_hash: string };
-        return { record: data.record, provenance_hash: data.provenance_hash };
+        const data = (await resp.json()) as { record: unknown; provenance_hash: string; status: string };
+        return { record: data.record, provenance_hash: data.provenance_hash, status: data.status };
       }
 
       case "provenance_verify": {
@@ -341,10 +341,10 @@ async function dispatch(
           `${coordUrl}/api/v1/project/${encodeURIComponent(pid)}/provenance`,
           { signal: controller.signal },
         );
-        if (resp.status === 404) return { verified: false, record: null, provenance_hash: null };
+        if (resp.status === 404) return { verified: false, status: "absent", record: null, provenance_hash: null };
         if (!resp.ok) throw new Error(`provenance_verify failed: ${resp.status}`);
-        const data = (await resp.json()) as { record: unknown; verified: boolean; provenance_hash: string };
-        return { verified: data.verified, record: data.record, provenance_hash: data.provenance_hash };
+        const data = (await resp.json()) as { record: unknown; verified: boolean; provenance_hash: string; status: string };
+        return { verified: data.verified, status: data.status, record: data.record, provenance_hash: data.provenance_hash };
       }
 
       case "feed_cursor_get": {
