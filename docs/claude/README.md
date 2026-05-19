@@ -554,6 +554,12 @@ sections, 105 lignes, chaque section substantive avec table markdown.
 squelette complet prêt à copier. L'agent exécuteur DOIT le lire avant
 d'écrire le premier commit body de chaque sprint.
 
+**Deletions de code source** : la suppression de fichiers source
+(`.rs`, `.ts`, `.tsx`, `.py`, etc.) doit être dans le commit `feat`
+de la phase qui la motive ou dans un commit `chore(cleanup)` dédié
+— jamais dans un `chore(planning)`. Un commit `chore(planning)` ne
+touche que `.planning/`, docs workflow, et agents/skills/hooks.
+
 Si une phase a besoin d'un fix post-commit (pattern Sprint 2
 `de9589d` / `ed2ea76` ou Sprint 6 gate `05c96c4..8fbe07b`),
 le fix vit dans un commit séparé

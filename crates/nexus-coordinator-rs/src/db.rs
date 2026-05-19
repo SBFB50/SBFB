@@ -215,6 +215,7 @@ impl CoordinatorDb {
     pub fn open(path: &Path) -> Result<Self, CoordinatorError> {
         let mut conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "FULL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
 
         let migrations = Migrations::new(MIGRATIONS.to_vec());
@@ -1307,5 +1308,17 @@ mod tests {
             .expect("get")
             .expect("found");
         assert_eq!(fetched.app_version, None);
+    }
+
+    #[test]
+    fn coordinator_db_synchronous_full() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("coordinator.db");
+        let db = CoordinatorDb::open(&path).expect("open");
+        let sync_val: i64 = db
+            .conn
+            .pragma_query_value(None, "synchronous", |row| row.get(0))
+            .expect("pragma query");
+        assert_eq!(sync_val, 2, "synchronous must be FULL (2) in WAL mode");
     }
 }

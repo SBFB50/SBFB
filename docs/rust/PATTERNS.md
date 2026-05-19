@@ -2551,6 +2551,61 @@ Cross-ref: `nexus-launcher/src/tray.rs`, `nexus-launcher/src/main.rs`.
 
 ---
 
+## §P51 — Sprint 65 Phase A / Sprint 66 Phase B : Raw-op store+forward
+
+The public feed uses a **raw-op** extensibility pattern: each
+`FeedEntry.op` is stored as `serde_json::Value`, not as a typed enum.
+This allows nodes to store and propagate unknown operation types
+without interpretation — a node running v1 code will relay a
+`CuratorVouched` operation added in v2 without dropping it.
+
+### Core API (public_feed.rs)
+
+```rust
+// Struct: FeedEntry.op is Value (l.79)
+pub struct FeedEntry {
+    pub op: Value,  // NOT PublicFeedOperation
+    // ...
+}
+
+// Typed access via try_parse_op (l.110-112)
+pub fn try_parse_op(op: &Value) -> Option<PublicFeedOperation> {
+    serde_json::from_value(op.clone()).ok()
+}
+
+// Discriminant extraction (l.115-117)
+pub fn op_type(op: &Value) -> Option<&str> {
+    op.get("op_type").and_then(|v| v.as_str())
+}
+```
+
+### Validation (public_feed.rs l.224-236)
+
+`validate_feed_operation` accepts unknown ops with size check only:
+
+```rust
+pub fn validate_feed_operation(op: &Value) -> Result<(), String> {
+    // 1. Size gate (MAX_OPERATION_JSON_SIZE = 64 KB)
+    // 2. If parseable as known op → validate_known_operation()
+    // 3. Unknown ops pass (store + forward)
+}
+```
+
+### Invariants
+
+- Adding a new `PublicFeedOperation` variant does NOT bump
+  `FEED_FORMAT_VERSION` — only envelope changes do.
+- `#[serde(default)]` on `pow_nonce` is for runtime tolerance
+  (local entries omit it), not historical compat.
+- `FeedEntryCanonical` mirrors `FeedEntry` minus `entry_hash`,
+  `signature`, `pow_nonce` — canonical bytes exclude transport
+  fields.
+
+Cross-ref: `PUBLIC_FEED_SPEC.md §2, §10`, `CLAUDE.md` pre-launch
+protocol policy.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

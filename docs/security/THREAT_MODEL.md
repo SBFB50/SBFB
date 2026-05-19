@@ -469,7 +469,78 @@ binaire `nexus-admin`. Cf. `CAPABILITY_TOGGLES.md`.
 
 ---
 
-## 10. Revue et evolution
+## 10. Feed surface (Sprint 66 Phase B)
+
+Le feed public (`public_feed.rs`, spec `PUBLIC_FEED_SPEC.md`)
+expose une surface d'attaque specifique transposee ici depuis
+la spec §12 Security considerations.
+
+### T-FEED-INTEGRITY — Feed integrity tampering
+
+Un attaquant modifie une entry feed en transit ou au repos.
+Mitigation : chaine de hash BLAKE3 + signature Ed25519 sur
+chaque entry. Le tampering est detectable a la verification
+(`verify_entry`). Ref spec §4, §10.2.
+
+| Dimension | Valeur |
+|---|---|
+| Severite | H |
+| Likelihood | M (transport iroh-docs untrusted) |
+| Mitigation | BLAKE3 hash-chain + Ed25519 signature |
+| Residual | Nil (cryptographic guarantee) |
+
+### T-FEED-SPAM — Feed spam / rate-limit bypass
+
+Un attaquant flood le feed avec des operations pour epuiser le
+stockage ou noyer les entries legitimes. Mitigation : rate
+limiter GCRA per-author (5 ops/min, spec §10.1 #1), payload
+size limit (64 KB, spec §10.1 #2), PoW optionnel 16-bit.
+
+| Dimension | Valeur |
+|---|---|
+| Severite | M |
+| Likelihood | M (open network) |
+| Mitigation | GCRA 5 ops/min + 64 KB limit + PoW |
+| Residual | L (Sybil multi-keypair, cf. T-FEED-4) |
+
+### T-FEED-FORGERY — Cross-author forgery
+
+Un attaquant publie des entries sous l'identite d'un autre
+auteur. Mitigation : verification Ed25519 de la signature
+contre le `author_pubkey` declare (spec §10.1 #6, §10.2 #7).
+
+| Dimension | Valeur |
+|---|---|
+| Severite | H |
+| Likelihood | L (requires Ed25519 break) |
+| Mitigation | Ed25519 signature verification |
+| Residual | Nil (cryptographic guarantee) |
+
+### T-FEED-CLOCK-SKEW — Clock skew manipulation
+
+Un attaquant place des timestamps far-future pour manipuler
+l'ordre ou la detection de staleness. Mitigation : gate 30
+jours futur (spec §10.2 #10).
+
+| Dimension | Valeur |
+|---|---|
+| Severite | M |
+| Likelihood | L (detectable, limited impact) |
+| Mitigation | 30-day future timestamp gate |
+| Residual | L (past timestamps accepted, ordering by seq) |
+
+### Residual risks feed
+
+- **Pas de resistance Sybil** tant que `CuratorVouched` n'est
+  pas implemente (Sprint 67+). Tout keypair Ed25519 peut etre
+  auteur.
+- **Pas de quarantine feed** par auteur suspect (Sprint 67+).
+- **Pas de feed-level revocation** — une entry publiee ne peut
+  pas etre retiree du log append-only (by design).
+
+---
+
+## 11. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -490,3 +561,5 @@ Historique versions :
   livraison des 4 phases hardening A-D. Baseline pour Sprint 17+.
 - **v2 (Sprint 29 Phase B, 2026-04-26)** : ajout §9 residual risks
   per-configuration (6 sous-sections), renommage §9→§10.
+- **v3 (Sprint 66 Phase B, 2026-05-19)** : ajout §10 Feed surface
+  (T-FEED-1..T-FEED-4), renommage §10→§11.
