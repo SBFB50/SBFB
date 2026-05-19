@@ -56,7 +56,15 @@ WARNINGS=0
 
 # === Extract SPRINT + PHASE from commit title only (shared by checks 4, 5) ===
 # Extract the commit title (first line of the message, before any newline).
+# Supports both `-m "message"` and `-F filename` syntax.
 COMMIT_TITLE=$(echo "$CMD" | sed -n "s/.*-m[[:space:]]*[\"']\?\([^\n\"]*\).*/\1/p" | head -1 || true)
+if [ -z "$COMMIT_TITLE" ]; then
+  # Fallback: extract title from -F filename (git commit -F path)
+  COMMIT_FILE=$(echo "$CMD" | grep -oE -- '-F[[:space:]]+[^ ]+' | sed 's/-F[[:space:]]*//' | head -1 || true)
+  if [ -n "$COMMIT_FILE" ] && [ -f "$COMMIT_FILE" ]; then
+    COMMIT_TITLE=$(head -1 "$COMMIT_FILE" 2>/dev/null || true)
+  fi
+fi
 [ -z "$COMMIT_TITLE" ] && COMMIT_TITLE="$CMD"
 # Primary: scope-based detection (feat(sprint64): Sprint 64 Phase A)
 SPRINT=$(echo "$COMMIT_TITLE" | grep -oE '(feat|fix|docs|chore|test|refactor)\(sprint[0-9]+\)' | head -1 | grep -oE '[0-9]+' || true)
@@ -64,7 +72,8 @@ SPRINT=$(echo "$COMMIT_TITLE" | grep -oE '(feat|fix|docs|chore|test|refactor)\(s
 if [ -z "$SPRINT" ]; then
   SPRINT=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' | head -1 | grep -oE '[0-9]+' || true)
 fi
-PHASE=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $NF}' || true)
+PHASE_RAW=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $NF}' || true)
+PHASE=$(echo "$PHASE_RAW" | tr '[:upper:]' '[:lower:]' || true)
 
 # === Check 1 : coherence staging pub mod (STRICT) ===
 CURRENT_FILE=""

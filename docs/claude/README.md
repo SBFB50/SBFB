@@ -1743,7 +1743,7 @@ procédure lui-même (sauf Cas D hotfix).
       Avant scope cut S+1 (G7) : verifier compteur reports de
       chaque carry (§6.2.1 Regle 2).
 
-    APRÈS code, AVANT commit (review) :
+    APRÈS code, AVANT commit (review Claude) :
       INVOQUER agent `nexus-phase-review-deep`.
       L'agent lit le diff complet ligne par ligne, lance les 3
       blocs verification §7.4, vérifie la branch coverage
@@ -1753,6 +1753,20 @@ procédure lui-même (sauf Cas D hotfix).
       avec verdict PASS / CONCERN / FAIL.
       Si FAIL : corriger les P0/P1, re-invoquer l'agent.
       Fallback : skill nexus-phase-review (profondeur réduite).
+
+    APRÈS review PASS, AVANT commit (Codex §4.5) :
+      Lancer la verification croisee Codex GPT 5.5 (sauf
+      exemptions §4.5.6 : docs-only, <5 LOC, hotfix, PO skip).
+      Ecrire prompt `.git/CODEX_PHASE_X.txt`, lancer via
+      `Get-Content | codex exec -o .planning/active/
+      sprint{N}_phase_{X}_codex_review.md`.
+      Si GAPs P0/P1 : corriger, relancer Codex (boucle jusqu'a
+      CLEAN ou P2/P3 documentes uniquement).
+      Si GAPs P2/P3 : documenter dans commit body.
+      Le fichier codex_review.md est enforce par lightcheck
+      Check 7 (STRICT BLOCK sur feat Phase).
+      Sequence stricte : review → Codex → commit. JAMAIS
+      committer avant le verdict Codex.
 
     Livrable final : 1 commit feat(scope): Sprint N Phase X.
 
