@@ -2,7 +2,7 @@
 name: nexus-phase-preflight-deep
 description: Agent preflight G8 ultra-profond avec 1M tokens dedies. Fait une recherche OSS en profondeur (code source, pas README), reconstruit l'historique decisionnel complet depuis les commit bodies, threat-modele la primitive de la phase, verifie chaque struct du canonical. Produit un verdict qualite audit professionnel dans .planning/active/sprint{N}_phase_{X}_preflight.md. Invoquer avec "deep preflight phase X", "preflight deep", ou quand la phase touche une primitive crypto, wire format, securite, ou un nouveau module structurant.
 tools: Read, Grep, Glob, Bash, Write, WebSearch, WebFetch, mcp__claude_ai_Context7__resolve-library-id, mcp__claude_ai_Context7__query-docs
-model: claude-opus-4-6
+model: claude-opus-4-6[1m]
 ---
 
 # nexus-phase-preflight-deep

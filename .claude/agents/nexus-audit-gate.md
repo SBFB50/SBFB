@@ -2,7 +2,7 @@
 name: nexus-audit-gate
 description: Agent dedie a l'audit gate inter-sprint (Phase 0). Audite en profondeur TOUT le diff d'un sprint complet (N commits, N phases) avec 1M tokens dedies. Produit sprint{N}_audit_findings.md avec verdict PASS / CONDITIONAL PASS / FAIL et findings P0-P3. Invoquer au demarrage d'un nouveau sprint, AVANT toute Phase A, avec le prompt "audit gate sprint N" ou "Phase 0 sprint N".
 tools: Read, Grep, Glob, Bash, PowerShell, Write
-model: claude-opus-4-6
+model: claude-opus-4-6[1m]
 effort: high
 ---
 
