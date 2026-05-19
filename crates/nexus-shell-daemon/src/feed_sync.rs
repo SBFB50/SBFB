@@ -614,6 +614,22 @@ pub async fn feed_join(
         }
     }
 
+    if let Ok(mut handles) = state.feed_join_handles.lock() {
+        handles.retain(|h| !h.is_finished());
+        const MAX_FEED_JOINS: usize = 10;
+        if handles.len() >= MAX_FEED_JOINS {
+            warn!(
+                active = handles.len(),
+                "feed_join cap reached, rejecting new join"
+            );
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({ "error": "too many active feed joins" })),
+            )
+                .into_response();
+        }
+    }
+
     let mut shutdown_rx = state.feed_join_shutdown.subscribe();
     let feed_st = Arc::clone(&joined_state);
     let db_sp = Arc::clone(&state.coordinator_db);
@@ -659,19 +675,6 @@ pub async fn feed_join(
     });
 
     if let Ok(mut handles) = state.feed_join_handles.lock() {
-        handles.retain(|h| !h.is_finished());
-        const MAX_FEED_JOINS: usize = 10;
-        if handles.len() >= MAX_FEED_JOINS {
-            warn!(
-                active = handles.len(),
-                "feed_join cap reached, rejecting new join"
-            );
-            return (
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(serde_json::json!({ "error": "too many active feed joins" })),
-            )
-                .into_response();
-        }
         handles.push(handle);
     }
 
