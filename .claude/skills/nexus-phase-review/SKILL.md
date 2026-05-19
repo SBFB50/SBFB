@@ -100,12 +100,11 @@ chore(planning) d'abord, Phase apres. Pas de question.
 
 ### Step 2 — Verification suites (§7.4)
 
-Lancer **les 3 blocs complets** (Rust + Python + Frontend),
+Lancer **les 2 blocs complets** (Rust + Frontend),
 independamment du langage touche par la phase. Une modification
 dans un seul langage peut provoquer une regression cross-stack
-(ex : wiring app.py casse un Playwright, endpoint http.rs casse
-un proxy coord-side). Cout des 3 blocs ~5 min, cout d'une
-regression non detectee = fix(sprint) + audit P1.
+(ex : endpoint http.rs casse un test frontend). Cout des 2 blocs
+~5 min, cout d'une regression non detectee = fix(sprint) + audit P1.
 
 **NE PAS filtrer par "langage touche"** — c'est un anti-pattern
 identifie Sprint 23 Phase E (suites web non lancees alors que
@@ -118,12 +117,14 @@ cargo fmt --all --check && \
   cargo nextest run --workspace --locked && \
   cargo test --workspace --locked --doc
 
-# Python
-uv run ruff format --check packages/ && \
-  uv run ruff check packages/ && \
-  uv run pytest packages/nexus-sdk/tests/ -q && \
-  uv run pytest packages/nexus-coordinator/tests/ -q && \
-  uv run pytest packages/nexus-app-gov/tests/ -q
+# Python — OBSOLETE depuis pivot S50 (code Python supprime)
+# Bloc conserve pour reference historique uniquement.
+# Ne PAS executer — les packages/ n'existent plus.
+# uv run ruff format --check packages/ && \
+#   uv run ruff check packages/ && \
+#   uv run pytest packages/nexus-sdk/tests/ -q && \
+#   uv run pytest packages/nexus-coordinator/tests/ -q && \
+#   uv run pytest packages/nexus-app-gov/tests/ -q
 
 # Frontend
 cd web && \
@@ -132,7 +133,6 @@ cd web && \
   npm run test:unit && \
   npm run build && \
   npm run size && \
-  npx playwright test && \
   bash scripts/scan-en-strings.sh && \
   cd ..
 
@@ -204,21 +204,18 @@ RUST_DOC=$(cargo test --workspace --locked --doc 2>&1 | \
   grep -E '^test result:' | awk '{sum+=$4} END {print sum+0}')
 RUST_AFTER=$((RUST_NEXTEST + RUST_DOC))
 
-PY_SDK_AFTER=$(uv run pytest packages/nexus-sdk/tests/ -q 2>&1 | \
-  grep -E 'passed' | tail -1 | awk '{print $1}')
-# ... (idem coord, app-gov, vitest, playwright)
+# ... (idem vitest, size-limit)
 ```
 
 Comparer avec les compteurs du `memory/nexus_grid_pivot.md` ou du
-commit precedent (`git log -1 --format=%B | grep -E 'Rust workspace|Python coord|Vitest|Playwright'`).
+commit precedent (`git log -1 --format=%B | grep -E 'Rust workspace|Vitest|size-limit'`).
 
 Calculer le **delta** attendu dans le body du prochain commit :
 
 ```
 Rust workspace:     <before> -> <after> (+<delta> Phase X)
-Python coord:       <before> -> <after> (+<delta>)
 Vitest unit:        <before> -> <after> (+<delta>)
-Playwright:         <before> -> <after> (+<delta>)
+size-limit:         <before> -> <after>
 ```
 
 ### Step 4 — Verifier le draft commit body
@@ -478,10 +475,9 @@ Produire un rapport markdown concis :
 - Untracked accidentels : 0
 
 ## Suites
-- Rust : 430 -> 437 (+7) ✅
-- Python coord : 190 -> 192 (+2) ✅
-- Vitest : 239 -> 239 (+0) ✅ (no frontend change)
-- Playwright : 38 -> 38 (+0) ✅
+- Rust : 430 -> 437 (+7)
+- Vitest : 239 -> 239 (+0) (no frontend change)
+- size-limit : 6/6
 
 ## Commit body validation
 - Format titre : ✅ "feat(sprint18): Sprint 18 Phase B — reproducible builds"

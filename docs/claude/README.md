@@ -277,8 +277,7 @@ Sections canoniques :
    avec la colonne Observed remplie et un `✅` pour chaque
    row verte
 5. **Métriques sprint** — table `Suite | Avant | Après |
-   Delta` pour Rust / Python SDK / coord / app-gov / Vitest /
-   Playwright / size-limit
+   Delta` pour Rust / Vitest / size-limit
 6. **Surface nouvelle livrée** — liste factuelle des LOC par
    nouveau module
 7. **Ce que le sprint n'a PAS livré (scope cuts respectés)**
@@ -481,7 +480,17 @@ Chaque phase respecte une discipline stricte :
 
 ### 4.1 Un commit atomique par phase
 
-Pattern commit :
+Pattern commit title (format exact) :
+
+```
+type(scope): Sprint N Phase X — titre court
+```
+
+Types valides : `feat` (nouvelle fonctionnalite), `fix` (correction
+bug), `docs` (documentation seule), `chore` (planning, deps, CI).
+Le scope est le module principal touche (ex : `feed`, `trust`,
+`factory`, `planning`). Compound scopes separes par `+` si la phase
+touche 2+ modules (ex : `feed+trust`).
 
 ```
 feat(scope): Sprint N Phase X — titre court
@@ -495,7 +504,7 @@ Body structuré (template — 8 sections obligatoires) :
 | Fichier | Rôle |
 |---------|------|
 | crates/nexus-foo/src/bar.rs | [description changement] |
-[grouper par Rust / Python / Web / Tests]
+[grouper par Rust / Web / Tests]
 
 ## Delta tests
 | Suite | Avant | Après | Delta |
@@ -591,7 +600,7 @@ Staging explicite (jamais `git add -A`) :
 ```bash
 git add \
   crates/nexus-foo/src/bar.rs \
-  packages/nexus-foo/tests/test_bar.py \
+  web/src/pages/Foo.tsx \
   ...
 ```
 
@@ -613,9 +622,6 @@ workspace qu'une seule fois, juste avant le commit.
 # Rust — nextest sur le crate touché, tests unit+integration
 cargo nextest run -p <crate-touche> --locked
 
-# Python — pytest ciblé sur le package modifié
-uv run pytest packages/<pkg-touche>/tests/ -q
-
 # Frontend — vitest watch mode ou un seul fichier
 cd web && npx vitest run src/components/__tests__/<file>.test.tsx
 ```
@@ -629,19 +635,12 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo nextest run --workspace --locked
 cargo test --workspace --locked --doc
 
-uv run ruff format --check packages/
-uv run ruff check packages/
-uv run pytest packages/nexus-sdk/tests/ -q
-uv run pytest packages/nexus-coordinator/tests/ -q
-uv run pytest packages/nexus-app-gov/tests/ -q
-
 cd web
 npx tsc --noEmit -p tsconfig.app.json
 npm run lint
 npm run test:unit
 npm run build
 npm run size
-npx playwright test
 bash scripts/scan-en-strings.sh
 ```
 
@@ -658,16 +657,20 @@ je fix après » — le fix doit être dans le même commit ou
 déclenche un nouveau cycle.
 
 **Verification croisee Codex (depuis S65, cf. §4.5).** Apres que
-toutes les suites sont vertes et que la review Claude (skill
-nexus-phase-review + agent nexus-phase-auditor) a produit un
+toutes les suites sont vertes et que la review Claude a produit un
 verdict PASS, lancer la verification Codex GPT 5.5 (sauf phases
 exemptees §4.5.6). Sequence complete avant commit phase :
 
 1. Suites §7.4 vertes (Rust + Frontend)
-2. Review Claude (skill nexus-phase-review) — verdict PASS
-3. Agent nexus-phase-auditor — verdict PASS
-4. Codex verification croisee (§4.5) — GAPs corriges ou documentes
-5. Commit atomique
+2. Review Claude — verdict PASS (agent nexus-phase-review-deep ou
+   fallback skill nexus-phase-review + agent nexus-phase-auditor)
+3. Codex verification croisee (§4.5) — GAPs corriges ou documentes
+4. Commit atomique
+
+L'ordre review → Codex → commit est strict. Ne jamais committer
+avant que la review Claude et le Codex (si applicable) aient
+produit leur verdict. Ne jamais lancer Codex avant la review
+Claude.
 
 ### 4.4 Phase F wrap-up — parse phase reviews et route les P2/P3 au audit_plan
 
@@ -1877,12 +1880,10 @@ feat(scope): Sprint N Phase X — titre court
 Contexte : <1-2 lignes pourquoi cette phase>
 Fichiers touchés :
   - path/file.rs : <rôle>
-  - path/file.py : <rôle>
 Delta tests cumulé :
   Rust workspace : NNN -> NNN (+X Phase Y)
-  Python coord   : NN+1 -> NN+1 (+X)
   Vitest unit    : NNN -> NNN (+X)
-  Playwright     : NN -> NN (+X)
+  size-limit     : 6/6
 Scope cuts honoured : <items NOT, copie du kickoff §6>
 
 Co-Authored-By: Claude <model> <noreply@anthropic.com>
@@ -1975,13 +1976,6 @@ cargo clippy --workspace --all-targets --locked -- -D warnings && \
 cargo nextest run --workspace --locked && \
 cargo test --workspace --locked --doc
 
-# Python
-uv run ruff format --check packages/ && \
-uv run ruff check packages/ && \
-uv run pytest packages/nexus-sdk/tests/ -q && \
-uv run pytest packages/nexus-coordinator/tests/ -q && \
-uv run pytest packages/nexus-app-gov/tests/ -q
-
 # Frontend
 cd web && \
 npx tsc --noEmit -p tsconfig.app.json && \
@@ -1989,7 +1983,6 @@ npm run lint && \
 npm run test:unit && \
 npm run build && \
 npm run size && \
-npx playwright test && \
 bash scripts/scan-en-strings.sh && \
 cd ..
 ```
@@ -1998,13 +1991,12 @@ Pendant l'**itération** d'une phase, scope au crate touché plutôt
 que de lancer le workspace entier à chaque edit — cf. §4.3 pour le
 détail des deux modes (itération rapide vs verification finale).
 
-**Pre-commit final : les 3 blocs sont OBLIGATOIRES**, même si la
-phase ne touche qu'un seul langage. Une modification Python
-(`app.py` wiring) peut casser un test Playwright ; un changement
-Rust (`http.rs` endpoint) peut impacter un proxy coord-side testé
-en Python. Le coût des 3 blocs complets est ~5 min ; le coût d'une
-régression cross-stack non détectée est un fix(sprint) + audit P1.
-Ne pas filtrer par "langage touché" — lancer les 3 blocs.
+**Pre-commit final : les 2 blocs sont OBLIGATOIRES**, même si la
+phase ne touche qu'un seul langage. Un changement Rust
+(`http.rs` endpoint) peut impacter un test frontend. Le coût des
+2 blocs complets est ~5 min ; le coût d'une régression cross-stack
+non détectée est un fix(sprint) + audit P1.
+Ne pas filtrer par "langage touché" — lancer les 2 blocs.
 
 Tout rouge bloque le commit. Pas de `--no-verify`, pas de
 `#[ignore]` ajouté pour faire passer. Root cause d'abord.
