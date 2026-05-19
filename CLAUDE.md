@@ -36,10 +36,24 @@ lit le verdict et avance ou s'arrete.
 
 | Agent | Cas | Artefact | Fallback |
 |---|---|---|---|
+| `nexus-process-supervisor` | **TOUS** | verdicts GO/BLOCK | **AUCUN** — obligatoire |
 | `nexus-audit-gate` | A | audit_findings.md | main thread + README §3 |
 | `nexus-sprint-kickoff` | C | kickoff.md + plan.md + design_review.md | main thread + README §2 |
 | `nexus-phase-preflight-deep` | B pre-code | preflight.md | skill nexus-phase-preflight |
 | `nexus-phase-review-deep` | B post-code | review.md | skill nexus-phase-review |
+| `nexus-phase-auditor` | B post-code | review.md | subsume par review-deep |
+
+**Superviseur process** : `nexus-process-supervisor` est spawne au
+DEBUT de chaque session (bootstrap §7.1) et reste en vie via
+SendMessage. Le main thread le consulte a CHAQUE gate (preflight,
+review, Codex, commit, post-commit). Il ne code jamais, ne cree
+jamais d'artefact — il verifie et bloque. Pas de fallback :
+si le superviseur n'est pas la, on ne committe pas.
+
+**Regle modele** : ne JAMAIS passer le parametre `model` dans les
+appels Agent(). Les agents ont `model: claude-opus-4-6[1m]` dans
+leur frontmatter — le param model override le frontmatter et
+l'alias `opus` resout vers 4.7 (banni).
 
 Ref detaillee : `docs/claude/README.md §7` + `.claude/agents/*.md`.
 

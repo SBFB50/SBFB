@@ -765,25 +765,43 @@ sans partage de contexte avec l'executeur, sur le code reel commite.
 #### 4.5.1 Cycle de vie d'une phase avec dual-agent
 
 ```
+Superviseur spawne (G-SPAWN — confirmation cas)
+  |
+  v
 Plan section Phase X lue
   |
   v
-Claude team preflight (skill nexus-phase-preflight + agents 1M)
+Claude team preflight (agents 1M, claude-opus-4-6)
   |  5 scans factuels S1a-S4 en parallele
+  v
+Superviseur G-PREFLIGHT (verifie artefact + verdict)
+  |
   v
 Code ecrit par Claude (execution phase standard)
   |
   v
-Claude team phase review (skill nexus-phase-review + agent auditor)
+Claude team phase review (agent review-deep 1M)
   |  6 dimensions, verdict PASS/CONCERN/FAIL
+  v
+Superviseur G-REVIEW (verifie PASS reel)
+  |
   v
 Codex verification (codex exec, prompt structure, findings)
   |  Review croisee independante GPT 5.5
   v
+Superviseur G-CODEX (verifie output reel, pas ecrit a la main)
+  |
+  v
 Claude correction loop (si Codex trouve des issues)
-  |  Fix + re-run suites + review + Codex (systematique)
+  |  Fix + re-run suites + review + Codex (boucle complete)
+  v
+Superviseur G-COMMIT (artefacts + body + delta tests + model)
+  |
   v
 Commit atomique feat(scope): Sprint N Phase X
+  |
+  v
+Superviseur G-POST (memory + chore planning)
 ```
 
 Le preflight et la review Claude restent les gates primaires
@@ -1694,6 +1712,38 @@ ls -la "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/" 2>/
 # (lecture rapide, signal uniquement, le scan S2 complet vit dans skill preflight)
 git log --all --grep="DEVIATION\|rejected\|threat-model\|scope-cut" --oneline | head -10
 
+# === Spawn superviseur process (OBLIGATOIRE, avant tout) ===
+
+IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
+
+  Agent(
+    name: "supervisor",
+    subagent_type: "nexus-process-supervisor",
+    prompt: "Session start. Voici l'etat pre-flight : [coller
+      le resume du pre-flight]. Confirme le cas detecte."
+  )
+
+  NE PAS passer `model:` — le frontmatter porte claude-opus-4-6[1m].
+  Le superviseur reste en vie via SendMessage("supervisor") pendant
+  toute la session. Consulter a CHAQUE gate :
+    - G-SPAWN : confirmation du cas detecte (reponse initiale)
+    - G-PREFLIGHT : apres preflight agent (Cas B)
+    - G-REVIEW : apres review agent (Cas B)
+    - G-CODEX : apres codex exec (Cas B)
+    - G-COMMIT : avant git commit (TOUS les cas A/B/C/D)
+    - G-POST : apres commit + chore (TOUS les cas A/B/C/D)
+
+  Si le superviseur repond BLOCK-* : STOP, corriger, re-consulter.
+  Le main thread ne peut PAS ignorer un BLOCK.
+
+# === Regle modele agents (§7.1.1) ===
+
+Ne JAMAIS passer le parametre `model` dans les appels Agent().
+Les 6 agents ont `model: claude-opus-4-6[1m]` dans leur frontmatter
+(.claude/agents/*.md). Le parametre `model` de l'outil Agent()
+OVERRIDE le frontmatter — et l'alias `opus` resout vers Opus 4.7
+qui est banni du projet. Omission = heritage correct.
+
 # === Détection du cas + routage agent ===
 
 Compare ce que tu vois avec les 4 cas ci-dessous. Le main thread
@@ -1718,6 +1768,9 @@ procédure lui-même (sauf Cas D hotfix).
     Fallback : si l'agent n'est pas disponible, le main thread
              joue manuellement la procedure §3 + §8.
 
+    AVANT chaque commit fix(sprint{N-1}) :
+      CONSULTER superviseur G-COMMIT puis G-POST.
+
   Cas B — Sprint en cours
     Signal : .planning/active/ contient sprint{N}_kickoff.md +
              sprint{N}_plan.md mais pas verification.md.
@@ -1737,6 +1790,12 @@ procédure lui-même (sauf Cas D hotfix).
       preflight (pas le plan original).
       Fallback : skill nexus-phase-preflight (profondeur réduite,
       même verdicts).
+
+      CONSULTER superviseur (G-PREFLIGHT) :
+        SendMessage(to: "supervisor", "G-PREFLIGHT Phase X done.
+          Fichier: sprint{N}_phase_{X}_preflight.md.
+          Verdict: {verdict}.")
+        Attendre GO-PREFLIGHT avant de coder.
 
     PENDANT code : le main thread implémente la phase
       conformément au plan (ou à l'adaptation PLAN-ADAPT).
@@ -1758,21 +1817,45 @@ procédure lui-même (sauf Cas D hotfix).
       Si FAIL : corriger les P0/P1, re-invoquer l'agent.
       Fallback : skill nexus-phase-review (profondeur réduite).
 
+      CONSULTER superviseur (G-REVIEW) :
+        SendMessage(to: "supervisor", "G-REVIEW Phase X done.
+          Fichier: sprint{N}_phase_{X}_review.md.
+          Verdict: {verdict}.")
+        Attendre GO-REVIEW avant Codex.
+
     APRÈS review PASS, AVANT commit (Codex §4.5) :
       Lancer la verification croisee Codex GPT 5.5 pour TOUTES
       les phases sans exception (§4.5.6 zero exemption).
       Ecrire prompt `.git/CODEX_PHASE_X.txt`, lancer via
       `Get-Content | codex exec -o .planning/active/
       sprint{N}_phase_{X}_codex_review.md`.
-      Si GAPs P0/P1 : corriger, relancer Codex (boucle jusqu'a
-      CLEAN ou P2/P3 documentes uniquement).
+      Si GAPs P0/P1 : corriger, puis BOUCLE COMPLETE :
+        1. Re-run suites §7.4
+        2. Re-invoquer review-deep (re-consultation G-REVIEW)
+        3. Re-lancer Codex (re-consultation G-CODEX)
+        Boucle jusqu'a CLEAN ou P2/P3 documentes uniquement.
       Si GAPs P2/P3 : documenter dans commit body.
       Le fichier codex_review.md est enforce par lightcheck
       Check 7 (STRICT BLOCK sur feat Phase).
       Sequence stricte : review → Codex → commit. JAMAIS
       committer avant le verdict Codex.
 
+      CONSULTER superviseur (G-CODEX) :
+        SendMessage(to: "supervisor", "G-CODEX Phase X done.
+          Fichier: sprint{N}_phase_{X}_codex_review.md.")
+        Attendre GO-CODEX avant commit.
+
+      CONSULTER superviseur (G-COMMIT) :
+        SendMessage(to: "supervisor", "G-COMMIT Phase X.
+          Commit body pret, tous artefacts presents.")
+        Attendre GO-COMMIT avant git commit.
+
     Livrable final : 1 commit feat(scope): Sprint N Phase X.
+
+      CONSULTER superviseur (G-POST) :
+        SendMessage(to: "supervisor", "G-POST Phase X.
+          Commit {sha}. Chore planning fait. Memory a jour.")
+        Attendre GO-POST avant de passer a la phase suivante.
 
   Cas C — Nouveau sprint à ouvrir
     Signal : .planning/active/ contient au max le
@@ -1792,8 +1875,9 @@ procédure lui-même (sauf Cas D hotfix).
       2. git mv migration active/ → archive/ si nécessaire
       3. Memory carry-over G6 : fusionner manuellement
          sprint{N-1}_verification.md §5 dans les memories
-      4. Commit chore(planning): Sprint N kickoff + plan
-      5. Update memory nexus_grid_pivot.md
+      4. CONSULTER superviseur G-COMMIT puis G-POST
+      5. Commit chore(planning): Sprint N kickoff + plan
+      6. Update memory nexus_grid_pivot.md
     Fallback : si l'agent n'est pas disponible, le main thread
              joue manuellement la procedure §2 + §6.1.1 + §6.2.1.
 
@@ -1812,7 +1896,10 @@ procédure lui-même (sauf Cas D hotfix).
                   grep -A 10 "Pre-launch protocol policy" CLAUDE.md
                   git log --grep="DEVIATION\|rejected" -- <fichiers hotfix>
                 Si conflit -> escalation user avant fix.
-    Pas d'agent — le main thread gère directement.
+    Pas d'agent specialise — le main thread gere directement.
+    MAIS : CONSULTER superviseur G-COMMIT avant commit +
+           G-POST apres commit (le superviseur est actif pour
+           TOUS les cas, y compris hotfix).
 
 # === Lecture ciblée par cas ===
 
