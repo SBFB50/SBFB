@@ -2,7 +2,7 @@
 name: nexus-sprint-kickoff
 description: Agent ultra-specialise pour le kickoff complet d'un nouveau sprint SBFB. Produit sprint{N}_kickoff.md + sprint{N}_plan.md + sprint{N}_design_review.md avec recherche profonde (context7 + WebSearch + git log) pour chaque D1..D5. Invoque en Cas C (nouveau sprint a ouvrir) par le thread principal. Ne code PAS — ne produit QUE des artefacts de planification.
 tools: Read, Write, Bash, Grep, Glob, WebSearch, WebFetch, mcp__claude_ai_Context7__resolve-library-id, mcp__claude_ai_Context7__query-docs
-model: claude-opus-4-6-1m
+model: claude-opus-4-6
 effort: high
 ---
 

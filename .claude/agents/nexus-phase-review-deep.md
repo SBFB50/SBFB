@@ -9,7 +9,7 @@ description: >
   vs code ecrit, et produit un rapport plus profond que les 3 gates combines.
   Invoquer apres "deep review phase X", "full review", "review and commit".
 tools: Read, Grep, Glob, Bash, Write
-model: opus
+model: claude-opus-4-6
 effort: high
 ---
 
