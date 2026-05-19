@@ -33,7 +33,7 @@ autre LLM) qui doit ouvrir, livrer ou auditer un sprint.
 - `.claude/skills/nexus-phase-review/SKILL.md` — fallback review, cite §4.3, §6.7, §7.4
 - `.claude/skills/nexus-phase-preflight/SKILL.md` — fallback preflight, cite §6.9, §7.1
 - `.claude/hooks/phase-auditor-gate.sh` — implémente l'audit gate §3
-- `.claude/hooks/phase-precommit-lightcheck.sh` — implémente §4.2
+- `.claude/hooks/phase-precommit-lightcheck.sh` — implémente §4.2, Check 9 body format `##`
 - `docs/claude/TOOLING.md` — cite §3, §4, §5
 - `CLAUDE.md` — pointe vers ce document + table agents §Agents d'orchestration
 
@@ -534,6 +534,25 @@ S+1 de retracer le process sans ouvrir les artefacts `.planning/active/`]
 
 Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
+
+**Enforcement format `##`** (amendement S65, constat P2 body-format
+Phases A-C) : les 8 sections doivent utiliser des headings markdown
+`## Nom` exactement comme dans le template ci-dessus. Le contenu en
+prose informelle sans `##` — même s'il couvre les mêmes informations —
+n'est PAS conforme et sera bloqué par le hook `phase-precommit-
+lightcheck.sh` Check 9. Raisons : (1) parsing automatisé par l'audit
+gate S{N+1} (grep `^## ` dans le commit body pour extraire chaque
+section), (2) cohérence inter-phases (Phase D ne devrait pas être
+"meilleure" que Phase A dans le même sprint), (3) l'agent exécuteur
+doit copier le template de `.claude/templates/commit_body_phase.txt`
+plutôt que d'improviser la structure.
+
+**Gold standard** : commit `9727818` (Sprint 65 Phase D) — 8/8
+sections, 105 lignes, chaque section substantive avec table markdown.
+
+**Template** : `.claude/templates/commit_body_phase.txt` contient le
+squelette complet prêt à copier. L'agent exécuteur DOIT le lire avant
+d'écrire le premier commit body de chaque sprint.
 
 Si une phase a besoin d'un fix post-commit (pattern Sprint 2
 `de9589d` / `ed2ea76` ou Sprint 6 gate `05c96c4..8fbe07b`),

@@ -15,7 +15,7 @@ biaise).
 
 ## Ton mandat
 
-Tu review 6 dimensions en parallele sur le diff courant
+Tu review 7 dimensions en parallele sur le diff courant
 (`git diff HEAD` + fichiers untracked listes par `git status`) :
 
 1. **Security** — Semgrep scan sur les fichiers du diff + patterns
@@ -42,6 +42,14 @@ Tu review 6 dimensions en parallele sur le diff courant
    `sprint{N}_phase_{X}_pivot_proposal.md`) dans `.planning/active/`
    avant ecriture code. Absence = P1 "G8 gate bypass" bloquant
    (cf. `docs/claude/README.md §6.9`). Exception Cas D hotfix.
+7. **Body-format** — verifie que le draft commit body contient les 8
+   sections `##` obligatoires (README §4.1). Header manquant = P1
+   bloquant "body-section-missing-{name}". Verifie aussi que chaque
+   section contient du contenu substantif (pas juste le header vide).
+   Headers obligatoires : Contexte, Fichiers, Delta tests,
+   Verification §7.4, Scope cuts, G8 traceability, Pre-launch
+   protocol, Carry closure. Template de reference :
+   `.claude/templates/commit_body_phase.txt`.
 
 ## Entree
 
@@ -121,7 +129,7 @@ angle mort — le preflight n'est PAS un free-pass.
 
 Cet audit enregistre les findings **reellement observes** dans le
 code et les docs. Si 0 P2+ trouve apres exploration exhaustive des
-6 dimensions (§Security / §Patterns / §Working tree / §Scope-cuts
+7 dimensions (§Security / §Patterns / §Working tree / §Scope-cuts
 / §Tests-delta / §Research-grounding), **verdict PASS sans penalite**
 — l'absence de finding est acceptable si et seulement si les
 dimensions ont ete toutes grep/read avec evidence inline citee
@@ -383,6 +391,34 @@ RUST=$((RUST_NEXTEST + RUST_DOC))
 # Toute divergence > 0 = P1
 ```
 
+### Step 5bis — Dimension Body-format
+
+Verifier que le draft commit body contient les 8 headers `##` obligatoires
+(README §4.1). Pour chaque header manquant, emettre un **P1 bloquant**
+"body-section-missing-{name}" avec instruction de correction.
+
+Headers obligatoires (regex tolerant) :
+1. `## Contexte`
+2. `## Fichiers`
+3. `## Delta tests`
+4. `## Verification` (ou `## Vérification` ou `## Verification §7.4`)
+5. `## Scope cuts` (ou variantes `respectés`/`honoured`)
+6. `## G8 traceability`
+7. `## Pre-launch protocol`
+8. `## Carry closure` (ou `## Carry closure / Unblock`)
+
+Pour chaque header present, verifier que la section contient du contenu
+substantif (pas juste le header suivi d'une ligne vide ou "N/A" sans
+justification). Header vide = P2 "body-section-empty-{name}".
+
+Si le body n'est pas encore ecrit (l'executeur n'a pas fourni de draft),
+emettre un **CONCERN** "draft-body-absent" et rappeler le template :
+`.claude/templates/commit_body_phase.txt`.
+
+**Pattern Phase D S65** : ce commit est le gold standard — 8/8 headers,
+105 lignes, chaque section substantive. Les Phases A-C du meme sprint
+n'avaient que 4-6/8 sections — la review n'avait pas detecte le gap.
+
 ### Step 6 — Synthese et verdict
 
 **ACTION OBLIGATOIRE EN PREMIER** : invoquer `Write` tool sur
@@ -426,6 +462,7 @@ HEAD: {sha} | Timebox: {mm}m
 | Tests-delta | ok / drift | annonce +X, reel +X |
 | Research | ok / gap | deps traces dans §Research |
 | G8 | ok / bypass | preflight.md present, verdict EXECUTE |
+| Body-format | ok / P1 | 8/8 headers present, contenu substantif |
 
 ## Acknowledged by G8 preflight (not re-derived)
 S1-S4: <1 ligne chacun si preflight existe>

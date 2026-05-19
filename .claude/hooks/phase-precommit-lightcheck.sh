@@ -2,7 +2,7 @@
 #
 # .claude/hooks/phase-precommit-lightcheck.sh
 #
-# PreToolUse hook (matcher Bash) — 3 verifications legeres pre-commit
+# PreToolUse hook (matcher Bash) — verifications legeres pre-commit
 # qui completent (sans remplacer) le gate phase-auditor-gate.sh sur
 # tous les commits sprint (inconditionnel depuis S24 process review).
 #
@@ -15,11 +15,22 @@
 #      que le file existe dans le repo.
 #   3. LOC deviation (WARN, non-bloquant) — si body cite `~XXX LOC` et
 #      diff stat reel >2.5x, demander mention "deviation LOC" explicite.
+#   4. Wire-format staging alert (WARN) — fichiers canonical.rs/schemas/
+#      _VERSION modifies → verifier preflight S4 full scan.
+#   5. G1 Design Review Board gate (STRICT, BLOCK Phase A) — verifier
+#      sprint{N}_design_review.md existe avant Phase A.
+#   6. LOC guard plans (STRICT, BLOCK) — bloquer plans avec estimations LOC.
+#   7. Codex verification presence (STRICT, BLOCK feat Phase) — verifier
+#      sprint{N}_phase_{X}_codex_review.md existe.
+#   8. Preflight G8 presence (STRICT, BLOCK feat Phase) — verifier
+#      sprint{N}_phase_{X}_preflight.md existe.
+#   9. Commit body sections (STRICT, BLOCK feat/docs Phase) — verifier
+#      les 8 headers ## obligatoires du body (§4.1 README).
 #
 # Bypass d'urgence : NEXUS_SKIP_PHASE_AUDITOR=1 git commit ...
 #
 # Exit 0 : autorise (avec warnings stderr eventuels)
-# Exit 2 : bloque (erreur stricte coherence staging seulement)
+# Exit 2 : bloque (erreur stricte)
 
 set -eo pipefail
 INPUT=$(cat)
@@ -284,6 +295,76 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
       echo "  Lancer skill nexus-phase-preflight avant commit." >&2
       echo "" >&2
       ERRORS=$((ERRORS + 1))
+    fi
+  fi
+fi
+
+# === Check 9 : Commit body sections (STRICT for feat/docs Phase) ===
+# §4.1 : 8 sections ## obligatoires dans le body de chaque commit
+# feat(...) ou docs(...) contenant "Sprint N Phase X" dans le titre.
+# Exemptions : chore/fix/test/refactor, body "Codex verification : skipped".
+if [ -n "$SPRINT" ] && [ -n "$PHASE" ] && [ -n "$BODY" ]; then
+  IS_FEAT_OR_DOCS=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|docs)\(' || true)
+  HAS_SPRINT_PHASE=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' || true)
+  if [ "$IS_FEAT_OR_DOCS" -gt 0 ] && [ "$HAS_SPRINT_PHASE" -gt 0 ]; then
+    # Exemption: trivial phase (Codex verification skipped)
+    CODEX_SKIPPED=$(echo "$BODY" | grep -cE '## Codex verification : skipped' || true)
+    if [ "$CODEX_SKIPPED" -eq 0 ]; then
+      MISSING_SECTIONS=""
+      MISSING_COUNT=0
+
+      # 1. ## Contexte
+      if ! echo "$BODY" | grep -qE '^## Contexte'; then
+        MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Contexte\n"
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+      fi
+      # 2. ## Fichiers
+      if ! echo "$BODY" | grep -qE '^## Fichiers'; then
+        MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Fichiers\n"
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+      fi
+      # 3. ## Delta tests
+      if ! echo "$BODY" | grep -qE '^## Delta tests'; then
+        MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Delta tests\n"
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+      fi
+      # 4. ## Verification (tolerant: Verification, Vérification, Verification §7.4)
+      if ! echo "$BODY" | grep -qE '^## V[eé]rification'; then
+        MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Verification\n"
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+      fi
+      # 5. ## Scope cuts (tolerant: respectés, honoured)
+      if ! echo "$BODY" | grep -qE '^## Scope cuts'; then
+        MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Scope cuts\n"
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+      fi
+      # 6. ## G8 traceability
+      if ! echo "$BODY" | grep -qE '^## G8 traceability'; then
+        MISSING_SECTIONS="${MISSING_SECTIONS}    - ## G8 traceability\n"
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+      fi
+      # 7. ## Pre-launch protocol
+      if ! echo "$BODY" | grep -qE '^## Pre-launch protocol'; then
+        MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Pre-launch protocol\n"
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+      fi
+      # 8. ## Carry closure (tolerant: / Unblock)
+      if ! echo "$BODY" | grep -qE '^## Carry closure'; then
+        MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Carry closure\n"
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+      fi
+
+      if [ "$MISSING_COUNT" -gt 0 ]; then
+        echo "" >&2
+        echo "[lightcheck] BLOCK: ${MISSING_COUNT} section(s) ## obligatoire(s) manquante(s) dans le body (§4.1)" >&2
+        echo "" >&2
+        echo -e "  Sections manquantes :" >&2
+        echo -e "${MISSING_SECTIONS}" >&2
+        echo "  Le body d'un commit feat/docs Phase doit contenir les 8 headers ##" >&2
+        echo "  prescrits par docs/claude/README.md §4.1." >&2
+        echo "" >&2
+        ERRORS=$((ERRORS + 1))
+      fi
     fi
   fi
 fi

@@ -1,0 +1,35 @@
+{type}({scope}): Sprint {N} Phase {X} — {titre court}
+
+## Contexte
+[1-3 paragraphes : rationale, threat model, research grounding]
+
+## Fichiers
+| Fichier | Role |
+|---------|------|
+| {chemin} | {description changement} |
+
+## Delta tests
+| Suite | Avant | Apres | Delta |
+|-------|-------|-------|-------|
+| Rust workspace | {N} | {N} | +{N} |
+| Vitest | {N} | {N} | +{N} |
+| size-limit | {N}/{N} | {N}/{N} | {pass} |
+[+ decomposition per-module : "+N module::tests, +N integration"]
+
+## Verification §7.4
+[CI manifest complet, chaque suite avec resultat]
+
+## Scope cuts respectes (kickoff §8)
+[TOUS les items du kickoff §8, exhaustif — pas de troncature]
+
+## G8 traceability
+- Preflight : [{SHA}] verdict [{EXECUTE/SCOPE-CUT-CONSISTENT}]
+- Review : [{SHA}] verdict [{PASS}] ({N} P0, {N} P1, {N} P2)
+
+## Pre-launch protocol
+[*_VERSION unchanged, wire format preserve]
+
+## Carry closure / Unblock
+[graphe de dependances inter-sprint explicite, ou "Aucun" si N/A]
+
+Co-Authored-By: Claude {model} <noreply@anthropic.com>

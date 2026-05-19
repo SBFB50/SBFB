@@ -74,6 +74,32 @@ scope-cut livre accidentellement). Verifier les 8 carries S66
 documentes dans kickoff §6. Verifier les 2 items 3/3 MANDATORY
 S66 : P2-PROVENANCE-404-BRIDGE et P2-VERIFY-LOCAL-KEY-ONLY.
 
+### Track I — Hygiene process S65 (findings post-sprint)
+
+Analyse ultra-profonde du Sprint 65 — 4 lacunes process
+identifiees. Toutes [RESOLVED] par amendement process commite
+avant S66 Phase A (hook Check 9 + README §4.2 enforcement +
+template + agents body validation).
+
+| ID | Sev | Description | Status |
+|----|-----|-------------|--------|
+| P2-S65-BODY-FORMAT | P2 | Commits Phase A (`ace05b0`), Phase B (`de9d55f`), Phase C (`54f13eb`) n'utilisaient pas les headers `##` canoniques prescrits par README §4.1 (8 sections obligatoires). Seule Phase D (`9727818`) etait conforme 8/8. | [RESOLVED] — Check 9 ajoute dans `phase-precommit-lightcheck.sh` (`62d8344`), enforcement documente dans README §4.2 (`9727818`). |
+| P2-S65-G8-TRACEABILITY | P2 | Section `## G8 traceability` avec SHA du preflight absente des commits Phase A (`ace05b0`), Phase B (`de9d55f`), Phase C (`54f13eb`). Presente uniquement Phase D (`9727818`). | [RESOLVED] — Template body et agents orchestration (`cc8cf1e`) imposent la section G8 traceability. Check 9 valide sa presence. |
+| P3-S65-CARRY-CLOSURE | P3 | Section `## Carry closure` absente des commits Phase B (`de9d55f`) et Phase C (`54f13eb`). | [RESOLVED] — Template body inclut `## Carry closure` parmi les 8 sections obligatoires. Check 9 bloque le commit si absente. |
+| P3-S65-CODEX-C-PARTIAL | P3 | Codex Phase C = 2/3 livrables PARTIEL (badge fallback couleur non livre + scan-trust-wording scope `docs/` non couvert). Cf. commit planning `a2735a5`. | [RESOLVED] — Gate Codex renforcee dans skill review (`62d8344`). Le partiel est documente dans le commit body Phase C et dans le carry S66. |
+
+**Impact S66** : l'audit gate S66 Phase 0 doit verifier que
+Phase A du S66 utilise le format `##` des le premier commit feat.
+Le hook Check 9 (`phase-precommit-lightcheck.sh`) bloque
+automatiquement les commits non conformes — verifier que le hook
+est actif et non bypass (`--no-verify` interdit).
+
+**Verification croisee Track G** : Track G valide les items dette
+pair P2 du sprint 65 (COMMIT-TITLE-FORMAT, REVIEW-ORDER, etc.).
+Track I couvre les lacunes process du commit body qui n'etaient
+pas des items dette pair explicites mais des non-conformites
+constatees a posteriori. Les deux tracks sont complementaires.
+
 ---
 
 ## Verdicts attendus

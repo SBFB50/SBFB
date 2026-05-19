@@ -237,11 +237,34 @@ Checker :
 5. **Scope cuts honoured** liste copiee du kickoff §6
 6. **Co-Authored-By: Claude <model_name> (1M context)** present — la ligne doit matcher le modèle utilisé pour la session courante
 
-### Step 4bis — Verifier research grounding (approche + deps)
+### Step 4bis — Body format validation (§4.1)
+
+Verifier que le draft commit body fourni par l'executeur contient les 8
+headers `##` obligatoires (README §4.1) :
+1. `## Contexte`
+2. `## Fichiers`
+3. `## Delta tests`
+4. `## Verification` (ou `## Vérification` ou `## Verification §7.4`)
+5. `## Scope cuts` (ou variantes `respectés`/`honoured`)
+6. `## G8 traceability`
+7. `## Pre-launch protocol`
+8. `## Carry closure` (ou `## Carry closure / Unblock`)
+
+Header manquant = **P1 bloquant** "body-format-{section}".
+Si body non fourni : **CONCERN** "draft-body-absent".
+
+**Pattern Phase D S65** : ce commit est le gold standard — 8/8 headers,
+105 lignes, chaque section substantive. Les Phases A-C du meme sprint
+n'avaient que 4-6/8 sections — la review n'avait pas detecte le gap
+car cette validation n'existait pas encore dans le skill fallback.
+
+**Template de reference** : `.claude/templates/commit_body_phase.txt`
+
+### Step 4ter — Verifier research grounding (approche + deps)
 
 Deux dimensions a verifier :
 
-#### 4bis-A — Preflight G8 completeness check (G10)
+#### 4ter-A — Preflight G8 completeness check (G10)
 
 Le preflight G8 doit avoir ete execute AVANT le code. Verifier
 l'artefact ET son contenu :
@@ -276,7 +299,7 @@ APPROACH-NAIVE et emettre PLAN-ADAPT. A la place, S1 n'a verifie
 que les versions de libs (S1b) et a emis "clean". Le code livree
 est structurellement inoperant sur le use case principal.
 
-#### 4bis-B — Deps/API via context7 (existant)
+#### 4ter-B — Deps/API via context7 (existant)
 
 Le plan.md doit avoir une section §Research consulte (cf.
 docs/claude/README.md §2.2). Check :
@@ -311,7 +334,7 @@ Anti-pattern a detecter :
 -> remonter a la session : "lancer `mcp__context7__resolve-library-id`
 sur la lib $LIB avant d'ecrire ce code".
 
-### Step 4ter — Horizon long-terme + documentation amont
+### Step 4quater — Horizon long-terme + documentation amont
 
 Verifier l'application de la regle §6.7 `docs/claude/README.md`
 (horizon long terme + doc AVANT code + solution la plus poussee).
@@ -484,6 +507,18 @@ Produire un rapport markdown concis :
 - Delta tests coherent : ✅
 - Scope cuts honoured : ✅
 - Co-Authored-By present : ✅
+
+## Body format validation (Step 4bis, §4.1)
+| Section | Present | Signal |
+|---------|---------|--------|
+| Contexte | oui/non | ok/P1 |
+| Fichiers | oui/non | ok/P1 |
+| Delta tests | oui/non | ok/P1 |
+| Verification §7.4 | oui/non | ok/P1 |
+| Scope cuts | oui/non | ok/P1 |
+| G8 traceability | oui/non | ok/P1 |
+| Pre-launch protocol | oui/non | ok/P1 |
+| Carry closure | oui/non | ok/P1 |
 
 ## Modified-file branch coverage (Step 2bis, G9)
 - <file.py> : `new_method()` (N LOC) → tested by `test_X` ✅

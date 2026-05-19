@@ -502,7 +502,7 @@ emprunter ?" Ceci va au-dela du pattern matching :
 dans le code source, verifier qu'il est reellement implemente (pas
 juste un TODO), citer fichier:ligne.
 
-**Ce que TU fais** : la meme chose, PLUS les 6 dimensions ci-dessus.
+**Ce que TU fais** : la meme chose, PLUS les 7 dimensions ci-dessus.
 Codex ne couvrait que la verification livrables, sans security, sans
 scope cuts, sans research grounding. Toi tu fais les deux.
 
@@ -629,6 +629,33 @@ doit etre descriptif et court.
 - **Pre-launch protocol** : si le diff touche des `*_VERSION` ou
   du wire format, cette section doit documenter que les invariants
   sont preserves.
+
+### Step 10bis — Commit body format validation (§4.1 compliance)
+
+Verifier que le draft commit body contient les 8 headers `##` obligatoires
+(README §4.1). Pour chaque header manquant, emettre un **P1 bloquant**
+"body-format-{section}" avec instruction de correction.
+
+Headers obligatoires (regex tolerant) :
+1. `## Contexte`
+2. `## Fichiers`
+3. `## Delta tests`
+4. `## Verification` (ou `## Vérification` ou `## Verification §7.4`)
+5. `## Scope cuts` (ou variantes `respectés`/`honoured`)
+6. `## G8 traceability`
+7. `## Pre-launch protocol`
+8. `## Carry closure` (ou `## Carry closure / Unblock`)
+
+Si le body n'est pas encore ecrit (l'executeur n'a pas fourni de draft),
+emettre un **CONCERN** "draft-body-absent" et rappeler le template.
+
+**Pattern Phase D S65** : ce commit est le gold standard — 8/8 headers,
+105 lignes, chaque section substantive. Les Phases A-C du meme sprint
+n'avaient que 4-6/8 sections — la review n'avait pas detecte le gap.
+
+**Template de reference** : `.claude/templates/commit_body_phase.txt`
+contient le squelette complet avec les 8 headers et les instructions
+de remplissage. L'executeur peut le copier comme point de depart.
 
 ### Step 11 — SYNTHESE, FICHIER, VERDICT
 
@@ -798,8 +825,8 @@ avec trace vide = CONCERN)
 | Ancien gate | Remplace par | Profondeur gagnee |
 |---|---|---|
 | Skill nexus-phase-review | Steps 1-3, 10 (commit body), 11 (artefact Write) | Suites completes preservees + commit body 8 sections + staging + memory |
-| Agent nexus-phase-auditor (6 dimensions) | Steps 4-9 | Diff lu en entier (pas --stat), tests lus semantiquement (4 criteres), scope cuts compris semantiquement (pas grep seul), research coherence code-vs-source (pas juste existence), security semantique (pas juste Semgrep) |
-| Codex GPT 5.5 verification | Step 8 | Meme independence (pas de contexte session), PLUS les 6 dimensions que Codex ne couvrait pas, PLUS estimation LOC fix manquant |
+| Agent nexus-phase-auditor (7 dimensions) | Steps 4-9 + 10bis | Diff lu en entier (pas --stat), tests lus semantiquement (4 criteres), scope cuts compris semantiquement (pas grep seul), research coherence code-vs-source (pas juste existence), security semantique (pas juste Semgrep), body-format 8/8 headers |
+| Codex GPT 5.5 verification | Step 8 | Meme independence (pas de contexte session), PLUS les 7 dimensions que Codex ne couvrait pas, PLUS estimation LOC fix manquant |
 
 **Elimination de la triple-invocation** : au lieu de lancer
 review → auditor → Codex → correction loop, un seul agent
