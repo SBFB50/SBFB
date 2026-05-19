@@ -1454,8 +1454,10 @@ async fn boot_storage_namespace(
                     let ticket = doc.share_write().await?;
                     let ticket_str = ticket.to_string();
                     let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
-                    let _ =
-                        db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&ticket_str));
+                    db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&ticket_str))
+                        .map_err(|e| {
+                            anyhow!("failed to persist recreated storage namespace: {e}")
+                        })?;
                     (doc, ticket_str)
                 }
             }
@@ -1525,8 +1527,8 @@ async fn boot_feed_namespace(
                     let ticket = doc.share_write().await?;
                     let ticket_str = ticket.to_string();
                     let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
-                    let _ =
-                        db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&ticket_str));
+                    db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&ticket_str))
+                        .map_err(|e| anyhow!("failed to persist recreated feed namespace: {e}"))?;
                     (doc, ticket_str)
                 }
             }
