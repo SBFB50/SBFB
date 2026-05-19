@@ -73,7 +73,7 @@ Prendre la version la plus recente.
 
 ## 3. Procedure — ordre strict
 
-### Step 0 — Bootstrap context (10 min)
+### Step 0 — Bootstrap context
 
 Lire dans cet ordre exact, en parallele quand possible :
 
@@ -100,7 +100,7 @@ Convention audit gate §3.5 + anti-pattern §9.6 du README.md. Un
 auditeur qui lit PATTERNS.md avant d'avoir analyse le code ne peut
 plus distinguer ses observations des patterns documentes.
 
-### Step 1 — Ingerer le diff complet (15 min)
+### Step 1 — Ingerer le diff complet
 
 Extraire le SHA du tip d'entree du sprint depuis kickoff §1.1 puis :
 
@@ -133,7 +133,7 @@ Pour chaque fichier modifie, noter mentalement :
 - Impact surface (securite, wire format, UI, tests, process)
 - Coherence avec le plan.md (le diff livre-t-il ce qui est prevu ?)
 
-### Step 2 — Track A : Suites execution (30 min)
+### Step 2 — Track A : Suites execution
 
 **Question centrale** : est-ce que le sprint laisse la codebase dans
 un etat ou TOUT passe, et les tests ajoutes sont-ils non-triviaux ?
@@ -205,7 +205,7 @@ Procedure : extraire les livrables de plan.md §Phase A..F, puis pour
 chaque livrable, grep un test qui exerce ce livrable. Livrable sans
 test = P2.
 
-### Step 3 — Track B : Security review (30 min)
+### Step 3 — Track B : Security review
 
 **Question centrale** : le sprint introduit-il une regression de
 securite, un nouveau vecteur d'attaque, ou un pattern dangereux ?
@@ -325,7 +325,7 @@ git diff "$PREV_TIP..HEAD" -- Cargo.toml Cargo.lock web/package.json | grep -E '
 Pour chaque nouvelle dep : verifier CVE connus via `cargo audit` (si
 installe) ou `npm audit` (frontend). Nouvelle dep avec CVE connu = P1.
 
-### Step 4 — Track C : Patterns conformity (20 min)
+### Step 4 — Track C : Patterns conformity
 
 **Question centrale** : le code du sprint respecte-t-il les patterns
 documentes dans PATTERNS.md, et le sprint introduit-il des patterns
@@ -366,7 +366,7 @@ Le diff touche-t-il du code liste en tech debt (T-NN dans PATTERNS.md) ?
 Si oui, le T-NN est-il ferme (enleve de la section tech debt) ou
 documente comme reporte ? T-NN touche mais ni ferme ni reporte = P2.
 
-### Step 5 — Track D : Scope conformity (20 min)
+### Step 5 — Track D : Scope conformity
 
 **Question centrale** : CHAQUE livrable du plan.md est-il livre,
 et le sprint ne contient-il RIEN hors-scope ?
@@ -428,7 +428,7 @@ Pour chaque fix : Read le commit body (`git log -1 --format="%B" <sha>`)
 et verifier qu'il reference un finding ou une regression. Fix sans
 origine tracable = P2.
 
-### Step 6 — Track E : Tests adequacy (20 min)
+### Step 6 — Track E : Tests adequacy
 
 **Question centrale** : les tests ajoutes couvrent-ils adequatement
 les nouvelles surfaces, au-dela du simple comptage ?
@@ -486,7 +486,7 @@ git diff "$PREV_TIP..HEAD" -- '*.test.tsx' '*.test.ts' | grep -E "^\+\s*(it\(|te
 Test prevu dans plan.md mais absent du code = P2.
 Test present dans le code mais non prevu dans plan.md = OK (bonus).
 
-### Step 7 — Track F : Review files integrity (15 min)
+### Step 7 — Track F : Review files integrity
 
 **Question centrale** : chaque phase a-t-elle suivi le process
 G8 preflight + phase review avant commit ?
@@ -574,7 +574,7 @@ Phase review files: {N_reviews}/{N_phases}
 Ratio < N/N = P2 (cf. README.md §4.4, data S23 : 1/6 reviews = gap
 non detecte).
 
-### Step 8 — Track G : Carry-overs discipline (15 min)
+### Step 8 — Track G : Carry-overs discipline
 
 **Question centrale** : les compteurs de reports sont-ils corrects,
 la regle des 3/3 est-elle respectee, et les items fermes sont-ils
@@ -622,7 +622,7 @@ Croiser la liste des items du kickoff §6 avec les items declares
 resolus dans verification.md. Tout item du kickoff qui n'est ni
 dans "resolus" ni dans "carries S{N+1}" = P2 (item perdu).
 
-### Step 9 — Track H : HARDENING drift (10 min)
+### Step 9 — Track H : HARDENING drift
 
 **Question centrale** : le sprint a-t-il livre ce que le
 HARDENING_ROADMAP prescrivait pour ce sprint ?
@@ -664,7 +664,7 @@ grep -l "<item_prescrit>" .planning/archive/v*/*audit_findings.md | tail -3
 Si drift cumule sur 3+ sprints sans justification → remonter le signal
 pour revalider le HARDENING_ROADMAP lui-meme = P2.
 
-### Step 10 — Track I : Meta-process discipline (15 min)
+### Step 10 — Track I : Meta-process discipline
 
 **Question centrale** : les commits respectent-ils la discipline
 atomique, le split chore/feat, et le body riche ?
@@ -899,33 +899,7 @@ Les findings P3 sont documentes mais sans action obligatoire.
 
 ---
 
-## 9. Timebox
-
-Budget total : **2-3 heures** (avec 1M tokens).
-
-| Phase | Duree |
-|---|---|
-| Step 0 — Bootstrap | 10 min |
-| Step 1 — Diff ingestion | 15 min |
-| Step 2 — Track A (suites) | 30 min |
-| Step 3 — Track B (security) | 30 min |
-| Step 4 — Track C (patterns) | 20 min |
-| Step 5 — Track D (scope) | 20 min |
-| Step 6 — Track E (tests) | 20 min |
-| Step 7 — Track F (review files) | 15 min |
-| Step 8 — Track G (carry-overs) | 15 min |
-| Step 9 — Track H (HARDENING) | 10 min |
-| Step 10 — Track I (meta-process) | 15 min |
-| Synthese + Write | 15 min |
-
-Si tu approches le timebox sans avoir termine toutes les tracks,
-**prioriser** : A (suites) et B (security) sont les plus critiques.
-Tronquer les tracks les moins explorees et les documenter comme
-"skipped (timebox)" dans la section §Notes on audit completeness.
-
----
-
-## 10. Template de sortie complet — sprint{N}_audit_findings.md
+## 9. Template de sortie complet — sprint{N}_audit_findings.md
 
 Ce template montre TOUTES les sections attendues. L'auditeur
 remplit chaque section avec les donnees reelles du sprint audite.
@@ -938,7 +912,7 @@ Les commentaires `<!-- ... -->` sont des instructions, a supprimer.
 **Sprint audite** : Sprint {N} — {theme du sprint} ({version, ex: v2.1}).
 **Tip de reference** : `{sha}` ({commit msg du dernier commit sprint}).
 **Audit plan** : `{path complet vers audit_plan.md}`.
-**Timebox** : {duree reelle observee, ex: 2h15}.
+**Duree** : {duree reelle observee}.
 
 ---
 
@@ -1201,10 +1175,10 @@ ce qui reste a ameliorer, impact sur le sprint N+1}
 
 ## Notes on audit completeness
 
-<!-- Si des tracks ont ete tronquees par timebox, les lister ici -->
+<!-- Si des tracks n'ont pas ete integralement explorees, les lister ici -->
 - Track A : exploration complete
 - Track B : exploration complete
-- Track H : {complete | tronquee (timebox) — seulement prescriptions lues, pas drift multi-sprint}
+- Track H : {complete | partielle — seulement prescriptions lues, pas drift multi-sprint}
 
 ## Commits fix produits
 
@@ -1227,7 +1201,7 @@ ce qui reste a ameliorer, impact sur le sprint N+1}
 
 ---
 
-## 11. Differences avec nexus-phase-auditor
+## 10. Differences avec nexus-phase-auditor
 
 | Aspect | nexus-phase-auditor (intra-phase) | nexus-audit-gate (inter-sprint) |
 |---|---|---|
@@ -1254,7 +1228,7 @@ manques.
 
 ---
 
-## 12. Refs
+## 11. Refs
 
 - `docs/claude/README.md` §3 (audit gate pattern permanent)
 - `docs/claude/README.md` §8 (comment auditer un sprint)

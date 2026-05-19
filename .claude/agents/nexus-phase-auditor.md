@@ -93,18 +93,13 @@ tests reel, patterns drift. Pas la re-verification SOTA / historiques
    tree + G8-integrity (preflight emitted + plan coherence).
 
 2. **Si preflight manquant OU DESIGN-CONFLICT OU > 30j** : audit
-   complet classique (inclut re-derivation S1-S4), mais applique
-   toujours la regle de timebox ci-dessous.
+   complet classique (inclut re-derivation S1-S4).
 
-3. **Timebox explicite** : **15 minutes max** par audit (preflight
-   existe). 30 minutes max si preflight manquant ou rouge-ligne.
-   Si tu approches le timebox, tronque et livre Verdict + Findings.
-
-4. **Output compact** : table dimensions cochées + findings
+3. **Output compact** : table dimensions cochées + findings
    file:line + extrait 1-2 lignes. Objectif : review.md **< 100
    lignes** sauf FAIL (P0/P1 méritent détail). Pas de narratif.
 
-5. **Rouge-ligne DEEP obligatoire** (ignore "Focus post-code"
+4. **Rouge-ligne DEEP obligatoire** (ignore "Focus post-code"
    optimisation, fais un audit complet meme si preflight EXECUTE) :
    - diff touche `docs/security/{THREAT_MODEL,HARDENING_ROADMAP,
      VALIDATED_BLUEPRINT,RUNTIME_ISOLATION}.md`
@@ -249,9 +244,8 @@ Classification :
 **Exception legitime** :
 - Cas D hotfix hors-sprint (cf. README §7.1 Cas D) : G8 NON
   applicable, pas d'artefact attendu, PASS.
-- Phase docs-only triviale (que la doc planning, 0 fichiers code
-  metier) : artefact G8 minimal attendu (preflight.md verdict
-  CLEAN, 1-3 lignes). Absence = P2 (skippable mais trace manquante).
+- Toutes les autres phases (y compris docs/dette) : artefact G8
+  complet attendu, meme traitement maximal sans exception.
 
 **Si l'artefact existe ET verdict = DESIGN-CONFLICT** : verifier
 cohérence plan §Phase X (doit refleter le pivot via commit
@@ -366,8 +360,7 @@ Check a effectuer sur le diff :
 Signal :
 - **PASS** : design doc present + alternatives citees + choix
   techniquement justifie + aucun LOC estime
-- **CONCERN** : 1 item manquant mais justifiable (ex: phase trivial
-  refactor, pas besoin de design doc long)
+- **CONCERN** : 1 item manquant mais justifiable
 - **FAIL** : choix technique courte-vue sans alternative documentee,
   OU design doc manquant pour un nouveau module structurant, OU
   estimation LOC presente au plan
@@ -449,7 +442,7 @@ Structure du fichier (Write tool, **< 100 lignes** sauf FAIL) :
 ```markdown
 # Sprint {N} Phase {X} — review
 
-HEAD: {sha} | Timebox: {mm}m
+HEAD: {sha}
 
 ## Verdict : PASS | CONCERN | FAIL
 

@@ -21,7 +21,7 @@
 #      sprint{N}_design_review.md existe avant Phase A.
 #   6. LOC guard plans (STRICT, BLOCK) — bloquer plans avec estimations LOC.
 #   7. Codex verification presence (STRICT, BLOCK feat Phase) — verifier
-#      sprint{N}_phase_{X}_codex_review.md existe.
+#      sprint{N}_phase_{X}_codex_review.md existe. Zero exemption LOC.
 #   8. Preflight G8 presence (STRICT, BLOCK feat Phase) — verifier
 #      sprint{N}_phase_{X}_preflight.md existe.
 #   9. Commit body sections (STRICT, BLOCK feat/docs Phase) — verifier
@@ -263,18 +263,15 @@ if [ "$PHASE" = "A" ] && [ -n "$SPRINT" ]; then
 fi
 
 # === Check 7 : Codex verification presence (STRICT for feat Phase) ===
-# §4.5 : Codex verification croisee obligatoire sauf exemptions §4.5.6.
-# Exemptions : docs-only (0 code LOC), < 5 code LOC, hotfix, PO skip.
+# §4.5 : Codex verification croisee obligatoire. Zero exemption.
+# Seul bypass : body contient "PO skip codex" explicite.
 if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
   # Only enforce on feat commits (not chore/fix/docs)
   IS_FEAT=$(echo "$COMMIT_TITLE" | grep -cE '^feat\(' || true)
   if [ "$IS_FEAT" -gt 0 ]; then
     CODEX_REVIEW=".planning/active/sprint${SPRINT}_phase_${PHASE}_codex_review.md"
     CODEX_EXEMPT=0
-    # Exemption: < 5 code LOC
-    CODE_LOC=$(git diff --cached --numstat -- '*.rs' '*.ts' '*.tsx' '*.py' 2>/dev/null | awk '{s+=$1} END {print s+0}' || echo "0")
-    [ "$CODE_LOC" -lt 5 ] && CODEX_EXEMPT=1
-    # Exemption: body contains explicit Codex skip
+    # Exemption: body contains explicit PO Codex skip
     if [ -n "$BODY" ]; then
       echo "$BODY" | grep -qiE 'Codex.*skip|skip.*[Cc]odex|Codex.*exempt' && CODEX_EXEMPT=1
     fi
@@ -284,7 +281,7 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
       echo "  Attendu: ${CODEX_REVIEW}" >&2
       echo "  Procedure: ecrire prompt .git/CODEX_PHASE_X.txt," >&2
       echo "    lancer codex exec, corriger GAPs, re-stage." >&2
-      echo "  Exemptions: docs-only, <5 code LOC, PO skip." >&2
+      echo "  Seul bypass : PO skip explicite dans le body." >&2
       echo "" >&2
       ERRORS=$((ERRORS + 1))
     fi
@@ -316,7 +313,7 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ] && [ -n "$BODY" ]; then
   IS_FEAT_OR_DOCS=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|docs)\(' || true)
   HAS_SPRINT_PHASE=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' || true)
   if [ "$IS_FEAT_OR_DOCS" -gt 0 ] && [ "$HAS_SPRINT_PHASE" -gt 0 ]; then
-    # Exemption: trivial phase (Codex verification skipped)
+    # Exemption: PO explicit Codex skip (body marker)
     CODEX_SKIPPED=$(echo "$BODY" | grep -cE '## Codex verification : skipped' || true)
     if [ "$CODEX_SKIPPED" -eq 0 ]; then
       MISSING_SECTIONS=""

@@ -29,7 +29,7 @@ Pour chaque livrable :
 - Statut : CONFIRME | GAP | PARTIEL
 - Fichier(s) : {chemin:ligne}
 - Evidence : {extrait code 3-5 lignes}
-- Si GAP : estimation en nombre de lignes du fix manquant
+- Si GAP : description de ce qui manque
 
 ## Resume final
 
@@ -37,7 +37,6 @@ Pour chaque livrable :
 - Confirmes : N
 - Gaps : N
 - Partiels : N
-- Estimation totale LOC fixes manquants : N
 
 ## Contraintes
 

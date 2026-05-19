@@ -181,7 +181,7 @@ isoles, pas le wiring dans les fichiers existants.
    - **PASS** : chaque methode/branche a >= 1 test qui l'exerce
    - **CONCERN** : branche defensive triviale (`if x is None: return`)
      sans test — acceptable si le path principal est teste
-   - **FAIL** : methode > 10 LOC ou branche de logique metier sans
+   - **FAIL** : methode ou branche de logique metier sans
      test → P1 bloquant, ajouter le test avant commit
 
 **Anti-pattern** : "les tests du composant isole suffisent". Non.
@@ -397,48 +397,27 @@ dans le kickoff (mais alors le sprint doit etre re-valide).
 ### Step 5bis — Codex verification gate (§4.5)
 
 La sequence §4.3 impose Codex verification croisee ENTRE la
-review Claude et le commit. Ce step verifie si la phase est
-exemptee, et sinon, bloque le verdict "ready to commit".
-
-**Exemptions §4.5.6** (pas besoin de Codex) :
-- Phase purement docs (0 fichier `.rs` / `.ts` / `.tsx` / `.py` dans le diff)
-- Phase < 5 LOC de code modifie
-- Hotfix cas D
-- PO dit explicitement "skip codex"
+review Claude et le commit. **Zero exemption** — TOUTES les phases
+recoivent le meme traitement maximal, sans exception basee sur le
+contenu, la taille, ou le type de phase. La seule facon de skip
+est un "PO dit skip codex" explicite.
 
 **Procedure** :
 
-1. Calculer si exemptee :
-   ```bash
-   CODE_LOC=$(git diff --cached --numstat -- '*.rs' '*.ts' '*.tsx' '*.py' | \
-     awk '{s+=$1} END {print s+0}')
-   ```
-   Si `CODE_LOC < 5` → exemptee.
-
-2. Si NON exemptee :
-   - Verifier que `sprint{N}_phase_{X}_codex_review.md` existe dans
-     `.planning/active/`
+1. Verifier que `sprint{N}_phase_{X}_codex_review.md` existe dans
+   `.planning/active/`
    - Si ABSENT : le verdict review NE DOIT PAS dire "Ready to commit"
      mais **"Ready for Codex verification (§4.5)"**
    - Ajouter dans le rapport :
      ```
      ## Codex gate (§4.5)
-     - Exemption : non (CODE_LOC = {N})
      - Status : EN ATTENTE — lancer Codex §4.5 avant commit
      - Procedure : ecrire prompt dans .git/CODEX_PHASE_X.txt
        (template .claude/templates/codex_phase_review.txt),
        lancer codex exec, lire rapport, corriger GAPs
      ```
 
-3. Si exemptee :
-   - Documenter dans le rapport :
-     ```
-     ## Codex gate (§4.5)
-     - Exemption : oui ({raison})
-     - Status : SKIP
-     ```
-
-4. Si le fichier codex_review.md EXISTE deja :
+2. Si le fichier codex_review.md EXISTE deja :
    - Verifier qu'il ne contient pas de GAPs non resolus
    - Documenter dans le rapport :
      ```
@@ -521,9 +500,9 @@ Produire un rapport markdown concis :
 | Carry closure | oui/non | ok/P1 |
 
 ## Modified-file branch coverage (Step 2bis, G9)
-- <file.py> : `new_method()` (N LOC) → tested by `test_X` ✅
+- <file.py> : `new_method()` → tested by `test_X` ✅
 - <file.py> : `if self._foo is not None` branch → tested by `test_Y` ✅
-- (FAIL si methode > 10 LOC sans test)
+- (FAIL si methode de logique metier sans test)
 
 ## Scope cuts verification
 - "multi-relai phase 2" : 0 fichiers diff ✅
@@ -540,9 +519,8 @@ Produire un rapport markdown concis :
 - **P3** : <nit>
 - (si 0 P2+ : VERDICT = CONCERN, lister dimensions sous-explorees)
 
-## Codex gate (§4.5)
-- Exemption : oui ({raison}) | non (CODE_LOC = {N})
-- Status : FAIT / EN ATTENTE / SKIP
+## Codex gate (§4.5) — zero exemption
+- Status : FAIT / EN ATTENTE
 - (si FAIT : {N} GAPs confirmes, {M} faux positifs, {K} corriges)
 
 ## Recommendation

@@ -320,7 +320,7 @@ Pour chaque carry du sprint precedent :
 2. Si compteur == 3 : l'item est **MANDATORY** (Regle 2 §6.2.1)
    — il DOIT entrer dans le plan comme phase, pas comme carry
 3. Si compteur < 3 : evaluer si l'item est absorbable dans une
-   phase du sprint courant (mesurer le gap en LOC si < 500)
+   phase du sprint courant
 4. Exemptions blockers externes : renouveler la justification
    (pas copier-coller)
 
@@ -714,7 +714,7 @@ Chaque item est explicitement "pas dans ce sprint".
 CHAQUE scope-cut doit etre re-evalue contre le code actuel
 (Step 3 G9) — ne JAMAIS propager un scope-cut du sprint
 precedent sans verifier si le gap est toujours reel. Si gap
-< 500 LOC et pertinent pour le goal, INCLURE plutot que couper.}
+est petit et pertinent pour le goal, INCLURE plutot que couper.}
 
 | # | Item | Sprint cible | Rationale |
 |---|---|---|---|
@@ -990,7 +990,7 @@ Avant de livrer, verifier ces 15 invariants :
 
 2. **Propager scope cuts comme verites.** Chaque scope cut du sprint
    N-1 doit etre re-evalue contre le code actuel (Step 3). Si le
-   gap est < 500 LOC, considerer l'inclusion.
+   gap est petit et pertinent, considerer l'inclusion.
 
 3. **Rubber-stamp G1.** Si 5/5 decisions sont ✅ sans un seul ⚠️,
    c'est suspect — le challenge n'a probablement pas ete reel.
@@ -1056,27 +1056,7 @@ PAS heredoc. Cf. memory `feedback_commit_heredoc.md`.
 
 ---
 
-## 9. Timebox indicatif
-
-| Step | Duree estimee |
-|------|---------------|
-| Step 0-1 (inventaire) | 5-10 min |
-| Step 2 (G2 triggers) | 3-5 min |
-| Step 3 (codebase scan) | 5-10 min |
-| Step 4 (carries + LT) | 3-5 min |
-| Step 5 (research D1..D5) | 30-60 min |
-| Step 6 (G1 review) | 5-10 min |
-| Step 7 (kickoff.md) | 10-15 min |
-| Step 8 (plan.md) | 15-25 min |
-| Step 9 (coherence check) | 3-5 min |
-| **Total** | **~80-145 min** |
-
-Le Step 5 (recherche) consomme 50-60% du temps total. C'est normal
-et voulu — la recherche profonde est la raison d'etre de cet agent.
-
----
-
-## 10. Paths et environnement
+## 9. Paths et environnement
 
 Le projet vit sur Windows 11 :
 - **Repo** : `C:\Users\FlowUP\Documents\Code\nexus`
@@ -1091,7 +1071,7 @@ Pour git/cargo/npm, PowerShell ou Bash selon contexte.
 
 ---
 
-## 11. Refs
+## 10. Refs
 
 ### Sources de verite (lire si doute)
 

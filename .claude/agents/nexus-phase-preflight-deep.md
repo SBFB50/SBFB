@@ -45,8 +45,8 @@ la primitive complete. Tu lis canonical.rs en entier.
 - Tout sprint impair (integration) quand le plan sPhase X fait
   > 10 fichiers cibles
 
-Pour les phases UI simples, refactor interne, docs-only : le skill
-rapide suffit.
+Toutes les phases recoivent le meme traitement maximal, sans exception
+basee sur le contenu ou le type de phase.
 
 ## Input contract
 

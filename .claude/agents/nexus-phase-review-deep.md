@@ -285,7 +285,7 @@ Procedure :
       - **SHALLOW-PASS** : test existe et appelle la methode, mais
         assertion trop faible ou inputs triviaux (P3)
       - **PARTIAL** : un seul cote de branche teste (P2)
-      - **UNTESTED** : methode > 10 LOC sans test → P1 bloquant
+      - **UNTESTED** : methode sans test → P1 bloquant
       - **DEFENSIVE-OK** : branche triviale (`if x.is_none() { return }`)
         sans test — acceptable si path principal teste
       - **WIRING-UNTESTED** : methode unitairement testee mais wiring
@@ -364,7 +364,7 @@ Procedure :
 
 1. Verifier que `.planning/active/sprint{N}_phase_{X}_preflight.md`
    **existe**. Si absent → P1 bloquant ("preflight G8 non execute").
-   Exception : Cas D hotfix, phase docs-only triviale (P2 si absent).
+   Exception : Cas D hotfix uniquement (P2 si absent).
 
 2. Verifier que le fichier contient les **5 sections de scan** :
    ```bash
@@ -522,11 +522,10 @@ Procedure :
       - Si fichier documente mentionne mais n'existe pas → GAP
    d. Statut :
       - **CONFIRME** : evidence (extrait code 3-5 lignes, fichier:ligne)
-      - **GAP** : manque (description + estimation LOC du fix manquant)
+      - **GAP** : manque (description de ce qui manque)
       - **PARTIEL** : incomplet (partie implementee, partie manquante)
 
 3. Resume : Total livrables, Confirmes, Gaps, Partiels
-   + estimation totale LOC fixes manquants si gaps/partiels
 
 ### Step 9 — PATTERNS DRIFT + HORIZON LONG-TERME
 
@@ -578,8 +577,7 @@ Verifier l'application de la regle §6.7 `docs/claude/README.md`
 Signal :
 - **PASS** : design doc present + alternatives citees + choix
   techniquement justifie + aucun LOC estime au plan
-- **CONCERN** : 1 item manquant mais justifiable (phase trivial
-  refactor n'a pas besoin de design doc long)
+- **CONCERN** : 1 item manquant mais justifiable
 - **FAIL** : choix technique courte-vue sans alternative
   documentee OU design doc manquant pour nouveau module
   structurant OU estimation LOC presente au plan
@@ -663,10 +661,10 @@ de remplissage. L'executeur peut le copier comme point de depart.
 `.planning/active/sprint{N}_phase_{X}_review.md` AVANT tout output
 conversationnel.
 
-Si tu approches le timebox et n'as pas encore ecrit le fichier,
-**tronque les sections optionnelles** mais garde : Verdict + Findings
-+ table dimensions + livrable verification. Mieux : un fichier
-minimal sur disque qu'un rapport long en stdout.
+Si tu approches la fin de ton budget tokens et n'as pas encore ecrit
+le fichier, **tronque les sections optionnelles** mais garde : Verdict
++ Findings + table dimensions + livrable verification. Mieux : un
+fichier minimal sur disque qu'un rapport long en stdout.
 
 Template du fichier :
 
@@ -704,12 +702,12 @@ HEAD: {sha} | Agent: nexus-phase-review-deep (Opus 1M)
 | Release build | - | - | - | ok/fail |
 
 ## Branch coverage semantique (deep)
-| Element | LOC | Test | Appel reel | Assert specifique | Cas limites | Signal |
-|---------|-----|------|------------|-------------------|-------------|--------|
-| `fn foo()` | 15 | `test_foo` | oui | oui | true+false | DEEP-PASS |
-| `if x.is_none()` | 3 | - | - | - | - | DEFENSIVE-OK |
-| `fn bar()` | 25 | `test_bar` | oui | non (assert global) | true only | PARTIAL P2 |
-| `fn baz()` | 20 | `test_baz_unit` | oui | oui | oui | WIRING-UNTESTED P2 |
+| Element | Test | Appel reel | Assert specifique | Cas limites | Signal |
+|---------|------|------------|-------------------|-------------|--------|
+| `fn foo()` | `test_foo` | oui | oui | true+false | DEEP-PASS |
+| `if x.is_none()` | - | - | - | - | DEFENSIVE-OK |
+| `fn bar()` | `test_bar` | oui | non (assert global) | true only | PARTIAL P2 |
+| `fn baz()` | `test_baz_unit` | oui | oui | oui | WIRING-UNTESTED P2 |
 
 ## Scope cuts semantique (deep)
 | Scope cut | Libelle | Intention | Grep mecanique | Diff semantique | Signal |
@@ -746,10 +744,9 @@ HEAD: {sha} | Agent: nexus-phase-review-deep (Opus 1M)
 | # | Livrable | Statut | Fichier:ligne | Evidence |
 |---|----------|--------|---------------|----------|
 | 1 | {titre} | CONFIRME | foo.rs:42 | {extrait 3-5 lignes} |
-| 2 | {titre} | GAP | - | {description manque + estimation LOC fix} |
+| 2 | {titre} | GAP | - | {description de ce qui manque} |
 
 Resume : {total} livrables / {confirmes} confirmes / {gaps} gaps / {partiels} partiels
-Estimation LOC fixes manquants : {N}
 
 ## Patterns drift + horizon long-terme
 ### Patterns
@@ -801,7 +798,7 @@ Estimation LOC fixes manquants : {N}
 | Branch coverage | N methodes/branches, N tests lus | {liste} | {N} |
 | Research grounding | preflight + deps + coherence | {liste} | {N} |
 | Livrables | N/N verifies via Read | {liste} | {N} |
-| Horizon long-terme | design doc + alternatives + LOC | {liste} | {N} |
+| Horizon long-terme | design doc + alternatives | {liste} | {N} |
 
 (trace d'exploration requise — 0 finding sur une dimension est
 acceptable ssi la trace d'exploration est non-vide. Dimension
@@ -826,7 +823,7 @@ avec trace vide = CONCERN)
 |---|---|---|
 | Skill nexus-phase-review | Steps 1-3, 10 (commit body), 11 (artefact Write) | Suites completes preservees + commit body 8 sections + staging + memory |
 | Agent nexus-phase-auditor (7 dimensions) | Steps 4-9 + 10bis | Diff lu en entier (pas --stat), tests lus semantiquement (4 criteres), scope cuts compris semantiquement (pas grep seul), research coherence code-vs-source (pas juste existence), security semantique (pas juste Semgrep), body-format 8/8 headers |
-| Codex GPT 5.5 verification | Step 8 | Meme independence (pas de contexte session), PLUS les 7 dimensions que Codex ne couvrait pas, PLUS estimation LOC fix manquant |
+| Codex GPT 5.5 verification | Step 8 | Meme independence (pas de contexte session), PLUS les 7 dimensions que Codex ne couvrait pas |
 
 **Elimination de la triple-invocation** : au lieu de lancer
 review → auditor → Codex → correction loop, un seul agent
@@ -922,21 +919,6 @@ complet (inclut re-derivation S1-S4) quand :
 - `fix(sprint{N-1})` dans le range non-audite
 - diff touche loopback HTTP auth (`PeerCredsVerified`, bearer token)
 - diff touche zip extract / path handling
-
----
-
-## Timebox
-
-| Cas | Max |
-|---|---|
-| Preflight EXECUTE + phase standard | 25 minutes |
-| Preflight absent ou rouge-ligne DEEP | 40 minutes |
-| Phase docs-only / < 5 LOC | 10 minutes |
-
-Si tu approches le timebox, tronque les sections optionnelles mais
-garde : Verdict + Findings + table dimensions + livrable verification
-+ commit body validation. Mieux : un fichier minimal sur disque qu'un
-rapport long en stdout.
 
 ---
 

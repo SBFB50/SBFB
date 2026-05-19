@@ -305,7 +305,7 @@ Sections canoniques (pattern Sprint 6/7) :
 
 1. **Mode d'emploi pour la session fraîche** — ordre de
    lecture imposé, liste des fichiers à NE PAS lire avant
-   d'avoir formé une opinion, timebox suggéré (2-3h), format
+   d'avoir formé une opinion, format
    du delivrable final
 2. **Tracks A..I** — une section par axe d'audit. Chaque
    track contient :
@@ -349,7 +349,7 @@ verdict.
 
 Sections canoniques (pattern Sprint 6 audit_findings) :
 
-1. **Auditeur** — id de session, timebox réellement observé
+1. **Auditeur** — id de session, duree observee
 2. **Tip audité** — SHA master que l'auditeur a pris comme
    base
 3. **Verdict global** — PASS / CONDITIONAL PASS / FAIL
@@ -365,7 +365,7 @@ Sections canoniques (pattern Sprint 6 audit_findings) :
    code change
 8. **P3 laissés sans action** — nits explicitement ignorés
 9. **Notes on audit completeness** — ce que l'auditeur a
-   skippé (timebox) et pourquoi
+   non couvert et pourquoi
 
 Exemple vécu : Sprint 6 audit_findings a produit un
 **CONDITIONAL PASS** avec 2 P1 + 8 P2 + 7 P3. Les 2 P1
@@ -683,8 +683,8 @@ déclenche un nouveau cycle.
 
 **Verification croisee Codex (depuis S65, cf. §4.5).** Apres que
 toutes les suites sont vertes et que la review Claude a produit un
-verdict PASS, lancer la verification Codex GPT 5.5 (sauf phases
-exemptees §4.5.6). Sequence complete avant commit phase :
+verdict PASS, lancer la verification Codex GPT 5.5 pour TOUTES les
+phases sans exception (§4.5.6). Sequence complete avant commit phase :
 
 1. Suites §7.4 vertes (Rust + Frontend)
 2. Review Claude — verdict PASS (agent nexus-phase-review-deep ou
@@ -781,7 +781,7 @@ Codex verification (codex exec, prompt structure, findings)
   |  Review croisee independante GPT 5.5
   v
 Claude correction loop (si Codex trouve des issues)
-  |  Fix + optionnel re-run Codex si > 10 LOC modifies
+  |  Fix + re-run suites + review + Codex (systematique)
   v
 Commit atomique feat(scope): Sprint N Phase X
 ```
@@ -863,23 +863,22 @@ Quand Codex produit des findings :
 
 1. **Claude lit le rapport Codex** (Read tool sur le fichier -o)
 2. **Triage** : GAP confirme (Claude corrige) / faux positif
-   (documente dans commit body) / GAP cosmetic (corrige si < 5 LOC)
+   (documente dans commit body)
 3. **Correction** : Claude corrige chaque GAP confirme
-4. **Re-run conditionnel** : si > 10 LOC de code metier modifie,
-   relancer Codex sur les fichiers modifies uniquement
+4. **Re-run systematique** : apres toute correction, relancer
+   suites + review Claude + Codex (boucle complete)
 5. **Tracabilite** : commit body inclut section `## Codex verification`
 
-#### 4.5.6 Quand NE PAS lancer Codex
+#### 4.5.6 Codex obligatoire — zero exemption
 
-| Cas | Raison |
-|-----|--------|
-| Phase purement docs | Pas de code a verifier |
-| Phase cosmetique (< 5 LOC) | Cout disproportionne |
-| Hotfix cas D | Urgence, pas de plan a verifier |
-| PO dit "skip codex" | Decision explicite documentee |
-| Phase de sortie (verification + audit_plan) | Pas de code metier |
+Codex verification croisee est **obligatoire pour TOUTES les
+phases sans exception** : code, docs, dette, wrap-up, hotfix.
+Aucune exemption LOC, aucune exemption contenu. La seule facon
+de skip est un "PO dit skip codex" explicite dans la conversation.
 
-Documenter dans le commit body : `## Codex verification : skipped ({raison})`.
+Si Codex n'est pas disponible, documenter dans le commit body :
+`## Codex verification : unavailable ({raison technique})` — ce
+n'est PAS un skip volontaire, c'est une indisponibilite tracee.
 
 #### 4.5.7 Parallelisation Claude teams
 
@@ -1017,7 +1016,7 @@ Avant de figer D1..D5 dans `kickoff §4`, le planner :
    ```
 
 3. L'agent ecrit `.planning/active/sprint{N}_design_review.md` avec
-   le scoring report (5-15 min, prompt court).
+   le scoring report.
 4. **Le planner reste owner mais doit acknowledge chaque ⚠️ et ❌
    explicite** dans le kickoff §4 (paragraphe "Acknowledged review
    findings"). Pas de veto reviewer, pas de stalemate.
@@ -1456,8 +1455,7 @@ de divergence chronique. 7 garde-fous obligatoires :
    `sprint{N}_phase_{X}_pivot_proposal.md` dans `.planning/active/`.
    Absence = P1 bloquant "G8 gate bypass" (la phase a été codée
    sans scan pre-implementation, drift plan-vers-code non-détecté).
-   Exception : Cas D hotfix hors-sprint. Phase docs-only triviale
-   exige au minimum un preflight.md 1-3 lignes verdict CLEAN.
+   Exception : Cas D hotfix hors-sprint uniquement.
    Si verdict DESIGN-CONFLICT : l'auditor vérifie aussi que le
    plan §Phase X reflète le pivot via chore(planning) antérieur
    au commit feat — divergence silencieuse plan-vs-code = P1
@@ -1761,8 +1759,8 @@ procédure lui-même (sauf Cas D hotfix).
       Fallback : skill nexus-phase-review (profondeur réduite).
 
     APRÈS review PASS, AVANT commit (Codex §4.5) :
-      Lancer la verification croisee Codex GPT 5.5 (sauf
-      exemptions §4.5.6 : docs-only, <5 LOC, hotfix, PO skip).
+      Lancer la verification croisee Codex GPT 5.5 pour TOUTES
+      les phases sans exception (§4.5.6 zero exemption).
       Ecrire prompt `.git/CODEX_PHASE_X.txt`, lancer via
       `Get-Content | codex exec -o .planning/active/
       sprint{N}_phase_{X}_codex_review.md`.
@@ -2121,7 +2119,7 @@ session Sprint 7 Phase F. Résumé :
 8. Retourner le verdict à l'utilisateur qui ouvre alors
    la Phase A du sprint en cours
 
-Timebox suggéré : 2-3h. Le signal prime sur le volume.
+Le signal prime sur le volume — pas de limite de temps.
 
 ---
 
