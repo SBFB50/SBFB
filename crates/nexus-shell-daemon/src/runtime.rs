@@ -1419,7 +1419,8 @@ async fn boot_storage_namespace(
         let db = coordinator_db
             .lock()
             .map_err(|e| anyhow!("coordinator DB lock failed: {e}"))?;
-        db.get_storage_namespace(app_name).ok().flatten()
+        db.get_storage_namespace(app_name)
+            .map_err(|e| anyhow!("failed to read storage namespace for {app_name}: {e}"))?
     };
 
     let (doc, ticket_str) = match existing {
@@ -1438,8 +1439,10 @@ async fn boot_storage_namespace(
                             let ticket = doc.share_write().await?;
                             let t = ticket.to_string();
                             let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
-                            let _ =
-                                db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&t));
+                            db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&t))
+                                .map_err(|e| {
+                                    anyhow!("failed to persist storage namespace ticket: {e}")
+                                })?;
                             t
                         }
                     };
@@ -1467,7 +1470,8 @@ async fn boot_storage_namespace(
             let ticket = doc.share_write().await?;
             let ticket_str = ticket.to_string();
             let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
-            let _ = db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&ticket_str));
+            db.set_storage_namespace(app_name, doc.id().as_bytes(), Some(&ticket_str))
+                .map_err(|e| anyhow!("failed to persist new storage namespace: {e}"))?;
             (doc, ticket_str)
         }
     };
@@ -1495,7 +1499,8 @@ async fn boot_feed_namespace(
         let db = coordinator_db
             .lock()
             .map_err(|e| anyhow!("coordinator DB lock failed: {e}"))?;
-        db.get_storage_namespace(feed_key).ok().flatten()
+        db.get_storage_namespace(feed_key)
+            .map_err(|e| anyhow!("failed to read feed namespace: {e}"))?
     };
 
     let (doc, ticket_str) = match existing {
@@ -1514,8 +1519,10 @@ async fn boot_feed_namespace(
                             let ticket = doc.share_write().await?;
                             let t = ticket.to_string();
                             let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
-                            let _ =
-                                db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&t));
+                            db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&t))
+                                .map_err(|e| {
+                                    anyhow!("failed to persist feed namespace ticket: {e}")
+                                })?;
                             t
                         }
                     };
@@ -1538,7 +1545,8 @@ async fn boot_feed_namespace(
             let ticket = doc.share_write().await?;
             let ticket_str = ticket.to_string();
             let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
-            let _ = db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&ticket_str));
+            db.set_storage_namespace(feed_key, doc.id().as_bytes(), Some(&ticket_str))
+                .map_err(|e| anyhow!("failed to persist new feed namespace: {e}"))?;
             (doc, ticket_str)
         }
     };
