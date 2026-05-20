@@ -13,6 +13,7 @@ members = [
     "crates/nexus-test-harness",
     "crates/nexus-coordinator-rs",
     "crates/sbfb-manifest",
+    "crates/sbfb-factory",
     "tools/png-to-icns",
 ]
 
@@ -184,6 +185,7 @@ dashmap = "6"
 # Sprint 12 Phase A: zip archive decompression for blob-serve.
 # Read-only safe, deflate-only to minimize binary size.
 zip = { version = "8.5", default-features = false, features = ["deflate"] }
+walkdir = "2"
 
 # Sprint 16 Phase C: file watcher for consent.json reload without
 # worker restart. Cross-platform (inotify on Linux, FSEvents on
