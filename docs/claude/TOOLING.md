@@ -171,14 +171,16 @@ la surface Claude Code le permet factuellement :
   voit la task list partagee, peut communiquer avec le lead, et envoie un
   `BLOCK-*` proactif si le process derive.
 - **Mode degrade** : subagent classique `Agent(...)` re-invoque a chaque gate.
-  Ce mode est requis si Agent Teams est absent, si le teammate est `Done`, ou
-  si la session ne peut plus lui envoyer de message.
+  Ce mode est requis si Agent Teams est absent ou si la session ne peut plus
+  envoyer de message a `@supervisor`. Un affichage `Done` / idle apres
+  GO-SPAWN n'est pas un probleme si le handle reste adressable.
 - **Backstop automatique** : les hooks ne remplacent pas le superviseur, mais
   ils donnent du feedback mecanique si le modele oublie. `Stop` bloque les fins
   de tour qui ressemblent a un faux "termine" avec worktree sale ou a un debut
-  Phase C/SBFB factory sans preflight G8. `TaskCreated` / `TaskCompleted`
-  bloquent les tasks de gate terminees sans artefact. `TeammateIdle` garde le
-  teammate `supervisor` actif tant que le worktree est sale.
+  Phase C/SBFB factory sans preflight G8. `TaskCreated` autorise la creation du
+  plan futur ; `TaskCompleted` bloque les tasks de gate/implementation terminees
+  sans artefact. `TeammateIdle` garde `supervisor` non-idle tant que le worktree
+  est sale, mais accepte idle/Done quand le repo est propre.
 
 Le bootstrap [`README.md`](README.md) impose aussi un plan sequentiel visible
 dans le contexte principal (`TaskCreate`/`TaskUpdate`/`TaskList`, fallback

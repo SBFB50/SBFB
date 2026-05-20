@@ -1795,8 +1795,10 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
        G-COMMIT/G-POST, et m'envoie un message BLOCK-* des qu'il voit
        une deviation. Etat pre-flight : [coller le resume]."
 
-     Le teammate doit rester actif jusqu'a G-POST ou shutdown explicite.
-     Si le teammate signale `Done`, devient idle, ou si Agent Teams est
+     Le teammate doit rester adressable jusqu'a G-POST ou shutdown explicite.
+     Important : `Done` / idle apres un verdict GO-SPAWN n'est pas toujours
+     un echec. Si `@supervisor` reste adressable, continuer et le consulter a
+     chaque gate. Si `@supervisor` n'est plus adressable, ou si Agent Teams est
      indisponible, passer immediatement en mode degrade ci-dessous.
 
   3. Mode degrade : consultation gate-check par Agent classique.
@@ -1828,10 +1830,12 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
   thread oublie le plan ou le superviseur :
     - Stop : bloque une fin de tour qui sonne "termine" alors que le repo
       n'est pas propre, ou un debut Phase C/factory sans preflight ;
-    - TaskCreated / TaskCompleted : bloquent les tasks de gate terminees sans
+    - TaskCreated : autorise la creation du plan futur meme si les artefacts
+      n'existent pas encore ;
+    - TaskCompleted : bloque les tasks de gate/implementation terminees sans
       artefact attendu ;
-    - TeammateIdle : garde le teammate supervisor actif tant que le worktree
-      est sale.
+    - TeammateIdle : garde le teammate supervisor non-idle tant que le
+      worktree est sale ; si le repo est propre, idle/Done est acceptable.
 
 # === Regle modele agents (§7.1.1) ===
 
