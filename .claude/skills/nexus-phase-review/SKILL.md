@@ -448,10 +448,16 @@ si ce fichier est absent ou ne contient pas `## Verdict : PASS`.
 
 | Conditions | Verdict |
 |---|---|
-| 0 P0/P1 ET >= 1 finding P2+ documente | **PASS** (audit deep, autorise) |
+| 0 P0/P1 ET >= 1 finding P2+ documente ET Codex FAIT | **PASS** (audit deep, autorise) |
+| 0 P0/P1 ET >= 1 finding P2+ documente ET Codex EN ATTENTE | **PASS-PENDING** (review OK, Codex requis avant commit) |
 | 0 P0/P1 ET 0 finding P2+ | **CONCERN** (audit insuffisant — re-audit requis avec dimension manquee : research-grounding ? horizon long-terme ? working tree ?) |
 | 0 P0/P1 ET 1 finding P2+ avec carry-over explicite dans body | **PASS** (autorise mais entree obligatoire dans `sprint{N+1}_audit_findings.md`) |
 | >= 1 P0 OU >= 1 P1 non resolu | **FAIL** (commit BLOQUE) |
+
+**Comptage rigor signal** : le chiffre "N findings P2+" dans le
+header du rapport DOIT correspondre au `grep -c '^- \*\*P[0-2]\*\*'`
+de la section Findings. P3 n'est PAS P2+. Un comptage faux est un
+ecart P3 detectable par l'audit gate.
 
 **Rationale** : sur Sprint 19 Phase B, verdict CONCERN→PASS via 2
 mitigations cosmetiques (commit body enrichi, design doc staged) sans

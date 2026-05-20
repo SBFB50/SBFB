@@ -519,12 +519,15 @@ Body structuré (template — 8 sections obligatoires) :
 [TOUS les items du kickoff §8, exhaustif — pas de troncature]
 
 ## G8 traceability
-- Preflight : [SHA `chore(planning): sprint{N} Phase {X} — G8 preflight`]
+- Preflight : [SHA `chore(planning)` ou "staged, no prior SHA"]
   verdict [EXECUTE plan-as-is / PLAN-ADAPT / SCOPE-CUT-CONSISTENT]
+  Quand le preflight est bundled dans le commit feat (pas de
+  `chore(planning)` separe), utiliser "staged, no prior SHA" + nom
+  du fichier preflight.md. La tracabilite temporelle est alors
+  prouvee par le HEAD reference dans le preflight lui-meme.
 - Review : [SHA commit phase lui-même] verdict auditor
-  [PASS / CONCERN / FAIL] ([N] P0, [N] P1, [N] P2)
-[chaîne explicite avec SHAs cross-référencés — permet à l'audit gate
-S+1 de retracer le process sans ouvrir les artefacts `.planning/active/`]
+  [PASS / PASS-PENDING / CONCERN / FAIL] ([N] P0, [N] P1, [N] P2, [N] P3)
+[chaîne explicite — permet à l'audit gate S+1 de retracer le process]
 
 ## Pre-launch protocol
 [*_VERSION unchanged, wire format preservé]
@@ -1829,6 +1832,10 @@ procédure lui-même (sauf Cas D hotfix).
       Ecrire prompt `.git/CODEX_PHASE_X.txt`, lancer via
       `Get-Content | codex exec -o .planning/active/
       sprint{N}_phase_{X}_codex_review.md`.
+      Le fichier codex_review.md DOIT etre l'output BRUT de
+      `codex exec -o`. Claude NE DOIT PAS le reecrire, le
+      condenser, ni le resumer. Le superviseur G-CODEX verifie
+      l'authenticite (format par-livrable, fichier:ligne, evidence).
       Si GAPs P0/P1 : corriger, puis BOUCLE COMPLETE :
         1. Re-run suites §7.4
         2. Re-invoquer review-deep (re-consultation G-REVIEW)

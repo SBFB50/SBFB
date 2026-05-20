@@ -23,11 +23,16 @@
 [TOUS les items du kickoff §8, exhaustif — pas de troncature]
 
 ## G8 traceability
-- Preflight : [{SHA}] verdict [{EXECUTE/SCOPE-CUT-CONSISTENT}]
-- Review : [{SHA}] verdict [{PASS}] ({N} P0, {N} P1, {N} P2)
+- Preflight : [{SHA} ou "staged, no prior SHA"] verdict [{EXECUTE/SCOPE-CUT-CONSISTENT}]
+- Review : [{SHA} ou "staged"] verdict [{PASS}] ({N} P0, {N} P1, {N} P2, {N} P3)
 
 ## Pre-launch protocol
 [*_VERSION unchanged, wire format preserve]
+
+## Codex verification
+- Rapport : {fichier codex_review.md}
+- Livrables audites : {N}, Confirmes : {N}, Gaps : {N} corriges
+[si gaps corriges : description 1-ligne par gap]
 
 ## Carry closure / Unblock
 [graphe de dependances inter-sprint explicite, ou "Aucun" si N/A]
