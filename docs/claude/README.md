@@ -1753,41 +1753,85 @@ grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md docs/she
 # (lecture rapide, signal uniquement, le scan S2 complet vit dans skill preflight)
 git log --all --extended-regexp --grep='DEVIATION|rejected|threat-model|scope-cut' --oneline | head -10 || true
 
-# === Invocation superviseur process G-SPAWN (OBLIGATOIRE, avant tout) ===
+# === Supervision continue + plan sequentiel (OBLIGATOIRE, avant tout) ===
 
 IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
 
-  Agent(
-    name: "supervisor",
-    description: "Gate-check superviseur nexus-grid ; confirme le cas detecte et bloque si le process derive.",
-    subagent_type: "nexus-process-supervisor",
-    prompt: "G-SPAWN. Voici l'etat pre-flight : [coller
-      le resume du pre-flight]. Confirme le cas detecte."
-  )
+  1. Creer un plan sequentiel visible dans le contexte principal.
+     Utiliser les outils Claude Code `TaskCreate` / `TaskUpdate` /
+     `TaskList` si disponibles. Si cette version expose seulement
+     `TodoWrite`, utiliser `TodoWrite` comme fallback.
 
-  NE PAS passer `model:` — le frontmatter porte claude-opus-4-6[1m].
-  Claude Code peut afficher `Done` apres cette invocation : c'est normal.
-  Le superviseur n'est PAS un daemon conversationnel garanti. A CHAQUE gate,
-  re-invoquer `Agent(...)` avec le meme `subagent_type` et un prompt qui
-  contient le gate, la phase, les artefacts et le verdict observe :
-    - G-SPAWN : confirmation du cas detecte (reponse initiale)
+     Plan minimal attendu :
+       - G-SPAWN : pre-flight resume + superviseur actif/confirme
+       - Lire decision + active plan files
+       - G-PREFLIGHT : produire/valider le preflight de phase
+       - Si EXECUTE/PLAN-ADAPT : coder uniquement dans le scope valide
+       - G-REVIEW : review-deep -> PASS-PENDING
+       - G-CODEX : codex_review brut + reconciliation review PASS
+       - G-COMMIT : verifier artefacts + commit body + staged diff
+       - G-POST : commit, planning/memory a jour, phase suivante claire
+
+     Regles plan :
+       - exactement une tache `in_progress` ;
+       - mise a jour AVANT et APRES chaque gate ;
+       - aucune tache `completed` sans artefact/verdict correspondant ;
+       - le superviseur peut bloquer si le plan et le repo divergent.
+
+  2. Mode prefere : superviseur long-lived via Agent Team.
+     Si Claude Code supporte les Agent Teams / teammates :
+       - creer une team de session ;
+       - ajouter un teammate nomme `supervisor` avec le type
+         `nexus-process-supervisor` ;
+       - mission : surveiller le plan sequentiel, les gates et les
+         artefacts ; envoyer un message proactif si deviation/oubli ;
+       - ne jamais passer `model:` dans la demande de spawn.
+
+     Prompt recommande :
+       "Cree une Agent Team pour cette session. Ajoute un teammate
+       permanent nomme supervisor, de type nexus-process-supervisor.
+       Il ne code pas et ne modifie aucun fichier. Il surveille le plan
+       sequentiel, les gates G-SPAWN/G-PREFLIGHT/G-REVIEW/G-CODEX/
+       G-COMMIT/G-POST, et m'envoie un message BLOCK-* des qu'il voit
+       une deviation. Etat pre-flight : [coller le resume]."
+
+     Le teammate doit rester actif jusqu'a G-POST ou shutdown explicite.
+     Si le teammate signale `Done`, devient idle, ou si Agent Teams est
+     indisponible, passer immediatement en mode degrade ci-dessous.
+
+  3. Mode degrade : consultation gate-check par Agent classique.
+     Utiliser ce fallback seulement si Agent Teams est indisponible ou si
+     le teammate permanent n'est plus actif.
+
+       Agent(
+         name: "supervisor-gate",
+         description: "Gate-check superviseur nexus-grid pour {GATE}.",
+         subagent_type: "nexus-process-supervisor",
+         prompt: "{GATE} Phase X. Contexte G-SPAWN : [resume].
+           Plan actuel : [task list]. Artefacts : [fichiers].
+           Verdict observe : [verdict]."
+       )
+
+     NE PAS passer `model:` - le frontmatter porte claude-opus-4-6[1m].
+
+  Gates surveilles :
+    - G-SPAWN : confirmation du cas detecte
     - G-PREFLIGHT : apres preflight agent (Cas B)
     - G-REVIEW : apres review agent (Cas B)
     - G-CODEX : apres codex exec + reconciliation review PASS (Cas B)
     - G-COMMIT : avant git commit (TOUS les cas A/B/C/D)
     - G-POST : apres commit + chore (TOUS les cas A/B/C/D)
 
-  Template de consultation gate :
-    Agent(
-      name: "supervisor-gate",
-      description: "Gate-check superviseur nexus-grid pour {GATE}.",
-      subagent_type: "nexus-process-supervisor",
-      prompt: "{GATE} Phase X. Contexte G-SPAWN : [resume].
-        Artefacts : [fichiers]. Verdict observe : [verdict]."
-    )
-
-  Si le superviseur repond BLOCK-* : STOP, corriger, re-invoquer le gate.
+  Si le superviseur repond BLOCK-* : STOP, corriger, re-consulter le gate.
   Le main thread ne peut PAS ignorer un BLOCK.
+  Les hooks `.claude/hooks/*` restent le backstop automatique si le main
+  thread oublie le plan ou le superviseur :
+    - Stop : bloque une fin de tour qui sonne "termine" alors que le repo
+      n'est pas propre, ou un debut Phase C/factory sans preflight ;
+    - TaskCreated / TaskCompleted : bloquent les tasks de gate terminees sans
+      artefact attendu ;
+    - TeammateIdle : garde le teammate supervisor actif tant que le worktree
+      est sale.
 
 # === Regle modele agents (§7.1.1) ===
 
@@ -1822,7 +1866,8 @@ procédure lui-même (sauf Cas D hotfix).
              joue manuellement la procedure §3 + §8.
 
     AVANT chaque commit fix(sprint{N-1}) :
-      CONSULTER superviseur G-COMMIT puis G-POST.
+      CONSULTER superviseur G-COMMIT puis G-POST
+      (teammate permanent si actif, sinon Agent fallback).
 
   Cas B — Sprint en cours
     Signal : .planning/active/ contient sprint{N}_kickoff.md +
@@ -1844,7 +1889,8 @@ procédure lui-même (sauf Cas D hotfix).
       Fallback : skill nexus-phase-preflight (profondeur réduite,
       même verdicts).
 
-      CONSULTER superviseur (G-PREFLIGHT) par nouvelle invocation Agent :
+      CONSULTER superviseur (G-PREFLIGHT)
+      (teammate permanent si actif, sinon Agent fallback) :
         Gate G-PREFLIGHT Phase X.
         Fichier : sprint{N}_phase_{X}_preflight.md.
         Verdict : {verdict}.
@@ -1872,7 +1918,8 @@ procédure lui-même (sauf Cas D hotfix).
       Si FAIL : corriger les P0/P1, re-invoquer l'agent.
       Fallback : skill nexus-phase-review (profondeur réduite).
 
-      CONSULTER superviseur (G-REVIEW) par nouvelle invocation Agent :
+      CONSULTER superviseur (G-REVIEW)
+      (teammate permanent si actif, sinon Agent fallback) :
         Gate G-REVIEW Phase X.
         Fichier : sprint{N}_phase_{X}_review.md.
         Verdict : {verdict}.
@@ -1908,20 +1955,23 @@ procédure lui-même (sauf Cas D hotfix).
       reconciliation/promote review PASS → supervisor → commit.
       JAMAIS committer avant le verdict Codex et le review final PASS.
 
-      CONSULTER superviseur (G-CODEX) par nouvelle invocation Agent :
+      CONSULTER superviseur (G-CODEX)
+      (teammate permanent si actif, sinon Agent fallback) :
         Gate G-CODEX Phase X.
         Fichier : sprint{N}_phase_{X}_codex_review.md.
         Review final : PASS.
         Attendre GO-CODEX avant commit.
 
-      CONSULTER superviseur (G-COMMIT) par nouvelle invocation Agent :
+      CONSULTER superviseur (G-COMMIT)
+      (teammate permanent si actif, sinon Agent fallback) :
         Gate G-COMMIT Phase X.
         Commit body pret, tous artefacts presents.
         Attendre GO-COMMIT avant git commit.
 
     Livrable final : 1 commit feat(scope): Sprint N Phase X.
 
-      CONSULTER superviseur (G-POST) par nouvelle invocation Agent :
+      CONSULTER superviseur (G-POST)
+      (teammate permanent si actif, sinon Agent fallback) :
         Gate G-POST Phase X.
         Commit {sha}. Chore planning fait. Memory a jour.
         Attendre GO-POST avant de passer a la phase suivante.
@@ -1945,6 +1995,7 @@ procédure lui-même (sauf Cas D hotfix).
       3. Memory carry-over G6 : fusionner manuellement
          sprint{N-1}_verification.md §5 dans les memories
       4. CONSULTER superviseur G-COMMIT puis G-POST
+         (teammate permanent si actif, sinon Agent fallback)
       5. Commit chore(planning): Sprint N kickoff + plan
       6. Update memory nexus_grid_pivot.md
     Fallback : si l'agent n'est pas disponible, le main thread
@@ -1967,7 +2018,8 @@ procédure lui-même (sauf Cas D hotfix).
                 Si conflit -> escalation user avant fix.
     Pas d'agent specialise — le main thread gere directement.
     MAIS : CONSULTER superviseur G-COMMIT avant commit +
-           G-POST apres commit par nouvelle invocation Agent
+           G-POST apres commit (teammate permanent si actif,
+           sinon Agent fallback)
            (supervision obligatoire pour TOUS les cas, y compris hotfix).
 
 # === Lecture ciblée par cas ===

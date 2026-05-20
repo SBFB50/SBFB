@@ -14,16 +14,17 @@ discussions session de [`memory/`](../../../memory/) correspondantes.
 
 ---
 
-## 1. Vue d'ensemble — 3 couches actives
+## 1. Vue d'ensemble — 4 couches actives
 
-Le process empile 3 couches actives. Chacune catch une classe
+Le process empile 4 couches actives. Chacune catch une classe
 d'erreurs differente.
 
 | # | Couche | Moment | Outil principal |
 |---|---|---|---|
 | 1 | Garde-fous automatiques | PostToolUse (chaque write) | `.claude/hooks/verify-on-write.sh` + Semgrep |
-| 2 | Skills qualite specialises | Sur demande Claude | Trail of Bits skills + `nexus-phase-review` |
-| 3 | Subagent review intra-sprint | Pre-commit d'une phase | `nexus-phase-auditor` agent (inconditionnel) |
+| 2 | Supervision continue + plan contexte | Session entiere + chaque gate | Agent Team teammate `nexus-process-supervisor` + task list + Stop hook |
+| 3 | Skills qualite specialises | Sur demande Claude | Trail of Bits skills + `nexus-phase-review` |
+| 4 | Subagent review intra-sprint | Pre-commit d'une phase | `nexus-phase-auditor` agent (inconditionnel) |
 
 L'**audit gate inter-sprint** (cf. [`README.md`](README.md) §3) reste
 la couche de reference. Ce tooling la complete sans la remplacer.
@@ -34,7 +35,11 @@ la couche de reference. Ce tooling la complete sans la remplacer.
 
 ### 2.1 Prerequis
 
-- Claude Code >= 2.1 (hooks `PostToolUse` / `PreToolUse`, `matcher`, stdin JSON)
+- Claude Code >= 2.1 (hooks `PostToolUse` / `PreToolUse`, `Stop`, `matcher`, stdin JSON)
+- Claude Code avec Agent Teams si disponible (mode prefere). Le repo active
+  `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` dans `.claude/settings.json`.
+  Si la version locale ne supporte pas encore Agent Teams, le process bascule
+  en consultation Agent gate-check a chaque gate.
 - Bash >= 4 (Git Bash sur Windows fonctionne)
 - `jq` dans le PATH **OU** `python3` (les hooks detectent auto lequel utiliser
   pour parser l'input JSON — fail-open silent si aucun des deux n'est present)
@@ -46,8 +51,18 @@ la couche de reference. Ce tooling la complete sans la remplacer.
 
 Rien a installer. Le fichier `.claude/settings.json` est committe dans
 le repo, donc toute session Claude Code ouverte dans nexus herite
-automatiquement du hook `PostToolUse` qui execute
-`.claude/hooks/verify-on-write.sh`.
+automatiquement :
+
+- de `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` pour permettre le mode
+  superviseur long-lived quand Claude Code le supporte ;
+- de `teammateMode: in-process`, plus robuste sur Windows qu'une dependance
+  tmux/split-pane ;
+- du hook `PostToolUse` qui execute `.claude/hooks/verify-on-write.sh` ;
+- du hook `Stop` qui execute `.claude/hooks/process-supervisor-stop.sh` ;
+- des hooks `TaskCreated` / `TaskCompleted` qui executent
+  `.claude/hooks/process-task-gate.sh` ;
+- du hook `TeammateIdle` qui execute
+  `.claude/hooks/process-teammate-idle.sh`.
 
 Verifier que ca marche :
 
@@ -57,6 +72,17 @@ echo '{"tool_input":{"file_path":"docs/claude/README.md"}}' \
 ```
 
 Sortie attendue : `hook OK` (le hook no-op sur docs/).
+
+Verifier le Stop hook :
+
+```bash
+echo '{"last_assistant_message":"Fait, worktree clean"}' \
+  | bash .claude/hooks/process-supervisor-stop.sh
+```
+
+Si le worktree est sale, la sortie attendue est un JSON `decision: block`.
+Si le worktree est propre ou que le message ne ressemble pas a une conclusion,
+le hook no-op.
 
 ### 2.3 Trail of Bits skills (user-level)
 
@@ -134,6 +160,30 @@ install explicite quand ca l'arrange.
 signal pour eviter de repeter le message a chaque session. Delete le
 marker pour re-signaler (utile apres un `bash scripts/install-claude-
 tooling.sh` partiel qui laisse des composants manquants).
+
+### 2.6 Superviseur long-lived et plan contexte
+
+Le process prefere maintenant un superviseur permanent, mais seulement quand
+la surface Claude Code le permet factuellement :
+
+- **Mode prefere** : Agent Team avec teammate `supervisor` de type
+  `nexus-process-supervisor`. Le teammate reste actif pendant le contexte,
+  voit la task list partagee, peut communiquer avec le lead, et envoie un
+  `BLOCK-*` proactif si le process derive.
+- **Mode degrade** : subagent classique `Agent(...)` re-invoque a chaque gate.
+  Ce mode est requis si Agent Teams est absent, si le teammate est `Done`, ou
+  si la session ne peut plus lui envoyer de message.
+- **Backstop automatique** : les hooks ne remplacent pas le superviseur, mais
+  ils donnent du feedback mecanique si le modele oublie. `Stop` bloque les fins
+  de tour qui ressemblent a un faux "termine" avec worktree sale ou a un debut
+  Phase C/SBFB factory sans preflight G8. `TaskCreated` / `TaskCompleted`
+  bloquent les tasks de gate terminees sans artefact. `TeammateIdle` garde le
+  teammate `supervisor` actif tant que le worktree est sale.
+
+Le bootstrap [`README.md`](README.md) impose aussi un plan sequentiel visible
+dans le contexte principal (`TaskCreate`/`TaskUpdate`/`TaskList`, fallback
+`TodoWrite`). Le superviseur surveille cette task list : exactement une tache
+`in_progress`, aucune tache `completed` sans artefact, et gates dans l'ordre.
 
 ---
 
@@ -310,7 +360,7 @@ aggressivement.
 
 ---
 
-## 4. Couche 2 — Skills qualite
+## 4. Couche 3 — Skills qualite
 
 ### 4.1 Trail of Bits — quand utiliser quoi
 
@@ -355,7 +405,7 @@ checklist §7.4 avant commit d'une phase :
 
 ---
 
-## 5. Couche 3 — Subagent review intra-sprint
+## 5. Couche 4 — Subagent review intra-sprint
 
 Gap actuel : l'audit gate review **entre** les sprints. Rien ne review
 **entre les phases** A→B→C→D→E→F. Un blind-spot Phase B decouvert

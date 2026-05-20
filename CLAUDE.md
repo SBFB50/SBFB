@@ -43,12 +43,16 @@ lit le verdict et avance ou s'arrete.
 | `nexus-phase-review-deep` | B post-code | review.md | skill nexus-phase-review |
 | `nexus-phase-auditor` | B post-code | review.md | subsume par review-deep |
 
-**Superviseur process** : `nexus-process-supervisor` est spawne au
-DEBUT de chaque session (bootstrap §7.1) et reste en vie via
-SendMessage. Le main thread le consulte a CHAQUE gate (preflight,
-review, Codex, commit, post-commit). Il ne code jamais, ne cree
-jamais d'artefact — il verifie et bloque. Pas de fallback :
-si le superviseur n'est pas la, on ne committe pas.
+**Superviseur process** : `nexus-process-supervisor` est obligatoire
+des le bootstrap §7.1. Mode prefere : Agent Team long-lived avec un
+teammate `supervisor` qui surveille le plan sequentiel, les gates
+(preflight, review, Codex, commit, post-commit) et envoie un BLOCK
+proactif si le process derive. Mode degrade : si Agent Teams est
+indisponible ou si le teammate n'est plus actif, consulter le meme
+agent par invocation gate-check a chaque gate. Il ne code jamais, ne
+cree jamais d'artefact ; il verifie et bloque. Sans GO superviseur,
+on ne committe pas. Les hooks `.claude/hooks/*` restent le backstop
+automatique si le main thread oublie.
 
 **Regle modele** : ne JAMAIS passer le parametre `model` dans les
 appels Agent(). Les agents ont `model: claude-opus-4-6[1m]` dans
