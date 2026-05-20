@@ -203,7 +203,7 @@ grep -q "T-CURATOR-VOUCH" docs/security/THREAT_MODEL.md
 
 `feat(search): Sprint 67 Phase B — FTS5 search @protocole + THREAT_MODEL feed 3/3`
 
-Body : 8 sections obligatoires.
+Body : 9 sections obligatoires.
 
 ---
 
@@ -273,7 +273,7 @@ cargo build -p sbfb-factory  # compile sans erreur
 
 `feat(factory): Sprint 67 Phase C — sbfb-factory CLI + template engine + create + validate`
 
-Body : 8 sections obligatoires.
+Body : 9 sections obligatoires.
 
 ---
 
@@ -325,7 +325,7 @@ grep -q "P52" docs/rust/PATTERNS.md
 
 `feat(factory): Sprint 67 Phase D — factory provenance + P52 BlobStore pattern + dette`
 
-Body : 8 sections obligatoires.
+Body : 9 sections obligatoires.
 
 ---
 
@@ -364,7 +364,7 @@ test -f .planning/active/sprint68_audit_plan.md
 
 `docs(sprint67): Sprint 67 Phase E — verification + wrap-up`
 
-Body : 8 sections obligatoires.
+Body : 9 sections obligatoires.
 
 ---
 

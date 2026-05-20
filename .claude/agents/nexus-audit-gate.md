@@ -527,8 +527,9 @@ done
 ```
 
 - Absent pour une phase avec commit feat = P1 (review bypass)
-- Present : Read et verifier verdict PASS. Un verdict CONCERN
-  ou FAIL sans fix subsequent = P1
+- Present : Read et verifier verdict final PASS. Un verdict
+  PASS-PENDING, CONCERN ou FAIL dans une phase deja committee = P1
+  (review non reconciliee ou gate bypass).
 
 #### F.3 Codex reviews (dual-agent verification, §4.5 README.md)
 
@@ -541,7 +542,8 @@ done
 ```
 
 Si le sprint est >= S65 (dual-agent actif), l'absence de codex review
-est un P2. Si < S65, absence acceptable.
+pour une phase committee est un P1 : PASS-PENDING n'est pas un verdict
+final committable. Si < S65, absence acceptable.
 Si present : verifier coherence entre findings Codex et corrections
 dans le commit.
 
@@ -682,7 +684,7 @@ Pour chaque commit :
 - Scope coherent avec le contenu (feat pour code, docs pour docs,
   chore pour planning) ? Sinon = P1
 
-#### I.2 Commit bodies — 8 sections obligatoires
+#### I.2 Commit bodies — 9 sections obligatoires
 
 Pour chaque commit feat/fix :
 
@@ -697,7 +699,7 @@ Pour chaque SHA, Read le body :
 git log -1 --format="%B" <sha>
 ```
 
-Verifier la presence des **8 sections obligatoires** (§4.1 README.md) :
+Verifier la presence des **9 sections obligatoires** (§4.1 README.md) :
 
 | # | Section | Grep pattern | Absent = |
 |---|---|---|---|
@@ -708,7 +710,8 @@ Verifier la presence des **8 sections obligatoires** (§4.1 README.md) :
 | 5 | Scope cuts respectes | `## Scope cuts` | P2 |
 | 6 | G8 traceability | `## G8` | P2 |
 | 7 | Pre-launch protocol | `## Pre-launch` | P2 |
-| 8 | Carry closure / Unblock | `## Carry` | P2 |
+| 8 | Codex verification | `## Codex verification` | P1 |
+| 9 | Carry closure / Unblock | `## Carry` | P2 |
 
 Body vide ou 1 ligne = P1 (perte de tracabilite, l'audit gate ne peut
 pas retracer le raisonnement de chaque phase).
@@ -770,8 +773,9 @@ Le signal G4 est le mecanisme anti-rubber-stamp de l'audit gate :
 
 2. **Findings pour satisfaire un quota** : si 0 P2+ apres
    exploration exhaustive des 9 tracks avec evidence inline citee,
-   verdict PASS sans penalite. La trace d'exploration (commandes +
-   output) est la preuve de rigueur, pas le nombre de findings.
+   verdict CONCERN sans halluciner de finding. La trace d'exploration
+   (commandes + output) est la preuve que l'auditeur a cherche ; elle
+   ne transforme pas un audit a 0 P2+ en PASS.
 
 3. **Ratification au lieu de challenge** : ne PAS entretenir
    le biais "ca a l'air correct donc PASS". Chaque choix technique
@@ -820,7 +824,7 @@ Si la trace d'exploration est vide pour une track, verdict CONCERN
 | F Review files | ls preflight/review | Verifier verdicts + codex reviews + G1 design review + ratio N/N |
 | G Carry-overs | Lire verification.md | Tracer historique compteur git + verifier code 3/3 MANDATORY + croiser exhaustivite |
 | H HARDENING | Lire HARDENING_ROADMAP | Drift cumule 3+ sprints + triggers_revalidate re-evaluation |
-| I Meta-process | git log oneline | 8 sections body verifiees individuellement + split chore/feat + delta cumule vs reel |
+| I Meta-process | git log oneline | 9 sections body verifiees individuellement + split chore/feat + delta cumule vs reel |
 
 ---
 
@@ -1108,9 +1112,9 @@ Les commentaires `<!-- ... -->` sont des instructions, a supprimer.
 
 **Commit stack** :
 
-| SHA | Title | Pattern OK | Body 8 sections |
+| SHA | Title | Pattern OK | Body 9 sections |
 |---|---|---|---|
-| `{sha8}` | feat(scope): Sprint N Phase A — titre | oui/non | {8/8 ou detail manquant} |
+| `{sha8}` | feat(scope): Sprint N Phase A — titre | oui/non | {9/9 ou detail manquant} |
 | `{sha8}` | chore(planning): ... | oui | N/A (chore) |
 
 **Split chore/feat** : {N} chore commits, {N} touchent du code source → {0 = OK / P1}
@@ -1234,7 +1238,7 @@ manques.
 - `docs/claude/README.md` §8 (comment auditer un sprint)
 - `docs/claude/README.md` §2.4 (audit_plan.md sections canoniques)
 - `docs/claude/README.md` §2.5 (audit_findings.md sections canoniques)
-- `docs/claude/README.md` §4.1 (commit body 8 sections)
+- `docs/claude/README.md` §4.1 (commit body 9 sections)
 - `docs/claude/README.md` §4.4 (Phase F parse reviews → audit_plan)
 - `docs/claude/README.md` §4.5 (dual-agent Codex verification)
 - `docs/claude/README.md` §6.1.1 (G1 Design Review Board)

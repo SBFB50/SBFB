@@ -42,7 +42,7 @@ Tu review 7 dimensions en parallele sur le diff courant
    `sprint{N}_phase_{X}_pivot_proposal.md`) dans `.planning/active/`
    avant ecriture code. Absence = P1 "G8 gate bypass" bloquant
    (cf. `docs/claude/README.md §6.9`). Exception Cas D hotfix.
-7. **Body-format** — verifie que le draft commit body contient les 8
+7. **Body-format** — verifie que le draft commit body contient les 9
    sections `##` obligatoires (README §4.1). Header manquant = P1
    bloquant "body-section-missing-{name}". Verifie aussi que chaque
    section contient du contenu substantif (pas juste le header vide).
@@ -386,7 +386,7 @@ RUST=$((RUST_NEXTEST + RUST_DOC))
 
 ### Step 5bis — Dimension Body-format
 
-Verifier que le draft commit body contient les 8 headers `##` obligatoires
+Verifier que le draft commit body contient les 9 headers `##` obligatoires
 (README §4.1). Pour chaque header manquant, emettre un **P1 bloquant**
 "body-section-missing-{name}" avec instruction de correction.
 
@@ -398,7 +398,8 @@ Headers obligatoires (regex tolerant) :
 5. `## Scope cuts` (ou variantes `respectés`/`honoured`)
 6. `## G8 traceability`
 7. `## Pre-launch protocol`
-8. `## Carry closure` (ou `## Carry closure / Unblock`)
+8. `## Codex verification`
+9. `## Carry closure` (ou `## Carry closure / Unblock`)
 
 Pour chaque header present, verifier que la section contient du contenu
 substantif (pas juste le header suivi d'une ligne vide ou "N/A" sans
@@ -408,9 +409,9 @@ Si le body n'est pas encore ecrit (l'executeur n'a pas fourni de draft),
 emettre un **CONCERN** "draft-body-absent" et rappeler le template :
 `.claude/templates/commit_body_phase.txt`.
 
-**Pattern Phase D S65** : ce commit est le gold standard — 8/8 headers,
-105 lignes, chaque section substantive. Les Phases A-C du meme sprint
-n'avaient que 4-6/8 sections — la review n'avait pas detecte le gap.
+**Pattern S65 initial** : les anciennes references `8/8` sont obsoletes.
+Depuis le gate S67, le gold standard est 9/9 headers, avec
+`## Codex verification` obligatoire et substantif.
 
 ### Step 6 — Synthese et verdict
 
@@ -451,11 +452,11 @@ HEAD: {sha}
 | Dim | Status | Evidence |
 |---|---|---|
 | Security | ok / P{N} | semgrep 0 findings, grep unsafe 0 |
-| Scope-cuts | ok / leak | 8/8 items grepped, 0 match |
+| Scope-cuts | ok / leak | all scope items grepped, 0 match |
 | Tests-delta | ok / drift | annonce +X, reel +X |
 | Research | ok / gap | deps traces dans §Research |
 | G8 | ok / bypass | preflight.md present, verdict EXECUTE |
-| Body-format | ok / P1 | 8/8 headers present, contenu substantif |
+| Body-format | ok / P1 | 9/9 headers present, contenu substantif |
 
 ## Acknowledged by G8 preflight (not re-derived)
 S1-S4: <1 ligne chacun si preflight existe>

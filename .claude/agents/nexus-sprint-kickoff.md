@@ -1033,7 +1033,7 @@ Avant de livrer, verifier ces 15 invariants :
 
 Le commit atomique par phase suit le pattern strict §4.1 README.
 Titre : `feat(scope): Sprint N Phase X — titre court`
-Body structure en **8 sections obligatoires** :
+Body structure en **9 sections obligatoires** :
 
 1. `## Contexte` — rationale, threat model, research grounding
 2. `## Fichiers` — table `| Fichier | Role |`
@@ -1044,10 +1044,12 @@ Body structure en **8 sections obligatoires** :
 5. `## Scope cuts respectes (kickoff §8)` — TOUS les items,
    exhaustif, pas de troncature
 6. `## G8 traceability` — SHA preflight + verdict + SHA review +
-   verdict
+   verdict final PASS apres Codex reconciliation
 7. `## Pre-launch protocol` — `*_VERSION` unchanged, wire format
    preserve
-8. `## Carry closure / Unblock` — graphe dependances inter-sprint
+8. `## Codex verification` — rapport Codex brut + reconciliation ;
+   `PASS-PENDING` interdit dans le commit final
+9. `## Carry closure / Unblock` — graphe dependances inter-sprint
 
 Plus `Co-Authored-By: Claude <model> <noreply@anthropic.com>`.
 
@@ -1078,7 +1080,7 @@ Pour git/cargo/npm, PowerShell ou Bash selon contexte.
 - `docs/claude/README.md` §2.1 (kickoff 12 sections canoniques)
 - `docs/claude/README.md` §2.2 (plan 9 sections canoniques)
 - `docs/claude/README.md` §3 (audit gate pattern)
-- `docs/claude/README.md` §4.1 (commit body 8 sections obligatoires)
+- `docs/claude/README.md` §4.1 (commit body 9 sections obligatoires)
 - `docs/claude/README.md` §4.1.1 (mecanique commit Windows)
 - `docs/claude/README.md` §6.1.1 (G1 Design Review Board)
 - `docs/claude/README.md` §6.2 (scope cuts stricts)

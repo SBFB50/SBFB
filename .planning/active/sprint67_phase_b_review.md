@@ -1,8 +1,9 @@
 # Phase Review — Sprint 67 Phase B
 
-## Verdict : PASS-PENDING
+## Verdict : PASS
 
 (Rigor signal : 2 findings P2+ documentes / >=1 requis pour PASS rigoureux)
+(Codex gate §4.5 : FAIT via `sprint67_phase_b_codex_review.md` — 13/13 livrables confirmes, 0 partiel, 0 gap)
 
 ## Staging check (Step 1bis)
 - Phase fichiers : 11 modifies + 1 NEW (search.rs)
@@ -42,10 +43,10 @@
 - Format titre : `feat(search): Sprint 67 Phase B — FTS5 search @protocole + THREAT_MODEL feed 3/3`
 - Delta tests coherent : +8 Rust + 1 Vitest = +9 total
 - Scope cuts honoured : 14/14 scope cuts respected (0 leak)
-- Co-Authored-By : a verifier dans le draft body
+- Co-Authored-By : present dans le commit `f46bc66`
 
 ## Body format validation (Step 4bis, §4.1)
-(a verifier dans le draft body — tous les 8 headers devront etre presents)
+- Valide sur commit `f46bc66` : les 9 sections obligatoires sont presentes, dont `## Codex verification`.
 
 ## G8 preflight check (Step 4ter-A, G10)
 - Fichier : `sprint67_phase_b_preflight.md` **EXISTS**
@@ -76,13 +77,12 @@
 - **P3** Browse entries non indexees — FTS5 index ne contient que les feed entries. Les browse entries (project_name, category, description) arrivent via gossip et ne sont pas persistees en SQLite. Carry S68+ pour indexation browse au gossip receive.
 
 ## Codex gate (§4.5) — zero exemption
-- Status : **EN ATTENTE** — lancer Codex §4.5 avant commit
-- Procedure : ecrire prompt dans .git/CODEX_PHASE_B.txt
-  (template .claude/templates/codex_phase_review.txt),
-  lancer codex exec, lire rapport, corriger GAPs
+- Status : **Codex FAIT** — voir `.planning/active/sprint67_phase_b_codex_review.md`
+- Evidence : Codex confirme 13/13 livrables, 0 partiel, 0 gap.
+- Commit present : `f46bc66` (`feat(search): Sprint 67 Phase B — FTS5 search @protocole + THREAT_MODEL feed 3/3`)
 
 ## Recommendation
-- Ready to commit : **oui (post-Codex)**
+- Ready to commit : **oui (Codex FAIT ; commit Phase B present `f46bc66`)**
 - Carry-overs S68 (P2 non resolus) :
   - CVE-2025-6965 rusqlite/libsqlite3-sys upgrade
   - Incremental search indexing (feed insert path)
@@ -90,6 +90,7 @@
 - Corrections needed : aucune (0 P0/P1)
 
 ## Post-commit obligatoire
-- [ ] Update nexus_grid_pivot.md (tip SHA + compteurs 1368 Rust / 270 Vitest)
-- [ ] Update MEMORY.md
-- [ ] Stage sprint67_phase_b_preflight.md + sprint67_phase_b_review.md dans le commit
+- [x] Commit Phase B present sur `master` : `f46bc66`
+- [ ] Update nexus_grid_pivot.md (tip SHA + compteurs 1368 Rust / 270 Vitest) — hors ownership de cette reconciliation
+- [ ] Update MEMORY.md — hors ownership de cette reconciliation
+- [x] Stage sprint67_phase_b_preflight.md + sprint67_phase_b_review.md dans le commit `f46bc66`

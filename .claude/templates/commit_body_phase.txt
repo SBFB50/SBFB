@@ -24,7 +24,8 @@
 
 ## G8 traceability
 - Preflight : [{SHA} ou "staged, no prior SHA"] verdict [{EXECUTE/SCOPE-CUT-CONSISTENT}]
-- Review : [{SHA} ou "staged"] verdict [{PASS}] ({N} P0, {N} P1, {N} P2, {N} P3)
+- Review : [{SHA} ou "staged"] verdict final [PASS] apres Codex reconciliation ({N} P0, {N} P1, {N} P2, {N} P3)
+- Note : PASS-PENDING est un etat pre-Codex transitoire, interdit dans le commit final
 
 ## Pre-launch protocol
 [*_VERSION unchanged, wire format preserve]
@@ -32,6 +33,7 @@
 ## Codex verification
 - Rapport : {fichier codex_review.md}
 - Livrables audites : {N}, Confirmes : {N}, Gaps : {N} corriges
+- Reconciliation : review.md promu a PASS ; GAPs P0/P1 corriges ; P2/P3 documentes
 [si gaps corriges : description 1-ligne par gap]
 
 ## Carry closure / Unblock

@@ -525,8 +525,10 @@ Body structuré (template — 9 sections obligatoires) :
   `chore(planning)` separe), utiliser "staged, no prior SHA" + nom
   du fichier preflight.md. La tracabilite temporelle est alors
   prouvee par le HEAD reference dans le preflight lui-meme.
-- Review : [SHA commit phase lui-même] verdict auditor
-  [PASS / PASS-PENDING / CONCERN / FAIL] ([N] P0, [N] P1, [N] P2, [N] P3)
+- Review : [SHA commit phase lui-même ou "staged"] verdict final
+  [PASS] apres reconciliation Codex ([N] P0, [N] P1, [N] P2, [N] P3).
+  `PASS-PENDING` est autorise uniquement dans le review.md pre-Codex ;
+  il est interdit comme verdict final committable.
 [chaîne explicite — permet à l'audit gate S+1 de retracer le process]
 
 ## Pre-launch protocol
@@ -555,8 +557,10 @@ section), (2) cohérence inter-phases (Phase D ne devrait pas être
 doit copier le template de `.claude/templates/commit_body_phase.txt`
 plutôt que d'improviser la structure.
 
-**Gold standard** : commit `9727818` (Sprint 65 Phase D) — 8/8
-sections, 105 lignes, chaque section substantive avec table markdown.
+**Gold standard courant** : copier
+`.claude/templates/commit_body_phase.txt` et produire **9/9 sections**,
+incluant `## Codex verification`. Les anciennes references `8/8`
+datent d'avant la section Codex et sont obsoletes.
 
 **Template** : `.claude/templates/commit_body_phase.txt` contient le
 squelette complet prêt à copier. L'agent exécuteur DOIT le lire avant
@@ -691,19 +695,25 @@ déclenche un nouveau cycle.
 
 **Verification croisee Codex (depuis S65, cf. §4.5).** Apres que
 toutes les suites sont vertes et que la review Claude a produit un
-verdict PASS, lancer la verification Codex GPT 5.5 pour TOUTES les
-phases sans exception (§4.5.6). Sequence complete avant commit phase :
+verdict `PASS-PENDING`, lancer la verification Codex GPT 5.5 pour
+TOUTES les phases sans exception (§4.5.6). Sequence complete avant
+commit phase :
 
 1. Suites §7.4 vertes (Rust + Frontend)
-2. Review Claude — verdict PASS (agent nexus-phase-review-deep ou
-   fallback skill nexus-phase-review + agent nexus-phase-auditor)
+2. Review Claude — verdict `PASS-PENDING` possible (agent
+   nexus-phase-review-deep ou fallback skill nexus-phase-review +
+   agent nexus-phase-auditor)
 3. Codex verification croisee (§4.5) — GAPs corriges ou documentes
-4. Commit atomique
+4. Reconciliation Claude post-Codex — review.md promu a `PASS` final
+   avec section `## Codex reconciliation`
+5. Supervisor gates (`G-CODEX`, puis `G-COMMIT`) — seulement apres
+   review final `PASS`
+6. Commit atomique
 
-L'ordre review → Codex → commit est strict. Ne jamais committer
-avant que la review Claude et le Codex (si applicable) aient
-produit leur verdict. Ne jamais lancer Codex avant la review
-Claude.
+L'ordre preflight → code/tests → review `PASS-PENDING` → Codex →
+reconciliation/promote review `PASS` → supervisor → commit est strict.
+Ne jamais committer avec un review.md encore en `PASS-PENDING`.
+Ne jamais lancer Codex avant la review Claude.
 
 ### 4.4 Phase F wrap-up — parse phase reviews et route les P2/P3 au audit_plan
 
@@ -789,15 +799,18 @@ Code ecrit par Claude (execution phase standard)
   |
   v
 Claude team phase review (agent review-deep 1M)
-  |  6 dimensions, verdict PASS/CONCERN/FAIL
+  |  6 dimensions, verdict PASS-PENDING/CONCERN/FAIL
   v
-Superviseur G-REVIEW (verifie PASS reel)
+Superviseur G-REVIEW (verifie PASS-PENDING transitoire, jamais commit)
   |
   v
 Codex verification (codex exec, prompt structure, findings)
   |  Review croisee independante GPT 5.5
   v
-Superviseur G-CODEX (verifie output reel, pas ecrit a la main)
+Claude reconciliation (lit Codex, corrige/documente, promeut review.md a PASS)
+  |
+  v
+Superviseur G-CODEX (verifie output reel + review final PASS)
   |
   v
 Claude correction loop (si Codex trouve des issues)
@@ -903,8 +916,12 @@ Quand Codex produit des findings :
    (documente dans commit body)
 3. **Correction** : Claude corrige chaque GAP confirme
 4. **Re-run systematique** : apres toute correction, relancer
-   suites + review Claude + Codex (boucle complete)
-5. **Tracabilite** : commit body inclut section `## Codex verification`
+   suites + review Claude (`PASS-PENDING`) + Codex (boucle complete)
+5. **Reconciliation** : quand Codex est clean ou seulement P2/P3
+   documentes, mettre a jour `sprint{N}_phase_{X}_review.md` :
+   `## Verdict : PASS`, ajouter `## Codex reconciliation`, referencer
+   le fichier codex_review.md et les GAPs corriges/documentes.
+6. **Tracabilite** : commit body inclut section `## Codex verification`
 
 #### 4.5.6 Codex obligatoire — zero exemption
 
@@ -913,9 +930,10 @@ phases sans exception** : code, docs, dette, wrap-up, hotfix.
 Aucune exemption LOC, aucune exemption contenu. La seule facon
 de skip est un "PO dit skip codex" explicite dans la conversation.
 
-Si Codex n'est pas disponible, documenter dans le commit body :
-`## Codex verification : unavailable ({raison technique})` — ce
-n'est PAS un skip volontaire, c'est une indisponibilite tracee.
+Si Codex n'est pas disponible, le commit reste bloque en
+`PASS-PENDING`. Documenter l'indisponibilite dans la session et
+demander un arbitrage PO explicite. Sans "PO dit skip codex", il
+n'existe pas de review final `PASS` ni de commit autorise.
 
 #### 4.5.7 Parallelisation Claude teams
 
@@ -1748,7 +1766,7 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
     - G-SPAWN : confirmation du cas detecte (reponse initiale)
     - G-PREFLIGHT : apres preflight agent (Cas B)
     - G-REVIEW : apres review agent (Cas B)
-    - G-CODEX : apres codex exec (Cas B)
+    - G-CODEX : apres codex exec + reconciliation review PASS (Cas B)
     - G-COMMIT : avant git commit (TOUS les cas A/B/C/D)
     - G-POST : apres commit + chore (TOUS les cas A/B/C/D)
 
@@ -1832,7 +1850,9 @@ procédure lui-même (sauf Cas D hotfix).
       sémantique, les scope cuts sémantiques, le research
       grounding, la sécurité deep, les livrables, les patterns,
       et produit `.planning/active/sprint{N}_phase_{X}_review.md`
-      avec verdict PASS / CONCERN / FAIL.
+      avec verdict PASS-PENDING / CONCERN / FAIL. PASS-PENDING
+      signifie uniquement "review Claude OK, Codex pas encore fait" ;
+      ce n'est jamais un verdict final committable.
       Si FAIL : corriger les P0/P1, re-invoquer l'agent.
       Fallback : skill nexus-phase-review (profondeur réduite).
 
@@ -1840,9 +1860,10 @@ procédure lui-même (sauf Cas D hotfix).
         SendMessage(to: "supervisor", "G-REVIEW Phase X done.
           Fichier: sprint{N}_phase_{X}_review.md.
           Verdict: {verdict}.")
-        Attendre GO-REVIEW avant Codex.
+        Attendre GO-REVIEW avant Codex. GO-REVIEW autorise seulement
+        le passage a Codex, pas le commit.
 
-    APRÈS review PASS, AVANT commit (Codex §4.5) :
+    APRÈS review PASS-PENDING, AVANT commit (Codex §4.5) :
       Lancer la verification croisee Codex GPT 5.5 pour TOUTES
       les phases sans exception (§4.5.6 zero exemption).
       Ecrire prompt `.git/CODEX_PHASE_X.txt`, lancer via
@@ -1854,20 +1875,27 @@ procédure lui-même (sauf Cas D hotfix).
       l'authenticite (format par-livrable, fichier:ligne, evidence).
       Si GAPs P0/P1 : corriger, puis BOUCLE COMPLETE :
         1. Re-run suites §7.4
-        2. Re-invoquer review-deep (re-consultation G-REVIEW)
+        2. Re-invoquer review-deep (re-consultation G-REVIEW,
+           verdict PASS-PENDING attendu si clean)
         3. Re-lancer Codex (re-consultation G-CODEX)
         Boucle jusqu'a CLEAN ou P2/P3 documentes uniquement.
       Si GAPs P2/P3 : documenter dans commit body.
+      Quand Codex est reconcilié : promouvoir le review.md a
+      `## Verdict : PASS` et ajouter `## Codex reconciliation`
+      (rapport Codex lu, GAPs corriges/documentes, suites relancees
+      si correction). Ne pas modifier le fichier Codex brut.
       Le fichier codex_review.md est enforce par lightcheck
       Check 7 (STRICT BLOCK sur Phase feat/fix/docs/test/refactor) :
       presence, staging, non-reecriture Claude, verdicts par livrable,
       evidence fichier:ligne, coherence PARTIEL/GAP entre artefact et body.
-      Sequence stricte : review → Codex → commit. JAMAIS
-      committer avant le verdict Codex.
+      Sequence stricte : review PASS-PENDING → Codex →
+      reconciliation/promote review PASS → supervisor → commit.
+      JAMAIS committer avant le verdict Codex et le review final PASS.
 
       CONSULTER superviseur (G-CODEX) :
         SendMessage(to: "supervisor", "G-CODEX Phase X done.
-          Fichier: sprint{N}_phase_{X}_codex_review.md.")
+          Fichier: sprint{N}_phase_{X}_codex_review.md.
+          Review final: PASS.")
         Attendre GO-CODEX avant commit.
 
       CONSULTER superviseur (G-COMMIT) :
@@ -2026,14 +2054,39 @@ Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 feat(scope): Sprint N Phase X — titre court
 
-Contexte : <1-2 lignes pourquoi cette phase>
-Fichiers touchés :
-  - path/file.rs : <rôle>
-Delta tests cumulé :
-  Rust workspace : NNN -> NNN (+X Phase Y)
-  Vitest unit    : NNN -> NNN (+X)
-  size-limit     : 6/6
-Scope cuts honoured : <items NOT, copie du kickoff §6>
+## Contexte
+<1-3 paragraphes pourquoi cette phase existe>
+
+## Fichiers
+| Fichier | Rôle |
+|---------|------|
+| path/file.rs | <rôle> |
+
+## Delta tests
+| Suite | Avant | Après | Delta |
+|-------|-------|-------|-------|
+| Rust workspace | NNN | NNN | +X |
+| Vitest unit | NNN | NNN | +X |
+
+## Verification §7.4
+<suites finales complètes>
+
+## Scope cuts respectés (kickoff §8)
+<items NOT exhaustifs>
+
+## G8 traceability
+- Preflight : <sha/fichier> verdict <verdict>
+- Review : <sha/fichier> verdict PASS final après Codex reconciliation
+
+## Pre-launch protocol
+<wire/protocol invariants>
+
+## Codex verification
+- Rapport : sprint{N}_phase_{X}_codex_review.md
+- Reconciliation : review.md promu PASS ; PASS-PENDING absent du commit final
+
+## Carry closure / Unblock
+<graphe de dépendances ou Aucun>
 
 Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```

@@ -4,12 +4,10 @@
 #   ISO-8601 timestamp | sprint/phase | commit SHA | justification
 #
 # Created: Sprint 22 Phase F (P2-S21-5 fix).
-# Note: forward-only from creation date. Phase D S22 iteration 2
-# used NEXUS_SKIP_PHASE_AUDITOR=1 prior to this file's existence —
-# not retroactively appended (P2-Meta-hook-coverage-1 S22 audit).
-# Pattern: every use of NEXUS_SKIP_PHASE_AUDITOR=1 must append a
-# line here with an inline justification. Entries are audited in
-# the Phase 0 audit gate of the following sprint.
+# Deprecated S67: the NEXUS_SKIP_PHASE_AUDITOR env bypass was removed.
+# This file remains as historical audit evidence for pre-S67 bypass policy.
+# Any future `git commit --no-verify` use is a process incident that must be
+# documented in planning and resolved before the phase can be called clean.
 #
 # Bypass is NOT a scope cut — it's a process escape hatch reserved
 # for cases where the hook wrongly blocks a legitimate commit

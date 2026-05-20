@@ -166,11 +166,10 @@ tools/babel-scraper/
 
 # Legacy Python test remnants (tracked files deleted S51, untracked cache remains)
 tests/
+!tests/
+tests/*
+!tests/test_agentctl.py
 !crates/*/tests/
 
-# External agent framework artifacts (S34 audit P3-AUDIT-1)
-.githooks/
-AGENTS.md
-docs/agent/
-prompts/
-scripts/agent/
+# Agent process surfaces are repo-visible contracts.
+# Do not ignore AGENTS.md, .githooks/, docs/agent/, prompts/, or scripts/agent/.

@@ -10,8 +10,6 @@
 # qui matchent un scope sprint + un titre "Phase X". Tout autre commit
 # passe sans check (chore(claude), hotfixes, Merge, etc.).
 #
-# Bypass d'urgence : NEXUS_SKIP_PHASE_AUDITOR=1 git commit ...
-#
 # Exit 0 : autorise le commit
 # Exit 2 : bloque avec message d'erreur visible par Claude
 
@@ -33,9 +31,6 @@ fi
 # Pas un git commit ? no-op
 echo "$CMD" | grep -qE 'git[[:space:]]+commit' || exit 0
 
-# Bypass d'urgence
-[ "${NEXUS_SKIP_PHASE_AUDITOR:-0}" = "1" ] && exit 0
-
 # Scope nexus only (cwd check)
 REPO_ROOT=$(pwd)
 if [ ! -f "$REPO_ROOT/Cargo.toml" ] || [ ! -d "$REPO_ROOT/crates/nexus-core-rs" ]; then
@@ -47,11 +42,16 @@ COMMIT_TITLE=$(echo "$CMD" | sed -n "s/.*-m[[:space:]]*[\"']\?\([^\n\"]*\).*/\1/
 [ -z "$COMMIT_TITLE" ] && COMMIT_TITLE="$CMD"
 # Primary: scope-based (feat(sprint64): Sprint 64 Phase A)
 SPRINT=$(echo "$COMMIT_TITLE" | grep -oE '(feat|fix|docs|chore|test|refactor)\(sprint[0-9]+\)' | head -1 | grep -oE '[0-9]+' || true)
+TITLE_SPRINT=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' | head -1 | grep -oE '[0-9]+' || true)
+if [ -n "$SPRINT" ] && [ -n "$TITLE_SPRINT" ] && [ "$SPRINT" != "$TITLE_SPRINT" ]; then
+  echo "[phase-auditor-gate] BLOCK: commit scope sprint${SPRINT} conflicts with title Sprint ${TITLE_SPRINT}" >&2
+  exit 2
+fi
 # Fallback: title-based (feat(feed): Sprint 64 Phase A)
 if [ -z "$SPRINT" ]; then
-  SPRINT=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' | head -1 | grep -oE '[0-9]+' || true)
+  SPRINT="$TITLE_SPRINT"
 fi
-PHASE=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $NF}' || true)
+PHASE=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $NF}' | tr '[:upper:]' '[:lower:]' || true)
 
 # Pas de sprint+phase ? no-op (commit lambda)
 [ -z "$SPRINT" ] && exit 0
@@ -95,13 +95,13 @@ else
   echo "  Si l'agent ne Write PAS le fichier, ne PAS le transcrire toi-meme" >&2
   echo "  (defait l'independance G4) — relance l'agent avec le rappel ci-dessus." >&2
   echo "" >&2
-  echo "  Bypass d'urgence : NEXUS_SKIP_PHASE_AUDITOR=1 git commit ..." >&2
+  echo "  Sans review final PASS sur disque, le gate reste bloque." >&2
   echo "" >&2
   exit 2
 fi
 
 # Review existe (active ou archive) — verdict PASS ?
-if ! grep -qE '^## Verdict[[:space:]]*:[[:space:]]*PASS' "$REVIEW"; then
+if ! grep -qE '^## Verdict[[:space:]]*:[[:space:]]*PASS[[:space:]]*$' "$REVIEW"; then
   VERDICT_LINE=$(grep -E '^## Verdict' "$REVIEW" | head -1 || echo "(unknown)")
   echo "" >&2
   echo "[phase-auditor-gate] BLOCK: review not PASS" >&2
@@ -112,7 +112,17 @@ if ! grep -qE '^## Verdict[[:space:]]*:[[:space:]]*PASS' "$REVIEW"; then
   echo "  Fix les findings P0/P1 listees dans le rapport, puis re-lance" >&2
   echo "  nexus-phase-auditor pour mettre a jour le verdict a PASS." >&2
   echo "" >&2
-  echo "  Bypass d'urgence : NEXUS_SKIP_PHASE_AUDITOR=1 git commit ..." >&2
+  echo "  PASS-PENDING signifie Codex/reconciliation encore en attente." >&2
+  echo "" >&2
+  exit 2
+fi
+
+if grep -qiE 'Codex.*EN ATTENTE|EN ATTENTE.*Codex|Ready for Codex verification' "$REVIEW"; then
+  echo "" >&2
+  echo "[phase-auditor-gate] BLOCK: review still has pending Codex gate" >&2
+  echo "" >&2
+  echo "  File: $REVIEW" >&2
+  echo "  Action: run Codex verification, reconcile findings, then promote review to PASS." >&2
   echo "" >&2
   exit 2
 fi

@@ -433,11 +433,17 @@ Cf. `.planning/research/S24_process_review_2026-04-21.md §1.2`.
 **Fail-open** pour :
 - Commits hors scope sprint (chore(claude), hotfixes, Merge, Revert)
 - cwd != nexus (check Cargo.toml + crates/nexus-core-rs)
-- Bypass d'urgence via env var : `NEXUS_SKIP_PHASE_AUDITOR=1 git commit ...`
 
 **Fail-closed** (exit 2, bloque le commit) pour :
-- Phase commit ET review.md absent OU verdict != PASS
+- Phase commit ET review.md absent OU verdict final non exactement PASS
+- Review encore en PASS-PENDING ou Codex EN ATTENTE
+- Scope sprint du commit different du sprint du titre
+- `git diff --cached --check` non propre
 - Lightcheck Check 1 staging incoherence detectee
+
+Le bypass env `NEXUS_SKIP_PHASE_AUDITOR=1` a ete retire en S67. Un
+`git commit --no-verify` manuel est un incident process a documenter et a
+resoudre avant de declarer la phase propre.
 
 **Flow recommande par phase** :
 

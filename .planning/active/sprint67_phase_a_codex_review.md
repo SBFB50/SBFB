@@ -1,7 +1,8 @@
 Verdict Codex indépendant : Phase A confirmée avant commit. Aucun fichier modifié par cet audit.
 
 **Cadrage**
-- Review actuelle : `.planning/active/sprint67_phase_a_review.md:3-6` = `PASS-PENDING`, Codex gate requis.
+- Review auditee initialement : `.planning/active/sprint67_phase_a_review.md:3-6` etait en attente du gate Codex.
+- Etat live reconcilie : `.planning/active/sprint67_phase_a_review.md` est maintenant `PASS` apres ce rapport (8/8 confirmes, 0 partiel, 0 gap).
 - Preflight : `.planning/active/sprint67_phase_a_preflight.md:3` et `:28-29` = `EXECUTE plan-as-is`.
 - Scope Phase A : `.planning/active/sprint67_plan.md:69-87`.
 
@@ -90,4 +91,3 @@ Statut : CONFIRME.
 - `git diff --check` -> pas d’erreur, seulement warning CRLF futur sur `crates/nexus-shell-daemon/Cargo.toml`.
 
 Résumé final : Total livrables 8. Confirmés 8. Partiels 0. Gaps 0.
-

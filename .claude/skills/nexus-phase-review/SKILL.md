@@ -235,11 +235,13 @@ Checker :
 3. **Fichiers touches** listes avec rationale (pas juste la liste)
 4. **Delta tests cumule** coherent avec Step 3
 5. **Scope cuts honoured** liste copiee du kickoff §6
-6. **Co-Authored-By: Claude <model_name> (1M context)** present — la ligne doit matcher le modèle utilisé pour la session courante
+6. **Codex verification** section presente (meme pre-Codex, avec statut
+   EN ATTENTE si le rapport n'existe pas encore)
+7. **Co-Authored-By: Claude <model_name> (1M context)** present — la ligne doit matcher le modèle utilisé pour la session courante
 
 ### Step 4bis — Body format validation (§4.1)
 
-Verifier que le draft commit body fourni par l'executeur contient les 8
+Verifier que le draft commit body fourni par l'executeur contient les 9
 headers `##` obligatoires (README §4.1) :
 1. `## Contexte`
 2. `## Fichiers`
@@ -248,15 +250,16 @@ headers `##` obligatoires (README §4.1) :
 5. `## Scope cuts` (ou variantes `respectés`/`honoured`)
 6. `## G8 traceability`
 7. `## Pre-launch protocol`
-8. `## Carry closure` (ou `## Carry closure / Unblock`)
+8. `## Codex verification`
+9. `## Carry closure` (ou `## Carry closure / Unblock`)
 
 Header manquant = **P1 bloquant** "body-format-{section}".
 Si body non fourni : **CONCERN** "draft-body-absent".
 
-**Pattern Phase D S65** : ce commit est le gold standard — 8/8 headers,
-105 lignes, chaque section substantive. Les Phases A-C du meme sprint
-n'avaient que 4-6/8 sections — la review n'avait pas detecte le gap
-car cette validation n'existait pas encore dans le skill fallback.
+**Pattern S65 initial** : les anciennes references `8/8` sont
+obsoletes depuis l'ajout de `## Codex verification`. Le standard
+courant est **9/9 headers** et le skill doit detecter toute phase qui
+reste sur l'ancien format.
 
 **Template de reference** : `.claude/templates/commit_body_phase.txt`
 
@@ -440,7 +443,10 @@ present").
 Ecrire le fichier AVANT de rendre le verdict final. Le hook
 `phase-auditor-gate.sh` (Check A2) bloque mecaniquement le commit
 si ce fichier est absent ou ne contient pas `## Verdict : PASS`
-ou `## Verdict : PASS-PENDING`.
+ou `## Verdict : PASS-PENDING`. Cette tolerance hook ne rend PAS
+`PASS-PENDING` committable : le superviseur et le process canonique
+bloquent tout commit tant que Codex n'a pas ete lance et que le
+review.md n'a pas ete promu a `## Verdict : PASS`.
 
 ### Step 6 — Validation finale + rigor signal (G4)
 
@@ -449,10 +455,10 @@ ou `## Verdict : PASS-PENDING`.
 
 | Conditions | Verdict |
 |---|---|
-| 0 P0/P1 ET >= 1 finding P2+ documente ET Codex FAIT | **PASS** (audit deep, autorise) |
-| 0 P0/P1 ET >= 1 finding P2+ documente ET Codex EN ATTENTE | **PASS-PENDING** (review OK, Codex requis avant commit) |
+| 0 P0/P1 ET >= 1 finding P2+ documente ET Codex FAIT + reconciliation ecrite dans review.md | **PASS** (final, committable apres supervisor) |
+| 0 P0/P1 ET >= 1 finding P2+ documente ET Codex EN ATTENTE | **PASS-PENDING** (review OK, Codex requis avant commit ; jamais final) |
 | 0 P0/P1 ET 0 finding P2+ | **CONCERN** (audit insuffisant — re-audit requis avec dimension manquee : research-grounding ? horizon long-terme ? working tree ?) |
-| 0 P0/P1 ET 1 finding P2+ avec carry-over explicite dans body | **PASS** (autorise mais entree obligatoire dans `sprint{N+1}_audit_findings.md`) |
+| 0 P0/P1 ET 1 finding P2+ avec carry-over explicite dans body ET Codex FAIT + reconciliation ecrite | **PASS** (final, entree obligatoire dans `sprint{N+1}_audit_findings.md`) |
 | >= 1 P0 OU >= 1 P1 non resolu | **FAIL** (commit BLOQUE) |
 
 **Comptage rigor signal** : le chiffre "N findings P2+" dans le
@@ -475,6 +481,10 @@ Produire un rapport markdown concis :
 # Phase Review — Sprint N Phase X
 
 ## Verdict : PASS | PASS-PENDING | CONCERN | FAIL
+
+`PASS-PENDING` = etat transitoire pre-Codex. Il autorise seulement
+la sequence Codex §4.5. Il doit etre remplace par `PASS` apres
+reconciliation Codex avant tout commit.
 
 (Rigor signal : N findings P2+ documentes / >=1 requis pour PASS rigoureux)
 
@@ -504,6 +514,7 @@ Produire un rapport markdown concis :
 | Scope cuts | oui/non | ok/P1 |
 | G8 traceability | oui/non | ok/P1 |
 | Pre-launch protocol | oui/non | ok/P1 |
+| Codex verification | oui/non | ok/P1 |
 | Carry closure | oui/non | ok/P1 |
 
 ## Modified-file branch coverage (Step 2bis, G9)
@@ -530,8 +541,13 @@ Produire un rapport markdown concis :
 - Status : FAIT / EN ATTENTE
 - (si FAIT : {N} GAPs confirmes, {M} faux positifs, {K} corriges)
 
+## Codex reconciliation
+- Status : N/A pre-Codex | FAIT
+- Review final : PASS uniquement si le rapport Codex a ete lu,
+  les GAPs P0/P1 corriges, et les P2/P3 documentes dans le body
+
 ## Recommendation
-- Ready to commit : oui | oui (post-Codex) | non
+- Ready to commit : oui seulement si verdict PASS final | non si PASS-PENDING
 - Carry-overs S{N+1} (P2+ non resolus) : <liste pour `sprint{N+1}_audit_findings.md`>
 - Corrections needed : <liste si non>
 
@@ -542,8 +558,10 @@ Produire un rapport markdown concis :
 
 ### Step 7 — Post-commit obligations reminder
 
-Apres verdict PASS (ou PASS post-Codex), rappeler dans le rapport
-les obligations post-commit. Ce step ne bloque pas — il documente.
+Apres verdict PASS final post-Codex, rappeler dans le rapport les
+obligations post-commit. Si le verdict est PASS-PENDING, rappeler
+Codex + reconciliation/promote review PASS avant toute tentative de
+commit. Ce step ne bloque pas — il documente.
 
 ```markdown
 ## Post-commit obligatoire

@@ -8,7 +8,6 @@ Git hooks, human operators, and any model provider that can execute commands.
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import shutil
 import subprocess
@@ -26,11 +25,23 @@ PROMPT_KINDS = {
 
 PHASE_TITLE_RE = re.compile(
     r"^(feat|fix|docs|chore|test|refactor)\(sprint(?P<sprint>\d+)\):\s*"
-    r"Sprint\s+\d+\s+Phase\s+(?P<phase>[A-Z][0-9]?)\b"
+    r"Sprint\s+(?P=sprint)\s+Phase\s+(?P<phase>[A-Z][0-9]?)\b"
 )
 PHASE_TITLE_FALLBACK_RE = re.compile(
     r"^(feat|fix|docs|chore|test|refactor)\([^)]+\):\s*"
     r"Sprint\s+(?P<sprint>\d+)\s+Phase\s+(?P<phase>[A-Z][0-9]?)\b"
+)
+FINAL_PASS_RE = re.compile(r"^## Verdict\s*:\s*PASS\s*$", re.MULTILINE)
+REQUIRED_PHASE_BODY_SECTIONS = (
+    ("Contexte", r"^## Contexte\s*$"),
+    ("Fichiers", r"^## Fichiers\s*$"),
+    ("Delta tests", r"^## Delta tests\s*$"),
+    ("Verification", r"^## V[eé]rification\b"),
+    ("Scope cuts", r"^## Scope cuts\s*$"),
+    ("G8 traceability", r"^## G8 traceability\s*$"),
+    ("Pre-launch protocol", r"^## Pre-launch protocol\s*$"),
+    ("Codex verification", r"^## Codex verification\s*$"),
+    ("Carry closure", r"^## Carry closure\s*$"),
 )
 
 
@@ -84,6 +95,16 @@ def staged_files() -> list[str]:
 
 def staged_diff() -> str:
     return git(["diff", "--cached", "-U0"])
+
+
+def staged_diff_check_errors() -> list[str]:
+    proc = run(["git", "diff", "--cached", "--check"])
+    if proc.returncode == 0:
+        return []
+    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if not lines:
+        return ["git diff --cached --check failed"]
+    return [f"git diff --cached --check: {line}" for line in lines]
 
 
 def current_sprint() -> int | None:
@@ -385,7 +406,7 @@ def parse_commit_message(message_file: str | None) -> str:
 
 def commit_title(message: str) -> str:
     for line in message.splitlines():
-        stripped = line.strip()
+        stripped = line.strip().lstrip("\ufeff")
         if stripped and not stripped.startswith("#"):
             return stripped
     return ""
@@ -459,6 +480,40 @@ def phase_from_title(title: str) -> tuple[str | None, str | None]:
     return m.group("sprint"), m.group("phase").lower()
 
 
+def phase_title_errors(title: str, sprint: str | None, phase: str | None) -> list[str]:
+    if not sprint or not phase:
+        return []
+    errors: list[str] = []
+    scope = re.match(r"^(feat|fix|docs|chore|test|refactor)\((?P<scope>[^)]*)\):", title)
+    if scope:
+        scope_sprint = re.search(r"sprint(?P<sprint>\d+)", scope.group("scope"), re.IGNORECASE)
+        if scope_sprint and scope_sprint.group("sprint") != sprint:
+            errors.append(
+                f"commit scope sprint{scope_sprint.group('sprint')} conflicts with title Sprint {sprint}"
+            )
+    plan = ROOT / ".planning" / "active" / f"sprint{sprint}_plan.md"
+    if plan.exists():
+        plan_text = read_text(plan)
+        if not re.search(rf"\bPhase\s+{re.escape(phase.upper())}\b", plan_text):
+            errors.append(f"Sprint {sprint} Phase {phase.upper()} is not declared in {rel(plan)}")
+    return errors
+
+
+def commit_body_section_errors(title: str, message: str, sprint: str | None, phase: str | None) -> list[str]:
+    if not sprint or not phase or not phase_commit_requires_codex(title):
+        return []
+    if not message.strip():
+        return ["phase commit message is empty; expected 9 canonical body sections"]
+    missing = [
+        name
+        for name, pattern in REQUIRED_PHASE_BODY_SECTIONS
+        if not re.search(pattern, message, re.MULTILINE | re.IGNORECASE)
+    ]
+    if not missing:
+        return []
+    return ["missing canonical phase body sections: " + ", ".join(f"## {name}" for name in missing)]
+
+
 def design_review_exists(sprint: str) -> bool:
     active = ROOT / ".planning" / "active" / f"sprint{sprint}_design_review.md"
     if active.exists():
@@ -485,8 +540,6 @@ def phase_commit_requires_codex(title: str) -> bool:
 
 def codex_review_errors(title: str, message: str, sprint: str | None, phase: str | None, staged: set[str]) -> list[str]:
     if not sprint or not phase or not phase_commit_requires_codex(title):
-        return []
-    if re.search(r"Codex.*skip|skip.*Codex|Codex.*exempt", message, re.IGNORECASE):
         return []
 
     review_rel = f".planning/active/sprint{sprint}_phase_{phase}_codex_review.md"
@@ -528,8 +581,6 @@ def codex_review_errors(title: str, message: str, sprint: str | None, phase: str
 
 
 def cmd_precommit_lightcheck(args: argparse.Namespace) -> int:
-    if os.environ.get("NEXUS_SKIP_PHASE_AUDITOR") == "1":
-        return 0
     files = staged_files()
     diff = staged_diff() if args.scope in {"all", "staged", "message"} else ""
     staged = set(files)
@@ -540,9 +591,12 @@ def cmd_precommit_lightcheck(args: argparse.Namespace) -> int:
     errors: list[str] = []
     warnings: list[str] = []
     if args.scope in {"all", "staged"}:
+        errors.extend(staged_diff_check_errors())
         errors.extend(pub_mod_errors(diff, staged))
         errors.extend(loc_plan_errors(files, diff))
     if args.scope in {"all", "message"}:
+        errors.extend(phase_title_errors(title, sprint, phase))
+        errors.extend(commit_body_section_errors(title, message, sprint, phase))
         warnings.extend(file_reference_warnings(message))
         warnings.extend(wire_warnings(files, diff, sprint, phase))
 
@@ -563,7 +617,6 @@ def cmd_precommit_lightcheck(args: argparse.Namespace) -> int:
     for error in errors:
         print(f"[lightcheck] BLOCK: {error}", file=sys.stderr)
     if errors:
-        print("[lightcheck] set NEXUS_SKIP_PHASE_AUDITOR=1 only for documented emergency bypass", file=sys.stderr)
         return 2
     return 0
 
@@ -576,9 +629,19 @@ def review_file(sprint: str, phase: str) -> Path | None:
     return matches[0] if matches else None
 
 
+def review_gate_errors(text: str) -> list[str]:
+    errors: list[str] = []
+    if not FINAL_PASS_RE.search(text):
+        errors.append("review verdict is not exactly `## Verdict : PASS` or `## Verdict: PASS`")
+    verdict = next((line for line in text.splitlines() if line.startswith("## Verdict")), "")
+    if "PASS-PENDING" in verdict:
+        errors.append("PASS-PENDING is a transient pre-Codex state and cannot satisfy the commit gate")
+    if re.search(r"Codex.*EN ATTENTE|EN ATTENTE.*Codex|Ready for Codex verification", text, re.IGNORECASE):
+        errors.append("review still marks Codex verification as pending")
+    return errors
+
+
 def cmd_auditor_gate(args: argparse.Namespace) -> int:
-    if os.environ.get("NEXUS_SKIP_PHASE_AUDITOR") == "1":
-        return 0
     message = parse_commit_message(args.message_file)
     title = commit_title(message)
     if title.startswith("chore(planning):"):
@@ -596,11 +659,14 @@ def cmd_auditor_gate(args: argparse.Namespace) -> int:
         )
         return 2
     text = read_text(review)
-    if not re.search(r"^## Verdict\s*:\s*PASS\b", text, re.MULTILINE):
+    review_errors = review_gate_errors(text)
+    if review_errors:
         verdict = next((line for line in text.splitlines() if line.startswith("## Verdict")), "(unknown)")
         print("[phase-auditor-gate] BLOCK: review not PASS", file=sys.stderr)
         print(f"  file: {rel(review)}", file=sys.stderr)
         print(f"  verdict: {verdict}", file=sys.stderr)
+        for error in review_errors:
+            print(f"  reason: {error}", file=sys.stderr)
         return 2
     return 0
 

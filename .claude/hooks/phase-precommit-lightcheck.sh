@@ -28,8 +28,6 @@
 #   9. Commit body sections (STRICT, BLOCK feat/docs Phase) — verifier
 #      les 9 headers ## obligatoires du body (§4.1 README).
 #
-# Bypass d'urgence : NEXUS_SKIP_PHASE_AUDITOR=1 git commit ...
-#
 # Exit 0 : autorise (avec warnings stderr eventuels)
 # Exit 2 : bloque (erreur stricte)
 
@@ -46,7 +44,6 @@ fi
 
 [ -z "$CMD" ] && exit 0
 echo "$CMD" | grep -qE 'git[[:space:]]+commit' || exit 0
-[ "${NEXUS_SKIP_PHASE_AUDITOR:-0}" = "1" ] && exit 0
 
 REPO_ROOT=$(pwd)
 [ ! -f "$REPO_ROOT/Cargo.toml" ] && exit 0
@@ -54,6 +51,16 @@ REPO_ROOT=$(pwd)
 
 ERRORS=0
 WARNINGS=0
+
+# === Check 0 : Whitespace / conflict-marker sanity (STRICT, BLOCK) ===
+DIFF_CHECK=$(git diff --cached --check 2>&1 || true)
+if [ -n "$DIFF_CHECK" ]; then
+  echo "" >&2
+  echo "[lightcheck] BLOCK: git diff --cached --check failed" >&2
+  echo "$DIFF_CHECK" >&2
+  echo "" >&2
+  ERRORS=$((ERRORS + 1))
+fi
 
 # === Extract SPRINT + PHASE from commit title only (shared by checks 4, 5) ===
 # Extract the commit title (first line of the message, before any newline).
@@ -69,9 +76,14 @@ fi
 [ -z "$COMMIT_TITLE" ] && COMMIT_TITLE="$CMD"
 # Primary: scope-based detection (feat(sprint64): Sprint 64 Phase A)
 SPRINT=$(echo "$COMMIT_TITLE" | grep -oE '(feat|fix|docs|chore|test|refactor)\(sprint[0-9]+\)' | head -1 | grep -oE '[0-9]+' || true)
+TITLE_SPRINT=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' | head -1 | grep -oE '[0-9]+' || true)
+if [ -n "$SPRINT" ] && [ -n "$TITLE_SPRINT" ] && [ "$SPRINT" != "$TITLE_SPRINT" ]; then
+  echo "[lightcheck] BLOCK: commit scope sprint${SPRINT} conflicts with title Sprint ${TITLE_SPRINT}" >&2
+  ERRORS=$((ERRORS + 1))
+fi
 # Fallback: title-based detection (feat(feed): Sprint 64 Phase A)
 if [ -z "$SPRINT" ]; then
-  SPRINT=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' | head -1 | grep -oE '[0-9]+' || true)
+  SPRINT="$TITLE_SPRINT"
 fi
 PHASE_RAW=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $NF}' || true)
 PHASE=$(echo "$PHASE_RAW" | tr '[:upper:]' '[:lower:]' || true)
@@ -271,21 +283,16 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
   IS_PHASE_IMPL=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|test|refactor)\(' || true)
   if [ "$IS_PHASE_IMPL" -gt 0 ]; then
     CODEX_REVIEW=".planning/active/sprint${SPRINT}_phase_${PHASE}_codex_review.md"
-    CODEX_EXEMPT=0
-    # Exemption: body contains explicit PO Codex skip
-    if [ -n "$BODY" ]; then
-      echo "$BODY" | grep -qiE 'Codex.*skip|skip.*[Cc]odex|Codex.*exempt' && CODEX_EXEMPT=1
-    fi
-    if [ "$CODEX_EXEMPT" -eq 0 ] && [ ! -f "$CODEX_REVIEW" ]; then
+    if [ ! -f "$CODEX_REVIEW" ]; then
       echo "" >&2
       echo "[lightcheck] BLOCK: Codex review manquant (§4.5)" >&2
       echo "  Attendu: ${CODEX_REVIEW}" >&2
       echo "  Procedure: ecrire prompt .git/CODEX_PHASE_X.txt," >&2
       echo "    lancer codex exec, corriger GAPs, re-stage." >&2
-      echo "  Seul bypass : PO skip explicite dans le body." >&2
+      echo "  Zero exemption: une phase commit exige un artefact Codex." >&2
       echo "" >&2
       ERRORS=$((ERRORS + 1))
-    elif [ "$CODEX_EXEMPT" -eq 0 ]; then
+    else
       CODEX_TRACKED=0
       git ls-files --error-unmatch "$CODEX_REVIEW" >/dev/null 2>&1 && CODEX_TRACKED=1
       CODEX_STAGED=0
@@ -390,17 +397,14 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
   fi
 fi
 
-# === Check 9 : Commit body sections (STRICT for feat/docs Phase) ===
-# §4.1 : 8 sections ## obligatoires dans le body de chaque commit
-# feat(...) ou docs(...) contenant "Sprint N Phase X" dans le titre.
-# Exemptions : chore/fix/test/refactor, body "Codex verification : skipped".
+# === Check 9 : Commit body sections (STRICT for phase impl commits) ===
+# §4.1 : 9 sections ## obligatoires dans le body de chaque commit
+# feat/fix/docs/test/refactor contenant "Sprint N Phase X" dans le titre.
+# Zero exemption : Codex verification ne se skippe pas par body marker.
 if [ -n "$SPRINT" ] && [ -n "$PHASE" ] && [ -n "$BODY" ]; then
-  IS_FEAT_OR_DOCS=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|docs)\(' || true)
+  IS_PHASE_IMPL=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|test|refactor)\(' || true)
   HAS_SPRINT_PHASE=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' || true)
-  if [ "$IS_FEAT_OR_DOCS" -gt 0 ] && [ "$HAS_SPRINT_PHASE" -gt 0 ]; then
-    # Exemption: PO explicit Codex skip (body marker)
-    CODEX_SKIPPED=$(echo "$BODY" | grep -cE '## Codex verification : skipped' || true)
-    if [ "$CODEX_SKIPPED" -eq 0 ]; then
+  if [ "$IS_PHASE_IMPL" -gt 0 ] && [ "$HAS_SPRINT_PHASE" -gt 0 ]; then
       MISSING_SECTIONS=""
       MISSING_COUNT=0
 
@@ -456,19 +460,18 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ] && [ -n "$BODY" ]; then
         echo "" >&2
         echo -e "  Sections manquantes :" >&2
         echo -e "${MISSING_SECTIONS}" >&2
-        echo "  Le body d'un commit feat/docs Phase doit contenir les 9 headers ##" >&2
+        echo "  Le body d'un commit phase doit contenir les 9 headers ##" >&2
         echo "  prescrits par docs/claude/README.md §4.1." >&2
         echo "" >&2
         ERRORS=$((ERRORS + 1))
       fi
-    fi
   fi
 fi
 
 if [ "$ERRORS" -gt 0 ]; then
   echo "" >&2
   echo "[lightcheck] BLOCK: ${ERRORS} erreur(s) pre-commit" >&2
-  echo "  Bypass d'urgence : NEXUS_SKIP_PHASE_AUDITOR=1 git commit ..." >&2
+  echo "  Corriger le process artifact/body avant commit." >&2
   echo "" >&2
   exit 2
 fi

@@ -54,10 +54,13 @@ Reponse : `GO-PREFLIGHT` ou `BLOCK-PREFLIGHT: {raison}`
 ### G-REVIEW : Apres review deep
 Le main thread te dit "review done pour Phase X". Tu verifies :
 1. `.planning/active/sprint{N}_phase_{X}_review.md` existe
-2. Le verdict est PASS (pas FAIL edite en PASS — lire le contenu)
+2. Le verdict est `PASS-PENDING` avant Codex. `PASS` avant Codex est
+   suspect sauf si le fichier contient deja une section
+   `## Codex reconciliation` et qu'un codex_review.md existe.
 3. Si le review initial etait FAIL, verifier que les P1 cites sont resolus dans le code
 
-Reponse : `GO-REVIEW` ou `BLOCK-REVIEW: {raison}`
+Reponse : `GO-REVIEW` ou `BLOCK-REVIEW: {raison}`. `GO-REVIEW`
+autorise uniquement la suite Codex, jamais le commit.
 
 ### G-CODEX : Apres Codex
 Le main thread te dit "Codex done pour Phase X". Tu verifies :
@@ -65,6 +68,9 @@ Le main thread te dit "Codex done pour Phase X". Tu verifies :
 2. Le fichier ressemble a un output Codex (format "Livrable N", pas
    un texte libre ecrit manuellement)
 3. Si GAPs P0/P1 trouves, verifier qu'ils sont resolus
+4. `.planning/active/sprint{N}_phase_{X}_review.md` a ete reconcilie :
+   verdict final `PASS`, section `## Codex reconciliation`, reference
+   au rapport Codex. `PASS-PENDING` apres Codex = BLOCK.
 
 Signaux d'un fichier ecrit manuellement (vs genere par Codex) :
 - Absence de structure "### Livrable N" repetee
@@ -78,10 +84,12 @@ Reponse : `GO-CODEX` ou `BLOCK-CODEX: {raison}`
 Le main thread te dit "pret a committer". Tu verifies :
 
 Pour Cas B (feat Phase) :
-1. Tous les artefacts existent : preflight + review (PASS) + codex_review
+1. Tous les artefacts existent : preflight + review final `PASS` +
+   codex_review. `PASS-PENDING` est un BLOCK-COMMIT.
 2. Pour Phase A uniquement : design_review.md existe aussi
 3. Le titre du commit suit le format `feat(scope): Sprint N Phase X — titre`
-4. Le fichier commit body a les 8 headers ## obligatoires
+4. Le fichier commit body a les 9 headers ## obligatoires, incluant
+   `## Codex verification`
 5. Delta tests annonce vs reel (cargo nextest count vs annonce)
 6. Scope cuts coherents avec le kickoff
 7. Le main thread n'a PAS utilise `model:` dans ses appels Agent
@@ -119,6 +127,7 @@ Reponse : `GO-POST` ou `BLOCK-POST: {raison}`
    de te re-consulter. Pas de "on verra apres"
 4. **Zero exemption Codex** — pas de seuil LOC, pas d'exemption
    contenu, pas de timebox. Meme 1 ligne de code passe par Codex
+   avant promotion review `PASS`
 5. **Modele strict** — si tu detectes que le main thread a passe
    `model: "opus"` ou tout alias dans un appel Agent(), c'est un
    BLOCK immediat. Les agents ont `claude-opus-4-6[1m]` dans leur
