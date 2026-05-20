@@ -1753,21 +1753,23 @@ grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md docs/she
 # (lecture rapide, signal uniquement, le scan S2 complet vit dans skill preflight)
 git log --all --extended-regexp --grep='DEVIATION|rejected|threat-model|scope-cut' --oneline | head -10 || true
 
-# === Spawn superviseur process (OBLIGATOIRE, avant tout) ===
+# === Invocation superviseur process G-SPAWN (OBLIGATOIRE, avant tout) ===
 
 IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
 
   Agent(
     name: "supervisor",
-    description: "Superviseur process permanent nexus-grid ; confirme le cas detecte et bloque si le process derive.",
+    description: "Gate-check superviseur nexus-grid ; confirme le cas detecte et bloque si le process derive.",
     subagent_type: "nexus-process-supervisor",
-    prompt: "Session start. Voici l'etat pre-flight : [coller
+    prompt: "G-SPAWN. Voici l'etat pre-flight : [coller
       le resume du pre-flight]. Confirme le cas detecte."
   )
 
   NE PAS passer `model:` — le frontmatter porte claude-opus-4-6[1m].
-  Le superviseur reste en vie via SendMessage("supervisor") pendant
-  toute la session. Consulter a CHAQUE gate :
+  Claude Code peut afficher `Done` apres cette invocation : c'est normal.
+  Le superviseur n'est PAS un daemon conversationnel garanti. A CHAQUE gate,
+  re-invoquer `Agent(...)` avec le meme `subagent_type` et un prompt qui
+  contient le gate, la phase, les artefacts et le verdict observe :
     - G-SPAWN : confirmation du cas detecte (reponse initiale)
     - G-PREFLIGHT : apres preflight agent (Cas B)
     - G-REVIEW : apres review agent (Cas B)
@@ -1775,7 +1777,16 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
     - G-COMMIT : avant git commit (TOUS les cas A/B/C/D)
     - G-POST : apres commit + chore (TOUS les cas A/B/C/D)
 
-  Si le superviseur repond BLOCK-* : STOP, corriger, re-consulter.
+  Template de consultation gate :
+    Agent(
+      name: "supervisor-gate",
+      description: "Gate-check superviseur nexus-grid pour {GATE}.",
+      subagent_type: "nexus-process-supervisor",
+      prompt: "{GATE} Phase X. Contexte G-SPAWN : [resume].
+        Artefacts : [fichiers]. Verdict observe : [verdict]."
+    )
+
+  Si le superviseur repond BLOCK-* : STOP, corriger, re-invoquer le gate.
   Le main thread ne peut PAS ignorer un BLOCK.
 
 # === Regle modele agents (§7.1.1) ===
@@ -1833,10 +1844,10 @@ procédure lui-même (sauf Cas D hotfix).
       Fallback : skill nexus-phase-preflight (profondeur réduite,
       même verdicts).
 
-      CONSULTER superviseur (G-PREFLIGHT) :
-        SendMessage(to: "supervisor", "G-PREFLIGHT Phase X done.
-          Fichier: sprint{N}_phase_{X}_preflight.md.
-          Verdict: {verdict}.")
+      CONSULTER superviseur (G-PREFLIGHT) par nouvelle invocation Agent :
+        Gate G-PREFLIGHT Phase X.
+        Fichier : sprint{N}_phase_{X}_preflight.md.
+        Verdict : {verdict}.
         Attendre GO-PREFLIGHT avant de coder.
 
     PENDANT code : le main thread implémente la phase
@@ -1861,10 +1872,10 @@ procédure lui-même (sauf Cas D hotfix).
       Si FAIL : corriger les P0/P1, re-invoquer l'agent.
       Fallback : skill nexus-phase-review (profondeur réduite).
 
-      CONSULTER superviseur (G-REVIEW) :
-        SendMessage(to: "supervisor", "G-REVIEW Phase X done.
-          Fichier: sprint{N}_phase_{X}_review.md.
-          Verdict: {verdict}.")
+      CONSULTER superviseur (G-REVIEW) par nouvelle invocation Agent :
+        Gate G-REVIEW Phase X.
+        Fichier : sprint{N}_phase_{X}_review.md.
+        Verdict : {verdict}.
         Attendre GO-REVIEW avant Codex. GO-REVIEW autorise seulement
         le passage a Codex, pas le commit.
 
@@ -1897,22 +1908,22 @@ procédure lui-même (sauf Cas D hotfix).
       reconciliation/promote review PASS → supervisor → commit.
       JAMAIS committer avant le verdict Codex et le review final PASS.
 
-      CONSULTER superviseur (G-CODEX) :
-        SendMessage(to: "supervisor", "G-CODEX Phase X done.
-          Fichier: sprint{N}_phase_{X}_codex_review.md.
-          Review final: PASS.")
+      CONSULTER superviseur (G-CODEX) par nouvelle invocation Agent :
+        Gate G-CODEX Phase X.
+        Fichier : sprint{N}_phase_{X}_codex_review.md.
+        Review final : PASS.
         Attendre GO-CODEX avant commit.
 
-      CONSULTER superviseur (G-COMMIT) :
-        SendMessage(to: "supervisor", "G-COMMIT Phase X.
-          Commit body pret, tous artefacts presents.")
+      CONSULTER superviseur (G-COMMIT) par nouvelle invocation Agent :
+        Gate G-COMMIT Phase X.
+        Commit body pret, tous artefacts presents.
         Attendre GO-COMMIT avant git commit.
 
     Livrable final : 1 commit feat(scope): Sprint N Phase X.
 
-      CONSULTER superviseur (G-POST) :
-        SendMessage(to: "supervisor", "G-POST Phase X.
-          Commit {sha}. Chore planning fait. Memory a jour.")
+      CONSULTER superviseur (G-POST) par nouvelle invocation Agent :
+        Gate G-POST Phase X.
+        Commit {sha}. Chore planning fait. Memory a jour.
         Attendre GO-POST avant de passer a la phase suivante.
 
   Cas C — Nouveau sprint à ouvrir
@@ -1956,8 +1967,8 @@ procédure lui-même (sauf Cas D hotfix).
                 Si conflit -> escalation user avant fix.
     Pas d'agent specialise — le main thread gere directement.
     MAIS : CONSULTER superviseur G-COMMIT avant commit +
-           G-POST apres commit (le superviseur est actif pour
-           TOUS les cas, y compris hotfix).
+           G-POST apres commit par nouvelle invocation Agent
+           (supervision obligatoire pour TOUS les cas, y compris hotfix).
 
 # === Lecture ciblée par cas ===
 
