@@ -148,46 +148,35 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-65 CLOSED**, v2.1 ouverte. **Tag v1.0 pose.**
+- **Sprints 0-66 CLOSED**, v2.1 ouverte. **Tag v1.0 pose.**
   Projet Rust+Frontend pur depuis S50-S51.
-  S65 contrat public (1er sprint roadmap v3 Arc 1 Fondations) :
-  Phase A MANDATORY P2-FEED-INSERT-NO-AUTH-TIER 3/3 CLOSED
-  (auth tier header X-SBFB-Feed-Internal guard feed_insert) +
-  P2-VERIFY-ENTRY-VERSION-GUARD CLOSED (verify_entry rejette
-  version != 1) + raw-op migration FeedEntry.op →
-  serde_json::Value (try_parse_op + validate unknown ops) +
-  deploy→feed wiring ReleasePublished auto-insert + https
-  enforce + TRUST_TAXONOMY.md 6 niveaux + COMMONS.md + tests
-  auth tier + version guard + unknown op + canonical + deploy +
-  Phase B badges UI migration vocabulaire TRUST_TAXONOMY
-  (Browse + BrowsedProject + GpuConsentDialog + Network +
-  Curators + Protocol Explorer + PUBLISH_MODEL) +
-  Phase C badge dynamique post-verification 3 etats +
-  scan-trust-wording.sh script CI non-regression +
-  Phase D FACTORY_GATES.md 11 gates FG0-FG10 spec +
-  SBFB_JSON_V2.md manifest v2 spec + dette pair 5 items CLOSED
-  (COMMIT-TITLE-FORMAT + REVIEW-ORDER + PYTHON-BLOCK-EXEMPTION
-  reclassifie resolved + EXPLORER-ESCAPE-SINGLE-QUOTE +
-  PLAYWRIGHT-SPECS-STALE 30 fichiers supprimes) + wrap-up.
+  S66 durabilite (2e sprint roadmap v3 Arc 1 Fondations 2/2) :
+  Phase A iroh data_dir + FsStore persistence (iroh-docs redb +
+  iroh-blobs FsStore, BlobStore enum, boot_feed/storage_namespace
+  fallback robustesse, persistent identity node_key) +
+  Phase B dette pair (THREAT_MODEL.md feed surface T-FEED-1..4 +
+  PATTERNS.md raw-op store+forward + README.md §4.1 deletions +
+  SQLite synchronous FULL pragma) +
+  Phase C feed republish boot + provenance 3 etats + cross-node
+  verification + feed_join handle fix (MANDATORY
+  P2-PROVENANCE-404-BRIDGE CLOSED + P2-VERIFY-LOCAL-KEY-ONLY
+  CLOSED + P2-FEED-JOIN-HANDLE-LEAK CLOSED) +
+  Phase D orphan recovery SQLite vs iroh-docs + RevocationCache
+  persistence SQLite M14 (P2-ORPHAN-REPUBLISH-RECOVERY CLOSED) +
+  Phase E test E2E restart full cycle + crash recovery + wrap-up.
+  Arc 1 Fondations COMPLET (S65 contrat public + S66 durabilite).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1607 tests total** (1333 Rust / 268 Vitest / 6/6 size-limit)
-  — tous verts code. S65 : +7 delta Rust (1326→1333,
-  Phase A +7), +3 delta Vitest (265→268, Phase C +3).
-- Carry S66 :
+- **~1624 tests total** (1349 Rust / 269 Vitest / 6/6 size-limit)
+  — tous verts code. S66 : +16 delta Rust (1333→1349,
+  Phase A +7, B +1, C +5, D +5, E +2), +1 delta Vitest
+  (268→269, Phase C +1).
+- Carry S67 :
   P2-A-1 rand blocker upstream (exemption externe).
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
   P2-G-1 exe lock intermittent (monitoring).
-  **P2-PROVENANCE-404-BRIDGE (3/3 MANDATORY S66)** —
-  enrichissement UX provenance.
-  **P2-VERIFY-LOCAL-KEY-ONLY (3/3 MANDATORY S66)** —
-  cross-node verification.
-  P2-FEED-JOIN-HANDLE-LEAK (2/3 — feed_join fire-and-forget,
-  pas de shutdown channel).
-  P2-ORPHAN-REPUBLISH-RECOVERY (2/3 — pas de republish DB→iroh-docs
-  apres publish fail + tail-safe skip).
-  P2-THREAT-MODEL-FEED-SURFACE (1/3 — THREAT_MODEL.md ne couvre
-  pas le feed, carry S64 audit).
+  P2-THREAT-MODEL-FEED-SURFACE (2/3 — traite Phase B S66
+  1/3→2/3. Prochain sprint 3/3 MANDATORY si non traite S67).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).

@@ -2105,4 +2105,154 @@ mod tests {
         );
         rt2.shutdown().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn test_e2e_restart_full_cycle() {
+        let tmp = tempdir().expect("tempdir");
+
+        let opts1 = mk_opts(tmp.path());
+        let db_path = opts1.paths.root.join("coordinator.db");
+        let rt1 = DaemonRuntime::start(opts1).await.unwrap();
+
+        let node_id_1 = rt1.node.as_ref().unwrap().node_id();
+
+        let kp = nexus_core_rs::KeyPair::generate();
+        rt1.curator_runtime()
+            .subscribe(&hex::encode(kp.public_bytes()))
+            .unwrap();
+
+        let blobs = nexus_core_rs::BlobsClient::new(rt1.node.as_ref().unwrap().blobs_store());
+        let blob_hash = blobs.add_bytes(b"e2e-restart-payload").await.unwrap();
+        let retrieved = blobs.get_bytes(blob_hash).await.unwrap();
+        assert_eq!(retrieved, b"e2e-restart-payload");
+
+        {
+            let db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path).expect("open test DB");
+            let feed_kp = nexus_core_rs::KeyPair::generate();
+            let pubkey = hex::encode(feed_kp.public_bytes());
+            let op = serde_json::json!({
+                "type": "ReleasePublished",
+                "project_id": "e2e-restart-proj",
+                "version": "1.0.0"
+            });
+            nexus_coordinator_rs::public_feed::insert_feed_operation(&db, op, &pubkey, |data| {
+                feed_kp.sign(data).to_vec()
+            })
+            .expect("insert feed op");
+        }
+
+        rt1.shutdown().await.unwrap();
+
+        let opts2 = mk_opts(tmp.path());
+        let rt2 = DaemonRuntime::start(opts2).await.unwrap();
+
+        let node_id_2 = rt2.node.as_ref().unwrap().node_id();
+        assert_eq!(
+            node_id_1, node_id_2,
+            "node_id must be identical across restart (persistent identity)"
+        );
+
+        assert!(
+            rt2.curator_runtime().is_subscribed(&kp.public_bytes()),
+            "curator subscription must survive restart"
+        );
+
+        let blobs2 = nexus_core_rs::BlobsClient::new(rt2.node.as_ref().unwrap().blobs_store());
+        let data2 = blobs2.get_bytes(blob_hash).await.unwrap();
+        assert_eq!(
+            data2, b"e2e-restart-payload",
+            "blob must survive restart (FsStore persistence)"
+        );
+
+        assert!(
+            rt2.feed_handle.is_some(),
+            "feed sync must be active after restart"
+        );
+
+        {
+            let db =
+                nexus_coordinator_rs::db::CoordinatorDb::open(&db_path).expect("open DB post-boot");
+            let entries = nexus_coordinator_rs::public_feed::replay_all(&db).unwrap();
+            assert_eq!(
+                entries.len(),
+                1,
+                "feed entry must survive restart in SQLite"
+            );
+        }
+
+        assert_eq!(
+            rt2.revocation_cache().read().unwrap().len(),
+            0,
+            "revocation cache must be initialized (empty, no rotations inserted)"
+        );
+
+        rt2.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_e2e_crash_recovery() {
+        let tmp = tempdir().expect("tempdir");
+
+        let opts1 = mk_opts(tmp.path());
+        let db_path = opts1.paths.root.join("coordinator.db");
+        let running_json = opts1.paths.running_json.clone();
+        let rt1 = DaemonRuntime::start(opts1).await.unwrap();
+
+        {
+            let db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path).expect("open test DB");
+            let kp = nexus_core_rs::KeyPair::generate();
+            let pubkey = hex::encode(kp.public_bytes());
+            let op = serde_json::json!({
+                "type": "ReleasePublished",
+                "project_id": "crash-recovery",
+                "version": "1.0.0"
+            });
+            nexus_coordinator_rs::public_feed::insert_feed_operation(&db, op, &pubkey, |data| {
+                kp.sign(data).to_vec()
+            })
+            .expect("insert feed op");
+        }
+
+        rt1.shutdown().await.unwrap();
+
+        // Simulate crash aftermath: a stale running.json left behind
+        // by a process that died before cleanup. The singleton check
+        // must detect the stale marker and proceed.
+        let stale = nexus_shell_daemon_core::registry::RunningState {
+            schema_version: 1,
+            node_id: "0".repeat(64),
+            api_host: "127.0.0.1".to_string(),
+            api_port: 1,
+            pid: 0,
+            started_at: "2000-01-01T00:00:00Z".to_string(),
+            daemon_version: "0.0.0-crashed".to_string(),
+        };
+        raw_write_running(&stale, &running_json).unwrap();
+        assert!(running_json.exists(), "stale running.json must be present");
+
+        let opts2 = mk_opts(tmp.path());
+        let rt2 = DaemonRuntime::start(opts2).await.unwrap();
+
+        assert!(
+            rt2.feed_handle.is_some(),
+            "feed sync must recover after crash"
+        );
+
+        {
+            let db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path)
+                .expect("open DB post-crash");
+            let entries = nexus_coordinator_rs::public_feed::replay_all(&db).unwrap();
+            assert_eq!(
+                entries.len(),
+                1,
+                "feed entry must survive crash (SQLite WAL + FULL pragma)"
+            );
+        }
+
+        rt2.shutdown().await.unwrap();
+        assert!(
+            !running_json.exists(),
+            "running.json must be cleaned after recovery"
+        );
+    }
 }
