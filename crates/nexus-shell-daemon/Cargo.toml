@@ -29,6 +29,7 @@ nexus-trace-core = { path = "../nexus-trace-core" }
 nexus-core-rs = { path = "../nexus-core-rs" }
 nexus-coordinator-rs = { path = "../nexus-coordinator-rs" }
 nexus-worker-core = { path = "../nexus-worker-core" }
+sbfb-manifest = { path = "../sbfb-manifest" }
 
 tokio = { workspace = true }
 futures-lite = "2.3"

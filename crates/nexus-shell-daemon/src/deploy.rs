@@ -112,19 +112,17 @@ pub async fn deploy_from_repo(
         );
     }
 
-    let sbfb = match read_sbfb_json(&clone_dir) {
-        Ok(s) => s,
+    let manifest = match read_and_validate_manifest(&clone_dir) {
+        Ok(m) => m,
         Err(e) => return error_response(StatusCode::BAD_REQUEST, &e),
     };
-    if sbfb.node_id != state.node_id {
-        return error_response(
-            StatusCode::BAD_REQUEST,
-            &format!(
-                "SBFB.json node_id ({}...) does not match daemon node_id ({}...)",
-                &sbfb.node_id[..16.min(sbfb.node_id.len())],
-                &state.node_id[..16.min(state.node_id.len())],
-            ),
-        );
+    if let Some(ref nid) = manifest.node_id {
+        if !nid.is_empty() && nid != &state.node_id {
+            warn!(
+                node_id = %nid,
+                "SBFB.json contains deprecated node_id field that does not match daemon"
+            );
+        }
     }
 
     if !clone_dir.join("index.html").is_file() {
@@ -163,7 +161,7 @@ pub async fn deploy_from_repo(
         &state.node_id,
         &state.pow_keypair,
     );
-    prov.app_version = sbfb.version.clone();
+    prov.app_version = manifest.version.clone();
 
     // Best-effort contributor attestation (Couche 2 Sybil gate).
     {
@@ -540,20 +538,18 @@ async fn git_rev_parse(repo_dir: &Path) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-#[derive(Debug, Deserialize)]
-struct SbfbJson {
-    node_id: String,
-    #[serde(default)]
-    version: Option<String>,
-}
-
-fn read_sbfb_json(repo_dir: &Path) -> Result<SbfbJson, String> {
+fn read_and_validate_manifest(repo_dir: &Path) -> Result<sbfb_manifest::SbfbManifest, String> {
     let path = repo_dir.join("SBFB.json");
     if !path.is_file() {
         return Err("repository must contain SBFB.json at root".into());
     }
     let text = std::fs::read_to_string(&path).map_err(|e| format!("read SBFB.json: {e}"))?;
-    serde_json::from_str::<SbfbJson>(&text).map_err(|e| format!("invalid SBFB.json: {e}"))
+    let manifest =
+        sbfb_manifest::SbfbManifest::parse(&text).map_err(|e| format!("invalid SBFB.json: {e}"))?;
+    manifest
+        .validate()
+        .map_err(|e| format!("SBFB.json validation: {e}"))?;
+    Ok(manifest)
 }
 
 fn zip_directory(src: &Path) -> Result<Vec<u8>, io::Error> {
@@ -728,30 +724,46 @@ mod tests {
     }
 
     #[test]
-    fn sbfb_json_parse() {
+    fn sbfb_json_parse_v1() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("SBFB.json"), r#"{"node_id": "abc123"}"#).unwrap();
-        let sbfb = read_sbfb_json(tmp.path()).unwrap();
-        assert_eq!(sbfb.node_id, "abc123");
+        let m = read_and_validate_manifest(tmp.path()).unwrap();
+        assert_eq!(m.node_id.as_deref(), Some("abc123"));
+        assert_eq!(m.effective_schema_version(), 1);
     }
 
     #[test]
     fn sbfb_json_missing() {
         let tmp = tempfile::tempdir().unwrap();
-        assert!(read_sbfb_json(tmp.path()).is_err());
+        assert!(read_and_validate_manifest(tmp.path()).is_err());
     }
 
     #[test]
-    fn sbfb_json_node_id_mismatch_detected() {
+    fn test_deploy_from_repo_accepts_no_node_id() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(
             tmp.path().join("SBFB.json"),
-            r#"{"node_id": "aaaa1111bbbb2222cccc3333dddd4444"}"#,
+            r#"{"schema_version": 2, "name": "my-app", "version": "1.0.0"}"#,
         )
         .unwrap();
-        let sbfb = read_sbfb_json(tmp.path()).unwrap();
+        let m = read_and_validate_manifest(tmp.path()).unwrap();
+        assert!(m.node_id.is_none());
+        assert!(m.is_v2());
+        assert_eq!(m.name.as_deref(), Some("my-app"));
+    }
+
+    #[test]
+    fn test_deploy_from_repo_warns_with_node_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("SBFB.json"),
+            r#"{"schema_version": 2, "name": "test", "node_id": "aaaa1111bbbb2222cccc3333dddd4444"}"#,
+        )
+        .unwrap();
+        let m = read_and_validate_manifest(tmp.path()).unwrap();
+        assert!(m.node_id.is_some());
         let daemon_node_id = "ffff9999eeee8888dddd7777cccc6666";
-        assert_ne!(sbfb.node_id, daemon_node_id);
+        assert_ne!(m.node_id.as_deref().unwrap(), daemon_node_id);
     }
 
     #[test]
@@ -764,12 +776,12 @@ mod tests {
         .unwrap();
         std::fs::write(
             tmp.path().join("SBFB.json"),
-            r#"{"node_id": "test_node", "name": "test-app"}"#,
+            r#"{"schema_version": 2, "name": "test-app", "version": "1.0.0"}"#,
         )
         .unwrap();
 
-        let sbfb = read_sbfb_json(tmp.path()).unwrap();
-        assert_eq!(sbfb.node_id, "test_node");
+        let m = read_and_validate_manifest(tmp.path()).unwrap();
+        assert_eq!(m.name.as_deref(), Some("test-app"));
 
         let zip_bytes = zip_directory(tmp.path()).unwrap();
         assert!(validate_zip(&zip_bytes).is_ok());

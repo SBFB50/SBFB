@@ -46,17 +46,44 @@ pub struct SourceBecameStalePayload {
     pub reason: String,
 }
 
+/// Payload for a curator-vouched event.
+///
+/// Records that a curator publicly endorses a project. The
+/// `curator_pubkey` is the Ed25519 public key of the curator
+/// who vouches, validated as hex-64.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CuratorVouchedPayload {
+    pub project_id: String,
+    pub curator_pubkey: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// Payload for a curator-disendorsed event.
+///
+/// Records that a curator withdraws endorsement of a project.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CuratorDisendorsedPayload {
+    pub project_id: String,
+    pub curator_pubkey: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// Discriminated union of all public feed operation types.
 ///
-/// Sprint 1 implements `ReleasePublished` and `SourceBecameStale`.
-/// Future variants (`CuratorVouched`, `BuildQuorumReached`,
-/// `SourceRecovered`, `SearchManifestPublished`) are defined in
-/// the protocol spec but implemented in Sprint 2+.
+/// `ReleasePublished` and `SourceBecameStale` since Sprint 1.
+/// `CuratorVouched` and `CuratorDisendorsed` since Sprint 67.
+/// Future variants (`BuildQuorumReached`, `SourceRecovered`,
+/// `SearchManifestPublished`) use the raw-op forward compat
+/// path (pattern P51) until implemented.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op_type")]
 pub enum PublicFeedOperation {
     ReleasePublished(ReleasePublishedPayload),
     SourceBecameStale(SourceBecameStalePayload),
+    CuratorVouched(CuratorVouchedPayload),
+    CuratorDisendorsed(CuratorDisendorsedPayload),
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +297,22 @@ fn validate_known_operation(op: &PublicFeedOperation) -> Result<(), String> {
                 return Err(
                     "reason must be one of: repo_unreachable, commit_diverged, manual".to_string(),
                 );
+            }
+        }
+        PublicFeedOperation::CuratorVouched(p) => {
+            if !is_hex_exact(&p.project_id, 64) {
+                return Err("project_id must be 64 hex characters".to_string());
+            }
+            if !is_hex_exact(&p.curator_pubkey, 64) {
+                return Err("curator_pubkey must be 64 hex characters".to_string());
+            }
+        }
+        PublicFeedOperation::CuratorDisendorsed(p) => {
+            if !is_hex_exact(&p.project_id, 64) {
+                return Err("project_id must be 64 hex characters".to_string());
+            }
+            if !is_hex_exact(&p.curator_pubkey, 64) {
+                return Err("curator_pubkey must be 64 hex characters".to_string());
             }
         }
     }
@@ -1670,15 +1713,14 @@ mod tests {
         let pk = pubkey_hex(&kp);
 
         let unknown_op = serde_json::json!({
-            "op_type": "CuratorVouched",
-            "curator_pubkey": "abc123",
+            "op_type": "BuildQuorumReached",
             "project_id": "a1".repeat(32),
-            "reason": "looks good"
+            "quorum": 3
         });
         let entry =
             insert_feed_operation(&db, unknown_op.clone(), &pk, |d| kp.sign(d).to_vec()).unwrap();
         assert_eq!(entry.seq, 1);
-        assert_eq!(op_type(&entry.op), Some("CuratorVouched"));
+        assert_eq!(op_type(&entry.op), Some("BuildQuorumReached"));
         assert!(try_parse_op(&entry.op).is_none());
 
         let entries = replay_all(&db).unwrap();
@@ -1717,5 +1759,79 @@ mod tests {
         let hash_typed = compute_feed_entry_hash(&canonical_typed).unwrap();
         let hash_value = compute_feed_entry_hash(&canonical_value).unwrap();
         assert_eq!(hash_typed, hash_value);
+    }
+
+    // -- Sprint 67 Phase A: CuratorVouched / CuratorDisendorsed --
+
+    fn sample_curator_vouched() -> PublicFeedOperation {
+        PublicFeedOperation::CuratorVouched(CuratorVouchedPayload {
+            project_id: "a1".repeat(32),
+            curator_pubkey: "d".repeat(64),
+            reason: Some("quality project".into()),
+        })
+    }
+
+    fn sample_curator_disendorsed() -> PublicFeedOperation {
+        PublicFeedOperation::CuratorDisendorsed(CuratorDisendorsedPayload {
+            project_id: "a1".repeat(32),
+            curator_pubkey: "d".repeat(64),
+            reason: Some("inactive".into()),
+        })
+    }
+
+    #[test]
+    fn test_curator_vouched_roundtrip() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        let op_val = serde_json::to_value(sample_curator_vouched()).unwrap();
+        let entry =
+            insert_feed_operation(&db, op_val.clone(), &pk, |d| kp.sign(d).to_vec()).unwrap();
+        assert_eq!(entry.seq, 1);
+        assert_eq!(op_type(&entry.op), Some("CuratorVouched"));
+        let parsed = try_parse_op(&entry.op).unwrap();
+        assert_eq!(parsed, sample_curator_vouched());
+
+        let entries = replay_all(&db).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(verify_chain(&entries).is_ok());
+    }
+
+    #[test]
+    fn test_curator_disendorsed_roundtrip() {
+        let db = CoordinatorDb::open_in_memory().unwrap();
+        let kp = test_keypair();
+        let pk = pubkey_hex(&kp);
+
+        let op_val = serde_json::to_value(sample_curator_disendorsed()).unwrap();
+        let entry = insert_feed_operation(&db, op_val, &pk, |d| kp.sign(d).to_vec()).unwrap();
+        assert_eq!(entry.seq, 1);
+        assert_eq!(op_type(&entry.op), Some("CuratorDisendorsed"));
+        let parsed = try_parse_op(&entry.op).unwrap();
+        assert_eq!(parsed, sample_curator_disendorsed());
+    }
+
+    #[test]
+    fn test_curator_vouched_validation_rejects_bad_pubkey() {
+        let op = serde_json::to_value(PublicFeedOperation::CuratorVouched(CuratorVouchedPayload {
+            project_id: "a1".repeat(32),
+            curator_pubkey: "short".into(),
+            reason: None,
+        }))
+        .unwrap();
+        let result = validate_feed_operation(&op);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("curator_pubkey"));
+    }
+
+    #[test]
+    fn test_curator_vouched_unknown_op_forward_compat() {
+        let unknown = serde_json::json!({
+            "op_type": "FutureOp",
+            "data": "whatever"
+        });
+        assert!(try_parse_op(&unknown).is_none());
+        assert!(validate_feed_operation(&unknown).is_ok());
     }
 }

@@ -1,5 +1,7 @@
 {
-  "node_id": "PLACEHOLDER",
+  "schema_version": 2,
   "name": "sbfb-explorer",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "description": "SBFB Protocol Explorer — interactive documentation for the SBFB protocol",
+  "category": "tools"
 }

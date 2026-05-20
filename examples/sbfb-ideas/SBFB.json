@@ -1,5 +1,10 @@
 {
-  "node_id": "PLACEHOLDER",
+  "schema_version": 2,
   "name": "sbfb-ideas",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "description": "Ideas Hub — propose and vote on ideas via P2P storage",
+  "category": "community",
+  "bridge": {
+    "methods": ["storage_get", "storage_set", "storage_list", "storage_delete", "identity_pubkey"]
+  }
 }

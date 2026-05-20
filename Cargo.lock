@@ -5220,6 +5220,7 @@ dependencies = [
  "nexus-worker-core",
  "rand 0.8.6",
  "reqwest 0.12.28",
+ "sbfb-manifest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -7409,6 +7410,15 @@ name = "saturating-time"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b63583a1dd0647d1484228529ab4ecaa874048d2956f117362aa5f5826456230"
+
+[[package]]
+name = "sbfb-manifest"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "schannel"

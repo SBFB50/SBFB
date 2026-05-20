@@ -71,6 +71,11 @@ impl PublicRegistryView {
                 status.source_stale = true;
                 status.last_updated = entry.timestamp;
             }
+            PublicFeedOperation::CuratorVouched(_) | PublicFeedOperation::CuratorDisendorsed(_) => {
+                // Curator endorsement ops do not affect per-project
+                // publish/stale status. They will feed the trust
+                // overlay (S70+). For now, acknowledge and skip.
+            }
         }
     }
 }

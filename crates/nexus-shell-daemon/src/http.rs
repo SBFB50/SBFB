@@ -353,6 +353,7 @@ pub fn build_router(
             post(crate::feed_sync::feed_insert),
         )
         .route("/api/daemon/feed/cursor", get(get_feed_cursor))
+        .route("/api/daemon/feed/entries", get(get_feed_entries))
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
             "/api/v1/deploy-from-repo",
@@ -1823,6 +1824,94 @@ async fn get_feed_cursor(State(state): State<Arc<DaemonHttpState>>) -> impl Into
                 .into_response()
         }
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct FeedEntriesQuery {
+    #[serde(default)]
+    after_seq: Option<u64>,
+    #[serde(default = "default_feed_limit")]
+    limit: u64,
+    #[serde(default)]
+    project_id: Option<String>,
+    #[serde(default)]
+    op_type: Option<String>,
+}
+
+fn default_feed_limit() -> u64 {
+    50
+}
+
+async fn get_feed_entries(
+    State(state): State<Arc<DaemonHttpState>>,
+    axum::extract::Query(params): axum::extract::Query<FeedEntriesQuery>,
+) -> impl IntoResponse {
+    let db = match state.coordinator_db.lock() {
+        Ok(guard) => guard,
+        Err(_poisoned) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+
+    let limit = params.limit.min(100);
+    let after_seq = params.after_seq.unwrap_or(0);
+
+    let rows = match db.get_feed_entries_after_seq(after_seq) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("feed entries query failed: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+
+    let filtered: Vec<_> = rows
+        .into_iter()
+        .filter(|row| {
+            if let Some(ref pid) = params.project_id {
+                let payload: serde_json::Value =
+                    serde_json::from_str(&row.payload).unwrap_or_default();
+                if payload.get("project_id").and_then(|v| v.as_str()) != Some(pid.as_str()) {
+                    return false;
+                }
+            }
+            if let Some(ref ot) = params.op_type {
+                if row.op_type != *ot {
+                    return false;
+                }
+            }
+            true
+        })
+        .take(limit as usize)
+        .map(|row| {
+            serde_json::json!({
+                "seq": row.seq,
+                "op_type": row.op_type,
+                "payload": serde_json::from_str::<serde_json::Value>(&row.payload).unwrap_or_default(),
+                "author": row.author,
+                "entry_hash": row.entry_hash,
+                "prev_hash": row.prev_hash,
+                "created_at": row.created_at,
+            })
+        })
+        .collect();
+
+    let count = filtered.len();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "entries": filtered,
+            "count": count,
+        })),
+    )
+        .into_response()
 }
 
 // =================================================================
@@ -5768,5 +5857,92 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["last_seq"], 42);
         assert_eq!(json["last_entry_hash"], "abcdef1234567890");
+    }
+
+    // -- Sprint 67 Phase A: feed entries endpoint tests --
+
+    fn insert_test_feed_entry(
+        db: &nexus_coordinator_rs::db::CoordinatorDb,
+        project_id: &str,
+        op_type_str: &str,
+    ) {
+        let kp = nexus_core_rs::KeyPair::from_secret_bytes(&[42u8; 32]);
+        let pk = hex::encode(kp.public_bytes());
+        let op = serde_json::json!({
+            "op_type": op_type_str,
+            "project_id": project_id,
+            "repo_url": "https://github.com/org/app",
+            "commit_sha": "a".repeat(40),
+            "artifact_hash": "b".repeat(64),
+            "provenance_hash": "c".repeat(64),
+            "is_open_source": true
+        });
+        nexus_coordinator_rs::public_feed::insert_feed_operation(db, op, &pk, |d| {
+            kp.sign(d).to_vec()
+        })
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_feed_entries_endpoint_paginated() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            let pid = "a1".repeat(32);
+            insert_test_feed_entry(&db, &pid, "ReleasePublished");
+            insert_test_feed_entry(&db, &pid, "ReleasePublished");
+            insert_test_feed_entry(&db, &pid, "ReleasePublished");
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/feed/entries?after_seq=1&limit=2")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 16384).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["count"], 2);
+        let entries = json["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries[0]["seq"].as_u64().unwrap() > 1);
+    }
+
+    #[tokio::test]
+    async fn test_feed_entries_endpoint_filters_by_project_id() {
+        let state = mk_state().await;
+        let pid_a = "a1".repeat(32);
+        let pid_b = "b2".repeat(32);
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            insert_test_feed_entry(&db, &pid_a, "ReleasePublished");
+            insert_test_feed_entry(&db, &pid_b, "ReleasePublished");
+            insert_test_feed_entry(&db, &pid_a, "ReleasePublished");
+        }
+        let app = build_test_router(state);
+        let uri = format!("/api/daemon/feed/entries?project_id={pid_a}");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 16384).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["count"], 2);
+        let entries = json["entries"].as_array().unwrap();
+        for e in entries {
+            assert_eq!(e["payload"]["project_id"].as_str().unwrap(), pid_a);
+        }
     }
 }
