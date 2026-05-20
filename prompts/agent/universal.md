@@ -510,14 +510,14 @@ Allowed phase types: `feat`, `fix`, `docs`, `test`, `chore`, `refactor`.
 Use this full 9-section body. Do not add or remove top-level body sections:
 
 ```text
-## Context
+## Contexte
 - <Why this phase exists; tie to sprint plan and phase goal.>
 
-## Changes
+## Fichiers
 - <path>: <specific role of change>.
 - <path>: <specific role of change>.
 
-## Tests
+## Delta tests
 - Rust workspace: <before> -> <after> (+<delta>) via <command or Not run: reason>.
 - Python SDK: <before> -> <after> (+<delta>) via <command or Not run: reason>.
 - Python coordinator: <before> -> <after> (+<delta>) via <command or Not run: reason>.
@@ -526,10 +526,21 @@ Use this full 9-section body. Do not add or remove top-level body sections:
 - Playwright: <before> -> <after> (+<delta>) via <command or Not run: reason>.
 - Frontend build/size/i18n: <result> via <command or Not run: reason>.
 
+## Verification
+- Final required suites: <commands and results, or Not run with reason>.
+- Review gate: .planning/active/sprint{N}_phase_{X}_review.md, final verdict `## Verdict: PASS`.
+
+## Scope cuts
+- Honoured: <relevant kickoff scope cuts checked against diff>.
+- Reopened: <none, or exact planning evidence and approval>.
+
 ## G8 traceability
 - Preflight or pivot: .planning/active/sprint{N}_phase_{X}_<artifact>.md, verdict <verdict>.
-- Review gate: .planning/active/sprint{N}_phase_{X}_review.md, final verdict `## Verdict: PASS`.
 - Research grounding: <sources from plan/preflight or Not evidenced>.
+
+## Pre-launch protocol
+- Format/version impact: <none or exact VERSION/DOMAIN/canonical evidence>.
+- Decoder/canonical policy: <preserved or explicit decision>.
 
 ## Codex verification
 - Codex pass: <session/agent and date, or Not run: commit blocked>.
@@ -537,22 +548,11 @@ Use this full 9-section body. Do not add or remove top-level body sections:
 - Verification commands: <commands and result, or Not run with reason>.
 - Security delta: <none, or exact security/protocol change and mitigation>.
 
-## Pre-launch protocol
-- Format/version impact: <none or exact VERSION/DOMAIN/canonical evidence>.
-- Decoder/canonical policy: <preserved or explicit decision>.
-
-## Scope cuts
-- Honoured: <relevant kickoff scope cuts checked against diff>.
-- Reopened: <none, or exact planning evidence and approval>.
-
 ## Carry closure / Unblock
 - Closed carries: <ids and evidence>.
 - New carries: <ids, owner, trigger, exit condition>.
 - Unblocked items: <if any>.
-
-## Risk
-- <Residual risk, P2/P3, or "No unresolved P0/P1 in review gate.">
-- <Security/protocol note if sensitive surfaces touched.>
+- Residual risk: <carry-over P2/P3, or "No unresolved P0/P1 in review gate.">
 ```
 
 Mention every staged file or intentional file group. Lockfiles, configs, deploy

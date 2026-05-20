@@ -181,11 +181,12 @@ Phase commits have a stricter finality rule than intermediate reviews:
   commit title, and commit body. Never reuse Phase B evidence for Phase C, or
   any other mismatched phase pair.
 - The phase commit body has exactly these 9 markdown sections:
-  `## Context`, `## Changes`, `## Tests`, `## G8 traceability`,
-  `## Codex verification`, `## Pre-launch protocol`, `## Scope cuts`,
-  `## Carry closure / Unblock`, and `## Risk`.
-  `Security delta` belongs inside `## Codex verification` or `## Risk`; do not
-  add it as a tenth top-level section.
+  `## Contexte`, `## Fichiers`, `## Delta tests`, `## Verification`,
+  `## Scope cuts`, `## G8 traceability`, `## Pre-launch protocol`,
+  `## Codex verification`, and `## Carry closure` or
+  `## Carry closure / Unblock`.
+  `Security delta` belongs inside `## Codex verification`; do not add it as a
+  tenth top-level section.
 
 ## Quality Bar
 

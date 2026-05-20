@@ -157,7 +157,7 @@ offline, record the exact failure and the smallest next verification step.
 Phase commit bodies must use exactly 9 markdown sections and include
 `## Codex verification`. Do not reuse older 8-section templates or add
 `Security delta` as a separate tenth header; record security delta inside
-`## Codex verification` and `## Risk`.
+`## Codex verification`.
 
 ## Completion Report
 

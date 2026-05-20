@@ -45,14 +45,14 @@ Use this complete 9-section markdown structure. Do not add a tenth top-level
 section and do not reuse older 8-header templates:
 
 ```text
-## Context
+## Contexte
 - <Why this phase exists; tie to sprint plan and phase goal.>
 
-## Changes
+## Fichiers
 - <path>: <specific role of the change, not just a filename>.
 - <path>: <specific role of the change>.
 
-## Tests
+## Delta tests
 - Rust workspace: <before> -> <after> (+<delta> Phase {PHASE}) via <command or Not run: reason>.
 - Python SDK: <before> -> <after> (+<delta>) via <command or Not run: reason>.
 - Python coordinator: <before> -> <after> (+<delta>) via <command or Not run: reason>.
@@ -61,10 +61,21 @@ section and do not reuse older 8-header templates:
 - Playwright: <before> -> <after> (+<delta>) via <command or Not run: reason>.
 - Frontend build/size/i18n: <result> via <commands or Not run: reason>.
 
+## Verification
+- Final required suites: <commands and results, or Not run with reason>.
+- Review gate: .planning/active/sprint{SPRINT}_phase_{PHASE}_review.md, final verdict `## Verdict: PASS`.
+
+## Scope cuts
+- Honoured: <copy the relevant kickoff scope cuts checked against the diff>.
+- Reopened: <none, or exact planning evidence and approval>.
+
 ## G8 traceability
 - Preflight or pivot: .planning/active/sprint{SPRINT}_phase_{PHASE}_<artifact>.md, verdict <verdict>.
-- Review gate: .planning/active/sprint{SPRINT}_phase_{PHASE}_review.md, final verdict `## Verdict: PASS`.
 - Research grounding: <sources from plan/preflight or Not evidenced>.
+
+## Pre-launch protocol
+- Format/version impact: <none or exact VERSION/DOMAIN/canonical evidence>.
+- Decoder/canonical policy: <preserved or explicit decision>.
 
 ## Codex verification
 - Codex pass: <session/agent and date, or Not run: commit blocked>.
@@ -72,22 +83,11 @@ section and do not reuse older 8-header templates:
 - Verification commands: <commands and result, or Not run with reason>.
 - Security delta: <none, or exact security/protocol change and mitigation>.
 
-## Pre-launch protocol
-- Format/version impact: <none or exact VERSION/DOMAIN/canonical evidence>.
-- Decoder/canonical policy: <preserved or explicit decision>.
-
-## Scope cuts
-- Honoured: <copy the relevant kickoff scope cuts checked against the diff>.
-- Reopened: <none, or exact planning evidence and approval>.
-
 ## Carry closure / Unblock
 - Closed carries: <ids and evidence>.
 - New carries: <ids, owner, trigger, exit condition>.
 - Unblocked items: <if any>.
-
-## Risk
-- <Residual risk, carry-over P2/P3, or "No unresolved P0/P1 in review gate.">
-- <Security/protocol note if signing, provenance, sandbox, loopback, schemas, canonical bytes, deploy, or configs were touched.>
+- Residual risk: <carry-over P2/P3, or "No unresolved P0/P1 in review gate.">
 ```
 
 ## Rules

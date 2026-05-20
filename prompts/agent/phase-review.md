@@ -13,7 +13,7 @@ replace or complete it before commit. Driver handoff verdicts may use
 `PASS-PENDING`; they are not committable. The committable final verdict after
 Codex verification must be exactly `## Verdict: PASS`.
 
-## Context
+## Repo Context
 
 Identify the current sprint and phase from:
 
@@ -123,9 +123,10 @@ tests, G8 status, and commit target.
 
 8. **Commit body draft.** Draft the commit body from facts in the diff and
    verification output. It must use exactly 9 markdown sections:
-   `## Context`, `## Changes`, `## Tests`, `## G8 traceability`,
-   `## Codex verification`, `## Pre-launch protocol`, `## Scope cuts`,
-   `## Carry closure / Unblock`, and `## Risk`. Put `Security delta` inside
+   `## Contexte`, `## Fichiers`, `## Delta tests`, `## Verification`,
+   `## Scope cuts`, `## G8 traceability`, `## Pre-launch protocol`,
+   `## Codex verification`, and `## Carry closure` or
+   `## Carry closure / Unblock`. Put `Security delta` inside
    `## Codex verification`, not as a separate top-level section. Include
    `Co-Authored-By` only as a trailer when an applicable policy or contributor
    identity is known.

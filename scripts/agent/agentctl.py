@@ -41,7 +41,7 @@ REQUIRED_PHASE_BODY_SECTIONS = (
     ("G8 traceability", r"^## G8 traceability\s*$"),
     ("Pre-launch protocol", r"^## Pre-launch protocol\s*$"),
     ("Codex verification", r"^## Codex verification\s*$"),
-    ("Carry closure", r"^## Carry closure\s*$"),
+    ("Carry closure", r"^## Carry closure(?:\s*/\s*Unblock)?\s*$"),
 )
 
 

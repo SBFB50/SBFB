@@ -133,6 +133,34 @@ def test_phase_body_requires_all_nine_sections():
     assert "## Carry closure" in errors[0]
 
 
+def test_phase_body_accepts_claude_carry_closure_unblock_header():
+    agentctl = load_agentctl()
+
+    body = "\n\n".join(
+        [
+            "## Contexte\n- ok",
+            "## Fichiers\n- ok",
+            "## Delta tests\n- ok",
+            "## Verification\n- ok",
+            "## Scope cuts\n- ok",
+            "## G8 traceability\n- ok",
+            "## Pre-launch protocol\n- ok",
+            "## Codex verification\n- ok",
+            "## Carry closure / Unblock\n- ok",
+        ]
+    )
+
+    assert (
+        agentctl.commit_body_section_errors(
+            "fix(sprint67): Sprint 67 Phase B search",
+            body,
+            "67",
+            "b",
+        )
+        == []
+    )
+
+
 def test_nexus_skip_env_does_not_bypass_auditor_gate(tmp_path, monkeypatch):
     agentctl = load_agentctl()
     review = tmp_path / "sprint67_phase_b_review.md"

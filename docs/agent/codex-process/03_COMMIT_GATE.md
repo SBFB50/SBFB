@@ -41,15 +41,15 @@ Bloquer si :
 Un commit sprint phase doit contenir exactement 9 sections markdown de niveau
 2. Les headers sont :
 
-- `## Context`
-- `## Changes`
-- `## Tests`
-- `## G8 traceability`
-- `## Codex verification`
-- `## Pre-launch protocol`
+- `## Contexte`
+- `## Fichiers`
+- `## Delta tests`
+- `## Verification`
 - `## Scope cuts`
-- `## Carry closure / Unblock`
-- `## Risk`
+- `## G8 traceability`
+- `## Pre-launch protocol`
+- `## Codex verification`
+- `## Carry closure` ou `## Carry closure / Unblock`
 
 La ligne `Security delta` est obligatoire dans `## Codex verification` meme si
 elle dit `None`. Elle doit etre non-vide si le diff touche une surface securite.
@@ -58,7 +58,7 @@ Ne pas l'ajouter comme dixieme section.
 La section `## Codex verification` doit prouver que le review final contient
 exactement `## Verdict: PASS`. `PASS-PENDING` bloque le commit.
 
-La section `## Tests` doit contenir des **deltas cumules** par suite (before ->
+La section `## Delta tests` doit contenir des **deltas cumules** par suite (before ->
 after + delta + commande). Les deltas doivent matcher les sorties reelles des
 commandes executees. Ne jamais reporter un delta sans avoir lance la suite. Cf.
 `prompts/agent/commit-body.md` pour le format de reference.
@@ -66,13 +66,13 @@ commandes executees. Ne jamais reporter un delta sans avoir lance la suite. Cf.
 ## Template court
 
 ```text
-## Context
+## Contexte
 - ...
 
-## Changes
+## Fichiers
 - path: ...
 
-## Tests
+## Delta tests
 - Rust workspace: <before> -> <after> (+<delta> Phase {X}) via <command>.
 - Rust doctests: <before> -> <after> (+<delta>) via <command>.
 - Vitest unit: <before> -> <after> (+<delta>) via <command>.
@@ -80,9 +80,19 @@ commandes executees. Ne jamais reporter un delta sans avoir lance la suite. Cf.
 - Frontend build/size/i18n: <result> via <commands>.
 - Smoke matrix: <matrix name>.
 
+## Verification
+- Final required suites:
+- Review gate: .planning/active/sprint{N}_phase_{X}_review.md contains exactly `## Verdict: PASS`.
+
+## Scope cuts
+- Honoured: ...
+- Reopened: none.
+
 ## G8 traceability
 - Preflight: ...
-- Review gate: .planning/active/sprint{N}_phase_{X}_review.md contains exactly `## Verdict: PASS`.
+
+## Pre-launch protocol
+- Format/version impact: none.
 
 ## Codex verification
 - Codex pass:
@@ -90,17 +100,7 @@ commandes executees. Ne jamais reporter un delta sans avoir lance la suite. Cf.
 - Verification commands:
 - Security delta: None.
 
-## Pre-launch protocol
-- Format/version impact: none.
-
-## Scope cuts
-- Honoured: ...
-- Reopened: none.
-
 ## Carry closure / Unblock
-- ...
-
-## Risk
 - ...
 ```
 
