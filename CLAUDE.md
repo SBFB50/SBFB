@@ -191,15 +191,18 @@ Runtime isolation roadmap dans
   + stabilisation → **early adopter ready** ✓ DONE.
   S60 = installer NSIS + tray icon + LT-7 Tier 3 + frontend
   bundling → **end user ready** ✓ DONE → **tag v1.0**.
-- **Roadmap v3 — Confiance + Factory Canari + RRV** :
+- **Roadmap v4 — Protocole Neutre + Factory/RRV** (CANON) :
   11 sprints (S65-S75) en 4 arcs. Arc 1 Fondations (S65 contrat
-  public + S66 durabilite). Arc 2 Factory + Canari (S67 Factory
-  Foundation + S68 Broker/Preview + S69 Babel Reader canari + pilote
-  ferme). Arc 3 Intelligence Verifiable (S70 RRV FTS5 + S71 Proof
-  Cards + S72 SearchManifest). Arc 4 Industrialisation (S73
-  Gouvernance complete + S74 Babel translation beta + S75 Pack
-  produit defendable). ~24 semaines, mai-novembre 2026.
-  Detail : `.planning/roadmap_v3_public_trust_factory_babel_rrv.md`.
+  public + S66 durabilite — COMPLET). Arc 2 Factory + RRV @dev +
+  Canari (S67 primitives daemon neutres + @protocole FTS5 +
+  sbfb-factory MVP, S68 Proof Cards + publish gate, S69 Babel via
+  Factory + pilote ferme + RRV prouve Babel). Arc 3 Reseau
+  Verifiable + Industrialisation (S70 SearchManifest opt-in, S71
+  Gouvernance + Factory hardening, S72 reserve). Arc 4 Pack Produit
+  (S73-S75). Pivot PO 2026-05-19 : Factory hors daemon (crate
+  sbfb-factory), @protocole d'abord puis @dev puis @web.
+  Detail : `.planning/roadmap_v4_neutral_protocol_factory_rrv.md`.
+  Synthese recherche : `.planning/research/SYNTHESIS_factory_rrv_protocol.md`.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
   R-libcrux-hax P2 / R-pyodide-escape (inchangees).
 - Historique sprint-par-sprint → `docs/claude/SPRINT_LOG.md`.
@@ -240,9 +243,10 @@ Cf. `nexus_grid_pivot.md` (memory) — **a ne PAS re-debattre** :
 - OS sandbox pour Factory, pas wasmtime (12 CVE avril 2026)
 - Pilote ferme 2-3 personnes (R-iroh-audit P0 → pas public)
 - Vocabulaire "source verifiable" (pas "open source" pour apps)
-- Factory = module daemon/broker Rust, pas app iframe
+- Factory = outil client externe (crate sbfb-factory), hors daemon (v4 D2)
 - Feed raw-op extensible (serde_json::Value), pas de bump par op
-- FTS5 pour RRV S70, Tantivy en gate post-S75 si >50K docs
+- FTS5 pour RRV @protocole S67, Tantivy en gate post-S75 si >50K docs
+- @protocole d'abord, puis @dev, puis @web (v4 D6)
 
 ## Principe de conception — sessions fraiches
 **Ne jamais propager les scope cuts des sprints precedents comme

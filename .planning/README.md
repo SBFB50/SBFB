@@ -83,7 +83,7 @@ Mapping actuel :
 | **v1.1** | S14-15 | Verified deploy (Keyoxide + SLSA L1), bridge bidirectionnel, CPU watchdog, CLI scaffold | `4da0043` |
 | **v1.2** | S16-32 | Security hardening (loopback auth + GPU consent + VM roadmap) | `cf1100b` |
 | **v2.0** | S33-64 | Public verifiable feed (spec, sync, verification, hardening) | `cf1100b` |
-| **v2.1** | S65+ (en cours) | Confiance + Factory Canari + RRV (roadmap v3) | TBD |
+| **v2.1** | S65+ (en cours) | Protocole Neutre + Factory/RRV (roadmap v4 CANON) | TBD |
 
 Quand une version majeure est livree, le dossier est ferme et un
 nouveau v1.x+1/ s'ouvre.
