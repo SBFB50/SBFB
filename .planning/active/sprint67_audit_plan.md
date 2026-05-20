@@ -74,6 +74,11 @@ Verifier `test_e2e_restart_full_cycle` passe (blob + feed + curator
 (stale running.json + data intact). Verifier les deux tests
 couvrent les 5 composants : iroh-docs, iroh-blobs FsStore,
 coordinator.db, curator subscriptions, node identity.
+Rejouer le finding Codex Phase E : les deux tests prouvent
+`feed_handle` par `is_some()` seulement ; decider si le contrat E2E
+exige une assertion de liveness (`!is_finished()` ou preuve
+multi-process). Verifier aussi si la simulation crash in-process
+reste acceptable ou doit etre completee par un scenario DaemonHandle.
 
 ### Track I — Scope cuts + carries
 

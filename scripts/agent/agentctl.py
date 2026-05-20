@@ -400,12 +400,13 @@ def file_reference_warnings(message: str) -> list[str]:
     # warning for `host/docs/foo.md`.
     message = re.sub(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://\S+", " ", message)
     matches = re.finditer(
-        r"[A-Za-z0-9_./~-]+\.(?:md|rs|py|ts|tsx|toml|sh|json|yml|yaml)",
+        r"\.?[A-Za-z0-9_./~-]+\.(?:md|rs|py|ts|tsx|toml|sh|json|yml|yaml)",
         message,
     )
     refs = sorted({match.group(0) for match in matches})
     for ref_path in refs:
-        ref_path = ref_path.strip("`'\"()[]{}.,:;")
+        ref_path = ref_path.strip("`'\"()[]{}")
+        ref_path = ref_path.rstrip(".,:;")
         ref_path = ref_path.replace("\\", "/")
         while ref_path.startswith("./"):
             ref_path = ref_path[2:]
@@ -455,7 +456,7 @@ def phase_from_title(title: str) -> tuple[str | None, str | None]:
         m = PHASE_TITLE_FALLBACK_RE.match(title)
     if not m:
         return None, None
-    return m.group("sprint"), m.group("phase")
+    return m.group("sprint"), m.group("phase").lower()
 
 
 def design_review_exists(sprint: str) -> bool:
@@ -473,6 +474,57 @@ def kickoff_exempts_g1(sprint: str) -> bool:
         if re.search(r"G1\s+(skip|exempt)|design\s+review\s+(skip|exempt)|Phase 0 audit skipped", text, re.I):
             return True
     return False
+
+
+def phase_commit_requires_codex(title: str) -> bool:
+    """True for phase implementation commits that must carry Codex evidence."""
+    if not re.match(r"^(feat|fix|docs|test|refactor)\(", title):
+        return False
+    return bool(re.search(r"Sprint\s+\d+\s+Phase\s+[A-Z][0-9]?\b", title))
+
+
+def codex_review_errors(title: str, message: str, sprint: str | None, phase: str | None, staged: set[str]) -> list[str]:
+    if not sprint or not phase or not phase_commit_requires_codex(title):
+        return []
+    if re.search(r"Codex.*skip|skip.*Codex|Codex.*exempt", message, re.IGNORECASE):
+        return []
+
+    review_rel = f".planning/active/sprint{sprint}_phase_{phase}_codex_review.md"
+    review = ROOT / review_rel
+    errors: list[str] = []
+    if not review.exists():
+        return [f"missing Codex review artifact: {review_rel}"]
+
+    if not tracked(review_rel) and review_rel not in staged:
+        errors.append(f"Codex review exists but is not staged: {review_rel}")
+    if git(["diff", "--name-only", "--", review_rel]).strip():
+        errors.append(f"Codex review has unstaged changes: {review_rel}")
+
+    text = read_text(review)
+    if not text.strip():
+        errors.append(f"Codex review is empty: {review_rel}")
+        return errors
+    if re.search(r"(?mi)^\s*#\s*Codex Review|Auditeur.*Claude|agent independant", text):
+        errors.append(f"Codex review looks rewritten by Claude; expected raw `codex exec -o`: {review_rel}")
+    if not re.search(r"\b(CONFIRME|CONFIRM[EÉ]|GAP|PARTIEL|PARTIAL|CONFIRMED)\b", text, re.IGNORECASE):
+        errors.append(f"Codex review has no per-deliverable verdict markers: {review_rel}")
+    if not re.search(r"(?i)\b(Evidence|Fichier|File|ligne|line)\b|:[0-9]{1,5}\b", text):
+        errors.append(f"Codex review has no file:line evidence markers: {review_rel}")
+
+    has_partial = bool(re.search(r"Statut\s*:\s*PARTIEL|Partiels?\s*:\s*[1-9]", text, re.IGNORECASE))
+    if has_partial and message:
+        if re.search(r"0\s+PARTIEL", message, re.IGNORECASE):
+            errors.append(f"commit body says 0 PARTIEL but Codex artifact contains PARTIEL: {review_rel}")
+        elif not re.search(r"[1-9][0-9]*\s+PARTIEL|PARTIELS?", message, re.IGNORECASE):
+            errors.append(f"commit body does not report Codex PARTIEL findings: {review_rel}")
+
+    has_gap = bool(re.search(r"Statut\s*:\s*GAP|Gaps?\s*:\s*[1-9]", text, re.IGNORECASE))
+    if has_gap and message:
+        if re.search(r"0\s+GAP", message, re.IGNORECASE):
+            errors.append(f"commit body says 0 GAP but Codex artifact contains GAP: {review_rel}")
+        elif not re.search(r"[1-9][0-9]*\s+GAP|GAPS?", message, re.IGNORECASE):
+            errors.append(f"commit body does not report Codex GAP findings: {review_rel}")
+    return errors
 
 
 def cmd_precommit_lightcheck(args: argparse.Namespace) -> int:
@@ -497,11 +549,14 @@ def cmd_precommit_lightcheck(args: argparse.Namespace) -> int:
     if (
         args.scope in {"all", "message"}
         and sprint
-        and phase == "A"
+        and phase == "a"
         and not design_review_exists(sprint)
         and not kickoff_exempts_g1(sprint)
     ):
         errors.append(f"missing G1 design review for Sprint {sprint} Phase A")
+
+    if args.scope in {"all", "message"}:
+        errors.extend(codex_review_errors(title, message, sprint, phase, staged))
 
     for warning in warnings:
         print(f"[lightcheck] WARN: {warning}", file=sys.stderr)

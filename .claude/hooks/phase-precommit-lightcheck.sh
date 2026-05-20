@@ -20,8 +20,9 @@
 #   5. G1 Design Review Board gate (STRICT, BLOCK Phase A) — verifier
 #      sprint{N}_design_review.md existe avant Phase A.
 #   6. LOC guard plans (STRICT, BLOCK) — bloquer plans avec estimations LOC.
-#   7. Codex verification presence (STRICT, BLOCK feat Phase) — verifier
-#      sprint{N}_phase_{X}_codex_review.md existe. Zero exemption LOC.
+#   7. Codex verification artifact (STRICT, BLOCK Phase) — verifier
+#      sprint{N}_phase_{X}_codex_review.md existe et ne ressemble pas
+#      a un resume Claude reecrit. Zero exemption LOC.
 #   8. Preflight G8 presence (STRICT, BLOCK feat Phase) — verifier
 #      sprint{N}_phase_{X}_preflight.md existe.
 #   9. Commit body sections (STRICT, BLOCK feat/docs Phase) — verifier
@@ -262,13 +263,13 @@ if [ "$PHASE" = "A" ] && [ -n "$SPRINT" ]; then
   fi
 fi
 
-# === Check 7 : Codex verification presence (STRICT for feat Phase) ===
+# === Check 7 : Codex verification artifact (STRICT for Phase) ===
 # §4.5 : Codex verification croisee obligatoire. Zero exemption.
 # Seul bypass : body contient "PO skip codex" explicite.
 if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
-  # Only enforce on feat commits (not chore/fix/docs)
-  IS_FEAT=$(echo "$COMMIT_TITLE" | grep -cE '^feat\(' || true)
-  if [ "$IS_FEAT" -gt 0 ]; then
+  # Enforce on real phase commits, excluding chore(planning) reconciliation commits.
+  IS_PHASE_IMPL=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|test|refactor)\(' || true)
+  if [ "$IS_PHASE_IMPL" -gt 0 ]; then
     CODEX_REVIEW=".planning/active/sprint${SPRINT}_phase_${PHASE}_codex_review.md"
     CODEX_EXEMPT=0
     # Exemption: body contains explicit PO Codex skip
@@ -284,6 +285,90 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
       echo "  Seul bypass : PO skip explicite dans le body." >&2
       echo "" >&2
       ERRORS=$((ERRORS + 1))
+    elif [ "$CODEX_EXEMPT" -eq 0 ]; then
+      CODEX_TRACKED=0
+      git ls-files --error-unmatch "$CODEX_REVIEW" >/dev/null 2>&1 && CODEX_TRACKED=1
+      CODEX_STAGED=0
+      git diff --cached --name-only -- "$CODEX_REVIEW" | grep -qxF "$CODEX_REVIEW" && CODEX_STAGED=1
+      CODEX_UNSTAGED=0
+      git diff --name-only -- "$CODEX_REVIEW" | grep -qxF "$CODEX_REVIEW" && CODEX_UNSTAGED=1
+      if [ "$CODEX_TRACKED" -eq 0 ] && [ "$CODEX_STAGED" -eq 0 ]; then
+        echo "" >&2
+        echo "[lightcheck] BLOCK: Codex review existe mais n'est pas stage (§4.5)" >&2
+        echo "  Fichier: ${CODEX_REVIEW}" >&2
+        echo "" >&2
+        ERRORS=$((ERRORS + 1))
+      fi
+      if [ "$CODEX_UNSTAGED" -eq 1 ]; then
+        echo "" >&2
+        echo "[lightcheck] BLOCK: Codex review a des changements non stages (§4.5)" >&2
+        echo "  Fichier: ${CODEX_REVIEW}" >&2
+        echo "" >&2
+        ERRORS=$((ERRORS + 1))
+      fi
+      if [ ! -s "$CODEX_REVIEW" ]; then
+        echo "" >&2
+        echo "[lightcheck] BLOCK: Codex review vide (§4.5)" >&2
+        echo "  Fichier: ${CODEX_REVIEW}" >&2
+        echo "" >&2
+        ERRORS=$((ERRORS + 1))
+      fi
+      if grep -qiE '^\s*#\s*Codex Review|Auditeur.*Claude|agent independant' "$CODEX_REVIEW"; then
+        echo "" >&2
+        echo "[lightcheck] BLOCK: Codex review semble reecrit par Claude (§4.5)" >&2
+        echo "  Fichier: ${CODEX_REVIEW}" >&2
+        echo "  Attendu: output brut de codex exec -o, sans en-tete Auditeur/Claude." >&2
+        echo "" >&2
+        ERRORS=$((ERRORS + 1))
+      fi
+      if ! grep -qiE 'CONFIRME|CONFIRM[EÉ]|GAP|PARTIEL|PARTIAL|CONFIRMED' "$CODEX_REVIEW"; then
+        echo "" >&2
+        echo "[lightcheck] BLOCK: Codex review sans verdict par livrable (§4.5)" >&2
+        echo "  Fichier: ${CODEX_REVIEW}" >&2
+        echo "" >&2
+        ERRORS=$((ERRORS + 1))
+      fi
+      if ! grep -qiE 'Evidence|Fichier|File|ligne|line|:[0-9]{1,5}' "$CODEX_REVIEW"; then
+        echo "" >&2
+        echo "[lightcheck] BLOCK: Codex review sans evidence fichier:ligne (§4.5)" >&2
+        echo "  Fichier: ${CODEX_REVIEW}" >&2
+        echo "" >&2
+        ERRORS=$((ERRORS + 1))
+      fi
+      CODEX_HAS_PARTIAL=0
+      grep -qiE 'Statut[[:space:]]*:[[:space:]]*PARTIEL|Partiels?[[:space:]]*:[[:space:]]*[1-9]' "$CODEX_REVIEW" && CODEX_HAS_PARTIAL=1
+      if [ "$CODEX_HAS_PARTIAL" -eq 1 ] && [ -n "$BODY" ]; then
+        if echo "$BODY" | grep -qiE '0[[:space:]]+PARTIEL'; then
+          echo "" >&2
+          echo "[lightcheck] BLOCK: body Codex annonce 0 PARTIEL mais l'artefact en contient (§4.5)" >&2
+          echo "  Fichier: ${CODEX_REVIEW}" >&2
+          echo "" >&2
+          ERRORS=$((ERRORS + 1))
+        elif ! echo "$BODY" | grep -qiE '[1-9][0-9]*[[:space:]]+PARTIEL|PARTIELS?'; then
+          echo "" >&2
+          echo "[lightcheck] BLOCK: body Codex ne reporte pas les PARTIELS de l'artefact (§4.5)" >&2
+          echo "  Fichier: ${CODEX_REVIEW}" >&2
+          echo "" >&2
+          ERRORS=$((ERRORS + 1))
+        fi
+      fi
+      CODEX_HAS_GAP=0
+      grep -qiE 'Statut[[:space:]]*:[[:space:]]*GAP|Gaps?[[:space:]]*:[[:space:]]*[1-9]' "$CODEX_REVIEW" && CODEX_HAS_GAP=1
+      if [ "$CODEX_HAS_GAP" -eq 1 ] && [ -n "$BODY" ]; then
+        if echo "$BODY" | grep -qiE '0[[:space:]]+GAP'; then
+          echo "" >&2
+          echo "[lightcheck] BLOCK: body Codex annonce 0 GAP mais l'artefact en contient (§4.5)" >&2
+          echo "  Fichier: ${CODEX_REVIEW}" >&2
+          echo "" >&2
+          ERRORS=$((ERRORS + 1))
+        elif ! echo "$BODY" | grep -qiE '[1-9][0-9]*[[:space:]]+GAP|GAPS?'; then
+          echo "" >&2
+          echo "[lightcheck] BLOCK: body Codex ne reporte pas les GAPs de l'artefact (§4.5)" >&2
+          echo "  Fichier: ${CODEX_REVIEW}" >&2
+          echo "" >&2
+          ERRORS=$((ERRORS + 1))
+        fi
+      fi
     fi
   fi
 fi

@@ -848,6 +848,17 @@ Get-Content ".git/CODEX_PHASE_X.txt" -Raw | codex exec `
 | Prompt sans `-o` | Output pas recuperable par Claude | Toujours `-o fichier.md` pour lecture post-exec |
 | Prompt trop court (<10 lignes) | Review superficielle, faux positifs | Le prompt doit lister explicitement chaque livrable |
 
+**Authenticite artefact Codex.** Le fichier
+`sprint{N}_phase_{X}_codex_review.md` doit rester la sortie directe de
+`codex exec -o`. Lightcheck Check 7 bloque les commits Phase
+`feat/fix/docs/test/refactor` si le fichier est absent, vide, non stage,
+modifie hors staging, ressemble a un resume Claude (`Auditeur: Claude`,
+`agent independant`, `# Codex Review`), ne contient aucun verdict par
+livrable (`CONFIRME` / `PARTIEL` / `GAP`) ou ne contient aucune evidence
+fichier:ligne. Si l'artefact contient des `PARTIEL` ou des `GAP`, le body
+`## Codex verification` doit les reporter ; `0 PARTIEL` ou `0 GAP` est
+bloque si l'artefact dit le contraire.
+
 #### 4.5.3 Template de prompt Codex — verification phase
 
 Ce template est a ecrire dans `.git/CODEX_PHASE_X.txt` avant
@@ -1848,7 +1859,9 @@ procédure lui-même (sauf Cas D hotfix).
         Boucle jusqu'a CLEAN ou P2/P3 documentes uniquement.
       Si GAPs P2/P3 : documenter dans commit body.
       Le fichier codex_review.md est enforce par lightcheck
-      Check 7 (STRICT BLOCK sur feat Phase).
+      Check 7 (STRICT BLOCK sur Phase feat/fix/docs/test/refactor) :
+      presence, staging, non-reecriture Claude, verdicts par livrable,
+      evidence fichier:ligne, coherence PARTIEL/GAP entre artefact et body.
       Sequence stricte : review → Codex → commit. JAMAIS
       committer avant le verdict Codex.
 
