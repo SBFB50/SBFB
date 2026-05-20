@@ -12,7 +12,7 @@ Pour le sprint en cours, voir
 
 ---
 
-## v2.1 — Confiance + Factory Canari + RRV (OPEN)
+## v2.1 — Protocole Neutre + Factory/RRV (OPEN)
 
 | Sprint | Etat | Tip cloture | Nb commits | Docs |
 |---|---|---|---|---|

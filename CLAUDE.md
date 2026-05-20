@@ -150,7 +150,8 @@ Runtime isolation roadmap dans
 ## Etat actuel
 - **Sprints 0-66 CLOSED**, v2.1 ouverte. **Tag v1.0 pose.**
   Projet Rust+Frontend pur depuis S50-S51.
-  S66 durabilite (2e sprint roadmap v3 Arc 1 Fondations 2/2) :
+  S66 durabilite (2e sprint Arc 1 Fondations 2/2, repris dans
+  la roadmap v4 canonique) :
   Phase A iroh data_dir + FsStore persistence (iroh-docs redb +
   iroh-blobs FsStore, BlobStore enum, boot_feed/storage_namespace
   fallback robustesse, persistent identity node_key) +
