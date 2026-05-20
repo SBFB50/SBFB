@@ -230,6 +230,8 @@ pub struct DaemonRuntime {
     feed_join_handles: Option<Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>>,
     feed_join_shutdown: Option<Arc<tokio::sync::watch::Sender<bool>>>,
     bound_addr: std::net::SocketAddr,
+    #[allow(dead_code)]
+    revocation_cache: Arc<std::sync::RwLock<nexus_core_rs::RevocationCache>>,
 }
 
 impl DaemonRuntime {
@@ -521,6 +523,46 @@ impl DaemonRuntime {
             .map_err(|e| anyhow::anyhow!("coordinator DB open failed: {e}"))?;
         let coordinator_db = std::sync::Arc::new(std::sync::Mutex::new(coordinator_db));
 
+        // 6a-2. Sprint 66 Phase D: restore the RevocationCache from
+        //       persisted key rotations in SQLite.
+        let revocation_cache =
+            nexus_shell_daemon_core::key_rotation_handler::shared_revocation_cache();
+        {
+            let db = coordinator_db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
+            match db.load_key_rotations() {
+                Ok(rows) if !rows.is_empty() => {
+                    let tuples: Vec<(String, String, u64, u16, String)> = rows
+                        .iter()
+                        .map(|r| {
+                            (
+                                r.old_pubkey.clone(),
+                                r.new_pubkey.clone(),
+                                r.timestamp,
+                                r.transition_days,
+                                r.reason.clone(),
+                            )
+                        })
+                        .collect();
+                    let applied = nexus_shell_daemon_core::key_rotation_handler::populate_cache(
+                        &revocation_cache,
+                        &tuples,
+                    );
+                    info!(
+                        total = rows.len(),
+                        applied, "RevocationCache restored from SQLite"
+                    );
+                }
+                Ok(_) => {
+                    debug!("no persisted key rotations to restore");
+                }
+                Err(e) => {
+                    warn!(error = %e, "failed to load key rotations from DB");
+                }
+            }
+        }
+
         // 6b. Sprint 38 Phase A: create the result event broadcast
         //     channel for the validator loop. The sender is stored in
         //     DaemonHttpState so future gossip wiring can forward
@@ -666,6 +708,65 @@ impl DaemonRuntime {
                     );
                 }
                 Err(e) => warn!(error = %e, "feed replay_all failed, skipping republish"),
+            }
+        }
+
+        // 6c-5b. Sprint 66 Phase D: orphan recovery — detect entries
+        //        in SQLite but missing from iroh-docs and republish.
+        if let Some(ref fs) = feed_sync_state {
+            match fs.doc.get_many_by_prefix("feed/").await {
+                Ok(doc_entries) => {
+                    let present_keys: std::collections::HashSet<String> = doc_entries
+                        .iter()
+                        .filter_map(|e| String::from_utf8(e.key().to_vec()).ok())
+                        .collect();
+
+                    let entries_result = {
+                        let db = coordinator_db
+                            .lock()
+                            .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
+                        nexus_coordinator_rs::public_feed::replay_all(&db)
+                    };
+                    if let Ok(entries) = entries_result {
+                        let entry_hash_set: std::collections::HashSet<&str> =
+                            entries.iter().map(|e| e.entry_hash.as_str()).collect();
+                        let mut orphan_count = 0u64;
+                        let mut recovered = 0u64;
+                        for entry in &entries {
+                            let key =
+                                crate::feed_sync::format_feed_key(&entry.author_pubkey, entry.seq);
+                            if present_keys.contains(&key) {
+                                continue;
+                            }
+                            orphan_count += 1;
+                            let is_genesis = entry.prev_hash.chars().all(|c| c == '0');
+                            if !is_genesis && !entry_hash_set.contains(entry.prev_hash.as_str()) {
+                                warn!(
+                                    seq = entry.seq,
+                                    prev_hash = %entry.prev_hash,
+                                    "orphan recovery: skipping broken chain tail"
+                                );
+                                continue;
+                            }
+                            if let Err(e) =
+                                crate::feed_sync::publish_feed_entry_to_docs(fs, entry).await
+                            {
+                                warn!(seq = entry.seq, error = %e, "orphan recovery: republish failed");
+                            } else {
+                                recovered += 1;
+                            }
+                        }
+                        if orphan_count > 0 {
+                            info!(
+                                orphans = orphan_count,
+                                recovered, "feed orphan recovery completed"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "orphan recovery: iroh-docs query failed, skipping");
+                }
             }
         }
 
@@ -876,6 +977,7 @@ impl DaemonRuntime {
             feed_join_handles: Some(feed_join_handles),
             feed_join_shutdown: Some(feed_join_shutdown),
             bound_addr,
+            revocation_cache,
         })
     }
 
@@ -893,6 +995,11 @@ impl DaemonRuntime {
     #[allow(dead_code)]
     pub fn curator_runtime(&self) -> &CuratorRuntimeHandle {
         &self.curator_runtime
+    }
+
+    #[allow(dead_code)]
+    pub fn revocation_cache(&self) -> &Arc<std::sync::RwLock<nexus_core_rs::RevocationCache>> {
+        &self.revocation_cache
     }
 
     /// Gracefully tear down the runtime.
@@ -1896,5 +2003,106 @@ mod tests {
         rt.shutdown()
             .await
             .expect("shutdown must join feed_join handles without leak");
+    }
+
+    #[tokio::test]
+    async fn test_orphan_republish_recovery() {
+        let tmp = tempdir().expect("tempdir");
+
+        let opts1 = mk_opts(tmp.path());
+        let db_path = opts1.paths.root.join("coordinator.db");
+        let rt1 = DaemonRuntime::start(opts1).await.unwrap();
+        rt1.shutdown().await.unwrap();
+
+        {
+            let db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path).expect("open test DB");
+            let kp = nexus_core_rs::KeyPair::generate();
+            let pubkey = hex::encode(kp.public_bytes());
+            let op = serde_json::json!({
+                "type": "ReleasePublished",
+                "project_id": "test-orphan",
+                "version": "2.0.0"
+            });
+            nexus_coordinator_rs::public_feed::insert_feed_operation(&db, op, &pubkey, |data| {
+                kp.sign(data).to_vec()
+            })
+            .expect("insert feed op");
+            assert_eq!(
+                db.count_feed_entries().unwrap(),
+                1,
+                "SQLite must have 1 entry before recovery boot"
+            );
+        }
+
+        let opts2 = mk_opts(tmp.path());
+        let rt2 = DaemonRuntime::start(opts2).await.unwrap();
+        assert!(
+            rt2.feed_handle.is_some(),
+            "feed sync must be active after orphan recovery"
+        );
+        rt2.shutdown().await.unwrap();
+
+        {
+            let db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path).expect("open DB");
+            assert_eq!(
+                db.count_feed_entries().unwrap(),
+                1,
+                "feed entry must survive recovery boot without data loss"
+            );
+        }
+
+        let opts3 = mk_opts(tmp.path());
+        let rt3 = DaemonRuntime::start(opts3).await.unwrap();
+        assert!(
+            rt3.feed_handle.is_some(),
+            "feed sync must remain active after second boot"
+        );
+        rt3.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_key_rotation_persistence_survives_reboot() {
+        let tmp = tempdir().expect("tempdir");
+
+        let opts1 = mk_opts(tmp.path());
+        let db_path = opts1.paths.root.join("coordinator.db");
+        let rt1 = DaemonRuntime::start(opts1).await.unwrap();
+        assert_eq!(
+            rt1.revocation_cache().read().unwrap().len(),
+            0,
+            "no rotations before insert"
+        );
+        rt1.shutdown().await.unwrap();
+
+        let kp = nexus_core_rs::KeyPair::generate();
+        {
+            let db = nexus_coordinator_rs::db::CoordinatorDb::open(&db_path).expect("open test DB");
+            let new_kp = nexus_core_rs::KeyPair::generate();
+            db.insert_key_rotation(
+                &hex::encode(kp.public_bytes()),
+                &hex::encode(new_kp.public_bytes()),
+                1_700_000_000,
+                7,
+                "test_sig",
+                "test reason",
+            )
+            .expect("insert key rotation");
+        }
+
+        let opts2 = mk_opts(tmp.path());
+        let rt2 = DaemonRuntime::start(opts2).await.unwrap();
+        assert_eq!(
+            rt2.revocation_cache().read().unwrap().len(),
+            1,
+            "RevocationCache must contain the persisted rotation after reboot"
+        );
+        assert!(
+            rt2.revocation_cache()
+                .read()
+                .unwrap()
+                .is_in_transition(&kp.public_bytes(), 1_700_000_000),
+            "old key must be in transition after restore"
+        );
+        rt2.shutdown().await.unwrap();
     }
 }

@@ -194,6 +194,20 @@ static MIGRATIONS: &[M<'static>] = &[
     ),
     // M13: add app_version column to provenance_records (Sprint 64 Phase A)
     M::up("ALTER TABLE provenance_records ADD COLUMN app_version TEXT;"),
+    // M14: key rotation persistence (Sprint 66 Phase D)
+    M::up(
+        "CREATE TABLE IF NOT EXISTS key_rotations (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        old_pubkey      TEXT NOT NULL,
+        new_pubkey      TEXT NOT NULL,
+        timestamp       INTEGER NOT NULL,
+        transition_days INTEGER NOT NULL,
+        signature       TEXT NOT NULL,
+        reason          TEXT NOT NULL DEFAULT '',
+        created_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_keyrot_old ON key_rotations(old_pubkey);",
+    ),
 ];
 
 pub struct StorageNamespaceRow {
@@ -907,6 +921,57 @@ impl CoordinatorDb {
         Ok(count as u64)
     }
 
+    pub fn insert_key_rotation(
+        &self,
+        old_pubkey: &str,
+        new_pubkey: &str,
+        timestamp: u64,
+        transition_days: u16,
+        signature: &str,
+        reason: &str,
+    ) -> Result<(), CoordinatorError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.conn.execute(
+            "INSERT INTO key_rotations (old_pubkey, new_pubkey, timestamp, transition_days, signature, reason, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                old_pubkey,
+                new_pubkey,
+                timestamp as i64,
+                transition_days as i64,
+                signature,
+                reason,
+                now as i64,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_key_rotations(&self) -> Result<Vec<KeyRotationRow>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT old_pubkey, new_pubkey, timestamp, transition_days, signature, reason
+             FROM key_rotations ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(KeyRotationRow {
+                old_pubkey: row.get(0)?,
+                new_pubkey: row.get(1)?,
+                timestamp: row.get::<_, i64>(2)? as u64,
+                transition_days: row.get::<_, i64>(3)? as u16,
+                signature: row.get(4)?,
+                reason: row.get(5)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
     pub fn get_feed_author_stats(&self) -> Result<Vec<(String, u64)>, CoordinatorError> {
         let mut stmt = self
             .conn
@@ -922,6 +987,15 @@ impl CoordinatorDb {
         }
         Ok(result)
     }
+}
+
+pub struct KeyRotationRow {
+    pub old_pubkey: String,
+    pub new_pubkey: String,
+    pub timestamp: u64,
+    pub transition_days: u16,
+    pub signature: String,
+    pub reason: String,
 }
 
 pub struct FeedEntryRow {
@@ -1308,6 +1382,59 @@ mod tests {
             .expect("get")
             .expect("found");
         assert_eq!(fetched.app_version, None);
+    }
+
+    #[test]
+    fn migration_m14_creates_key_rotations_table() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("coordinator.db");
+        let db = CoordinatorDb::open(&path).expect("open");
+        let count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='key_rotations'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query");
+        assert_eq!(count, 1, "key_rotations table must exist after M14");
+    }
+
+    #[test]
+    fn key_rotation_insert_and_load() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.insert_key_rotation(
+            "aabbcc",
+            "ddeeff",
+            1_700_000_000,
+            7,
+            "sig_hex",
+            "test rotation",
+        )
+        .expect("insert");
+        let rows = db.load_key_rotations().expect("load");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].old_pubkey, "aabbcc");
+        assert_eq!(rows[0].new_pubkey, "ddeeff");
+        assert_eq!(rows[0].timestamp, 1_700_000_000);
+        assert_eq!(rows[0].transition_days, 7);
+        assert_eq!(rows[0].signature, "sig_hex");
+        assert_eq!(rows[0].reason, "test rotation");
+    }
+
+    #[test]
+    fn key_rotation_survives_reopen() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("coordinator.db");
+        {
+            let db = CoordinatorDb::open(&path).expect("open");
+            db.insert_key_rotation("aa", "bb", 100, 14, "sig", "reason")
+                .expect("insert");
+        }
+        let db2 = CoordinatorDb::open(&path).expect("reopen");
+        let rows = db2.load_key_rotations().expect("load");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].old_pubkey, "aa");
     }
 
     #[test]

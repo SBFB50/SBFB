@@ -39,7 +39,7 @@ impl std::fmt::Debug for FeedSyncState {
     }
 }
 
-fn format_feed_key(author_hex: &str, seq: u64) -> String {
+pub(crate) fn format_feed_key(author_hex: &str, seq: u64) -> String {
     format!("feed/{author_hex}/{seq:010}")
 }
 

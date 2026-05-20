@@ -83,6 +83,67 @@ pub fn shared_revocation_cache() -> Arc<RwLock<RevocationCache>> {
     Arc::new(RwLock::new(RevocationCache::new()))
 }
 
+/// Populate a RevocationCache from persisted key rotation data.
+///
+/// Each tuple: `(old_pubkey_hex, new_pubkey_hex, timestamp, transition_days, reason)`.
+/// Invalid hex keys are skipped with a warning.
+pub fn populate_cache(
+    cache: &Arc<RwLock<RevocationCache>>,
+    rotations: &[(String, String, u64, u16, String)],
+) -> usize {
+    use nexus_core_rs::key_rotation::KeyRotationAnnouncement;
+
+    let mut applied = 0usize;
+    let mut guard = match cache.write() {
+        Ok(g) => g,
+        Err(_) => {
+            warn!("key-rotation: cache lock poisoned during DB restore");
+            return 0;
+        }
+    };
+    for (old_hex, new_hex, timestamp, transition_days, reason) in rotations {
+        let old_bytes: [u8; 32] = match hex::decode(old_hex) {
+            Ok(v) if v.len() == 32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&v);
+                arr
+            }
+            _ => {
+                warn!(old_pubkey = %old_hex, "key-rotation: invalid old_pubkey hex, skipping");
+                continue;
+            }
+        };
+        let new_bytes: [u8; 32] = match hex::decode(new_hex) {
+            Ok(v) if v.len() == 32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&v);
+                arr
+            }
+            _ => {
+                warn!(new_pubkey = %new_hex, "key-rotation: invalid new_pubkey hex, skipping");
+                continue;
+            }
+        };
+        let ann = match KeyRotationAnnouncement::new(
+            old_bytes,
+            new_bytes,
+            *timestamp,
+            reason,
+            *transition_days,
+        ) {
+            Ok(a) => a,
+            Err(e) => {
+                warn!(error = %e, "key-rotation: invalid persisted row, skipping");
+                continue;
+            }
+        };
+        if guard.apply_verified(&ann).is_ok() {
+            applied += 1;
+        }
+    }
+    applied
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
