@@ -770,6 +770,17 @@ impl DaemonRuntime {
             }
         }
 
+        // 6c-7. Sprint 67 Phase B: rebuild FTS5 search index from feed.
+        {
+            let db = coordinator_db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
+            match nexus_coordinator_rs::search::rebuild_from_feed(&db) {
+                Ok(n) => info!(indexed = n, "search index rebuilt from feed at boot"),
+                Err(e) => warn!(error = %e, "search index rebuild failed, search may be stale"),
+            }
+        }
+
         // 6c-6. Sprint 66 Phase C: feed_join shutdown channel +
         //       shared handle Vec for clean join at shutdown.
         let (feed_join_shutdown_tx, _) = tokio::sync::watch::channel(false);

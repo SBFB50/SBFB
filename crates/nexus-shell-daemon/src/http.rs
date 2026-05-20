@@ -354,6 +354,7 @@ pub fn build_router(
         )
         .route("/api/daemon/feed/cursor", get(get_feed_cursor))
         .route("/api/daemon/feed/entries", get(get_feed_entries))
+        .route("/api/daemon/search", get(search_handler))
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
             "/api/v1/deploy-from-repo",
@@ -1909,6 +1910,81 @@ async fn get_feed_entries(
         Json(serde_json::json!({
             "entries": filtered,
             "count": count,
+        })),
+    )
+        .into_response()
+}
+
+// =================================================================
+// Sprint 67 Phase B: FTS5 search endpoint
+// =================================================================
+
+#[derive(Debug, serde::Deserialize)]
+struct SearchQuery {
+    q: String,
+    #[serde(default = "default_search_limit")]
+    limit: usize,
+    #[serde(default)]
+    offset: usize,
+}
+
+fn default_search_limit() -> usize {
+    20
+}
+
+async fn search_handler(
+    State(state): State<Arc<DaemonHttpState>>,
+    axum::extract::Query(params): axum::extract::Query<SearchQuery>,
+) -> impl IntoResponse {
+    let db = match state.coordinator_db.lock() {
+        Ok(guard) => guard,
+        Err(_poisoned) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+
+    let limit = params.limit.min(100);
+    let start = std::time::Instant::now();
+
+    let (results, total) =
+        match nexus_coordinator_rs::search::search(&db, &params.q, limit, params.offset) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("search query failed: {e}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal"})),
+                )
+                    .into_response();
+            }
+        };
+
+    let took_ms = start.elapsed().as_millis() as u64;
+    let entries: Vec<serde_json::Value> = results
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "project_id": r.project_id,
+                "project_name": r.project_name,
+                "category": r.category,
+                "description": r.description,
+                "op_type": r.op_type,
+                "source_type": r.source_type,
+                "score": r.score,
+            })
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "results": entries,
+            "total": total,
+            "took_ms": took_ms,
         })),
     )
         .into_response()
@@ -5944,5 +6020,44 @@ mod tests {
         for e in entries {
             assert_eq!(e["payload"]["project_id"].as_str().unwrap(), pid_a);
         }
+    }
+
+    // -- Sprint 67 Phase B: search endpoint test --
+
+    #[tokio::test]
+    async fn test_search_endpoint_http() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::search::index_entry(
+                &db,
+                "proj-search",
+                "Babel Translator",
+                "translation",
+                "A real-time translation tool",
+                "",
+                "browse",
+            )
+            .expect("index");
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/search?q=translation")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 16384).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["total"], 1);
+        let results = json["results"].as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["project_name"], "Babel Translator");
+        assert!(json["took_ms"].as_u64().is_some());
     }
 }

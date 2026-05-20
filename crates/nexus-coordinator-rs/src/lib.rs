@@ -30,6 +30,7 @@ pub mod public_feed;
 pub mod quarantine_queue;
 pub mod redundancy;
 pub mod rerun;
+pub mod search;
 pub mod types;
 pub mod upload_queue;
 pub mod validator;

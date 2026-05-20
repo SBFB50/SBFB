@@ -208,6 +208,18 @@ static MIGRATIONS: &[M<'static>] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_keyrot_old ON key_rotations(old_pubkey);",
     ),
+    // M15: FTS5 search index (Sprint 67 Phase B)
+    M::up(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+        project_id UNINDEXED,
+        project_name,
+        category,
+        description,
+        op_type UNINDEXED,
+        source_type UNINDEXED,
+        tokenize='unicode61'
+    );",
+    ),
 ];
 
 pub struct StorageNamespaceRow {

@@ -356,6 +356,20 @@ async function dispatch(
         return await resp.json();
       }
 
+      case "search": {
+        const q = String(req.payload.q ?? "");
+        if (!q) throw new Error("search requires payload.q");
+        const limit = Number(req.payload.limit ?? 20);
+        const offset = Number(req.payload.offset ?? 0);
+        const qs = `?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`;
+        const resp = await authFetch(
+          `${coordUrl}/api/daemon/search${qs}`,
+          { signal: controller.signal },
+        );
+        if (!resp.ok) throw new Error(`search failed: ${resp.status}`);
+        return await resp.json();
+      }
+
       default:
         throw new Error(`unknown bridge method: ${req.method}`);
     }

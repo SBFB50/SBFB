@@ -348,6 +348,21 @@ class SBFBBridge {
   }
 
   /**
+   * Search the local FTS5 index. Sprint 67 Phase B.
+   * @param {string} query — search terms
+   * @param {Object} [options]
+   * @param {number} [options.limit=20] — max results (capped at 100)
+   * @param {number} [options.offset=0] — pagination offset
+   * @returns {Promise<{ results: Array<Object>, total: number, took_ms: number }>}
+   */
+  search(query, options) {
+    var payload = { q: query };
+    if (options && typeof options.limit === "number") payload.limit = options.limit;
+    if (options && typeof options.offset === "number") payload.offset = options.offset;
+    return this._call("search", payload);
+  }
+
+  /**
    * @private
    * @param {string} method
    * @param {Object} payload

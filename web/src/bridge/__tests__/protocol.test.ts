@@ -101,6 +101,18 @@ describe("BridgeEventSchema (Sprint 15 Phase A)", () => {
   });
 });
 
+describe("Search bridge method (Sprint 67 Phase B)", () => {
+  it("accepts search as a valid bridge method", () => {
+    const req = {
+      type: "sbfb-bridge-request",
+      id: "550e8400-e29b-41d4-a716-446655440000",
+      method: "search",
+      payload: { q: "governance tool" },
+    };
+    expect(BridgeRequestSchema.safeParse(req).success).toBe(true);
+  });
+});
+
 describe("PiiRedactPayloadSchema (Sprint 21 Phase B)", () => {
   it("accepts pii_redact as a valid bridge method", () => {
     const req = {

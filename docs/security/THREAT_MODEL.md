@@ -531,16 +531,79 @@ jours futur (spec §10.2 #10).
 
 ### Residual risks feed
 
-- **Pas de resistance Sybil** tant que `CuratorVouched` n'est
-  pas implemente (Sprint 67+). Tout keypair Ed25519 peut etre
-  auteur.
-- **Pas de quarantine feed** par auteur suspect (Sprint 67+).
+- **CuratorVouched implemente Sprint 67 Phase A** — le feed
+  supporte les endorsements curator. Pas encore de quorum
+  multi-curator requis (S68+).
+- **Pas de quarantine feed** par auteur suspect (Sprint 68+).
 - **Pas de feed-level revocation** — une entry publiee ne peut
   pas etre retiree du log append-only (by design).
 
 ---
 
-## 11. Revue et evolution
+## 11. Search surface (Sprint 67 Phase B)
+
+Le search FTS5 local expose une surface d'attaque specifique.
+Le search_index est un virtual table SQLite FTS5 peuple depuis
+les feed entries et les browse entries. Toutes les queries sont
+parametrisees — pas de SQL dynamique.
+
+### T-SEARCH-INJECTION — FTS5 query syntax injection
+
+Un attaquant soumet une query crafted contenant des operateurs
+FTS5 (`OR`, `AND`, `"`, `*`, `NEAR`) pour contourner le scoring
+ou provoquer un crash. Mitigation : `sanitize_query()` wrappe
+chaque token dans des double-quotes et escape les `"` internes.
+Les NUL bytes sont strippes avant indexation et avant query.
+
+| Dimension | Valeur |
+|---|---|
+| Severite | M |
+| Likelihood | M (public endpoint derriere bearer auth) |
+| Mitigation | Token quoting + NUL strip + parameterized SQL |
+| Residual | L (pathological query performance sur corpus > 50K) |
+
+### T-CURATOR-VOUCH — Endorsement spam via feed
+
+Un attaquant publie un grand nombre de CuratorVouched operations
+pour gonfler la visibilite d'un projet dans le search index ou
+le browse. Mitigation : rate limiter GCRA existant (5 ops/min
+per-author, T-FEED-SPAM), chaque vouch est signe Ed25519 donc
+attributable. Le search index re-indexe au boot — les entries
+spam pre-rate-limit sont visibles mais attribuables.
+
+| Dimension | Valeur |
+|---|---|
+| Severite | M |
+| Likelihood | M (open network, rate limit contournable par Sybil) |
+| Mitigation | GCRA 5 ops/min + Ed25519 attribution + boot reindex |
+| Residual | L (Sybil multi-keypair, cf. T-FEED-SPAM) |
+
+### T-SEARCH-DOS — Search endpoint rate exhaustion
+
+Un attaquant flood le endpoint GET /api/daemon/search pour
+epuiser les ressources CPU/IO du daemon. Mitigation : le search
+est local (pas de network round-trip), le bearer token protege
+le endpoint (pas d'acces anonyme), et le corpus est < 500 entries
+pre-launch. Limite future : rate limiter per-client sur les
+endpoints search (S68+).
+
+| Dimension | Valeur |
+|---|---|
+| Severite | L |
+| Likelihood | L (bearer auth + local-only) |
+| Mitigation | Bearer auth + small corpus + FTS5 O(1) index lookup |
+| Residual | L (pas de rate limit per-client, acceptable pre-launch) |
+
+### Closure P2-THREAT-MODEL-FEED-SURFACE 3/3
+
+Sprint 66 Phase B a livre 2/3 (T-FEED-1..4). Sprint 67 Phase B
+complete 3/3 avec T-SEARCH-INJECTION, T-CURATOR-VOUCH, et
+T-SEARCH-DOS. Le carry P2-THREAT-MODEL-FEED-SURFACE est
+**FERME**.
+
+---
+
+## 12. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -563,3 +626,6 @@ Historique versions :
   per-configuration (6 sous-sections), renommage §9→§10.
 - **v3 (Sprint 66 Phase B, 2026-05-19)** : ajout §10 Feed surface
   (T-FEED-1..T-FEED-4), renommage §10→§11.
+- **v4 (Sprint 67 Phase B, 2026-05-20)** : ajout §11 Search surface
+  (T-SEARCH-INJECTION, T-CURATOR-VOUCH, T-SEARCH-DOS), closure
+  P2-THREAT-MODEL-FEED-SURFACE 3/3, renommage §11→§12.
