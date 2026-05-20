@@ -1,8 +1,8 @@
 # Phase Review — Sprint 66 Phase D
 
-## Verdict : PASS (post-Codex)
+## Verdict : PASS
 
-Rigor signal : 2 findings P2+ documentes / >=1 requis pour PASS rigoureux.
+Rigor signal : 1 finding P2 + 1 finding P3 documentes / >=1 P2+ requis pour PASS rigoureux.
 
 ## Memory consultation (Step 1.5)
 - feedback_approach.md : pick deepest, no band-aid — Phase D = persistence reelle (SQLite + iroh-docs reconciliation), pas de raccourci. RESPECTE.
@@ -31,7 +31,21 @@ Rigor signal : 2 findings P2+ documentes / >=1 requis pour PASS rigoureux.
 - feed_sync.rs : `format_feed_key` visibility change only (pub(crate)) -> already tested
 
 ## Body format validation (Step 4bis, §4.1)
-Draft body a generer — 8/8 headers requis.
+Commit `141f3ff` — 8/8 headers presents :
+| Section | Present | Signal |
+|---------|---------|--------|
+| Contexte | oui | ok |
+| Fichiers | oui | ok |
+| Delta tests | oui | ok |
+| Verification §7.4 | oui | ok |
+| Scope cuts | oui | ok |
+| G8 traceability | oui | ok |
+| Pre-launch protocol | oui | ok |
+| Carry closure | oui | ok |
+
+Note : `## Codex verification` header dedie absent du body (info
+presente dans `## Carry closure`). Ecart P3 format — corrige dans
+le template pour Phase E.
 
 ## Preflight G8 completeness (Step 4ter-A, G10)
 - sprint66_phase_d_preflight.md : PRESENT
@@ -63,15 +77,16 @@ Draft body a generer — 8/8 headers requis.
 - **P3** : LOC estimees dans kickoff.md heritees de l'agent kickoff. Pas re-debatable Phase D.
 
 ## Codex gate (§4.5) — zero exemption
-- Status : EN ATTENTE — lancer Codex §4.5 avant commit
-- Procedure : ecrire prompt, lancer codex exec, lire rapport, corriger GAPs
+- Status : FAIT — 2 GAPs initiaux (tests smoke sans assertions), 2 corriges, 0 residuel
+- Rapport : `.planning/active/sprint66_phase_d_codex_review.md`
+- Re-verification post-fix : 2/2 tests verts, clippy 0, fmt 0
 
 ## Recommendation
-- Ready to commit : oui (post-Codex)
+- Ready to commit : oui (commite `141f3ff`)
 - Carry-overs S67 : P2 populate_cache signature re-verification
 - Corrections needed : aucune
 
 ## Post-commit obligatoire
-- [ ] Update nexus_grid_pivot.md (tip SHA + description sprint + compteurs tests)
-- [ ] Update MEMORY.md (ligne index si pivot description changee)
-- [ ] Verifier que le fichier review.md est stage dans le commit
+- [x] Update nexus_grid_pivot.md — tip `141f3ff`, 1347 Rust / 269 Vitest, CLOSE P2-ORPHAN-REPUBLISH-RECOVERY
+- [x] Update MEMORY.md — "S66 Phase D DONE" + compteurs
+- [x] Fichier review.md stage dans le commit `141f3ff`
