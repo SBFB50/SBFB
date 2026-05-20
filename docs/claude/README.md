@@ -1759,6 +1759,7 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
 
   Agent(
     name: "supervisor",
+    description: "Superviseur process permanent nexus-grid ; confirme le cas detecte et bloque si le process derive.",
     subagent_type: "nexus-process-supervisor",
     prompt: "Session start. Voici l'etat pre-flight : [coller
       le resume du pre-flight]. Confirme le cas detecte."
