@@ -1731,23 +1731,27 @@ Anti-pattern : "tu confirmes que je commit chore(planning) d'abord ?"
 
 # === Pre-flight (un seul copy-paste, lis tout l'output) ===
 
+# IMPORTANT : ce bloc est execute par l'outil Bash de Claude Code.
+# Ne pas traduire en PowerShell. Utiliser `2>/dev/null` et `head`,
+# jamais les redirections ou cmdlets PowerShell.
+
 git log --oneline -10
 git status --short
 ls .planning/active/
 ls .planning/archive/
 head -1 docs/claude/SPRINT_LOG.md && grep -E "^## v[0-9]" docs/claude/SPRINT_LOG.md
-grep "^- \[SBFB pivot\|tip \`" "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/MEMORY.md" || true
-grep "Tip \`" "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/nexus_grid_pivot.md" | head -1
+grep -Ei '^- \[SBFB pivot|tip ' "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/MEMORY.md" 2>/dev/null || true
+{ grep -Ei 'Tip ' "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/nexus_grid_pivot.md" 2>/dev/null || true; } | head -1
 
 # G2 — triggers événementiels actifs sur artefacts long-life
-grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md docs/shell/PATTERNS.md 2>/dev/null
+grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md docs/shell/PATTERNS.md 2>/dev/null || true
 
 # G6 — fraîcheur memory vs tip master (ouvrir question si > 2 sprints sans touch)
-ls -la "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/" 2>/dev/null | head -20
+{ ls -la "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/" 2>/dev/null || true; } | head -20
 
 # G8 hint — historical decisions qui pourraient flager DESIGN-CONFLICT
 # (lecture rapide, signal uniquement, le scan S2 complet vit dans skill preflight)
-git log --all --grep="DEVIATION\|rejected\|threat-model\|scope-cut" --oneline | head -10
+git log --all --extended-regexp --grep='DEVIATION|rejected|threat-model|scope-cut' --oneline | head -10 || true
 
 # === Spawn superviseur process (OBLIGATOIRE, avant tout) ===
 
