@@ -25,7 +25,7 @@
 #   8. Preflight G8 presence (STRICT, BLOCK feat Phase) — verifier
 #      sprint{N}_phase_{X}_preflight.md existe.
 #   9. Commit body sections (STRICT, BLOCK feat/docs Phase) — verifier
-#      les 8 headers ## obligatoires du body (§4.1 README).
+#      les 9 headers ## obligatoires du body (§4.1 README).
 #
 # Bypass d'urgence : NEXUS_SKIP_PHASE_AUDITOR=1 git commit ...
 #
@@ -354,7 +354,12 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ] && [ -n "$BODY" ]; then
         MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Pre-launch protocol\n"
         MISSING_COUNT=$((MISSING_COUNT + 1))
       fi
-      # 8. ## Carry closure (tolerant: / Unblock)
+      # 8. ## Codex verification
+      if ! echo "$BODY" | grep -qE '^## Codex verification'; then
+        MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Codex verification\n"
+        MISSING_COUNT=$((MISSING_COUNT + 1))
+      fi
+      # 9. ## Carry closure (tolerant: / Unblock)
       if ! echo "$BODY" | grep -qE '^## Carry closure'; then
         MISSING_SECTIONS="${MISSING_SECTIONS}    - ## Carry closure\n"
         MISSING_COUNT=$((MISSING_COUNT + 1))
@@ -366,7 +371,7 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ] && [ -n "$BODY" ]; then
         echo "" >&2
         echo -e "  Sections manquantes :" >&2
         echo -e "${MISSING_SECTIONS}" >&2
-        echo "  Le body d'un commit feat/docs Phase doit contenir les 8 headers ##" >&2
+        echo "  Le body d'un commit feat/docs Phase doit contenir les 9 headers ##" >&2
         echo "  prescrits par docs/claude/README.md §4.1." >&2
         echo "" >&2
         ERRORS=$((ERRORS + 1))

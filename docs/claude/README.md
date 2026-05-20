@@ -495,7 +495,7 @@ touche 2+ modules (ex : `feed+trust`).
 ```
 feat(scope): Sprint N Phase X — titre court
 
-Body structuré (template — 8 sections obligatoires) :
+Body structuré (template — 9 sections obligatoires) :
 
 ## Contexte
 [1-3 paragraphes : rationale, threat model, research grounding]
@@ -532,6 +532,11 @@ Body structuré (template — 8 sections obligatoires) :
 ## Pre-launch protocol
 [*_VERSION unchanged, wire format preservé]
 
+## Codex verification
+- Rapport : sprint{N}_phase_{X}_codex_review.md
+- Livrables : {N} audités, {N} confirmés, {N} gaps corrigés
+[si gaps corrigés : description 1-ligne par gap + re-verification]
+
 ## Carry closure / Unblock
 [graphe de dépendances inter-sprint explicite]
 
@@ -539,7 +544,7 @@ Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 
 **Enforcement format `##`** (amendement S65, constat P2 body-format
-Phases A-C) : les 8 sections doivent utiliser des headings markdown
+Phases A-C) : les 9 sections doivent utiliser des headings markdown
 `## Nom` exactement comme dans le template ci-dessus. Le contenu en
 prose informelle sans `##` — même s'il couvre les mêmes informations —
 n'est PAS conforme et sera bloqué par le hook `phase-precommit-

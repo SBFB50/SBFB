@@ -439,7 +439,8 @@ present").
 
 Ecrire le fichier AVANT de rendre le verdict final. Le hook
 `phase-auditor-gate.sh` (Check A2) bloque mecaniquement le commit
-si ce fichier est absent ou ne contient pas `## Verdict : PASS`.
+si ce fichier est absent ou ne contient pas `## Verdict : PASS`
+ou `## Verdict : PASS-PENDING`.
 
 ### Step 6 — Validation finale + rigor signal (G4)
 
@@ -473,7 +474,7 @@ Produire un rapport markdown concis :
 ```markdown
 # Phase Review — Sprint N Phase X
 
-## Verdict : PASS | CONCERN | FAIL
+## Verdict : PASS | PASS-PENDING | CONCERN | FAIL
 
 (Rigor signal : N findings P2+ documentes / >=1 requis pour PASS rigoureux)
 
