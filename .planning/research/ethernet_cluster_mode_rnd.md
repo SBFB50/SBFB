@@ -1,6 +1,6 @@
 # Research: SBFB Ethernet Cluster Mode R&D
 
-**Domain:** LAN/Ethernet distributed LLM inference for private SBFB compute groups
+**Domain:** LAN/Ethernet and remote-fiber distributed LLM compute for private SBFB compute groups
 **Researched:** 2026-05-21
 **Status:** R&D proposal, not S68/S69 scope
 **Confidence:** HIGH for the roadmap decision, MEDIUM for backend benchmarks until local tests run
@@ -36,6 +36,31 @@ Phase 2 backend candidates: exo, GPUStack/vLLM, SGLang, LocalAI wrappers
 
 Iroh/SBFB coordinates, proves, distributes manifests, and records evidence.
 It does not carry the per-token activation/tensor traffic.
+
+Important correction for remote individuals:
+
+```text
+People at distance sharing gaming PCs over domestic fiber is not the same
+problem as 2-3 cabled machines on one LAN.
+```
+
+For remote people, the primary solution is **Remote Fiber Compute Sharing**:
+
+```text
+Remote Fiber Compute Sharing =
+  Factory task decomposition
+  + remote local-model workers
+  + signed artifacts and patches
+  + redundant review / tests / benchmarks
+  + optional full-model endpoint federation
+```
+
+The long-term "one giant model split across remote homes" path should be
+treated as a narrow R&D subcase, not the product default. WAN/fiber is now fast
+enough for large artifacts, model shard distribution, remote endpoints, and
+parallel coding agents. It is still usually the wrong substrate for synchronous
+per-token tensor parallelism because every token introduces latency-sensitive
+coordination barriers.
 
 ---
 
@@ -77,6 +102,23 @@ S70-S72: networked/proof search and post-pilot hardening
 S73+: private compute groups / app-driven compute
 Post-Gate 2: Ethernet Cluster Mode R&D spike
 ```
+
+### 1.4 Remote people boundary
+
+The real "sharing power between individuals" product is not a home datacenter.
+It is a private or semi-private compute group where each participant contributes
+their own machine as a worker.
+
+This gives two distinct modes:
+
+| Mode | Network | What is shared | Good use |
+|------|---------|----------------|----------|
+| Remote Fiber Compute Sharing | Internet/fiber between people | tasks, patches, tests, embeddings, model endpoints | Factory/Babel/coding |
+| Ethernet Cluster Mode | same LAN or very low-latency metro link | backend devices for one sharded model | R&D for a model too large for one box |
+
+SBFB should market the first one as the power-sharing feature. Ethernet Cluster
+Mode is only a specialized R&D extension when a measured network looks more
+like a lab link than the open Internet.
 
 This aligns with:
 
@@ -470,12 +512,71 @@ Keep Ollama for default single-worker task execution.
 Do not wait for Ollama to solve Ethernet Cluster Mode.
 ```
 
+### 3.11 Domestic fiber reality for remote people
+
+**Sources:**
+
+- https://www.free.fr/freebox/freebox-ultra/
+- https://reseaux.orange.fr/vos-equipements/livebox-7
+- https://www.sfr.fr/offre-internet/sfr-fibre-premium-bis
+- https://www.bouyguestelecom.fr/offres-internet/bbox-wifi-7
+- https://www.itu.int/rec/T-REC-G.9804.3/en
+
+What exists in France-like domestic fiber markets in 2026:
+
+- mainstream premium residential offers can advertise up to 8 Gbit/s down and
+  8 Gbit/s up, usually theoretical and eligibility-dependent;
+- this usually needs compatible 10G LAN equipment, cabling, NICs, and a wired
+  path, not normal Wi-Fi;
+- XGS-PON-class access makes symmetric multi-gigabit home links realistic;
+- 50G-PON is standardized and emerging, but it should not be treated as a
+  common residential baseline yet;
+- residential fiber is still an Internet path, not a dedicated cluster fabric.
+
+Engineering interpretation:
+
+```text
+8 Gbit/s symmetric ~= 1 GB/s theoretical each way.
+Real usable application throughput is lower.
+RTT/jitter and routing matter more than peak throughput for model parallelism.
+```
+
+For SBFB, this means domestic fiber is excellent for:
+
+- distributing model artifacts and caches;
+- shipping repo shards, build outputs, test logs, embeddings and patches;
+- routing full prompts to remote full-model workers;
+- running many coding/research agents in parallel;
+- redundant validation of patches, tests and proofs.
+
+It is still weak for synchronous per-token tensor parallelism across arbitrary
+homes because remote inference has synchronization barriers:
+
+- tensor parallelism needs cross-node collectives inside many transformer
+  blocks;
+- pipeline parallelism adds a network hop between stages for every decoded
+  token;
+- WAN RTT and jitter compound at token rate;
+- NAT, CGNAT, bufferbloat, ISP peering, asymmetric routes, and shared PON
+  contention create unstable tail latency.
+
+Therefore:
+
+```text
+Remote people + fiber = great for asynchronous compute sharing.
+Remote people + fiber = risky for one shared real-time model.
+Remote people + fiber + same metro/ISP + measured low RTT = possible R&D.
+```
+
 ---
 
 ## 4. Decision Matrix
 
 | Option | Solves model too large for one node? | Good for wired consumer PCs? | Security ready? | SBFB action |
 |--------|--------------------------------------|-------------------------------|-----------------|-------------|
+| Remote task decomposition | No single shared model, but solves product compute | Yes, best fit for Internet/fiber | Needs SBFB proof layer | Product default |
+| Remote full-model endpoint federation | No sharding, but each user hosts models | Yes | Needs admission/secrets policy | Strong Factory path |
+| Remote WAN tensor/pipeline sharding | Maybe, only strict measured links | Usually no | High risk | R&D only |
 | llama.cpp RPC | Yes | Yes, with manual setup | No | First backend, wrap it |
 | llama-box/GPUStack | Yes | Yes, but heavier | Better ops, still centralized | Compare, maybe external backend |
 | LocalAI worker/P2P | Partial/yes via llama.cpp RPC | Possible | Own assumptions | Compare wrapper design |
@@ -491,16 +592,126 @@ Conclusion:
 
 ```text
 No existing OSS project gives SBFB's exact product:
-private LAN cluster + protocol identity + signed capability registry
+remote/private compute group + protocol identity + signed capability registry
 + model artifact provenance + reproducible benchmark proofs.
 
-Therefore create SBFB Ethernet Cluster Mode as a control/proof layer,
-not as a new tensor engine.
+Therefore create SBFB Remote Fiber Compute Sharing as the product path, and
+SBFB Ethernet Cluster Mode as a narrower control/proof layer for measured
+low-latency sharded-model R&D. Neither is a new tensor engine.
 ```
 
 ---
 
 ## 5. Proposed New Solution
+
+### 5.0 Two-layer solution
+
+For remote people, the product should be designed in two layers:
+
+```text
+Layer A: Remote Fiber Compute Sharing (RFCS)
+  Internet/fiber between trusted people.
+  Coarse-grained Factory/Babel tasks.
+  Each worker runs a complete local model, local tools, or local tests.
+  Network moves prompts, repo shards, artifacts, patches, logs and proofs.
+
+Layer B: Ethernet Cluster Mode (ECM)
+  Same LAN or measured low-latency metro link.
+  One backend may shard one large model across several machines.
+  Network moves backend activation/tensor traffic.
+  R&D-only until benchmarks prove it.
+```
+
+Layer A is the power-sharing product. Layer B is a specialized backend mode.
+
+### 5.0.1 Why RFCS is not "less ambitious"
+
+The strongest Factory use case is not one remote 120B model pretending to be a
+single local GPU. It is a verifiable distributed coding process:
+
+```text
+planner -> implementers -> reviewers -> test runners -> security auditors
+        -> benchmark runners -> patch merger -> provenance publisher
+```
+
+Each step is coarse enough that Internet latency disappears inside the task
+runtime. A 20 ms, 50 ms, or even 150 ms RTT is irrelevant when a worker spends
+30 seconds to 20 minutes generating, testing, compiling, or auditing.
+
+This is where domestic fiber changes the product:
+
+- model files can be distributed or cached quickly;
+- repository shards and build artifacts can move cheaply;
+- several open-source coding models can run in parallel on different machines;
+- workers can specialize by GPU/VRAM/toolchain;
+- the group can spend aggregate compute on redundancy and verification.
+
+The "big model" equivalent becomes a **committee of open-source agents with
+proofs**, not necessarily one neural network split at every layer.
+
+### 5.0.2 RFCS execution model
+
+```text
+1. Factory creates a task graph from the app goal.
+2. SBFB strips secrets and builds scoped work packages.
+3. Iroh distributes manifests, blobs, repo shards, and model references.
+4. Remote workers claim tasks according to signed capabilities.
+5. Each worker runs local tools/model in a sandbox.
+6. Results return as patches, logs, test output, embeddings or review notes.
+7. Factory cross-checks results with redundancy and local policy.
+8. Accepted artifacts are signed into provenance.
+```
+
+Good RFCS tasks:
+
+- implement one isolated component;
+- write or repair tests;
+- run full build/lint/typecheck on a different OS/GPU;
+- audit a patch for security or protocol invariants;
+- generate multiple solution candidates;
+- translate or chunk Babel content;
+- index repositories and produce embeddings;
+- benchmark local models or backends;
+- reproduce a failure and submit logs.
+
+Bad RFCS tasks:
+
+- send private secrets to unknown workers;
+- require millisecond-level lockstep;
+- rely on a worker's unverified claim;
+- merge code without local tests/review;
+- promise that remote open-source agents equal a frontier agent on all tasks.
+
+### 5.0.3 Remote sharded-model R&D profile
+
+WAN sharding should only be attempted when the network passes a measured
+profile. It is not enough to say "fiber".
+
+Minimum profile for any experiment:
+
+```text
+sustained uplink per worker: >= 1 Gbit/s
+preferred uplink per worker: >= 5-8 Gbit/s
+RTT controller <-> worker: <= 5 ms preferred, <= 10 ms hard R&D ceiling
+jitter p95: <= 1 ms preferred
+packet loss: effectively zero during benchmark
+public exposure: none
+same country/metro/ISP path: strongly preferred
+```
+
+Even then, prefer pipeline-style experiments over fine tensor-parallel
+collectives, because tensor-parallel all-reduce patterns are much more
+latency-sensitive.
+
+Remote sharding can be researched as:
+
+- **metro-fiber cluster:** friends in the same city/ISP with measured low RTT;
+- **batch pipeline serving:** many queued prompts to keep the pipeline full;
+- **model-stage hosting:** one node hosts coarse model stages, not tiny tensor
+  slices;
+- **private group only:** no public swarm, no unknown GPUs, no raw RPC port.
+
+It should not be the default way Factory shares power.
 
 ### 5.1 Name
 
@@ -744,6 +955,12 @@ Speed becomes a second pass.
 - Private group only.
 - No public relay for tensor traffic.
 - No unknown workers.
+- For remote Factory compute, no repository secrets, tokens, private keys or
+  production credentials are included in work packages.
+- Remote worker output is untrusted until verified by local policy, tests, and
+  provenance checks.
+- A remote worker may receive scoped code/data, not ambient authority over the
+  user's machine or SBFB identity.
 - Discovery never grants trust. mDNS/libp2p/EXO-style discovery only finds
   candidates; SBFB admission must explicitly authorize them.
 - No untrusted model artifacts without hash pinning.
@@ -894,6 +1111,25 @@ Only after Gate 2 or explicit R&D allocation:
 
 ```text
 Sprint candidate: S73+ / post-Gate 2
+Title: Remote Fiber Compute Sharing for Factory
+Goal: let trusted remote participants contribute local open-source model
+      workers to Factory tasks, with signed artifacts and verification.
+```
+
+Suggested phases:
+
+| Phase | Scope | Output |
+|-------|-------|--------|
+| A | private group task manifest | scoped task package schema |
+| B | worker capability proof | model/toolchain/GPU capability entry |
+| C | remote sandbox runner | signed patch/log/test result |
+| D | redundant verification | n-of-m review/test policy |
+| E | product decision | can it replace some Claude/Codex paths? |
+
+Then, only after RFCS works:
+
+```text
+Sprint candidate: S73+ / post-Gate 2
 Title: Ethernet Cluster Mode R&D spike
 Goal: produce signed, reproducible benchmark evidence for llama.cpp RPC
       over 2-3 trusted wired machines.
@@ -998,6 +1234,16 @@ Primary external sources checked on 2026-05-21:
   https://github.com/ollama/ollama/issues/4643
   https://github.com/ollama/ollama/issues/5983
   https://github.com/ollama/ollama/issues/9147
+- Freebox Ultra 8 Gbit/s symmetric offer:
+  https://www.free.fr/freebox/freebox-ultra/
+- Orange Livebox 7 / Livebox Max 8 Gbit/s symmetric offer:
+  https://reseaux.orange.fr/vos-equipements/livebox-7
+- SFR Fibre Premium / Box 10+ 8 Gbit/s symmetric offer:
+  https://www.sfr.fr/offre-internet/sfr-fibre-premium-bis
+- Bouygues Bbox Wi-Fi 7 8 Gbit/s symmetric offer:
+  https://www.bouyguestelecom.fr/offres-internet/bbox-wifi-7
+- ITU-T 50G-PON specification:
+  https://www.itu.int/rec/T-REC-G.9804.3/en
 
 Primary repo sources:
 
