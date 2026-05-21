@@ -153,37 +153,38 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-66 CLOSED**, v2.1 ouverte. **Tag v1.0 pose.**
+- **Sprints 0-67 CLOSED**, v2.1 ouverte. **Tag v1.0 pose.**
   Projet Rust+Frontend pur depuis S50-S51.
-  S66 durabilite (2e sprint Arc 1 Fondations 2/2, repris dans
-  la roadmap v4 canonique) :
-  Phase A iroh data_dir + FsStore persistence (iroh-docs redb +
-  iroh-blobs FsStore, BlobStore enum, boot_feed/storage_namespace
-  fallback robustesse, persistent identity node_key) +
-  Phase B dette pair (THREAT_MODEL.md feed surface T-FEED-1..4 +
-  PATTERNS.md raw-op store+forward + README.md §4.1 deletions +
-  SQLite synchronous FULL pragma) +
-  Phase C feed republish boot + provenance 3 etats + cross-node
-  verification + feed_join handle fix (MANDATORY
-  P2-PROVENANCE-404-BRIDGE CLOSED + P2-VERIFY-LOCAL-KEY-ONLY
-  CLOSED + P2-FEED-JOIN-HANDLE-LEAK CLOSED) +
-  Phase D orphan recovery SQLite vs iroh-docs + RevocationCache
-  persistence SQLite M14 (P2-ORPHAN-REPUBLISH-RECOVERY CLOSED) +
-  Phase E test E2E restart full cycle + crash recovery + wrap-up.
-  Arc 1 Fondations COMPLET (S65 contrat public + S66 durabilite).
+  S67 Factory Foundation (1er sprint Arc 2 Factory + RRV
+  @protocole + Canari, 1/3) :
+  Phase A sbfb-manifest crate partage + SBFB.json v2 migration +
+  CuratorVouched/CuratorDisendorsed feed ops + GET feed/entries
+  pagine + node_id optionnel deploy.rs +
+  Phase B FTS5 search @protocole (M15 virtual table + search.rs +
+  GET /api/daemon/search + bridge method search + THREAT_MODEL §11
+  T-SEARCH-INJECTION + T-CURATOR-VOUCH + T-SEARCH-DOS, CLOSE
+  P2-THREAT-MODEL-FEED-SURFACE 3/3 MANDATORY) +
+  Phase C sbfb-factory CLI crate (clap derive + template engine
+  include_str! + create + validate + secret scanner regex +
+  factory.template.lock BLAKE3 + template static embarque) +
+  Phase D factory.provenance.json generation (BLAKE3 output_hash
+  EXCLUDED_FILES deterministe + P52 BlobStore pattern PATTERNS.md
+  + P2-66-1 feed republish limitation note) +
+  Phase E verification 29/29 + audit_plan S68 + wrap-up.
+  Arc 1 Fondations COMPLET (S65 + S66).
+  Arc 2 sprint 1/3 COMPLET (S67).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1624 tests total** (1349 Rust / 269 Vitest / 6/6 size-limit)
-  — tous verts code. S66 : +16 delta Rust (1333→1349,
-  Phase A +7, B +1, C +5, D +5, E +2), +1 delta Vitest
-  (268→269, Phase C +1).
-- Carry S67 :
+- **~1660 tests total** (1384 Rust / 270 Vitest / 6/6 size-limit)
+  — tous verts code. S67 : +35 delta Rust (1349→1384,
+  Phase A +11, B +8, C +11, D +5), +1 delta Vitest
+  (269→270, Phase B +1).
+- Carry S68 :
   P2-A-1 rand blocker upstream (exemption externe).
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
-  P2-G-1 exe lock intermittent (monitoring).
-  P2-THREAT-MODEL-FEED-SURFACE (2/3 — traite Phase B S66
-  1/3→2/3. Prochain sprint 3/3 MANDATORY si non traite S67).
+  P2-G-1 exe lock intermittent (monitoring, non-repro 5 sprints).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
+  P2-C-2 path traversal Windows (1/3, NEW S67 Phase C).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).
   LT-3/LT-4 hors-sprint (post-v1.0).
@@ -201,15 +202,16 @@ Runtime isolation roadmap dans
   11 sprints (S65-S75) en 4 arcs. Arc 1 Fondations (S65 contrat
   public + S66 durabilite — COMPLET). Arc 2 Factory + RRV @protocole +
   Canari (S67 primitives daemon neutres + @protocole FTS5 +
-  sbfb-factory MVP, S68 Proof Cards + publish gate, S69 Babel dogfood
-  via Factory + pilote ferme + RRV @protocole prouve Babel). Arc 3 Reseau
-  Verifiable + Industrialisation (S70 SearchManifest opt-in, S71
-  Gouvernance + Factory hardening, S72 reserve). Arc 4 Pack Produit
-  (S73-S75). Pivot PO 2026-05-19 : Factory hors daemon (crate
-  sbfb-factory), @protocole d'abord puis @dev puis @web. Recadrage
-  PO 2026-05-21 : @dev ne bloque pas Gate 1 ; S70+ par defaut sauf
-  stretch zero-impact ; Babel est cree avec Factory par le dogfood
-  utilisateur, pas code comme livrable agent.
+  sbfb-factory MVP — DONE, S68 Proof Cards + publish gate, S69
+  Babel dogfood via Factory + pilote ferme + RRV @protocole prouve
+  Babel). Arc 3 Reseau Verifiable + Industrialisation (S70
+  SearchManifest opt-in, S71 Gouvernance + Factory hardening, S72
+  reserve). Arc 4 Pack Produit (S73-S75). Pivot PO 2026-05-19 :
+  Factory hors daemon (crate sbfb-factory), @protocole d'abord
+  puis @dev puis @web. Recadrage PO 2026-05-21 : @dev ne bloque
+  pas Gate 1 ; S70+ par defaut sauf stretch zero-impact ; Babel
+  est cree avec Factory par le dogfood utilisateur, pas code comme
+  livrable agent.
   Detail : `.planning/roadmap_v4_neutral_protocol_factory_rrv.md`.
   Synthese recherche : `.planning/research/SYNTHESIS_factory_rrv_protocol.md`.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
