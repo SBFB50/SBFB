@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 use std::process;
 
+mod provenance;
 mod secret_scanner;
 mod template_engine;
 mod template_lock;

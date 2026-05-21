@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::provenance::Provenance;
 use crate::secret_scanner;
 use crate::template_lock::TemplateLock;
 use sbfb_manifest::SbfbManifest;
@@ -103,6 +104,13 @@ pub fn create(template: &str, name: &str, output_dir: &str) -> Result<(), Factor
 
     let lock = TemplateLock::generate("static", "1.0.0", &template_files, name, version);
     fs::write(out.join("factory.template.lock"), lock.to_json()?)?;
+
+    let variables = serde_json::json!({
+        "name": name,
+        "version": version,
+    });
+    let prov = Provenance::generate(out, &lock.template_hash, &variables)?;
+    fs::write(out.join("factory.provenance.json"), prov.to_json()?)?;
 
     eprintln!("Created SBFB app '{}' in {}", name, output_dir);
     Ok(())
@@ -224,6 +232,27 @@ mod tests {
         let html = fs::read_to_string(out.join("index.html")).unwrap();
         assert!(html.contains("my-cool-app"));
         assert!(!html.contains("{{name}}"));
+    }
+
+    #[test]
+    fn test_create_generates_provenance() {
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("static", "prov-app", out.to_str().unwrap()).unwrap();
+
+        let prov_path = out.join("factory.provenance.json");
+        assert!(prov_path.exists());
+        let prov: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(prov_path).unwrap()).unwrap();
+        assert_eq!(prov["schema_version"], 1);
+        assert!(prov["output_hash"].as_str().unwrap().len() == 64);
+        assert!(prov["template_hash"].as_str().unwrap().len() == 64);
+        assert!(prov["variables_hash"].as_str().unwrap().len() == 64);
+
+        let lock: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(out.join("factory.template.lock")).unwrap())
+                .unwrap();
+        assert_eq!(prov["template_hash"], lock["template_hash"]);
     }
 
     #[test]

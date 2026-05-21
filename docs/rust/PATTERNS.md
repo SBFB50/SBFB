@@ -2606,6 +2606,57 @@ protocol policy.
 
 ---
 
+## §P52 — Sprint 66 Phase A / Sprint 67 Phase D : Backend-agnostic enum with Deref
+
+`BlobStore` in `nexus-core-rs/src/node.rs` wraps `MemStore` and
+`FsStore` behind a two-variant enum with a manual `Deref` to the
+common trait object (`Store`). Callers receive `&Store` from
+`Node::blobs_store()` regardless of backing implementation.
+
+```rust
+// node.rs l.111-126
+pub enum BlobStore {
+    Mem(MemStore),
+    Fs(FsStore),
+}
+
+impl std::ops::Deref for BlobStore {
+    type Target = Store;
+    fn deref(&self) -> &Store {
+        match self {
+            BlobStore::Mem(s) => s,
+            BlobStore::Fs(s) => s,
+        }
+    }
+}
+```
+
+When to use: two concrete backends for the same API surface, decided
+at startup, immutable for the process lifetime. The enum keeps
+ownership (no `Box<dyn>`) while `Deref` erases the variant for
+downstream code.
+
+Limitation: if a third backend appears, the enum grows — acceptable
+for <=3 variants, switch to `Box<dyn Store>` beyond that.
+
+Cross-ref: S66 Phase A `BlobStore` + `FsStore`, S66 audit P2-66-2.
+
+---
+
+## Note — Feed republish test limitation (P2-66-1)
+
+`test_feed_republish_at_boot` (runtime.rs l.1961) verifies that the
+daemon boots without panic and that `feed_handle.is_some()` after
+restart, but does NOT assert that feed entries are actually present
+in iroh-docs after republish. The iroh-docs `Doc` API does not
+expose a synchronous read-back that would make this assertion
+deterministic in a unit test. A future integration test with a
+second node (cross-node feed sync) is the proper verification path.
+
+Cross-ref: S66 Phase C feed republish, S66 audit P2-66-1.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13
