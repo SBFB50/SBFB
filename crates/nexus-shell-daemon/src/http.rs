@@ -179,6 +179,9 @@ pub struct DaemonHttpState {
     /// Sprint 66 Phase C: shutdown signal for feed_join tasks.
     /// Each task subscribes to get a Receiver.
     pub feed_join_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
+    /// Sprint 68 Phase B: ephemeral preview store for
+    /// `sbfb-factory preview` uploads.
+    pub preview_store: nexus_shell_daemon_core::preview::PreviewStore,
 }
 
 impl DaemonHttpState {
@@ -356,6 +359,7 @@ pub fn build_router(
         .route("/api/daemon/feed/entries", get(get_feed_entries))
         .route("/api/daemon/search", get(search_handler))
         .route("/api/daemon/proof-card/{project_id}", get(get_proof_card))
+        .route("/api/v1/preview/load", post(preview_load))
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
             "/api/v1/deploy-from-repo",
@@ -1126,25 +1130,38 @@ async fn blob_serve(
 
     // Load into cache if not already present.
     if !state.blob_serve_cache.has(&hash) {
-        let blobs = BlobsClient::new(state.node.blobs_store());
-        let hash_bytes: [u8; 32] = match hex::decode(&hash).ok().and_then(|b| b.try_into().ok()) {
-            Some(h) => h,
-            None => return (StatusCode::BAD_REQUEST, "invalid hash hex").into_response(),
-        };
-        match blobs.get_bytes(hash_bytes).await {
-            Ok(zip_bytes) => {
-                if let Err(e) = state.blob_serve_cache.load(
-                    &hash,
-                    &zip_bytes,
-                    blob_serve::DEFAULT_MAX_DECOMPRESSED_BYTES,
-                ) {
-                    warn!(error = %e, "failed to decompress zip blob");
-                    return (StatusCode::BAD_REQUEST, format!("invalid archive: {e}"))
-                        .into_response();
-                }
+        // Sprint 68 Phase B: try the ephemeral preview store first.
+        if let Some(zip_bytes) = state.preview_store.get(&hash) {
+            if let Err(e) = state.blob_serve_cache.load(
+                &hash,
+                &zip_bytes,
+                blob_serve::DEFAULT_MAX_DECOMPRESSED_BYTES,
+            ) {
+                warn!(error = %e, "failed to decompress preview zip");
+                return (StatusCode::BAD_REQUEST, format!("invalid archive: {e}")).into_response();
             }
-            Err(_) => {
-                return (StatusCode::NOT_FOUND, "blob not found").into_response();
+        } else {
+            let blobs = BlobsClient::new(state.node.blobs_store());
+            let hash_bytes: [u8; 32] = match hex::decode(&hash).ok().and_then(|b| b.try_into().ok())
+            {
+                Some(h) => h,
+                None => return (StatusCode::BAD_REQUEST, "invalid hash hex").into_response(),
+            };
+            match blobs.get_bytes(hash_bytes).await {
+                Ok(zip_bytes) => {
+                    if let Err(e) = state.blob_serve_cache.load(
+                        &hash,
+                        &zip_bytes,
+                        blob_serve::DEFAULT_MAX_DECOMPRESSED_BYTES,
+                    ) {
+                        warn!(error = %e, "failed to decompress zip blob");
+                        return (StatusCode::BAD_REQUEST, format!("invalid archive: {e}"))
+                            .into_response();
+                    }
+                }
+                Err(_) => {
+                    return (StatusCode::NOT_FOUND, "blob not found").into_response();
+                }
             }
         }
     }
@@ -1992,6 +2009,34 @@ async fn search_handler(
 }
 
 // =================================================================
+// Sprint 68 Phase B — Ephemeral preview load endpoint
+// =================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewLoadResponse {
+    pub hash: String,
+}
+
+async fn preview_load(State(state): State<Arc<DaemonHttpState>>, body: Bytes) -> impl IntoResponse {
+    debug!(size = body.len(), "POST /api/v1/preview/load");
+    match state.preview_store.load(body.to_vec()) {
+        Ok(hash) => (StatusCode::OK, Json(PreviewLoadResponse { hash })).into_response(),
+        Err(nexus_shell_daemon_core::preview::PreviewError::TooLarge { actual, limit }) => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({
+                "error": format!("preview size {actual} exceeds limit {limit}")
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+// =================================================================
 // Sprint 68 Phase A — ProofCard evidence score endpoint
 // =================================================================
 
@@ -2253,6 +2298,9 @@ mod tests {
             ),
             feed_join_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
             feed_join_shutdown: Arc::new(tokio::sync::watch::channel(false).0),
+            preview_store: nexus_shell_daemon_core::preview::PreviewStore::new(
+                nexus_shell_daemon_core::preview::DEFAULT_TTL,
+            ),
         })
     }
 
@@ -3018,6 +3066,9 @@ mod tests {
             ),
             feed_join_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
             feed_join_shutdown: Arc::new(tokio::sync::watch::channel(false).0),
+            preview_store: nexus_shell_daemon_core::preview::PreviewStore::new(
+                nexus_shell_daemon_core::preview::DEFAULT_TTL,
+            ),
         });
         let app = build_test_router(state);
         let resp = app
@@ -6250,5 +6301,94 @@ mod tests {
             .unwrap();
 
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    // =============================================================
+    // Sprint 68 Phase B — preview load tests
+    // =============================================================
+
+    #[tokio::test]
+    async fn test_preview_load_returns_hash() {
+        let state = mk_state().await;
+        let app = build_test_router(state);
+        let zip_bytes = make_test_zip();
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/preview/load")
+                    .header("Content-Type", "application/octet-stream")
+                    .body(axum::body::Body::from(zip_bytes))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let hash = json["hash"].as_str().unwrap();
+        assert_eq!(hash.len(), 64, "BLAKE3 hash should be 64 hex chars");
+    }
+
+    #[tokio::test]
+    async fn test_preview_blob_serve_accessible() {
+        let state = mk_state().await;
+        let zip_bytes = make_test_zip();
+        let hash = state.preview_store.load(zip_bytes).unwrap();
+
+        let app = build_test_router(state);
+        let uri = format!("/blob-serve/{hash}/index.html");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        assert!(
+            std::str::from_utf8(&body)
+                .unwrap()
+                .contains("<body>test</body>")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_preview_eviction_after_ttl() {
+        use nexus_shell_daemon_core::preview::PreviewStore;
+        let store = PreviewStore::new(std::time::Duration::from_millis(1));
+        let data = b"ephemeral zip".to_vec();
+        let hash = store.load(data).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        store.evict_expired();
+        assert!(!store.has(&hash));
+    }
+
+    #[tokio::test]
+    async fn test_preview_max_size_rejected() {
+        let state = mk_state().await;
+        let app = build_test_router(state);
+        let oversized = vec![0u8; nexus_shell_daemon_core::preview::MAX_PREVIEW_BYTES + 1];
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/preview/load")
+                    .header("Content-Type", "application/octet-stream")
+                    .body(axum::body::Body::from(oversized))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 }

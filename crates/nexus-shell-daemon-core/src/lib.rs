@@ -63,6 +63,7 @@ pub mod iroh_runtime;
 pub mod key_rotation_handler;
 pub mod paths;
 pub mod pow_policy_loader;
+pub mod preview;
 pub mod publish;
 pub mod registry;
 pub mod state;

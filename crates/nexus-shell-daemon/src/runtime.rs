@@ -841,6 +841,9 @@ impl DaemonRuntime {
             feed_rate_limiter,
             feed_join_handles: Arc::clone(&feed_join_handles),
             feed_join_shutdown: Arc::clone(&feed_join_shutdown),
+            preview_store: nexus_shell_daemon_core::preview::PreviewStore::new(
+                nexus_shell_daemon_core::preview::DEFAULT_TTL,
+            ),
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being
@@ -894,6 +897,17 @@ impl DaemonRuntime {
                 loop {
                     interval.tick().await;
                     limiter.retain_recent();
+                }
+            });
+        }
+
+        {
+            let store = http_state.preview_store.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+                loop {
+                    interval.tick().await;
+                    store.evict_expired();
                 }
             });
         }
