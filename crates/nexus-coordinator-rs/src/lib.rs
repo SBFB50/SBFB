@@ -25,6 +25,7 @@ pub mod kudos_ledger;
 pub mod output_filter;
 pub mod pii_redactor;
 pub mod pow_counter;
+pub mod proof_card;
 pub mod provenance;
 pub mod public_feed;
 pub mod quarantine_queue;

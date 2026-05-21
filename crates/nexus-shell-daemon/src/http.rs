@@ -355,6 +355,7 @@ pub fn build_router(
         .route("/api/daemon/feed/cursor", get(get_feed_cursor))
         .route("/api/daemon/feed/entries", get(get_feed_entries))
         .route("/api/daemon/search", get(search_handler))
+        .route("/api/daemon/proof-card/{project_id}", get(get_proof_card))
         .route("/api/v1/deploy", post(crate::deploy::deploy_private))
         .route(
             "/api/v1/deploy-from-repo",
@@ -1988,6 +1989,127 @@ async fn search_handler(
         })),
     )
         .into_response()
+}
+
+// =================================================================
+// Sprint 68 Phase A — ProofCard evidence score endpoint
+// =================================================================
+
+async fn get_proof_card(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(project_id): Path<String>,
+) -> impl IntoResponse {
+    // 1. Look up browse entry (direct entries from project announcements).
+    let browse_entry = state.browse_aggregator.get_direct_entry(&project_id);
+
+    // 2. Count distinct curators vouching for this project.
+    let curator_snapshot = state.curator_runtime.list_snapshot();
+    let mut curator_names: Vec<String> = Vec::new();
+    let mut seen_pubkeys = std::collections::HashSet::new();
+    for list_entry in &curator_snapshot {
+        let curator_hex = hex::encode(list_entry.curator_pubkey);
+        for project in &list_entry.list.entries {
+            if project.project_id == project_id && seen_pubkeys.insert(curator_hex.clone()) {
+                curator_names.push(list_entry.list.curator_name.clone());
+            }
+        }
+    }
+
+    // 3. Extract metadata from browse entry or curator lists.
+    let (project_name, is_open_source, archive_hash, provenance_hash, entry_repo_url) =
+        match &browse_entry {
+            Some(e) => (
+                e.project_name.clone(),
+                e.is_open_source,
+                e.archive_hash.clone(),
+                e.provenance_hash.clone(),
+                e.repo_url.clone(),
+            ),
+            None => {
+                let name = curator_snapshot
+                    .iter()
+                    .flat_map(|le| le.list.entries.iter())
+                    .find(|p| p.project_id == project_id)
+                    .map(|p| p.project_name.clone());
+                match name {
+                    Some(n) => (n, false, None, None, None),
+                    None => {
+                        return (
+                            StatusCode::NOT_FOUND,
+                            Json(serde_json::json!({"error": "project not found"})),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+        };
+
+    // 4. Query provenance from the coordinator DB.
+    let provenance_opt = {
+        let db = match state.coordinator_db.lock() {
+            Ok(guard) => guard,
+            Err(_poisoned) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal"})),
+                )
+                    .into_response();
+            }
+        };
+        match db.get_provenance_by_project(&project_id) {
+            Ok(record) => record,
+            Err(e) => {
+                tracing::error!("proof card DB query failed: {e}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal"})),
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    // 5. Verify provenance signature if a record exists.
+    let (provenance_verified, repo_url, commit_sha, deploy_timestamp) = match &provenance_opt {
+        Some(record) => {
+            let record_json = nexus_coordinator_rs::provenance::provenance_to_json(record);
+            let verified = match hex::decode(&record.node_id) {
+                Ok(bytes) if bytes.len() == 32 => {
+                    let pub_bytes: [u8; 32] = bytes.try_into().unwrap();
+                    nexus_coordinator_rs::provenance::verify_provenance(&record_json, &pub_bytes)
+                }
+                _ => false,
+            };
+            (
+                verified,
+                Some(record.repo_url.clone()),
+                Some(record.commit_sha.clone()),
+                Some(record.timestamp.clone()),
+            )
+        }
+        None => (false, None, None, None),
+    };
+
+    let effective_repo_url = repo_url.or(entry_repo_url);
+
+    // 6. Compute the ProofCard.
+    let input = nexus_coordinator_rs::proof_card::ProofCardInput {
+        project_id: project_id.clone(),
+        project_name,
+        provenance_verified,
+        repo_url: effective_repo_url,
+        commit_sha,
+        is_open_source,
+        archive_hash,
+        provenance_hash,
+        license_spdx: None,
+        curator_count: seen_pubkeys.len(),
+        curator_names,
+        deploy_timestamp_rfc3339: deploy_timestamp,
+    };
+
+    let card = nexus_coordinator_rs::proof_card::compute_proof_card(input);
+    (StatusCode::OK, Json(card)).into_response()
 }
 
 // =================================================================
@@ -6059,5 +6181,74 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["project_name"], "Babel Translator");
         assert!(json["took_ms"].as_u64().is_some());
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 68 Phase A — ProofCard endpoint
+    // ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_proof_card_endpoint_http() {
+        let state = mk_state().await;
+        let project_id = "f".repeat(64);
+
+        // Seed a direct browse entry so the handler finds metadata.
+        state.browse_aggregator.add_direct_entry(BrowseEntry {
+            project_id: project_id.clone(),
+            project_name: "test-app".into(),
+            category: "tools".into(),
+            description: "a test app".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Reachable,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: Some("deadbeef".into()),
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        });
+
+        let app = build_test_router(state);
+        let uri = format!("/api/daemon/proof-card/{project_id}");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 16384).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["project_id"], project_id);
+        assert_eq!(json["project_name"], "test-app");
+        assert_eq!(json["formula_version"], 1);
+        assert_eq!(json["confidence"], 35);
+    }
+
+    #[tokio::test]
+    async fn test_proof_card_endpoint_not_found() {
+        let state = mk_state().await;
+        let app = build_test_router(state);
+        let unknown_id = "0".repeat(64);
+        let uri = format!("/api/daemon/proof-card/{unknown_id}");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

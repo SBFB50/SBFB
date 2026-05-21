@@ -370,6 +370,18 @@ async function dispatch(
         return await resp.json();
       }
 
+      case "proof_card_get": {
+        const pid = String(req.payload.project_id ?? "");
+        if (!pid) throw new Error("proof_card_get requires payload.project_id");
+        const resp = await authFetch(
+          `${coordUrl}/api/daemon/proof-card/${encodeURIComponent(pid)}`,
+          { signal: controller.signal },
+        );
+        if (resp.status === 404) return { card: null };
+        if (!resp.ok) throw new Error(`proof_card_get failed: ${resp.status}`);
+        return await resp.json();
+      }
+
       default:
         throw new Error(`unknown bridge method: ${req.method}`);
     }

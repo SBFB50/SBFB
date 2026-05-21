@@ -59,6 +59,7 @@ const BRIDGE_METHOD_ALLOWLIST: &[&str] = &[
     "node_status",
     "browse_list",
     "search",
+    "proof_card_get",
 ];
 
 impl SbfbManifest {

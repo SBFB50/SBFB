@@ -39,6 +39,8 @@ export const BridgeMethodSchema = z.enum([
   "feed_cursor_get",
   // Sprint 67 Phase B — FTS5 full-text search.
   "search",
+  // Sprint 68 Phase A — ProofCard evidence score.
+  "proof_card_get",
 ]);
 
 export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;

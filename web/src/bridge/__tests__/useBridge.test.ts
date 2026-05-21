@@ -421,6 +421,50 @@ describe("useBridge", () => {
     });
   });
 
+  describe("proof_card_get Sprint 68 Phase A", () => {
+    it("dispatches proof_card_get via daemon proof-card endpoint", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            project_id: "f".repeat(64),
+            project_name: "test-app",
+            confidence: 35,
+            formula_version: 1,
+          }),
+          { status: 200 },
+        ),
+      );
+      renderHook(() => useBridge("http://localhost:8000", "gov", iframeRef));
+
+      const req = makeRequest({
+        id: "dd444444-4444-4444-8444-444444444444",
+        method: "proof_card_get",
+        payload: { project_id: "f".repeat(64) },
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      const data = resp.data as { project_name: string; confidence: number; formula_version: number };
+      expect(data.project_name).toBe("test-app");
+      expect(data.confidence).toBe(35);
+      expect(data.formula_version).toBe(1);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/api/daemon/proof-card/"),
+        expect.any(Object),
+      );
+    });
+  });
+
   describe("pushEvent (Sprint 15 Phase A)", () => {
     it("posts a bridge-event to the iframe contentWindow", () => {
       const { result } = renderHook(() =>

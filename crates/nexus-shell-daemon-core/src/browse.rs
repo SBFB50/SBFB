@@ -550,6 +550,12 @@ impl BrowseAggregator {
         self.direct_entries.len()
     }
 
+    pub fn get_direct_entry(&self, project_id: &str) -> Option<BrowseEntry> {
+        self.direct_entries
+            .get(project_id)
+            .map(|e| e.value().clone())
+    }
+
     /// Iterate every cached curator list, flatten its entries,
     /// probe each unique project_id under the TTL cache, and
     /// return a sorted [`BrowseEntry`] vector. Sprint 11 Phase A

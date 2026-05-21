@@ -363,6 +363,15 @@ class SBFBBridge {
   }
 
   /**
+   * Get the ProofCard evidence score for a project. Sprint 68 Phase A.
+   * @param {string} projectId — project identifier
+   * @returns {Promise<Object>} — ProofCard with confidence 0-100, layers, risk factors
+   */
+  getProofCard(projectId) {
+    return this._call("proof_card_get", { project_id: projectId });
+  }
+
+  /**
    * @private
    * @param {string} method
    * @param {Object} payload
