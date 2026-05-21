@@ -22,6 +22,7 @@ import {
   FileCheck,
 } from "lucide-react";
 import { VerificationDetail } from "@/components/VerificationDetail";
+import { ProofCard, type ProofCardData } from "@/components/ProofCard";
 
 import {
   addToWhitelist,
@@ -179,6 +180,20 @@ function FullScreenApp({
   const [verifyOpen, setVerifyOpen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  const proofCardQuery = useQuery({
+    queryKey: ["proof-card", coordUrl, entry.project_id],
+    queryFn: async () => {
+      const resp = await authFetch(
+        `${coordUrl}/api/daemon/proof-card/${encodeURIComponent(entry.project_id)}`,
+      );
+      if (resp.status === 404) return null;
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return (await resp.json()) as ProofCardData;
+    },
+    staleTime: 60_000,
+    retry: 1,
+  });
 
   const verifyQuery = useQuery({
     queryKey: ["provenance-verify", coordUrl, entry.project_id],
@@ -341,6 +356,11 @@ function FullScreenApp({
                 )}
               </button>
             )}
+
+            <ProofCard
+              card={proofCardQuery.data ?? null}
+              loading={proofCardQuery.isLoading}
+            />
 
             {entry.repo_url && (
               <a

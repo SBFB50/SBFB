@@ -603,7 +603,59 @@ T-SEARCH-DOS. Le carry P2-THREAT-MODEL-FEED-SURFACE est
 
 ---
 
-## 12. Revue et evolution
+## 12. ProofCard surface (Sprint 68 Phase D)
+
+La ProofCard est un artefact **local compute** — le daemon assemble
+les donnees qu'il possede deja (browse entry, provenance record,
+curator lists, feed entries) et produit un score d'evidence-completeness
+deterministe 0-100. Elle n'est PAS un wire format signe et ne
+transite PAS par `canonical_bytes`. Le score est affiche dans le
+shell Browse via un composant React expandable.
+
+### T-PROOFCARD-FORMULA-GAME — Score gaming sans substance
+
+Un attaquant optimise les metadonnees de son projet pour maximiser
+le score ProofCard sans fournir de substance reelle. Vecteurs :
+
+1. **Provenance factice** : generer une provenance auto-attestee
+   (Ed25519 self-sign) pointant vers un repo vide ou un commit
+   trivial. Le score accorde +20 pour provenance verified.
+2. **Curator collusion** : creer plusieurs curator keypairs et
+   publier des CuratorVouched mutuels (Sybil). Le score accorde
+   +10 pour >= 1 curator et +10 pour >= 3 curators.
+3. **License tag gaming** : declarer une licence SPDX dans le
+   manifest sans que le code source soit reellement sous cette
+   licence. Le score accorde +5 pour licence presente.
+4. **Freshness gaming** : re-deployer periodiquement sans
+   changement reel pour maintenir le tag "fresh" (+10).
+
+Mitigations :
+
+- La provenance est verifiable : quiconque peut cloner le repo,
+  rebuilder l'archive, et comparer le hash. Un repo vide ou un
+  commit trivial est detectable par inspection humaine.
+- La collusion curator est limitee par le GCRA rate limiter
+  (T-FEED-SPAM, 5 ops/min per-author) et l'attribution Ed25519.
+  Le score ne depasse pas +20 meme avec 100 curators.
+- La licence n'affecte que +5 du score. L'inspection source
+  reste le mecanisme de confiance (source verifiable).
+- Le `formula_version` (v1) est expose dans l'UI pour que les
+  utilisateurs sachent quelle formule est utilisee.
+- Le score est clairement presente comme "completude de preuve"
+  (evidence-completeness), pas comme "securite" ou "confiance
+  absolue". Le composant UI affiche les couches individuelles
+  pour que l'utilisateur juge par lui-meme.
+
+| Dimension | Valeur |
+|---|---|
+| Severite | M |
+| Likelihood | M (auto-attestation inherente au modele P2P) |
+| Mitigation | Score capped, evidence decomposee, provenance verifiable, curator attribution |
+| Residual | M (Sybil multi-keypair reste possible sans quorum externe) |
+
+---
+
+## 13. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -629,3 +681,5 @@ Historique versions :
 - **v4 (Sprint 67 Phase B, 2026-05-20)** : ajout §11 Search surface
   (T-SEARCH-INJECTION, T-CURATOR-VOUCH, T-SEARCH-DOS), closure
   P2-THREAT-MODEL-FEED-SURFACE 3/3, renommage §11→§12.
+- **v5 (Sprint 68 Phase D, 2026-05-21)** : ajout §12 ProofCard
+  surface (T-PROOFCARD-FORMULA-GAME), renommage §12→§13.
