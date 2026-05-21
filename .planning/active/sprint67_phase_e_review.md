@@ -69,7 +69,7 @@ Aucun scope cut leak possible.
 - GAPs P0/P1 : 0
 - GAPs P2/P3 : 0
 - Suites relancees : non requis (0 correction)
-- Review promu : PASS-PENDING → PASS
+- Review promu de pending a PASS final
 
 ## Recommendation
 - Ready to commit : OUI (verdict PASS final)
