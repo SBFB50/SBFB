@@ -288,7 +288,7 @@ A verifier lors du commit.
 
 ## Recommendation
 
-- Ready to commit : **non** (PASS-PENDING, Codex requis)
+- Ready to commit : **oui** (PASS apres reconciliation Codex)
 - Carry-overs S69 : P2-A-1 (mutex poisoned test gap — dette globale, pas specifique Phase A)
 - Corrections needed : aucune P0/P1. P2-A-2 et P2-A-3 sont documentes pour le commit body.
 
