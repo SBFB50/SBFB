@@ -16,7 +16,7 @@ Corrections post-FAIL verifiees. Codex 7/7 CONFIRME — promoted.
 | Pass | Verdict | Motif |
 |------|---------|-------|
 | 1 | FAIL | P0-D-1 clippy `std::io::Error::other` |
-| 2 | **PASS-PENDING** | P0-D-1 CORRIGE, P2-D-1 CORRIGE, 1 P2 + 2 P3 acceptes |
+| 2 | **PASS** (was pending, promoted after Codex 7/7) | P0-D-1 CORRIGE, P2-D-1 CORRIGE, 1 P2 + 2 P3 acceptes |
 
 ## Memory consultation
 
@@ -280,7 +280,7 @@ N/A pre-commit.
   string vide si la serialization echoue (impossible en pratique
   pour serde_json::Value). Meme pattern ligne 33. Nit.
 
-(Bilan : 0 P0, 0 P1, 1 P2, 2 P3 -- satisfait PASS-PENDING)
+(Bilan : 0 P0, 0 P1, 1 P2, 2 P3 -- satisfait PASS)
 
 ## Codex reconciliation
 
@@ -290,7 +290,7 @@ N/A pre-commit.
 - GAPs P0/P1 : 0
 - P2/P3 documentes dans commit body : P2-D-2 (canonicalization)
 - Suites relancees post-fix : clippy, nextest 1384, fmt — tous verts
-- Promotion review : PASS-PENDING → PASS
+- Promotion review : promoted to PASS after Codex 7/7
 
 ## Dimensions explored (evidence audit exhaustif)
 
@@ -307,9 +307,8 @@ N/A pre-commit.
 
 ## Recommendation
 
-- Ready to commit : **OUI apres Codex** (verdict PASS-PENDING)
-- Codex requis : invoquer Codex GPT 5.5 sur le diff, reconcilier
-  les findings, promouvoir review.md a PASS.
+- Ready to commit : **OUI** (verdict PASS, Codex 7/7 reconciled)
+- Codex done : GPT 5.5, 7/7 CONFIRME, reconciliation CLEAN.
 - P2 a documenter dans body : P2-D-2 (canonicalization serde_json)
 - Carry-overs S68 : P3-D-1 (hash sans length prefix), P3-D-2
   (unwrap_or_default silencieux)
