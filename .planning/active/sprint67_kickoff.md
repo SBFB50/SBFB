@@ -11,7 +11,7 @@ Aucun fix bloquant requis.
 **Version archive** : v2.1 — Protocole Neutre + Factory/RRV.
 **Roadmap source** :
 `.planning/roadmap_v4_neutral_protocol_factory_rrv.md`.
-Sprint 1 sur 3 (Arc 2 Factory + RRV @dev + Canari, 1/3 —
+Sprint 1 sur 3 (Arc 2 Factory + RRV @protocole + Canari, 1/3 —
 premier sprint de l'arc).
 
 ---
@@ -148,7 +148,7 @@ failed), orphan recovery SQLite, RevocationCache persistent,
 THREAT_MODEL feed section (T-FEED-1..4). Arc 1 Fondations
 (S65 contrat public + S66 durabilite) est COMPLET.
 
-S67 ouvre l'Arc 2 Factory + RRV @dev + Canari. C'est le premier
+S67 ouvre l'Arc 2 Factory + RRV @protocole + Canari. C'est le premier
 sprint de code nouveau depuis S65 (S66 etait consolidation/
 hardening). L'objectif est de poser les fondations techniques
 de 3 composants : les primitives daemon neutres manquantes, le
@@ -161,7 +161,7 @@ qui consomment ces primitives via HTTP loopback.
 
 ### S1.2 Ancrage roadmap v4
 
-Position : Arc 2 Factory + RRV @dev + Canari, sprint 1/3.
+Position : Arc 2 Factory + RRV @protocole + Canari, sprint 1/3.
 Dependances amont : S66 DONE (persistence prerequis FTS5 +
 Factory). Dependances aval : S68 (FTS5 + sbfb-manifest prerequis
 Proof Cards), S69 (Factory prerequis Babel).
@@ -595,8 +595,8 @@ tous en exemption externe ou monitoring, pas incrementes).
 | 3 | Page React /factory | S68+ CLI suffit | Decision PO : CLI-first, UI optionnelle (roadmap v4 ajustable) |
 | 4 | Proof Cards computation | S68 Phase A | Depend de FTS5 + sbfb-manifest (sortie S67), pas dans ce sprint |
 | 5 | SearchManifest wire format | S70+ | Couche protocole (wire format gele), pas couche service daemon. Pas en S67 |
-| 6 | Babel app generation | S69 | Depend de sbfb-factory + Proof Cards + pilote ferme |
-| 7 | @dev index dans sbfb-factory (tree-sitter) | S68-S69 | @protocole d'abord (decision D6 v4). @dev booste par @protocole |
+| 6 | Babel dogfood via Factory | S69 | FlowUP cree Babel avec Factory ; le sprint supporte publish/proofs/pilote ferme |
+| 7 | @dev index dans sbfb-factory (tree-sitter) | S70+ par defaut | Non requis Gate 1 ; stretch S68-S69 seulement si zero impact @protocole/publish |
 | 8 | Bridge method `proof_card_get` | S68+ | Proof Cards pas en S67 |
 | 9 | Template `react-vite` | S69+ | 2 templates max S67 (static + stretch static-storage). 3eme template deplacable |
 | 10 | Factory audit log (JSONL) | S68+ | Pas requis pour create+validate MVP. Requis pour publish gate S68 |
@@ -639,6 +639,7 @@ tous en exemption externe ou monitoring, pas incrementes).
 | R5 | Template engine trop simple (pas de conditionals) | Medium | Low | Scope cut : S67 = copie + replace. Logique conditionnelle en S68+ si requis |
 | R6 | iroh 0.98 bugs blocker persistence (herite S66) | Low | High | E2E restart test S66 vert. Monitoring continu. Decision upgrade a Gate 1 |
 | R7 | 3 crates nouveaux dans le workspace (sbfb-manifest + sbfb-factory + search module) alourdit CI | Low | Low | CI compile le workspace entier (deja le cas). Les crates sont petits |
+| R8 | Derive @dev/source-only avant pilote | Medium | Medium | @dev reste scope cut S70+ ; Gate 1 = @protocole + Proof Cards + publish + Babel dogfood |
 
 ---
 

@@ -18,6 +18,12 @@ La v2 enrichit la v1 avec des champs optionnels pour la Factory
 shell Browse. La v1 reste valide — tous les nouveaux champs sont
 optionnels avec des defauts sensibles.
 
+**Non-goal 2026-05-21 :** ce fichier reste un manifest d'application
+SBFB. Il ne decrit pas encore un repo source externe, une librairie
+GitHub generique, ni un corpus `@dev` source-only. Un futur mode
+`source-only`/`source-index` devra avoir son propre contrat ou une
+extension explicite, avec des labels separes de `verified SBFB app`.
+
 ---
 
 ## Schema

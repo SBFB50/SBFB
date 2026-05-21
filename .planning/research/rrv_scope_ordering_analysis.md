@@ -2,6 +2,10 @@
 
 **Date :** 2026-05-19
 **Statut :** analyse produit factuelle, non engagee en sprint
+**Addendum 2026-05-21 :** roadmap v4 conserve `@protocole` d'abord,
+mais recadre `@dev` en S70+ par defaut. `@dev` ne bloque pas Gate 1 ;
+le pilote ferme teste search/provenance/Proof Cards/publish/Babel
+dogfood.
 **Question PO :** Faut-il commencer par RRV @dev avant @protocole et @web ?
 **Reponse courte :** Non. Commencer par @protocole, pas par @dev.
 
@@ -261,7 +265,7 @@ ou SBFB se mesure a Sourcegraph, Cursor, Claude Code, Copilot.
 
 ## 5. Recommandation factuelle
 
-### Ordre recommande : @protocole -> @dev (co-dev avec Factory) -> @web
+### Ordre recommande : @protocole -> @dev post-pilote -> @web
 
 **Etape 1 (S67-S68) : @protocole**
 
@@ -274,12 +278,13 @@ Valeur : fondation pour toute la chaine RRV, utilisable
 immediatement par le browse, les apps iframe (bridge `search`),
 et le futur sbfb-search.
 
-**Etape 2 (S67-S69, en parallele avec Factory) : @dev**
+**Etape 2 (S70+ par defaut, stretch S68-S69 si zero-impact) : @dev**
 
 Construire l'index local dans sbfb-factory une fois que le crate
 existe et que les templates fonctionnent. A ce stade, RRV @dev a
 un cas d'usage concret : aider Factory a trouver des patterns
-dans le workspace courant.
+dans le workspace courant. Ce travail ne doit pas retarder Proof
+Cards, publish gate, ni Babel dogfood.
 
 Cout : ~400-600 LOC dans sbfb-factory. tree-sitter en stretch.
 Valeur : citations locales, proof labels, aide a l'assemblage.
@@ -296,35 +301,36 @@ Valeur : la vision "trouver les meilleures briques OSS".
 
 ### Ce que ca change par rapport aux plans existants
 
-**Roadmap v3 (canon actuel) :** L'ordre est Factory (S67-S69)
+**Roadmap v3 (archive) :** L'ordre etait Factory (S67-S69)
 puis RRV (S70-S72). @protocole est reporte en S70. C'est TROP
 TARD — les Proof Cards et la recherche locale devraient etre
 fondees des S67, pas attendues 3 sprints.
 
-**Roadmap v4 (draft) :** L'ordre est co-developpement Factory +
-RRV @dev des S67, avec FTS5 daemon et index local en Phase C.
-C'est MIEUX que v3, mais le draft met le meme poids sur @dev
-et @protocole. La realite est que @protocole est trivial a
-construire (les donnees existent) et devrait etre Phase A,
-tandis que @dev (index workspace) est Phase C car il depend de
-l'existence de sbfb-factory.
+**Roadmap v4 (canon apres recadrage 2026-05-21) :** l'ordre est
+Factory + `@protocole` pour Arc 2, puis `@dev` S70+ par defaut.
+C'est le compromis correct : `@protocole` est trivial a construire
+(les donnees existent) et necessaire au pilote ; `@dev` depend de
+sbfb-factory, d'un corpus source utile, et d'un contrat source-only
+si des repos OSS externes sont indexes.
 
-**Ma recommandation concrete pour S67 :**
+**Recommandation recadree pour S67-S70 :**
 
 ```
 Phase A : Primitives daemon neutres (sbfb-manifest, CuratorVouched,
-          feed/entries, preview/load) + FTS5 daemon search
+          feed/entries) + FTS5 daemon search
           (migration M15 + search.rs + API)
-Phase B : sbfb-factory crate + template engine + 2 templates
-Phase C : RRV @dev index local dans sbfb-factory (APRES que le
-          crate existe)
-Phase D : CLI complet + diff + secret scanner + Proof Cards
+Phase B : FTS5/search @protocole consolide
+Phase C : sbfb-factory crate + create/validate/template lock
+Phase D/E : provenance/debt/wrap-up, sans @dev
+
+S68 : Proof Cards @protocole + publish gate + UX confiance
+S69 : Babel dogfood via Factory + pilote ferme
+S70+ : @dev source index / source-only OSS seed si le pilote est propre
 ```
 
-Cet ordre met @protocole en premier (Phase A), cree Factory
-ensuite (Phase B), puis branche @dev sur Factory (Phase C). Les
-Proof Cards arrivent en Phase D quand les deux sources de donnees
-(daemon FTS5 + index local) sont disponibles.
+Cet ordre met @protocole en premier, cree Factory ensuite, puis
+reserve @dev au moment ou il existe assez d'apps/sources pour que le
+cout d'indexation ait une valeur produit reelle.
 
 ---
 
@@ -371,8 +377,8 @@ research est le plus categorique (section 3.1 : "Le bon ordre :
 Project Factory local-first -> RRV @dev LocalOnly -> Babel
 dogfood -> SearchManifest -> RRV network").
 
-Cette analyse dit : **@protocole d'abord, @dev en parallele avec
-Factory, @web plus tard.**
+Cette analyse dit : **@protocole d'abord, @dev apres le pilote par
+defaut, @web plus tard.**
 
 La raison de la divergence : les documents de recherche sont
 ecrits dans une logique "Factory-first" ou RRV @dev est
@@ -394,7 +400,8 @@ Commencer par @protocole (FTS5 sur les donnees daemon existantes,
 ~300 LOC, zero dep) parce que c'est la seule chose que personne
 d'autre ne fait, que les donnees sont deja la, et que les
 utilisateurs du pilote en ont besoin — puis co-developper @dev
-avec Factory quand Factory existe, et @web apres le pilote.
+avec Factory quand Factory existe et que Gate 1 n'est plus en risque,
+et @web apres le pilote.
 
 ---
 

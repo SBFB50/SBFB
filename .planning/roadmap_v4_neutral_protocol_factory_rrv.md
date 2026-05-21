@@ -38,16 +38,38 @@ Pivot PO 2026-05-19 (protocole neutre + co-dev) :
 > Factory. @protocole d'abord (les donnees existent, c'est le
 > differenciateur), puis @dev booste par le protocole, puis @web.
 
+Recadrage PO 2026-05-21 (@dev non bloquant Gate 1) :
+
+> L'Arc 2 ne depend pas de RRV @dev pour reussir. Gate 1 se valide
+> sur la chaine @protocole : create/publish, feed, search, Proof Card,
+> Babel dogfood, pilote ferme. @dev est un enrichissement post-pilote
+> par defaut (S70+) ou un stretch strictement non bloquant. L'ingestion
+> de repos OSS GitHub exige un contrat source-only separe et ne doit pas
+> etre confondue avec une app SBFB verifiee.
+
 ---
 
 ## Boucle fondamentale
 
+Arc 2 valide d'abord la boucle courte, deja supportee par les donnees
+du daemon :
+
 ```
-RRV @dev cherche briques OSS existantes
-  -> Factory assemble en solution concrete
-  -> App creee et deployee sur le reseau
-  -> RRV indexe l'app et genere proof cards
-  -> L'app devient une brique reutilisable
+Factory cree ou valide une app
+  -> App deployee sur le reseau
+  -> Feed + browse + provenance enregistrent les faits
+  -> RRV @protocole recherche l'app et genere une Proof Card
+  -> Pilote verifie que la preuve est lisible et utile
+  -> retour bugs/fixes
+```
+
+La boucle longue `@dev`/OSS reste la vision post-pilote :
+
+```
+RRV @dev indexe des sources locales ou source-only
+  -> Factory reutilise les patterns et citations
+  -> App ou librairie publiee avec labels de confiance separes
+  -> RRV croise preuves protocole + preuves code
   -> retour
 ```
 
@@ -124,11 +146,12 @@ qui suit n'a de sens.
 
 ---
 
-### Arc 2 — Factory + RRV @dev + Canari (S67-S69)
+### Arc 2 — Factory + RRV @protocole + Canari (S67-S69)
 
 **Objectif :** Construire Factory comme outil client externe,
-co-developper RRV @protocole et @dev, valider avec Babel comme
-premier dogfood, confronter a des testeurs reels.
+livrer la chaine RRV @protocole necessaire au pilote, valider avec
+Babel comme premier dogfood cree via Factory, confronter a des
+testeurs reels. RRV @dev n'est pas une condition de sortie Arc 2.
 
 **Livrables de sortie de l'arc :**
 - `sbfb-factory` CLI fonctionnel (create + preview + publish)
@@ -147,11 +170,11 @@ kickoff de chaque sprint) :**
 |--------|-------|----------------|
 | S67 | Primitives daemon neutres + @protocole FTS5 + sbfb-factory MVP | S66 DONE |
 | S68 | Proof Cards + publish gate + UX confiance | S67 FTS5 + sbfb-manifest |
-| S69 | Babel via Factory + pilote ferme + RRV prouve Babel | S68 Proof Cards + publish path |
+| S69 | Babel dogfood via Factory + pilote ferme + RRV @protocole prouve Babel | S68 Proof Cards + publish path |
 
 **Ce que le kickoff de chaque sprint decide :**
 - Les phases A-D/E exactes et leur contenu
-- Le scope @dev (co-dev avec Factory, ajuste selon ce qui existe)
+- Le scope @dev eventuel (stretch non bloquant ; S70+ par defaut)
 - Les livrables deplacables si le sprint deborde (scope cuts)
 - Les items dette absorbes
 
@@ -165,7 +188,7 @@ kickoff de chaque sprint) :**
 | Babel Reader + deploy | Oui | Non |
 | Pilote ferme | Oui | Non |
 | Page React /factory | Non | Oui — CLI suffit pour S69 |
-| @dev index dans sbfb-factory | Non | Oui — @protocole suffit |
+| @dev index dans sbfb-factory | Non | Oui — @protocole suffit pour Gate 1 |
 | Diff engine avance | Non | Oui — publish direct suffit |
 | 3eme template (react-vite) | Non | Oui — 2 suffisent |
 
@@ -184,7 +207,7 @@ Ref detaillee : SYNTHESIS §3, §4, §5, §11.
 | Installation | 2/3 testeurs installent sans aide | 0/3 reussit |
 | Connexion P2P | 2 noeuds se voient en < 5 min | Aucune connexion apres 15 min |
 | Deploy app | 1 testeur deploie depuis source | Deploy echoue |
-| Babel via Factory | Babel generee, deployee, visible Browse | Factory echoue |
+| Babel via Factory | Babel creee avec Factory, deployee, visible Browse | Factory echoue |
 | Feed sync | Feed synchronise entre 2+ noeuds | Divergence ou corruption |
 | Restart | Daemon redemarrage propre | State corrompu |
 | Stabilite 24h | Daemon tourne 24h sans crash | Crash, OOM, freeze |
@@ -315,10 +338,31 @@ progressivement. Ref detaillee : SYNTHESIS §7.2.
 | Scope | Quand | Pourquoi |
 |-------|-------|----------|
 | **@protocole** | S67 | Les donnees existent. Differenciateur SBFB. Besoin pilote. |
-| **@dev** (booste par protocole) | S68-S69 (co-dev Factory) | Depend de sbfb-factory + @protocole. |
+| **@dev** (booste par protocole) | S70+ par defaut ; stretch S68-S69 seulement si zero impact Gate 1 | Depend de sbfb-factory + @protocole. N'est pas requis pour le pilote ferme. |
 | **@web** | Post-pilote S73+ | Depend de Factory fonctionnelle pour consommer les resultats. |
 
 Ref detaillee : SYNTHESIS §4.2 + rrv_scope_ordering_analysis.md.
+
+---
+
+## Decision 2026-05-21 — @dev, Babel et seed OSS
+
+1. **Gate 1 ne teste pas @dev.** Les criteres decisifs sont
+   l'installation, la connexion P2P, le deploy, le feed sync, le
+   restart, la stabilite, la recherche `@protocole`, et la Proof Card.
+2. **Babel est un dogfood utilisateur.** FlowUP cree Babel avec
+   `sbfb-factory` et le protocole ; Claude/Codex maintiennent les
+   primitives, templates, publish path, preuves, et bugs remontes.
+3. **Les gros repos OSS GitHub ne sont pas des apps SBFB.** Le
+   `deploy-from-repo` actuel exige une app avec `SBFB.json` et
+   `index.html`. Un repo source generique requiert un mode
+   `source-only`/`source-index` separe.
+4. **Le seed OSS est S70+ experimental.** Il doit etre curatee
+   (petit corpus pertinent), borne (taille/fichiers/langages), et
+   etiquete `external OSS source index`, jamais `verified SBFB app`.
+5. **Les labels de confiance restent separes.** GitHub sert a la
+   decouverte et au commit hash ; la verification SBFB reste reservee
+   aux artefacts publies via le protocole.
 
 ---
 

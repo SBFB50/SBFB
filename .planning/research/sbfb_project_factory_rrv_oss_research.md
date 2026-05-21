@@ -1,7 +1,11 @@
 # SBFB Project Factory, RRV local-first, and OSS reuse research
 
 **Date:** 2026-05-17
-**Status:** recherche produit/architecture, non engagee en sprint
+**Status:** recherche produit/architecture, non engagee en sprint.
+Recadrage 2026-05-21 : ce document reste utile pour la vision
+Project Factory/RRV `@dev`, mais il ne pilote plus S67-S69. Gate 1
+se valide sur `@protocole` + Proof Cards + publish + Babel dogfood ;
+`@dev` LocalOnly/source-only est S70+ par defaut.
 **Scope:** SBFB Project Factory, RRV `@dev` LocalOnly, Babel dogfood,
 open-source building blocks, broker/sandbox, sprint-system generation
 **Related docs:**
@@ -25,9 +29,9 @@ La solution la plus propre est:
 
 ```text
 1. Construire SBFB Project Factory comme projet/repo separe.
-2. Lui donner un noyau RRV @dev LocalOnly des le debut.
-3. Generer des repos applicatifs avec le process sprint visible.
-4. Dogfood sur Babel.
+2. Dogfood sur Babel via Factory et les preuves `@protocole`.
+3. Ajouter RRV @dev LocalOnly apres le pilote ou en stretch zero-impact.
+4. Generer des repos applicatifs avec le process sprint visible.
 5. Brancher plus tard le RRV reseau quand SearchManifest/feed/proof labels
    sont suffisamment solides.
 ```
@@ -210,8 +214,9 @@ Project Factory fournit justement ces objets et ces usages.
 Le bon ordre:
 
 ```text
-Project Factory local-first -> RRV @dev LocalOnly -> Babel dogfood
--> SearchManifest -> RRV network -> Generation Composee reseau.
+Project Factory local-first -> Babel dogfood @protocole
+-> RRV @dev LocalOnly/source-only -> SearchManifest -> RRV network
+-> Generation Composee reseau.
 ```
 
 ### 3.2 Attendre seulement pour les promesses reseau
@@ -225,7 +230,7 @@ Il faut attendre avant de promettre:
 - reputation complexe;
 - generation composee multi-repo reseau sans proof cards.
 
-Ce qui peut etre fait maintenant:
+Ce qui peut etre fait maintenant, hors Gate 1 ou en stretch non bloquant:
 
 - recherche locale verifiable;
 - citations fichier/ligne/hash/commit;
@@ -235,7 +240,9 @@ Ce qui peut etre fait maintenant:
 - broker sandbox;
 - preview iframe;
 - publication Local Draft -> Unverified -> Verified;
-- Babel comme premier projet cree via Factory.
+- Babel comme premier projet cree via Factory, mais le code produit Babel
+  reste du ressort du dogfood utilisateur tant que le protocole/Factory
+  servent correctement create/publish/proof.
 
 ---
 
@@ -1179,11 +1186,11 @@ Ordre recommande:
 
 ```text
 1. Spec Project Factory + threat model.
-2. Template Copier qui genere un repo SBFB avec process sprint.
-3. RRV @dev LocalOnly sur le repo genere.
-4. Broker/sandbox.
-5. Preview/publish.
-6. Babel cree par Factory.
+2. Template Factory qui genere un repo SBFB avec process sprint.
+3. Preview/publish + Proof Cards @protocole.
+4. Babel cree avec Factory par le dogfood utilisateur.
+5. RRV @dev LocalOnly/source-only sur le repo genere ou un corpus OSS curate.
+6. Broker/sandbox si necessaire au write workflow.
 7. SearchManifest/RRV reseau plus tard.
 ```
 

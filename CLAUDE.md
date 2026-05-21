@@ -199,14 +199,17 @@ Runtime isolation roadmap dans
   bundling → **end user ready** ✓ DONE → **tag v1.0**.
 - **Roadmap v4 — Protocole Neutre + Factory/RRV** (CANON) :
   11 sprints (S65-S75) en 4 arcs. Arc 1 Fondations (S65 contrat
-  public + S66 durabilite — COMPLET). Arc 2 Factory + RRV @dev +
+  public + S66 durabilite — COMPLET). Arc 2 Factory + RRV @protocole +
   Canari (S67 primitives daemon neutres + @protocole FTS5 +
-  sbfb-factory MVP, S68 Proof Cards + publish gate, S69 Babel via
-  Factory + pilote ferme + RRV prouve Babel). Arc 3 Reseau
+  sbfb-factory MVP, S68 Proof Cards + publish gate, S69 Babel dogfood
+  via Factory + pilote ferme + RRV @protocole prouve Babel). Arc 3 Reseau
   Verifiable + Industrialisation (S70 SearchManifest opt-in, S71
   Gouvernance + Factory hardening, S72 reserve). Arc 4 Pack Produit
   (S73-S75). Pivot PO 2026-05-19 : Factory hors daemon (crate
-  sbfb-factory), @protocole d'abord puis @dev puis @web.
+  sbfb-factory), @protocole d'abord puis @dev puis @web. Recadrage
+  PO 2026-05-21 : @dev ne bloque pas Gate 1 ; S70+ par defaut sauf
+  stretch zero-impact ; Babel est cree avec Factory par le dogfood
+  utilisateur, pas code comme livrable agent.
   Detail : `.planning/roadmap_v4_neutral_protocol_factory_rrv.md`.
   Synthese recherche : `.planning/research/SYNTHESIS_factory_rrv_protocol.md`.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
@@ -253,6 +256,10 @@ Cf. `nexus_grid_pivot.md` (memory) — **a ne PAS re-debattre** :
 - Feed raw-op extensible (serde_json::Value), pas de bump par op
 - FTS5 pour RRV @protocole S67, Tantivy en gate post-S75 si >50K docs
 - @protocole d'abord, puis @dev, puis @web (v4 D6)
+- Gate 1 S69 se valide sur @protocole + Proof Cards + publish + Babel
+  dogfood ; `@dev` index/tree-sitter est deplacable S70+
+- Ingestion OSS GitHub generique = futur mode `source-only`/`source-index`,
+  distinct d'une app SBFB verifiee (`SBFB.json` + `index.html`)
 
 ## Principe de conception — sessions fraiches
 **Ne jamais propager les scope cuts des sprints precedents comme

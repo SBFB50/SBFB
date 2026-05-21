@@ -6,6 +6,12 @@ Purpose: decide whether Sprint 67 Phase C/D Factory work is still on the
 correct Roadmap v4 path, and whether the next execution context should be
 Claude Code or Codex.
 
+2026-05-21 addendum: later PO recadrage keeps this Sprint 67 decision valid
+but narrows the downstream interpretation. Gate 1 is not an `@dev` gate.
+`@dev` AST/tree-sitter/source-only work is S70+ by default, or a strict
+zero-impact stretch after the `@protocole` Proof Cards + publish + Babel
+dogfood path is safe.
+
 ## Verdict Court
 
 Phase C/D Factory is not off-roadmap.
@@ -53,7 +59,8 @@ equivalent non-conflict verdict. Keep Codex as independent verification/gate.
   `sbfb-manifest` feeds both deploy and `sbfb-factory`, and `sbfb-factory` must
   never import `nexus-shell-daemon-core`.
 - `.planning/roadmap_v4_neutral_protocol_factory_rrv.md:317-319` places
-  `@protocole` in S67, `@dev` in S68-S69, and `@web` after pilot.
+  `@protocole` first and makes `@dev` post-pilot/S70+ by default unless it is
+  a non-blocking stretch.
 
 ### Sprint 67 Plan
 

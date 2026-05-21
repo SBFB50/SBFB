@@ -648,7 +648,7 @@ SBFB.json v1 existants parsent sans erreur. (doc#6 §7, doc#5 §7)
 | Scope | Donnees | Valeur | Etat |
 |---|---|---|---|
 | `@protocole` / `@network` | Browse entries, feed entries, provenance records, curator lists, archives zip, tasks/kudos | Le differenciateur SBFB : recherche dans un catalogue P2P verifie avec provenance Ed25519 + feed hash-chain BLAKE3 | Donnees deja presentes dans le daemon. ~300 LOC pour FTS5. |
-| `@dev` | Code source, manifests, symbols AST, capabilities, risks, tests | Aide Factory a trouver des patterns, produire des citations fichier:ligne:hash | N'existe pas. Necessite sbfb-factory + tree-sitter. ~600-800 LOC. |
+| `@dev` | Code source, manifests, symbols AST, capabilities, risks, tests | Aide Factory a trouver des patterns, produire des citations fichier:ligne:hash | N'existe pas. Necessite sbfb-factory + tree-sitter. S70+ par defaut ; non requis Gate 1. |
 | `@web` | Sources web externes (SearXNG sidecar) | Trouver les meilleures briques OSS, comparer avec le reseau SBFB | N'existe pas. Necessite Docker sidecar. Questions privacy non resolues. |
 
 (doc#3 §4, doc#14 §1)
@@ -669,6 +669,12 @@ SBFB.json v1 existants parsent sans erreur. (doc#6 §7, doc#5 §7)
 ### 4.2 Ordonnancement : @protocole -> @dev booste -> @web
 
 L'analyse factuelle (doc#14) conclut :
+
+**Addendum 2026-05-21 :** la decision produit recente rend `@dev`
+explicitement non bloquant pour Arc 2/Gate 1. Le pilote ferme valide
+la chaine `@protocole` (search, feed, provenance, Proof Cards,
+publish, Babel dogfood). `@dev` peut demarrer en stretch uniquement
+si cela ne ralentit pas cette chaine ; sinon il glisse S70+.
 
 **Commencer par @protocole**, pas par @dev. Raisons :
 
@@ -693,8 +699,8 @@ Etape 1 (S67-S68) : @protocole
   FTS5 daemon search + Proof Cards + citations
   Cout : ~300-400 LOC, zero nouvelle dependance
 
-Etape 2 (S67-S69, en parallele avec Factory) : @dev
-  Index local dans sbfb-factory
+Etape 2 (S70+ par defaut, stretch S68-S69 si zero-impact) : @dev
+  Index local/source-only dans sbfb-factory
   tree-sitter en stretch
   Cout : ~400-600 LOC dans sbfb-factory
 
@@ -775,6 +781,14 @@ capacite fondamentale. Le pattern est identique a `browse_list`. Les
 requetes ne quittent jamais le loopback. (doc#13 §4.1)
 
 ### 4.4 RRV @dev : index local workspace + code apps reseau verifie
+
+**Decision 2026-05-21 :** ce scope n'est pas une condition de succes
+du pilote. Pour les gros repos OSS GitHub, `@dev` doit passer par un
+contrat `source-only`/`source-index` separe : un repo source externe
+n'est pas une app SBFB, ne passe pas le meme `deploy-from-repo`, et ne
+doit pas recevoir le label `verified SBFB app`. Les premiers seeds OSS
+doivent etre curates, bornes, hashes par commit/fichier, et etiquetes
+comme `external OSS source index`.
 
 **Objets indexes :**
 
@@ -1063,13 +1077,14 @@ traduction IA, validation humaine, lecture offline, sync locale, compute
 batch, recherche par langue/source/chunk, partage anti-censure, UX non
 technique. Si Factory sait creer Babel proprement, elle valide le
 template SBFB, le bridge, le storage, les tasks, la provenance, la
-preview, la publication, et RRV @dev. (doc#2 §9.1)
+preview, la publication, et RRV @protocole. RRV @dev reste un
+enrichissement post-pilote. (doc#2 §9.1 + recadrage 2026-05-21)
 
 ### 5.2 MVP Babel via Factory
 
 **Scope canari (a livrer) :**
 
-- App `babel-reader` generee par Factory
+- App `babel-reader` creee avec Factory par le dogfood utilisateur
 - 3 textes domaine public (Gutenberg/Wikisource), ~500 mots chacun
 - ~5 langues fixtures (FR/EN/ES/DE/PT)
 - Liste de textes
@@ -1378,11 +1393,12 @@ recherche long terme.** (doc#3 §8.2)
 |---|---|---|
 | FTS5 vs Tantivy | FTS5 d'abord (zero dep, tables existantes). Tantivy en gate post-S75 si >50K docs. | doc#5 §10, doc#4 §2.3 |
 | Factory dans/hors daemon | Hors daemon (crate separe). Prior art convergent. | doc#12, doc#11 |
-| @dev d'abord vs @protocole d'abord | @protocole d'abord (donnees existent, differenciateur, besoin pilote) | doc#14 |
+| @dev d'abord vs @protocole d'abord | @protocole d'abord (donnees existent, differenciateur, besoin pilote). Recadrage 2026-05-21 : @dev non bloquant Gate 1, S70+ par defaut. | doc#14 + PO 2026-05-21 |
 | node_id dans/hors manifest | Hors manifest (Option D, attribution dans provenance) | doc#6 §6 |
 | CuratorVouched en S65 vs S67 vs S70 | Minimal en S65 (variants + tests, pas d'UI). Full UI en S70. | doc#7 §5 Option D |
 | Babel a la main vs via Factory | Via Factory (contrat). Plan B : a la main si Factory glisse. | doc#5 §1, doc#9 §7 |
 | Factory monolithe daemon vs sidecar | Sidecar (sbfb-factory CLI). P7 revise. | doc#12 §3 |
+| Ingestion gros repos OSS GitHub au lancement | Non pour S68-S69. Future extension `source-only`/`source-index` S70+, avec labels separes et sans confusion `verified SBFB app`. | PO 2026-05-21 |
 
 ---
 
@@ -1454,31 +1470,33 @@ Phase D : factory.template.lock + factory.provenance.json +
   ~150-200 LOC
 ```
 
-### Phase 2 : sbfb-factory + templates + @dev (S68)
+### Phase 2 : Proof Cards + publish gate (S68)
 
 ```
-Phase A : Preview ephemere (POST /api/v1/preview/load)
-          + broker logic dans sbfb-factory
-  ~100 LOC daemon + ~200 LOC factory
+Phase A : ProofCard data model + computation @protocole
+  ~200 LOC coordinator/daemon
 
-Phase B : Diff engine JSON + scan secrets + publish gate
+Phase B : publish gate + deploy dry-run + provenance checks
   ~300 LOC factory
 
-Phase C : Page React /factory (TemplateSelector, VariablesForm,
-          DiffViewer, PreviewFrame, PublishChecklist)
-  ~570 LOC React
+Phase C : UX confiance / Proof Card display / bridge proof_card_get
+  ~200-300 LOC shell/app
 
-Phase D : Preview sandbox + publish gate + deploy dry-run
-  ~200 LOC
+Phase D : preview/diff/audit log strictement si necessaire au publish
+  ~200-300 LOC
+
+Non-goal S68 : `@dev` tree-sitter, ingestion OSS GitHub, source-only
+network seed, sauf stretch zero-impact.
 ```
 
-### Phase 3 : Proof Cards + Babel dogfood (S69)
+### Phase 3 : Babel dogfood + pilote ferme (S69)
 
 ```
-Phase A : ProofCard data model + computation dans coordinator
-  ~200 LOC
+Phase A : Babel creee avec Factory par FlowUP, pas codee comme livrable
+          agent autonome
+  effort utilisateur + fixes infra selon retours
 
-Phase B : Domain pack Babel + app babel-reader generee par Factory
+Phase B : Domain pack Babel + app babel-reader publiee via Factory
   ~500 LOC app HTML/JS + ~200 LOC fixtures
 
 Phase C : Mecanisme invite + fix cross-node verification

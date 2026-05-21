@@ -2,7 +2,7 @@
 
 **Ecrit** : 2026-05-20.
 **Tip master** : `3821508`.
-**Roadmap** : Sprint 1/3, v2.1 Arc 2 Factory + RRV @dev + Canari.
+**Roadmap** : Sprint 1/3, v2.1 Arc 2 Factory + RRV @protocole + Canari.
 
 ---
 
@@ -429,8 +429,8 @@ Reprise exhaustive depuis kickoff §7 :
 | 3 | Page React /factory | S68+ | CLI-first, UI optionnelle |
 | 4 | Proof Cards computation | S68 | Depend de FTS5 + sbfb-manifest sortie S67 |
 | 5 | SearchManifest wire format | S70+ | Couche protocole, pas service |
-| 6 | Babel app generation | S69 | Depend sbfb-factory + Proof Cards + pilote |
-| 7 | @dev index tree-sitter | S68-S69 | @protocole d'abord (D6 v4) |
+| 6 | Babel dogfood via Factory | S69 | FlowUP cree Babel avec Factory ; le sprint supporte publish/proofs/pilote |
+| 7 | @dev index tree-sitter | S70+ par defaut | Non requis Gate 1 ; stretch S68-S69 seulement si zero impact @protocole/publish |
 | 8 | Bridge method proof_card_get | S68+ | Proof Cards pas en S67 |
 | 9 | Template react-vite | S69+ | 2 templates max S67 |
 | 10 | Factory audit log JSONL | S68+ | Pas requis pour create+validate MVP |
@@ -452,6 +452,7 @@ Reprise exhaustive depuis kickoff §7 :
 | R5 | Template engine trop simple | Medium | Low | Scope cut conditionals S68+ |
 | R6 | iroh 0.98 bugs persistence | Low | High | E2E restart test vert S66. Gate 1 |
 | R7 | 3 crates nouveaux alourdissent CI | Low | Low | Crates petits, CI compile workspace entier |
+| R8 | Derive @dev/source-only avant pilote | Medium | Medium | @dev reste scope cut S70+ ; Gate 1 = @protocole + Proof Cards + publish + Babel dogfood |
 
 ---
 
