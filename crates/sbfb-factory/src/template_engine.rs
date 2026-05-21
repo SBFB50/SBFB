@@ -116,15 +116,33 @@ pub fn create(template: &str, name: &str, output_dir: &str) -> Result<(), Factor
     Ok(())
 }
 
-pub fn validate(path: &str) -> Result<(), FactoryError> {
-    if path.contains("..") {
-        return Err(FactoryError::PathTraversal(
-            "path contains '..' components".to_string(),
-        ));
-    }
+pub fn expected_files(
+    template_id: &str,
+    name: &str,
+    version: &str,
+) -> Result<Vec<(String, String)>, FactoryError> {
+    let template = match template_id {
+        "static" => STATIC_TEMPLATE,
+        other => return Err(FactoryError::TemplateNotFound(other.to_string())),
+    };
+    Ok(template
+        .iter()
+        .map(|tf| {
+            let content = if tf.substitute {
+                substitute(tf.content, name, version)
+            } else {
+                tf.content.to_string()
+            };
+            (tf.name.to_string(), content)
+        })
+        .collect())
+}
 
-    let dir = Path::new(path);
-    if !dir.is_dir() {
+pub fn validate(path: &str) -> Result<(), FactoryError> {
+    let canonical = dunce::canonicalize(path)
+        .map_err(|e| FactoryError::PathTraversal(format!("cannot resolve '{}': {e}", path)))?;
+
+    if !canonical.is_dir() {
         return Err(FactoryError::Validation(format!(
             "'{}' is not a directory",
             path
@@ -133,7 +151,7 @@ pub fn validate(path: &str) -> Result<(), FactoryError> {
 
     let mut issues = Vec::new();
 
-    let manifest_path = dir.join("SBFB.json");
+    let manifest_path = canonical.join("SBFB.json");
     if !manifest_path.exists() {
         issues.push("SBFB.json not found".to_string());
     } else {
@@ -148,19 +166,23 @@ pub fn validate(path: &str) -> Result<(), FactoryError> {
         }
     }
 
-    for entry in WalkDir::new(dir).follow_links(false) {
+    for entry in WalkDir::new(&canonical).follow_links(false) {
         let entry = entry?;
         if entry.path_is_symlink() {
-            let rel = entry.path().strip_prefix(dir).unwrap_or(entry.path());
+            let rel = entry
+                .path()
+                .strip_prefix(&canonical)
+                .unwrap_or(entry.path());
             issues.push(format!("symlink: {}", rel.display()));
         }
     }
 
-    let findings = secret_scanner::scan_directory(dir);
+    let findings = secret_scanner::scan_directory(&canonical);
     for f in &findings {
+        let rel = f.file.strip_prefix(&canonical).unwrap_or(&f.file);
         issues.push(format!(
             "secret in {}:{}: {}",
-            f.file.display(),
+            rel.display(),
             f.line,
             f.pattern_name
         ));

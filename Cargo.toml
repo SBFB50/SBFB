@@ -186,6 +186,7 @@ dashmap = "6"
 # Read-only safe, deflate-only to minimize binary size.
 zip = { version = "8.5", default-features = false, features = ["deflate"] }
 walkdir = "2"
+dunce = "1.0"
 
 # Sprint 16 Phase C: file watcher for consent.json reload without
 # worker restart. Cross-platform (inotify on Linux, FSEvents on

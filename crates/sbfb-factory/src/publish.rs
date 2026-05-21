@@ -21,7 +21,7 @@ struct DeployFromRepoRequest {
 }
 
 pub fn run(path: &str, repo_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let project_dir = Path::new(path).canonicalize()?;
+    let project_dir = dunce::canonicalize(path)?;
 
     let manifest = load_and_validate_manifest(&project_dir)?;
     let conn = DaemonConnection::discover()?;

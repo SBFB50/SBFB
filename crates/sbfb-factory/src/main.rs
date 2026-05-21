@@ -4,6 +4,8 @@ use clap::{Parser, Subcommand};
 use std::process;
 
 mod daemon_client;
+mod diff;
+mod gates;
 mod preview_cmd;
 mod provenance;
 mod publish;
@@ -56,6 +58,18 @@ enum Command {
         #[arg(long)]
         repo_url: String,
     },
+
+    /// Show diff between workspace and template
+    Diff {
+        /// Path to the project directory
+        path: String,
+    },
+
+    /// Scan a project directory for secrets
+    ScanSecrets {
+        /// Path to the project directory
+        path: String,
+    },
 }
 
 fn main() {
@@ -73,10 +87,29 @@ fn main() {
         Command::Validate { path } => template_engine::validate(&path).map_err(|e| e.into()),
         Command::Preview { path } => preview_cmd::run(&path),
         Command::Publish { path, repo_url } => publish::run(&path, &repo_url),
+        Command::Diff { path } => run_diff(&path),
+        Command::ScanSecrets { path } => run_scan_secrets(&path),
     };
 
     if let Err(e) = result {
         eprintln!("error: {e}");
         process::exit(1);
     }
+}
+
+fn run_diff(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = dunce::canonicalize(path)?;
+    let result = gates::run_gate_fg4_diff(&workspace)?;
+    eprintln!("{result}");
+    Ok(())
+}
+
+fn run_scan_secrets(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = dunce::canonicalize(path)?;
+    let result = gates::run_gate_fg6_secrets(&workspace)?;
+    eprintln!("{result}");
+    if !result.passed {
+        process::exit(1);
+    }
+    Ok(())
 }

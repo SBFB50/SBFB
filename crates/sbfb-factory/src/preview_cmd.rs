@@ -11,7 +11,7 @@ use std::path::Path;
 use crate::daemon_client::DaemonConnection;
 
 pub fn run(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let project_dir = Path::new(path).canonicalize()?;
+    let project_dir = dunce::canonicalize(path)?;
     if !project_dir.join("index.html").exists() {
         return Err("project directory must contain an index.html".into());
     }
