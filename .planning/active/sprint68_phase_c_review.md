@@ -4,7 +4,7 @@ HEAD: `6a21293` (unstaged) | Agent: nexus-phase-review-deep (Opus 4.6 1M)
 
 ## Verdict : PASS
 
-Promoted from PASS-PENDING after Codex reconciliation.
+Promoted after Codex reconciliation.
 
 (Rigor signal : 3 findings P2+ documentes / >=1 requis pour PASS)
 
@@ -191,7 +191,7 @@ Resume : 12 livrables / 12 confirmes / 0 gaps / 0 partiels
 | Horizon long-terme | design doc check + alternatives + LOC grep | kickoff.md, plan.md | 0 |
 
 ## Recommendation
-- Ready to commit : non — PASS-PENDING, Codex requis
+- Ready to commit : oui (PASS apres Codex reconciliation)
 - Carry-overs S69 : P2-C-1 (canonicalize incoherence) si non corrige avant commit
 - Corrections recommendees avant commit :
   1. P2-C-1 : remplacer `Path::canonicalize()` par `dunce::canonicalize()` dans main.rs:102, main.rs:122 (et idealement publish.rs:24, preview_cmd.rs:14 pour coherence)

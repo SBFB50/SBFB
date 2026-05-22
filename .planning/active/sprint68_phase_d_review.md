@@ -4,7 +4,7 @@ HEAD: a201b3e (Phase C) | Working tree: +2 new, 2 modified | Agent: nexus-phase-
 
 ## Verdict : PASS
 
-Promu de PASS-PENDING apres reconciliation Codex GPT 5.5 (4/4 CONFIRME, 0 GAP).
+Promu apres reconciliation Codex GPT 5.5 (4/4 CONFIRME, 0 GAP).
 
 (Rigor signal : 3 findings P2+ documentes / >=1 requis pour PASS)
 

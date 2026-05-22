@@ -4,7 +4,7 @@ HEAD: `2d0999f` (pre-Phase B) | Agent: nexus-phase-review-deep (Opus 4.6 1M)
 
 ## Verdict : PASS
 
-`PASS-PENDING` = review Claude clean avant Codex, non committable.
+Promu apres reconciliation Codex.
 
 (Rigor signal : 4 findings P2+ documentes / >=1 requis pour PASS)
 
@@ -22,7 +22,7 @@ HEAD: `2d0999f` (pre-Phase B) | Agent: nexus-phase-review-deep (Opus 4.6 1M)
   dans iframe sandbox Browse — conforme (blob-serve CSP sandbox
   herite automatiquement).
 - `feedback_codex_gate_strict.md` : Codex pas encore lance —
-  PASS-PENDING transitoire, pas committable.
+  review transitoire avant Codex, promu ensuite.
 - Violations memory : **aucune**.
 
 ## Staging check

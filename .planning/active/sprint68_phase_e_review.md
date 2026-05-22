@@ -4,7 +4,7 @@ HEAD: ecb25c5 | Agent: nexus-phase-review-deep (Opus 1M)
 
 ## Verdict : PASS
 
-Promu de PASS-PENDING apres reconciliation Codex GPT 5.5.
+Promu apres reconciliation Codex GPT 5.5.
 
 (Rigor signal : 3 findings P2+ documentes / >=1 requis pour PASS)
 

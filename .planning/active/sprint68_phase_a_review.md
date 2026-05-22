@@ -4,7 +4,7 @@ HEAD: `3ca563f` (working tree) | Agent: nexus-phase-review-deep (Opus 1M)
 
 ## Verdict : PASS
 
-Promu de PASS-PENDING apres reconciliation Codex.
+Promu apres reconciliation Codex.
 
 ## Codex reconciliation
 
