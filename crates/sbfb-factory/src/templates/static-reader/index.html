@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{name}}</title>
+  <script src="sbfb-bridge.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #1a1a2e; --surface: #16213e; --text: #e0e0e0;
+      --accent: #0f3460; --highlight: #e94560; --muted: #888;
+    }
+    body {
+      font-family: Georgia, "Times New Roman", serif;
+      background: var(--bg); color: var(--text);
+      line-height: 1.7; min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    header {
+      width: 100%; max-width: 40rem; padding: 2rem 1rem 1rem;
+      text-align: center; border-bottom: 1px solid var(--accent);
+    }
+    header h1 { font-size: 1.6rem; font-weight: 400; letter-spacing: 0.05em; }
+    header p { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; }
+    main {
+      width: 100%; max-width: 40rem; padding: 1.5rem 1rem;
+      flex: 1;
+    }
+    .section { display: none; }
+    .section.active { display: block; }
+    .section h2 {
+      font-size: 1.2rem; font-weight: 400; margin-bottom: 1rem;
+      color: var(--highlight);
+    }
+    .section .content { font-size: 1rem; }
+    .section .content p { margin-bottom: 1em; }
+    nav {
+      width: 100%; max-width: 40rem; padding: 1rem;
+      display: flex; justify-content: space-between; align-items: center;
+      border-top: 1px solid var(--accent);
+    }
+    nav span { color: var(--muted); font-size: 0.85rem; }
+    .btn {
+      background: var(--accent); color: var(--text); border: none;
+      padding: 0.5rem 1.2rem; cursor: pointer; font-size: 0.9rem;
+      border-radius: 3px;
+    }
+    .btn:hover { background: var(--highlight); }
+    .btn:disabled { opacity: 0.3; cursor: default; }
+    .btn:disabled:hover { background: var(--accent); }
+    #status {
+      text-align: center; color: var(--muted); font-size: 0.75rem;
+      padding: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{{name}}</h1>
+    <p>SBFB Reader</p>
+  </header>
+  <main id="reader"></main>
+  <nav>
+    <div class="btn" role="button" tabindex="0" id="prev-btn" onclick="navigate(-1)">Prev</div>
+    <span id="page-indicator">1 / 1</span>
+    <div class="btn" role="button" tabindex="0" id="next-btn" onclick="navigate(1)">Next</div>
+  </nav>
+  <div id="status"></div>
+
+  <script>
+    var sections = [
+      {
+        title: "Section 1",
+        content: "<p>This is the first section of your reader. Replace this content with your own text.</p><p>Each section represents a page or chapter that the reader can navigate through.</p>"
+      },
+      {
+        title: "Section 2",
+        content: "<p>Add as many sections as you need. Edit the <code>sections</code> array in index.html.</p>"
+      },
+      {
+        title: "Section 3",
+        content: "<p>Your content goes here. The reader supports HTML formatting: <strong>bold</strong>, <em>italic</em>, lists, and more.</p>"
+      }
+    ];
+
+    var currentSection = 0;
+
+    function render() {
+      var reader = document.getElementById("reader");
+      reader.innerHTML = "";
+      for (var i = 0; i < sections.length; i++) {
+        var div = document.createElement("div");
+        div.className = "section" + (i === currentSection ? " active" : "");
+        div.innerHTML = "<h2>" + sections[i].title + "</h2><div class='content'>" + sections[i].content + "</div>";
+        reader.appendChild(div);
+      }
+      document.getElementById("page-indicator").textContent =
+        (currentSection + 1) + " / " + sections.length;
+      document.getElementById("prev-btn").setAttribute("aria-disabled", currentSection === 0);
+      document.getElementById("next-btn").setAttribute("aria-disabled", currentSection === sections.length - 1);
+      if (currentSection === 0) document.getElementById("prev-btn").style.opacity = "0.3";
+      else document.getElementById("prev-btn").style.opacity = "1";
+      if (currentSection === sections.length - 1) document.getElementById("next-btn").style.opacity = "0.3";
+      else document.getElementById("next-btn").style.opacity = "1";
+    }
+
+    function navigate(delta) {
+      var next = currentSection + delta;
+      if (next >= 0 && next < sections.length) {
+        currentSection = next;
+        render();
+        saveCursor();
+      }
+    }
+
+    function saveCursor() {
+      var bridge = window._bridge;
+      if (bridge) {
+        bridge.setStorage("reader_cursor", { value: currentSection }).catch(function() {});
+      }
+    }
+
+    function loadCursor() {
+      var bridge = window._bridge;
+      if (bridge) {
+        bridge.getStorage("reader_cursor").then(function(data) {
+          if (data && typeof data.value === "number" && data.value < sections.length) {
+            currentSection = data.value;
+            render();
+          }
+        }).catch(function() {});
+      }
+    }
+
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "ArrowLeft") navigate(-1);
+      if (e.key === "ArrowRight") navigate(1);
+    });
+
+    render();
+
+    var bridge = new SBFBBridge();
+    window._bridge = bridge;
+    bridge.getNodeStatus().then(function(status) {
+      document.getElementById("status").textContent =
+        (status.peers || 0) + " peers connected";
+    }).catch(function() {
+      document.getElementById("status").textContent = "offline";
+    });
+    loadCursor();
+  </script>
+</body>
+</html>
