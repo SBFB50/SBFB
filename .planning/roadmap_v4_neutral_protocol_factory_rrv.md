@@ -97,6 +97,7 @@ Ref detaillee : SYNTHESIS §9.1.
 | D14 | Pas de signature decomposee S67-S69 | 2026-05-19 |
 | D15 | SearchManifest domain tag gele une fois deploye | 2026-05-19 |
 | D16 | formula_version dans ProofCard | 2026-05-19 |
+| D17 | S70 = consolidation Gate 1, pas SearchManifest. Phases elargies 2-3 × ~1200 LOC | 2026-05-22 |
 
 ---
 
@@ -221,7 +222,41 @@ Si > 5 bugs P0/P1 : sprint fix dedie avant S70.
 
 ---
 
-### Arc 3 — Reseau Verifiable + Industrialisation (S70-S72)
+### Sprint consolidation S70 (D17, amendement 2026-05-22)
+
+**Objectif :** Rendre l'Arc 2 défendable avant d'ajouter du réseau
+P2P. Aucune feature nouvelle — uniquement stabilisation.
+
+**Axes (chaque item doit référencer un carry, bug pilote, ou test
+manquant — zéro item spéculatif) :**
+
+1. **Audit Gate 1 réel** — rejouer install, publish, Babel,
+   ProofCard, restart, feed sync, browse, search. Pas seulement
+   tests unitaires.
+2. **Refacto coutures** — Factory/daemon API, bridge method policy,
+   ProofCard data validation, publish path, preview TTL, Browse/
+   Proof UI. Pas de refacto esthétique.
+3. **Dette sécurité** — fermer P2-D-1 wiring, P2-D-2 Zod runtime,
+   P2-D-3 XSS ProofCard, manifest vs bridge allowlist.
+4. **Dette produit** — clarifier états : draft, preview, published,
+   verified, stale, source-only.
+5. **Tests E2E** — reload, restart, deux noeuds, app generated-by-
+   Factory, proof visible, storage cohérent.
+6. **Docs/roadmap sync** — roadmap v4, audit_plan, verification,
+   threat model, publish model.
+
+**Phases élargies** : 2-3 phases à ~1200-1500 LOC code au lieu de
+4-5 à ~600 LOC. Le coût process par phase est quasi-fixe (~1000
+lignes d'artefacts preflight+review+codex). Moins de phases = ratio
+code/process de ~45-50% au lieu de ~29%.
+
+**Gate de sortie S70** : "un utilisateur externe installe, crée via
+Factory, publie, cherche, vérifie une Proof Card, redémarre le
+daemon — tout fonctionne."
+
+---
+
+### Arc 3 — Reseau Verifiable + Industrialisation (S71-S73)
 
 **Objectif :** Etendre au reseau P2P (SearchManifest opt-in),
 formaliser la gouvernance, durcir Factory.
@@ -236,15 +271,16 @@ formaliser la gouvernance, durcir Factory.
 
 | Sprint | Theme | Entree requise |
 |--------|-------|----------------|
-| S70 | SearchManifest opt-in + discovery P2P | Gate 1 PASS |
-| S71 | Gouvernance complete + Factory hardening | S70 SearchManifest |
-| S72 | Sprint reserve (fixes pilote / Babel translation / dette) | S71 |
+| S70 | **Consolidation Gate 1** — dette Arc 2, refacto coutures, tests E2E, docs sync. Phases elargies (2-3 × ~1200 LOC). Zero feature nouvelle. | Gate 1 PASS |
+| S71 | SearchManifest opt-in + discovery P2P | S70 consolidation DONE |
+| S72 | Gouvernance complete + Factory hardening | S71 SearchManifest |
+| S73 | Sprint reserve (fixes pilote / Babel translation / dette) | S72 |
 
 ---
 
 ### Gate 2 — Go/no-go Arc 4
 
-**Quand :** Apres S72.
+**Quand :** Apres S73.
 
 **Conditions go :**
 - SearchManifest fonctionne opt-in entre 3 noeuds
@@ -287,16 +323,19 @@ S68 Proof Cards + publish gate
   |---> S69 (proof card + publish path prerequis pilote)
 
 S69 Babel + pilote (Gate 1)
-  |---> S70 (Babel = objet a publier en SearchManifest)
+  |---> S70 (consolidation dette Arc 2 avant reseau)
 
-S70 SearchManifest
-  |---> S71 (manifests enrichis par gouvernance)
+S70 Consolidation Gate 1
+  |---> S71 (base stable pour SearchManifest)
 
-S71 Gouvernance + hardening
-  |---> S72 reserve
+S71 SearchManifest
+  |---> S72 (manifests enrichis par gouvernance)
 
-S72 reserve (Gate 2)
-  |---> S73-S75 (pack produit)
+S72 Gouvernance + hardening
+  |---> S73 reserve
+
+S73 reserve (Gate 2)
+  |---> S74-S76 (pack produit)
 ```
 
 **Dependances cachees :**
@@ -304,7 +343,7 @@ S72 reserve (Gate 2)
 | ID | Dependance | Impact |
 |----|-----------|--------|
 | H1 | S65 auth tier -> S66 persistence | Ops non-autorisees persistees si inversees |
-| H2 | S66 -> S70 | SearchManifests doivent survivre aux restarts |
+| H2 | S66 -> S71 | SearchManifests doivent survivre aux restarts |
 | H3 | iroh 1.0-rc -> Gate 1 | Decision point upgrade |
 | H4 | sbfb-manifest -> deploy.rs + sbfb-factory | Crate partage, schema v2 affecte les deux |
 | H5 | S67 FTS5 -> S68 proof-card | Proof cards utilisent l'index FTS5 |
@@ -420,9 +459,10 @@ La roadmap fournit la direction. Le kickoff fournit le plan.
 | S68 | 1-2 semaines | Proof Cards + publish gate |
 | S69 | 2-3 semaines | Babel + pilote ferme |
 | Gate 1 | — | Go/no-go |
-| S70-S72 | 3-6 semaines | SearchManifest + gouvernance + reserve |
+| S70 | 1-2 semaines | Consolidation Gate 1 (dette + refacto + E2E) |
+| S71-S73 | 3-6 semaines | SearchManifest + gouvernance + reserve |
 | Gate 2 | — | Go/no-go |
-| S73-S75 | 3-6 semaines | Pack produit defendable |
+| S74-S76 | 3-6 semaines | Pack produit defendable |
 
 Horizon total : ~15-25 semaines (ajustable). Chaque sprint
 s'adapte a la velocite reelle observee.

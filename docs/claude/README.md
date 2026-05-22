@@ -166,9 +166,10 @@ Sections canoniques (pattern Sprint 20 gold) :
    ```
 6. **Plan Phase outline A..F** — une section courte par phase
    avec son scope, son critère d'acceptation et son commit
-   cible. **Sprints pairs** (S28, S30...) : une phase est
-   réservée dette (§6.2.1 Règle 1), le kickoff l'identifie
-   et liste les items déférés absorbés.
+   cible. **Sprints pairs** (S28, S30...) : au moins une phase
+   est réservée dette/refacto (§6.2.1 Règle 1). Les sprints
+   post-arc sont des sprints consolidation dédiés (§6.2.1).
+   Le kickoff identifie et liste les items déférés absorbés.
 7. **Items carry/dette** — reclassification explicite des
    carry-overs, avec pour chaque item : classification
    (carry confirmé / scope intégré / supprimé DEPRECATED),
@@ -1142,18 +1143,29 @@ le cachent.
 
 **3 regles (amendement 2026-04-24)** :
 
-##### Regle 1 — Phase dette 1 sprint sur 2
+##### Regle 1 — Phase dette 1 sprint sur 2 + sprint consolidation post-arc
 
-Les **sprints pairs** (S28, S30, S32...) reservent une phase
-(typiquement Phase B) exclusivement dediee aux items differes.
-Cette phase n'est pas negociable et ne peut pas etre convertie en
-feature. Les sprints impairs (S27, S29, S31...) n'ont pas cette
-contrainte.
+Les **sprints pairs** (S28, S30, S32...) reservent **au moins une
+phase** (typiquement Phase B) exclusivement dediee aux items
+differes, refacto ciblee, et tests manquants. Cette phase n'est pas
+negociable et ne peut pas etre convertie en feature.
 
-Rationale : un budget dette de 1 phase sur 10 (~2 sprints × 5
-phases) est absorbable sans degrader les features. Le rythme alterne
-empeche l'accumulation tout en laissant de la place aux features
-monolithiques.
+**Sprint consolidation post-arc** (amendement 2026-05-22) : apres
+chaque arc de la roadmap, le sprint suivant est un sprint de
+consolidation dedie. Les phases sont elargies (2-3 phases a
+~1200-1500 LOC au lieu de 4-5 a ~600 LOC) pour reduire le ratio
+process/code. Le sprint ne livre aucune feature nouvelle — il
+stabilise l'arc precedent. Regle anti-derive : chaque item doit
+referencer soit un bug pilote, soit un carry existant, soit un
+test E2E manquant identifie. Zero item speculatif. Gate de sortie :
+"l'arc precedent est defendable pour un utilisateur externe".
+
+Rationale : l'analyse S66-S68 montre que le ratio code/process est
+de 8-29% (70-90% du delta sprint est du markdown process). Le cout
+process par phase est quasi-fixe (~1000-1500 lignes d'artefacts).
+Reduire le nombre de phases et augmenter le scope par phase ameliore
+mecaniquement le ratio. Le sprint consolidation evite de propager
+la dette au niveau reseau quand l'arc suivant ajoute du P2P.
 
 ##### Regle 2 — Escalade automatique a 3 reports
 
@@ -1354,6 +1366,16 @@ LIGNE DE CODE de chaque phase de chaque sprint, l'agent exécute 5
 scans factuels indépendants (S1a + S1b + S2 + S3 + S4). Verdict en
 4 niveaux (EXECUTE / PLAN-ADAPT / SCOPE-CUT-CONSISTENT / DESIGN-
 CONFLICT). Procédure systématique, pas opinion.
+
+**Allègement process (amendement 2026-05-22)** : l'analyse S65-S68
+montre que G8 preflight a produit 0 finding actionnable sur 20
+phases (20/20 EXECUTE). Le preflight reste obligatoire mais le
+format condensé (template Step 7 "condense") est le défaut pour les
+phases standard. Le format complet (S1a OSS research profonde) est
+réservé aux phases qui introduisent un nouveau composant de sécurité,
+un nouveau wire format, ou une nouvelle dépendance cryptographique.
+Le superviseur process (nexus-process-supervisor) est optionnel —
+les hooks `.claude/hooks/*` servent de backstop mécanique.
 
 #### Quand
 

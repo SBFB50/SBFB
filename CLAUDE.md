@@ -36,24 +36,20 @@ lit le verdict et avance ou s'arrete.
 
 | Agent | Cas | Artefact | Fallback |
 |---|---|---|---|
-| `nexus-process-supervisor` | **TOUS** | verdicts GO/BLOCK | **AUCUN** — obligatoire |
+| `nexus-process-supervisor` | **TOUS** | verdicts GO/BLOCK | hooks `.claude/hooks/*` (backstop mecanique) |
 | `nexus-audit-gate` | A | audit_findings.md | main thread + README §3 |
 | `nexus-sprint-kickoff` | C | kickoff.md + plan.md + design_review.md | main thread + README §2 |
 | `nexus-phase-preflight-deep` | B pre-code | preflight.md | skill nexus-phase-preflight |
 | `nexus-phase-review-deep` | B post-code | review.md | skill nexus-phase-review |
 | `nexus-phase-auditor` | B post-code | review.md | subsume par review-deep |
 
-**Superviseur process** : `nexus-process-supervisor` est obligatoire
-des le bootstrap §7.1. Mode prefere : Agent Team long-lived avec un
-teammate `supervisor` qui reste adressable, surveille le plan
-sequentiel, les gates (preflight, review, Codex, commit, post-commit)
-et envoie un BLOCK proactif si le process derive. Un affichage
-`Done` / idle apres GO-SPAWN est acceptable si `@supervisor` reste
-joignable. Mode degrade : si Agent Teams est indisponible ou si le
-teammate n'est plus joignable, consulter le meme agent par invocation
-gate-check a chaque gate. Il ne code jamais, ne cree jamais d'artefact ;
-il verifie et bloque. Sans GO superviseur, on ne committe pas. Les hooks
-`.claude/hooks/*` restent le backstop automatique si le main thread oublie.
+**Superviseur process** : `nexus-process-supervisor` est optionnel
+(amendement D17, 2026-05-22). Les hooks `.claude/hooks/*` servent
+de backstop mecanique et suffisent a garantir la discipline commit.
+Quand deploye, le superviseur surveille le plan sequentiel et les
+gates (preflight, review, Codex, commit, post-commit) via Agent
+Team ou invocation gate-check. Il ne code jamais, ne cree jamais
+d'artefact — il verifie et bloque si deviation.
 
 **Regle modele** : ne JAMAIS passer le parametre `model` dans les
 appels Agent(). Les agents ont `model: claude-opus-4-6[1m]` dans
@@ -205,9 +201,10 @@ Runtime isolation roadmap dans
   sbfb-factory MVP — DONE, S68 Proof Cards + publish gate — DONE,
   S69
   Babel dogfood via Factory + pilote ferme + RRV @protocole prouve
-  Babel). Arc 3 Reseau Verifiable + Industrialisation (S70
-  SearchManifest opt-in, S71 Gouvernance + Factory hardening, S72
-  reserve). Arc 4 Pack Produit (S73-S75). Pivot PO 2026-05-19 :
+  Babel). Arc 2.5 Consolidation (S70 dette + refacto + tests E2E,
+  phases elargies, zero feature nouvelle). Arc 3 Reseau Verifiable +
+  Industrialisation (S71 SearchManifest opt-in, S72 Gouvernance +
+  Factory hardening, S73 reserve). Arc 4 Pack Produit (S74-S76). Pivot PO 2026-05-19 :
   Factory hors daemon (crate sbfb-factory), @protocole d'abord
   puis @dev puis @web. Recadrage PO 2026-05-21 : @dev ne bloque
   pas Gate 1 ; S70+ par defaut sauf stretch zero-impact ; Babel
@@ -263,6 +260,9 @@ Cf. `nexus_grid_pivot.md` (memory) — **a ne PAS re-debattre** :
   dogfood ; `@dev` index/tree-sitter est deplacable S70+
 - Ingestion OSS GitHub generique = futur mode `source-only`/`source-index`,
   distinct d'une app SBFB verifiee (`SBFB.json` + `index.html`)
+- S70 = sprint consolidation Gate 1 (dette + refacto + tests E2E),
+  pas SearchManifest. Phases elargies 2-3 × ~1200 LOC (D17 v4)
+- Superviseur process optionnel, hooks = backstop mecanique (D17)
 
 ## Principe de conception — sessions fraiches
 **Ne jamais propager les scope cuts des sprints precedents comme
