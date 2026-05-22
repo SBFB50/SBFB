@@ -37,6 +37,19 @@ Installable app / sbfb-search
 Le point important: le "cerveau verifiable" est dans le service local, pas dans
 Claude, Codex, OpenAI, Ollama, ni dans une app front qui peut mentir.
 
+## 1.1 S70 routing amendment
+
+Before choosing an RRV product route, S70 must first complete the portable
+agent/process contract:
+
+```text
+S70 = Process Portable Complete + Gate 1 dogfood
+```
+
+The LLM provider router described here remains a consumer of that portable
+evidence contract. It is not the next sprint authority, and it must not bypass
+`.planning/active/`, `agentctl`, review artifacts, or proof labels.
+
 ## 2. Ce que le repo prouve deja
 
 Le repo a deja les ingredients, mais pas encore le produit RRV complet:

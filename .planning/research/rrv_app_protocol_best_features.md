@@ -6,6 +6,12 @@
 **Scope:** RRV comme app du protocole, acces `@protocole`, `@dev`, `@web`, code front/back/db des apps connectees, relation avec Factory et Babel
 **Non-goal:** transformer Factory en protocole, coder Babel comme livrable final, exposer des donnees privees sans contrat explicite
 
+**Update 2026-05-22:** S70 doit d'abord livrer `Process Portable Complete`.
+Les fonctions ci-dessous restent le cap RRV, mais `@dev`, process assistant,
+OSS seed, `sbfb-search` et provider router deviennent consommateurs du process
+portable apres S70, pas des autorites paralleles ni des livrables S70 par
+defaut.
+
 ## 1. These
 
 RRV doit etre une app protocolaire first-class: l'interface qui permet de
@@ -459,6 +465,11 @@ Factory doit pouvoir reutiliser le process actuel comme pack:
 - `.planning/active/sprint0_*`;
 - `.planning/research/*`.
 
+S70 doit d'abord rendre ce pack portable et verifiable via
+`process_portable_complete_s70.md`: `AGENT_SYSTEM`, `handoff`, `agentctl
+status-sprint`, `lint-planning`, `audit-commit`, gates/hooks/CI. Factory ne
+doit pas packager un process encore implicite dans Claude/Codex.
+
 RRV doit ensuite pouvoir lire ce process dans une app creee par Factory:
 
 - sprint courant;
@@ -680,8 +691,8 @@ Le bon recadrage S69:
 - metadata `SBFB.json` et provenance doivent etre propres;
 - ProofCard et search `@protocole` prouvent Babel;
 - process pack doit etre assez clair pour etre reutilise;
-- `@dev`, `@web`, SearchManifest et app RRV complete restent S70+ ou
-  post-pilote selon la roadmap.
+- `@dev`, `@web`, SearchManifest et app RRV complete restent S71+ ou
+  post-pilote selon la roadmap, apres S70 Process Portable Complete.
 
 S69 peut donc preparer RRV sans absorber RRV.
 

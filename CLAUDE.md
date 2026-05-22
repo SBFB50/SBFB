@@ -201,15 +201,21 @@ Runtime isolation roadmap dans
   sbfb-factory MVP — DONE, S68 Proof Cards + publish gate — DONE,
   S69
   Babel dogfood via Factory + pilote ferme + RRV @protocole prouve
-  Babel). Arc 2.5 Consolidation (S70 dette + refacto + tests E2E,
-  phases elargies, zero feature nouvelle). Arc 3 Reseau Verifiable +
-  Industrialisation (S71 SearchManifest opt-in, S72 Gouvernance +
+  Babel). Arc 2.5 Process Portable Complete (S70 AGENT_SYSTEM,
+  handoff, agentctl status/lint/audit, gates/hooks/CI + Gate 1
+  dogfood ; zero RRV total). Arc 3 Reseau Verifiable +
+  Industrialisation (S71 SearchManifest opt-in ou RRV Core selon
+  audit S70, S72 Gouvernance +
   Factory hardening, S73 reserve). Arc 4 Pack Produit (S74-S76). Pivot PO 2026-05-19 :
   Factory hors daemon (crate sbfb-factory), @protocole d'abord
   puis @dev puis @web. Recadrage PO 2026-05-21 : @dev ne bloque
-  pas Gate 1 ; S70+ par defaut sauf stretch zero-impact ; Babel
+  pas Gate 1 ; S71+ par defaut sauf stretch zero-impact ; Babel
   est cree avec Factory par le dogfood utilisateur, pas code comme
-  livrable agent.
+  livrable agent. Recadrage PO 2026-05-22 : S70 rend complet le
+  process portable avant RRV total/Factory process packaging ; RRV
+  expose les modes `@research`, `@dev`, `@audit`, `@security`,
+  `@product` comme alias de roles process, pas comme autorite
+  parallele.
   Detail : `.planning/roadmap_v4_neutral_protocol_factory_rrv.md`.
   Synthese recherche : `.planning/research/SYNTHESIS_factory_rrv_protocol.md`.
 - Zones rouges : R-iroh-audit P0 / R-wasmtime-cve P0 /
@@ -257,11 +263,14 @@ Cf. `nexus_grid_pivot.md` (memory) — **a ne PAS re-debattre** :
 - FTS5 pour RRV @protocole S67, Tantivy en gate post-S75 si >50K docs
 - @protocole d'abord, puis @dev, puis @web (v4 D6)
 - Gate 1 S69 se valide sur @protocole + Proof Cards + publish + Babel
-  dogfood ; `@dev` index/tree-sitter est deplacable S70+
+  dogfood ; `@dev` index/tree-sitter est deplacable S71+ apres S70
+  process portable
 - Ingestion OSS GitHub generique = futur mode `source-only`/`source-index`,
   distinct d'une app SBFB verifiee (`SBFB.json` + `index.html`)
-- S70 = sprint consolidation Gate 1 (dette + refacto + tests E2E),
-  pas SearchManifest. Phases elargies 2-3 × ~1200 LOC (D17 v4)
+- S70 = Process Portable Complete + Gate 1 dogfood : AGENT_SYSTEM,
+  handoff, agentctl status-sprint/lint-planning/audit-commit,
+  gates/hooks/CI process, puis contrat RRV/Factory. Pas SearchManifest,
+  pas RRV total, pas Factory process UI (D18 v4).
 - Superviseur process optionnel, hooks = backstop mecanique (D17)
 
 ## Principe de conception — sessions fraiches

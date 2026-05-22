@@ -1,10 +1,16 @@
 # Recherche RRV (Recherche Reseau Verifiable) — Sprints 70-72
 
 **Date:** 2026-05-18
-**Statut:** recherche approfondie, alimente les roadmaps S70-72
+**Statut:** candidate/fossil mixed depuis le recadrage 2026-05-22 ;
+alimente RRV apres S70 Process Portable Complete, pas un plan actif S70
 **Scope:** S70 RRV LocalOnly, S71 Proof Cards, S72 SearchManifest Opt-In
 **Confiance globale:** MEDIUM-HIGH (code source lu, prior research croisse,
 recherche externe sur ecosysteme effectuee)
+
+**Amendement 2026-05-22:** les mentions `S70 RRV LocalOnly`, Tantivy/FTS MVP,
+`@dev` index et SearchManifest doivent etre relues comme candidats S71+ sauf
+import explicite par le futur kickoff. S70 est route vers
+`Process Portable Complete + Gate 1 dogfood`.
 
 **Documents prealables lus:**
 - `.planning/codebase/ARCHITECTURE.md`

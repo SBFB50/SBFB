@@ -5,6 +5,12 @@
 **Purpose:** make the RRV research corpus consumable by the Nexus sprint process
 **Owner:** next sprint kickoff / S69 Phase E wrap-up
 
+**Update 2026-05-22:** after the process-portable review, direct
+`S70 = RRV Core` is no longer the recommended default. S70 should first make
+the agent/process layer portable and complete. This file remains live input for
+S70 Phase F and for a later RRV sprint; it must not bypass
+`.planning/active/` or the S70 kickoff.
+
 ## 1. Why this file exists
 
 The sprint process does not infer a clean plan from many research documents by
@@ -137,9 +143,15 @@ Cons:
 
 ## 6. Recommended route
 
-Recommended: Option B, but bounded.
+Previous recommendation was Option B, but bounded. The updated route is:
 
-Do not build "RRV total" first. Build:
+```text
+S70 Process Portable Complete
++ Gate 1 dogfood
++ RRV/Factory contract
+```
+
+Then a later sprint can build:
 
 ```text
 RRV Core
@@ -149,14 +161,14 @@ RRV Core
 + process-aware index
 ```
 
-Then resume Factory/Babel with better inputs.
+This is a sequencing correction, not a rejection of RRV. RRV becomes stronger
+once the process it must navigate is explicit, lintable and portable.
 
-This is a product correction, not a rejection of Factory. Factory becomes more
-valuable once RRV can find, cite, compare and score reusable patterns.
+## 7. Draft kickoff D-decisions for a later RRV sprint
 
-## 7. Draft kickoff D-decisions
-
-These are not active decisions until copied into a kickoff/design review.
+These are not active decisions until copied into a kickoff/design review. After
+the 2026-05-22 process-portable decision, they are candidates for the first RRV
+sprint after S70, not mandatory S70 decisions.
 
 ### D1 - RRV is the next product surface to make serious
 
@@ -350,24 +362,28 @@ The next audit plan should include:
 If S69 continues as planned, Phase E should add these items to
 `sprint70_audit_plan.md`:
 
-1. audit whether RRV research is now coherent enough for a product sprint;
-2. decide Option A strict roadmap vs Option B RRV-first correction;
-3. require the S70 kickoff to cite this file;
-4. require D-decisions to separate Factory origin from verified evidence;
-5. require any OSS seed to be source-only with labels;
-6. require the kickoff to import `rrv_llm_runtime_and_app_boundary.md`;
-7. require a decision on local/default vs central/opt-in provider policy.
+1. route S70 as Process Portable Complete unless S69 Gate 1 exposes P0/P1;
+2. require the S70 kickoff to cite this file and
+   `process_portable_complete_s70.md`;
+3. require D-decisions to separate Factory origin from verified evidence;
+4. require any future OSS seed to be source-only with labels;
+5. require the kickoff to import `rrv_llm_runtime_and_app_boundary.md` as
+   provider/privacy policy input;
+6. require a decision that local/default vs central/opt-in provider policy is
+   a process/contract issue before it is a UI feature.
 
 This is the minimal change that lets the process "know how to get out" of the
 research pile.
 
 ## 12. One-line recommendation
 
-Make the next kickoff consume this packet and choose:
+Make the next kickoff consume this packet and choose only after S70 process
+portable intake has been handled:
 
 ```text
-S70 = RRV Core + OSS Seed Corpus + @dev source-only
+S70 = Process Portable Complete + Gate 1 dogfood
 ```
 
-unless Gate 1/S69 exposes blocking P0/P1 that force a consolidation sprint
-first.
+RRV Core + OSS Seed Corpus + @dev source-only becomes the next candidate after
+the process contract is complete, unless S69/S70 exposes blocking P0/P1 that
+force another stabilization sprint first.

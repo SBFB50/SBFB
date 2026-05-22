@@ -30,6 +30,12 @@
 - `.planning/roadmap_v3_public_trust_factory_babel_rrv.md` — roadmap v3 canon
 - `.planning/roadmap_v4_neutral_protocol_factory_rrv.md` — draft v4 avec pivots
 
+**Amendement 2026-05-22 :** D18 ajoute `S70 = Process Portable Complete
++ Gate 1 dogfood`. Les sections anciennes qui parlent de S70 comme RRV Core,
+Gouvernance full UI, Tantivy/FTS MVP ou `@dev` index doivent etre lues comme
+des candidats S71+ sauf si le kickoff S70 les importe explicitement apres
+avoir traite `process_portable_complete_s70.md`.
+
 ### Conventions
 
 Ce document est auto-suffisant. Chaque fait majeur reference son document
@@ -648,7 +654,7 @@ SBFB.json v1 existants parsent sans erreur. (doc#6 §7, doc#5 §7)
 | Scope | Donnees | Valeur | Etat |
 |---|---|---|---|
 | `@protocole` / `@network` | Browse entries, feed entries, provenance records, curator lists, archives zip, tasks/kudos | Le differenciateur SBFB : recherche dans un catalogue P2P verifie avec provenance Ed25519 + feed hash-chain BLAKE3 | Donnees deja presentes dans le daemon. ~300 LOC pour FTS5. |
-| `@dev` | Code source, manifests, symbols AST, capabilities, risks, tests | Aide Factory a trouver des patterns, produire des citations fichier:ligne:hash | N'existe pas. Necessite sbfb-factory + tree-sitter. S70+ par defaut ; non requis Gate 1. |
+| `@dev` | Code source, manifests, symbols AST, capabilities, risks, tests | Aide Factory a trouver des patterns, produire des citations fichier:ligne:hash | N'existe pas. Necessite sbfb-factory + tree-sitter. S71+ par defaut apres S70 Process Portable Complete ; non requis Gate 1. |
 | `@web` | Sources web externes (SearXNG sidecar) | Trouver les meilleures briques OSS, comparer avec le reseau SBFB | N'existe pas. Necessite Docker sidecar. Questions privacy non resolues. |
 
 (doc#3 §4, doc#14 §1)
@@ -674,7 +680,8 @@ L'analyse factuelle (doc#14) conclut :
 explicitement non bloquant pour Arc 2/Gate 1. Le pilote ferme valide
 la chaine `@protocole` (search, feed, provenance, Proof Cards,
 publish, Babel dogfood). `@dev` peut demarrer en stretch uniquement
-si cela ne ralentit pas cette chaine ; sinon il glisse S70+.
+si cela ne ralentit pas cette chaine ; sinon il glisse S71+ apres S70
+Process Portable Complete.
 
 **Commencer par @protocole**, pas par @dev. Raisons :
 
@@ -699,7 +706,7 @@ Etape 1 (S67-S68) : @protocole
   FTS5 daemon search + Proof Cards + citations
   Cout : ~300-400 LOC, zero nouvelle dependance
 
-Etape 2 (S70+ par defaut, stretch S68-S69 si zero-impact) : @dev
+Etape 2 (S71+ par defaut apres S70 process portable, stretch S68-S69 si zero-impact) : @dev
   Index local/source-only dans sbfb-factory
   tree-sitter en stretch
   Cout : ~400-600 LOC dans sbfb-factory
@@ -1386,6 +1393,7 @@ recherche long terme.** (doc#3 §8.2)
 | D14 | Pas de signature Ed25519 decomposee en S67-S69 | 2026-05-19 | **Revisable** | doc#12 §2.3 | Le deploy monolithique via deploy-from-repo est suffisant et plus sur |
 | D15 | SearchManifest = domain tag gele une fois deploye | 2026-05-19 | **Gelee** | doc#13 §9.2 | Meme rigueur que FeedEntryCanonical |
 | D16 | formula_version dans ProofCard | 2026-05-19 | **Gelee** | doc#13 §9.2 | Apps detectent changement de formule sans casser |
+| D18 | S70 = Process Portable Complete + Gate 1 dogfood | 2026-05-22 | **Gelee** | process_portable_complete_s70.md + roadmap v4 | Le process portable doit etre complet avant RRV total, Factory process packaging, SearchManifest ou broad OSS ingestion |
 
 ### 9.2 Tensions resolues
 
@@ -1393,7 +1401,7 @@ recherche long terme.** (doc#3 §8.2)
 |---|---|---|
 | FTS5 vs Tantivy | FTS5 d'abord (zero dep, tables existantes). Tantivy en gate post-S75 si >50K docs. | doc#5 §10, doc#4 §2.3 |
 | Factory dans/hors daemon | Hors daemon (crate separe). Prior art convergent. | doc#12, doc#11 |
-| @dev d'abord vs @protocole d'abord | @protocole d'abord (donnees existent, differenciateur, besoin pilote). Recadrage 2026-05-21 : @dev non bloquant Gate 1, S70+ par defaut. | doc#14 + PO 2026-05-21 |
+| @dev d'abord vs @protocole d'abord | @protocole d'abord (donnees existent, differenciateur, besoin pilote). Recadrage 2026-05-21 : @dev non bloquant Gate 1. Recadrage 2026-05-22 : S70 formalise le process portable ; `@dev` index devient S71+ par defaut. | doc#14 + PO 2026-05-21 + D18 |
 | node_id dans/hors manifest | Hors manifest (Option D, attribution dans provenance) | doc#6 §6 |
 | CuratorVouched en S65 vs S67 vs S70 | Minimal en S65 (variants + tests, pas d'UI). Full UI en S70. | doc#7 §5 Option D |
 | Babel a la main vs via Factory | Via Factory (contrat). Plan B : a la main si Factory glisse. | doc#5 §1, doc#9 §7 |

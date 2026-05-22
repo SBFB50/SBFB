@@ -43,9 +43,17 @@ Recadrage PO 2026-05-21 (@dev non bloquant Gate 1) :
 > L'Arc 2 ne depend pas de RRV @dev pour reussir. Gate 1 se valide
 > sur la chaine @protocole : create/publish, feed, search, Proof Card,
 > Babel dogfood, pilote ferme. @dev est un enrichissement post-pilote
-> par defaut (S70+) ou un stretch strictement non bloquant. L'ingestion
+> par defaut (S71+) ou un stretch strictement non bloquant. L'ingestion
 > de repos OSS GitHub exige un contrat source-only separe et ne doit pas
 > etre confondue avec une app SBFB verifiee.
+
+Recadrage PO 2026-05-22 (process portable avant RRV total/Factory process) :
+
+> S70 doit rendre complet le process portable que Nexus utilise deja :
+> roles, handoff, agentctl status/lint/audit, gates, hooks et CI process.
+> RRV consomme ensuite ce process via des modes `@research`, `@dev`,
+> `@audit`, `@security`, `@product`. Factory peut plus tard packager ces
+> contrats, mais ne devient pas l'autorite de verification.
 
 ---
 
@@ -98,6 +106,7 @@ Ref detaillee : SYNTHESIS §9.1.
 | D15 | SearchManifest domain tag gele une fois deploye | 2026-05-19 |
 | D16 | formula_version dans ProofCard | 2026-05-19 |
 | D17 | S70 = consolidation Gate 1, pas SearchManifest. Phases elargies 2-3 × ~1200 LOC | 2026-05-22 |
+| D18 | S70 = Process Portable Complete avant RRV total/Factory process packaging ; Gate 1 devient surface de dogfood process | 2026-05-22 |
 
 ---
 
@@ -175,13 +184,13 @@ kickoff de chaque sprint) :**
 
 **Ce que le kickoff de chaque sprint decide :**
 - Les phases A-D/E exactes et leur contenu
-- Le scope @dev eventuel (stretch non bloquant ; S70+ par defaut)
+- Le scope @dev eventuel (stretch non bloquant ; S71+ par defaut apres S70 process)
 - Les livrables deplacables si le sprint deborde (scope cuts)
 - Les items dette absorbes
 
 **Scope ajustable entre S67-S69 :**
 
-| Livrable | Obligatoire | Deplacable a S70+ si debordement |
+| Livrable | Obligatoire | Deplacable a S70+/S71+ si debordement |
 |----------|-------------|----------------------------------|
 | Primitives daemon (feed/entries, search, preview) | Oui | Non |
 | sbfb-factory CLI (create + generate) | Oui | Non |
@@ -222,37 +231,52 @@ Si > 5 bugs P0/P1 : sprint fix dedie avant S70.
 
 ---
 
-### Sprint consolidation S70 (D17, amendement 2026-05-22)
+### Sprint S70 — Process Portable Complete + Gate 1 dogfood (D18)
 
-**Objectif :** Rendre l'Arc 2 défendable avant d'ajouter du réseau
-P2P. Aucune feature nouvelle — uniquement stabilisation.
+**Objectif :** Rendre complet le process portable avant RRV total,
+Factory process packaging, SearchManifest ou ingestion OSS large. Nexus
+doit dogfooder son propre process pendant le durcissement Gate 1 : les
+preuves restent dans le repo, pas dans la memoire d'un chat.
 
-**Axes (chaque item doit référencer un carry, bug pilote, ou test
-manquant — zéro item spéculatif) :**
+**Principe :** Claude/Codex/GPT/local LLM/humain sont des providers.
+L'autorite reste le contrat repo : `.planning/active/`,
+`docs/agent/PROCESS.md`, `prompts/agent/`, `scripts/agent/agentctl.py`,
+hooks, tests, reviews et commits.
 
-1. **Audit Gate 1 réel** — rejouer install, publish, Babel,
-   ProofCard, restart, feed sync, browse, search. Pas seulement
-   tests unitaires.
-2. **Refacto coutures** — Factory/daemon API, bridge method policy,
-   ProofCard data validation, publish path, preview TTL, Browse/
-   Proof UI. Pas de refacto esthétique.
-3. **Dette sécurité** — fermer P2-D-1 wiring, P2-D-2 Zod runtime,
-   P2-D-3 XSS ProofCard, manifest vs bridge allowlist.
-4. **Dette produit** — clarifier états : draft, preview, published,
-   verified, stale, source-only.
-5. **Tests E2E** — reload, restart, deux noeuds, app generated-by-
-   Factory, proof visible, storage cohérent.
-6. **Docs/roadmap sync** — roadmap v4, audit_plan, verification,
-   threat model, publish model.
+**Phases recommandees :**
 
-**Phases élargies** : 2-3 phases à ~1200-1500 LOC code au lieu de
-4-5 à ~600 LOC. Le coût process par phase est quasi-fixe (~1000
-lignes d'artefacts preflight+review+codex). Moins de phases = ratio
-code/process de ~45-50% au lieu de ~29%.
+1. **Canon portable** — creer `docs/agent/AGENT_SYSTEM.md` comme carte
+   derivee du process, pas comme nouvelle procedure. Roles abstraits :
+   `driver`, `researcher`, `reviewer`, `auditor`, `product`, `security`,
+   `release`, `memory`.
+2. **Handoff portable** — creer `prompts/agent/handoff.md`, ajouter
+   `agentctl prompt --kind handoff`, et inclure `AGENT_SYSTEM.md` dans
+   `agentctl context`.
+3. **Agentctl observable** — ajouter `status-sprint`, `lint-planning`
+   et `audit-commit --rev HEAD`, avec tests dans `tests/test_agentctl.py`.
+4. **Gates, hooks, CI** — rendre exact `## Verdict: PASS`, fermer le
+   contournement `chore(sprintN): Sprint N Phase X`, enlever les hardcodes
+   Sprint 67 dans les hooks Claude, aligner `phase-auditor` vs
+   `phase-review-deep`, et ajouter CI process/agent.
+5. **Dogfood Nexus** — utiliser ce process portable sur un vrai changement
+   Nexus/Gate 1 pour prouver que le handoff fonctionne sans memoire privee.
+6. **Contrat RRV/Factory** — mapper les modes `@research`, `@dev`,
+   `@audit`, `@security`, `@product` vers les roles portables, et definir
+   comment Factory packagera plus tard les artefacts sans devenir autorite
+   de verification.
 
-**Gate de sortie S70** : "un utilisateur externe installe, crée via
-Factory, publie, cherche, vérifie une Proof Card, redémarre le
-daemon — tout fonctionne."
+**Gate de sortie S70** :
+
+```text
+Un autre provider peut reprendre une phase Nexus depuis agentctl context
++ handoff + fichiers repo, verifier l'etat sprint, linter le planning,
+auditer HEAD, et produire les memes artefacts de preuve sans memoire de chat.
+```
+
+**Gate 1 dogfood** : le flow utilisateur externe (installer, creer via
+Factory, publier, chercher, verifier une Proof Card, redemarrer le daemon)
+reste le scenario produit qui prouve que le process portable marche sur un
+cas reel.
 
 ---
 
@@ -271,8 +295,8 @@ formaliser la gouvernance, durcir Factory.
 
 | Sprint | Theme | Entree requise |
 |--------|-------|----------------|
-| S70 | **Consolidation Gate 1** — dette Arc 2, refacto coutures, tests E2E, docs sync. Phases elargies (2-3 × ~1200 LOC). Zero feature nouvelle. | Gate 1 PASS |
-| S71 | SearchManifest opt-in + discovery P2P | S70 consolidation DONE |
+| S70 | **Process Portable Complete + Gate 1 dogfood** — AGENT_SYSTEM, handoff, agentctl status/lint/audit, gates/hooks/CI, puis RRV/Factory contract. Zero RRV total. | Gate 1 PASS |
+| S71 | SearchManifest opt-in + discovery P2P ou RRV Core selon audit S70 | S70 process portable DONE |
 | S72 | Gouvernance complete + Factory hardening | S71 SearchManifest |
 | S73 | Sprint reserve (fixes pilote / Babel translation / dette) | S72 |
 
@@ -323,10 +347,10 @@ S68 Proof Cards + publish gate
   |---> S69 (proof card + publish path prerequis pilote)
 
 S69 Babel + pilote (Gate 1)
-  |---> S70 (consolidation dette Arc 2 avant reseau)
+  |---> S70 (process portable complet + Gate 1 dogfood)
 
-S70 Consolidation Gate 1
-  |---> S71 (base stable pour SearchManifest)
+S70 Process Portable Complete
+  |---> S71 (base stable pour RRV Core/SearchManifest/Factory packaging)
 
 S71 SearchManifest
   |---> S72 (manifests enrichis par gouvernance)
@@ -348,6 +372,7 @@ S73 reserve (Gate 2)
 | H4 | sbfb-manifest -> deploy.rs + sbfb-factory | Crate partage, schema v2 affecte les deux |
 | H5 | S67 FTS5 -> S68 proof-card | Proof cards utilisent l'index FTS5 |
 | H6 | sbfb-factory independant daemon | JAMAIS importer nexus-shell-daemon-core |
+| H7 | Process portable -> RRV/Factory | RRV lit le process ; Factory le package plus tard. Aucun des deux ne devient autorite process. |
 
 ---
 
@@ -377,7 +402,7 @@ progressivement. Ref detaillee : SYNTHESIS §7.2.
 | Scope | Quand | Pourquoi |
 |-------|-------|----------|
 | **@protocole** | S67 | Les donnees existent. Differenciateur SBFB. Besoin pilote. |
-| **@dev** (booste par protocole) | S70+ par defaut ; stretch S68-S69 seulement si zero impact Gate 1 | Depend de sbfb-factory + @protocole. N'est pas requis pour le pilote ferme. |
+| **@dev** (booste par protocole) | S71+ par defaut apres S70 process portable ; S70 seulement comme alias/contrat, pas index total | Depend de sbfb-factory + @protocole. N'est pas requis pour le pilote ferme. |
 | **@web** | Post-pilote S73+ | Depend de Factory fonctionnelle pour consommer les resultats. |
 
 Ref detaillee : SYNTHESIS §4.2 + rrv_scope_ordering_analysis.md.
@@ -396,12 +421,15 @@ Ref detaillee : SYNTHESIS §4.2 + rrv_scope_ordering_analysis.md.
    `deploy-from-repo` actuel exige une app avec `SBFB.json` et
    `index.html`. Un repo source generique requiert un mode
    `source-only`/`source-index` separe.
-4. **Le seed OSS est S70+ experimental.** Il doit etre curatee
+4. **Le seed OSS est S71+ experimental apres S70 process portable.** Il doit etre curatee
    (petit corpus pertinent), borne (taille/fichiers/langages), et
    etiquete `external OSS source index`, jamais `verified SBFB app`.
 5. **Les labels de confiance restent separes.** GitHub sert a la
    decouverte et au commit hash ; la verification SBFB reste reservee
    aux artefacts publies via le protocole.
+6. **S70 ne construit pas RRV total.** S70 formalise les modes `@`
+   comme alias du process portable. Le vrai `@dev LocalOnly`, le seed
+   OSS et `sbfb-search` deviennent candidats apres process portable.
 
 ---
 
@@ -436,8 +464,10 @@ Audit gate (sprint N-1)
 **Ce que le kickoff lit comme input strategique :**
 1. Cette roadmap (arcs, gates, dependances, decisions gelees)
 2. La synthese SYNTHESIS_factory_rrv_protocol.md (architecture, schemas, tests)
-3. L'etat reel du code (git log, tests, carries)
-4. La memory nexus_grid_pivot.md (compteurs, tip)
+3. `process_portable_complete_s70.md` quand le sprint touche agents/process
+4. Les intakes RRV recents seulement s'ils sont importes en D-decisions
+5. L'etat reel du code (git log, tests, carries)
+6. La memory nexus_grid_pivot.md (compteurs, tip)
 
 **Ce que le kickoff decide tactiquement :**
 - Les D1..D5 specifiques au sprint
@@ -459,8 +489,8 @@ La roadmap fournit la direction. Le kickoff fournit le plan.
 | S68 | 1-2 semaines | Proof Cards + publish gate |
 | S69 | 2-3 semaines | Babel + pilote ferme |
 | Gate 1 | — | Go/no-go |
-| S70 | 1-2 semaines | Consolidation Gate 1 (dette + refacto + E2E) |
-| S71-S73 | 3-6 semaines | SearchManifest + gouvernance + reserve |
+| S70 | 1-2 semaines | Process Portable Complete + Gate 1 dogfood |
+| S71-S73 | 3-6 semaines | RRV Core/SearchManifest + gouvernance + reserve selon audit S70 |
 | Gate 2 | — | Go/no-go |
 | S74-S76 | 3-6 semaines | Pack produit defendable |
 

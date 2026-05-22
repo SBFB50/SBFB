@@ -4,6 +4,11 @@
 **Auteur** : Sprint 65 Phase D.
 **Dependances aval** : S67 Factory Foundation, S68 Broker/Preview,
 S69 Babel Reader canari.
+**Amendement 2026-05-22** : l'architecture Factory a ete recadree par la
+roadmap v4. Factory est maintenant un outil/client externe (`sbfb-factory`),
+pas un module metier du daemon. Les gates FG0-FG10 restent valides comme
+contrat qualite, mais toute phrase ci-dessous qui parle de "module du daemon"
+doit etre lue comme fossile architectural.
 
 ---
 
@@ -14,9 +19,10 @@ publication d'une app sur le reseau SBFB. Il se decompose en 11
 gates sequentielles. Chaque gate recoit un input, produit un output,
 et doit etre franchie avant de passer a la suivante.
 
-Factory est un module du daemon Rust, pas une app iframe. Il
-n'y a pas de serveur central — chaque noeud execute sa propre
-instance de Factory pour les apps qu'il publie.
+Factory est un outil client externe (`sbfb-factory`) qui consomme les API
+neutres du daemon. Il n'y a pas de serveur central : chaque utilisateur peut
+executer sa propre Factory pour les apps qu'il publie. Le daemon reste neutre
+et ne doit pas embarquer de logique metier Factory.
 
 Les gates FG0-FG7 sont locales (pas de reseau requis). FG8-FG9
 impliquent le reseau P2P (signature + deploy). FG10 est post-
@@ -199,9 +205,11 @@ Developpeur
 4. **Deterministe.** Pour un meme input, une gate produit le meme
    output. Pas de composant ML, pas de scoring opaque.
 
-5. **Module daemon Rust.** Factory est un module du daemon, pas une
-   app iframe. Le broker (S68) est l'interface interactive qui
-   pilote le pipeline gate par gate.
+5. **Client externe Rust.** Factory est un outil/client externe
+   (`sbfb-factory`) qui consomme les API neutres du daemon, pas une
+   app iframe et pas un module metier du daemon. L'interface future
+   pilote le pipeline gate par gate sans deplacer l'autorite dans
+   Factory.
 
 ---
 

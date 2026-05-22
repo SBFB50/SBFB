@@ -249,14 +249,17 @@ Body 9 sections obligatoires.
 ### §8.1 Scope
 
 Verification fail-fast, audit_plan S70, CLAUDE.md, SPRINT_LOG.md,
-memory update, Gate 1 self-checklist.
+memory update, Gate 1 self-checklist. Depuis le recadrage PO
+2026-05-22, `sprint70_audit_plan.md` doit router S70 comme
+**Process Portable Complete + Gate 1 dogfood**, pas comme RRV total,
+Factory process UI ou SearchManifest.
 
 ### §8.2 Livrables
 
 | Fichier | Description |
 |---|---|
 | `.planning/active/sprint69_verification.md` | Self-report fail-fast (25-30 rows). |
-| `.planning/active/sprint70_audit_plan.md` | Plan audit Gate 1 + S69 review. |
+| `.planning/active/sprint70_audit_plan.md` | Plan audit Gate 1 + S69 review + tracks S70 Process Portable Complete. Doit citer `.planning/research/process_portable_complete_s70.md`. |
 | `CLAUDE.md` | Mise a jour etat S69, compteurs, carries. |
 | `docs/claude/SPRINT_LOG.md` | Row S69. |
 
@@ -269,6 +272,8 @@ Pas de test code Phase E — artefacts documentaires.
 ```bash
 test -f .planning/active/sprint69_verification.md  # exists
 test -f .planning/active/sprint70_audit_plan.md    # exists
+grep -q "Process Portable Complete" .planning/active/sprint70_audit_plan.md
+grep -q "process_portable_complete_s70.md" .planning/active/sprint70_audit_plan.md
 ```
 
 ### §8.5 Commit cible
@@ -276,6 +281,22 @@ test -f .planning/active/sprint70_audit_plan.md    # exists
 `docs(sprint69): Sprint 69 Phase E — verification + wrap-up`
 
 Body 9 sections obligatoires.
+
+### §8.6 S70 route amendment — Process Portable Complete
+
+- Source intake : `.planning/research/process_portable_complete_s70.md`.
+- S70 route : `Process Portable Complete + Gate 1 dogfood`.
+- Preconditions : S69 Phase C/D/E completes, no open P0/P1, Phase C review
+  preserved.
+- Protected scope : do not reopen Phase C static-reader; route any remaining
+  Phase C P2/P3 as carry.
+- Non-goals : no RRV total, no SearchManifest, no Factory process UI, no broad
+  OSS ingestion.
+- `sprint69_verification.md` must include `## S70 Routing Check`,
+  `## Gate 1 Dogfood Baseline`, and `## Open Carries Routed To S70`.
+- `sprint70_audit_plan.md` must include `## S70 Objective — Process Portable
+  Complete`, `## Audit Tracks A-I`, `## RRV/Factory Consumer Contract`,
+  `## Non-Goals`, and `## Exit Gate`.
 
 ---
 
@@ -331,17 +352,17 @@ Body 9 sections obligatoires.
 
 | # | Item | Sprint cible | Rationale |
 |---|---|---|---|
-| 1 | SearchManifest wire format + gossip | S71 | Protocole reseau. Hors scope Arc 2. D17 : S70 = consolidation. |
-| 2 | Page React /factory | S70+ | CLI suffit pour S69 et le pilote. |
-| 3 | @dev index tree-sitter | S70+ | Decision PO 2026-05-21 : @dev non bloquant Gate 1. |
-| 4 | Template react-vite | S70+ | 3 templates suffisent. |
-| 5 | CuratorVouched UI shell | S70+ | Feed vouch S67. UI post-pilote. |
-| 6 | FG10 Review gate | S70+ | Lint/analyse statique post-Gate 1. |
+| 1 | SearchManifest wire format + gossip | S71 | Protocole reseau. Hors scope Arc 2. D18 : S70 = Process Portable Complete + Gate 1 dogfood. |
+| 2 | Page React /factory | S71+ | S70 reserve au process portable + Gate 1 dogfood. CLI suffit pour S69 et le pilote. |
+| 3 | @dev index tree-sitter | S71+ | Decision PO 2026-05-22 : S70 formalise `@dev` comme alias/process contract ; index total apres process portable. |
+| 4 | Template react-vite | S71+ | S70 reserve au process portable + Gate 1 dogfood. 3 templates suffisent. |
+| 5 | CuratorVouched UI shell | S71+ | Feed vouch S67. UI post-pilote apres S70 process portable. |
+| 6 | FG10 Review gate | S70 | Integre au track gates/hooks/CI process portable si scope reste borne. |
 | 7 | Fuzzing cargo-fuzz/proptest | post-Gate 1 | Hors scope fonctionnel. |
 | 8 | Feed format version bump | post-launch | Pre-launch policy. |
 | 9 | ProofCard comme feed op | S71+ | Candidat SearchManifest. |
-| 10 | Diff engine avance | S70+ | Diff basique S68 suffit. |
-| 11 | Multi-template switching UI | S70+ | CLI template choice suffit. |
+| 10 | Diff engine avance | S71+ | S70 reserve au process portable + Gate 1 dogfood. Diff basique S68 suffit. |
+| 11 | Multi-template switching UI | S71+ | S70 reserve au process portable + Gate 1 dogfood. CLI template choice suffit. |
 | 12 | Factory update-check | post-launch | Pas de telemetrie. |
 | 13 | Babel traduction live | post-launch | Reader statique dogfood. |
 | 14 | iroh 1.0 upgrade | Gate 1 decision | Evalue post-S69. |
@@ -367,6 +388,7 @@ Body 9 sections obligatoires.
 - [ ] 27/27 fail-fast verts
 - [ ] 3 commits feat (Phase A, B, C) + 1 commit docs (Phase D) + 1 commit docs (Phase E)
 - [ ] verification.md + audit_plan S70 ecrits
+- [ ] audit_plan S70 route explicitement `Process Portable Complete + Gate 1 dogfood`
 - [ ] GATE1_TEST_PROTOCOL.md ecrit
 - [ ] P2-I-2 3/3 CLOSED (script + procedure)
 - [ ] P2-B-1 CLOSED (MAX_PREVIEW_ENTRIES)
