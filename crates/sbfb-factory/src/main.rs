@@ -7,6 +7,7 @@ mod audit_log;
 mod daemon_client;
 mod diff;
 mod gates;
+mod pipeline;
 mod preview_cmd;
 mod provenance;
 mod publish;
@@ -58,6 +59,10 @@ enum Command {
         /// Public repository URL (HTTPS)
         #[arg(long)]
         repo_url: String,
+
+        /// Skip pre-publish gates (FG4/FG5/FG6) for debugging
+        #[arg(long, default_value_t = false)]
+        skip_gates: bool,
     },
 
     /// Show diff between workspace and template
@@ -68,6 +73,18 @@ enum Command {
 
     /// Scan a project directory for secrets
     ScanSecrets {
+        /// Path to the project directory
+        path: String,
+    },
+
+    /// Run FG5 sandbox check (symlinks, path traversal)
+    Sandbox {
+        /// Path to the project directory
+        path: String,
+    },
+
+    /// Run FG7 preview readiness check (daemon connectivity)
+    PreviewCheck {
         /// Path to the project directory
         path: String,
     },
@@ -99,9 +116,13 @@ fn main() {
                 let r = preview_cmd::run(&path);
                 ("preview", args, r)
             }
-            Command::Publish { path, repo_url } => {
+            Command::Publish {
+                path,
+                repo_url,
+                skip_gates,
+            } => {
                 let args = vec![path.clone(), format!("--repo-url={repo_url}")];
-                let r = publish::run(&path, &repo_url);
+                let r = publish::run(&path, &repo_url, skip_gates);
                 ("publish", args, r)
             }
             Command::Diff { path } => {
@@ -113,6 +134,16 @@ fn main() {
                 let args = vec![path.clone()];
                 let r = run_scan_secrets(&path);
                 ("scan-secrets", args, r)
+            }
+            Command::Sandbox { path } => {
+                let args = vec![path.clone()];
+                let r = run_sandbox(&path);
+                ("sandbox", args, r)
+            }
+            Command::PreviewCheck { path } => {
+                let args = vec![path.clone()];
+                let r = run_preview_check(&path);
+                ("preview-check", args, r)
             }
         };
 
@@ -150,6 +181,33 @@ fn run_scan_secrets(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("{result}");
     if !result.passed {
         return Err("secrets detected in project".into());
+    }
+    Ok(())
+}
+
+fn run_sandbox(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = dunce::canonicalize(path)?;
+    let result = gates::run_gate_fg5_sandbox(&workspace)?;
+    eprintln!("{result}");
+    if !result.passed {
+        return Err("sandbox check failed".into());
+    }
+    let index = workspace.join("index.html");
+    if index.exists() {
+        let contained = gates::check_path_containment(&workspace, &index)?;
+        if !contained {
+            return Err("index.html escapes workspace".into());
+        }
+    }
+    Ok(())
+}
+
+fn run_preview_check(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = dunce::canonicalize(path)?;
+    let result = gates::run_gate_fg7_preview(&workspace)?;
+    eprintln!("{result}");
+    if !result.passed {
+        return Err("preview check failed".into());
     }
     Ok(())
 }

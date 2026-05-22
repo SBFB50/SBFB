@@ -1,68 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Sprint 68 Phase B — `sbfb-factory publish` subcommand.
+//! `sbfb-factory publish` subcommand.
 //!
-//! Pre-validates the project manifest, then delegates to the
-//! daemon's `POST /api/v1/deploy-from-repo` endpoint which
-//! handles clone, zip, provenance, and gossip broadcast.
+//! Delegates to the publish pipeline (FG4→FG5→FG6→deploy→FG8).
 
 use std::path::Path;
 
-use crate::daemon_client::DaemonConnection;
+use crate::pipeline;
 
-#[derive(Debug, serde::Serialize)]
-struct DeployFromRepoRequest {
-    repo_url: String,
-    project_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    commit_sha: Option<String>,
-    category: String,
-    description: String,
-    apps: Vec<String>,
-}
-
-pub fn run(path: &str, repo_url: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(path: &str, repo_url: &str, skip_gates: bool) -> Result<(), Box<dyn std::error::Error>> {
     let project_dir = dunce::canonicalize(path)?;
+    validate_manifest(&project_dir)?;
 
-    let manifest = load_and_validate_manifest(&project_dir)?;
-    let conn = DaemonConnection::discover()?;
-
-    let req = DeployFromRepoRequest {
-        repo_url: repo_url.to_string(),
-        project_name: manifest.name.clone().unwrap_or_default(),
-        commit_sha: None,
-        category: manifest
-            .category
-            .clone()
-            .unwrap_or_else(|| "general".into()),
-        description: manifest.description.clone().unwrap_or_default(),
-        apps: Vec::new(),
-    };
-
-    let url = format!("{}/api/v1/deploy-from-repo", conn.base_url);
-    let resp = conn
-        .client()
-        .post(&url)
-        .header("X-SBFB-Token", &conn.token)
-        .header("Host", "127.0.0.1")
-        .json(&req)
-        .send()?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().unwrap_or_default();
-        return Err(format!("deploy failed ({status}): {body}").into());
-    }
-
-    let json: serde_json::Value = resp.json()?;
-    let hash = json["hash"].as_str().unwrap_or("unknown");
-    let prov = json["provenance_hash"].as_str().unwrap_or("none");
-    eprintln!("published: hash={hash}, provenance={prov}");
+    let result = pipeline::run_publish_pipeline(&project_dir, repo_url, skip_gates)?;
+    let passed = result.gate_results.iter().filter(|g| g.passed).count();
+    let total = result.gate_results.len();
+    eprintln!(
+        "published: hash={}, provenance={}, gates={}/{}",
+        result.hash, result.provenance_hash, passed, total
+    );
     Ok(())
 }
 
-fn load_and_validate_manifest(
-    dir: &Path,
-) -> Result<sbfb_manifest::SbfbManifest, Box<dyn std::error::Error>> {
+fn validate_manifest(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let manifest_path = dir.join("SBFB.json");
     if !manifest_path.exists() {
         return Err("SBFB.json not found — run `sbfb-factory validate` first".into());
@@ -73,7 +32,7 @@ fn load_and_validate_manifest(
     if name.is_empty() {
         return Err("SBFB.json: name must not be empty".into());
     }
-    Ok(manifest)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -83,22 +42,15 @@ mod tests {
     #[test]
     fn publish_requires_running_json() {
         let tmp = tempfile::tempdir().unwrap();
-        let manifest = serde_json::json!({
-            "sbfb_version": 2,
-            "name": "test-app",
-            "description": "A test"
-        });
-        std::fs::write(
-            tmp.path().join("SBFB.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
+        let out = tmp.path().join("app");
+        crate::template_engine::create("static", "test-app", out.to_str().unwrap()).unwrap();
 
         unsafe { std::env::set_var("NEXUS_GRID_ROOT", tmp.path().join("fake-grid")) };
-        let err = run(tmp.path().to_str().unwrap(), "https://github.com/test/app").unwrap_err();
+        let err = run(out.to_str().unwrap(), "https://github.com/test/app", false).unwrap_err();
         assert!(
             err.to_string().contains("daemon not running")
-                || err.to_string().contains("running.json")
+                || err.to_string().contains("running.json"),
+            "expected daemon error, got: {err}"
         );
         unsafe { std::env::remove_var("NEXUS_GRID_ROOT") };
     }
@@ -116,7 +68,12 @@ mod tests {
         )
         .unwrap();
 
-        let err = run(tmp.path().to_str().unwrap(), "https://github.com/test/app").unwrap_err();
+        let err = run(
+            tmp.path().to_str().unwrap(),
+            "https://github.com/test/app",
+            false,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("name must not be empty"));
     }
 }

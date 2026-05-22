@@ -7427,6 +7427,8 @@ dependencies = [
  "clap",
  "directories 5.0.1",
  "dunce",
+ "hex",
+ "nexus-core-rs",
  "regex",
  "reqwest 0.12.28",
  "sbfb-manifest",

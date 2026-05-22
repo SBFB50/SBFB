@@ -10,9 +10,11 @@ repository.workspace = true
 
 [dependencies]
 sbfb-manifest = { path = "../sbfb-manifest" }
+nexus-core-rs = { path = "../nexus-core-rs" }
 blake3 = { workspace = true }
 clap = { workspace = true }
 directories = { workspace = true }
+hex = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }

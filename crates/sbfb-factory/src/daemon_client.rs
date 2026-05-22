@@ -55,6 +55,62 @@ impl DaemonConnection {
     pub fn client(&self) -> reqwest::blocking::Client {
         reqwest::blocking::Client::new()
     }
+
+    pub fn get_node_id(&self) -> Result<[u8; 32], DaemonClientError> {
+        let url = format!("{}/api/daemon/info", self.base_url);
+        let resp = self
+            .client()
+            .get(&url)
+            .header("X-SBFB-Token", &self.token)
+            .header("Host", "127.0.0.1")
+            .send()
+            .map_err(|e| DaemonClientError::NotRunning(format!("GET /api/daemon/info: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(DaemonClientError::NotRunning(format!(
+                "GET /api/daemon/info: {}",
+                resp.status()
+            )));
+        }
+        let json: serde_json::Value = resp
+            .json()
+            .map_err(|e| DaemonClientError::Parse(format!("info response: {e}")))?;
+        let node_id_hex = json["node_id"]
+            .as_str()
+            .ok_or_else(|| DaemonClientError::Parse("info: missing node_id".into()))?;
+        let bytes = hex::decode(node_id_hex)
+            .map_err(|e| DaemonClientError::Parse(format!("node_id hex: {e}")))?;
+        bytes
+            .try_into()
+            .map_err(|_| DaemonClientError::Parse("node_id must be 32 bytes".into()))
+    }
+
+    pub fn get_provenance(&self, project_id: &str) -> Result<String, DaemonClientError> {
+        let url = format!("{}/api/v1/project/{}/provenance", self.base_url, project_id);
+        let resp = self
+            .client()
+            .get(&url)
+            .header("X-SBFB-Token", &self.token)
+            .header("Host", "127.0.0.1")
+            .send()
+            .map_err(|e| DaemonClientError::NotRunning(format!("GET provenance: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(DaemonClientError::NotRunning(format!(
+                "GET provenance: {}",
+                resp.status()
+            )));
+        }
+        let json: serde_json::Value = resp
+            .json()
+            .map_err(|e| DaemonClientError::Parse(format!("provenance response: {e}")))?;
+        let record = &json["record"];
+        if record.is_null() {
+            return Err(DaemonClientError::NotFound(
+                "provenance record not found for project",
+            ));
+        }
+        serde_json::to_string(record)
+            .map_err(|e| DaemonClientError::Parse(format!("provenance serialize: {e}")))
+    }
 }
 
 fn nexus_grid_root() -> Option<PathBuf> {

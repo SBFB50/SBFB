@@ -3,6 +3,7 @@
 use crate::diff;
 use crate::secret_scanner;
 use crate::template_engine::FactoryError;
+use nexus_core_rs::canonical::DOMAIN_PROVENANCE_V1;
 use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -61,7 +62,6 @@ pub fn run_gate_fg4_diff(workspace: &Path) -> Result<GateResult, FactoryError> {
     })
 }
 
-#[allow(dead_code)]
 pub fn run_gate_fg5_sandbox(workspace: &Path) -> Result<GateResult, FactoryError> {
     let canonical = dunce::canonicalize(workspace).map_err(|e| {
         FactoryError::PathTraversal(format!("cannot resolve '{}': {e}", workspace.display()))
@@ -114,7 +114,6 @@ pub fn run_gate_fg5_sandbox(workspace: &Path) -> Result<GateResult, FactoryError
     }
 }
 
-#[allow(dead_code)]
 pub fn check_path_containment(base: &Path, candidate: &Path) -> Result<bool, FactoryError> {
     let base_canonical = dunce::canonicalize(base).map_err(|e| {
         FactoryError::PathTraversal(format!("cannot resolve '{}': {e}", base.display()))
@@ -165,7 +164,6 @@ pub fn run_gate_fg6_secrets(workspace: &Path) -> Result<GateResult, FactoryError
     }
 }
 
-#[allow(dead_code)]
 pub fn run_gate_fg7_preview(workspace: &Path) -> Result<GateResult, FactoryError> {
     if !workspace.join("index.html").exists() {
         return Ok(GateResult::fail(
@@ -179,6 +177,71 @@ pub fn run_gate_fg7_preview(workspace: &Path) -> Result<GateResult, FactoryError
         Err(e) => Ok(GateResult::fail(
             "FG7-preview",
             vec![format!("daemon: {e}")],
+        )),
+    }
+}
+
+fn provenance_canonical_bytes(
+    schema_version: u32,
+    repo_url: &str,
+    commit_sha: &str,
+    artifact_hash: &str,
+    node_id: &str,
+    timestamp: &str,
+) -> Vec<u8> {
+    let payload = serde_json::json!({
+        "artifact_hash": artifact_hash,
+        "commit_sha": commit_sha,
+        "node_id": node_id,
+        "repo_url": repo_url,
+        "schema_version": schema_version,
+        "timestamp": timestamp,
+    });
+    let json_bytes = serde_json::to_string(&payload).unwrap_or_default();
+    let mut result = Vec::with_capacity(DOMAIN_PROVENANCE_V1.len() + 1 + json_bytes.len());
+    result.extend_from_slice(DOMAIN_PROVENANCE_V1);
+    result.push(0x00);
+    result.extend_from_slice(json_bytes.as_bytes());
+    result
+}
+
+pub fn run_gate_fg8_provenance(
+    provenance_json: &str,
+    node_public_key: &[u8; 32],
+) -> Result<GateResult, FactoryError> {
+    let data: serde_json::Value = serde_json::from_str(provenance_json)
+        .map_err(|e| FactoryError::Validation(format!("provenance JSON parse: {e}")))?;
+
+    let sig_hex = data["signature"]
+        .as_str()
+        .ok_or_else(|| FactoryError::Validation("provenance: missing signature".into()))?;
+    let sig_bytes = hex::decode(sig_hex)
+        .map_err(|e| FactoryError::Validation(format!("provenance: bad signature hex: {e}")))?;
+    let sig: [u8; 64] = sig_bytes
+        .try_into()
+        .map_err(|_| FactoryError::Validation("provenance: signature must be 64 bytes".into()))?;
+
+    let schema_version = data["schema_version"].as_u64().unwrap_or(0) as u32;
+    let repo_url = data["repo_url"].as_str().unwrap_or_default();
+    let commit_sha = data["commit_sha"].as_str().unwrap_or_default();
+    let artifact_hash = data["artifact_hash"].as_str().unwrap_or_default();
+    let node_id = data["node_id"].as_str().unwrap_or_default();
+    let timestamp = data["timestamp"].as_str().unwrap_or_default();
+
+    let canonical = provenance_canonical_bytes(
+        schema_version,
+        repo_url,
+        commit_sha,
+        artifact_hash,
+        node_id,
+        timestamp,
+    );
+
+    match nexus_core_rs::crypto::verify(node_public_key, &canonical, &sig) {
+        Ok(()) => Ok(GateResult::pass("FG8-provenance")),
+        Err(_) => Ok(GateResult::fail(
+            "FG8-provenance",
+            vec!["Ed25519 signature verification failed".into()],
         )),
     }
 }
@@ -325,5 +388,76 @@ mod tests {
             result.issues.iter().any(|i| i.contains("AWS")),
             "issue should mention AWS key"
         );
+    }
+
+    fn sign_test_provenance(
+        kp: &nexus_core_rs::crypto::KeyPair,
+        repo_url: &str,
+        commit_sha: &str,
+        artifact_hash: &str,
+    ) -> String {
+        let node_id_hex = hex::encode(kp.public_bytes());
+        let timestamp = "2026-05-22T12:00:00+00:00";
+        let canonical = provenance_canonical_bytes(
+            1,
+            repo_url,
+            commit_sha,
+            artifact_hash,
+            &node_id_hex,
+            timestamp,
+        );
+        let sig = kp.sign(&canonical);
+        serde_json::json!({
+            "schema_version": 1,
+            "repo_url": repo_url,
+            "commit_sha": commit_sha,
+            "artifact_hash": artifact_hash,
+            "node_id": node_id_hex,
+            "timestamp": timestamp,
+            "signature": hex::encode(sig),
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn test_fg8_provenance_valid_signature() {
+        let kp = nexus_core_rs::crypto::KeyPair::generate();
+        let json = sign_test_provenance(
+            &kp,
+            "https://github.com/user/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+        );
+        let result = run_gate_fg8_provenance(&json, &kp.public_bytes()).unwrap();
+        assert!(result.passed, "valid provenance should pass FG8");
+    }
+
+    #[test]
+    fn test_fg8_provenance_wrong_key() {
+        let kp = nexus_core_rs::crypto::KeyPair::generate();
+        let other = nexus_core_rs::crypto::KeyPair::generate();
+        let json = sign_test_provenance(
+            &kp,
+            "https://github.com/user/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+        );
+        let result = run_gate_fg8_provenance(&json, &other.public_bytes()).unwrap();
+        assert!(!result.passed, "wrong key should fail FG8");
+        assert!(result.issues.iter().any(|i| i.contains("signature")));
+    }
+
+    #[test]
+    fn test_fg8_provenance_tampered_json() {
+        let kp = nexus_core_rs::crypto::KeyPair::generate();
+        let json = sign_test_provenance(
+            &kp,
+            "https://github.com/user/repo",
+            "abc123def456abc123def456abc123def456abc1",
+            "deadbeef",
+        );
+        let tampered = json.replace("deadbeef", "tampered");
+        let result = run_gate_fg8_provenance(&tampered, &kp.public_bytes()).unwrap();
+        assert!(!result.passed, "tampered provenance should fail FG8");
     }
 }
