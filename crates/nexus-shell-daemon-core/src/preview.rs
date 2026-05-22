@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 pub const DEFAULT_TTL: Duration = Duration::from_secs(30 * 60);
 pub const MAX_PREVIEW_BYTES: usize = 10 * 1024 * 1024;
+pub const MAX_PREVIEW_ENTRIES: usize = 10;
 
 #[derive(Debug)]
 struct PreviewEntry {
@@ -51,6 +52,12 @@ impl PreviewStore {
             created_at: Instant::now(),
         };
         let mut guard = self.inner.write().map_err(|_| PreviewError::LockPoisoned)?;
+        if guard.len() >= MAX_PREVIEW_ENTRIES && !guard.contains_key(&hash_hex) {
+            return Err(PreviewError::TooManyEntries {
+                count: guard.len(),
+                limit: MAX_PREVIEW_ENTRIES,
+            });
+        }
         guard.insert(hash_hex.clone(), entry);
         Ok(hash_hex)
     }
@@ -87,6 +94,8 @@ impl PreviewStore {
 pub enum PreviewError {
     #[error("preview size {actual} exceeds limit {limit}")]
     TooLarge { actual: usize, limit: usize },
+    #[error("too many preview entries ({count}/{limit}) — evict or wait for TTL expiry")]
+    TooManyEntries { count: usize, limit: usize },
     #[error("internal lock poisoned")]
     LockPoisoned,
 }
@@ -144,5 +153,41 @@ mod tests {
     fn has_returns_false_for_unknown_hash() {
         let store = PreviewStore::new(DEFAULT_TTL);
         assert!(!store.has("0000000000000000000000000000000000000000000000000000000000000000"));
+    }
+
+    #[test]
+    fn preview_rejects_too_many_entries() {
+        let store = PreviewStore::new(DEFAULT_TTL);
+        for i in 0..MAX_PREVIEW_ENTRIES {
+            let data = format!("entry-{i}").into_bytes();
+            store.load(data).unwrap();
+        }
+        let err = store.load(b"one-too-many".to_vec()).unwrap_err();
+        assert!(matches!(err, PreviewError::TooManyEntries { .. }));
+    }
+
+    #[test]
+    fn preview_allows_same_hash_reload_when_full() {
+        let store = PreviewStore::new(DEFAULT_TTL);
+        let mut last_data = Vec::new();
+        for i in 0..MAX_PREVIEW_ENTRIES {
+            last_data = format!("entry-{i}").into_bytes();
+            store.load(last_data.clone()).unwrap();
+        }
+        let hash = store.load(last_data).unwrap();
+        assert!(store.has(&hash));
+    }
+
+    #[test]
+    fn preview_accepts_after_eviction() {
+        let store = PreviewStore::new(Duration::from_millis(1));
+        for i in 0..MAX_PREVIEW_ENTRIES {
+            let data = format!("entry-{i}").into_bytes();
+            store.load(data).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(10));
+        store.evict_expired();
+        let hash = store.load(b"fresh-entry".to_vec()).unwrap();
+        assert!(store.has(&hash));
     }
 }

@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 use std::process;
 
+mod audit_log;
 mod daemon_client;
 mod diff;
 mod gates;
@@ -75,21 +76,60 @@ enum Command {
 fn main() {
     let cli = Cli::parse();
 
-    let result: Result<(), Box<dyn std::error::Error>> = match cli.command {
-        Command::Create {
-            template,
-            name,
-            output,
-        } => {
-            let output_dir = output.unwrap_or_else(|| name.clone());
-            template_engine::create(&template, &name, &output_dir).map_err(|e| e.into())
-        }
-        Command::Validate { path } => template_engine::validate(&path).map_err(|e| e.into()),
-        Command::Preview { path } => preview_cmd::run(&path),
-        Command::Publish { path, repo_url } => publish::run(&path, &repo_url),
-        Command::Diff { path } => run_diff(&path),
-        Command::ScanSecrets { path } => run_scan_secrets(&path),
+    let (cmd_name, cmd_args, result): (&str, Vec<String>, Result<(), Box<dyn std::error::Error>>) =
+        match cli.command {
+            Command::Create {
+                template,
+                name,
+                output,
+            } => {
+                let args = vec![format!("--template={template}"), format!("--name={name}")];
+                let output_dir = output.unwrap_or_else(|| name.clone());
+                let r =
+                    template_engine::create(&template, &name, &output_dir).map_err(|e| e.into());
+                ("create", args, r)
+            }
+            Command::Validate { path } => {
+                let args = vec![path.clone()];
+                let r = template_engine::validate(&path).map_err(|e| e.into());
+                ("validate", args, r)
+            }
+            Command::Preview { path } => {
+                let args = vec![path.clone()];
+                let r = preview_cmd::run(&path);
+                ("preview", args, r)
+            }
+            Command::Publish { path, repo_url } => {
+                let args = vec![path.clone(), format!("--repo-url={repo_url}")];
+                let r = publish::run(&path, &repo_url);
+                ("publish", args, r)
+            }
+            Command::Diff { path } => {
+                let args = vec![path.clone()];
+                let r = run_diff(&path);
+                ("diff", args, r)
+            }
+            Command::ScanSecrets { path } => {
+                let args = vec![path.clone()];
+                let r = run_scan_secrets(&path);
+                ("scan-secrets", args, r)
+            }
+        };
+
+    let result_str = match &result {
+        Ok(()) => "success".to_string(),
+        Err(e) => format!("error: {e}"),
     };
+
+    let entry = audit_log::AuditEntry {
+        timestamp: time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default(),
+        command: cmd_name.to_string(),
+        args: cmd_args,
+        result: result_str,
+    };
+    let _ = audit_log::log_entry(&entry);
 
     if let Err(e) = result {
         eprintln!("error: {e}");
@@ -109,7 +149,7 @@ fn run_scan_secrets(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let result = gates::run_gate_fg6_secrets(&workspace)?;
     eprintln!("{result}");
     if !result.passed {
-        process::exit(1);
+        return Err("secrets detected in project".into());
     }
     Ok(())
 }

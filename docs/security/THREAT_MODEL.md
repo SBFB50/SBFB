@@ -655,7 +655,50 @@ Mitigations :
 
 ---
 
-## 13. Revue et evolution
+## 13. Preview ephemere surface (Sprint 69 Phase A)
+
+Le `PreviewStore` du daemon heberge des archives zip chargees par
+`sbfb-factory preview` pour tester une app localement avant
+publication. Les previews sont ephemeres (TTL 30 min), accessibles
+uniquement via loopback authentifie, et servies dans un iframe
+sandbox identique aux blobs P2P.
+
+### T-PREVIEW-EXHAUSTION — Memory exhaustion via preview flooding
+
+Un attaquant local (ou un script malveillant sur la meme machine)
+charge des previews en boucle pour epuiser la memoire du daemon.
+
+Vecteurs :
+
+1. **Volume d'entries** : charger des previews distincts en rafale.
+   Chaque entry est limitee a 10 MB (`MAX_PREVIEW_BYTES`), mais sans
+   cap sur le nombre d'entries le store grandit sans borne.
+2. **Taille maximale** : charger des entries de 10 MB chacune pour
+   maximiser l'impact memoire par entry.
+
+Mitigations :
+
+- `MAX_PREVIEW_BYTES = 10 MB` par entry (Sprint 68 Phase B).
+- `MAX_PREVIEW_ENTRIES = 10` entries simultanees (Sprint 69 Phase A).
+  Le 11e load retourne `PreviewError::TooManyEntries`. L'impact
+  memoire maximum est borne a 10 * 10 MB = 100 MB.
+- TTL 30 min avec eviction automatique (`evict_expired`).
+- Loopback-only : le endpoint `/api/v1/preview/load` est accessible
+  uniquement via localhost avec bearer token. Un attaquant distant ne
+  peut pas charger de previews.
+- Bearer token authentification : meme un processus local doit
+  connaitre le token genere au demarrage du daemon.
+
+| Dimension | Valeur |
+|---|---|
+| Severite | L (impact borne a 100 MB, loopback-only) |
+| Likelihood | L (requiert acces loopback + bearer token) |
+| Mitigation | MAX_PREVIEW_BYTES + MAX_PREVIEW_ENTRIES + TTL + auth |
+| Residual | L (attaquant local avec bearer = compromission machine deja) |
+
+---
+
+## 14. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -683,3 +726,5 @@ Historique versions :
   P2-THREAT-MODEL-FEED-SURFACE 3/3, renommage §11→§12.
 - **v5 (Sprint 68 Phase D, 2026-05-21)** : ajout §12 ProofCard
   surface (T-PROOFCARD-FORMULA-GAME), renommage §12→§13.
+- **v6 (Sprint 69 Phase A, 2026-05-22)** : ajout §13 Preview
+  ephemere surface (T-PREVIEW-EXHAUSTION), renommage §13→§14.
