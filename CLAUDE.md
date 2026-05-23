@@ -149,38 +149,34 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-68 CLOSED**, v2.1 ouverte. **Tag v1.0 pose.**
+- **Sprints 0-69 CLOSED**, v2.1 ouverte. **Tag v1.0 pose.**
   Projet Rust+Frontend pur depuis S50-S51.
-  S68 Proof Cards + Publish Gate (2e sprint Arc 2 Factory + RRV
-  @protocole + Canari, 2/3) :
-  Phase A ProofCard struct + formule score 0-100 + 7 risk factors +
-  formula_version 1 + GET /api/daemon/proof-card/{id} endpoint +
-  bridge method proof_card_get +
-  Phase B preview ephemere POST /api/v1/preview/load + TTL 30min
-  eviction + blob-serve integration + sbfb-factory preview/publish
-  subcommands +
-  Phase C Factory gates FG4-FG7 (diff + sandbox dunce::canonicalize
-  + lockfile BLAKE3 + secrets regex + preview check) + P2-C-2 path
-  traversal Windows RESOLVED (dunce + prefix check + 4 tests) +
-  Phase D ProofCard.tsx composant UI expandable (score, 6 couches
-  preuve, risk factors, badge risque) + BrowsedProject.tsx
-  integration useQuery proof-card + THREAT_MODEL §12
-  T-PROOFCARD-FORMULA-GAME (4 vecteurs + mitigations) +
-  Phase E verification 30/30 + audit_plan S69 + wrap-up.
+  S69 Babel dogfood via Factory + pilote ferme + Gate 1 (3e et
+  dernier sprint Arc 2 Factory + RRV @protocole + Canari, 3/3) :
+  Phase A preview cap MAX_PREVIEW_ENTRIES=10 + audit_log JSONL
+  Factory + P2-I-2 3/3 CLOSED + THREAT_MODEL §13 preview surface +
+  Phase B FG8 provenance Ed25519 verification post-publish +
+  FG9 pipeline integre FG4→FG5→FG6→publish→FG8 + dead_code retires
+  (P3-I-2 CLOSED) +
+  Phase C template static-reader pour Babel dogfood + create+
+  validate+preview+publish E2E documentaire +
+  Phase D GATE1_TEST_PROTOCOL.md 9 procedures pas-a-pas pilote
+  ferme 2-3 testeurs + instructions installation tri-plateforme +
+  Phase E verification 27/27 + audit_plan S70 + wrap-up.
   Arc 1 Fondations COMPLET (S65 + S66).
-  Arc 2 sprint 2/3 COMPLET (S67 + S68).
+  Arc 2 Factory + RRV @protocole + Canari COMPLET (S67 + S68 + S69).
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1704 tests total** (1419 Rust / 279 Vitest / 6/6 size-limit)
-  — tous verts code. S68 : +35 delta Rust (1384→1419,
-  Phase A +11, B +14, C +10, D +0), +9 delta Vitest
-  (270→279, Phase A +1, D +8).
-- Carry S69 :
+- **~1718 tests total** (1433 Rust / 279 Vitest / 6/6 size-limit)
+  — tous verts code. S69 : +14 delta Rust (1419→1433,
+  Phase A +5, B +6, C +3, D +0), +0 delta Vitest (279→279).
+- Carry S70 :
   P2-A-1 rand blocker upstream (exemption externe).
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
-  P2-G-1 exe lock intermittent (monitoring, non-repro 6 sprints).
+  P2-G-1 exe lock intermittent (monitoring, non-repro 7 sprints,
+  candidat CLOSE).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
-  P2-I-2 delta body (2/3, attention 3/3 S69).
+  P2-I-3 body docs minimaliste (2/3).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).
   LT-3/LT-4 hors-sprint (post-v1.0).
