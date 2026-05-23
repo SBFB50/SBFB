@@ -80,6 +80,17 @@ def test_prompt_context_includes_claude_sources(monkeypatch):
     assert "- docs/claude/SPRINT_LOG.md" in context
 
 
+def test_codex_prompt_path_includes_sprint_phase_and_recheck(tmp_path, monkeypatch):
+    agentctl = load_agentctl()
+    monkeypatch.setattr(agentctl, "ROOT", tmp_path)
+
+    assert agentctl.rel(agentctl.codex_prompt_path(69, "e")) == ".git/CODEX_SPRINT69_PHASE_E.txt"
+    assert (
+        agentctl.rel(agentctl.codex_prompt_path(69, "e", recheck=1))
+        == ".git/CODEX_SPRINT69_PHASE_E_RECHECK_01.txt"
+    )
+
+
 def test_review_gate_rejects_pass_pending_and_pending_codex():
     agentctl = load_agentctl()
 

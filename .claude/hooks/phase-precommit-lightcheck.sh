@@ -87,6 +87,7 @@ if [ -z "$SPRINT" ]; then
 fi
 PHASE_RAW=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $NF}' || true)
 PHASE=$(echo "$PHASE_RAW" | tr '[:upper:]' '[:lower:]' || true)
+PHASE_UPPER=$(echo "$PHASE" | tr '[:lower:]' '[:upper:]' || true)
 
 # === Check 1 : coherence staging pub mod (STRICT) ===
 CURRENT_FILE=""
@@ -287,7 +288,7 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
       echo "" >&2
       echo "[lightcheck] BLOCK: Codex review manquant (§4.5)" >&2
       echo "  Attendu: ${CODEX_REVIEW}" >&2
-      echo "  Procedure: ecrire prompt .git/CODEX_PHASE_X.txt," >&2
+      echo "  Procedure: ecrire prompt .git/CODEX_SPRINT${SPRINT}_PHASE_${PHASE_UPPER}.txt," >&2
       echo "    lancer codex exec, corriger GAPs, re-stage." >&2
       echo "  Zero exemption: une phase commit exige un artefact Codex." >&2
       echo "" >&2

@@ -837,10 +837,13 @@ remplace ni le preflight, ni la review, ni l'audit gate.
 ```powershell
 # 1. Ecrire le prompt dans un fichier texte
 #    (Write tool en contexte agent, ou editeur)
-#    Chemin standard : .git/CODEX_PHASE_X.txt
+#    Chemin standard : .git/CODEX_SPRINT{N}_PHASE_{X}.txt
+#    (inclure le sprint evite d'ecraser le prompt d'un autre sprint)
+#    Helper canonique :
+#    python scripts/agent/agentctl.py codex-prompt-path --sprint {N} --phase {X}
 
 # 2. Pipe via stdin vers codex exec
-Get-Content ".git/CODEX_PHASE_X.txt" -Raw | codex exec `
+Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
   --dangerously-bypass-approvals-and-sandbox `
   -o ".planning/active/sprint{N}_phase_{X}_codex_review.md"
 ```
@@ -875,10 +878,12 @@ bloque si l'artefact dit le contraire.
 
 #### 4.5.3 Template de prompt Codex — verification phase
 
-Ce template est a ecrire dans `.git/CODEX_PHASE_X.txt` avant
+Ce template est a ecrire dans `.git/CODEX_SPRINT{N}_PHASE_{X}.txt` avant
 de lancer `codex exec`. Adapter les placeholders `{...}` a la
 phase en cours. Template complet dans
 `.claude/templates/codex_phase_review.txt`.
+Le chemin doit etre obtenu si possible via
+`python scripts/agent/agentctl.py codex-prompt-path --sprint {N} --phase {X}`.
 
 ```
 Tu es un auditeur independant. Tu verifies le code source du
@@ -1955,7 +1960,7 @@ procédure lui-même (sauf Cas D hotfix).
     APRÈS review PASS-PENDING, AVANT commit (Codex §4.5) :
       Lancer la verification croisee Codex GPT 5.5 pour TOUTES
       les phases sans exception (§4.5.6 zero exemption).
-      Ecrire prompt `.git/CODEX_PHASE_X.txt`, lancer via
+      Ecrire prompt `.git/CODEX_SPRINT{N}_PHASE_{X}.txt`, lancer via
       `Get-Content | codex exec -o .planning/active/
       sprint{N}_phase_{X}_codex_review.md`.
       Le fichier codex_review.md DOIT etre l'output BRUT de

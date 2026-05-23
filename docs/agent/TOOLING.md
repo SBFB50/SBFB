@@ -10,6 +10,8 @@ python scripts/agent/agentctl.py context
 python scripts/agent/agentctl.py prompt --kind universal --depth deep
 python scripts/agent/agentctl.py prompt --kind preflight --sprint 35 --phase A
 python scripts/agent/agentctl.py prompt --kind preflight --sprint 35 --phase A --depth deep
+python scripts/agent/agentctl.py codex-prompt-path --sprint 35 --phase A
+python scripts/agent/agentctl.py codex-prompt-path --sprint 35 --phase A --recheck 1
 python scripts/agent/agentctl.py verify-on-write --file crates/nexus-core-rs/src/lib.rs
 python scripts/agent/agentctl.py precommit-lightcheck
 python scripts/agent/agentctl.py precommit-lightcheck --scope staged
@@ -27,6 +29,12 @@ LLM provider. Use `--kind base` only for lightweight orientation. The default
 `--depth standard` includes status and diff stats only. Use `--depth deep` when
 handing work to another provider; it adds branch, HEAD, staged/unstaged file
 name-status, and the last five commit titles without embedding full diffs.
+
+`codex-prompt-path` prints the stable `.git/` prompt filename for Codex phase
+verification. The name includes both sprint and phase, for example
+`.git/CODEX_SPRINT35_PHASE_A.txt`, so a later Sprint 36 Phase A prompt does not
+overwrite it. Use `--recheck N` for targeted reruns such as
+`.git/CODEX_SPRINT35_PHASE_A_RECHECK_01.txt`.
 
 `verify-on-write` runs the smallest relevant linter for one file:
 

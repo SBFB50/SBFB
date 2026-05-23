@@ -415,7 +415,8 @@ est un "PO dit skip codex" explicite.
      ```
      ## Codex gate (§4.5)
      - Status : EN ATTENTE — lancer Codex §4.5 avant commit
-     - Procedure : ecrire prompt dans .git/CODEX_PHASE_X.txt
+     - Procedure : ecrire prompt dans .git/CODEX_SPRINT{N}_PHASE_{X}.txt
+       (ou imprimer le chemin via agentctl codex-prompt-path)
        (template .claude/templates/codex_phase_review.txt),
        lancer codex exec, lire rapport, corriger GAPs
      ```

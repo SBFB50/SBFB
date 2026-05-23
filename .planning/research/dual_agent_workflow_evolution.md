@@ -84,10 +84,13 @@ remplace ni le preflight, ni la review, ni l'audit gate.
 ```powershell
 # 1. Ecrire le prompt dans un fichier texte
 #    (Write tool en contexte agent, ou editeur)
-#    Chemin standard : .git/CODEX_PHASE_X.txt
+#    Chemin standard : .git/CODEX_SPRINT{N}_PHASE_{X}.txt
+#    (inclure le sprint evite d'ecraser le prompt d'un autre sprint)
+#    Helper canonique :
+#    python scripts/agent/agentctl.py codex-prompt-path --sprint {N} --phase {X}
 
 # 2. Pipe via stdin vers codex exec
-Get-Content ".git/CODEX_PHASE_X.txt" -Raw | codex exec `
+Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
   --dangerously-bypass-approvals-and-sandbox `
   -o ".planning/active/sprint{N}_phase_{X}_codex_review.md"
 ```
@@ -111,9 +114,11 @@ Get-Content ".git/CODEX_PHASE_X.txt" -Raw | codex exec `
 
 #### 4.5.3 Template de prompt Codex — verification phase
 
-Ce template est a ecrire dans `.git/CODEX_PHASE_X.txt` avant
+Ce template est a ecrire dans `.git/CODEX_SPRINT{N}_PHASE_{X}.txt` avant
 de lancer `codex exec`. Adapter les placeholders `{...}` a la
 phase en cours.
+Le chemin doit etre obtenu si possible via
+`python scripts/agent/agentctl.py codex-prompt-path --sprint {N} --phase {X}`.
 
 ```
 Tu es un auditeur independant. Tu ne connais PAS l'historique de
@@ -263,7 +268,7 @@ Quand Codex produit des findings :
    de la doc), relancer Codex sur les fichiers modifies uniquement :
    ```powershell
    # Prompt cible sur les fichiers corriges
-   Get-Content ".git/CODEX_PHASE_X_RECHECK.txt" -Raw | codex exec `
+   Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}_RECHECK_01.txt" -Raw | codex exec `
      --dangerously-bypass-approvals-and-sandbox `
      -o ".planning/active/sprint{N}_phase_{X}_codex_recheck.md"
    ```
@@ -364,10 +369,10 @@ et `G7 carry-overs`.
     Apres review Claude, AVANT commit : Codex verification
                croisee (§4.5). Sauf si phase docs-only, < 5 LOC,
                hotfix cas D, ou PO dit "skip codex". Procedure :
-               1. Ecrire prompt Codex dans .git/CODEX_PHASE_X.txt
+               1. Ecrire prompt Codex dans .git/CODEX_SPRINT{N}_PHASE_{X}.txt
                   (template §4.5.3, adapter livrables depuis plan)
                2. Lancer :
-                  Get-Content ".git/CODEX_PHASE_X.txt" -Raw | codex exec `
+                  Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
                     --dangerously-bypass-approvals-and-sandbox `
                     -o ".planning/active/sprint{N}_phase_{X}_codex_review.md"
                3. Lire le rapport, trier GAPs vs faux positifs
@@ -581,7 +586,7 @@ citent des sections specifiques. L'ajout de §4.5 impacte :
 Chemin suggere : `.claude/templates/codex_phase_review.txt`
 
 Ce fichier est un template avec placeholders. L'agent Claude le
-copie dans `.git/CODEX_PHASE_X.txt` en remplacant les placeholders
+copie dans `.git/CODEX_SPRINT{N}_PHASE_{X}.txt` en remplacant les placeholders
 avant chaque lancement.
 
 ```

@@ -245,6 +245,22 @@ def cmd_prompt(args: argparse.Namespace) -> int:
     return 0
 
 
+def codex_prompt_path(sprint: int | str, phase: str, recheck: int | None = None) -> Path:
+    phase_token = phase.strip().upper()
+    suffix = f"_RECHECK_{recheck:02d}" if recheck is not None else ""
+    return ROOT / ".git" / f"CODEX_SPRINT{sprint}_PHASE_{phase_token}{suffix}.txt"
+
+
+def cmd_codex_prompt_path(args: argparse.Namespace) -> int:
+    if args.recheck is not None and args.recheck <= 0:
+        print("[agentctl] --recheck must be a positive integer", file=sys.stderr)
+        return 2
+
+    path = codex_prompt_path(args.sprint, args.phase, args.recheck)
+    print(str(path) if args.absolute else rel(path))
+    return 0
+
+
 def normalize_file(path: str) -> Path:
     p = Path(path)
     if not p.is_absolute():
@@ -697,6 +713,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include lightweight repo metadata; deep adds file name-status and recent commits",
     )
     prompt.set_defaults(func=cmd_prompt)
+
+    codex_path = sub.add_parser("codex-prompt-path", help="Print stable .git Codex prompt path")
+    codex_path.add_argument("--sprint", type=int, required=True)
+    codex_path.add_argument("--phase", required=True)
+    codex_path.add_argument("--recheck", type=int, help="Append _RECHECK_NN for targeted reruns")
+    codex_path.add_argument("--absolute", action="store_true", help="Print an absolute filesystem path")
+    codex_path.set_defaults(func=cmd_codex_prompt_path)
 
     vow = sub.add_parser("verify-on-write", help="Run scoped verification for one file")
     vow.add_argument("--file", required=True)
