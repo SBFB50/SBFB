@@ -1,7 +1,7 @@
-# Sprint 70 — Design Review Board (G1)
+# Sprint 70 - Design Review Board (G1)
 
 **Date** : 2026-05-24
-**Sprint** : 70 — Process Portable Complete + Gate 1 dogfood
+**Sprint** : 70 - Option ambitieuse : Process Portable Complete + Dashboard process operateur + Gate 1 dogfood
 **Reviewer** : self-review profond (auto-challenge systematique)
 
 ---
@@ -10,48 +10,83 @@
 
 | D# | Titre | Source recente | Alternative | [DETER] Crypto | [DETER] Rust | Code verifie | Verdict |
 |---|---|---|---|---|---|---|---|
-| D1 | AGENT_SYSTEM.md carte derivee | ok (WebSearch 2026-05-24 AGENTS.md standard, arxiv 2605.11032 mai 2026) | ok (3 alternatives : fusionner, prompts/, status quo) | N/A | N/A | ok (PROCESS.md, AGENTS.md, TOOLING.md lus) | ok |
-| D2 | Handoff prompt portable | ok (arxiv 2605.11032 mai 2026, OpenAI Agents SDK, GCC arxiv 2508.00031) | ok (3 alternatives : automatise, extend universal, pas wirer) | N/A | N/A | ok (agentctl.py PROMPT_KINDS lu, universal.md lu) | ok |
-| D3 | Agentctl 3 commandes | ok (WebSearch 2026-05-24 AgentOps, trend CLI agents) | ok (3 alternatives : dashboard web, BDD state, tests lourds) | N/A | N/A | ok (agentctl.py 754 lignes lu, test_agentctl.py 217 lignes lu) | ok |
-| D4 | Hooks + bypass ferme | warning | ok (3 alternatives : supprimer auditor, pre-receive, CI process) | N/A | N/A | ok (process-task-gate.sh, process-supervisor-stop.sh, auditor-gate lus) | warning |
-| D5 | Contrat RRV/Factory | ok (WebSearch 2026-05-24 RBAC, rrv_sprint_intake lu) | ok (3 alternatives : RRV total, agentctl mode @, deplacer autorite) | N/A | N/A | ok (roadmap v4, SYNTHESIS, rrv_intake lus) | ok |
+| D1 | AGENT_SYSTEM.md carte derivee 7 sections | ok (AGENTS.md ecosysteme, arxiv 2605.11032, PROCESS.md local) | ok (fusion PROCESS, prompt-only, status quo) | N/A | N/A | ok (`PROCESS.md`, `AGENTS.md`, `TOOLING.md`) | ok |
+| D2 | Prompt portability full + handoff | ok (handoff protocols, OpenAI Agents SDK, GCC arxiv 2508.00031) | ok (handoff seul, universal etendu, pas de migration) | N/A | N/A | ok (`PROMPT_KINDS`, `prompts/agent/*`) | ok |
+| D3 | Agentctl observabilite + serve JSON | ok (agent CLI observability, local JSON control planes) | ok (CLI only, sqlite state, web-only dashboard) | N/A | N/A | ok (`agentctl.py`, `tests/test_agentctl.py`) | ok |
+| D4 | Hooks dynamiques + provider config + dogfood | warning (prior art externe limite pour hooks Claude dynamiques) | ok (pre-receive, CI-only, supprimer hooks Claude) | N/A | N/A | ok (`process-task-gate.sh`, `process-supervisor-stop.sh`, `auditor-gate`) | warning |
+| D5 | Dashboard process operateur + contrat RRV/Factory | ok avec contrainte action-gated | ok (dashboard S71, CLI only, integrer dans web shell) | N/A | N/A | ok (`web/package.json`, `components.json`, roadmap v4, intake S70) | ok |
 
-**Resume** : D1 ok, D2 ok, D3 ok, D4 warning, D5 ok.
-Rigor signal G4 satisfait (1 warning sur 5).
+**Resume** : D1 ok, D2 ok, D3 ok, D4 warning, D5 ok sous contrainte action-gated.
+Rigor signal G4 satisfait : 1 warning documente, 0 P0/P1 design.
 
 ---
 
 ## Findings
 
-### D4 warning — Source recente limitee pour pattern hooks dynamiques
+### D4 warning - Source recente limitee pour hooks dynamiques
 
-**Detail** : les sources WebSearch (2026-05-24) couvrent les
-pre-commit hooks en general (bypass via --no-verify, defense en
-couches, hooks > 5s bypasses). Mais il n'y a pas de source < 90
-jours specifique au pattern "remplacer un sprint hardcode par une
-detection dynamique dans un hook Claude". Le code local
-(process-task-gate.sh lignes 77-94, process-supervisor-stop.sh
-ligne 80) fournit l'evidence factuelle du gap, mais le pattern de
-fix (glob + regex sprint detection) est un design interne sans
-prior art externe.
+Les sources recentes couvrent les hooks pre-commit, leurs bypasses et la
+defense en couches, mais pas un pattern public specifique "hook Claude avec
+sprint hardcode -> detection dynamique". Le gap est prouve par le code local :
+`process-task-gate.sh` et `process-supervisor-stop.sh` hardcodent S67.
 
-**Decision** : acknowledge — le pattern est trivial (glob + max
-sprint number) et ne necessite pas de recherche externe. La source
-code local (process-task-gate.sh et process-supervisor-stop.sh lus
-en detail) est suffisante pour valider le fix. Le risk R2 dans le
-kickoff §9 couvre le cas ou la dynamisation casse.
+Decision : accepter. Le fix est un pattern interne simple (detecter le sprint
+courant depuis `.planning/active/`, construire les artefacts attendus, tester
+sprint pair/impair). Risque suivi par S70 R2.
+
+### D5 contrainte PO - Dashboard operateur oui, autorite non
+
+Le plan initial excluait une "Factory process UI". L'option ambitieuse accepte
+un dashboard S70 comme cockpit operateur process conversationnel, pas comme
+simple lecteur. Il peut declencher des actions allowlistees, preparer des
+brouillons d'artefacts et ouvrir une discussion agent comme le chat actuel.
+Il ne devient pas la page produit `/factory` et ne remplace pas
+`.planning/active/`. Les operations sensibles (shell/commit/push/verdict final)
+peuvent etre pilotees par une vraie session agent si le provider et
+l'environnement l'autorisent, mais elles ne sont valides que via gates,
+preuves repo-visibles et journalisation.
+
+Decision : accepter si les criteres suivants sont dans le plan et la verification :
+- endpoints `agentctl serve` action-gated ;
+- dashboard compile/lint/tsc/build ;
+- smoke `serve --once-smoke` ;
+- preview diff + confirmation avant tout draft repo/docs sur allowlist ;
+- journal JSONL des actions dashboard ;
+- libelles utilisateur en langage produit ("Preparer la phase",
+  "Verifier avant validation", "Transmettre a un autre agent") ;
+- commandes `agentctl` et termes `kind/provider/preflight` caches dans
+  un panneau details techniques, jamais comme CTA principal ;
+- flux "Nouveau contexte / Transmettre a un autre agent" via
+  ContextPackBuilder : base/universal/context/handoff/prompt
+  specialise, sans chat history authoritative ;
+- Agent Chat preserve le mode actuel : discussion libre, agent
+  autonome, mise a jour du repo possible via le meme contrat
+  repo-visible que le flux chat ;
+- Agent Selector mappe "Qui code ?" / "Qui verifie ?" vers
+  driver/reviewer/auditor + provider/depth/kind, sans modifier
+  l'autorite des gates ;
+- ActionCenter et DraftArtifactDialog rendent visibles resultat,
+  action id, preview diff et log avant toute ecriture ;
+- interdiction de creer/promouvoir un `## Verdict: PASS` final par
+  simple UI ; le PASS doit venir du flow review/gate ;
+- contrat RRV/Factory rappelant que l'autorite reste planning + commits + gates.
 
 ---
 
-## Checklist [DETER] (si applicable)
+## Checklist [DETER]
 
 ### Crypto/spec
-- [x] Pas de D-choice crypto dans ce sprint (process/docs/tooling)
-- N/A
+- [x] Pas de decision crypto/spec dans ce sprint.
+- [x] Le dashboard ne modifie aucun format protocolaire ni signature.
 
 ### Rust-first
-- [x] Pas de D-choice runtime Rust dans ce sprint
-- N/A
-- Exemptions : CI tooling, frontend UX, docs, tests fixtures — tout
-  le sprint S70 est dans ces exemptions (process portable = Python
-  tooling + docs Markdown)
+- [x] Pas de decision runtime Rust dans ce sprint.
+- [x] Exemption justifiee : tooling Python, docs Markdown, dashboard React standalone.
+
+### Product boundary
+- [x] Dashboard S70 = cockpit operateur process action-gated.
+- [x] UX utilisateur = intentions humaines, pas commandes agentctl.
+- [x] Page produit `/factory`, RRV total, SearchManifest, @dev index restent hors scope S70.
+- [x] Factory/RRV consomment les preuves ; ils ne deviennent pas autorite de verification.
+
+## Verdict: PASS

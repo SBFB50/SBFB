@@ -14,21 +14,28 @@ tout agent (Claude, Codex, GPT, LLM local, humain) peut reprendre
 le travail a partir des fichiers du repo seuls, sans memoire de
 chat privee.
 
-Les 6 phases S70 (definies dans
-`.planning/research/process_portable_complete_s70.md` §5) sont :
+Les 7 phases S70 (plan v3 ambitieux, derivees de
+`.planning/research/process_portable_complete_s70.md` §5 + recadrage
+PO 2026-05-24) sont :
 
 | Phase | Titre | Livrable principal |
 |---|---|---|
 | A | Canon portable | `docs/agent/AGENT_SYSTEM.md` (carte du systeme) |
-| B | Handoff portable | `prompts/agent/handoff.md` + `agentctl prompt --kind handoff` |
-| C | Agentctl observabilite | `agentctl status-sprint`, `lint-planning`, `audit-commit` |
-| D | Gates, hooks et CI | Fermer bypasses connus, prouver la couche portable |
-| E | Dogfood sur Nexus | Changement reel fait avec le process portable seul |
-| F | Contrat RRV/Factory | Modes `@` = alias sur roles, pas autorite parallele |
+| B | Dette pair + P2 audit | `PATTERNS.md`, `docs/claude/README.md`, P2-I-3 3/3 |
+| C | Prompt portability full | `handoff`, `phase-review`, `audit-gate`, `phase-auditor`, `commit-body` executables |
+| D | Agentctl observabilite + serve | `status-sprint`, `lint-planning`, `audit-commit`, `serve --once-smoke` |
+| E | Dashboard process operateur | `tools/factory-dashboard/` action-gated, connecte a `agentctl serve` |
+| F | Hooks + provider config + dogfood | Hooks dynamiques, provider flag, dogfood via dashboard |
+| G | Contrat RRV/Factory + wrap-up | Modes `@` = alias sur roles, verification, audit plan S71 |
 
 Gate 1 dogfood sert de surface de verification : l'outillage
 Factory/Babel/Gate 1 est utilise pour prouver que le process
-portable fonctionne de bout en bout.
+portable fonctionne de bout en bout. Le dashboard S70 est un cockpit
+operateur conversationnel : il rend les preuves visibles, peut
+declencher des actions allowlistees et peut ouvrir une discussion
+agent comme le chat actuel. L'autorite reste `.planning/active/`, les
+commits et les gates ; le dashboard pilote et journalise, il ne
+fabrique pas seul les verdicts.
 
 ---
 
@@ -49,6 +56,10 @@ Verifier que `handoff.md` est cree et wire dans `agentctl prompt
 --kind handoff`. Verifier qu'un handoff genere suffit a reprendre
 le travail sans chat history. Verifier que `AGENT_SYSTEM.md` est
 inclus dans `agentctl context`.
+Verifier aussi le bootstrap session fraiche complet : `base.md`
+orientation, `universal.md` lifecycle, runtime context, `handoff.md`
+point-in-time, puis prompt specialise. Aucun champ ou assertion ne
+doit rendre la chat history authoritative.
 
 ### Track C — Agentctl observabilite
 
@@ -62,6 +73,7 @@ tests dans `tests/test_agentctl.py`.
 Verifier que les bypasses connus sont fermes :
 - Exact `## Verdict: PASS` (pas `## Verdict : PASS` avec espace)
 - `chore(sprintN): Sprint N Phase X` ne bypass pas Codex/9-section
+- G8 preflight/pivot est gate portable pour tout phase commit reel
 - Hooks Claude ne contiennent plus d'assumptions Sprint 67 stales
 - `nexus-phase-auditor` et `nexus-phase-review-deep` routing aligne
 
@@ -131,8 +143,8 @@ S70 ne doit PAS :
 - Construire SearchManifest (wire format + gossip)
 - Ajouter du compute prive ou remote
 - Ingerer un corpus OSS large comme apps verifiees
-- Construire une UI process Factory
-- Deplacer l'autorite process dans Factory
+- Construire une page produit `/factory` ou deplacer l'autorite
+  process dans Factory
 - S'appuyer sur la memoire de chat comme source de verite
 
 ---
@@ -144,14 +156,34 @@ S70 est complet quand :
 1. `AGENT_SYSTEM.md` existe et ne duplique pas `PROCESS.md`
 2. `handoff.md` est wire dans `agentctl prompt --kind handoff`
 3. `agentctl status-sprint`, `lint-planning`, `audit-commit`
-   fonctionnent et sont testes
+   et `serve --once-smoke` fonctionnent et sont testes
 4. Les bypasses connus sont fermes (verdict exact, Codex gate,
    hooks stales)
-5. CI prouve la couche portable (prompt assembly, fixtures
-   negatives)
-6. Un changement reel Nexus a ete fait avec le flow portable
-7. Les modes `@` sont documentes comme alias de roles
-8. Factory est un consommateur, pas une autorite
+5. Dashboard process compile, lint, typecheck, affiche status +
+   prompt + lint + audit depuis `agentctl serve`, et peut preparer
+   un brouillon repo/docs sur allowlist avec preview diff + confirmation
+   Verifier le flux operateur complet : nouveau contexte,
+   selection agent, prompt, action allowlistee, draft avec preview,
+   discussion Agent Chat, log, et frontiere d'autorite.
+6. Le dogfood prouve un changement repo-visible pilote depuis le
+   flow portable, pas seulement une demo UI
+7. L'UI parle en intentions comprehensibles ("Preparer la phase",
+   "Verifier avant validation", "Transmettre a un autre agent") et
+   garde `agentctl`, `kind`, `provider`, `preflight` dans un panneau
+   details techniques, pas dans les CTA principaux
+8. CI/smoke prouve la couche portable minimale (prompt assembly,
+   fixtures negatives, `serve --once-smoke`)
+9. Les modes `@` sont documentes comme alias de roles
+10. Factory est un consommateur, pas une autorite
+11. Le dashboard est explicitement action-gated et conversationnel :
+    allowlist, preview, confirmation, journal JSONL, Agent Chat
+    demarre depuis context-pack. Les operations sensibles
+    (shell/commit/push/verdict final PASS) ne sont valides que via
+    une vraie session agent + gates + preuves repo-visibles, pas
+    comme simple bouton UI.
+12. `context-pack` contient base/universal/handoff/context, path/hash,
+    HEAD, dirty files, role/provider/intention, et marque
+    `chat_history_authoritative: false`
 
 **Critere SMART** : le handoff genere par `agentctl prompt --kind
 handoff` suffit a un nouvel agent pour reprendre le sprint en cours

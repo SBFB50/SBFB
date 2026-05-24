@@ -154,10 +154,11 @@ Runtime isolation roadmap dans
   pose.**
   Projet Rust+Frontend pur depuis S50-S51.
   S70 phases : A (AGENT_SYSTEM.md canon portable) → B (dette pair
-  + P2-I-3 3/3 + P2 audit absorbes) → C (handoff portable +
-  agentctl prompt --kind handoff) → D (agentctl status-sprint +
-  lint-planning + audit-commit) → E (hooks dynamises + bypass
-  ferme + dogfood) → F (contrat RRV/Factory + verification).
+  + P2-I-3 3/3 + P2 audit absorbes) → C (prompt portability full
+  + handoff) → D (agentctl status-sprint + lint-planning +
+  audit-commit + serve JSON) → E (dashboard process operateur
+  action-gated) → F (hooks dynamiques + provider config + dogfood via
+  dashboard) → G (contrat RRV/Factory + verification).
   Arc 1 Fondations COMPLET (S65 + S66).
   Arc 2 Factory + RRV @protocole + Canari COMPLET (S67 + S68 + S69).
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
@@ -165,7 +166,7 @@ Runtime isolation roadmap dans
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
 - **~1718 tests total** (1433 Rust / 279 Vitest / 6/6 size-limit)
   — tous verts code. S70 delta estime : +0 Rust, +0 Vitest,
-  +14 Python (test_agentctl.py 11→25).
+  +45 Python (test_agentctl.py 14→~59) + dashboard lint/tsc/build.
 - Carry S70 (traitement prevu) :
   P2-I-3 body docs minimaliste (3/3 MANDATORY — Phase B).
   P2-G-1 exe lock intermittent (candidat CLOSE Phase B, 8 sprints
@@ -198,7 +199,8 @@ Runtime isolation roadmap dans
   S69
   Babel dogfood via Factory + pilote ferme + RRV @protocole prouve
   Babel). Arc 2.5 Process Portable Complete (S70 AGENT_SYSTEM,
-  handoff, agentctl status/lint/audit, gates/hooks/CI + Gate 1
+  handoff, prompt portability full, agentctl status/lint/audit/serve,
+  dashboard process operateur action-gated, gates/hooks/provider config + Gate 1
   dogfood ; zero RRV total). Arc 3 Reseau Verifiable +
   Industrialisation (S71 SearchManifest opt-in ou RRV Core selon
   audit S70, S72 Gouvernance +
@@ -264,9 +266,23 @@ Cf. `nexus_grid_pivot.md` (memory) — **a ne PAS re-debattre** :
 - Ingestion OSS GitHub generique = futur mode `source-only`/`source-index`,
   distinct d'une app SBFB verifiee (`SBFB.json` + `index.html`)
 - S70 = Process Portable Complete + Gate 1 dogfood : AGENT_SYSTEM,
-  handoff, agentctl status-sprint/lint-planning/audit-commit,
-  gates/hooks/CI process, puis contrat RRV/Factory. Pas SearchManifest,
-  pas RRV total, pas Factory process UI (D18 v4).
+  handoff, prompt portability full, agentctl status-sprint/
+  lint-planning/audit-commit/serve, dashboard process operateur
+  action-gated, gates/hooks/provider config, puis contrat RRV/Factory.
+  Pas SearchManifest, pas RRV total, pas page produit `/factory` :
+  le dashboard S70 est un cockpit d'execution process controlee et
+  conversationnelle. Il preserve le mode actuel "prompt de base +
+  discussion agent autonome", avec actions allowlistees,
+  confirmations, Agent Chat et journal. Il ne fabrique pas seul
+  l'autorite de verification finale : shell/commit/push/verdict final
+  passent par une vraie session agent, les gates et les preuves repo.
+  Les nouveaux contextes doivent etre generes depuis un context-pack
+  repo-visible (base/universal/context/handoff/prompt specialise),
+  pas depuis une memoire de chat implicite.
+  UX obligatoire : l'utilisateur voit des intentions ("Preparer la
+  phase", "Verifier avant validation", "Transmettre a un autre agent"),
+  pas des commandes `agentctl` ni du jargon `kind/provider/preflight`
+  en CTA principal.
 - Superviseur process optionnel, hooks = backstop mecanique (D17)
 
 ## Principe de conception — sessions fraiches
@@ -307,7 +323,7 @@ Jusque-la, on edite le canonical librement.
 
 ## Discipline de travail
 **Tout est dans `docs/claude/README.md`.** Résumé ultra-court :
-- un sprint = kickoff + plan + 4-6 phases A-F + verification +
+- un sprint = kickoff + plan + 4-7 phases A-G + verification +
   audit_plan, tous dans `.planning/`
 - un commit par phase (`feat(scope): Sprint N Phase X — titre`),
   body riche avec delta de tests cumulé et scope cuts respectés
