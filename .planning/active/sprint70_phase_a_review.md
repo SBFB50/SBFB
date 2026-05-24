@@ -205,13 +205,12 @@ A verifier au moment du commit.
 
 ## Recommendation
 
-- Ready to commit : non (PASS-PENDING, Codex requis)
+- Ready to commit : oui (PASS, Codex reconcilie, 3 P2 corriges)
 - Carry-overs S71 : aucun nouveau
-- Corrections recommandees avant commit :
-  1. P2-A-1 : ajouter `researcher` au Role Registry ou documenter son absence explicitement
-  2. P2-A-2 : corriger l'exemple AGENTS.md avec un scope actuel
-  3. P2-A-3 : corriger le prompt reference du mode `codex-verify` dans la table Lifecycle Modes
-  4. P3 : nits optionnels (Phase C annotation, dimensions numerotees)
+- P2-A-1 corrige (researcher ajoute, 9 roles)
+- P2-A-2 corrige (feat(daemon) dans AGENTS.md)
+- P2-A-3 corrige (codex-verify → cf. codex-process/)
+- P3 : nits documentes, non-bloquants
 
 Les P2 sont corrigeables en quelques lignes. Aucun n'est structurellement bloquant mais ils representent des incoherences factuelles dans un document dont la raison d'etre est la coherence du systeme agent.
 
