@@ -188,7 +188,7 @@ Sections canoniques (pattern Sprint 20 gold) :
     Phase E (G8 DESIGN-CONFLICT). Ce registre est vérifié
     par l'audit gate.
 11. **Audit gate pattern — rappel** — confirme que la Phase 0
-    a été jouée et que la Phase F devra produire l'audit_plan
+    a été jouée et que la phase de sortie devra produire l'audit_plan
 12. **Checkpoint de validation** — 5 questions pour arbitrage
     user AVANT que l'agent attaque le plan détaillé. Pattern
     S20 : une question par D-decision pour confirmer le choix.
@@ -257,7 +257,7 @@ Sections canoniques (pattern Sprint 6/7) :
 
 ### 2.3 verification.md — le self-report fail-fast
 
-Écrit en fin de sprint, juste avant la Phase F « sortie ».
+Écrit en fin de sprint, juste avant la phase de sortie.
 Rôle : rejouer la checklist fail-fast du plan.md et remplir
 la colonne `Observed` avec les valeurs réelles.
 
@@ -294,8 +294,8 @@ Sections canoniques :
 
 ### 2.4 audit_plan.md — le plan d'audit pour le sprint suivant
 
-Écrit dans le même commit que verification.md, en Phase F
-« sortie ». Rôle : donner à la session fraîche du sprint N+1
+Écrit dans le même commit que verification.md, en phase de
+sortie. Rôle : donner à la session fraîche du sprint N+1
 une feuille de route d'audit indépendante et reproductible.
 
 **C'est le doc le plus stratégique** — une session fraîche
@@ -421,8 +421,8 @@ atomique feat. Pattern Sprint 6/7 :
 - Phase B, C, D — itérations successives ajoutant des
   capacités
 - Phase E — polish, intégration, tests Playwright / Vitest
-- (optionnel Phase F — scope complexe, ex Sprint 6 où D a
-  été split en D+E)
+- (optionnel, une phase supplémentaire si scope complexe, ex
+  Sprint 6 où D a été split en D+E)
 
 ### 3.3 Phase de sortie — deux livrables obligatoires
 
@@ -573,6 +573,28 @@ de la phase qui la motive ou dans un commit `chore(cleanup)` dédié
 — jamais dans un `chore(planning)`. Un commit `chore(planning)` ne
 touche que `.planning/`, docs workflow, et agents/skills/hooks.
 
+**Docs techniques dans feat, pas chore** (P2-I-1) : les fichiers
+de documentation technique qui accompagnent un livrable de phase
+(`PATTERNS.md`, `FACTORY_GATES.md`, `THREAT_MODEL.md`, etc.)
+appartiennent au commit `feat`/`docs` de la phase correspondante.
+Ils ne doivent pas être relégués dans un `chore(planning)` séparé,
+car leur contenu est indissociable du code livré. Seuls les
+fichiers purement workflow (`.planning/`, kickoff, plan, review)
+restent dans `chore(planning)`.
+
+**Phase commit gate** : tout commit dont le titre contient
+`Sprint N Phase X` avec un type valide (`feat`, `fix`, `docs`,
+`test`, `refactor`) est un phase commit gate — il est soumis à la
+chaîne complète preflight → review PASS-PENDING → Codex →
+reconciliation → review PASS → commit body 9 sections.
+
+**Docs-only sans exemption** : une phase purement documentation
+n'exempte ni la review Claude (PASS-PENDING puis PASS après
+Codex), ni la verification croisée Codex (§4.5.6 zero exemption),
+ni le body 9 sections obligatoires. Seules les suites lourdes
+(cargo nextest, Vitest, release build) peuvent être exemptées avec
+justification écrite dans la review et le commit body.
+
 Si une phase a besoin d'un fix post-commit (pattern Sprint 2
 `de9589d` / `ed2ea76` ou Sprint 6 gate `05c96c4..8fbe07b`),
 le fix vit dans un commit séparé
@@ -716,12 +738,12 @@ reconciliation/promote review `PASS` → supervisor → commit est strict.
 Ne jamais committer avec un review.md encore en `PASS-PENDING`.
 Ne jamais lancer Codex avant la review Claude.
 
-### 4.4 Phase F wrap-up — parse phase reviews et route les P2/P3 au audit_plan
+### 4.4 Phase de sortie — parse phase reviews et route les P2/P3 au audit_plan
 
-**Fix P2-S21-4 Sprint 22 Phase F.** Avant Sprint 22, le wrap-up
-Phase F écrivait `sprint{N}_verification.md` + `sprint{N}_audit
-_plan.md` mais ne parsait pas systématiquement chaque
-`sprint{N}_phase_[A-F]_review.md` produit par l'agent
+**Fix P2-S21-4 Sprint 22.** Avant Sprint 22, la phase de sortie
+écrivait `sprint{N}_verification.md` + `sprint{N}_audit_plan.md`
+mais ne parsait pas systématiquement chaque
+`sprint{N}_phase_*_review.md` produit par l'agent
 `nexus-phase-auditor` pré-commit. Conséquence : les findings
 P2/P3 documentés par l'auditeur de phase pouvaient rester
 orphelins (jamais ré-injectés dans l'audit gate du sprint
@@ -729,11 +751,11 @@ suivant).
 
 **Règle désormais imperative** :
 
-À chaque écriture de `sprint{N}_audit_plan.md` en Phase F, la
-session doit :
+À chaque écriture de `sprint{N}_audit_plan.md` en phase de sortie,
+la session doit :
 
 1. **Enumérer** les fichiers `.planning/active/sprint{N}_phase_
-   [A-F]_review.md` présents.
+   *_review.md` présents.
 2. **Parser** chaque section `## Findings` (ou équivalent
    `## Issues found`) et extraire les findings `P[0-3]-*`.
 3. **Router** chaque finding dans le Track correspondant de
@@ -925,7 +947,7 @@ Quand Codex produit des findings :
    suites + review Claude (`PASS-PENDING`) + Codex (boucle complete)
 5. **Reconciliation** : quand Codex est clean ou seulement P2/P3
    documentes, mettre a jour `sprint{N}_phase_{X}_review.md` :
-   `## Verdict : PASS`, ajouter `## Codex reconciliation`, referencer
+   `## Verdict: PASS`, ajouter `## Codex reconciliation`, referencer
    le fichier codex_review.md et les GAPs corriges/documentes.
 6. **Tracabilite** : commit body inclut section `## Codex verification`
 
@@ -1215,7 +1237,7 @@ declenchement avec evidence.
 
 ##### Mecanique carry-over (inchange)
 
-- **Phase F wrap-up genere `sprint{N+1}_carry_summary.md`** (pas
+- **La phase de sortie genere `sprint{N+1}_carry_summary.md`** (pas
   optionnel) listant les carry-overs avec :
   - ID + description (1 ligne)
   - Source : phase qui a reporte + commit SHA
@@ -1564,8 +1586,8 @@ la règle. `[STRUCT]` = structure du cycle, jamais drop.
 | G3 (§2.1) | `[STRUCT]` | Kickoff §2 | Goal SMART → verification.md fail-fast | `sprint{N}_kickoff.md §2` |
 | G4 (§3 + auditor) | `[DETECT]` | Phase review + audit gate | Rigor signal : 0 P0/P1 + ≥1 P2+ pour PASS | Verdict PASS/CONCERN/FAIL |
 | ~~G5~~ | — | ~~Supprimé S24~~ | ~~Working tree audit~~ | ~~Hook lightcheck couvre~~ |
-| G6 (§5.1.1) | `[STRUCT]` | Post-commit feat + Phase F | Memory update §Tip + carry-over | `nexus_grid_pivot.md` updated |
-| G7 (§6.2.1) | `[STRUCT]` | Phase F carry generation | Escalade 3 reports + phase dette sprints pairs | `sprint{N}_carry_summary.md` |
+| G6 (§5.1.1) | `[STRUCT]` | Post-commit feat + phase de sortie | Memory update §Tip + carry-over | `nexus_grid_pivot.md` updated |
+| G7 (§6.2.1) | `[STRUCT]` | Phase de sortie carry generation | Escalade 3 reports + phase dette sprints pairs | `sprint{N}_carry_summary.md` |
 | G8 (§6.9) | `[DETECT]` | Pre-implementation phase | 5 scans factuels OSS prior art + SOTA deps + history + threat + wire | `phase_{X}_preflight.md` |
 | G9 (§6.10) | `[DETER]` | Avant proposition D-choice | Factual research gate on D-decisions | §Research consulté dans kickoff |
 
@@ -1975,7 +1997,7 @@ procédure lui-même (sauf Cas D hotfix).
         Boucle jusqu'a CLEAN ou P2/P3 documentes uniquement.
       Si GAPs P2/P3 : documenter dans commit body.
       Quand Codex est reconcilié : promouvoir le review.md a
-      `## Verdict : PASS` et ajouter `## Codex reconciliation`
+      `## Verdict: PASS` et ajouter `## Codex reconciliation`
       (rapport Codex lu, GAPs corriges/documentes, suites relancees
       si correction). Ne pas modifier le fichier Codex brut.
       Le fichier codex_review.md est enforce par lightcheck
@@ -2208,11 +2230,11 @@ Phases prévues :
 Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 
-**Cas C — docs (clôture sprint, sortie Phase E)** :
+**Cas C — docs (clôture sprint, phase de sortie)** :
 
 **Pré-requis lecture** : §2.3 (verification.md 9 sections), §2.4
 (audit_plan.md 6 sections), §4.4 (routing findings phase reviews).
-Parser les `sprint{N}_phase_[A-F]_review.md` AVANT d'écrire
+Parser les `sprint{N}_phase_*_review.md` AVANT d'écrire
 l'audit_plan.
 
 ```
@@ -2420,9 +2442,9 @@ la documentation de référence pour l'auditeur qui relit
 ### 9.5 Commit `docs(sprint{N})` en tant que sortie qui mélange
      doc + code
 
-**Bad** : le commit de sortie Phase F contient aussi un
+**Bad** : le commit de phase de sortie contient aussi un
 petit ajout de code « oublié ».
-**Good** : Phase F est strictement docs. Un fix de code
+**Good** : la phase de sortie est strictement docs. Un fix de code
 oublié devient un `fix(sprint{N}): ...` séparé, même si
 c'est 3 lignes.
 
@@ -2504,7 +2526,7 @@ le rework Opus 4.7 initial) :
   assumée** : `.gitignore` update auto sur NOISE et grep scope-cuts
   sur DEBT ne sont plus surveillés par un mécanisme dédié — à
   compenser par discipline auditor Phase 0 qui reste obligatoire.
-- **REINTRODUCE §4.4 Phase F parse reviews** — mode de défaillance
+- **REINTRODUCE §4.4 phase de sortie parse reviews** — mode de défaillance
   documenté (P2-S21-4). Coût README ~40 lignes lu 1×/session.
 - **REINTRODUCE G1 extensions crypto-spec + custom-Rust-stack** —
   les deux règles adossées à incidents datés (Tor PoW 2023 / Equi-X
@@ -2547,7 +2569,7 @@ Pour qu'une session fraîche trouve cette doc :
 ## 12. Évolution du système
 
 Cette méthode de travail est un pattern vivant. Chaque
-sprint peut proposer une amélioration via sa Phase F qui
+sprint peut proposer une amélioration via sa phase de sortie qui
 documente soit :
 
 - un nouveau pattern dans `PATTERNS.md` (exemple Sprint 7

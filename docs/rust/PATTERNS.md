@@ -2657,6 +2657,82 @@ Cross-ref: S66 Phase C feed republish, S66 audit P2-66-1.
 
 ---
 
+## T-NN+3 — canonical bytes duplication Factory/coordinator (open, S70 documented)
+
+`crates/nexus-coordinator-rs/src/provenance.rs` and
+`crates/sbfb-factory/src/gates.rs` each contain an independent
+`canonical_bytes` implementation for building the provenance
+signing payload (sorted-keys JSON via `serde_json` + domain
+separator + version).
+Both produce identical output today (verified S69 audit P2-C-1),
+but changes to one without the other would silently break
+signature verification.
+
+**Root cause** : `sbfb-factory` was designed as an external crate
+(D2 v4 roadmap) and cannot depend on `nexus-coordinator-rs`.
+The shared logic belongs in `nexus-core-rs` which both crates
+already depend on.
+
+**Plan** : extract `canonical_bytes` into `nexus-core-rs` post-S70
+(Phase C or later sprint). Both call-sites become thin wrappers.
+Until extraction, any modification to the signing payload format
+MUST update both files and add a cross-ref comment.
+
+Cross-ref: S69 audit P2-C-1 (1/3→documented), S70 Phase B.
+
+---
+
+## Note — serde_json vs JCS pre-launch rationale (P2-C-2, S70 documented)
+
+The provenance `canonical_bytes` functions use `serde_json`
+(sorted-keys via `json!({})` macro / BTreeMap) rather than
+`serde_jcs` (RFC 8785) for the signing payload. This is
+intentional pre-launch:
+
+- All provenance fields are ASCII strings, integers, and booleans.
+  No floats, no Unicode normalization edge cases — the two
+  serializers produce identical output for this payload shape.
+- `serde_jcs` is a workspace dependency (used by `nexus-core-rs`
+  for canary wire) but not by `nexus-coordinator-rs` or
+  `sbfb-factory`. Adding it to these crates pre-launch brings
+  zero practical gain for the current ASCII-only payload.
+- The canary wire (`canary_wire_bytes`) already uses `serde_jcs`
+  because its payload includes free-text fields where ordering
+  matters across languages (§P34 T-NN).
+
+**Post-launch policy** : if provenance gains float or free-text
+fields, migrate to `serde_jcs` in the same commit. The
+`canonical_bytes` extraction (T-NN+3) is the natural moment.
+
+Cross-ref: S69 audit P2-C-2 (1/3→documented), S70 Phase B.
+
+---
+
+## Note — P2-G-1 exe lock release build CLOSED (S70, 8 sprints non-reproductible)
+
+`cargo build -p nexus-shell-daemon --release` intermittently
+failed on Windows with a file lock error on the output exe.
+Timeline:
+
+- S59 audit : first reported (P2 G-1).
+- S60 Phase B : investigated with `handle.exe` (Sysinternals),
+  5 consecutive builds clean → CLOSED.
+- S60 Phase E : reproduced during verification → REOPENED.
+- S61-S69 : monitoring every sprint, never reproduced.
+- S70 Phase B : **CLOSED** definitively.
+
+**Conditions to reopen** : if the exe lock reproduces 2+
+consecutive times in the same sprint, reopen as P1 with
+`handle.exe` capture of the locking process. A single transient
+occurrence does not warrant reopening — the Windows file system
+cache and antivirus are the likely culprits for the original
+intermittent failure.
+
+Cross-ref: S60 Phase B (`cfa3c3c`), S60 Phase E review,
+S69 verification §5, S70 Phase B.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13
