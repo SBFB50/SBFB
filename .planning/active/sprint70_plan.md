@@ -64,17 +64,34 @@ sprint avec le contrat RRV/Factory et la verification.
 ### §4.1 Scope
 
 Creer `docs/agent/AGENT_SYSTEM.md` comme carte du systeme agent.
-5 sections derivees de PROCESS.md sans duplication : Truth Stack,
+7 sections derivees de PROCESS.md sans duplication : Truth Stack,
 Role Registry (8 roles), Provider Mapping, Lifecycle Modes (10
-modes), Non-Goals. Mettre a jour `AGENTS.md` racine pour corriger
-les references stale (Python, setup.sh) et pointer vers
-AGENT_SYSTEM.md. Phase docs-only.
+modes), Gate Contract (verdict tree complet + artefact contract),
+Prompt Registry (table des prompts executables dans prompts/agent/
+avec kind, purpose, provider compatibility), Non-Goals.
+
+Le Gate Contract formalise la logique de verdict aujourd'hui
+enfermee dans les agents Claude :
+- Preflight : EXECUTE / PLAN-ADAPT / SCOPE-CUT-CONSISTENT /
+  DESIGN-CONFLICT (avec conditions de declenchement)
+- Review : PASS-PENDING / CONCERN / FAIL (avec criteres par
+  dimension)
+- Codex : CLEAN / GAP-P0 / GAP-P1 / GAP-P2-P3
+- Audit gate : PASS / CONDITIONAL PASS / FAIL (avec P0-P3)
+
+Le Prompt Registry indique quel prompt portable utiliser pour
+chaque gate, et quel provider peut l'executer avec quelle
+profondeur.
+
+Mettre a jour `AGENTS.md` racine pour corriger les references
+stale (Python, setup.sh) et pointer vers AGENT_SYSTEM.md. Phase
+docs-only.
 
 ### §4.2 Livrables
 
 | Fichier | Description |
 |---|---|
-| `docs/agent/AGENT_SYSTEM.md` | NEW. Carte systeme 5 sections. Truth Stack (repo > planning > commits > prompt > chat). Role Registry (driver, researcher, reviewer, auditor, product, security, release, memory) avec droits/obligations/limites. Provider Mapping (Claude, Codex, GPT, local, humain). Lifecycle Modes (10 modes pointant vers prompts/). Non-Goals. |
+| `docs/agent/AGENT_SYSTEM.md` | NEW. Carte systeme 7 sections. Truth Stack (repo > planning > commits > prompt > chat). Role Registry (8 roles avec droits/obligations/limites). Provider Mapping (Claude, Codex, GPT, local, humain). Lifecycle Modes (10 modes pointant vers prompts/). Gate Contract (verdict tree complet : preflight 4 verdicts, review 3 verdicts, codex 4 verdicts, audit 3 verdicts + artefact contract par gate). Prompt Registry (table kind → fichier → purpose → compatible providers). Non-Goals. |
 | `AGENTS.md` | UPDATE. Supprimer references Python/packages/setup.sh. Pointer vers docs/agent/AGENT_SYSTEM.md pour le detail roles. Garder la section Build/Test commands avec les commandes Rust/Frontend/agentctl actuelles. |
 
 ### §4.3 Tests plan
@@ -82,16 +99,16 @@ AGENT_SYSTEM.md. Phase docs-only.
 Phase docs-only. Pas de tests code.
 Verification :
 1. `test -f docs/agent/AGENT_SYSTEM.md` — fichier existe
-2. `rg -n "Truth Stack|Role Registry|Provider Mapping|Lifecycle Modes|Non-Goals" docs/agent/AGENT_SYSTEM.md` — 5 sections presentes
+2. `rg -n "Truth Stack|Role Registry|Provider Mapping|Lifecycle Modes|Gate Contract|Prompt Registry|Non-Goals" docs/agent/AGENT_SYSTEM.md` — 7 sections presentes
 3. `! rg "packages/|setup\.sh|uv run pytest" AGENTS.md` — references stale supprimees
 
 ### §4.4 Critere d'acceptation
 
 ```bash
 test -f docs/agent/AGENT_SYSTEM.md && \
-rg -c "Truth Stack|Role Registry|Provider Mapping|Lifecycle|Non-Goals" docs/agent/AGENT_SYSTEM.md | awk -F: '{s+=$2} END {print s >= 5 ? "PASS" : "FAIL"}'
+rg -c "Truth Stack|Role Registry|Provider Mapping|Lifecycle|Gate Contract|Prompt Registry|Non-Goals" docs/agent/AGENT_SYSTEM.md | awk -F: '{s+=$2} END {print s >= 7 ? "PASS" : "FAIL"}'
 ```
-Condition : 5 sections headers presentes. AGENTS.md ne contient plus de references Python.
+Condition : 7 sections headers presentes. AGENTS.md ne contient plus de references Python.
 
 ### §4.5 Commit cible
 
@@ -156,42 +173,94 @@ Body : 9 sections obligatoires. P2-I-3 3/3 preuve = body >=3 lignes (mesurable).
 
 ---
 
-## §6 Phase C — Handoff portable + agentctl prompt --kind handoff
+## §6 Phase C — Prompt portability full (logique executable dans prompts/)
 
 ### §6.1 Scope
 
-Creer `prompts/agent/handoff.md` avec 9 sections structurees pour
-transfert inter-provider. Ajouter "handoff" dans PROMPT_KINDS de
-agentctl.py. Wirer dans `agentctl prompt --kind handoff`. Mettre a
-jour `docs/agent/TOOLING.md` pour documenter le handoff. Inclure
-`AGENT_SYSTEM.md` dans la liste des references de `agentctl context`.
+Migrer la logique executable des `.claude/agents/` vers
+`prompts/agent/` pour que tout provider puisse executer les memes
+gates. Les agents Claude deviennent des wrappers legers (Phase E).
+
+6 prompts a creer ou enrichir :
+
+1. **handoff.md** (NEW) : template 9 sections transfert
+   inter-provider (sprint context, progress, changed files, test
+   evidence, verdict state, stop conditions, assumptions NOT to
+   inherit, active carries, next actions).
+
+2. **preflight.md** (ENRICH) : ajouter les procedures executables
+   des 5 scans S1-S4 avec commandes concretes (`git log --grep`,
+   `rg -n`, `grep -rE`), verdict tree complet
+   (EXECUTE/PLAN-ADAPT/SCOPE-CUT-CONSISTENT/DESIGN-CONFLICT),
+   template de sortie structuree, et anti-patterns. Aujourd'hui le
+   prompt decrit quoi scanner ; apres, il dit exactement comment
+   avec quelles commandes et quel format de rapport.
+
+3. **phase-review.md** (ENRICH) : ajouter les 11 dimensions du
+   review-deep (staging coherence, scope-cuts semantique, branch
+   coverage 4 criteres [appel reel/assertion/cas limites/inputs
+   realistes], research grounding, security OWASP 9 patterns,
+   patterns drift, horizon long-terme, livrables check, body
+   format 9/9, codex reconciliation, carry routing). Template de
+   sortie structuree avec verdict PASS-PENDING/CONCERN/FAIL.
+
+4. **commit-body.md** (NEW) : template 9 sections obligatoires
+   (Contexte, Fichiers, Delta tests, Verification §7.4, Scope cuts
+   respectes, G8 traceability, Pre-launch protocol, Codex
+   verification, Carry closure) + regles de validation (regex per
+   section, anti-patterns LOC/emoji/amend).
+
+5. **audit-gate-checks.md** (NEW) : 9 tracks audit (A suites,
+   B security, C patterns, D scope, E tests delta, F review files,
+   G carry-overs, H HARDENING, I meta-process) avec commandes
+   concretes par track, classification P0-P3, verdict tree
+   PASS/CONDITIONAL/FAIL.
+
+6. **phase-auditor.md** (NEW) : 7 dimensions review leger
+   (security, patterns, scope-cuts, research, G8, body-format,
+   horizon) avec opinion-first pattern check.
+
+Wirer les 6 kinds dans PROMPT_KINDS de agentctl.py. Inclure
+`AGENT_SYSTEM.md` dans `agentctl context`.
 
 ### §6.2 Livrables
 
 | Fichier | Description |
 |---|---|
-| `prompts/agent/handoff.md` | NEW. Template Markdown 9 sections : Sprint context, Progress state, Changed files, Test evidence, Verdict state, Stop conditions, Assumptions NOT to inherit, Active carries, Next actions. Placeholders `{SPRINT}`, `{PHASE}` remplaces par agentctl. |
-| `scripts/agent/agentctl.py` | UPDATE. Ajouter `"handoff": "handoff.md"` dans PROMPT_KINDS. Ajouter `docs/agent/AGENT_SYSTEM.md` dans la liste paths de cmd_context(). |
-| `docs/agent/TOOLING.md` | UPDATE. Documenter `agentctl prompt --kind handoff --depth deep` avec exemple d'usage. |
+| `prompts/agent/handoff.md` | NEW. Template 9 sections transfert inter-provider. |
+| `prompts/agent/preflight.md` | ENRICH. Ajouter procedures executables S1-S4 avec commandes concretes, verdict tree, template sortie, anti-patterns. |
+| `prompts/agent/phase-review.md` | ENRICH. Ajouter 11 dimensions review-deep avec criteres, commandes, template sortie structuree. |
+| `prompts/agent/commit-body.md` | NEW. Template 9 sections + validation regex + anti-patterns. |
+| `prompts/agent/audit-gate-checks.md` | NEW. 9 tracks audit avec commandes, classification P0-P3, verdict tree. |
+| `prompts/agent/phase-auditor.md` | NEW. 7 dimensions review leger avec opinion-first. |
+| `scripts/agent/agentctl.py` | UPDATE. 6 kinds dans PROMPT_KINDS + AGENT_SYSTEM.md dans cmd_context(). |
+| `docs/agent/TOOLING.md` | UPDATE. Documenter les 6 kinds avec exemples d'usage. |
 
 ### §6.3 Tests plan
 
-1. `test_prompt_handoff_assembles` — verifie que `agentctl prompt --kind handoff` retourne un contenu non-vide contenant les sections structurees (Sprint context, Stop conditions)
-2. `test_context_includes_agent_system` — verifie que `cmd_context` liste `docs/agent/AGENT_SYSTEM.md`
+1. `test_prompt_handoff_assembles` — agentctl prompt --kind handoff retourne contenu non-vide
+2. `test_prompt_preflight_assembles` — agentctl prompt --kind preflight retourne contenu non-vide avec S1/S2/S3/S4
+3. `test_prompt_review_assembles` — agentctl prompt --kind review retourne contenu avec 11 dimensions
+4. `test_prompt_commit_body_assembles` — agentctl prompt --kind commit-body retourne template 9 sections
+5. `test_prompt_audit_gate_assembles` — agentctl prompt --kind audit-gate retourne 9 tracks
+6. `test_prompt_auditor_assembles` — agentctl prompt --kind auditor retourne 7 dimensions
+7. `test_context_includes_agent_system` — cmd_context liste AGENT_SYSTEM.md
 
 ### §6.4 Critere d'acceptation
 
 ```bash
-python scripts/agent/agentctl.py prompt --kind handoff --depth deep > /dev/null 2>&1 && \
+for kind in handoff preflight review commit-body audit-gate auditor; do
+  python scripts/agent/agentctl.py prompt --kind $kind --depth deep > /dev/null 2>&1 || exit 1
+done && \
 python scripts/agent/agentctl.py context | rg -q "AGENT_SYSTEM" && echo "PASS" || echo "FAIL"
 ```
-Condition : le prompt handoff s'assemble sans erreur, context reference AGENT_SYSTEM.md.
+Condition : les 6 kinds s'assemblent sans erreur, context reference AGENT_SYSTEM.md.
 
 ### §6.5 Commit cible
 
-`feat(agent): Sprint 70 Phase C — handoff portable + agentctl prompt --kind handoff`
+`feat(agent): Sprint 70 Phase C — prompt portability full (6 kinds executables)`
 
-Body : 9 sections obligatoires.
+Body : 9 sections obligatoires. Delta tests : +7 Python.
 
 ---
 
@@ -246,57 +315,79 @@ Body : 9 sections obligatoires. Delta tests : +10 Python (test_agentctl.py).
 
 ---
 
-## §8 Phase E — Gates, hooks, CI + dogfood
+## §8 Phase E — Agent refactor + hooks + provider config + dogfood
 
 ### §8.1 Scope
 
-Dynamiser les hooks Claude : remplacer les hardcodes "sprint 67"
-dans process-task-gate.sh et process-supervisor-stop.sh par une
-detection dynamique basee sur `.planning/active/`. Fermer le bypass
-chore(sprintN) Phase dans auditor-gate de agentctl.py : tout commit
-contenant "Sprint N Phase X" dans le titre necessite une review
-PASS, pas seulement les feat/fix/docs. Clarifier le routing
-auditor/review-deep dans les agents. Prouver le process portable
-par un dogfood : generer un handoff, verifier status-sprint,
-lint-planning, audit-commit sur les commits existants.
+3 volets :
+
+**(a) Agent refactor** : les `.claude/agents/` deviennent des
+wrappers legers qui referencent les prompts portables. La logique
+executable vit dans `prompts/agent/`, les agents ajoutent les
+outils Claude-specifiques (WebSearch, context7, Read 1M tokens).
+Un provider sans ces outils execute le meme workflow mais avec
+moins de profondeur (pas de prior art OSS live, pas de 1M tokens).
+
+**(b) Hooks dynamises** : remplacer les hardcodes "sprint 67" dans
+process-task-gate.sh et process-supervisor-stop.sh par detection
+dynamique. Fermer le bypass chore(sprintN) Phase dans auditor-gate.
+
+**(c) Provider config + dogfood** : creer
+`docs/agent/PROVIDER_CONFIG.md` qui definit comment configurer le
+driver LLM (qui code) et le verificateur LLM (qui review/audit).
+Table des combinaisons supportees :
+- Driver Claude + Verificateur Codex (actuel)
+- Driver Claude + Verificateur Claude (fallback)
+- Driver Codex/GPT/local + Verificateur Claude
+- Driver LLM local + Verificateur LLM local (full offline)
+
+`agentctl prompt` accepte `--provider {claude,codex,gpt,local,human}`
+pour adapter le prompt assemble (ex: si provider=local, pas de
+reference WebSearch/context7 dans les instructions).
+
+Dogfood : generer un prompt preflight pour un provider non-Claude,
+verifier que le format est executable, prouver que
+status-sprint/lint-planning/audit-commit fonctionnent.
 
 ### §8.2 Livrables
 
 | Fichier | Description |
 |---|---|
-| `.claude/hooks/process-task-gate.sh` | UPDATE. Remplacer L77-79 et L90-94 hardcodes "sprint 67" par detection dynamique du sprint courant via glob `.planning/active/sprint*_*.md`. |
-| `.claude/hooks/process-supervisor-stop.sh` | UPDATE. Remplacer L80 hardcode "sprint67_phase_c_preflight.md" par detection dynamique du sprint et de la phase en cours. |
-| `scripts/agent/agentctl.py` | UPDATE. Modifier `cmd_auditor_gate()` pour gater TOUS les types de commit (pas seulement feat/fix/docs) quand le titre contient "Sprint N Phase X". La ligne 663 `if title.startswith("chore(planning):")` reste (chore planning n'est pas un phase commit). Ajouter une clause pour rejeter `chore(sprint*)` avec Phase dans le titre. |
-| `.claude/agents/nexus-phase-auditor.md` | UPDATE. Ajouter un paragraphe clarifiant que review-deep est l'agent review principal et que phase-auditor est le fallback leger. |
+| `.claude/agents/nexus-phase-preflight-deep.md` | REFACTOR. Garder les instructions Claude-specifiques (WebSearch, context7, Read 1M). Deleguer la logique des 5 scans au prompt portable `preflight.md` via reference. |
+| `.claude/agents/nexus-phase-review-deep.md` | REFACTOR. Garder les instructions Claude-specifiques. Deleguer les 11 dimensions au prompt portable `phase-review.md`. |
+| `.claude/agents/nexus-audit-gate.md` | REFACTOR. Garder les instructions Claude-specifiques. Deleguer les 9 tracks au prompt portable `audit-gate-checks.md`. |
+| `.claude/agents/nexus-phase-auditor.md` | REFACTOR. Wrapper leger sur `phase-auditor.md` portable. Clarifier routing review-deep vs auditor. |
+| `.claude/hooks/process-task-gate.sh` | UPDATE. Detection dynamique sprint courant. |
+| `.claude/hooks/process-supervisor-stop.sh` | UPDATE. Detection dynamique sprint + phase. |
+| `scripts/agent/agentctl.py` | UPDATE. Fix bypass chore(sprintN) Phase + `--provider` flag pour prompt assembly. |
+| `docs/agent/PROVIDER_CONFIG.md` | NEW. Table driver/verificateur, combinaisons, instructions par provider. |
 
 ### §8.3 Tests plan
 
-1. `test_auditor_gate_blocks_chore_sprint_phase` — verifie que `chore(sprint70): Sprint 70 Phase A ...` est bloque sans review PASS (nouveau test)
-2. `test_auditor_gate_allows_chore_planning` — verifie que `chore(planning): ...` passe toujours (regression test existant a formaliser)
+1. `test_auditor_gate_blocks_chore_sprint_phase` — chore(sprint70) Phase bloque sans review
+2. `test_auditor_gate_allows_chore_planning` — chore(planning) passe
+3. `test_prompt_provider_flag_local` — --provider local exclut WebSearch/context7
+4. `test_prompt_provider_flag_claude` — --provider claude inclut tout
 
-Dogfood (non automatise, verification documentaire) :
-3. Generer un handoff : `python scripts/agent/agentctl.py prompt --kind handoff --depth deep`
-4. Verifier status-sprint : `python scripts/agent/agentctl.py status-sprint`
-5. Verifier lint-planning : `python scripts/agent/agentctl.py lint-planning`
-6. Verifier audit-commit sur commits S69 : `python scripts/agent/agentctl.py audit-commit --rev c6c135f`
+Dogfood :
+5. `agentctl prompt --kind preflight --provider local --depth deep` — executable par LLM local
+6. `agentctl status-sprint` + `lint-planning` + `audit-commit --rev HEAD`
 
 ### §8.4 Critere d'acceptation
 
 ```bash
-# Hooks ne contiennent plus de hardcodes sprint 67
 ! rg "sprint.?67" .claude/hooks/process-task-gate.sh .claude/hooks/process-supervisor-stop.sh && \
-# Auditor gate bloque chore(sprint) phases
-uv run pytest tests/test_agentctl.py -q -k "auditor" && \
-# Dogfood : handoff s'assemble
+uv run pytest tests/test_agentctl.py -q -k "auditor or provider" && \
+python scripts/agent/agentctl.py prompt --kind preflight --provider local --depth deep > /dev/null && \
 python scripts/agent/agentctl.py prompt --kind handoff --depth deep > /dev/null && \
 echo "PASS" || echo "FAIL"
 ```
 
 ### §8.5 Commit cible
 
-`feat(agent): Sprint 70 Phase E — hooks dynamises + bypass ferme + dogfood process portable`
+`feat(agent): Sprint 70 Phase E — agent refactor wrappers + hooks dynamises + provider config + dogfood`
 
-Body : 9 sections obligatoires. Delta tests : +2 Python (auditor gate chore sprint).
+Body : 9 sections obligatoires. Delta tests : +4 Python.
 
 ---
 
@@ -349,17 +440,17 @@ Body : 9 sections obligatoires. Checkpoint cloture complet.
 
 | Phase | Rust | Vitest | Python | Detail |
 |---|---|---|---|---|
-| A | +0 | +0 | +0 | docs-only (AGENT_SYSTEM.md + AGENTS.md) |
+| A | +0 | +0 | +0 | docs-only (AGENT_SYSTEM.md 7 sections + AGENTS.md) |
 | B | +0 | +0 | +0 | docs-only (PATTERNS.md + README.md) |
-| C | +0 | +0 | +2 | handoff prompt + context AGENT_SYSTEM |
+| C | +0 | +0 | +7 | 6 prompt kinds + context AGENT_SYSTEM |
 | D | +0 | +0 | +10 | status-sprint, lint-planning, audit-commit |
-| E | +0 | +0 | +2 | auditor gate chore sprint + chore planning |
+| E | +0 | +0 | +4 | auditor gate bypass + provider flag |
 | F | +0 | +0 | +0 | docs-only (RRV contract + verification) |
-| **Total** | **+0** | **+0** | **+14** | |
-| **Sortie estimee** | **1433** | **279** | **~25** | **~1737 + Python** |
+| **Total** | **+0** | **+0** | **+21** | |
+| **Sortie estimee** | **1433** | **279** | **~32** | **~1744 + Python** |
 
 Note : les tests Python ne sont pas comptes dans le total historique
-Rust+Vitest. Le total test_agentctl.py passe de 11 a ~25.
+Rust+Vitest. Le total test_agentctl.py passe de 11 a ~32.
 
 ---
 
@@ -382,15 +473,17 @@ Rust+Vitest. Le total test_agentctl.py passe de 11 a ~25.
 | 13 | scan-trust-wording | `bash scripts/scan-trust-wording.sh` | clean |
 | 14 | sync-bridge-sdk | `diff web/public/sbfb-bridge.js examples/*/sbfb-bridge.js` | identical |
 | 15 | AGENT_SYSTEM.md exists | `test -f docs/agent/AGENT_SYSTEM.md` | exists |
-| 16 | AGENT_SYSTEM 5 sections | `rg -c "Truth Stack\|Role Registry\|Provider Mapping\|Lifecycle\|Non-Goals" docs/agent/AGENT_SYSTEM.md` | >= 5 |
+| 16 | AGENT_SYSTEM 7 sections | `rg -c "Truth Stack\|Role Registry\|Provider Mapping\|Lifecycle\|Gate Contract\|Prompt Registry\|Non-Goals" docs/agent/AGENT_SYSTEM.md` | >= 7 |
 | 17 | AGENTS.md no stale Python | `! rg "packages/\|setup\.sh\|uv run pytest" AGENTS.md` | absent |
 | 18 | handoff.md exists | `test -f prompts/agent/handoff.md` | exists |
-| 19 | agentctl handoff prompt | `python scripts/agent/agentctl.py prompt --kind handoff --depth deep > /dev/null` | exit 0 |
+| 19 | agentctl 6 prompt kinds | `for k in handoff preflight review commit-body audit-gate auditor; do python scripts/agent/agentctl.py prompt --kind $k --depth deep > /dev/null; done` | exit 0 |
 | 20 | agentctl status-sprint | `python scripts/agent/agentctl.py status-sprint` | exit 0 |
 | 21 | agentctl lint-planning | `python scripts/agent/agentctl.py lint-planning` | exit 0 |
 | 22 | agentctl audit-commit | `python scripts/agent/agentctl.py audit-commit --rev HEAD` | exit 0 |
-| 23 | Python tests agentctl | `uv run pytest tests/test_agentctl.py -q` | >= 23 pass |
+| 23 | Python tests agentctl | `uv run pytest tests/test_agentctl.py -q` | >= 30 pass |
 | 24 | hooks no stale S67 | `! rg "sprint.?67" .claude/hooks/process-task-gate.sh .claude/hooks/process-supervisor-stop.sh` | absent |
+| 29 | PROVIDER_CONFIG.md | `test -f docs/agent/PROVIDER_CONFIG.md` | exists |
+| 30 | provider flag works | `python scripts/agent/agentctl.py prompt --kind preflight --provider local --depth deep > /dev/null` | exit 0 |
 | 25 | RRV_FACTORY_CONTRACT | `test -f docs/agent/RRV_FACTORY_CONTRACT.md` | exists |
 | 26 | RRV 5 modes documented | `rg -c "@research\|@dev\|@audit\|@security\|@product" docs/agent/RRV_FACTORY_CONTRACT.md` | >= 5 |
 | 27 | verification.md | `test -f .planning/active/sprint70_verification.md` | exists |
@@ -435,12 +528,15 @@ Rust+Vitest. Le total test_agentctl.py passe de 11 a ~25.
 
 ## §14 Checkpoint de cloture
 
-- [ ] 28/28 fail-fast verts
-- [ ] 4 commits : 2 docs (A + B) + 2 feat (C + D) + 1 feat (E) + 1 docs (F)
+- [ ] 30/30 fail-fast verts
+- [ ] 6 commits : 2 docs (A + B) + 2 feat (C + D) + 1 feat (E) + 1 docs (F)
 - [ ] verification.md + audit_plan S71 ecrits
-- [ ] AGENT_SYSTEM.md cree et ne duplique pas PROCESS.md
-- [ ] handoff.md wire dans agentctl
-- [ ] 3 commandes agentctl operationnelles
+- [ ] AGENT_SYSTEM.md cree (7 sections, Gate Contract + Prompt Registry)
+- [ ] 6 prompt kinds executables dans prompts/agent/ (handoff, preflight, review, commit-body, audit-gate, auditor)
+- [ ] agentctl prompt --kind X --provider Y fonctionne pour tout kind/provider
+- [ ] .claude/agents/ refactored en wrappers legers sur prompts portables
+- [ ] PROVIDER_CONFIG.md definit combinaisons driver/verificateur
+- [ ] 3 commandes agentctl observabilite operationnelles
 - [ ] Hooks stale S67 dynamises
 - [ ] P2-I-3 3/3 CLOSED (body docs)
 - [ ] P2-G-1 CLOSED (8 sprints non-repro)
