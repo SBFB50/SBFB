@@ -36,26 +36,28 @@
 ## §3 Graphe de dependances inter-phases
 
 ```
-Phase A (AGENT_SYSTEM.md)
+Phase A (AGENT_SYSTEM.md 7 sections)
   |
   +--> Phase B (dette pair + P2 absorbes)  [independante de A]
   |
-  +--> Phase C (handoff) [depend A : reference AGENT_SYSTEM.md]
+  +--> Phase C (prompt portability full) [depend A : reference AGENT_SYSTEM]
          |
-         +--> Phase D (agentctl 3 commandes) [depend C : handoff dans PROMPT_KINDS]
+         +--> Phase D (agentctl 3 commandes + serve) [depend C : PROMPT_KINDS complet]
                 |
-                +--> Phase E (hooks + dogfood) [depend D : utilise status-sprint/lint-planning]
+                +--> Phase E (Factory Process Dashboard) [depend D : agentctl serve = backend]
                        |
-                       +--> Phase F (contrat RRV + verification + wrap-up) [depend E : dogfood done]
+                       +--> Phase F (agent refactor + hooks + provider config + dogfood via dashboard)
+                              |
+                              +--> Phase G (contrat RRV/Factory + verification + wrap-up)
 ```
 
-Phase A et Phase B sont independantes et peuvent commencer en
-parallele (A = docs agent, B = dette pair code/docs). Phase C
-depend de A car le handoff reference AGENT_SYSTEM.md. Phase D
-depend de C car le PROMPT_KINDS doit contenir "handoff" pour que
-le build_parser() soit coherent. Phase E depend de D car le
-dogfood utilise les commandes agentctl nouvelles. Phase F ferme le
-sprint avec le contrat RRV/Factory et la verification.
+Phase A et Phase B sont independantes. Phase C depend de A car
+les prompts referencent AGENT_SYSTEM.md. Phase D depend de C car
+PROMPT_KINDS doit etre complet + ajoute `agentctl serve` (JSON
+API locale pour le dashboard). Phase E depend de D car le
+dashboard appelle les endpoints agentctl serve. Phase F depend de
+E car le dogfood utilise le dashboard pour prouver le process
+portable end-to-end. Phase G ferme le sprint.
 
 ---
 
@@ -264,38 +266,53 @@ Body : 9 sections obligatoires. Delta tests : +7 Python.
 
 ---
 
-## §7 Phase D — Agentctl observabilite
+## §7 Phase D — Agentctl observabilite + serve
 
 ### §7.1 Scope
 
-Implanter 3 nouvelles commandes dans agentctl.py :
+Implanter 4 nouvelles commandes dans agentctl.py :
 - `status-sprint` : etat sprint courant (sprint N, phases, artefacts)
 - `lint-planning` : coherence artefacts planning
 - `audit-commit --rev HEAD` : verifier un commit contre les regles
+- `serve --port 3001` : JSON API locale pour le dashboard Factory
+
+La commande `serve` expose les endpoints JSON :
+- `GET /api/status` → status-sprint en JSON
+- `GET /api/lint` → lint-planning en JSON
+- `GET /api/audit/{rev}` → audit-commit en JSON
+- `GET /api/prompt/{kind}?provider={p}&depth={d}` → prompt assemble
+- `GET /api/context` → agentctl context en JSON
+- `GET /api/providers` → liste des providers configures
+
+Basee sur `http.server` stdlib Python (zero dep externe). CORS
+permissif en local (`localhost:*`).
 
 Ecrire les tests dans `tests/test_agentctl.py`. Mettre a jour
-`docs/agent/TOOLING.md`. JSON output optionnel via `--json`.
+`docs/agent/TOOLING.md`. JSON output optionnel via `--json` pour
+les 3 commandes CLI.
 
 ### §7.2 Livrables
 
 | Fichier | Description |
 |---|---|
-| `scripts/agent/agentctl.py` | UPDATE. 3 nouvelles commandes : `cmd_status_sprint()` (~60-80 lignes), `cmd_lint_planning()` (~80-100 lignes), `cmd_audit_commit()` (~60-80 lignes). Parsers dans `build_parser()`. Total : ~200-250 lignes ajoutees. |
-| `tests/test_agentctl.py` | UPDATE. ~8-12 nouveaux tests couvrant les 3 commandes avec monkeypatch (pas besoin de repo reel). |
-| `docs/agent/TOOLING.md` | UPDATE. Documenter les 3 commandes avec exemples et sorties attendues. |
+| `scripts/agent/agentctl.py` | UPDATE. 4 nouvelles commandes : `cmd_status_sprint()`, `cmd_lint_planning()`, `cmd_audit_commit()`, `cmd_serve()`. Parsers dans `build_parser()`. Serve utilise `http.server.HTTPServer` + handler JSON. |
+| `tests/test_agentctl.py` | UPDATE. Tests couvrant les 3 commandes CLI + tests serve (start/stop, endpoint JSON parsable). |
+| `docs/agent/TOOLING.md` | UPDATE. Documenter les 4 commandes avec exemples et sorties attendues. |
 
 ### §7.3 Tests plan
 
-1. `test_status_sprint_detects_active_kickoff` — monkeypatch des fichiers active/, verifie que status-sprint retourne le bon sprint number et detecte kickoff/plan
-2. `test_status_sprint_json_output` — verifie que `--json` produit du JSON parsable
-3. `test_status_sprint_no_active_sprint` — verifie comportement quand `.planning/active/` est vide
-4. `test_lint_planning_detects_orphan_files` — injecte un fichier sprint N-2, verifie warning
-5. `test_lint_planning_detects_pass_pending` — injecte un review avec PASS-PENDING, verifie error
-6. `test_lint_planning_clean` — verifie retour 0 quand tout est coherent
-7. `test_audit_commit_valid_phase_commit` — monkeypatch git log, verifie PASS sur un commit valide
-8. `test_audit_commit_missing_review` — verifie erreur quand review manque pour un phase commit
-9. `test_audit_commit_non_phase_commit` — verifie que les commits non-phase sont ok sans review
-10. `test_audit_commit_missing_body_sections` — verifie detection des sections body manquantes
+1. `test_status_sprint_detects_active_kickoff` — monkeypatch des fichiers active/, verifie sprint number + kickoff/plan detectes
+2. `test_status_sprint_json_output` — `--json` produit du JSON parsable
+3. `test_status_sprint_no_active_sprint` — comportement quand `.planning/active/` est vide
+4. `test_lint_planning_detects_orphan_files` — fichier sprint N-2, warning
+5. `test_lint_planning_detects_pass_pending` — review PASS-PENDING, error
+6. `test_lint_planning_clean` — retour 0 quand coherent
+7. `test_audit_commit_valid_phase_commit` — PASS sur commit valide
+8. `test_audit_commit_missing_review` — erreur quand review manque
+9. `test_audit_commit_non_phase_commit` — commits non-phase ok sans review
+10. `test_audit_commit_missing_body_sections` — detection sections manquantes
+11. `test_serve_status_endpoint` — GET /api/status retourne JSON parsable
+12. `test_serve_prompt_endpoint` — GET /api/prompt/preflight retourne contenu
 
 ### §7.4 Critere d'acceptation
 
@@ -305,19 +322,102 @@ python scripts/agent/agentctl.py lint-planning && \
 python scripts/agent/agentctl.py audit-commit --rev HEAD && \
 uv run pytest tests/test_agentctl.py -q && echo "PASS" || echo "FAIL"
 ```
-Condition : les 3 commandes s'executent sans crash, tests passes.
+Condition : les 4 commandes s'executent sans crash, tests passes.
 
 ### §7.5 Commit cible
 
-`feat(agent): Sprint 70 Phase D — agentctl status-sprint + lint-planning + audit-commit`
+`feat(agent): Sprint 70 Phase D — agentctl observabilite + serve JSON API`
 
-Body : 9 sections obligatoires. Delta tests : +10 Python (test_agentctl.py).
+Body : 9 sections obligatoires. Delta tests : +12 Python.
 
 ---
 
-## §8 Phase E — Agent refactor + hooks + provider config + dogfood
+## §8 Phase E — Factory Process Dashboard (standalone React app)
 
 ### §8.1 Scope
+
+Creer une app React standalone dans `tools/factory-dashboard/` qui
+sert de fondation pour l'UI Factory. L'app appelle `agentctl serve`
+comme backend JSON API.
+
+Stack : Vite + React + TypeScript + Tailwind + shadcn/ui (meme
+stack que web/ pour coherence et reutilisation des composants).
+
+**Pages / vues :**
+
+1. **Sprint Overview** — statut sprint courant en temps reel
+   (numero, phases avec badges etat, artefacts presents/manquants,
+   verdicts par gate, compteurs tests). Appelle `GET /api/status`.
+
+2. **Provider Selector** — choix driver LLM + verificateur LLM
+   via dropdown. Combinaisons : Claude/Codex/GPT/local/humain.
+   Persiste dans localStorage. Appelle `GET /api/providers`.
+
+3. **Prompt Generator** — selectionner un kind (preflight, review,
+   audit-gate, commit-body, auditor, handoff), un provider et une
+   depth. Genere le prompt assemble, affiche en Markdown rendu
+   avec bouton copier. Appelle `GET /api/prompt/{kind}`.
+
+4. **Lint Dashboard** — resultats lint-planning en visuel
+   (warnings/errors avec fichiers concernes). Appelle
+   `GET /api/lint`.
+
+5. **Commit Auditor** — entrer un SHA, afficher le resultat
+   audit-commit (sections presentes/manquantes, review check,
+   codex check). Appelle `GET /api/audit/{rev}`.
+
+6. **Handoff Viewer** — genere le document handoff complet,
+   affiche en Markdown rendu, bouton copier pour transfert
+   inter-provider. Appelle `GET /api/prompt/handoff`.
+
+Design : dark theme (coherent avec le shell SBFB), responsive,
+sidebar navigation, status bar avec tip HEAD + sprint number.
+
+### §8.2 Livrables
+
+| Fichier | Description |
+|---|---|
+| `tools/factory-dashboard/` | NEW. Projet Vite + React + TypeScript + Tailwind. |
+| `tools/factory-dashboard/package.json` | NEW. Deps : react, react-dom, vite, tailwindcss, typescript. |
+| `tools/factory-dashboard/src/App.tsx` | NEW. Router + layout (sidebar + content). |
+| `tools/factory-dashboard/src/pages/SprintOverview.tsx` | NEW. Status sprint + phases + verdicts. |
+| `tools/factory-dashboard/src/pages/ProviderSelector.tsx` | NEW. Dropdown driver + verificateur. |
+| `tools/factory-dashboard/src/pages/PromptGenerator.tsx` | NEW. Kind + provider + depth → prompt Markdown. |
+| `tools/factory-dashboard/src/pages/LintDashboard.tsx` | NEW. Resultats lint visuels. |
+| `tools/factory-dashboard/src/pages/CommitAuditor.tsx` | NEW. SHA → audit result. |
+| `tools/factory-dashboard/src/pages/HandoffViewer.tsx` | NEW. Handoff genere + copier. |
+| `tools/factory-dashboard/src/hooks/useApi.ts` | NEW. Hook fetch vers agentctl serve. |
+| `tools/factory-dashboard/src/components/` | NEW. StatusBadge, VerdictChip, MarkdownRenderer, CopyButton. |
+
+### §8.3 Tests plan
+
+1. `npm run build` — le projet compile sans erreur
+2. `npm run lint` — 0 errors ESLint
+3. `npx tsc --noEmit` — 0 errors TypeScript
+4. Test integration manuelle : `agentctl serve` + ouvrir dashboard
+   → Sprint Overview affiche le bon sprint, Prompt Generator
+   assemble un prompt, Lint Dashboard affiche les resultats
+
+### §8.4 Critere d'acceptation
+
+```bash
+(cd tools/factory-dashboard && npm install && npm run lint && \
+  npx tsc --noEmit && npm run build) && echo "PASS" || echo "FAIL"
+```
+Condition : le projet compile, lint et typecheck passent.
+
+### §8.5 Commit cible
+
+`feat(factory): Sprint 70 Phase E — Factory Process Dashboard standalone`
+
+Body : 9 sections obligatoires. Delta tests : +0 Rust, +0 Vitest,
+build/lint/tsc factory-dashboard.
+
+---
+
+## §9 Phase F — Agent refactor + hooks + provider config + dogfood
+
+### §9.1 Scope
 
 3 volets :
 
@@ -349,7 +449,7 @@ Dogfood : generer un prompt preflight pour un provider non-Claude,
 verifier que le format est executable, prouver que
 status-sprint/lint-planning/audit-commit fonctionnent.
 
-### §8.2 Livrables
+### §9.2 Livrables
 
 | Fichier | Description |
 |---|---|
@@ -362,18 +462,19 @@ status-sprint/lint-planning/audit-commit fonctionnent.
 | `scripts/agent/agentctl.py` | UPDATE. Fix bypass chore(sprintN) Phase + `--provider` flag pour prompt assembly. |
 | `docs/agent/PROVIDER_CONFIG.md` | NEW. Table driver/verificateur, combinaisons, instructions par provider. |
 
-### §8.3 Tests plan
+### §9.3 Tests plan
 
 1. `test_auditor_gate_blocks_chore_sprint_phase` — chore(sprint70) Phase bloque sans review
 2. `test_auditor_gate_allows_chore_planning` — chore(planning) passe
 3. `test_prompt_provider_flag_local` — --provider local exclut WebSearch/context7
 4. `test_prompt_provider_flag_claude` — --provider claude inclut tout
 
-Dogfood :
-5. `agentctl prompt --kind preflight --provider local --depth deep` — executable par LLM local
-6. `agentctl status-sprint` + `lint-planning` + `audit-commit --rev HEAD`
+Dogfood via dashboard :
+5. Ouvrir Factory Dashboard → Sprint Overview affiche S70 en cours
+6. Prompt Generator → kind=preflight provider=local → prompt executable
+7. `agentctl status-sprint` + `lint-planning` + `audit-commit --rev HEAD`
 
-### §8.4 Critere d'acceptation
+### §9.4 Critere d'acceptation
 
 ```bash
 ! rg "sprint.?67" .claude/hooks/process-task-gate.sh .claude/hooks/process-supervisor-stop.sh && \
@@ -383,17 +484,17 @@ python scripts/agent/agentctl.py prompt --kind handoff --depth deep > /dev/null 
 echo "PASS" || echo "FAIL"
 ```
 
-### §8.5 Commit cible
+### §9.5 Commit cible
 
-`feat(agent): Sprint 70 Phase E — agent refactor wrappers + hooks dynamises + provider config + dogfood`
+`feat(agent): Sprint 70 Phase F — agent refactor wrappers + hooks dynamises + provider config + dogfood`
 
 Body : 9 sections obligatoires. Delta tests : +4 Python.
 
 ---
 
-## §9 Phase F — Contrat RRV/Factory + verification + wrap-up
+## §10 Phase G — Contrat RRV/Factory + verification + wrap-up
 
-### §9.1 Scope
+### §10.1 Scope
 
 Creer `docs/agent/RRV_FACTORY_CONTRACT.md` avec la table de mapping
 modes→roles, le principe d'autorite, le contrat Factory, le
@@ -401,17 +502,17 @@ sequencing post-S70. Ecrire `sprint70_verification.md` fail-fast.
 Ecrire `sprint71_audit_plan.md`. Mettre a jour CLAUDE.md (etat,
 compteurs, carries), SPRINT_LOG.md, memory nexus_grid_pivot.md.
 
-### §9.2 Livrables
+### §10.2 Livrables
 
 | Fichier | Description |
 |---|---|
 | `docs/agent/RRV_FACTORY_CONTRACT.md` | NEW. Table mapping 5 modes @ → roles portables. Principe autorite (execution dans .planning/active/). Factory = consommateur. Babel = app. Sequencing post-S70. |
-| `.planning/active/sprint70_verification.md` | NEW. Fail-fast checklist ~25-28 rows. Delta tests. Scope cuts compliance. G8 bilan. Carries. Commits. Checkpoint cloture. |
-| `.planning/active/sprint71_audit_plan.md` | NEW. 9 tracks audit correspondant aux 9 tracks de sprint70_audit_plan.md. |
+| `.planning/active/sprint70_verification.md` | NEW. Fail-fast checklist. Delta tests. Scope cuts compliance. G8 bilan. Carries. Commits. Checkpoint cloture. |
+| `.planning/active/sprint71_audit_plan.md` | NEW. Tracks audit S70. |
 | `CLAUDE.md` | UPDATE. Tip, compteurs, carries, etat process. |
 | `docs/claude/SPRINT_LOG.md` | UPDATE. Row S70. |
 
-### §9.3 Tests plan
+### §10.3 Tests plan
 
 Phase docs-only. Pas de tests code.
 Verification :
@@ -420,7 +521,7 @@ Verification :
 3. `test -f .planning/active/sprint70_verification.md` — verification ecrite
 4. `test -f .planning/active/sprint71_audit_plan.md` — audit plan ecrit
 
-### §9.4 Critere d'acceptation
+### §10.4 Critere d'acceptation
 
 ```bash
 test -f docs/agent/RRV_FACTORY_CONTRACT.md && \
@@ -428,29 +529,32 @@ test -f .planning/active/sprint70_verification.md && \
 test -f .planning/active/sprint71_audit_plan.md && echo "PASS" || echo "FAIL"
 ```
 
-### §9.5 Commit cible
+### §10.5 Commit cible
 
-`docs(sprint70): Sprint 70 Phase F — RRV/Factory contrat + verification + wrap-up`
+`docs(sprint70): Sprint 70 Phase G — RRV/Factory contrat + verification + wrap-up`
 
 Body : 9 sections obligatoires. Checkpoint cloture complet.
 
 ---
 
-## §10 Delta tests estime
+## §11 Delta tests estime
 
-| Phase | Rust | Vitest | Python | Detail |
-|---|---|---|---|---|
-| A | +0 | +0 | +0 | docs-only (AGENT_SYSTEM.md 7 sections + AGENTS.md) |
-| B | +0 | +0 | +0 | docs-only (PATTERNS.md + README.md) |
-| C | +0 | +0 | +7 | 6 prompt kinds + context AGENT_SYSTEM |
-| D | +0 | +0 | +10 | status-sprint, lint-planning, audit-commit |
-| E | +0 | +0 | +4 | auditor gate bypass + provider flag |
-| F | +0 | +0 | +0 | docs-only (RRV contract + verification) |
-| **Total** | **+0** | **+0** | **+21** | |
-| **Sortie estimee** | **1433** | **279** | **~32** | **~1744 + Python** |
+| Phase | Rust | Vitest | Python | Factory | Detail |
+|---|---|---|---|---|---|
+| A | +0 | +0 | +0 | — | docs-only (AGENT_SYSTEM.md 7 sections + AGENTS.md) |
+| B | +0 | +0 | +0 | — | docs-only (PATTERNS.md + README.md) |
+| C | +0 | +0 | +7 | — | 6 prompt kinds + context AGENT_SYSTEM |
+| D | +0 | +0 | +12 | — | status-sprint, lint-planning, audit-commit, serve |
+| E | +0 | +0 | +0 | build+lint+tsc | Factory Dashboard (React standalone) |
+| F | +0 | +0 | +4 | — | auditor gate bypass + provider flag |
+| G | +0 | +0 | +0 | — | docs-only (RRV contract + verification) |
+| **Total** | **+0** | **+0** | **+23** | **build** | |
+| **Sortie estimee** | **1433** | **279** | **~34** | **compile** | **~1746 + Python + Factory** |
 
 Note : les tests Python ne sont pas comptes dans le total historique
-Rust+Vitest. Le total test_agentctl.py passe de 11 a ~32.
+Rust+Vitest. Le total test_agentctl.py passe de 11 a ~34. Le Factory
+Dashboard a son propre build/lint/tsc mais pas de tests unitaires S70
+(candidat S71).
 
 ---
 
@@ -484,6 +588,8 @@ Rust+Vitest. Le total test_agentctl.py passe de 11 a ~32.
 | 24 | hooks no stale S67 | `! rg "sprint.?67" .claude/hooks/process-task-gate.sh .claude/hooks/process-supervisor-stop.sh` | absent |
 | 29 | PROVIDER_CONFIG.md | `test -f docs/agent/PROVIDER_CONFIG.md` | exists |
 | 30 | provider flag works | `python scripts/agent/agentctl.py prompt --kind preflight --provider local --depth deep > /dev/null` | exit 0 |
+| 31 | factory-dashboard build | `(cd tools/factory-dashboard && npm run build)` | ok |
+| 32 | factory-dashboard tsc | `(cd tools/factory-dashboard && npx tsc --noEmit)` | 0 errors |
 | 25 | RRV_FACTORY_CONTRACT | `test -f docs/agent/RRV_FACTORY_CONTRACT.md` | exists |
 | 26 | RRV 5 modes documented | `rg -c "@research\|@dev\|@audit\|@security\|@product" docs/agent/RRV_FACTORY_CONTRACT.md` | >= 5 |
 | 27 | verification.md | `test -f .planning/active/sprint70_verification.md` | exists |
@@ -528,12 +634,15 @@ Rust+Vitest. Le total test_agentctl.py passe de 11 a ~32.
 
 ## §14 Checkpoint de cloture
 
-- [ ] 30/30 fail-fast verts
-- [ ] 6 commits : 2 docs (A + B) + 2 feat (C + D) + 1 feat (E) + 1 docs (F)
+- [ ] 32/32 fail-fast verts
+- [ ] 7 commits : 2 docs (A + B) + 2 feat (C + D) + 1 feat (E dashboard) + 1 feat (F refactor) + 1 docs (G)
 - [ ] verification.md + audit_plan S71 ecrits
 - [ ] AGENT_SYSTEM.md cree (7 sections, Gate Contract + Prompt Registry)
-- [ ] 6 prompt kinds executables dans prompts/agent/ (handoff, preflight, review, commit-body, audit-gate, auditor)
+- [ ] 6 prompt kinds executables dans prompts/agent/
 - [ ] agentctl prompt --kind X --provider Y fonctionne pour tout kind/provider
+- [ ] agentctl serve expose JSON API pour le dashboard
+- [ ] Factory Process Dashboard compile (tools/factory-dashboard/)
+- [ ] Dashboard connecte a agentctl serve (sprint status, prompt generator, lint, audit)
 - [ ] .claude/agents/ refactored en wrappers legers sur prompts portables
 - [ ] PROVIDER_CONFIG.md definit combinaisons driver/verificateur
 - [ ] 3 commandes agentctl observabilite operationnelles
