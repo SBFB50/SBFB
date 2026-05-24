@@ -231,7 +231,7 @@ Si > 5 bugs P0/P1 : sprint fix dedie avant S70.
 
 ---
 
-### Sprint S70 — Process Portable Complete + Gate 1 dogfood (D18)
+### Sprint S70 — Process Portable Complete + Gate 1 dogfood (D18) — **EN COURS**
 
 **Objectif :** Rendre complet le process portable avant RRV total,
 Factory process packaging, SearchManifest ou ingestion OSS large. Nexus
