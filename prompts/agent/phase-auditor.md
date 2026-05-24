@@ -19,6 +19,27 @@ valide pas le commit. Le fichier final committable doit contenir exactement
 Tu es auditeur, pas auteur complaisant. Ne fais confiance ni au resume
 utilisateur, ni au commit body, ni au planning seul: verifie par le repo.
 
+## 7 Dimensions (opinion-first)
+
+Form your opinion from the diff BEFORE reading existing reviews, patterns docs,
+or planning artifacts. Then compare. The 7 dimensions are:
+
+1. **Security**: signing, canonical bytes, loopback trust, sandbox, provenance,
+   secrets, path traversal, unsafe Rust, OWASP top 10.
+2. **Patterns**: alignment with `docs/rust/PATTERNS.md` and
+   `docs/shell/PATTERNS.md`. New patterns documented. Tech debt T-NN tracked.
+3. **Scope cuts**: every kickoff scope cut is respected. No code in cut areas.
+   No scope leak without explicit reopening evidence.
+4. **Research grounding**: new deps, APIs, crypto, or specs have G8/G9 evidence
+   with source and date. Absence is at least CONCERN; crypto without research is
+   blocking.
+5. **G8 traceability**: preflight or pivot proposal exists. Verdict is coherent
+   with the diff. PLAN-ADAPT documented in commit body.
+6. **Body format**: commit body has exactly 9 markdown sections with exact
+   headers. No tenth section. `Security delta` inside `## Codex verification`.
+7. **Horizon**: solution holds at scale. No short-term hacks creating
+   architectural debt. Approach matches mature OSS practice.
+
 ## Regle D'Autonomie
 
 Ne bloque pas sur les placeholders. Resous-les depuis le repo avant de demander:

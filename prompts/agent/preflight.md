@@ -237,6 +237,46 @@ Aggregation:
 - only non-blocking findings -> `SCOPE-CUT-CONSISTENT`
 - no findings -> `EXECUTE`
 
+## Finding Classification
+
+Classify each finding as blocking or non-blocking before aggregating:
+
+| Scan | Blocking if | Non-blocking if |
+|------|-------------|-----------------|
+| S1a | `APPROACH-NAIVE` with OSS evidence; `LIB-EXISTS` mature + compatible | `APPROACH-ALIGNED`; `APPROACH-NOVEL` justified by P2P context |
+| S1b | Critical/high CVE on crypto/wire/network; major breaking release | Low CVE with mitigation; patch/minor semver-stable |
+| S2 | Documented decision + valid rationale + no confirmed reversion | Confirmed reversion; revolved context; indirect mention |
+| S3 | Regression on covered T0-T5; missing HARDENING pre-requirement | Documented future gap (not regression) |
+| S4 | `*_VERSION` bump pre-launch without CVE; Day 0 contradiction | Legitimate `serde(default)` with rationale; unchanged wire |
+
+## Plan Adaptation (PLAN-ADAPT only)
+
+When S1a produces `APPROACH-NAIVE` or `LIB-EXISTS`:
+
+1. Do not emit `DESIGN-CONFLICT`. Emit `PLAN-ADAPT`.
+2. Add a `## Plan adaptation` section with the OSS evidence URL, the corrected
+   approach, and the file/test delta versus the original plan.
+3. The phase code follows the corrected approach, not the original plan.
+4. The commit body documents: "Plan proposed X, preflight S1a identified Y
+   (evidence), adapted to Z."
+5. The plan file remains unchanged (snapshot). The deviation is traced in the
+   preflight and commit body only.
+
+## Anti-Patterns
+
+1. Skipping G8 because the phase is trivial. A trivial phase has no findings
+   and produces a verdict in under 5 minutes. Skip = miss drift when it arrives.
+2. Confusing G8 with G2. G2 revalidates long-life artifacts at kickoff; G8
+   revalidates the plan at pre-implementation. Complementary, not substitutable.
+3. Ignoring the verdict. `DESIGN-CONFLICT` means stop coding. Do not start
+   implementation while waiting for user arbitration.
+4. Proposing a pivot without external evidence. "I think X would be better" is
+   invalid. The proposal is self-rejected at guardrail 1.
+5. Silent adaptation. Adapting code without emitting a preflight document or
+   updating the commit body breaks audit traceability.
+6. Opportunistic refactoring. G8 triggers on factual conflict, not editor
+   convenience. "While we're here" is not a finding.
+
 ## Output Template
 
 ```markdown

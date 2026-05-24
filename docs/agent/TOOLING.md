@@ -104,6 +104,39 @@ before committing. `git commit --no-verify` remains a manual Git escape hatch,
 but using it creates a process incident that must be documented in planning and
 resolved before the phase is considered clean.
 
+## Rust Prompt Assembly (sbfb-factory)
+
+`sbfb-factory process` provides Rust-native prompt assembly and repo context.
+It reads prompt files from `prompts/agent/` and assembles them for any provider.
+
+```bash
+# Show repo context as JSON (sprint, phase, HEAD, artifacts, AGENT_SYSTEM)
+cargo run -p sbfb-factory -- process context
+
+# Assemble a prompt by kind
+cargo run -p sbfb-factory -- process prompt --kind preflight
+cargo run -p sbfb-factory -- process prompt --kind handoff --depth deep
+cargo run -p sbfb-factory -- process prompt --kind phase-review --provider local
+
+# Available kinds
+# handoff, preflight, phase-review, commit-body, audit-gate, phase-auditor
+# Aliases: review -> phase-review, auditor -> phase-auditor, audit -> audit-gate
+
+# Available providers
+# claude, codex, gpt, local, human
+# --provider local strips WebSearch/context7 references
+```
+
+`process context` output includes:
+- `repo`, `branch`, `head`: current git state
+- `agent_system`: whether `docs/agent/AGENT_SYSTEM.md` exists
+- `process_docs`: list of process documentation files present
+- `prompt_kinds`: list of prompt kinds with existence status
+- `sprint`, `phase`: detected from `.planning/active/`
+- `active_artifacts`: list of planning artifacts
+- `dirty_files`, `staged_files`: current worktree state
+- `recent_commits`: last 5 commit subjects
+
 ## Local LLM Usage
 
 Local models should receive a small assembled prompt, not the whole repository.
@@ -111,3 +144,9 @@ Start with `universal` for full sprint work, or `base` for a small bounded
 task. Add `preflight` or `phase-auditor` when the role requires it, then paste
 only the relevant files and diffs. Keep local LLM tasks bounded to one phase,
 one module, or one review artifact.
+
+Use `--provider local` to strip cloud-specific references:
+
+```bash
+cargo run -p sbfb-factory -- process prompt --kind preflight --provider local --depth deep
+```

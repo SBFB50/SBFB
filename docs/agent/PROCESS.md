@@ -136,24 +136,45 @@ the web or registry, record `blocked` and mark the affected decision as
 
 ## Prompt Contract
 
-The deep provider-neutral prompt is `prompts/agent/universal.md`. Use it for
-full sprint-capable handoff to any LLM provider. The shorter base prompt is
-`prompts/agent/base.md` and is only for lightweight orientation. Specialized
-prompts live beside them:
+8 portable prompts live in `prompts/agent/`. They can be assembled by
+`sbfb-factory process prompt --kind {kind}` (Rust) or
+`agentctl.py prompt --kind {kind}` (Python legacy).
 
-- `universal.md`: complete provider-neutral sprint process.
-- `base.md`: short orientation.
-- `preflight.md`: before coding a phase.
-- `phase-review.md`: driver self-review after implementation.
-- `phase-auditor.md`: independent audit before commit.
-- `commit-body.md`: 9-section phase commit body with evidence, tests, and
-  `## Codex verification`.
+| Kind | File | Purpose |
+|------|------|---------|
+| `base` | `base.md` | Short orientation and invariants |
+| `universal` | `universal.md` | Complete sprint process vendor-neutral |
+| `handoff` | `handoff.md` | Inter-provider transfer (9 sections) |
+| `preflight` | `preflight.md` | G8 pre-code: 5 scans S1-S4, verdict tree |
+| `phase-review` | `phase-review.md` | Post-code: 11 dimensions review |
+| `phase-auditor` | `phase-auditor.md` | Independent audit: 7 dimensions |
+| `commit-body` | `commit-body.md` | 9-section commit body with validation |
+| `audit-gate` | `audit-gate-checks.md` | 9 tracks sprint audit, P0-P3 |
+
+Aliases: `review` -> `phase-review`, `auditor` -> `phase-auditor`,
+`audit` -> `audit-gate`.
 
 Prompts must reference files and commands, not private model memory.
 
 Prompt depth is intentional. A vendor-neutral prompt may be longer than a
 minimal chat instruction because it replaces Claude-specific skills and memory.
 Use concise wording, but keep the operational checks executable.
+
+### Bootstrap Fresh Session
+
+A fresh session receives context in this order:
+
+1. `base.md` — orientation invariante, regles evidence
+2. `universal.md` — lifecycle sprint complet, gates G1-G10
+3. `sbfb-factory process context` — faits repo live (HEAD, branch, dirty files,
+   sprint, phase, active artifacts, AGENT_SYSTEM.md)
+4. `handoff.md` — etat point-in-time (phase courante, verdict state, carries,
+   next actions)
+5. Prompt specialise — prochaine action de gate (preflight, phase-review,
+   commit-body, audit-gate, phase-auditor)
+
+Private chat memory is non-authoritative. If a fact is not in the repo files,
+runtime context, or handoff, the receiving agent writes `Not evidenced`.
 
 ## Codex Runbook
 
@@ -207,9 +228,22 @@ otherwise use `CONCERN`.
 To switch from Claude to GPT or a local LLM, keep the same files and run:
 
 ```bash
+# Rust (preferred)
+cargo run -p sbfb-factory -- process context
+cargo run -p sbfb-factory -- process prompt --kind universal --depth deep
+cargo run -p sbfb-factory -- process prompt --kind preflight --depth deep
+
+# Python legacy (still supported)
 python scripts/agent/agentctl.py context
 python scripts/agent/agentctl.py prompt --kind universal --depth deep
 python scripts/agent/agentctl.py prompt --kind preflight --sprint 35 --phase A
+```
+
+For local/offline providers, use `--provider local` to strip cloud-specific
+references (WebSearch, context7):
+
+```bash
+cargo run -p sbfb-factory -- process prompt --kind preflight --provider local --depth deep
 ```
 
 Paste the assembled prompt into the selected model, then require the model to

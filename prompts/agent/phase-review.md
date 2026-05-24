@@ -121,15 +121,44 @@ tests, G8 status, and commit target.
    date. Absence is at least a concern; crypto/spec work without research is
    blocking.
 
-8. **Commit body draft.** Draft the commit body from facts in the diff and
-   verification output. It must use exactly 9 markdown sections:
-   `## Contexte`, `## Fichiers`, `## Delta tests`, `## Verification`,
-   `## Scope cuts`, `## G8 traceability`, `## Pre-launch protocol`,
-   `## Codex verification`, and `## Carry closure` or
-   `## Carry closure / Unblock`. Put `Security delta` inside
-   `## Codex verification`, not as a separate top-level section. Include
-   `Co-Authored-By` only as a trailer when an applicable policy or contributor
-   identity is known.
+8. **Patterns drift.** Check that new code follows documented patterns in
+   `docs/rust/PATTERNS.md` and `docs/shell/PATTERNS.md`. Flag new patterns
+   introduced without documentation. Check tech debt items (T-NN) created or
+   resolved:
+
+   ```bash
+   rg -n "T-NN|PATTERN|canonical|JCS|serde_json" docs/rust/PATTERNS.md docs/shell/PATTERNS.md
+   git diff HEAD -- docs/rust/PATTERNS.md docs/shell/PATTERNS.md
+   ```
+
+9. **Horizon long-terme.** Evaluate whether the phase solution will hold at
+   10x scale, with 100 contributors, in 2 years. Flag short-term hacks that
+   create architectural debt. Check if the approach matches what mature OSS
+   projects do (S1a evidence from preflight).
+
+10. **Livrables check.** Verify every deliverable listed in the plan phase
+    section is present in the diff. Missing deliverables are blocking. Extra
+    files not in the plan must be justified.
+
+    ```bash
+    rg -n "Livrables|Fichier|Description" .planning/active/sprint{SPRINT}_plan.md
+    git diff HEAD --name-only
+    ```
+
+11. **Carry routing.** Route unresolved P2/P3 findings to
+    `sprint{SPRINT}_verification.md` and `sprint{SPRINT+1}_audit_plan.md`.
+    Check 3-report carry items for G7 escalation. Every carry must have owner,
+    trigger, and exit condition.
+
+12. **Commit body draft.** Draft the commit body from facts in the diff and
+    verification output. It must use exactly 9 markdown sections:
+    `## Contexte`, `## Fichiers`, `## Delta tests`, `## Verification`,
+    `## Scope cuts`, `## G8 traceability`, `## Pre-launch protocol`,
+    `## Codex verification`, and `## Carry closure` or
+    `## Carry closure / Unblock`. Put `Security delta` inside
+    `## Codex verification`, not as a separate top-level section. Include
+    `Co-Authored-By` only as a trailer when an applicable policy or contributor
+    identity is known.
 
 ## Output
 

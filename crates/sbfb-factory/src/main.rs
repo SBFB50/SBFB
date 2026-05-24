@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use clap::{Parser, Subcommand};
-use std::process;
 
 mod audit_log;
 mod daemon_client;
@@ -9,6 +8,7 @@ mod diff;
 mod gates;
 mod pipeline;
 mod preview_cmd;
+mod process;
 mod provenance;
 mod publish;
 mod secret_scanner;
@@ -88,6 +88,33 @@ enum Command {
         /// Path to the project directory
         path: String,
     },
+
+    /// Process observability and prompt assembly
+    Process {
+        #[command(subcommand)]
+        subcmd: ProcessCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProcessCommand {
+    /// Show repo context (sprint, phase, HEAD, artifacts, AGENT_SYSTEM)
+    Context,
+
+    /// Assemble a portable prompt by kind
+    Prompt {
+        /// Prompt kind: handoff, preflight, phase-review, commit-body, audit-gate, phase-auditor
+        #[arg(long)]
+        kind: String,
+
+        /// Output depth: standard or deep
+        #[arg(long, default_value = "standard")]
+        depth: String,
+
+        /// Target provider: claude, codex, gpt, local, human
+        #[arg(long, default_value = "claude")]
+        provider: String,
+    },
 }
 
 fn main() {
@@ -145,6 +172,25 @@ fn main() {
                 let r = run_preview_check(&path);
                 ("preview-check", args, r)
             }
+            Command::Process { subcmd } => match subcmd {
+                ProcessCommand::Context => {
+                    let r = process::run_context();
+                    ("process-context", vec![], r)
+                }
+                ProcessCommand::Prompt {
+                    kind,
+                    depth,
+                    provider,
+                } => {
+                    let args = vec![
+                        format!("--kind={kind}"),
+                        format!("--depth={depth}"),
+                        format!("--provider={provider}"),
+                    ];
+                    let r = process::run_prompt(&kind, &depth, &provider);
+                    ("process-prompt", args, r)
+                }
+            },
         };
 
     let result_str = match &result {
@@ -164,7 +210,7 @@ fn main() {
 
     if let Err(e) = result {
         eprintln!("error: {e}");
-        process::exit(1);
+        std::process::exit(1);
     }
 }
 

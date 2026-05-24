@@ -113,3 +113,43 @@ section and do not reuse older 8-header templates:
   verification updates the final review file.
 - Verify the sprint and phase labels match across subject, G8 artifact, review
   path, and body. A Phase B artifact cannot authorize a Phase C commit.
+
+## Validation
+
+Use these checks to verify the body before commit:
+
+```bash
+# Subject format
+echo "$SUBJECT" | grep -qE "^(feat|fix|docs|chore|test|refactor)\(.+\): Sprint [0-9]+ Phase [A-Z]"
+
+# 9 sections present (exact headers)
+for h in "## Contexte" "## Fichiers" "## Delta tests" "## Verification" "## Scope cuts" "## G8 traceability" "## Pre-launch protocol" "## Codex verification" "## Carry closure"; do
+  grep -qF "$h" body.txt || echo "MISSING: $h"
+done
+
+# No tenth section
+grep -cE "^## " body.txt  # must be exactly 9
+
+# No LOC estimate
+grep -qiE "~?[0-9]+ LOC|lines of code" body.txt && echo "ANTI-PATTERN: LOC estimate"
+
+# No emoji
+grep -qP "[\x{1F300}-\x{1F9FF}]" body.txt && echo "ANTI-PATTERN: emoji"
+
+# Codex verification section is not empty
+sed -n '/^## Codex verification/,/^## /p' body.txt | grep -q "Codex pass\|codex_review"
+```
+
+## Anti-Patterns
+
+- **LOC estimates**: never include `~500 LOC` or similar size claims. Sprint
+  scope is measured by functional goals, not line counts.
+- **Emoji**: commit messages are ASCII only.
+- **Amend**: always create a new commit. Never amend a phase commit.
+- **Force push**: never force-push phase commits.
+- **Missing Security delta**: the `Security delta` line is required inside
+  `## Codex verification` even when the answer is `none`.
+- **Stale delta tests**: do not copy test counts from the plan without running
+  the suites. Use current command output.
+- **Tenth section**: `Security delta` belongs inside `## Codex verification`,
+  not as a separate `## Security delta` header.

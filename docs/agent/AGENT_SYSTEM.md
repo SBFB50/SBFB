@@ -209,8 +209,8 @@ Table des prompts portables executables. Chaque prompt vit dans
 | `phase-review` | `prompts/agent/phase-review.md` | Post-code : 11 dimensions review | Tous | standard / deep |
 | `phase-auditor` | `prompts/agent/phase-auditor.md` | Audit independant pre-commit : 7 dimensions | Tous | standard |
 | `commit-body` | `prompts/agent/commit-body.md` | Template 9 sections commit body | Tous | standard |
-| `handoff` | *(Phase C)* | Transfert inter-provider 9 sections | Tous | standard / deep |
-| `audit-gate` | *(Phase C)* | 9 tracks audit sprint | Tous | standard / deep |
+| `handoff` | `prompts/agent/handoff.md` | Transfert inter-provider 9 sections | Tous | standard / deep |
+| `audit-gate` | `prompts/agent/audit-gate-checks.md` | 9 tracks audit sprint | Tous | standard / deep |
 
 Les agents Claude (`.claude/agents/*.md`) sont des wrappers qui
 ajoutent les outils Claude-specifiques (WebSearch, context7, Read
