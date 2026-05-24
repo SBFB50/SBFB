@@ -23,18 +23,18 @@ PO 2026-05-24) sont :
 | A | Canon portable | `docs/agent/AGENT_SYSTEM.md` (carte du systeme) |
 | B | Dette pair + P2 audit | `PATTERNS.md`, `docs/claude/README.md`, P2-I-3 3/3 |
 | C | Prompt portability full | `handoff`, `phase-review`, `audit-gate`, `phase-auditor`, `commit-body` executables |
-| D | Agentctl observabilite + serve | `status-sprint`, `lint-planning`, `audit-commit`, `serve --once-smoke` |
-| E | Dashboard process operateur | `tools/factory-dashboard/` action-gated, connecte a `agentctl serve` |
-| F | Hooks + provider config + dogfood | Hooks dynamiques, provider flag, dogfood via dashboard |
+| D | Observabilite process Rust + Operator serve | `sbfb-factory process status-sprint`, `lint-planning`, `audit-commit`, `operator serve --once-smoke` |
+| E | Factory Viewer protocole + Factory Operator local | `examples/sbfb-factory-viewer/` + `tools/factory-operator/`, connectes a `sbfb-factory operator serve` |
+| F | Hooks + provider config + dogfood | Hooks dynamiques, provider flag, dogfood via Operator/Viewer |
 | G | Contrat RRV/Factory + wrap-up | Modes `@` = alias sur roles, verification, audit plan S71 |
 
 Gate 1 dogfood sert de surface de verification : l'outillage
 Factory/Babel/Gate 1 est utilise pour prouver que le process
-portable fonctionne de bout en bout. Le dashboard S70 est un cockpit
-operateur conversationnel : il rend les preuves visibles, peut
-declencher des actions allowlistees et peut ouvrir une discussion
-agent comme le chat actuel. L'autorite reste `.planning/active/`, les
-commits et les gates ; le dashboard pilote et journalise, il ne
+portable fonctionne de bout en bout. S70 separe Factory Viewer et
+Factory Operator : le Viewer est une app SBFB sandboxee de consultation
+et preuve ; l'Operator est un outil local privilegie, servi par Rust
+via `sbfb-factory operator serve`. L'autorite reste `.planning/active/`,
+les commits et les gates ; l'Operator pilote et journalise, il ne
 fabrique pas seul les verdicts.
 
 ---
@@ -52,21 +52,21 @@ fichier). Verifier que les non-goals sont explicites.
 
 ### Track B — Handoff
 
-Verifier que `handoff.md` est cree et wire dans `agentctl prompt
---kind handoff`. Verifier qu'un handoff genere suffit a reprendre
-le travail sans chat history. Verifier que `AGENT_SYSTEM.md` est
-inclus dans `agentctl context`.
+Verifier que `handoff.md` est cree et wire dans
+`sbfb-factory process prompt --kind handoff`. Verifier qu'un handoff
+genere suffit a reprendre le travail sans chat history. Verifier que
+`AGENT_SYSTEM.md` est inclus dans `sbfb-factory process context`.
 Verifier aussi le bootstrap session fraiche complet : `base.md`
 orientation, `universal.md` lifecycle, runtime context, `handoff.md`
 point-in-time, puis prompt specialise. Aucun champ ou assertion ne
 doit rendre la chat history authoritative.
 
-### Track C — Agentctl observabilite
+### Track C — Observabilite process Rust
 
-Verifier que `agentctl status-sprint`, `lint-planning`, et
-`audit-commit --rev HEAD` sont implantes et testes. Verifier la
-sortie JSON pour consommation future RRV/Factory. Verifier les
-tests dans `tests/test_agentctl.py`.
+Verifier que `sbfb-factory process status-sprint`, `lint-planning`,
+`audit-commit --rev HEAD` et `operator serve` sont implantes et testes
+en Rust. Verifier la sortie JSON pour consommation future RRV/Factory.
+Verifier les tests sous `crates/sbfb-factory/tests/`.
 
 ### Track D — Gates et hooks
 
@@ -79,8 +79,8 @@ Verifier que les bypasses connus sont fermes :
 
 ### Track E — Hooks et CI
 
-Verifier qu'il existe un CI process pour agentctl, prompt assembly,
-hooks et fixtures negatives. Le CI doit prouver que la couche
+Verifier qu'il existe un CI process pour `sbfb-factory process`,
+prompt assembly, hooks et fixtures negatives. Le CI doit prouver que la couche
 portable n'est pas un document mort.
 
 ### Track F — CI coverage process
@@ -99,17 +99,21 @@ gates.
 
 ### Track H — Factory contract
 
-Verifier que Factory est un consommateur/packager des artefacts
-process, pas une autorite de verification. Factory cree des
-templates, publie des apps, mais ne possede pas le verdict de
-qualite. Babel reste une app creee avec Factory, pas le process
-lui-meme.
+Verifier que Factory est scindee en deux surfaces :
+- Factory Viewer consomme les artefacts/proofs/previews exportes ou
+  publies, comme app SBFB sandboxee du protocole.
+- Factory Operator produit les apps et preuves localement, comme outil
+  Rust privilegie du noeud, sans devenir autorite de verification.
+- Les deux surfaces partagent `tools/factory-ui/src/readonly` pour les
+  modeles, labels, previews et cartes de preuve ; seul l'Operator importe
+  les extensions locales privilegiees.
+Babel reste une app creee avec Factory, pas le process lui-meme.
 
 ### Track I — Dogfood
 
 Verifier qu'un changement reel Nexus a ete fait avec le flow
-portable complet (agentctl context → handoff → preflight/review/
-Codex via fichiers repo seuls). Le handoff plus les fichiers repo
+portable complet (`sbfb-factory process context` → handoff →
+preflight/review/Codex via fichiers repo seuls). Le handoff plus les fichiers repo
 doivent suffire a reprendre dans un autre provider sans memoire
 chat privee.
 
@@ -119,14 +123,20 @@ chat privee.
 
 Apres S70, RRV et Factory consomment le process portable :
 
-- RRV peut lire `status-sprint`, `lint-planning`, `audit-commit`
-  et `AGENT_SYSTEM.md` comme premier corpus process-aware.
-- Factory peut packager les templates/contrats/prompts pour les
-  projets generes (post-S70, pas dans S70).
+- RRV peut lire `sbfb-factory process status-sprint`,
+  `lint-planning`, `audit-commit` et `AGENT_SYSTEM.md` comme premier
+  corpus process-aware.
+- Factory Viewer peut afficher les preuves/previews publiees ou
+  exportees par l'Operator.
+- Factory Operator peut packager les templates/contrats/prompts pour
+  les projets generes avec un backend Rust local.
+- Factory Viewer et Factory Operator reutilisent le meme socle lecture,
+  mais le Viewer ne contient ni endpoint Operator, ni import
+  `factory-ui/operator`, ni capacite cachee d'execution locale.
 - Les modes `@` sont des alias de roles, pas un systeme parallele.
-- Factory ne possede pas l'autorite de verification — elle publie
-  des apps, le daemon signe la provenance, le process valide la
-  qualite.
+- Factory ne possede pas l'autorite de verification — l'Operator publie
+  des apps, le daemon signe la provenance, le process valide la qualite,
+  le Viewer expose la preuve.
 
 Sequencing post-S70 :
 - `@dev LocalOnly`, seed source-only, `sbfb-search`, provider
@@ -143,8 +153,9 @@ S70 ne doit PAS :
 - Construire SearchManifest (wire format + gossip)
 - Ajouter du compute prive ou remote
 - Ingerer un corpus OSS large comme apps verifiees
-- Construire une page produit `/factory` ou deplacer l'autorite
-  process dans Factory
+- Construire une route produit `/factory` dans `web/` ou deplacer
+  l'autorite process dans Factory. Le Viewer SBFB et l'Operator local
+  Rust sont in-scope.
 - S'appuyer sur la memoire de chat comme source de verite
 
 ---
@@ -154,28 +165,36 @@ S70 ne doit PAS :
 S70 est complet quand :
 
 1. `AGENT_SYSTEM.md` existe et ne duplique pas `PROCESS.md`
-2. `handoff.md` est wire dans `agentctl prompt --kind handoff`
-3. `agentctl status-sprint`, `lint-planning`, `audit-commit`
-   et `serve --once-smoke` fonctionnent et sont testes
+2. `handoff.md` est wire dans `sbfb-factory process prompt --kind handoff`
+3. `sbfb-factory process status-sprint`, `lint-planning`,
+   `audit-commit` et `operator serve --once-smoke` fonctionnent et
+   sont testes
 4. Les bypasses connus sont fermes (verdict exact, Codex gate,
    hooks stales)
-5. Dashboard process compile, lint, typecheck, affiche status +
-   prompt + lint + audit depuis `agentctl serve`, et peut preparer
-   un brouillon repo/docs sur allowlist avec preview diff + confirmation
-   Verifier le flux operateur complet : nouveau contexte,
-   selection agent, prompt, action allowlistee, draft avec preview,
-   discussion Agent Chat, log, et frontiere d'autorite.
+5. Factory Viewer est une app SBFB sandbox-compatible sans endpoint
+   Operator ; `tools/factory-ui/src/readonly` est partage sans capacite
+   locale privilegiee ; Factory Operator compile, lint, typecheck, affiche
+   status + prompt + lint + audit depuis `sbfb-factory operator serve`,
+   et peut preparer un brouillon repo/docs sur allowlist avec preview
+   diff + confirmation. Avant tout code front, le prompt UX Claude
+   Design est ecrit, colle dans Claude Design par l'operateur, puis le
+   lien/export est reference dans
+   `.planning/active/sprint70_factory_ux_design_handoff.md`. Verifier
+   le flux operateur complet : nouveau contexte, selection agent,
+   prompt, action allowlistee, draft avec preview, discussion Agent
+   Chat, log, et frontiere d'autorite.
 6. Le dogfood prouve un changement repo-visible pilote depuis le
    flow portable, pas seulement une demo UI
 7. L'UI parle en intentions comprehensibles ("Preparer la phase",
    "Verifier avant validation", "Transmettre a un autre agent") et
-   garde `agentctl`, `kind`, `provider`, `preflight` dans un panneau
+   garde `sbfb-factory`, `kind`, `provider`, `preflight` dans un panneau
    details techniques, pas dans les CTA principaux
 8. CI/smoke prouve la couche portable minimale (prompt assembly,
-   fixtures negatives, `serve --once-smoke`)
+   fixtures negatives, `operator serve --once-smoke`)
 9. Les modes `@` sont documentes comme alias de roles
-10. Factory est un consommateur, pas une autorite
-11. Le dashboard est explicitement action-gated et conversationnel :
+10. Factory Viewer consomme les preuves ; Factory Operator produit et
+    publie localement ; aucun des deux n'est autorite finale.
+11. L'Operator est explicitement action-gated et conversationnel :
     allowlist, preview, confirmation, journal JSONL, Agent Chat
     demarre depuis context-pack. Les operations sensibles
     (shell/commit/push/verdict final PASS) ne sont valides que via
@@ -185,8 +204,8 @@ S70 est complet quand :
     HEAD, dirty files, role/provider/intention, et marque
     `chat_history_authoritative: false`
 
-**Critere SMART** : le handoff genere par `agentctl prompt --kind
-handoff` suffit a un nouvel agent pour reprendre le sprint en cours
+**Critere SMART** : le handoff genere par
+`sbfb-factory process prompt --kind handoff` suffit a un nouvel agent pour reprendre le sprint en cours
 sans chat history.
 
 ---

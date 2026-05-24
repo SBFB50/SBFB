@@ -155,18 +155,22 @@ Runtime isolation roadmap dans
   Projet Rust+Frontend pur depuis S50-S51.
   S70 phases : A (AGENT_SYSTEM.md canon portable) → B (dette pair
   + P2-I-3 3/3 + P2 audit absorbes) → C (prompt portability full
-  + handoff) → D (agentctl status-sprint + lint-planning +
-  audit-commit + serve JSON) → E (dashboard process operateur
-  action-gated) → F (hooks dynamiques + provider config + dogfood via
-  dashboard) → G (contrat RRV/Factory + verification).
+  + handoff) → D (sbfb-factory process status-sprint +
+  lint-planning + audit-commit + Operator serve JSON Rust) →
+  E (Factory Viewer protocole + Factory Operator local Rust
+  action-gated, socle `factory-ui` partage en lecture, avec handoff
+  Claude Design avant code front) →
+  F (hooks dynamiques + provider config + dogfood via
+  Operator/Viewer) → G (contrat RRV/Factory + verification).
   Arc 1 Fondations COMPLET (S65 + S66).
   Arc 2 Factory + RRV @protocole + Canari COMPLET (S67 + S68 + S69).
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
 - **~1718 tests total** (1433 Rust / 279 Vitest / 6/6 size-limit)
-  — tous verts code. S70 delta estime : +0 Rust, +0 Vitest,
-  +45 Python (test_agentctl.py 14→~59) + dashboard lint/tsc/build.
+  — tous verts code. S70 delta estime : +45 Rust dans
+  `sbfb-factory`, +0 Vitest, aucun nouveau Python, + factory-ui
+  boundary + Viewer checks + Operator lint/tsc/build.
 - Carry S70 (traitement prevu) :
   P2-I-3 body docs minimaliste (3/3 MANDATORY — Phase B).
   P2-G-1 exe lock intermittent (candidat CLOSE Phase B, 8 sprints
@@ -199,8 +203,9 @@ Runtime isolation roadmap dans
   S69
   Babel dogfood via Factory + pilote ferme + RRV @protocole prouve
   Babel). Arc 2.5 Process Portable Complete (S70 AGENT_SYSTEM,
-  handoff, prompt portability full, agentctl status/lint/audit/serve,
-  dashboard process operateur action-gated, gates/hooks/provider config + Gate 1
+  handoff, prompt portability full, sbfb-factory process
+  status/lint/audit/operator serve, Factory Viewer protocole +
+  Factory Operator Rust action-gated, gates/hooks/provider config + Gate 1
   dogfood ; zero RRV total). Arc 3 Reseau Verifiable +
   Industrialisation (S71 SearchManifest opt-in ou RRV Core selon
   audit S70, S72 Gouvernance +
@@ -266,22 +271,29 @@ Cf. `nexus_grid_pivot.md` (memory) — **a ne PAS re-debattre** :
 - Ingestion OSS GitHub generique = futur mode `source-only`/`source-index`,
   distinct d'une app SBFB verifiee (`SBFB.json` + `index.html`)
 - S70 = Process Portable Complete + Gate 1 dogfood : AGENT_SYSTEM,
-  handoff, prompt portability full, agentctl status-sprint/
-  lint-planning/audit-commit/serve, dashboard process operateur
-  action-gated, gates/hooks/provider config, puis contrat RRV/Factory.
-  Pas SearchManifest, pas RRV total, pas page produit `/factory` :
-  le dashboard S70 est un cockpit d'execution process controlee et
-  conversationnelle. Il preserve le mode actuel "prompt de base +
-  discussion agent autonome", avec actions allowlistees,
-  confirmations, Agent Chat et journal. Il ne fabrique pas seul
-  l'autorite de verification finale : shell/commit/push/verdict final
+  handoff, prompt portability full, `sbfb-factory process`
+  status-sprint/lint-planning/audit-commit et
+  `sbfb-factory operator serve` en Rust, Factory Viewer protocole +
+  Factory Operator local Rust action-gated, gates/hooks/provider
+  config, puis contrat RRV/Factory. Pas SearchManifest, pas RRV total,
+  pas route shell produit `/factory` : S70 livre le Viewer comme app
+  SBFB sandboxee de consultation/preuve et l'Operator comme outil local
+  privilegie Rust du noeud. Les deux reutilisent un socle
+  `tools/factory-ui/src/readonly` pour les preuves, previews, statuts et
+  labels ; seul l'Operator importe les extensions `factory-ui/operator`.
+  Phase E commence par un prompt UX a coller dans Claude Design, puis
+  un handoff repo-visible contenant le lien ou export avant
+  implementation front. L'Operator preserve le mode actuel
+  "prompt de base + discussion agent autonome", avec actions
+  allowlistees, confirmations, Agent Chat et journal. Il ne fabrique
+  pas seul l'autorite de verification finale : shell/commit/push/verdict final
   passent par une vraie session agent, les gates et les preuves repo.
   Les nouveaux contextes doivent etre generes depuis un context-pack
   repo-visible (base/universal/context/handoff/prompt specialise),
   pas depuis une memoire de chat implicite.
   UX obligatoire : l'utilisateur voit des intentions ("Preparer la
   phase", "Verifier avant validation", "Transmettre a un autre agent"),
-  pas des commandes `agentctl` ni du jargon `kind/provider/preflight`
+  pas des commandes `sbfb-factory` ni du jargon `kind/provider/preflight`
   en CTA principal.
 - Superviseur process optionnel, hooks = backstop mecanique (D17)
 
