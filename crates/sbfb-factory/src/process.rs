@@ -104,7 +104,8 @@ struct SprintInfo {
 
 fn detect_sprint(active_dir: &Path) -> Option<SprintInfo> {
     let entries = std::fs::read_dir(active_dir).ok()?;
-    let mut max_sprint = 0u32;
+    let mut max_with_kickoff = 0u32;
+    let mut max_any = 0u32;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         if let Some(n) = name
@@ -112,18 +113,30 @@ fn detect_sprint(active_dir: &Path) -> Option<SprintInfo> {
             .and_then(|s| s.split('_').next())
             .and_then(|s| s.parse::<u32>().ok())
         {
-            if n > max_sprint {
-                max_sprint = n;
+            if n > max_any {
+                max_any = n;
+            }
+            if name.contains("_kickoff.md")
+                || (name.contains("_plan.md") && !name.contains("_audit_plan.md"))
+            {
+                if n > max_with_kickoff {
+                    max_with_kickoff = n;
+                }
             }
         }
     }
-    if max_sprint == 0 {
+    let best = if max_with_kickoff > 0 {
+        max_with_kickoff
+    } else {
+        max_any
+    };
+    if best == 0 {
         return None;
     }
 
-    let phase = detect_current_phase(active_dir, max_sprint);
+    let phase = detect_current_phase(active_dir, best);
     Some(SprintInfo {
-        number: max_sprint,
+        number: best,
         current_phase: phase,
     })
 }

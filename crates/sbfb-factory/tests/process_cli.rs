@@ -470,14 +470,15 @@ fn lint_planning_detects_pass_pending() {
 
 #[test]
 fn audit_commit_valid_phase_commit() {
+    // Use Phase F SHA — HEAD may be a chore commit
     let output = factory_bin()
-        .args(["process", "audit-commit", "--rev", "HEAD", "--json"])
+        .args(["process", "audit-commit", "--rev", "6fb95df", "--json"])
         .output()
         .expect("failed to run");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         output.status.success(),
-        "HEAD should be a valid phase commit: stderr={}",
+        "6fb95df should be a valid phase commit: stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
