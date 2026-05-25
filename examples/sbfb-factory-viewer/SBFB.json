@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "name": "sbfb-factory-viewer",
+  "version": "0.1.0",
+  "description": "Factory Viewer — vitrine protocole SBFB pour consulter et vérifier les apps",
+  "category": "tools",
+  "bridge_methods": ["browse_list", "search", "proof_card_get", "storage_get"]
+}

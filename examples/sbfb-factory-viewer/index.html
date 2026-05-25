@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Factory Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top-bar">
+    <h1 class="logo">Factory Viewer</h1>
+    <p class="subtitle">Vitrine protocole SBFB</p>
+    <div class="search-wrap">
+      <input type="text" id="search-input" class="search-input"
+             placeholder="Rechercher une app...">
+    </div>
+  </header>
+
+  <main id="app-content">
+    <section id="view-list" class="content">
+      <div class="filter-bar">
+        <span class="filter-label">Filtrer :</span>
+        <button type="button" class="filter-btn active" data-filter="all">Toutes</button>
+        <button type="button" class="filter-btn" data-filter="published">Publiées</button>
+        <button type="button" class="filter-btn" data-filter="dev">En dev</button>
+      </div>
+      <div id="app-grid" class="app-grid">
+        <p class="empty-state">Chargement des apps...</p>
+      </div>
+    </section>
+
+    <section id="view-detail" class="content" hidden>
+      <button type="button" id="back-btn" class="back-btn">← Retour</button>
+      <div id="detail-content"></div>
+    </section>
+  </main>
+
+  <footer class="status-bar">
+    <span id="status-text">Factory Viewer v0.1.0</span>
+  </footer>
+
+  <script src="sbfb-bridge.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
