@@ -309,7 +309,7 @@ pub fn status_sprint_data(root: &Path) -> Option<StatusSprintResult> {
 fn has_final_pass_verdict(content: &str) -> bool {
     content.lines().any(|l| {
         let t = l.trim();
-        t.starts_with("## Verdict") && t.contains("PASS") && !t.contains("PASS-PENDING")
+        t == "## Verdict: PASS"
     })
 }
 
@@ -420,15 +420,26 @@ pub fn lint_planning_data(root: &Path) -> LintResult {
             if name.contains("_review.md") && !name.contains("codex") && !name.contains("design") {
                 if let Ok(content) = std::fs::read_to_string(entry.path()) {
                     let has_pass_pending = content.contains("PASS-PENDING");
-                    let has_final_pass = content.lines().any(|l| {
-                        l.trim().starts_with("## Verdict")
-                            && l.contains("PASS")
-                            && !l.contains("PASS-PENDING")
-                    });
+                    let has_final_pass = has_final_pass_verdict(&content);
                     if has_pass_pending && !has_final_pass {
                         errors.push(LintDiagnostic {
                             code: "STALE_PASS_PENDING".into(),
                             message: "review still at PASS-PENDING (not promoted to PASS)".into(),
+                            file: Some(name.clone()),
+                        });
+                    }
+                    let has_verdict_pass_loose = content.lines().any(|l| {
+                        let t = l.trim();
+                        t.starts_with("## Verdict")
+                            && t.contains("PASS")
+                            && !t.contains("PASS-PENDING")
+                    });
+                    if has_verdict_pass_loose && !has_final_pass {
+                        errors.push(LintDiagnostic {
+                            code: "INVALID_VERDICT_FORMAT".into(),
+                            message:
+                                "review has a PASS-like verdict but not exact '## Verdict: PASS'"
+                                    .into(),
                             file: Some(name.clone()),
                         });
                     }
@@ -539,7 +550,10 @@ pub fn audit_commit_data(
         let sprint_num: u32 = caps[2].parse().unwrap_or(0);
         let phase_letter = &caps[3];
 
-        if matches!(commit_type, "feat" | "fix" | "docs" | "test" | "refactor") {
+        if matches!(
+            commit_type,
+            "feat" | "fix" | "docs" | "chore" | "test" | "refactor"
+        ) {
             let active_dir = root.join(".planning/active");
             let review_path =
                 active_dir.join(format!("sprint{sprint_num}_phase_{phase_letter}_review.md"));

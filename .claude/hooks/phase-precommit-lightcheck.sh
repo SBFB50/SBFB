@@ -280,9 +280,10 @@ fi
 # §4.5 : Codex verification croisee obligatoire. Zero exemption.
 # Seul bypass : body contient "PO skip codex" explicite.
 if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
-  # Enforce on real phase commits, excluding chore(planning) reconciliation commits.
-  IS_PHASE_IMPL=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|test|refactor)\(' || true)
-  if [ "$IS_PHASE_IMPL" -gt 0 ]; then
+  # Enforce on all phase commits including chore(sprintN) Phase.
+  IS_PHASE_IMPL=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|chore|test|refactor)\(' || true)
+  HAS_SPRINT_PHASE_7=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' || true)
+  if [ "$IS_PHASE_IMPL" -gt 0 ] && [ "$HAS_SPRINT_PHASE_7" -gt 0 ]; then
     CODEX_REVIEW=".planning/active/sprint${SPRINT}_phase_${PHASE}_codex_review.md"
     if [ ! -f "$CODEX_REVIEW" ]; then
       echo "" >&2
@@ -381,11 +382,12 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
   fi
 fi
 
-# === Check 8 : Preflight G8 presence (STRICT for feat Phase) ===
+# === Check 8 : Preflight G8 presence (STRICT for all Phase commits) ===
 # §6.9 : preflight obligatoire avant code pour chaque phase.
 if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
-  IS_FEAT=$(echo "$COMMIT_TITLE" | grep -cE '^feat\(' || true)
-  if [ "$IS_FEAT" -gt 0 ]; then
+  IS_PHASE_IMPL_8=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|chore|test|refactor)\(' || true)
+  HAS_SPRINT_PHASE_8=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' || true)
+  if [ "$IS_PHASE_IMPL_8" -gt 0 ] && [ "$HAS_SPRINT_PHASE_8" -gt 0 ]; then
     PREFLIGHT_FILE=".planning/active/sprint${SPRINT}_phase_${PHASE}_preflight.md"
     if [ ! -f "$PREFLIGHT_FILE" ]; then
       echo "" >&2
@@ -403,7 +405,7 @@ fi
 # feat/fix/docs/test/refactor contenant "Sprint N Phase X" dans le titre.
 # Zero exemption : Codex verification ne se skippe pas par body marker.
 if [ -n "$SPRINT" ] && [ -n "$PHASE" ] && [ -n "$BODY" ]; then
-  IS_PHASE_IMPL=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|test|refactor)\(' || true)
+  IS_PHASE_IMPL=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|chore|test|refactor)\(' || true)
   HAS_SPRINT_PHASE=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' || true)
   if [ "$IS_PHASE_IMPL" -gt 0 ] && [ "$HAS_SPRINT_PHASE" -gt 0 ]; then
       MISSING_SECTIONS=""

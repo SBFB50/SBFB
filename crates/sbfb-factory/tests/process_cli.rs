@@ -628,3 +628,204 @@ fn audit_commit_missing_review() {
         "should report missing review file"
     );
 }
+
+// --- Phase F: chore(sprintN) Phase gate + verdict exact ---
+
+#[test]
+fn audit_commit_chore_sprint_phase_requires_review() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = dir.path();
+    Command::new("git")
+        .args(["init"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    std::fs::create_dir_all(repo.join(".planning/active")).unwrap();
+    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let body = [
+        "chore(sprint70): Sprint 70 Phase B — dette pair",
+        "",
+        "## Contexte",
+        "ctx",
+        "## Fichiers",
+        "f",
+        "## Delta tests",
+        "d",
+        "## Verification",
+        "v",
+        "## Scope cuts",
+        "s",
+        "## G8 traceability",
+        "g",
+        "## Pre-launch protocol",
+        "p",
+        "## Codex verification",
+        "c",
+        "## Carry closure",
+        "cc",
+    ]
+    .join("\n");
+    Command::new("git")
+        .args(["commit", "-m", &body])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let output = factory_bin()
+        .args(["process", "audit-commit", "--rev", "HEAD", "--json"])
+        .current_dir(repo)
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["is_phase_commit"], true,
+        "chore(sprint70) Sprint 70 Phase B should be a phase commit"
+    );
+    assert_eq!(
+        parsed["ok"], false,
+        "should fail because review file is missing"
+    );
+}
+
+#[test]
+fn audit_commit_chore_planning_not_phase() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = dir.path();
+    Command::new("git")
+        .args(["init"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "chore(planning): reconcile Phase A review"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let output = factory_bin()
+        .args(["process", "audit-commit", "--rev", "HEAD", "--json"])
+        .current_dir(repo)
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["is_phase_commit"], false,
+        "chore(planning) without Sprint N Phase X is not a phase commit"
+    );
+    assert_eq!(parsed["ok"], true, "non-phase commit should pass");
+}
+
+#[test]
+fn verdict_exact_rejects_spaced_colon() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let active = dir.path().join(".planning/active");
+    std::fs::create_dir_all(&active).unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(active.join("sprint70_kickoff.md"), "# Sprint 70").unwrap();
+    std::fs::write(active.join("sprint70_plan.md"), "# Plan").unwrap();
+    std::fs::write(
+        active.join("sprint70_phase_A_review.md"),
+        "## Verdict : PASS\nSpaced colon should be rejected.",
+    )
+    .unwrap();
+    let output = factory_bin()
+        .args(["process", "lint-planning", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["ok"], false,
+        "spaced colon verdict should be detected as invalid: {}",
+        stdout
+    );
+    let errors = parsed["errors"].as_array().unwrap();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e["code"].as_str() == Some("INVALID_VERDICT_FORMAT")),
+        "should flag INVALID_VERDICT_FORMAT for spaced colon: {:?}",
+        errors
+    );
+}
+
+#[test]
+fn status_sprint_spaced_verdict_not_phase_complete() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let active = dir.path().join(".planning/active");
+    std::fs::create_dir_all(&active).unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(active.join("sprint70_kickoff.md"), "# Sprint 70").unwrap();
+    std::fs::write(active.join("sprint70_plan.md"), "# Plan").unwrap();
+    std::fs::write(
+        active.join("sprint70_phase_A_review.md"),
+        "## Verdict : PASS\nSpaced colon — not valid.",
+    )
+    .unwrap();
+    let output = factory_bin()
+        .args(["process", "status-sprint", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["current_phase"].as_str(),
+        Some("A"),
+        "phase A with spaced colon verdict should NOT be marked complete: {}",
+        stdout
+    );
+}
+
+#[test]
+fn prompt_provider_human_accepted() {
+    let output = factory_bin()
+        .args([
+            "process",
+            "prompt",
+            "--kind",
+            "preflight",
+            "--provider",
+            "human",
+        ])
+        .output()
+        .expect("failed to run");
+    assert!(
+        output.status.success(),
+        "human provider should be accepted: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

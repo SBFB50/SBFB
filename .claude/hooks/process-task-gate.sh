@@ -60,7 +60,7 @@ def has_review_pass():
             content = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if re.search(r"^##\s*Verdict\s*:?\s*PASS\s*$", content, re.MULTILINE):
+        if re.search(r"^## Verdict: PASS\s*$", content, re.MULTILINE):
             return True
     return False
 
@@ -74,25 +74,28 @@ if event != "TaskCompleted":
     sys.exit(0)
 
 if "g-preflight" in text or "preflight" in text:
-    if "sprint 67" in text and "phase c" in text:
-        if not (active / "sprint67_phase_c_preflight.md").exists():
-            block("G-PREFLIGHT cannot complete: sprint67_phase_c_preflight.md is missing.")
-    elif not files("sprint*_phase_*_preflight.md"):
+    if not files("sprint*_phase_*_preflight.md"):
         block("G-PREFLIGHT cannot complete: no sprint phase preflight artifact exists.")
 
 if "g-review" in text or "review-deep" in text:
     if not files("sprint*_phase_*_review.md"):
         block("G-REVIEW cannot complete: no sprint phase review artifact exists.")
 
+sprint_match = re.search(r"sprint\s*(\d+)", text)
+phase_match = re.search(r"phase\s*([a-g])", text)
 if (
-    re.search(r"phase\s*c|sbfb-factory|factory", text)
+    sprint_match
+    and phase_match
     and re.search(r"code|coder|implement|create|crate", text)
-    and not (active / "sprint67_phase_c_preflight.md").exists()
 ):
-    block(
-        "Sprint 67 Phase C/factory implementation task cannot complete before "
-        "sprint67_phase_c_preflight.md exists."
-    )
+    sn = sprint_match.group(1)
+    pl = phase_match.group(1)
+    expected = active / f"sprint{sn}_phase_{pl}_preflight.md"
+    if not expected.exists() and not files("sprint*_phase_*_preflight.md"):
+        block(
+            f"Phase {pl.upper()} implementation task cannot complete before "
+            f"sprint{sn}_phase_{pl}_preflight.md exists."
+        )
 
 if "g-codex" in text or "codex" in text:
     if not files("sprint*_phase_*_codex_review.md"):

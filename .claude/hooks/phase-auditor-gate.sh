@@ -101,7 +101,7 @@ else
 fi
 
 # Review existe (active ou archive) — verdict PASS ?
-if ! grep -qE '^## Verdict[[:space:]]*:[[:space:]]*PASS[[:space:]]*$' "$REVIEW"; then
+if ! grep -qE '^## Verdict: PASS[[:space:]]*$' "$REVIEW"; then
   VERDICT_LINE=$(grep -E '^## Verdict' "$REVIEW" | head -1 || echo "(unknown)")
   echo "" >&2
   echo "[phase-auditor-gate] BLOCK: review not PASS" >&2

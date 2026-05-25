@@ -134,12 +134,7 @@ sont deja actifs automatiquement).
 Un hook `SessionStart` (matcher `startup|resume`) tourne a chaque
 ouverture de Claude Code dans le repo nexus. Il fait 2 choses :
 
-1. **Auto-install leger** : si `.git/hooks/post-commit` n'existe pas
-   et que `.claude/hooks/post-commit-memory.sh` est present, il ecrit
-   automatiquement un wrapper dans `.git/hooks/post-commit`. Idempotent
-   (ne touche rien si deja installe).
-
-2. **Detection composants optionnels manquants** : verifie la presence
+1. **Detection composants optionnels manquants** : verifie la presence
    de `jq` OU `python3`, de `~/.claude/skills/trailofbits/`, de
    `semgrep`. Si quelque chose manque, il emet un `additionalContext`
    JSON qui informe Claude :

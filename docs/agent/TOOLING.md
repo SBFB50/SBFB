@@ -165,9 +165,17 @@ reviews stuck at PASS-PENDING (STALE_PASS_PENDING error), and structural
 inconsistencies (plan without kickoff).
 
 `audit-commit` parses the commit title. Phase commits
-(`feat|fix|docs|test|refactor(scope): Sprint N Phase X`) are checked for: review
-file with `## Verdict: PASS`, codex_review file, and 9 required body sections.
-Non-phase commits pass without review checks.
+(`feat|fix|docs|chore|test|refactor(scope): Sprint N Phase X`) are checked for:
+review file with exact `## Verdict: PASS`, codex_review file, and 9 required
+body sections. Non-phase commits pass without review checks. `chore(sprintN):
+Sprint N Phase X` is treated as a phase commit since S70 — the chore type no
+longer bypasses review/codex/body gates.
+
+`lint-planning` also detects `INVALID_VERDICT_FORMAT` when a review file contains
+a PASS-like verdict that does not match the exact `## Verdict: PASS` format (e.g.
+spaced colon `## Verdict : PASS`).
+
+See `docs/agent/PROVIDER_CONFIG.md` for the full driver/verifier matrix.
 
 ## Operator JSON API (sbfb-factory)
 

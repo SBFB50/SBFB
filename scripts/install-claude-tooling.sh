@@ -76,34 +76,10 @@ echo
 
 # ------- Core (always) -------
 
-# 1. Git post-commit hook -> delegator vers .claude/hooks/post-commit-memory.sh
-info "Step 1/4: Installing git post-commit hook (memory updater)"
-
-HOOK_TARGET="$REPO_ROOT/.git/hooks/post-commit"
-HOOK_SOURCE="$REPO_ROOT/.claude/hooks/post-commit-memory.sh"
-
-if [ -f "$HOOK_TARGET" ] && ! grep -q "post-commit-memory.sh" "$HOOK_TARGET" 2>/dev/null; then
-  warn "$HOOK_TARGET already exists and doesn't reference post-commit-memory.sh"
-  if prompt_yn "Overwrite it with the nexus delegator?"; then
-    cat > "$HOOK_TARGET" <<'EOF'
-#!/usr/bin/env bash
-# Installed by scripts/install-claude-tooling.sh
-exec bash "$(git rev-parse --show-toplevel)/.claude/hooks/post-commit-memory.sh"
-EOF
-    chmod +x "$HOOK_TARGET"
-    ok "Overwritten $HOOK_TARGET"
-  else
-    warn "Skipped — you may need to chain the hook manually"
-  fi
-else
-  cat > "$HOOK_TARGET" <<'EOF'
-#!/usr/bin/env bash
-# Installed by scripts/install-claude-tooling.sh
-exec bash "$(git rev-parse --show-toplevel)/.claude/hooks/post-commit-memory.sh"
-EOF
-  chmod +x "$HOOK_TARGET"
-  ok "Installed $HOOK_TARGET -> $HOOK_SOURCE"
-fi
+# 1. Git hooks (Claude hooks in .claude/hooks/ are the active backstop)
+info "Step 1/4: Git hooks check"
+info "  Claude hooks in .claude/hooks/ are the active backstop."
+info "  No git post-commit hook needed."
 echo
 
 # ------- Optional: Trail of Bits skills -------

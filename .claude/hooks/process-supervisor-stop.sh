@@ -77,21 +77,30 @@ if status and finality:
     sys.exit(0)
 
 active = repo / ".planning" / "active"
-phase_c_preflight = active / "sprint67_phase_c_preflight.md"
+phase_match = re.search(r"phase\s*([a-g])", lower)
+sprint_match = re.search(r"sprint\s*(\d+)", lower)
 if (
-    not phase_c_preflight.exists()
-    and re.search(r"phase\s*c|sbfb-factory|factory", lower)
+    phase_match
     and re.search(r"code|coder|implement|create|validate|crate", lower)
     and "preflight" not in lower
 ):
-    reason = (
-        "[process-supervisor] Stop blocked: Sprint 67 Phase C implementation "
-        "language appeared, but .planning/active/sprint67_phase_c_preflight.md "
-        "does not exist. Run/record G8 preflight first, or clarify that no code "
-        "will start yet."
-    )
-    print(json.dumps({"decision": "block", "reason": reason}))
-    sys.exit(0)
+    sn = sprint_match.group(1) if sprint_match else ""
+    pl = phase_match.group(1)
+    if sn:
+        expected = active / f"sprint{sn}_phase_{pl}_preflight.md"
+    else:
+        expected = None
+    has_any_preflight = bool(list(active.glob("sprint*_phase_*_preflight.md")))
+    if (expected and not expected.exists()) or (not expected and not has_any_preflight):
+        label = f"sprint{sn}_phase_{pl}" if sn else f"phase_{pl}"
+        reason = (
+            f"[process-supervisor] Stop blocked: {label} implementation "
+            f"language appeared, but no matching preflight.md exists in "
+            f".planning/active/. Run/record G8 preflight first, or clarify "
+            f"that no code will start yet."
+        )
+        print(json.dumps({"decision": "block", "reason": reason}))
+        sys.exit(0)
 
 sys.exit(0)
 PY
