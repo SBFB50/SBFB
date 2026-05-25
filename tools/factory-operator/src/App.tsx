@@ -14,6 +14,7 @@ import { ContextPackBuilder } from "@/pages/ContextPackBuilder";
 import { ActionCenter } from "@/pages/ActionCenter";
 import { AgentChat } from "@/pages/AgentChat";
 import { ActionLog } from "@/pages/ActionLog";
+import { SprintHistory } from "@/pages/SprintHistory";
 
 interface StatusData {
   sprint: number;
@@ -38,6 +39,7 @@ export function App() {
           <Route path="/actions" element={<ActionCenter />} />
           <Route path="/chat" element={<AgentChat />} />
           <Route path="/log" element={<ActionLog />} />
+          <Route path="/history" element={<SprintHistory />} />
         </Routes>
       </main>
       <StatusBar head={data?.head ?? "..."} sprint={data?.sprint ?? 0} />

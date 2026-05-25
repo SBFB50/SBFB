@@ -13,6 +13,7 @@ import {
   Zap,
   MessageSquare,
   ScrollText,
+  History,
   Menu,
   X,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const NAV_ENTRIES = [
   { to: "/actions", key: "actions", icon: Zap },
   { to: "/chat", key: "chat", icon: MessageSquare },
   { to: "/log", key: "log", icon: ScrollText },
+  { to: "/history", key: "history", icon: History },
 ] as const;
 
 export function Sidebar() {

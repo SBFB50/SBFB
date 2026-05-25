@@ -13,7 +13,8 @@
     "context": "Context",
     "actions": "Actions",
     "chat": "Chat",
-    "log": "Log"
+    "log": "Log",
+    "history": "History"
   },
   "status": {
     "done": "Done",

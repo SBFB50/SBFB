@@ -116,12 +116,11 @@ fn detect_sprint(active_dir: &Path) -> Option<SprintInfo> {
             if n > max_any {
                 max_any = n;
             }
-            if name.contains("_kickoff.md")
-                || (name.contains("_plan.md") && !name.contains("_audit_plan.md"))
+            if (name.contains("_kickoff.md")
+                || (name.contains("_plan.md") && !name.contains("_audit_plan.md")))
+                && n > max_with_kickoff
             {
-                if n > max_with_kickoff {
-                    max_with_kickoff = n;
-                }
+                max_with_kickoff = n;
             }
         }
     }

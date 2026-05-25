@@ -99,6 +99,7 @@ pub fn build_router(root: PathBuf) -> Router {
         .route("/api/chat/session", post(handle_chat_session))
         .route("/api/chat/message", post(handle_chat_message))
         .route("/api/chat/{id}/log", get(handle_chat_log))
+        .route("/api/sprint-history", get(handle_sprint_history))
         .layer(cors)
         .with_state(state)
 }
@@ -653,6 +654,17 @@ async fn handle_chat_log(
         None => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "session not found"})),
+        )
+            .into_response(),
+    }
+}
+
+async fn handle_sprint_history(State(state): State<OperatorState>) -> impl IntoResponse {
+    match crate::sprint_history::sprint_history_data(&state.root) {
+        Some(result) => Json(serde_json::json!(result)).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no active sprint found"})),
         )
             .into_response(),
     }

@@ -11,6 +11,7 @@ mod pipeline;
 mod preview_cmd;
 mod process;
 mod provenance;
+pub mod sprint_history;
 mod publish;
 mod secret_scanner;
 mod template_engine;
