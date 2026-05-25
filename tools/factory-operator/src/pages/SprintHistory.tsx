@@ -4,7 +4,7 @@ import { useApi } from "@/hooks/useApi";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 
 interface FileChange {
   path: string;
@@ -125,6 +125,147 @@ interface SprintHistoryData {
     design_conflict: number;
     phases: PreflightPhase[];
   };
+}
+
+interface DiffLineData {
+  kind: string;
+  content: string;
+  old_lineno: number | null;
+  new_lineno: number | null;
+}
+
+interface DiffHunkData {
+  header: string;
+  lines: DiffLineData[];
+}
+
+interface FileDiffData {
+  path: string;
+  insertions: number;
+  deletions: number;
+  hunks: DiffHunkData[];
+}
+
+interface CommitDiffData {
+  sha: string;
+  title: string;
+  files: FileDiffData[];
+}
+
+function FileDiffViewer({
+  sha,
+  files,
+}: {
+  sha: string;
+  files: FileChange[];
+}) {
+  const [expandedFile, setExpandedFile] = useState<string | null>(null);
+  const [diffData, setDiffData] = useState<CommitDiffData | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadDiff = useCallback(
+    async (path: string) => {
+      if (expandedFile === path) {
+        setExpandedFile(null);
+        return;
+      }
+      if (!diffData) {
+        setLoading(true);
+        try {
+          const res = await fetch(`/api/sprint-history/diff/${sha}`);
+          if (res.ok) {
+            const data: CommitDiffData = await res.json();
+            setDiffData(data);
+          }
+        } finally {
+          setLoading(false);
+        }
+      }
+      setExpandedFile(path);
+    },
+    [sha, diffData, expandedFile]
+  );
+
+  const fileDiff = diffData?.files.find((f) => f.path === expandedFile);
+
+  return (
+    <div className="mt-3">
+      <span className="text-xs text-zinc-500">
+        {files.length} fichiers modifies
+      </span>
+      <div className="mt-1 space-y-0.5">
+        {files.map((f, i) => (
+          <div key={i}>
+            <button
+              onClick={() => loadDiff(f.path)}
+              className="flex gap-2 text-xs w-full text-left py-0.5 px-1 rounded hover:bg-zinc-800 transition-colors"
+            >
+              <span className="text-green-400 w-10 text-right">
+                +{f.insertions}
+              </span>
+              <span className="text-red-400 w-10 text-right">
+                -{f.deletions}
+              </span>
+              <span
+                className={`truncate ${
+                  expandedFile === f.path
+                    ? "text-blue-400"
+                    : "text-zinc-400"
+                }`}
+              >
+                {f.path}
+              </span>
+            </button>
+            {expandedFile === f.path && loading && (
+              <div className="text-xs text-zinc-500 pl-24 py-1">
+                Chargement du diff...
+              </div>
+            )}
+            {expandedFile === f.path && fileDiff && (
+              <div className="mt-1 mb-2 rounded bg-zinc-950 border border-zinc-800 overflow-auto max-h-96">
+                {fileDiff.hunks.map((hunk, hi) => (
+                  <div key={hi}>
+                    <div className="text-xs text-blue-400/70 bg-zinc-900/80 px-3 py-0.5 font-mono sticky top-0">
+                      {hunk.header}
+                    </div>
+                    <pre className="text-xs font-mono leading-relaxed">
+                      {hunk.lines.map((line, li) => (
+                        <div
+                          key={li}
+                          className={
+                            line.kind === "add"
+                              ? "bg-green-900/20 text-green-300"
+                              : line.kind === "del"
+                                ? "bg-red-900/20 text-red-300"
+                                : "text-zinc-500"
+                          }
+                        >
+                          <span className="inline-block w-8 text-right text-zinc-600 select-none pr-1">
+                            {line.old_lineno ?? " "}
+                          </span>
+                          <span className="inline-block w-8 text-right text-zinc-600 select-none pr-1">
+                            {line.new_lineno ?? " "}
+                          </span>
+                          <span className="inline-block w-4 text-center select-none">
+                            {line.kind === "add"
+                              ? "+"
+                              : line.kind === "del"
+                                ? "-"
+                                : " "}
+                          </span>
+                          <span>{line.content}</span>
+                        </div>
+                      ))}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function VerdictBadge({ verdict }: { verdict: string | null }) {
@@ -248,29 +389,37 @@ function PhaseCard({ phase }: { phase: PhaseHistory }) {
           </div>
         )}
 
-        {expanded && phase.files_changed.length > 0 && (
-          <div className="mt-3">
-            <span className="text-xs text-zinc-500">
-              {phase.files_changed.length} fichiers
-            </span>
-            <div className="mt-1 max-h-40 overflow-auto text-xs">
-              {phase.files_changed.map((f, i) => (
-                <div key={i} className="flex gap-2 text-zinc-400">
-                  <span className="text-green-400">+{f.insertions}</span>
-                  <span className="text-red-400">-{f.deletions}</span>
-                  <span className="truncate">{f.path}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+        {expanded && phase.files_changed.length > 0 && phase.commit_sha && (
+          <FileDiffViewer
+            sha={phase.commit_sha}
+            files={phase.files_changed}
+          />
         )}
       </CardContent>
     </Card>
   );
 }
 
+interface SprintListItem {
+  sprint: number;
+  version: string;
+  status: string;
+  phase_count: number;
+  phases_pass: number;
+  has_verification: boolean;
+}
+
+interface AllSprintsData {
+  sprints: SprintListItem[];
+  total: number;
+}
+
 export function SprintHistory() {
-  const { data, loading, error } = useApi<SprintHistoryData>("/sprint-history");
+  const [selected, setSelected] = useState<number | null>(null);
+  const { data: allSprints } = useApi<AllSprintsData>("/sprint-history/all");
+  const { data, loading, error } = useApi<SprintHistoryData>(
+    selected ? `/sprint-history/${selected}` : "/sprint-history"
+  );
 
   if (loading) return <div className="text-zinc-400">Chargement...</div>;
   if (error) return <div className="text-red-400">Erreur : {error}</div>;
@@ -281,6 +430,27 @@ export function SprintHistory() {
 
   return (
     <div className="space-y-6 max-w-5xl">
+      {/* Sprint selector */}
+      {allSprints && allSprints.total > 1 && (
+        <div className="flex flex-wrap gap-1 pb-2 border-b border-zinc-700/50">
+          {allSprints.sprints.map((s) => (
+            <button
+              key={s.sprint}
+              onClick={() => setSelected(s.sprint)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                (selected ?? data.sprint) === s.sprint
+                  ? "bg-blue-600 text-white"
+                  : s.status === "completed"
+                    ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                    : "bg-zinc-800/50 text-zinc-500 hover:bg-zinc-700"
+              }`}
+            >
+              S{s.sprint}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div>
         <h1 className="text-2xl font-bold text-zinc-100">
           Sprint {data.sprint}

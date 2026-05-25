@@ -100,6 +100,9 @@ pub fn build_router(root: PathBuf) -> Router {
         .route("/api/chat/message", post(handle_chat_message))
         .route("/api/chat/{id}/log", get(handle_chat_log))
         .route("/api/sprint-history", get(handle_sprint_history))
+        .route("/api/sprint-history/all", get(handle_all_sprints))
+        .route("/api/sprint-history/{sprint}", get(handle_sprint_history_by_number))
+        .route("/api/sprint-history/diff/{sha}", get(handle_commit_diff))
         .layer(cors)
         .with_state(state)
 }
@@ -665,6 +668,43 @@ async fn handle_sprint_history(State(state): State<OperatorState>) -> impl IntoR
         None => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "no active sprint found"})),
+        )
+            .into_response(),
+    }
+}
+
+async fn handle_all_sprints(State(state): State<OperatorState>) -> impl IntoResponse {
+    let result = crate::sprint_history::all_sprints_data(&state.root);
+    Json(serde_json::json!(result)).into_response()
+}
+
+async fn handle_sprint_history_by_number(
+    State(state): State<OperatorState>,
+    Path(sprint): Path<u32>,
+) -> impl IntoResponse {
+    match crate::sprint_history::sprint_history_for(&state.root, sprint) {
+        Some(result) => Json(serde_json::json!(result)).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": format!("sprint {} not found", sprint)})),
+        )
+            .into_response(),
+    }
+}
+
+async fn handle_commit_diff(Path(sha): Path<String>) -> impl IntoResponse {
+    if sha.len() < 4 || sha.contains("..") || sha.contains('/') {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid sha"})),
+        )
+            .into_response();
+    }
+    match crate::sprint_history::commit_diff_data(&sha) {
+        Some(result) => Json(serde_json::json!(result)).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "commit not found"})),
         )
             .into_response(),
     }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::path::Path;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
 use regex::Regex;
 use serde::Serialize;
@@ -157,21 +158,155 @@ static COMMIT_TYPE_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| 
     Regex::new(r"^(feat|fix|docs|chore|test|refactor)\(([^)]+)\)").unwrap()
 });
 
+#[derive(Serialize)]
+pub struct AllSprintsResult {
+    pub sprints: Vec<SprintSummary>,
+    pub total: usize,
+}
+
+#[derive(Serialize)]
+pub struct SprintSummary {
+    pub sprint: u32,
+    pub version: String,
+    pub status: String,
+    pub phase_count: usize,
+    pub phases_pass: usize,
+    pub has_verification: bool,
+    pub dir: String,
+}
+
+pub fn all_sprints_data(root: &Path) -> AllSprintsResult {
+    let mut sprints = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    let dirs = discover_sprint_dirs(root);
+    for (dir, version) in &dirs {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if let Some(n) = name
+                    .strip_prefix("sprint")
+                    .and_then(|s| s.split('_').next())
+                    .and_then(|s| s.parse::<u32>().ok())
+                {
+                    if name.contains("_kickoff.md") && seen.insert(n) {
+                        let summary = build_sprint_summary(dir, n, version);
+                        sprints.push(summary);
+                    }
+                }
+            }
+        }
+    }
+
+    sprints.sort_by_key(|s| s.sprint);
+    let total = sprints.len();
+    AllSprintsResult { sprints, total }
+}
+
+fn discover_sprint_dirs(root: &Path) -> Vec<(PathBuf, String)> {
+    let mut dirs = Vec::new();
+
+    let active = root.join(".planning/active");
+    if active.is_dir() {
+        dirs.push((active, "active".to_string()));
+    }
+
+    let archive = root.join(".planning/archive");
+    if let Ok(entries) = std::fs::read_dir(&archive) {
+        let mut versions: Vec<_> = entries
+            .flatten()
+            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .collect();
+        versions.sort_by_key(|e| e.file_name());
+        for entry in versions {
+            let name = entry.file_name().to_string_lossy().to_string();
+            dirs.push((entry.path(), name));
+        }
+    }
+
+    dirs
+}
+
+fn find_sprint_dir(root: &Path, sprint: u32) -> Option<PathBuf> {
+    let active = root.join(".planning/active");
+    let kickoff = format!("sprint{sprint}_kickoff.md");
+    if active.join(&kickoff).exists() {
+        return Some(active);
+    }
+    let archive = root.join(".planning/archive");
+    if let Ok(entries) = std::fs::read_dir(&archive) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join(&kickoff).exists() {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+fn build_sprint_summary(dir: &Path, sprint: u32, version: &str) -> SprintSummary {
+    let letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+    let mut phase_count = 0usize;
+    let mut phases_pass = 0usize;
+
+    for letter in &letters {
+        let review = dir.join(format!("sprint{sprint}_phase_{letter}_review.md"));
+        if let Ok(content) = std::fs::read_to_string(&review) {
+            phase_count += 1;
+            if content.lines().any(|l| l.trim() == "## Verdict: PASS") {
+                phases_pass += 1;
+            }
+        } else {
+            let preflight = dir.join(format!("sprint{sprint}_phase_{letter}_preflight.md"));
+            if preflight.exists() {
+                phase_count += 1;
+            }
+        }
+    }
+
+    let has_verification = dir
+        .join(format!("sprint{sprint}_verification.md"))
+        .exists();
+
+    let status = if has_verification && phases_pass > 0 {
+        "completed".to_string()
+    } else if phase_count > 0 {
+        "in_progress".to_string()
+    } else {
+        "kickoff_only".to_string()
+    };
+
+    SprintSummary {
+        sprint,
+        version: version.to_string(),
+        status,
+        phase_count,
+        phases_pass,
+        has_verification,
+        dir: dir.to_string_lossy().to_string(),
+    }
+}
+
 pub fn sprint_history_data(root: &Path) -> Option<SprintHistoryResult> {
     let active_dir = root.join(".planning/active");
     if !active_dir.is_dir() {
         return None;
     }
-
     let sprint = detect_history_sprint(&active_dir)?;
+    sprint_history_for(root, sprint)
+}
+
+pub fn sprint_history_for(root: &Path, sprint: u32) -> Option<SprintHistoryResult> {
+    let sprint_dir = find_sprint_dir(root, sprint)?;
     let entry_tip = find_entry_tip(sprint);
     let commits = collect_sprint_commits(sprint, entry_tip.as_deref());
-    let phases = build_phase_histories(&active_dir, sprint, &commits);
-    let tests = build_test_summary(&active_dir, sprint, &phases);
-    let scope_cuts = parse_scope_cuts(&active_dir, sprint);
-    let (carries_closed, carries_open) = parse_carries(&active_dir, sprint);
-    let verification = parse_verification(&active_dir, sprint);
-    let preflight_bilan = build_preflight_bilan(&active_dir, sprint);
+    let phases = build_phase_histories(&sprint_dir, sprint, &commits);
+    let tests = build_test_summary(&sprint_dir, sprint, &phases);
+    let scope_cuts = parse_scope_cuts(&sprint_dir, sprint);
+    let (carries_closed, carries_open) = parse_carries(&sprint_dir, sprint);
+    let verification = parse_verification(&sprint_dir, sprint);
+    let preflight_bilan = build_preflight_bilan(&sprint_dir, sprint);
 
     let phase_commits = commits.iter().filter(|c| c.is_phase).count();
     let chore_commits = commits.len() - phase_commits;
@@ -190,7 +325,7 @@ pub fn sprint_history_data(root: &Path) -> Option<SprintHistoryResult> {
         head: git_cmd(&["rev-parse", "--short", "HEAD"]),
         entry_tip: entry_tip.clone(),
         exit_tip: commits.first().map(|c| c.short.clone()),
-        roadmap: extract_roadmap(&active_dir, sprint),
+        roadmap: extract_roadmap(&sprint_dir, sprint),
         total_commits: commits.len(),
         phase_commits,
         chore_commits,
@@ -733,4 +868,146 @@ fn empty_commit(line: &str) -> CommitInfo {
         files: Vec::new(),
         body_sections: Vec::new(),
     }
+}
+
+// --- Commit diff endpoint ---
+
+#[derive(Serialize)]
+pub struct CommitDiffResult {
+    pub sha: String,
+    pub title: String,
+    pub files: Vec<FileDiff>,
+}
+
+#[derive(Serialize)]
+pub struct FileDiff {
+    pub path: String,
+    pub insertions: u32,
+    pub deletions: u32,
+    pub hunks: Vec<DiffHunk>,
+}
+
+#[derive(Serialize)]
+pub struct DiffHunk {
+    pub header: String,
+    pub lines: Vec<DiffLine>,
+}
+
+#[derive(Serialize)]
+pub struct DiffLine {
+    pub kind: String,
+    pub content: String,
+    pub old_lineno: Option<u32>,
+    pub new_lineno: Option<u32>,
+}
+
+pub fn commit_diff_data(sha: &str) -> Option<CommitDiffResult> {
+    let title = git_cmd(&["log", "-1", "--format=%s", sha]);
+    if title.is_empty() {
+        return None;
+    }
+
+    let raw_diff = git_cmd(&["diff", "-U3", &format!("{sha}^..{sha}")]);
+    let files = parse_unified_diff(&raw_diff);
+
+    Some(CommitDiffResult {
+        sha: sha.to_string(),
+        title,
+        files,
+    })
+}
+
+fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
+    let mut files: Vec<FileDiff> = Vec::new();
+    let mut current_file: Option<FileDiff> = None;
+    let mut current_hunk: Option<DiffHunk> = None;
+    let mut old_line = 0u32;
+    let mut new_line = 0u32;
+
+    let hunk_re = Regex::new(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)").unwrap();
+
+    for line in raw.lines() {
+        if line.starts_with("diff --git") {
+            if let Some(hunk) = current_hunk.take() {
+                if let Some(ref mut f) = current_file {
+                    f.hunks.push(hunk);
+                }
+            }
+            if let Some(f) = current_file.take() {
+                files.push(f);
+            }
+            current_file = Some(FileDiff {
+                path: String::new(),
+                insertions: 0,
+                deletions: 0,
+                hunks: Vec::new(),
+            });
+        } else if let Some(rest) = line.strip_prefix("+++ b/") {
+            if let Some(ref mut f) = current_file {
+                f.path = rest.to_string();
+            }
+        } else if let Some(rest) = line.strip_prefix("--- a/") {
+            if current_file.as_ref().map(|f| f.path.is_empty()) == Some(true) {
+                if let Some(ref mut f) = current_file {
+                    f.path = rest.to_string();
+                }
+            }
+        } else if let Some(cap) = hunk_re.captures(line) {
+            if let Some(hunk) = current_hunk.take() {
+                if let Some(ref mut f) = current_file {
+                    f.hunks.push(hunk);
+                }
+            }
+            old_line = cap[1].parse().unwrap_or(1);
+            new_line = cap[2].parse().unwrap_or(1);
+            current_hunk = Some(DiffHunk {
+                header: line.to_string(),
+                lines: Vec::new(),
+            });
+        } else if let Some(ref mut hunk) = current_hunk {
+            if let Some(rest) = line.strip_prefix('+').filter(|_| !line.starts_with("+++")) {
+                hunk.lines.push(DiffLine {
+                    kind: "add".to_string(),
+                    content: rest.to_string(),
+                    old_lineno: None,
+                    new_lineno: Some(new_line),
+                });
+                if let Some(ref mut f) = current_file {
+                    f.insertions += 1;
+                }
+                new_line += 1;
+            } else if let Some(rest) = line.strip_prefix('-').filter(|_| !line.starts_with("---")) {
+                hunk.lines.push(DiffLine {
+                    kind: "del".to_string(),
+                    content: rest.to_string(),
+                    old_lineno: Some(old_line),
+                    new_lineno: None,
+                });
+                if let Some(ref mut f) = current_file {
+                    f.deletions += 1;
+                }
+                old_line += 1;
+            } else if let Some(rest) = line.strip_prefix(' ') {
+                hunk.lines.push(DiffLine {
+                    kind: "ctx".to_string(),
+                    content: rest.to_string(),
+                    old_lineno: Some(old_line),
+                    new_lineno: Some(new_line),
+                });
+                old_line += 1;
+                new_line += 1;
+            }
+        }
+    }
+
+    if let Some(hunk) = current_hunk.take() {
+        if let Some(ref mut f) = current_file {
+            f.hunks.push(hunk);
+        }
+    }
+    if let Some(f) = current_file.take() {
+        files.push(f);
+    }
+
+    files
 }
