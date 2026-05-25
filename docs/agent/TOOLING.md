@@ -137,6 +137,74 @@ cargo run -p sbfb-factory -- process prompt --kind phase-review --provider local
 - `dirty_files`, `staged_files`: current worktree state
 - `recent_commits`: last 5 commit subjects
 
+## Process Observability (sbfb-factory)
+
+`sbfb-factory process` also provides sprint status, planning lint, and commit
+audit commands. All three accept `--json` for machine-readable output.
+
+```bash
+# Sprint status: current sprint, phase, artifact presence
+cargo run -p sbfb-factory -- process status-sprint
+cargo run -p sbfb-factory -- process status-sprint --json
+
+# Planning lint: orphan files, stale PASS-PENDING, consistency
+cargo run -p sbfb-factory -- process lint-planning
+cargo run -p sbfb-factory -- process lint-planning --json
+
+# Commit audit: verify commit format, review/codex artifacts, body sections
+cargo run -p sbfb-factory -- process audit-commit --rev HEAD
+cargo run -p sbfb-factory -- process audit-commit --rev HEAD --json
+```
+
+`status-sprint` detects the active sprint from `.planning/active/` filenames,
+reports the current phase (next to implement), and lists per-phase artifact
+presence (preflight, review verdict, codex_review).
+
+`lint-planning` checks for orphan files from old sprints (ORPHAN_FILE warning),
+reviews stuck at PASS-PENDING (STALE_PASS_PENDING error), and structural
+inconsistencies (plan without kickoff).
+
+`audit-commit` parses the commit title. Phase commits
+(`feat|fix|docs|test|refactor(scope): Sprint N Phase X`) are checked for: review
+file with `## Verdict: PASS`, codex_review file, and 9 required body sections.
+Non-phase commits pass without review checks.
+
+## Operator JSON API (sbfb-factory)
+
+`sbfb-factory operator serve` starts a local JSON API for the Factory Operator.
+
+```bash
+# Start the Operator API on port 3001
+cargo run -p sbfb-factory -- operator serve --port 3001
+
+# CI-friendly smoke test: start, verify /api/status, stop
+cargo run -p sbfb-factory -- operator serve --port 3001 --once-smoke
+```
+
+Endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/status` | Sprint status (same as `status-sprint --json`) |
+| GET | `/api/lint` | Planning lint results |
+| GET | `/api/audit/{rev}` | Commit audit results |
+| GET | `/api/prompt/{kind}?provider=&depth=` | Assembled prompt content |
+| GET | `/api/context` | Repo context JSON |
+| POST | `/api/context-pack` | Build a context pack for new sessions |
+| GET | `/api/providers` | List supported providers |
+| POST | `/api/actions/run` | Run allowlisted action (status-sprint, lint-planning, audit-commit, prompt) |
+| GET | `/api/actions/log` | Action audit log |
+| POST | `/api/artifacts/draft` | Write draft to allowlisted paths |
+| POST | `/api/chat/session` | Create agent chat session |
+| POST | `/api/chat/message` | Send message to session |
+| GET | `/api/chat/{id}/log` | Session transcript |
+
+Security: actions are allowlisted (no arbitrary shell), artifact drafts are
+path-guarded, PASS verdicts cannot be written via Operator, sensitive actions
+(shell, commit, push) return `requires_gate`/`requires_external_agent`. CORS is
+permissive for localhost. Context packs include `chat_history_authoritative:
+false` and `private chat history is non-authoritative`.
+
 ## Local LLM Usage
 
 Local models should receive a small assembled prompt, not the whole repository.

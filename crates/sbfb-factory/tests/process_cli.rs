@@ -325,3 +325,306 @@ fn process_context_json_parsable() {
     assert!(parsed.get("branch").is_some(), "should have branch field");
     assert!(parsed.get("repo").is_some(), "should have repo field");
 }
+
+// --- status-sprint tests ---
+
+#[test]
+fn status_sprint_detects_active_kickoff() {
+    let output = factory_bin()
+        .args(["process", "status-sprint"])
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Sprint"), "should mention sprint number");
+    assert!(stdout.contains("kickoff"), "should mention kickoff status");
+}
+
+#[test]
+fn status_sprint_json_output() {
+    let output = factory_bin()
+        .args(["process", "status-sprint", "--json"])
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert!(parsed.get("sprint").is_some(), "should have sprint field");
+    assert!(
+        parsed.get("current_phase").is_some(),
+        "should have current_phase"
+    );
+    assert!(parsed.get("phases").is_some(), "should have phases array");
+    assert!(
+        parsed["has_kickoff"].as_bool() == Some(true),
+        "should detect kickoff"
+    );
+}
+
+#[test]
+fn status_sprint_no_active_sprint() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join(".planning/active")).unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    let output = factory_bin()
+        .args(["process", "status-sprint"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run");
+    assert!(
+        !output.status.success(),
+        "should fail when no active sprint"
+    );
+}
+
+// --- lint-planning tests ---
+
+#[test]
+fn lint_planning_clean() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let active = dir.path().join(".planning/active");
+    std::fs::create_dir_all(&active).unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(active.join("sprint70_kickoff.md"), "# Sprint 70").unwrap();
+    std::fs::write(active.join("sprint70_plan.md"), "# Plan").unwrap();
+    std::fs::write(
+        active.join("sprint70_phase_A_review.md"),
+        "## Verdict: PASS\nClean review.",
+    )
+    .unwrap();
+    let output = factory_bin()
+        .args(["process", "lint-planning", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "lint should pass on clean fixtures: {}",
+        stdout
+    );
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["ok"], true, "should report ok");
+}
+
+#[test]
+fn lint_planning_detects_orphan_files() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let active = dir.path().join(".planning/active");
+    std::fs::create_dir_all(&active).unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(active.join("sprint70_kickoff.md"), "# Sprint 70").unwrap();
+    std::fs::write(active.join("sprint70_plan.md"), "# Plan").unwrap();
+    std::fs::write(active.join("sprint65_old_file.md"), "# Old").unwrap();
+    let output = factory_bin()
+        .args(["process", "lint-planning", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let warnings = parsed["warnings"].as_array().unwrap();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| { w["code"].as_str() == Some("ORPHAN_FILE") }),
+        "should detect orphan file"
+    );
+}
+
+#[test]
+fn lint_planning_detects_pass_pending() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let active = dir.path().join(".planning/active");
+    std::fs::create_dir_all(&active).unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(active.join("sprint70_kickoff.md"), "# Sprint 70").unwrap();
+    std::fs::write(active.join("sprint70_plan.md"), "# Plan").unwrap();
+    std::fs::write(
+        active.join("sprint70_phase_A_review.md"),
+        "## Verdict: PASS-PENDING\nReview en cours.",
+    )
+    .unwrap();
+    let output = factory_bin()
+        .args(["process", "lint-planning", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["ok"], false, "should report not ok");
+    let errors = parsed["errors"].as_array().unwrap();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e["code"].as_str() == Some("STALE_PASS_PENDING")),
+        "should detect PASS-PENDING"
+    );
+}
+
+// --- audit-commit tests ---
+
+#[test]
+fn audit_commit_valid_phase_commit() {
+    let output = factory_bin()
+        .args(["process", "audit-commit", "--rev", "HEAD", "--json"])
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "HEAD should be a valid phase commit: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["ok"], true, "should pass");
+    assert_eq!(parsed["is_phase_commit"], true);
+}
+
+#[test]
+fn audit_commit_non_phase_commit() {
+    let output = factory_bin()
+        .args(["process", "audit-commit", "--rev", "c4494a6", "--json"])
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["is_phase_commit"], false,
+        "chore commit should not be phase commit"
+    );
+    assert_eq!(parsed["ok"], true, "non-phase commit should pass");
+}
+
+#[test]
+fn audit_commit_missing_body_sections() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = dir.path();
+    Command::new("git")
+        .args(["init"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    Command::new("git")
+        .args(["add", "file.txt"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args([
+            "commit",
+            "-m",
+            "feat(test): Sprint 1 Phase A — test\n\nNo body sections at all.",
+        ])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let output = factory_bin()
+        .args(["process", "audit-commit", "--rev", "HEAD", "--json"])
+        .current_dir(repo)
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!output.status.success(), "should fail on missing sections");
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    let issues = parsed["issues"].as_array().unwrap();
+    assert!(
+        issues.iter().any(|i| {
+            i.as_str()
+                .map(|s| s.contains("missing body sections"))
+                .unwrap_or(false)
+        }),
+        "should report missing body sections"
+    );
+}
+
+#[test]
+fn audit_commit_missing_review() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = dir.path();
+    Command::new("git")
+        .args(["init"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    std::fs::create_dir_all(repo.join(".planning/active")).unwrap();
+    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let body = [
+        "feat(test): Sprint 1 Phase A — test",
+        "",
+        "## Contexte",
+        "ctx",
+        "## Fichiers",
+        "f",
+        "## Delta tests",
+        "d",
+        "## Verification",
+        "v",
+        "## Scope cuts",
+        "s",
+        "## G8 traceability",
+        "g",
+        "## Pre-launch protocol",
+        "p",
+        "## Codex verification",
+        "c",
+        "## Carry closure",
+        "cc",
+    ]
+    .join("\n");
+    Command::new("git")
+        .args(["commit", "-m", &body])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let output = factory_bin()
+        .args(["process", "audit-commit", "--rev", "HEAD", "--json"])
+        .current_dir(repo)
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!output.status.success());
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    let issues = parsed["issues"].as_array().unwrap();
+    assert!(
+        issues.iter().any(|i| {
+            i.as_str()
+                .map(|s| s.contains("missing review"))
+                .unwrap_or(false)
+        }),
+        "should report missing review file"
+    );
+}

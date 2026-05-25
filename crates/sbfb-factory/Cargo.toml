@@ -24,6 +24,9 @@ time = { workspace = true }
 walkdir = { workspace = true }
 dunce = { workspace = true }
 zip = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

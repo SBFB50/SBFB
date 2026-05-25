@@ -6,6 +6,7 @@ mod audit_log;
 mod daemon_client;
 mod diff;
 mod gates;
+mod operator_server;
 mod pipeline;
 mod preview_cmd;
 mod process;
@@ -94,6 +95,12 @@ enum Command {
         #[command(subcommand)]
         subcmd: ProcessCommand,
     },
+
+    /// Operator local JSON API server
+    Operator {
+        #[command(subcommand)]
+        subcmd: OperatorCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -114,6 +121,45 @@ enum ProcessCommand {
         /// Target provider: claude, codex, gpt, local, human
         #[arg(long, default_value = "claude")]
         provider: String,
+    },
+
+    /// Show active sprint status
+    StatusSprint {
+        /// Output as JSON
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// Lint planning artifacts for consistency
+    LintPlanning {
+        /// Output as JSON
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// Audit a commit against process rules
+    AuditCommit {
+        /// Git revision to audit
+        #[arg(long, default_value = "HEAD")]
+        rev: String,
+
+        /// Output as JSON
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum OperatorCommand {
+    /// Start the Operator JSON API server
+    Serve {
+        /// Port to listen on (0 = random)
+        #[arg(long, default_value_t = 3001)]
+        port: u16,
+
+        /// Start, verify /api/status, then stop (CI-friendly)
+        #[arg(long, default_value_t = false)]
+        once_smoke: bool,
     },
 }
 
@@ -189,6 +235,28 @@ fn main() {
                     ];
                     let r = process::run_prompt(&kind, &depth, &provider);
                     ("process-prompt", args, r)
+                }
+                ProcessCommand::StatusSprint { json } => {
+                    let r = process::run_status_sprint(json);
+                    ("process-status-sprint", vec![], r)
+                }
+                ProcessCommand::LintPlanning { json } => {
+                    let r = process::run_lint_planning(json);
+                    ("process-lint-planning", vec![], r)
+                }
+                ProcessCommand::AuditCommit { rev, json } => {
+                    let args = vec![format!("--rev={rev}")];
+                    let r = process::run_audit_commit(&rev, json);
+                    ("process-audit-commit", args, r)
+                }
+            },
+            Command::Operator { subcmd } => match subcmd {
+                OperatorCommand::Serve { port, once_smoke } => {
+                    let args = vec![format!("--port={port}")];
+                    let rt =
+                        tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+                    let r = rt.block_on(operator_server::run_server(port, once_smoke));
+                    ("operator-serve", args, r)
                 }
             },
         };

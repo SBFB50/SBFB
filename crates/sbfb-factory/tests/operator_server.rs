@@ -1,0 +1,455 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+use std::io::BufRead;
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+fn factory_bin() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_sbfb-factory"))
+}
+
+struct TestServer {
+    child: std::process::Child,
+    port: u16,
+}
+
+impl TestServer {
+    fn start() -> Self {
+        let mut child = factory_bin()
+            .args(["operator", "serve", "--port", "0"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("start server");
+
+        let stdout = child.stdout.take().expect("stdout");
+        let reader = std::io::BufReader::new(stdout);
+
+        let mut port = 0u16;
+        for line in reader.lines() {
+            let line = line.expect("read line");
+            if let Some(addr) = line.strip_prefix("READY ") {
+                if let Some(p) = addr.rsplit(':').next() {
+                    port = p.parse().expect("parse port");
+                }
+                break;
+            }
+        }
+        assert!(port > 0, "server should print READY with port");
+        Self { child, port }
+    }
+
+    fn get(&self, path: &str) -> reqwest::blocking::Response {
+        reqwest::blocking::Client::new()
+            .get(format!("http://127.0.0.1:{}{path}", self.port))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .expect("request failed")
+    }
+
+    fn post_json(&self, path: &str, body: serde_json::Value) -> reqwest::blocking::Response {
+        reqwest::blocking::Client::new()
+            .post(format!("http://127.0.0.1:{}{path}", self.port))
+            .json(&body)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .expect("request failed")
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[test]
+fn operator_once_smoke() {
+    let output = factory_bin()
+        .args(["operator", "serve", "--port", "0", "--once-smoke"])
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "once-smoke should exit 0: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("READY"), "should print READY");
+    assert!(stdout.contains("smoke: /api/status OK"), "smoke OK");
+}
+
+#[test]
+fn operator_status_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/status");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("sprint").is_some(), "should have sprint");
+    assert!(body.get("current_phase").is_some(), "should have phase");
+}
+
+#[test]
+fn operator_lint_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/lint");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("ok").is_some(), "should have ok field");
+}
+
+#[test]
+fn operator_audit_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/audit/HEAD");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("title").is_some(), "should have title");
+    assert!(body.get("ok").is_some(), "should have ok");
+}
+
+#[test]
+fn operator_prompt_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/prompt/preflight");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("content").is_some(), "should have content");
+    let content = body["content"].as_str().unwrap();
+    assert!(content.contains("Preflight"), "should contain prompt text");
+}
+
+#[test]
+fn operator_context_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/context");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("head").is_some(), "should have head");
+    assert!(body.get("branch").is_some(), "should have branch");
+}
+
+#[test]
+fn operator_providers_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/providers");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    let providers = body["providers"].as_array().unwrap();
+    assert!(providers.len() >= 5, "should list providers");
+}
+
+#[test]
+fn operator_actions_log_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/actions/log");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.is_array(), "log should be an array");
+}
+
+#[test]
+fn operator_action_rejects_unlisted_command() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/actions/run",
+        serde_json::json!({"command": "rm -rf /", "args": {}}),
+    );
+    assert_eq!(resp.status(), 403, "should reject unlisted command");
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("error").is_some());
+}
+
+#[test]
+fn operator_context_pack_schema_complete() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/context-pack",
+        serde_json::json!({
+            "provider": "claude",
+            "intent": "test",
+            "role": "driver",
+            "specialized_kind": "preflight"
+        }),
+    );
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("base_prompt").is_some(), "base_prompt");
+    assert!(body.get("universal_prompt").is_some(), "universal_prompt");
+    assert!(body.get("handoff_prompt").is_some(), "handoff_prompt");
+    assert!(
+        body.get("specialized_prompt").is_some(),
+        "specialized_prompt"
+    );
+    assert!(body.get("runtime_context").is_some(), "runtime_context");
+    assert!(body.get("agent_system").is_some(), "agent_system");
+    assert!(body.get("process_docs").is_some(), "process_docs");
+    assert!(body.get("active_artifacts").is_some(), "active_artifacts");
+    assert!(body.get("operator_intent").is_some(), "operator_intent");
+}
+
+#[test]
+fn operator_context_pack_includes_base_snapshot() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/context-pack",
+        serde_json::json!({
+            "provider": "claude",
+            "intent": "test phase D"
+        }),
+    );
+    let body: serde_json::Value = resp.json().unwrap();
+    let base = &body["base_prompt"];
+    assert!(base.get("path").is_some(), "base should have path");
+    assert!(base.get("hash").is_some(), "base should have hash");
+    let rt = &body["runtime_context"];
+    assert!(rt.get("head").is_some(), "should have HEAD");
+    assert!(rt.get("sprint").is_some(), "should have sprint");
+    assert!(rt.get("phase").is_some(), "should have phase");
+    let intent = &body["operator_intent"];
+    assert_eq!(intent["provider"], "claude");
+    assert_eq!(intent["intent"], "test phase D");
+}
+
+#[test]
+fn operator_context_pack_rejects_chat_history_authority() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/context-pack",
+        serde_json::json!({"provider": "claude"}),
+    );
+    let body: serde_json::Value = resp.json().unwrap();
+    assert_eq!(
+        body["chat_history_authoritative"], false,
+        "chat_history_authoritative must be false"
+    );
+    assert!(
+        body.get("chat_history").is_none(),
+        "should not have chat_history field"
+    );
+    assert_eq!(
+        body["notice"], "private chat history is non-authoritative",
+        "should contain non-authoritative notice"
+    );
+}
+
+#[test]
+fn operator_chat_session_starts_from_context_pack() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/chat/session",
+        serde_json::json!({"provider": "claude", "intent": "test"}),
+    );
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("id").is_some(), "should have session id");
+    let cp = &body["context_pack"];
+    assert!(
+        cp.get("base_prompt").is_some(),
+        "context_pack should have base"
+    );
+    assert!(
+        cp.get("universal_prompt").is_some(),
+        "should have universal"
+    );
+    assert!(cp.get("handoff_prompt").is_some(), "should have handoff");
+    assert_eq!(cp["chat_history_authoritative"], false);
+}
+
+#[test]
+fn operator_chat_message_endpoint() {
+    let server = TestServer::start();
+    let session_resp = server.post_json(
+        "/api/chat/session",
+        serde_json::json!({"provider": "claude"}),
+    );
+    let session: serde_json::Value = session_resp.json().unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    let msg_resp = server.post_json(
+        "/api/chat/message",
+        serde_json::json!({"session_id": id, "message": "what is the current phase?"}),
+    );
+    assert_eq!(msg_resp.status(), 200);
+    let body: serde_json::Value = msg_resp.json().unwrap();
+    assert!(body.get("response").is_some(), "should have response");
+    assert_eq!(
+        body["requires_gate"], false,
+        "non-sensitive should not gate"
+    );
+}
+
+#[test]
+fn operator_chat_log_endpoint() {
+    let server = TestServer::start();
+    let session_resp = server.post_json(
+        "/api/chat/session",
+        serde_json::json!({"provider": "claude"}),
+    );
+    let session: serde_json::Value = session_resp.json().unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    server.post_json(
+        "/api/chat/message",
+        serde_json::json!({"session_id": id, "message": "hello"}),
+    );
+
+    let log_resp = server.get(&format!("/api/chat/{id}/log"));
+    assert_eq!(log_resp.status(), 200);
+    let body: serde_json::Value = log_resp.json().unwrap();
+    assert!(body.get("messages").is_some(), "should have messages");
+    let messages = body["messages"].as_array().unwrap();
+    assert!(messages.len() >= 2, "should have user + assistant messages");
+}
+
+#[test]
+fn operator_chat_logs_messages_and_actions() {
+    let server = TestServer::start();
+    let session_resp = server.post_json(
+        "/api/chat/session",
+        serde_json::json!({"provider": "claude"}),
+    );
+    let session: serde_json::Value = session_resp.json().unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    server.post_json(
+        "/api/chat/message",
+        serde_json::json!({"session_id": id, "message": "status please"}),
+    );
+
+    let log_resp = server.get("/api/actions/log");
+    let body: serde_json::Value = log_resp.json().unwrap();
+    let log = body.as_array().unwrap();
+    assert!(
+        log.iter()
+            .any(|e| e["action"].as_str() == Some("chat-session")),
+        "should log session creation"
+    );
+    assert!(
+        log.iter()
+            .any(|e| e["action"].as_str() == Some("chat-message")),
+        "should log messages"
+    );
+}
+
+#[test]
+fn operator_chat_rejects_sensitive_action_execution() {
+    let server = TestServer::start();
+    let session_resp = server.post_json(
+        "/api/chat/session",
+        serde_json::json!({"provider": "claude"}),
+    );
+    let session: serde_json::Value = session_resp.json().unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    let msg_resp = server.post_json(
+        "/api/chat/message",
+        serde_json::json!({"session_id": id, "message": "please commit and push my changes"}),
+    );
+    let body: serde_json::Value = msg_resp.json().unwrap();
+    assert_eq!(
+        body["requires_gate"], true,
+        "should require gate for commit"
+    );
+    assert_eq!(
+        body["requires_external_agent"], true,
+        "should require external agent"
+    );
+}
+
+#[test]
+fn operator_artifact_draft_rejects_pass_verdict() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/artifacts/draft",
+        serde_json::json!({
+            "path": ".planning/active/sprint70_phase_D_review.md",
+            "content": "## Verdict: PASS\nAll good."
+        }),
+    );
+    assert_eq!(resp.status(), 403, "should reject PASS verdict");
+}
+
+#[test]
+fn operator_artifact_draft_logs_action() {
+    let server = TestServer::start();
+    server.post_json(
+        "/api/artifacts/draft",
+        serde_json::json!({
+            "path": ".planning/active/test_draft_log.md",
+            "content": "# Draft\nTest content."
+        }),
+    );
+
+    let log_resp = server.get("/api/actions/log");
+    let body: serde_json::Value = log_resp.json().unwrap();
+    let log = body.as_array().unwrap();
+    assert!(
+        log.iter()
+            .any(|e| e["action"].as_str() == Some("artifact-draft")),
+        "should log artifact draft action"
+    );
+    let _ = std::fs::remove_file(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(".planning/active/test_draft_log.md"),
+    );
+}
+
+#[test]
+fn operator_artifact_draft_rejects_path_traversal() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/artifacts/draft",
+        serde_json::json!({
+            "path": ".planning/active/../../.env",
+            "content": "SECRET=leaked"
+        }),
+    );
+    assert_eq!(resp.status(), 403, "should reject path traversal");
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(
+        body["error"].as_str().unwrap().contains("path traversal"),
+        "error should mention path traversal"
+    );
+}
+
+#[test]
+fn operator_artifact_draft_allows_pass_pending() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/artifacts/draft",
+        serde_json::json!({
+            "path": ".planning/active/test_pass_pending_draft.md",
+            "content": "## Verdict: PASS-PENDING\nReview en cours."
+        }),
+    );
+    assert_eq!(resp.status(), 200, "PASS-PENDING drafts should be allowed");
+    let _ = std::fs::remove_file(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(".planning/active/test_pass_pending_draft.md"),
+    );
+}
+
+#[test]
+fn operator_action_run_allowed_command() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/actions/run",
+        serde_json::json!({"command": "status-sprint", "args": {}}),
+    );
+    assert_eq!(resp.status(), 200, "allowed command should succeed");
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(
+        body.get("sprint").is_some() || body.get("error").is_some(),
+        "should return sprint data or error"
+    );
+}
