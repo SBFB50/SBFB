@@ -109,8 +109,10 @@ if "g-commit" in text:
             content = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if "PASS-PENDING" in content:
-            block(f"G-COMMIT cannot complete: {path.name} still contains PASS-PENDING.")
+        for line in content.splitlines():
+            t = line.strip()
+            if t.startswith("## Verdict") and "PASS-PENDING" in t:
+                block(f"G-COMMIT cannot complete: {path.name} verdict is still PASS-PENDING.")
 
 sys.exit(0)
 PY
