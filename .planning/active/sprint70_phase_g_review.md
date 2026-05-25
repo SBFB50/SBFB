@@ -168,10 +168,12 @@ produire un body 9 sections conforme au template `.claude/templates/commit_body_
 - **P3-G-1** : SHA hardcode `6fb95df` dans test — `crates/sbfb-factory/tests/process_cli.rs:475`. Fragile si rebase ou shallow clone. Nit acceptable. Commentaire documente le rationale.
 
 ## Codex reconciliation
-- Status : N/A pre-Codex
-- Rapport Codex : sprint70_phase_g_codex_review.md (a produire)
-- GAPs P0/P1 : 1 P1 a corriger avant commit
-- P2/P3 documentes dans body : a verifier post-Codex
+- Status : RECONCILIE
+- Rapport Codex : sprint70_phase_g_codex_review.md (session 019e5faa-9d08-7491-a0e0-6860b42b3586, GPT 5.5)
+- GAPs Codex : P2 RRV-expansion CORRIGE (patch Codex), P3 autorite-court CORRIGE (patch Codex)
+- P1-G-1 review (test rouge detect_sprint) : CORRIGE (process.rs + process_cli.rs)
+- Suites relancees post-fix : 1486/1486 Rust PASS, fmt/clippy clean
+- Sandbox Windows a empeche Codex de lancer les suites — verifiees independamment
 
 ## Dimensions explored (evidence audit exhaustif)
 
