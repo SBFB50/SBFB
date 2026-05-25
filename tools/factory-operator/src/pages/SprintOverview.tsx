@@ -26,6 +26,14 @@ import {
   Layers,
 } from "lucide-react";
 
+interface ApiPhase {
+  letter: string;
+  has_preflight: boolean;
+  has_review: boolean;
+  has_codex: boolean;
+  review_verdict: string | null;
+}
+
 interface PhaseData {
   id: string;
   label: string;
@@ -33,12 +41,47 @@ interface PhaseData {
   artifacts: { preflight: boolean; review: boolean; codex: boolean };
 }
 
+interface ApiStatusData {
+  sprint: number;
+  branch: string;
+  head: string;
+  current_phase: string;
+  has_kickoff: boolean;
+  has_plan: boolean;
+  has_design_review: boolean;
+  has_audit_plan: boolean;
+  phases: ApiPhase[];
+}
+
 interface StatusData {
   sprint: number;
   title: string;
   head: string;
   phases: PhaseData[];
-  test_counts: { rust: number; vitest: number; size_limit: number };
+  test_counts?: { rust: number; vitest: number; size_limit: number };
+}
+
+function mapApiToStatus(api: ApiStatusData): StatusData {
+  return {
+    sprint: api.sprint,
+    title: `Sprint ${api.sprint} (${api.branch})`,
+    head: api.head,
+    phases: api.phases.map((p) => ({
+      id: p.letter,
+      label: `Phase ${p.letter}`,
+      status:
+        p.review_verdict === "PASS"
+          ? "done"
+          : p.has_review
+            ? "active"
+            : "pending",
+      artifacts: {
+        preflight: p.has_preflight,
+        review: p.has_review,
+        codex: p.has_codex,
+      },
+    })),
+  };
 }
 
 const STATUS_VARIANT: Record<
@@ -212,10 +255,12 @@ function ErrorState() {
 
 export function SprintOverview() {
   const { t } = useTranslation();
-  const { data, error, loading } = useApi<StatusData>("/status");
+  const { data: raw, error, loading } = useApi<ApiStatusData>("/status");
 
   if (loading) return <SprintSkeleton />;
-  if (error || !data) return <ErrorState />;
+  if (error || !raw) return <ErrorState />;
+
+  const data = mapApiToStatus(raw);
 
   const completedCount = data.phases.filter(
     (p) => p.status === "done",
@@ -263,28 +308,30 @@ export function SprintOverview() {
           )}
         </section>
 
-        <section aria-label={t("sprint.tests")}>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <FlaskConical className="size-4 text-muted-foreground" />
-                {t("sprint.tests")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex justify-around gap-6">
-                <TestStat value={data.test_counts.rust} label="Rust" />
-                <Separator orientation="vertical" className="h-10" />
-                <TestStat value={data.test_counts.vitest} label="Vitest" />
-                <Separator orientation="vertical" className="h-10" />
-                <TestStat
-                  value={data.test_counts.size_limit}
-                  label="size-limit"
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </section>
+        {data.test_counts && (
+          <section aria-label={t("sprint.tests")}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <FlaskConical className="size-4 text-muted-foreground" />
+                  {t("sprint.tests")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex justify-around gap-6">
+                  <TestStat value={data.test_counts.rust} label="Rust" />
+                  <Separator orientation="vertical" className="h-10" />
+                  <TestStat value={data.test_counts.vitest} label="Vitest" />
+                  <Separator orientation="vertical" className="h-10" />
+                  <TestStat
+                    value={data.test_counts.size_limit}
+                    label="size-limit"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        )}
       </div>
     </TooltipProvider>
   );
