@@ -149,6 +149,8 @@ Ce pilote ne teste pas toute la vision future. Il teste le commencement de la co
 
 Ce qui est deja testable : daemon local, interface web, sandbox, bridge, publication depuis source, provenance signee, feed verifiable, recherche locale, Proof Cards, Factory CLI/Operator/Viewer pour apps simples, worker GPU/CPU avec consentement opt-in, dispatch de taches, ledger kudos compute/task, Ideas Hub, premieres briques curator, CI self-hosted `ci.sbfb.world` et fondations build task/quorum SHA256.
 
+Babel, dans ce contexte, est l'app canari que je veux utiliser pour tester Factory sur un cas concret : une bibliotheque/lecteur de textes avec sources, licences, lecture offline, puis plus tard traduction opt-in par workers et validation humaine.
+
 Ce qui est prepare pour le pilote : protocole de test Gate 1, chemin Babel via `static-reader`, migration d'app web classique, vouch ou disendorse curator.
 
 Ce qui reste trajectoire : SearchManifest P2P, RRV reseau complet, page Factory non-dev, Babel publique finale, gouvernance communautaire, quorum de build tiers, worker quorum E2E, partage IA/GPU multi-noeuds a grande echelle et apps avancees type capteurs, Alexandria ou surveillance de foret.
