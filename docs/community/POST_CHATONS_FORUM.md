@@ -692,9 +692,18 @@ services classiques restent mieux adaptes pour beaucoup d'usages.
 
 **Pourquoi AGPL ?**
 
-Pour que les ameliorations du protocole restent disponibles, y compris
-dans un usage reseau. Les apps publiees sur SBFB gardent leur propre
-licence ; elles ne deviennent pas automatiquement AGPL.
+Le coeur SBFB est sous AGPL-3.0-or-later pour empecher qu'un acteur
+privatise l'infrastructure commune : toute modification du protocole ou
+du daemon exploitee comme service reseau doit rester redistribuable avec
+son code source.
+
+Les apps publiees sur SBFB ne deviennent pas automatiquement AGPL par le
+simple fait d'utiliser le protocole. En revanche, pour etre recommandees
+comme apps verifiees dans le pilote, elles doivent publier leur source,
+declarer une licence libre/open source, fournir une provenance
+verifiable et rester auditables par les noeuds et les curators. Une app
+qui modifie, embarque ou derive du code AGPL de SBFB doit respecter
+l'AGPL.
 
 ## Checklist avant publication
 
