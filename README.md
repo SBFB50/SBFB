@@ -7,6 +7,20 @@
 
 ---
 
+## Repository availability
+
+Current source of truth is the GitHub repository:
+`https://github.com/SBFB50/SBFB`.
+
+A Codeberg mirror already exists at `https://codeberg.org/SBFB/SBFB`,
+but it is private during the pre-launch phase. It is a
+disaster-recovery maintainer mirror, push-synchronised from GitHub, not
+yet a public clone URL for users or pilots.
+
+At v1.0 go-live, GitHub and Codeberg are intended to be made public in
+the same release window, with Radicle activation following the documented
+mirror plan. See [`docs/release/MIRROR_FALLBACK.md`](docs/release/MIRROR_FALLBACK.md).
+
 ## What is nexus-grid?
 
 nexus-grid is a peer-to-peer network where anyone can host LLM-powered
@@ -67,8 +81,12 @@ dispatcher + kudos ledger), `nexus-sdk` (NexusApp ABC + TabView),
 ### Setup
 
 ```bash
+# Pre-launch maintainer/pilot access. Public availability is not open yet.
 git clone https://github.com/SBFB50/SBFB.git
 cd SBFB
+
+# Codeberg mirror is prepared but private pre-launch:
+# https://codeberg.org/SBFB/SBFB
 
 # Build the PyO3 wheel + sync Python deps
 ./scripts/setup.sh

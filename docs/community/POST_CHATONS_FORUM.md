@@ -1,516 +1,708 @@
 # Post forum CHATONS
 
-**Categorie** : Cafe du commerce
-**Titre** : SBFB — distribuer des apps web en P2P, sans serveur central, code verifiable (AGPL-3.0)
+**Categorie recommandee** : Cafe du commerce
+**Titre recommande** : SBFB - vers une couche applicative communautaire,
+verifiable et P2P
+**Statut** : version prete a poster + annexe de reponses pour le fil
+**A remplacer avant publication** : `[lien demo]`, `[canal pilote]`
 
 ---
 
+## Version a poster
+
 Salut a toutes et tous,
 
-Je m'appelle Theophile, dev solo francophone. Je bosse sur un protocole
-libre (AGPL-3.0) qui touche directement a ce que font les CHATONS, et
-je pense que c'est le bon endroit pour en parler.
-
-## L'idee en bref
-
-SBFB est un protocole P2P ou n'importe qui publie une app web — du
-simple HTML a du React, Python dans le navigateur, notebook Jupyter,
-peu importe. Le reseau la distribue automatiquement entre les noeuds.
-Les utilisateurs la voient dans un navigateur, dans un iframe
-sandboxe. Pas de serveur central, pas de store, pas de compte.
-
-Concretement : vous installez un petit daemon Rust (~21 Mo, un seul
-binaire, zero config obligatoire), vous publiez votre app en une
-commande, et elle se propage. Si votre machine s'eteint, les gens qui
-l'ont deja vue continuent de la servir depuis leur noeud.
-
-## Comment le reseau fonctionne
-
-Le daemon fait tourner un noeud P2P base sur iroh (protocole QUIC,
-chiffre de bout en bout avec ChaCha20-Poly1305). Trois mecanismes
-principaux :
-
-**La propagation des apps** : quand vous publiez une app, le daemon
-cree une archive zip de votre code, calcule son hash BLAKE3, et
-l'annonce sur le reseau via gossip — un systeme de diffusion pair-a-
-pair ou les messages se propagent de voisin en voisin. Les autres
-noeuds qui voient l'annonce telecharge l'archive automatiquement et
-la mettent en cache. C'est le meme principe que BitTorrent, applique
-a des apps web.
-
-**Le stockage des donnees** : les apps peuvent stocker des donnees
-(votes, commentaires, preferences) dans un espace replique entre les
-noeuds. C'est base sur un CRDT (un type de structure de donnees qui
-sait fusionner sans conflit). Ca fonctionne meme hors-ligne : chaque
-noeud continue de fonctionner independamment, et les donnees se
-synchronisent automatiquement a la reconnexion. Pas de base de
-donnees centrale a maintenir.
-
-**La decouverte** : les noeuds se trouvent via une table de hachage
-distribuee (DHT), avec un fallback DNS et un relais WebSocket. Ca
-fonctionne derriere un NAT, pas besoin d'IP publique ni de port
-forwarding.
-
-## La provenance — savoir d'ou vient le code
-
-Chaque app publiee est accompagnee d'une preuve cryptographique :
-
-- Le daemon clone votre depot Git
-- Il verifie le commit que vous avez declare
-- Il construit l'archive zip
-- Il signe le tout avec sa cle Ed25519
-
-Le resultat c'est un fichier `provenance.json` qui dit : "cette
-archive correspond a ce commit de ce repo, signe par ce noeud a
-cette date". N'importe qui sur le reseau peut verifier la chaine
-complete. C'est ce qu'on appelle SLSA Level 1 — une auto-attestation
-verifiable.
-
-Ca veut dire qu'un utilisateur peut regarder une app sur le reseau et
-verifier que le code qu'il execute correspond bien au code source
-publie. Pas de binaire opaque, pas de "faites-moi confiance".
-
-## Niveaux de confiance — savoir a quel point on peut faire confiance
-
-Le protocole definit 6 niveaux de confiance cumulatifs pour chaque
-app :
-
-- **N0** : l'app a ete uploadee sur le reseau (zip brut, rien
-  verifie)
-- **N1** : l'app declare un repo source lisible par tous
-- **N2** : la provenance a ete auto-attestee (Ed25519 + BLAKE3)
-- **N3** : la signature de provenance est verifiee en direct par le
-  daemon
-- **N4** : le build est reproductible par un tiers independant
-  (futur)
-- **N5** : l'app est inscrite dans le feed public verifie (chaine de
-  hash immuable)
-
-L'utilisateur voit directement le niveau de confiance de chaque app.
-Un **Proof Card** (score de 0 a 100) resume 7 facteurs de risque :
-est-ce que la provenance est signee, est-ce qu'un curator l'a
-recommandee, est-ce que le repo est accessible, est-ce que le code
-est recent. Le score est decomposable — on peut voir chaque couche
-de preuve individuellement.
-
-## Les curators — la confiance sans moderation
-
-Pas de moderateur central qui decide quoi publier ou quoi supprimer.
-A la place, un systeme de listes de recommandation :
-
-- N'importe qui peut creer une liste de curator : c'est juste une
-  cle Ed25519 et une liste d'apps que vous recommandez
-- Vous signez votre liste, elle se propage sur le reseau par gossip
-- Les utilisateurs choisissent a quels curators ils font confiance
-  et s'abonnent a leurs cles publiques
-- Un curator peut dire "je recommande cette app" ou "je la
-  deconseille" — mais il ne peut pas la supprimer du reseau
-
-L'idee c'est que chaque communaute peut etre son propre curator.
-Vous recommandez les apps que vous avez verifiees pour vos
-utilisateurs. Un autre hebergeur recommande les siennes. Les
-utilisateurs composent leur vision du reseau en choisissant
-leurs curators.
-
-Les listes ont un compteur de revision monotone (impossible de
-revenir en arriere a une version precedente), et le systeme gere
-la rotation de cle si vous devez changer votre cle Ed25519 (fenetre
-de transition de 14 jours max, l'ancienne et la nouvelle cle sont
-acceptees pendant la transition, puis l'ancienne est revoquee).
-
-## Le feed public — un journal immuable
-
-Chaque evenement important sur le reseau (nouvelle app publiee,
-curator qui endorse une app, source devenue obsolete) est inscrit
-dans un **feed public append-only**. Chaque entree est signee
-Ed25519 et chainee par hash BLAKE3 a la precedente — impossible
-d'effacer ou modifier retroactivement.
-
-Ca veut dire que n'importe qui peut telecharger l'historique complet
-du reseau et verifier que personne n'a triche. C'est la meme idee
-qu'une blockchain mais sans la lourdeur — pas de consensus distribue,
-pas de proof-of-work global, juste des chaines de hash par auteur
-qui se verifient independamment.
-
-## La recherche
-
-Un moteur de recherche local (SQLite FTS5) indexe toutes les apps
-par nom, description et categorie. La recherche tourne localement
-sur votre noeud — pas de serveur central qui sait ce que vous
-cherchez. Les requetes sont nettoyees contre les injections.
-
-## Le sandbox — comment les apps sont isolees
-
-Les apps tournent dans un iframe du navigateur avec cinq couches de
-protection :
-
-L'iframe n'a pas le droit d'acceder a la page parente. Il ne peut
-pas faire de requetes reseau vers l'exterieur (le navigateur bloque
-ca via une Content Security Policy stricte). Il ne peut pas lire les
-cookies ou le stockage local du shell. Il ne peut pas acceder aux
-donnees d'une autre app.
-
-La seule facon pour une app de communiquer avec le reseau, c'est via
-un **bridge** : un SDK JavaScript qui envoie des messages au shell
-via `postMessage`. Chaque message a un identifiant unique, un timeout
-de 10 secondes, et le shell verifie que le message vient bien de
-l'iframe attendu. Un heartbeat toutes les secondes detecte si une
-app est figee (watchdog CPU).
-
-Les methodes disponibles sont whitelistees — on ne peut que :
-stocker/lire des donnees, soumettre une tache de calcul, lire l'etat
-du reseau, verifier une provenance, chercher des apps, lire son
-identite publique. Rien d'autre.
-
-Cote daemon, tout passe par loopback (127.0.0.1) avec un token
-d'authentification de 256 bits, plus une verification de l'origine
-des requetes, plus une verification des credentials du processus
-appelant (SO_PEERCRED sur Linux, Named Pipe DACL sur Windows).
-Aucun port n'est expose sur le reseau.
-
-## Factory — creer et publier des apps
-
-`sbfb-factory` est un outil en ligne de commande (Rust) qui guide
-toute la chaine :
-
-**Creer** : `sbfb-factory create --template static --name mon-outil`
-genere un squelette avec un manifeste `SBFB.json`, un `index.html`,
-le SDK bridge, et un README. Deux templates de base : un statique
-simple et un avec le bridge integre pour les apps collaboratives.
-
-**Valider** : `sbfb-factory validate` verifie que le manifeste est
-correct, que les methodes bridge demandees sont dans la liste
-autorisee, qu'il n'y a pas de fichiers sensibles.
-
-**Tester** : `sbfb-factory preview` charge votre app dans le daemon
-en mode ephemere (30 minutes, max 10 previews simultanees). Vous
-voyez exactement ce que les utilisateurs verront, dans le meme
-sandbox.
-
-**Publier** : `sbfb-factory publish` passe par 11 verifications
-automatiques (les "gates") :
-- Le manifeste est valide et complet
-- Les methodes bridge demandees sont autorisees
-- Il n'y a pas de secrets dans le code (scan regex : cles AWS,
-  tokens API, certificats PEM)
-- Il n'y a pas de symlinks qui sortent du repertoire (protection
-  path traversal)
-- Le daemon local est accessible
-- La provenance est signee Ed25519
-- L'archive est diffusee sur le reseau P2P
-
-Toutes ces verifications sauf la derniere tournent en local, hors-
-ligne. Si une verification bloquante echoue, la publication s'arrete
-et vous dit pourquoi.
-
-Chaque app contient un petit fichier manifeste qui declare
-explicitement ce dont elle a besoin : son nom, sa description, sa
-licence, et surtout les methodes du bridge qu'elle veut utiliser.
-Si une app ne declare pas l'acces en ecriture au stockage, elle ne
-peut pas ecrire de donnees. C'est le principe du moindre privilege
-— l'utilisateur voit ce que l'app peut faire avant de l'ouvrir.
-
-## Factory Operator — l'outil graphique
-
-En plus du CLI, un outil graphique local (React, dark theme) connecte
-au daemon donne une vue d'ensemble :
-
-- L'etat du sprint de developpement en cours
-- L'historique complet de toutes les modifications avec le diff
-  inline fichier par fichier (on voit le code qui a change, ligne
-  par ligne, colore en vert/rouge)
-- Le journal de toutes les actions Factory
-- Un chat integre pour poser des questions sur le projet
-- La validation des artefacts de planification
-- L'audit des commit bodies
-- La generation de context-packs pour transferer le contexte entre
-  outils
-
-Le tout avec navigation par sprint (on peut remonter sur les 67
-sprints passes et voir le detail de chacun).
-
-## Le partage de puissance GPU
-
-Un des aspects les plus differenciants : SBFB permet de partager
-du calcul GPU entre les noeuds du reseau. L'idee, c'est que si vous
-avez un GPU (meme modeste) et que vous acceptez de le partager, les
-apps du reseau peuvent l'utiliser pour faire de l'inference IA
-(traduction, resume, analyse de texte, etc.) via Ollama.
-
-### Comment ca fonctionne
-
-Un utilisateur soumet une tache via une app ("resume ce texte en
-200 mots"). Le coordinateur local route la tache vers un noeud qui
-a un GPU disponible et qui a accepte de le partager. Le worker
-execute la tache et renvoie le resultat. Le coordinateur verifie
-le resultat et credite le worker en kudos.
-
-### Le consentement explicite
-
-La premiere fois que vous lancez le daemon, un dialogue vous demande
-votre niveau de partage :
-
-- **Niveau 1** : je ne partage mon GPU que pour mes propres projets
-- **Niveau 2** : pour les projets open source dont le code est
-  verifie
-- **Niveau 3** : pour une liste de projets que je choisis
-  manuellement (whitelist)
-- **Niveau 4** : pour tous les projets du reseau
-
-Et des plafonds configurables : watts max, VRAM max, heures max par
-jour. Le daemon refuse automatiquement les taches qui depassent vos
-limites. Le consentement est rechargeable a chaud (modification du
-fichier de config, prise en compte en 50 millisecondes).
-
-### Le monitoring GPU
-
-Le daemon surveille en temps reel l'utilisation de votre GPU (VRAM
-utilisee, pourcentage d'utilisation, temperature, consommation en
-watts). Ces informations sont affichees dans la page "Mon reseau"
-du shell. Si votre GPU surchauffe ou depasse vos limites, les
-taches sont refusees automatiquement.
-
-### La validation des resultats
-
-Les resultats ne sont pas acceptes aveuglement :
-
-- **Quorum** : si plusieurs workers traitent la meme tache, leurs
-  resultats sont compares (hash SHA256). Si les resultats divergent,
-  les outliers sont rejetes.
-- **Filtrage PII** : avant d'envoyer une tache au worker, le
-  coordinateur scanne le prompt pour detecter et masquer les donnees
-  personnelles (emails, telephones, cartes bancaires, IBAN). Le scan
-  utilise des regex + un modele ML leger (GLiNER).
-- **Filtrage de sortie** : les resultats suspects (contenu toxique,
-  patterns d'exfiltration) sont filtres avant de revenir a l'app.
-- **Quarantaine** : les taches douteuses sont mises en quarantaine
-  dans une file d'attente. Un validateur humain peut les revoir et
-  decider de les accepter ou les rejeter.
-
-### Les kudos — la reputation
-
-Quand un noeud contribue du calcul, il recoit des points de
-reputation appeles kudos. Quelques points importants :
-
-- C'est **pas une monnaie**. On ne peut pas transferer ses kudos,
-  les vendre, les echanger. C'est un score lie a votre identite.
-- La formule utilise des **rendements decroissants** (logarithme) :
-  contribuer beaucoup donne plus de kudos, mais pas
-  proportionnellement. Ca empeche les gros GPU de concentrer toute
-  la reputation.
-- Les kudos **decroissent dans le temps** (demi-vie ~23 jours) :
-  les contributions recentes comptent plus que les anciennes.
-- Chaque entree kudos est **signee et chainee** par hash BLAKE3 :
-  n'importe qui peut telecharger le ledger complet et verifier que
-  personne n'a triche.
-- Un **coefficient de Gini** est calcule en temps reel pour detecter
-  si la reputation se concentre chez quelques noeuds. Si ca depasse
-  un seuil, c'est un signal d'alerte visible par tous.
-- Un **leaderboard** par projet et des **metriques de fairness**
-  (top-K contributors, taux de renouvellement) sont accessibles
-  via des endpoints dedies.
-
-## Le vote dans les apps
-
-L'app Ideas Hub montre comment faire du vote decentralise :
-
-Chaque vote est stocke comme une cle dans le stockage P2P :
-`votes/{idee}/{cle_publique_du_votant}`. Comme la cle publique
-Ed25519 de chaque noeud est unique, c'est impossible de voter deux
-fois. Re-cliquer retire le vote. Les votes se synchronisent entre
-tous les noeuds automatiquement.
-
-Ce pattern est generique — n'importe quelle app SBFB peut l'utiliser
-pour du budget participatif, des sondages, du peer-review, ou
-n'importe quel mecanisme de decision collective.
-
-## Les invitations — groupes prives
-
-Un developpeur peut creer des invitations signees pour enroler des
-workers dans un projet specifique. L'invitation a un scope (quelles
-actions sont autorisees), une date d'expiration, et un nombre
-maximum d'utilisations. Ca permet de former un groupe prive de
-testeurs ou de workers de confiance avant de rendre un projet
-public.
-
-## La securite en profondeur
-
-### Ce qu'on garantit aujourd'hui
-
-- Identite Ed25519 protegee par permissions fichier (0600)
-- Loopback authentifie (token 256 bits + verification de l'origine
-  + verification des credentials du processus appelant)
-- Sandbox iframe 5 couches
-- Feed public append-only (chaine de hash, impossible d'effacer)
-- Kudos verifiables (chaine BLAKE3 + Ed25519)
-- Anti-spam Hashcash 16 bits sur le gossip (un noeud doit resoudre
-  un puzzle cryptographique avant de publier une annonce — ca coute
-  quelques secondes de calcul, assez pour decourager le spam)
-- Resistance Sybil 3 couches : un nouveau noeud doit exister 7
-  jours minimum avant de participer au gossip (couche 1), des
-  attestations de contribution sont enregistrees (couche 2), et un
-  systeme de delegation de reputation est prevu (couche 3)
-- Rotation de cle Ed25519 avec fenetre de transition
-- Capacites desactivees par defaut (features sensibles comme
-  l'acces MCP ou le calcul GPU illimite sont gate-off par defaut
-  et necessitent une activation explicite avec privilege admin OS)
-
-### Le warrant canary
-
-Chaque mois, le mainteneur signe une declaration cryptographique
-attestant que le projet n'a recu aucun ordre secret de modification
-du code, de surveillance des utilisateurs, ou d'insertion de
-backdoor. Si la signature cesse de paraitre, c'est un signal
-d'alerte (dead-man switch). Le framework FROST (signature a seuil
-K-de-N entre plusieurs mainteneurs) est pret pour distribuer la
-responsabilite entre plusieurs personnes quand le projet grandira.
-
-### Le mode sous contrainte
-
-Si quelqu'un vous force physiquement a reveler votre cle, un code
-PIN secret active un mode degrade qui detruit la keypair locale et
-envoie un signal canari discret. La cle n'existe plus — impossible
-de cooperer meme sous contrainte.
-
-### Ce qu'on ne garantit pas encore (et on le dit)
-
-- La cle privee n'est pas chiffree au repos (prevu : Keychain
-  macOS / DPAPI Windows / libsecret Linux)
-- Pas d'audit de securite formel sur iroh (notre couche reseau)
-- Rate limiting incomplet sur certains endpoints
-
-On prefere dire clairement ce qui manque plutot que de faire croire
-que tout est parfait.
-
-## Les apps qui tournent
-
-Trois apps exemples, toutes en HTML/JS pur sans aucune dependance :
-
-**Protocol Explorer** : 6 sections de documentation interactive sur
-le protocole. Un panneau live affiche l'etat du reseau en temps reel
-(pairs connectes, apps disponibles). Un bouton verifie la provenance
-d'une app en un clic — le daemon verifie la signature Ed25519 et
-affiche le resultat.
-
-**Ideas Hub** : proposer et voter sur des idees. Les donnees se
-synchronisent entre les noeuds automatiquement. 1 identite = 1 vote.
-On peut trier par nombre de votes ou par date. On peut supprimer ses
-propres idees.
-
-**Factory Viewer** : affiche les apps du reseau avec leur Proof Card
-(score de qualite 0-100 decomposable en 7 facteurs de risque). Le
-Viewer est lui-meme une app SBFB sandboxee — il tourne dans le meme
-iframe que les autres apps, sans privilege special. Il interroge le
-reseau via le bridge (liste des apps, recherche, Proof Cards,
-provenance) et affiche tout dans une interface sombre unifiee.
-
-Et la feature en cours de construction qui change la donne : un
-**chat integre dans Factory** qui a acces a tout le protocole.
-
-Imaginez : vous tapez une question dans le chat, et il peut aller
-chercher la reponse dans le code source de n'importe quelle app
-publiee sur le reseau (parce que chaque app est source-verifiable),
-dans les donnees P2P des apps (votes, contenus), dans les Proof
-Cards, dans les provenance chains, dans le feed public, dans les
-listes de curators, dans l'etat des noeuds voisins.
-
-Quelques exemples concrets :
-- "Montre-moi comment l'app Ideas Hub gere le vote" → le chat
-  telecharge l'archive de l'app via le reseau, decompresse le code
-  source, et vous explique le mecanisme
-- "Quelles apps ont un Proof Card au-dessus de 80 ?" → il interroge
-  les Proof Cards de toutes les apps connues et filtre
-- "Verifie la provenance de cette app avant que je m'en inspire"
-  → il deroule la chaine Ed25519 complete et vous dit si tout est
-  coherent
-- "Combien de noeuds sont connectes en ce moment ? Qui sont mes
-  voisins ?" → il lit l'etat du daemon local et des pairs gossip
-- "Est-ce que le warrant canary est frais ?" → il verifie la
-  derniere signature et vous dit depuis quand
-- "Quels curators recommandent cette app ?" → il croise les listes
-  de curators avec les entries du feed public
-
-Le chat comprend des references contextuelles : vous pouvez ecrire
-`@sprint-70` pour parler d'un sprint precis, `@phase-A` pour une
-phase, `@commit-abc1234` pour un commit specifique. Le chat resout
-ces references automatiquement en allant chercher les donnees dans
-le repo local ou sur le reseau.
-
-Ce qui est unique ici, c'est que le chat n'a pas juste acces a votre
-code local (ca, tous les IDE le font). Il a acces a **tout le reseau
-de code source-verifie** — chaque app publiee, ses donnees, ses
-preuves, ses curators, ses noeuds. Et tout ca sans serveur central,
-sans telemetrie, sans compte cloud. Le chat tourne localement, les
-requetes restent entre votre noeud et le reseau P2P.
-
-## L'interface utilisateur
-
-Le shell React (l'interface que voit l'utilisateur) propose :
-
-- **Browse** : une grille d'apps du reseau avec statut
-  reachable/unreachable, badges de verification, et filtrage par
-  curator
-- **Vue immersive** : quand on ouvre une app, elle prend tout l'ecran
-  avec une barre qui se masque automatiquement. La barre affiche la
-  provenance et le Proof Card.
-- **Curators** : gestion des abonnements aux listes de curators
-- **Mon reseau** : etat live du noeud (GPU, pairs connectes, taches
-  en cours, kudos gagnes, consent applique)
-- **Deploy** : formulaire pour publier directement depuis un repo Git
-- **Recherche** : recherche full-text locale dans toutes les apps
-
-Le daemon a aussi une icone dans la barre systeme
-(Windows/macOS/Linux) qui affiche l'etat et les erreurs sans avoir
-a ouvrir un terminal.
-
-## Installation
-
-Un binaire Rust (~21 Mo), zero config obligatoire :
-
-```bash
-./nexus-shell-daemon
-# -> cree une identite Ed25519 + token d'auth dans ~/.sbfb/
-# -> ouvre le navigateur
-# -> ecoute sur 127.0.0.1 uniquement
-# -> consomme ~150 Mo RAM en idle
+Je m'appelle Theophile. Je developpe en solo un protocole libre sous
+AGPL-3.0 appele SBFB. Je viens ici parce que le sujet touche directement
+a l'auto-hebergement, aux communs numeriques et a la confiance dans le
+logiciel libre.
+
+Je ne cherche pas de financement, ni des "utilisateurs" au sens startup.
+Je cherche plutot un ou deux hebergeurs alternatifs prets a regarder un
+pilote ferme, a me dire ce qui tient, ce qui casse, et ce qui serait
+inacceptable pour une communaute comme CHATONS.
+
+Point important : ce n'est pas pret pour une mise en production CHATONS.
+Il n'y a pas encore de noeuds tiers en production ni d'audit de securite
+formel de toute la pile. Le pilote serait un premier essai externe
+encadre, pas un service exploitable.
+
+## L'idee
+
+SBFB sert a publier une application web comme un paquet verifiable, puis
+a la diffuser entre noeuds P2P. L'utilisateur l'ouvre dans son
+navigateur, dans une iframe sandboxee. Il n'y a pas de serveur central
+qui detient le catalogue, pas de compte cloud, pas de store applicatif.
+
+En pratique :
+
+1. une personne publie une app web depuis un depot source ;
+2. le noeud construit une archive, calcule son hash et signe une
+   provenance ;
+3. l'annonce se propage en P2P ;
+4. les autres noeuds peuvent telecharger, mettre en cache et verifier
+   l'archive qu'ils ouvrent.
+
+Schema court du chemin d'une app :
+
+```text
+Depot source + commit
+        |
+        v
+[Factory / daemon local]
+        |
+        | archive + hash + provenance signee
+        v
+[Reseau P2P : annonce + blob]
+        |
+        v
+[Noeud lecteur : cache + verification locale]
+        |
+        v
+[App ouverte en iframe sandbox]
+        |
+        v
+[Avis curator choisi par l'utilisateur]
 ```
 
-Pour un service systemd sur un serveur :
+Ce n'est pas un remplacant de YunoHost, PeerTube, F-Droid, Sandstorm,
+Solid ou IPFS. Je le vois plutot comme une brique complementaire qui
+croise plusieurs idees : distribution d'apps libres, contenu adresse,
+donnees controlables par les communautes, sandbox navigateur, curation
+locale et preuve de provenance.
 
-```bash
-sudo useradd -m -s /bin/false sbfb
-sudo cp nexus-shell-daemon /usr/local/bin/
-sudo systemctl enable sbfb-daemon
-sudo systemctl start sbfb-daemon
-```
+## Pourquoi je pense que ca peut parler aux CHATONS
 
-Installeurs disponibles : Windows (NSIS), Linux (.deb), macOS (.dmg).
-Aucun port public expose. Pas de certificat TLS a renouveler.
+Les CHATONS portent deja une culture de services libres, transparents,
+decentralises et respectueux des donnees. SBFB essaie d'appliquer cette
+logique a la distribution d'apps web :
 
-## Etat du projet
+- **alternatif** : pas de plateforme SaaS centrale a qui deleguer la
+  publication ;
+- **transparent** : une app peut etre reliee a son depot source et a un
+  commit precis ;
+- **ouvert** : le protocole et le code sont sous AGPL-3.0 ;
+- **neutre** : le reseau ne decide pas seul ce qui est "bon" ou
+  "mauvais" ;
+- **solidaire** : chaque communaute peut recommander ce qu'elle a teste.
 
-- ~1800 tests (1486 Rust, 279 JavaScript), tous verts
-- Installeurs Windows, Linux .deb, macOS .dmg
-- P2P teste en LAN (Windows <-> Mac) et en WAN (dev <-> VPS Helsinki)
-- Licence AGPL-3.0
-- Solo maintainer, pas de startup, pas de fondation, pas de token
-- Pilote ferme — pas encore de noeuds tiers en production
+Le point cle, pour moi, c'est la curation. Un CHATONS, une association ou
+un collectif local pourrait tenir sa propre liste signee d'apps
+recommandees ou deconseillees. Les utilisateurs choisissent les listes
+auxquelles ils font confiance. Personne ne devient moderateur central du
+reseau ; chaque communaute garde sa propre politique de recommandation.
 
-## Ce que je cherche
+| Acteur | Peut faire | Ne peut pas faire |
+|---|---|---|
+| Publieur | Publier une app et sa provenance | Imposer la confiance |
+| Curator CHATONS | Recommander ou deconseiller une app | Supprimer une app du reseau |
+| Utilisateur | Choisir les listes qu'il suit | Etre force par un curator global |
+| Daemon local | Verifier hash, signature, feed et sandbox | Decider qu'une app est moralement bonne |
 
-Je ne cherche pas de financement. Je cherche un ou deux hebergeurs
-alternatifs motives pour tester le protocole en conditions reelles :
+## Ce qui est verifiable
 
-1. Installer un noeud SBFB a cote de vos services existants
-2. Publier 2-3 petites apps utiles a votre communaute
-3. Se mettre en curator l'un pour l'autre
-4. Voir ce qui marche et ce qui casse
+Chaque app peut etre accompagnee d'une provenance :
 
-Le resultat attendu : "3 apps publiees, 2 noeuds qui se voient, le
-P2P tient" — ou "ca marche pas pour telle raison et voila ce qu'il
-faudrait changer". Les deux me sont utiles.
+- depot source public ;
+- commit annonce ;
+- hash de l'archive ;
+- signature Ed25519 du noeud qui publie ;
+- verification locale possible par le daemon.
 
-Le code est sur [lien repo]. Dispo pour une demo en visio de
-15 minutes ou pour repondre a vos questions ici.
+C'est une auto-attestation verifiable, pas un audit externe. Autrement
+dit : ca ne prouve pas que l'app est "bonne" ou sans faille, mais ca
+evite le simple "faites-moi confiance". On peut verifier que l'archive
+recue correspond au hash signe dans une attestation qui annonce un depot
+et un commit. Ce n'est pas encore une preuve independante que ce commit
+reconstruit exactement l'archive ; ce niveau dependra de builds
+reproductibles ou de quorums tiers.
 
-Bonne journee
+La verification du projet lui-meme a aussi une couche hors GitHub :
+Woodpecker tourne sur `ci.sbfb.world` comme CI self-hosted. Aujourd'hui,
+il sert de preuve d'infrastructure et de second chemin de verification
+avec GitHub Actions. Le reseau qui se recompile vraiment par plusieurs
+workers independants reste la trajectoire suivante : les fondations build
+task + quorum SHA256 existent, mais le worker quorum E2E public n'est pas
+encore un acquis du pilote.
+
+| Niveau affiche | Ce que ca affirme | Ce que ca n'affirme pas |
+|---|---|---|
+| Upload direct | Une archive existe sur le reseau | Origine du code inconnue |
+| Source lisible | Un depot public est declare | L'archive n'est pas encore prouvee par build tiers |
+| Provenance signee | Commit + hash + signature du noeud sont lies | Auto-attestation, pas audit externe |
+| Signature verifiee | Le daemon a verifie la signature et le hash | Pas encore build reproductible tiers |
+| CI self-hosted | `ci.sbfb.world` verifie le repo hors GitHub Actions | Pas encore quorum public multi-worker |
+| Build reproductible | Un tiers reconstruit le meme hash | Futur, pas acquis pour le pilote |
+| Feed verifie | L'historique observe est integre par hash-chain | Ne prouve pas que l'app est bonne ou sure |
+
+Le reseau vise aussi a garder une trace verifiable des publications,
+recommandations, changements de source/provenance et, cote Factory, des
+actions locales journalisees. Ce n'est pas encore un journal global de
+toutes les executions utilisateur.
+
+## Les garde-fous deja en place
+
+La securite n'est pas renvoyee a "plus tard". Les couches deja posees
+combinent sandbox navigateur, CSP stricte, bridge `postMessage` avec
+methodes autorisees, daemon local en loopback avec token et controles
+Host/Origin, provenance signee, hash d'archive, feed append-only et
+Factory Operator avec actions allowlistees et logs.
+
+Je ne presente pas ca comme "securite parfaite". C'est une defense en
+profondeur deja implementee en partie, encore a auditer formellement, et
+justement exposee au pilote pour etre critiquee.
+
+## La vision a terme
+
+La vision longue n'est pas "heberger une page HTML en P2P".
+J'aimerais arriver a un reseau ou une communaute peut :
+
+- creer une application avec un outil local, puis la publier comme paquet
+  verifiable ;
+- distribuer cette app entre noeuds, sans store central ;
+- garder des donnees applicatives simples synchronisees entre les noeuds
+  qui participent ;
+- retrouver les apps et leurs preuves via une recherche locale et
+  verifiable ;
+- choisir ses curators, donc sa propre couche sociale de confiance ;
+- plus tard, mutualiser du calcul opt-in pour des usages utiles :
+  traduction, indexation, verification, analyse de documents, aide a la
+  publication.
+
+L'objectif final est une couche applicative communautaire : permettre a
+une association, un CHATONS, une cooperative, une ecole, un tiers-lieu ou
+un collectif local de creer, publier, maintenir, auditer, recommander,
+retrouver et executer ses propres outils web verifiables. Pas seulement
+des micro-outils : des apps de coordination, de decision collective, de
+documentation, de traduction, de publication, d'archivage, de recherche,
+de collaboration ou de calcul mutualise.
+
+L'idee forte est que le pouvoir ne soit pas concentre dans un SaaS, un
+store, une forge ou un hebergeur central. Les communautes doivent pouvoir
+choisir leurs curators, leurs regles d'adoption et leurs niveaux de
+preuve.
+
+Ca vaut aussi pour la contribution au reseau. Je ne veux pas d'un modele
+ou seuls les gens avec de gros GPU accumulent toute l'influence.
+Aujourd'hui, les briques reelles portent surtout sur un ledger kudos
+compute/task avec rendement logarithmique, vieillissement EMA et metriques
+fairness. La reconnaissance du stockage, relais, revue, docs, traduction,
+curation et validation humaine est une direction de gouvernance a
+construire, pas une regle de vote du pilote.
+
+La base technique testee maintenant est le socle de cette vision :
+distribution P2P, provenance, sandbox navigateur, recherche locale,
+curators et apps de demo. Le pilote sert a verifier si ce socle tient
+avant de brancher les briques plus ambitieuses dessus.
+
+Je ne veux pas non plus invisibiliser Factory et le chat local. Factory
+existe aujourd'hui comme CLI, Operator local et Viewer de preuves pour
+apps simples et templates statiques ; l'atelier non-dev complet et les
+templates riches sont l'arc suivant. Un premier Operator peut demarrer
+une session depuis un context-pack et journaliser les actions. Les alias
+type `@security`, `@audit`, `@dev` decrivent le modele cible de routage
+vers les preuves ; pour le pilote, cela doit rester de la lecture et de
+l'explication assistee, sans autorite et sans promesse de RRV complet.
+
+## Ce que j'aimerais tester
+
+Je cherche un pilote ferme avec une ou deux personnes, pas un lancement
+public large.
+
+| Dans le pilote ferme | Hors pilote / plus tard |
+|---|---|
+| Installer 2 ou 3 noeuds | Mise en production CHATONS |
+| Publier 2 ou 3 apps simples | Apps critiques ou donnees sensibles |
+| Verifier P2P, sandbox et provenance | Audit securite complet |
+| Tester vouch/disendorse curator | Gouvernance communautaire finale |
+| Documenter les No-Go | Lancement public large |
+
+Un echec m'interesse autant qu'une reussite. Si le P2P ne tient pas, si
+l'UX est incomprehensible, si la securite n'est pas assez lisible, ou si
+le modele curator pose probleme, c'est exactement le retour que je viens
+chercher.
+
+Ce pilote ne teste pas toute la vision future. Il teste le commencement
+de la couche applicative : est-ce qu'une app peut etre creee, publiee,
+retrouvee, ouverte, verifiee, puis recommandee ou non par une communaute ?
+
+## Etat honnete du projet
+
+Ce qui est deja testable : daemon local, interface web, sandbox, bridge,
+publication depuis source, provenance signee, feed verifiable, recherche
+locale, Proof Cards, Factory CLI/Operator/Viewer pour apps simples,
+Ideas Hub, premieres briques curator, CI self-hosted `ci.sbfb.world` et
+fondations build task/quorum SHA256.
+
+Ce qui est prepare pour le pilote : protocole de test Gate 1, chemin
+Babel via `static-reader`, migration d'app web classique, vouch ou
+disendorse curator.
+
+Ce qui reste trajectoire : SearchManifest P2P, RRV reseau complet, page
+Factory non-dev, Babel publique finale, gouvernance communautaire, quorum
+de build tiers, worker quorum E2E et apps avancees type capteurs,
+Alexandria ou surveillance de foret.
+
+Je ne veux pas faire passer le projet pour plus mature qu'il ne l'est.
+Aujourd'hui, c'est une experimentation avancee, libre, testable, mais
+encore en pilote ferme.
+
+## Exemple concret
+
+Une app de budget participatif local pourrait etre publiee comme app
+SBFB :
+
+- le code est dans un depot public ;
+- le noeud publie l'app avec une provenance signee ;
+- les votes sont stockes dans un espace replique entre noeuds ;
+- chaque identite locale vote une fois ;
+- un CHATONS peut recommander cette app dans sa propre liste curator ;
+- un autre collectif peut choisir de ne pas la recommander.
+
+L'objectif n'est pas de remplacer un service heberge classique quand il
+fonctionne tres bien. L'objectif est de tester un autre mode de
+distribution : une app web verifiable, partagee entre noeuds, avec des
+recommandations communautaires plutot qu'un store central.
+
+## Ce que je demande
+
+Si une ou deux personnes ici veulent regarder le projet avec un oeil
+d'hebergeur, donnez-moi votre username Codeberg : je peux vous partager
+le depot prive en lecture seule, faire une demo courte, ou repondre
+publiquement aux questions dans ce fil.
+
+Le depot Codeberg n'est pas encore public ; l'acces pilote se fait en
+read-only le temps de garder un cadre de test ferme.
+
+Demo ou discussion : `[lien demo]` / `[canal pilote]`
+
+Merci d'avance pour les critiques, surtout les critiques dures. C'est le
+meilleur moment pour les recevoir.
+
+Bonne journee a toutes et tous.
+
+---
+
+## Annexe pour repondre dans le fil
+
+Cette annexe n'est pas a poster d'un bloc dans le premier message. Elle
+sert a repondre proprement aux questions techniques sans improviser.
+
+### SBFB en une phrase
+
+SBFB est un protocole de distribution d'apps web en P2P : une app est
+empaquetee, signee, diffusee entre noeuds, puis ouverte localement dans
+un iframe sandboxe avec un bridge limite.
+
+### Difference avec YunoHost
+
+YunoHost installe et administre des services sur un serveur. SBFB ne
+cherche pas a remplacer cette couche. SBFB vise plutot une couche de
+distribution et de verification d'apps web entre noeuds, avec provenance
+et cache P2P. Un CHATONS pourrait tres bien heberger des services
+classiques avec YunoHost et tester SBFB a cote pour des apps
+communautaires experimentales.
+
+### Difference avec IPFS
+
+IPFS adresse tres bien le contenu. SBFB ajoute un cadre applicatif :
+manifeste, provenance, sandbox navigateur, bridge autorise, feed public,
+curators et donnees applicatives repliquees. L'objet n'est pas seulement
+"un fichier a telecharger", mais "une app web ouvrable et verifiable".
+
+### Difference avec F-Droid
+
+F-Droid repose sur un depot et une chaine de publication Android. SBFB
+reprend l'intuition "catalogue d'apps libres et verifiables", mais pour
+des apps web et sans autorite unique de catalogue. Les curators sont
+multiples : chaque communaute peut signer ses propres recommandations.
+
+### Difference avec une blockchain
+
+SBFB n'a pas de token, pas de minage, pas de consensus global et pas de
+monnaie. Le feed est append-only et verifiable par hash-chain pour
+l'historique observe par un noeud ou synchronise entre pairs, mais il ne
+cherche pas a resoudre une verite globale ni un consensus economique
+mondial. Les preuves servent a verifier une histoire de publication, pas
+a creer un marche.
+
+### Securite du sandbox
+
+Le modele client repose sur plusieurs couches :
+
+- iframe sandbox sans acces direct a la page parente ;
+- politique CSP stricte pour les apps non fiables ;
+- bridge `postMessage` avec methodes limitees ;
+- daemon expose en `127.0.0.1` avec token ;
+- separation entre app sandboxee et API locale.
+
+Formulation prudente a garder : "defense en profondeur", pas "securite
+parfaite". Une app malveillante reste un risque, et le pilote doit
+justement servir a verifier les angles morts.
+
+### Securite plus large que le sandbox
+
+Le sandbox navigateur n'est qu'une couche. La securite du projet repose
+aussi sur :
+
+- daemon expose en loopback, avec authentification locale par token ;
+- separation entre UI locale, app sandboxee et API protocole ;
+- manifests et provenance signes ;
+- hash-chain pour le feed append-only ;
+- curators separes de la publication brute ;
+- Factory Operator avec actions allowlistees et logs d'audit ;
+- systeme de sprint/phase/review pour garder les decisions et les gates
+  visibles dans le depot.
+
+La formulation juste est donc : SBFB met en place une defense en
+profondeur et une tracabilite verifiable, mais ne pretend pas remplacer
+un audit de securite formel.
+
+### Provenance et limites
+
+La provenance SBFB est une auto-attestation :
+
+- elle annonce un depot et un commit ;
+- elle lie l'archive recue a un hash et a une signature locale ;
+- elle peut etre verifiee localement ;
+- elle ne remplace pas un audit humain ;
+- elle ne prouve pas encore un build reproductible par un tiers.
+
+Le bon wording est donc : "source-verifiable" ou "provenance
+verifiable", pas "logiciel sur a executer".
+
+### Curators
+
+Un curator ne supprime pas une app du reseau. Il signe une liste de
+recommandations ou de deconseils. Les utilisateurs choisissent les
+curators qu'ils suivent. C'est une couche sociale de confiance, pas une
+police centrale du reseau.
+
+Etat prudent a expliquer : la curation existe aujourd'hui au niveau
+primitives/listes et operations feed selon l'etat sprint recent. L'UI de
+gouvernance complete, le quorum social, le dissent/timeline et la
+delegation restent post-pilote. Certaines specs protocolaires plus
+anciennes doivent etre relues comme historiques.
+
+### Donnees personnelles
+
+Le daemon n'a pas besoin de compte cloud et ne centralise pas les
+requetes. Pour un pilote CHATONS, il faut eviter les donnees sensibles :
+apps de demonstration, vote non critique, documentation, formulaires de
+test. Les questions RGPD serieuses doivent etre traitees avant tout
+deploiement avec de vraies donnees personnelles.
+
+### Kudos, anti-capture et vote
+
+Le partage GPU fait partie de la vision future, mais il ne doit pas
+devenir la seule source de pouvoir. Sinon, le protocole reproduirait le
+probleme qu'il essaie d'eviter : ceux qui possedent le materiel le plus
+cher finissent par peser le plus.
+
+Le cadrage a garder :
+
+- les kudos ne sont pas une monnaie, pas un token, pas un stake, pas un
+  actif transferable ;
+- les kudos servent a rendre visibles des contributions verifiables ;
+- le compute GPU est une contribution, mais pas la seule ;
+- les contributions doivent pouvoir etre separees par projet, pour
+  reconnaitre les personnes qui ont vraiment aide ce projet precis ;
+- le vote ou le poids social eventuel doit rester plafonne, auditable et
+  resistant aux Sybil.
+
+Modele vise a terme :
+
+- **compute** : execution de taches utiles, avec rendement decroissant
+  pour eviter que 100 fois plus de GPU donne 100 fois plus de pouvoir ;
+- **stockage** : heberger et servir des apps ou donnees utiles au
+  reseau ;
+- **relais** : aider les pairs a se trouver, relayer du gossip, garder
+  de la disponibilite ;
+- **projet** : code, docs, traduction, correction, design,
+  accessibilite, revue, moderation, validation humaine ;
+- **curation** : recommander, deconseiller, expliquer les risques, tenir
+  une liste utile pour une communaute.
+
+Ce qui existe deja dans le code est plus limite : ledger kudos surtout
+lie aux contributions compute/task, hash-chain, rendement logarithmique,
+vieillissement EMA et metriques fairness. Le modele multi-familles et le
+vote pondere par contribution restent une trajectoire a traiter
+prudemment, pas un acquis du pilote CHATONS.
+
+Phrase utile :
+
+> Le but n'est pas de recompenser ceux qui ont le plus gros GPU, mais de
+> rendre visible une diversite de contributions au reseau et aux projets,
+> sans transformer cette reputation en argent ou en pouvoir capturable.
+
+### Factory, RRV et Babel
+
+Factory est l'atelier local : creer, valider, previsualiser, publier.
+RRV est la couche de recherche verifiable : retrouver les apps, leurs
+preuves et plus tard leurs sources. Babel est le premier dogfood Factory
+prevu cote roadmap, pas le protocole lui-meme. Le bon cadrage public est :
+
+- **aujourd'hui** : Factory existe comme CLI, Operator local et Viewer de
+  preuves pour apps simples et templates statiques ; publication,
+  provenance et recherche locale commencent a exister ;
+- **pilote** : prouver qu'une app simple circule et se verifie entre
+  noeuds ;
+- **apres pilote** : enrichir RRV, durcir Factory vers un atelier
+  non-dev complet, tester une app canari plus ambitieuse comme Babel.
+
+Formulation plus ambitieuse mais exacte :
+
+> Factory est l'atelier qui doit permettre de transformer une idee en app
+> SBFB verifiable : template, manifeste, preview sandboxee, scans,
+> provenance, publication, Proof Card et trace de revue.
+
+### Matrice de maturite des briques
+
+Cette matrice sert a eviter deux erreurs : minimiser la vision, ou
+presenter comme acquis ce qui est encore research.
+
+**1. Testable aujourd'hui / code-backed**
+
+- daemon local loopback, shell web, iframe sandboxee, bridge `postMessage`
+  allowliste ;
+- publication depuis source, `SBFB.json`, archive hashee, provenance
+  signee Ed25519 ;
+- Browse, blob-serve, deploy-from-repo, feed local append-only,
+  materialisation et verification hash-chain ;
+- Curator lists et operations feed `CuratorVouched` /
+  `CuratorDisendorsed` cote protocole, avec UI complete encore a durcir ;
+- recherche locale FTS5 `@protocole` et endpoint local de recherche ;
+- Proof Cards locales : score de completude de preuve, facteurs bruts,
+  endpoint daemon, composant UI ;
+- Factory CLI : create, validate, diff, scan-secrets, preview, publish ;
+- templates Factory `static` et `static-reader` ;
+- Factory provenance, preview ephemere, publish path vers daemon ;
+- Factory Viewer, Factory Operator et `sbfb-factory process` ;
+- context-pack et prototype de chat qui lit le process/protocole sans
+  devenir autorite ;
+- Ideas Hub : proposition, vote, retrait, stockage applicatif replique ;
+- kudos ledger, hash-chain, log-utility, EMA et metriques fairness.
+- CI self-hosted Woodpecker sur `ci.sbfb.world`, en complement de GitHub
+  Actions ;
+- fondations LT-7 : task `build`, build executor MVP et quorum SHA256
+  DB-persistent pour comparer des artefacts.
+
+**2. Chemins de pilote prepares**
+
+- Gate 1 : 9 tests manuels pour installation, P2P, publication, Babel via
+  Factory, feed sync, restart, stabilite 24 h, recherche et Proof Card ;
+- Babel via `static-reader` : chemin cree/valide/previsualise/publie,
+  mais pas encore l'app vitrine finale ;
+- migration d'une app React classique vers SBFB avec contraintes
+  sandbox, bridge, assets relatifs et verification post-deploiement ;
+- review communautaire : un curator peut recommander/deconseiller, mais
+  la gouvernance complete demande encore UI, timeline et dissent.
+
+**3. Prochain arc S71+ / durcissement**
+
+- SearchManifest opt-in : partager une partie de l'index local entre
+  noeuds, signe, verifiable, rate-limite, sans discovery publique par
+  defaut ;
+- RRV Core : mieux croiser resultats, preuves, feed, provenance, Proof
+  Cards et plus tard sources/citations ;
+- gouvernance UI : timeline curator, dissent, vouch/disendorse visibles
+  et explicables ;
+- Factory hardening : templates plus riches, meilleur diff, tests
+  adversariaux, packaging plus accessible aux non-devs ;
+- Proof Card comme evenement/feed op ou element exportable dans un proof
+  pack, selon le prochain design ;
+- build tiers et worker quorum E2E : passer de l'auto-attestation et de
+  la CI self-hosted vers une preuve plus forte, avec plusieurs builders
+  independants.
+
+**4. Research / vision long terme**
+
+- kudos multi-familles : compute, stockage, relais, projet, curation,
+  avec poids ajustables, Gini par famille et protections anti-capture ;
+- vote declencheur de taches : seuil de votes, budgets compute,
+  anti-spam, generation par workers, review humaine avant publication ;
+- compute GPU : court terme = decomposition en taches independantes ;
+  temps reel / model parallelism WAN = long terme, pas pilote CHATONS ;
+- Babel complet : corpus, source-policy, traductions opt-in, validation
+  humaine, roles de contribution visibles ;
+- surveillance de foret : pipeline tuiles publiques, inference vision,
+  aggregation CRDT, dashboard verifiable ;
+- Alexandria, D&D, render farm, registre vivant, apps de crise et
+  capteurs citoyens : bons showcases pour tester stockage, compute,
+  curation et Factory, mais pas promesses du premier pilote ;
+- inspirations p2panda/public feed : operations append-only, replay,
+  offline catch-up et sync durable comme patterns possibles, sans creer
+  un deuxieme statut "open source" ni remplacer la provenance SBFB.
+
+### Comment un projet plus gros passe par Factory
+
+Le chemin cible pour un projet plus riche n'est pas "coder une app dans
+un coin puis l'uploader". Il ressemble plutot a :
+
+1. choisir un template ou un domain pack ;
+2. declarer les donnees, les capacites bridge et les limites dans
+   `SBFB.json` ;
+3. generer l'app avec Factory ;
+4. previsualiser l'app dans le meme sandbox que les utilisateurs ;
+5. lancer les gates : manifeste, sandbox, secrets, dependances,
+   provenance, publish ;
+6. publier via le daemon ;
+7. afficher les preuves dans Browse, RRV et les Proof Cards ;
+8. laisser le chat/Operator aider a expliquer l'etat sans devenir
+   l'autorite finale.
+
+Cette chaine est importante pour les projets ambitieux : elle evite que
+Factory devienne juste un generateur de code opaque. Chaque app produite
+doit laisser une trace verifiable de son template, de ses capacites, de
+son commit, de son archive, de ses preuves et de ses revues.
+
+### Exemples de projets avances via Factory
+
+**Babel Reader**
+
+Statut public a garder : premier dogfood Factory prevu, pas le protocole
+lui-meme. Babel sert a prouver qu'une app reelle peut etre creee,
+publiee, retrouvee et verifiee via SBFB.
+
+Ce que Babel peut montrer :
+
+- corpus de textes sous domaine public ou licence compatible ;
+- source-policy : droit, redistribution P2P, attribution, opt-out ;
+- lecture offline et bibliotheque locale ;
+- provenance des textes et des versions ;
+- plus tard : traduction par workers opt-in, corrections humaines,
+  validations et roles de contribution visibles.
+
+**Surveillance de foret**
+
+Statut public a garder : showcase avance / design, pas livrable pilote
+CHATONS. L'idee est une app de cartographie et d'alerte sur images
+satellite publiques.
+
+Ce que ca montrerait :
+
+- images Sentinel-2, Landsat ou FIRMS decoupees en tuiles ;
+- taches d'inference vision envoyees a des workers GPU volontaires ;
+- resultats signes ou au minimum rattaches a leurs taches ;
+- aggregation en CRDT : carte de chaleur, zones a verifier, alertes ;
+- dashboard web publie comme app SBFB, verifiable et curationnable.
+
+**Capteurs citoyens**
+
+Des Raspberry Pi de quartier publient des mesures de qualite de l'air ou
+d'humidite. Une app dashboard Factory lit les donnees, affiche les
+tendances et peut demander du calcul opt-in pour de la prediction locale.
+Pour un CHATONS, c'est probablement plus proche d'un pilote associatif
+realiste que la vision satellite/GPU complete.
+
+**Alexandria / corpus de connaissance**
+
+Une bibliotheque locale de contenus publics ou redistribuables, servie
+par blobs P2P, cachee par les noeuds et interrogeable localement. Le
+point fort est la distribution de donnees et la consultation offline, pas
+forcement le calcul GPU.
+
+**Donjon & Dragon / jeu collaboratif IA**
+
+Exemple moins CHATONS mais utile pour montrer un autre axe : etat partage
+CRDT + generation LLM par GPU volontaires + app publiee comme paquet
+SBFB. A garder plutot en annexe ou demo technique, pas dans le premier
+message communautaire.
+
+### Chat, alias et acces au protocole
+
+Le chat fait partie de la trajectoire Factory/Operator, mais il faut le
+cadrer prudemment. Le premier niveau est un Operator local qui peut
+partir d'un context-pack au lieu d'une conversation vide et journaliser
+les actions. Le context-pack donne un acces en lecture a l'etat du
+protocole, aux apps publiees, aux preuves, aux Proof Cards, au feed, aux
+curators, aux actions Factory et aux artefacts de sprint/phase.
+
+Les alias publics a expliquer simplement :
+
+- `@research` : comprendre les choix techniques et les sources ;
+- `@dev` : lire une app, un manifeste, un commit, une implementation ;
+- `@audit` : verifier les preuves, les gates et les regressions ;
+- `@security` : regarder sandbox, loopback, tokens, bridge, crypto ;
+- `@product` : resumer le statut, le pilote, les risques et la roadmap.
+
+Limite importante : ces alias ne donnent pas de privilege automatique.
+Ils orientent le chat vers les bons corpus et les bonnes preuves. Les
+actions sensibles restent controlees par l'Operator, allowlistees et
+journalisees. Le chat peut aider a comprendre et preparer une action ;
+il ne remplace pas les revues, les signatures, les gates ni les commits.
+Pour le pilote, il faut le presenter comme lecture/explication assistee,
+pas comme RRV complet ni autorite de verification.
+
+Phrase utile si quelqu'un demande si c'est "juste une IA" :
+
+> L'objectif n'est pas de mettre une IA au-dessus du protocole, mais de
+> donner au mainteneur local un assistant qui lit les preuves du
+> protocole, les artefacts Factory et les gates de sprint, sans devenir
+> lui-meme la source de verite.
+
+### Installation
+
+Formulation prudente :
+
+- "des installeurs ont deja ete produits et valides en interne" ;
+- "le pilote fournira les binaires et les hash a verifier" ;
+- "ne pas redistribuer les binaires du pilote hors du groupe de test".
+
+Eviter de promettre une installation publique tant que le pilote ferme et
+la stabilite 24 h ne sont pas passes.
+
+### Questions probables
+
+**Est-ce pret pour un CHATONS en production ?**
+
+Non. C'est trop tot. Je cherche un pilote ferme, pas une mise en
+production.
+
+**Pourquoi poster ici si ce n'est pas pret ?**
+
+Parce que les mauvais choix d'architecture se corrigent mieux avant le
+lancement public. Les hebergeurs alternatifs verront vite les risques que
+je rate seul.
+
+**Qui decide ce qui est visible ?**
+
+Chaque utilisateur choisit ses curators. Un curator recommande ou
+deconseille ; il ne controle pas tout le reseau.
+
+**Que se passe-t-il si une app est dangereuse ?**
+
+Le protocole peut afficher son niveau de preuve, le sandbox limite ses
+capacites, et les curators peuvent la deconseiller. Mais il ne faut pas
+pretendre qu'une preuve de provenance rend automatiquement une app sure.
+
+**Est-ce que ceux qui ont des GPU auront plus de pouvoir ?**
+
+Pas automatiquement, et ce serait un mauvais objectif. Le GPU peut
+compter comme contribution quand il rend un vrai service, mais la vision
+kudos est multi-contribution : stockage, relais, revue, code, docs,
+traduction, curation, validation humaine. Le vote pondere par kudos, s'il
+arrive, doit etre par projet, plafonne et auditable. Sinon on remplace un
+monopole de plateforme par un monopole de materiel.
+
+**Est-ce que SBFB remplace l'hebergement web ?**
+
+Non. C'est une autre maniere de distribuer certaines apps web. Les
+services classiques restent mieux adaptes pour beaucoup d'usages.
+
+**Pourquoi AGPL ?**
+
+Pour que les ameliorations du protocole restent disponibles, y compris
+dans un usage reseau. Les apps publiees sur SBFB gardent leur propre
+licence ; elles ne deviennent pas automatiquement AGPL.
+
+## Checklist avant publication
+
+- Remplacer `[lien demo]` et `[canal pilote]`.
+- Verifier que le depot Codeberg partage aux pilotes en lecture seule
+  correspond bien au commit annonce.
+- Preparer les hash des binaires du pilote.
+- Poster seulement la section "Version a poster" en premier message.
+- Garder l'annexe pour les reponses dans le fil.
+- Ne pas promettre "production", "audit complet" ou "open source
+  verified" sans expliquer le niveau exact de preuve.
