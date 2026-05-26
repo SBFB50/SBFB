@@ -398,7 +398,50 @@ On peut trier par nombre de votes ou par date. On peut supprimer ses
 propres idees.
 
 **Factory Viewer** : affiche les apps du reseau avec leur Proof Card
-(score de qualite 0-100 decomposable en 7 facteurs de risque).
+(score de qualite 0-100 decomposable en 7 facteurs de risque). Le
+Viewer est lui-meme une app SBFB sandboxee — il tourne dans le meme
+iframe que les autres apps, sans privilege special. Il interroge le
+reseau via le bridge (liste des apps, recherche, Proof Cards,
+provenance) et affiche tout dans une interface sombre unifiee.
+
+Et la feature en cours de construction qui change la donne : un
+**chat integre dans Factory** qui a acces a tout le protocole.
+
+Imaginez : vous tapez une question dans le chat, et il peut aller
+chercher la reponse dans le code source de n'importe quelle app
+publiee sur le reseau (parce que chaque app est source-verifiable),
+dans les donnees P2P des apps (votes, contenus), dans les Proof
+Cards, dans les provenance chains, dans le feed public, dans les
+listes de curators, dans l'etat des noeuds voisins.
+
+Quelques exemples concrets :
+- "Montre-moi comment l'app Ideas Hub gere le vote" → le chat
+  telecharge l'archive de l'app via le reseau, decompresse le code
+  source, et vous explique le mecanisme
+- "Quelles apps ont un Proof Card au-dessus de 80 ?" → il interroge
+  les Proof Cards de toutes les apps connues et filtre
+- "Verifie la provenance de cette app avant que je m'en inspire"
+  → il deroule la chaine Ed25519 complete et vous dit si tout est
+  coherent
+- "Combien de noeuds sont connectes en ce moment ? Qui sont mes
+  voisins ?" → il lit l'etat du daemon local et des pairs gossip
+- "Est-ce que le warrant canary est frais ?" → il verifie la
+  derniere signature et vous dit depuis quand
+- "Quels curators recommandent cette app ?" → il croise les listes
+  de curators avec les entries du feed public
+
+Le chat comprend des references contextuelles : vous pouvez ecrire
+`@sprint-70` pour parler d'un sprint precis, `@phase-A` pour une
+phase, `@commit-abc1234` pour un commit specifique. Le chat resout
+ces references automatiquement en allant chercher les donnees dans
+le repo local ou sur le reseau.
+
+Ce qui est unique ici, c'est que le chat n'a pas juste acces a votre
+code local (ca, tous les IDE le font). Il a acces a **tout le reseau
+de code source-verifie** — chaque app publiee, ses donnees, ses
+preuves, ses curators, ses noeuds. Et tout ca sans serveur central,
+sans telemetrie, sans compte cloud. Le chat tourne localement, les
+requetes restent entre votre noeud et le reseau P2P.
 
 ## L'interface utilisateur
 
