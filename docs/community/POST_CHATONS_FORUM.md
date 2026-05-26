@@ -203,26 +203,12 @@ Toutes ces verifications sauf la derniere tournent en local, hors-
 ligne. Si une verification bloquante echoue, la publication s'arrete
 et vous dit pourquoi.
 
-Le manifeste de chaque app (`SBFB.json`) declare explicitement ce
-dont l'app a besoin :
-
-```json
-{
-  "name": "mon-outil-de-vote",
-  "display_name": "Outil de vote communautaire",
-  "description": "Proposez et votez sur des idees pour votre asso",
-  "category": "social",
-  "license": "AGPL-3.0-or-later",
-  "lang": "fr",
-  "bridge": {
-    "methods": ["storage_get", "storage_set", "identity_pubkey"]
-  }
-}
-```
-
-Si une app ne declare pas `storage_set`, elle ne peut pas ecrire de
-donnees. C'est le principe du moindre privilege — l'utilisateur voit
-ce que l'app peut faire avant de l'ouvrir.
+Chaque app contient un petit fichier manifeste qui declare
+explicitement ce dont elle a besoin : son nom, sa description, sa
+licence, et surtout les methodes du bridge qu'elle veut utiliser.
+Si une app ne declare pas l'acces en ecriture au stockage, elle ne
+peut pas ecrire de donnees. C'est le principe du moindre privilege
+— l'utilisateur voit ce que l'app peut faire avant de l'ouvrir.
 
 ## Factory Operator — l'outil graphique
 
