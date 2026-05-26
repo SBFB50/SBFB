@@ -147,13 +147,13 @@ Ce pilote ne teste pas toute la vision future. Il teste le commencement de la co
 
 ## Etat honnete du projet
 
-Ce qui est deja testable : daemon local, interface web, sandbox, bridge, publication depuis source, provenance signee, feed verifiable, recherche locale, Proof Cards, Factory CLI/Operator/Viewer pour apps simples, worker GPU/CPU avec consentement opt-in, dispatch de taches, ledger kudos compute/task, Ideas Hub, premieres briques curator, CI self-hosted `ci.sbfb.world` et fondations build task/quorum SHA256.
+Ce qui est deja testable : daemon local, interface web, sandbox, bridge, publication depuis source, provenance signee, feed verifiable, recherche locale, Proof Cards, Factory CLI/Operator/Viewer pour apps simples, worker GPU/CPU avec consentement opt-in, dispatch de taches, resultats signes par worker, premiers champs anti-triche compute (`model_digest`, `logprobs_hash`, `output_token_ids`), ledger kudos compute/task, Ideas Hub, premieres briques curator, CI self-hosted `ci.sbfb.world` et fondations build task/quorum SHA256.
 
-Babel, dans ce contexte, est l'app canari que je veux utiliser pour tester Factory sur un cas concret : une bibliotheque/lecteur de textes avec sources, licences, lecture offline, puis plus tard traduction opt-in par workers et validation humaine.
+Babel, dans ce contexte, est l'app canari que je veux utiliser pour tester Factory sur un cas concret : une bibliotheque/lecteur de textes avec sources, licences, lecture offline, puis traduction IA opt-in par workers GPU/CPU et validation humaine. Le Projet Gutenberg est un exemple important de source candidate : pas comme plateforme centrale a copier sans nuance, mais comme corpus a importer proprement, avec URL source, version, metadonnees, droits texte par texte, attribution et conditions de redistribution conserves dans la preuve. C'est aussi un bon cas pour tester les preuves compute : quel worker a signe le resultat, quel modele est declare/digeste, quels signaux de watermark ou logprobs existent, et quel profil GPU local est observable quand NVML est disponible.
 
 Ce qui est prepare pour le pilote : protocole de test Gate 1, chemin Babel via `static-reader`, migration d'app web classique, vouch ou disendorse curator.
 
-Ce qui reste trajectoire : SearchManifest P2P, RRV reseau complet, page Factory non-dev, Babel publique finale, gouvernance communautaire, quorum de build tiers, worker quorum E2E, partage IA/GPU multi-noeuds a grande echelle et apps avancees type capteurs, Alexandria ou surveillance de foret.
+Ce qui reste trajectoire : SearchManifest P2P, RRV reseau complet, page Factory non-dev, Babel publique finale, gouvernance communautaire, quorum de build tiers, worker quorum E2E, enforcement complet modele/GPU par validator, partage IA/GPU multi-noeuds a grande echelle et apps avancees type capteurs, Alexandria ou surveillance de foret.
 
 Je ne veux pas faire passer le projet pour plus mature qu'il ne l'est. Aujourd'hui, c'est une experimentation avancee, libre, testable, mais encore en pilote ferme.
 
@@ -284,7 +284,7 @@ Phrase utile :
 
 ### Factory, RRV et Babel
 
-Factory est l'atelier local : creer, valider, previsualiser, publier. RRV est la couche de recherche verifiable : retrouver les apps, leurs preuves et plus tard leurs sources. Babel est le premier dogfood Factory prevu cote roadmap, pas le protocole lui-meme. Le bon cadrage public est :
+Factory est l'atelier local : creer, valider, previsualiser, publier. RRV est la couche de recherche verifiable : retrouver les apps, leurs preuves et plus tard leurs sources. Babel est le premier dogfood Factory prevu cote roadmap, pas le protocole lui-meme : une app lecteur/bibliotheque qui peut commencer par des corpus comme le Projet Gutenberg, tout en gardant les sources, droits, versions, attributions et preuves d'import visibles. Le bon cadrage public est :
 
 - **aujourd'hui** : Factory existe comme CLI, Operator local et Viewer de preuves pour apps simples et templates statiques ; publication, provenance et recherche locale commencent a exister ;
 - **pilote** : prouver qu'une app simple circule et se verifie entre noeuds ;
@@ -312,7 +312,8 @@ Cette matrice sert a eviter deux erreurs : minimiser la vision, ou presenter com
 - Factory Viewer, Factory Operator et `sbfb-factory process` ;
 - context-pack et prototype de chat qui lit le process/protocole sans devenir autorite ;
 - Ideas Hub : proposition, vote, retrait, stockage applicatif replique ;
-- kudos ledger, hash-chain, log-utility, EMA et metriques fairness.
+- kudos ledger, hash-chain, log-utility, EMA et metriques fairness ;
+- resultats compute signes par worker, `model_digest`, `logprobs_hash`, `output_token_ids`, watermark detector et profil GPU NVML local observation-only ;
 - CI self-hosted Woodpecker sur `ci.sbfb.world`, en complement de GitHub Actions ;
 - fondations LT-7 : task `build`, build executor MVP et quorum SHA256 DB-persistent pour comparer des artefacts.
 
@@ -330,7 +331,8 @@ Cette matrice sert a eviter deux erreurs : minimiser la vision, ou presenter com
 - gouvernance UI : timeline curator, dissent, vouch/disendorse visibles et explicables ;
 - Factory hardening : templates plus riches, meilleur diff, tests adversariaux, packaging plus accessible aux non-devs ;
 - Proof Card comme evenement/feed op ou element exportable dans un proof pack, selon le prochain design ;
-- build tiers et worker quorum E2E : passer de l'auto-attestation et de la CI self-hosted vers une preuve plus forte, avec plusieurs builders independants.
+- build tiers et worker quorum E2E : passer de l'auto-attestation et de la CI self-hosted vers une preuve plus forte, avec plusieurs builders independants ;
+- enforcement anti-triche inference : faire appliquer par le validator les digests modele, signaux watermark/logprobs, profils GPU/NVML et re-runs aleatoires quand le type de tache le permet.
 
 **4. Research / vision long terme**
 
@@ -361,15 +363,16 @@ Cette chaine est importante pour les projets ambitieux : elle evite que Factory 
 
 **Babel Reader**
 
-Statut public a garder : premier dogfood Factory prevu, pas le protocole lui-meme. Babel sert a prouver qu'une app reelle peut etre creee, publiee, retrouvee et verifiee via SBFB.
+Statut public a garder : premier dogfood Factory prevu, pas le protocole lui-meme. Babel sert a prouver qu'une app reelle peut etre creee, publiee, retrouvee et verifiee via SBFB, puis demander de la traduction IA a des workers GPU/CPU volontaires sans passer par une API cloud centrale. Le Projet Gutenberg donne un cas concret et parlant : importer des textes, conserver leur provenance, respecter les droits et attributions, permettre la lecture offline, puis tester des traductions opt-in verifiables.
 
 Ce que Babel peut montrer :
 
-- corpus de textes sous domaine public ou licence compatible ;
-- source-policy : droit, redistribution P2P, attribution, opt-out ;
+- import depuis le Projet Gutenberg ou d'autres corpus libres/public-domain, avec URL source, version/date d'import, droits texte par texte, attribution et preuve d'import ;
+- source-policy : droit, redistribution P2P, attribution, opt-out, et distinction claire entre domaine public, licence libre et conditions propres aux sources ;
 - lecture offline et bibliotheque locale ;
 - provenance des textes et des versions ;
-- plus tard : traduction par workers opt-in, corrections humaines, validations et roles de contribution visibles.
+- traduction IA par workers opt-in, avec validation humaine et roles de contribution visibles ;
+- preuves compute progressives : tache signee, resultat signe par le worker, modele declare/digeste, signaux watermark/logprobs quand disponibles, profil GPU/NVML local pour rapprocher un resultat de l'activite reelle de la machine.
 
 **Surveillance de foret**
 
@@ -440,6 +443,14 @@ Chaque utilisateur choisit ses curators. Un curator recommande ou deconseille ; 
 **Que se passe-t-il si une app est dangereuse ?**
 
 Le protocole peut afficher son niveau de preuve, le sandbox limite ses capacites, et les curators peuvent la deconseiller. Mais il ne faut pas pretendre qu'une preuve de provenance rend automatiquement une app sure.
+
+**Pourquoi parler du Projet Gutenberg ?**
+
+Parce que Babel a besoin d'un cas reel de corpus, pas d'une demo abstraite. Le Projet Gutenberg peut servir a tester l'import de sources, les metadonnees, les droits texte par texte, l'attribution, la lecture offline, la redistribution P2P et les traductions derivees. Le point n'est pas de remplacer Gutenberg : c'est de montrer comment une communaute peut conserver et verifier la provenance d'un texte et de ses versions locales.
+
+**Comment eviter qu'un worker mente sur le modele ou le GPU utilise ?**
+
+Le code pose deja plusieurs briques : taches signees, claims signes, resultats signes par le worker, champ `model_digest`, `logprobs_hash`, `output_token_ids`, watermark detector, profil GPU/NVML local et quorum/re-run pour les taches qui s'y pretent. Ce n'est pas encore une preuve parfaite que tel fichier modele exact a tourne sur tel GPU exact : le validator actuel applique surtout signature, existence/statut de tache et quorum SHA256 pour certains chemins. Le bon cadrage est donc "preuves et signaux anti-triche en construction", pas "anti-triche resolu".
 
 **Est-ce que ceux qui ont des GPU auront plus de pouvoir ?**
 
