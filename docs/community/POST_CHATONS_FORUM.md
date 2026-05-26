@@ -21,6 +21,8 @@ Point important : ce n'est pas pret pour une mise en production CHATONS. Il n'y 
 
 SBFB sert a publier une application web comme un paquet verifiable, puis a la diffuser entre noeuds P2P. L'utilisateur l'ouvre dans son navigateur, dans une iframe sandboxee. Il n'y a pas de serveur central qui detient le catalogue, pas de compte cloud, pas de store applicatif.
 
+Le deuxieme axe, aussi important dans ma vision, est le partage de puissance IA/GPU. Une app SBFB peut rester legere et demander, avec consentement explicite, des taches de traduction, d'analyse, de verification, d'indexation ou de generation a des workers GPU/CPU volontaires. L'objectif n'est pas seulement de decentraliser l'hebergement d'apps, mais aussi de decentraliser la puissance de calcul IA pour qu'elle ne depende pas uniquement de quelques plateformes cloud ou de ceux qui possedent les plus gros moyens.
+
 En pratique :
 
 1. une personne publie une app web depuis un depot source ;
@@ -50,7 +52,7 @@ Depot source + commit
 [Avis curator choisi par l'utilisateur]
 ```
 
-Ce n'est pas un remplacant de YunoHost, PeerTube, F-Droid, Sandstorm, Solid ou IPFS. Je le vois plutot comme une brique complementaire qui croise plusieurs idees : distribution d'apps libres, contenu adresse, donnees controlables par les communautes, sandbox navigateur, curation locale et preuve de provenance.
+Ce n'est pas un remplacant de YunoHost, PeerTube, F-Droid, Sandstorm, Solid ou IPFS. Je le vois plutot comme une brique complementaire qui croise plusieurs idees : distribution d'apps libres, contenu adresse, donnees controlables par les communautes, sandbox navigateur, curation locale, preuve de provenance et mutualisation de puissance IA/GPU opt-in.
 
 ## Pourquoi je pense que ca peut parler aux CHATONS
 
@@ -60,6 +62,8 @@ Les CHATONS portent deja une culture de services libres, transparents, decentral
 - **transparent** : une app peut etre reliee a son depot source et a un commit precis ;
 - **ouvert** : le protocole et le code sont sous AGPL-3.0 ;
 - **neutre** : le reseau ne decide pas seul ce qui est "bon" ou "mauvais" ;
+- **mutualiste** : le calcul IA/GPU peut etre partage volontairement, avec consentement, limites et allowlist ;
+- **anti-capture IA** : la puissance de generation, traduction, analyse ou verification ne doit pas etre reservee aux grandes plateformes ;
 - **solidaire** : chaque communaute peut recommander ce qu'elle a teste.
 
 Le point cle, pour moi, c'est la curation. Un CHATONS, une association ou un collectif local pourrait tenir sa propre liste signee d'apps recommandees ou deconseillees. Les utilisateurs choisissent les listes auxquelles ils font confiance. Personne ne devient moderateur central du reseau ; chaque communaute garde sa propre politique de recommandation.
@@ -70,6 +74,7 @@ Le point cle, pour moi, c'est la curation. Un CHATONS, une association ou un col
 | Curator CHATONS | Recommander ou deconseiller une app | Supprimer une app du reseau |
 | Utilisateur | Choisir les listes qu'il suit | Etre force par un curator global |
 | Daemon local | Verifier hash, signature, feed et sandbox | Decider qu'une app est moralement bonne |
+| Worker GPU/CPU | Executer des taches opt-in pour des projets autorises | Voir plus que la tache recue ou prendre le pouvoir |
 
 ## Ce qui est verifiable
 
@@ -112,13 +117,13 @@ La vision longue n'est pas "heberger une page HTML en P2P". J'aimerais arriver a
 - garder des donnees applicatives simples synchronisees entre les noeuds qui participent ;
 - retrouver les apps et leurs preuves via une recherche locale et verifiable ;
 - choisir ses curators, donc sa propre couche sociale de confiance ;
-- plus tard, mutualiser du calcul opt-in pour des usages utiles : traduction, indexation, verification, analyse de documents, aide a la publication.
+- mutualiser du calcul IA/GPU opt-in pour des usages utiles : traduction, indexation, verification, analyse de documents, generation assistee, aide a la publication.
 
 L'objectif final est une couche applicative communautaire : permettre a une association, un CHATONS, une cooperative, une ecole, un tiers-lieu ou un collectif local de creer, publier, maintenir, auditer, recommander, retrouver et executer ses propres outils web verifiables. Pas seulement des micro-outils : des apps de coordination, de decision collective, de documentation, de traduction, de publication, d'archivage, de recherche, de collaboration ou de calcul mutualise.
 
-L'idee forte est que le pouvoir ne soit pas concentre dans un SaaS, un store, une forge ou un hebergeur central. Les communautes doivent pouvoir choisir leurs curators, leurs regles d'adoption et leurs niveaux de preuve.
+L'idee forte est que le pouvoir ne soit pas concentre dans un SaaS, un store, une forge, un hebergeur central ou un fournisseur IA. Les communautes doivent pouvoir choisir leurs curators, leurs regles d'adoption, leurs niveaux de preuve et, a terme, les ressources de calcul qu'elles acceptent de mutualiser.
 
-Ca vaut aussi pour la contribution au reseau. Je ne veux pas d'un modele ou seuls les gens avec de gros GPU accumulent toute l'influence. Aujourd'hui, les briques reelles portent surtout sur un ledger kudos compute/task avec rendement logarithmique, vieillissement EMA et metriques fairness. La reconnaissance du stockage, relais, revue, docs, traduction, curation et validation humaine est une direction de gouvernance a construire, pas une regle de vote du pilote.
+Le partage de puissance IA/GPU est donc un sujet central, pas une option decorative. Dans les briques actuelles, il existe deja un worker GPU/CPU, un dispatch de taches, un consentement GPU opt-in par niveau de partage, des limites watts/VRAM/heures et un ledger kudos compute/task avec rendement logarithmique, vieillissement EMA et metriques fairness. Mais je ne veux pas d'un modele ou seuls les gens avec de gros GPU accumulent toute l'influence : le GPU doit compter quand il rend un service reel, sans devenir le seul pouvoir du reseau. La reconnaissance du stockage, relais, revue, docs, traduction, curation et validation humaine est une direction de gouvernance a construire, pas une regle de vote du pilote.
 
 La base technique testee maintenant est le socle de cette vision : distribution P2P, provenance, sandbox navigateur, recherche locale, curators et apps de demo. Le pilote sert a verifier si ce socle tient avant de brancher les briques plus ambitieuses dessus.
 
@@ -142,11 +147,11 @@ Ce pilote ne teste pas toute la vision future. Il teste le commencement de la co
 
 ## Etat honnete du projet
 
-Ce qui est deja testable : daemon local, interface web, sandbox, bridge, publication depuis source, provenance signee, feed verifiable, recherche locale, Proof Cards, Factory CLI/Operator/Viewer pour apps simples, Ideas Hub, premieres briques curator, CI self-hosted `ci.sbfb.world` et fondations build task/quorum SHA256.
+Ce qui est deja testable : daemon local, interface web, sandbox, bridge, publication depuis source, provenance signee, feed verifiable, recherche locale, Proof Cards, Factory CLI/Operator/Viewer pour apps simples, worker GPU/CPU avec consentement opt-in, dispatch de taches, ledger kudos compute/task, Ideas Hub, premieres briques curator, CI self-hosted `ci.sbfb.world` et fondations build task/quorum SHA256.
 
 Ce qui est prepare pour le pilote : protocole de test Gate 1, chemin Babel via `static-reader`, migration d'app web classique, vouch ou disendorse curator.
 
-Ce qui reste trajectoire : SearchManifest P2P, RRV reseau complet, page Factory non-dev, Babel publique finale, gouvernance communautaire, quorum de build tiers, worker quorum E2E et apps avancees type capteurs, Alexandria ou surveillance de foret.
+Ce qui reste trajectoire : SearchManifest P2P, RRV reseau complet, page Factory non-dev, Babel publique finale, gouvernance communautaire, quorum de build tiers, worker quorum E2E, partage IA/GPU multi-noeuds a grande echelle et apps avancees type capteurs, Alexandria ou surveillance de foret.
 
 Je ne veux pas faire passer le projet pour plus mature qu'il ne l'est. Aujourd'hui, c'est une experimentation avancee, libre, testable, mais encore en pilote ferme.
 
@@ -251,7 +256,7 @@ Le daemon n'a pas besoin de compte cloud et ne centralise pas les requetes. Pour
 
 ### Kudos, anti-capture et vote
 
-Le partage GPU fait partie de la vision future, mais il ne doit pas devenir la seule source de pouvoir. Sinon, le protocole reproduirait le probleme qu'il essaie d'eviter : ceux qui possedent le materiel le plus cher finissent par peser le plus.
+Le partage IA/GPU n'est pas seulement une idee future : il existe deja comme brique de la pile avec worker GPU/CPU, taches, consentement opt-in et limites d'usage. Ce qui reste a durcir, c'est l'usage multi-noeuds a grande echelle, la gouvernance autour de ces contributions et la facon de ne pas transformer le GPU en source unique de pouvoir. Sinon, le protocole reproduirait le probleme qu'il essaie d'eviter : ceux qui possedent le materiel le plus cher finissent par peser le plus.
 
 Le cadrage a garder :
 
