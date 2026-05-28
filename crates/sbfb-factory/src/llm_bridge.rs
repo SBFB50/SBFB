@@ -5,7 +5,7 @@ use std::process::Stdio;
 
 use futures::stream::Stream;
 use serde::Serialize;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 #[derive(Debug, Clone, Serialize)]
@@ -73,7 +73,6 @@ pub fn spawn_claude_stream(
         let child = Command::new(exe)
             .args([
                 "-p",
-                &prompt,
                 "--output-format", "stream-json",
                 "--include-partial-messages",
                 "--no-session-persistence",
@@ -81,6 +80,7 @@ pub fn spawn_claude_stream(
                 "--permission-mode", "plan",
             ])
             .current_dir(&cwd)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn();
@@ -94,6 +94,11 @@ pub fn spawn_claude_stream(
                 return;
             }
         };
+
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(prompt.as_bytes()).await;
+            let _ = stdin.shutdown().await;
+        }
 
         let stdout = match child.stdout.take() {
             Some(s) => s,
