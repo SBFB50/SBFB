@@ -69,7 +69,8 @@ pub fn spawn_claude_stream(
     let cwd = cwd.to_owned();
 
     async_stream::stream! {
-        let child = Command::new("claude")
+        let exe = if cfg!(windows) { "claude.cmd" } else { "claude" };
+        let child = Command::new(exe)
             .args([
                 "-p",
                 &prompt,
