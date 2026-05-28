@@ -83,8 +83,10 @@ export function AgentChat() {
 
   const statusFresh = useApi<SprintStatus>(`/status?_t=${refreshKey}`);
   const lintFresh = useApi<LintResult>(`/lint?_t=${refreshKey}`);
+  const sessionsFresh = useApi<{ sessions: { name: string; size_bytes: number }[] }>(`/terminal/sessions?_t=${refreshKey}`);
   const currentStatus = statusFresh.data ?? status.data;
   const currentLint = lintFresh.data ?? lint.data;
+  const currentSessions = sessionsFresh.data?.sessions ?? [];
 
   const connectTerminal = useCallback(() => {
     if (!termRef.current || terminalRef.current) return;
@@ -283,6 +285,29 @@ export function AgentChat() {
                 }
               </p>
             </div>
+
+            {/* Sessions History */}
+            {currentSessions.length > 0 && (
+              <div className="rounded-lg border border-border bg-card p-3">
+                <div className="flex items-center gap-2">
+                  <TerminalIcon className="size-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">Sessions ({currentSessions.length})</span>
+                </div>
+                <div className="mt-2 space-y-1">
+                  {currentSessions.slice(0, 10).map((s) => {
+                    const parts = s.name.replace("sprint", "S").split("_");
+                    const sprint = parts[0] ?? "";
+                    const phase = parts.length > 2 ? parts.slice(1, 3).join(" ") : "";
+                    return (
+                      <div key={s.name} className="flex items-center justify-between rounded px-1.5 py-0.5 text-[10px] font-mono hover:bg-zinc-800/50">
+                        <span className="text-zinc-400 truncate">{sprint} {phase}</span>
+                        <span className="text-zinc-600 shrink-0 ml-2">{(s.size_bytes / 1024).toFixed(0)}KB</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Loading state */}
             {status.loading && (

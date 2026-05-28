@@ -1,18 +1,59 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::path::Path;
+use std::fs;
+use std::io::Write as IoWrite;
+use std::path::{Path, PathBuf};
 use std::thread;
 
 use axum::extract::ws::{Message, WebSocket};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use tokio::sync::mpsc;
 
+fn session_log_path(root: &Path) -> PathBuf {
+    let ctx = crate::process::context_data(root);
+    let sprint = ctx.get("sprint").and_then(|v| v.as_u64()).unwrap_or(0);
+    let phase = ctx
+        .get("phase")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    let ts = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default()
+        .replace(':', "-");
+
+    let dir = root.join(".planning").join("terminal");
+    let _ = fs::create_dir_all(&dir);
+    dir.join(format!("sprint{sprint}_phase_{phase}_{ts}.cast"))
+}
+
+fn write_asciicast_header(file: &mut fs::File, cols: u16, rows: u16) {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let header = format!(
+        r#"{{"version":2,"width":{cols},"height":{rows},"timestamp":{ts},"env":{{"TERM":"xterm-256color","SHELL":"claude"}}}}"#
+    );
+    let _ = writeln!(file, "{header}");
+}
+
+fn write_asciicast_event(file: &mut fs::File, start: std::time::Instant, data: &[u8]) {
+    let elapsed = start.elapsed().as_secs_f64();
+    let text = String::from_utf8_lossy(data);
+    let escaped = serde_json::to_string(&*text).unwrap_or_default();
+    let _ = writeln!(file, "[{elapsed:.6}, \"o\", {escaped}]");
+}
+
 pub async fn handle_terminal_ws(mut socket: WebSocket, cwd: &Path) {
     let pty_system = NativePtySystem::default();
 
+    let cols: u16 = 120;
+    let rows: u16 = 30;
+
     let pair = match pty_system.openpty(PtySize {
-        rows: 30,
-        cols: 120,
+        rows,
+        cols,
         pixel_width: 0,
         pixel_height: 0,
     }) {
@@ -65,18 +106,39 @@ pub async fn handle_terminal_ws(mut socket: WebSocket, cwd: &Path) {
         }
     };
 
+    let log_path = session_log_path(cwd);
+    let log_path_display = log_path.display().to_string();
+
+    let _ = socket
+        .send(Message::Text(
+            format!("\x1b[90m[session → {log_path_display}]\x1b[0m\r\n").into(),
+        ))
+        .await;
+
     let (pty_tx, mut pty_rx) = mpsc::channel::<Vec<u8>>(256);
     let (ws_tx, mut ws_rx) = mpsc::channel::<Vec<u8>>(256);
 
+    let log_path_clone = log_path.clone();
     thread::spawn(move || {
         use std::io::Read;
         let mut reader = reader;
         let mut buf = [0u8; 4096];
+
+        let mut log_file = fs::File::create(&log_path_clone).ok();
+        if let Some(ref mut f) = log_file {
+            write_asciicast_header(f, cols, rows);
+        }
+        let start = std::time::Instant::now();
+
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if pty_tx.blocking_send(buf[..n].to_vec()).is_err() {
+                    let chunk = buf[..n].to_vec();
+                    if let Some(ref mut f) = log_file {
+                        write_asciicast_event(f, start, &chunk);
+                    }
+                    if pty_tx.blocking_send(chunk).is_err() {
                         break;
                     }
                 }
@@ -87,7 +149,6 @@ pub async fn handle_terminal_ws(mut socket: WebSocket, cwd: &Path) {
 
     let master_for_resize = pair.master;
     thread::spawn(move || {
-        use std::io::Write;
         let mut writer = pty_writer;
         while let Some(data) = ws_rx.blocking_recv() {
             if data.starts_with(b"{\"type\":\"resize\"") {
@@ -136,4 +197,35 @@ pub async fn handle_terminal_ws(mut socket: WebSocket, cwd: &Path) {
 
     let _ = child.kill();
     let _ = child.wait();
+}
+
+pub fn list_sessions(root: &Path) -> Vec<serde_json::Value> {
+    let dir = root.join(".planning").join("terminal");
+    let mut sessions = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("cast") {
+                let name = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                sessions.push(serde_json::json!({
+                    "name": name,
+                    "path": path.display().to_string(),
+                    "size_bytes": size,
+                }));
+            }
+        }
+    }
+
+    sessions.sort_by(|a, b| {
+        let na = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let nb = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        nb.cmp(na)
+    });
+    sessions
 }
