@@ -52,9 +52,11 @@ Team ou invocation gate-check. Il ne code jamais, ne cree jamais
 d'artefact — il verifie et bloque si deviation.
 
 **Regle modele** : ne JAMAIS passer le parametre `model` dans les
-appels Agent(). Les agents ont `model: claude-opus-4-6[1m]` dans
-leur frontmatter — le param model override le frontmatter et
-l'alias `opus` resout vers 4.7 (banni).
+appels Agent(). Les agents ont `model: claude-opus-4-8[1m]` dans
+leur frontmatter — le param model override le frontmatter, et il
+faut toujours utiliser l'ID explicite `claude-opus-4-8[1m]`, jamais
+l'alias `opus` (resolution d'alias non garantie). Bascule 4.6 → 4.8
+le 2026-05-28 (modele plus capable, contexte 1M conserve).
 
 Ref detaillee : `docs/claude/README.md §7` + `.claude/agents/*.md`.
 

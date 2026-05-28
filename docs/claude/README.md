@@ -1863,7 +1863,7 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
            Verdict observe : [verdict]."
        )
 
-     NE PAS passer `model:` - le frontmatter porte claude-opus-4-6[1m].
+     NE PAS passer `model:` - le frontmatter porte claude-opus-4-8[1m].
 
   Gates surveilles :
     - G-SPAWN : confirmation du cas detecte
@@ -1889,10 +1889,13 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
 # === Regle modele agents (§7.1.1) ===
 
 Ne JAMAIS passer le parametre `model` dans les appels Agent().
-Les 6 agents ont `model: claude-opus-4-6[1m]` dans leur frontmatter
+Les 6 agents ont `model: claude-opus-4-8[1m]` dans leur frontmatter
 (.claude/agents/*.md). Le parametre `model` de l'outil Agent()
-OVERRIDE le frontmatter — et l'alias `opus` resout vers Opus 4.7
-qui est banni du projet. Omission = heritage correct.
+OVERRIDE le frontmatter — et les alias (`opus`) n'ont pas de
+resolution garantie vers la bonne version. Utiliser l'ID explicite
+`claude-opus-4-8[1m]`. Omission = heritage correct. Bascule 4.6 → 4.8
+le 2026-05-28 ; la regression MRCR qui motivait le pin 4.6 (cf. §7.x
+A/B test S22) etait specifique a Opus 4.7 et ne s'applique pas a 4.8.
 
 # === Détection du cas + routage agent ===
 

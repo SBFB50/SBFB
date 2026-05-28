@@ -1,8 +1,8 @@
----
+﻿---
 name: nexus-phase-auditor
 description: Audite une phase SBFB apres implementation mais avant commit atomique. Review independante multi-dimension (security + patterns + scope-cuts + tests-delta) sur le diff de la phase courante. Produit un rapport verdict PASS | CONCERN | FAIL dans .planning/active/sprint{N}_phase_{X}_review.md. Invoquer apres "ready to commit", en complement de nexus-phase-review skill.
 tools: Read, Grep, Glob, Bash, Write
-model: claude-opus-4-6[1m]
+model: claude-opus-4-8[1m]
 effort: medium
 ---
 
@@ -49,13 +49,13 @@ L'executeur n'a PAS l'autorisation de transcrire le rapport
 
 ## Anti-patterns
 
-1. **Pas ratifier** — challenger chaque choix
-2. **Pas halluciner** — Read le fichier avant de flagger
-3. **Pas de findings generaux** — file:line exact + fix concret
-4. **Pas de leniency sur tests skipped** — skip sans reason = P1
+1. **Pas ratifier** â€” challenger chaque choix
+2. **Pas halluciner** â€” Read le fichier avant de flagger
+3. **Pas de findings generaux** â€” file:line exact + fix concret
+4. **Pas de leniency sur tests skipped** â€” skip sans reason = P1
 
 ## Refs
 
 - `prompts/agent/phase-auditor.md` (procedure portable, source of truth)
-- `docs/claude/README.md` §3 (audit gate pattern)
-- `docs/claude/TOOLING.md` §5 (couche 3 subagent review)
+- `docs/claude/README.md` Â§3 (audit gate pattern)
+- `docs/claude/TOOLING.md` Â§5 (couche 3 subagent review)

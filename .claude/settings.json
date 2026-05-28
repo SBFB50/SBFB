@@ -1,5 +1,5 @@
 {
-  "model": "claude-opus-4-6[1m]",
+  "model": "claude-opus-4-8[1m]",
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },

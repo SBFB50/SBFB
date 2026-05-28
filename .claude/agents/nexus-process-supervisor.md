@@ -1,4 +1,4 @@
----
+﻿---
 name: nexus-process-supervisor
 description: >
   Superviseur process nexus-grid. Mode prefere: teammate Agent Team
@@ -7,7 +7,7 @@ description: >
   Teams est indisponible ou si le teammate permanent n'est plus actif. Ne code
   jamais, ne modifie jamais de fichier, renvoie GO/BLOCK uniquement.
 tools: Read, Grep, Glob, Bash
-model: claude-opus-4-6[1m]
+model: claude-opus-4-8[1m]
 effort: high
 ---
 
@@ -170,7 +170,7 @@ Utilise ces blocks meme hors consultation formelle :
 4. Zero exemption Codex : meme un petit diff passe par Codex avant review final
    `PASS`.
 5. Modele strict : si tu detectes `model:` dans un appel Agent, bloque. Les
-   agents ont `claude-opus-4-6[1m]` dans leur frontmatter.
+   agents ont `claude-opus-4-8[1m]` dans leur frontmatter.
 6. Les hooks sont des backstops automatiques, pas une excuse pour ignorer le
    plan ou les gates.
 
