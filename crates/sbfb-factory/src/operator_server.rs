@@ -101,7 +101,10 @@ pub fn build_router(root: PathBuf) -> Router {
         .route("/api/chat/{id}/log", get(handle_chat_log))
         .route("/api/sprint-history", get(handle_sprint_history))
         .route("/api/sprint-history/all", get(handle_all_sprints))
-        .route("/api/sprint-history/{sprint}", get(handle_sprint_history_by_number))
+        .route(
+            "/api/sprint-history/{sprint}",
+            get(handle_sprint_history_by_number),
+        )
         .route("/api/sprint-history/diff/{sha}", get(handle_commit_diff))
         .layer(cors)
         .with_state(state)

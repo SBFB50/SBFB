@@ -11,9 +11,9 @@ mod pipeline;
 mod preview_cmd;
 mod process;
 mod provenance;
-pub mod sprint_history;
 mod publish;
 mod secret_scanner;
+pub mod sprint_history;
 mod template_engine;
 mod template_lock;
 

@@ -265,9 +265,7 @@ fn build_sprint_summary(dir: &Path, sprint: u32, version: &str) -> SprintSummary
         }
     }
 
-    let has_verification = dir
-        .join(format!("sprint{sprint}_verification.md"))
-        .exists();
+    let has_verification = dir.join(format!("sprint{sprint}_verification.md")).exists();
 
     let status = if has_verification && phases_pass > 0 {
         "completed".to_string()
@@ -310,9 +308,11 @@ pub fn sprint_history_for(root: &Path, sprint: u32) -> Option<SprintHistoryResul
 
     let phase_commits = commits.iter().filter(|c| c.is_phase).count();
     let chore_commits = commits.len() - phase_commits;
-    let status = if phases.iter().all(|p| {
-        p.review_verdict.as_deref() == Some("PASS")
-    }) && !phases.is_empty() {
+    let status = if phases
+        .iter()
+        .all(|p| p.review_verdict.as_deref() == Some("PASS"))
+        && !phases.is_empty()
+    {
         "completed".to_string()
     } else {
         "in_progress".to_string()
@@ -350,7 +350,8 @@ fn detect_history_sprint(active_dir: &Path) -> Option<u32> {
             .and_then(|s| s.split('_').next())
             .and_then(|s| s.parse::<u32>().ok())
         {
-            if (name.contains("_kickoff.md") || (name.contains("_plan.md") && !name.contains("_audit_plan.md")))
+            if (name.contains("_kickoff.md")
+                || (name.contains("_plan.md") && !name.contains("_audit_plan.md")))
                 && n > best
             {
                 best = n;
@@ -363,7 +364,10 @@ fn detect_history_sprint(active_dir: &Path) -> Option<u32> {
 fn find_entry_tip(sprint: u32) -> Option<String> {
     let prev = sprint.checked_sub(1)?;
     let output = git_cmd(&[
-        "log", "--all", "--oneline", "--grep",
+        "log",
+        "--all",
+        "--oneline",
+        "--grep",
         &format!("Sprint {} Phase", prev),
         "--format=%h",
     ]);
@@ -375,17 +379,17 @@ fn collect_sprint_commits(sprint: u32, entry_tip: Option<&str>) -> Vec<CommitInf
         Some(tip) => format!("{tip}..HEAD"),
         None => "HEAD~50..HEAD".to_string(),
     };
-    let raw = git_cmd(&[
-        "log", "--reverse", "--format=%H|%h|%aI|%an|%s", &range,
-    ]);
+    let raw = git_cmd(&["log", "--reverse", "--format=%H|%h|%aI|%an|%s", &range]);
     let sprint_str = format!("Sprint {sprint}");
     let sprint_str_lower = format!("sprint{sprint}");
 
     raw.lines()
         .filter(|line| !line.is_empty())
         .filter(|line| {
-            line.contains(&sprint_str) || line.contains(&sprint_str_lower)
-                || line.contains("chore(planning)") || line.contains("chore(factory)")
+            line.contains(&sprint_str)
+                || line.contains(&sprint_str_lower)
+                || line.contains("chore(planning)")
+                || line.contains("chore(factory)")
                 || line.contains("chore(skill)")
         })
         .map(|line| {
@@ -399,11 +403,13 @@ fn collect_sprint_commits(sprint: u32, entry_tip: Option<&str>) -> Vec<CommitInf
             let author = parts[3].to_string();
             let title = parts[4].to_string();
 
-            let (commit_type, scope) = COMMIT_TYPE_RE.captures(&title)
+            let (commit_type, scope) = COMMIT_TYPE_RE
+                .captures(&title)
                 .map(|c| (c[1].to_string(), c[2].to_string()))
                 .unwrap_or(("unknown".into(), "unknown".into()));
 
-            let (is_phase, phase) = PHASE_RE.captures(&title)
+            let (is_phase, phase) = PHASE_RE
+                .captures(&title)
                 .map(|c| (true, Some(c[4].to_string())))
                 .unwrap_or((false, None));
 
@@ -411,8 +417,19 @@ fn collect_sprint_commits(sprint: u32, entry_tip: Option<&str>) -> Vec<CommitInf
             let body_sections = extract_body_sections(&sha);
 
             CommitInfo {
-                sha, short, title, author, date, commit_type, scope,
-                is_phase, phase, insertions, deletions, files, body_sections,
+                sha,
+                short,
+                title,
+                author,
+                date,
+                commit_type,
+                scope,
+                is_phase,
+                phase,
+                insertions,
+                deletions,
+                files,
+                body_sections,
             }
         })
         .collect()
@@ -424,83 +441,83 @@ fn build_phase_histories(
     commits: &[CommitInfo],
 ) -> Vec<PhaseHistory> {
     let letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
-    letters.iter().filter_map(|&letter| {
-        let l = letter.to_string();
-        let phase_commit = commits.iter().find(|c| c.phase.as_deref() == Some(&l));
-        if phase_commit.is_none() {
-            let preflight = active_dir.join(format!("sprint{sprint}_phase_{letter}_preflight.md"));
-            if !preflight.exists() {
-                return None;
+    letters
+        .iter()
+        .filter_map(|&letter| {
+            let l = letter.to_string();
+            let phase_commit = commits.iter().find(|c| c.phase.as_deref() == Some(&l));
+            if phase_commit.is_none() {
+                let preflight =
+                    active_dir.join(format!("sprint{sprint}_phase_{letter}_preflight.md"));
+                if !preflight.exists() {
+                    return None;
+                }
             }
-        }
 
-        let title = phase_commit
-            .and_then(|c| PHASE_RE.captures(&c.title))
-            .map(|cap| cap[5].to_string())
-            .unwrap_or_default();
+            let title = phase_commit
+                .and_then(|c| PHASE_RE.captures(&c.title))
+                .map(|cap| cap[5].to_string())
+                .unwrap_or_default();
 
-        let preflight_verdict = read_verdict(
-            &active_dir.join(format!("sprint{sprint}_phase_{letter}_preflight.md")),
-            "EXECUTE",
-        );
-        let review_verdict = read_verdict(
-            &active_dir.join(format!("sprint{sprint}_phase_{letter}_review.md")),
-            "PASS",
-        );
-        let (codex_confirmed, codex_partial, codex_gap) = parse_codex_counts(
-            &active_dir.join(format!("sprint{sprint}_phase_{letter}_codex_review.md")),
-        );
+            let preflight_verdict = read_verdict(
+                &active_dir.join(format!("sprint{sprint}_phase_{letter}_preflight.md")),
+                "EXECUTE",
+            );
+            let review_verdict = read_verdict(
+                &active_dir.join(format!("sprint{sprint}_phase_{letter}_review.md")),
+                "PASS",
+            );
+            let (codex_confirmed, codex_partial, codex_gap) = parse_codex_counts(
+                &active_dir.join(format!("sprint{sprint}_phase_{letter}_codex_review.md")),
+            );
 
-        let (rust_delta, vitest_delta) = phase_commit
-            .map(|c| extract_test_deltas_from_body(&c.sha))
-            .unwrap_or((0, 0));
+            let (rust_delta, vitest_delta) = phase_commit
+                .map(|c| extract_test_deltas_from_body(&c.sha))
+                .unwrap_or((0, 0));
 
-        let files_changed = phase_commit
-            .map(|c| build_file_changes(&c.sha))
-            .unwrap_or_default();
+            let files_changed = phase_commit
+                .map(|c| build_file_changes(&c.sha))
+                .unwrap_or_default();
 
-        let deliverables = phase_commit
-            .map(|c| extract_deliverables(&c.sha))
-            .unwrap_or_default();
+            let deliverables = phase_commit
+                .map(|c| extract_deliverables(&c.sha))
+                .unwrap_or_default();
 
-        let findings = parse_review_findings(
-            &active_dir.join(format!("sprint{sprint}_phase_{letter}_review.md")),
-        );
+            let findings = parse_review_findings(
+                &active_dir.join(format!("sprint{sprint}_phase_{letter}_review.md")),
+            );
 
-        Some(PhaseHistory {
-            letter: l,
-            title,
-            commit_sha: phase_commit.map(|c| c.short.clone()),
-            commit_date: phase_commit.map(|c| c.date.clone()),
-            commit_type: phase_commit.map(|c| c.commit_type.clone()),
-            preflight_verdict,
-            review_verdict,
-            codex_confirmed,
-            codex_partial,
-            codex_gap,
-            rust_delta,
-            vitest_delta,
-            files_changed,
-            deliverables,
-            findings,
+            Some(PhaseHistory {
+                letter: l,
+                title,
+                commit_sha: phase_commit.map(|c| c.short.clone()),
+                commit_date: phase_commit.map(|c| c.date.clone()),
+                commit_type: phase_commit.map(|c| c.commit_type.clone()),
+                preflight_verdict,
+                review_verdict,
+                codex_confirmed,
+                codex_partial,
+                codex_gap,
+                rust_delta,
+                vitest_delta,
+                files_changed,
+                deliverables,
+                findings,
+            })
         })
-    })
-    .collect()
+        .collect()
 }
 
-fn build_test_summary(
-    active_dir: &Path,
-    sprint: u32,
-    phases: &[PhaseHistory],
-) -> TestSummary {
+fn build_test_summary(active_dir: &Path, sprint: u32, phases: &[PhaseHistory]) -> TestSummary {
     let verification = active_dir.join(format!("sprint{sprint}_verification.md"));
     let content = std::fs::read_to_string(&verification).unwrap_or_default();
 
     let (rust_entry, rust_exit) = extract_test_counts(&content, "Rust nextest");
     let (vitest_entry, vitest_exit) = extract_test_counts(&content, "Vitest");
 
-    let per_phase: Vec<PhaseTestDelta> = phases.iter().map(|p| {
-        PhaseTestDelta {
+    let per_phase: Vec<PhaseTestDelta> = phases
+        .iter()
+        .map(|p| PhaseTestDelta {
             phase: p.letter.clone(),
             rust_delta: p.rust_delta,
             vitest_delta: p.vitest_delta,
@@ -509,8 +526,8 @@ fn build_test_summary(
             } else {
                 format!("+{} Rust, +{} Vitest", p.rust_delta, p.vitest_delta)
             },
-        }
-    }).collect();
+        })
+        .collect();
 
     TestSummary {
         rust_entry,
@@ -535,14 +552,17 @@ fn parse_scope_cuts(active_dir: &Path, sprint: u32) -> Vec<ScopeCutItem> {
     }
 
     let section = extract_section(&content, "§3 Scope cuts");
-    section.lines().filter_map(|line| {
-        re.captures(line).map(|cap| ScopeCutItem {
-            number: cap[1].parse().unwrap_or(0),
-            item: cap[2].trim().to_string(),
-            target: cap[3].trim().to_string(),
-            respected: &cap[4] == "OUI",
+    section
+        .lines()
+        .filter_map(|line| {
+            re.captures(line).map(|cap| ScopeCutItem {
+                number: cap[1].parse().unwrap_or(0),
+                item: cap[2].trim().to_string(),
+                target: cap[3].trim().to_string(),
+                respected: &cap[4] == "OUI",
+            })
         })
-    }).collect()
+        .collect()
 }
 
 fn parse_carries(active_dir: &Path, sprint: u32) -> (Vec<CarryItem>, Vec<CarryItem>) {
@@ -554,29 +574,35 @@ fn parse_carries(active_dir: &Path, sprint: u32) -> (Vec<CarryItem>, Vec<CarryIt
 
     let carry_re = Regex::new(r"^\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|").unwrap();
 
-    let closed: Vec<CarryItem> = closed_section.lines().filter_map(|line| {
-        if line.contains("---") || line.contains("Carry") && line.contains("Phase") {
-            return None;
-        }
-        carry_re.captures(line).map(|cap| CarryItem {
-            code: cap[1].trim().to_string(),
-            description: cap[3].trim().to_string(),
-            disposition: "CLOSED".to_string(),
-            phase_closed: Some(cap[2].trim().to_string()),
+    let closed: Vec<CarryItem> = closed_section
+        .lines()
+        .filter_map(|line| {
+            if line.contains("---") || line.contains("Carry") && line.contains("Phase") {
+                return None;
+            }
+            carry_re.captures(line).map(|cap| CarryItem {
+                code: cap[1].trim().to_string(),
+                description: cap[3].trim().to_string(),
+                disposition: "CLOSED".to_string(),
+                phase_closed: Some(cap[2].trim().to_string()),
+            })
         })
-    }).collect();
+        .collect();
 
-    let open: Vec<CarryItem> = open_section.lines().filter_map(|line| {
-        if line.contains("---") || line.contains("Carry") && line.contains("Compteur") {
-            return None;
-        }
-        carry_re.captures(line).map(|cap| CarryItem {
-            code: cap[1].trim().to_string(),
-            description: cap[2].trim().to_string(),
-            disposition: cap[3].trim().to_string(),
-            phase_closed: None,
+    let open: Vec<CarryItem> = open_section
+        .lines()
+        .filter_map(|line| {
+            if line.contains("---") || line.contains("Carry") && line.contains("Compteur") {
+                return None;
+            }
+            carry_re.captures(line).map(|cap| CarryItem {
+                code: cap[1].trim().to_string(),
+                description: cap[2].trim().to_string(),
+                disposition: cap[3].trim().to_string(),
+                phase_closed: None,
+            })
         })
-    }).collect();
+        .collect();
 
     (closed, open)
 }
@@ -586,18 +612,21 @@ fn parse_verification(active_dir: &Path, sprint: u32) -> Option<VerificationSumm
     let content = std::fs::read_to_string(&path).ok()?;
     let section = extract_section(&content, "§1 Fail-fast");
 
-    let check_re = Regex::new(
-        r"^\|\s*(\d+)\s*\|\s*(.+?)\s*\|\s*`(.+?)`\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|"
-    ).unwrap();
+    let check_re =
+        Regex::new(r"^\|\s*(\d+)\s*\|\s*(.+?)\s*\|\s*`(.+?)`\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|")
+            .unwrap();
 
-    let checks: Vec<VerificationCheck> = section.lines().filter_map(|line| {
-        check_re.captures(line).map(|cap| VerificationCheck {
-            number: cap[1].parse().unwrap_or(0),
-            name: cap[2].trim().to_string(),
-            command: cap[3].trim().to_string(),
-            result: cap[5].trim().to_string(),
+    let checks: Vec<VerificationCheck> = section
+        .lines()
+        .filter_map(|line| {
+            check_re.captures(line).map(|cap| VerificationCheck {
+                number: cap[1].parse().unwrap_or(0),
+                name: cap[2].trim().to_string(),
+                command: cap[3].trim().to_string(),
+                result: cap[5].trim().to_string(),
+            })
         })
-    }).collect();
+        .collect();
 
     let passed = checks.iter().filter(|c| c.result.contains("PASS")).count() as u32;
     let total = checks.len() as u32;
@@ -673,16 +702,15 @@ fn git_diff_stats(sha: &str) -> (u32, u32, Vec<String>) {
 fn extract_body_sections(sha: &str) -> Vec<String> {
     let body = git_cmd(&["log", "-1", "--format=%b", sha]);
     let re = Regex::new(r"(?m)^## (.+)$").unwrap();
-    re.captures_iter(&body)
-        .map(|c| c[1].to_string())
-        .collect()
+    re.captures_iter(&body).map(|c| c[1].to_string()).collect()
 }
 
 fn extract_deliverables(sha: &str) -> Vec<String> {
     let body = git_cmd(&["log", "-1", "--format=%b", sha]);
     let section = extract_section(&body, "## Fichiers");
     let file_re = Regex::new(r"`([^`]+\.\w+)`").unwrap();
-    file_re.captures_iter(&section)
+    file_re
+        .captures_iter(&section)
         .map(|c| c[1].to_string())
         .filter(|f| !f.starts_with("cargo") && !f.starts_with("cd "))
         .collect()
@@ -693,21 +721,17 @@ fn extract_test_deltas_from_body(sha: &str) -> (i32, i32) {
     let section = extract_section(&body, "## Delta tests");
 
     let plus_re = Regex::new(r"\+(\d+)").unwrap();
-    let rust_delta: i32 = section.lines()
+    let rust_delta: i32 = section
+        .lines()
         .filter(|l| l.contains("Rust") || l.contains("workspace"))
-        .filter_map(|l| {
-            plus_re.captures(l)
-                .and_then(|c| c[1].parse::<i32>().ok())
-        })
+        .filter_map(|l| plus_re.captures(l).and_then(|c| c[1].parse::<i32>().ok()))
         .next_back()
         .unwrap_or(0);
 
-    let vitest_delta: i32 = section.lines()
+    let vitest_delta: i32 = section
+        .lines()
         .filter(|l| l.contains("Vitest"))
-        .filter_map(|l| {
-            plus_re.captures(l)
-                .and_then(|c| c[1].parse::<i32>().ok())
-        })
+        .filter_map(|l| plus_re.captures(l).and_then(|c| c[1].parse::<i32>().ok()))
         .next_back()
         .unwrap_or(0);
 
@@ -732,10 +756,18 @@ fn extract_preflight_verdict_generic(content: &str) -> Option<String> {
                 return Some(rest.to_string());
             }
         }
-        if t.contains("**EXECUTE") { return Some("EXECUTE".to_string()); }
-        if t.contains("**PLAN-ADAPT") { return Some("PLAN-ADAPT".to_string()); }
-        if t.contains("**DESIGN-CONFLICT") { return Some("DESIGN-CONFLICT".to_string()); }
-        if t.contains("**SCOPE-CUT-CONSISTENT") { return Some("SCOPE-CUT-CONSISTENT".to_string()); }
+        if t.contains("**EXECUTE") {
+            return Some("EXECUTE".to_string());
+        }
+        if t.contains("**PLAN-ADAPT") {
+            return Some("PLAN-ADAPT".to_string());
+        }
+        if t.contains("**DESIGN-CONFLICT") {
+            return Some("DESIGN-CONFLICT".to_string());
+        }
+        if t.contains("**SCOPE-CUT-CONSISTENT") {
+            return Some("SCOPE-CUT-CONSISTENT".to_string());
+        }
     }
     None
 }
@@ -747,13 +779,16 @@ fn parse_codex_counts(path: &Path) -> (Option<u32>, Option<u32>, Option<u32>) {
     };
 
     let confirmed = Regex::new(r"(\d+)\s+CONFIRME")
-        .ok().and_then(|re| re.captures(&content))
+        .ok()
+        .and_then(|re| re.captures(&content))
         .and_then(|c| c[1].parse().ok());
     let partial = Regex::new(r"(\d+)\s+PARTIEL")
-        .ok().and_then(|re| re.captures(&content))
+        .ok()
+        .and_then(|re| re.captures(&content))
         .and_then(|c| c[1].parse().ok());
     let gap = Regex::new(r"(\d+)\s+GAP")
-        .ok().and_then(|re| re.captures(&content))
+        .ok()
+        .and_then(|re| re.captures(&content))
         .and_then(|c| c[1].parse().ok());
 
     (confirmed, partial, gap)
@@ -765,12 +800,12 @@ fn parse_review_findings(path: &Path) -> Vec<Finding> {
         Err(_) => return Vec::new(),
     };
 
-    let finding_re = Regex::new(
-        r"(?m)^-\s+\*\*(P[0-3])[-_]?([A-Z0-9-]*)\*\*\s*:?\s*(.+)$"
-    ).unwrap();
+    let finding_re =
+        Regex::new(r"(?m)^-\s+\*\*(P[0-3])[-_]?([A-Z0-9-]*)\*\*\s*:?\s*(.+)$").unwrap();
 
-    finding_re.captures_iter(&content).map(|cap| {
-        Finding {
+    finding_re
+        .captures_iter(&content)
+        .map(|cap| Finding {
             severity: cap[1].to_string(),
             code: format!("{}-{}", &cap[1], &cap[2]),
             description: cap[3].trim().to_string(),
@@ -779,23 +814,19 @@ fn parse_review_findings(path: &Path) -> Vec<Finding> {
             } else {
                 "open".to_string()
             },
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 fn extract_test_counts(content: &str, suite: &str) -> (u32, u32) {
     let re = Regex::new(&format!(
         r"(?m)^\|\s*{}\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|",
         regex::escape(suite)
-    )).unwrap();
+    ))
+    .unwrap();
 
     re.captures(content)
-        .map(|c| {
-            (
-                c[1].parse().unwrap_or(0),
-                c[2].parse().unwrap_or(0),
-            )
-        })
+        .map(|c| (c[1].parse().unwrap_or(0), c[2].parse().unwrap_or(0)))
         .unwrap_or((0, 0))
 }
 
@@ -831,25 +862,28 @@ fn extract_roadmap(active_dir: &Path, sprint: u32) -> Option<String> {
 
 fn build_file_changes(sha: &str) -> Vec<FileChange> {
     let numstat = git_cmd(&["diff", "--numstat", &format!("{sha}^..{sha}")]);
-    numstat.lines().filter_map(|line| {
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() >= 3 {
-            Some(FileChange {
-                path: parts[2].to_string(),
-                insertions: parts[0].parse().unwrap_or(0),
-                deletions: parts[1].parse().unwrap_or(0),
-                status: if parts[0] == "0" && parts[1] == "0" {
-                    "renamed".to_string()
-                } else if parts[1] == "0" {
-                    "added".to_string()
-                } else {
-                    "modified".to_string()
-                },
-            })
-        } else {
-            None
-        }
-    }).collect()
+    numstat
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 3 {
+                Some(FileChange {
+                    path: parts[2].to_string(),
+                    insertions: parts[0].parse().unwrap_or(0),
+                    deletions: parts[1].parse().unwrap_or(0),
+                    status: if parts[0] == "0" && parts[1] == "0" {
+                        "renamed".to_string()
+                    } else if parts[1] == "0" {
+                        "added".to_string()
+                    } else {
+                        "modified".to_string()
+                    },
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn empty_commit(line: &str) -> CommitInfo {
