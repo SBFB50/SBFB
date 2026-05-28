@@ -34,6 +34,16 @@ interface LintResult {
   warnings: { file: string; message: string }[];
 }
 
+const PROMPT_BUTTONS: { kind: string; label: string }[] = [
+  { kind: "base", label: "Base" },
+  { kind: "preflight", label: "Preflight" },
+  { kind: "phase-review", label: "Review" },
+  { kind: "commit-body", label: "Commit" },
+  { kind: "audit-gate", label: "Audit gate" },
+  { kind: "phase-auditor", label: "Auditor" },
+  { kind: "handoff", label: "Handoff" },
+];
+
 function PhaseChip({ phase }: { phase: SprintStatus["phases"][0] }) {
   const allGreen = phase.has_preflight && phase.has_review && phase.review_verdict === "PASS" && phase.has_codex;
   const inProgress = phase.has_preflight && !phase.has_review;
@@ -192,6 +202,28 @@ export function AgentChat() {
     const cleanup = connectTerminal();
     return cleanup;
   }, [connectTerminal]);
+
+  const [pasting, setPasting] = useState<string | null>(null);
+
+  const pastePrompt = useCallback(async (kind: string) => {
+    const ws = wsRef.current;
+    const term = terminalRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    setPasting(kind);
+    try {
+      const res = await fetch(`/api/prompt/${kind}?provider=claude`);
+      if (!res.ok) throw new Error(String(res.status));
+      const json = (await res.json()) as { content: string };
+      // Bracketed paste: claude treats this as a single paste, not
+      // line-by-line submission, preserving the multi-line prompt.
+      ws.send(`\x1b[200~${json.content}\x1b[201~`);
+      term?.focus();
+    } catch {
+      term?.write(`\r\n\x1b[31m[paste ${kind} failed]\x1b[0m\r\n`);
+    } finally {
+      setPasting(null);
+    }
+  }, []);
 
   const phaseCount = currentStatus?.phases?.length ?? 0;
   const passCount = currentStatus?.phases?.filter((p) => p.review_verdict === "PASS").length ?? 0;
@@ -390,6 +422,23 @@ export function AgentChat() {
             </Badge>
           )}
         </div>
+
+        {/* Prompt paste bar */}
+        <div className="flex flex-wrap items-center gap-1 border-b border-zinc-800 px-2 py-1.5">
+          <span className="mr-1 font-mono text-[10px] text-zinc-600">Coller prompt :</span>
+          {PROMPT_BUTTONS.map((b) => (
+            <button
+              key={b.kind}
+              type="button"
+              disabled={!connected || pasting !== null}
+              onClick={() => pastePrompt(b.kind)}
+              className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 font-mono text-[10px] text-zinc-300 transition-colors hover:border-primary/50 hover:bg-primary/10 hover:text-primary disabled:opacity-40"
+            >
+              {pasting === b.kind ? "…" : b.label}
+            </button>
+          ))}
+        </div>
+
         <div ref={termRef} className="flex-1" />
       </div>
     </div>
