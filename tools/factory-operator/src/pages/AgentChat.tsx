@@ -83,13 +83,26 @@ export function AgentChat() {
 
   const statusFresh = useApi<SprintStatus>(`/status?_t=${refreshKey}`);
   const lintFresh = useApi<LintResult>(`/lint?_t=${refreshKey}`);
-  const sessionsFresh = useApi<{ sessions: { name: string; size_bytes: number }[] }>(`/terminal/sessions?_t=${refreshKey}`);
+  const sessionsFresh = useApi<{
+    sessions: { name: string; size_bytes: number }[];
+    claude_sessions: { session_id: string; name: string; updated_at: number }[];
+  }>(`/terminal/sessions?_t=${refreshKey}`);
   const currentStatus = statusFresh.data ?? status.data;
   const currentLint = lintFresh.data ?? lint.data;
   const currentSessions = sessionsFresh.data?.sessions ?? [];
+  const claudeSessions = sessionsFresh.data?.claude_sessions ?? [];
 
-  const connectTerminal = useCallback(() => {
-    if (!termRef.current || terminalRef.current) return;
+  const connectTerminal = useCallback((resumeId?: string) => {
+    if (!termRef.current) return;
+
+    if (terminalRef.current) {
+      terminalRef.current.dispose();
+      terminalRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
 
     const term = new Terminal({
       cursorBlink: true,
@@ -122,7 +135,8 @@ export function AgentChat() {
     terminalRef.current = term;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/api/terminal/ws`;
+    const resumeParam = resumeId ? `?resume=${encodeURIComponent(resumeId)}` : "";
+    const wsUrl = `${protocol}//${window.location.host}/api/terminal/ws${resumeParam}`;
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
@@ -286,12 +300,44 @@ export function AgentChat() {
               </p>
             </div>
 
-            {/* Sessions History */}
+            {/* Claude Sessions — resumable */}
+            {claudeSessions.length > 0 && (
+              <div className="rounded-lg border border-border bg-card p-3">
+                <div className="flex items-center gap-2">
+                  <TerminalIcon className="size-4 text-primary" />
+                  <span className="text-sm font-semibold">Conversations ({claudeSessions.length})</span>
+                </div>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">Clic pour reprendre</p>
+                <div className="mt-2 space-y-1">
+                  {claudeSessions.slice(0, 12).map((s) => {
+                    const date = new Date(s.updated_at);
+                    const dateStr = Number.isNaN(date.getTime())
+                      ? ""
+                      : date.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+                    return (
+                      <button
+                        key={s.session_id}
+                        type="button"
+                        onClick={() => connectTerminal(s.session_id)}
+                        className="flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left text-[10px] font-mono transition-colors hover:bg-primary/10"
+                      >
+                        <span className="truncate text-zinc-300">
+                          {s.name || s.session_id.slice(0, 8)}
+                        </span>
+                        <span className="shrink-0 text-zinc-600">{dateStr}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Recorded Sessions (.cast) */}
             {currentSessions.length > 0 && (
               <div className="rounded-lg border border-border bg-card p-3">
                 <div className="flex items-center gap-2">
-                  <TerminalIcon className="size-4 text-muted-foreground" />
-                  <span className="text-sm font-semibold">Sessions ({currentSessions.length})</span>
+                  <FileTextIcon className="size-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">Enregistrements ({currentSessions.length})</span>
                 </div>
                 <div className="mt-2 space-y-1">
                   {currentSessions.slice(0, 10).map((s) => {
@@ -299,10 +345,16 @@ export function AgentChat() {
                     const sprint = parts[0] ?? "";
                     const phase = parts.length > 2 ? parts.slice(1, 3).join(" ") : "";
                     return (
-                      <div key={s.name} className="flex items-center justify-between rounded px-1.5 py-0.5 text-[10px] font-mono hover:bg-zinc-800/50">
+                      <a
+                        key={s.name}
+                        href={`/api/terminal/sessions/${encodeURIComponent(s.name)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between rounded px-1.5 py-0.5 text-[10px] font-mono hover:bg-zinc-800/50"
+                      >
                         <span className="text-zinc-400 truncate">{sprint} {phase}</span>
                         <span className="text-zinc-600 shrink-0 ml-2">{(s.size_bytes / 1024).toFixed(0)}KB</span>
-                      </div>
+                      </a>
                     );
                   })}
                 </div>

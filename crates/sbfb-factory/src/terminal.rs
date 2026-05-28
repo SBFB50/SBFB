@@ -45,7 +45,7 @@ fn write_asciicast_event(file: &mut fs::File, start: std::time::Instant, data: &
     let _ = writeln!(file, "[{elapsed:.6}, \"o\", {escaped}]");
 }
 
-pub async fn handle_terminal_ws(mut socket: WebSocket, cwd: &Path) {
+pub async fn handle_terminal_ws(mut socket: WebSocket, cwd: &Path, resume_session: Option<&str>) {
     let pty_system = NativePtySystem::default();
 
     let cols: u16 = 120;
@@ -73,6 +73,10 @@ pub async fn handle_terminal_ws(mut socket: WebSocket, cwd: &Path) {
     };
     let mut cmd = CommandBuilder::new(exe);
     cmd.cwd(cwd);
+    if let Some(sid) = resume_session {
+        cmd.arg("--resume");
+        cmd.arg(sid);
+    }
 
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
@@ -228,4 +232,75 @@ pub fn list_sessions(root: &Path) -> Vec<serde_json::Value> {
         nb.cmp(na)
     });
     sessions
+}
+
+pub fn list_claude_sessions(root: &Path) -> Vec<serde_json::Value> {
+    let home = dirs_next().unwrap_or_default();
+    let dir = home.join(".claude").join("sessions");
+    let root_str = dunce::canonicalize(root)
+        .unwrap_or_else(|_| root.to_path_buf())
+        .display()
+        .to_string();
+
+    let mut sessions = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(content) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) else {
+                continue;
+            };
+
+            let cwd = v.get("cwd").and_then(|c| c.as_str()).unwrap_or("");
+            let canon_cwd = dunce::canonicalize(cwd)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| cwd.to_string());
+
+            if canon_cwd != root_str {
+                continue;
+            }
+
+            let session_id = v
+                .get("sessionId")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = v
+                .get("name")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            let updated = v.get("updatedAt").and_then(|u| u.as_u64()).unwrap_or(0);
+
+            sessions.push(serde_json::json!({
+                "session_id": session_id,
+                "name": name,
+                "updated_at": updated,
+            }));
+        }
+    }
+
+    sessions.sort_by(|a, b| {
+        let ua = a.get("updated_at").and_then(|v| v.as_u64()).unwrap_or(0);
+        let ub = b.get("updated_at").and_then(|v| v.as_u64()).unwrap_or(0);
+        ub.cmp(&ua)
+    });
+    sessions
+}
+
+fn dirs_next() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var("USERPROFILE").ok().map(PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var("HOME").ok().map(PathBuf::from)
+    }
 }

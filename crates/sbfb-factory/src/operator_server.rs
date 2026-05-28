@@ -114,6 +114,10 @@ pub fn build_router(root: PathBuf) -> Router {
         .route("/api/sprint-history/diff/{sha}", get(handle_commit_diff))
         .route("/api/terminal/ws", get(handle_terminal_ws))
         .route("/api/terminal/sessions", get(handle_terminal_sessions))
+        .route(
+            "/api/terminal/sessions/{name}",
+            get(handle_terminal_session_content),
+        )
         .layer(cors)
         .with_state(state)
 }
@@ -811,20 +815,47 @@ async fn handle_chat_log(
     }
 }
 
+#[derive(Deserialize)]
+struct TerminalWsQuery {
+    resume: Option<String>,
+}
+
 async fn handle_terminal_ws(
     State(state): State<OperatorState>,
+    Query(params): Query<TerminalWsQuery>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
     let root = state.root.clone();
+    let resume = params.resume;
     ws.on_upgrade(move |socket| async move {
-        crate::terminal::handle_terminal_ws(socket, &root).await;
+        crate::terminal::handle_terminal_ws(socket, &root, resume.as_deref()).await;
     })
 }
 
 async fn handle_terminal_sessions(State(state): State<OperatorState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "sessions": crate::terminal::list_sessions(&state.root),
+        "claude_sessions": crate::terminal::list_claude_sessions(&state.root),
     }))
+}
+
+async fn handle_terminal_session_content(
+    State(state): State<OperatorState>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let path = state
+        .root
+        .join(".planning")
+        .join("terminal")
+        .join(format!("{name}.cast"));
+    match std::fs::read_to_string(&path) {
+        Ok(content) => (StatusCode::OK, content).into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "session not found"})),
+        )
+            .into_response(),
+    }
 }
 
 async fn handle_sprint_history(State(state): State<OperatorState>) -> impl IntoResponse {
