@@ -151,7 +151,7 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 # tower-http is the CORS middleware source. `cors` is the only
 # feature we need — the daemon is loopback-only and does not need
 # compression, tracing, rate-limit, or auth layers from tower-http.
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs"] }
 

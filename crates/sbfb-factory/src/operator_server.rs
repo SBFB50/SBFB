@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Json};
@@ -112,6 +112,7 @@ pub fn build_router(root: PathBuf) -> Router {
             get(handle_sprint_history_by_number),
         )
         .route("/api/sprint-history/diff/{sha}", get(handle_commit_diff))
+        .route("/api/terminal/ws", get(handle_terminal_ws))
         .layer(cors)
         .with_state(state)
 }
@@ -807,6 +808,16 @@ async fn handle_chat_log(
         )
             .into_response(),
     }
+}
+
+async fn handle_terminal_ws(
+    State(state): State<OperatorState>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    let root = state.root.clone();
+    ws.on_upgrade(move |socket| async move {
+        crate::terminal::handle_terminal_ws(socket, &root).await;
+    })
 }
 
 async fn handle_sprint_history(State(state): State<OperatorState>) -> impl IntoResponse {

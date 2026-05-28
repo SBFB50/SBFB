@@ -2,548 +2,318 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { postApi } from "@/hooks/useApi";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Card, CardContent,
-} from "@/components/ui/card";
+import { useApi } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  MessageCircleIcon, SendIcon, LoaderIcon, BotIcon, UserIcon,
-  PlusCircleIcon, ZapIcon, MessageSquareIcon, BugIcon, ChevronDownIcon,
-  ChevronRightIcon, TerminalIcon,
+  GitBranchIcon, CheckCircle2Icon,
+  AlertCircleIcon, LoaderIcon, ActivityIcon, TerminalIcon,
+  LayersIcon, ShieldCheckIcon, FileTextIcon,
 } from "lucide-react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import "@xterm/xterm/css/xterm.css";
 
-interface Message {
-  role: "user" | "agent";
-  content: string;
-  action?: string;
-  thinking?: string;
-  timestamp: string;
-  cost?: number;
-  duration?: number;
+interface SprintStatus {
+  sprint: number;
+  head: string;
+  branch: string;
+  current_phase: string;
+  has_kickoff: boolean;
+  has_plan: boolean;
+  has_design_review: boolean;
+  has_audit_plan: boolean;
+  phases: { letter: string; has_preflight: boolean; has_review: boolean; review_verdict: string; has_codex: boolean }[];
 }
 
-interface DebugEntry {
-  time: string;
-  label: string;
-  content: string;
+interface LintResult {
+  ok: boolean;
+  errors: { file: string; message: string }[];
+  warnings: { file: string; message: string }[];
 }
 
-interface StreamEvent {
-  type: "delta" | "thinking" | "done" | "error" | "debug";
-  text?: string;
-  message?: string;
-  cost_usd?: number;
-  duration_ms?: number;
-  result?: string;
-  label?: string;
-  content?: string;
+function PhaseChip({ phase }: { phase: SprintStatus["phases"][0] }) {
+  const allGreen = phase.has_preflight && phase.has_review && phase.review_verdict === "PASS" && phase.has_codex;
+  const inProgress = phase.has_preflight && !phase.has_review;
+
+  return (
+    <div className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-mono transition-all duration-300 ${
+      allGreen
+        ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
+        : inProgress
+          ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 animate-pulse"
+          : "bg-zinc-800 text-zinc-500 ring-1 ring-zinc-700"
+    }`}>
+      <span className="font-bold">{phase.letter}</span>
+      {phase.has_preflight && <ShieldCheckIcon className="size-3" />}
+      {phase.has_review && <FileTextIcon className="size-3" />}
+      {phase.has_codex && <CheckCircle2Icon className="size-3" />}
+    </div>
+  );
+}
+
+function Pulse({ active }: { active: boolean }) {
+  if (!active) return null;
+  return (
+    <span className="relative flex size-2">
+      <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+      <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+    </span>
+  );
 }
 
 export function AgentChat() {
   const { t } = useTranslation();
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
-  const [thinkingText, setThinkingText] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [debugMode, setDebugMode] = useState(() =>
-    localStorage.getItem("factory-debug") === "true",
-  );
-  const [debugLog, setDebugLog] = useState<DebugEntry[]>([]);
-  const [debugOpen, setDebugOpen] = useState(true);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const debugScrollRef = useRef<HTMLDivElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const termRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const [connected, setConnected] = useState(false);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, streamingText]);
+  const status = useApi<SprintStatus>("/status");
+  const lint = useApi<LintResult>("/lint");
 
+  const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => {
-    if (debugScrollRef.current) {
-      debugScrollRef.current.scrollTop = debugScrollRef.current.scrollHeight;
-    }
-  }, [debugLog]);
+    const interval = setInterval(() => setRefreshKey((k) => k + 1), 15000);
+    return () => clearInterval(interval);
+  }, []);
 
-  useEffect(() => {
-    if (sessionId && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [sessionId]);
+  const statusFresh = useApi<SprintStatus>(`/status?_t=${refreshKey}`);
+  const lintFresh = useApi<LintResult>(`/lint?_t=${refreshKey}`);
+  const currentStatus = statusFresh.data ?? status.data;
+  const currentLint = lintFresh.data ?? lint.data;
 
-  useEffect(() => {
-    localStorage.setItem("factory-debug", String(debugMode));
-  }, [debugMode]);
+  const connectTerminal = useCallback(() => {
+    if (!termRef.current || terminalRef.current) return;
 
-  useEffect(() => {
+    const term = new Terminal({
+      cursorBlink: true,
+      fontSize: 13,
+      fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace",
+      theme: {
+        background: "#09090b",
+        foreground: "#fafafa",
+        cursor: "#fafafa",
+        selectionBackground: "#27272a",
+        black: "#09090b",
+        red: "#ef4444",
+        green: "#22c55e",
+        yellow: "#eab308",
+        blue: "#3b82f6",
+        magenta: "#a855f7",
+        cyan: "#06b6d4",
+        white: "#fafafa",
+      },
+      allowProposedApi: true,
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(new WebLinksAddon());
+
+    term.open(termRef.current);
+    fitAddon.fit();
+    fitAddonRef.current = fitAddon;
+    terminalRef.current = term;
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/api/terminal/ws`;
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnected(true);
+      const dims = fitAddon.proposeDimensions();
+      if (dims) {
+        ws.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
+      }
+    };
+
+    ws.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(event.data));
+      } else {
+        term.write(event.data);
+      }
+    };
+
+    ws.onclose = () => {
+      setConnected(false);
+      term.write("\r\n\x1b[90m--- session closed ---\x1b[0m\r\n");
+    };
+
+    term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
+      }
+    });
+
+    term.onResize(({ cols, rows }) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "resize", cols, rows }));
+      }
+    });
+
+    const resizeObserver = new ResizeObserver(() => {
+      fitAddon.fit();
+    });
+    resizeObserver.observe(termRef.current);
+
     return () => {
-      eventSourceRef.current?.close();
+      resizeObserver.disconnect();
+      ws.close();
+      term.dispose();
+      terminalRef.current = null;
+      wsRef.current = null;
     };
   }, []);
 
-  const addDebug = useCallback((label: string, content: string) => {
-    setDebugLog((prev) => [
-      ...prev,
-      { time: new Date().toLocaleTimeString("fr-FR", { hour12: false, fractionalSecondDigits: 3 }), label, content },
-    ]);
-  }, []);
+  useEffect(() => {
+    const cleanup = connectTerminal();
+    return cleanup;
+  }, [connectTerminal]);
 
-  const startSession = useCallback(async () => {
-    setLoading(true);
-    setDebugLog([]);
-    try {
-      addDebug("api", "POST /api/chat/session");
-      const json = await postApi<{ id: string; context_pack: unknown }>("/chat/session", {
-        context_pack: {},
-      });
-      setSessionId(json.id);
-      setMessages([]);
-      addDebug("session", json.id);
-      addDebug("context_pack", JSON.stringify(json.context_pack, null, 2));
-    } catch (e) {
-      addDebug("error", String(e));
-      setMessages([{
-        role: "agent",
-        content: t("chat.sessionError"),
-        timestamp: new Date().toLocaleTimeString("fr-FR"),
-      }]);
-    } finally {
-      setLoading(false);
-    }
-  }, [t, addDebug]);
-
-  const sendMessage = useCallback(async () => {
-    if (!input.trim() || !sessionId || isStreaming) return;
-    const userMsg = input.trim();
-    setInput("");
-    const now = new Date().toLocaleTimeString("fr-FR");
-    setMessages((prev) => [...prev, { role: "user", content: userMsg, timestamp: now }]);
-    setLoading(true);
-
-    const provider = localStorage.getItem("factory-driver") ?? "claude";
-    const model = provider === "claude" ? "sonnet" : "";
-
-    addDebug("user_input", userMsg);
-    addDebug("provider", `${provider} / model=${model}`);
-
-    try {
-      addDebug("api", `POST /api/chat/${sessionId}/send`);
-      const sendResult = await postApi<{ ok: boolean; requires_gate?: boolean }>(`/chat/${sessionId}/send`, {
-        message: userMsg,
-        provider,
-        model,
-      });
-
-      addDebug("send_result", JSON.stringify(sendResult));
-
-      if (!sendResult.ok) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "agent",
-            content: t("chat.gateRequired"),
-            action: "requires_gate",
-            timestamp: new Date().toLocaleTimeString("fr-FR"),
-          },
-        ]);
-        setLoading(false);
-        return;
-      }
-
-      if (provider !== "claude") {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "agent",
-            content: t("chat.providerNotConnected"),
-            timestamp: new Date().toLocaleTimeString("fr-FR"),
-          },
-        ]);
-        setLoading(false);
-        return;
-      }
-
-      setIsStreaming(true);
-      setStreamingText("");
-      setThinkingText("");
-
-      const sseUrl = `/api/chat/${sessionId}/stream`;
-      addDebug("sse", `EventSource → ${sseUrl}`);
-
-      eventSourceRef.current?.close();
-      const es = new EventSource(sseUrl);
-      eventSourceRef.current = es;
-
-      let accumulated = "";
-      let accumulatedThinking = "";
-
-      es.onmessage = (event) => {
-        try {
-          const data: StreamEvent = JSON.parse(event.data);
-
-          switch (data.type) {
-            case "debug":
-              addDebug(data.label ?? "debug", data.content ?? "");
-              break;
-
-            case "delta":
-              accumulated += data.text ?? "";
-              setStreamingText(accumulated);
-              break;
-
-            case "thinking":
-              accumulatedThinking += data.text ?? "";
-              setThinkingText(accumulatedThinking);
-              addDebug("thinking", data.text ?? "");
-              break;
-
-            case "done":
-              es.close();
-              eventSourceRef.current = null;
-              setIsStreaming(false);
-              setStreamingText("");
-              setThinkingText("");
-              setLoading(false);
-              addDebug("done", `cost=$${data.cost_usd?.toFixed(4)} duration=${data.duration_ms}ms`);
-              setMessages((prev) => [
-                ...prev,
-                {
-                  role: "agent",
-                  content: data.result ?? accumulated,
-                  timestamp: new Date().toLocaleTimeString("fr-FR"),
-                  cost: data.cost_usd,
-                  duration: data.duration_ms,
-                  thinking: accumulatedThinking || undefined,
-                },
-              ]);
-              break;
-
-            case "error":
-              es.close();
-              eventSourceRef.current = null;
-              setIsStreaming(false);
-              setStreamingText("");
-              setLoading(false);
-              addDebug("error", data.message ?? "unknown");
-              setMessages((prev) => [
-                ...prev,
-                {
-                  role: "agent",
-                  content: data.message ?? t("chat.commError"),
-                  action: "error",
-                  timestamp: new Date().toLocaleTimeString("fr-FR"),
-                },
-              ]);
-              break;
-          }
-        } catch {
-          // ignore unparseable events
-        }
-      };
-
-      es.onerror = () => {
-        es.close();
-        eventSourceRef.current = null;
-        addDebug("sse_error", "EventSource connection closed");
-        if (isStreaming) {
-          setIsStreaming(false);
-          setLoading(false);
-          if (accumulated) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: "agent",
-                content: accumulated,
-                timestamp: new Date().toLocaleTimeString("fr-FR"),
-              },
-            ]);
-          }
-          setStreamingText("");
-        }
-      };
-
-    } catch (e) {
-      addDebug("error", String(e));
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "agent",
-          content: t("chat.commError"),
-          timestamp: new Date().toLocaleTimeString("fr-FR"),
-        },
-      ]);
-      setLoading(false);
-    }
-  }, [input, sessionId, isStreaming, t, addDebug]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  }, [sendMessage]);
-
-  if (!sessionId) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-6 py-20">
-        <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10">
-          <MessageCircleIcon className="size-8 text-primary" />
-        </div>
-        <div className="max-w-sm text-center">
-          <h1 className="text-xl font-bold">{t("chat.title")}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{t("chat.noSession")}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button onClick={startSession} disabled={loading} size="lg">
-            {loading
-              ? <LoaderIcon className="size-4 animate-spin" />
-              : <PlusCircleIcon className="size-4" />
-            }
-            {t("chat.startSession")}
-          </Button>
-          <Button
-            variant={debugMode ? "default" : "outline"}
-            size="sm"
-            onClick={() => setDebugMode((v) => !v)}
-            title="Mode développeur"
-          >
-            <BugIcon className="size-4" />
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const phaseCount = currentStatus?.phases?.length ?? 0;
+  const passCount = currentStatus?.phases?.filter((p) => p.review_verdict === "PASS").length ?? 0;
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] flex-col">
-      <div className="flex items-center justify-between">
+    <div className="flex h-[calc(100vh-8rem)] gap-3">
+      {/* LEFT: Project Dashboard */}
+      <div className="flex w-80 shrink-0 flex-col gap-3 overflow-hidden">
         <div className="flex items-center gap-2">
-          <MessageCircleIcon className="size-5 text-primary" />
-          <h1 className="text-xl font-bold">{t("chat.title")}</h1>
+          <ActivityIcon className="size-4 text-primary" />
+          <h2 className="text-sm font-bold">{t("chat.title")}</h2>
+          <Pulse active={connected} />
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={debugMode ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setDebugMode((v) => !v)}
-            title="Mode développeur"
-            className="size-8 p-0"
-          >
-            <BugIcon className="size-3.5" />
-          </Button>
-          <Badge variant="outline" className="font-mono text-xs">{sessionId.slice(0, 8)}</Badge>
-          <Badge variant="secondary">
-            {messages.filter((m) => m.role === "user").length} {t("chat.messagesCount")}
-          </Badge>
-        </div>
-      </div>
 
-      <Separator className="my-3" />
-
-      <div className={`flex flex-1 gap-3 overflow-hidden ${debugMode ? "" : "flex-col"}`}>
-        <ScrollArea className={`rounded-lg border border-border bg-background ${debugMode ? "w-1/2" : "flex-1"}`}>
-          <div ref={scrollRef} className="space-y-1 p-4">
-            {messages.length === 0 && !isStreaming && (
-              <div className="flex flex-col items-center justify-center py-16">
-                <MessageSquareIcon className="mb-3 size-10 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground">{t("chat.emptyConversation")}</p>
-              </div>
-            )}
-
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-              >
-                <div className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
-                  msg.role === "user"
-                    ? "bg-primary/15 text-primary"
-                    : "bg-muted text-muted-foreground"
-                }`}>
-                  {msg.role === "user"
-                    ? <UserIcon className="size-4" />
-                    : <BotIcon className="size-4" />
-                  }
-                </div>
-
-                <div className={`max-w-[75%] space-y-1 ${msg.role === "user" ? "items-end text-right" : ""}`}>
-                  <div className={`flex items-center gap-2 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
-                    <span className="text-xs font-semibold">
-                      {msg.role === "user" ? t("chat.operator") : t("chat.agent")}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{msg.timestamp}</span>
-                    {msg.cost != null && (
-                      <span className="text-xs text-muted-foreground">
-                        ${msg.cost.toFixed(4)} · {((msg.duration ?? 0) / 1000).toFixed(1)}s
-                      </span>
-                    )}
-                  </div>
-
-                  {msg.thinking && (
-                    <details className="rounded-lg bg-zinc-900/50 text-xs ring-1 ring-zinc-700/50">
-                      <summary className="cursor-pointer px-3 py-1.5 font-mono text-zinc-500 hover:text-zinc-300">
-                        thinking ({msg.thinking.length} chars)
-                      </summary>
-                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap px-3 pb-2 font-mono text-zinc-500">
-                        {msg.thinking}
-                      </pre>
-                    </details>
-                  )}
-
-                  <div className={`rounded-xl px-3.5 py-2.5 text-sm ${
-                    msg.role === "user"
-                      ? "rounded-tr-sm bg-primary/15 text-foreground"
-                      : "rounded-tl-sm bg-card text-foreground ring-1 ring-border"
-                  }`}>
-                    <p className="whitespace-pre-wrap text-left">{msg.content}</p>
-                  </div>
-
-                  {msg.action && (
-                    <Card className="mt-1.5">
-                      <CardContent className="flex items-center gap-2 p-2">
-                        <ZapIcon className="size-3.5 text-[var(--yellow)]" />
-                        <span className="font-mono text-xs text-muted-foreground">{msg.action}</span>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            {isStreaming && (thinkingText || streamingText) && (
-              <div className="flex gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                  <BotIcon className="size-4" />
-                </div>
-                <div className="max-w-[75%] space-y-1">
+        <ScrollArea className="flex-1">
+          <div className="space-y-3 pr-2">
+            {/* Sprint Status Card */}
+            {currentStatus && (
+              <div className="rounded-lg border border-border bg-card p-3 transition-all duration-500">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold">{t("chat.agent")}</span>
-                    <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+                    <LayersIcon className="size-4 text-primary" />
+                    <span className="text-sm font-semibold">Sprint {currentStatus.sprint}</span>
                   </div>
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    <GitBranchIcon className="mr-1 size-3" />
+                    {currentStatus.head}
+                  </Badge>
+                </div>
 
-                  {thinkingText && (
-                    <div className="rounded-lg bg-zinc-900/50 px-3 py-2 text-xs ring-1 ring-zinc-700/50">
-                      <div className="mb-1 font-mono text-[10px] text-zinc-500">thinking...</div>
-                      <pre className="max-h-32 overflow-auto whitespace-pre-wrap font-mono text-zinc-400">
-                        {thinkingText}
-                      </pre>
-                    </div>
-                  )}
+                <div className="mt-2 flex items-center gap-1.5">
+                  <Badge variant={currentStatus.current_phase === "done" ? "default" : "secondary"} className="text-[10px]">
+                    {currentStatus.current_phase === "done" ? "Terminé" : `Phase ${currentStatus.current_phase}`}
+                  </Badge>
+                  <span className="text-[10px] text-muted-foreground">
+                    {passCount}/{phaseCount} phases
+                  </span>
+                </div>
 
-                  {streamingText && (
-                    <div className="rounded-xl rounded-tl-sm bg-card px-3.5 py-2.5 text-sm text-foreground ring-1 ring-border">
-                      <p className="whitespace-pre-wrap text-left">{streamingText}</p>
+                {/* Phase chips */}
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {currentStatus.phases.map((p) => (
+                    <PhaseChip key={p.letter} phase={p} />
+                  ))}
+                </div>
+
+                {/* Artifacts */}
+                <div className="mt-3 grid grid-cols-2 gap-1.5 text-[10px]">
+                  {[
+                    { label: "Kickoff", ok: currentStatus.has_kickoff },
+                    { label: "Plan", ok: currentStatus.has_plan },
+                    { label: "Design Review", ok: currentStatus.has_design_review },
+                    { label: "Audit Plan", ok: currentStatus.has_audit_plan },
+                  ].map((a) => (
+                    <div key={a.label} className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${
+                      a.ok ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-800 text-zinc-600"
+                    }`}>
+                      {a.ok ? <CheckCircle2Icon className="size-3" /> : <AlertCircleIcon className="size-3" />}
+                      {a.label}
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
             )}
 
-            {loading && !isStreaming && (
-              <div className="flex gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                  <BotIcon className="size-4" />
+            {/* Lint Card */}
+            {currentLint && (
+              <div className={`rounded-lg border p-3 transition-all duration-500 ${
+                currentLint.ok
+                  ? "border-emerald-500/30 bg-emerald-500/5"
+                  : "border-red-500/30 bg-red-500/5"
+              }`}>
+                <div className="flex items-center gap-2">
+                  {currentLint.ok
+                    ? <CheckCircle2Icon className="size-4 text-emerald-400" />
+                    : <AlertCircleIcon className="size-4 text-red-400" />
+                  }
+                  <span className="text-sm font-semibold">
+                    Lint {currentLint.ok ? "CLEAN" : `${currentLint.errors.length}E / ${currentLint.warnings.length}W`}
+                  </span>
                 </div>
-                <div className="flex items-center gap-2 rounded-xl rounded-tl-sm bg-card px-3.5 py-2.5 ring-1 ring-border">
-                  <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">{t("chat.thinking")}</span>
-                </div>
+                {!currentLint.ok && currentLint.errors.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {currentLint.errors.slice(0, 3).map((e, i) => (
+                      <div key={i} className="text-[10px] text-red-400 font-mono truncate">{e.message}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Connection Card */}
+            <div className={`rounded-lg border p-3 transition-all duration-500 ${
+              connected ? "border-emerald-500/30 bg-emerald-500/5" : "border-zinc-700 bg-zinc-900"
+            }`}>
+              <div className="flex items-center gap-2">
+                <TerminalIcon className="size-4" />
+                <span className="text-sm font-semibold">Claude Code</span>
+                <Pulse active={connected} />
+              </div>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                {connected
+                  ? "Terminal interactif connecté — toutes les fonctionnalités Claude Code disponibles."
+                  : "Connexion au terminal en cours..."
+                }
+              </p>
+            </div>
+
+            {/* Loading state */}
+            {status.loading && (
+              <div className="flex items-center justify-center py-8">
+                <LoaderIcon className="size-5 animate-spin text-muted-foreground" />
               </div>
             )}
           </div>
         </ScrollArea>
-
-        {debugMode && (
-          <div className="flex w-1/2 flex-col rounded-lg border border-border bg-zinc-950">
-            <button
-              type="button"
-              className="flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-zinc-400 hover:text-zinc-200"
-              onClick={() => setDebugOpen((v) => !v)}
-            >
-              {debugOpen ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
-              <TerminalIcon className="size-3" />
-              Debug ({debugLog.length} events)
-              {debugLog.length > 0 && (
-                <button
-                  type="button"
-                  className="ml-auto text-xs text-zinc-600 hover:text-zinc-400"
-                  onClick={(e) => { e.stopPropagation(); setDebugLog([]); }}
-                >
-                  clear
-                </button>
-              )}
-            </button>
-            {debugOpen && (
-              <div ref={debugScrollRef} className="flex-1 overflow-auto px-3 pb-3">
-                {debugLog.map((entry, i) => (
-                  <div key={i} className="mb-1 font-mono text-[11px] leading-tight">
-                    <span className="text-zinc-600">{entry.time}</span>
-                    {" "}
-                    <span className={
-                      entry.label === "error" || entry.label === "sse_error"
-                        ? "text-red-400"
-                        : entry.label === "prompt"
-                          ? "text-blue-400"
-                          : entry.label.startsWith("ndjson")
-                            ? "text-zinc-500"
-                            : entry.label === "done"
-                              ? "text-green-400"
-                              : "text-amber-400"
-                    }>
-                      [{entry.label}]
-                    </span>
-                    {" "}
-                    <span className={
-                      entry.label.startsWith("ndjson") ? "text-zinc-600" : "text-zinc-300"
-                    }>
-                      {entry.content.length > 500 && entry.label.startsWith("ndjson")
-                        ? entry.content.slice(0, 500) + "…"
-                        : entry.content
-                      }
-                    </span>
-                  </div>
-                ))}
-                {debugLog.length === 0 && (
-                  <p className="text-xs text-zinc-600">En attente d&apos;events...</p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
-      <div className="mt-3 flex gap-2">
-        <Input
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={t("chat.placeholder")}
-          onKeyDown={handleKeyDown}
-          disabled={loading || isStreaming}
-          aria-label={t("chat.placeholder")}
-          className="flex-1"
-        />
-        <Button
-          onClick={sendMessage}
-          disabled={loading || isStreaming || !input.trim()}
-          aria-label={t("chat.send")}
-        >
-          {loading
-            ? <LoaderIcon className="size-4 animate-spin" />
-            : <SendIcon className="size-4" />
-          }
-          {t("chat.send")}
-        </Button>
+      <Separator orientation="vertical" />
+
+      {/* RIGHT: Terminal */}
+      <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-[#09090b]">
+        <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5">
+          <div className="flex gap-1.5">
+            <span className={`size-3 rounded-full ${connected ? "bg-emerald-500" : "bg-zinc-600"}`} />
+            <span className="size-3 rounded-full bg-zinc-600" />
+            <span className="size-3 rounded-full bg-zinc-600" />
+          </div>
+          <span className="ml-2 font-mono text-[11px] text-zinc-500">
+            claude — {currentStatus ? `Sprint ${currentStatus.sprint}` : "..."}
+          </span>
+          {connected && (
+            <Badge variant="outline" className="ml-auto border-emerald-500/30 font-mono text-[9px] text-emerald-400">
+              LIVE
+            </Badge>
+          )}
+        </div>
+        <div ref={termRef} className="flex-1" />
       </div>
     </div>
   );

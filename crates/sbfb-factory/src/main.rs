@@ -17,6 +17,7 @@ mod secret_scanner;
 pub mod sprint_history;
 mod template_engine;
 mod template_lock;
+mod terminal;
 
 #[derive(Parser)]
 #[command(name = "sbfb-factory", about = "SBFB app scaffolding tool")]
