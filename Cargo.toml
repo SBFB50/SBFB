@@ -88,6 +88,7 @@ opentelemetry_sdk = { version = "0.31", features = ["trace"] }
 
 # Async primitives used by the worker engine (W5 Ollama client
 # retry logic and W9 state-machine transitions).
+async-stream = "0.3"
 async-trait = "0.1"
 futures = "0.3"
 

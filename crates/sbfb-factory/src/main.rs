@@ -6,6 +6,7 @@ mod audit_log;
 mod daemon_client;
 mod diff;
 mod gates;
+mod llm_bridge;
 mod operator_server;
 mod pipeline;
 mod preview_cmd;

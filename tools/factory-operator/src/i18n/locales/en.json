@@ -193,7 +193,9 @@
     "agent": "Agent",
     "messagesCount": "messages",
     "emptyConversation": "Send a message to start the conversation.",
-    "thinking": "Thinking..."
+    "thinking": "Thinking...",
+    "gateRequired": "This action requires external verification via a real agent session.",
+    "providerNotConnected": "This provider is not connected yet. Only Claude is available."
   },
   "actionLog": {
     "title": "Action log",

@@ -21,6 +21,17 @@ interface Message {
   content: string;
   action?: string;
   timestamp: string;
+  cost?: number;
+  duration?: number;
+}
+
+interface StreamEvent {
+  type: "delta" | "thinking" | "done" | "error";
+  text?: string;
+  message?: string;
+  cost_usd?: number;
+  duration_ms?: number;
+  result?: string;
 }
 
 export function AgentChat() {
@@ -29,20 +40,29 @@ export function AgentChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, streamingText]);
 
   useEffect(() => {
     if (sessionId && inputRef.current) {
       inputRef.current.focus();
     }
   }, [sessionId]);
+
+  useEffect(() => {
+    return () => {
+      eventSourceRef.current?.close();
+    };
+  }, []);
 
   const startSession = useCallback(async () => {
     setLoading(true);
@@ -64,26 +84,132 @@ export function AgentChat() {
   }, [t]);
 
   const sendMessage = useCallback(async () => {
-    if (!input.trim() || !sessionId) return;
+    if (!input.trim() || !sessionId || isStreaming) return;
     const userMsg = input.trim();
     setInput("");
     const now = new Date().toLocaleTimeString("fr-FR");
     setMessages((prev) => [...prev, { role: "user", content: userMsg, timestamp: now }]);
     setLoading(true);
+
+    const provider = localStorage.getItem("factory-driver") ?? "claude";
+    const model = provider === "claude" ? "sonnet" : "";
+
     try {
-      const json = await postApi<{ response: string; action?: string }>("/chat/message", {
-        session_id: sessionId,
+      const sendResult = await postApi<{ ok: boolean; requires_gate?: boolean }>(`/chat/${sessionId}/send`, {
         message: userMsg,
+        provider,
+        model,
       });
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "agent",
-          content: json.response,
-          action: json.action,
-          timestamp: new Date().toLocaleTimeString("fr-FR"),
-        },
-      ]);
+
+      if (!sendResult.ok) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "agent",
+            content: t("chat.gateRequired"),
+            action: "requires_gate",
+            timestamp: new Date().toLocaleTimeString("fr-FR"),
+          },
+        ]);
+        setLoading(false);
+        return;
+      }
+
+      if (provider !== "claude") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "agent",
+            content: t("chat.providerNotConnected"),
+            timestamp: new Date().toLocaleTimeString("fr-FR"),
+          },
+        ]);
+        setLoading(false);
+        return;
+      }
+
+      setIsStreaming(true);
+      setStreamingText("");
+
+      eventSourceRef.current?.close();
+      const es = new EventSource(`/api/chat/${sessionId}/stream`);
+      eventSourceRef.current = es;
+
+      let accumulated = "";
+
+      es.onmessage = (event) => {
+        try {
+          const data: StreamEvent = JSON.parse(event.data);
+
+          switch (data.type) {
+            case "delta":
+              accumulated += data.text ?? "";
+              setStreamingText(accumulated);
+              break;
+
+            case "thinking":
+              break;
+
+            case "done":
+              es.close();
+              eventSourceRef.current = null;
+              setIsStreaming(false);
+              setStreamingText("");
+              setLoading(false);
+              setMessages((prev) => [
+                ...prev,
+                {
+                  role: "agent",
+                  content: data.result ?? accumulated,
+                  timestamp: new Date().toLocaleTimeString("fr-FR"),
+                  cost: data.cost_usd,
+                  duration: data.duration_ms,
+                },
+              ]);
+              break;
+
+            case "error":
+              es.close();
+              eventSourceRef.current = null;
+              setIsStreaming(false);
+              setStreamingText("");
+              setLoading(false);
+              setMessages((prev) => [
+                ...prev,
+                {
+                  role: "agent",
+                  content: data.message ?? t("chat.commError"),
+                  action: "error",
+                  timestamp: new Date().toLocaleTimeString("fr-FR"),
+                },
+              ]);
+              break;
+          }
+        } catch {
+          // ignore unparseable events
+        }
+      };
+
+      es.onerror = () => {
+        es.close();
+        eventSourceRef.current = null;
+        if (isStreaming) {
+          setIsStreaming(false);
+          setLoading(false);
+          if (accumulated) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "agent",
+                content: accumulated,
+                timestamp: new Date().toLocaleTimeString("fr-FR"),
+              },
+            ]);
+          }
+          setStreamingText("");
+        }
+      };
+
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -93,10 +219,9 @@ export function AgentChat() {
           timestamp: new Date().toLocaleTimeString("fr-FR"),
         },
       ]);
-    } finally {
       setLoading(false);
     }
-  }, [input, sessionId, t]);
+  }, [input, sessionId, isStreaming, t]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -145,7 +270,7 @@ export function AgentChat() {
 
       <ScrollArea className="flex-1 rounded-lg border border-border bg-background">
         <div ref={scrollRef} className="space-y-1 p-4">
-          {messages.length === 0 && (
+          {messages.length === 0 && !isStreaming && (
             <div className="flex flex-col items-center justify-center py-16">
               <MessageSquareIcon className="mb-3 size-10 text-muted-foreground/30" />
               <p className="text-sm text-muted-foreground">{t("chat.emptyConversation")}</p>
@@ -174,6 +299,11 @@ export function AgentChat() {
                     {msg.role === "user" ? t("chat.operator") : t("chat.agent")}
                   </span>
                   <span className="text-xs text-muted-foreground">{msg.timestamp}</span>
+                  {msg.cost != null && (
+                    <span className="text-xs text-muted-foreground">
+                      ${msg.cost.toFixed(4)} · {((msg.duration ?? 0) / 1000).toFixed(1)}s
+                    </span>
+                  )}
                 </div>
 
                 <div className={`rounded-xl px-3.5 py-2.5 text-sm ${
@@ -185,7 +315,7 @@ export function AgentChat() {
                 </div>
 
                 {msg.action && (
-                  <Card size="sm" className="mt-1.5">
+                  <Card className="mt-1.5">
                     <CardContent className="flex items-center gap-2 p-2">
                       <ZapIcon className="size-3.5 text-[var(--yellow)]" />
                       <span className="font-mono text-xs text-muted-foreground">{msg.action}</span>
@@ -196,7 +326,24 @@ export function AgentChat() {
             </div>
           ))}
 
-          {loading && (
+          {isStreaming && streamingText && (
+            <div className="flex gap-3">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <BotIcon className="size-4" />
+              </div>
+              <div className="max-w-[75%] space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold">{t("chat.agent")}</span>
+                  <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+                </div>
+                <div className="rounded-xl rounded-tl-sm bg-card px-3.5 py-2.5 text-sm text-foreground ring-1 ring-border">
+                  <p className="whitespace-pre-wrap text-left">{streamingText}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {loading && !isStreaming && (
             <div className="flex gap-3">
               <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                 <BotIcon className="size-4" />
@@ -217,13 +364,13 @@ export function AgentChat() {
           onChange={(e) => setInput(e.target.value)}
           placeholder={t("chat.placeholder")}
           onKeyDown={handleKeyDown}
-          disabled={loading}
+          disabled={loading || isStreaming}
           aria-label={t("chat.placeholder")}
           className="flex-1"
         />
         <Button
           onClick={sendMessage}
-          disabled={loading || !input.trim()}
+          disabled={loading || isStreaming || !input.trim()}
           aria-label={t("chat.send")}
         >
           {loading

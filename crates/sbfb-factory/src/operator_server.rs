@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Json};
 use axum::routing::{get, post};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::llm_bridge;
 use crate::process;
 
 const ACTION_ALLOWLIST: &[&str] = &["status-sprint", "lint-planning", "audit-commit", "prompt"];
@@ -98,6 +102,8 @@ pub fn build_router(root: PathBuf) -> Router {
         .route("/api/artifacts/draft", post(handle_artifact_draft))
         .route("/api/chat/session", post(handle_chat_session))
         .route("/api/chat/message", post(handle_chat_message))
+        .route("/api/chat/{id}/send", post(handle_chat_send))
+        .route("/api/chat/{id}/stream", get(handle_chat_stream))
         .route("/api/chat/{id}/log", get(handle_chat_log))
         .route("/api/sprint-history", get(handle_sprint_history))
         .route("/api/sprint-history/all", get(handle_all_sprints))
@@ -643,6 +649,144 @@ async fn handle_chat_message(
         "requires_gate": false,
     }))
     .into_response()
+}
+
+#[derive(Deserialize)]
+struct ChatSendRequest {
+    message: String,
+    #[serde(default = "default_provider")]
+    provider: String,
+    #[serde(default)]
+    model: String,
+}
+
+async fn handle_chat_send(
+    State(state): State<OperatorState>,
+    Path(id): Path<String>,
+    Json(req): Json<ChatSendRequest>,
+) -> impl IntoResponse {
+    let mut sessions = state.chat_sessions.lock().unwrap();
+    let session = match sessions.get_mut(&id) {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "session not found"})),
+            )
+                .into_response();
+        }
+    };
+
+    let lower = req.message.to_lowercase();
+    let is_sensitive = SENSITIVE_ACTIONS
+        .iter()
+        .any(|a| lower.contains(&a.to_lowercase()));
+
+    session.messages.push(ChatMessage {
+        role: "user".into(),
+        content: req.message.clone(),
+        action: None,
+    });
+
+    if is_sensitive {
+        session.messages.push(ChatMessage {
+            role: "system".into(),
+            content: "This action requires external verification via a real agent session.".into(),
+            action: Some("requires_gate".into()),
+        });
+
+        return Json(serde_json::json!({
+            "ok": false,
+            "requires_gate": true,
+        }))
+        .into_response();
+    }
+
+    log_action(
+        &state,
+        "chat-send",
+        serde_json::json!({"session": &id, "provider": &req.provider, "model": &req.model}),
+        "queued",
+    );
+
+    Json(serde_json::json!({
+        "ok": true,
+        "provider": req.provider,
+    }))
+    .into_response()
+}
+
+type SseStream = std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Infallible>> + Send>>;
+
+fn sse_error(msg: &str) -> Sse<SseStream> {
+    let json = format!(r#"{{"type":"error","message":"{}"}}"#, msg);
+    let stream: SseStream = Box::pin(futures::stream::once(async move {
+        Ok::<_, Infallible>(Event::default().data(json))
+    }));
+    Sse::new(stream)
+}
+
+async fn handle_chat_stream(
+    State(state): State<OperatorState>,
+    Path(id): Path<String>,
+) -> Sse<SseStream> {
+    let (context_pack, history, last_user_msg) = {
+        let sessions = state.chat_sessions.lock().unwrap();
+        match sessions.get(&id) {
+            Some(session) => {
+                let hist: Vec<(String, String)> = session
+                    .messages
+                    .iter()
+                    .filter(|m| m.role == "user" || m.role == "assistant")
+                    .map(|m| (m.role.clone(), m.content.clone()))
+                    .collect();
+                let last = session
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.role == "user")
+                    .map(|m| m.content.clone())
+                    .unwrap_or_default();
+                (session.context_pack.clone(), hist, last)
+            }
+            None => return sse_error("session not found"),
+        }
+    };
+
+    if last_user_msg.is_empty() {
+        return sse_error("no user message");
+    }
+
+    let runtime_ctx = context_pack
+        .get("runtime_context")
+        .cloned()
+        .unwrap_or_default();
+    let prompt = llm_bridge::assemble_prompt(&runtime_ctx, &history[..], &last_user_msg);
+
+    let root = state.root.clone();
+    let state_clone = state.clone();
+    let session_id = id.clone();
+
+    let claude_stream = llm_bridge::spawn_claude_stream(&prompt, "sonnet", &root);
+
+    let sse_stream: SseStream = Box::pin(claude_stream.map(move |chunk| {
+        let json = serde_json::to_string(&chunk).unwrap_or_default();
+
+        if let llm_bridge::StreamChunk::Done { result, .. } = &chunk {
+            let mut sessions = state_clone.chat_sessions.lock().unwrap();
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.messages.push(ChatMessage {
+                    role: "assistant".into(),
+                    content: result.clone(),
+                    action: None,
+                });
+            }
+        }
+
+        Ok::<_, Infallible>(Event::default().data(json))
+    }));
+
+    Sse::new(sse_stream)
 }
 
 async fn handle_chat_log(

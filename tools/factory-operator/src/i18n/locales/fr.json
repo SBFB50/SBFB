@@ -193,7 +193,9 @@
     "agent": "Agent",
     "messagesCount": "messages",
     "emptyConversation": "Envoyez un message pour démarrer la conversation.",
-    "thinking": "Réflexion en cours..."
+    "thinking": "Réflexion en cours...",
+    "gateRequired": "Cette action nécessite une vérification externe via une vraie session agent.",
+    "providerNotConnected": "Ce provider n'est pas encore connecté. Seul Claude est disponible."
   },
   "actionLog": {
     "title": "Journal d'actions",

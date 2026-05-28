@@ -7423,11 +7423,13 @@ checksum = "b63583a1dd0647d1484228529ab4ecaa874048d2956f117362aa5f5826456230"
 name = "sbfb-factory"
 version = "1.0.0"
 dependencies = [
+ "async-stream",
  "axum",
  "blake3",
  "clap",
  "directories 5.0.1",
  "dunce",
+ "futures",
  "hex",
  "nexus-core-rs",
  "regex",
