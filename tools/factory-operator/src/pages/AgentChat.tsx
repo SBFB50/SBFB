@@ -21,6 +21,7 @@ interface Message {
   role: "user" | "agent";
   content: string;
   action?: string;
+  thinking?: string;
   timestamp: string;
   cost?: number;
   duration?: number;
@@ -50,6 +51,7 @@ export function AgentChat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [thinkingText, setThinkingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [debugMode, setDebugMode] = useState(() =>
     localStorage.getItem("factory-debug") === "true",
@@ -173,6 +175,7 @@ export function AgentChat() {
 
       setIsStreaming(true);
       setStreamingText("");
+      setThinkingText("");
 
       const sseUrl = `/api/chat/${sessionId}/stream`;
       addDebug("sse", `EventSource → ${sseUrl}`);
@@ -182,6 +185,7 @@ export function AgentChat() {
       eventSourceRef.current = es;
 
       let accumulated = "";
+      let accumulatedThinking = "";
 
       es.onmessage = (event) => {
         try {
@@ -198,6 +202,8 @@ export function AgentChat() {
               break;
 
             case "thinking":
+              accumulatedThinking += data.text ?? "";
+              setThinkingText(accumulatedThinking);
               addDebug("thinking", data.text ?? "");
               break;
 
@@ -206,6 +212,7 @@ export function AgentChat() {
               eventSourceRef.current = null;
               setIsStreaming(false);
               setStreamingText("");
+              setThinkingText("");
               setLoading(false);
               addDebug("done", `cost=$${data.cost_usd?.toFixed(4)} duration=${data.duration_ms}ms`);
               setMessages((prev) => [
@@ -216,6 +223,7 @@ export function AgentChat() {
                   timestamp: new Date().toLocaleTimeString("fr-FR"),
                   cost: data.cost_usd,
                   duration: data.duration_ms,
+                  thinking: accumulatedThinking || undefined,
                 },
               ]);
               break;
@@ -381,6 +389,17 @@ export function AgentChat() {
                     )}
                   </div>
 
+                  {msg.thinking && (
+                    <details className="rounded-lg bg-zinc-900/50 text-xs ring-1 ring-zinc-700/50">
+                      <summary className="cursor-pointer px-3 py-1.5 font-mono text-zinc-500 hover:text-zinc-300">
+                        thinking ({msg.thinking.length} chars)
+                      </summary>
+                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap px-3 pb-2 font-mono text-zinc-500">
+                        {msg.thinking}
+                      </pre>
+                    </details>
+                  )}
+
                   <div className={`rounded-xl px-3.5 py-2.5 text-sm ${
                     msg.role === "user"
                       ? "rounded-tr-sm bg-primary/15 text-foreground"
@@ -401,7 +420,7 @@ export function AgentChat() {
               </div>
             ))}
 
-            {isStreaming && streamingText && (
+            {isStreaming && (thinkingText || streamingText) && (
               <div className="flex gap-3">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                   <BotIcon className="size-4" />
@@ -411,9 +430,21 @@ export function AgentChat() {
                     <span className="text-xs font-semibold">{t("chat.agent")}</span>
                     <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
                   </div>
-                  <div className="rounded-xl rounded-tl-sm bg-card px-3.5 py-2.5 text-sm text-foreground ring-1 ring-border">
-                    <p className="whitespace-pre-wrap text-left">{streamingText}</p>
-                  </div>
+
+                  {thinkingText && (
+                    <div className="rounded-lg bg-zinc-900/50 px-3 py-2 text-xs ring-1 ring-zinc-700/50">
+                      <div className="mb-1 font-mono text-[10px] text-zinc-500">thinking...</div>
+                      <pre className="max-h-32 overflow-auto whitespace-pre-wrap font-mono text-zinc-400">
+                        {thinkingText}
+                      </pre>
+                    </div>
+                  )}
+
+                  {streamingText && (
+                    <div className="rounded-xl rounded-tl-sm bg-card px-3.5 py-2.5 text-sm text-foreground ring-1 ring-border">
+                      <p className="whitespace-pre-wrap text-left">{streamingText}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
