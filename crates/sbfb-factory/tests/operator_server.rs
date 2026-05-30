@@ -651,3 +651,125 @@ fn operator_action_run_allowed_command() {
         "should return sprint data or error"
     );
 }
+
+// Sprint 71 Phase D / G6: the off-sprint sprint-history + commit-diff +
+// terminal-sessions endpoints shipped with no coverage. These exercise the
+// real HTTP surface through the authenticated `TestServer` harness (the
+// substitution endorsed by the Phase D preflight: the planned
+// `chat_session_lifecycle` was already covered in Phase C, so the genuinely
+// uncovered endpoints are tested instead).
+
+#[test]
+fn operator_sprint_history_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/sprint-history");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("sprint").is_some(), "should have sprint");
+    assert!(body.get("phases").is_some(), "should have phases");
+    assert!(body["phases"].is_array(), "phases is an array");
+}
+
+#[test]
+fn operator_sprint_history_all_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/sprint-history/all");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    let sprints = body["sprints"].as_array().expect("sprints array");
+    assert!(!sprints.is_empty(), "repo history has sprints");
+    assert!(body.get("total").is_some(), "should have total");
+}
+
+#[test]
+fn operator_commit_diff_endpoint_returns_inline_code() {
+    let server = TestServer::start();
+    // `HEAD` always resolves; the handler shells `git diff HEAD^..HEAD` and
+    // returns the structured file/hunk/line tree. The exhaustive line-kind
+    // assertions live in the hermetic `parse_unified_diff` unit test; here we
+    // prove the endpoint is wired and returns the inline-code structure.
+    let resp = server.get("/api/sprint-history/diff/HEAD");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("title").is_some(), "should have commit title");
+    assert!(body.get("files").is_some(), "should have files");
+    assert!(body["files"].is_array(), "files is an array");
+}
+
+#[test]
+fn operator_commit_diff_rejects_invalid_sha() {
+    let server = TestServer::start();
+    // A too-short sha is rejected before any git call (guards path-traversal
+    // and malformed revs).
+    let resp = server.get("/api/sprint-history/diff/ab");
+    assert_eq!(resp.status(), 400, "sha shorter than 4 chars must be 400");
+}
+
+#[test]
+fn operator_terminal_sessions_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/terminal/sessions");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body["sessions"].is_array(), "should have sessions array");
+    assert!(
+        body["claude_sessions"].is_array(),
+        "should have claude_sessions array"
+    );
+}
+
+// Sprint 71 Phase D / G5 retro-Codex P1: the diff and audit endpoints
+// shelled `git log`/`git diff` with a raw rev. A rev that git parses as an
+// option (e.g. `--output=<path>`) writes an arbitrary file (git option
+// injection). The handlers must reject any option-like rev BEFORE the git
+// call. These assert the 400 AND that no file was written.
+
+#[test]
+fn operator_commit_diff_rejects_option_injection() {
+    let server = TestServer::start();
+    let status = server
+        .get("/api/sprint-history/diff/--output=sbfb_inject_diff")
+        .status();
+    // Capture + clean the would-be artifact BEFORE asserting, so a
+    // regression (file written) never leaks a file even if an assert fails.
+    let leaked = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("sbfb_inject_diff");
+    let existed = leaked.exists();
+    let _ = std::fs::remove_file(&leaked);
+    assert!(!existed, "git option injection must not write a file");
+    assert_eq!(status, 400, "option-like sha must be 400");
+}
+
+#[test]
+fn operator_audit_rejects_option_injection() {
+    let server = TestServer::start();
+    let status = server.get("/api/audit/--output=sbfb_inject_audit").status();
+    let leaked = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("sbfb_inject_audit");
+    let existed = leaked.exists();
+    let _ = std::fs::remove_file(&leaked);
+    assert!(!existed, "git option injection must not write a file");
+    assert_eq!(status, 400, "option-like rev must be 400");
+}
+
+#[test]
+fn operator_terminal_session_content_rejects_traversal() {
+    let server = TestServer::start();
+    // `..` (percent-encoded so the URL layer does not normalise it away)
+    // must not escape `.planning/terminal/`. Either the guard (400) or the
+    // router (404) rejects it — never a 200 reading an outside file.
+    let resp = server.get("/api/terminal/sessions/%2e%2e%5c%2e%2e%5csecret");
+    assert!(
+        resp.status() == 400 || resp.status() == 404,
+        "traversal session name must be rejected, got {}",
+        resp.status()
+    );
+
+    // Windows drive-prefix escape (`C:foo` is drive-relative and `join`
+    // discards the terminal dir) — the phase-Codex live-probed this exact
+    // bypass. `%3A` = `:`. Must be rejected, never a 200.
+    let drive = server.get("/api/terminal/sessions/C%3Asbfb_drive_probe");
+    assert!(
+        drive.status() == 400 || drive.status() == 404,
+        "drive-prefix session name must be rejected, got {}",
+        drive.status()
+    );
+}

@@ -936,12 +936,15 @@ pub struct DiffLine {
 }
 
 pub fn commit_diff_data(sha: &str) -> Option<CommitDiffResult> {
-    let title = git_cmd(&["log", "-1", "--format=%s", sha]);
+    // `--end-of-options` forces git to treat `sha` as a revision, never an
+    // option, even if a guard upstream were bypassed (defense in depth vs
+    // git option injection — S71 Phase D retro-Codex).
+    let title = git_cmd(&["log", "-1", "--format=%s", "--end-of-options", sha]);
     if title.is_empty() {
         return None;
     }
 
-    let raw_diff = git_cmd(&["diff", "-U3", &format!("{sha}^..{sha}")]);
+    let raw_diff = git_cmd(&["diff", "-U3", "--end-of-options", &format!("{sha}^..{sha}")]);
     let files = parse_unified_diff(&raw_diff);
 
     Some(CommitDiffResult {
@@ -1044,4 +1047,85 @@ fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
     }
 
     files
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Sprint 71 Phase D / G6: `sprint_history.rs` (1048 lines) shipped
+    // off-sprint with zero tests. The pure parsers are the high-value,
+    // hermetic surface — exercised here with string fixtures (no git). The
+    // HTTP endpoint wiring is covered in `tests/operator_server.rs` via the
+    // authenticated `TestServer` harness.
+
+    #[test]
+    fn parse_unified_diff_classifies_line_kinds() {
+        // A minimal one-file unified diff with context/add/del lines. The
+        // parser must classify each line and keep the inline code verbatim.
+        let raw = concat!(
+            "diff --git a/foo.txt b/foo.txt\n",
+            "index 1111111..2222222 100644\n",
+            "--- a/foo.txt\n",
+            "+++ b/foo.txt\n",
+            "@@ -1,3 +1,4 @@\n",
+            " context line\n",
+            "-removed line\n",
+            "+added line one\n",
+            "+added line two\n",
+            " trailing context\n",
+        );
+
+        let files = parse_unified_diff(raw);
+        assert_eq!(files.len(), 1, "one file in the diff");
+        let f = &files[0];
+        assert_eq!(f.path, "foo.txt");
+        assert_eq!(f.insertions, 2, "two + lines");
+        assert_eq!(f.deletions, 1, "one - line");
+
+        let hunk = &f.hunks[0];
+        let kinds: Vec<&str> = hunk.lines.iter().map(|l| l.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["ctx", "del", "add", "add", "ctx"]);
+
+        // Inline code content is preserved (the `+`/`-`/` ` marker is stripped).
+        assert!(
+            hunk.lines
+                .iter()
+                .any(|l| l.kind == "add" && l.content == "added line one"),
+            "added inline code retained"
+        );
+        assert!(
+            hunk.lines
+                .iter()
+                .any(|l| l.kind == "del" && l.content == "removed line"),
+            "removed inline code retained"
+        );
+    }
+
+    #[test]
+    fn extract_section_stops_at_next_header() {
+        let md = concat!(
+            "## Alpha\n",
+            "alpha line 1\n",
+            "alpha line 2\n",
+            "## Beta\n",
+            "beta line\n",
+        );
+        let section = extract_section(md, "## Alpha");
+        assert!(section.contains("alpha line 1"));
+        assert!(section.contains("alpha line 2"));
+        assert!(
+            !section.contains("beta line"),
+            "must stop at next ## header"
+        );
+    }
+
+    #[test]
+    fn extract_verdict_reads_plan_adapt() {
+        let content = "intro\n## Verdict: PLAN-ADAPT\nmore text";
+        assert_eq!(
+            extract_preflight_verdict_generic(content).as_deref(),
+            Some("PLAN-ADAPT")
+        );
+    }
 }

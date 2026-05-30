@@ -304,3 +304,62 @@ fn dirs_next() -> Option<PathBuf> {
         std::env::var("HOME").ok().map(PathBuf::from)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Sprint 71 Phase D / G6: the off-sprint terminal-recording code shipped
+    // with zero tests. These exercise the file-system + asciicast surface
+    // WITHOUT spawning a real PTY (the `handle_terminal_ws` spawn path drives
+    // a live `claude` process and is not hermetically testable — mirrors the
+    // OSS PTY-test rule of never launching the real interactive program).
+
+    #[test]
+    fn session_log_roundtrip() {
+        // The log writers must emit a valid asciicast v2 stream:
+        // line 1 = a JSON header object with "version":2; subsequent lines =
+        // 3-element `[time, "o", data]` event arrays (docs.asciinema.org).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("session.cast");
+
+        let mut file = fs::File::create(&path).expect("create cast");
+        write_asciicast_header(&mut file, 120, 30);
+        let start = std::time::Instant::now();
+        write_asciicast_event(&mut file, start, b"hello\r\n");
+        drop(file);
+
+        let content = fs::read_to_string(&path).expect("read cast");
+        let mut lines = content.lines();
+
+        let header: serde_json::Value =
+            serde_json::from_str(lines.next().expect("header line")).expect("header is json");
+        assert_eq!(header["version"], 2, "asciicast v2 header");
+        assert_eq!(header["width"], 120);
+        assert_eq!(header["height"], 30);
+
+        let event: serde_json::Value =
+            serde_json::from_str(lines.next().expect("event line")).expect("event is json");
+        let arr = event.as_array().expect("event is an array");
+        assert_eq!(arr.len(), 3, "event = [time, channel, data]");
+        assert_eq!(arr[1], "o", "output channel");
+        assert_eq!(arr[2], "hello\r\n", "payload round-trips verbatim");
+    }
+
+    #[test]
+    fn list_sessions_filters_correct_extension() {
+        // D7 (resolved Phase A) kept the asciicast `.cast` extension; the
+        // listing must surface only `.cast` files, never `.log`/`.txt`.
+        let root = tempfile::tempdir().expect("tempdir");
+        let term_dir = root.path().join(".planning").join("terminal");
+        fs::create_dir_all(&term_dir).expect("mkdir terminal");
+
+        fs::write(term_dir.join("sprint71_phase_D_2026.cast"), "x").expect("write cast");
+        fs::write(term_dir.join("stray.log"), "y").expect("write log");
+        fs::write(term_dir.join("notes.txt"), "z").expect("write txt");
+
+        let sessions = list_sessions(root.path());
+        assert_eq!(sessions.len(), 1, "only the .cast file is a session");
+        assert_eq!(sessions[0]["name"], "sprint71_phase_D_2026");
+    }
+}

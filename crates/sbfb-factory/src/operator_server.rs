@@ -209,10 +209,30 @@ async fn handle_lint(State(state): State<OperatorState>) -> Json<serde_json::Val
     Json(serde_json::to_value(result).unwrap())
 }
 
+/// Reject a user-supplied git rev/sha that git could parse as an option
+/// (leading `-`) or that carries whitespace/control bytes. The Operator
+/// shells `git log`/`git diff` with the raw rev; without this a value such
+/// as `--output=<path>` is interpreted as a git option and writes an
+/// arbitrary file (git option injection, live-demonstrated by the S71
+/// Phase D retro-Codex). Defense in depth: the git calls themselves pass
+/// `--end-of-options` (see `sprint_history.rs` / `process.rs`).
+fn is_safe_git_rev(rev: &str) -> bool {
+    !rev.is_empty()
+        && !rev.starts_with('-')
+        && !rev.contains(|c: char| c.is_whitespace() || c.is_control())
+}
+
 async fn handle_audit(
     State(state): State<OperatorState>,
     Path(rev): Path<String>,
 ) -> impl IntoResponse {
+    if !is_safe_git_rev(&rev) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid rev"})),
+        )
+            .into_response();
+    }
     match process::audit_commit_data(&state.root, &rev) {
         Ok(result) => Json(serde_json::to_value(result).unwrap()).into_response(),
         Err(e) => (
@@ -945,11 +965,33 @@ async fn handle_terminal_session_content(
     State(state): State<OperatorState>,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let path = state
-        .root
-        .join(".planning")
-        .join("terminal")
-        .join(format!("{name}.cast"));
+    // Reject path-traversal / separators / Windows drive-prefix (`C:`) before
+    // the name is joined into `.planning/terminal/{name}.cast` (S71 Phase D
+    // retro-Codex + phase-Codex hardening: a `C:` drive-relative name escaped
+    // the terminal dir on Windows).
+    if name.is_empty()
+        || name.contains("..")
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains(':')
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid session name"})),
+        )
+            .into_response();
+    }
+    let term_dir = state.root.join(".planning").join("terminal");
+    let path = term_dir.join(format!("{name}.cast"));
+    // Structural backstop: the resolved file must live DIRECTLY in term_dir
+    // (defeats any residual prefix/separator trick the denylist missed).
+    if path.parent() != Some(term_dir.as_path()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid session name"})),
+        )
+            .into_response();
+    }
     match std::fs::read_to_string(&path) {
         Ok(content) => (StatusCode::OK, content).into_response(),
         Err(_) => (
@@ -991,7 +1033,7 @@ async fn handle_sprint_history_by_number(
 }
 
 async fn handle_commit_diff(Path(sha): Path<String>) -> impl IntoResponse {
-    if sha.len() < 4 || sha.contains("..") || sha.contains('/') {
+    if sha.len() < 4 || sha.contains("..") || sha.contains('/') || !is_safe_git_rev(&sha) {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "invalid sha"})),

@@ -549,8 +549,16 @@ pub fn audit_commit_data(
     root: &Path,
     rev: &str,
 ) -> Result<AuditCommitResult, Box<dyn std::error::Error>> {
+    // `--end-of-options` forces git to treat `rev` as a revision, never an
+    // option (defense in depth vs git option injection — S71 Phase D).
     let output = std::process::Command::new("git")
-        .args(["log", "--format=%s\n---BODY---\n%b", "-1", rev])
+        .args([
+            "log",
+            "--format=%s\n---BODY---\n%b",
+            "-1",
+            "--end-of-options",
+            rev,
+        ])
         .output()?;
     if !output.status.success() {
         return Err(format!("git log failed for rev '{rev}'").into());
@@ -828,4 +836,51 @@ pub fn prompt_data(
 
 pub fn providers_list() -> Vec<&'static str> {
     PROVIDERS.to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Sprint 71 Phase D / G6: the off-sprint prompt-kind/provider plumbing
+    // had no unit coverage. These pin the alias table, the provider set, and
+    // the git-root resolution that the operator/context paths rely on.
+
+    #[test]
+    fn resolve_kind_aliases() {
+        // Short aliases resolve to their canonical prompt kind.
+        assert_eq!(resolve_kind("review"), Some("phase-review"));
+        assert_eq!(resolve_kind("auditor"), Some("phase-auditor"));
+        assert_eq!(resolve_kind("audit"), Some("audit-gate"));
+        // A canonical kind passes through unchanged.
+        assert_eq!(resolve_kind("preflight"), Some("preflight"));
+        assert_eq!(resolve_kind("base"), Some("base"));
+        // An unknown kind resolves to nothing (callers surface an error).
+        assert_eq!(resolve_kind("definitely-not-a-kind"), None);
+    }
+
+    #[test]
+    fn providers_list_is_canonical() {
+        // D8 (resolved Phase B): the prompt-adaptation providers are a fixed
+        // set, distinct from the runtime LlmBackend.
+        assert_eq!(
+            providers_list(),
+            vec!["claude", "codex", "gpt", "local", "human"]
+        );
+    }
+
+    #[test]
+    fn repo_root_resolves() {
+        let root = repo_root_pub();
+        assert!(
+            root.is_absolute(),
+            "repo root must be absolute: {}",
+            root.display()
+        );
+        assert!(
+            root.join(".git").exists(),
+            "repo root must contain a .git entry: {}",
+            root.display()
+        );
+    }
 }
