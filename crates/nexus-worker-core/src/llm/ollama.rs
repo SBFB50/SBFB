@@ -25,6 +25,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use ollama_rs::Ollama;
 use ollama_rs::generation::completion::request::GenerationRequest;
+use ollama_rs::generation::options::GenerationOptions;
 use ollama_rs::generation::parameters::FormatType;
 use url::Url;
 
@@ -176,6 +177,16 @@ impl LlmBackend for OllamaBackend {
             if let Some(fmt) = format.clone() {
                 req = req.format(fmt);
             }
+            // Sprint 71 Phase B (B-2): forward an explicit sampling
+            // temperature / seed when the caller pinned them. Without
+            // this, Ollama applies the Modelfile defaults (temp ~0.8,
+            // random seed) and two honest workers on a `verifiable`
+            // task diverge — breaking hash-exact quorum. The
+            // `GenerationOptions` API existed in the pinned ollama-rs
+            // 0.2.6 ; it just was not wired.
+            if let Some(opts) = deterministic_options(&params) {
+                req = req.options(opts);
+            }
             req
         };
 
@@ -214,6 +225,32 @@ impl LlmBackend for OllamaBackend {
             output_token_ids: vec![],
         })
     }
+}
+
+/// Build the Ollama [`GenerationOptions`] for an explicit sampling
+/// request, or `None` when the caller left both `temperature` and
+/// `seed` unset (best-effort sampling — preserve the pre-Sprint-71
+/// behavior of inheriting the Modelfile defaults).
+///
+/// For a `verifiable` task the worker pins `temperature = 0` + a
+/// fixed seed (see [`GenerateParams::deterministic`]); forwarding
+/// both to Ollama makes two honest workers reproduce the same
+/// `result_text` for hash-exact quorum (Sprint 71 Phase B, B-2).
+fn deterministic_options(params: &GenerateParams) -> Option<GenerationOptions> {
+    if params.temperature.is_none() && params.seed.is_none() {
+        return None;
+    }
+    let mut opts = GenerationOptions::default();
+    if let Some(t) = params.temperature {
+        opts = opts.temperature(t);
+    }
+    if let Some(s) = params.seed {
+        // ollama-rs takes an i32 seed; the worker-side u32 is
+        // reinterpreted bit-for-bit. The exact value is irrelevant
+        // as long as every worker on the same task uses the same one.
+        opts = opts.seed(s as i32);
+    }
+    Some(opts)
 }
 
 /// Defensive validator : parse the LLM output as a `TaskResponse`
@@ -355,6 +392,29 @@ mod tests {
         ));
         assert!(!looks_like_connection_refused("model not found"));
         assert!(!looks_like_connection_refused("403 forbidden"));
+    }
+
+    #[test]
+    fn deterministic_options_wire_temperature_and_seed() {
+        // A verifiable task pins temperature 0 + a fixed seed; both
+        // must reach Ollama via GenerationOptions or two honest
+        // workers diverge under the Modelfile defaults (Sprint 71 B-2).
+        let params = GenerateParams::new("m", "p").deterministic(7);
+        let opts = deterministic_options(&params).expect("verifiable params must produce options");
+        // GenerationOptions fields are private to ollama-rs; assert
+        // through its Serialize impl — the exact JSON Ollama receives.
+        let json = serde_json::to_value(&opts).unwrap();
+        assert_eq!(json["temperature"], 0.0);
+        assert_eq!(json["seed"], 7);
+    }
+
+    #[test]
+    fn best_effort_params_attach_no_options() {
+        // No temperature / seed => no options => Ollama keeps its
+        // Modelfile defaults exactly as before Sprint 71 (no regression
+        // for non-verifiable single-worker inference).
+        let plain = GenerateParams::new("m", "p");
+        assert!(deterministic_options(&plain).is_none());
     }
 
     #[test]

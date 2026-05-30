@@ -123,6 +123,18 @@ fn remap_path_flag(source_dir: &Path) -> String {
 ///
 /// Clone → checkout → `cargo build --release --locked` → SHA256.
 /// The caller manages the lifetime of `work_dir`.
+///
+/// **Dormant entry point (Sprint 71 Phase B / D8).** Tier 2 of the
+/// LT-7 self-hosted build pipeline. The worker dispatch does not yet
+/// route `task_type == "build"` to this path, so neither
+/// `execute_build` nor [`execute_build_with_timeout`] has a live
+/// caller today. It is intentionally **kept, not removed**, because
+/// the LT-7 worker-quorum build E2E is a *named* future consumer
+/// (tracked in `docs/release/ROADMAP_COMMITMENTS.md`, slated for
+/// S75): removing it would drop working clone/build/hash logic that
+/// S75 will wire in. Contrast `RedundancyDispatcher`, removed the
+/// same phase because it had no future consumer (the DB-backed
+/// quorum superseded it at Sprint 55).
 pub fn execute_build(params: &BuildParams, work_dir: &Path) -> Result<BuildResult, BuildError> {
     execute_build_with_timeout(params, work_dir, DEFAULT_BUILD_TIMEOUT)
 }

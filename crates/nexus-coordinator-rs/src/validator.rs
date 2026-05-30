@@ -81,6 +81,23 @@ pub fn validate_result(
     Ok((ValidationOutcome::Accepted, Some(task)))
 }
 
+/// Quorum path for redundant tasks (`redundancy_factor > 1`).
+///
+/// Workers agree by **exact equality of `result_text`**. The
+/// `sha256` parameter is the worker's raw `result_text`: the column
+/// keeps the name `sha256` from its Sprint 55 build-task origin
+/// (where it held a binary digest), but for inference results it
+/// stores the text verbatim — no hashing happens on this path. A
+/// strict majority of identical values is accepted; divergent values
+/// are logged as outliers and the task is rejected.
+///
+/// This exact-match quorum is only *useful* when the workers ran
+/// **deterministic** inference (`Task::verifiable` => greedy + fixed
+/// seed, Sprint 71 Phase B / B-2): otherwise two honest workers
+/// sample different text, never agree, and every redundant inference
+/// task is wrongly rejected. Determinism is enforced worker-side at
+/// submission (`build_generate_params`); the validator itself is
+/// mode-agnostic and unchanged by B-2.
 fn validate_quorum(
     db: &CoordinatorDb,
     task: &TaskRecord,
@@ -444,5 +461,92 @@ mod tests {
         let task = db.get_task("inf-001").expect("get").expect("found");
         assert_eq!(task.status, TaskStatus::Completed);
         assert_eq!(task.redundancy_factor, 1);
+    }
+
+    // -----------------------------------------------------------
+    // Sprint 71 Phase B — deterministic-quorum (B-2) properties
+    // -----------------------------------------------------------
+
+    #[test]
+    fn two_honest_workers_same_hash() {
+        // Two independent workers that ran deterministic (greedy +
+        // fixed-seed) inference produce the SAME `result_text`. Their
+        // results are signed by different keypairs (distinct
+        // signatures / worker ids) but carry the same quorum key, so
+        // the validator counts them as agreeing — the property B-2
+        // buys: honest workers converge instead of diverging.
+        let db = setup_build_task("det-pair", 2);
+        let agreed = "deterministic greedy output";
+
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let r1 = make_build_result("det-pair", &w1, agreed);
+        let r2 = make_build_result("det-pair", &w2, agreed);
+        // Distinct workers, distinct signatures, identical quorum key.
+        assert_ne!(r1.signature, r2.signature);
+        assert_eq!(r1.payload.result_text, r2.payload.result_text);
+
+        validate_result(&db, &r1).expect("v1");
+        validate_result(&db, &r2).expect("v2");
+
+        let results = db.get_task_results("det-pair").expect("results");
+        assert_eq!(results.len(), 2);
+        // Both honest results landed under one quorum key.
+        let distinct: std::collections::HashSet<&str> =
+            results.iter().map(|r| r.sha256.as_str()).collect();
+        assert_eq!(distinct.len(), 1, "deterministic honest workers agree");
+    }
+
+    #[test]
+    fn quorum_accepts_deterministic_redundancy() {
+        // The B-2 acceptance path end to end: at redundancy_factor=2,
+        // two honest workers with identical deterministic output reach
+        // a strict majority and the task is Accepted.
+        let db = setup_build_task("det-accept", 2);
+        let agreed = "stable greedy answer";
+
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+
+        let (o1, _) =
+            validate_result(&db, &make_build_result("det-accept", &w1, agreed)).expect("v1");
+        assert_eq!(o1, ValidationOutcome::AwaitingQuorum);
+
+        let (o2, _) =
+            validate_result(&db, &make_build_result("det-accept", &w2, agreed)).expect("v2");
+        assert_eq!(o2, ValidationOutcome::Accepted);
+
+        let task = db.get_task("det-accept").expect("get").expect("found");
+        assert_eq!(task.status, TaskStatus::Completed);
+        assert_eq!(task.result_hash.as_deref(), Some(agreed));
+    }
+
+    #[test]
+    fn quorum_rejects_nondeterministic_divergence() {
+        // The mirror property: had the workers sampled
+        // non-deterministically, their `result_text` would diverge, no
+        // value would reach a strict majority, and the task is
+        // QuorumRejected. This is exactly the failure B-2 forces
+        // worker-side determinism to avoid; outlier rejection stays
+        // intact.
+        let db = setup_build_task("nondet-reject", 2);
+
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+
+        validate_result(
+            &db,
+            &make_build_result("nondet-reject", &w1, "sampled text A"),
+        )
+        .expect("v1");
+        let (o2, _) = validate_result(
+            &db,
+            &make_build_result("nondet-reject", &w2, "sampled text B"),
+        )
+        .expect("v2");
+        assert_eq!(o2, ValidationOutcome::QuorumRejected);
+
+        let task = db.get_task("nondet-reject").expect("get").expect("found");
+        assert_eq!(task.status, TaskStatus::Rejected);
     }
 }

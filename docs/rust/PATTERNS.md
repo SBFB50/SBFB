@@ -2733,6 +2733,108 @@ S69 verification §5, S70 Phase B.
 
 ---
 
+## §P53 — Sprint 71 Phase B : deterministic compute quorum (B-2) + provider/backend axes (D8)
+
+### Deterministic inference as the prerequisite for hash-exact quorum
+
+The redundant-task quorum (`validate_quorum`, `nexus-coordinator-rs/
+src/validator.rs`) accepts a result when a **strict majority of
+workers report an identical `result_text`** (stored in a column
+named `sha256` for Sprint-55 build-task heritage — for inference it
+is the raw text, no hash). That quorum is *useless* for inference
+unless two honest workers produce the same text. Sprint 71 Phase B
+(B-2 / D2 / PO-11) makes them converge by forcing **deterministic
+decoding** at the source rather than loosening the comparison (a
+fuzzy threshold would open a "close enough" attack surface and is
+not reproducible — rejected in kickoff §5 D2).
+
+Mechanism, end to end:
+
+- **`Task.verifiable: bool`** (`nexus-core-rs/src/task.rs`) — a
+  **signed** field (inside `task_canonical_bytes`, unlike
+  `redundancy_factor` which is excluded as dispatch-only, Sprint 23
+  `34c77ce`). The execution *mode* (greedy vs sampling) changes what
+  the worker computes, so it is task identity: every worker in a
+  quorum must agree on it under one coordinator signature, and a
+  worker reads it only after `verify_signature()`. Same wire shape as
+  `is_open_source` (`#[serde(default)]`, runtime tolerance,
+  `TASK_FORMAT_VERSION` stays 1 pre-launch).
+- **Worker submission** (`nexus-worker-core/src/engine/runtime.rs`,
+  `build_generate_params`) — when `task.verifiable`, params are built
+  with `GenerateParams::deterministic(seed)`: `temperature = 0` plus a
+  seed **derived deterministically from `task_id`** (`deterministic_seed`,
+  first 4 bytes of `blake3(task_id)`), so every honest worker on the
+  same task pins the same seed. This determinism seed is NOT a secret
+  and is distinct from the per-task `watermark_seed` PRF.
+- **llama_cpp backend** is already deterministic and needs no change:
+  its sampler chain ends in an unconditional `LlamaSampler::greedy()`
+  (`llm/llama_cpp.rs:327`), a terminal argmax selector; temperature
+  scales logits but never moves the argmax (llama.cpp #3005). The seed
+  is inert on this path (greedy never draws).
+- **Ollama backend was the real gap** (preflight S1a, PLAN-ADAPT):
+  `OllamaBackend::generate` built its `GenerationRequest` with only
+  `system` + `format` and **never attached `GenerationOptions`**, so
+  Ollama applied the Modelfile defaults (temp ~0.8, random seed) and
+  two honest workers diverged. Fix: `deterministic_options(params)`
+  forwards `temperature` + `seed` via `GenerationOptions::default()
+  .temperature(t).seed(s as i32)` (the API existed in the pinned
+  ollama-rs 0.2.6, just unused). temperature=0 alone is insufficient
+  there — a fixed seed is needed against residual non-determinism
+  (ollama/ollama#5321).
+
+**Limit (D2 ⚠️ / R1)** : determinism is guaranteed *same-machine /
+same-backend / same-model-quant*. Cross-GPU float non-determinism can
+break bit-exactness; the real cross-machine quorum proof is scope-cut
+to **S75** (#11). The validator itself is unchanged by B-2 — it stays
+mode-agnostic; outlier rejection (`quorum_rejects_nondeterministic_
+divergence`) is preserved.
+
+### `provider` (prompt-adaptation) vs `backend` (execution) — two orthogonal axes (D8)
+
+Two unrelated notions both informally called "provider" exist and are
+**intentionally not unified**:
+
+- **Prompt-adaptation provider** (`sbfb-factory/src/process.rs`,
+  `PROVIDERS = ["claude","codex","gpt","local","human"]`) — *which
+  agent reads a generated context pack*. A Factory concern.
+- **Execution backend** (`nexus-worker-core`, `LlmBackend`: Ollama /
+  llama_cpp) — *what engine runs an inference task*. A worker concern.
+
+They never meet on the same code path (a `claude`-targeted prompt and
+an Ollama-executed compute task are different lifecycles), so merging
+them would conflate two axes that vary independently. Documented here
+per kickoff §5 D8.
+
+### Dead-module cleanup (D8)
+
+- **`RedundancyDispatcher` removed** (`nexus-coordinator-rs/src/
+  redundancy.rs` deleted, `pub mod redundancy` dropped). It was an
+  in-memory majority-vote port (Sprint 40, of `redundancy.py` S23)
+  **superseded by the DB-backed `validate_quorum` at Sprint 55**
+  (`0cb576d`); zero live callers at HEAD. No future consumer → pure
+  removal.
+- **`execute_build` kept but marked dormant** (`nexus-worker-core/src/
+  build_executor.rs`). Tier 2 of LT-7 self-hosted build; the worker
+  dispatch routes no `task_type == "build"` yet, so it has no live
+  caller — but LT-7 worker-quorum build E2E is a *named* future
+  consumer (S75), tracked in `docs/release/ROADMAP_COMMITMENTS.md`.
+  Kept, not removed, to preserve working clone/build/hash logic.
+
+### Off-sprint deps validated (G13)
+
+CVE/advisory scan of the three deps the off-sprint Factory block
+pulled in (versions from `Cargo.lock`): `portable-pty 0.9.0`,
+`async-stream 0.3.6`, `futures 0.3.32`. None carries a critical/high
+RustSec advisory, and none sits on a crypto/wire/network/signing path
+(portable-pty is the local, loopback, gated Operator PTY). No bump
+required. `ollama-rs 0.2.6` (touched by the B-2 wiring) is likewise
+advisory-clean.
+
+Cross-ref: S71 Phase B `verifiable` field + greedy/seed quorum,
+S71 preflight S1a (PLAN-ADAPT, Ollama gap), kickoff §5 D2/D8.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

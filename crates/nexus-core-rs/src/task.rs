@@ -142,6 +142,31 @@ pub struct Task {
     #[serde(default)]
     pub is_open_source: bool,
 
+    /// True iff this task demands **deterministic** inference:
+    /// greedy decoding (`temperature = 0`) with a fixed seed, so
+    /// independent honest workers produce an identical
+    /// `result_text` and the coordinator's hash-exact quorum
+    /// (`validate_quorum`) can accept by majority agreement.
+    /// Best-effort sampling (`false`) is the pre-Sprint-71 behavior
+    /// and stays the default for single-worker inference.
+    ///
+    /// Unlike [`Task::redundancy_factor`] (a dispatch policy that is
+    /// **excluded** from the canonical bytes, Sprint 23 `34c77ce`),
+    /// `verifiable` is part of the **signed** canonical identity: it
+    /// changes *what the worker computes* (greedy vs sampling), so
+    /// every worker in a quorum must agree on the mode under one
+    /// coordinator signature. A worker reads it after
+    /// `verify_signature()` and cannot be served a different mode by
+    /// an application-level MITM without breaking the signature.
+    /// (Sprint 71 Phase B, B-2 / D2 ; same wire shape as
+    /// [`Task::is_open_source`].)
+    ///
+    /// `#[serde(default)]` = runtime tolerance: a minimal client
+    /// JSON that omits the field decodes to `false` (best-effort),
+    /// not a parse error — not historical backward compat.
+    #[serde(default)]
+    pub verifiable: bool,
+
     /// Estimated sustained watts this task will draw. The worker
     /// rejects the task at claim time if `estimated_watts >
     /// consent.caps.max_watts`. Filled by the app submitting the
@@ -219,6 +244,7 @@ impl Task {
             parent_task_id: String::new(),
             metadata: BTreeMap::new(),
             is_open_source: false,
+            verifiable: false,
             estimated_watts: 0,
             estimated_vram_mb: 0,
             estimated_hours: 0.0,
@@ -232,6 +258,15 @@ impl Task {
     /// Builder sugar; mutates in place.
     pub fn with_open_source(mut self, flag: bool) -> Self {
         self.is_open_source = flag;
+        self
+    }
+
+    /// Mark this task as requiring deterministic (greedy, fixed-seed)
+    /// inference so independent workers reach an identical
+    /// `result_text` for hash-exact quorum. Builder sugar; mutates in
+    /// place. See [`Task::verifiable`].
+    pub fn with_verifiable(mut self, flag: bool) -> Self {
+        self.verifiable = flag;
         self
     }
 
@@ -688,6 +723,7 @@ mod tests {
     fn task_new_defaults_consent_fields_to_zero() {
         let t = Task::new("id", "t", "p", "m", 5, 0);
         assert!(!t.is_open_source);
+        assert!(!t.verifiable);
         assert_eq!(t.estimated_watts, 0);
         assert_eq!(t.estimated_vram_mb, 0);
         assert_eq!(t.estimated_hours, 0.0);
@@ -779,6 +815,74 @@ mod tests {
         });
         let t: Task = serde_json::from_value(json).unwrap();
         assert_eq!(t.redundancy_factor, 1);
+    }
+
+    // -----------------------------------------------------------
+    // Sprint 71 Phase B — deterministic-quorum `verifiable` flag
+    // -----------------------------------------------------------
+
+    #[test]
+    fn task_canonical_includes_verifiable() {
+        // The OPPOSITE of `task_canonical_excludes_redundancy_factor`:
+        // `verifiable` changes what the worker computes (greedy vs
+        // sampling), so it IS part of the signed identity — two tasks
+        // differing only by `verifiable` MUST produce different bytes.
+        let plain = Task::new("id", "t", "p", "m", 5, 0).with_verifiable(false);
+        let det = Task::new("id", "t", "p", "m", 5, 0).with_verifiable(true);
+        let bytes_plain = task_canonical_bytes(&plain, DOMAIN_TASK_V1).unwrap();
+        let bytes_det = task_canonical_bytes(&det, DOMAIN_TASK_V1).unwrap();
+        assert_ne!(
+            bytes_plain, bytes_det,
+            "execution mode is task identity and must affect canonical bytes"
+        );
+        // And the marker lands at a stable key an off-wire auditor can grep.
+        let body = &bytes_det[DOMAIN_TASK_V1.len() + 1..];
+        let text = std::str::from_utf8(body).unwrap();
+        assert!(text.contains("\"verifiable\":true"));
+    }
+
+    #[test]
+    fn task_entry_different_verifiable_different_signature() {
+        // Because `verifiable` is signed, flipping it changes the
+        // signature — a worker that verifies the signature cannot be
+        // served a different execution mode without detection.
+        let kp = KeyPair::generate();
+        let plain = TaskEntry::sign(sample_task().with_verifiable(false), &kp).unwrap();
+        let det = TaskEntry::sign(sample_task().with_verifiable(true), &kp).unwrap();
+        assert_ne!(
+            plain.signature, det.signature,
+            "execution mode is signed, so it must change the signature"
+        );
+        det.verify_signature()
+            .expect("deterministic task must verify");
+    }
+
+    #[test]
+    fn task_wire_verifiable_roundtrip() {
+        let t = Task::new("id", "t", "p", "m", 5, 0).with_verifiable(true);
+        let json = serde_json::to_string(&t).unwrap();
+        let restored: Task = serde_json::from_str(&json).unwrap();
+        assert!(restored.verifiable);
+    }
+
+    #[test]
+    fn task_wire_default_verifiable_false() {
+        // A minimal client JSON that omits `verifiable` decodes to
+        // false (best-effort sampling), not a parse error.
+        let json = serde_json::json!({
+            "version": 1,
+            "task_id": "x",
+            "task_type": "t",
+            "prompt": "p",
+            "system_prompt": "",
+            "model": "m",
+            "priority": 5,
+            "created_at": 0,
+            "parent_task_id": "",
+            "metadata": {}
+        });
+        let t: Task = serde_json::from_value(json).unwrap();
+        assert!(!t.verifiable);
     }
 
     #[test]

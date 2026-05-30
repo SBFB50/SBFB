@@ -85,6 +85,7 @@ pub fn submit_task(
         estimated_vram_mb: submission.estimated_vram_mb,
         estimated_hours: submission.estimated_hours,
         redundancy_factor: redundancy,
+        verifiable: submission.verifiable,
         watermark_seed: Vec::new(),
     };
 
@@ -152,6 +153,7 @@ mod tests {
             estimated_vram_mb: 0,
             estimated_hours: 0.0,
             redundancy_factor: 1,
+            verifiable: false,
         }
     }
 
@@ -167,6 +169,28 @@ mod tests {
         assert_eq!(entry.task.model, "llama3");
         assert!(!entry.task.task_id.is_empty());
         entry.verify_signature().expect("signature must be valid");
+    }
+
+    #[test]
+    fn submit_propagates_verifiable_flag() {
+        // The coordinator craft path carries `verifiable` into the
+        // signed Task, so a caller can request deterministic compute
+        // end to end — not just via direct Task construction
+        // (Sprint 71 Phase B, B-2).
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let kp = KeyPair::generate();
+        let dispatcher = TaskDispatcher::new(db, kp);
+
+        let mut sub = make_submission();
+        sub.verifiable = true;
+        let entry = dispatcher.submit(sub).expect("submit");
+        assert!(entry.task.verifiable, "craft path must carry verifiable");
+        // The flag lives inside the signed canonical bytes.
+        entry.verify_signature().expect("signature must verify");
+
+        // A default submission stays best-effort (verifiable = false).
+        let plain = dispatcher.submit(make_submission()).expect("submit");
+        assert!(!plain.task.verifiable);
     }
 
     #[test]

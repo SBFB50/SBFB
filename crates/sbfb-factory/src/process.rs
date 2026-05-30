@@ -21,6 +21,16 @@ const KIND_ALIASES: &[(&str, &str)] = &[
     ("audit", "audit-gate"),
 ];
 
+/// Prompt-adaptation **providers** the Factory targets when it
+/// generates a context pack — i.e. *which agent reads the prompt*
+/// (`claude`, `codex`, `gpt`, `local`, `human`). This is a distinct
+/// axis from the worker's runtime **execution backend** (the
+/// `LlmBackend` in `nexus-worker-core`: Ollama / llama_cpp), which
+/// decides *what engine runs an inference task*. The two are
+/// orthogonal — a `claude`-targeted prompt and an Ollama-executed
+/// compute task never meet on the same code path — so they are
+/// intentionally NOT unified. (Sprint 71 Phase B / D8 ; rationale in
+/// `docs/rust/PATTERNS.md`.)
 const PROVIDERS: &[&str] = &["claude", "codex", "gpt", "local", "human"];
 
 pub fn repo_root_pub() -> PathBuf {

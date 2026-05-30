@@ -91,6 +91,14 @@ pub struct TaskSubmission {
     pub estimated_hours: f64,
     #[serde(default = "default_redundancy")]
     pub redundancy_factor: u8,
+    /// Request deterministic (greedy, fixed-seed) inference so a
+    /// redundant task's honest workers converge on the same
+    /// `result_text` for hash-exact quorum. Maps straight to the
+    /// signed `Task::verifiable`. `#[serde(default)]` keeps the
+    /// field optional for clients that omit it (best-effort
+    /// sampling). (Sprint 71 Phase B, B-2.)
+    #[serde(default)]
+    pub verifiable: bool,
 }
 
 fn default_priority() -> u8 {

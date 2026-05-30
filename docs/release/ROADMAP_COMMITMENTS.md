@@ -46,7 +46,7 @@ Derniere revue).
 | LT-4 | OS biometric gate cross-platform (Windows Hello / TouchID / polkit) | latent | `<post-v1.0>` | 2026-04-20    |
 | LT-5 | Redundancy persistence SQLite + wire-up prod               | latent     | `<post-v1.0>`  | 2026-04-22    |
 | LT-6 | iroh neighborhood enrichment                                | **resolved** | Sprint 32      | 2026-04-27    |
-| LT-7 | Self-hosted build — le reseau compile le reseau             | **gate satisfait** | S55 (Tier 1+2) + S60 (Tier 3) | 2026-05-12 |
+| LT-7 | Self-hosted build — le reseau compile le reseau             | **gate satisfait** | S55 (Tier 1+2) + S60 (Tier 3) | 2026-05-30 |
 
 ## LT-1 Kudos-v2 fairness reform
 
@@ -344,6 +344,17 @@ Derniere revue).
   **Tier 3 diversite publique post-launch** : la decentralisation
   organique (N builders independants non-controles) ne peut exister
   qu'avec des nœuds tiers. Premiers users = premiers builders.
+  **Revue S71 Phase B (2026-05-30)** : le nettoyage compute D8 a
+  confirme que `build_executor::execute_build` /
+  `execute_build_with_timeout` (Tier 2, S55) restent **dormants** —
+  le dispatch worker ne route encore aucun `task_type == "build"`
+  vers ce chemin. Decision D8/R7 : **conserve, pas retire**, car
+  LT-7 est le consommateur futur nomme (worker quorum build E2E,
+  S75). Le code clone/build/SHA256 est marque dormant dans
+  `crates/nexus-worker-core/src/build_executor.rs` et pointe ici.
+  (A distinguer de `RedundancyDispatcher`, retire la meme phase
+  faute de consommateur futur — le quorum DB-backed l'a supersede
+  S55.)
 
 ## Reservation IDs futurs
 

@@ -181,9 +181,22 @@ pub struct GenerateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<String>,
     /// Optional sampling temperature. `None` uses the backend's
-    /// default (usually the model's training default).
+    /// default (usually the model's training default). Set to
+    /// `Some(0.0)` together with [`Self::seed`] for deterministic
+    /// (greedy) decoding on verifiable tasks (Sprint 71 Phase B).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    /// Optional fixed RNG seed forwarded to the backend so two
+    /// honest workers reproduce the same tokens. `None` lets the
+    /// backend pick its own (usually random) seed. Inert on the
+    /// llama_cpp path (its sampler ends in an unconditional
+    /// `greedy()` selector, so argmax decoding never draws), but
+    /// load-bearing on the Ollama path, where it pins the daemon's
+    /// otherwise-random seed for hash-exact quorum. This is a
+    /// determinism seed, NOT the per-task watermark PRF seed
+    /// ([`Self::watermark_seed`]). (Sprint 71 Phase B, B-2.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u32>,
     /// Optional JSON Schema the response must satisfy. Sprint 20
     /// only ships one schema identity (`TaskResponse`) — the
     /// backends resolve the value through
@@ -210,6 +223,7 @@ impl GenerateParams {
             prompt: prompt.into(),
             system: None,
             temperature: None,
+            seed: None,
             schema: None,
             watermark_seed: Vec::new(),
             watermark_enabled: false,
@@ -227,6 +241,24 @@ impl GenerateParams {
     /// Attach a sampling temperature.
     pub fn with_temperature(mut self, temp: f32) -> Self {
         self.temperature = Some(temp);
+        self
+    }
+
+    /// Attach a fixed RNG seed (see [`Self::seed`]).
+    pub fn with_seed(mut self, seed: u32) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
+    /// Force **deterministic** decoding: greedy (`temperature = 0`)
+    /// with a fixed `seed`. Two honest workers that run the same
+    /// task with the same model + backend then produce an identical
+    /// `result_text`, which the coordinator's hash-exact quorum
+    /// (`validate_quorum`) can accept. Used for `Task::verifiable`
+    /// tasks (Sprint 71 Phase B, B-2 / D2).
+    pub fn deterministic(mut self, seed: u32) -> Self {
+        self.temperature = Some(0.0);
+        self.seed = Some(seed);
         self
     }
 

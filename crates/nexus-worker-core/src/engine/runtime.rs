@@ -48,14 +48,14 @@ use std::time::{Duration, Instant, SystemTime};
 
 use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsClient, DocsTicket};
 use nexus_core_rs::task::{
-    Claim, ClaimEntry, ResultEntry, ResultPayload, TASK_FORMAT_VERSION, TaskEntry,
+    Claim, ClaimEntry, ResultEntry, ResultPayload, TASK_FORMAT_VERSION, Task, TaskEntry,
 };
 use nexus_core_rs::{BlobsClient, KeyPair, Node, NodeConfig, blake3_hash, create_node_with_config};
 use tokio::sync::{Mutex, oneshot, watch};
 use tracing::{debug, error, info, warn};
 
 use crate::allowlist::Allowlist;
-use crate::config::WorkerConfig;
+use crate::config::{WatermarkConfig, WorkerConfig};
 use crate::consent::{self, AllowOutcome, ConsentWatcher, RejectReason, TaskContext, UsageTracker};
 use crate::engine::state::{StateMachine, WorkerEvent, WorkerState};
 use crate::engine::state_writer::{self, LastTask, SnapshotInputs};
@@ -1040,18 +1040,11 @@ impl Engine {
                     continue;
                 }
 
-                // Run the LLM.
-                let params = GenerateParams::new(
-                    task_entry.task.model.clone(),
-                    task_entry.task.prompt.clone(),
-                )
-                .with_system(task_entry.task.system_prompt.clone())
-                .with_watermark(
-                    self.worker_config.watermark.enabled,
-                    task_entry.task.watermark_seed.clone(),
-                    self.worker_config.watermark.delta_logit,
-                    self.worker_config.watermark.window_size,
-                );
+                // Run the LLM. A `verifiable` task gets deterministic
+                // (greedy + fixed-seed) params so independent honest
+                // workers converge on the same `result_text` for
+                // hash-exact quorum (Sprint 71 Phase B, B-2 / D2).
+                let params = build_generate_params(&task_entry.task, &self.worker_config.watermark);
 
                 let generated = match self.llm.generate(params).await {
                     Ok(r) => r,
@@ -1238,6 +1231,42 @@ impl Engine {
     }
 }
 
+/// Build the backend [`GenerateParams`] for `task`.
+///
+/// When [`Task::verifiable`] is set, the params force deterministic
+/// (greedy, fixed-seed) inference via [`GenerateParams::deterministic`]
+/// so two honest workers reproduce the same `result_text` and the
+/// coordinator's hash-exact quorum (`validate_quorum`) can accept by
+/// majority. Otherwise the worker keeps the pre-Sprint-71 best-effort
+/// sampling. The watermark config is threaded through unchanged.
+/// (Sprint 71 Phase B, B-2 / D2.)
+fn build_generate_params(task: &Task, watermark: &WatermarkConfig) -> GenerateParams {
+    let params = GenerateParams::new(task.model.clone(), task.prompt.clone())
+        .with_system(task.system_prompt.clone())
+        .with_watermark(
+            watermark.enabled,
+            task.watermark_seed.clone(),
+            watermark.delta_logit,
+            watermark.window_size,
+        );
+    if task.verifiable {
+        params.deterministic(deterministic_seed(&task.task_id))
+    } else {
+        params
+    }
+}
+
+/// Derive a stable `u32` seed from the task id. Every honest worker
+/// computing the same task derives the same seed, so a fixed-seed
+/// greedy decode reproduces the same tokens across workers. The seed
+/// is NOT a secret — it is determinism only, distinct from the
+/// per-task watermark PRF seed (`Task::watermark_seed`).
+/// (Sprint 71 Phase B, B-2.)
+fn deterministic_seed(task_id: &str) -> u32 {
+    let digest = blake3_hash(task_id.as_bytes());
+    u32::from_le_bytes([digest[0], digest[1], digest[2], digest[3]])
+}
+
 /// Unix seconds with a graceful fallback on clock failure. Used
 /// by the W9.1 task flow for `Claim::claimed_at` and
 /// `ResultPayload::started_at` / `finished_at`.
@@ -1290,6 +1319,41 @@ mod tests {
     use nexus_core_rs::docs::DocsClient as RsDocsClient;
     use nexus_core_rs::task::{Task, TaskEntry};
     use tempfile::TempDir;
+
+    #[test]
+    fn verifiable_task_uses_greedy_seed() {
+        let wm = WatermarkConfig::default();
+
+        // A verifiable task forces greedy decoding (temperature 0) +
+        // a fixed seed derived deterministically from the task id, so
+        // every honest worker on this task pins the same sampling.
+        let det = Task::new("task-det", "analysis", "p", "llama3", 5, 0).with_verifiable(true);
+        let params = build_generate_params(&det, &wm);
+        assert_eq!(params.temperature, Some(0.0), "verifiable => greedy");
+        assert_eq!(
+            params.seed,
+            Some(deterministic_seed("task-det")),
+            "verifiable => fixed seed derived from the task id"
+        );
+
+        // The derived seed is stable (same task id => same seed),
+        // which is exactly what lets two independent workers converge.
+        assert_eq!(
+            deterministic_seed("task-det"),
+            deterministic_seed("task-det")
+        );
+        assert_ne!(
+            deterministic_seed("task-det"),
+            deterministic_seed("task-other"),
+            "different tasks get different seeds"
+        );
+
+        // A best-effort task leaves sampling to the backend default.
+        let plain = Task::new("task-plain", "analysis", "p", "llama3", 5, 0);
+        let plain_params = build_generate_params(&plain, &wm);
+        assert_eq!(plain_params.temperature, None);
+        assert_eq!(plain_params.seed, None);
+    }
 
     async fn build_engine_with_stub_ollama() -> Engine {
         let worker_config = WorkerConfig::default();

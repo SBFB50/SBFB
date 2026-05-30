@@ -1225,6 +1225,7 @@ mod tests {
             estimated_vram_mb: 0,
             estimated_hours: 0.0,
             redundancy_factor: 1,
+            verifiable: false,
         };
 
         let task_id = {
