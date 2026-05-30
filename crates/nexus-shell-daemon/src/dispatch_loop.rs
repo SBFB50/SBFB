@@ -32,7 +32,13 @@ pub async fn run(
         tokio::select! {
             entry = rx.recv() => {
                 let Some(entry) = entry else { break };
-                let key = format!("tasks/{}", entry.task.task_id);
+                // Key prefix MUST match the worker scan in nexus-worker-core
+                // (`get_many_by_prefix(b"task:")` + `strip_prefix("task:")`,
+                // engine/runtime.rs). Sprint 71 Phase A (B-1) aligned this
+                // writer onto the long-standing `task:` reader — before, the
+                // `tasks/` prefix meant no dispatched task was ever claimed by
+                // a real worker (the flow only ran in in-process tests).
+                let key = format!("task:{}", entry.task.task_id);
                 let value = match serde_json::to_vec(&entry) {
                     Ok(v) => v,
                     Err(e) => {
@@ -107,10 +113,7 @@ mod tests {
         let _ = shutdown_tx.send(());
         handle.await.expect("dispatch loop joins");
 
-        let entries = doc
-            .get_many_by_prefix(b"tasks/")
-            .await
-            .expect("get entries");
+        let entries = doc.get_many_by_prefix(b"task:").await.expect("get entries");
         assert_eq!(
             entries.len(),
             1,
@@ -118,6 +121,119 @@ mod tests {
         );
 
         let stored_key = std::str::from_utf8(entries[0].key()).unwrap();
-        assert_eq!(stored_key, format!("tasks/{task_id}"));
+        // B-1: the dispatched key MUST carry the `task:` prefix the worker
+        // scans for, otherwise no dispatched task is ever claimed.
+        assert!(
+            stored_key.starts_with("task:"),
+            "dispatched key must use the worker `task:` prefix, got {stored_key}"
+        );
+        assert_eq!(stored_key, format!("task:{task_id}"));
+    }
+
+    /// Sprint 71 Phase A (B-3): the first end-to-end test that wires the
+    /// **production dispatch loop** to a **real worker engine**.
+    ///
+    /// Before the B-1 fix the dispatcher wrote `tasks/{id}` while the
+    /// worker scanned the `task:` prefix, so no dispatched task was ever
+    /// claimed — yet the worker's own test
+    /// (`engine_claims_and_executes_tasks_on_registered_doc`) passed
+    /// because it emulates the coordinator with a hand-written `task:`
+    /// key. This test closes that blind spot: it writes the task through
+    /// `dispatch_loop::run` and asserts a real engine claims and executes
+    /// it. Execution uses the deterministic `StubBackend`, so the test is
+    /// hermetic (no Ollama). Cross-machine/cross-node sync is S75.
+    #[tokio::test]
+    async fn dispatched_task_is_claimed_and_executed_by_worker_engine() {
+        use nexus_worker_core::allowlist::{Allowlist, NewProject};
+        use nexus_worker_core::config::{Engine as EngineCfg, WorkerConfig};
+        use nexus_worker_core::consent::{ConsentConfig, ConsentLevel};
+        use nexus_worker_core::engine::{Engine, EngineBoot};
+        use nexus_worker_core::llm::StubBackend;
+        use std::time::Duration;
+
+        // Worker engine: deterministic backend, fast poll, consent L4 so
+        // the synthetic project id is admitted by the consent filter.
+        let worker_config = WorkerConfig {
+            engine: EngineCfg {
+                task_poll_interval_ms: 100,
+                max_concurrent_tasks: 1,
+                state_flush_secs: 5,
+            },
+            ..WorkerConfig::default()
+        };
+        let allowlist = Allowlist::open_in_memory().expect("allowlist");
+        allowlist
+            .enroll(NewProject {
+                id: "proj-dispatch-e2e".into(),
+                name: "dispatch e2e".into(),
+                enabled: true,
+                budget_joules: 0,
+                tasks_doc_ticket: None,
+            })
+            .expect("enroll");
+
+        let sbfb_tmp = tempfile::tempdir().expect("tempdir");
+        let mut consent = ConsentConfig::default_for("dispatch-e2e-worker");
+        consent.level = ConsentLevel::All;
+        consent
+            .save_atomic(&sbfb_tmp.path().join("consent.json"))
+            .expect("save consent");
+
+        let boot = EngineBoot {
+            worker_config,
+            keypair: KeyPair::generate(),
+            allowlist,
+            data_dir: None,
+            llm_override: Some(Box::new(StubBackend::new())),
+            sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
+            rate_limit_policy_path_override: None,
+        };
+        let mut engine = Engine::new(boot).await.expect("engine boots");
+
+        // Create a doc on the worker's own node, then write a task onto it
+        // through the REAL dispatch loop (not a hand-written `doc.set`).
+        let docs = engine.docs();
+        let author = docs.author_create().await.expect("author");
+        let doc = Arc::new(docs.create_doc().await.expect("create doc"));
+
+        let (tx, rx) = create_dispatch_channel();
+        let (d_stop_tx, d_stop_rx) = oneshot::channel::<()>();
+        let dispatch = tokio::spawn(run(rx, Arc::clone(&doc), author, d_stop_rx));
+
+        let entry = make_test_entry();
+        tx.send(entry).await.expect("send task to dispatcher");
+        tokio::task::yield_now().await;
+        drop(tx);
+        let _ = d_stop_tx.send(());
+        dispatch.await.expect("dispatch loop joins");
+
+        // The dispatcher wrote exactly one entry under the `task:` prefix.
+        let tasks = doc.get_many_by_prefix(b"task:").await.expect("tasks");
+        assert_eq!(tasks.len(), 1, "dispatcher wrote one task: entry");
+
+        // Hand the doc to the worker and run until it emits a result.
+        engine.register_task_doc("proj-dispatch-e2e", (*doc).clone());
+        let w_stop = engine.take_shutdown_sender().expect("shutdown sender");
+        let worker = tokio::spawn(async move { engine.run_until_shutdown().await });
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let results = doc.get_many_by_prefix(b"result:").await.expect("results");
+                if !results.is_empty() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("worker should claim+execute the dispatched task within 10s");
+
+        let claims = doc.get_many_by_prefix(b"claim:").await.expect("claims");
+        assert_eq!(claims.len(), 1, "worker claimed the dispatched task");
+        let results = doc.get_many_by_prefix(b"result:").await.expect("results");
+        assert_eq!(results.len(), 1, "worker produced exactly one result");
+
+        let _ = w_stop.send(());
+        worker.await.expect("worker joins").expect("worker ok");
     }
 }

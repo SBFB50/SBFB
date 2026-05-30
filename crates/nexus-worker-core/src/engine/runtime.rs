@@ -549,6 +549,20 @@ impl Engine {
         self.task_docs.insert(project_id.into(), doc);
     }
 
+    /// Return a [`DocsClient`](nexus_core_rs::docs::DocsClient) backed by
+    /// this engine's node.
+    ///
+    /// Sprint 71 Phase A (B-3): lets an integration test create a doc on
+    /// the worker's own node and write a `TaskEntry` onto it through the
+    /// **real** dispatch loop, then [`register_task_doc`] it — proving end
+    /// to end that a dispatched task is claimed and executed (the
+    /// dispatcher key and the worker scan prefix are aligned, B-1). The
+    /// pre-S71 worker tests only emulate the coordinator with a hand-written
+    /// `task:` key, so they never exercise the production writer.
+    pub fn docs(&self) -> nexus_core_rs::docs::DocsClient {
+        nexus_core_rs::docs::DocsClient::new(self.node.docs())
+    }
+
     /// Return a `watch::Receiver` for the current engine state.
     ///
     /// Every subscriber sees the latest value on first poll and
