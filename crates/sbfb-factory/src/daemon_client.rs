@@ -36,7 +36,7 @@ impl DaemonConnection {
         let state: RunningState = serde_json::from_str(&content)
             .map_err(|e| DaemonClientError::Parse(format!("running.json: {e}")))?;
 
-        let token_path = auth_token_path().ok_or(DaemonClientError::NotFound(
+        let token_path = crate::auth::auth_token_path().ok_or(DaemonClientError::NotFound(
             "cannot resolve auth_token path",
         ))?;
         let token = std::fs::read_to_string(&token_path)
@@ -124,23 +124,6 @@ fn nexus_grid_root() -> Option<PathBuf> {
 
 fn running_json_path() -> Option<PathBuf> {
     nexus_grid_root().map(|r| r.join("shell-daemon").join("running.json"))
-}
-
-fn sbfb_home() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("SBFB_HOME") {
-        if !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
-    }
-    std::env::var("HOME")
-        .ok()
-        .or_else(|| std::env::var("USERPROFILE").ok())
-        .filter(|s| !s.is_empty())
-        .map(|h| PathBuf::from(h).join(".sbfb"))
-}
-
-fn auth_token_path() -> Option<PathBuf> {
-    sbfb_home().map(|d| d.join("auth_token"))
 }
 
 #[derive(Debug, thiserror::Error)]

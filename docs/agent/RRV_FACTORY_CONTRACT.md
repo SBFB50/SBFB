@@ -141,6 +141,34 @@ tourne en local avec acces au filesystem et au daemon.
   comme le Viewer, plus les extensions `factory-ui/operator` pour
   les actions privilegiees.
 
+### Pilotage agent local privilegie (gate, S71 Phase C, PO-2)
+
+L'Operator **peut** piloter un agent local privilegie (discussion
+autonome, `claude --permission-mode bypassPermissions`) pour les
+tours **non sensibles** — c'est le mode "prompt de base + discussion
+agent autonome". Cette capacite est explicitement autorisee, mais
+**encadree par un gate**, jamais ouverte :
+
+1. **Gate d'action sensible (D3)** : tout message dont le dernier
+   tour utilisateur contient une action sensible (`shell`, `commit`,
+   `push`, verdict `PASS`) renvoie `requires_gate` et **ne spawn
+   aucun agent autonome**. Le chemin streame (SSE
+   `/api/chat/{id}/stream`) honore le meme filtre `SENSITIVE_ACTIONS`
+   que `/api/chat/message` et `/api/chat/send` — il ne le
+   court-circuite plus. L'action sensible passe par une vraie session
+   agent, les gates et les preuves repo.
+2. **Auth loopback (D5)** : l'endpoint de spawn et le terminal PTY
+   sont gardes par le triple check loopback (token `X-SBFB-Token` +
+   `Host` + `Origin`), aligne sur le standard daemon S16. Un site
+   web ou une page distante ne peut pas declencher un spawn.
+3. **Timeout subprocess (D6)** : un agent spawne sans sortie est tue
+   apres un idle timeout — pas de process zombie.
+
+Limite assumee : le **terminal PTY WebSocket** (`/api/terminal/ws`)
+est protege par l'auth de connexion (D5), pas par le gate de contenu
+(D3) — il n'a pas de "dernier message utilisateur" a inspecter ;
+c'est un terminal brut que l'utilisateur pilote lui-meme.
+
 ### UX Operator
 
 L'utilisateur voit des **intentions** lisibles :
@@ -150,7 +178,7 @@ L'utilisateur voit des **intentions** lisibles :
 
 Pas des commandes `sbfb-factory` ni du jargon `kind/provider/preflight`
 en CTA principal. Le mode actuel "prompt de base + discussion agent
-autonome" est preserve.
+autonome" est preserve (tours non sensibles ; voir le gate ci-dessus).
 
 ---
 

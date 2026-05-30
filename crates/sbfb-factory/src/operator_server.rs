@@ -7,14 +7,16 @@ use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::extract::{Path, Query, State, WebSocketUpgrade};
-use axum::http::StatusCode;
+use axum::http::header::HeaderName;
+use axum::http::{Method, StatusCode, header};
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Json};
 use axum::routing::{get, post};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
+use crate::auth::{self, AuthState};
 use crate::llm_bridge;
 use crate::process;
 
@@ -50,6 +52,11 @@ struct ActionLogEntry {
 struct ChatSession {
     context_pack: serde_json::Value,
     messages: Vec<ChatMessage>,
+    /// Agent model for the streamed spawn. Defaults to
+    /// [`default_model`]; overridable per-send via `ChatSendRequest`.
+    /// Persisted here because the SSE GET `/chat/{id}/stream` carries
+    /// no body to read it from.
+    model: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -77,17 +84,30 @@ fn log_action(state: &OperatorState, action: &str, args: serde_json::Value, resu
     }
 }
 
-pub fn build_router(root: PathBuf) -> Router {
+pub fn build_router(root: PathBuf, auth_state: AuthState) -> Router {
     let state = OperatorState {
         root,
         action_log: Arc::new(Mutex::new(Vec::new())),
         chat_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
+    // G7 (D5): restrict CORS to loopback origins, explicit methods,
+    // and the bearer header — replaces the prior `Any/Any/Any`. This
+    // is browser-side defence in depth; the server-side enforcement
+    // is the `auth::auth_required` middleware below (Host + Origin +
+    // token on every route).
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(AllowOrigin::predicate(|origin, _parts| {
+            origin
+                .to_str()
+                .map(auth::is_loopback_origin)
+                .unwrap_or(false)
+        }))
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            HeaderName::from_static(auth::AUTH_HEADER),
+        ]);
 
     Router::new()
         .route("/api/status", get(handle_status))
@@ -118,13 +138,29 @@ pub fn build_router(root: PathBuf) -> Router {
             "/api/terminal/sessions/{name}",
             get(handle_terminal_session_content),
         )
+        // Inner: `auth_required` guards every data-bearing request
+        // (GET/POST/WS upgrade) with Host + Origin + token. Outer:
+        // CORS, so a browser's OPTIONS *preflight* is answered before
+        // the token check. That is intentional and harmless: a
+        // preflight carries no body and triggers no handler — it only
+        // tells the browser whether the *real* request is allowed, and
+        // that real request still passes through `auth_required` (a
+        // foreign Host/Origin or a missing token is rejected there).
+        // CORS must stay outer; if auth were outer it would 401 every
+        // preflight (browsers never send the bearer on a preflight) and
+        // break legitimate cross-origin use.
+        .layer(axum::middleware::from_fn_with_state(
+            auth_state,
+            auth::auth_required,
+        ))
         .layer(cors)
         .with_state(state)
 }
 
 pub async fn run_server(port: u16, once_smoke: bool) -> Result<(), Box<dyn std::error::Error>> {
     let root = crate::process::repo_root_pub();
-    let app = build_router(root);
+    let token = auth::load_or_generate_token()?;
+    let app = build_router(root, AuthState::new(token.clone()));
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await?;
     let actual_port = listener.local_addr()?.port();
@@ -136,7 +172,11 @@ pub async fn run_server(port: u16, once_smoke: bool) -> Result<(), Box<dyn std::
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        let resp = reqwest::get(format!("http://127.0.0.1:{actual_port}/api/status")).await?;
+        let resp = reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{actual_port}/api/status"))
+            .header(auth::AUTH_HEADER, &token)
+            .send()
+            .await?;
         if resp.status().is_success() {
             println!("smoke: /api/status OK");
         } else {
@@ -226,6 +266,13 @@ struct ContextPackRequest {
 
 fn default_provider() -> String {
     "claude".to_string()
+}
+
+/// G9 (D4): default agent model. The frozen model rule mandates the
+/// explicit id `claude-opus-4-8[1m]` everywhere — never the alias
+/// `opus` nor the prior hardcoded `sonnet`.
+fn default_model() -> String {
+    "claude-opus-4-8[1m]".to_string()
 }
 
 fn file_hash(root: &std::path::Path, rel: &str) -> serde_json::Value {
@@ -559,6 +606,7 @@ async fn handle_chat_session(
     let session = ChatSession {
         context_pack: context_pack.clone(),
         messages: Vec::new(),
+        model: default_model(),
     };
 
     state
@@ -662,7 +710,9 @@ struct ChatSendRequest {
     message: String,
     #[serde(default = "default_provider")]
     provider: String,
-    #[serde(default)]
+    // Runtime tolerance (pre-launch policy): a client omitting `model`
+    // gets the frozen default `claude-opus-4-8[1m]`, not a 422.
+    #[serde(default = "default_model")]
     model: String,
 }
 
@@ -682,6 +732,12 @@ async fn handle_chat_send(
                 .into_response();
         }
     };
+
+    // G9 (D4): persist the requested model so the bodyless SSE GET
+    // `/chat/{id}/stream` can read it back.
+    if !req.model.trim().is_empty() {
+        session.model = req.model.clone();
+    }
 
     let lower = req.message.to_lowercase();
     let is_sensitive = SENSITIVE_ACTIONS
@@ -732,11 +788,22 @@ fn sse_error(msg: &str) -> Sse<SseStream> {
     Sse::new(stream)
 }
 
+/// G2 (D3): single-event SSE telling the client the action is gated.
+/// Coherent with the `requires_gate` signal emitted by
+/// `handle_chat_message` and `handle_chat_send`.
+fn sse_gate(msg: &str) -> Sse<SseStream> {
+    let json = format!(r#"{{"type":"requires_gate","message":"{}"}}"#, msg);
+    let stream: SseStream = Box::pin(futures::stream::once(async move {
+        Ok::<_, Infallible>(Event::default().data(json))
+    }));
+    Sse::new(stream)
+}
+
 async fn handle_chat_stream(
     State(state): State<OperatorState>,
     Path(id): Path<String>,
 ) -> Sse<SseStream> {
-    let (context_pack, history, last_user_msg) = {
+    let (context_pack, history, last_user_msg, model) = {
         let sessions = state.chat_sessions.lock().unwrap();
         match sessions.get(&id) {
             Some(session) => {
@@ -753,7 +820,12 @@ async fn handle_chat_stream(
                     .find(|m| m.role == "user")
                     .map(|m| m.content.clone())
                     .unwrap_or_default();
-                (session.context_pack.clone(), hist, last)
+                (
+                    session.context_pack.clone(),
+                    hist,
+                    last,
+                    session.model.clone(),
+                )
             }
             None => return sse_error("session not found"),
         }
@@ -761,6 +833,29 @@ async fn handle_chat_stream(
 
     if last_user_msg.is_empty() {
         return sse_error("no user message");
+    }
+
+    // G2 (D3): the SSE was the only chat path that bypassed the
+    // SENSITIVE_ACTIONS gate — it spawned a `bypassPermissions` agent
+    // with no confirmation. Gate it like `/chat/message` and
+    // `/chat/send`: a sensitive last user message returns
+    // `requires_gate` and never spawns an autonomous agent. The
+    // bypassPermissions happy-path (PO-2) is preserved for benign
+    // turns.
+    let lower = last_user_msg.to_lowercase();
+    let is_sensitive = SENSITIVE_ACTIONS
+        .iter()
+        .any(|a| lower.contains(&a.to_lowercase()));
+    if is_sensitive {
+        log_action(
+            &state,
+            "chat-stream",
+            serde_json::json!({"session": id, "sensitive": true}),
+            "requires_gate",
+        );
+        return sse_gate(
+            "This action requires external verification via a real agent session with repo-visible proofs.",
+        );
     }
 
     let runtime_ctx = context_pack
@@ -773,7 +868,14 @@ async fn handle_chat_stream(
     let state_clone = state.clone();
     let session_id = id.clone();
 
-    let claude_stream = llm_bridge::spawn_claude_stream(&prompt, "sonnet", &root);
+    // G9 (D4): use the session model (default `claude-opus-4-8[1m]`),
+    // never the prior hardcoded `sonnet`.
+    let model = if model.trim().is_empty() {
+        default_model()
+    } else {
+        model
+    };
+    let claude_stream = llm_bridge::spawn_claude_stream(&prompt, &model, &root);
 
     let sse_stream: SseStream = Box::pin(claude_stream.map(move |chunk| {
         let json = serde_json::to_string(&chunk).unwrap_or_default();

@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 
 mod audit_log;
+mod auth;
 mod daemon_client;
 mod diff;
 mod gates;

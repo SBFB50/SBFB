@@ -2,11 +2,42 @@
 
 use std::path::Path;
 use std::process::Stdio;
+use std::time::Duration;
 
 use futures::stream::Stream;
 use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+
+/// G12 (D6): default idle timeout. The agent stream is killed if it
+/// produces no output for this long — bounds a hung subprocess
+/// without truncating a legitimately-streaming long run. Overridable
+/// via `SBFB_CLAUDE_IDLE_TIMEOUT_SECS`.
+const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 120;
+
+fn idle_timeout() -> Duration {
+    std::env::var("SBFB_CLAUDE_IDLE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS))
+}
+
+/// Resolve the agent CLI. `SBFB_CLAUDE_BIN` overrides the default so
+/// operators can point at a specific binary — and so tests never
+/// spawn a real `claude` agent with `bypassPermissions`.
+fn claude_exe() -> String {
+    if let Ok(bin) = std::env::var("SBFB_CLAUDE_BIN") {
+        if !bin.is_empty() {
+            return bin;
+        }
+    }
+    if cfg!(windows) {
+        "claude.cmd".to_string()
+    } else {
+        "claude".to_string()
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -66,47 +97,79 @@ pub fn spawn_claude_stream(
     model: &str,
     cwd: &Path,
 ) -> impl Stream<Item = StreamChunk> + 'static {
-    let prompt = prompt.to_owned();
-    let model = model.to_owned();
-    let cwd = cwd.to_owned();
+    let exe = claude_exe();
+    let mut command = Command::new(&exe);
+    command
+        .args([
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--model",
+            model,
+            "--permission-mode",
+            "bypassPermissions",
+        ])
+        .current_dir(cwd);
+    let command_label = format!(
+        "{exe} -p --output-format stream-json --include-partial-messages \
+         --model {model} --permission-mode bypassPermissions"
+    );
+    spawn_agent_stream(
+        command,
+        exe,
+        command_label,
+        prompt.to_owned(),
+        idle_timeout(),
+    )
+}
+
+/// Run an agent subprocess, streaming its stdout as [`StreamChunk`]s.
+///
+/// G12 (D6): bounded by an **idle timeout** — if the child produces
+/// no output line for `idle`, it is killed (`start_kill` + reaped via
+/// `wait` to avoid a zombie) and a timeout error is yielded. A
+/// missing executable yields a clear diagnostic instead of an opaque
+/// `Failed to spawn`. `kill_on_drop` is a safety net if the stream is
+/// dropped mid-flight.
+///
+/// Factored out of [`spawn_claude_stream`] so the timeout / kill /
+/// diagnostic mechanics are unit-testable with an arbitrary command.
+pub(crate) fn spawn_agent_stream(
+    mut command: Command,
+    exe: String,
+    command_label: String,
+    prompt: String,
+    idle: Duration,
+) -> impl Stream<Item = StreamChunk> + 'static {
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
 
     async_stream::stream! {
-        let exe = if cfg!(windows) { "claude.cmd" } else { "claude" };
-        let cli_args = [
-            "-p",
-            "--output-format", "stream-json",
-            "--include-partial-messages",
-            "--model", &model,
-            "--permission-mode", "bypassPermissions",
-        ];
-
         yield StreamChunk::Debug {
             label: "prompt".into(),
             content: prompt.clone(),
         };
         yield StreamChunk::Debug {
             label: "command".into(),
-            content: format!("{exe} {}", cli_args.join(" ")),
-        };
-        yield StreamChunk::Debug {
-            label: "cwd".into(),
-            content: cwd.display().to_string(),
+            content: command_label.clone(),
         };
 
-        let child = Command::new(exe)
-            .args(cli_args)
-            .current_dir(&cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn();
-
-        let mut child = match child {
+        let mut child = match command.spawn() {
             Ok(c) => c,
             Err(e) => {
-                yield StreamChunk::Error {
-                    message: format!("Failed to spawn claude: {e}"),
+                let message = if e.kind() == std::io::ErrorKind::NotFound {
+                    format!(
+                        "agent CLI `{exe}` not found on PATH — install the Claude CLI \
+                         (npm i -g @anthropic-ai/claude-code) or set SBFB_CLAUDE_BIN to its full path"
+                    )
+                } else {
+                    format!("failed to spawn `{exe}`: {e}")
                 };
+                yield StreamChunk::Error { message };
                 return;
             }
         };
@@ -119,8 +182,10 @@ pub fn spawn_claude_stream(
         let stdout = match child.stdout.take() {
             Some(s) => s,
             None => {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
                 yield StreamChunk::Error {
-                    message: "No stdout from claude process".into(),
+                    message: "no stdout from agent process".into(),
                 };
                 return;
             }
@@ -130,7 +195,24 @@ pub fn spawn_claude_stream(
         let mut lines = reader.lines();
         let mut event_count: u32 = 0;
 
-        while let Ok(Some(line)) = lines.next_line().await {
+        loop {
+            let line = match tokio::time::timeout(idle, lines.next_line()).await {
+                Err(_elapsed) => {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                    yield StreamChunk::Error {
+                        message: format!(
+                            "agent timed out after {}s of inactivity — process killed",
+                            idle.as_secs()
+                        ),
+                    };
+                    return;
+                }
+                Ok(Ok(Some(line))) => line,
+                Ok(Ok(None)) => break,
+                Ok(Err(_)) => break,
+            };
+
             if line.trim().is_empty() {
                 continue;
             }
@@ -212,7 +294,7 @@ pub fn spawn_claude_stream(
             };
             if !s.success() {
                 yield StreamChunk::Error {
-                    message: format!("claude exited with {s}"),
+                    message: format!("agent exited with {s}"),
                 };
             }
         }
@@ -251,5 +333,65 @@ mod tests {
         let ctx = serde_json::json!({});
         let result = assemble_prompt(&ctx, &[], "test");
         assert_eq!(result, "test");
+    }
+
+    // G12: a missing agent CLI yields a clear diagnostic, not an
+    // opaque "Failed to spawn".
+    #[tokio::test]
+    async fn missing_claude_diagnostic() {
+        use futures::StreamExt;
+        let exe = "sbfb-claude-does-not-exist-xyz";
+        let command = Command::new(exe);
+        let chunks: Vec<StreamChunk> = spawn_agent_stream(
+            command,
+            exe.to_string(),
+            format!("{exe} -p"),
+            "hi".to_string(),
+            Duration::from_secs(5),
+        )
+        .collect()
+        .await;
+
+        let diagnostic = chunks.iter().any(|c| {
+            matches!(c, StreamChunk::Error { message }
+                if message.contains("not found") && message.contains("PATH"))
+        });
+        assert!(
+            diagnostic,
+            "expected a not-found diagnostic, got {chunks:?}"
+        );
+    }
+
+    // G12: a subprocess that produces no output is killed once the
+    // idle timeout elapses, and the stream returns a bounded error.
+    #[tokio::test]
+    async fn spawn_times_out() {
+        use futures::StreamExt;
+
+        // A silent, long-running, single-process command per OS.
+        let command = if cfg!(windows) {
+            let mut c = Command::new("waitfor");
+            c.args(["/t", "30", "SbfbPhaseCTimeoutProbe"]);
+            c
+        } else {
+            let mut c = Command::new("sleep");
+            c.arg("30");
+            c
+        };
+
+        let chunks: Vec<StreamChunk> = spawn_agent_stream(
+            command,
+            "sleeper".to_string(),
+            "sleeper".to_string(),
+            String::new(),
+            Duration::from_millis(200),
+        )
+        .collect()
+        .await;
+
+        let timed_out = chunks
+            .iter()
+            .any(|c| matches!(c, StreamChunk::Error { message } if message.contains("timed out")));
+        assert!(timed_out, "expected an idle timeout error, got {chunks:?}");
     }
 }

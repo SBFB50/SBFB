@@ -15,6 +15,7 @@ blake3 = { workspace = true }
 clap = { workspace = true }
 directories = { workspace = true }
 hex = { workspace = true }
+rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }

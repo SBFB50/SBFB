@@ -7492,6 +7492,7 @@ dependencies = [
  "hex",
  "nexus-core-rs",
  "portable-pty",
+ "rand 0.8.6",
  "regex",
  "reqwest 0.12.28",
  "sbfb-manifest",

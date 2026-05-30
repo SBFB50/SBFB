@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::io::BufRead;
+use std::io::{BufRead, Read, Write};
 use std::process::{Command, Stdio};
 use std::time::Duration;
+
+/// Fixed 64-hex token injected via `SBFB_AUTH_TOKEN` so the harness
+/// can authenticate without reading the developer's real `~/.sbfb`.
+const TEST_TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const AUTH_HEADER: &str = "x-sbfb-token";
 
 fn factory_bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_sbfb-factory"))
@@ -11,12 +16,22 @@ fn factory_bin() -> Command {
 struct TestServer {
     child: std::process::Child,
     port: u16,
+    // Sandboxes `~/.sbfb` and keeps the dir alive for the server's
+    // lifetime. Held only for the Drop side effect.
+    _home: tempfile::TempDir,
 }
 
 impl TestServer {
     fn start() -> Self {
+        let home = tempfile::tempdir().expect("tempdir");
         let mut child = factory_bin()
             .args(["operator", "serve", "--port", "0"])
+            .env("SBFB_AUTH_TOKEN", TEST_TOKEN)
+            .env("SBFB_HOME", home.path())
+            // Point the agent spawn at a non-existent binary so no
+            // test ever launches a real `claude` bypassPermissions
+            // agent; the SSE paths fail fast with a diagnostic.
+            .env("SBFB_CLAUDE_BIN", "sbfb-claude-test-nonexistent")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -36,12 +51,17 @@ impl TestServer {
             }
         }
         assert!(port > 0, "server should print READY with port");
-        Self { child, port }
+        Self {
+            child,
+            port,
+            _home: home,
+        }
     }
 
     fn get(&self, path: &str) -> reqwest::blocking::Response {
         reqwest::blocking::Client::new()
             .get(format!("http://127.0.0.1:{}{path}", self.port))
+            .header(AUTH_HEADER, TEST_TOKEN)
             .timeout(Duration::from_secs(5))
             .send()
             .expect("request failed")
@@ -50,10 +70,26 @@ impl TestServer {
     fn post_json(&self, path: &str, body: serde_json::Value) -> reqwest::blocking::Response {
         reqwest::blocking::Client::new()
             .post(format!("http://127.0.0.1:{}{path}", self.port))
+            .header(AUTH_HEADER, TEST_TOKEN)
             .json(&body)
             .timeout(Duration::from_secs(5))
             .send()
             .expect("request failed")
+    }
+
+    /// Raw HTTP/1.1 GET so a test controls Host / Origin / token
+    /// headers exactly (reqwest derives Host from the URL). Returns
+    /// the full response text including the status line.
+    fn raw_get(&self, path: &str, extra_headers: &str) -> String {
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", self.port)).expect("connect");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("set timeout");
+        let req = format!("GET {path} HTTP/1.1\r\n{extra_headers}Connection: close\r\n\r\n");
+        stream.write_all(req.as_bytes()).expect("write");
+        let mut buf = String::new();
+        let _ = stream.read_to_string(&mut buf);
+        buf
     }
 }
 
@@ -66,8 +102,11 @@ impl Drop for TestServer {
 
 #[test]
 fn operator_once_smoke() {
+    let home = tempfile::tempdir().expect("tempdir");
     let output = factory_bin()
         .args(["operator", "serve", "--port", "0", "--once-smoke"])
+        .env("SBFB_AUTH_TOKEN", TEST_TOKEN)
+        .env("SBFB_HOME", home.path())
         .output()
         .expect("failed to run");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -78,6 +117,165 @@ fn operator_once_smoke() {
     );
     assert!(stdout.contains("READY"), "should print READY");
     assert!(stdout.contains("smoke: /api/status OK"), "smoke OK");
+}
+
+// G7 (D5): every route requires the bearer token + a loopback Host;
+// a non-loopback Origin is rejected. Raw HTTP so the headers are
+// fully controlled.
+
+#[test]
+fn server_rejects_missing_token() {
+    let server = TestServer::start();
+    let resp = server.raw_get("/api/status", "Host: 127.0.0.1\r\n");
+    assert!(
+        resp.starts_with("HTTP/1.1 401"),
+        "missing token must be 401, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
+#[test]
+fn server_rejects_foreign_host() {
+    let server = TestServer::start();
+    let resp = server.raw_get(
+        "/api/status",
+        &format!("Host: evil.com\r\n{AUTH_HEADER}: {TEST_TOKEN}\r\n"),
+    );
+    assert!(
+        resp.starts_with("HTTP/1.1 403"),
+        "foreign Host must be 403, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
+#[test]
+fn cors_restricts_origin() {
+    let server = TestServer::start();
+    let resp = server.raw_get(
+        "/api/status",
+        &format!("Host: 127.0.0.1\r\nOrigin: http://evil.com\r\n{AUTH_HEADER}: {TEST_TOKEN}\r\n"),
+    );
+    assert!(
+        resp.starts_with("HTTP/1.1 403"),
+        "foreign Origin must be 403, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
+#[test]
+fn token_request_succeeds() {
+    let server = TestServer::start();
+    // `/api/providers` is always 200 (independent of active sprint).
+    let resp = server.raw_get(
+        "/api/providers",
+        &format!("Host: 127.0.0.1\r\n{AUTH_HEADER}: {TEST_TOKEN}\r\n"),
+    );
+    assert!(
+        resp.starts_with("HTTP/1.1 200"),
+        "valid token + loopback Host must be 200, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
+// G2 (D3): the SSE chat-stream gates sensitive actions before
+// spawning a bypassPermissions agent.
+
+#[test]
+fn sse_gates_sensitive_action() {
+    let server = TestServer::start();
+    let session: serde_json::Value = server
+        .post_json(
+            "/api/chat/session",
+            serde_json::json!({"provider": "claude"}),
+        )
+        .json()
+        .unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    // Inject a sensitive last user message via /send (it gates and
+    // still records the message).
+    server.post_json(
+        &format!("/api/chat/{id}/send"),
+        serde_json::json!({"message": "please commit and push my changes"}),
+    );
+
+    let body = server
+        .get(&format!("/api/chat/{id}/stream"))
+        .text()
+        .unwrap();
+    assert!(
+        body.contains("requires_gate"),
+        "sensitive SSE must gate, got: {body}"
+    );
+    assert!(
+        !body.contains("--permission-mode"),
+        "gated SSE must not assemble an agent spawn command, got: {body}"
+    );
+}
+
+#[test]
+fn sse_allows_nonsensitive() {
+    let server = TestServer::start();
+    let session: serde_json::Value = server
+        .post_json(
+            "/api/chat/session",
+            serde_json::json!({"provider": "claude"}),
+        )
+        .json()
+        .unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    server.post_json(
+        "/api/chat/message",
+        serde_json::json!({"session_id": id, "message": "what is the current phase?"}),
+    );
+
+    let body = server
+        .get(&format!("/api/chat/{id}/stream"))
+        .text()
+        .unwrap();
+    assert!(
+        !body.contains("requires_gate"),
+        "benign SSE must not gate, got: {body}"
+    );
+    // Proceeded to the spawn attempt (no real claude — the bin is
+    // overridden to a non-existent path), proving the happy-path is
+    // not gated.
+    assert!(
+        body.contains("not found"),
+        "benign SSE should attempt the agent spawn, got: {body}"
+    );
+}
+
+#[test]
+fn chat_stream_uses_opus_model() {
+    let server = TestServer::start();
+    let session: serde_json::Value = server
+        .post_json(
+            "/api/chat/session",
+            serde_json::json!({"provider": "claude"}),
+        )
+        .json()
+        .unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    server.post_json(
+        "/api/chat/message",
+        serde_json::json!({"session_id": id, "message": "hello"}),
+    );
+
+    let body = server
+        .get(&format!("/api/chat/{id}/stream"))
+        .text()
+        .unwrap();
+    assert!(
+        body.contains("claude-opus-4-8[1m]"),
+        "stream must spawn with the opus-4-8 model, got: {body}"
+    );
+    assert!(
+        !body.contains("--model sonnet"),
+        "stream must not use the prior hardcoded sonnet model, got: {body}"
+    );
 }
 
 #[test]
