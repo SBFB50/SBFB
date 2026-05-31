@@ -2835,6 +2835,57 @@ S71 preflight S1a (PLAN-ADAPT, Ollama gap), kickoff §5 D2/D8.
 
 ---
 
+## §P54 — Sprint 71 Phase A : dispatch key alignment (B-1) + first cross-process compute E2E (B-3)
+
+### B-1 — one key, one prefix
+
+The coordinator dispatch loop wrote each task under the iroh-docs key
+`format!("tasks/{id}")` (`nexus-shell-daemon/src/dispatch_loop.rs`)
+while the worker engine has always scanned `get_many_by_prefix(b"task:")`
++ `strip_prefix("task:")` (`nexus-worker-core/src/engine/runtime.rs`).
+The two never met: **no dispatched task was ever claimed by a real
+worker** — every prior "it works" was an in-process test that hand-wrote
+the `task:` key. Fix (D1): move the *writer* onto the worker's
+long-standing `task:` prefix (one line), never the reader — the claim /
+result / completed-id cache path is the rodé surface, far more
+regression-prone than the single writer. No tolerant dual-prefix read
+(that would be permanent dead code masking the bug, rejected kickoff
+§5 D1). Pre-launch: this changes the applicative wire key but no
+third-party node speaks it, so no migration / range decoder (intake
+§2.3). The two `tasks/` hits remaining in `dispatch_loop.rs` are
+*comments* documenting the old bug, not live writes.
+
+### B-3 — first cross-process compute E2E
+
+`dispatch_loop::tests::dispatched_task_is_claimed_and_executed_by_
+worker_engine` is the first test that drives a task through the real
+two-component path: daemon dispatch writes the doc → a worker `Engine`
+(via the additive `Engine::docs()` accessor) claims it by prefix scan →
+executes → result lands. It proves *routing + execution*, not payload
+integrity (it asserts `results.len()==1`, not the result signature —
+P2-A-2, consistent with the pre-existing S4 mirror `runtime.rs:1524`).
+The plan put this E2E in `nexus-test-harness`; it landed in
+`nexus-shell-daemon` instead (it needs the dispatch-loop internals) —
+a located, not scoped, change.
+
+**Windows-native caveat (P2-A-1)** : the worker-engine iroh-docs pump
+does **not** run green on native Windows — `dispatched_task_is_claimed
+_...` and its pre-existing S4 mirror both *time out* on the dev box yet
+pass in ~2 s under CI Linux / Docker. This is an environment artefact
+(confirmed by bisection, shared by the untouched mirror), not a code
+regression. Verify these worker-pump E2Es via Docker / CI before any
+push (`feedback_wsl_before_push`), never on the Windows box alone. The
+full-workspace nextest can also hit `os error 1455` (paging-file
+exhaustion) at test-binary link time on cold Windows builds; the
+canonical full-workspace count comes from CI Linux. (When the phase
+binaries are already warm, a full Windows nextest does complete — S71
+Phase E re-measured 1528/1528 locally.)
+
+Cross-ref: S71 Phase A (`2f9238d`), preflight EXECUTE, review P2-A-1 /
+P2-A-2 / P3-A-3, kickoff §5 D1.
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

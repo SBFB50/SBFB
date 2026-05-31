@@ -151,9 +151,9 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-70 CLOSED**, **S71 a ouvrir** (Arc 3 Reseau
-  Verifiable + Industrialisation). v2.1 ouverte. **Tag v1.0
-  pose.**
+- **Sprints 0-71 CLOSED**, **S72 a ouvrir** (Arc 3.5 Factory
+  Complete Vision, roadmap v5 — ProviderRouter multi-LLM). v2.1
+  ouverte. **Tag v1.0 pose.**
   Projet Rust+Frontend pur depuis S50-S51.
   S70 DONE : 7 phases A-G (A AGENT_SYSTEM.md canon portable + B
   dette pair P2-I-3 3/3 + P2 audit absorbes + C prompt portability
@@ -166,24 +166,36 @@ Runtime isolation roadmap dans
   Arc 1 Fondations COMPLET (S65 + S66).
   Arc 2 Factory + RRV @protocole + Canari COMPLET (S67 + S68 + S69).
   Arc 2.5 Process Portable Complete COMPLET (S70).
+  S71 DONE : Phase 0 audit-absorb (deviation PO-3) + 4 fix phases
+  A-D + Phase E wrap-up — assainissement compute (B-1 cle dispatch
+  alignee `task:`, B-2 quorum deterministe greedy seed-fixe, B-3
+  1er E2E cross-process) + securite Factory (G2 gate SSE, G7
+  token+Host+CORS, G9 opus-4-8, G12 timeout+diagnostic) +
+  reconciliation bloc off-sprint (G5 retro-review/Codex RECONCILED,
+  G6 tests surfaces 0-test). 12 gaps fermes (1 P0 + 6 P1). G8 4/4
+  (0 DESIGN-CONFLICT, 1 EXECUTE + 1 SCOPE-CUT-CONSISTENT + 2
+  PLAN-ADAPT). Arc 3.5 Factory Complete Vision 1/6.
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1771 tests total** (1486 Rust / 279 Vitest / 6/6 size-limit)
-  — tous verts code. S70 delta reel : +53 Rust (plan +45),
-  +0 Vitest, + factory-ui boundary + Viewer checks + Operator
-  lint/tsc/build.
+- **~1813 tests total** (1528 Rust / 279 Vitest / 6/6 size-limit)
+  — tous verts code. S71 delta : +42 Rust (A +1, B +8 net, C +14,
+  D +16), +0 Vitest (front non touche tout le sprint). Re-mesure
+  1528/1528 au Phase E.
 - Carry S70 CLOSED :
   P2-I-3 body docs minimaliste (3/3 MANDATORY — Phase B).
   P2-G-1 exe lock intermittent (CLOSE Phase B, 8 sprints non-repro).
   P2-C-1 canonical bytes duplication (documente PATTERNS Phase B).
   P2-C-2 serde_json vs JCS (documente PATTERNS Phase B).
   P2-I-1 docs dans chore (documente README Phase B).
-- Carry S71 (reconduits) :
+- Carry S72 (reconduits) :
   P2-A-1 rand blocker upstream (exemption externe).
+  P2-A-1(S71) worker-pump iroh-docs hang Windows natif (E2E worker
+  = CI Linux only, `feedback_wsl_before_push`) — nouveau Phase A.
+  P2-A-2 E2E n'asserte pas la signature result — nouveau Phase A.
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
-  P2-F-3 prompt file coupling (1/3, nouveau Phase F).
+  P2-F-3 prompt file coupling (2/3, reconduit S71).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).
   LT-3/LT-4 hors-sprint (post-v1.0).

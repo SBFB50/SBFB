@@ -2152,3 +2152,55 @@ The 32 stale failures (pre-existing since Sprint 23 Phase F)
 trace back to `sign_bytes` binding rename. This is an environment
 issue, not a code regression — the source code in `nexus-core-py`
 is correct.
+
+## Sprint 71 patterns
+
+### P35 — Sprint 71 Phase C : Factory Operator server loopback hardening
+
+The Factory **Operator** HTTP server (`crates/sbfb-factory/src/
+operator_server.rs`) writes files and **spawns agent subprocesses**
+(`claude --permission-mode bypassPermissions`). The off-sprint block
+shipped it with **CORS `Any` and zero auth** (G7/P1) and an **SSE
+stream that bypassed the `SENSITIVE_ACTIONS` gate** the JSON endpoints
+already enforced (G2/P0). Phase C (D3/D4/D5/D6) brings it under the
+same loopback model as the daemon (P27), scaled to the token+Host+Origin
+subset (no UDS / peer-creds — the Operator is TCP loopback only):
+
+- **Auth** : a per-boot token (`sbfb-factory/src/auth.rs`, mirrors
+  `daemon_client.rs:64-65`) is required via `X-SBFB-Token`; `Host:` must
+  be loopback; `CorsLayer` is pinned to the known local origin (no more
+  `allow_origin(Any)`). Same threat (DNS rebinding / CSRF on a
+  write+spawn surface) and same defense rationale as **P27** — read it
+  there, not duplicated here. `constant_time_eq` on the token compare.
+- **SSE gate** : `handle_chat_stream` now runs the *same*
+  `SENSITIVE_ACTIONS` filter as `handle_chat_message` / `handle_chat_
+  send`. A last user message carrying `shell` / `commit` / `push` /
+  `PASS` returns `requires_gate` instead of spawning an autonomous
+  `bypassPermissions` agent. `bypassPermissions` is **kept** (PO-2: the
+  "base prompt + autonomous discussion" mode is contract, not a bug) but
+  never on an ungated path. Non-sensitive messages still stream
+  (`sse_allows_nonsensitive`).
+- **Model** : the SSE spawn no longer hardcodes `"sonnet"` (G9, violates
+  the model rule `feedback_model_46`); it reads `ChatSendRequest.model`
+  with default `claude-opus-4-8[1m]`.
+- **Spawn safety** : `spawn_claude_stream` (`llm_bridge.rs`) gained a
+  configurable timeout (subprocess killed if exceeded) and a pre-spawn
+  resolution check emitting a clear "claude CLI not found in PATH"
+  diagnostic instead of an opaque `Failed to spawn`.
+
+Threat boundary (D5 ⚠️) : token+Host defends CSRF / DNS-rebinding from a
+browser, **not** a hostile local process that can read the token — the
+same accepted model as the daemon loopback (node-level OS sandbox, not
+HTTP-server-level).
+
+Tests (`crates/sbfb-factory`) : `auth::tests::*` (5), `server_rejects_
+missing_token`, `server_rejects_foreign_host`, `cors_restricts_origin`,
+`token_request_succeeds`, `sse_gates_sensitive_action`,
+`sse_allows_nonsensitive`, `chat_stream_uses_opus_model`,
+`llm_bridge::tests::spawn_times_out`, `missing_claude_diagnostic`.
+
+Contract: `docs/agent/RRV_FACTORY_CONTRACT.md §4` amended to authorize
+the **gated** privileged local agent pilot explicitly (PO-2).
+
+Cross-ref: **P27** (daemon loopback hardening), S71 Phase C (`a0337c6`),
+preflight SCOPE-CUT-CONSISTENT, kickoff §5 D3/D4/D5/D6.
