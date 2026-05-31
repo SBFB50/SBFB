@@ -1,7 +1,7 @@
 ---
 written: 2026-04-20  # S22 hors-sprint post Phase B `e9530c2`
-last_validated: 2026-04-20
-status: design-only (implementation S22 Phase F wrap-up + extension S25/S28/LT-4)
+last_validated: 2026-05-31  # S72 Phase A : ajout §3.1 inventaire Operator (P2-H-1)
+status: design-only T1/T2 (implementation S22 Phase F wrap-up + extension S25/S28/LT-4) ; §3.1 Operator = IMPLEMENTE+DURCI S71 C (`a0337c6`)
 triggers_revalidate:
   - "microsoft/sudo new elevation mode release"
   - "Nouveau endpoint loopback risky ajoute daemon"
@@ -62,6 +62,56 @@ pour D4 OS biometric gate cross-platform).
 | `GET /auth/token` | S16 Phase A | T0 (Host+Origin only) | T0 | Bootstrap bearer token |
 | `POST /canary/cosign` FROST (S30 N1) | S30 futur | N/A | **T2** | Co-signer canary = engagement cryptographique plateforme, LT-4 consumer natif |
 | `POST /quarantine/flush` | S21 Phase D CLI | T0 | T1 | Purge queue = perte d'évidence, validator humain recommandé |
+
+## 3.1 Serveur Operator (sbfb-factory, port `:3001`) — surface write + spawn
+
+Le **Factory Operator** (`crates/sbfb-factory/src/operator_server.rs`)
+est un serveur HTTP loopback **distinct du daemon** : process séparé,
+port `:3001` par défaut (`main.rs:161`), **TCP loopback uniquement** —
+pas de UDS / peer-creds, un sous-ensemble token+Host+Origin du modèle
+S16 (le daemon, lui, ajoute SO_PEERCRED Unix / SDDL Named Pipe). Il
+**écrit des fichiers** et **spawn des sous-processus agent**
+(`claude --permission-mode bypassPermissions`), ce qui en fait une
+surface critique au même titre que les endpoints write du daemon. Livré
+sans auth dans un bloc off-sprint, **durci S71 Phase C** (`a0337c6`,
+G7 + G2). Inventaire à jour (P2-H-1, audit S71 Track H) :
+
+| Endpoint | Origine | Tier actuel | Tier cible | Justification |
+|---|---|---|---|---|
+| `POST /api/artifacts/draft` (**write**) | off-sprint, durci S71 C | T0 | T0 | Écrit un artefact draft sur disque dans la frontière loopback durcie |
+| `GET /api/chat/{id}/stream` (**spawn**) | off-sprint, durci S71 C | T0 + gate `SENSITIVE_ACTIONS` | T0 + gate | Spawn agent `bypassPermissions` ; gate `shell`/`commit`/`push`/`PASS` AVANT spawn (G2) |
+| `POST /api/chat/{id}/send` | off-sprint, durci S71 C | T0 + gate `SENSITIVE_ACTIONS` | T0 + gate | Enregistre le message + déclenche le spawn ; même gate |
+| `POST /api/actions/run` | S70 | T0 | T0 | Action allowlistée Operator (pas un shell libre) |
+| `POST /api/context-pack` | S70 | T0 | T0 | Génère un context-pack depuis le repo |
+| `GET /api/terminal/ws` | S70 | T0 | T0 | WebSocket terminal (lecture cast `.planning/terminal`, durci S71 D drive-prefix) |
+| `GET /api/status` `…/lint` `…/audit/{rev}` `…/prompt/{kind}` `…/context` `…/providers` `…/actions/log` `…/chat/{id}/log` `…/sprint-history*` `…/terminal/sessions` | S70/S71 | T0 | T0 | Lecture seule sous le même middleware auth |
+
+Gate **G7** (S71 Phase C `a0337c6`) : middleware `auth_required`
+(`auth.rs:229`) sur chaque route data-bearing — `X-SBFB-Token`
+(`constant_time_eq`) + `Host:` loopback + `Origin:` loopback/absent +
+`CorsLayer` épinglé à `is_loopback_origin` (`operator_server.rs:103`,
+plus de `allow_origin(Any)`). Gate **G2** : `SENSITIVE_ACTIONS`
+(`const` ligne 34) dans `handle_chat_stream` AVANT le spawn (gate
+`:866`, spawn `:898`). Token réutilisé depuis `~/.sbfb/auth_token`.
+Détail + noms de tests : `docs/shell/PATTERNS.md §P35`. Menaces
+catalogées : `THREAT_MODEL.md §14` (T-OPERATOR-CSRF / T-OPERATOR-SPAWN).
+
+**Résidu** : un processus local hostile du même utilisateur peut lire
+le token bearer et invoquer ces endpoints (frontière OS-sandbox
+acceptée, même modèle que le daemon loopback — cf. §8 de ce document
+(couverture threat model, table AD1-AD5) AD2 « Malware user-mode »,
+résidu T0 : invocation silencieuse + `THREAT_MODEL.md §5.7`). Pas de tier T1/T2 sur l'Operator à ce stade ;
+les actions destructives passent par le gate `SENSITIVE_ACTIONS`, pas
+par un gate biométrique OS.
+
+**NetworkProvider S72 (anticipation ProviderRouter)** : le bras
+`Network` du ProviderRouter S72 (`provider_router.rs`) est un **client
+sortant** de `POST /api/v1/tasks/submit` (daemon, §3 ligne 55, tier T0,
+déjà inventorié + rate-limité S21) — **pas une nouvelle surface
+entrante**. Le dispatch réseau S72 reste dans la frontière loopback
+durcie ; le gate `SENSITIVE_ACTIONS` reste AVANT dispatch quel que soit
+le provider (S72 Phase D). Aucun nouvel endpoint entrant Operator n'est
+ajouté par le ProviderRouter.
 
 ## 4. Format `consent.json` étendu
 

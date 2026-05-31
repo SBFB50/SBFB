@@ -698,7 +698,101 @@ Mitigations :
 
 ---
 
-## 14. Revue et evolution
+## 14. Operator surface (Sprint 72 Phase A)
+
+Le **Factory Operator** (`crates/sbfb-factory/src/operator_server.rs`,
+port `:3001` par defaut) est un serveur HTTP loopback **distinct du
+daemon** : process separe, **TCP loopback uniquement** (pas de UDS /
+peer-creds — un sous-ensemble token+Host+Origin du modele S16). Il
+**ecrit des fichiers** (`POST /api/artifacts/draft`) et **spawn des
+sous-processus agent** (`claude --permission-mode bypassPermissions`)
+via le stream chat SSE (`GET /api/chat/{id}/stream`). Ces deux
+capacites — write disque + spawn de processus autonome — en font une
+surface critique au meme titre que les endpoints write du daemon.
+
+Le bloc off-sprint qui a livre l'Operator l'avait expose avec **CORS
+`Any` et zero auth** (G7/P1) et un **stream SSE qui contournait le gate
+`SENSITIVE_ACTIONS`** que les endpoints JSON appliquaient deja (G2/P0).
+Sprint 71 Phase C (`a0337c6`) l'a ramene sous le modele loopback du
+daemon. Ce catalogue documente la surface a posteriori (P2-H-1, audit
+S71 Track H — la defense etait livree+testee, seul le threat model
+accusait le retard). Ref defense complete : `docs/shell/PATTERNS.md
+§P35` + `docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md §3.1`.
+
+### T-OPERATOR-CSRF — CSRF / DNS-rebinding sur surface write + spawn
+
+Un site web malveillant ouvert dans le navigateur de l'utilisateur (ou
+une resolution DNS-rebinding pointant vers `127.0.0.1:3001`) tente de
+declencher un write artefact ou un spawn agent en forgeant des requetes
+vers l'Operator. Meme vecteur que CVE-2025-49596 (cf. §5.5 loopback).
+
+Mitigation (S71 G7, `a0337c6`) : middleware `auth_required`
+(`auth.rs:229`) applique sur chaque route data-bearing —
+(1) `X-SBFB-Token` bearer per-boot compare en `constant_time_eq` (401
+sinon) ; (2) header `Host:` doit etre loopback (403 sinon) ; (3) header
+`Origin:` doit etre loopback ou absent (403 sinon) ; (4) `CorsLayer`
+epingle a `is_loopback_origin` (`operator_server.rs:103`, plus de
+`allow_origin(Any)`). Un navigateur tiers ne connait pas le token et ne
+peut forger un `Origin` loopback.
+
+| Dimension | Valeur |
+|---|---|
+| Severite | H (write disque + spawn bypassPermissions) |
+| Likelihood | L (token bearer 256-bit + Host/Origin loopback bloque le navigateur) |
+| Mitigation | `X-SBFB-Token` (constant_time_eq) + Host + Origin + CORS epingle (S71 G7) |
+| Residual | Processus local hostile lisant `~/.sbfb/auth_token` (frontiere OS-sandbox, accepte — cf. AD2 « abuse de auth_token » / §5.7, meme modele que daemon loopback) |
+
+### T-OPERATOR-SPAWN — Spawn agent autonome non gate
+
+Le stream chat SSE spawn un agent `claude --permission-mode
+bypassPermissions`. Un message portant une action sensible
+(`shell` / `commit` / `push` / `PASS`) pourrait declencher une action
+irreversible (commit, push, shell arbitraire) sans confirmation.
+
+Mitigation (S71 G2, `a0337c6`) : `handle_chat_stream`
+(`operator_server.rs:822`) applique le **meme** filtre `SENSITIVE_ACTIONS`
+(`const` ligne 34 : `shell`/`commit`/`push`/`PASS`) que les endpoints
+JSON, **AVANT** le spawn (gate `:866`, spawn `:898`). Un dernier message
+sensible retourne `requires_gate` au lieu de spawner. `bypassPermissions`
+est **conserve** (PO-2 : le mode « prompt de base + discussion agent
+autonome » est un contrat, pas un bug) mais jamais sur un chemin non
+gate. Les messages non-sensibles streament normalement.
+
+| Dimension | Valeur |
+|---|---|
+| Severite | H (action irreversible : commit/push/shell autonome) |
+| Likelihood | L (gate `SENSITIVE_ACTIONS` avant spawn ; requiert deja le token loopback) |
+| Mitigation | Gate `SENSITIVE_ACTIONS` dans `handle_chat_stream` avant `spawn_claude_stream` (S71 G2) + timeout/diagnostic spawn (S71 G12) |
+| Residual | Gate **keyword-based** (`shell`/`commit`/`push`/`PASS`), pas capability-based : un prompt qui declenche une action destructive sans ces mots-cles n'est pas gate. Le perimetre de l'agent spawn = les privileges user-mode du process (pas un sandbox strict repo). Mitigation residuelle = `bypassPermissions` reste un contrat utilisateur explicite (PO-2), pas une exposition reseau. Renforcement capability-based = candidat futur (cf. carry S73) |
+
+### Anticipation NetworkProvider (Sprint 72 ProviderRouter)
+
+Le ProviderRouter S72 (`provider_router.rs`, bras `Network`) est un
+**client sortant** de `POST /api/v1/tasks/submit` (daemon loopback,
+tier T0, deja inventorie LOOPBACK §3) — **pas une nouvelle surface
+entrante** sur l'Operator. Le dispatch reseau reste dans la frontiere
+loopback durcie. Le gate `SENSITIVE_ACTIONS` reste applique AVANT le
+dispatch quel que soit le provider selectionne (Claude / Ollama /
+Network) — l'invariant gate-avant-dispatch (S72 Phase D) preserve la
+mitigation T-OPERATOR-SPAWN sur tous les chemins.
+
+### Residual risks Operator
+
+- **Token bearer en clair sur disque** (`~/.sbfb/auth_token`) — un
+  processus local du meme utilisateur peut le lire (frontiere
+  OS-sandbox acceptee, identique au daemon loopback §5.7). Pas de gate
+  T1/T2 (CONFIRM_PROMPT / BIOMETRIC) sur l'Operator a ce stade ; les
+  actions vraiment destructives passent par le gate `SENSITIVE_ACTIONS`
+  cote chat, pas par un tier biometrique OS.
+- **Pas de UDS / peer-creds** — l'Operator est TCP loopback only,
+  contrairement au daemon (UDS SO_PEERCRED / Named Pipe SDDL, §5.5
+  menace I). Le scenario « autre process du meme user local » (§5.7
+  menace E) n'est donc pas filtre par peer-creds cote Operator ; la
+  mitigation repose sur le token bearer per-boot (`X-SBFB-Token`).
+
+---
+
+## 15. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -728,3 +822,9 @@ Historique versions :
   surface (T-PROOFCARD-FORMULA-GAME), renommage §12→§13.
 - **v6 (Sprint 69 Phase A, 2026-05-22)** : ajout §13 Preview
   ephemere surface (T-PREVIEW-EXHAUSTION), renommage §13→§14.
+- **v7 (Sprint 72 Phase A, 2026-05-31)** : ajout §14 Operator surface
+  (T-OPERATOR-CSRF, T-OPERATOR-SPAWN + anticipation NetworkProvider),
+  renommage §14→§15. Closure P2-H-1 (audit S71 Track H) — la defense
+  (S71 G7 token+Host+CORS / G2 gate SENSITIVE_ACTIONS) etait deja
+  livree ; ce catalogue rattrape le retard documentaire avant
+  l'extension de surface SSE par le ProviderRouter S72.
