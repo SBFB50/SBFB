@@ -215,6 +215,12 @@ mod tests {
         // Hand the doc to the worker and run until it emits a result.
         engine.register_task_doc("proj-dispatch-e2e", (*doc).clone());
         let w_stop = engine.take_shutdown_sender().expect("shutdown sender");
+        // P2-A-2 (Sprint 72 Phase B): capture an owned clone of the worker's
+        // blob store *before* the engine is moved into the task below. The
+        // clone shares the same content-addressed backend, so it still sees
+        // the result blob the worker writes once it runs — letting us verify
+        // the signature on the stored result, not just its presence.
+        let blob_store = engine.blob_store();
         let worker = tokio::spawn(async move { engine.run_until_shutdown().await });
 
         tokio::time::timeout(Duration::from_secs(10), async {
@@ -233,6 +239,22 @@ mod tests {
         assert_eq!(claims.len(), 1, "worker claimed the dispatched task");
         let results = doc.get_many_by_prefix(b"result:").await.expect("results");
         assert_eq!(results.len(), 1, "worker produced exactly one result");
+
+        // P2-A-2: the result must be an authentically signed `ResultEntry`,
+        // not merely *a* blob under the `result:` prefix. Fetch the stored
+        // bytes and verify the worker's Ed25519 signature over the canonical
+        // payload — closing the S71 B-3 gap where the E2E only counted
+        // results without proving authenticity.
+        let blobs = nexus_core_rs::BlobsClient::new(&blob_store);
+        let result_bytes = blobs
+            .get_bytes(*results[0].content_hash().as_bytes())
+            .await
+            .expect("fetch result blob");
+        let result: nexus_core_rs::ResultEntry =
+            serde_json::from_slice(&result_bytes).expect("decode ResultEntry");
+        result
+            .verify_signature()
+            .expect("worker result carries a valid Ed25519 signature");
 
         let _ = w_stop.send(());
         worker.await.expect("worker joins").expect("worker ok");

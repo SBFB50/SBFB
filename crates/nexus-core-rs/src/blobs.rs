@@ -37,7 +37,12 @@ use std::str::FromStr;
 use iroh::Endpoint;
 use iroh::address_lookup::memory::MemoryLookup;
 use iroh_blobs::Hash;
-use iroh_blobs::api::Store;
+// Re-exported (see `lib.rs`): `Store` is already reachable through the
+// public `BlobsClient::new(&Store)` signature and `Node::blobs_store`, so
+// surfacing the name lets crates that only depend on nexus-core-rs (e.g.
+// nexus-worker-core, which has no direct iroh-blobs dependency) hold an
+// owned `Store` clone without importing iroh-blobs.
+pub use iroh_blobs::api::Store;
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::ticket::BlobTicket;
 

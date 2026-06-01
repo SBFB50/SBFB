@@ -883,4 +883,92 @@ mod tests {
             root.display()
         );
     }
+
+    #[test]
+    fn prompt_kinds_resolve_to_existing_files() {
+        // P2-F-3 (closed 3/3, Sprint 72 Phase B): every canonical prompt kind
+        // must resolve to a `prompts/agent/<file>.md` that exists on disk.
+        // Guards against a kind being added to `PROMPT_KINDS` (or its filename
+        // mapping in `prompt_filename` changed) without the backing prompt
+        // file — a breakage `prompt_data` would otherwise only surface at
+        // runtime as a "prompt file not found" error on the operator/context
+        // path.
+        let root = repo_root();
+        for kind in PROMPT_KINDS {
+            let path = root.join("prompts/agent").join(prompt_filename(kind));
+            assert!(
+                path.exists(),
+                "PROMPT_KINDS entry '{kind}' has no prompt file at {}",
+                path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn agent_wrappers_reference_existing_prompts() {
+        // P2-F-3 (closed 3/3, Sprint 72 Phase B): every `prompts/agent/<file>.md`
+        // path named by a `.claude/agents/*.md` wrapper must exist on disk.
+        // `prompt_kinds_resolve_to_existing_files` covers the canonical kind
+        // set; this covers the *wrapper -> prompt* coupling directly, catching
+        // a wrapper that points at a renamed/typo'd file outside the kind set
+        // — the exact P2-F-3 breakage (1/3 S70 -> 2/3 S71 -> 3/3 S72, closed
+        // here, never carried again). The stability contract is documented in
+        // `docs/agent/AGENT_SYSTEM.md`.
+        let root = repo_root();
+        let agents_dir = root.join(".claude/agents");
+        assert!(
+            agents_dir.is_dir(),
+            "agent wrappers directory missing: {}",
+            agents_dir.display()
+        );
+
+        let mut checked = 0usize;
+        for dir_entry in std::fs::read_dir(&agents_dir).expect("read .claude/agents") {
+            let wrapper_path = dir_entry.expect("dir entry").path();
+            if wrapper_path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            let content = std::fs::read_to_string(&wrapper_path).expect("read wrapper");
+            for prompt_ref in prompt_refs_in(&content) {
+                let target = root.join(&prompt_ref);
+                assert!(
+                    target.exists(),
+                    "wrapper {} references missing prompt {}",
+                    wrapper_path.display(),
+                    target.display()
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 0,
+            "expected at least one `prompts/agent/*.md` reference across the \
+             agent wrappers (the coupling guard would be vacuous otherwise)"
+        );
+    }
+
+    /// Extract every `prompts/agent/<name>.md` path mentioned in a wrapper's
+    /// markdown body. References appear inside backticks (e.g.
+    /// ``Lis `prompts/agent/preflight.md` en entier``), so we scan for the
+    /// literal `prompts/agent/` marker and read up to the first terminator
+    /// (backtick, whitespace, `)` or `,`).
+    fn prompt_refs_in(content: &str) -> Vec<String> {
+        const MARKER: &str = "prompts/agent/";
+        let mut refs = Vec::new();
+        let mut rest = content;
+        while let Some(pos) = rest.find(MARKER) {
+            let after = &rest[pos..];
+            let end = after
+                .find(|c: char| c == '`' || c.is_whitespace() || c == ')' || c == ',')
+                .unwrap_or(after.len());
+            let candidate = &after[..end];
+            if candidate.ends_with(".md") {
+                refs.push(candidate.to_string());
+            }
+            // The marker contains no terminator chars, so `end` is always past
+            // it; `max(1)` is a belt-and-braces guard against a zero-width step.
+            rest = &after[end.max(1)..];
+        }
+        refs
+    }
 }

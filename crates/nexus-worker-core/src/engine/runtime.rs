@@ -563,6 +563,23 @@ impl Engine {
         nexus_core_rs::docs::DocsClient::new(self.node.docs())
     }
 
+    /// Return an **owned** clone of this engine's blob store handle.
+    ///
+    /// Sprint 72 Phase B (P2-A-2): the cross-process E2E
+    /// (`dispatched_task_is_claimed_and_executed_by_worker_engine`) moves the
+    /// engine into a `tokio::spawn` to drive it, so it cannot keep a borrowed
+    /// [`BlobsClient`](nexus_core_rs::BlobsClient) (which holds `&Store`)
+    /// alive across that move. The blob store is a cheap, `Clone`-able handle
+    /// over a shared content-addressed backend, so a clone captured *before*
+    /// the move still observes the result blob the worker writes *after* it —
+    /// letting the test fetch the stored [`ResultEntry`](nexus_core_rs::ResultEntry)
+    /// and assert its Ed25519 signature with
+    /// [`verify_signature`](nexus_core_rs::ResultEntry::verify_signature). The
+    /// S71 B-3 test only asserted that exactly one result entry was produced.
+    pub fn blob_store(&self) -> nexus_core_rs::Store {
+        self.node.blobs_store().clone()
+    }
+
     /// Return a `watch::Receiver` for the current engine state.
     ///
     /// Every subscriber sees the latest value on first poll and

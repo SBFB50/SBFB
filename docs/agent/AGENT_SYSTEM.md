@@ -217,6 +217,24 @@ ajoutent les outils Claude-specifiques (WebSearch, context7, Read
 1M tokens) au-dessus des prompts portables. Un provider sans ces
 outils execute le meme workflow mais avec moins de profondeur.
 
+#### Contrat de stabilite wrapper -> prompt (P2-F-3)
+
+Le couplage entre un wrapper `.claude/agents/*.md` et le prompt
+portable `prompts/agent/<kind>.md` qu'il charge est **garanti
+mecaniquement** : deux tests dans `crates/sbfb-factory/src/process.rs`
+echouent si le couplage se rompt (renommage, suppression, typo).
+
+- `prompt_kinds_resolve_to_existing_files` — chaque `PROMPT_KINDS`
+  resout vers un fichier `prompts/agent/<file>.md` present.
+- `agent_wrappers_reference_existing_prompts` — chaque chemin
+  `prompts/agent/*.md` cite par un wrapper existe sur disque (couvre
+  une reference hors du set de kinds).
+
+Consequence : renommer un prompt sans mettre a jour le wrapper (ou
+l'inverse) casse `cargo nextest -p sbfb-factory`, jamais en silence
+au runtime. (P2-F-3, ferme a 3/3 en Sprint 72 Phase B — plus jamais
+en carry.)
+
 ### Bootstrap session fraiche
 
 1. `base.md` → orientation invariante et regles evidence

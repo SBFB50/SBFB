@@ -66,7 +66,7 @@ pub use attestations::{
     DELEGATION_ALGO_SSH_RSA, DelegationCert, DelegationCertError, DelegationScope,
     ForgeContribution, MIN_AGE_DAYS, MIN_WITNESS_AGE_DAYS, SigType,
 };
-pub use blobs::BlobsClient;
+pub use blobs::{BlobsClient, Store};
 pub use canonical::{
     DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_CONTRIBUTOR_ATTESTATION_V1,
     DOMAIN_CURATOR_LIST_V1, DOMAIN_DELEGATION_CERT_V1, DOMAIN_DURESS_ACK_V1, DOMAIN_FEED_V1,
