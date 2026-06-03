@@ -12,7 +12,12 @@ mod operator_server;
 mod pipeline;
 mod preview_cmd;
 mod process;
+// Sprint 72 Phase C: the `ExecutionTarget` dispatch point. Phase D wires
+// `operator_server::handle_chat_stream` to it; until then it is reachable
+// only from its own tests, so the binary build sees it as dead code.
 mod provenance;
+#[allow(dead_code)]
+mod provider_router;
 mod publish;
 mod secret_scanner;
 pub mod sprint_history;

@@ -102,7 +102,13 @@ url = "2.5"
 clap = { version = "4.5", features = ["derive"] }
 ratatui = "0.28"
 crossterm = "0.28"
-ollama-rs = "0.2"
+# Sprint 72 Phase C (D2): bumped 0.2 → 0.3.4 to adopt `ollama-rs`
+# everywhere (worker quorum + Factory Ollama execution target),
+# avoiding a cross-crate version split. Only breaking changes
+# touching SBFB: `GenerationOptions` → `ModelOptions` rename and
+# `FormatType::StructuredJson(Box<JsonStructure>)`. The seed/options
+# builders survive (greedy-seed quorum preserved — Sprint 71 B-2).
+ollama-rs = "0.3.4"
 nvml-wrapper = "0.12.1"
 
 # W3: layered config (defaults + TOML file + env vars) and
@@ -323,11 +329,17 @@ tempfile = "3.13"
 # `TaskResponse` uses `#[derive(JsonSchema)]` so the wire schema
 # is generated from the Rust type (single source of truth) and
 # fed to both `ollama_rs::generation::parameters::JsonStructure`
-# and `llguidance::TopLevelGrammar::from_json_schema`. Pinned to
-# 0.8.21 to match ollama-rs 0.2.6 transitive constraint — the
-# 0.8 → 1.0 upgrade is an ecosystem-wide churn we avoid in a
-# security-hardening sprint.
-schemars = { version = "0.8.21", features = ["derive"] }
+# and `llguidance::TopLevelGrammar::from_json_schema`. Sprint 72
+# Phase C (D2, PO Option A 2026-06-03): bumped 0.8.21 → 1.2 to match
+# the `schemars 1.2` that ollama-rs 0.3.4 requires for
+# `JsonStructure::new::<TaskResponse>()` — adopting ollama-rs 0.3.4
+# on the worker dragged schemars onto the 1.x line. This reverses
+# the earlier S20 "avoid the 0.8 → 1.0 churn" note; the churn is now
+# the accepted cost of single-version ollama-rs. `schema_for!` /
+# `JsonSchema` / `serde_json::to_value` API are stable across the
+# bump; the generated schema moves to draft 2020-12 (`$defs`), so
+# the `TaskResponse` snapshot is regenerated.
+schemars = { version = "1.2", features = ["derive"] }
 
 # Sprint 20 Phase D: embedded llama.cpp runtime via the `utilityai`
 # Rust binding. Kept as an optional workspace dep so crates opt in

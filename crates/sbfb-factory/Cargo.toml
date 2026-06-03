@@ -31,6 +31,11 @@ tower-http = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
 portable-pty = "0.9.0"
+# Sprint 72 Phase C (D2): the Ollama execution target streams tokens
+# via `ollama-rs` `generate_stream` (feature `stream`). Inherits the
+# workspace pin `0.3.4` so the worker and the Factory share a single
+# `ollama-rs` version (no cross-crate divergence — D2 rationale).
+ollama-rs = { workspace = true, features = ["stream"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

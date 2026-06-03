@@ -25,8 +25,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use ollama_rs::Ollama;
 use ollama_rs::generation::completion::request::GenerationRequest;
-use ollama_rs::generation::options::GenerationOptions;
 use ollama_rs::generation::parameters::FormatType;
+use ollama_rs::models::ModelOptions;
 use url::Url;
 
 use crate::config::OllamaConfig;
@@ -156,7 +156,13 @@ impl LlmBackend for OllamaBackend {
         // drop a constraint the caller asked for.
         let format = match params.schema.as_ref() {
             Some(schema) if schema_is_task_response(schema) => {
-                Some(FormatType::StructuredJson(ollama_json_structure()))
+                // Sprint 72 Phase C (D2): ollama-rs 0.3.4 boxes the
+                // structured-JSON payload — `FormatType::StructuredJson`
+                // now takes `Box<JsonStructure>` (was a bare
+                // `JsonStructure` under the 0.2.6 pin).
+                Some(FormatType::StructuredJson(
+                    Box::new(ollama_json_structure()),
+                ))
             }
             Some(_) => {
                 return Err(LlmBackendError::InvalidConfig {
@@ -182,8 +188,9 @@ impl LlmBackend for OllamaBackend {
             // this, Ollama applies the Modelfile defaults (temp ~0.8,
             // random seed) and two honest workers on a `verifiable`
             // task diverge — breaking hash-exact quorum. The
-            // `GenerationOptions` API existed in the pinned ollama-rs
-            // 0.2.6 ; it just was not wired.
+            // sampling-options API survived the Sprint 72 bump to
+            // ollama-rs 0.3.4 (`GenerationOptions` → `ModelOptions`
+            // rename only) ; the seed/temperature builders are unchanged.
             if let Some(opts) = deterministic_options(&params) {
                 req = req.options(opts);
             }
@@ -220,14 +227,17 @@ impl LlmBackend for OllamaBackend {
         Ok(GenerateResponse {
             text,
             model,
-            prompt_tokens: response.prompt_eval_count.map(u64::from),
-            completion_tokens: response.eval_count.map(u64::from),
+            // Sprint 72 Phase C (D2): ollama-rs 0.3.4 widened the token
+            // counters from `Option<u32>` to `Option<u64>`, so the prior
+            // `.map(u64::from)` widening is now a no-op — assign directly.
+            prompt_tokens: response.prompt_eval_count,
+            completion_tokens: response.eval_count,
             output_token_ids: vec![],
         })
     }
 }
 
-/// Build the Ollama [`GenerationOptions`] for an explicit sampling
+/// Build the Ollama [`ModelOptions`] for an explicit sampling
 /// request, or `None` when the caller left both `temperature` and
 /// `seed` unset (best-effort sampling — preserve the pre-Sprint-71
 /// behavior of inheriting the Modelfile defaults).
@@ -236,11 +246,11 @@ impl LlmBackend for OllamaBackend {
 /// fixed seed (see [`GenerateParams::deterministic`]); forwarding
 /// both to Ollama makes two honest workers reproduce the same
 /// `result_text` for hash-exact quorum (Sprint 71 Phase B, B-2).
-fn deterministic_options(params: &GenerateParams) -> Option<GenerationOptions> {
+fn deterministic_options(params: &GenerateParams) -> Option<ModelOptions> {
     if params.temperature.is_none() && params.seed.is_none() {
         return None;
     }
-    let mut opts = GenerationOptions::default();
+    let mut opts = ModelOptions::default();
     if let Some(t) = params.temperature {
         opts = opts.temperature(t);
     }
@@ -397,11 +407,11 @@ mod tests {
     #[test]
     fn deterministic_options_wire_temperature_and_seed() {
         // A verifiable task pins temperature 0 + a fixed seed; both
-        // must reach Ollama via GenerationOptions or two honest
+        // must reach Ollama via ModelOptions or two honest
         // workers diverge under the Modelfile defaults (Sprint 71 B-2).
         let params = GenerateParams::new("m", "p").deterministic(7);
         let opts = deterministic_options(&params).expect("verifiable params must produce options");
-        // GenerationOptions fields are private to ollama-rs; assert
+        // ModelOptions fields are private to ollama-rs; assert
         // through its Serialize impl — the exact JSON Ollama receives.
         let json = serde_json::to_value(&opts).unwrap();
         assert_eq!(json["temperature"], 0.0);

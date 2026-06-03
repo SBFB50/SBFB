@@ -111,11 +111,12 @@ zeroize = { workspace = true }
 # Sprint 20 Phase D : schemas/task_response.rs derives JsonSchema
 # on the Rust `TaskResponse` struct so the wire schema is generated
 # from the type (single source of truth). The generated schema is
-# consumed by both worker backends : `ollama-rs 0.2.6` wires it
-# into `FormatType::StructuredJson(JsonStructure)` and the
+# consumed by both worker backends : `ollama-rs` wires it into
+# `FormatType::StructuredJson(Box<JsonStructure>)` and the
 # `llama-cpp-2` backend feeds the same `serde_json::Value` to
-# `llguidance::TopLevelGrammar::from_json_schema`. See the
-# workspace comment for why we pin 0.8.21 (ollama-rs 0.2.6 peers).
+# `llguidance::TopLevelGrammar::from_json_schema`. Sprint 72 Phase C
+# (D2) bumped the workspace pin to schemars 1.2 to match ollama-rs
+# 0.3.4 (`JsonStructure::new::<T>()` binds schemars 1.2's `JsonSchema`).
 schemars = { workspace = true }
 
 # Sprint 24 Phase E : DNS-based DHT fallback (DoH + DoT) via

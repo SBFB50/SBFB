@@ -2,7 +2,7 @@
 
 use ollama_rs::Ollama;
 use ollama_rs::generation::completion::request::GenerationRequest;
-use ollama_rs::generation::options::GenerationOptions;
+use ollama_rs::models::ModelOptions;
 
 use crate::ipc::{TaskExecuteParams, TaskExecuteResult};
 
@@ -14,7 +14,9 @@ pub async fn execute_task(
         return Ok(stub_result(params));
     };
 
-    let opts = GenerationOptions::default().num_predict(params.max_tokens as i32);
+    // Sprint 72 Phase C (D2): ollama-rs 0.3.4 renamed `GenerationOptions`
+    // to `ModelOptions`; `num_predict(i32)` is unchanged.
+    let opts = ModelOptions::default().num_predict(params.max_tokens as i32);
     let req = GenerationRequest::new(params.model.clone(), params.prompt.clone()).options(opts);
     let resp = client.generate(req).await.map_err(|e| e.to_string())?;
 

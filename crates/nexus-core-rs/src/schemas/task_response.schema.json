@@ -1,38 +1,38 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "additionalProperties": false,
-  "definitions": {
+  "$defs": {
     "ToolCall": {
       "additionalProperties": false,
-      "description": "A single tool call the worker asks the coordinator to execute.\n\nAt Sprint 20 this structure is purely declarative — the coordinator ignores `tool_calls` until Sprint 22 activates the allow-list + wasmtime sandbox. The field is part of the wire format from day one so the schema does not bump when S22 lands.",
+      "description": "A single tool call the worker asks the coordinator to execute.\n\nAt Sprint 20 this structure is purely declarative — the\ncoordinator ignores `tool_calls` until Sprint 22 activates the\nallow-list + wasmtime sandbox. The field is part of the wire\nformat from day one so the schema does not bump when S22 lands.",
       "properties": {
         "arguments": {
-          "description": "Free-form JSON arguments the tool will receive. Shape depends on the tool registered in the allow-list — the schema intentionally leaves this field as `serde_json::Value` so tool authors define their own inner validation."
+          "description": "Free-form JSON arguments the tool will receive. Shape\ndepends on the tool registered in the allow-list — the\nschema intentionally leaves this field as\n`serde_json::Value` so tool authors define their own\ninner validation."
         },
         "name": {
-          "description": "Name of the tool to invoke (e.g. `\"http_get\"`, `\"fs_read\"`). Match against the S22+ allow-list.",
+          "description": "Name of the tool to invoke (e.g. `\"http_get\"`,\n`\"fs_read\"`). Match against the S22+ allow-list.",
           "type": "string"
         }
       },
       "required": [
-        "arguments",
-        "name"
+        "name",
+        "arguments"
       ],
       "type": "object"
     }
   },
-  "description": "The structured response emitted by the worker's LLM backend after [`LlmBackend::generate`] completes. Signed by the worker before dispatch back to the coordinator.\n\nBoth backends force their sampler to emit a byte sequence matching the JSON Schema generated from this type. A garbled generation (invalid JSON, missing required field, version mismatch) is caught by the defensive `serde_json::from_str` validator on the text output — the worker refuses to sign a response it could not parse.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The structured response emitted by the worker's LLM backend\nafter [`LlmBackend::generate`] completes. Signed by the worker\nbefore dispatch back to the coordinator.\n\nBoth backends force their sampler to emit a byte sequence\nmatching the JSON Schema generated from this type. A garbled\ngeneration (invalid JSON, missing required field, version\nmismatch) is caught by the defensive `serde_json::from_str`\nvalidator on the text output — the worker refuses to sign a\nresponse it could not parse.",
   "properties": {
     "content": {
       "description": "The LLM output text the worker returns to the coordinator.",
       "type": "string"
     },
     "domain": {
-      "description": "Domain tag. Must equal [`TASK_RESPONSE_DOMAIN_TAG`] ; any other value is a decode failure.",
+      "description": "Domain tag. Must equal [`TASK_RESPONSE_DOMAIN_TAG`] ; any\nother value is a decode failure.",
       "type": "string"
     },
     "reasoning": {
-      "description": "Optional chain-of-thought / structured reasoning trace when the model was prompted to emit one. `None` (or absent) when reasoning was not requested.",
+      "description": "Optional chain-of-thought / structured reasoning trace when\nthe model was prompted to emit one. `None` (or absent)\nwhen reasoning was not requested.",
       "type": [
         "string",
         "null"
@@ -40,23 +40,24 @@
     },
     "tool_calls": {
       "default": [],
-      "description": "Tool calls the worker asks the coordinator to dispatch on its behalf. Empty at Sprint 20 — every worker allowlisted at Sprint 20 is expected to emit `[]` until the Sprint 22 tool-calling sandbox activates the gate.",
+      "description": "Tool calls the worker asks the coordinator to dispatch on\nits behalf. Empty at Sprint 20 — every worker allowlisted\nat Sprint 20 is expected to emit `[]` until the Sprint 22\ntool-calling sandbox activates the gate.",
       "items": {
-        "$ref": "#/definitions/ToolCall"
+        "$ref": "#/$defs/ToolCall"
       },
       "type": "array"
     },
     "version": {
-      "description": "Protocol version. Must equal [`TASK_RESPONSE_VERSION`] ; any other value is a decode failure.",
+      "description": "Protocol version. Must equal [`TASK_RESPONSE_VERSION`] ;\nany other value is a decode failure.",
       "format": "uint8",
-      "minimum": 0.0,
+      "maximum": 255,
+      "minimum": 0,
       "type": "integer"
     }
   },
   "required": [
-    "content",
+    "version",
     "domain",
-    "version"
+    "content"
   ],
   "title": "TaskResponse",
   "type": "object"

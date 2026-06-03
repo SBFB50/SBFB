@@ -12,9 +12,10 @@
 //!   `serde_json::Value` both backends compare against.
 //! - [`ollama_json_structure`] — wraps
 //!   `ollama_rs::generation::parameters::JsonStructure::new::<T>()`.
-//!   `JsonStructure` has a private `schema: RootSchema` field, so
-//!   building one from a raw `serde_json::Value` would require an
-//!   upstream `from_value` constructor that does not exist. At
+//!   `JsonStructure` has a private `schema: Schema` field (schemars
+//!   1.x, since the Sprint 72 ollama-rs 0.3.4 bump), so building one
+//!   from a raw `serde_json::Value` while preserving the `$ref`
+//!   inlining that `new::<T>()` performs is non-trivial. At
 //!   Sprint 20 we know the type statically — this helper hard-codes
 //!   the `TaskResponse` type so the Ollama backend never needs to
 //!   dynamically reflect a `serde_json::Value` back into a
@@ -74,8 +75,8 @@ mod tests {
     fn ollama_json_structure_builds_without_panic() {
         // We cannot inspect `JsonStructure` internals (private
         // field), but constructing one exercises the full
-        // `schemars::schema_for!(TaskResponse)` + `RootSchema`
-        // pipeline. If schemars or schema_for change shape in a
+        // `JsonStructure::new::<TaskResponse>()` + schemars 1.x
+        // `Schema` pipeline. If schemars or schema_for change shape in a
         // way that breaks the private constructor, this test
         // fires at compile time or with a panic.
         let _ = ollama_json_structure();

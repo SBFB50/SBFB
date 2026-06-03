@@ -136,14 +136,20 @@ impl TaskResponse {
     }
 }
 
-/// JSON Schema (draft-07 via schemars default settings) derived
-/// from the [`TaskResponse`] struct. Returned as a
+/// JSON Schema (draft 2020-12 via schemars 1.x default settings)
+/// derived from the [`TaskResponse`] struct. Returned as a
 /// `serde_json::Value` so both LLM backends consume the same
 /// object (Ollama via `JsonStructure`, llama.cpp via
 /// `llguidance::TopLevelGrammar::from_json_schema`).
+///
+/// Sprint 72 Phase C (D2): schemars bumped 0.8 → 1.2 (ollama-rs
+/// 0.3.4 requires it). `schema_for!` now returns a `schemars::Schema`
+/// (was `RootSchema`); `serde_json::to_value` still serializes it
+/// cleanly. The emitted draft moves 07 → 2020-12 (`$defs`), hence
+/// the regenerated snapshot below.
 pub fn task_response_schema() -> serde_json::Value {
-    let root = schema_for!(TaskResponse);
-    serde_json::to_value(root).expect("schemars RootSchema serializes cleanly to serde_json::Value")
+    let schema = schema_for!(TaskResponse);
+    serde_json::to_value(schema).expect("schemars Schema serializes cleanly to serde_json::Value")
 }
 
 #[cfg(test)]
