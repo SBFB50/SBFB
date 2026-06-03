@@ -22,16 +22,66 @@ pub enum ValidationOutcome {
     RejectedTaskNotPending,
 }
 
-pub fn validate_result(
+/// A result that has cleared every check EXCEPT the output guardrail,
+/// ready to be persisted once the caller runs
+/// [`crate::guardrails::default_output_chain`] on `result_text` and it
+/// passes.
+///
+/// Sprint 73 Phase A (D5): persistence ([`CoordinatorDb::set_task_result`],
+/// which flips the task to `completed` AND writes the retrievable
+/// `result_text` in one atomic UPDATE) must happen STRICTLY AFTER the
+/// output guardrail clears the text. Otherwise `GET
+/// /api/v1/tasks/{id}/result` briefly serves content the guardrail later
+/// rejects, and kudos get credited for it. The
+/// [`validate_result_pre_guardrail`] / [`validate_result_post_guardrail`]
+/// split makes guardrail-before-persist the only reachable order on the
+/// two network ingress points (HTTP `coordinator_submit_result`, gossip
+/// `validator_loop`).
+#[derive(Debug, Clone)]
+pub struct PendingResultPersist {
+    pub task_id: String,
+    pub worker_id: String,
+    /// Provenance hash: single path = signature hex; quorum path = the
+    /// agreed value (`best_hash`).
+    pub result_hash: String,
+    /// Human-readable text to guardrail then persist: single path =
+    /// worker `payload.result_text`; quorum path = the agreed text
+    /// (`best_hash`, which on that path IS the text — PATTERNS §P53).
+    pub result_text: String,
+    pub now: u64,
+}
+
+/// Validate a result up to — but NOT including — persistence.
+///
+/// Runs the 3-layer verification (signature + task existence + status
+/// guard) and, for redundant tasks, the quorum accumulation. It NEVER
+/// calls [`CoordinatorDb::set_task_result`]: when the result is
+/// acceptable it returns a [`PendingResultPersist`] describing what to
+/// persist, leaving the caller to run the output guardrail first (Sprint
+/// 73 Phase A, D5).
+///
+/// Returns `(outcome, task_record, pending)`. `pending` is `Some` only
+/// when `outcome == Accepted` (a single result, or a quorum just
+/// reached); the task row is still un-completed at that point —
+/// [`validate_result_post_guardrail`] completes it. `pending` is `None`
+/// for every non-accepting outcome and for `AwaitingQuorum`.
+pub fn validate_result_pre_guardrail(
     db: &CoordinatorDb,
     entry: &ResultEntry,
-) -> Result<(ValidationOutcome, Option<TaskRecord>), CoordinatorError> {
+) -> Result<
+    (
+        ValidationOutcome,
+        Option<TaskRecord>,
+        Option<PendingResultPersist>,
+    ),
+    CoordinatorError,
+> {
     if entry.verify_signature().is_err() {
         tracing::warn!(
             task_id = %entry.payload.task_id,
             "result signature verification failed"
         );
-        return Ok((ValidationOutcome::RejectedBadSignature, None));
+        return Ok((ValidationOutcome::RejectedBadSignature, None, None));
     }
 
     let task = match db.get_task(&entry.payload.task_id)? {
@@ -41,7 +91,7 @@ pub fn validate_result(
                 task_id = %entry.payload.task_id,
                 "result references unknown task"
             );
-            return Ok((ValidationOutcome::RejectedTaskNotFound, None));
+            return Ok((ValidationOutcome::RejectedTaskNotFound, None, None));
         }
     };
 
@@ -54,7 +104,7 @@ pub fn validate_result(
             status = %task.status.as_str(),
             "result for task not in pending/dispatched/awaiting_quorum state"
         );
-        return Ok((ValidationOutcome::RejectedTaskNotPending, None));
+        return Ok((ValidationOutcome::RejectedTaskNotPending, None, None));
     }
 
     let now = std::time::SystemTime::now()
@@ -65,28 +115,60 @@ pub fn validate_result(
     let worker_id = hex::encode(entry.worker_pubkey);
 
     if task.redundancy_factor > 1 {
-        return validate_quorum(db, &task, &worker_id, &entry.payload.result_text, now);
+        return validate_quorum_pre_guardrail(
+            db,
+            &task,
+            &worker_id,
+            &entry.payload.result_text,
+            now,
+        );
     }
 
-    let result_hash = hex::encode(entry.signature);
-    // Persist the provenance hash AND the human-readable text so the
-    // Operator's network arm can retrieve the output (Sprint 72 Phase D).
-    db.set_task_result(
-        &entry.payload.task_id,
-        &worker_id,
-        &result_hash,
-        &entry.payload.result_text,
+    // Single-result path: defer the human-readable text AND the
+    // provenance hash for persistence behind the output guardrail.
+    let pending = PendingResultPersist {
+        task_id: entry.payload.task_id.clone(),
+        worker_id,
+        result_hash: hex::encode(entry.signature),
+        result_text: entry.payload.result_text.clone(),
         now,
+    };
+
+    tracing::debug!(
+        task_id = %entry.payload.task_id,
+        tokens = entry.payload.tokens_generated,
+        "result validated, pending output guardrail"
+    );
+
+    Ok((ValidationOutcome::Accepted, Some(task), Some(pending)))
+}
+
+/// Persist a result that has cleared the output guardrail (Sprint 73
+/// Phase A, D5).
+///
+/// This is the ONLY function that writes the retrievable `result_text`
+/// and flips the task to `completed`. Callers MUST run
+/// [`crate::guardrails::default_output_chain`] on `pending.result_text`
+/// and confirm it passed before calling this — see
+/// [`PendingResultPersist`].
+pub fn validate_result_post_guardrail(
+    db: &CoordinatorDb,
+    pending: &PendingResultPersist,
+) -> Result<(), CoordinatorError> {
+    db.set_task_result(
+        &pending.task_id,
+        &pending.worker_id,
+        &pending.result_hash,
+        &pending.result_text,
+        pending.now,
     )?;
 
     tracing::info!(
-        task_id = %entry.payload.task_id,
-        worker = %&worker_id[..16],
-        tokens = entry.payload.tokens_generated,
-        "result accepted"
+        task_id = %pending.task_id,
+        "result persisted after output guardrail"
     );
 
-    Ok((ValidationOutcome::Accepted, Some(task)))
+    Ok(())
 }
 
 /// Quorum path for redundant tasks (`redundancy_factor > 1`).
@@ -106,16 +188,23 @@ pub fn validate_result(
 /// task is wrongly rejected. Determinism is enforced worker-side at
 /// submission (`build_generate_params`); the validator itself is
 /// mode-agnostic and unchanged by B-2.
-fn validate_quorum(
+fn validate_quorum_pre_guardrail(
     db: &CoordinatorDb,
     task: &TaskRecord,
     worker_id: &str,
     sha256: &str,
     now: u64,
-) -> Result<(ValidationOutcome, Option<TaskRecord>), CoordinatorError> {
+) -> Result<
+    (
+        ValidationOutcome,
+        Option<TaskRecord>,
+        Option<PendingResultPersist>,
+    ),
+    CoordinatorError,
+> {
     let inserted = db.insert_task_result(&task.task_id, worker_id, sha256, now)?;
     if !inserted {
-        return Ok((ValidationOutcome::AwaitingQuorum, Some(task.clone())));
+        return Ok((ValidationOutcome::AwaitingQuorum, Some(task.clone()), None));
     }
 
     let results = db.get_task_results(&task.task_id)?;
@@ -132,7 +221,7 @@ fn validate_quorum(
             required = task.redundancy_factor,
             "build result stored, awaiting quorum"
         );
-        return Ok((ValidationOutcome::AwaitingQuorum, Some(task.clone())));
+        return Ok((ValidationOutcome::AwaitingQuorum, Some(task.clone()), None));
     }
 
     let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
@@ -148,12 +237,6 @@ fn validate_quorum(
         .unwrap_or(("", 0));
 
     if best_count > majority_threshold {
-        // On the quorum path `best_hash` IS the agreed `result_text`
-        // (the `sha256` column holds raw text here, PATTERNS §P53), so
-        // it doubles as both the provenance hash and the retrievable
-        // text (Sprint 72 Phase D).
-        db.set_task_result(&task.task_id, worker_id, best_hash, best_hash, now)?;
-
         for r in &results {
             if r.sha256 != best_hash {
                 tracing::warn!(
@@ -170,10 +253,28 @@ fn validate_quorum(
             task_id = %task.task_id,
             sha256 = %best_hash,
             agreement = %format!("{best_count}/{count}"),
-            "build quorum reached — accepted"
+            "build quorum reached — pending output guardrail"
         );
 
-        Ok((ValidationOutcome::Accepted, Some(task.clone())))
+        // On the quorum path `best_hash` IS the agreed `result_text`
+        // (the `sha256` column holds raw text here, PATTERNS §P53), so
+        // it doubles as both the provenance hash and the retrievable
+        // text. The output guardrail (Sprint 73 Phase A, D5) runs on this
+        // agreed text BEFORE it is persisted by
+        // `validate_result_post_guardrail`.
+        let pending = PendingResultPersist {
+            task_id: task.task_id.clone(),
+            worker_id: worker_id.to_string(),
+            result_hash: best_hash.to_string(),
+            result_text: best_hash.to_string(),
+            now,
+        };
+
+        Ok((
+            ValidationOutcome::Accepted,
+            Some(task.clone()),
+            Some(pending),
+        ))
     } else {
         db.update_task_status(&task.task_id, TaskStatus::Rejected, now)?;
         tracing::warn!(
@@ -181,24 +282,44 @@ fn validate_quorum(
             distinct_hashes = counts.len(),
             "build quorum divergence — rejected"
         );
-        Ok((ValidationOutcome::QuorumRejected, Some(task.clone())))
+        Ok((ValidationOutcome::QuorumRejected, Some(task.clone()), None))
     }
 }
 
+/// Test-only in-process validator harness.
+///
+/// Gated `#[cfg(test)]` so the guardrail-less `pre + post` composition in
+/// [`ResultValidator::validate`] is **not reachable from any production
+/// crate** — the invariant "no path persists `result_text` without the
+/// output guardrail" is closed at the API level (Sprint 73 Phase A, D5).
+/// The two network ingress points run the split explicitly with the
+/// guardrail in between (`http.rs` `coordinator_submit_result`,
+/// `validator_loop`). Used only by this module's unit tests of the
+/// verification + quorum logic.
+#[cfg(test)]
 pub struct ResultValidator {
     db: CoordinatorDb,
 }
 
+#[cfg(test)]
 impl ResultValidator {
     pub fn new(db: CoordinatorDb) -> Self {
         Self { db }
     }
 
+    /// In-process validation **and** persistence WITHOUT the output
+    /// guardrail — test-only (see [`ResultValidator`]). Exercises the
+    /// verification + quorum logic; the guardrail is a daemon-layer
+    /// concern covered in `http.rs` / `validator_loop.rs` tests.
     pub fn validate(
         &self,
         entry: &ResultEntry,
     ) -> Result<(ValidationOutcome, Option<TaskRecord>), CoordinatorError> {
-        validate_result(&self.db, entry)
+        let (outcome, record, pending) = validate_result_pre_guardrail(&self.db, entry)?;
+        if let Some(pending) = pending {
+            validate_result_post_guardrail(&self.db, &pending)?;
+        }
+        Ok((outcome, record))
     }
 
     pub fn db(&self) -> &CoordinatorDb {
@@ -213,6 +334,22 @@ mod tests {
 
     use super::*;
     use crate::types::TaskRecord;
+
+    /// In-process pre+post composition used by the verification/quorum
+    /// unit tests below. The output guardrail is a daemon-layer concern
+    /// exercised in `http.rs` / `validator_loop.rs`; these tests focus on
+    /// signature/status/quorum + persistence, so they mirror the
+    /// pre-Sprint-73 `validate_result` ergonomics.
+    fn validate_result(
+        db: &CoordinatorDb,
+        entry: &ResultEntry,
+    ) -> Result<(ValidationOutcome, Option<TaskRecord>), CoordinatorError> {
+        let (outcome, record, pending) = validate_result_pre_guardrail(db, entry)?;
+        if let Some(pending) = pending {
+            validate_result_post_guardrail(db, &pending)?;
+        }
+        Ok((outcome, record))
+    }
 
     fn setup_db_with_task(task_id: &str) -> (CoordinatorDb, KeyPair) {
         let db = CoordinatorDb::open_in_memory().expect("open");
@@ -570,5 +707,64 @@ mod tests {
 
         let task = db.get_task("nondet-reject").expect("get").expect("found");
         assert_eq!(task.status, TaskStatus::Rejected);
+    }
+
+    // -----------------------------------------------------------
+    // Sprint 73 Phase A — guardrail-before-persist (D5)
+    // -----------------------------------------------------------
+
+    #[test]
+    fn quorum_guardrail_runs_on_agreed_text() {
+        // redundancy 2: two honest workers agree on a text that carries an
+        // invisible character. The pre phase reaches quorum and returns the
+        // AGREED text as the pending persist candidate; the output guardrail
+        // trips on it, so the caller must skip persistence. Proves the
+        // guardrail gates the quorum path on the agreed text, not on a raw
+        // single submission (Sprint 73 Phase A, D5).
+        let db = setup_build_task("quorum-gr", 2);
+        let agreed = "agreed\u{200B}text";
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+
+        let (o1, _, p1) =
+            validate_result_pre_guardrail(&db, &make_build_result("quorum-gr", &w1, agreed))
+                .expect("v1");
+        assert_eq!(o1, ValidationOutcome::AwaitingQuorum);
+        assert!(p1.is_none(), "awaiting quorum yields no persist candidate");
+
+        let (o2, _, p2) =
+            validate_result_pre_guardrail(&db, &make_build_result("quorum-gr", &w2, agreed))
+                .expect("v2");
+        assert_eq!(o2, ValidationOutcome::Accepted);
+        let pending = p2.expect("quorum reached returns a pending persist");
+        assert_eq!(
+            pending.result_text, agreed,
+            "the guardrail must run on the AGREED text"
+        );
+
+        // Same guardrail the daemon runs: the agreed text trips it.
+        let ctx = crate::guardrails::GuardrailContext {
+            system_prompt: "",
+            user_prompt: "",
+            model_output: &pending.result_text,
+        };
+        let gr = crate::guardrails::default_output_chain().run(&ctx);
+        assert!(
+            !gr.passed,
+            "agreed text with an invisible char must trip the guardrail"
+        );
+
+        // The caller skips `validate_result_post_guardrail` on a tripwire,
+        // so nothing is persisted and the task is not completed.
+        let task = db.get_task("quorum-gr").expect("get").expect("found");
+        assert_ne!(task.status, TaskStatus::Completed);
+        assert!(
+            db.get_task_result("quorum-gr")
+                .expect("get")
+                .expect("found")
+                .result_text
+                .is_none(),
+            "no retrievable text before the guardrail clears it"
+        );
     }
 }

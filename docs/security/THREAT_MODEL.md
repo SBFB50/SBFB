@@ -783,11 +783,16 @@ expose le `result_text` accepte d'une tache `completed`. C'est une route
 **daemon entrante** (pas Operator) — tier T0 loopback, **lecture seule**,
 sous le meme middleware `auth_required` (X-SBFB-Token + Host + Origin)
 que le reste de l'API tasks, aucun nouveau tier de confiance, aucun spawn.
-Le `result_text` traverse deja le guardrail de sortie a l'acceptation
-(`coordinator_submit_result`, `default_output_chain`) ; la route ne fait
-que relire un texte deja filtre. Delta menace minimal : un lecteur
-loopback authentifie obtient le texte d'une tache qu'il pouvait deja voir
-par `result_hash`.
+Le `result_text` ne devient `completed`/lisible **qu'apres** passage du
+guardrail de sortie. Sur les **deux** chemins d'ingestion d'un resultat —
+HTTP `coordinator_submit_result` et la boucle gossip `validator_loop` —
+le `default_output_chain` tourne AVANT `set_task_result` (Sprint 73 Phase
+A, D5 : split `validate_result_pre_guardrail` → guardrail →
+`validate_result_post_guardrail`). Un texte qui declenche un tripwire
+n'est **jamais persiste** (aucune ligne `completed`, rien a relire) et ne
+credite aucun kudos. La route ne peut donc relire qu'un texte deja filtre.
+Delta menace minimal : un lecteur loopback authentifie obtient le texte
+d'une tache qu'il pouvait deja voir par `result_hash`.
 
 ### Residual risks Operator
 

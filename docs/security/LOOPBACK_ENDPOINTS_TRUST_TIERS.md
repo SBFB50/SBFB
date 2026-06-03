@@ -1,7 +1,7 @@
 ---
 written: 2026-04-20  # S22 hors-sprint post Phase B `e9530c2`
-last_validated: 2026-05-31  # S72 Phase A : ajout §3.1 inventaire Operator (P2-H-1)
-status: design-only T1/T2 (implementation S22 Phase F wrap-up + extension S25/S28/LT-4) ; §3.1 Operator = IMPLEMENTE+DURCI S71 C (`a0337c6`)
+last_validated: 2026-06-03  # S73 Phase A : §2.1 portee daemon+Operator + §3 GET /result reordonne + §8.1 couverture Operator (P2-TIER-MODEL, P2-RESULT-TEXT-GUARDRAIL-ORDER)
+status: design-only T1/T2 (implementation S22 Phase F wrap-up + extension S25/S28/LT-4) ; §3.1 Operator = IMPLEMENTE+DURCI S71 C (`a0337c6`) ; Operator place dans le tier-model formel §2.1/§8.1 (S73 Phase A)
 triggers_revalidate:
   - "microsoft/sudo new elevation mode release"
   - "Nouveau endpoint loopback risky ajoute daemon"
@@ -43,6 +43,22 @@ T1 = ajout S22 Phase F (CONFIRM_PROMPT) pour ops intermédiaires.
 T2 = LT-4 post-v1.0 (cf. `docs/release/ROADMAP_COMMITMENTS.md LT-4`
 pour D4 OS biometric gate cross-platform).
 
+### 2.1 Portée : deux serveurs loopback (daemon + Operator)
+
+Ce vocabulaire de tiers s'applique formellement aux **deux** serveurs
+loopback du nœud, qui ont des postures de confiance **distinctes** :
+
+| Serveur | Port | Auth | Peer-creds | Tiers présents |
+|---|---|---|---|---|
+| **Daemon** (`nexus-shell-daemon`) | dynamique | `X-SBFB-Token` + Host + Origin | **Oui** (UDS `SO_PEERCRED` / Named Pipe SDDL, S16) | T0 partout ; cibles T1/T2 par endpoint (§3) |
+| **Operator** (`sbfb-factory`, §3.1) | `:3001` | `X-SBFB-Token` + Host + Origin + CORS épinglé (G7) | **Non** (TCP loopback uniquement) | **T0 uniformément** — pas de T1/T2 ; gate applicatif `SENSITIVE_ACTIONS` (G2) avant spawn |
+
+Conséquence formelle : l'Operator est **entièrement T0** (aucun endpoint
+T1/T2 à ce stade) et, contrairement au daemon, **ne bénéficie pas** de la
+mitigation peer-creds AD3. Sa surface (write + spawn) est protégée par le
+gate applicatif `SENSITIVE_ACTIONS` (§3.1, G2), pas par un tier de
+confiance OS. Sa couverture threat model est tracée séparément en §8.1.
+
 ## 3. Inventaire endpoints loopback actuels + tier cible
 
 | Endpoint | Origine | Tier actuel | Tier cible | Justification cible |
@@ -53,7 +69,7 @@ pour D4 OS biometric gate cross-platform).
 | `POST /api/daemon/browse/pull` | S53 Phase G | T0 | T0 | Gossip browse_request, PoW envelope |
 | `POST /api/v1/deploy` | S14, namespace S42 | T0 | T1 | Deploy sign coord = déléguer action non-réversible |
 | `POST /api/v1/tasks/submit` | S13 (bridge), namespace S44 | T0 | T0 | Rate-limité S21 Phase A + guardrails S21/S22 |
-| `GET /api/v1/tasks/{id}/result` | S72 Phase D (option A) | T0 | T0 | Lecture seule du `result_text` accepté (filtré output guardrail à l'acceptation). Primitive lue par le bras NetworkProvider Operator pour rendre une réponse réseau dans le chat. 404 si pending/inconnu |
+| `GET /api/v1/tasks/{id}/result` | S72 Phase D (option A) | T0 | T0 | Lecture seule du `result_text` — persisté **uniquement APRÈS** passage de l'output guardrail (S73 Phase A, D5 : `default_output_chain` avant `set_task_result` sur les deux chemins HTTP + `validator_loop`). Un texte rejeté n'est jamais `completed`/lisible. Primitive lue par le bras NetworkProvider Operator pour rendre une réponse réseau dans le chat. 404 si pending/inconnu |
 | `GET /api/v1/consent` | S16 Phase C, namespace S43 | T0 | T0 | Lecture only |
 | `POST /api/v1/consent/set` tier escalade | S16 Phase C, namespace S43 | T0 | T1 | Escalade privilège GPU worker (expose plus de tasks acceptées) |
 | `POST /api/v1/consent/set` tier other | S16 Phase C, namespace S43 | T0 | T0 | Descente ou tier équivalent — pas d'escalade |
@@ -226,6 +242,20 @@ Workflow T2 = T1 + prompt biométrie OS entre étape 2 et 3. Si user
 | AD3 — Multi-user OS (Windows shared account) | T0 (UDS/NP peer creds) | — |
 | AD4 — Compromise du shell UI lui-même | T2 | T0/T1 : bypass possible si shell est l'attaquant ; T2 : biométrie OS indépendante du shell |
 | AD5 — Debugger attaché au daemon | ? | Out-of-scope (attacker local avec debug privilege = game over, aucune mitigation applicative) |
+
+### 8.1 Couverture Operator (`:3001`)
+
+L'Operator étant uniformément T0 et sans peer-creds (§2.1), sa couverture
+diffère du daemon sur AD2/AD3/AD4 :
+
+| Threat class | Mitigation Operator | Résidu |
+|---|---|---|
+| AD2 — Malware user-mode lit le token bearer | Gate applicatif `SENSITIVE_ACTIONS` (G2) AVANT spawn `bypassPermissions` ; CORS épinglé `is_loopback_origin` (G7) | **T0** : invocation silencieuse des endpoints write/spawn possible (pas de T1/T2). Le gate bloque `shell`/`commit`/`push`/`PASS` mais le reste reste invocable. Pas de biométrie OS |
+| AD3 — Multi-user OS (compte Windows partagé) | **Aucune** mitigation peer-creds (TCP loopback only, pas d'UDS/NP) | **T0** : un autre user local sur la même loopback n'est filtré que par le token bearer per-boot (`~/.sbfb/auth_token`). Écart explicite vs daemon (qui a `SO_PEERCRED`/SDDL) |
+| AD4 — Compromise du shell/Viewer | `SENSITIVE_ACTIONS` indépendant du front ; shell/commit/push/verdict final passent par une vraie session agent + gates repo (pas l'Operator seul) | **T0** : si l'appelant local authentifié est l'attaquant, les endpoints non-gated restent invocables. Pas de tier OS indépendant du front |
+
+Trigger de revalidation : tout ajout d'un endpoint **write/spawn** sur
+l'Operator, ou l'introduction d'un tier T1/T2 côté Operator.
 
 ## 9. Références
 

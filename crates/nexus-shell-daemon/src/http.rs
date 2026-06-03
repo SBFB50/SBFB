@@ -1497,12 +1497,20 @@ async fn coordinator_submit_result(
                 .into_response();
         }
     };
-    match nexus_coordinator_rs::validator::validate_result(&db, &entry) {
-        Ok((nexus_coordinator_rs::validator::ValidationOutcome::Accepted, Some(task_record))) => {
+    match nexus_coordinator_rs::validator::validate_result_pre_guardrail(&db, &entry) {
+        Ok((
+            nexus_coordinator_rs::validator::ValidationOutcome::Accepted,
+            Some(task_record),
+            Some(pending),
+        )) => {
+            // Sprint 73 Phase A (D5): run the output guardrail BEFORE
+            // persisting. The pre phase has written no `result_text` yet, so
+            // a tripwire here leaves zero retrievable content (nothing for
+            // `GET /api/v1/tasks/{id}/result` to serve) and credits no kudos.
             let guardrail_ctx = nexus_coordinator_rs::guardrails::GuardrailContext {
                 system_prompt: "",
                 user_prompt: "",
-                model_output: &entry.payload.result_text,
+                model_output: &pending.result_text,
             };
             let gr = nexus_coordinator_rs::guardrails::default_output_chain().run(&guardrail_ctx);
             if !gr.passed {
@@ -1510,13 +1518,23 @@ async fn coordinator_submit_result(
                 tracing::warn!(
                     task_id = %entry.payload.task_id,
                     %reason,
-                    "result rejected by output guardrail — no kudos credited"
+                    "result rejected by output guardrail — not persisted, no kudos credited"
                 );
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(
                         serde_json::json!({"outcome": "rejected", "reason": "guardrail_rejected"}),
                     ),
+                )
+                    .into_response();
+            }
+            if let Err(e) =
+                nexus_coordinator_rs::validator::validate_result_post_guardrail(&db, &pending)
+            {
+                tracing::error!(task_id = %entry.payload.task_id, "result persist failed: {e}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal"})),
                 )
                     .into_response();
             }
@@ -1539,12 +1557,12 @@ async fn coordinator_submit_result(
             )
                 .into_response()
         }
-        Ok((nexus_coordinator_rs::validator::ValidationOutcome::AwaitingQuorum, _)) => (
+        Ok((nexus_coordinator_rs::validator::ValidationOutcome::AwaitingQuorum, _, _)) => (
             StatusCode::OK,
             Json(serde_json::json!({"outcome": "awaiting_quorum"})),
         )
             .into_response(),
-        Ok((outcome, _)) => {
+        Ok((outcome, _, _)) => {
             let reason = match outcome {
                 nexus_coordinator_rs::validator::ValidationOutcome::RejectedBadSignature => {
                     "bad_signature"
@@ -4083,10 +4101,18 @@ mod tests {
     }
 
     fn make_result_entry(task_id: &str, worker_kp: &KeyPair) -> nexus_core_rs::task::ResultEntry {
+        make_result_entry_with_text(task_id, worker_kp, "result text")
+    }
+
+    fn make_result_entry_with_text(
+        task_id: &str,
+        worker_kp: &KeyPair,
+        text: &str,
+    ) -> nexus_core_rs::task::ResultEntry {
         let payload = nexus_core_rs::task::ResultPayload {
             version: nexus_core_rs::task::TASK_FORMAT_VERSION,
             task_id: task_id.to_string(),
-            result_text: "result text".into(),
+            result_text: text.into(),
             tokens_generated: 42,
             generation_time_ms: 1000,
             model_digest: [0u8; 32],
@@ -4241,6 +4267,123 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
         assert_eq!(body["reason"], "task_not_pending");
+    }
+
+    // ===============================================================
+    // Sprint 73 Phase A — guardrail-before-persist (D5)
+    // ===============================================================
+
+    #[tokio::test]
+    async fn submit_result_rejected_by_guardrail_persists_nothing() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+
+        let task_entry = {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .expect("submit task")
+        };
+
+        let worker_kp = KeyPair::generate();
+        // An invisible character trips the output guardrail deterministically.
+        let result_entry = make_result_entry_with_text(
+            &task_entry.task.task_id,
+            &worker_kp,
+            "leaked\u{200B}secret",
+        );
+
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/results/submit")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&result_entry).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(body["outcome"], "rejected");
+        assert_eq!(body["reason"], "guardrail_rejected");
+
+        // Sprint 73 Phase A (D5): the guardrail runs BEFORE persistence, so a
+        // rejected result leaves no completed task, no retrievable text, and
+        // credits no kudos.
+        let db = state.coordinator_db.lock().unwrap();
+        let task = db
+            .get_task(&task_entry.task.task_id)
+            .expect("get")
+            .expect("found");
+        assert_ne!(
+            task.status,
+            nexus_coordinator_rs::types::TaskStatus::Completed,
+            "guardrail-rejected result must not complete the task"
+        );
+        assert!(
+            db.get_task_result(&task_entry.task.task_id)
+                .expect("get")
+                .expect("found")
+                .result_text
+                .is_none(),
+            "guardrail-rejected result must persist no retrievable text"
+        );
+        assert_eq!(
+            db.get_project_kudos_total("test-project").expect("kudos"),
+            0,
+            "no kudos for guardrail-rejected output"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_result_accepted_persists_after_guardrail() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+
+        let task_entry = {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .expect("submit task")
+        };
+
+        let worker_kp = KeyPair::generate();
+        let result_entry =
+            make_result_entry_with_text(&task_entry.task.task_id, &worker_kp, "clean answer");
+
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/results/submit")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&result_entry).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(body["outcome"], "accepted");
+
+        // The cleared text is persisted retrievably only after the guardrail.
+        let db = state.coordinator_db.lock().unwrap();
+        assert_eq!(
+            db.get_task_result(&task_entry.task.task_id)
+                .expect("get")
+                .expect("found")
+                .result_text
+                .as_deref(),
+            Some("clean answer"),
+        );
     }
 
     // ===============================================================

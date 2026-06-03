@@ -1,6 +1,6 @@
 <!--
 written: 2026-02-15  # Sprint 17 Phase D
-last_validated: 2026-05-13  # G2 — Sprint 61 DONE + spec executable + feed local rejouable : PUBLIC_FEED_SPEC.md + PublicFeedOperation enum + FeedStore SQLite M9 hash-chain BLAKE3 + FeedMaterializer PublicRegistryView cursor M10 + verify_chain Ed25519 + tests adversariaux. Compteurs 1282 Rust / 258 Vitest / 6/6 size / ~1546 total (+23 Rust S61). Premier format protocolaire post-v1.0. Triggers inchanges (iroh 1.0.0-rc.0 defere, arti-client 0.42 defere).
+last_validated: 2026-06-03  # S73 Phase A — §3 recadre (backlog S18-30 clos + pointeur threat docs vivants ; P2-HARDENING-ROADMAP-META-STALE). Precedent 2026-05-13 G2 Sprint 61 DONE + spec executable + feed local rejouable : PUBLIC_FEED_SPEC.md + PublicFeedOperation enum + FeedStore SQLite M9 hash-chain BLAKE3 + FeedMaterializer PublicRegistryView cursor M10 + verify_chain Ed25519 + tests adversariaux. Compteurs 1282 Rust / 258 Vitest / 6/6 size / ~1546 total (+23 Rust S61). Premier format protocolaire post-v1.0. Triggers inchanges (iroh 1.0.0-rc.0 defere, arti-client 0.42 defere).
 triggers_revalidate:
   - "iroh release > 0.98 (next breaking change post-S32 upgrade)"
   - "wasmtime LTS bump (CVE refresh §S18)"
@@ -151,6 +151,26 @@ median app) :
 ---
 
 ## 3. Sprint roadmap Sprint 18-30
+
+> **Statut (mis à jour 2026-06-03, S73 Phase A — P2-HARDENING-ROADMAP-META-STALE).**
+> Le backlog de séquencement S18-30 ci-dessous est **clos** : ces sprints
+> sont tous CLOSED (le projet en est à S73, roadmap v5 Arc 3.5). Cette
+> section est désormais un **enregistrement historique** du séquencement
+> de durcissement S18-30, pas un engagement vivant — les `audited_findings`
+> du front-matter tracent ce qui a réellement été livré sprint par sprint
+> (cf. aussi `docs/claude/SPRINT_LOG.md`). Ne pas relire les lignes
+> « Sprint N » ci-dessous comme des promesses ouvertes.
+>
+> **La posture de sécurité courante vit dans les threat docs vivants**,
+> revalidés par leur propre `last_validated` + `triggers_revalidate` :
+> [`THREAT_MODEL.md`](THREAT_MODEL.md) (STRIDE/LINDDUN + §14 Operator),
+> [`LOOPBACK_ENDPOINTS_TRUST_TIERS.md`](LOOPBACK_ENDPOINTS_TRUST_TIERS.md)
+> (tiers daemon + Operator §2.1/§8.1),
+> [`GUARDRAILS_ARCHITECTURE.md`](GUARDRAILS_ARCHITECTURE.md),
+> [`CAPABILITY_TOGGLES.md`](CAPABILITY_TOGGLES.md),
+> [`WARRANT_CANARY_HARDENING.md`](WARRANT_CANARY_HARDENING.md). Les items
+> encore ouverts (post-v1.0, S30+) sont suivis comme carries/LT dans les
+> kickoffs de sprint, pas ici.
 
 ### Sprint 18 — Quick wins + supply chain baseline
 
