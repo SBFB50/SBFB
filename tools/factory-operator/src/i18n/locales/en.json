@@ -12,6 +12,7 @@
     "transfer": "Transfer",
     "context": "Context",
     "actions": "Actions",
+    "execute": "Run",
     "chat": "Chat",
     "log": "Log",
     "history": "History"
@@ -196,6 +197,39 @@
     "thinking": "Thinking...",
     "gateRequired": "This action requires external verification via a real agent session.",
     "providerNotConnected": "This provider is not connected yet. Only Claude is available."
+  },
+  "execute": {
+    "title": "Run a task",
+    "description": "Choose where to run your request, then chat with the agent.",
+    "targetLabel": "Where to run?",
+    "conversationHint": "Private, non-authoritative conversation — final validation goes through a real agent session.",
+    "empty": "Send a message to start.",
+    "placeholder": "Describe what you want to do...",
+    "send": "Send",
+    "thinking": "Thinking...",
+    "gateRequired": "This action requires external verification via a real agent session.",
+    "streamError": "Stream error: {{message}}",
+    "connectionLost": "Stream connection lost.",
+    "sessionError": "Error creating session.",
+    "networkInProgress": "Running on the network",
+    "intent": {
+      "claude": "Run on Claude",
+      "ollama": "Run locally",
+      "network": "Run on the network"
+    },
+    "intentDesc": {
+      "claude": "The default cloud pilot.",
+      "ollama": "On your machine, privately.",
+      "network": "Distributed task, processed in the background."
+    },
+    "networkStatus": {
+      "pending": "Queued",
+      "dispatched": "Dispatched to a node",
+      "awaiting_quorum": "Awaiting quorum",
+      "completed": "Completed",
+      "rejected": "Rejected",
+      "timed_out": "Timed out"
+    }
   },
   "actionLog": {
     "title": "Action log",

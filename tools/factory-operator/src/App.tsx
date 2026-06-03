@@ -12,6 +12,7 @@ import { CommitAuditor } from "@/pages/CommitAuditor";
 import { AgentTransfer } from "@/pages/AgentTransfer";
 import { ContextPackBuilder } from "@/pages/ContextPackBuilder";
 import { ActionCenter } from "@/pages/ActionCenter";
+import { ExecutionChat } from "@/pages/ExecutionChat";
 import { AgentChat } from "@/pages/AgentChat";
 import { ActionLog } from "@/pages/ActionLog";
 import { SprintHistory } from "@/pages/SprintHistory";
@@ -37,6 +38,7 @@ export function App() {
           <Route path="/transfer" element={<AgentTransfer />} />
           <Route path="/context" element={<ContextPackBuilder />} />
           <Route path="/actions" element={<ActionCenter />} />
+          <Route path="/execute" element={<ExecutionChat />} />
           <Route path="/chat" element={<AgentChat />} />
           <Route path="/log" element={<ActionLog />} />
           <Route path="/history" element={<SprintHistory />} />
