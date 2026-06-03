@@ -1,6 +1,6 @@
 # Phase Review — Sprint 73 Phase A (guardrail AVANT persist + lot doc menace)
 
-## Verdict : PASS
+## Verdict: PASS
 
 Review Claude OK + Codex §4.5 FAIT et reconcilié (7/7 CONFIRME). Committable
 après self-check supervisor G-COMMIT.
@@ -14,8 +14,8 @@ après self-check supervisor G-COMMIT.
   `docs/security/THREAT_MODEL.md`,
   `docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md`,
   `docs/security/HARDENING_ROADMAP.md`.
-- Artefacts à stager dans le commit phase : `sprint73_phase_A_preflight.md`,
-  `sprint73_phase_A_review.md`, `sprint73_phase_A_codex_review.md`.
+- Artefacts à stager dans le commit phase : `sprint73_phase_a_preflight.md`,
+  `sprint73_phase_a_review.md`, `sprint73_phase_a_codex_review.md`.
 - Planning/docs split : N/A (3 docs security dans le scope Phase A) → commit
   phase atomique unique, pas de chore(planning) intermédiaire.
 - Untracked accidentels : 0.
@@ -101,7 +101,7 @@ SOTA, rollback rejeté, ET le résiduel P2-1 fermé en-phase plutôt que carry
 - Run 1 : 6 CONFIRME + 1 PARTIEL (Livrable 1, `ResultValidator` pub guardrail-less).
 - Fix appliqué (gate `#[cfg(test)]`) → re-suites vertes (coordinator 255/255
   Windows + Docker Linux) → Codex run-2.
-- Run 2 (final, artefact `sprint73_phase_A_codex_review.md`) : **7 CONFIRME,
+- Run 2 (final, artefact `sprint73_phase_a_codex_review.md`) : **7 CONFIRME,
   0 GAP, 0 PARTIEL**.
 
 ## Codex reconciliation
