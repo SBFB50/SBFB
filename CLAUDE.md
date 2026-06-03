@@ -151,8 +151,8 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-71 CLOSED**, **S72 a ouvrir** (Arc 3.5 Factory
-  Complete Vision, roadmap v5 — ProviderRouter multi-LLM). v2.1
+- **Sprints 0-72 CLOSED**, **S73 a ouvrir** (Arc 3.5 Factory
+  Complete Vision, roadmap v5 — recherche reseau). v2.1
   ouverte. **Tag v1.0 pose.**
   Projet Rust+Frontend pur depuis S50-S51.
   S70 DONE : 7 phases A-G (A AGENT_SYSTEM.md canon portable + B
@@ -175,27 +175,53 @@ Runtime isolation roadmap dans
   G6 tests surfaces 0-test). 12 gaps fermes (1 P0 + 6 P1). G8 4/4
   (0 DESIGN-CONFLICT, 1 EXECUTE + 1 SCOPE-CUT-CONSISTENT + 2
   PLAN-ADAPT). Arc 3.5 Factory Complete Vision 1/6.
+  S72 DONE : Phase 0 audit gate S71 PASS (`636b9de`) + 5 phases
+  A-E + Phase F wrap-up — ProviderRouter multi-LLM (`ExecutionTarget`
+  Claude/Ollama/Network enum-dispatch, bras Claude inchange, Ollama
+  `generate_stream`, Network submit→poll→un seul Done PO-14) +
+  cablage `provider` de bout en bout (gate SENSITIVE_ACTIONS avant
+  dispatch tous providers) + UX intentions complete (front `/execute`
+  ExecutionChat 3-intentions) + dette pair P2-F-3 3/3 CLOSED + P2-A-2
+  signature E2E + P2-H-1 catalogue menace Operator. 2 G8 DESIGN-CONFLICT
+  resolus arbitrage PO Option A : bump schemars 0.8→1.2 (honore D2
+  ollama-rs 0.3.4 partout) + route daemon `/result` + colonne
+  `result_text` M16. G8 5/5 (2 EXECUTE + 2 DESIGN-CONFLICT-resolus-PO
+  + 1 PLAN-ADAPT). Arc 3.5 Factory Complete Vision 2/6.
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1813 tests total** (1528 Rust / 279 Vitest / 6/6 size-limit)
-  — tous verts code. S71 delta : +42 Rust (A +1, B +8 net, C +14,
-  D +16), +0 Vitest (front non touche tout le sprint). Re-mesure
-  1528/1528 au Phase E.
-- Carry S70 CLOSED :
-  P2-I-3 body docs minimaliste (3/3 MANDATORY — Phase B).
-  P2-G-1 exe lock intermittent (CLOSE Phase B, 8 sprints non-repro).
-  P2-C-1 canonical bytes duplication (documente PATTERNS Phase B).
-  P2-C-2 serde_json vs JCS (documente PATTERNS Phase B).
-  P2-I-1 docs dans chore (documente README Phase B).
-- Carry S72 (reconduits) :
+- **~1829 tests total** (1544 Rust / 279 Vitest / 6/6 size-limit)
+  — tous verts code (canonique CI Linux). S72 delta : +16 Rust
+  (A +0, B +2, C +7, D +7, E +0), +0 Vitest (`web/` non touche tout
+  le sprint). Re-mesure 1544/1544 au Phase F (Windows natif 1543/1544
+  + 1 flake env `operator_sprint_history_endpoint` / OPERATOR-TIMEOUT
+  prouve par re-run isole, passe seul).
+- Carry S72 CLOSED :
+  P2-H-1 threat doc Operator (Phase A — THREAT_MODEL §14 + LOOPBACK §3.1).
+  P2-F-3 prompt coupling 3/3 (Phase B — **plus jamais carry**).
+  P2-A-2 E2E signature assertion (Phase B — `verify_signature()`).
+  P3-A-3/B-1/B-2 cosmetiques (Phase B, documentes).
+  G8 DESIGN-CONFLICT C+D resolus arbitrage PO Option A (schemars
+  0.8→1.2 ; route daemon `/result` + colonne `result_text` M16).
+- Carry S73 :
   P2-A-1 rand blocker upstream (exemption externe).
-  P2-A-1(S71) worker-pump iroh-docs hang Windows natif (E2E worker
-  = CI Linux only, `feedback_wsl_before_push`) — nouveau Phase A.
-  P2-A-2 E2E n'asserte pas la signature result — nouveau Phase A.
+  P2-A-1(S71) worker-pump iroh-docs hang Windows natif — **3/3
+  MANDATORY S73** (root-cause iroh-docs pump OU exemption formelle
+  CI-Linux-only ; famille elargie par OPERATOR-TIMEOUT,
+  `feedback_wsl_before_push`).
+  P2-TIER-MODEL Operator pas dans le tier-model formel LOOPBACK §2/§8.
+  P2-TEST-ZOMBIE `audit_commit_valid_phase_commit` SHA-hardcode S70
+  `6fb95df` archive (pre-existant, echoue sur master pur).
+  P2-OPERATOR-TIMEOUT `operator_server` timeouts charge/bind-mount
+  (flake env, passe isole).
+  P2-sync-FS-async `resolve_daemon` sync fs en contexte async (Phase D).
+  P2-POLL-DIAGNOSTIC-LOSS timeout generique vs erreur reelle (Phase D).
+  P2-OLLAMA-MODEL-PICKER intentions non-Claude sans model picker —
+  Ollama defaute `claude-opus-4-8[1m]` inexistant (axe model D5 separe).
+  P2-OPERATOR-NO-TESTS `factory-operator` sans test runner (Vitest infra).
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
-  P2-F-3 prompt file coupling (2/3, reconduit S71).
+  P3-OS-1 `operator_server` OR duplique (pre-existant, non touche S72).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
   localement, pas encore pousse vers origin).
   LT-3/LT-4 hors-sprint (post-v1.0).
