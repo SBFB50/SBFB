@@ -220,11 +220,29 @@ static MIGRATIONS: &[M<'static>] = &[
         tokenize='unicode61'
     );",
     ),
+    // M16: persist the accepted result text so the Operator's network
+    // execution arm can retrieve a completed task's output over HTTP
+    // (Sprint 72 Phase D). Local DB schema only — NOT a wire format, so
+    // the pre-launch policy is unaffected. Append-only ALTER (mirrors
+    // M5/M13); `rusqlite_migration` tracks `user_version`.
+    M::up("ALTER TABLE tasks ADD COLUMN result_text TEXT;"),
 ];
 
 pub struct StorageNamespaceRow {
     pub namespace_id: Vec<u8>,
     pub doc_ticket: Option<String>,
+}
+
+/// Retrievable view of a task's completion result (Sprint 72 Phase D).
+///
+/// Backs `GET /api/v1/tasks/{id}/result`: `result_text` is the accepted
+/// human-readable output (populated on completion for both the single
+/// and quorum paths, see [`CoordinatorDb::set_task_result`]); it is
+/// `None` while the task is still pending/dispatched or was rejected.
+pub struct TaskResultDetail {
+    pub status: String,
+    pub result_text: Option<String>,
+    pub result_hash: Option<String>,
 }
 
 pub struct CoordinatorDb {
@@ -367,19 +385,47 @@ impl CoordinatorDb {
         Ok(changed > 0)
     }
 
+    /// Mark a task completed, recording the worker, the provenance
+    /// `result_hash`, AND the human-readable `result_text` (Sprint 72
+    /// Phase D). The text is what `GET /api/v1/tasks/{id}/result`
+    /// returns: the single-result path passes the worker's
+    /// `payload.result_text`, the quorum path passes the agreed text
+    /// (`best_hash`, which on that path IS the `result_text`).
     pub fn set_task_result(
         &self,
         task_id: &str,
         worker_node_id: &str,
         result_hash: &str,
+        result_text: &str,
         updated_at: u64,
     ) -> Result<bool, CoordinatorError> {
         let changed = self.conn.execute(
-            "UPDATE tasks SET status = 'completed', worker_node_id = ?1, result_hash = ?2, updated_at = ?3
-             WHERE task_id = ?4 AND status IN ('pending', 'dispatched', 'awaiting_quorum')",
-            rusqlite::params![worker_node_id, result_hash, updated_at, task_id],
+            "UPDATE tasks SET status = 'completed', worker_node_id = ?1, result_hash = ?2, result_text = ?3, updated_at = ?4
+             WHERE task_id = ?5 AND status IN ('pending', 'dispatched', 'awaiting_quorum')",
+            rusqlite::params![worker_node_id, result_hash, result_text, updated_at, task_id],
         )?;
         Ok(changed > 0)
+    }
+
+    /// Read a completed task's retrievable result (Sprint 72 Phase D).
+    /// Returns `None` if the task does not exist. `result_text` inside
+    /// the detail is `None` while the task is not yet completed.
+    pub fn get_task_result(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<TaskResultDetail>, CoordinatorError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT status, result_text, result_hash FROM tasks WHERE task_id = ?1")?;
+        let mut rows = stmt.query(rusqlite::params![task_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(TaskResultDetail {
+                status: row.get(0)?,
+                result_text: row.get(1)?,
+                result_hash: row.get(2)?,
+            })),
+            None => Ok(None),
+        }
     }
 
     pub fn insert_task_result(
@@ -1082,7 +1128,13 @@ mod tests {
             .expect("insert");
 
         let ok = db
-            .set_task_result("task-003", "worker-a", "result-hash-x", 1714300200)
+            .set_task_result(
+                "task-003",
+                "worker-a",
+                "result-hash-x",
+                "the model output",
+                1714300200,
+            )
             .expect("set result");
         assert!(ok);
 
@@ -1092,16 +1144,57 @@ mod tests {
         assert_eq!(fetched.result_hash.as_deref(), Some("result-hash-x"));
     }
 
+    // Sprint 72 Phase D: the accepted text is persisted and retrievable
+    // via `get_task_result` — the primitive the Operator network arm
+    // reads to render a completed task's reply in the chat.
+    #[test]
+    fn set_task_result_persists_retrievable_text() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.insert_task(&make_task_record("task-text-1"))
+            .expect("insert");
+
+        // Pending task: no result text yet (route would 404).
+        let pending = db
+            .get_task_result("task-text-1")
+            .expect("get")
+            .expect("row");
+        assert_eq!(pending.status, "pending");
+        assert!(pending.result_text.is_none());
+
+        db.set_task_result(
+            "task-text-1",
+            "worker-a",
+            "sig-hex",
+            "hello from the network",
+            1714300200,
+        )
+        .expect("set result");
+
+        let done = db
+            .get_task_result("task-text-1")
+            .expect("get")
+            .expect("row");
+        assert_eq!(done.status, "completed");
+        assert_eq!(done.result_text.as_deref(), Some("hello from the network"));
+        assert_eq!(done.result_hash.as_deref(), Some("sig-hex"));
+    }
+
+    #[test]
+    fn get_task_result_none_for_missing_task() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        assert!(db.get_task_result("nope").expect("get").is_none());
+    }
+
     #[test]
     fn set_task_result_rejects_already_completed() {
         let db = CoordinatorDb::open_in_memory().expect("open");
         db.insert_task(&make_task_record("task-004"))
             .expect("insert");
-        db.set_task_result("task-004", "w1", "r1", 100)
+        db.set_task_result("task-004", "w1", "r1", "first text", 100)
             .expect("first");
 
         let second = db
-            .set_task_result("task-004", "w2", "r2", 200)
+            .set_task_result("task-004", "w2", "r2", "second text", 200)
             .expect("second");
         assert!(!second, "already-completed task must reject second result");
     }

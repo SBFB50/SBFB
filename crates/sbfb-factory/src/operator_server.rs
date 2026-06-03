@@ -19,6 +19,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use crate::auth::{self, AuthState};
 use crate::llm_bridge;
 use crate::process;
+use crate::provider_router;
 
 const ACTION_ALLOWLIST: &[&str] = &["status-sprint", "lint-planning", "audit-commit", "prompt"];
 
@@ -57,6 +58,15 @@ struct ChatSession {
     /// Persisted here because the SSE GET `/chat/{id}/stream` carries
     /// no body to read it from.
     model: String,
+    /// Execution target for the streamed turn — `claude` (default
+    /// pilot), `ollama`/`local`, or `network` (Sprint 72 Phase D). Set
+    /// at session creation and overridable per-send (symmetry with
+    /// `model`); read back by the bodyless SSE GET to build the
+    /// [`provider_router::ExecutionTarget`].
+    provider: String,
+    /// Project the `network` target submits the task under. Defaults to
+    /// [`default_project_id`]; only consumed by the network arm.
+    project_id: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -286,6 +296,13 @@ struct ContextPackRequest {
 
 fn default_provider() -> String {
     "claude".to_string()
+}
+
+/// Default project the `network` execution target submits under
+/// (Sprint 72 Phase D). Only consumed by the network arm; the
+/// Claude/Ollama arms ignore it.
+fn default_project_id() -> String {
+    "operator-chat".to_string()
 }
 
 /// G9 (D4): default agent model. The frozen model rule mandates the
@@ -597,6 +614,10 @@ struct ChatSessionRequest {
     provider: String,
     #[serde(default)]
     intent: String,
+    // Sprint 72 Phase D: project the `network` target submits under.
+    // Runtime tolerance (pre-launch policy): omitted → `operator-chat`.
+    #[serde(default = "default_project_id")]
+    project_id: String,
 }
 
 async fn handle_chat_session(
@@ -618,6 +639,7 @@ async fn handle_chat_session(
             "phase": ctx.get("phase"),
         },
         "provider": req.provider,
+        "project_id": req.project_id,
         "intent": req.intent,
         "chat_history_authoritative": false,
         "notice": "private chat history is non-authoritative",
@@ -627,6 +649,8 @@ async fn handle_chat_session(
         context_pack: context_pack.clone(),
         messages: Vec::new(),
         model: default_model(),
+        provider: req.provider.clone(),
+        project_id: req.project_id.clone(),
     };
 
     state
@@ -758,6 +782,11 @@ async fn handle_chat_send(
     if !req.model.trim().is_empty() {
         session.model = req.model.clone();
     }
+    // Sprint 72 Phase D: persist the requested execution target the same
+    // way, so the bodyless SSE GET routes to the chosen provider.
+    if !req.provider.trim().is_empty() {
+        session.provider = req.provider.clone();
+    }
 
     let lower = req.message.to_lowercase();
     let is_sensitive = SENSITIVE_ACTIONS
@@ -823,7 +852,7 @@ async fn handle_chat_stream(
     State(state): State<OperatorState>,
     Path(id): Path<String>,
 ) -> Sse<SseStream> {
-    let (context_pack, history, last_user_msg, model) = {
+    let (context_pack, history, last_user_msg, model, provider, project_id) = {
         let sessions = state.chat_sessions.lock().unwrap();
         match sessions.get(&id) {
             Some(session) => {
@@ -845,6 +874,8 @@ async fn handle_chat_stream(
                     hist,
                     last,
                     session.model.clone(),
+                    session.provider.clone(),
+                    session.project_id.clone(),
                 )
             }
             None => return sse_error("session not found"),
@@ -895,9 +926,15 @@ async fn handle_chat_stream(
     } else {
         model
     };
-    let claude_stream = llm_bridge::spawn_claude_stream(&prompt, &model, &root);
 
-    let sse_stream: SseStream = Box::pin(claude_stream.map(move |chunk| {
+    // Sprint 72 Phase D: route the turn to the session's execution target
+    // (Claude / Ollama / Network) instead of always spawning Claude. The
+    // SENSITIVE_ACTIONS gate above (:866) already ran BEFORE this dispatch
+    // — provider-independent, so no provider can bypass it.
+    let target = provider_router::ExecutionTarget::from_provider(&provider, &model, &project_id);
+    let provider_stream = target.run(prompt, root);
+
+    let sse_stream: SseStream = Box::pin(provider_stream.map(move |chunk| {
         let json = serde_json::to_string(&chunk).unwrap_or_default();
 
         if let llm_bridge::StreamChunk::Done { result, .. } = &chunk {

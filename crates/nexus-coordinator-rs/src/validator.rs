@@ -69,7 +69,15 @@ pub fn validate_result(
     }
 
     let result_hash = hex::encode(entry.signature);
-    db.set_task_result(&entry.payload.task_id, &worker_id, &result_hash, now)?;
+    // Persist the provenance hash AND the human-readable text so the
+    // Operator's network arm can retrieve the output (Sprint 72 Phase D).
+    db.set_task_result(
+        &entry.payload.task_id,
+        &worker_id,
+        &result_hash,
+        &entry.payload.result_text,
+        now,
+    )?;
 
     tracing::info!(
         task_id = %entry.payload.task_id,
@@ -140,7 +148,11 @@ fn validate_quorum(
         .unwrap_or(("", 0));
 
     if best_count > majority_threshold {
-        db.set_task_result(&task.task_id, worker_id, best_hash, now)?;
+        // On the quorum path `best_hash` IS the agreed `result_text`
+        // (the `sha256` column holds raw text here, PATTERNS §P53), so
+        // it doubles as both the provenance hash and the retrievable
+        // text (Sprint 72 Phase D).
+        db.set_task_result(&task.task_id, worker_id, best_hash, best_hash, now)?;
 
         for r in &results {
             if r.sha256 != best_hash {
@@ -293,6 +305,16 @@ mod tests {
         assert_eq!(task.status, TaskStatus::Completed);
         assert!(task.worker_node_id.is_some());
         assert!(task.result_hash.is_some());
+
+        // Sprint 72 Phase D: the accepted single-path result persists the
+        // worker's human-readable text retrievably (what the Operator
+        // network arm reads back), not just the signature hash.
+        let detail = validator
+            .db()
+            .get_task_result("task-100")
+            .expect("get")
+            .expect("found");
+        assert_eq!(detail.result_text.as_deref(), Some("test output"));
     }
 
     #[test]
@@ -336,7 +358,7 @@ mod tests {
         let (db, _coord_kp) = setup_db_with_task("task-102");
         let worker_kp = KeyPair::generate();
 
-        db.set_task_result("task-102", "w1", "r1", 100)
+        db.set_task_result("task-102", "w1", "r1", "first text", 100)
             .expect("first complete");
 
         let entry = make_result("task-102", &worker_kp);

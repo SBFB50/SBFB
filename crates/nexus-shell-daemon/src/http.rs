@@ -404,6 +404,10 @@ pub fn build_router(
         .route("/api/v1/tasks", get(crate::tasks_api::list_tasks))
         .route("/api/v1/tasks/{task_id}", get(crate::tasks_api::get_task))
         .route(
+            "/api/v1/tasks/{task_id}/result",
+            get(crate::tasks_api::get_task_result),
+        )
+        .route(
             "/api/v1/worker/state",
             get(crate::worker_state_api::get_worker_state),
         )
@@ -4212,7 +4216,7 @@ mod tests {
 
         {
             let db = state.coordinator_db.lock().unwrap();
-            db.set_task_result(&task_entry.task.task_id, "w1", "r1", 100)
+            db.set_task_result(&task_entry.task.task_id, "w1", "r1", "prior text", 100)
                 .expect("complete");
         }
 
@@ -5057,6 +5061,63 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    // Sprint 72 Phase D: `/{task_id}/result` is 404 while the task is
+    // pending and returns the human-readable text once completed — the
+    // primitive the Operator network arm polls then fetches.
+    #[tokio::test]
+    async fn task_result_route_404_then_text_on_completed() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+        let db_handle = state.coordinator_db.clone();
+
+        let task_id = {
+            let db = db_handle.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .expect("submit")
+                .task
+                .task_id
+        };
+
+        let app = build_test_router(state);
+
+        // Pending → 404 (status carried in the error message).
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/tasks/{task_id}/result"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // Complete it with a retrievable text.
+        {
+            let db = db_handle.lock().unwrap();
+            db.set_task_result(&task_id, "w1", "sig-hex", "the network reply", 100)
+                .expect("complete");
+        }
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/tasks/{task_id}/result"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["status"], "completed");
+        assert_eq!(body["result_text"], "the network reply");
     }
 
     // --- kudos_api.rs (2 routes) ---

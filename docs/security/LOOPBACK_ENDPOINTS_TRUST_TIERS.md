@@ -53,6 +53,7 @@ pour D4 OS biometric gate cross-platform).
 | `POST /api/daemon/browse/pull` | S53 Phase G | T0 | T0 | Gossip browse_request, PoW envelope |
 | `POST /api/v1/deploy` | S14, namespace S42 | T0 | T1 | Deploy sign coord = déléguer action non-réversible |
 | `POST /api/v1/tasks/submit` | S13 (bridge), namespace S44 | T0 | T0 | Rate-limité S21 Phase A + guardrails S21/S22 |
+| `GET /api/v1/tasks/{id}/result` | S72 Phase D (option A) | T0 | T0 | Lecture seule du `result_text` accepté (filtré output guardrail à l'acceptation). Primitive lue par le bras NetworkProvider Operator pour rendre une réponse réseau dans le chat. 404 si pending/inconnu |
 | `GET /api/v1/consent` | S16 Phase C, namespace S43 | T0 | T0 | Lecture only |
 | `POST /api/v1/consent/set` tier escalade | S16 Phase C, namespace S43 | T0 | T1 | Escalade privilège GPU worker (expose plus de tasks acceptées) |
 | `POST /api/v1/consent/set` tier other | S16 Phase C, namespace S43 | T0 | T0 | Descente ou tier équivalent — pas d'escalade |

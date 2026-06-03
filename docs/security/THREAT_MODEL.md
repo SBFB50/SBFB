@@ -768,13 +768,26 @@ gate. Les messages non-sensibles streament normalement.
 ### Anticipation NetworkProvider (Sprint 72 ProviderRouter)
 
 Le ProviderRouter S72 (`provider_router.rs`, bras `Network`) est un
-**client sortant** de `POST /api/v1/tasks/submit` (daemon loopback,
-tier T0, deja inventorie LOOPBACK §3) — **pas une nouvelle surface
-entrante** sur l'Operator. Le dispatch reseau reste dans la frontiere
-loopback durcie. Le gate `SENSITIVE_ACTIONS` reste applique AVANT le
-dispatch quel que soit le provider selectionne (Claude / Ollama /
-Network) — l'invariant gate-avant-dispatch (S72 Phase D) preserve la
-mitigation T-OPERATOR-SPAWN sur tous les chemins.
+**client sortant** de `POST /api/v1/tasks/submit` puis
+`GET /api/v1/tasks/{id}` / `GET /api/v1/tasks/{id}/result` (daemon
+loopback, tier T0, deja inventorie LOOPBACK §3) — **pas une nouvelle
+surface entrante** sur l'Operator. Le dispatch reseau reste dans la
+frontiere loopback durcie. Le gate `SENSITIVE_ACTIONS` reste applique
+AVANT le dispatch quel que soit le provider selectionne (Claude /
+Ollama / Network) — l'invariant gate-avant-dispatch (S72 Phase D)
+preserve la mitigation T-OPERATOR-SPAWN sur tous les chemins.
+
+**Nouvelle route de lecture `GET /api/v1/tasks/{id}/result` (S72 Phase D,
+option A)** : pour rendre une reponse reseau dans le chat, le daemon
+expose le `result_text` accepte d'une tache `completed`. C'est une route
+**daemon entrante** (pas Operator) — tier T0 loopback, **lecture seule**,
+sous le meme middleware `auth_required` (X-SBFB-Token + Host + Origin)
+que le reste de l'API tasks, aucun nouveau tier de confiance, aucun spawn.
+Le `result_text` traverse deja le guardrail de sortie a l'acceptation
+(`coordinator_submit_result`, `default_output_chain`) ; la route ne fait
+que relire un texte deja filtre. Delta menace minimal : un lecteur
+loopback authentifie obtient le texte d'une tache qu'il pouvait deja voir
+par `result_hash`.
 
 ### Residual risks Operator
 

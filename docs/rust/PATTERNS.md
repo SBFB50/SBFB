@@ -2886,6 +2886,51 @@ P2-A-2 / P3-A-3, kickoff §5 D1.
 
 ---
 
+## §P55 — Sprint 72 Phase C/D : three orthogonal LLM axes (D5)
+
+SBFB now has three distinct enums that each answer a different "which
+LLM?" question. Keeping them as **separate axes** (not one collapsed
+`Provider`) is deliberate — each lives in a different crate, has a
+different consumer, and a different lifetime. Collapsing them would
+couple the operator chat router to the worker quorum runtime and to the
+process prompt-portability layer, all of which evolve independently.
+
+| Axis | Type | Crate / file | Question it answers |
+|---|---|---|---|
+| **Execution target** | `ExecutionTarget { Claude, Ollama, Network }` | `sbfb-factory/src/provider_router.rs` | *Where does this operator chat turn run* — Claude cloud (default pilot), Ollama local, or the SBFB network (submit→poll)? Parsed from the wire `provider` string; each arm yields the SAME `StreamChunk` contract so the SSE layer stays provider-agnostic. |
+| **Prompt-adapt provider** | `Provider` (process prompt portability) | `sbfb-factory/src/process.rs` | *Which agent consumes a portable prompt* — shapes `base/universal/handoff` prompt assembly per agent family (`prompt_data`, `providers_list`). Pure prompt text concern; no runtime dispatch. |
+| **Worker backend** | `LlmBackend` (Deref enum, §P52) | `nexus-worker-core/src/llm/` | *Which local inference runtime executes a quorum task* — `llama_cpp` vs `ollama`, behind the worker's deterministic-decoding contract (§P53). Never reaches the Factory. |
+
+Why three, concretely:
+
+- **`ExecutionTarget` is enum-dispatch, not `dyn Provider`** (§P52
+  rationale): the target set is closed and known at compile time, each
+  arm boxes its heterogeneous `impl Stream` into the shared
+  `ProviderStream` only at the dispatch boundary (`run()`), and the
+  network arm's submit→poll lifecycle (one terminal `Done`, PO-14) has
+  nothing in common with Claude's subprocess NDJSON or Ollama's
+  `generate_stream` — a trait would force a lowest-common-denominator
+  shape and double-box.
+- **The network arm is a daemon HTTP client, not an in-process runtime.**
+  It submits a `TaskSubmission`-shaped body, polls `GET /tasks/{id}`,
+  and reads the accepted text from `GET /tasks/{id}/result` (the
+  Sprint 72 Phase D persistence primitive, `db.set_task_result` →
+  `tasks.result_text`). It deliberately holds **no** `nexus-coordinator-rs`
+  dependency (builds the body with `serde_json` inline) so the Factory
+  crate stays free of the iroh-heavy coordinator graph (crate
+  isolation).
+- **The gate is upstream of all three axes.** `SENSITIVE_ACTIONS` runs
+  in `handle_chat_stream` BEFORE `ExecutionTarget::from_provider(...).run()`,
+  so no provider selection can bypass the spawn gate (T-OPERATOR-SPAWN,
+  THREAT_MODEL §14).
+
+Cross-ref: S72 Phase C (`3c9ea1b`, `ExecutionTarget` + Claude/Ollama
+arms), S72 Phase D (network arm + result-text route + provider wiring),
+§P52 (Deref backend enum), §P53 (deterministic quorum + provider/backend
+axes D8).
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

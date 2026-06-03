@@ -65,8 +65,9 @@ pub enum ExecutionTarget {
     Claude { model: String },
     /// Ollama on the local machine via `ollama-rs` `generate_stream`.
     Ollama { model: String },
-    /// The SBFB network via submit→poll against the local daemon.
-    /// Wiring lands in Sprint 72 Phase D.
+    /// The SBFB network: submit→poll against the local daemon, then a
+    /// single `Done` carrying the completed task's text (Sprint 72
+    /// Phase D, PO-14 — never token-by-token over the WAN).
     Network { project_id: String, model: String },
 }
 
@@ -104,9 +105,9 @@ impl ExecutionTarget {
                 Box::pin(spawn_claude_stream(&prompt, &model, &cwd))
             }
             ExecutionTarget::Ollama { model } => Box::pin(ollama_stream(model, prompt)),
-            // Network arm lands in Phase D. Until then, surface a clear
-            // diagnostic rather than silently producing nothing.
-            ExecutionTarget::Network { .. } => Box::pin(network_not_implemented()),
+            ExecutionTarget::Network { project_id, model } => {
+                Box::pin(network_stream(project_id, model, prompt))
+            }
         }
     }
 }
@@ -238,13 +239,232 @@ fn ollama_stream(
     }
 }
 
-/// Placeholder for the network execution target until Phase D wires the
-/// submit→poll client.
-fn network_not_implemented() -> impl Stream<Item = StreamChunk> + Send + 'static {
+/// Default poll cadence and global deadline for the network arm.
+/// Overridable via `SBFB_NETWORK_POLL_INTERVAL_MS` /
+/// `SBFB_NETWORK_TIMEOUT_SECS` (the tests drive them small).
+const DEFAULT_NETWORK_POLL_INTERVAL_MS: u64 = 2000;
+const DEFAULT_NETWORK_TIMEOUT_SECS: u64 = 600;
+
+fn network_poll_interval() -> Duration {
+    std::env::var("SBFB_NETWORK_POLL_INTERVAL_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::from_millis(DEFAULT_NETWORK_POLL_INTERVAL_MS))
+}
+
+fn network_timeout() -> Duration {
+    std::env::var("SBFB_NETWORK_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|s| *s > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(DEFAULT_NETWORK_TIMEOUT_SECS))
+}
+
+/// Resolve the daemon base URL + auth token for the network arm.
+///
+/// `SBFB_DAEMON_ENDPOINT` (+ optional `SBFB_DAEMON_TOKEN`) overrides the
+/// discovery so tests can target a mock without a `running.json`.
+/// Otherwise [`DaemonConnection::discover`] reads `running.json` +
+/// `auth_token` from the standard SBFB paths (R3: the Operator and the
+/// daemon share the same token file).
+fn resolve_daemon() -> Result<(String, String), String> {
+    if let Ok(ep) = std::env::var("SBFB_DAEMON_ENDPOINT") {
+        if !ep.is_empty() {
+            let token = std::env::var("SBFB_DAEMON_TOKEN").unwrap_or_default();
+            return Ok((ep.trim_end_matches('/').to_string(), token));
+        }
+    }
+    match crate::daemon_client::DaemonConnection::discover() {
+        Ok(conn) => Ok((conn.base_url, conn.token)),
+        Err(e) => Err(format!("daemon not reachable: {e}")),
+    }
+}
+
+/// Extract a string field from a (possibly nested) JSON path.
+fn json_str<'a>(v: &'a serde_json::Value, path: &[&str]) -> Option<&'a str> {
+    let mut cur = v;
+    for key in path {
+        cur = cur.get(key)?;
+    }
+    cur.as_str()
+}
+
+/// Submit a chat sub-task to the SBFB network via the local daemon and
+/// stream its lifecycle as [`StreamChunk`]s.
+///
+/// Unlike the Claude/Ollama arms, the worker result is **not** streamed
+/// token-by-token over the WAN (PO-14): the daemon's task API is
+/// submit→poll. The arm submits a [`TaskSubmission`]-shaped body to
+/// `POST /api/v1/tasks/submit`, polls `GET /api/v1/tasks/{id}` on a
+/// fixed interval (emitting a `Debug` progress label per tick, never a
+/// `Delta`), and on `completed` fetches the accepted text from
+/// `GET /api/v1/tasks/{id}/result` (the Sprint 72 Phase D primitive) to
+/// emit **exactly one** terminal [`StreamChunk::Done`]. `rejected` /
+/// `timed_out` / the global timeout each yield a single
+/// [`StreamChunk::Error`].
+///
+/// The submit body is built inline with `serde_json` (the daemon fills
+/// the rest of `TaskSubmission` via serde defaults) so the Factory crate
+/// stays free of a `nexus-coordinator-rs` dependency (crate isolation).
+fn network_stream(
+    project_id: String,
+    model: String,
+    prompt: String,
+) -> impl Stream<Item = StreamChunk> + Send + 'static {
+    let poll_interval = network_poll_interval();
+    let global_timeout = network_timeout();
+
     async_stream::stream! {
-        yield StreamChunk::Error {
-            message: "network execution target is not implemented yet (Sprint 72 Phase D)".to_owned(),
+        let (base_url, token) = match resolve_daemon() {
+            Ok(v) => v,
+            Err(e) => {
+                yield StreamChunk::Error { message: format!("network target: {e}") };
+                return;
+            }
         };
+
+        let client = reqwest::Client::new();
+
+        // --- submit ---
+        let submit_body = serde_json::json!({
+            "project_id": project_id,
+            "task_type": "inference",
+            "prompt": prompt,
+            "model": model,
+        });
+        let submit = client
+            .post(format!("{base_url}/api/v1/tasks/submit"))
+            .header("X-SBFB-Token", &token)
+            .header("Host", "127.0.0.1")
+            .json(&submit_body)
+            .send()
+            .await;
+        let task_id = match submit {
+            Ok(resp) if resp.status().is_success() => match resp.json::<serde_json::Value>().await {
+                Ok(json) => match json_str(&json, &["task", "task_id"]) {
+                    Some(id) => id.to_owned(),
+                    None => {
+                        yield StreamChunk::Error {
+                            message: "network submit: response missing task.task_id".to_owned(),
+                        };
+                        return;
+                    }
+                },
+                Err(e) => {
+                    yield StreamChunk::Error {
+                        message: format!("network submit: invalid response: {e}"),
+                    };
+                    return;
+                }
+            },
+            Ok(resp) => {
+                yield StreamChunk::Error {
+                    message: format!("network submit rejected: HTTP {}", resp.status()),
+                };
+                return;
+            }
+            Err(e) => {
+                yield StreamChunk::Error { message: format!("network submit failed: {e}") };
+                return;
+            }
+        };
+
+        // --- poll until terminal or global timeout ---
+        let status_url = format!("{base_url}/api/v1/tasks/{task_id}");
+        let result_url = format!("{base_url}/api/v1/tasks/{task_id}/result");
+        let deadline = tokio::time::Instant::now() + global_timeout;
+        let mut interval = tokio::time::interval(poll_interval);
+
+        loop {
+            interval.tick().await; // immediate on the first iteration, then every poll_interval
+            if tokio::time::Instant::now() >= deadline {
+                yield StreamChunk::Error {
+                    message: format!(
+                        "network task {task_id} timed out after {}s",
+                        global_timeout.as_secs()
+                    ),
+                };
+                return;
+            }
+
+            let status = match client
+                .get(&status_url)
+                .header("X-SBFB-Token", &token)
+                .header("Host", "127.0.0.1")
+                .send()
+                .await
+            {
+                Ok(r) if r.status().is_success() => match r.json::<serde_json::Value>().await {
+                    Ok(j) => j.get("status").and_then(|v| v.as_str()).unwrap_or("").to_owned(),
+                    // Transient parse blip — keep polling, bounded by the timeout.
+                    Err(_) => continue,
+                },
+                // Transient HTTP error/blip — keep polling, bounded by the timeout.
+                Ok(_) | Err(_) => continue,
+            };
+
+            yield StreamChunk::Debug {
+                label: "network-poll".to_owned(),
+                content: format!("status: {status}"),
+            };
+
+            match status.as_str() {
+                "completed" => {
+                    match client
+                        .get(&result_url)
+                        .header("X-SBFB-Token", &token)
+                        .header("Host", "127.0.0.1")
+                        .send()
+                        .await
+                    {
+                        Ok(r) if r.status().is_success() => match r.json::<serde_json::Value>().await {
+                            Ok(j) => {
+                                let text = j
+                                    .get("result_text")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_owned();
+                                yield StreamChunk::Done {
+                                    cost_usd: 0.0,
+                                    duration_ms: 0,
+                                    result: text,
+                                };
+                                return;
+                            }
+                            Err(e) => {
+                                yield StreamChunk::Error {
+                                    message: format!("network result: invalid response: {e}"),
+                                };
+                                return;
+                            }
+                        },
+                        Ok(r) => {
+                            yield StreamChunk::Error {
+                                message: format!("network result fetch: HTTP {}", r.status()),
+                            };
+                            return;
+                        }
+                        Err(e) => {
+                            yield StreamChunk::Error {
+                                message: format!("network result fetch failed: {e}"),
+                            };
+                            return;
+                        }
+                    }
+                }
+                "rejected" | "timed_out" => {
+                    yield StreamChunk::Error {
+                        message: format!("network task {task_id} {status}"),
+                    };
+                    return;
+                }
+                // pending / dispatched / awaiting_quorum → keep polling.
+                _ => {}
+            }
+        }
     }
 }
 
@@ -463,8 +683,77 @@ mod tests {
         );
     }
 
+    /// A mock daemon: replies to the network arm's submit + poll + result
+    /// HTTP calls deterministically, no real daemon. `complete_after_polls`
+    /// status polls return `dispatched`, then `completed`. Each response
+    /// carries `Connection: close` so reqwest opens a fresh connection per
+    /// request and the accept loop handles one request per connection.
+    async fn spawn_mock_daemon(complete_after_polls: usize) -> u16 {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        tokio::spawn(async move {
+            let polls = Arc::new(AtomicUsize::new(0));
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let polls = polls.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = match stream.read(&mut buf).await {
+                        Ok(n) => n,
+                        Err(_) => return,
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    let first = req.lines().next().unwrap_or("");
+                    let mut parts = first.split_whitespace();
+                    let method = parts.next().unwrap_or("");
+                    let path = parts.next().unwrap_or("");
+
+                    let body = if method == "POST" && path.ends_with("/tasks/submit") {
+                        r#"{"task":{"task_id":"net-task-1"}}"#.to_string()
+                    } else if method == "GET" && path.ends_with("/result") {
+                        r#"{"task_id":"net-task-1","status":"completed","result_text":"the network reply"}"#.to_string()
+                    } else if method == "GET" && path.contains("/tasks/net-task-1") {
+                        let seen = polls.fetch_add(1, Ordering::SeqCst);
+                        let status = if seen >= complete_after_polls {
+                            "completed"
+                        } else {
+                            "dispatched"
+                        };
+                        format!(r#"{{"task_id":"net-task-1","status":"{status}"}}"#)
+                    } else {
+                        r#"{"error":"unexpected"}"#.to_string()
+                    };
+
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(resp.as_bytes()).await;
+                    let _ = stream.flush().await;
+                });
+            }
+        });
+
+        port
+    }
+
+    // PO-14: the network arm submits → polls → and on `completed` emits
+    // EXACTLY ONE terminal Done carrying the retrieved result text, never
+    // a token Delta. Deterministic via the mock daemon (no live daemon).
     #[tokio::test]
-    async fn network_target_reports_not_implemented() {
+    async fn network_provider_submit_poll_yields_single_done() {
+        let port = spawn_mock_daemon(1).await; // completes on the 2nd status poll
+        unsafe {
+            std::env::set_var("SBFB_DAEMON_ENDPOINT", format!("http://127.0.0.1:{port}"));
+            std::env::set_var("SBFB_NETWORK_POLL_INTERVAL_MS", "20");
+            std::env::set_var("SBFB_NETWORK_TIMEOUT_SECS", "10");
+        }
         let chunks: Vec<StreamChunk> = ExecutionTarget::Network {
             project_id: "proj".into(),
             model: "m".into(),
@@ -472,10 +761,79 @@ mod tests {
         .run("hi".into(), std::env::temp_dir())
         .collect()
         .await;
-        assert_eq!(chunks.len(), 1);
-        assert!(
-            matches!(&chunks[0], StreamChunk::Error { message } if message.contains("Phase D")),
-            "network arm must signal it is not implemented yet, got {chunks:?}"
+        unsafe {
+            std::env::remove_var("SBFB_DAEMON_ENDPOINT");
+            std::env::remove_var("SBFB_NETWORK_POLL_INTERVAL_MS");
+            std::env::remove_var("SBFB_NETWORK_TIMEOUT_SECS");
+        }
+
+        let dones: Vec<&StreamChunk> = chunks
+            .iter()
+            .filter(|c| matches!(c, StreamChunk::Done { .. }))
+            .collect();
+        let deltas = chunks
+            .iter()
+            .filter(|c| matches!(c, StreamChunk::Delta { .. }))
+            .count();
+        assert_eq!(dones.len(), 1, "exactly one terminal Done, got {chunks:?}");
+        assert_eq!(
+            deltas, 0,
+            "no token Delta over the WAN (PO-14), got {chunks:?}"
         );
+        match dones[0] {
+            StreamChunk::Done { result, .. } => {
+                assert_eq!(result, "the network reply", "Done carries the /result text");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // The global timeout bounds a task that never completes: the arm
+    // yields exactly one terminal Error and never a Done.
+    #[tokio::test]
+    async fn network_provider_poll_timeout() {
+        let port = spawn_mock_daemon(usize::MAX).await; // always dispatched
+        unsafe {
+            std::env::set_var("SBFB_DAEMON_ENDPOINT", format!("http://127.0.0.1:{port}"));
+            std::env::set_var("SBFB_NETWORK_POLL_INTERVAL_MS", "20");
+            std::env::set_var("SBFB_NETWORK_TIMEOUT_SECS", "1");
+        }
+        let chunks: Vec<StreamChunk> = ExecutionTarget::Network {
+            project_id: "proj".into(),
+            model: "m".into(),
+        }
+        .run("hi".into(), std::env::temp_dir())
+        .collect()
+        .await;
+        unsafe {
+            std::env::remove_var("SBFB_DAEMON_ENDPOINT");
+            std::env::remove_var("SBFB_NETWORK_POLL_INTERVAL_MS");
+            std::env::remove_var("SBFB_NETWORK_TIMEOUT_SECS");
+        }
+
+        assert!(
+            chunks
+                .iter()
+                .all(|c| !matches!(c, StreamChunk::Done { .. })),
+            "a never-completing task must not yield a Done, got {chunks:?}"
+        );
+        let errors: Vec<&StreamChunk> = chunks
+            .iter()
+            .filter(|c| matches!(c, StreamChunk::Error { .. }))
+            .collect();
+        assert_eq!(
+            errors.len(),
+            1,
+            "exactly one terminal Error, got {chunks:?}"
+        );
+        match errors[0] {
+            StreamChunk::Error { message } => {
+                assert!(
+                    message.contains("timed out"),
+                    "timeout diagnostic, got {message}"
+                );
+            }
+            _ => unreachable!(),
+        }
     }
 }

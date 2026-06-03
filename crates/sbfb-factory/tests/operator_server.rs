@@ -32,6 +32,11 @@ impl TestServer {
             // test ever launches a real `claude` bypassPermissions
             // agent; the SSE paths fail fast with a diagnostic.
             .env("SBFB_CLAUDE_BIN", "sbfb-claude-test-nonexistent")
+            // Sprint 72 Phase D: point the Ollama arm at a dead port so
+            // provider-routing tests are deterministic (a quick
+            // "unreachable" diagnostic) and never depend on a real local
+            // Ollama. The Claude arm is unaffected.
+            .env("SBFB_OLLAMA_ENDPOINT", "http://127.0.0.1:1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -276,6 +281,135 @@ fn chat_stream_uses_opus_model() {
         !body.contains("--model sonnet"),
         "stream must not use the prior hardcoded sonnet model, got: {body}"
     );
+}
+
+// Sprint 72 Phase D: the SSE stream routes by the session's execution
+// target. `--permission-mode` (the Claude agent command label) is the
+// unique fingerprint of the Claude arm; the Ollama/Network arms never
+// emit it. So its presence/absence proves which arm ran.
+const CLAUDE_ARM_FINGERPRINT: &str = "--permission-mode";
+
+#[test]
+fn chat_stream_routes_by_session_provider() {
+    let server = TestServer::start();
+
+    // Session created with provider "ollama" → the stream routes to the
+    // Ollama arm (dead endpoint → quick diagnostic), NOT Claude.
+    let ollama_session: serde_json::Value = server
+        .post_json(
+            "/api/chat/session",
+            serde_json::json!({"provider": "ollama"}),
+        )
+        .json()
+        .unwrap();
+    let ollama_id = ollama_session["id"].as_str().unwrap();
+    server.post_json(
+        "/api/chat/message",
+        serde_json::json!({"session_id": ollama_id, "message": "hello"}),
+    );
+    let ollama_body = server
+        .get(&format!("/api/chat/{ollama_id}/stream"))
+        .text()
+        .unwrap();
+    assert!(
+        !ollama_body.contains(CLAUDE_ARM_FINGERPRINT),
+        "provider=ollama must NOT run the Claude arm, got: {ollama_body}"
+    );
+    assert!(
+        ollama_body.to_lowercase().contains("ollama"),
+        "provider=ollama must run the Ollama arm, got: {ollama_body}"
+    );
+
+    // Session created with provider "claude" (default pilot) → Claude arm.
+    let claude_session: serde_json::Value = server
+        .post_json(
+            "/api/chat/session",
+            serde_json::json!({"provider": "claude"}),
+        )
+        .json()
+        .unwrap();
+    let claude_id = claude_session["id"].as_str().unwrap();
+    server.post_json(
+        "/api/chat/message",
+        serde_json::json!({"session_id": claude_id, "message": "hello"}),
+    );
+    let claude_body = server
+        .get(&format!("/api/chat/{claude_id}/stream"))
+        .text()
+        .unwrap();
+    assert!(
+        claude_body.contains(CLAUDE_ARM_FINGERPRINT),
+        "provider=claude must run the Claude arm, got: {claude_body}"
+    );
+}
+
+#[test]
+fn chat_session_persists_provider() {
+    let server = TestServer::start();
+
+    // Session created with the default provider (claude); the per-send
+    // override to "ollama" must persist into the session (symmetry with
+    // `model`) so the bodyless SSE GET routes to Ollama, not Claude.
+    let session: serde_json::Value = server
+        .post_json("/api/chat/session", serde_json::json!({}))
+        .json()
+        .unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    server.post_json(
+        &format!("/api/chat/{id}/send"),
+        serde_json::json!({"message": "hello", "provider": "ollama"}),
+    );
+
+    let body = server
+        .get(&format!("/api/chat/{id}/stream"))
+        .text()
+        .unwrap();
+    assert!(
+        !body.contains(CLAUDE_ARM_FINGERPRINT),
+        "a /send provider override to ollama must persist and route away from Claude, got: {body}"
+    );
+    assert!(
+        body.to_lowercase().contains("ollama"),
+        "the persisted ollama provider must route to the Ollama arm, got: {body}"
+    );
+}
+
+#[test]
+fn sensitive_action_gated_regardless_of_provider() {
+    let server = TestServer::start();
+
+    // The SENSITIVE_ACTIONS gate runs BEFORE provider dispatch, so it
+    // fires for every execution target — a sensitive message never
+    // reaches the Ollama or Network arm.
+    for provider in ["ollama", "network"] {
+        let session: serde_json::Value = server
+            .post_json(
+                "/api/chat/session",
+                serde_json::json!({"provider": provider}),
+            )
+            .json()
+            .unwrap();
+        let id = session["id"].as_str().unwrap();
+
+        server.post_json(
+            &format!("/api/chat/{id}/send"),
+            serde_json::json!({"message": "please commit and push", "provider": provider}),
+        );
+
+        let body = server
+            .get(&format!("/api/chat/{id}/stream"))
+            .text()
+            .unwrap();
+        assert!(
+            body.contains("requires_gate"),
+            "provider={provider}: sensitive action must gate, got: {body}"
+        );
+        assert!(
+            !body.contains(CLAUDE_ARM_FINGERPRINT),
+            "provider={provider}: gated stream must not dispatch to any arm, got: {body}"
+        );
+    }
 }
 
 #[test]

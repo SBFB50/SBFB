@@ -4,6 +4,9 @@
 //! Completes the task API surface started in S35 (submit).
 //! - `GET /api/v1/tasks` — list tasks, optional status filter + limit
 //! - `GET /api/v1/tasks/{task_id}` — single task detail
+//! - `GET /api/v1/tasks/{task_id}/result` — completed result text
+//!   (Sprint 72 Phase D: the primitive the Operator network execution
+//!   arm reads to render a finished network task's reply in the chat).
 
 use std::sync::Arc;
 
@@ -135,6 +138,60 @@ pub async fn get_task(
             })),
         )
             .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": format!("task {task_id} not found")})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("{e}")})),
+        )
+            .into_response(),
+    }
+}
+
+/// `GET /api/v1/tasks/{task_id}/result` — return the completed task's
+/// human-readable output (Sprint 72 Phase D). A task that exists but has
+/// no result text yet (pending/dispatched/rejected) is a 404 so the
+/// Operator's network arm polls `/{task_id}` for status and only fetches
+/// the text once `completed`. Same T0 loopback `auth_required` tier as
+/// the rest of the task API — a read-only endpoint, no new trust surface.
+pub async fn get_task_result(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(task_id): Path<String>,
+) -> impl IntoResponse {
+    debug!(id = %task_id, "GET /api/v1/tasks/:id/result");
+    let db = match state.coordinator_db.lock() {
+        Ok(db) => db,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "db lock poisoned"})),
+            )
+                .into_response();
+        }
+    };
+    match db.get_task_result(&task_id) {
+        Ok(Some(detail)) => match detail.result_text {
+            Some(text) => (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "task_id": task_id,
+                    "status": detail.status,
+                    "result_text": text,
+                    "result_hash": detail.result_hash,
+                })),
+            )
+                .into_response(),
+            None => (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": format!("task {task_id} has no result yet (status: {})", detail.status),
+                })),
+            )
+                .into_response(),
+        },
         Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": format!("task {task_id} not found")})),
