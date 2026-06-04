@@ -3,11 +3,21 @@
  * `/browse` — Netflix-style glassmorphism app browser.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { keepPreviousData, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { ExternalLink, FileCheck, Globe, Play, RefreshCw, Signal, SignalZero, Sparkles } from "lucide-react";
+import { ExternalLink, FileCheck, Globe, Play, RefreshCw, Search, Signal, SignalZero, Sparkles } from "lucide-react";
 
-import { browsePull, listBrowse, type BrowseEntry, type BrowseStatus } from "@/api/daemon";
+import {
+  browsePull,
+  listBrowse,
+  searchBrowse,
+  type BrowseEntry,
+  type BrowseStatus,
+  type DaemonResult,
+  type SearchResponse,
+  type SearchResult,
+} from "@/api/daemon";
 import {
   selectActiveCoordinator,
   useProjectStore,
@@ -37,14 +47,31 @@ export default function Browse() {
 }
 
 function BrowseContent({ coordUrl }: { coordUrl: string }) {
-  const query = useQuery({
+  const [searchTerm, setSearchTerm] = useState("");
+  const trimmed = searchTerm.trim();
+  const isSearching = trimmed.length > 0;
+
+  const browseQuery = useQuery({
     queryKey: ["daemon-browse", coordUrl],
     queryFn: () => listBrowse(coordUrl),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
 
-  const result = query.data;
+  // Sprint 73 Phase E (D4) — the dedicated search field hits the
+  // daemon FTS5 index only while there's a non-empty query;
+  // `keepPreviousData` keeps the last hits visible while the next
+  // keystroke's query resolves so the grid doesn't flash empty.
+  const searchQuery = useQuery({
+    queryKey: ["daemon-search", coordUrl, trimmed],
+    queryFn: () => searchBrowse(coordUrl, trimmed),
+    enabled: isSearching,
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const result = browseQuery.data;
   const entries =
     result?.kind === "data" ? result.body.entries : [];
 
@@ -54,8 +81,8 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
 
   return (
     <div className="space-y-8">
-      {/* ---- Hero ---- */}
-      {entries.length > 0 && <HeroSection entry={entries[0]} />}
+      {/* ---- Hero (browse mode only) ---- */}
+      {!isSearching && entries.length > 0 && <HeroSection entry={entries[0]} />}
 
       {/* ---- Top bar ---- */}
       <div className="flex items-end justify-between gap-4 px-2">
@@ -70,27 +97,32 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
         <button
           onClick={async () => {
             await browsePull(coordUrl);
-            setTimeout(() => query.refetch(), 2000);
+            setTimeout(() => browseQuery.refetch(), 2000);
           }}
-          disabled={query.isFetching}
+          disabled={browseQuery.isFetching}
           className="glass-pill flex items-center gap-2 text-xs"
           data-testid="browse-refresh"
         >
           <RefreshCw
-            className={`h-3.5 w-3.5 ${query.isFetching ? "animate-spin" : ""}`}
+            className={`h-3.5 w-3.5 ${browseQuery.isFetching ? "animate-spin" : ""}`}
           />
           Rafraichir
         </button>
       </div>
 
+      {/* ---- Search bar ---- */}
+      <SearchBar value={searchTerm} onChange={setSearchTerm} />
+
       {/* ---- Content ---- */}
-      {query.isLoading ? (
+      {isSearching ? (
+        <SearchResultsView query={searchQuery} term={trimmed} />
+      ) : browseQuery.isLoading ? (
         <LoadingSkeleton />
-      ) : query.isError ? (
+      ) : browseQuery.isError ? (
         <ErrorCard
           message={
-            query.error instanceof Error
-              ? query.error.message
+            browseQuery.error instanceof Error
+              ? browseQuery.error.message
               : "erreur inconnue"
           }
         />
@@ -103,6 +135,181 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
       ) : (
         <AppGrid entries={entries} />
       )}
+    </div>
+  );
+}
+
+// ================================================================
+// Search bar + results (Sprint 73 Phase E)
+// ================================================================
+
+/**
+ * `repo_url` is feed-sourced and React does not sanitize an anchor
+ * `href`, so a `javascript:`/`data:` scheme would otherwise reach
+ * the DOM. Only treat an explicit `https://` origin as a link
+ * target (the forges SBFB clones apps from). Cheap hardening ahead
+ * of S74 making the provenance triplet action-driving.
+ */
+function isHttpsUrl(url: string | null | undefined): url is string {
+  return typeof url === "string" && url.startsWith("https://");
+}
+
+function SearchBar({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div className="px-2">
+      <div className="glass-card flex items-center gap-3 px-4 py-3">
+        <Search className="h-4 w-4 shrink-0 text-white/40" />
+        <input
+          type="search"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Rechercher une app par nom, catégorie ou description"
+          aria-label="Rechercher une app"
+          data-testid="browse-search-input"
+          className="w-full bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none"
+        />
+        {value.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            aria-label="Effacer la recherche"
+            data-testid="browse-search-clear"
+            className="shrink-0 text-xs text-white/40 hover:text-white/70"
+          >
+            Effacer
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SearchResultsView({
+  query,
+  term,
+}: {
+  query: UseQueryResult<DaemonResult<SearchResponse>>;
+  term: string;
+}) {
+  const result = query.data;
+
+  if (query.isLoading || result === undefined) {
+    return <LoadingSkeleton />;
+  }
+  if (result.kind === "unavailable") {
+    return <DaemonOfflineBanner reason={result.reason} />;
+  }
+  if (result.kind === "error") {
+    return <ErrorCard message={result.reason} />;
+  }
+
+  const hits = result.body.results;
+  if (hits.length === 0) {
+    return <SearchEmptyState term={term} />;
+  }
+
+  return (
+    <div>
+      <h3 className="mb-4 px-2 text-lg font-bold text-white/80">
+        Résultats
+        <span className="ml-2 text-sm font-normal text-white/40">
+          {result.body.total}
+        </span>
+      </h3>
+      <div
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        data-testid="browse-search-grid"
+      >
+        {hits.map((hit, idx) => (
+          <SearchHitCard key={`${hit.project_id}-${idx}`} hit={hit} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SearchHitCard({ hit }: { hit: SearchResult }) {
+  const navigate = useNavigate();
+  const repoUrl = isHttpsUrl(hit.repo_url) ? hit.repo_url : null;
+
+  return (
+    <div
+      data-testid="browse-search-card"
+      className="glass-card group relative cursor-pointer overflow-hidden p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_40px_rgba(120,80,255,0.15)]"
+      onClick={() => navigate(`/browse/${hit.project_id}`)}
+    >
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-bold leading-tight">{hit.project_name}</h3>
+          {hit.is_open_source && (
+            <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+              Source vérifiable
+            </span>
+          )}
+        </div>
+
+        <p className="line-clamp-2 text-xs text-white/50">
+          {hit.description || "Application P2P"}
+        </p>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {hit.category && (
+            <span className="rounded-full bg-white/[0.06] px-2.5 py-0.5 text-[10px] font-medium text-white/60">
+              {hit.category}
+            </span>
+          )}
+          {hit.archive_hash && (
+            <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[10px] font-medium text-emerald-400">
+              P2P
+            </span>
+          )}
+          {hit.provenance_hash && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[10px] font-medium text-emerald-400"
+              data-testid="search-verified-badge"
+            >
+              <FileCheck className="h-2.5 w-2.5" />
+              Provenance
+            </span>
+          )}
+          {repoUrl && (
+            <a
+              href={repoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2.5 py-0.5 text-[10px] font-medium text-white/60 hover:bg-white/10 hover:text-white"
+              data-testid="search-repo-link"
+            >
+              <ExternalLink className="h-2.5 w-2.5" />
+              Source
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SearchEmptyState({ term }: { term: string }) {
+  return (
+    <div
+      className="flex min-h-[40vh] items-center justify-center"
+      data-testid="browse-search-empty"
+    >
+      <div className="glass-card max-w-sm p-8 text-center">
+        <Search className="mx-auto mb-4 h-10 w-10 text-white/20" />
+        <h3 className="mb-2 font-bold">Aucun résultat</h3>
+        <p className="text-sm text-white/50">
+          Aucune app ne correspond à « {term} ». Essaie d'autres mots-clés.
+        </p>
+      </div>
     </div>
   );
 }

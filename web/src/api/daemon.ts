@@ -310,6 +310,84 @@ export function browsePull(
   });
 }
 
+// =================================================================
+// Search — FTS5 full-text index (Sprint 67 endpoint, Sprint 73 Phase E)
+// =================================================================
+
+/**
+ * Mirrors `nexus_coordinator_rs::search::SearchResult`.
+ *
+ * The seven base columns plus the Sprint 73 Phase D provenance
+ * triplet. The Rust `search_handler` (`nexus-shell-daemon/src/http.rs`)
+ * serialises every key unconditionally — the four provenance fields
+ * come through as JSON `null` (NOT absent) for non-release ops and
+ * pre-M17 index rows. They are therefore modelled as `.nullable()`,
+ * not `.optional()`: `callDaemon` runs the schema with `.strict()`,
+ * which would reject a hit that simply omitted a key. `score` is the
+ * raw bm25 rank (can be any finite number) and `is_open_source` is a
+ * plain `bool`, always present.
+ */
+export const SearchResultSchema = z
+  .object({
+    project_id: z.string(),
+    project_name: z.string(),
+    category: z.string(),
+    description: z.string(),
+    op_type: z.string(),
+    source_type: z.string(),
+    score: z.number(),
+    repo_url: z.string().nullable(),
+    commit_sha: z.string().nullable(),
+    archive_hash: z.string().nullable(),
+    provenance_hash: z.string().nullable(),
+    is_open_source: z.boolean(),
+  })
+  .strict();
+
+export type SearchResult = z.infer<typeof SearchResultSchema>;
+
+/**
+ * Mirrors the `search_handler` envelope `{ results, total, took_ms }`.
+ * `total` is the full match count before `limit`/`offset` paging;
+ * `took_ms` is the server-side query duration in milliseconds.
+ */
+export const SearchResponseSchema = z
+  .object({
+    results: z.array(SearchResultSchema),
+    total: z.number().int().min(0),
+    took_ms: z.number().int().min(0),
+  })
+  .strict();
+
+export type SearchResponse = z.infer<typeof SearchResponseSchema>;
+
+/**
+ * Sprint 73 Phase E (D4) — full-text search over the daemon's FTS5
+ * index of browse/feed entries. Mirrors {@link listBrowse}: routes
+ * through `callDaemon` for the loopback bearer + the
+ * `DaemonResult<T>` offline/error union the shell renders as a normal
+ * UX state. The query parameters are built with `URLSearchParams` so
+ * a pathological `q` is percent-encoded and cannot break out of the
+ * query string (the daemon decodes it via `serde_urlencoded`).
+ */
+export function searchBrowse(
+  baseUrl: string,
+  q: string,
+  limit = 20,
+  offset = 0,
+): Promise<DaemonResult<SearchResponse>> {
+  const params = new URLSearchParams({
+    q,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return callDaemon(
+    baseUrl,
+    `/api/daemon/search?${params.toString()}`,
+    SearchResponseSchema,
+  );
+}
+
 /**
  * Mirrors the Rust handler's `{ "wiped": true }` success envelope.
  */

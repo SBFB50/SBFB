@@ -28,6 +28,8 @@ import {
   isValidCuratorPubkey,
   listBrowse,
   listCurators,
+  searchBrowse,
+  SearchResponseSchema,
   subscribeCurator,
   unsubscribeCurator,
   type DaemonInfo,
@@ -480,6 +482,136 @@ describe("BrowseEntry is_open_source", () => {
     expect(result.kind).toBe("data");
     if (result.kind !== "data") throw new Error("unreachable");
     expect(result.body.entries[0].is_open_source).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------
+// searchBrowse + SearchResponseSchema (Sprint 73 Phase E)
+// ---------------------------------------------------------------
+
+function makeSearchHit(overrides: Record<string, unknown> = {}) {
+  return {
+    project_id: "aa".repeat(32),
+    project_name: "verified-app",
+    category: "outils",
+    description: "App deployee depuis sa source",
+    op_type: "ReleasePublished",
+    source_type: "feed",
+    score: 1.42,
+    repo_url: "https://github.com/test/verified-app",
+    commit_sha: "ab".repeat(20),
+    archive_hash: "cd".repeat(32),
+    provenance_hash: "ef".repeat(32),
+    is_open_source: true,
+    ...overrides,
+  };
+}
+
+describe("searchBrowse", () => {
+  it("searchBrowse_calls_daemon_search_endpoint", async () => {
+    const spy = vi.fn(async () =>
+      mockFetchResponse({
+        status: 200,
+        body: { results: [], total: 0, took_ms: 1 },
+      }),
+    );
+    vi.stubGlobal("fetch", spy);
+
+    const result = await searchBrowse(BASE, "react");
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.total).toBe(0);
+
+    expect(spy).toHaveBeenCalledOnce();
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    const [urlArg] = calls[0];
+    // Default limit/offset are appended; q is percent-encoded via
+    // URLSearchParams so it can never break out of the query string.
+    expect(String(urlArg)).toBe(
+      `${BASE}/api/daemon/search?q=react&limit=20&offset=0`,
+    );
+  });
+
+  it("percent-encodes a pathological query", async () => {
+    const spy = vi.fn(async () =>
+      mockFetchResponse({
+        status: 200,
+        body: { results: [], total: 0, took_ms: 0 },
+      }),
+    );
+    vi.stubGlobal("fetch", spy);
+
+    await searchBrowse(BASE, "a&b=c d", 5, 10);
+    const calls = spy.mock.calls as unknown as [RequestInfo | URL][];
+    expect(String(calls[0][0])).toBe(
+      `${BASE}/api/daemon/search?q=a%26b%3Dc+d&limit=5&offset=10`,
+    );
+  });
+
+  it("returns kind=unavailable on 503", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        mockFetchResponse({ status: 503, body: { error: "busy" } }),
+      ),
+    );
+    const result = await searchBrowse(BASE, "react");
+    expect(result.kind).toBe("unavailable");
+  });
+});
+
+describe("SearchResponseSchema", () => {
+  it("search_response_schema_parses_triplet", async () => {
+    mockFetchOk({
+      results: [makeSearchHit()],
+      total: 1,
+      took_ms: 3,
+    });
+    const result = await searchBrowse(BASE, "verified");
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    const hit = result.body.results[0];
+    expect(hit.repo_url).toBe("https://github.com/test/verified-app");
+    expect(hit.commit_sha).toBe("ab".repeat(20));
+    expect(hit.archive_hash).toBe("cd".repeat(32));
+    expect(hit.provenance_hash).toBe("ef".repeat(32));
+    expect(hit.is_open_source).toBe(true);
+  });
+
+  it("parses a hit whose triplet is null (non-release op)", () => {
+    const parsed = SearchResponseSchema.safeParse({
+      results: [
+        makeSearchHit({
+          op_type: "CuratorVouched",
+          repo_url: null,
+          commit_sha: null,
+          archive_hash: null,
+          provenance_hash: null,
+          is_open_source: false,
+        }),
+      ],
+      total: 1,
+      took_ms: 0,
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw new Error("unreachable");
+    expect(parsed.data.results[0].repo_url).toBeNull();
+    expect(parsed.data.results[0].is_open_source).toBe(false);
+  });
+
+  it("rejects a hit that omits a provenance key (strict, not optional)", async () => {
+    // The Rust handler always serialises the four provenance keys as
+    // `null` when absent — never omits them. Modelling them as
+    // `.nullable()` (not `.optional()`) keeps this strict so a future
+    // wire drift surfaces as a protocol error instead of silently
+    // dropping the field.
+    const withoutRepoUrl = makeSearchHit();
+    delete (withoutRepoUrl as Record<string, unknown>).repo_url;
+    mockFetchOk({ results: [withoutRepoUrl], total: 1, took_ms: 0 });
+    await expect(searchBrowse(BASE, "x")).rejects.toThrow(/protocol error/);
   });
 });
 
