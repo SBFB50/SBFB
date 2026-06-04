@@ -132,6 +132,16 @@ pub async fn deploy_from_repo(
         );
     }
 
+    // Per-app project identity (blake3 of the name), shared by the provenance
+    // record key, the browse entry, and the feed op — so a single node can host
+    // multiple distinct apps. Before this, the browse entry and provenance were
+    // keyed by `node_id`, so each deploy overwrote the node's single browse card
+    // (the feed already used this blake3(name) id). The gossip ProjectAnnouncement
+    // still carries `node_id` (remote one-per-node discovery is a separate change).
+    let project_id = hex::encode(nexus_core_rs::crypto::blake3_hash(
+        req.project_name.as_bytes(),
+    ));
+
     let commit_sha = match req.commit_sha {
         Some(sha) => sha.to_lowercase(),
         None => match git_rev_parse(&clone_dir).await {
@@ -227,7 +237,7 @@ pub async fn deploy_from_repo(
             .coordinator_db
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        if let Err(e) = db_guard.insert_provenance_record(&state.node_id, &prov) {
+        if let Err(e) = db_guard.insert_provenance_record(&project_id, &prov) {
             debug!(error = %e, "provenance record insert failed (non-fatal)");
         }
     }
@@ -235,6 +245,7 @@ pub async fn deploy_from_repo(
     publish_announcement(
         &state,
         AnnouncementParams {
+            project_id: &project_id,
             project_name: &req.project_name,
             category: &req.category,
             description: &req.description,
@@ -252,9 +263,7 @@ pub async fn deploy_from_repo(
         let release_op = serde_json::to_value(
             nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(
                 nexus_coordinator_rs::public_feed::ReleasePublishedPayload {
-                    project_id: hex::encode(nexus_core_rs::crypto::blake3_hash(
-                        req.project_name.as_bytes(),
-                    )),
+                    project_id: project_id.clone(),
                     repo_url: repo_url.clone(),
                     commit_sha: commit_sha.clone(),
                     artifact_hash: artifact_hash_hex.clone(),
@@ -350,6 +359,7 @@ pub async fn deploy_private(State(state): State<Arc<DaemonHttpState>>, body: Byt
 }
 
 struct AnnouncementParams<'a> {
+    project_id: &'a str,
     project_name: &'a str,
     category: &'a str,
     description: &'a str,
@@ -362,6 +372,7 @@ struct AnnouncementParams<'a> {
 
 async fn publish_announcement(state: &DaemonHttpState, params: AnnouncementParams<'_>) {
     let AnnouncementParams {
+        project_id,
         project_name,
         category,
         description,
@@ -407,7 +418,7 @@ async fn publish_announcement(state: &DaemonHttpState, params: AnnouncementParam
     drop(sender_guard);
 
     let browse_entry = BrowseEntry {
-        project_id: state.node_id.clone(),
+        project_id: project_id.to_string(),
         project_name: project_name.to_string(),
         category: category.to_string(),
         description: description.to_string(),
