@@ -38,9 +38,14 @@ fn validate_manifest(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial(sbfb_env)]
     fn publish_requires_running_json() {
+        // `#[serial(sbfb_env)]` (P2-A-1 review P1): mutates NEXUS_GRID_ROOT,
+        // shared with daemon_client/provider_router tests — serialize under
+        // plain `cargo test`.
         let tmp = tempfile::tempdir().unwrap();
         let out = tmp.path().join("app");
         crate::template_engine::create("static", "test-app", out.to_str().unwrap()).unwrap();

@@ -2881,8 +2881,79 @@ canonical full-workspace count comes from CI Linux. (When the phase
 binaries are already warm, a full Windows nextest does complete — S71
 Phase E re-measured 1528/1528 locally.)
 
+### P2-A-1 closure (Sprint 73 Phase B) — runtime flavor is the root cause
+
+The Windows-native hang above is **not** an unfixable environment artefact:
+the root cause is the **tokio runtime flavor of the tests**. Any test that
+spawns the engine/dispatch pump and then waits on a **real-time** loop
+(`tokio::time::sleep` + `get_many_by_prefix`) under `#[tokio::test]`
+(current_thread) can deadlock on Windows during `cargo test`
+shared-process teardown. The mechanism, confirmed by reading the code:
+
+- `node.rs` spawns the iroh-docs store (`docs_builder.spawn(...)`) which
+  runs as an **actor on its own dedicated thread**; `docs.rs`
+  `get_many_by_prefix` round-trips a `Query` to that actor.
+- The engine pump (`runtime.rs` `run_until_shutdown` → `scan_and_execute_
+  tasks`) polls that actor in a loop; the test `tokio::spawn`s the pump
+  and *also* polls the actor from the main future.
+- On `current_thread`, the spawned pump only advances when the main future
+  yields, and the cross-thread actor wakeups race the single worker — the
+  Windows scheduler deadlocks what Linux tolerates (tokio #7049,
+  current_thread `cargo test` hang; the related #2499 is the
+  threaded-1-thread variant — both are Windows-only teardown hangs).
+
+**Fix (D6), cross-platform, zero `#[cfg(windows)]`:** the real-time
+pump tests use `#[tokio::test(flavor = "multi_thread", worker_threads = 2)]`,
+matching how the code runs **everywhere else** — the worker binary
+(`nexus-worker/src/main.rs`), the daemon, and the only working 2-node
+sync example (`examples/two_nodes_docs_sync.rs`,
+`multi_thread, worker_threads = 4`). It is neutral on Linux (already
+green) and removes the hang on Windows. The `tokio::time::timeout(10s)`
+in each E2E is kept as **defence-in-depth** so a future regression fails
+fast instead of hanging the whole nextest run.
+
+**The rule:** any test driving the iroh-docs pump concurrently with an
+engine/dispatch spawn via a **real-time** wait loop **MUST** be
+`multi_thread`. Converted in S73: `dispatch_loop.rs`
+(`dispatch_loop_writes_to_doc`, `dispatched_task_is_claimed_and_executed_
+by_worker_engine`) and `runtime.rs` (`engine_applies_start_event_on_run`,
+`engine_transitions_to_processing_when_project_is_enrolled`,
+`engine_claims_and_executes_tasks_on_registered_doc`,
+`rate_limit_gate_admits_fresh_tuple`, `engine_shuts_down_gracefully`).
+
+**Multi_thread surfaces real races the single thread hid.** Converting
+`dispatch_loop.rs` exposed a latent test bug: `run`'s `select!` races
+`rx.recv()` against the shutdown signal, so a buffered task can be dropped
+if shutdown wins. On `current_thread` the buffered message deterministically
+won (a `yield_now` was enough); under `multi_thread` it is a true 50/50
+race and the test flaked under full-workspace load (`left: 0`). The fix is
+to **synchronise the test on the observable write** (poll the doc until the
+task lands, then signal shutdown) rather than to weaken prod — dropping a
+buffered dispatch on shutdown is acceptable (the HTTP client re-submits).
+Lesson: when moving a test to `multi_thread`, audit every "this happens
+before that" assumption that only held because one thread ran everything.
+
+**Exception — virtual-time tests stay current_thread.**
+`rate_limit_gate_rejects_saturated_tuple` and
+`rate_limit_gate_defer_preserves_task` drive the pump with
+`tokio::time::pause` + `advance`, which is **current_thread-only** and
+fully deterministic. They never block on a real-time poll loop, so they
+are immune to the hang and must **not** be converted (multi_thread is
+incompatible with paused virtual time).
+
+The upstream fix (iroh-docs 0.99.0, 2026-05-08, "Drain Actor::tasks
+JoinSet") is **not adoptable** — 0.99 tracks iroh 1.0.0-rc.0 + redb@4,
+forbidden by the frozen iroh 0.98 pin (R-iroh-audit P0). Revisit at the
+iroh 0.98→1.0 upgrade (Gate 1). **Status: CLOSED by code fix** (verify
+green on native Windows + Docker Linux per `feedback_wsl_before_push`
+before declaring closed). Formal fallback if a teardown residue persisted
+after multi_thread: `#[cfg_attr(windows, ignore = "P2-A-1: iroh-docs
+0.98 actor pump + Windows scheduler; canonical run = CI Linux; revisit at
+iroh 1.0")]` — not used, the multi_thread fix sufficed.
+
 Cross-ref: S71 Phase A (`2f9238d`), preflight EXECUTE, review P2-A-1 /
-P2-A-2 / P3-A-3, kickoff §5 D1.
+P2-A-2 / P3-A-3, kickoff §5 D1 ; S73 Phase B kickoff §4 D6, preflight
+EXECUTE (note 1).
 
 ---
 

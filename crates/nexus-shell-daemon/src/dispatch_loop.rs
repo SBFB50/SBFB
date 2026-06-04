@@ -89,7 +89,11 @@ mod tests {
         TaskEntry::sign(task, &kp).expect("sign")
     }
 
-    #[tokio::test]
+    // P2-A-1 (S71->S73): spawns the dispatch loop concurrently with an
+    // iroh-docs actor read. current_thread deadlocks under Windows
+    // `cargo test` shared-process scheduling (tokio #7049); multi_thread
+    // matches the prod runtime (worker binary, daemon). See PATTERNS §P54.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dispatch_loop_writes_to_doc() {
         let node = nexus_core_rs::create_node().await.expect("boot");
         let docs = nexus_core_rs::docs::DocsClient::new(node.docs());
@@ -106,10 +110,27 @@ mod tests {
         let task_id = entry.task.task_id.clone();
         tx.send(entry).await.expect("send");
 
-        // Yield to let the spawned task process the buffered message,
-        // then signal shutdown. The mpsc message is already in the
-        // channel buffer so recv() will return it before shutdown fires.
-        tokio::task::yield_now().await;
+        // P2-A-1 (S73 Phase B): `run`'s `select!` races `rx.recv()` against the
+        // shutdown signal — on `current_thread` the buffered message happened to
+        // win deterministically, but under `multi_thread` (the hang fix) the
+        // shutdown can preempt it and drop the buffered task. Synchronise on the
+        // observable write instead of assuming recv wins: wait for the task to
+        // land, THEN signal shutdown.
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let n = doc
+                    .get_many_by_prefix(b"task:")
+                    .await
+                    .expect("get entries")
+                    .len();
+                if n == 1 {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("dispatcher should write the task within 10s");
         drop(tx);
         let _ = shutdown_tx.send(());
         handle.await.expect("dispatch loop joins");
@@ -143,7 +164,15 @@ mod tests {
     /// `dispatch_loop::run` and asserts a real engine claims and executes
     /// it. Execution uses the deterministic `StubBackend`, so the test is
     /// hermetic (no Ollama). Cross-machine/cross-node sync is S75.
-    #[tokio::test]
+    // P2-A-1 (S71->S73) MANDATORY: the canonical worker-pump E2E. It spawns
+    // the engine pump (which polls the iroh-docs actor via
+    // `get_many_by_prefix`) and waits on a real-time loop for `result:`.
+    // current_thread deadlocks under Windows `cargo test` shared-process
+    // teardown (tokio #7049); multi_thread matches prod and the only working
+    // 2-node sync example (two_nodes_docs_sync.rs). The 10s timeout below is
+    // defence-in-depth so a future regression fails fast instead of hanging
+    // the whole nextest run. See PATTERNS §P54.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dispatched_task_is_claimed_and_executed_by_worker_engine() {
         use nexus_worker_core::allowlist::{Allowlist, NewProject};
         use nexus_worker_core::config::{Engine as EngineCfg, WorkerConfig};
@@ -203,7 +232,20 @@ mod tests {
 
         let entry = make_test_entry();
         tx.send(entry).await.expect("send task to dispatcher");
-        tokio::task::yield_now().await;
+        // P2-A-1 (S73 Phase B): wait for the observable write before signalling
+        // shutdown — `run`'s `select!` races recv against shutdown, and under
+        // `multi_thread` shutdown can preempt the buffered task (current_thread
+        // happened to be deterministic).
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if doc.get_many_by_prefix(b"task:").await.expect("tasks").len() == 1 {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("dispatcher should write the task within 10s");
         drop(tx);
         let _ = d_stop_tx.send(());
         dispatch.await.expect("dispatch loop joins");

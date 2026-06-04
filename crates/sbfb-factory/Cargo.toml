@@ -39,3 +39,6 @@ ollama-rs = { workspace = true, features = ["stream"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# P2-A-1 review P1 (S73 Phase B): serialize env-mutating unit tests under
+# plain `cargo test` (shared process); a no-op cost under nextest.
+serial_test = { workspace = true }

@@ -57,16 +57,24 @@ export async function createSession(intent: ExecutionIntent): Promise<string> {
 }
 
 /** Send a turn, carrying the chosen execution target (the load-bearing
- * wire). A sensitive message returns `requires_gate` — the server never
- * spawns an autonomous agent for it, regardless of the target. */
+ * wire) and, for non-Claude targets, the user-selected model. A sensitive
+ * message returns `requires_gate` — the server never spawns an autonomous
+ * agent for it, regardless of the target.
+ *
+ * P2-OLLAMA-MODEL-PICKER (S73 Phase B): `model` is the model the user picked
+ * for a non-Claude intention. Omitted / empty → the server resolves a
+ * per-provider default (Claude → `claude-opus-4-8[1m]`, Ollama/Network →
+ * their local default), so Ollama is never asked to run the Claude id. */
 export async function sendMessage(
   sessionId: string,
   message: string,
   intent: ExecutionIntent,
+  model?: string,
 ): Promise<SendResult> {
   return postApi<SendResult>(`/chat/${encodeURIComponent(sessionId)}/send`, {
     message,
     provider: intent,
+    model: model?.trim() ?? "",
   });
 }
 

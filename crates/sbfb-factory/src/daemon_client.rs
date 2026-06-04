@@ -139,9 +139,14 @@ pub enum DaemonClientError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial(sbfb_env)]
     fn discover_fails_without_running_json() {
+        // `#[serial(sbfb_env)]` (P2-A-1 review P1): mutates NEXUS_GRID_ROOT,
+        // which also drives provider_router/publish tests — serialize under
+        // plain `cargo test`.
         let tmp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("NEXUS_GRID_ROOT", tmp.path()) };
         let err = DaemonConnection::discover().unwrap_err();

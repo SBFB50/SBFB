@@ -470,15 +470,87 @@ fn lint_planning_detects_pass_pending() {
 
 #[test]
 fn audit_commit_valid_phase_commit() {
-    // Use Phase F SHA — HEAD may be a chore commit
+    // P2-TEST-ZOMBIE (S73 Phase B): this used to assert against a hardcoded
+    // SHA (`6fb95df`, S70 Phase F) in the live repo, which fails on a pure
+    // master / shallow clone where that commit is unreachable or its review
+    // file has been archived under a different layout. Build a self-contained
+    // git fixture instead — the positive mirror of
+    // `audit_commit_chore_sprint_phase_requires_review` — so the PASS path is
+    // proven independently of the live repo history.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = dir.path();
+    Command::new("git")
+        .args(["init"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    // The audit reads the review + codex artefacts off the working tree, so a
+    // valid phase commit needs both files present with the exact final verdict.
+    let active = repo.join(".planning/active");
+    std::fs::create_dir_all(&active).unwrap();
+    std::fs::write(
+        active.join("sprint1_phase_A_review.md"),
+        "# Phase A review\n\n## Verdict: PASS\n",
+    )
+    .unwrap();
+    std::fs::write(
+        active.join("sprint1_phase_A_codex_review.md"),
+        "raw codex exec -o output\n",
+    )
+    .unwrap();
+    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let body = [
+        "feat(test): Sprint 1 Phase A — valid phase commit fixture",
+        "",
+        "## Contexte",
+        "ctx",
+        "## Fichiers",
+        "f",
+        "## Delta tests",
+        "d",
+        "## Verification",
+        "v",
+        "## Scope cuts",
+        "s",
+        "## G8 traceability",
+        "g",
+        "## Pre-launch protocol",
+        "p",
+        "## Codex verification",
+        "c",
+        "## Carry closure",
+        "cc",
+    ]
+    .join("\n");
+    Command::new("git")
+        .args(["commit", "-m", &body])
+        .current_dir(repo)
+        .output()
+        .unwrap();
     let output = factory_bin()
-        .args(["process", "audit-commit", "--rev", "6fb95df", "--json"])
+        .args(["process", "audit-commit", "--rev", "HEAD", "--json"])
+        .current_dir(repo)
         .output()
         .expect("failed to run");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         output.status.success(),
-        "6fb95df should be a valid phase commit: stderr={}",
+        "valid phase commit fixture should pass: stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -488,8 +560,41 @@ fn audit_commit_valid_phase_commit() {
 
 #[test]
 fn audit_commit_non_phase_commit() {
+    // P2-TEST-ZOMBIE (S73 Phase B): de-hardcode the former `c4494a6` SHA —
+    // same zombie class as `audit_commit_valid_phase_commit`. A conventional
+    // commit without `Sprint N Phase X` must not be flagged as a phase commit
+    // and must pass (nothing to audit). Self-contained fixture.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = dir.path();
+    Command::new("git")
+        .args(["init"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "chore: bump dependencies"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
     let output = factory_bin()
-        .args(["process", "audit-commit", "--rev", "c4494a6", "--json"])
+        .args(["process", "audit-commit", "--rev", "HEAD", "--json"])
+        .current_dir(repo)
         .output()
         .expect("failed to run");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -497,7 +602,7 @@ fn audit_commit_non_phase_commit() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(
         parsed["is_phase_commit"], false,
-        "chore commit should not be phase commit"
+        "conventional commit should not be a phase commit"
     );
     assert_eq!(parsed["ok"], true, "non-phase commit should pass");
 }

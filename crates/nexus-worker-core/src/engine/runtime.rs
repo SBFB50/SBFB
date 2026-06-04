@@ -1401,7 +1401,10 @@ mod tests {
             .expect("shutdown the engine's node after the assertions");
     }
 
-    #[tokio::test]
+    // P2-A-1 (S71->S73): spawns the engine pump; current_thread deadlocks
+    // under Windows `cargo test` shared-process teardown (tokio #7049).
+    // multi_thread matches prod (worker binary). See PATTERNS §P54.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn engine_applies_start_event_on_run() {
         let mut engine = build_engine_with_stub_ollama().await;
         // Cancel the shutdown mechanism before run: hold a
@@ -1436,7 +1439,10 @@ mod tests {
         handle.await.expect("run task joins").expect("run ok");
     }
 
-    #[tokio::test]
+    // P2-A-1 (S71->S73): spawns the engine pump; current_thread deadlocks
+    // under Windows `cargo test` shared-process teardown (tokio #7049).
+    // multi_thread matches prod (worker binary). See PATTERNS §P54.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn engine_transitions_to_processing_when_project_is_enrolled() {
         // Build an engine whose allowlist has one project, so
         // the tick's "ollama_ready && enabled > 0" branch
@@ -1494,7 +1500,13 @@ mod tests {
         handle.await.unwrap().unwrap();
     }
 
-    #[tokio::test]
+    // P2-A-1 (S71->S73) MANDATORY: the worker-side mirror of the dispatch
+    // E2E. Spawns the engine pump (polls the iroh-docs actor) and waits on a
+    // real-time loop for `result:`. current_thread deadlocks under Windows
+    // `cargo test` shared-process teardown (tokio #7049); multi_thread
+    // matches prod and the only working 2-node sync example. The 10s timeout
+    // is defence-in-depth. See PATTERNS §P54.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn engine_claims_and_executes_tasks_on_registered_doc() {
         // Sprint 4 Phase D W9.1 end-to-end in a single process.
         // The test emulates a coordinator by directly creating a
@@ -1697,7 +1709,13 @@ mod tests {
         serde_json::to_vec(&task_entry).unwrap()
     }
 
-    #[tokio::test]
+    // P2-A-1 (S71->S73): spawns the engine pump and waits on a real-time loop
+    // for `result:`. current_thread deadlocks under Windows `cargo test`
+    // shared-process teardown (tokio #7049); multi_thread matches prod.
+    // NB: unlike `rate_limit_gate_rejects/defer`, this test uses real time
+    // (no tokio::time::pause), so multi_thread is both safe and required.
+    // See PATTERNS §P54.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn rate_limit_gate_admits_fresh_tuple() {
         // A fresh (coord, worker, model) tuple must clear the gate
         // and produce a `claim:*` + `result:*` entry just like the
@@ -1746,6 +1764,11 @@ burst_multiplier = 2.0
         handle.await.unwrap().unwrap();
     }
 
+    // P2-A-1 note: this test MUST stay current_thread. It drives the pump
+    // with virtual time (`tokio::time::pause` + `advance`), which is
+    // current_thread-only and fully deterministic — so it is immune to the
+    // Windows real-time poll-loop hang and must NOT be switched to
+    // multi_thread. See PATTERNS §P54.
     #[tokio::test]
     async fn rate_limit_gate_rejects_saturated_tuple() {
         // Saturate the tuple through direct `rate_limiter.check`
@@ -1809,6 +1832,10 @@ burst_multiplier = 1.0
         handle.await.unwrap().unwrap();
     }
 
+    // P2-A-1 note: this test MUST stay current_thread (virtual time via
+    // `tokio::time::pause` + `advance`, current_thread-only and
+    // deterministic). It is immune to the Windows real-time poll-loop hang
+    // and must NOT be switched to multi_thread. See PATTERNS §P54.
     #[tokio::test]
     async fn rate_limit_gate_defer_preserves_task() {
         // A rate-limited task must remain live on the doc — no
@@ -1963,7 +1990,10 @@ burst_multiplier = 1.0
         );
     }
 
-    #[tokio::test]
+    // P2-A-1 (S71->S73): spawns the engine pump; current_thread deadlocks
+    // under Windows `cargo test` shared-process teardown (tokio #7049).
+    // multi_thread matches prod (worker binary). See PATTERNS §P54.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn engine_shuts_down_gracefully() {
         let mut engine = build_engine_with_stub_ollama().await;
         let tx = engine.take_shutdown_sender().unwrap();

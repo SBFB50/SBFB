@@ -270,16 +270,25 @@ fn network_timeout() -> Duration {
 /// Otherwise [`DaemonConnection::discover`] reads `running.json` +
 /// `auth_token` from the standard SBFB paths (R3: the Operator and the
 /// daemon share the same token file).
-fn resolve_daemon() -> Result<(String, String), String> {
+///
+/// P2-SYNC-FS-ASYNC (S73 Phase B): this is the only async-context caller of
+/// the sync `DaemonConnection::discover()` (which reads `running.json` +
+/// `auth_token` via `std::fs`). `discover()` itself stays sync — it pairs
+/// with the `reqwest::blocking` daemon helpers and four sync CLI call sites
+/// (`pipeline.rs`, `gates.rs`, `preview_cmd.rs`) — so here we offload the
+/// blocking file IO to the runtime's blocking pool instead of stalling an
+/// async executor worker on the network poll path.
+async fn resolve_daemon() -> Result<(String, String), String> {
     if let Ok(ep) = std::env::var("SBFB_DAEMON_ENDPOINT") {
         if !ep.is_empty() {
             let token = std::env::var("SBFB_DAEMON_TOKEN").unwrap_or_default();
             return Ok((ep.trim_end_matches('/').to_string(), token));
         }
     }
-    match crate::daemon_client::DaemonConnection::discover() {
-        Ok(conn) => Ok((conn.base_url, conn.token)),
-        Err(e) => Err(format!("daemon not reachable: {e}")),
+    match tokio::task::spawn_blocking(crate::daemon_client::DaemonConnection::discover).await {
+        Ok(Ok(conn)) => Ok((conn.base_url, conn.token)),
+        Ok(Err(e)) => Err(format!("daemon not reachable: {e}")),
+        Err(e) => Err(format!("daemon discovery task failed: {e}")),
     }
 }
 
@@ -318,7 +327,7 @@ fn network_stream(
     let global_timeout = network_timeout();
 
     async_stream::stream! {
-        let (base_url, token) = match resolve_daemon() {
+        let (base_url, token) = match resolve_daemon().await {
             Ok(v) => v,
             Err(e) => {
                 yield StreamChunk::Error { message: format!("network target: {e}") };
@@ -377,13 +386,22 @@ fn network_stream(
         let result_url = format!("{base_url}/api/v1/tasks/{task_id}/result");
         let deadline = tokio::time::Instant::now() + global_timeout;
         let mut interval = tokio::time::interval(poll_interval);
+        // P2-POLL-DIAGNOSTIC-LOSS (S73 Phase B): remember the most recent
+        // transient poll failure so a global timeout surfaces *why* polling
+        // never succeeded (e.g. "HTTP 401") instead of a bare "timed out".
+        // Token-free: the daemon token rides in the header, never the URL.
+        let mut last_err: Option<String> = None;
 
         loop {
             interval.tick().await; // immediate on the first iteration, then every poll_interval
             if tokio::time::Instant::now() >= deadline {
+                let detail = last_err
+                    .as_ref()
+                    .map(|e| format!(" (last error: {e})"))
+                    .unwrap_or_default();
                 yield StreamChunk::Error {
                     message: format!(
-                        "network task {task_id} timed out after {}s",
+                        "network task {task_id} timed out after {}s{detail}",
                         global_timeout.as_secs()
                     ),
                 };
@@ -399,11 +417,24 @@ fn network_stream(
             {
                 Ok(r) if r.status().is_success() => match r.json::<serde_json::Value>().await {
                     Ok(j) => j.get("status").and_then(|v| v.as_str()).unwrap_or("").to_owned(),
-                    // Transient parse blip — keep polling, bounded by the timeout.
-                    Err(_) => continue,
+                    // Transient parse blip — keep polling, bounded by the
+                    // timeout, but remember why (P2-POLL-DIAGNOSTIC-LOSS).
+                    Err(e) => {
+                        last_err = Some(format!("status parse error: {e}"));
+                        continue;
+                    }
                 },
-                // Transient HTTP error/blip — keep polling, bounded by the timeout.
-                Ok(_) | Err(_) => continue,
+                // Non-success HTTP status (401/404/500…) — keep polling, but
+                // remember the code so a timeout is actionable.
+                Ok(r) => {
+                    last_err = Some(format!("status poll HTTP {}", r.status()));
+                    continue;
+                }
+                // Transient transport error/blip — keep polling, remember it.
+                Err(e) => {
+                    last_err = Some(format!("status poll failed: {e}"));
+                    continue;
+                }
             };
 
             yield StreamChunk::Debug {
@@ -472,6 +503,12 @@ fn network_stream(
 mod tests {
     use super::*;
     use futures::StreamExt;
+    // P2-A-1 review P1 (S73 Phase B): every test below that mutates a
+    // process-global env var carries `#[serial(sbfb_env)]`. nextest isolates
+    // per process, but the `cargo test --workspace` gates (ci.yml,
+    // verify.sh, .woodpecker) share one process per crate, so without this
+    // the set_var/remove_var calls race across the parallel test threads.
+    use serial_test::serial;
 
     #[test]
     fn execution_target_from_provider_parses_closed_set() {
@@ -557,11 +594,13 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial(sbfb_env)]
     async fn ollama_unreachable_yields_diagnostic() {
         // Point at a port with nothing listening: the connect fails
         // inside `generate_stream` and the arm must surface a single
-        // helpful diagnostic, never a silent empty stream. nextest runs
-        // each test in its own process, so this env override is isolated.
+        // helpful diagnostic, never a silent empty stream. The env override
+        // is safe under both runners: nextest isolates per process, and
+        // `#[serial(sbfb_env)]` serializes it under plain `cargo test`.
         unsafe {
             std::env::set_var("SBFB_OLLAMA_ENDPOINT", "http://127.0.0.1:1");
         }
@@ -587,6 +626,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial(sbfb_env)]
     async fn ollama_stream_maps_to_chunks_via_mock() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -747,6 +787,7 @@ mod tests {
     // EXACTLY ONE terminal Done carrying the retrieved result text, never
     // a token Delta. Deterministic via the mock daemon (no live daemon).
     #[tokio::test]
+    #[serial(sbfb_env)]
     async fn network_provider_submit_poll_yields_single_done() {
         let port = spawn_mock_daemon(1).await; // completes on the 2nd status poll
         unsafe {
@@ -791,6 +832,7 @@ mod tests {
     // The global timeout bounds a task that never completes: the arm
     // yields exactly one terminal Error and never a Done.
     #[tokio::test]
+    #[serial(sbfb_env)]
     async fn network_provider_poll_timeout() {
         let port = spawn_mock_daemon(usize::MAX).await; // always dispatched
         unsafe {
@@ -835,5 +877,138 @@ mod tests {
             }
             _ => unreachable!(),
         }
+    }
+
+    // P2-POLL-DIAGNOSTIC-LOSS (S73 Phase B): when status polls keep failing
+    // (e.g. HTTP 401), the global-timeout Error must surface the LAST
+    // transient failure, not a bare "timed out" — so an operator can tell a
+    // genuinely stuck task from an auth/endpoint misconfiguration.
+    #[tokio::test]
+    #[serial(sbfb_env)]
+    async fn network_provider_surfaces_last_error_on_timeout() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Mock daemon: submit succeeds (200 + task_id), but every status poll
+        // returns HTTP 401, so the arm never reaches a terminal status and
+        // hits the global timeout carrying `last_err = HTTP 401`.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = match stream.read(&mut buf).await {
+                        Ok(n) => n,
+                        Err(_) => return,
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    let first = req.lines().next().unwrap_or("");
+                    let mut parts = first.split_whitespace();
+                    let method = parts.next().unwrap_or("");
+                    let path = parts.next().unwrap_or("");
+                    let (status_line, body) = if method == "POST" && path.ends_with("/tasks/submit")
+                    {
+                        ("200 OK", r#"{"task":{"task_id":"net-task-1"}}"#.to_string())
+                    } else {
+                        // Every status poll fails with an auth error.
+                        (
+                            "401 Unauthorized",
+                            r#"{"error":"unauthorized"}"#.to_string(),
+                        )
+                    };
+                    let resp = format!(
+                        "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(resp.as_bytes()).await;
+                    let _ = stream.flush().await;
+                });
+            }
+        });
+
+        unsafe {
+            std::env::set_var("SBFB_DAEMON_ENDPOINT", format!("http://127.0.0.1:{port}"));
+            std::env::set_var("SBFB_NETWORK_POLL_INTERVAL_MS", "20");
+            std::env::set_var("SBFB_NETWORK_TIMEOUT_SECS", "1");
+        }
+        let chunks: Vec<StreamChunk> = ExecutionTarget::Network {
+            project_id: "proj".into(),
+            model: "m".into(),
+        }
+        .run("hi".into(), std::env::temp_dir())
+        .collect()
+        .await;
+        unsafe {
+            std::env::remove_var("SBFB_DAEMON_ENDPOINT");
+            std::env::remove_var("SBFB_NETWORK_POLL_INTERVAL_MS");
+            std::env::remove_var("SBFB_NETWORK_TIMEOUT_SECS");
+        }
+
+        let errors: Vec<&StreamChunk> = chunks
+            .iter()
+            .filter(|c| matches!(c, StreamChunk::Error { .. }))
+            .collect();
+        assert_eq!(
+            errors.len(),
+            1,
+            "exactly one terminal Error, got {chunks:?}"
+        );
+        match errors[0] {
+            StreamChunk::Error { message } => {
+                assert!(
+                    message.contains("timed out"),
+                    "still a timeout diagnostic, got {message}"
+                );
+                assert!(
+                    message.contains("401"),
+                    "timeout must surface the last poll error (HTTP 401), got {message}"
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[tokio::test]
+    #[serial(sbfb_env)]
+    async fn resolve_daemon_uses_env_override_without_fs() {
+        // P2-SYNC-FS-ASYNC (S73 Phase B): the endpoint-override branch returns
+        // synchronously (no fs) and trims a trailing slash. `#[serial(sbfb_env)]`
+        // keeps the env mutation safe under plain `cargo test` too.
+        unsafe {
+            std::env::set_var("SBFB_DAEMON_ENDPOINT", "http://127.0.0.1:9999/");
+            std::env::set_var("SBFB_DAEMON_TOKEN", "tok-1");
+        }
+        let resolved = resolve_daemon().await;
+        unsafe {
+            std::env::remove_var("SBFB_DAEMON_ENDPOINT");
+            std::env::remove_var("SBFB_DAEMON_TOKEN");
+        }
+        assert_eq!(
+            resolved,
+            Ok(("http://127.0.0.1:9999".to_string(), "tok-1".to_string())),
+        );
+    }
+
+    #[tokio::test]
+    #[serial(sbfb_env)]
+    async fn resolve_daemon_discovers_off_blocking_pool_when_no_env() {
+        // P2-SYNC-FS-ASYNC: with no override, discovery reads running.json via
+        // spawn_blocking. Pointed at an empty root it must surface a clean error
+        // (the fs read runs off the blocking pool, never panics, never blocks an
+        // async executor worker).
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::remove_var("SBFB_DAEMON_ENDPOINT");
+            std::env::set_var("NEXUS_GRID_ROOT", tmp.path());
+        }
+        let resolved = resolve_daemon().await;
+        unsafe {
+            std::env::remove_var("NEXUS_GRID_ROOT");
+        }
+        assert!(
+            resolved.is_err(),
+            "discovery off an empty root must surface an error, got {resolved:?}"
+        );
     }
 }

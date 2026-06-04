@@ -41,6 +41,9 @@ const INTENT_ICONS: Record<ExecutionIntent, typeof Cloud> = {
 };
 
 const STORAGE_KEY = "factory-execution-intent";
+// P2-OLLAMA-MODEL-PICKER (S73 Phase B): the model chosen for a non-Claude
+// intention is remembered across reloads, separately from the intent.
+const MODEL_STORAGE_KEY = "factory-execution-model";
 
 interface Turn {
   role: "user" | "assistant" | "system";
@@ -82,6 +85,9 @@ export function ExecutionChat() {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved && isIntent(saved) ? saved : "claude";
   });
+  const [model, setModel] = useState<string>(
+    () => localStorage.getItem(MODEL_STORAGE_KEY) ?? "",
+  );
   const [messages, setMessages] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState<Streaming | null>(null);
   const [input, setInput] = useState("");
@@ -94,6 +100,10 @@ export function ExecutionChat() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, intent);
   }, [intent]);
+
+  useEffect(() => {
+    localStorage.setItem(MODEL_STORAGE_KEY, model);
+  }, [model]);
 
   // StrictMode double-mounts effects in dev (`main.tsx` is StrictMode):
   // close any open stream on unmount so a navigation never leaks an
@@ -123,7 +133,14 @@ export function ExecutionChat() {
         sessionIdRef.current = await createSession(intent);
       }
       sessionId = sessionIdRef.current;
-      const res = await sendMessage(sessionId, text, intent);
+      // P2-OLLAMA-MODEL-PICKER: the Claude arm is pinned to its frozen model
+      // (model rule) — only non-Claude intentions carry a picked model.
+      const res = await sendMessage(
+        sessionId,
+        text,
+        intent,
+        intent === "claude" ? undefined : model,
+      );
       if (res.requires_gate) {
         setMessages((prev) => [
           ...prev,
@@ -230,7 +247,7 @@ export function ExecutionChat() {
         { role: "system", content: t("execute.connectionLost") },
       ]);
     };
-  }, [input, busy, intent, t]);
+  }, [input, busy, intent, model, t]);
 
   const SelectedIcon = INTENT_ICONS[intent];
 
@@ -280,6 +297,30 @@ export function ExecutionChat() {
           })}
         </div>
       </section>
+
+      {/* P2-OLLAMA-MODEL-PICKER (S73 Phase B): the Claude arm is pinned to its
+          frozen model, so the picker shows only for non-Claude intentions.
+          Empty → the server resolves the provider's own default. */}
+      {intent !== "claude" && (
+        <section aria-label={t("execute.modelLabel")} className="space-y-2">
+          <label
+            htmlFor="execution-model"
+            className="block text-sm font-semibold text-muted-foreground"
+          >
+            {t("execute.modelLabel")}
+          </label>
+          <Input
+            id="execution-model"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder={t("execute.modelPlaceholder")}
+            aria-label={t("execute.modelLabel")}
+          />
+          <p className="text-xs text-muted-foreground">
+            {t("execute.modelHint")}
+          </p>
+        </section>
+      )}
 
       <Card>
         <CardHeader>

@@ -325,6 +325,14 @@ zeroize = { version = "1.8", features = ["derive"] }
 # pinned version. 3.13 is the current stable line.
 tempfile = "3.13"
 
+# Sprint 73 Phase B (P2-A-1 review P1): serialize the sbfb-factory unit
+# tests that mutate process-global env vars. nextest isolates per process,
+# but the `cargo test --workspace` gates (ci.yml, scripts/verify.sh,
+# .woodpecker/ci-linux.yml) share one process per crate, so concurrent
+# `set_var`/`remove_var` race. `#[serial(sbfb_env)]` serializes that group
+# under cargo test while staying parallel under nextest.
+serial_test = "3.4"
+
 # Sprint 20 Phase D: JSON Schema derive for Rust structs —
 # `TaskResponse` uses `#[derive(JsonSchema)]` so the wire schema
 # is generated from the Rust type (single source of truth) and

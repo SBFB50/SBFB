@@ -305,11 +305,36 @@ fn default_project_id() -> String {
     "operator-chat".to_string()
 }
 
-/// G9 (D4): default agent model. The frozen model rule mandates the
-/// explicit id `claude-opus-4-8[1m]` everywhere — never the alias
-/// `opus` nor the prior hardcoded `sonnet`.
+/// G9 (D4): default agent model for the Claude arm. The frozen model rule
+/// mandates the explicit id `claude-opus-4-8[1m]` everywhere a Claude agent
+/// is invoked — never the alias `opus` nor the prior hardcoded `sonnet`.
 fn default_model() -> String {
     "claude-opus-4-8[1m]".to_string()
+}
+
+/// Per-provider default model (P2-OLLAMA-MODEL-PICKER, S73 Phase B).
+///
+/// The model rule (`claude-opus-4-8[1m]` everywhere) governs **Claude**
+/// invocations only. Ollama and Network must NOT inherit that id — it does
+/// not exist in a local Ollama, so every non-Claude intention that omitted a
+/// model failed. Each non-Claude provider gets a sensible local default,
+/// overridable via env (`SBFB_OLLAMA_DEFAULT_MODEL` / `SBFB_NETWORK_DEFAULT_MODEL`)
+/// so an operator can match the models they have pulled without a rebuild.
+/// The frontend model-picker sends an explicit model for non-Claude
+/// intentions; this default is the safety net when none is chosen.
+fn default_model_for_provider(provider: &str) -> String {
+    match provider.trim().to_lowercase().as_str() {
+        "ollama" | "local" => std::env::var("SBFB_OLLAMA_DEFAULT_MODEL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "llama3.2:latest".to_string()),
+        "network" => std::env::var("SBFB_NETWORK_DEFAULT_MODEL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "llama3.2:latest".to_string()),
+        // claude / "" / unknown → the default pilot model (model rule).
+        _ => default_model(),
+    }
 }
 
 fn file_hash(root: &std::path::Path, rel: &str) -> serde_json::Value {
@@ -648,7 +673,9 @@ async fn handle_chat_session(
     let session = ChatSession {
         context_pack: context_pack.clone(),
         messages: Vec::new(),
-        model: default_model(),
+        // P2-OLLAMA-MODEL-PICKER (S73 Phase B): seed the session with the
+        // chosen provider's default model, not the Claude id unconditionally.
+        model: default_model_for_provider(&req.provider),
         provider: req.provider.clone(),
         project_id: req.project_id.clone(),
     };
@@ -754,9 +781,11 @@ struct ChatSendRequest {
     message: String,
     #[serde(default = "default_provider")]
     provider: String,
-    // Runtime tolerance (pre-launch policy): a client omitting `model`
-    // gets the frozen default `claude-opus-4-8[1m]`, not a 422.
-    #[serde(default = "default_model")]
+    // Runtime tolerance (pre-launch policy): a client omitting `model` sends
+    // an empty string (not a 422); the handler then resolves the model from
+    // the chosen provider (P2-OLLAMA-MODEL-PICKER) rather than forcing the
+    // Claude id onto Ollama/Network.
+    #[serde(default)]
     model: String,
 }
 
@@ -777,16 +806,22 @@ async fn handle_chat_send(
         }
     };
 
-    // G9 (D4): persist the requested model so the bodyless SSE GET
-    // `/chat/{id}/stream` can read it back.
-    if !req.model.trim().is_empty() {
-        session.model = req.model.clone();
-    }
-    // Sprint 72 Phase D: persist the requested execution target the same
-    // way, so the bodyless SSE GET routes to the chosen provider.
+    // Sprint 72 Phase D: persist the requested execution target so the
+    // bodyless SSE GET routes to the chosen provider. Resolved BEFORE the
+    // model so the model default matches the (possibly updated) provider.
     if !req.provider.trim().is_empty() {
         session.provider = req.provider.clone();
     }
+    // G9 (D4) + P2-OLLAMA-MODEL-PICKER (S73 Phase B): persist the model for
+    // THIS turn's provider so the bodyless SSE GET reads it back. An explicit
+    // client model wins; otherwise it resolves to the provider's own default
+    // — Ollama/Network never inherit the Claude id `claude-opus-4-8[1m]`.
+    let requested_model = req.model.trim();
+    session.model = if requested_model.is_empty() {
+        default_model_for_provider(&session.provider)
+    } else {
+        requested_model.to_string()
+    };
 
     let lower = req.message.to_lowercase();
     let is_sensitive = SENSITIVE_ACTIONS
@@ -919,10 +954,12 @@ async fn handle_chat_stream(
     let state_clone = state.clone();
     let session_id = id.clone();
 
-    // G9 (D4): use the session model (default `claude-opus-4-8[1m]`),
-    // never the prior hardcoded `sonnet`.
+    // G9 (D4) + P2-OLLAMA-MODEL-PICKER (S73 Phase B): use the session model;
+    // if somehow empty, fall back to the provider's own default (Claude →
+    // `claude-opus-4-8[1m]`, Ollama/Network → their local default), never the
+    // prior hardcoded `sonnet` and never the Claude id forced onto Ollama.
     let model = if model.trim().is_empty() {
-        default_model()
+        default_model_for_provider(&provider)
     } else {
         model
     };
@@ -1084,5 +1121,57 @@ async fn handle_commit_diff(Path(sha): Path<String>) -> impl IntoResponse {
             Json(serde_json::json!({"error": "commit not found"})),
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    // P2-OLLAMA-MODEL-PICKER (S73 Phase B): the per-provider default model.
+    #[test]
+    fn claude_provider_keeps_the_frozen_opus_model() {
+        // The model rule (`claude-opus-4-8[1m]`) governs Claude invocations.
+        assert_eq!(default_model_for_provider("claude"), "claude-opus-4-8[1m]");
+        // Empty / unknown providers fall back to the Claude default pilot.
+        assert_eq!(default_model_for_provider(""), "claude-opus-4-8[1m]");
+        assert_eq!(default_model_for_provider("gpt-9"), "claude-opus-4-8[1m]");
+    }
+
+    #[test]
+    fn non_claude_providers_do_not_inherit_the_claude_model() {
+        // The headline bug: Ollama/Network must NOT default to the Claude id,
+        // which does not exist in a local Ollama.
+        for provider in ["ollama", "local", "network"] {
+            let model = default_model_for_provider(provider);
+            assert_ne!(
+                model, "claude-opus-4-8[1m]",
+                "provider={provider} must not inherit the Claude model"
+            );
+            assert!(
+                !model.is_empty(),
+                "provider={provider} must resolve to a concrete default"
+            );
+        }
+    }
+
+    #[test]
+    #[serial(sbfb_env)]
+    fn ollama_default_model_is_env_overridable() {
+        // `#[serial(sbfb_env)]` (P2-A-1 review P1): this mutates a
+        // process-global env var, so it must not run concurrently with the
+        // other env-mutating tests under plain `cargo test`.
+        unsafe {
+            std::env::set_var("SBFB_OLLAMA_DEFAULT_MODEL", "qwen2.5-coder:7b");
+        }
+        let model = default_model_for_provider("ollama");
+        unsafe {
+            std::env::remove_var("SBFB_OLLAMA_DEFAULT_MODEL");
+        }
+        assert_eq!(
+            model, "qwen2.5-coder:7b",
+            "an operator must be able to match their pulled model via env"
+        );
     }
 }

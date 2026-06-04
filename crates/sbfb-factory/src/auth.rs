@@ -264,6 +264,7 @@ pub async fn auth_required(State(auth): State<AuthState>, req: Request, next: Ne
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn loopback_host_accepts_localhost_variants() {
@@ -301,9 +302,11 @@ mod tests {
     }
 
     #[test]
+    #[serial(sbfb_env)]
     fn env_token_takes_precedence_over_file() {
-        // nextest isolates each test in its own process, so mutating
-        // the env here does not race other tests.
+        // `#[serial(sbfb_env)]` (P2-A-1 review P1): nextest isolates per
+        // process, and this serializes the env mutation under plain
+        // `cargo test` so it never races the other env-mutating tests.
         let expected = "a".repeat(TOKEN_HEX_LEN);
         unsafe { std::env::set_var(AUTH_TOKEN_ENV, &expected) };
         let token = load_or_generate_token().expect("env token");

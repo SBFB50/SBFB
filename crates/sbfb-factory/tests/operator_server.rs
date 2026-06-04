@@ -13,6 +13,25 @@ fn factory_bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_sbfb-factory"))
 }
 
+/// Client read timeout for the operator HTTP harness.
+///
+/// P2-OPERATOR-TIMEOUT (S73 Phase B): several handlers shell git
+/// (`git diff`/`git log` for `/api/sprint-history*` and `/api/audit/*`),
+/// which is slow on native Windows under parallel test load — the former
+/// hardcoded 5s was too tight and flaked `operator_sprint_history_endpoint`
+/// (passes in isolation). The generous 30s default absorbs that latency
+/// without serialising the suite (so the canonical CI Linux nextest run
+/// stays fast and parallel); `SBFB_TEST_HTTP_TIMEOUT_SECS` lets a slow box
+/// tune it without a code change. This is a too-tight-timeout fix, not a
+/// hang mask: a genuinely stuck handler still fails, just after 30s.
+fn client_timeout() -> Duration {
+    std::env::var("SBFB_TEST_HTTP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(30))
+}
+
 struct TestServer {
     child: std::process::Child,
     port: u16,
@@ -23,6 +42,20 @@ struct TestServer {
 
 impl TestServer {
     fn start() -> Self {
+        // Default: point the Ollama arm at a dead port so provider-routing
+        // tests are deterministic (a quick "unreachable" diagnostic) and
+        // never depend on a real local Ollama.
+        Self::start_inner("http://127.0.0.1:1")
+    }
+
+    /// Like [`start`] but points the Ollama arm at a live mock endpoint, so a
+    /// test can observe the model the operator actually sends to Ollama
+    /// (P2-OLLAMA-MODEL-PICKER, S73 Phase B).
+    fn start_with_ollama(endpoint: &str) -> Self {
+        Self::start_inner(endpoint)
+    }
+
+    fn start_inner(ollama_endpoint: &str) -> Self {
         let home = tempfile::tempdir().expect("tempdir");
         let mut child = factory_bin()
             .args(["operator", "serve", "--port", "0"])
@@ -32,11 +65,8 @@ impl TestServer {
             // test ever launches a real `claude` bypassPermissions
             // agent; the SSE paths fail fast with a diagnostic.
             .env("SBFB_CLAUDE_BIN", "sbfb-claude-test-nonexistent")
-            // Sprint 72 Phase D: point the Ollama arm at a dead port so
-            // provider-routing tests are deterministic (a quick
-            // "unreachable" diagnostic) and never depend on a real local
-            // Ollama. The Claude arm is unaffected.
-            .env("SBFB_OLLAMA_ENDPOINT", "http://127.0.0.1:1")
+            // Sprint 72 Phase D: the Claude arm is unaffected.
+            .env("SBFB_OLLAMA_ENDPOINT", ollama_endpoint)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -67,7 +97,7 @@ impl TestServer {
         reqwest::blocking::Client::new()
             .get(format!("http://127.0.0.1:{}{path}", self.port))
             .header(AUTH_HEADER, TEST_TOKEN)
-            .timeout(Duration::from_secs(5))
+            .timeout(client_timeout())
             .send()
             .expect("request failed")
     }
@@ -77,7 +107,7 @@ impl TestServer {
             .post(format!("http://127.0.0.1:{}{path}", self.port))
             .header(AUTH_HEADER, TEST_TOKEN)
             .json(&body)
-            .timeout(Duration::from_secs(5))
+            .timeout(client_timeout())
             .send()
             .expect("request failed")
     }
@@ -88,7 +118,7 @@ impl TestServer {
     fn raw_get(&self, path: &str, extra_headers: &str) -> String {
         let mut stream = std::net::TcpStream::connect(("127.0.0.1", self.port)).expect("connect");
         stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
+            .set_read_timeout(Some(client_timeout()))
             .expect("set timeout");
         let req = format!("GET {path} HTTP/1.1\r\n{extra_headers}Connection: close\r\n\r\n");
         stream.write_all(req.as_bytes()).expect("write");
@@ -410,6 +440,110 @@ fn sensitive_action_gated_regardless_of_provider() {
             "provider={provider}: gated stream must not dispatch to any arm, got: {body}"
         );
     }
+}
+
+// P2-OLLAMA-MODEL-PICKER (S73 Phase B): a non-Claude intention must run with
+// the SELECTED model, never the Claude id `claude-opus-4-8[1m]` (which does
+// not exist in a local Ollama and made every non-Claude turn fail).
+// End-to-end proof: a mock Ollama captures the `model` the operator sends to
+// `/api/generate`.
+#[test]
+fn non_claude_intent_uses_selected_model() {
+    use std::sync::{Arc, Mutex};
+
+    // Blocking mock Ollama: capture the `model` from the first
+    // `/api/generate` request body, then reply with a minimal valid NDJSON
+    // `done` line so the arm terminates cleanly.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock ollama");
+    let port = listener.local_addr().unwrap().port();
+    let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let captured_w = captured.clone();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+            // Read until the body carrying `"model"` is buffered.
+            let mut raw = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        raw.extend_from_slice(&chunk[..n]);
+                        if String::from_utf8_lossy(&raw).contains("\"model\"") || raw.len() > 65536
+                        {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            let text = String::from_utf8_lossy(&raw);
+            // Crude extraction: "model" : "VALUE".
+            if let Some(idx) = text.find("\"model\"") {
+                let after = &text[idx + "\"model\"".len()..];
+                if let Some(colon) = after.find(':') {
+                    let rest = &after[colon + 1..];
+                    if let Some(q1) = rest.find('"') {
+                        if let Some(q2) = rest[q1 + 1..].find('"') {
+                            *captured_w.lock().unwrap() =
+                                Some(rest[q1 + 1..q1 + 1 + q2].to_string());
+                        }
+                    }
+                }
+            }
+            let body = "{\"model\":\"m\",\"created_at\":\"2026-01-01T00:00:00Z\",\"response\":\"ok\",\"done\":true,\"total_duration\":1000000}\n";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+
+    let server = TestServer::start_with_ollama(&format!("http://127.0.0.1:{port}"));
+    let session: serde_json::Value = server
+        .post_json(
+            "/api/chat/session",
+            serde_json::json!({"provider": "ollama"}),
+        )
+        .json()
+        .unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    // The model-picker payload: a non-Claude intention selects a concrete
+    // model that is NOT the Claude default.
+    server.post_json(
+        &format!("/api/chat/{id}/send"),
+        serde_json::json!({"message": "hi", "provider": "ollama", "model": "qwen2.5-coder:7b"}),
+    );
+    // Drive the Ollama arm (connects to the mock above).
+    let _ = server.get(&format!("/api/chat/{id}/stream")).text();
+
+    // Poll the capture (the stream call already completed, so this returns
+    // immediately; the deadline is only a no-hang safety net).
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let model = loop {
+        if let Some(m) = captured.lock().unwrap().clone() {
+            break Some(m);
+        }
+        if std::time::Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+
+    assert_eq!(
+        model.as_deref(),
+        Some("qwen2.5-coder:7b"),
+        "the operator must send the SELECTED model to Ollama, got {model:?}"
+    );
+    assert_ne!(
+        model.as_deref(),
+        Some("claude-opus-4-8[1m]"),
+        "Ollama must never receive the Claude model id"
+    );
 }
 
 #[test]

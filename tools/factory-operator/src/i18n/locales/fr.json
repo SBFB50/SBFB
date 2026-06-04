@@ -212,6 +212,9 @@
     "connectionLost": "Connexion au flux interrompue.",
     "sessionError": "Erreur lors de la création de la session.",
     "networkInProgress": "En cours sur le réseau",
+    "modelLabel": "Modèle",
+    "modelPlaceholder": "Laisser vide pour le modèle par défaut",
+    "modelHint": "Modèle utilisé pour cette cible (Ollama / réseau). Vide = défaut du fournisseur.",
     "intent": {
       "claude": "Exécuter sur Claude",
       "ollama": "Exécuter en local",

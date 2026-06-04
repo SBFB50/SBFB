@@ -212,6 +212,9 @@
     "connectionLost": "Stream connection lost.",
     "sessionError": "Error creating session.",
     "networkInProgress": "Running on the network",
+    "modelLabel": "Model",
+    "modelPlaceholder": "Leave empty for the default model",
+    "modelHint": "Model used for this target (Ollama / network). Empty = the provider's default.",
     "intent": {
       "claude": "Run on Claude",
       "ollama": "Run locally",
