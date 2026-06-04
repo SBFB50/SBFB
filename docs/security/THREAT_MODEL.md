@@ -568,14 +568,16 @@ Un attaquant publie un grand nombre de CuratorVouched operations
 pour gonfler la visibilite d'un projet dans le search index ou
 le browse. Mitigation : rate limiter GCRA existant (5 ops/min
 per-author, T-FEED-SPAM), chaque vouch est signe Ed25519 donc
-attributable. Le search index re-indexe au boot — les entries
-spam pre-rate-limit sont visibles mais attribuables.
+attributable. Le search index est reindexe a chaud a l'ingest
+(Sprint 73 Phase C, apres les gates dedup + rate-limit) et reste
+reconstructible au boot — les entries spam admises restent
+visibles mais attribuables et bornees par le rate limiter.
 
 | Dimension | Valeur |
 |---|---|
 | Severite | M |
 | Likelihood | M (open network, rate limit contournable par Sybil) |
-| Mitigation | GCRA 5 ops/min + Ed25519 attribution + boot reindex |
+| Mitigation | GCRA 5 ops/min + Ed25519 attribution + hot/boot reindex |
 | Residual | L (Sybil multi-keypair, cf. T-FEED-SPAM) |
 
 ### T-SEARCH-DOS — Search endpoint rate exhaustion

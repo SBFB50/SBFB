@@ -259,6 +259,24 @@ async fn ingest_doc_entry(
 
     match db.insert_feed_entry(&row) {
         Ok(seq) => {
+            // Hot incremental reindex (Sprint 73 Phase C): make the freshly
+            // ingested project searchable at once instead of only at the next
+            // boot rebuild. Same `db` lock scope as the insert, so the short
+            // FTS5 upsert shares the critical section. Best-effort relative to
+            // the durable feed insert: on failure the entry is still stored
+            // and will be picked up by the next rebuild_from_feed.
+            if let Err(e) = nexus_coordinator_rs::search::upsert_feed_entry(
+                &db,
+                seq,
+                &feed_entry.op,
+                op_type_str,
+            ) {
+                warn!(
+                    seq,
+                    error = %e,
+                    "hot search reindex failed (entry stored, searchable after next rebuild)"
+                );
+            }
             info!(
                 seq,
                 author = &feed_entry.author_pubkey[..8],

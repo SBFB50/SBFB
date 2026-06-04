@@ -261,6 +261,11 @@ impl CoordinatorDb {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "FULL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        // Explicit 5s busy timeout: a hot feed reindex (Sprint 73 Phase C) may
+        // briefly contend with another writer on the single connection; wait
+        // and retry rather than failing fast with SQLITE_BUSY. Made explicit
+        // rather than relying on the driver/SQLite implicit default.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         let migrations = Migrations::new(MIGRATIONS.to_vec());
         migrations.to_latest(&mut conn)?;
@@ -271,6 +276,9 @@ impl CoordinatorDb {
     pub fn open_in_memory() -> Result<Self, CoordinatorError> {
         let mut conn = Connection::open_in_memory()?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        // Keep the busy timeout in parity with the on-disk `open` path so test
+        // and production share the same locking behaviour (Sprint 73 Phase C).
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         let migrations = Migrations::new(MIGRATIONS.to_vec());
         migrations.to_latest(&mut conn)?;
