@@ -226,6 +226,38 @@ static MIGRATIONS: &[M<'static>] = &[
     // the pre-launch policy is unaffected. Append-only ALTER (mirrors
     // M5/M13); `rusqlite_migration` tracks `user_version`.
     M::up("ALTER TABLE tasks ADD COLUMN result_text TEXT;"),
+    // M17: enrich the FTS5 search index with the provenance triplet so a
+    // search hit can drive a fork (Sprint 73 Phase D; the S74 atelier
+    // consumes `repo_url@commit_sha` or `archive_hash` as the blob
+    // fallback). FTS5 virtual tables cannot `ALTER TABLE ... ADD COLUMN`,
+    // so the canonical evolution path is DROP + recreate with the new
+    // columns. The four provenance columns + `is_open_source` are
+    // UNINDEXED: a 40/64-hex hash is not a natural-language token, so a
+    // MATCH against it is meaningless and would only inflate the index —
+    // they are returned, never full-text matchable (mirrors the existing
+    // `project_id`/`op_type`/`source_type` UNINDEXED columns from M15).
+    // Local schema only — NOT a wire format (search_index is never synced
+    // over iroh-docs; each node rebuilds it from the feed it received), so
+    // the pre-launch policy is unaffected. The drop loses no durable data:
+    // the index is integrally reconstructible from `public_feed` (the boot
+    // `rebuild_from_feed` repopulates every row, now carrying the triplet).
+    M::up(
+        "DROP TABLE IF EXISTS search_index;
+    CREATE VIRTUAL TABLE search_index USING fts5(
+        project_id UNINDEXED,
+        project_name,
+        category,
+        description,
+        op_type UNINDEXED,
+        source_type UNINDEXED,
+        repo_url UNINDEXED,
+        commit_sha UNINDEXED,
+        archive_hash UNINDEXED,
+        provenance_hash UNINDEXED,
+        is_open_source UNINDEXED,
+        tokenize='unicode61'
+    );",
+    ),
 ];
 
 pub struct StorageNamespaceRow {

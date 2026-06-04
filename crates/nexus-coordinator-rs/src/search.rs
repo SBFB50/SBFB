@@ -13,6 +13,24 @@ pub struct SearchResult {
     pub op_type: String,
     pub source_type: String,
     pub score: f64,
+    // -- Sprint 73 Phase D: provenance triplet (D2) --
+    //
+    // Carried as UNINDEXED columns (returned, never full-text matchable)
+    // so a search hit can drive a fork in S74 (`repo_url@commit_sha` from
+    // the forge, or `archive_hash` as the blob fallback) without a second
+    // round-trip. `None` for non-release ops (CuratorVouched etc.) and for
+    // any pre-M17 index row. These are an output-only DTO: an `Option`
+    // already serialises to JSON `null`, which is the runtime tolerance the
+    // pre-launch policy asks for — there is no historical wire compat to
+    // honour (search_index is local, reconstructible from the feed).
+    pub repo_url: Option<String>,
+    pub commit_sha: Option<String>,
+    /// Mirrors `BrowseEntry.archive_hash` and the S74 fork consumer
+    /// (`ProofCardInput.archive_hash`). Sourced from the feed payload's
+    /// `artifact_hash` field — see the name bridge in [`extract_index_fields`].
+    pub archive_hash: Option<String>,
+    pub provenance_hash: Option<String>,
+    pub is_open_source: bool,
 }
 
 pub fn sanitize_query(input: &str) -> Option<String> {
@@ -31,6 +49,21 @@ pub fn sanitize_query(input: &str) -> Option<String> {
     Some(tokens.join(" "))
 }
 
+/// The provenance triplet a browse/release row contributes to the index.
+///
+/// Mirrors the four `BrowseEntry` provenance fields plus `commit_sha` (which
+/// only the feed payload carries). All optional: a private/legacy entry has
+/// no archive or provenance. Sprint 73 Phase D.
+#[derive(Debug, Default, Clone)]
+pub struct Provenance<'a> {
+    pub repo_url: Option<&'a str>,
+    pub commit_sha: Option<&'a str>,
+    pub archive_hash: Option<&'a str>,
+    pub provenance_hash: Option<&'a str>,
+    pub is_open_source: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn index_entry(
     db: &CoordinatorDb,
     project_id: &str,
@@ -39,11 +72,26 @@ pub fn index_entry(
     description: &str,
     op_type: &str,
     source_type: &str,
+    provenance: &Provenance<'_>,
 ) -> Result<(), CoordinatorError> {
     db.conn().execute(
-        "INSERT INTO search_index (project_id, project_name, category, description, op_type, source_type)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![project_id, project_name, category, description, op_type, source_type],
+        "INSERT INTO search_index
+            (project_id, project_name, category, description, op_type, source_type,
+             repo_url, commit_sha, archive_hash, provenance_hash, is_open_source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        rusqlite::params![
+            project_id,
+            project_name,
+            category,
+            description,
+            op_type,
+            source_type,
+            provenance.repo_url,
+            provenance.commit_sha,
+            provenance.archive_hash,
+            provenance.provenance_hash,
+            provenance.is_open_source,
+        ],
     )?;
     Ok(())
 }
@@ -65,7 +113,9 @@ pub fn search(
             .query_row(rusqlite::params![sanitized], |row| row.get::<_, i64>(0))? as u64;
 
     let mut stmt = db.conn().prepare_cached(
-        "SELECT project_id, project_name, category, description, op_type, source_type, bm25(search_index)
+        "SELECT project_id, project_name, category, description, op_type, source_type,
+                repo_url, commit_sha, archive_hash, provenance_hash, is_open_source,
+                bm25(search_index)
          FROM search_index
          WHERE search_index MATCH ?1
          ORDER BY bm25(search_index)
@@ -81,7 +131,15 @@ pub fn search(
                 description: row.get(3)?,
                 op_type: row.get(4)?,
                 source_type: row.get(5)?,
-                score: row.get(6)?,
+                // Provenance triplet (Phase D): UNINDEXED columns, `None`
+                // for non-release ops / pre-M17 rows. `is_open_source` is
+                // read tolerantly (an absent column → `false`).
+                repo_url: row.get(6)?,
+                commit_sha: row.get(7)?,
+                archive_hash: row.get(8)?,
+                provenance_hash: row.get(9)?,
+                is_open_source: row.get::<_, Option<bool>>(10)?.unwrap_or(false),
+                score: row.get(11)?,
             })
         },
     )?;
@@ -96,13 +154,19 @@ pub fn search(
 ///
 /// Feed operations carry no `project_name`/`category` today (see
 /// `public_feed::*Payload`): only the curator/stale `reason` (or legacy
-/// `comment`) becomes matchable `description` text. The provenance triplet
-/// enrichment lands in Phase D (migration M17), as UNINDEXED columns.
+/// `comment`) becomes matchable `description` text. A `ReleasePublished`
+/// op additionally carries the provenance triplet (Sprint 73 Phase D),
+/// stored UNINDEXED so a hit can drive a fork (S74).
 struct IndexFields {
     project_id: String,
     project_name: String,
     category: String,
     description: String,
+    repo_url: Option<String>,
+    commit_sha: Option<String>,
+    archive_hash: Option<String>,
+    provenance_hash: Option<String>,
+    is_open_source: bool,
 }
 
 /// Extract the FTS5 index fields from a parsed feed operation payload.
@@ -111,12 +175,26 @@ struct IndexFields {
 /// ([`rebuild_from_feed`]) so the two cannot drift apart. Mirrors the
 /// historical boot-rebuild extraction: `project_name`/`category` are empty
 /// for current feed ops, `description` comes from `reason` (or `comment`).
+///
+/// Provenance triplet (Phase D): pulled from a `ReleasePublishedPayload`
+/// (`public_feed.rs`); `None` for every other op type. Each value is an
+/// optional non-empty string — an absent or empty JSON field yields `None`
+/// rather than an empty match.
 fn extract_index_fields(op: &serde_json::Value) -> IndexFields {
     let field = |key: &str| {
         op.get(key)
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string()
+    };
+    // An optional, non-empty string field. Used for the provenance triplet
+    // so a missing field (non-release op) or an empty string both map to
+    // `None` — never an empty UNINDEXED column.
+    let opt_field = |key: &str| {
+        op.get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
     };
     IndexFields {
         project_id: field("project_id"),
@@ -130,6 +208,20 @@ fn extract_index_fields(op: &serde_json::Value) -> IndexFields {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
+        repo_url: opt_field("repo_url"),
+        commit_sha: opt_field("commit_sha"),
+        // NAME BRIDGE (Phase D preflight S4): the feed payload field is
+        // `artifact_hash` (`ReleasePublishedPayload.artifact_hash`), while
+        // the returned column / S74 fork consumer / `BrowseEntry` all name
+        // it `archive_hash`. Read the *source* key here and store it under
+        // the *consumer* name. Reading `archive_hash` would silently yield
+        // `None` for every real release.
+        archive_hash: opt_field("artifact_hash"),
+        provenance_hash: opt_field("provenance_hash"),
+        is_open_source: op
+            .get("is_open_source")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
     }
 }
 
@@ -159,8 +251,9 @@ pub fn upsert_feed_entry(
     let fields = extract_index_fields(op);
     db.conn().execute(
         "INSERT OR REPLACE INTO search_index
-            (rowid, project_id, project_name, category, description, op_type, source_type)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'feed')",
+            (rowid, project_id, project_name, category, description, op_type, source_type,
+             repo_url, commit_sha, archive_hash, provenance_hash, is_open_source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'feed', ?7, ?8, ?9, ?10, ?11)",
         rusqlite::params![
             seq as i64,
             fields.project_id,
@@ -168,6 +261,11 @@ pub fn upsert_feed_entry(
             fields.category,
             fields.description,
             op_type,
+            fields.repo_url,
+            fields.commit_sha,
+            fields.archive_hash,
+            fields.provenance_hash,
+            fields.is_open_source,
         ],
     )?;
     Ok(())
@@ -210,6 +308,8 @@ mod tests {
     #[test]
     fn test_search_index_browse_entry() {
         let db = setup_db();
+        let archive = "dd".repeat(32);
+        let prov = "ee".repeat(32);
         index_entry(
             &db,
             "proj1",
@@ -218,6 +318,13 @@ mod tests {
             "A governance tool",
             "",
             "browse",
+            &Provenance {
+                repo_url: Some("https://github.com/test/proj1"),
+                commit_sha: Some("abc1230000000000000000000000000000000000"),
+                archive_hash: Some(&archive),
+                provenance_hash: Some(&prov),
+                is_open_source: true,
+            },
         )
         .expect("index");
         let (results, total) = search(&db, "governance", 20, 0).expect("search");
@@ -226,6 +333,12 @@ mod tests {
         assert_eq!(results[0].project_id, "proj1");
         assert_eq!(results[0].project_name, "My Project");
         assert_eq!(results[0].source_type, "browse");
+        // The browse path carries the provenance triplet too (S74 fork).
+        assert_eq!(
+            results[0].repo_url.as_deref(),
+            Some("https://github.com/test/proj1")
+        );
+        assert!(results[0].is_open_source);
     }
 
     #[test]
@@ -272,6 +385,7 @@ mod tests {
             "developer utilities",
             "",
             "browse",
+            &Provenance::default(),
         )
         .expect("index");
         index_entry(
@@ -282,6 +396,7 @@ mod tests {
             "developer framework",
             "",
             "browse",
+            &Provenance::default(),
         )
         .expect("index");
         let (results, _) = search(&db, "developer", 20, 0).expect("search");
@@ -303,6 +418,7 @@ mod tests {
                 "searchable description",
                 "",
                 "browse",
+                &Provenance::default(),
             )
             .expect("index");
         }
@@ -318,7 +434,17 @@ mod tests {
     #[test]
     fn test_search_query_empty_returns_empty() {
         let db = setup_db();
-        index_entry(&db, "p1", "Something", "cat", "desc", "", "browse").expect("index");
+        index_entry(
+            &db,
+            "p1",
+            "Something",
+            "cat",
+            "desc",
+            "",
+            "browse",
+            &Provenance::default(),
+        )
+        .expect("index");
         let (results, total) = search(&db, "nonexistent", 20, 0).expect("search");
         assert_eq!(total, 0);
         assert!(results.is_empty());
@@ -481,5 +607,163 @@ mod tests {
         let (results, after) = search(&db, "repairable", 20, 0).expect("search after");
         assert_eq!(after, 1, "rebuild_from_feed must repopulate the index");
         assert_eq!(results[0].source_type, "feed");
+    }
+
+    // -- Sprint 73 Phase D: provenance triplet enrichment (D2) --
+
+    /// A real `ReleasePublishedPayload` (serialised exactly as the stored
+    /// feed op) lands its provenance triplet in the index, applying the
+    /// `artifact_hash` → `archive_hash` name bridge. A ReleasePublished op
+    /// carries no matchable text (no name/reason), so the row is read back
+    /// directly by rowid rather than via a full-text query.
+    #[test]
+    fn search_result_carries_provenance_triplet() {
+        let db = setup_db();
+        let payload = crate::public_feed::ReleasePublishedPayload {
+            project_id: "proj-rel".to_string(),
+            repo_url: "https://github.com/test/rel".to_string(),
+            commit_sha: "c".repeat(40),
+            artifact_hash: "a".repeat(64),
+            provenance_hash: Some("b".repeat(64)),
+            is_open_source: true,
+        };
+        let op = serde_json::to_value(&payload).expect("serialize payload");
+        upsert_feed_entry(&db, 7, &op, "ReleasePublished").expect("upsert");
+
+        // A ReleasePublished op carries no matchable text (no name/reason),
+        // so read the stored columns back by rowid rather than via search().
+        let str_col = |name: &str| -> Option<String> {
+            db.conn()
+                .query_row(
+                    &format!("SELECT {name} FROM search_index WHERE rowid = 7"),
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("select column")
+        };
+        assert_eq!(
+            str_col("repo_url").as_deref(),
+            Some("https://github.com/test/rel")
+        );
+        assert_eq!(str_col("commit_sha"), Some("c".repeat(40)));
+        // The load-bearing name bridge: the `archive_hash` column is sourced
+        // from the payload's `artifact_hash` field, NOT an `archive_hash` key
+        // (which the payload does not have). Reading the wrong key would
+        // silently yield None for every real release.
+        assert_eq!(str_col("archive_hash"), Some("a".repeat(64)));
+        assert_eq!(str_col("provenance_hash"), Some("b".repeat(64)));
+
+        let oss: Option<bool> = db
+            .conn()
+            .query_row(
+                "SELECT is_open_source FROM search_index WHERE rowid = 7",
+                [],
+                |row| row.get(0),
+            )
+            .expect("select is_open_source");
+        assert_eq!(oss, Some(true));
+    }
+
+    /// Migration M17 (DROP + recreate with the 4 UNINDEXED provenance
+    /// columns) loses no data: a feed entry rebuilt from the durable feed
+    /// repopulates WITH the triplet. The columns are UNINDEXED — a MATCH on
+    /// the hash value returns nothing.
+    #[test]
+    fn migration_m17_recreates_index_unindexed() {
+        // `open_in_memory` applies every migration including M17; a SELECT of
+        // the new columns below would error if M17 had not recreated them.
+        let db = setup_db();
+        let payload = crate::public_feed::ReleasePublishedPayload {
+            project_id: "proj-m17".to_string(),
+            repo_url: "https://github.com/test/m17".to_string(),
+            commit_sha: "1".repeat(40),
+            artifact_hash: "2".repeat(64),
+            provenance_hash: None,
+            is_open_source: false,
+        };
+        let op = serde_json::to_value(&payload).expect("serialize");
+        let row = feed_row(0, op, "m17hash");
+        let seq = db.insert_feed_entry(&row).expect("insert feed");
+
+        // Simulate the post-migration repopulate (DROP/recreate leaves the
+        // index empty; the boot rebuild refills it from the durable feed).
+        clear_all(&db).expect("clear");
+        let n = rebuild_from_feed(&db).expect("rebuild");
+        assert_eq!(n, 1);
+
+        let archive: Option<String> = db
+            .conn()
+            .query_row(
+                "SELECT archive_hash FROM search_index WHERE rowid = ?1",
+                [seq as i64],
+                |r| r.get(0),
+            )
+            .expect("select archive_hash");
+        assert_eq!(
+            archive,
+            Some("2".repeat(64)),
+            "rebuild must repopulate the triplet through M17 (no data loss)"
+        );
+
+        let (_, total) = search(&db, &"2".repeat(64), 20, 0).expect("search hash");
+        assert_eq!(
+            total, 0,
+            "archive_hash is UNINDEXED — not full-text matchable"
+        );
+    }
+
+    /// A non-release op (CuratorVouched, matchable via its `reason`) has no
+    /// provenance: the triplet is `None`/`false`, not a crash or empty string.
+    #[test]
+    fn search_result_null_triplet_for_non_release_op() {
+        let db = setup_db();
+        let op = serde_json::json!({
+            "project_id": "proj-cur",
+            "curator_pubkey": "bb".repeat(32),
+            "reason": "endorses the photon mapper project"
+        });
+        upsert_feed_entry(&db, 3, &op, "CuratorVouched").expect("upsert");
+
+        let (results, total) = search(&db, "photon", 20, 0).expect("search");
+        assert_eq!(total, 1);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].repo_url.is_none());
+        assert!(results[0].commit_sha.is_none());
+        assert!(results[0].archive_hash.is_none());
+        assert!(results[0].provenance_hash.is_none());
+        assert!(!results[0].is_open_source);
+    }
+
+    /// The provenance columns are UNINDEXED: a row carrying a hash is found
+    /// by its indexed name/description, never by MATCHing the hash or URL.
+    #[test]
+    fn enriched_fields_unindexed_not_matchable() {
+        let db = setup_db();
+        let archive = "f".repeat(64);
+        index_entry(
+            &db,
+            "proj-u",
+            "Unindexed Probe",
+            "cat",
+            "matchable description",
+            "",
+            "browse",
+            &Provenance {
+                repo_url: Some("https://example.test/unindexed"),
+                archive_hash: Some(&archive),
+                ..Default::default()
+            },
+        )
+        .expect("index");
+
+        // Found by its indexed name...
+        let (_, by_name) = search(&db, "probe", 20, 0).expect("search name");
+        assert_eq!(by_name, 1);
+        // ...but never by the hash or the URL (both UNINDEXED).
+        let (_, by_hash) = search(&db, &archive, 20, 0).expect("search hash");
+        assert_eq!(by_hash, 0, "archive_hash is UNINDEXED");
+        let (_, by_repo) =
+            search(&db, "https://example.test/unindexed", 20, 0).expect("search repo");
+        assert_eq!(by_repo, 0, "repo_url is UNINDEXED");
     }
 }

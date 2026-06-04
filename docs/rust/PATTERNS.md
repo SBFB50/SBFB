@@ -3002,6 +3002,86 @@ axes D8).
 
 ---
 
+## §P56 — Sprint 73 Phase C/D : FTS5 hot reindex + UNINDEXED provenance triplet (D1/D2)
+
+The FTS5 `search_index` (M15) is a **standalone** virtual table (not
+external-content): it indexes a JSON payload parsed in Rust, not a 1:1
+SQL row. Two evolution patterns from Sprint 73:
+
+**(D1) Hot incremental reindex, keyed by feed `seq` as the FTS5 rowid.**
+Before S73 the index was only rebuilt at boot (`rebuild_from_feed`,
+`runtime.rs`), so a gossiped project was invisible to search until the
+next reboot. The fix is an `INSERT OR REPLACE INTO search_index(rowid =
+seq, …)` called right after `insert_feed_entry` succeeds, **inside the
+same `feed_sync` DB lock scope** (one short WAL write, no extra
+round-trip). `INSERT OR REPLACE` is the canonical upsert for a standalone
+FTS5 table — a re-arrived entry rewrites the same rowid (idempotent, a
+second line of defence behind the `entry_hash` dedup), never a duplicate.
+
+- **Do NOT use external-content triggers** for this. They apply only to
+  `content='t'` tables; converting would mean materialising a mirror
+  table + 3 triggers, and a trigger that omits `rowid` or does a bare
+  DELETE corrupts the index (documented SQLite footgun). Over-engineering.
+- **Do NOT rebuild O(N) on the hot path.** A full `rebuild_from_feed` per
+  ingested entry holds the write lock proportionally to feed size →
+  amplification DoS under feed-spam (THREAT_MODEL §11). The O(N) rebuild
+  is kept ONLY as the explicit repair/migration path.
+- **`busy_timeout` made explicit** (`Duration::from_secs(5)`) at DB open:
+  a hot reindex may briefly contend with another writer on the single
+  `Mutex<Connection>`; wait-and-retry rather than fail-fast `SQLITE_BUSY`.
+- The shared extractor `extract_index_fields(op)` is used by BOTH the hot
+  path (`upsert_feed_entry`) and the repair path (`rebuild_from_feed`) so
+  rebuilt rows are byte-for-byte identical to hot-path rows (anti-drift).
+
+**(D2) Enrich `SearchResult` with the provenance triplet — UNINDEXED
+columns + DROP/recreate migration (M17).** A search hit must carry
+`repo_url` + `commit_sha` + `archive_hash` + `provenance_hash` (+
+`is_open_source`) so it can drive a fork in S74 without a second
+round-trip.
+
+- **FTS5 cannot `ALTER TABLE … ADD COLUMN`** (no ADD COLUMN on a virtual
+  table). The canonical evolution path is **DROP + CREATE** with the new
+  columns, then repopulate. Safe here because the index is **integrally
+  reconstructible** from `public_feed` (the boot `rebuild_from_feed`
+  refills it) — the drop loses no durable data. This is a **local schema**
+  migration, NOT a wire format: `search_index` is never synced over
+  iroh-docs, so `FEED_FORMAT_VERSION` stays 1 (pre-launch policy).
+- **The provenance columns are UNINDEXED.** A 40/64-hex hash is not a
+  natural-language token — a MATCH against it is meaningless and only
+  inflates the index. UNINDEXED columns are **returned via SELECT but
+  excluded from MATCH** (same as the existing `project_id`/`op_type`/
+  `source_type` columns). Tests assert a MATCH on a hash value returns
+  zero hits while the row is found by its indexed name.
+- **Name bridge `artifact_hash` → `archive_hash`.** The feed payload field
+  is `ReleasePublishedPayload.artifact_hash`, but the returned column / the
+  S74 fork consumer (`ProofCardInput.archive_hash`) / `BrowseEntry` all
+  name it `archive_hash`. `extract_index_fields` reads the **source** key
+  (`artifact_hash`) and stores it under the **consumer** name
+  (`archive_hash`). Reading `archive_hash` from the payload would silently
+  yield `None` for every real release. The column name mirrors the
+  downstream consumer; only the extraction key differs — assert the exact
+  mapping in tests, not just non-null.
+- **DTO tolerance, not wire compat.** `SearchResult`'s new fields are
+  `Option<String>` (+ `bool`): a non-release op (CuratorVouched) or a
+  pre-M17 row yields `None`/`false`, serialised to JSON `null`/`false`,
+  never a deserialisation error. `is_open_source` is read back tolerantly
+  (`row.get::<_, Option<bool>>().unwrap_or(false)`) — an FTS5 integer 0/1
+  round-trips as a bool, and an absent column degrades to `false`.
+
+**Rowid partition tripwire (carried to S74).** Feed rows own rowid
+`[1, max seq]`; browse-sourced `index_entry` rows (auto rowid) are
+currently test-only. M17 DROP/recreate rebuilds feed rows keyed rowid=seq,
+so it does NOT aggravate the concern — but wiring browse indexing in
+production (S74) must partition the rowid space so a feed upsert cannot
+clobber a browse row. Keep the doc-comment tripwire in `search.rs`.
+
+Cross-ref: S73 Phase C (`47c9ff7`, hot reindex D1), S73 Phase D (triplet
++ M17 D2 + SearchManifest defer D3 design note
+`.planning/research/s73_searchmanifest_index_node_design.md`), M15 FTS5
+introduction (S67 Phase B), THREAT_MODEL §11 (search surface).
+
+---
+
 ## References
 
 - [The Rust Book](https://doc.rust-lang.org/book/) — chapters 1-13

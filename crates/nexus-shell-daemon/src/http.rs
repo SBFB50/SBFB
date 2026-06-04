@@ -2015,6 +2015,15 @@ async fn search_handler(
                 "op_type": r.op_type,
                 "source_type": r.source_type,
                 "score": r.score,
+                // Provenance triplet (Sprint 73 Phase D): additive keys so a
+                // search hit can drive a fork in S74. `null` for non-release
+                // ops; never matchable (UNINDEXED). No wire-format bump —
+                // search_index is local, FEED_FORMAT_VERSION stays 1.
+                "repo_url": r.repo_url,
+                "commit_sha": r.commit_sha,
+                "archive_hash": r.archive_hash,
+                "provenance_hash": r.provenance_hash,
+                "is_open_source": r.is_open_source,
             })
         })
         .collect();
@@ -6415,6 +6424,7 @@ mod tests {
                 "A real-time translation tool",
                 "",
                 "browse",
+                &nexus_coordinator_rs::search::Provenance::default(),
             )
             .expect("index");
         }
@@ -6437,6 +6447,69 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["project_name"], "Babel Translator");
         assert!(json["took_ms"].as_u64().is_some());
+    }
+
+    // -- Sprint 73 Phase D: search JSON carries the provenance triplet --
+
+    #[tokio::test]
+    async fn search_handler_json_includes_triplet() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::search::index_entry(
+                &db,
+                "proj-fork",
+                "Forkable App",
+                "tools",
+                "an app a search hit can fork",
+                "",
+                "browse",
+                &nexus_coordinator_rs::search::Provenance {
+                    repo_url: Some("https://github.com/test/forkable"),
+                    commit_sha: Some("abc1230000000000000000000000000000000000"),
+                    archive_hash: Some(
+                        "dd00000000000000000000000000000000000000000000000000000000000000",
+                    ),
+                    provenance_hash: Some(
+                        "ee00000000000000000000000000000000000000000000000000000000000000",
+                    ),
+                    is_open_source: true,
+                },
+            )
+            .expect("index");
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/search?q=forkable")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 16384).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["total"], 1);
+        let hit = &json["results"].as_array().unwrap()[0];
+        // The four additive provenance keys (+ open-source flag) are present
+        // and populated so the S74 atelier can fork from a search hit.
+        assert_eq!(hit["repo_url"], "https://github.com/test/forkable");
+        assert_eq!(
+            hit["commit_sha"],
+            "abc1230000000000000000000000000000000000"
+        );
+        assert_eq!(
+            hit["archive_hash"],
+            "dd00000000000000000000000000000000000000000000000000000000000000"
+        );
+        assert_eq!(
+            hit["provenance_hash"],
+            "ee00000000000000000000000000000000000000000000000000000000000000"
+        );
+        assert_eq!(hit["is_open_source"], true);
     }
 
     // ---------------------------------------------------------
