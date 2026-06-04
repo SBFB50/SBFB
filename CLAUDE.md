@@ -151,8 +151,8 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-72 CLOSED**, **S73 a ouvrir** (Arc 3.5 Factory
-  Complete Vision, roadmap v5 — recherche reseau). v2.1
+- **Sprints 0-73 CLOSED**, **S74 a ouvrir** (Arc 3.5 Factory
+  Complete Vision, roadmap v5 — atelier fork). v2.1
   ouverte. **Tag v1.0 pose.**
   Projet Rust+Frontend pur depuis S50-S51.
   S70 DONE : 7 phases A-G (A AGENT_SYSTEM.md canon portable + B
@@ -187,43 +187,62 @@ Runtime isolation roadmap dans
   ollama-rs 0.3.4 partout) + route daemon `/result` + colonne
   `result_text` M16. G8 5/5 (2 EXECUTE + 2 DESIGN-CONFLICT-resolus-PO
   + 1 PLAN-ADAPT). Arc 3.5 Factory Complete Vision 2/6.
+  S73 DONE : Phase 0 audit gate S72 PASS (`087e781`) + 5 phases
+  A-E + Phase F wrap-up — recherche reseau cablee (Phase A guardrail
+  AVANT persist `result_text` 2 chemins D5 : split pre/post-guardrail
+  + reorder HTTP + guardrail gossip `validator_loop` + `ResultValidator`
+  gate `#[cfg(test)]` + P2-RESULT-TEXT-GUARDRAIL-ORDER CLOSED ; Phase B
+  dette pure 7 P2 CLOSED dont **P2-A-1 worker-pump 3/3 MANDATORY** fix
+  `multi_thread` cross-platform [CLOSED 2 gates : nextest Win 1566 /
+  Linux 1570 + `cargo test` shared-process Windows] ; Phase C reindex
+  FTS5 a chaud D1 `upsert_feed_entry` rowid=seq idempotent ; Phase D
+  `SearchResult` +triplet provenance UNINDEXED + migration M17
+  DROP/recreate + **D3 DEFER SearchManifest** design note ; Phase E barre
+  recherche shell `searchBrowse()` GET /api/daemon/search Zod `.strict()`
+  enveloppe). G8 5/5 (4 EXECUTE + 1 SCOPE-CUT-CONSISTENT, 0
+  DESIGN-CONFLICT) ; Codex 5/5. Arc 3.5 Factory Complete Vision 3/6.
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1829 tests total** (1544 Rust / 279 Vitest / 6/6 size-limit)
-  — tous verts code (canonique CI Linux). S72 delta : +16 Rust
-  (A +0, B +2, C +7, D +7, E +0), +0 Vitest (`web/` non touche tout
-  le sprint). Re-mesure 1544/1544 au Phase F (Windows natif 1543/1544
-  + 1 flake env `operator_sprint_history_endpoint` / OPERATOR-TIMEOUT
-  prouve par re-run isole, passe seul).
-- Carry S72 CLOSED :
-  P2-H-1 threat doc Operator (Phase A — THREAT_MODEL §14 + LOOPBACK §3.1).
-  P2-F-3 prompt coupling 3/3 (Phase B — **plus jamais carry**).
-  P2-A-2 E2E signature assertion (Phase B — `verify_signature()`).
-  P3-A-3/B-1/B-2 cosmetiques (Phase B, documentes).
-  G8 DESIGN-CONFLICT C+D resolus arbitrage PO Option A (schemars
-  0.8→1.2 ; route daemon `/result` + colonne `result_text` M16).
-- Carry S73 :
+- **~1866 tests total** (1570 Rust canonique CI Linux / 1566 Windows
+  natif / 289 Vitest `web/` / 7 Vitest factory-operator / 6/6
+  size-limit) — tous verts. S73 delta : +22 Rust Windows (A +5, B +7,
+  C +5, D +5, E +0 ; canonique Linux +26, l'ecart +4 = tests
+  `#[cfg(unix)]` structurels absents sous Windows), +10 Vitest (`web/`
+  Phase E), +7 Vitest factory-operator (infra NEW Phase B). Re-mesure
+  Phase F : Docker Linux sbfb-ci (libgtk-3-dev) 1570/1570 0-skip +
+  Windows natif 1566/1566 0-skip ; worker-pump P2-A-1 vert aussi sous
+  `cargo test` shared-process (le gate d'origine du hang, pas nextest).
+- Carry S73 CLOSED :
+  P2-RESULT-TEXT-GUARDRAIL-ORDER (Phase A — guardrail AVANT persist
+  2 chemins HTTP+gossip, split pre/post, claims THREAT_MODEL §14 +
+  LOOPBACK §3 corrigees).
+  **P2-A-1(S71) worker-pump 3/3 MANDATORY** (Phase B — fix `multi_thread`
+  cross-platform, CLOSED 2 gates nextest + `cargo test` shared-process,
+  **plus jamais carry**).
+  P2-TIER-MODEL + P2-HARDENING-ROADMAP-META-STALE (Phase A doc lot).
+  P2-TEST-ZOMBIE + P2-OPERATOR-TIMEOUT + P2-OPERATOR-NO-TEST-RUNNER +
+  P2-POLL-DIAGNOSTIC-LOSS + P2-SYNC-FS-ASYNC + P2-OLLAMA-MODEL-PICKER
+  (Phase B dette, 6 P2).
+  P2-PREFLIGHT-TRANSITIVE-DEPTH + P2-PREFLIGHT-WIRE-CONTRACT-DEPTH
+  (Phase F — skill/agent/portable preflight : S1b graphe transitif
+  `Cargo.lock`+`cargo tree -d` ; S4 trace wire producteur→consommateur).
+- Carry S74 (vers audit gate S73 — `sprint74_audit_plan.md`) :
   P2-A-1 rand blocker upstream (exemption externe).
-  P2-A-1(S71) worker-pump iroh-docs hang Windows natif — **3/3
-  MANDATORY S73** (root-cause iroh-docs pump OU exemption formelle
-  CI-Linux-only ; famille elargie par OPERATOR-TIMEOUT,
-  `feedback_wsl_before_push`).
-  P2-TIER-MODEL Operator pas dans le tier-model formel LOOPBACK §2/§8.
-  P2-TEST-ZOMBIE `audit_commit_valid_phase_commit` SHA-hardcode S70
-  `6fb95df` archive (pre-existant, echoue sur master pur).
-  P2-OPERATOR-TIMEOUT `operator_server` timeouts charge/bind-mount
-  (flake env, passe isole).
-  P2-sync-FS-async `resolve_daemon` sync fs en contexte async (Phase D).
-  P2-POLL-DIAGNOSTIC-LOSS timeout generique vs erreur reelle (Phase D).
-  P2-OLLAMA-MODEL-PICKER intentions non-Claude sans model picker —
-  Ollama defaute `claude-opus-4-8[1m]` inexistant (axe model D5 separe).
-  P2-OPERATOR-NO-TESTS `factory-operator` sans test runner (Vitest infra).
   P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
   T-NN+2 iframe Rust-wasm (PATTERNS §P34).
-  P3-OS-1 `operator_server` OR duplique (pre-existant, non touche S72).
+  P3-OS-1 `operator_server` OR duplique (pre-existant, non touche S73).
   LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
-  localement, pas encore pousse vers origin).
+  localement, pas encore pousse vers origin ; 37 ahead).
+  Nouveaux P2 candidats S73 (surfaces scrutiny adversariale Phase F,
+  routes audit S74) : freshness `ReleasePublished` non-indexe (op
+  publication-projet a description vide → invisible full-text) ; rowid
+  partition tripwire AVANT browse-indexing prod (`search.rs:241-244`) ;
+  guardrail-before-persist = convention d'appelant pas type (+ quorum
+  `task_results` residue, zombie sur trip) ; `SearchResultsView` sans
+  branche `query.isError` → `LoadingSkeleton` infini sur drift Zod ;
+  scheme-guard `isHttpsUrl` non normalise sur ancres `repo_url`
+  pre-existantes (Browse:264, BrowsedProject, VerificationDetail).
   LT-3/LT-4 hors-sprint (post-v1.0).
   LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.

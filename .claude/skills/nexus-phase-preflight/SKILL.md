@@ -194,6 +194,23 @@ Pour chaque lib/spec extraite Step 1.3 :
 grep -E "^(name|version)" $(find . -name Cargo.toml -path "*/<crate-touche>/*") 2>/dev/null
 ```
 
+**Version PRECISE resolue + graphe transitif (P2-PREFLIGHT-TRANSITIVE-DEPTH).**
+Le `Cargo.toml` montre une plage, pas ce qui compile. Lire la version resolue
+dans `Cargo.lock` et verifier qu'une dep transitive ne tire pas une 2e version
+majeure d'un crate deja pinne (collision invisible cote declaration directe) :
+
+```bash
+rg -n "^name = \"<crate>\"" -A1 Cargo.lock   # version(s) resolue(s) dans le lock
+cargo tree -i <crate> --workspace             # qui la tire, et a quelle version
+cargo tree -d                                  # crates dupliques = odeur de collision
+```
+
+Lecon S72 Phase C/D : bump `ollama-rs` 0.3.4 a tire `schemars 1.2` transitif en
+collision avec le pin workspace `schemars 0.8` — DESIGN-CONFLICT manque parce que
+S1b ne lisait que la declaration directe. Toute phase « cablage cross-composant »
+qui ajoute/bumpe une dep DOIT resoudre le graphe transitif (lock + `cargo tree -d`)
+avant de declarer S1b clean.
+
 Puis pour chaque dep critique :
 
 1. `mcp__context7__resolve-library-id` sur la lib name
@@ -396,6 +413,16 @@ Pour la phase X, verifier :
 - D1..D5 Day 0 du sprint courant ne sont PAS rebattues ?
 - Decisions actees dans `nexus_grid_pivot.md §Decisions actees` ne
   sont PAS contredites ?
+- **Chaque champ wire/serialise touche est trace producteur → consommateur
+  (file:line) AVANT de le declarer « inchange » (P2-PREFLIGHT-WIRE-CONTRACT-
+  DEPTH).** Un champ n'est un contrat que si les 2 bouts s'accordent : localiser
+  la serialisation (struct serde Rust, JSON `search_handler`, reponse de route)
+  ET la consommation (autre process, autre langage, schema Zod), confirmer la
+  forme exacte (nom de cle, null-vs-absent, enveloppe-vs-nu, optional-vs-toujours-
+  present). Lecons : S72 Phase D = gap de recuperation resultat (route `/result`
+  + `result_text` ajoutes tard, Option A) ; S73 Phase E = le daemon serialise le
+  triplet `SearchResult` toujours-present-en-`null` → Zod `.nullable()` (pas
+  `.optional()`) + enveloppe `{results,total,took_ms}` (pas un array nu).
 
 Findings type :
 - Phase bumperait `TASK_VERSION 1 -> 2` sans CVE bloquant = invalid

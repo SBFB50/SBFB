@@ -2778,7 +2778,9 @@ Mechanism, end to end:
   two honest workers diverged. Fix: `deterministic_options(params)`
   forwards `temperature` + `seed` via `GenerationOptions::default()
   .temperature(t).seed(s as i32)` (the API existed in the pinned
-  ollama-rs 0.2.6, just unused). temperature=0 alone is insufficient
+  ollama-rs 0.2.6, just unused; the type was renamed `ModelOptions`
+  when S72 Phase C bumped ollama-rs to 0.3.4 — same seed/temperature
+  contract). temperature=0 alone is insufficient
   there — a fixed seed is needed against residual non-determinism
   (ollama/ollama#5321).
 
@@ -2827,8 +2829,8 @@ pulled in (versions from `Cargo.lock`): `portable-pty 0.9.0`,
 `async-stream 0.3.6`, `futures 0.3.32`. None carries a critical/high
 RustSec advisory, and none sits on a crypto/wire/network/signing path
 (portable-pty is the local, loopback, gated Operator PTY). No bump
-required. `ollama-rs 0.2.6` (touched by the B-2 wiring) is likewise
-advisory-clean.
+required. `ollama-rs 0.2.6` (touched by the B-2 wiring; bumped to
+0.3.4 in S72 Phase C) is likewise advisory-clean.
 
 Cross-ref: S71 Phase B `verifiable` field + greedy/seed quorum,
 S71 preflight S1a (PLAN-ADAPT, Ollama gap), kickoff §5 D2/D8.
@@ -2861,9 +2863,11 @@ third-party node speaks it, so no migration / range decoder (intake
 worker_engine` is the first test that drives a task through the real
 two-component path: daemon dispatch writes the doc → a worker `Engine`
 (via the additive `Engine::docs()` accessor) claims it by prefix scan →
-executes → result lands. It proves *routing + execution*, not payload
-integrity (it asserts `results.len()==1`, not the result signature —
-P2-A-2, consistent with the pre-existing S4 mirror `runtime.rs:1524`).
+executes → result lands. It proves *routing + execution* and — since
+S72 Phase B (`08b6cb2`, P2-A-2 closed) — payload integrity too: the
+E2E now asserts `ResultEntry::verify_signature()`, not merely
+`results.len()==1` (the pre-existing S4 mirror `runtime.rs` is the
+sibling path).
 The plan put this E2E in `nexus-test-harness`; it landed in
 `nexus-shell-daemon` instead (it needs the dispatch-loop internals) —
 a located, not scoped, change.
@@ -2969,8 +2973,8 @@ process prompt-portability layer, all of which evolve independently.
 | Axis | Type | Crate / file | Question it answers |
 |---|---|---|---|
 | **Execution target** | `ExecutionTarget { Claude, Ollama, Network }` | `sbfb-factory/src/provider_router.rs` | *Where does this operator chat turn run* — Claude cloud (default pilot), Ollama local, or the SBFB network (submit→poll)? Parsed from the wire `provider` string; each arm yields the SAME `StreamChunk` contract so the SSE layer stays provider-agnostic. |
-| **Prompt-adapt provider** | `Provider` (process prompt portability) | `sbfb-factory/src/process.rs` | *Which agent consumes a portable prompt* — shapes `base/universal/handoff` prompt assembly per agent family (`prompt_data`, `providers_list`). Pure prompt text concern; no runtime dispatch. |
-| **Worker backend** | `LlmBackend` (Deref enum, §P52) | `nexus-worker-core/src/llm/` | *Which local inference runtime executes a quorum task* — `llama_cpp` vs `ollama`, behind the worker's deterministic-decoding contract (§P53). Never reaches the Factory. |
+| **Prompt-adapt provider** | `PROVIDERS: &[&str]` + `&str` (process prompt portability) | `sbfb-factory/src/process.rs` | *Which agent consumes a portable prompt* — shapes `base/universal/handoff` prompt assembly per agent family (`prompt_data`, `providers_list`). Pure prompt text concern; no runtime dispatch. |
+| **Worker backend** | `Box<dyn LlmBackend>` (trait object) | `nexus-worker-core/src/llm/` | *Which local inference runtime executes a quorum task* — `llama_cpp` vs `ollama`, behind the worker's deterministic-decoding contract (§P53). Never reaches the Factory. |
 
 Why three, concretely:
 

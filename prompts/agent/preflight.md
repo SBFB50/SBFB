@@ -151,6 +151,24 @@ CVE affecting crypto, wire, network, sandbox, or signing code is blocking. A
 major breaking release on an API the phase uses is blocking unless the plan
 already accounts for it.
 
+**Resolve the PRECISE locked version and the transitive graph, not just the
+declared range (P2-PREFLIGHT-TRANSITIVE-DEPTH).** A `Cargo.toml` range hides what
+actually compiles, and a transitive dependency can pull a *second* major version
+of a crate the workspace already pins — a collision the direct declaration never
+shows. For every dep the phase adds or bumps:
+
+```bash
+rg -n "^name = \"{crate}\"" -A1 Cargo.lock     # exact resolved version(s) in the lock
+cargo tree -i {crate_name} --workspace          # who pulls it, and at which version
+cargo tree -d                                    # duplicate crates = collision smell
+```
+
+Lesson (S72 Phase C/D): bumping `ollama-rs` to 0.3.4 transitively pulled
+`schemars 1.2`, colliding with the workspace `schemars 0.8` pin — a
+DESIGN-CONFLICT the plan missed because it read only the direct declaration. Any
+"cabling cross-component" phase that adds or bumps a dependency MUST resolve the
+transitive graph (lock + `cargo tree -d`) before declaring S1b clean.
+
 ## Step 3: S2 Historical Decisions
 
 Scan decisions crossed by the target files and domain:
@@ -215,6 +233,20 @@ Verify:
 - `serde(default)` is justified as runtime tolerance, not silent wire drift
 - signing domains and canonical bytes remain stable
 - Day 0 decisions from kickoff are preserved
+- **every touched wire/serialized field is traced producer -> consumer by
+  file:line before being called "unchanged" (P2-PREFLIGHT-WIRE-CONTRACT-DEPTH).**
+  A field is a contract only if both ends agree. For each field the phase reads
+  or writes, locate where it is *serialized* (Rust `serde` struct,
+  `search_handler` JSON, a route response) AND where it is *consumed* (the other
+  process, the other language, a Zod schema), then confirm the exact shape: key
+  name, null-vs-absent, envelope-vs-bare, optional-vs-always-present. Lessons:
+  S72 Phase D shipped a result-retrieval gap because no producer wrote the value
+  the consumer needed (route `/result` + `result_text` had to be added late as
+  Option A); S73 Phase E found the daemon serializes the `SearchResult` provenance
+  keys ALWAYS-present-as-`null`, so the TS consumer needed Zod `.nullable()` (not
+  `.optional()`) and the JSON is an envelope `{results,total,took_ms}` (not a bare
+  array) — a drift the plan's "SearchResult 7+5" framing hid. "Unchanged wire" is
+  only provable once both ends are read.
 
 Blocking S4 findings map to `DESIGN-CONFLICT`.
 

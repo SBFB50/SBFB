@@ -42,6 +42,20 @@ Pour chaque projet OSS pertinent :
 3. context7 resolve-library-id + query-docs (3-5 queries par lib)
 4. Extraire patterns architecturaux concrets avec file:line
 
+### S1b — Deps transitives PRECISES (P2-PREFLIGHT-TRANSITIVE-DEPTH)
+
+Le skill grep le `Cargo.toml` direct. Toi, tu resous la version
+**reellement compilee** dans `Cargo.lock` et tu marches le graphe
+transitif des crates cibles : `rg "^name = \"<crate>\"" -A1
+Cargo.lock`, `cargo tree -i <crate> --workspace`, `cargo tree -d`
+(crates dupliques = odeur de collision). Une dep transitive peut tirer
+une 2e version majeure d'un crate deja pinne — collision invisible cote
+declaration directe (lecon S72 Phase C/D : `ollama-rs 0.3.4` a tire
+`schemars 1.2` en collision avec le pin workspace `schemars 0.8` =
+DESIGN-CONFLICT). Toute phase « cablage cross-composant » qui
+ajoute/bumpe une dep resout le graphe transitif AVANT de declarer
+S1b clean.
+
 ### S2 — Decisions historiques COMPLET
 
 Le skill fait un grep superficiel. Toi, tu lis les commit bodies
@@ -57,7 +71,16 @@ complet (assets, actors, vectors, mitigations, gaps, regression).
 ### S4 — Wire format COMPLET
 
 Lis `crates/nexus-core-rs/src/canonical.rs` EN ENTIER via Read
-tool. Verifie chaque struct du checklist.
+tool. Verifie chaque struct du checklist. **En plus : trace chaque
+champ wire/serialise touche producteur → consommateur (file:line)
+avant de le declarer « inchange » (P2-PREFLIGHT-WIRE-CONTRACT-DEPTH).**
+Localise la serialisation (struct serde, JSON handler, reponse de
+route) ET la consommation (autre process, autre langage, schema Zod),
+confirme la forme exacte : nom de cle, null-vs-absent, enveloppe-vs-nu,
+optional-vs-toujours-present. Lecons : S72 Phase D (gap route `/result`
++ `result_text` ajoutes tard) ; S73 Phase E (triplet `SearchResult`
+toujours-present-en-`null` → Zod `.nullable()` pas `.optional()`,
+enveloppe `{results,total,took_ms}` pas un array nu).
 
 ### Memory consultation (Step 1.5)
 
