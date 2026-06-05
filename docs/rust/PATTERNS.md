@@ -3097,3 +3097,45 @@ introduction (S67 Phase B), THREAT_MODEL §11 (search surface).
   `cargo run --example` each one, read the source
 - [sendme](https://github.com/n0-computer/sendme) — small, readable
   real-world iroh application
+
+## §P57 — 2026-06-05 remediation : the real-frontier E2E gate (no mock on both sides of a frontier)
+
+The platform-remediation root cause (2026-06-05) was systemic, not a
+single bug: every feature had a **discovery** half (gossip / iroh-docs)
+and a **service** half (SQLite / HTTP) that were *never reconciled in
+production*, and **every test mocked the frontier between them**
+(mockFetch on the front, a test-only `index_entry` injection, a
+mock-daemon in Rust). The suite was ~1866 green while the cross-node
+core was broken, because each test stubbed one side of the boundary it
+was meant to exercise.
+
+**Rule: a frontier — a point where data crosses a process, a node, or a
+transport — must have at least one test that exercises it for REAL on
+both sides.** Mocking one side to unit-test the other is fine and
+necessary; mocking *both* sides of the *same* frontier proves nothing
+about the frontier and is how this class of bug hides.
+
+The canonical guard is the gate
+`runtime::tests::e2e_network_execute_gate_real_http_no_frontier_mock`
+(`nexus-shell-daemon/src/runtime.rs`): it boots a real `DaemonRuntime`
+(real loopback HTTP + auth + iroh node + dispatch_loop + result_sync +
+validator_loop + coordinator DB) and a real `nexus-worker` Engine on a
+**separate iroh node** joined by a real invite ticket, submits a task
+over real HTTP and polls the result back over real HTTP. The only mock
+is the deterministic `StubBackend` LLM (which is *not* a frontier — it
+is the leaf compute). It runs under `nextest` (so it is part of the
+blocking fail-fast) and `#[serial(sbfb_env)]` because it sets the bearer
+token + the local-worker toggle via process env.
+
+Companion live smokes (not committed as tests because they spawn real OS
+binaries) proved the same path end to end with the actual release
+binaries, including the on-demand worker auto-spawn (`local_worker.rs`)
+and its Windows Job Object / Unix `PR_SET_PDEATHSIG` orphan kill — the
+two things an in-process test cannot cover. Re-run them by hand from a
+real daemon before a release tag.
+
+**Pre-tag gate:** the E2E gate test must be green, and a manual
+full-binary smoke (daemon + auto-spawned worker, submit → poll result)
+must pass on the release artifacts. A frontier added in a future sprint
+(a new cross-node op, a new HTTP service path) carries the same
+obligation: one real-on-both-sides test, or it does not ship.

@@ -2159,6 +2159,175 @@ mod tests {
             .expect("shutdown must join feed handle without leak");
     }
 
+    /// 2026-06-05 platform-remediation #6 — the E2E network-execute
+    /// anti-recurrence GATE.
+    ///
+    /// The systemic bug the remediation fights is "discovery vs service
+    /// never reconciled, and every test mocks the frontier". This gate
+    /// drives the FULL real path with ZERO frontier mock: a real
+    /// `DaemonRuntime` (real loopback HTTP + auth + iroh node +
+    /// dispatch_loop + result_sync + validator_loop + coordinator DB),
+    /// a real `nexus-worker` Engine on a SEPARATE iroh node joined by a
+    /// real invite ticket, a task submitted over real HTTP, and the
+    /// result polled back over real HTTP. The only mock is the
+    /// deterministic `StubBackend` LLM. If any frontier link breaks
+    /// (HTTP, auth, iroh cross-node sync, worker claim, the result
+    /// bridge, the DB, or retrieval) this fails — which the ~1866 green
+    /// unit tests did NOT, because they each mocked one side.
+    // multi_thread + serial(sbfb_env): two iroh nodes + the worker pump
+    // each need the docs actor on a dedicated thread (P2-A-1), and the
+    // test mutates process env (token + the local-worker toggle).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[serial_test::serial(sbfb_env)]
+    async fn e2e_network_execute_gate_real_http_no_frontier_mock() {
+        use nexus_worker_core::allowlist::{Allowlist, NewProject};
+        use nexus_worker_core::config::{Engine as EngineCfg, WorkerConfig};
+        use nexus_worker_core::consent::{ConsentConfig, ConsentLevel};
+        use nexus_worker_core::engine::{Engine, EngineBoot};
+        use nexus_worker_core::llm::StubBackend;
+        use std::time::Duration;
+
+        let tmp = tempdir().expect("tempdir");
+        // Known bearer token via env (the daemon reads SBFB_AUTH_TOKEN
+        // before any disk path), isolate the shell-daemon dir, and
+        // disable the OS-process worker auto-spawn — this gate wires its
+        // own in-process worker Engine so it stays hermetic (no reliance
+        // on a built `nexus-worker` binary next to the test exe).
+        let token = "a".repeat(64);
+        unsafe {
+            std::env::set_var(auth::AUTH_TOKEN_ENV, &token);
+            std::env::set_var(
+                nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV,
+                tmp.path(),
+            );
+            std::env::set_var("SBFB_NO_LOCAL_WORKER", "1");
+        }
+
+        let rt = DaemonRuntime::start(mk_opts(tmp.path()))
+            .await
+            .expect("daemon boots");
+        let base = format!("http://127.0.0.1:{}", rt.bound_addr().port());
+        let client = reqwest::Client::new();
+        let hdr = auth::AUTH_HEADER;
+
+        // 1. Mint a worker invite over real HTTP — it carries the write
+        //    ticket for the daemon's project doc.
+        let inv: serde_json::Value = client
+            .post(format!("{base}/api/v1/invite/create"))
+            .header(hdr, &token)
+            .json(&serde_json::json!({"scope": "worker"}))
+            .send()
+            .await
+            .expect("invite request")
+            .json()
+            .await
+            .expect("invite json");
+        let wire = inv["wire"].as_str().expect("invite carries a wire");
+        let invite = nexus_worker_core::invite::Invite::decode(wire).expect("decode invite");
+        let project_id = invite.payload.project_id.clone();
+        let ticket = invite
+            .payload
+            .tasks_doc_ticket
+            .clone()
+            .expect("worker invite carries the project doc ticket");
+
+        // 2. A real worker Engine on its OWN iroh node, joined by the
+        //    ticket (the production cross-node join path).
+        let allowlist = Allowlist::open_in_memory().expect("allowlist");
+        allowlist
+            .enroll(NewProject {
+                id: project_id.clone(),
+                name: "gate".into(),
+                enabled: true,
+                budget_joules: 0,
+                tasks_doc_ticket: Some(ticket),
+            })
+            .expect("enroll");
+        let sbfb_tmp = tempdir().expect("sbfb tmp");
+        let mut consent = ConsentConfig::default_for("gate-worker");
+        consent.level = ConsentLevel::All;
+        consent
+            .save_atomic(&sbfb_tmp.path().join("consent.json"))
+            .expect("consent");
+        let boot = EngineBoot {
+            worker_config: WorkerConfig {
+                engine: EngineCfg {
+                    task_poll_interval_ms: 100,
+                    max_concurrent_tasks: 1,
+                    state_flush_secs: 5,
+                },
+                ..WorkerConfig::default()
+            },
+            keypair: nexus_core_rs::KeyPair::generate(),
+            allowlist,
+            data_dir: None,
+            llm_override: Some(Box::new(StubBackend::new())),
+            sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
+            rate_limit_policy_path_override: None,
+        };
+        let mut engine = Engine::new(boot).await.expect("worker engine boots");
+        let w_stop = engine.take_shutdown_sender().expect("shutdown sender");
+        let worker = tokio::spawn(async move { engine.run_until_shutdown().await });
+
+        // 3. Submit a task over real HTTP.
+        let sub: serde_json::Value = client
+            .post(format!("{base}/api/v1/tasks/submit"))
+            .header(hdr, &token)
+            .json(&serde_json::json!({
+                "project_id": project_id,
+                "task_type": "inference",
+                "prompt": "ping",
+                "model": "llama3",
+                "is_open_source": true,
+            }))
+            .send()
+            .await
+            .expect("submit request")
+            .json()
+            .await
+            .expect("submit json");
+        let task_id = sub["task"]["task_id"]
+            .as_str()
+            .expect("submit returns a task id")
+            .to_string();
+
+        // 4. Poll real GET /result until the worker's output has flowed
+        //    back across iroh, through the result bridge + validator,
+        //    into the DB, and out the retrieval endpoint.
+        let mut result_text = None;
+        for _ in 0..150 {
+            let resp = client
+                .get(format!("{base}/api/v1/tasks/{task_id}/result"))
+                .header(hdr, &token)
+                .send()
+                .await
+                .expect("result request");
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await.expect("result json");
+                if let Some(t) = body["result_text"].as_str() {
+                    result_text = Some(t.to_string());
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        assert!(
+            result_text.is_some(),
+            "result_text must return over the real HTTP path within 30s — \
+             the full submit -> dispatch -> iroh sync -> worker -> result \
+             bridge -> DB -> retrieval frontier, with no mock"
+        );
+
+        let _ = w_stop.send(());
+        let _ = worker.await;
+        rt.shutdown().await.expect("daemon shutdown");
+        unsafe {
+            std::env::remove_var(auth::AUTH_TOKEN_ENV);
+            std::env::remove_var(nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV);
+            std::env::remove_var("SBFB_NO_LOCAL_WORKER");
+        }
+    }
+
     #[test]
     fn jitter_bounds_are_within_range() {
         for _ in 0..200 {

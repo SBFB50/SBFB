@@ -137,6 +137,10 @@ windows = { version = "0.57", features = [
 
 [dev-dependencies]
 nexus-coordinator-rs = { path = "../nexus-coordinator-rs", features = ["test-support"] }
+# 2026-06-05 hotfix #6: the E2E network-execute gate boots a real
+# DaemonRuntime and mutates process env (token + worker toggle), so it
+# must run serialised against the other env-mutating tests.
+serial_test = { workspace = true }
 # Sprint 12 Phase A: zip archive creation for blob-serve tests.
 zip = { workspace = true }
 # End-to-end tests spawn the real compiled binary with an
