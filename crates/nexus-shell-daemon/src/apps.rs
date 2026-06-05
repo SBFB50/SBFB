@@ -186,6 +186,7 @@ mod tests {
     fn make_entry(id: &str, name: &str, category: &str, open_source: bool) -> BrowseEntry {
         BrowseEntry {
             project_id: id.to_string(),
+            node_id: None,
             project_name: name.to_string(),
             category: category.to_string(),
             description: format!("{name} description"),

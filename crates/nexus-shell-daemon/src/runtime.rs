@@ -1440,6 +1440,7 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                 handle_project_announcement(
                                     &browse_aggregator,
                                     &coordinator_db,
+                                    &node,
                                     &payload,
                                 );
                             } else {
@@ -1622,6 +1623,7 @@ fn wrap_payload_with_pow_static(
 fn handle_project_announcement(
     browse_aggregator: &BrowseAggregatorHandle,
     coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    node: &Node,
     content: &[u8],
 ) {
     match publish::ProjectAnnouncement::from_gossip_bytes(content) {
@@ -1644,8 +1646,29 @@ fn handle_project_announcement(
                 .archive_ticket
                 .as_deref()
                 .and_then(crate::http::archive_hash_from_ticket);
+            // Remediation #6 (freshness): seed the announcing node's address —
+            // carried inside the archive ticket — into our endpoint's address
+            // book so the reachability probe (and a later blob fetch) can dial
+            // node_id without waiting on a pkarr round-trip. This reconciles
+            // gossip discovery with the iroh service layer; mirrors
+            // blobs.rs::fetch_ticket.
+            if let Some(ticket_str) = ann.archive_ticket.as_deref() {
+                use std::str::FromStr;
+                match iroh_blobs::ticket::BlobTicket::from_str(ticket_str) {
+                    Ok(ticket) => {
+                        let (addr, _hash, _format) = ticket.into_parts();
+                        node.memory_lookup().add_endpoint_info(addr);
+                    }
+                    Err(e) => {
+                        debug!(error = %e, "could not parse archive ticket for addr-seed");
+                    }
+                }
+            }
             let entry = BrowseEntry {
                 project_id,
+                // Remediation #6: the hosting node's dialable identity. The
+                // freshness probe dials this, NOT project_id (= blake3(name)).
+                node_id: Some(ann.node_id.clone()),
                 project_name: ann.project_name,
                 category: ann.category,
                 description: ann.description,
@@ -1875,7 +1898,7 @@ mod tests {
         )
         .with_project_id(pid.clone())
         .with_archive_ticket(ticket);
-        super::handle_project_announcement(&agg, &db, &ann.to_gossip_bytes().unwrap());
+        super::handle_project_announcement(&agg, &db, &node, &ann.to_gossip_bytes().unwrap());
         // archive_hash is derived from the ticket so the shell knows it HAS an
         // archive (the hash never travels on the announcement itself).
         let entry = agg.get_direct_entry(&pid).expect("entry present");
@@ -1884,10 +1907,11 @@ mod tests {
         node.shutdown().await.ok();
     }
 
-    #[test]
-    fn gossip_announcement_uses_per_app_id_and_indexes() {
+    #[tokio::test]
+    async fn gossip_announcement_uses_per_app_id_and_indexes() {
         use nexus_shell_daemon_core::browse::BrowseAggregator;
         use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let node = nexus_core_rs::create_node().await.unwrap();
         let agg = std::sync::Arc::new(BrowseAggregator::new());
         let db = std::sync::Arc::new(std::sync::Mutex::new(
             nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
@@ -1902,7 +1926,7 @@ mod tests {
             vec![],
         )
         .with_project_id(pid.clone());
-        super::handle_project_announcement(&agg, &db, &ann.to_gossip_bytes().unwrap());
+        super::handle_project_announcement(&agg, &db, &node, &ann.to_gossip_bytes().unwrap());
         // Browse card keyed by per-app project_id, not node_id.
         assert_eq!(agg.direct_entry_count(), 1);
         assert!(
@@ -1918,12 +1942,14 @@ mod tests {
             nexus_coordinator_rs::search::search(&db.lock().unwrap(), "Cool", 20, 0).unwrap();
         assert_eq!(total, 1);
         assert_eq!(results[0].project_id, pid);
+        node.shutdown().await.ok();
     }
 
-    #[test]
-    fn gossip_two_apps_same_node_are_distinct_cards() {
+    #[tokio::test]
+    async fn gossip_two_apps_same_node_are_distinct_cards() {
         use nexus_shell_daemon_core::browse::BrowseAggregator;
         use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let node = nexus_core_rs::create_node().await.unwrap();
         let agg = std::sync::Arc::new(BrowseAggregator::new());
         let db = std::sync::Arc::new(std::sync::Mutex::new(
             nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
@@ -1939,7 +1965,7 @@ mod tests {
                 vec![],
             )
             .with_project_id(pid);
-            super::handle_project_announcement(&agg, &db, &ann.to_gossip_bytes().unwrap());
+            super::handle_project_announcement(&agg, &db, &node, &ann.to_gossip_bytes().unwrap());
         }
         // Same node, two apps -> two distinct cards (not collapsed on node_id).
         assert_eq!(agg.direct_entry_count(), 2);
@@ -1955,12 +1981,14 @@ mod tests {
                 .1,
             1
         );
+        node.shutdown().await.ok();
     }
 
-    #[test]
-    fn gossip_legacy_announcement_falls_back_to_node_id() {
+    #[tokio::test]
+    async fn gossip_legacy_announcement_falls_back_to_node_id() {
         use nexus_shell_daemon_core::browse::BrowseAggregator;
         use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let node = nexus_core_rs::create_node().await.unwrap();
         let agg = std::sync::Arc::new(BrowseAggregator::new());
         let db = std::sync::Arc::new(std::sync::Mutex::new(
             nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
@@ -1974,12 +2002,85 @@ mod tests {
             "desc".into(),
             vec![],
         );
-        super::handle_project_announcement(&agg, &db, &ann.to_gossip_bytes().unwrap());
+        super::handle_project_announcement(&agg, &db, &node, &ann.to_gossip_bytes().unwrap());
         assert!(
             agg.get_direct_entry(&node_id).is_some(),
             "legacy announcement falls back to node_id key"
         );
+        node.shutdown().await.ok();
     }
+
+    #[tokio::test]
+    async fn freshness_probe_marks_gossiped_remote_app_reachable_e2e() {
+        // Remediation #6 real-frontier gate (PATTERNS §P57): a genuine
+        // two-node path with NO mock at the discovery<->service boundary.
+        // node_a hosts an app and gossips a ProjectAnnouncement carrying a
+        // real BlobTicket; node_b ingests it through the production handler
+        // (which seeds node_a's addr from the ticket and stores node_a's
+        // node_id on the direct entry), then aggregates /browse. The card
+        // must flip Unknown -> Reachable, proving the freshness probe dials
+        // the hosting node_id — not the per-app project_id (blake3(name)).
+        use nexus_shell_daemon_core::browse::{BrowseAggregator, BrowseStatus, DEFAULT_PROBE_TTL};
+        use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+
+        let node_a = nexus_core_rs::create_node().await.unwrap(); // remote host
+        let node_b = nexus_core_rs::create_node().await.unwrap(); // runs /browse
+
+        // node_a mints a real blob + ticket (the ticket carries a_addr).
+        let blobs_a = nexus_core_rs::BlobsClient::new(node_a.blobs_store());
+        let hash = blobs_a.add_bytes(b"zip-bytes".to_vec()).await.unwrap();
+        let a_addr = nexus_core_rs::DiscoveryClient::new(node_a.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let ticket = iroh_blobs::ticket::BlobTicket::new(
+            a_addr,
+            iroh_blobs::Hash::from_bytes(hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+
+        // Per-app project_id is blake3(name) — DISTINCT from node_a's id.
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Remote E2E App"));
+        assert_ne!(pid, node_a.node_id(), "project_id must differ from node_id");
+        let ann = ProjectAnnouncement::new(
+            node_a.node_id(),
+            "Remote E2E App".into(),
+            "tools".into(),
+            "discovered over gossip".into(),
+            vec![],
+        )
+        .with_project_id(pid.clone())
+        .with_archive_ticket(ticket);
+
+        let agg = std::sync::Arc::new(BrowseAggregator::with_durations(
+            DEFAULT_PROBE_TTL,
+            std::time::Duration::from_secs(5),
+        ));
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+
+        // Production ingest on node_b: seeds a_addr from the ticket and
+        // stores node_a's node_id on the direct entry.
+        super::handle_project_announcement(&agg, &db, &node_b, &ann.to_gossip_bytes().unwrap());
+
+        let curator = CuratorRuntime::new(None);
+        let out = agg.aggregate(&curator, &node_b).await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].status,
+            BrowseStatus::Reachable,
+            "a live gossiped remote app must probe Reachable end-to-end"
+        );
+        assert_eq!(out[0].project_id, pid, "per-app project_id preserved");
+        assert!(out[0].last_probed_at.is_some());
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
     use nexus_shell_daemon_core::registry::write_running as raw_write_running;
     use tempfile::tempdir;
 

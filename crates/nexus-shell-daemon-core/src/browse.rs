@@ -168,10 +168,32 @@ impl BrowseStatus {
 /// recommended each project.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BrowseEntry {
-    /// Pkarr node id hex of the project coordinator. The Phase D
-    /// probe calls `probe_reachable(project_id, ...)` with this
-    /// string.
+    /// Project identity hex (64 chars).
+    ///
+    /// For **curator-list** entries this is the project coordinator's
+    /// node id, so the Phase D probe dials it directly. For **direct**
+    /// (gossip) entries post-Sprint-11/#4 it is `blake3(project_name)`
+    /// — a per-app id that lets one node show N distinct cards — which
+    /// is **not** a dialable node id; the reachability probe for those
+    /// entries uses [`Self::node_id`] instead.
     pub project_id: String,
+    /// Hosting daemon's node id (hex Ed25519 public key) — the
+    /// dialable identity used by the freshness probe.
+    ///
+    /// Distinct from [`Self::project_id`], which for a direct entry is
+    /// `blake3(project_name)` and resolves to no live endpoint. Set at
+    /// announce time (`= ProjectAnnouncement.node_id`) and at local
+    /// publish/deploy time (`= our own node id`). `None` for
+    /// curator-list entries (their `project_id` already equals the
+    /// node id) and for any entry built before this field existed.
+    ///
+    /// Daemon-internal: `#[serde(skip)]` so it never crosses the
+    /// daemon→frontend boundary — the reachability signal reaches the
+    /// shell through [`Self::status`], not this field — which keeps the
+    /// `/browse` JSON byte-identical and the frontend Zod schema
+    /// untouched.
+    #[serde(skip)]
+    pub node_id: Option<String>,
     /// Display name of the project.
     pub project_name: String,
     /// Category tag from the curator list entry
@@ -607,6 +629,9 @@ impl BrowseAggregator {
 
                 out.push(BrowseEntry {
                     project_id: project.project_id.clone(),
+                    // Curator-list entries: project_id IS the node id, so the
+                    // probe above dialed it directly — no separate node_id.
+                    node_id: None,
                     project_name: project.project_name.clone(),
                     category: project.category.clone(),
                     description: project.description.clone(),
@@ -625,8 +650,51 @@ impl BrowseAggregator {
         }
 
         // Sprint 11 Phase A: append directly announced projects.
+        //
+        // Remediation #6 (freshness): the curator loop above already
+        // probes reachability, but direct (gossip) entries used to be
+        // emitted with their frozen insertion status — always `Unknown`
+        // for a remote announcement — so a remote Browse card never
+        // flipped to `Reachable` even when the hosting node was live.
+        // Probe the **hosting node_id** (NOT `project_id`, which post-#4
+        // is `blake3(name)` and dials no live endpoint) through the same
+        // TTL cache + quorum/DNS canary as the curator path. Our own
+        // self-published apps short-circuit to `Reachable` without a
+        // dial: an endpoint cannot resolve a connection to itself, and a
+        // node receiving the gossip echo of its own announcement would
+        // otherwise flip its own card to `Unreachable`.
+        //
+        // Probing is sequential per *distinct* node and bounded by the TTL
+        // cache: a dead host costs one quorum+dial timeout (~5 s worst case)
+        // and is then cached `Unreachable` for the TTL window. This mirrors
+        // the curator path's cost; making it concurrent (a bounded JoinSet
+        // over distinct node_ids) is a tracked follow-up, not needed at
+        // pilote-ferme scale.
+        let me = node.node_id();
         for entry in self.direct_entries.iter() {
-            out.push(entry.value().clone());
+            let mut e = entry.value().clone();
+            match e.node_id.as_deref() {
+                Some(nid) if nid == me.as_str() => {
+                    e.status = BrowseStatus::Reachable;
+                    e.last_probed_at = Some(iso_utc(SystemTime::now()));
+                }
+                Some(nid) => {
+                    let (status, ts) = match self.cached(nid) {
+                        Some(st) => (st, SystemTime::now()),
+                        None => self.probe_and_cache(node, nid).await,
+                    };
+                    e.status = status;
+                    e.last_probed_at = Some(iso_utc(ts));
+                }
+                None => {
+                    // Entry with no stored node_id — a curator-less or
+                    // pre-#6 direct entry, or a test fixture. No dialable
+                    // identity to probe, so preserve the status the
+                    // constructor set. (Local publish/deploy now store
+                    // node_id = our own id and take the self-branch above.)
+                }
+            }
+            out.push(e);
         }
 
         out.sort_by(|a, b| {
@@ -734,6 +802,7 @@ mod tests {
         let agg = BrowseAggregator::new();
         let mk = |pid: &str, h: &str, t: &str| BrowseEntry {
             project_id: pid.into(),
+            node_id: None,
             project_name: "n".into(),
             category: "c".into(),
             description: "d".into(),
@@ -766,6 +835,7 @@ mod tests {
     fn browse_entry_round_trips_through_json() {
         let entry = BrowseEntry {
             project_id: "a".repeat(64),
+            node_id: None,
             project_name: "gov".into(),
             category: "gov".into(),
             description: "desc".into(),
@@ -808,6 +878,7 @@ mod tests {
     fn browse_entry_with_archive_ticket_round_trips() {
         let entry = BrowseEntry {
             project_id: "a".repeat(64),
+            node_id: None,
             project_name: "web-app".into(),
             category: "misc".into(),
             description: "has archive".into(),
@@ -834,6 +905,7 @@ mod tests {
     fn browse_entry_without_archive_ticket_omits_field() {
         let entry = BrowseEntry {
             project_id: "a".repeat(64),
+            node_id: None,
             project_name: "old".into(),
             category: "misc".into(),
             description: "no archive".into(),
@@ -928,6 +1000,7 @@ mod tests {
         // Add two direct entries with distinct statuses.
         agg.add_direct_entry(BrowseEntry {
             project_id: id_a.clone(),
+            node_id: None,
             project_name: "gov".into(),
             category: "gov".into(),
             description: "desc-a".into(),
@@ -944,6 +1017,7 @@ mod tests {
         });
         agg.add_direct_entry(BrowseEntry {
             project_id: id_b.clone(),
+            node_id: None,
             project_name: "coldcase".into(),
             category: "invest".into(),
             description: "desc-b".into(),
@@ -1116,6 +1190,7 @@ mod tests {
         assert_eq!(agg.direct_entry_count(), 0);
         let entry = BrowseEntry {
             project_id: "a".repeat(64),
+            node_id: None,
             project_name: "gov".into(),
             category: "gov".into(),
             description: "self-published".into(),
@@ -1140,6 +1215,7 @@ mod tests {
         let id = "a".repeat(64);
         let entry1 = BrowseEntry {
             project_id: id.clone(),
+            node_id: None,
             project_name: "gov-v1".into(),
             category: "gov".into(),
             description: "first".into(),
@@ -1156,6 +1232,7 @@ mod tests {
         };
         let entry2 = BrowseEntry {
             project_id: id.clone(),
+            node_id: None,
             project_name: "gov-v2".into(),
             category: "gov".into(),
             description: "updated".into(),
@@ -1182,6 +1259,7 @@ mod tests {
         let agg = BrowseAggregator::new();
         let entry = BrowseEntry {
             project_id: "d".repeat(64),
+            node_id: None,
             project_name: "direct-proj".into(),
             category: "misc".into(),
             description: "self-published project".into(),
@@ -1202,6 +1280,153 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].source, BrowseSource::Direct);
         assert_eq!(out[0].project_name, "direct-proj");
+        node.shutdown().await.ok();
+    }
+
+    // ---------------------------------------------------------
+    // Remediation #6 — direct-entry freshness probe
+    // ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn aggregate_probes_direct_entry_against_node_id_not_project_id() {
+        // The load-bearing test for remediation #6. A direct (gossip)
+        // entry carries a per-app project_id (`blake3(name)`) that is
+        // NOT a dialable node id, plus the hosting node_id. The
+        // aggregator must probe the *node_id* — proven by the entry
+        // coming back Reachable even though its project_id is an id we
+        // never mint anywhere (probing it would yield Unreachable).
+        let node_a = spawn_node().await; // the "remote" host
+        let node_b = spawn_node().await; // runs /browse
+
+        // Seed A's addr into B's lookup so the dial resolves without
+        // pkarr — exactly what handle_project_announcement does from the
+        // archive ticket in production, and what blobs.rs::fetch_ticket
+        // does to download a blob.
+        let a_addr = nexus_core_rs::DiscoveryClient::new(node_a.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        node_b.memory_lookup().add_endpoint_info(a_addr);
+
+        let agg = BrowseAggregator::with_durations(DEFAULT_PROBE_TTL, Duration::from_secs(5));
+        let app_pid = "c".repeat(64); // distinct from node_a's id; never minted
+        assert_ne!(app_pid, node_a.node_id());
+        agg.add_direct_entry(BrowseEntry {
+            project_id: app_pid.clone(),
+            node_id: Some(node_a.node_id()),
+            project_name: "Remote App".into(),
+            category: "tools".into(),
+            description: "discovered via gossip".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: None,
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        });
+
+        let curator = CuratorRuntime::new(None);
+        let out = agg.aggregate(&curator, &node_b).await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].status,
+            BrowseStatus::Reachable,
+            "a direct entry whose hosting node is dialable must probe Reachable"
+        );
+        assert!(
+            out[0].last_probed_at.is_some(),
+            "a probed direct entry must carry a probe timestamp"
+        );
+        assert_eq!(
+            out[0].project_id, app_pid,
+            "per-app project_id must be preserved — we dialed node_id, not project_id"
+        );
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn aggregate_self_published_entry_is_reachable_without_dial() {
+        // Our own self-published app — or the gossip echo of our own
+        // announcement — carries our node_id. It must show Reachable
+        // without a dial: an endpoint cannot connect to itself, so a
+        // probe would otherwise flip our own card to Unreachable.
+        let node = spawn_node().await;
+        let agg = BrowseAggregator::new();
+        agg.add_direct_entry(BrowseEntry {
+            project_id: "e".repeat(64),
+            node_id: Some(node.node_id()),
+            project_name: "My App".into(),
+            category: "tools".into(),
+            description: "self-published".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: None,
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        });
+
+        let curator = CuratorRuntime::new(None);
+        let out = agg.aggregate(&curator, &node).await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].status, BrowseStatus::Reachable);
+        assert!(out[0].last_probed_at.is_some());
+        assert_eq!(
+            agg.probe_call_count(),
+            0,
+            "a self-hosted entry must never trigger a dial"
+        );
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn aggregate_two_apps_same_node_share_one_probe() {
+        // Two apps hosted by the same (unreachable) node: distinct
+        // project_ids, identical node_id. Reachability is a property of
+        // the node, so the probe cache is keyed by node_id and exactly
+        // one dial happens for both cards.
+        let node = spawn_node().await;
+        let agg = BrowseAggregator::with_durations(DEFAULT_PROBE_TTL, Duration::from_millis(300));
+        let host = "a".repeat(64); // never minted -> Unreachable
+        for pid in ["1".repeat(64), "2".repeat(64)] {
+            agg.add_direct_entry(BrowseEntry {
+                project_id: pid,
+                node_id: Some(host.clone()),
+                project_name: "App".into(),
+                category: "tools".into(),
+                description: "same host".into(),
+                curator_pubkey: String::new(),
+                curator_name: "Self-published".into(),
+                source: BrowseSource::Direct,
+                status: BrowseStatus::Unknown,
+                last_probed_at: None,
+                archive_ticket: None,
+                archive_hash: None,
+                repo_url: None,
+                provenance_hash: None,
+                is_open_source: false,
+            });
+        }
+
+        let curator = CuratorRuntime::new(None);
+        let out = agg.aggregate(&curator, &node).await;
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().all(|e| e.status == BrowseStatus::Unreachable));
+        assert_eq!(
+            agg.probe_call_count(),
+            1,
+            "two apps on one node must share a single reachability probe"
+        );
         node.shutdown().await.ok();
     }
 

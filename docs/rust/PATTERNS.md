@@ -3134,6 +3134,30 @@ and its Windows Job Object / Unix `PR_SET_PDEATHSIG` orphan kill — the
 two things an in-process test cannot cover. Re-run them by hand from a
 real daemon before a release tag.
 
+**Instance — Browse-card freshness (2026-06-05, hotfix #6 follow-up).**
+The same discovery↔service split hid a second bug: a remote app
+discovered over gossip (`ProjectAnnouncement` → `BrowseAggregator`
+direct entry) had its reachability **status** frozen at `Unknown`
+forever, because `aggregate()` probed only curator-list entries and
+appended direct entries verbatim. Worse, the two halves had drifted
+apart: post-#4 a direct entry's `project_id` is `blake3(project_name)`,
+**not** the hosting node's dialable `node_id`, so even a naive "probe
+project_id" would have dialed a non-existent endpoint and reported
+`Unreachable`. The fix carries the hosting `node_id` on the entry
+(`#[serde(skip)]`, daemon-internal — the UI still reads `status`),
+probes *that* through the curator TTL-cache + quorum/DNS canary,
+short-circuits self-hosted cards (an endpoint cannot dial itself, and
+a node receiving its own gossip echo must not flip its card offline),
+and — to reconcile discovery with the iroh service layer — seeds the
+announcing node's `EndpointAddr` (parsed from the archive ticket) into
+`memory_lookup` at announce time, mirroring `blobs.rs::fetch_ticket`.
+The real-frontier guard is
+`runtime::tests::freshness_probe_marks_gossiped_remote_app_reachable_e2e`:
+two real iroh nodes, the production `handle_project_announcement`
+ingest (seed + node_id), and a genuine dial — no mock at the
+gossip↔dial boundary. Asserting the per-app `project_id` stays distinct
+from `node_id` is what proves the probe dials the node, not the app id.
+
 **Pre-tag gate:** the E2E gate test must be green, and a manual
 full-binary smoke (daemon + auto-spawned worker, submit → poll result)
 must pass on the release artifacts. A frontier added in a future sprint

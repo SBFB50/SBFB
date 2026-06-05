@@ -1016,6 +1016,9 @@ async fn publish_project(
     // round-trip.
     let browse_entry = BrowseEntry {
         project_id,
+        // Self-published on this node: store our own node_id so the freshness
+        // probe short-circuits to Reachable (an endpoint cannot dial itself).
+        node_id: Some(state.node.node_id()),
         project_name: req.project_name,
         category: req.category,
         description: req.description,
@@ -3373,6 +3376,7 @@ mod tests {
         let state = mk_state().await; // state.node is node B
         state.browse_aggregator.add_direct_entry(BrowseEntry {
             project_id: "remote-app".into(),
+            node_id: None,
             project_name: "Remote App".into(),
             category: "tools".into(),
             description: "lives on node A".into(),
@@ -5867,6 +5871,7 @@ mod tests {
         let state = mk_state().await;
         state.browse_aggregator.add_direct_entry(BrowseEntry {
             project_id: "a".repeat(64),
+            node_id: None,
             project_name: "Test App".into(),
             category: "test".into(),
             description: "A test app".into(),
@@ -5906,6 +5911,7 @@ mod tests {
         let pid = "d".repeat(64);
         state.browse_aggregator.add_direct_entry(BrowseEntry {
             project_id: pid.clone(),
+            node_id: None,
             project_name: "Detail App".into(),
             category: "test".into(),
             description: "Detailed".into(),
@@ -6977,6 +6983,7 @@ mod tests {
         // Seed a direct browse entry so the handler finds metadata.
         state.browse_aggregator.add_direct_entry(BrowseEntry {
             project_id: project_id.clone(),
+            node_id: None,
             project_name: "test-app".into(),
             category: "tools".into(),
             description: "a test app".into(),

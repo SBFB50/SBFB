@@ -423,6 +423,9 @@ async fn publish_announcement(state: &DaemonHttpState, params: AnnouncementParam
 
     let browse_entry = BrowseEntry {
         project_id: project_id.to_string(),
+        // Self-published on this node: store our own node_id so the freshness
+        // probe short-circuits to Reachable (we never dial ourselves).
+        node_id: Some(state.node.node_id()),
         project_name: project_name.to_string(),
         category: category.to_string(),
         description: description.to_string(),
