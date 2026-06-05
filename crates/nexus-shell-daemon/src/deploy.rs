@@ -433,6 +433,11 @@ async fn publish_announcement(state: &DaemonHttpState, params: AnnouncementParam
         provenance_hash: provenance_hash.map(String::from),
         is_open_source,
     };
+    // Index into the FTS5 search corpus so the deployed app is findable by name
+    // (best-effort; the durable aggregator entry above already succeeded).
+    if let Ok(db) = state.coordinator_db.lock() {
+        crate::http::index_browse_entry(&db, &browse_entry);
+    }
     state.browse_aggregator.add_direct_entry(browse_entry);
 }
 

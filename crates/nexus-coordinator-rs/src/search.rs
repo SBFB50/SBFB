@@ -41,7 +41,13 @@ pub fn sanitize_query(input: &str) -> Option<String> {
     }
     let tokens: Vec<String> = cleaned
         .split_whitespace()
-        .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+        // Quote each token (doubling internal quotes for FTS5 safety) then
+        // append `*` so the final term of each token is a PREFIX match. Without
+        // the `*`, FTS5 matches whole tokens only: typing "bab" would never find
+        // "Babel" and "s" would never find "sbfb-...". The `*` must sit directly
+        // after the closing quote (no space) to bind as a prefix operator. This
+        // makes the interactive search-as-you-type bar actually usable.
+        .map(|t| format!("\"{}\"*", t.replace('"', "\"\"")))
         .collect();
     if tokens.is_empty() {
         return None;
@@ -63,6 +69,38 @@ pub struct Provenance<'a> {
     pub is_open_source: bool,
 }
 
+/// Base of the rowid space reserved for browse-sourced index rows.
+///
+/// Feed rows use `rowid = feed seq`, which lives in `[1, max_seq]` and will
+/// realistically never approach 2^48. Browse rows (deploy / publish / gossip
+/// announce) are keyed by a deterministic hash of `project_id` offset above
+/// this ceiling, so the two writers own DISJOINT rowid ranges: a feed upsert at
+/// `seq=N` can never clobber a browse row, and vice-versa. This resolves the
+/// rowid-partition tripwire (Sprint 73 audit C.3) that previously made wiring
+/// browse indexing in production unsafe.
+const BROWSE_ROWID_BASE: i64 = 1 << 48;
+
+/// Deterministic FTS5 rowid for a browse-sourced row, derived from `project_id`.
+///
+/// FNV-1a over the project id, folded into the 48-bit browse range. The same
+/// `project_id` always maps to the same rowid, so re-indexing a re-deployed app
+/// is an idempotent `INSERT OR REPLACE` (dedup) instead of a duplicate append.
+/// The 64->48 bit fold can collide in theory, but a single node hosts/discovers
+/// far too few projects for the birthday bound to matter.
+pub fn browse_rowid(project_id: &str) -> i64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in project_id.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    BROWSE_ROWID_BASE + (hash & ((1u64 << 48) - 1)) as i64
+}
+
+/// Index (or re-index) a browse-sourced row: deploy, self-publish, or a gossip
+/// announcement. Uses an explicit deterministic rowid in the browse partition
+/// (see [`browse_rowid`]) with `INSERT OR REPLACE`, so the project becomes
+/// full-text searchable by name/category/description and a re-deploy of the same
+/// `project_id` overwrites its row rather than appending a duplicate.
 #[allow(clippy::too_many_arguments)]
 pub fn index_entry(
     db: &CoordinatorDb,
@@ -74,12 +112,14 @@ pub fn index_entry(
     source_type: &str,
     provenance: &Provenance<'_>,
 ) -> Result<(), CoordinatorError> {
+    let rowid = browse_rowid(project_id);
     db.conn().execute(
-        "INSERT INTO search_index
-            (project_id, project_name, category, description, op_type, source_type,
+        "INSERT OR REPLACE INTO search_index
+            (rowid, project_id, project_name, category, description, op_type, source_type,
              repo_url, commit_sha, archive_hash, provenance_hash, is_open_source)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         rusqlite::params![
+            rowid,
             project_id,
             project_name,
             category,
@@ -238,10 +278,11 @@ fn extract_index_fields(op: &serde_json::Value) -> IndexFields {
 /// rebuild. The statement is a single short write, so it shares the existing
 /// critical section without an extra lock round-trip.
 ///
-/// Note on the rowid space: feed rows own `[1, max feed seq]`. Browse-sourced
-/// rows ([`index_entry`], auto rowid) are currently test-only; wiring browse
-/// indexing in production (S74) must partition the rowid space so a feed
-/// upsert cannot clobber a browse row.
+/// Note on the rowid space: feed rows own `[1, max feed seq]` (rowid = seq).
+/// Browse-sourced rows ([`index_entry`]) own the disjoint partition
+/// `[2^48, ...)` via [`browse_rowid`], so a feed upsert and a browse upsert can
+/// never collide. Both are now wired in production (deploy / self-publish; the
+/// gossip-announce path follows in the per-app project_id hotfix).
 pub fn upsert_feed_entry(
     db: &CoordinatorDb,
     seq: u64,
@@ -375,6 +416,259 @@ mod tests {
     }
 
     #[test]
+    fn prefix_query_matches_partial_token() {
+        let db = setup_db();
+        index_entry(
+            &db,
+            "p-babel",
+            "Babel Translator",
+            "translation",
+            "real-time translation",
+            "",
+            "browse",
+            &Provenance::default(),
+        )
+        .expect("index");
+        // Search-as-you-type: a partial token must match via FTS5 prefix. Before
+        // the hotfix sanitize_query quoted tokens for exact match, so "bab" (and
+        // the single-letter "s" the user reported) returned 0 hits.
+        let (r, total) = search(&db, "bab", 20, 0).expect("search");
+        assert_eq!(total, 1, "prefix 'bab' must match 'Babel Translator'");
+        assert_eq!(r[0].project_name, "Babel Translator");
+        let (_, total_one) = search(&db, "b", 20, 0).expect("search");
+        assert_eq!(total_one, 1, "single-letter prefix must still match");
+    }
+
+    #[test]
+    fn reindex_same_project_id_dedups() {
+        let db = setup_db();
+        index_entry(
+            &db,
+            "same-id",
+            "First Name",
+            "cat",
+            "alpha",
+            "",
+            "browse",
+            &Provenance::default(),
+        )
+        .expect("index 1");
+        index_entry(
+            &db,
+            "same-id",
+            "Second Name",
+            "cat",
+            "beta",
+            "",
+            "browse",
+            &Provenance::default(),
+        )
+        .expect("index 2");
+        // Deterministic browse rowid -> INSERT OR REPLACE -> one row, latest wins.
+        let (r, total) = search(&db, "Name", 20, 0).expect("search");
+        assert_eq!(total, 1, "re-index of same project_id must dedup");
+        assert_eq!(r[0].project_name, "Second Name");
+    }
+
+    #[test]
+    fn browse_and_feed_rows_share_index_without_clobbering() {
+        let db = setup_db();
+        // Feed row lives at rowid = seq (low range).
+        let row = crate::db::FeedEntryRow {
+            seq: 1,
+            op_type: "SourceBecameStale".to_string(),
+            payload: serde_json::json!({"project_id":"feed-proj","reason":"upstream archived"})
+                .to_string(),
+            author: "aa".repeat(32),
+            signature: "sig".to_string(),
+            entry_hash: "h".to_string(),
+            prev_hash: "0".repeat(64),
+            created_at: 1700000000,
+        };
+        db.insert_feed_entry(&row).expect("insert feed");
+        rebuild_from_feed(&db).expect("rebuild");
+        // Browse row lives in the disjoint 2^48 partition: it must NOT clobber
+        // the feed row sharing the FTS5 table (resolves the rowid tripwire).
+        index_entry(
+            &db,
+            "browse-proj",
+            "Browse App",
+            "tools",
+            "archived helper",
+            "",
+            "browse",
+            &Provenance::default(),
+        )
+        .expect("index browse");
+        let (_, total) = search(&db, "archived", 20, 0).expect("search");
+        assert_eq!(
+            total, 2,
+            "feed reason row and browse description row coexist; neither clobbered"
+        );
+    }
+
+    /// Index a browse-sourced app with name/category/description (test helper).
+    fn index_app(db: &CoordinatorDb, id: &str, name: &str, category: &str, desc: &str) {
+        index_entry(
+            db,
+            id,
+            name,
+            category,
+            desc,
+            "",
+            "browse",
+            &Provenance::default(),
+        )
+        .expect("index app");
+    }
+
+    #[test]
+    fn search_matches_by_category() {
+        let db = setup_db();
+        index_app(&db, "p1", "Some Tool", "translation", "does things");
+        let (r, total) = search(&db, "translation", 20, 0).expect("search");
+        assert_eq!(total, 1);
+        assert_eq!(r[0].project_name, "Some Tool");
+        assert_eq!(
+            search(&db, "transl", 20, 0).unwrap().1,
+            1,
+            "category prefix matches"
+        );
+    }
+
+    #[test]
+    fn search_matches_by_description() {
+        let db = setup_db();
+        index_app(
+            &db,
+            "p1",
+            "Quiet Name",
+            "misc",
+            "peer to peer translation engine",
+        );
+        assert_eq!(
+            search(&db, "engine", 20, 0).unwrap().1,
+            1,
+            "match by a description word"
+        );
+        assert_eq!(search(&db, "peer", 20, 0).unwrap().1, 1);
+    }
+
+    #[test]
+    fn single_letter_prefix_finds_real_app_name() {
+        // The exact symptom the user reported: typing "s" returned 0 results.
+        let db = setup_db();
+        index_app(
+            &db,
+            "p-fv",
+            "sbfb-factory-viewer",
+            "tools",
+            "factory viewer app",
+        );
+        index_app(&db, "p-ex", "sbfb-explorer", "tools", "protocol explorer");
+        index_app(&db, "p-id", "sbfb-ideas", "community", "vote on ideas");
+        let (_, total) = search(&db, "s", 20, 0).expect("search");
+        assert_eq!(
+            total, 3,
+            "single-letter 's' must find all three sbfb-* apps"
+        );
+    }
+
+    #[test]
+    fn hyphenated_name_found_by_inner_token() {
+        let db = setup_db();
+        index_app(&db, "p-fv", "sbfb-factory-viewer", "tools", "an app");
+        // FTS5 tokenizes "sbfb-factory-viewer" into sbfb / factory / viewer.
+        assert_eq!(
+            search(&db, "factory", 20, 0).unwrap().1,
+            1,
+            "inner token matches"
+        );
+        assert_eq!(
+            search(&db, "fact", 20, 0).unwrap().1,
+            1,
+            "inner token prefix matches"
+        );
+        assert_eq!(search(&db, "viewer", 20, 0).unwrap().1, 1);
+    }
+
+    #[test]
+    fn search_is_case_insensitive() {
+        let db = setup_db();
+        index_app(&db, "p1", "Babel Translator", "translation", "x");
+        assert_eq!(search(&db, "BABEL", 20, 0).unwrap().1, 1);
+        assert_eq!(search(&db, "babel", 20, 0).unwrap().1, 1);
+        assert_eq!(
+            search(&db, "BaB", 20, 0).unwrap().1,
+            1,
+            "case-insensitive prefix"
+        );
+    }
+
+    #[test]
+    fn multiple_distinct_apps_each_findable() {
+        let db = setup_db();
+        index_app(&db, "p1", "Alpha", "cat", "first");
+        index_app(&db, "p2", "Beta", "cat", "second");
+        index_app(&db, "p3", "Gamma", "cat", "third");
+        // Distinct project_ids -> distinct browse rowids -> all coexist.
+        assert_eq!(
+            search(&db, "cat", 20, 0).unwrap().1,
+            3,
+            "all share the category"
+        );
+        assert_eq!(search(&db, "Alpha", 20, 0).unwrap().1, 1);
+        assert_eq!(search(&db, "Beta", 20, 0).unwrap().1, 1);
+        assert_eq!(search(&db, "Gamma", 20, 0).unwrap().1, 1);
+    }
+
+    #[test]
+    fn arbitrary_query_never_errors() {
+        // The search bar must tolerate ANY user input: FTS5 keywords, quotes,
+        // metacharacters, and lone punctuation are neutralised by sanitize_query
+        // (quoting + token cleanup), never producing a query error or a 500.
+        let db = setup_db();
+        index_app(&db, "p1", "Normal App", "tools", "fine");
+        for q in [
+            "AND",
+            "OR NOT",
+            "app\" OR \"1",
+            "NEAR(a b)",
+            "*",
+            "\"",
+            "((((",
+            ":^$",
+            "a* b*",
+            "-foo",
+        ] {
+            assert!(
+                search(&db, q, 20, 0).is_ok(),
+                "hostile query {q:?} must not error"
+            );
+        }
+        // A normal query still works after the hostile ones.
+        assert_eq!(search(&db, "Normal", 20, 0).unwrap().1, 1);
+    }
+
+    #[test]
+    fn multi_word_query_requires_all_terms() {
+        let db = setup_db();
+        index_app(&db, "p1", "Real Time Translator", "translation", "fast");
+        index_app(&db, "p2", "Slow Translator", "translation", "slow");
+        // Two terms -> AND semantics (both must appear somewhere in the row).
+        assert_eq!(
+            search(&db, "real translator", 20, 0).unwrap().1,
+            1,
+            "both terms match only the first app"
+        );
+        assert_eq!(
+            search(&db, "translator", 20, 0).unwrap().1,
+            2,
+            "single term matches both apps"
+        );
+    }
+
+    #[test]
     fn test_search_query_returns_score() {
         let db = setup_db();
         index_entry(
@@ -452,11 +746,13 @@ mod tests {
 
     #[test]
     fn test_search_sanitizer_rejects_nul_bytes() {
+        // NUL stripped; each token is quoted (FTS5 safety) then suffixed with
+        // `*` (prefix operator for search-as-you-type).
         let result = sanitize_query("hello\0world");
-        assert_eq!(result, Some("\"helloworld\"".to_string()));
+        assert_eq!(result, Some("\"helloworld\"*".to_string()));
 
         let result_spaces = sanitize_query("hello\0 world");
-        assert_eq!(result_spaces, Some("\"hello\" \"world\"".to_string()));
+        assert_eq!(result_spaces, Some("\"hello\"* \"world\"*".to_string()));
 
         let result_empty = sanitize_query("\0\0");
         assert_eq!(result_empty, None);
@@ -464,8 +760,13 @@ mod tests {
 
     #[test]
     fn test_sanitize_escapes_fts5_syntax() {
+        // FTS5 keywords/quotes are neutralised by quoting (internal quotes
+        // doubled); each token also carries the trailing `*` prefix operator.
         let result = sanitize_query("OR AND \"test\"");
-        assert_eq!(result, Some("\"OR\" \"AND\" \"\"\"test\"\"\"".to_string()));
+        assert_eq!(
+            result,
+            Some("\"OR\"* \"AND\"* \"\"\"test\"\"\"*".to_string())
+        );
     }
 
     // -- Sprint 73 Phase C: hot incremental FTS5 reindex (D1) --

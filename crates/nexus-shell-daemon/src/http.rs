@@ -1016,9 +1016,50 @@ async fn publish_project(
         provenance_hash: req.provenance_hash.clone(),
         is_open_source: req.is_open_source,
     };
+    // Index into the FTS5 search corpus so the app is findable by name/category
+    // /description (best-effort; the durable aggregator entry above already
+    // succeeded, so a search-index hiccup must not fail the publish).
+    if let Ok(db) = state.coordinator_db.lock() {
+        index_browse_entry(&db, &browse_entry);
+    }
     state.browse_aggregator.add_direct_entry(browse_entry);
 
     (StatusCode::OK, Json(PublishResponse { published: true })).into_response()
+}
+
+/// Index a browse entry into the FTS5 search corpus so the app is findable by
+/// name/category/description from the search bar. Best-effort: a search-index
+/// write must never fail a deploy/publish (the durable browse aggregator entry
+/// already succeeded). Mirrors the best-effort feed-ingest indexing in
+/// `feed_sync`. Shared by the deploy and self-publish paths; the gossip-announce
+/// path indexes via this helper too once it carries a per-app project_id.
+pub(crate) fn index_browse_entry(
+    db: &nexus_coordinator_rs::db::CoordinatorDb,
+    entry: &BrowseEntry,
+) {
+    let provenance = nexus_coordinator_rs::search::Provenance {
+        repo_url: entry.repo_url.as_deref(),
+        commit_sha: None,
+        archive_hash: entry.archive_hash.as_deref(),
+        provenance_hash: entry.provenance_hash.as_deref(),
+        is_open_source: entry.is_open_source,
+    };
+    if let Err(e) = nexus_coordinator_rs::search::index_entry(
+        db,
+        &entry.project_id,
+        &entry.project_name,
+        &entry.category,
+        &entry.description,
+        "",       // op_type: browse rows are not feed operations
+        "browse", // source_type
+        &provenance,
+    ) {
+        tracing::warn!(
+            error = %e,
+            project = %entry.project_id,
+            "failed to index browse entry for search (non-fatal)"
+        );
+    }
 }
 
 /// `GET /default-curators` — return the daemon's configured
@@ -6447,6 +6488,206 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["project_name"], "Babel Translator");
         assert!(json["took_ms"].as_u64().is_some());
+    }
+
+    // -- Search hotfix (Sprint 73 audit): real publish->search boundary --
+
+    /// E2E at the REAL boundary (no mockFetch, no test-only `index_entry`
+    /// injection): a project published through the production `POST
+    /// /api/daemon/publish` handler MUST become findable through the production
+    /// `GET /api/daemon/search` handler. This crosses the deploy/publish ->
+    /// FTS5-index seam that every prior test mocked or bypassed, which is why a
+    /// fully broken search shipped with green tests. Asserts the three facets of
+    /// the hotfix at once: (1) the app is indexed on publish, (2) PREFIX search
+    /// ("Bab" -> "Babel") works, (3) re-publish dedups instead of duplicating.
+    #[tokio::test]
+    async fn publish_makes_app_searchable_by_name() {
+        let state = mk_state().await;
+
+        async fn do_publish(router: Router) -> StatusCode {
+            let body = serde_json::json!({
+                "project_name": "Babel Translator",
+                "category": "translation",
+                "description": "real-time peer to peer translation",
+            });
+            router
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/daemon/publish")
+                        .header("content-type", "application/json")
+                        .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status()
+        }
+
+        async fn do_search(router: Router, q: &str) -> serde_json::Value {
+            let resp = router
+                .oneshot(
+                    Request::builder()
+                        .method(Method::GET)
+                        .uri(format!("/api/daemon/search?q={q}"))
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+            let bytes = to_bytes(resp.into_body(), 16384).await.unwrap();
+            serde_json::from_slice(&bytes).unwrap()
+        }
+
+        // Publish through the real handler (shares coordinator_db across routers).
+        assert_eq!(
+            do_publish(build_test_router(state.clone())).await,
+            StatusCode::OK
+        );
+
+        // (1) exact-name search finds it.
+        let json = do_search(build_test_router(state.clone()), "Babel").await;
+        assert_eq!(
+            json["total"], 1,
+            "publish must make the app searchable by name"
+        );
+        assert_eq!(json["results"][0]["project_name"], "Babel Translator");
+
+        // (2) prefix search ("Bab") finds "Babel".
+        let json = do_search(build_test_router(state.clone()), "Bab").await;
+        assert_eq!(json["total"], 1, "prefix search must find the app");
+
+        // (3) re-publishing the same project dedups (deterministic browse rowid).
+        assert_eq!(
+            do_publish(build_test_router(state.clone())).await,
+            StatusCode::OK
+        );
+        let json = do_search(build_test_router(state.clone()), "Babel").await;
+        assert_eq!(
+            json["total"], 1,
+            "re-publish must not duplicate the index row"
+        );
+    }
+
+    /// Publish an app through the real `POST /api/daemon/publish` handler.
+    async fn publish_app(
+        state: &Arc<DaemonHttpState>,
+        name: &str,
+        category: &str,
+        desc: &str,
+    ) -> StatusCode {
+        let body = serde_json::json!({
+            "project_name": name,
+            "category": category,
+            "description": desc,
+        });
+        build_test_router(Arc::clone(state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/publish")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+    }
+
+    /// Search through the real `GET /api/daemon/search` handler; returns `total`.
+    async fn search_total(state: &Arc<DaemonHttpState>, q: &str) -> u64 {
+        let uri = format!("/api/daemon/search?q={}", q.replace(' ', "%20"));
+        let resp = build_test_router(Arc::clone(state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        json["total"].as_u64().unwrap()
+    }
+
+    #[tokio::test]
+    async fn published_app_searchable_by_category() {
+        let state = mk_state().await;
+        assert_eq!(
+            publish_app(&state, "Quiet Name", "translation", "x").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            search_total(&state, "translation").await,
+            1,
+            "find by category"
+        );
+        assert_eq!(search_total(&state, "transl").await, 1, "category prefix");
+    }
+
+    #[tokio::test]
+    async fn published_app_searchable_by_single_letter() {
+        // The exact user symptom, end-to-end through the real handlers: a
+        // published "sbfb-*" app must be found by typing the single letter "s".
+        let state = mk_state().await;
+        assert_eq!(
+            publish_app(&state, "sbfb-explorer", "tools", "protocol explorer").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            search_total(&state, "s").await,
+            1,
+            "single-letter 's' finds it"
+        );
+        assert_eq!(
+            search_total(&state, "explor").await,
+            1,
+            "inner-token prefix finds it"
+        );
+    }
+
+    #[tokio::test]
+    async fn published_app_searchable_by_description_word() {
+        let state = mk_state().await;
+        assert_eq!(
+            publish_app(&state, "Plain", "misc", "end to end encryption demo").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            search_total(&state, "encryption").await,
+            1,
+            "find by description word"
+        );
+        assert_eq!(
+            search_total(&state, "encrypt").await,
+            1,
+            "description prefix"
+        );
+    }
+
+    #[tokio::test]
+    async fn published_app_searchable_by_multi_word_query() {
+        let state = mk_state().await;
+        assert_eq!(
+            publish_app(&state, "Babel Translator", "translation", "fast").await,
+            StatusCode::OK
+        );
+        // Multi-word query (space URL-encoded): all terms must match (AND).
+        assert_eq!(
+            search_total(&state, "babel translator").await,
+            1,
+            "multi-word AND matches"
+        );
+        assert_eq!(
+            search_total(&state, "nomatch translator").await,
+            0,
+            "a missing term yields no match"
+        );
     }
 
     // -- Sprint 73 Phase D: search JSON carries the provenance triplet --
