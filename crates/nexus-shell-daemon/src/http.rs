@@ -942,13 +942,22 @@ async fn publish_project(
             .into_response();
     }
 
+    // Per-app identity: blake3(project_name) hex — the same id the feed and
+    // deploy already use. NOT node_id: one node hosts many apps, and keying the
+    // browse card on node_id collapses them all to a single card (and gives the
+    // same app a different id depending on the viewing node).
+    let project_id = hex::encode(nexus_core_rs::crypto::blake3_hash(
+        req.project_name.as_bytes(),
+    ));
+
     let mut announcement = ProjectAnnouncement::new(
         state.node_id.clone(),
         req.project_name.clone(),
         req.category.clone(),
         req.description.clone(),
         req.apps.clone(),
-    );
+    )
+    .with_project_id(project_id.clone());
 
     // Sprint 13 Phase B: propagate repo_url.
     if let Some(ref url) = req.repo_url {
@@ -1001,7 +1010,7 @@ async fn publish_project(
     // this project immediately without waiting for a gossip
     // round-trip.
     let browse_entry = BrowseEntry {
-        project_id: state.node_id.clone(),
+        project_id,
         project_name: req.project_name,
         category: req.category,
         description: req.description,
@@ -6687,6 +6696,79 @@ mod tests {
             search_total(&state, "nomatch translator").await,
             0,
             "a missing term yields no match"
+        );
+    }
+
+    /// GET /api/daemon/browse and return the entries array.
+    async fn browse_entries(state: &Arc<DaemonHttpState>) -> Vec<serde_json::Value> {
+        let resp = build_test_router(Arc::clone(state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/browse")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 65536).await.unwrap()).unwrap();
+        json["entries"].as_array().cloned().unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn multiple_apps_get_distinct_browse_cards() {
+        // One node hosting two apps must show TWO distinct Browse cards, keyed by
+        // per-app project_id (blake3(name)). Before the fix both took the node_id
+        // as project_id and the second collapsed onto the first (single card).
+        let state = mk_state().await;
+        assert_eq!(
+            publish_app(&state, "App One", "tools", "first").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            publish_app(&state, "App Two", "tools", "second").await,
+            StatusCode::OK
+        );
+
+        let entries = browse_entries(&state).await;
+        let ids: std::collections::HashSet<&str> = entries
+            .iter()
+            .filter_map(|e| e["project_id"].as_str())
+            .collect();
+        assert_eq!(
+            ids.len(),
+            2,
+            "two apps -> two distinct cards, not collapsed"
+        );
+        // Each is individually searchable.
+        assert_eq!(search_total(&state, "One").await, 1);
+        assert_eq!(search_total(&state, "Two").await, 1);
+    }
+
+    #[tokio::test]
+    async fn published_app_browse_id_is_blake3_not_node_id() {
+        let state = mk_state().await;
+        assert_eq!(
+            publish_app(&state, "Identity Test", "tools", "x").await,
+            StatusCode::OK
+        );
+        let expected = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Identity Test"));
+        let entries = browse_entries(&state).await;
+        let entry = entries
+            .iter()
+            .find(|e| e["project_name"] == "Identity Test")
+            .expect("published app present in browse");
+        assert_eq!(
+            entry["project_id"].as_str().unwrap(),
+            expected,
+            "browse card id is blake3(project_name)"
+        );
+        assert_ne!(
+            entry["project_id"].as_str().unwrap(),
+            state.node_id,
+            "browse card id is NOT the node_id"
         );
     }
 

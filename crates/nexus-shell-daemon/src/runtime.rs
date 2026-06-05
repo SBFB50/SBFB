@@ -1384,7 +1384,11 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                     }
                                 }
                             } else if publish::is_project_announcement(&payload) {
-                                handle_project_announcement(&browse_aggregator, &payload);
+                                handle_project_announcement(
+                                    &browse_aggregator,
+                                    &coordinator_db,
+                                    &payload,
+                                );
                             } else {
                                 handle_announcement(&curator_runtime, &node, &payload).await;
                             }
@@ -1562,11 +1566,24 @@ fn wrap_payload_with_pow_static(
     nexus_core_rs::PowEnvelope::encode(&proof, payload)
 }
 
-fn handle_project_announcement(browse_aggregator: &BrowseAggregatorHandle, content: &[u8]) {
+fn handle_project_announcement(
+    browse_aggregator: &BrowseAggregatorHandle,
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    content: &[u8],
+) {
     match publish::ProjectAnnouncement::from_gossip_bytes(content) {
         Ok(ann) => {
+            // Per-app identity from the announcement (blake3(name)). Fall back to
+            // node_id only for a legacy announcement that predates the field, so
+            // a node hosting N apps shows N distinct cards instead of collapsing
+            // them onto one node_id-keyed card.
+            let project_id = if ann.project_id.is_empty() {
+                ann.node_id.clone()
+            } else {
+                ann.project_id.clone()
+            };
             let entry = BrowseEntry {
-                project_id: ann.node_id.clone(),
+                project_id,
                 project_name: ann.project_name,
                 category: ann.category,
                 description: ann.description,
@@ -1581,6 +1598,12 @@ fn handle_project_announcement(browse_aggregator: &BrowseAggregatorHandle, conte
                 provenance_hash: ann.provenance_hash,
                 is_open_source: ann.is_open_source,
             };
+            // Index the gossiped app for search (the gossip path deferred from the
+            // search hotfix). Best-effort: a search-index hiccup must never drop
+            // the discovered browse entry.
+            if let Ok(db) = coordinator_db.lock() {
+                crate::http::index_browse_entry(&db, &entry);
+            }
             browse_aggregator.add_direct_entry(entry);
             info!(
                 node_id = %ann.node_id,
@@ -1755,6 +1778,103 @@ async fn boot_feed_namespace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gossip_announcement_uses_per_app_id_and_indexes() {
+        use nexus_shell_daemon_core::browse::BrowseAggregator;
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let agg = std::sync::Arc::new(BrowseAggregator::new());
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let node_id = "a".repeat(64);
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Cool App"));
+        let ann = ProjectAnnouncement::new(
+            node_id.clone(),
+            "Cool App".into(),
+            "tools".into(),
+            "p2p tool".into(),
+            vec![],
+        )
+        .with_project_id(pid.clone());
+        super::handle_project_announcement(&agg, &db, &ann.to_gossip_bytes().unwrap());
+        // Browse card keyed by per-app project_id, not node_id.
+        assert_eq!(agg.direct_entry_count(), 1);
+        assert!(
+            agg.get_direct_entry(&pid).is_some(),
+            "card keyed by blake3 id"
+        );
+        assert!(
+            agg.get_direct_entry(&node_id).is_none(),
+            "card is NOT keyed by node_id"
+        );
+        // And searchable through the gossip indexing path (deferred from #2).
+        let (results, total) =
+            nexus_coordinator_rs::search::search(&db.lock().unwrap(), "Cool", 20, 0).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(results[0].project_id, pid);
+    }
+
+    #[test]
+    fn gossip_two_apps_same_node_are_distinct_cards() {
+        use nexus_shell_daemon_core::browse::BrowseAggregator;
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let agg = std::sync::Arc::new(BrowseAggregator::new());
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let node_id = "b".repeat(64);
+        for name in ["First App", "Second App"] {
+            let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(name.as_bytes()));
+            let ann = ProjectAnnouncement::new(
+                node_id.clone(),
+                name.into(),
+                "tools".into(),
+                "desc".into(),
+                vec![],
+            )
+            .with_project_id(pid);
+            super::handle_project_announcement(&agg, &db, &ann.to_gossip_bytes().unwrap());
+        }
+        // Same node, two apps -> two distinct cards (not collapsed on node_id).
+        assert_eq!(agg.direct_entry_count(), 2);
+        assert_eq!(
+            nexus_coordinator_rs::search::search(&db.lock().unwrap(), "First", 20, 0)
+                .unwrap()
+                .1,
+            1
+        );
+        assert_eq!(
+            nexus_coordinator_rs::search::search(&db.lock().unwrap(), "Second", 20, 0)
+                .unwrap()
+                .1,
+            1
+        );
+    }
+
+    #[test]
+    fn gossip_legacy_announcement_falls_back_to_node_id() {
+        use nexus_shell_daemon_core::browse::BrowseAggregator;
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let agg = std::sync::Arc::new(BrowseAggregator::new());
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let node_id = "c".repeat(64);
+        // No with_project_id() -> empty -> receiver falls back to node_id.
+        let ann = ProjectAnnouncement::new(
+            node_id.clone(),
+            "Legacy App".into(),
+            "tools".into(),
+            "desc".into(),
+            vec![],
+        );
+        super::handle_project_announcement(&agg, &db, &ann.to_gossip_bytes().unwrap());
+        assert!(
+            agg.get_direct_entry(&node_id).is_some(),
+            "legacy announcement falls back to node_id key"
+        );
+    }
     use nexus_shell_daemon_core::registry::write_running as raw_write_running;
     use tempfile::tempdir;
 

@@ -38,6 +38,17 @@ pub struct ProjectAnnouncement {
     pub msg_type: String,
     /// Hex node_id of the announcing daemon.
     pub node_id: String,
+    /// Per-app project identity: `blake3(project_name)` hex (64 chars).
+    ///
+    /// Distinct from `node_id` (the hosting daemon): one node can host many
+    /// apps, each with its own `project_id`. Keying browse entries on this
+    /// instead of `node_id` is what lets a remote viewer see N distinct cards
+    /// for an N-app node (and resolve detail/proof-card/provenance consistently
+    /// cross-node). `#[serde(default)]` keeps decode tolerant of a legacy
+    /// announcement that predates this field — an empty value makes the receiver
+    /// fall back to `node_id`. Same id the feed and deploy already use.
+    #[serde(default)]
+    pub project_id: String,
     /// Project display name.
     pub project_name: String,
     /// Category tag.
@@ -90,6 +101,9 @@ pub enum ProjectAnnouncementError {
     /// The `node_id` field is not a valid 64-char lowercase hex string.
     #[error("invalid node_id: expected 64 hex chars, got {0:?}")]
     InvalidNodeId(String),
+    /// The `project_id` field is present but not a valid 64-char hex string.
+    #[error("invalid project_id: expected empty or 64 hex chars, got {0:?}")]
+    InvalidProjectId(String),
 }
 
 impl ProjectAnnouncement {
@@ -105,6 +119,7 @@ impl ProjectAnnouncement {
             v: PROJECT_ANNOUNCEMENT_VERSION,
             msg_type: "project".to_string(),
             node_id,
+            project_id: String::new(),
             project_name,
             category,
             description,
@@ -114,6 +129,12 @@ impl ProjectAnnouncement {
             provenance_hash: None,
             is_open_source: false,
         }
+    }
+
+    /// Attach the per-app `project_id` (`blake3(project_name)` hex).
+    pub fn with_project_id(mut self, project_id: String) -> Self {
+        self.project_id = project_id;
+        self
     }
 
     /// Attach a BlobTicket to the announcement.
@@ -172,6 +193,14 @@ impl ProjectAnnouncement {
         if ann.node_id.len() != 64 || !ann.node_id.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err(ProjectAnnouncementError::InvalidNodeId(ann.node_id));
         }
+        // Per-app project_id: empty is tolerated (legacy announcement predating
+        // the field), but a present value must be a 64-char hex string (blake3).
+        if !ann.project_id.is_empty()
+            && (ann.project_id.len() != 64
+                || !ann.project_id.chars().all(|c| c.is_ascii_hexdigit()))
+        {
+            return Err(ProjectAnnouncementError::InvalidProjectId(ann.project_id));
+        }
         Ok(ann)
     }
 }
@@ -206,6 +235,80 @@ pub fn browse_request_bytes() -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_id_round_trips_through_gossip_bytes() {
+        let pid = "ab".repeat(32); // 64 hex
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "Name".into(),
+            "cat".into(),
+            "desc".into(),
+            vec![],
+        )
+        .with_project_id(pid.clone());
+        let bytes = ann.to_gossip_bytes().expect("encode");
+        let decoded = ProjectAnnouncement::from_gossip_bytes(&bytes).expect("decode");
+        assert_eq!(decoded.project_id, pid);
+        assert_ne!(
+            decoded.project_id, decoded.node_id,
+            "per-app project_id is distinct from the hosting node_id"
+        );
+    }
+
+    #[test]
+    fn empty_project_id_is_tolerated_as_legacy() {
+        // An announcement built without with_project_id() decodes fine (empty).
+        let ann = ProjectAnnouncement::new(
+            "b".repeat(64),
+            "Name".into(),
+            "cat".into(),
+            "desc".into(),
+            vec![],
+        );
+        let bytes = ann.to_gossip_bytes().expect("encode");
+        assert_eq!(
+            ProjectAnnouncement::from_gossip_bytes(&bytes)
+                .expect("decode")
+                .project_id,
+            ""
+        );
+        // A JSON missing the field entirely also decodes (serde default).
+        let json = serde_json::json!({
+            "v": PROJECT_ANNOUNCEMENT_VERSION, "type": "project",
+            "node_id": "c".repeat(64), "project_name": "X",
+            "category": "c", "description": "d"
+        });
+        assert_eq!(
+            ProjectAnnouncement::from_gossip_bytes(json.to_string().as_bytes())
+                .expect("decode legacy")
+                .project_id,
+            ""
+        );
+    }
+
+    #[test]
+    fn malformed_project_id_is_rejected() {
+        for bad in [
+            "xyz".to_string(),
+            "a".repeat(63),
+            "a".repeat(65),
+            "g".repeat(64),
+        ] {
+            let json = serde_json::json!({
+                "v": PROJECT_ANNOUNCEMENT_VERSION, "type": "project",
+                "node_id": "d".repeat(64), "project_id": bad,
+                "project_name": "X", "category": "c", "description": "d"
+            });
+            assert!(
+                matches!(
+                    ProjectAnnouncement::from_gossip_bytes(json.to_string().as_bytes()),
+                    Err(ProjectAnnouncementError::InvalidProjectId(_))
+                ),
+                "malformed project_id {bad:?} must be rejected"
+            );
+        }
+    }
 
     #[test]
     fn announcement_round_trips_through_json() {

@@ -391,7 +391,11 @@ async fn publish_announcement(state: &DaemonHttpState, params: AnnouncementParam
         category.to_string(),
         description.to_string(),
         apps.to_vec(),
-    );
+    )
+    // Per-app identity (blake3(name)) on the wire so a remote viewer can tell
+    // this node's apps apart and resolve them consistently. Already computed by
+    // the deploy pipeline; the BrowseEntry below uses the same id.
+    .with_project_id(project_id.to_string());
 
     if let Some(url) = repo_url {
         announcement = announcement.with_repo_url(url.to_string());
