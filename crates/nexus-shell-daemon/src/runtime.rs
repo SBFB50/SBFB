@@ -1582,6 +1582,15 @@ fn handle_project_announcement(
             } else {
                 ann.project_id.clone()
             };
+            // Derive the archive hash from the ticket: the hash itself never
+            // travels on the announcement (only the ticket does), so without this
+            // the shell sees archive_hash=None, marks the app as having no archive
+            // (BrowsedProject hasArchive), and never opens it. blob-serve resolves
+            // the ticket back from the aggregator to P2P-download the zip.
+            let archive_hash = ann
+                .archive_ticket
+                .as_deref()
+                .and_then(crate::http::archive_hash_from_ticket);
             let entry = BrowseEntry {
                 project_id,
                 project_name: ann.project_name,
@@ -1593,7 +1602,7 @@ fn handle_project_announcement(
                 status: BrowseStatus::Unknown,
                 last_probed_at: None,
                 archive_ticket: ann.archive_ticket,
-                archive_hash: None, // Hash not available from gossip announcements; only from local publish
+                archive_hash,
                 repo_url: ann.repo_url,
                 provenance_hash: ann.provenance_hash,
                 is_open_source: ann.is_open_source,
@@ -1778,6 +1787,49 @@ async fn boot_feed_namespace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn gossip_announcement_populates_archive_hash_from_ticket() {
+        use nexus_shell_daemon_core::browse::BrowseAggregator;
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        // Node hosting the zip (provides the ticket address).
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let blobs = nexus_core_rs::BlobsClient::new(node.blobs_store());
+        let hash = blobs.add_bytes(b"zip-bytes".to_vec()).await.unwrap();
+        let hash_hex = hex::encode(hash);
+        let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let ticket = iroh_blobs::ticket::BlobTicket::new(
+            addr,
+            iroh_blobs::Hash::from_bytes(hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+
+        let agg = std::sync::Arc::new(BrowseAggregator::new());
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Remote App"));
+        let ann = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "Remote App".into(),
+            "tools".into(),
+            "d".into(),
+            vec![],
+        )
+        .with_project_id(pid.clone())
+        .with_archive_ticket(ticket);
+        super::handle_project_announcement(&agg, &db, &ann.to_gossip_bytes().unwrap());
+        // archive_hash is derived from the ticket so the shell knows it HAS an
+        // archive (the hash never travels on the announcement itself).
+        let entry = agg.get_direct_entry(&pid).expect("entry present");
+        assert_eq!(entry.archive_hash, Some(hash_hex));
+        assert!(entry.archive_ticket.is_some());
+        node.shutdown().await.ok();
+    }
 
     #[test]
     fn gossip_announcement_uses_per_app_id_and_indexes() {

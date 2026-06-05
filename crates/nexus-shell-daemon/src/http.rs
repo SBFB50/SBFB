@@ -1184,39 +1184,52 @@ async fn blob_serve(
 
     // Load into cache if not already present.
     if !state.blob_serve_cache.has(&hash) {
-        // Sprint 68 Phase B: try the ephemeral preview store first.
-        if let Some(zip_bytes) = state.preview_store.get(&hash) {
-            if let Err(e) = state.blob_serve_cache.load(
-                &hash,
-                &zip_bytes,
-                blob_serve::DEFAULT_MAX_DECOMPRESSED_BYTES,
-            ) {
-                warn!(error = %e, "failed to decompress preview zip");
-                return (StatusCode::BAD_REQUEST, format!("invalid archive: {e}")).into_response();
+        let hash_bytes: [u8; 32] = match hex::decode(&hash).ok().and_then(|b| b.try_into().ok()) {
+            Some(h) => h,
+            None => return (StatusCode::BAD_REQUEST, "invalid hash hex").into_response(),
+        };
+        // Acquire the zip bytes from, in order: the ephemeral preview store
+        // (Sprint 68), the local blob store, then — for an app DISCOVERED ON THE
+        // NETWORK whose zip lives on the announcing node — a P2P download via the
+        // archive ticket resolved from the browse aggregator. Without that last
+        // tier, any app the user did not publish himself never renders (the whole
+        // point of "the network distributes the app").
+        let blobs = BlobsClient::new(state.node.blobs_store());
+        let zip_bytes: Vec<u8> = if let Some(z) = state.preview_store.get(&hash) {
+            z
+        } else if let Ok(z) = blobs.get_bytes(hash_bytes).await {
+            z
+        } else if let Some(ticket) = state.browse_aggregator.find_archive_ticket_by_hash(&hash) {
+            // The ticket carries the providing node's EndpointAddr; download the
+            // blob into our local store, then read it back.
+            if let Err(e) = blobs
+                .fetch_ticket(state.node.endpoint(), state.node.memory_lookup(), &ticket)
+                .await
+            {
+                warn!(error = %e, hash = %hash, "P2P archive fetch failed");
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    "failed to fetch app archive from network",
+                )
+                    .into_response();
+            }
+            match blobs.get_bytes(hash_bytes).await {
+                Ok(z) => z,
+                Err(_) => {
+                    return (StatusCode::BAD_GATEWAY, "fetched archive unavailable")
+                        .into_response();
+                }
             }
         } else {
-            let blobs = BlobsClient::new(state.node.blobs_store());
-            let hash_bytes: [u8; 32] = match hex::decode(&hash).ok().and_then(|b| b.try_into().ok())
-            {
-                Some(h) => h,
-                None => return (StatusCode::BAD_REQUEST, "invalid hash hex").into_response(),
-            };
-            match blobs.get_bytes(hash_bytes).await {
-                Ok(zip_bytes) => {
-                    if let Err(e) = state.blob_serve_cache.load(
-                        &hash,
-                        &zip_bytes,
-                        blob_serve::DEFAULT_MAX_DECOMPRESSED_BYTES,
-                    ) {
-                        warn!(error = %e, "failed to decompress zip blob");
-                        return (StatusCode::BAD_REQUEST, format!("invalid archive: {e}"))
-                            .into_response();
-                    }
-                }
-                Err(_) => {
-                    return (StatusCode::NOT_FOUND, "blob not found").into_response();
-                }
-            }
+            return (StatusCode::NOT_FOUND, "blob not found").into_response();
+        };
+        if let Err(e) = state.blob_serve_cache.load(
+            &hash,
+            &zip_bytes,
+            blob_serve::DEFAULT_MAX_DECOMPRESSED_BYTES,
+        ) {
+            warn!(error = %e, "failed to decompress zip");
+            return (StatusCode::BAD_REQUEST, format!("invalid archive: {e}")).into_response();
         }
     }
 
@@ -1239,6 +1252,19 @@ async fn blob_serve(
         file_bytes,
     )
         .into_response()
+}
+
+/// Decode the blob hash (hex) a `BlobTicket` string points to.
+///
+/// The archive hash never travels on a gossip `ProjectAnnouncement` — only the
+/// ticket does. Deriving the hash at ingest lets a discovered app expose its
+/// `archive_hash` so the shell knows it HAS an archive and builds the blob-serve
+/// URL; blob-serve then resolves the ticket back from the aggregator to download
+/// the zip on first open. Returns `None` for a malformed ticket.
+pub(crate) fn archive_hash_from_ticket(ticket_str: &str) -> Option<String> {
+    let ticket = ticket_str.parse::<iroh_blobs::ticket::BlobTicket>().ok()?;
+    let (_addr, hash, _format) = ticket.into_parts();
+    Some(hex::encode(hash.as_bytes()))
 }
 
 /// Mint a BlobTicket from a hex hash in the local blob store.
@@ -3298,6 +3324,94 @@ mod tests {
             .to_str()
             .unwrap();
         assert!(ct.contains("javascript"));
+    }
+
+    /// THE product test (real cross-node boundary, no mock): an app whose zip
+    /// lives on ANOTHER node must render. Node A hosts the zip; node B knows it
+    /// only through a browse entry carrying the archive ticket; GET /blob-serve
+    /// on B P2P-downloads the zip from A and serves it. Before the fix, blob-serve
+    /// read only B's local store and returned 404 -> any app not self-published
+    /// never loaded.
+    #[tokio::test]
+    async fn remote_app_renders_via_p2p_fetch() {
+        use nexus_shell_daemon_core::browse::{BrowseEntry, BrowseSource, BrowseStatus};
+
+        // Node A hosts the app zip.
+        let node_a = create_node().await.expect("node A");
+        let blobs_a = BlobsClient::new(node_a.blobs_store());
+        let zip = make_zip(&[("index.html", b"<html><body>remote</body></html>")]);
+        let hash = blobs_a.add_bytes(zip).await.unwrap();
+        let hash_hex = hex::encode(hash);
+        let addr = nexus_core_rs::DiscoveryClient::new(node_a.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("node A address");
+        let ticket = iroh_blobs::ticket::BlobTicket::new(
+            addr,
+            iroh_blobs::Hash::from_bytes(hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+
+        // Node B (the visitor) only knows the app via a browse entry + ticket.
+        let state = mk_state().await; // state.node is node B
+        state.browse_aggregator.add_direct_entry(BrowseEntry {
+            project_id: "remote-app".into(),
+            project_name: "Remote App".into(),
+            category: "tools".into(),
+            description: "lives on node A".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: Some(ticket),
+            archive_hash: Some(hash_hex.clone()),
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        });
+
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/blob-serve/{hash_hex}/index.html"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "remote app must render via P2P fetch from node A"
+        );
+        let body = to_bytes(resp.into_body(), 65536).await.unwrap();
+        assert_eq!(&body[..], b"<html><body>remote</body></html>");
+
+        node_a.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn archive_hash_from_ticket_decodes_the_hash() {
+        let node = create_node().await.unwrap();
+        let blobs = BlobsClient::new(node.blobs_store());
+        let hash = blobs.add_bytes(b"some bytes".to_vec()).await.unwrap();
+        let hash_hex = hex::encode(hash);
+        let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let ticket = iroh_blobs::ticket::BlobTicket::new(
+            addr,
+            iroh_blobs::Hash::from_bytes(hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+        assert_eq!(archive_hash_from_ticket(&ticket), Some(hash_hex));
+        assert_eq!(archive_hash_from_ticket("not-a-valid-ticket"), None);
+        node.shutdown().await.ok();
     }
 
     #[tokio::test]

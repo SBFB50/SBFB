@@ -556,6 +556,21 @@ impl BrowseAggregator {
             .map(|e| e.value().clone())
     }
 
+    /// Find the archive ticket of a directly-announced project whose archive
+    /// hash matches `hash_hex`. Used by blob-serve to P2P-download an app
+    /// discovered on the network: the ticket carries the providing node's
+    /// address, which a bare content hash does not.
+    pub fn find_archive_ticket_by_hash(&self, hash_hex: &str) -> Option<String> {
+        self.direct_entries.iter().find_map(|e| {
+            let entry = e.value();
+            if entry.archive_hash.as_deref() == Some(hash_hex) {
+                entry.archive_ticket.clone()
+            } else {
+                None
+            }
+        })
+    }
+
     /// Iterate every cached curator list, flatten its entries,
     /// probe each unique project_id under the TTL cache, and
     /// return a sorted [`BrowseEntry`] vector. Sprint 11 Phase A
@@ -712,6 +727,39 @@ mod tests {
             serde_json::to_string(&BrowseStatus::Unknown).unwrap(),
             "\"unknown\""
         );
+    }
+
+    #[test]
+    fn find_archive_ticket_by_hash_matches_then_misses() {
+        let agg = BrowseAggregator::new();
+        let mk = |pid: &str, h: &str, t: &str| BrowseEntry {
+            project_id: pid.into(),
+            project_name: "n".into(),
+            category: "c".into(),
+            description: "d".into(),
+            curator_pubkey: String::new(),
+            curator_name: "x".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: Some(t.into()),
+            archive_hash: Some(h.into()),
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        };
+        agg.add_direct_entry(mk("p1", &"aa".repeat(32), "ticket-A"));
+        agg.add_direct_entry(mk("p2", &"bb".repeat(32), "ticket-B"));
+        assert_eq!(
+            agg.find_archive_ticket_by_hash(&"bb".repeat(32)),
+            Some("ticket-B".to_string())
+        );
+        assert_eq!(agg.find_archive_ticket_by_hash(&"cc".repeat(32)), None);
+        // An entry with no archive_hash is never matched.
+        let mut no_hash = mk("p3", "aa", "ticket-C");
+        no_hash.archive_hash = None;
+        agg.add_direct_entry(no_hash);
+        assert_eq!(agg.find_archive_ticket_by_hash(""), None);
     }
 
     #[test]
