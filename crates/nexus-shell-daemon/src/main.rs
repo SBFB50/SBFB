@@ -47,6 +47,7 @@ mod named_pipe_server;
 mod noop_identity;
 mod panic;
 mod quarantine_api;
+mod result_sync;
 mod runtime;
 mod shell_api;
 mod storage_api;

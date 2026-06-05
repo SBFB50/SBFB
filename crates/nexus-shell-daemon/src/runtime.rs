@@ -225,6 +225,12 @@ pub struct DaemonRuntime {
     pow_policy_watcher: Option<PowPolicyWatcher>,
     dispatch_handle: Option<JoinHandle<()>>,
     dispatch_shutdown: Option<oneshot::Sender<()>>,
+    /// 2026-06-05 platform remediation (hotfix #5): result-sync bridge
+    /// task + its shutdown watch. Forwards worker-written `result:`
+    /// doc entries into the validator loop. Kept on the runtime so the
+    /// task lives for the daemon's whole lifetime and joins cleanly.
+    result_sync_handle: Option<JoinHandle<()>>,
+    result_sync_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     feed_handle: Option<JoinHandle<()>>,
     feed_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     feed_join_handles: Option<Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>>,
@@ -618,6 +624,22 @@ impl DaemonRuntime {
             ))
         };
 
+        // 6c-2b. 2026-06-05 platform remediation (hotfix #5): result-sync
+        //        bridge. The dispatch loop writes `task:` entries; a
+        //        worker writes `result:` entries back onto the same doc,
+        //        which iroh-docs replicates here. This loop is the
+        //        missing producer that forwards replicated `result:`
+        //        entries into the validator loop (guardrail → persist →
+        //        kudos). Without it `GET /api/v1/tasks/{id}/result`
+        //        404'd forever and the Network execute arm timed out.
+        let (result_sync_shutdown_tx, result_sync_shutdown_rx) = tokio::sync::watch::channel(false);
+        let result_sync_handle = crate::result_sync::spawn_result_subscribe(
+            Arc::clone(&project_doc),
+            Arc::clone(&node),
+            result_event_tx.clone(),
+            result_sync_shutdown_rx,
+        );
+
         // 6c-3. Sprint 58 Phase C: create or reopen iroh-docs storage
         //       namespaces for replicated apps. Uses the
         //       storage_namespaces M8 table to persist namespace IDs
@@ -997,6 +1019,8 @@ impl DaemonRuntime {
             pow_policy_watcher: _pow_policy_watcher,
             dispatch_handle: Some(dispatch_handle),
             dispatch_shutdown: Some(dispatch_shutdown_tx),
+            result_sync_handle: Some(result_sync_handle),
+            result_sync_shutdown: Some(result_sync_shutdown_tx),
             feed_handle,
             feed_shutdown: Some(feed_shutdown_tx),
             feed_join_handles: Some(feed_join_handles),
@@ -1092,6 +1116,18 @@ impl DaemonRuntime {
                 if let Err(e) = (&mut h).await {
                     warn!(error = %e, "feed join task join failed");
                 }
+            }
+        }
+
+        // Hotfix #5: stop the result-sync bridge before the dispatch
+        // loop and the node — it subscribes to the project doc, so it
+        // must release that subscription ahead of the iroh node close.
+        if let Some(tx) = self.result_sync_shutdown.take() {
+            let _ = tx.send(true);
+        }
+        if let Some(mut handle) = self.result_sync_handle.take() {
+            if let Err(e) = (&mut handle).await {
+                warn!(error = %e, "result sync task join failed");
             }
         }
 
