@@ -158,6 +158,11 @@ pub struct DaemonHttpState {
     /// task submit handler sends signed TaskEntry values here; the
     /// dispatch loop writes them to the project doc sequentially.
     pub task_dispatch_tx: Option<crate::dispatch_loop::TaskEntrySender>,
+    /// 2026-06-05 hotfix #5 (maillon A): supervises the on-demand
+    /// co-located compute worker. The task submit handler nudges it
+    /// (`ensure_spawned`) so a node executes its own Network tasks
+    /// without the user running `nexus-worker` by hand.
+    pub local_worker: std::sync::Arc<crate::local_worker::LocalWorkerSupervisor>,
     /// Sprint 56 Phase C: per-app in-memory key-value storage for the
     /// bridge `storage_*` methods.
     pub app_storage: crate::storage_api::AppStorage,
@@ -1526,6 +1531,15 @@ async fn coordinator_submit_task(
                     tracing::warn!("dispatch channel full or closed: {e}");
                 }
             }
+            // Hotfix #5 (maillon A): nudge the on-demand local worker so
+            // a node executes its own tasks without a manual
+            // `nexus-worker` setup. Fire-and-forget — the cold start
+            // (worker boot + doc sync) runs in the background; the
+            // submit returns the task id immediately. Idempotent.
+            if let Some(doc) = state.project_doc.clone() {
+                let lw = std::sync::Arc::clone(&state.local_worker);
+                tokio::spawn(async move { lw.ensure_spawned(doc).await });
+            }
             match serde_json::to_value(&entry) {
                 Ok(body) => (StatusCode::OK, Json(body)).into_response(),
                 Err(e) => {
@@ -2394,6 +2408,7 @@ mod tests {
             sbfb_home: None,
             project_doc: None,
             task_dispatch_tx: None,
+            local_worker: std::sync::Arc::new(crate::local_worker::LocalWorkerSupervisor::new()),
             app_storage: crate::storage_api::new_app_storage(),
             storage_namespaces: crate::storage_api::new_storage_namespaces(),
             storage_write_limiter: Arc::new(
@@ -3162,6 +3177,7 @@ mod tests {
             sbfb_home: None,
             project_doc: None,
             task_dispatch_tx: None,
+            local_worker: std::sync::Arc::new(crate::local_worker::LocalWorkerSupervisor::new()),
             app_storage: crate::storage_api::new_app_storage(),
             storage_namespaces: crate::storage_api::new_storage_namespaces(),
             storage_write_limiter: Arc::new(

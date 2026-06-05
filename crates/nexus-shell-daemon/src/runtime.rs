@@ -231,6 +231,10 @@ pub struct DaemonRuntime {
     /// task lives for the daemon's whole lifetime and joins cleanly.
     result_sync_handle: Option<JoinHandle<()>>,
     result_sync_shutdown: Option<tokio::sync::watch::Sender<bool>>,
+    /// Hotfix #5 (maillon A): the on-demand local worker supervisor.
+    /// Killed first at shutdown so the worker process never outlives
+    /// the daemon (the Job Object / PDEATHSIG covers an abrupt kill).
+    local_worker: Option<Arc<crate::local_worker::LocalWorkerSupervisor>>,
     feed_handle: Option<JoinHandle<()>>,
     feed_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     feed_join_handles: Option<Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>>,
@@ -813,6 +817,10 @@ impl DaemonRuntime {
         // 6d. Build gossip command channel + shared HTTP state +
         //     spawn the serve task.
         let (gossip_cmd_tx, gossip_cmd_rx) = tokio::sync::mpsc::channel::<GossipCmd>(64);
+        // Hotfix #5 (maillon A): the on-demand local worker supervisor.
+        // Held both on the runtime (for shutdown) and in the HTTP state
+        // (so the task submit handler can spawn the worker lazily).
+        let local_worker = Arc::new(crate::local_worker::LocalWorkerSupervisor::new());
         let http_state = Arc::new(DaemonHttpState {
             node_id,
             daemon_version: opts.daemon_version.clone(),
@@ -851,6 +859,7 @@ impl DaemonRuntime {
             sbfb_home: None,
             project_doc: Some(Arc::clone(&project_doc)),
             task_dispatch_tx: Some(task_dispatch_tx),
+            local_worker: Arc::clone(&local_worker),
             app_storage: {
                 let guard = coordinator_db.lock().unwrap();
                 crate::storage_api::load_app_storage_from_db(&guard)
@@ -1021,6 +1030,7 @@ impl DaemonRuntime {
             dispatch_shutdown: Some(dispatch_shutdown_tx),
             result_sync_handle: Some(result_sync_handle),
             result_sync_shutdown: Some(result_sync_shutdown_tx),
+            local_worker: Some(local_worker),
             feed_handle,
             feed_shutdown: Some(feed_shutdown_tx),
             feed_join_handles: Some(feed_join_handles),
@@ -1069,6 +1079,13 @@ impl DaemonRuntime {
     /// never sees a dangling `running.json` + dangling iroh
     /// endpoint combo from a half-executed shutdown.
     pub async fn shutdown(mut self) -> Result<()> {
+        // Hotfix #5: stop the on-demand worker first — it is a child
+        // process that syncs the project doc, so it must go before the
+        // doc subscriptions and the iroh node close.
+        if let Some(lw) = self.local_worker.take() {
+            lw.shutdown().await;
+        }
+
         if let Some(tx) = self.gossip_shutdown.take() {
             let _ = tx.send(());
         }

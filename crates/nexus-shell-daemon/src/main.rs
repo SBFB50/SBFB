@@ -41,6 +41,7 @@ mod health_api;
 mod http;
 mod invite_api;
 mod kudos_api;
+mod local_worker;
 mod logging;
 #[cfg(windows)]
 mod named_pipe_server;

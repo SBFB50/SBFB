@@ -130,6 +130,9 @@ windows = { version = "0.57", features = [
     "Win32_Security_Authorization",
     "Win32_System_Memory",
     "Win32_System_Threading",
+    # 2026-06-05 hotfix #5: tie the on-demand local worker's life to
+    # the daemon's via a kill-on-close Job Object.
+    "Win32_System_JobObjects",
 ] }
 
 [dev-dependencies]
