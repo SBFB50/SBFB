@@ -48,11 +48,8 @@ use nexus_core_rs::{
 };
 use nexus_shell_daemon_core::auth::{AuthState, auth_required};
 use nexus_shell_daemon_core::blob_serve::{self, BlobServeCache};
-use nexus_shell_daemon_core::browse::{
-    BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
-};
+use nexus_shell_daemon_core::browse::{BrowseAggregatorHandle, BrowseEntry};
 use nexus_shell_daemon_core::iroh_runtime::{CuratorRuntimeError, CuratorRuntimeHandle};
-use nexus_shell_daemon_core::publish::ProjectAnnouncement;
 use nexus_shell_daemon_core::state::{DaemonStateSnapshot, StateInputs};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -955,91 +952,25 @@ async fn publish_project(
         req.project_name.as_bytes(),
     ));
 
-    let mut announcement = ProjectAnnouncement::new(
-        state.node_id.clone(),
-        req.project_name.clone(),
-        req.category.clone(),
-        req.description.clone(),
-        req.apps.clone(),
+    // Remediation #8: route /publish through the single canonical
+    // announce → broadcast → persist-to-outbox → index → cache helper in
+    // `deploy.rs`, so the publish and deploy-from-repo paths can never diverge
+    // (the deploy path used to skip the outbox persist).
+    crate::deploy::publish_announcement(
+        &state,
+        crate::deploy::AnnouncementParams {
+            project_id: &project_id,
+            project_name: &req.project_name,
+            category: &req.category,
+            description: &req.description,
+            apps: &req.apps,
+            archive_hash: req.archive_hash.as_deref(),
+            repo_url: req.repo_url.as_deref(),
+            provenance_hash: req.provenance_hash.as_deref(),
+            is_open_source: req.is_open_source,
+        },
     )
-    .with_project_id(project_id.clone());
-
-    // Sprint 13 Phase B: propagate repo_url.
-    if let Some(ref url) = req.repo_url {
-        announcement = announcement.with_repo_url(url.clone());
-    }
-
-    // Sprint 14 Phase B: propagate provenance_hash.
-    if let Some(ref hash) = req.provenance_hash {
-        announcement = announcement.with_provenance_hash(hash.clone());
-    }
-
-    // Sprint 16 Phase D: propagate is_open_source.
-    if req.is_open_source {
-        announcement = announcement.with_open_source(true);
-    }
-
-    // Sprint 12: if archive_hash is provided, mint a BlobTicket.
-    if let Some(ref hash_hex) = req.archive_hash {
-        match mint_blob_ticket(&state, hash_hex).await {
-            Ok(ticket_str) => {
-                announcement = announcement.with_archive_ticket(ticket_str);
-            }
-            Err(e) => {
-                debug!(error = %e, "failed to mint BlobTicket for archive_hash");
-                // Non-fatal: publish without archive_ticket.
-            }
-        }
-    }
-
-    // Broadcast via gossip: wrap in PoW envelope and push to the
-    // gossip task outbox. The outbox replays on NeighborUp so
-    // announcements published while isolated reach peers later.
-    if let Ok(payload) = announcement.to_gossip_bytes() {
-        if let Ok(envelope) = wrap_payload_with_pow(&state, &payload) {
-            let sender_guard = state.gossip_sender.read().await;
-            if let Some(sender) = sender_guard.as_ref() {
-                if let Err(e) = sender.broadcast(envelope.clone()).await {
-                    debug!(error = %e, "gossip broadcast failed (non-fatal)");
-                }
-            }
-            drop(sender_guard);
-            let _ = state
-                .gossip_cmd_tx
-                .send(crate::runtime::GossipCmd::Outbox(envelope))
-                .await;
-        }
-    }
-
-    // Add to the local browse aggregator so `/browse` includes
-    // this project immediately without waiting for a gossip
-    // round-trip.
-    let browse_entry = BrowseEntry {
-        project_id,
-        // Self-published on this node: store our own node_id so the freshness
-        // probe short-circuits to Reachable (an endpoint cannot dial itself).
-        node_id: Some(state.node.node_id()),
-        project_name: req.project_name,
-        category: req.category,
-        description: req.description,
-        curator_pubkey: String::new(),
-        curator_name: "Self-published".into(),
-        source: BrowseSource::Direct,
-        status: BrowseStatus::Reachable,
-        last_probed_at: None,
-        archive_ticket: announcement.archive_ticket.clone(),
-        archive_hash: req.archive_hash.clone(),
-        repo_url: req.repo_url.clone(),
-        provenance_hash: req.provenance_hash.clone(),
-        is_open_source: req.is_open_source,
-    };
-    // Index into the FTS5 search corpus so the app is findable by name/category
-    // /description (best-effort; the durable aggregator entry above already
-    // succeeded, so a search-index hiccup must not fail the publish).
-    if let Ok(db) = state.coordinator_db.lock() {
-        index_browse_entry(&db, &browse_entry);
-    }
-    state.browse_aggregator.add_direct_entry(browse_entry);
+    .await;
 
     (StatusCode::OK, Json(PublishResponse { published: true })).into_response()
 }
@@ -2359,6 +2290,17 @@ mod tests {
     }
 
     async fn mk_state_with_mode(mode: nexus_core_rs::IdentityMode) -> Arc<DaemonHttpState> {
+        mk_state_with_mode_tx(mode, tokio::sync::mpsc::channel(8).0).await
+    }
+
+    // Variant that injects a caller-supplied gossip_cmd_tx so a test can hold
+    // the receiver and assert what the announce path pushed to the outbox
+    // (remediation #8). The default mk_state drops the rx, which closes the
+    // channel — fine for tests that don't assert on it.
+    async fn mk_state_with_mode_tx(
+        mode: nexus_core_rs::IdentityMode,
+        gossip_cmd_tx: crate::runtime::GossipCmdTx,
+    ) -> Arc<DaemonHttpState> {
         let node = create_node().await.expect("boot test node");
         let tmp = tempfile::tempdir().expect("tempdir");
         let keystore = Arc::new(nexus_core_rs::LocalFileKeyStore::new(tmp.path()));
@@ -2383,7 +2325,7 @@ mod tests {
             browse_aggregator: Arc::new(BrowseAggregator::new()),
             node: Arc::new(node),
             gossip_sender: Arc::new(RwLock::new(None)),
-            gossip_cmd_tx: tokio::sync::mpsc::channel(8).0,
+            gossip_cmd_tx,
             default_curators: vec![],
             blob_serve_cache: Arc::new(BlobServeCache::new(8)),
             identity_mode: mode,
@@ -2427,6 +2369,55 @@ mod tests {
                 nexus_shell_daemon_core::preview::DEFAULT_TTL,
             ),
         })
+    }
+
+    #[tokio::test]
+    async fn publish_announcement_persists_to_outbox_for_replay() {
+        // Remediation #8 real-frontier test (§P57): the canonical announce path
+        // must persist its envelope to the outbox even when ISOLATED
+        // (gossip_sender == None). That persist-while-isolated is what lets a
+        // deploy-from-repo / publish app be replayed to peers on NeighborUp AND
+        // restored into Browse at boot (#7). No mock: real PoW envelope, real
+        // mpsc channel, real aggregator.
+        use nexus_core_rs::crypto::blake3_hash;
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::runtime::GossipCmd>(8);
+        let state = mk_state_with_mode_tx(nexus_core_rs::IdentityMode::Normal, tx).await;
+        let pid = hex::encode(blake3_hash(b"Outbox Test App"));
+
+        crate::deploy::publish_announcement(
+            &state,
+            crate::deploy::AnnouncementParams {
+                project_id: &pid,
+                project_name: "Outbox Test App",
+                category: "tools",
+                description: "persisted for replay",
+                apps: &[],
+                archive_hash: None,
+                repo_url: None,
+                provenance_hash: None,
+                is_open_source: false,
+            },
+        )
+        .await;
+
+        // (a) the announce path pushed an Outbox command despite no live sender.
+        let cmd = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("outbox send must arrive within 2s")
+            .expect("channel open");
+        let crate::runtime::GossipCmd::Outbox(envelope) = cmd else {
+            panic!("expected GossipCmd::Outbox, got a different command");
+        };
+        // (b) the envelope decodes back to OUR announcement (real wire round-trip).
+        let (_proof, payload) =
+            nexus_core_rs::PowEnvelope::decode(&envelope).expect("envelope decodes");
+        let ann = nexus_shell_daemon_core::publish::ProjectAnnouncement::from_gossip_bytes(payload)
+            .expect("payload is a project announcement");
+        assert_eq!(ann.project_id, pid);
+        assert_eq!(ann.project_name, "Outbox Test App");
+        // (c) the card is in the aggregator immediately as well.
+        assert_eq!(state.browse_aggregator.direct_entry_count(), 1);
+        assert!(state.browse_aggregator.get_direct_entry(&pid).is_some());
     }
 
     #[tokio::test]
@@ -6977,6 +6968,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_proof_card_endpoint_http() {
+        use nexus_shell_daemon_core::browse::{BrowseSource, BrowseStatus};
         let state = mk_state().await;
         let project_id = "f".repeat(64);
 

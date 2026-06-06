@@ -250,7 +250,7 @@ pub async fn deploy_from_repo(
             category: &req.category,
             description: &req.description,
             apps: &req.apps,
-            archive_hash: &hash_hex,
+            archive_hash: Some(&hash_hex),
             repo_url: Some(&repo_url),
             provenance_hash: Some(&prov_hash),
             is_open_source: true,
@@ -358,19 +358,26 @@ pub async fn deploy_private(State(state): State<Arc<DaemonHttpState>>, body: Byt
         .into_response()
 }
 
-struct AnnouncementParams<'a> {
-    project_id: &'a str,
-    project_name: &'a str,
-    category: &'a str,
-    description: &'a str,
-    apps: &'a [String],
-    archive_hash: &'a str,
-    repo_url: Option<&'a str>,
-    provenance_hash: Option<&'a str>,
-    is_open_source: bool,
+pub(crate) struct AnnouncementParams<'a> {
+    pub(crate) project_id: &'a str,
+    pub(crate) project_name: &'a str,
+    pub(crate) category: &'a str,
+    pub(crate) description: &'a str,
+    pub(crate) apps: &'a [String],
+    /// `Some` for deploy-from-repo (always has an archive) and `Some`/`None`
+    /// for `/publish` depending on whether the caller uploaded a blob.
+    pub(crate) archive_hash: Option<&'a str>,
+    pub(crate) repo_url: Option<&'a str>,
+    pub(crate) provenance_hash: Option<&'a str>,
+    pub(crate) is_open_source: bool,
 }
 
-async fn publish_announcement(state: &DaemonHttpState, params: AnnouncementParams<'_>) {
+/// The single canonical announce → broadcast → **persist to outbox** → index →
+/// cache path for a self-published app. Both deploy-from-repo and `POST /publish`
+/// route through this so the two can never diverge (hotfix #8: previously the
+/// deploy path broadcast but never persisted, so deploy-from-repo apps were
+/// neither replayed to peers on NeighborUp nor restorable into Browse at boot).
+pub(crate) async fn publish_announcement(state: &DaemonHttpState, params: AnnouncementParams<'_>) {
     let AnnouncementParams {
         project_id,
         project_name,
@@ -407,19 +414,33 @@ async fn publish_announcement(state: &DaemonHttpState, params: AnnouncementParam
         announcement = announcement.with_open_source(true);
     }
 
-    if let Ok(ticket_str) = crate::http::mint_blob_ticket(state, archive_hash).await {
-        announcement = announcement.with_archive_ticket(ticket_str);
-    }
-
-    let sender_guard = state.gossip_sender.read().await;
-    if let Some(sender) = sender_guard.as_ref() {
-        if let Ok(payload) = announcement.to_gossip_bytes() {
-            if let Ok(envelope) = crate::http::wrap_payload_with_pow(state, &payload) {
-                let _ = sender.broadcast(envelope).await;
-            }
+    if let Some(h) = archive_hash {
+        if let Ok(ticket_str) = crate::http::mint_blob_ticket(state, h).await {
+            announcement = announcement.with_archive_ticket(ticket_str);
         }
     }
-    drop(sender_guard);
+
+    // Remediation #8: build the PoW envelope ONCE, broadcast it under the sender
+    // guard, then ALWAYS persist it to the outbox — even when isolated
+    // (gossip_sender == None). Persisting-while-isolated is the whole point: the
+    // outbox replays on NeighborUp AND is restored into Browse at boot (hotfix
+    // #7). The send stays AFTER drop(sender_guard) and OUTSIDE the Some-branch so
+    // an isolated node still persists. Mirrors the `/publish` path exactly.
+    if let Ok(payload) = announcement.to_gossip_bytes() {
+        if let Ok(envelope) = crate::http::wrap_payload_with_pow(state, &payload) {
+            let sender_guard = state.gossip_sender.read().await;
+            if let Some(sender) = sender_guard.as_ref() {
+                if let Err(e) = sender.broadcast(envelope.clone()).await {
+                    debug!(error = %e, "gossip broadcast failed (non-fatal)");
+                }
+            }
+            drop(sender_guard);
+            let _ = state
+                .gossip_cmd_tx
+                .send(crate::runtime::GossipCmd::Outbox(envelope))
+                .await;
+        }
+    }
 
     let browse_entry = BrowseEntry {
         project_id: project_id.to_string(),
@@ -435,7 +456,7 @@ async fn publish_announcement(state: &DaemonHttpState, params: AnnouncementParam
         status: BrowseStatus::Reachable,
         last_probed_at: None,
         archive_ticket: announcement.archive_ticket.clone(),
-        archive_hash: Some(archive_hash.to_string()),
+        archive_hash: archive_hash.map(String::from),
         repo_url: repo_url.map(String::from),
         provenance_hash: provenance_hash.map(String::from),
         is_open_source,
