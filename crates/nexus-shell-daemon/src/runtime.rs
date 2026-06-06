@@ -1378,6 +1378,31 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                 "gossip: loaded persisted outbox from DB"
             );
         }
+        // Remediation #7 (Browse boot-restore): the in-memory Browse
+        // aggregator starts empty on every boot, so a node's OWN published
+        // apps vanish from its Browse after a restart even though their
+        // announcements persist in the gossip outbox (only the outbox + feed
+        // survive a restart, never the aggregator). Re-ingest each persisted
+        // project announcement through the same handler the live gossip path
+        // uses: it repopulates the aggregator AND, via index_browse_entry,
+        // re-indexes the search corpus with the real project_name (the feed's
+        // ReleasePublished op carries none, which is why search-by-name was
+        // empty too). Restored self entries (our own node_id) render Reachable
+        // through the aggregate() self-branch. We decode with
+        // PowEnvelope::decode (structural, no PoW re-verification) rather than
+        // verify_envelope: these are our OWN trusted envelopes, and a
+        // difficulty-policy bump since they were minted must NOT drop them.
+        // `restored` counts announcements re-ingested (one per project
+        // announcement envelope), not distinct cards — several envelopes for
+        // the same project_id collapse to one card via add_direct_entry dedup.
+        let restored =
+            restore_browse_from_outbox(&browse_aggregator, &coordinator_db, &node, &outbox);
+        if restored > 0 {
+            info!(
+                restored,
+                "gossip: restored project announcements from persisted outbox"
+            );
+        }
         let mut neighbor_count: u32 = 0;
         let browse_limiter = BrowseRequestLimiter::new();
         let republish_delay = tokio::time::sleep(jittered_republish_duration());
@@ -1690,15 +1715,59 @@ fn handle_project_announcement(
                 crate::http::index_browse_entry(&db, &entry);
             }
             browse_aggregator.add_direct_entry(entry);
+            // Path-agnostic: this handler ingests both live gossip arrivals
+            // and boot-restored outbox entries (remediation #7).
             info!(
                 node_id = %ann.node_id,
-                "project announcement accepted via gossip"
+                "project announcement ingested"
             );
         }
         Err(e) => {
             warn!(error = %e, "failed to parse project announcement");
         }
     }
+}
+
+/// Remediation #7 (Browse boot-restore): repopulate the in-memory Browse
+/// aggregator from the node's own persisted gossip outbox at startup.
+///
+/// The aggregator is in-memory and starts empty on every boot, so a node's
+/// own published apps would otherwise disappear from its Browse after a
+/// restart — only the outbox (and the feed) survive. Each outbox entry is a
+/// PoW-wrapped envelope; we decode structurally with
+/// [`nexus_core_rs::PowEnvelope::decode`] (no PoW re-verification: these are
+/// our own trusted envelopes, and a difficulty-policy bump since they were
+/// minted must not drop them) and re-ingest every project announcement through
+/// [`handle_project_announcement`], which repopulates the aggregator and
+/// re-indexes the search corpus with the real `project_name`. Returns the
+/// number of project announcements restored. Idempotent: `add_direct_entry`
+/// dedups by `project_id` and the search upsert is `INSERT OR REPLACE`.
+///
+/// Note: after a `daemon.key` identity rotation, restored entries carry the
+/// pre-rotation `node_id`, so they probe as remote instead of taking the
+/// self-branch — benign, since rotation also invalidates the old
+/// announcements (they are re-published under the new identity).
+fn restore_browse_from_outbox(
+    browse_aggregator: &BrowseAggregatorHandle,
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    node: &Node,
+    outbox: &[Vec<u8>],
+) -> usize {
+    let mut restored = 0usize;
+    for envelope in outbox {
+        match nexus_core_rs::PowEnvelope::decode(envelope) {
+            Ok((_proof, payload)) => {
+                if publish::is_project_announcement(payload) {
+                    handle_project_announcement(browse_aggregator, coordinator_db, node, payload);
+                    restored += 1;
+                }
+            }
+            Err(e) => {
+                debug!(error = %e, "browse restore: skipping undecodable outbox envelope");
+            }
+        }
+    }
+    restored
 }
 
 /// Boot or reopen an iroh-docs storage namespace for a replicated
@@ -2079,6 +2148,107 @@ mod tests {
 
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn browse_boot_restore_repopulates_aggregator_from_outbox_e2e() {
+        // Remediation #7 real-frontier test (PATTERNS §P57): a node's OWN
+        // published app must reappear in its Browse after a daemon restart.
+        // We persist a real PoW-wrapped ProjectAnnouncement through the
+        // coordinator DB outbox, load it back exactly as boot does
+        // (load_outbox), run the restore, and assert the aggregator now
+        // carries the card with its real name — and, because the announcement
+        // node_id is our own, Reachable. No mock at the persistence frontier:
+        // real encode -> real DB round-trip -> real decode -> real ingest.
+        use nexus_shell_daemon_core::browse::{BrowseAggregator, BrowseStatus};
+        use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+
+        let node = nexus_core_rs::create_node().await.unwrap();
+
+        // Our own announcement, with a real ticket minted from our store.
+        let blobs = nexus_core_rs::BlobsClient::new(node.blobs_store());
+        let hash = blobs.add_bytes(b"zip-bytes".to_vec()).await.unwrap();
+        let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let ticket = iroh_blobs::ticket::BlobTicket::new(
+            addr,
+            iroh_blobs::Hash::from_bytes(hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"My Restored App"));
+        let ann = ProjectAnnouncement::new(
+            node.node_id(),
+            "My Restored App".into(),
+            "tools".into(),
+            "persisted across reboot".into(),
+            vec![],
+        )
+        .with_project_id(pid.clone())
+        .with_archive_ticket(ticket);
+        let payload = ann.to_gossip_bytes().unwrap();
+
+        // Wrap in a real PoW envelope (difficulty 1 -> instant solve; the
+        // restore decodes structurally without re-verifying, so the proof
+        // difficulty is irrelevant to the path under test) and persist it the
+        // way the daemon does.
+        let kp = nexus_core_rs::KeyPair::generate();
+        let policy = nexus_core_rs::RelayPowPolicy {
+            default_difficulty: 1,
+            topic_overrides: std::collections::BTreeMap::new(),
+        };
+        let solve = nexus_core_rs::PowSolveCache::new();
+        let proof = solve.ensure_proof([7u8; 32], &kp, &policy).unwrap();
+        let envelope = nexus_core_rs::PowEnvelope::encode(&proof, &payload).unwrap();
+
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        db.lock().unwrap().insert_outbox(&envelope).unwrap();
+
+        // Load the outbox exactly as boot does, then restore.
+        let outbox = db.lock().unwrap().load_outbox().unwrap();
+        assert_eq!(outbox.len(), 1, "outbox must persist the envelope");
+
+        let agg = std::sync::Arc::new(BrowseAggregator::new());
+        assert_eq!(
+            agg.direct_entry_count(),
+            0,
+            "aggregator starts empty on a fresh boot"
+        );
+        let restored = super::restore_browse_from_outbox(&agg, &db, &node, &outbox);
+        assert_eq!(
+            restored, 1,
+            "the persisted project announcement must be restored"
+        );
+
+        // The card is back, with its REAL name (not the empty feed op), and
+        // Reachable because it is our own node.
+        let curator = CuratorRuntime::new(None);
+        let out = agg.aggregate(&curator, &node).await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].project_name, "My Restored App",
+            "the real project_name is restored from the announcement"
+        );
+        assert_eq!(out[0].project_id, pid);
+        assert_eq!(
+            out[0].status,
+            BrowseStatus::Reachable,
+            "a node's own restored app must be Reachable (self-branch, no dial)"
+        );
+
+        // And the restore re-indexed the search corpus with the real name,
+        // fixing the search-by-name gap for a node's own apps after a restart.
+        let (results, total) =
+            nexus_coordinator_rs::search::search(&db.lock().unwrap(), "Restored", 20, 0).unwrap();
+        assert_eq!(total, 1, "restored app is findable by name");
+        assert_eq!(results[0].project_id, pid);
+
+        node.shutdown().await.ok();
     }
 
     use nexus_shell_daemon_core::registry::write_running as raw_write_running;

@@ -3158,6 +3158,30 @@ ingest (seed + node_id), and a genuine dial — no mock at the
 gossip↔dial boundary. Asserting the per-app `project_id` stays distinct
 from `node_id` is what proves the probe dials the node, not the app id.
 
+**Instance — Browse boot-restore (2026-06-06, hotfix #7).** A third
+manifestation of the same split, found the same way (the PO opened the
+shell and his three deployed apps were gone). `BrowseAggregator`'s
+`direct_entries` is in-memory and starts empty on every boot; the daemon
+rebuilds the *search* index from the feed (`rebuild_from_feed`) but never
+the *Browse* aggregator, and publish/deploy only ever write to the
+in-memory map. So a node's own apps vanish from its own Browse after a
+restart — `GET /api/daemon/browse` returns `{"entries":[]}` while the
+provenance, feed, blobs and gossip outbox all still hold them on disk.
+The fix reconciles the persisted half into the live half at boot:
+`restore_browse_from_outbox` decodes the node's own persisted outbox
+envelopes with `PowEnvelope::decode` (structural, no PoW re-verification —
+our own trusted data must not be dropped by a later difficulty-policy
+bump) and re-ingests each project announcement through
+`handle_project_announcement`, which also re-indexes search with the real
+`project_name` (the feed's `ReleasePublished` op carries none, so this
+closes the search-by-name gap for own apps too). The real-frontier guard
+is `runtime::tests::browse_boot_restore_repopulates_aggregator_from_outbox_e2e`:
+real PoW encode → real DB `insert_outbox`/`load_outbox` round-trip → real
+decode → real ingest, no mock at the persistence↔aggregator boundary. The
+lesson generalises: **any in-memory index built from a persistent log
+must be reconstructed at boot, or it silently diverges from the durable
+state after the first restart.**
+
 **Pre-tag gate:** the E2E gate test must be green, and a manual
 full-binary smoke (daemon + auto-spawned worker, submit → poll result)
 must pass on the release artifacts. A frontier added in a future sprint
