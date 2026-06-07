@@ -346,6 +346,37 @@ mod tests {
         CoordinatorDb::open_in_memory().expect("open in-memory")
     }
 
+    /// Sprint 73 audit C.3 (regression guard, hardened in Sprint 74 Phase B):
+    /// browse-sourced rows and feed-sourced rows own DISJOINT rowid ranges in
+    /// the shared FTS5 `search_index`, so a feed upsert (rowid = feed `seq`,
+    /// living in `[1, 2^48)`) can never clobber a browse row (rowid in
+    /// `[2^48, ...)` via [`browse_rowid`]) and vice versa. This property is the
+    /// one the C.3 partition exists to guarantee.
+    #[test]
+    fn browse_rowid_partitioned_from_feed_seq() {
+        let long_id = "z".repeat(64);
+        for id in ["app-a", "app-b", long_id.as_str(), ""] {
+            let r = browse_rowid(id);
+            assert!(
+                r >= BROWSE_ROWID_BASE,
+                "browse_rowid({id:?})={r} must live in the high partition (>= {BROWSE_ROWID_BASE})"
+            );
+        }
+        // Any plausible feed seq stays strictly below the browse partition base,
+        // and can never equal a browse rowid.
+        for seq in [1_i64, 42, 1_000_000_000, BROWSE_ROWID_BASE - 1] {
+            assert!(
+                seq < BROWSE_ROWID_BASE,
+                "feed seq {seq} must stay below the base"
+            );
+            assert_ne!(
+                browse_rowid("app-a"),
+                seq,
+                "a browse rowid must never collide with a feed seq"
+            );
+        }
+    }
+
     #[test]
     fn test_search_index_browse_entry() {
         let db = setup_db();

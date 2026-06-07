@@ -6,6 +6,12 @@ mod audit_log;
 mod auth;
 mod daemon_client;
 mod diff;
+// Sprint 74 Phase B: the fork-workspace primitives (clone a network project
+// into a target workspace, or reconstruct it from the published archive).
+// Phase C wires them to a CLI command + the daemon redeploy; until then they
+// are reachable only from their own tests, so the binary build sees dead code.
+#[allow(dead_code)]
+mod fork;
 mod gates;
 mod llm_bridge;
 mod operator_server;

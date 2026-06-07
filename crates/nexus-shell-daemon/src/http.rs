@@ -985,12 +985,30 @@ pub(crate) fn index_browse_entry(
     db: &nexus_coordinator_rs::db::CoordinatorDb,
     entry: &BrowseEntry,
 ) {
+    // Sprint 74 Phase B (B.6): re-apply the `is_open_source` invariant at this
+    // shared chokepoint. `index_browse_entry` is the single browse-index path
+    // for ALL three production callers — deploy-from-repo (`deploy.rs`), local
+    // `/publish` (gated at http.rs:934), AND gossip ingest from an untrusted
+    // peer (`runtime.rs`). The HTTP gate only guards the local-write path: a
+    // byzantine peer can gossip `is_open_source=true` with a null
+    // `provenance_hash`/`repo_url`, and without this the search index would
+    // carry the lie — driving the fork consumer and worker L2 consent on a
+    // forged source claim (THREAT_MODEL §5.6). Downgrade to `false` here so the
+    // index reflects only a genuinely provable open-source chain.
+    let trustworthy_open_source =
+        entry.is_open_source && entry.provenance_hash.is_some() && entry.repo_url.is_some();
+    if entry.is_open_source && !trustworthy_open_source {
+        tracing::warn!(
+            project = %entry.project_id,
+            "downgrading is_open_source at browse-index: missing provenance_hash/repo_url"
+        );
+    }
     let provenance = nexus_coordinator_rs::search::Provenance {
         repo_url: entry.repo_url.as_deref(),
         commit_sha: None,
         archive_hash: entry.archive_hash.as_deref(),
         provenance_hash: entry.provenance_hash.as_deref(),
-        is_open_source: entry.is_open_source,
+        is_open_source: trustworthy_open_source,
     };
     if let Err(e) = nexus_coordinator_rs::search::index_entry(
         db,
@@ -2226,6 +2244,73 @@ mod tests {
     use nexus_shell_daemon_core::browse::BrowseAggregator;
     use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
     use tower::ServiceExt;
+
+    /// Sprint 74 Phase B (B.6): the shared browse-index chokepoint downgrades a
+    /// byzantine `is_open_source=true` carrying no provenance/repo to `false`,
+    /// so a gossiped lie from an untrusted peer cannot poison the search index
+    /// (the HTTP `/publish` gate only covers the local-write path; gossip
+    /// ingest bypasses it).
+    #[test]
+    fn browse_index_rejects_open_source_without_provenance() {
+        fn entry(
+            project_id: &str,
+            name: &str,
+            repo: Option<&str>,
+            prov: Option<&str>,
+        ) -> BrowseEntry {
+            BrowseEntry {
+                project_id: project_id.into(),
+                node_id: None,
+                project_name: name.into(),
+                category: "tools".into(),
+                description: "fork-source candidate".into(),
+                curator_pubkey: String::new(),
+                curator_name: String::new(),
+                source: nexus_shell_daemon_core::browse::BrowseSource::Direct,
+                status: nexus_shell_daemon_core::browse::BrowseStatus::Unknown,
+                last_probed_at: None,
+                archive_ticket: None,
+                archive_hash: Some("ab".repeat(32)),
+                repo_url: repo.map(String::from),
+                provenance_hash: prov.map(String::from),
+                is_open_source: true,
+            }
+        }
+
+        let db = nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().expect("db");
+
+        // Byzantine: claims open-source with NO provenance chain → downgraded.
+        index_browse_entry(&db, &entry("byzantine-app", "ByzantineApp", None, None));
+        let (hits, _) = nexus_coordinator_rs::search::search(&db, "ByzantineApp", 10, 0).unwrap();
+        let hit = hits
+            .iter()
+            .find(|h| h.project_id == "byzantine-app")
+            .expect("byzantine entry indexed");
+        assert!(
+            !hit.is_open_source,
+            "byzantine open-source claim with no provenance must be downgraded to false"
+        );
+
+        // Honest: full provenance chain (repo_url + provenance_hash) → preserved.
+        index_browse_entry(
+            &db,
+            &entry(
+                "honest-app",
+                "HonestApp",
+                Some("https://codeberg.org/me/app.git"),
+                Some(&"ef".repeat(32)),
+            ),
+        );
+        let (hits, _) = nexus_coordinator_rs::search::search(&db, "HonestApp", 10, 0).unwrap();
+        let hit = hits
+            .iter()
+            .find(|h| h.project_id == "honest-app")
+            .expect("honest entry indexed");
+        assert!(
+            hit.is_open_source,
+            "honest open-source with full provenance chain must be preserved"
+        );
+    }
 
     /// Sprint 16 Phase A: known-valid bearer token used by every
     /// test via [`build_test_router`]. 64-char lowercase hex,
