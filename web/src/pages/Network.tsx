@@ -47,10 +47,10 @@ export default function Network() {
         </div>
         <div className="glass-card max-w-md p-6">
           <h3 className="mb-2 font-bold">
-            Aucun coordinateur sélectionné
+            Aucun noeud actif
           </h3>
           <p className="text-sm text-white/50">
-            Ajoute un coordinateur depuis l'en-tete pour lire
+            Connecte-toi a un noeud depuis l'en-tete pour lire
             l'etat du worker via son endpoint{" "}
             <code className="font-mono text-white/60">/worker-state</code>.
           </p>

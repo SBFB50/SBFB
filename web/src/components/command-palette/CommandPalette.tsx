@@ -11,7 +11,7 @@
  *    entries here; selecting one invokes the handler and
  *    forwards any returned `{navigation: {path}}` to React
  *    Router.
- *  - Actions: Ajouter un coordinateur, Recharger
+ *  - Actions: Se connecter a un noeud, Recharger
  *
  * Sprint 9 Phase A (T11) — `runAppCommand` now keeps the
  * palette open until the invocation resolves. On success the
@@ -137,7 +137,7 @@ export function CommandPalette({ palette, onAddCoordinator }: Props) {
         message:
           e instanceof Error && e.message
             ? e.message
-            : "Échec de la commande, réessayez ou vérifiez le coordinateur.",
+            : "Échec de la commande, réessayez ou vérifiez le noeud.",
       });
     }
   };
@@ -183,7 +183,7 @@ export function CommandPalette({ palette, onAddCoordinator }: Props) {
           </CommandItem>
           <CommandItem onSelect={() => go("/deploy")}>
             <Rocket className="size-4" />
-            <span>Deployer</span>
+            <span>Publier</span>
           </CommandItem>
         </CommandGroup>
 
@@ -231,7 +231,7 @@ export function CommandPalette({ palette, onAddCoordinator }: Props) {
         <CommandGroup heading="Actions">
           <CommandItem onSelect={triggerAdd}>
             <Plus className="size-4" />
-            <span>Ajouter un coordinateur</span>
+            <span>Se connecter a un noeud</span>
           </CommandItem>
           <CommandItem onSelect={triggerReload}>
             <RefreshCw className="size-4" />

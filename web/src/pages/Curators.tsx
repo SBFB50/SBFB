@@ -32,10 +32,10 @@ export default function Curators() {
         <PageHeader />
         <div className="glass-card max-w-md p-6">
           <h3 className="mb-2 font-bold">
-            Aucun coordinateur sélectionné
+            Aucun noeud actif
           </h3>
           <p className="text-sm text-white/50">
-            Ajoute un coordinateur depuis l'en-tete pour gerer
+            Connecte-toi a un noeud depuis l'en-tete pour gerer
             les curators via son daemon.
 
           </p>

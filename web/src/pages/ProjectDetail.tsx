@@ -53,7 +53,7 @@ export default function ProjectDetail() {
             Projet introuvable
           </h1>
           <p className="mt-1 text-sm text-white/50">
-            Aucun coordinateur connu ne porte le nom{" "}
+            Aucun noeud connu ne porte le nom{" "}
             <code className="font-mono text-white/70">{name ?? "\u2014"}</code>.
           </p>
         </div>
@@ -61,9 +61,9 @@ export default function ProjectDetail() {
         <div className="glass-card max-w-md p-6">
           <h3 className="mb-2 font-bold">Que faire ?</h3>
           <p className="text-sm text-white/50">
-            Ajoute le coordinateur via le bouton « Ajouter un
-            coordinateur » dans l'en-tete, ou verifie que son
-            nickname correspond a ce que tu as entre.
+            Connecte-toi au noeud via le bouton « Se connecter a un
+            noeud » dans l'en-tete, ou verifie que son nickname
+            correspond a ce que tu as entre.
           </p>
         </div>
       </div>

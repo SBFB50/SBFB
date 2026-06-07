@@ -6,7 +6,14 @@
  * auto-hides and reveals when the mouse approaches the top edge.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBridge } from "@/bridge/useBridge";
@@ -18,10 +25,15 @@ import {
   Heart,
   HeartOff,
   Loader2,
+  Rocket,
   Shield,
+  Signal,
+  SignalZero,
   FileCheck,
+  X,
 } from "lucide-react";
 import { VerificationDetail } from "@/components/VerificationDetail";
+import { AvailabilitySheet } from "@/components/AvailabilitySheet";
 import { ProofCard, type ProofCardData } from "@/components/ProofCard";
 
 import {
@@ -67,10 +79,10 @@ export default function BrowsedProject() {
         <div className="glass-card max-w-md p-8 text-center">
           <Globe className="mx-auto mb-4 h-12 w-12 text-white/20" />
           <h2 className="mb-2 text-xl font-bold text-white">
-            Aucun coordinateur
+            Aucun noeud actif
           </h2>
           <p className="text-sm text-white/50">
-            Ajoute un coordinateur depuis l'en-tete.
+            Connecte-toi a un noeud depuis l'en-tete.
           </p>
         </div>
       </div>
@@ -178,8 +190,39 @@ function FullScreenApp({
 }) {
   const [barVisible, setBarVisible] = useState(true);
   const [verifyOpen, setVerifyOpen] = useState(false);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Sprint 74 Phase A (D-DISPO) — availability surfacing.
+  // Ownership is the local-node check in Phase A (precise signal lands Phase D).
+  const isOwn = isLocal;
+  const isOffline = entry.status === "unreachable";
+  // Greffe A — the offline reminder is state-triggered (not pushed at publish),
+  // shown only for the user's OWN apps, and dismissible 1x/session/app.
+  const reminderKey = `sbfb:offline-reminder-dismissed:${entry.project_id}`;
+  // Derive dismissal from sessionStorage DURING render (a cheap, side-effect-free
+  // read) instead of mirroring it into state via an effect. The route is
+  // `lazy()` without a `key`, so this component is NOT remounted on a
+  // `/browse/:projectId` change — reading per render keeps the dismissal per-app
+  // (a project change re-reads the new key) with no setState-in-effect. The
+  // dismiss action writes sessionStorage then forces a re-read.
+  const [, forceReminderRecheck] = useReducer((n: number) => n + 1, 0);
+  let reminderDismissed = false;
+  try {
+    reminderDismissed = sessionStorage.getItem(reminderKey) === "1";
+  } catch {
+    /* sessionStorage can be unavailable (private mode / SSR) — treat as not dismissed. */
+  }
+  const dismissReminder = () => {
+    try {
+      sessionStorage.setItem(reminderKey, "1");
+    } catch {
+      /* sessionStorage can be unavailable (private mode / SSR) — ignore. */
+    }
+    forceReminderRecheck();
+  };
+  const showOfflineReminder = isOwn && isOffline && !reminderDismissed;
 
   const proofCardQuery = useQuery({
     queryKey: ["proof-card", coordUrl, entry.project_id],
@@ -304,11 +347,33 @@ function FullScreenApp({
 
           {/* Right side */}
           <div className="flex items-center gap-2">
-            {entry.archive_hash && (
-              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400/70">
-                blob:{truncateHex(entry.archive_hash)}
-              </span>
-            )}
+            {/* Sprint 74 Phase A — "Disponibilite" opens the availability panel
+                (replaces the raw blob:<hash> badge). The hash is now folded
+                inside the panel's "Details" rather than shown as jargon. The
+                button is TRI-state so a never-probed (unknown) app is not
+                mis-styled as online (it shares `mapAvailabilityCopy` with the
+                panel so the two surfaces cannot drift). */}
+            <button
+              type="button"
+              onClick={() => setAvailabilityOpen(true)}
+              className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                entry.status === "reachable"
+                  ? "bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                  : "bg-white/[0.08] text-white/50 hover:bg-white/[0.12]"
+              }`}
+              data-testid="availability-button"
+              aria-label={`Disponibilite — ${availabilityShortLabel(entry.status)}`}
+              title={`Disponibilite — ${availabilityShortLabel(entry.status)}`}
+            >
+              {entry.status === "reachable" ? (
+                <Signal className="h-3 w-3" />
+              ) : entry.status === "unreachable" ? (
+                <SignalZero className="h-3 w-3" />
+              ) : (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              )}
+              Disponibilite
+            </button>
 
             {entry.provenance_hash && (
               <button
@@ -390,6 +455,33 @@ function FullScreenApp({
 
       {/* ---- Content — fills entire screen ---- */}
       <div className="relative flex-1">
+        {/* Sprint 74 Phase A — greffe A : offline reminder, state-triggered,
+            own apps only, dismissible 1x/session/app. */}
+        {showOfflineReminder && (
+          <div
+            className="absolute left-1/2 top-16 z-40 w-[min(92%,32rem)] -translate-x-1/2"
+            data-testid="offline-reminder"
+          >
+            <div className="flex items-start gap-3 rounded-lg border border-amber-500/25 bg-amber-950/70 p-3 shadow-lg backdrop-blur-md">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+              <p className="flex-1 text-xs leading-relaxed text-amber-100/90">
+                Cette app est hors ligne : ce noeud est ferme. Elle redeviendra
+                joignable au prochain demarrage. Pour la garder en ligne meme PC
+                eteint, ajoute une copie de secours.
+              </p>
+              <button
+                type="button"
+                onClick={dismissReminder}
+                aria-label="Masquer le rappel"
+                data-testid="offline-reminder-dismiss"
+                className="shrink-0 rounded p-0.5 text-amber-200/60 hover:bg-white/10 hover:text-amber-100"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Sprint 15 Phase B: stalled overlay. Absent when healthy
             or unknown so the first few seconds of an app's life
             stay clean. */}
@@ -443,6 +535,33 @@ function FullScreenApp({
           <div className="mx-auto max-w-5xl p-8 pt-16">
             <LocalProjectApps coordUrl={coordUrl} />
           </div>
+        ) : !entry.archive_hash && isHttpsUrl(entry.repo_url) ? (
+          /* Sprint 74 Phase A — greffe D : app tombee. Nobody is currently
+             serving the blob (no archive_hash), but the source is verifiable —
+             offer a one-click "remettre en ligne" that prefills /deploy. Phase C
+             turns this into a true fork→redeploy under the local node identity.
+             Gated on `!archive_hash` so a transient daemon-info error on an
+             ARCHIVED app does not mis-present a redeploy CTA (the archive exists;
+             it just could not be served this render). */
+          <div className="flex h-full items-center justify-center" data-testid="fallen-app">
+            <div className="glass-card max-w-sm p-8 text-center">
+              <SignalZero className="mx-auto mb-4 h-10 w-10 text-amber-400/70" />
+              <h3 className="mb-2 font-bold text-white">
+                Personne ne garde cette app en ligne en ce moment.
+              </h3>
+              <p className="mb-5 text-sm text-white/50">
+                Tu as le code source — remets-la en ligne en un clic.
+              </p>
+              <Link
+                to={`/deploy?repo_url=${encodeURIComponent(entry.repo_url)}&project_name=${encodeURIComponent(entry.project_name)}`}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-300 transition-colors hover:bg-emerald-500/25"
+                data-testid="redeploy-fallen-app"
+              >
+                <Rocket className="h-4 w-4" />
+                La remettre en ligne
+              </Link>
+            </div>
+          </div>
         ) : (
           <div className="flex h-full items-center justify-center" data-testid="remote-placeholder">
             <div className="glass-card max-w-sm p-8 text-center">
@@ -462,6 +581,14 @@ function FullScreenApp({
         coordUrl={coordUrl}
         projectId={entry.project_id}
         provenanceHash={entry.provenance_hash ?? null}
+      />
+
+      <AvailabilitySheet
+        open={availabilityOpen}
+        onOpenChange={setAvailabilityOpen}
+        entry={entry}
+        isOwn={isOwn}
+        coordUrl={coordUrl}
       />
     </div>
   );
@@ -551,6 +678,13 @@ function ContributeGpuButton({
 
 function StatusDot({ status }: { status: string }) {
   const isReachable = status === "reachable";
+  // Tri-state title: a never-probed (unknown) app must not assert "Hors ligne".
+  const title =
+    status === "reachable"
+      ? "En ligne"
+      : status === "unreachable"
+        ? "Hors ligne"
+        : "Verification…";
   return (
     <span
       className={`inline-block h-2 w-2 rounded-full ${
@@ -558,7 +692,7 @@ function StatusDot({ status }: { status: string }) {
           ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]"
           : "bg-white/20"
       }`}
-      title={isReachable ? "En ligne" : "Hors ligne"}
+      title={title}
     />
   );
 }
@@ -706,6 +840,24 @@ function AppTabContent({
 function truncateHex(hex: string): string {
   if (hex.length <= 16) return hex;
   return `${hex.slice(0, 8)}...${hex.slice(-8)}`;
+}
+
+/** Short at-a-glance availability label, shared by the button + tooltip. */
+function availabilityShortLabel(status: string): string {
+  if (status === "reachable") return "en ligne";
+  if (status === "unreachable") return "hors ligne";
+  return "verification";
+}
+
+/**
+ * Scheme guard for the feed-sourced `repo_url`. React does not sanitize an
+ * anchor `href`, and the "remettre en ligne" prefill only makes sense for a
+ * cloneable forge URL — so we only treat an explicit `https://` origin as a
+ * redeployable source (mirrors `Browse.tsx::isHttpsUrl`; the 3 pre-existing
+ * unguarded anchors are normalised in Phase G / carry B.5).
+ */
+function isHttpsUrl(url: string | null | undefined): url is string {
+  return typeof url === "string" && url.startsWith("https://");
 }
 
 // Sprint 9 Phase A (D6) — react-router lazy() Component export.

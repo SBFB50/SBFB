@@ -45,7 +45,7 @@ export function OverviewTab({
 
       <Card>
         <CardHeader>
-          <CardTitle>Identité du coordinateur</CardTitle>
+          <CardTitle>Identité du noeud</CardTitle>
           <CardDescription>
             Métadonnées depuis <code className="font-mono">/project</code>{" "}
             et <code className="font-mono">/health</code>.

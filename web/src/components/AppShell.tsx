@@ -60,7 +60,7 @@ const NAV_ENTRIES: NavEntry[] = [
   { to: "/my-projects", label: "Projets", icon: FolderKanban },
   { to: "/my-network", label: "Reseau", icon: Cpu },
   { to: "/curators", label: "Curators", icon: BookmarkPlus },
-  { to: "/deploy", label: "Deployer", icon: Rocket },
+  { to: "/deploy", label: "Publier", icon: Rocket },
 ];
 
 export function AppShell() {
@@ -147,7 +147,7 @@ export function AppShell() {
         <button
           onClick={() => setAddDialogOpen(true)}
           className="flex h-10 w-10 items-center justify-center rounded-xl text-white/30 transition-colors hover:bg-white/[0.06] hover:text-white/60"
-          title="Ajouter un coordinateur"
+          title="Se connecter a un noeud"
         >
           <Plus className="h-5 w-5" />
         </button>
@@ -240,7 +240,7 @@ function CoordinatorPicker({ onAddClick }: { onAddClick: () => void }) {
         className="flex items-center gap-2 text-sm text-white/40 hover:text-white/70"
       >
         <Plus className="h-4 w-4" />
-        Ajouter un coordinateur
+        Se connecter a un noeud
       </button>
     );
   }
@@ -260,7 +260,7 @@ function CoordinatorPicker({ onAddClick }: { onAddClick: () => void }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[320px]">
         <DropdownMenuLabel className="text-[10px] uppercase tracking-wider">
-          Coordinateurs
+          Noeuds
         </DropdownMenuLabel>
         {knownCoordinators.map((coord) => {
           const isActive = coord.url === activeCoordinatorUrl;
@@ -303,7 +303,7 @@ function CoordinatorPicker({ onAddClick }: { onAddClick: () => void }) {
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onAddClick}>
           <Plus className="h-4 w-4" />
-          <span>Ajouter un coordinateur</span>
+          <span>Se connecter a un noeud</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

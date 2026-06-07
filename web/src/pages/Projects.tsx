@@ -24,7 +24,7 @@ export default function Projects() {
           Mes projets
         </h1>
         <p className="mt-1 text-sm text-white/50">
-          Chaque carte correspond a un coordinateur actif que tu as
+          Chaque carte correspond a un noeud actif que tu as
           ajoute.
         </p>
       </div>

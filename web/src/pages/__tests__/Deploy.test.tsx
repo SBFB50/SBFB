@@ -103,9 +103,97 @@ describe("Deploy", () => {
     await user.click(screen.getByTestId("deploy-submit"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("deploy-success")).toBeDefined();
+      expect(screen.getByTestId("deploy-success")).toBeInTheDocument();
     });
-    expect(screen.getByText("abc123def456")).toBeDefined();
-    expect(screen.getByText("prov789")).toBeDefined();
+    // Sprint 74 Phase A — the technical hashes are folded behind "Details
+    // techniques" by default; expand them before asserting.
+    await user.click(screen.getByTestId("deploy-tech-toggle"));
+    await waitFor(() => {
+      expect(screen.getByText("abc123def456")).toBeInTheDocument();
+    });
+    expect(screen.getByText("prov789")).toBeInTheDocument();
+  });
+
+  // Sprint 74 Phase A — the success card folds the cryptographic detail and
+  // exposes the human truth, with ZERO host/target field anywhere.
+  it("publish_success_card_folds_hashes", async () => {
+    const user = userEvent.setup();
+    mockFetch({
+      "/api/v1/deploy-from-repo": {
+        deployed: true,
+        hash: "abc123def456",
+        provenance_hash: "prov789",
+        commit_sha: "cccc".repeat(10),
+      },
+    });
+    renderPage();
+
+    await user.type(
+      screen.getByTestId("repo-url"),
+      "https://github.com/test/repo.git",
+    );
+    await user.type(screen.getByTestId("project-name"), "test-app");
+    await user.click(screen.getByTestId("deploy-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("deploy-success")).toBeInTheDocument();
+    });
+
+    // Human truth surfaced, hash folded by default.
+    expect(screen.getByTestId("deploy-online-pill")).toBeInTheDocument();
+    expect(screen.getByText("App publiee et en ligne")).toBeInTheDocument();
+    expect(screen.queryByTestId("deploy-tech-details")).not.toBeInTheDocument();
+    expect(screen.queryByText("abc123def456")).not.toBeInTheDocument();
+
+    // No host/target field: publishing is a local signed identity act.
+    expect(screen.queryByText(/Mon serveur/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/h[oô]te/i)).not.toBeInTheDocument();
+
+    // Expanding reveals the technical detail.
+    await user.click(screen.getByTestId("deploy-tech-toggle"));
+    await waitFor(() => {
+      expect(screen.getByTestId("deploy-tech-details")).toBeInTheDocument();
+    });
+    expect(screen.getByText("abc123def456")).toBeInTheDocument();
+  });
+
+  // Sprint 74 Phase A — greffe D : "La remettre en ligne" prefills the form.
+  it("prefills repo_url and project_name from query params", () => {
+    mockFetch({});
+    const qc = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 0 },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter
+          initialEntries={[
+            "/deploy?repo_url=https%3A%2F%2Fcodeberg.org%2Fme%2Fapp.git&project_name=app",
+          ]}
+        >
+          <Routes>
+            <Route path="/deploy" element={<Deploy />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId("repo-url")).toHaveValue(
+      "https://codeberg.org/me/app.git",
+    );
+    expect(screen.getByTestId("project-name")).toHaveValue("app");
+  });
+
+  // Sprint 74 Phase A — the rename surfaces in the empty-state wall.
+  it("renders the renamed empty-state wall", () => {
+    useProjectStore.setState({
+      knownCoordinators: [],
+      activeCoordinatorUrl: null,
+    });
+    mockFetch({});
+    renderPage();
+    expect(screen.getByText("Aucun noeud actif")).toBeInTheDocument();
+    expect(screen.queryByText(/coordinateur/i)).not.toBeInTheDocument();
   });
 });

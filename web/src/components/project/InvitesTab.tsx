@@ -74,7 +74,7 @@ export function InvitesTab({ url, query }: Props) {
           </CardTitle>
           <CardDescription>
             Révoquer un invite le marque comme invalide côté
-            coordinateur mais ne peut pas le supprimer chez les
+            noeud mais ne peut pas le supprimer chez les
             workers qui l'ont déjà consommé.
           </CardDescription>
         </CardHeader>

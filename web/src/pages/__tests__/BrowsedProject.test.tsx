@@ -23,6 +23,7 @@ import {
   vi,
 } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
@@ -112,6 +113,11 @@ function renderPage(projectId: string) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  try {
+    sessionStorage.clear();
+  } catch {
+    /* jsdom always provides sessionStorage; guard for safety. */
+  }
   useProjectStore.setState({
     knownCoordinators: [
       { url: COORD_URL, nickname: "test", nodeId: null },
@@ -143,14 +149,14 @@ describe("BrowsedProject", () => {
     expect(backLink).toHaveAttribute("href", "/browse");
   });
 
-  it("renders 'no coordinator' when no active coordinator is set", () => {
+  it("renders 'no node' when no active coordinator is set", () => {
     useProjectStore.setState({
       knownCoordinators: [],
       activeCoordinatorUrl: null,
     });
     renderPage(LOCAL_NODE_ID);
     expect(
-      screen.getByText(/Aucun coordinateur/),
+      screen.getByText(/Aucun noeud actif/),
     ).toBeInTheDocument();
   });
 
@@ -470,5 +476,118 @@ describe("BrowsedProject", () => {
       expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("watchdog-overlay")).not.toBeInTheDocument();
+  });
+
+  // Sprint 74 Phase A — greffe A : the offline reminder is shown only for
+  // the user's OWN apps, and is dismissible 1x/session/app.
+  it("offline_reminder_only_for_own_apps_dismissible", async () => {
+    const user = userEvent.setup();
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [makeBrowseEntry({ status: "unreachable" })],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+    });
+    const { unmount } = renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("offline-reminder")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("offline-reminder-dismiss"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("offline-reminder")).not.toBeInTheDocument();
+    });
+    unmount();
+
+    // A remote app (different node_id) never shows the reminder, even offline.
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            status: "unreachable",
+          }),
+        ],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+    });
+    renderPage(REMOTE_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("offline-reminder")).not.toBeInTheDocument();
+  });
+
+  // Sprint 74 Phase A — the "Disponibilite" button replaces the raw blob:<hash>
+  // badge and opens the availability panel.
+  it("availability_button_opens_panel", async () => {
+    const user = userEvent.setup();
+    mockFetch({
+      "/api/daemon/browse": { entries: [makeBrowseEntry()] },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("availability-button")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/^blob:/)).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("availability-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("availability-sheet")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByTestId("availability-section-author"),
+    ).toBeInTheDocument();
+  });
+
+  // Sprint 74 Phase A — greffe D : a fallen remote app with a verifiable https
+  // source offers a one-click redeploy that prefills /deploy.
+  it("fallen-app offers redeploy with an encoded /deploy prefill (https only)", async () => {
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            project_name: "ideas",
+            status: "unreachable",
+            repo_url: "https://codeberg.org/me/ideas.git",
+          }),
+        ],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+    });
+    renderPage(REMOTE_NODE_ID);
+    const link = await screen.findByTestId("redeploy-fallen-app");
+    const href = link.getAttribute("href") ?? "";
+    expect(href).toContain("/deploy?");
+    expect(href).toContain(
+      `repo_url=${encodeURIComponent("https://codeberg.org/me/ideas.git")}`,
+    );
+    expect(href).toContain("project_name=ideas");
+  });
+
+  // Sprint 74 Phase A — XSS scheme guard: a javascript:/data: repo_url must NOT
+  // produce a redeploy element; it falls through to the safe remote placeholder.
+  it("fallen-app scheme guard rejects non-https repo_url", async () => {
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            status: "unreachable",
+            // Build the scheme by concatenation so no lint rule scans a literal
+            // `javascript:` token; the runtime value is the real XSS vector.
+            repo_url: "javascript" + ":alert(1)",
+          }),
+        ],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+    });
+    renderPage(REMOTE_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("remote-placeholder")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("redeploy-fallen-app")).not.toBeInTheDocument();
   });
 });

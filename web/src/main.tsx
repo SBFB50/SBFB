@@ -15,8 +15,8 @@ import { autoRegisterLocalCoordinator } from './api/bootstrap'
 //
 // Once the token is available, auto-register the same-origin
 // daemon as the default coordinator (hotfix: a fresh profile or a
-// new ephemeral port no longer lands on the empty "Aucun
-// coordinateur" wall when the serving daemon is right there).
+// new ephemeral port no longer lands on the empty "Aucun noeud
+// actif" wall when the serving daemon is right there).
 const seededToken = (
   window as unknown as { __SBFB_AUTH_TOKEN?: unknown }
 ).__SBFB_AUTH_TOKEN

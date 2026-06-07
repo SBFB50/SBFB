@@ -99,9 +99,9 @@ export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
     } catch (e) {
       let message = "Erreur inconnue";
       if (e instanceof ApiHttpError) {
-        message = `HTTP ${e.status} — le coordinateur a répondu mais refuse la requête`;
+        message = `HTTP ${e.status} — le noeud a répondu mais refuse la requête`;
       } else if (e instanceof ApiProtocolError) {
-        message = `Réponse invalide du coordinateur : ${e.issues[0]?.message ?? "schema mismatch"}`;
+        message = `Réponse invalide du noeud : ${e.issues[0]?.message ?? "schema mismatch"}`;
       } else if (e instanceof Error) {
         message = e.message;
       }
@@ -122,7 +122,7 @@ export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Ajouter un coordinateur</DialogTitle>
+          <DialogTitle>Se connecter a un noeud</DialogTitle>
           <DialogDescription>
             Entre l'URL d'un daemon nexus-shell-daemon joignable (par
             défaut, ce nœud). Le shell ne lance pas de process — tu dois
@@ -133,7 +133,7 @@ export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
         <div className="flex flex-col gap-4 py-2">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="coord-url" className="text-xs font-medium">
-              URL du coordinateur
+              URL du noeud
             </label>
             <div className="flex gap-2">
               <Input
@@ -160,7 +160,7 @@ export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
             </div>
             {status.kind === "ok" && (
               <div className="flex items-center gap-2 text-xs text-emerald-500">
-                <Check className="h-3.5 w-3.5" /> Coordinateur joignable —
+                <Check className="h-3.5 w-3.5" /> Noeud joignable —
                 projet <span className="font-mono">{status.nickname}</span>
               </div>
             )}

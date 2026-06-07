@@ -8,7 +8,7 @@
  * origin (`nexus-shell-daemon start --web-root`). Yet the
  * coordinator list lives in per-origin localStorage, so a fresh
  * browser profile — or simply a new port after a daemon restart —
- * starts empty and Browse shows the "Aucun coordinateur" wall even
+ * starts empty and Browse shows the "Aucun noeud actif" wall even
  * though the serving daemon is right there. This seeds the list
  * with the current origin so the common single-node case lands
  * straight on Browse.
@@ -34,7 +34,7 @@ export const LOCAL_COORDINATOR_NICKNAME = "Ce nœud (local)";
  * (b) there is no DOM `window`, (c) the origin is not http(s)
  * (e.g. `file://`), or (d) the same-origin daemon is unreachable
  * (e.g. the shell is served by a launcher whose daemon lives on a
- * different origin) — the manual "Ajouter un coordinateur" flow
+ * different origin) — the manual "Se connecter a un noeud" flow
  * stays available in that case.
  *
  * Safe to call more than once: the empty-list guard short-circuits

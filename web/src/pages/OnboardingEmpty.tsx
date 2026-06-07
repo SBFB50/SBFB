@@ -60,7 +60,7 @@ export default function OnboardingEmpty() {
             <code className="font-mono">GET /health</code>.
           </p>
           <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="h-4 w-4" /> Ajouter un coordinateur
+            <Plus className="h-4 w-4" /> Se connecter a un noeud
           </Button>
         </CardContent>
       </Card>

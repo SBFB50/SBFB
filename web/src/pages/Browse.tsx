@@ -32,10 +32,10 @@ export default function Browse() {
         <div className="glass-card max-w-md p-8 text-center">
           <Globe className="mx-auto mb-4 h-12 w-12 text-purple-400" />
           <h2 className="mb-2 text-xl font-bold">
-            Aucun coordinateur
+            Aucun noeud actif
           </h2>
           <p className="text-sm text-white/60">
-            Ajoute un coordinateur depuis l'en-tete pour explorer le
+            Connecte-toi a un noeud depuis l'en-tete pour explorer le
             reseau P2P.
           </p>
         </div>
@@ -578,10 +578,10 @@ export function DaemonOfflineBanner({ reason }: { reason: string }) {
   return (
     <div className="glass-card border-amber-500/20 p-6" data-testid="daemon-offline-banner">
       <h3 className="mb-1 font-bold text-amber-300">
-        Daemon indisponible
+        Noeud indisponible
       </h3>
       <p className="text-sm text-white/50">
-        Le coordinateur ne peut pas joindre{" "}
+        Impossible de joindre le noeud{" "}
         <code className="font-mono text-white/70">nexus-shell-daemon</code>.
         Lance{" "}
         <code className="font-mono text-white/70">nexus-shell-daemon start</code>{" "}
