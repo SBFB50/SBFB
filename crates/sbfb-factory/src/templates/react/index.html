@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{name}}</title>
+  <!--
+    React 18 UMD, vendored same-origin (NO CDN, NO build, NO runtime fetch) so
+    the app runs under the SBFB sandbox CSP (default-src 'self'; connect-src
+    'none'): the iframe cannot reach a CDN, so the runtime ships in the archive.
+  -->
+  <script src="react.production.min.js"></script>
+  <script src="react-dom.production.min.js"></script>
+  <script src="htm.umd.js"></script>
+  <script src="sbfb-bridge.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    var html = htm.bind(React.createElement);
+    var useState = React.useState;
+    var useEffect = React.useEffect;
+
+    function App() {
+      var counter = useState(0);
+      var count = counter[0];
+      var setCount = counter[1];
+      var statusState = useState("Verification...");
+      var status = statusState[0];
+      var setStatus = statusState[1];
+
+      useEffect(function () {
+        var bridge = new SBFBBridge();
+        bridge.getNodeStatus().then(function (s) {
+          setStatus("Connecte — " + (s.peers || 0) + " pairs");
+        }).catch(function () {
+          setStatus("Mode hors-ligne");
+        });
+      }, []);
+
+      return html`
+        <main>
+          <h1>{{name}}</h1>
+          <p>App React rendue sans build ni CDN, dans le sandbox SBFB.</p>
+          <button onClick=${function () { setCount(count + 1); }}>
+            Clics : ${count}
+          </button>
+          <p>${status}</p>
+        </main>
+      `;
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(html`<${App} />`);
+  </script>
+</body>
+</html>

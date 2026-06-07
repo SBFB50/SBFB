@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use nexus_coordinator_rs::forge::normalize_clone_url;
@@ -24,7 +24,7 @@ use tracing::{debug, warn};
 
 use crate::http::DaemonHttpState;
 
-const MAX_DEPLOY_BYTES: usize = 100 * 1024 * 1024;
+pub(crate) const MAX_DEPLOY_BYTES: usize = 100 * 1024 * 1024;
 const MAX_CLONE_BYTES: u64 = 500 * 1024 * 1024;
 const CLONE_TIMEOUT_SECS: u64 = 30;
 const CHECKOUT_TIMEOUT_SECS: u64 = 10;
@@ -161,20 +161,236 @@ pub async fn deploy_from_repo(
     };
     debug!(size = zip_bytes.len(), "deploy-from-repo: zipped");
 
+    match finalize_deploy(
+        &state,
+        &project_id,
+        zip_bytes,
+        FinalizeDeployParams {
+            project_name: &req.project_name,
+            category: &req.category,
+            description: &req.description,
+            apps: &req.apps,
+            repo_url: Some(&repo_url),
+            commit_sha: &commit_sha,
+            is_open_source: true,
+            app_version: manifest.version.clone(),
+        },
+    )
+    .await
+    {
+        Ok((hash_hex, prov_hash)) => (
+            StatusCode::OK,
+            Json(DeployResponse {
+                deployed: true,
+                hash: hash_hex,
+                provenance_hash: Some(prov_hash),
+                commit_sha: Some(commit_sha),
+            }),
+        )
+            .into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
+/// Query parameters for `POST /api/v1/deploy-workspace`. The zip archive is the
+/// raw request body; project metadata travels in the query string.
+#[derive(Debug, Deserialize)]
+pub struct DeployWorkspaceQuery {
+    pub project_name: String,
+    #[serde(default = "default_category")]
+    pub category: String,
+    #[serde(default)]
+    pub description: String,
+    /// Lineage only — where this fork was derived from. NOT a reproducibility
+    /// claim: the deployed bytes are local edits that may not match the source,
+    /// so `is_open_source` stays `false`. Recorded in the provenance for
+    /// attribution.
+    #[serde(default)]
+    pub repo_url: Option<String>,
+    #[serde(default)]
+    pub commit_sha: Option<String>,
+    /// Comma-separated app names (the body carries the zip, so list metadata
+    /// travels in the query string — unlike `deploy-from-repo`'s JSON array).
+    /// An app name containing a comma is not representable; SBFB ids are slugs.
+    #[serde(default)]
+    pub apps: Option<String>,
+}
+
+/// `POST /api/v1/deploy-workspace` — Sprint 74 Phase C — redeploy a LOCALLY
+/// forked/edited workspace under THIS node's identity.
+///
+/// The atelier-fork loop (search → fork → edit → redeploy) needs a path that
+/// deploys local workspace bytes without a public forge round-trip. Unlike
+/// `deploy-from-repo` (which clones a public repo and so can attest a verifiable
+/// open-source build), this route signs a FRESH provenance over the uploaded
+/// bytes with the local keypair — an honest SLSA-L1 self-attestation: "this
+/// node built and vouches for these bytes". Because the exact bytes are NOT
+/// reproducible from a public repo (they are local edits), `is_open_source` is
+/// forced `false` (so a fork never inherits the original author's open-source /
+/// L2-consent standing; the forker becomes the local author — R5 seeder≠author).
+/// To publish a verifiable open-source fork, push it to your own forge and use
+/// `deploy-from-repo`.
+pub async fn deploy_workspace(
+    State(state): State<Arc<DaemonHttpState>>,
+    Query(q): Query<DeployWorkspaceQuery>,
+    body: Bytes,
+) -> Response {
+    debug!(size = body.len(), name = %q.project_name, "POST /api/v1/deploy-workspace");
+
+    if q.project_name.trim().is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "project_name must not be empty");
+    }
+    if body.len() > MAX_DEPLOY_BYTES {
+        return error_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &format!(
+                "upload exceeds {} MB limit",
+                MAX_DEPLOY_BYTES / (1024 * 1024)
+            ),
+        );
+    }
+    // The workspace archive must be a real zip with an index.html at the root —
+    // same gate as the private deploy path.
+    if let Err(e) = validate_zip(&body) {
+        return error_response(StatusCode::BAD_REQUEST, &e);
+    }
+
+    // Lineage repo_url (optional): if present it must be https (no `file://` /
+    // arg-injection vectors recorded into provenance).
+    let repo_url = match q.repo_url.as_deref() {
+        Some(url) if !url.is_empty() => {
+            let normalized = normalize_clone_url(url);
+            if !normalized.starts_with("https://") {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "repo_url must be an HTTPS URL when provided",
+                );
+            }
+            normalized
+        }
+        _ => String::new(),
+    };
+    // Lineage commit_sha (optional): full 40-hex when present.
+    let commit_sha = match q.commit_sha.as_deref() {
+        Some(sha) if !sha.is_empty() => {
+            if !is_valid_sha(sha) {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "commit_sha must be a full 40-character hex SHA",
+                );
+            }
+            sha.to_lowercase()
+        }
+        _ => String::new(),
+    };
+
+    let project_id = hex::encode(blake3_hash(q.project_name.as_bytes()));
+    let apps: Vec<String> = q
+        .apps
+        .as_deref()
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let repo_url_opt = if repo_url.is_empty() {
+        None
+    } else {
+        Some(repo_url.as_str())
+    };
+
+    match finalize_deploy(
+        &state,
+        &project_id,
+        body.to_vec(),
+        FinalizeDeployParams {
+            project_name: &q.project_name,
+            category: &q.category,
+            description: &q.description,
+            apps: &apps,
+            repo_url: repo_url_opt,
+            commit_sha: &commit_sha,
+            // A locally re-zipped, possibly-edited fork is NOT a verifiable
+            // open-source build — the local provenance only self-attests the
+            // builder, never reproducibility. See the fn doc.
+            is_open_source: false,
+            app_version: None,
+        },
+    )
+    .await
+    {
+        Ok((hash_hex, prov_hash)) => (
+            StatusCode::OK,
+            Json(DeployResponse {
+                deployed: true,
+                hash: hash_hex,
+                provenance_hash: Some(prov_hash),
+                commit_sha: (!commit_sha.is_empty()).then_some(commit_sha),
+            }),
+        )
+            .into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
+/// Parameters for [`finalize_deploy`] — the metadata that travels alongside the
+/// pre-provenance zip into the shared deploy tail.
+pub(crate) struct FinalizeDeployParams<'a> {
+    pub(crate) project_name: &'a str,
+    pub(crate) category: &'a str,
+    pub(crate) description: &'a str,
+    pub(crate) apps: &'a [String],
+    /// `Some` records a source/lineage repo on the provenance + announcement.
+    pub(crate) repo_url: Option<&'a str>,
+    /// Source commit (lineage); empty string when unknown (local workspace).
+    pub(crate) commit_sha: &'a str,
+    /// Only `deploy-from-repo` sets this `true` (a verifiable clone-and-build);
+    /// the local-workspace path forces `false`.
+    pub(crate) is_open_source: bool,
+    /// App version from SBFB.json (not part of the signed canonical bytes).
+    pub(crate) app_version: Option<String>,
+}
+
+/// The shared deploy tail for every self-published app: sign a FRESH provenance
+/// with THIS node's keypair over `zip_bytes`, inject `provenance.json`, store the
+/// blob, persist the provenance record, then announce/index/cache via the single
+/// canonical [`publish_announcement`] helper and mirror a `ReleasePublished`
+/// feed op. Extracted from `deploy_from_repo` (Sprint 74 Phase C) so the new
+/// `deploy_workspace` (atelier-fork redeploy) reuses the exact same locally-
+/// signed-provenance path — the provenance `node_id` is always `state.node_id`,
+/// so a redeploy is structurally re-signed by the local node (R5).
+///
+/// Returns `(archive_hash_hex, provenance_blake3_hex)`. Errors only on the two
+/// fatal steps (provenance injection, blob store); the contributor attestation,
+/// provenance-record insert, and feed mirror are best-effort (logged, non-fatal).
+pub(crate) async fn finalize_deploy(
+    state: &DaemonHttpState,
+    project_id: &str,
+    zip_bytes: Vec<u8>,
+    params: FinalizeDeployParams<'_>,
+) -> Result<(String, String), String> {
+    let repo_url = params.repo_url.unwrap_or("");
+
     let artifact_hash_bytes = blake3_hash(&zip_bytes);
     let artifact_hash_hex = hex::encode(artifact_hash_bytes);
 
     let mut prov = provenance::generate_provenance(
-        &repo_url,
-        &commit_sha,
+        repo_url,
+        params.commit_sha,
         &artifact_hash_hex,
         &state.node_id,
         &state.pow_keypair,
     );
-    prov.app_version = manifest.version.clone();
+    prov.app_version = params.app_version.clone();
 
-    // Best-effort contributor attestation (Couche 2 Sybil gate).
-    {
+    // Best-effort contributor attestation (Couche 2 Sybil gate) — only for a
+    // verifiable open-source deploy. A local-workspace self-attestation is not
+    // an open-source contribution, so it never feeds the Sybil registry.
+    if params.is_open_source {
         let db_guard = state
             .coordinator_db
             .lock()
@@ -185,15 +401,15 @@ pub async fn deploy_from_repo(
         let sig_hex = hex::encode(sig);
         let attestation_json = serde_json::json!({
             "artifact_hash": artifact_hash_hex,
-            "commit_sha": commit_sha,
+            "commit_sha": params.commit_sha,
             "repo_url": repo_url,
         })
         .to_string();
         if let Err(e) = contributor_reg.record(
             &state.node_id,
             &state.node_id,
-            &commit_sha,
-            &repo_url,
+            params.commit_sha,
+            repo_url,
             &sig_hex,
             &attestation_json,
         ) {
@@ -201,32 +417,21 @@ pub async fn deploy_from_repo(
         }
     }
 
-    let zip_bytes = match add_to_zip(
+    let zip_bytes = add_to_zip(
         &zip_bytes,
         "provenance.json",
         &provenance::provenance_to_json(&prov),
-    ) {
-        Ok(b) => b,
-        Err(e) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("provenance inject: {e}"),
-            );
-        }
-    };
-    debug!(size = zip_bytes.len(), "deploy-from-repo: provenance added");
+    )
+    .map_err(|e| format!("provenance inject: {e}"))?;
+    debug!(size = zip_bytes.len(), "deploy: provenance added");
 
     let blobs = BlobsClient::new(state.node.blobs_store());
-    let hash_hex = match blobs.add_bytes(zip_bytes).await {
-        Ok(hash) => hex::encode(hash),
-        Err(e) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("blob store: {e}"),
-            );
-        }
-    };
-    debug!(hash = %hash_hex, "deploy-from-repo: blob stored");
+    let hash_hex = blobs
+        .add_bytes(zip_bytes)
+        .await
+        .map(hex::encode)
+        .map_err(|e| format!("blob store: {e}"))?;
+    debug!(hash = %hash_hex, "deploy: blob stored");
 
     let prov_hash = provenance::provenance_blake3_hex(&prov);
 
@@ -237,38 +442,44 @@ pub async fn deploy_from_repo(
             .coordinator_db
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        if let Err(e) = db_guard.insert_provenance_record(&project_id, &prov) {
+        if let Err(e) = db_guard.insert_provenance_record(project_id, &prov) {
             debug!(error = %e, "provenance record insert failed (non-fatal)");
         }
     }
 
     publish_announcement(
-        &state,
+        state,
         AnnouncementParams {
-            project_id: &project_id,
-            project_name: &req.project_name,
-            category: &req.category,
-            description: &req.description,
-            apps: &req.apps,
+            project_id,
+            project_name: params.project_name,
+            category: params.category,
+            description: params.description,
+            apps: params.apps,
             archive_hash: Some(&hash_hex),
-            repo_url: Some(&repo_url),
+            repo_url: params.repo_url,
             provenance_hash: Some(&prov_hash),
-            is_open_source: true,
+            is_open_source: params.is_open_source,
         },
     )
     .await;
 
-    // Wire deploy→feed: auto-insert ReleasePublished into the public feed.
-    {
+    // Wire deploy→feed: auto-insert ReleasePublished into the public feed —
+    // ONLY for a verifiable open-source deploy. A `ReleasePublished` op asserts a
+    // published release from a source repo+commit; a local-workspace fork is an
+    // is_open_source=false self-attestation with no required source commit, so it
+    // does not emit one (it would also fail op validation on an empty commit_sha
+    // and be silently dropped). The fork is still discoverable via the gossip
+    // ProjectAnnouncement + the browse-index search row written above.
+    if params.is_open_source {
         let release_op = serde_json::to_value(
             nexus_coordinator_rs::public_feed::PublicFeedOperation::ReleasePublished(
                 nexus_coordinator_rs::public_feed::ReleasePublishedPayload {
-                    project_id: project_id.clone(),
-                    repo_url: repo_url.clone(),
-                    commit_sha: commit_sha.clone(),
+                    project_id: project_id.to_string(),
+                    repo_url: repo_url.to_string(),
+                    commit_sha: params.commit_sha.to_string(),
                     artifact_hash: artifact_hash_hex.clone(),
                     provenance_hash: Some(prov_hash.clone()),
-                    is_open_source: true,
+                    is_open_source: params.is_open_source,
                 },
             ),
         );
@@ -305,16 +516,7 @@ pub async fn deploy_from_repo(
         }
     }
 
-    (
-        StatusCode::OK,
-        Json(DeployResponse {
-            deployed: true,
-            hash: hash_hex,
-            provenance_hash: Some(prov_hash),
-            commit_sha: Some(commit_sha),
-        }),
-    )
-        .into_response()
+    Ok((hash_hex, prov_hash))
 }
 
 pub async fn deploy_private(State(state): State<Arc<DaemonHttpState>>, body: Bytes) -> Response {

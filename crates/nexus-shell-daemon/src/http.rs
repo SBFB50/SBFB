@@ -362,10 +362,29 @@ pub fn build_router(
         .route("/api/daemon/search", get(search_handler))
         .route("/api/daemon/proof-card/{project_id}", get(get_proof_card))
         .route("/api/v1/preview/load", post(preview_load))
-        .route("/api/v1/deploy", post(crate::deploy::deploy_private))
+        // Raw-zip deploy routes carry a body up to MAX_DEPLOY_BYTES; override
+        // axum's 2 MB default body limit per-route so the handler's own
+        // PAYLOAD_TOO_LARGE check is the real ceiling (a non-trivial forked
+        // workspace easily exceeds 2 MB). Scoped to these routes so other
+        // endpoints keep the safe small default.
+        .route(
+            "/api/v1/deploy",
+            post(crate::deploy::deploy_private).layer(axum::extract::DefaultBodyLimit::max(
+                crate::deploy::MAX_DEPLOY_BYTES,
+            )),
+        )
         .route(
             "/api/v1/deploy-from-repo",
             post(crate::deploy::deploy_from_repo),
+        )
+        // Sprint 74 Phase C : redeploy a locally forked/edited workspace under
+        // this node's identity (atelier-fork loop). Fresh local-signed
+        // provenance, is_open_source forced false (self-attestation only).
+        .route(
+            "/api/v1/deploy-workspace",
+            post(crate::deploy::deploy_workspace).layer(axum::extract::DefaultBodyLimit::max(
+                crate::deploy::MAX_DEPLOY_BYTES,
+            )),
         )
         .route(
             "/api/v1/project/{project_id}/provenance",
@@ -6982,6 +7001,313 @@ mod tests {
             state.node_id,
             "browse card id is NOT the node_id"
         );
+    }
+
+    // -- Sprint 74 Phase C: atelier-fork redeploy under local identity --
+
+    /// POST a forked workspace's zip to `/api/v1/deploy-workspace` and return the
+    /// HTTP status. Mirrors `publish_app` but for the local-redeploy path.
+    async fn deploy_workspace_app(
+        state: &Arc<DaemonHttpState>,
+        name: &str,
+        zip: Vec<u8>,
+    ) -> StatusCode {
+        let uri = format!(
+            "/api/v1/deploy-workspace?project_name={}&category=tools&description=forked",
+            name.replace(' ', "%20")
+        );
+        build_test_router(Arc::clone(state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(uri)
+                    .body(axum::body::Body::from(zip))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+    }
+
+    #[tokio::test]
+    async fn fork_redeploy_resigns_provenance_as_local_node() {
+        // A locally forked/edited workspace, redeployed through
+        // /deploy-workspace, gets a FRESH provenance signed by THIS node's
+        // keypair (R5: a fork is a new LOCAL author act; the original author's
+        // provenance is never inherited). No mock: real state, real provenance
+        // signing, real DB round-trip.
+        let state = mk_state().await;
+        let zip = make_zip(&[("index.html", b"<h1>my fork</h1>")]);
+        assert_eq!(
+            deploy_workspace_app(&state, "Forked App", zip).await,
+            StatusCode::OK
+        );
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Forked App"));
+        let record = {
+            let db = state.coordinator_db.lock().unwrap();
+            db.get_provenance_by_project(&pid)
+                .unwrap()
+                .expect("provenance recorded for the redeployed fork")
+        };
+        // Re-signed under THIS node's identity, not the original author's.
+        assert_eq!(
+            record.node_id, state.node_id,
+            "provenance node_id is the local node"
+        );
+        // The signature genuinely verifies against the local signing keypair —
+        // independent of any node_id/pow-key alignment.
+        let json = nexus_coordinator_rs::provenance::provenance_to_json(&record);
+        assert!(
+            nexus_coordinator_rs::provenance::verify_provenance(
+                &json,
+                &state.pow_keypair.public_bytes()
+            ),
+            "provenance is signed by the local node's keypair"
+        );
+    }
+
+    #[tokio::test]
+    async fn fork_redeploy_loop_e2e_single_node() {
+        // The full atelier loop on a single node: a forked workspace's bytes go
+        // in via /deploy-workspace and come out as a discoverable Browse card
+        // with a per-app id and an HONEST is_open_source=false (local
+        // self-attestation, not a verifiable public build). Real frontier
+        // (§P57): real HTTP handler, real blob store, real aggregator + search.
+        let state = mk_state().await;
+        let zip = make_zip(&[("index.html", b"<h1>loop</h1>")]);
+        assert_eq!(
+            deploy_workspace_app(&state, "Loop Fork", zip).await,
+            StatusCode::OK
+        );
+        let entries = browse_entries(&state).await;
+        let entry = entries
+            .iter()
+            .find(|e| e["project_name"] == "Loop Fork")
+            .expect("redeployed fork present in browse");
+        let expected = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Loop Fork"));
+        assert_eq!(
+            entry["project_id"].as_str().unwrap(),
+            expected,
+            "per-app project_id"
+        );
+        assert_eq!(
+            entry["is_open_source"].as_bool(),
+            Some(false),
+            "a local fork redeploy is a self-attestation, never open-source"
+        );
+        // Findable by name through the real search handler.
+        assert_eq!(search_total(&state, "Loop").await, 1);
+    }
+
+    #[tokio::test]
+    async fn deploy_per_app_distinct_browse_cards() {
+        // OFF-SPRINT-2 regression: two workspace redeploys on ONE node yield TWO
+        // distinct Browse cards keyed by per-app blake3(name), never collapsed
+        // onto the node_id.
+        let state = mk_state().await;
+        assert_eq!(
+            deploy_workspace_app(&state, "Fork Alpha", make_zip(&[("index.html", b"a")])).await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            deploy_workspace_app(&state, "Fork Beta", make_zip(&[("index.html", b"b")])).await,
+            StatusCode::OK
+        );
+        let entries = browse_entries(&state).await;
+        let ids: std::collections::HashSet<&str> = entries
+            .iter()
+            .filter_map(|e| e["project_id"].as_str())
+            .collect();
+        assert_eq!(ids.len(), 2, "two forks -> two distinct cards");
+        assert!(
+            !ids.contains(state.node_id.as_str()),
+            "no card keyed by node_id"
+        );
+    }
+
+    #[tokio::test]
+    async fn publish_and_gossip_use_per_app_project_id() {
+        // OFF-SPRINT-2b regression: the gossip ProjectAnnouncement carries the
+        // per-app project_id (blake3(name)), distinct from the hosting node_id.
+        // The node_id stays on the wire as the dialable identity, but the app
+        // identity is per-app. Captures the real outbox envelope (no mock).
+        use nexus_core_rs::crypto::blake3_hash;
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::runtime::GossipCmd>(8);
+        let state = mk_state_with_mode_tx(nexus_core_rs::IdentityMode::Normal, tx).await;
+        let pid = hex::encode(blake3_hash(b"Per App Gossip"));
+        crate::deploy::publish_announcement(
+            &state,
+            crate::deploy::AnnouncementParams {
+                project_id: &pid,
+                project_name: "Per App Gossip",
+                category: "tools",
+                description: "x",
+                apps: &[],
+                archive_hash: None,
+                repo_url: None,
+                provenance_hash: None,
+                is_open_source: false,
+            },
+        )
+        .await;
+        let cmd = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("outbox arrives")
+            .expect("channel open");
+        let crate::runtime::GossipCmd::Outbox(envelope) = cmd else {
+            panic!("expected GossipCmd::Outbox");
+        };
+        let (_proof, payload) = nexus_core_rs::PowEnvelope::decode(&envelope).unwrap();
+        let ann = nexus_shell_daemon_core::publish::ProjectAnnouncement::from_gossip_bytes(payload)
+            .unwrap();
+        assert_eq!(ann.project_id, pid, "per-app id on the wire");
+        assert_ne!(ann.project_id, ann.node_id, "per-app id is not the node_id");
+    }
+
+    /// POST a raw query string + zip body to /api/v1/deploy-workspace; return the
+    /// HTTP status (for the validation-branch + body-limit tests).
+    async fn post_workspace(state: &Arc<DaemonHttpState>, query: &str, zip: Vec<u8>) -> StatusCode {
+        build_test_router(Arc::clone(state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/deploy-workspace?{query}"))
+                    .body(axum::body::Body::from(zip))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+    }
+
+    #[tokio::test]
+    async fn deploy_workspace_with_lineage_stays_not_open_source() {
+        // The frozen invariant: a fork redeploy is is_open_source=false EVEN when
+        // it carries a valid https lineage repo_url + 40-hex commit_sha. A
+        // regression wiring lineage -> is_open_source=true (the L2-consent / R5
+        // escalation) must fail this test. Attribution (repo_url) is kept; the
+        // open-source standing is denied.
+        let state = mk_state().await;
+        let zip = make_zip(&[("index.html", b"<h1>x</h1>")]);
+        let query = format!(
+            "project_name=Lineage%20Fork&category=tools&description=d&repo_url={}&commit_sha={}",
+            "https%3A%2F%2Fcodeberg.org%2Forig%2Fapp.git",
+            "a".repeat(40)
+        );
+        assert_eq!(post_workspace(&state, &query, zip).await, StatusCode::OK);
+
+        let entries = browse_entries(&state).await;
+        let entry = entries
+            .iter()
+            .find(|e| e["project_name"] == "Lineage Fork")
+            .expect("redeployed fork present");
+        assert_eq!(
+            entry["is_open_source"].as_bool(),
+            Some(false),
+            "lineage repo_url must NOT grant open-source standing"
+        );
+        assert!(
+            entry["repo_url"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("https://codeberg.org/orig/app"),
+            "lineage repo_url IS recorded for attribution"
+        );
+    }
+
+    #[tokio::test]
+    async fn deploy_workspace_rejects_bad_inputs() {
+        // The five new validation branches (mirrors deploy_from_repo's 400 tests).
+        let state = mk_state().await;
+        let zip = || make_zip(&[("index.html", b"<h1>x</h1>")]);
+        assert_eq!(
+            post_workspace(&state, "project_name=&category=tools", zip()).await,
+            StatusCode::BAD_REQUEST,
+            "empty project_name"
+        );
+        assert_eq!(
+            post_workspace(
+                &state,
+                "project_name=A&repo_url=http%3A%2F%2Fx.example",
+                zip()
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+            "non-https lineage repo_url"
+        );
+        assert_eq!(
+            post_workspace(&state, "project_name=A&commit_sha=notasha", zip()).await,
+            StatusCode::BAD_REQUEST,
+            "invalid commit_sha"
+        );
+        assert_eq!(
+            post_workspace(&state, "project_name=A", make_zip(&[("other.html", b"x")])).await,
+            StatusCode::BAD_REQUEST,
+            "zip without index.html"
+        );
+    }
+
+    #[tokio::test]
+    async fn deploy_workspace_accepts_body_over_2mb() {
+        // Regression for the per-route DefaultBodyLimit override: axum's 2 MB
+        // default would 413 a realistic forked workspace before the handler runs.
+        // make_zip uses Stored (no compression) so the body is genuinely >2 MB.
+        let state = mk_state().await;
+        let filler = vec![b'A'; 3 * 1024 * 1024];
+        let zip = make_zip(&[("index.html", b"<h1>big</h1>"), ("blob.bin", &filler)]);
+        assert!(
+            zip.len() as u64 > 2 * 1024 * 1024,
+            "test body must exceed axum's 2MB default ({} bytes)",
+            zip.len()
+        );
+        assert_eq!(
+            post_workspace(&state, "project_name=Big%20Fork&category=tools", zip).await,
+            StatusCode::OK,
+            "a >2MB workspace must pass the body limit (handler ceiling is 100MB)"
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_deploy_open_source_arm_propagates_version_and_flag() {
+        // Protects deploy_from_repo's is_open_source=true path (untestable over
+        // HTTP without a network clone) after the finalize_deploy extraction:
+        // is_open_source propagates to the Browse card and app_version + commit
+        // propagate to the signed provenance record.
+        let state = mk_state().await;
+        let zip = make_zip(&[("index.html", b"<h1>os</h1>")]);
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"OS App"));
+        let sha = "b".repeat(40);
+        crate::deploy::finalize_deploy(
+            &state,
+            &pid,
+            zip,
+            crate::deploy::FinalizeDeployParams {
+                project_name: "OS App",
+                category: "tools",
+                description: "d",
+                apps: &[],
+                repo_url: Some("https://codeberg.org/os/app.git"),
+                commit_sha: &sha,
+                is_open_source: true,
+                app_version: Some("2.1.0".to_string()),
+            },
+        )
+        .await
+        .expect("finalize_deploy open-source arm");
+
+        let entries = browse_entries(&state).await;
+        let entry = entries
+            .iter()
+            .find(|e| e["project_name"] == "OS App")
+            .expect("verified deploy present");
+        assert_eq!(entry["is_open_source"].as_bool(), Some(true));
+
+        let record = {
+            let db = state.coordinator_db.lock().unwrap();
+            db.get_provenance_by_project(&pid).unwrap().unwrap()
+        };
+        assert_eq!(record.app_version.as_deref(), Some("2.1.0"));
+        assert_eq!(record.commit_sha, sha);
     }
 
     // -- Sprint 73 Phase D: search JSON carries the provenance triplet --

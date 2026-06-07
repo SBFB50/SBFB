@@ -590,4 +590,85 @@ describe("BrowsedProject", () => {
     });
     expect(screen.queryByTestId("redeploy-fallen-app")).not.toBeInTheDocument();
   });
+
+  // Sprint 74 Phase C — "Forker dans l'atelier": an intention CTA (the fork runs
+  // in the local atelier tool, so the shell surfaces the flow, not a fake action).
+  it("fork CTA opens the atelier intention panel for an https source", async () => {
+    const user = userEvent.setup();
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({ repo_url: "https://codeberg.org/me/gov.git" }),
+        ],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+    });
+    renderPage(LOCAL_NODE_ID);
+    const cta = await screen.findByTestId("fork-atelier-cta");
+    expect(cta).toBeInTheDocument();
+    expect(screen.queryByTestId("fork-atelier-panel")).not.toBeInTheDocument();
+    await user.click(cta);
+    await waitFor(() => {
+      expect(screen.getByTestId("fork-atelier-panel")).toBeInTheDocument();
+    });
+    // The panel is an explanation, not a faux action: it carries the steps.
+    expect(screen.getByText(/publier ta propre version/)).toBeInTheDocument();
+    await user.click(screen.getByTestId("fork-atelier-close"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("fork-atelier-panel")).not.toBeInTheDocument();
+    });
+  });
+
+  it("fork CTA absent when the app has no source repo_url", async () => {
+    mockFetch({
+      "/api/daemon/browse": { entries: [makeBrowseEntry()] },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/app": { apps: [], count: 0 },
+    });
+    renderPage(LOCAL_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("browsed-project")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("fork-atelier-cta")).not.toBeInTheDocument();
+  });
+
+  it("fork CTA shown for an archive-only app (no forge source)", async () => {
+    // canFork broadened to isHttpsUrl(repo_url) || archive_hash — matches the
+    // backend (forge clone OR archive reconstruction).
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            archive_hash: "ab".repeat(32),
+          }),
+        ],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+    });
+    renderPage(REMOTE_NODE_ID);
+    expect(await screen.findByTestId("fork-atelier-cta")).toBeInTheDocument();
+  });
+
+  it("fork CTA hidden for a non-https repo_url with no archive", async () => {
+    // Scheme guard: a present-but-non-https (e.g. javascript:) repo_url with no
+    // archive must NOT surface the CTA (mirrors the fallen-app scheme guard).
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            repo_url: "javascript" + ":alert(1)",
+          }),
+        ],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+    });
+    renderPage(REMOTE_NODE_ID);
+    await waitFor(() => {
+      expect(screen.getByTestId("remote-placeholder")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("fork-atelier-cta")).not.toBeInTheDocument();
+  });
 });

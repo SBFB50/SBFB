@@ -2,15 +2,14 @@
 
 use clap::{Parser, Subcommand};
 
+mod atelier;
 mod audit_log;
 mod auth;
 mod daemon_client;
 mod diff;
 // Sprint 74 Phase B: the fork-workspace primitives (clone a network project
 // into a target workspace, or reconstruct it from the published archive).
-// Phase C wires them to a CLI command + the daemon redeploy; until then they
-// are reachable only from their own tests, so the binary build sees dead code.
-#[allow(dead_code)]
+// Sprint 74 Phase C wires them to the `fork`/`redeploy` CLI (`atelier`).
 mod fork;
 mod gates;
 mod llm_bridge;
@@ -53,6 +52,35 @@ enum Command {
         /// Output directory (defaults to ./<name>)
         #[arg(long)]
         output: Option<String>,
+    },
+
+    /// Fork a network project into a local workspace (forge clone or archive)
+    Fork {
+        /// Destination workspace directory (must be outside the nexus repo)
+        #[arg(long)]
+        dest: String,
+
+        /// HTTPS forge URL to clone (preferred, verifiable source)
+        #[arg(long)]
+        repo_url: Option<String>,
+
+        /// Pin the clone to this 40-hex commit SHA
+        #[arg(long)]
+        commit_sha: Option<String>,
+
+        /// Reconstruct from a published archive (.zip) instead of a forge clone
+        #[arg(long)]
+        archive: Option<String>,
+
+        /// Expected blake3 hash of the --archive bytes (verified before forking)
+        #[arg(long)]
+        archive_hash: Option<String>,
+    },
+
+    /// Redeploy a local (forked/edited) workspace under this node's identity
+    Redeploy {
+        /// Path to the workspace directory
+        path: String,
     },
 
     /// Validate an existing SBFB project
@@ -193,6 +221,40 @@ fn main() {
                 let r =
                     template_engine::create(&template, &name, &output_dir).map_err(|e| e.into());
                 ("create", args, r)
+            }
+            Command::Fork {
+                dest,
+                repo_url,
+                commit_sha,
+                archive,
+                archive_hash,
+            } => {
+                let mut args = vec![format!("--dest={dest}")];
+                if let Some(ref u) = repo_url {
+                    args.push(format!("--repo-url={u}"));
+                }
+                if let Some(ref s) = commit_sha {
+                    args.push(format!("--commit-sha={s}"));
+                }
+                if let Some(ref a) = archive {
+                    args.push(format!("--archive={a}"));
+                }
+                if let Some(ref h) = archive_hash {
+                    args.push(format!("--archive-hash={h}"));
+                }
+                let r = atelier::fork(
+                    &dest,
+                    repo_url.as_deref(),
+                    commit_sha.as_deref(),
+                    archive.as_deref(),
+                    archive_hash.as_deref(),
+                );
+                ("fork", args, r)
+            }
+            Command::Redeploy { path } => {
+                let args = vec![path.clone()];
+                let r = atelier::redeploy(&path);
+                ("redeploy", args, r)
             }
             Command::Validate { path } => {
                 let args = vec![path.clone()];

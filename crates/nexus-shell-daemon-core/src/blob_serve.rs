@@ -118,8 +118,17 @@ impl BlobServeCache {
                 return Err(BlobServeError::UnsafePath(name));
             }
 
-            let mut buf = Vec::with_capacity(entry.size() as usize);
-            entry.read_to_end(&mut buf)?;
+            // Do NOT trust the entry's CLAIMED uncompressed size for the
+            // allocation: a lying zip header could advertise multi-GB to force a
+            // huge pre-allocation BEFORE the cumulative cap below fires. Cap the
+            // capacity hint at the remaining decompressed budget, and bound the
+            // read with take(remaining + 1) so a single oversized entry is caught
+            // mid-read instead of being fully buffered first (mirrors the bounded
+            // copy in sbfb-factory `fork::extract_zip`).
+            let remaining = max_decompressed_bytes.saturating_sub(total_size);
+            let cap_hint = (entry.size() as usize).min(remaining.saturating_add(1));
+            let mut buf = Vec::with_capacity(cap_hint);
+            std::io::Read::take(&mut entry, remaining as u64 + 1).read_to_end(&mut buf)?;
 
             total_size += buf.len();
             if total_size > max_decompressed_bytes {

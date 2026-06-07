@@ -30,11 +30,14 @@
 //! injection / arbitrary-command-execution vector (CVE-2017-1000117 class).
 //!
 //! ## Blob integrity
-//! `fork_from_blob` does NOT re-verify `blob_bytes` against `archive_hash`: the
-//! Factory fetches those bytes over the daemon HTTP boundary, and the daemon's
-//! iroh-blobs fetch is content-addressed (blake3-verified on fetch). The daemon
-//! fetch boundary is the integrity authority; the Factory only defends disk
-//! safety (zip-slip / symlink / size).
+//! The low-level [`fork_from_blob`] does NOT re-verify bytes against a hash. But
+//! [`fork_from_search_hit`] DOES, when the triplet carries an `archive_hash`:
+//! the blob bytes may come from a LOCAL `--archive` file (the operator hands
+//! them in) which bypasses the daemon's content-addressed iroh-blobs fetch, so
+//! the dispatcher verifies `blake3(bytes) == archive_hash` before writing to
+//! disk. When the bytes instead come over the daemon HTTP boundary the fetch is
+//! already content-addressed; the extra check is then redundant but cheap. The
+//! Factory always also defends disk safety (zip-slip / symlink / size).
 //!
 //! ## Workspace location (G17)
 //! The caller chooses `dest`; `fork.rs` never derives it from
@@ -81,6 +84,8 @@ pub enum ForkError {
     CloneTooLarge(u64),
     #[error("unsafe archive entry (zip-slip / escape): {0}")]
     UnsafePath(String),
+    #[error("archive hash mismatch: expected {expected}, got {actual}")]
+    ArchiveHashMismatch { expected: String, actual: String },
     #[error("invalid zip archive: {0}")]
     Zip(String),
     #[error("io error: {0}")]
@@ -126,6 +131,19 @@ pub async fn fork_from_search_hit(
     }
     // Fallback: reconstruct from the published archive bytes.
     if let Some(bytes) = blob_bytes {
+        // If the search hit advertised an archive_hash, verify the bytes match it
+        // BEFORE writing to disk. The forge path is verified by git; blob bytes
+        // may come from a local `--archive` file that bypasses the daemon's
+        // content-addressed fetch, so this is the integrity gate for that path.
+        if let Some(expected) = triplet.archive_hash.as_deref() {
+            let actual = hex::encode(nexus_core_rs::crypto::blake3_hash(bytes));
+            if !actual.eq_ignore_ascii_case(expected) {
+                return Err(ForkError::ArchiveHashMismatch {
+                    expected: expected.to_string(),
+                    actual,
+                });
+            }
+        }
         fork_from_blob(bytes, dest)?;
         return Ok(ForkSource::Blob);
     }
@@ -640,12 +658,14 @@ mod tests {
             "both-present must attempt the forge path (and fail on the unreachable host), not fall back to blob"
         );
 
-        // No https repo_url, but archive bytes present → Blob path.
+        // No https repo_url, but archive bytes present → Blob path. archive_hash
+        // is None here so this stays a pure DISPATCH test; the hash-verification
+        // gate is covered by fork_from_search_hit_verifies_archive_hash.
         let dest_blob = tmp.path().join("blob_ws");
         let blob_only = ForkTriplet {
             repo_url: None,
             commit_sha: None,
-            archive_hash: Some("ab".repeat(32)),
+            archive_hash: None,
         };
         let src = fork_from_search_hit(&blob_only, Some(&zip), &dest_blob)
             .await
@@ -658,5 +678,44 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ForkError::NoSource));
+    }
+
+    #[tokio::test]
+    async fn fork_from_search_hit_verifies_archive_hash() {
+        // The blob path verifies the bytes against the search hit's archive_hash
+        // (the integrity gate for a local --archive file that bypasses the
+        // daemon's content-addressed fetch).
+        let tmp = tempfile::tempdir().unwrap();
+        let zip = make_zip(&[("index.html", "<h1>x</h1>")]);
+        let good = hex::encode(nexus_core_rs::crypto::blake3_hash(&zip));
+
+        // Matching hash → reconstructs.
+        let dest_ok = tmp.path().join("ok");
+        let triplet_ok = ForkTriplet {
+            repo_url: None,
+            commit_sha: None,
+            archive_hash: Some(good.clone()),
+        };
+        let src = fork_from_search_hit(&triplet_ok, Some(&zip), &dest_ok)
+            .await
+            .unwrap();
+        assert_eq!(src, ForkSource::Blob);
+        assert!(dest_ok.join("index.html").is_file());
+
+        // Tampered/wrong hash → rejected BEFORE writing to disk.
+        let dest_bad = tmp.path().join("bad");
+        let triplet_bad = ForkTriplet {
+            repo_url: None,
+            commit_sha: None,
+            archive_hash: Some("ab".repeat(32)),
+        };
+        let err = fork_from_search_hit(&triplet_bad, Some(&zip), &dest_bad)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ForkError::ArchiveHashMismatch { .. }));
+        assert!(
+            !dest_bad.join("index.html").exists(),
+            "mismatch must reject before writing the workspace"
+        );
     }
 }

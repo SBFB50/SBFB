@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ExternalLink,
+  GitFork,
   Globe,
   Heart,
   HeartOff,
@@ -191,6 +192,16 @@ function FullScreenApp({
   const [barVisible, setBarVisible] = useState(true);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
+  // Sprint 74 Phase C — "Forker dans l'atelier" intention panel. The fork itself
+  // runs in the local atelier tool (a separate privileged process), so the shell
+  // surfaces the INTENTION + the steps rather than faking a one-click action it
+  // cannot perform (verrou "0 faux bouton actif").
+  const [forkOpen, setForkOpen] = useState(false);
+  // Forkable when there is a verifiable forge source OR a published archive the
+  // atelier can reconstruct from — matches the backend fork_from_search_hit
+  // (forge clone OR archive reconstruction). The panel is an explainer, so a
+  // broad-but-honest gate is right.
+  const canFork = isHttpsUrl(entry.repo_url) || !!entry.archive_hash;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
@@ -427,7 +438,11 @@ function FullScreenApp({
               loading={proofCardQuery.isLoading}
             />
 
-            {entry.repo_url && (
+            {/* Scheme guard (carry B.5): React does not sanitize an anchor href,
+                so only render the Source link for an explicit https origin —
+                never a javascript:/data: feed-sourced repo_url. The remaining two
+                anchors (Browse, VerificationDetail) are normalised in Phase G. */}
+            {isHttpsUrl(entry.repo_url) && (
               <a
                 href={entry.repo_url}
                 target="_blank"
@@ -438,6 +453,19 @@ function FullScreenApp({
                 <ExternalLink className="h-3 w-3" />
                 Source
               </a>
+            )}
+
+            {canFork && (
+              <button
+                type="button"
+                onClick={() => setForkOpen(true)}
+                className="flex items-center gap-1 rounded-full bg-white/[0.06] px-3 py-1.5 text-[11px] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                data-testid="fork-atelier-cta"
+                title="Forker cette app dans ton atelier pour publier ta propre version"
+              >
+                <GitFork className="h-3 w-3" />
+                Forker dans l'atelier
+              </button>
             )}
 
             <ContributeGpuButton
@@ -478,6 +506,46 @@ function FullScreenApp({
               >
                 <X className="h-3.5 w-3.5" />
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Sprint 74 Phase C — "Forker dans l'atelier" intention panel. Plain
+            language, no jargon, no fake action: it explains the atelier-fork
+            flow (the fork + redeploy run in the local atelier tool). */}
+        {forkOpen && (
+          <div
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md"
+            data-testid="fork-atelier-panel"
+          >
+            <div className="glass-card max-w-md p-8 text-left">
+              <div className="mb-3 flex items-center gap-2">
+                <GitFork className="h-5 w-5 text-purple-300" />
+                <h3 className="text-lg font-bold text-white">
+                  Forker dans l'atelier
+                </h3>
+              </div>
+              <p className="mb-4 text-sm leading-relaxed text-white/70">
+                Recupere le code de cette app dans ton atelier pour la modifier
+                et publier ta propre version. Ta version sera signee par ton
+                noeud — l'app d'origine reste celle de son auteur.
+              </p>
+              <ol className="mb-6 list-decimal space-y-1.5 pl-5 text-sm text-white/60">
+                <li>Ouvre l'atelier sur ton ordinateur.</li>
+                <li>Recupere cette app (son code source).</li>
+                <li>Modifie-la a ta facon.</li>
+                <li>Publie ta version sous ton identite.</li>
+              </ol>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setForkOpen(false)}
+                  className="rounded-full bg-white/[0.08] px-4 py-1.5 text-xs text-white hover:bg-white/[0.15]"
+                  data-testid="fork-atelier-close"
+                >
+                  Compris
+                </button>
+              </div>
             </div>
           </div>
         )}

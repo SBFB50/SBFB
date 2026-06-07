@@ -84,6 +84,74 @@ const STATIC_READER_TEMPLATE: &[TemplateFile] = &[
     },
 ];
 
+// Sprint 74 Phase C (PO Q7): a no-build React template. React/ReactDOM/htm are
+// vendored same-origin (no CDN, no fetch) so the app runs under the SBFB sandbox
+// CSP (default-src 'self'; connect-src 'none').
+const REACT_TEMPLATE: &[TemplateFile] = &[
+    TemplateFile {
+        name: "index.html",
+        content: include_str!("templates/react/index.html"),
+        substitute: true,
+    },
+    TemplateFile {
+        name: "react.production.min.js",
+        content: include_str!("templates/react/react.production.min.js"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "react-dom.production.min.js",
+        content: include_str!("templates/react/react-dom.production.min.js"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "htm.umd.js",
+        content: include_str!("templates/react/htm.umd.js"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "sbfb-bridge.js",
+        content: include_str!("templates/react/sbfb-bridge.js"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "README.md",
+        content: include_str!("templates/react/README.md"),
+        substitute: true,
+    },
+    TemplateFile {
+        name: ".gitignore",
+        content: include_str!("templates/react/gitignore"),
+        substitute: false,
+    },
+];
+
+// Sprint 74 Phase C (PO Q7): an EXPERIMENTAL Pyodide scaffold. It does NOT run
+// under the current sandbox CSP (connect-src 'none' blocks the Pyodide runtime
+// fetch) — it is a starting point for a future extended-hosting mode. The
+// README + an in-page banner say so honestly (no faux-functional app).
+const PYODIDE_TEMPLATE: &[TemplateFile] = &[
+    TemplateFile {
+        name: "index.html",
+        content: include_str!("templates/pyodide/index.html"),
+        substitute: true,
+    },
+    TemplateFile {
+        name: "sbfb-bridge.js",
+        content: include_str!("templates/pyodide/sbfb-bridge.js"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "README.md",
+        content: include_str!("templates/pyodide/README.md"),
+        substitute: true,
+    },
+    TemplateFile {
+        name: ".gitignore",
+        content: include_str!("templates/pyodide/gitignore"),
+        substitute: false,
+    },
+];
+
 fn substitute(content: &str, name: &str, version: &str) -> String {
     content
         .replace("{{name}}", name)
@@ -115,6 +183,22 @@ const TEMPLATES: &[TemplateConfig] = &[
         description: "SBFB reader app created with sbfb-factory",
         category: "content",
         bridge_methods: &["storage_get", "storage_set", "identity_pubkey"],
+    },
+    TemplateConfig {
+        id: "react",
+        version: "1.0.0",
+        files: REACT_TEMPLATE,
+        description: "SBFB React app (no-build, vendored UMD) created with sbfb-factory",
+        category: "general",
+        bridge_methods: &[],
+    },
+    TemplateConfig {
+        id: "pyodide",
+        version: "1.0.0",
+        files: PYODIDE_TEMPLATE,
+        description: "SBFB Python/Pyodide app (experimental scaffold) created with sbfb-factory",
+        category: "general",
+        bridge_methods: &[],
     },
 ];
 
@@ -464,5 +548,111 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(out.join("factory.template.lock")).unwrap())
                 .unwrap();
         assert_eq!(lock["template_id"], "static-reader");
+    }
+
+    // -- Sprint 74 Phase C (PO Q7): react + pyodide templates --
+
+    #[test]
+    fn test_create_react_template() {
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("react", "test-react", out.to_str().unwrap()).unwrap();
+
+        // The vendored runtime ships in the archive so the app runs under the
+        // sandbox CSP (no CDN, no fetch).
+        assert!(out.join("index.html").exists());
+        assert!(out.join("react.production.min.js").exists());
+        assert!(out.join("react-dom.production.min.js").exists());
+        assert!(out.join("htm.umd.js").exists());
+        assert!(out.join("sbfb-bridge.js").exists());
+        assert!(out.join("SBFB.json").exists());
+        assert!(out.join("README.md").exists());
+        assert!(out.join(".gitignore").exists());
+        assert!(out.join("factory.template.lock").exists());
+        assert!(out.join("factory.provenance.json").exists());
+
+        // React UMD license header preserved (real vendored runtime, not a stub).
+        let react = fs::read_to_string(out.join("react.production.min.js")).unwrap();
+        assert!(react.contains("@license React"));
+    }
+
+    #[test]
+    fn test_react_template_substitution_and_no_cdn() {
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("react", "my-react-app", out.to_str().unwrap()).unwrap();
+
+        let html = fs::read_to_string(out.join("index.html")).unwrap();
+        assert!(html.contains("my-react-app"));
+        assert!(!html.contains("{{name}}"));
+        // No CDN: React is loaded from a same-origin relative path, never an
+        // absolute http(s) script src (which the sandbox CSP would block).
+        assert!(html.contains("src=\"react.production.min.js\""));
+        assert!(!html.to_lowercase().contains("unpkg"));
+        assert!(
+            !html.contains("src=\"http"),
+            "no external/CDN script src — runtime is vendored same-origin"
+        );
+    }
+
+    #[test]
+    fn test_validate_react_passes() {
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("react", "valid-react", out.to_str().unwrap()).unwrap();
+        assert!(validate(out.to_str().unwrap()).is_ok());
+
+        let json = fs::read_to_string(out.join("SBFB.json")).unwrap();
+        let m = SbfbManifest::parse(&json).unwrap();
+        assert_eq!(m.effective_schema_version(), 2);
+        assert_eq!(m.name.as_deref(), Some("valid-react"));
+    }
+
+    #[test]
+    fn test_create_pyodide_template() {
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("pyodide", "test-py", out.to_str().unwrap()).unwrap();
+
+        assert!(out.join("index.html").exists());
+        assert!(out.join("sbfb-bridge.js").exists());
+        assert!(out.join("SBFB.json").exists());
+        assert!(out.join("README.md").exists());
+        assert!(out.join(".gitignore").exists());
+        assert!(out.join("factory.template.lock").exists());
+    }
+
+    #[test]
+    fn test_pyodide_template_is_honest_experimental() {
+        // PO Q7 + the frozen sandbox CSP: a Pyodide app cannot run under
+        // connect-src 'none' (the runtime is fetched). The scaffold must say so
+        // honestly — no faux-functional app (verrou "0 faux").
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("pyodide", "py-app", out.to_str().unwrap()).unwrap();
+
+        let html = fs::read_to_string(out.join("index.html")).unwrap();
+        assert!(html.contains("py-app"));
+        assert!(!html.contains("{{name}}"));
+        // No external/CDN script src (the CSP would block it anyway).
+        assert!(
+            !html.contains("src=\"http"),
+            "the pyodide scaffold must not load an external runtime"
+        );
+
+        let readme = fs::read_to_string(out.join("README.md")).unwrap();
+        let readme_lower = readme.to_lowercase();
+        assert!(
+            readme_lower.contains("experimental") && readme_lower.contains("connect-src"),
+            "the pyodide README must honestly document the sandbox limitation"
+        );
+    }
+
+    #[test]
+    fn test_validate_pyodide_passes() {
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("pyodide", "valid-py", out.to_str().unwrap()).unwrap();
+        assert!(validate(out.to_str().unwrap()).is_ok());
     }
 }
