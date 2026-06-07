@@ -803,7 +803,16 @@ impl DaemonRuntime {
                 .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
             match nexus_coordinator_rs::search::rebuild_from_feed(&db) {
                 Ok(n) => info!(indexed = n, "search index rebuilt from feed at boot"),
-                Err(e) => warn!(error = %e, "search index rebuild failed, search may be stale"),
+                // H.1 (Sprint 74 Phase D, carry audit S73): boot recovery must be
+                // LOUD, not a warn swallowed in the log. A failed FTS5 rebuild
+                // leaves search stale/empty until the next deploy reindex; surface
+                // it as an error so an operator notices (the index is fully
+                // reconstructible from public_feed, so this is recoverable).
+                Err(e) => tracing::error!(
+                    error = %e,
+                    "BOOT RECOVERY FAILED: search index rebuild_from_feed errored — \
+                     search is stale/empty until the next successful deploy reindex"
+                ),
             }
         }
 
@@ -1456,7 +1465,12 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                     continue;
                                 }
                                 debug!(delivered_from = %delivered_from, "browse_request received — replaying outbox");
+                                // Phase D OFF gate (same as NeighborUp/republish).
+                                let disabled = load_disabled_keep_online(&coordinator_db);
                                 for envelope in &outbox {
+                                    if !keep_online_allows_rebroadcast(envelope, &disabled) {
+                                        continue;
+                                    }
                                     if let Err(e) = sender.broadcast(envelope.clone()).await {
                                         debug!(error = %e, "browse_request outbox replay failed");
                                     }
@@ -1480,7 +1494,14 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                 outbox = outbox.len(),
                                 "gossip: neighbor up — replaying outbox"
                             );
+                            // Sprint 74 Phase D: do not re-broadcast apps the node
+                            // has turned OFF (keep_online disabled). Fast path: an
+                            // empty disabled set replays all without decoding.
+                            let disabled = load_disabled_keep_online(&coordinator_db);
                             for envelope in &outbox {
+                                if !keep_online_allows_rebroadcast(envelope, &disabled) {
+                                    continue;
+                                }
                                 if let Err(e) = sender.broadcast(envelope.clone()).await {
                                     debug!(error = %e, "outbox replay broadcast failed");
                                 }
@@ -1545,7 +1566,13 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                 }
                 _ = &mut republish_delay => {
                     if neighbor_count > 0 && !outbox.is_empty() {
+                        // Phase D OFF gate (same as NeighborUp/browse_request) — an
+                        // app turned OFF must stop diffusing on EVERY replay path.
+                        let disabled = load_disabled_keep_online(&coordinator_db);
                         for envelope in &outbox {
+                            if !keep_online_allows_rebroadcast(envelope, &disabled) {
+                                continue;
+                            }
                             if let Err(e) = sender.broadcast(envelope.clone()).await {
                                 debug!(error = %e, "periodic republish broadcast failed");
                             }
@@ -1747,6 +1774,62 @@ fn handle_project_announcement(
 /// pre-rotation `node_id`, so they probe as remote instead of taking the
 /// self-branch — benign, since rotation also invalidates the old
 /// announcements (they are re-published under the new identity).
+/// Sprint 74 Phase D: should this outbox envelope still be re-broadcast to peers?
+/// Apps the node has turned OFF (`keep_online` disabled) are skipped; everything
+/// else — non-project envelopes (curator lists) and undecodable bytes — is
+/// replayed, so a decode hiccup never silently drops diffusion. Fast path: an
+/// empty disabled set replays all without decoding (the common case).
+fn keep_online_allows_rebroadcast(
+    envelope: &[u8],
+    disabled: &std::collections::HashSet<String>,
+) -> bool {
+    if disabled.is_empty() {
+        return true;
+    }
+    let Ok((_proof, payload)) = nexus_core_rs::PowEnvelope::decode(envelope) else {
+        return true;
+    };
+    match publish::ProjectAnnouncement::from_gossip_bytes(payload) {
+        Ok(ann) => {
+            // Per-app id (blake3(name)); legacy-empty falls back to node_id, the
+            // same key the toggle / disabled list uses.
+            let pid = if ann.project_id.is_empty() {
+                ann.node_id
+            } else {
+                ann.project_id
+            };
+            !disabled.contains(&pid)
+        }
+        Err(_) => true,
+    }
+}
+
+/// Load the set of `project_id`s this node has turned OFF (keep_online disabled),
+/// for the outbox re-broadcast gate. Best-effort (R6): a poisoned lock or DB
+/// error collapses to an EMPTY set = replay-all (the safe default), never an
+/// abort. Shared by ALL outbox->peer replay sites (NeighborUp, browse_request,
+/// periodic republish) so the OFF gate cannot be bypassed by one path.
+fn load_disabled_keep_online(
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+) -> std::collections::HashSet<String> {
+    // R6: on ANY failure fall back to an empty set (= replay all, the safe
+    // default) — but WARN, never swallow silently, so a real DB/lock fault is
+    // observable instead of looking like "nothing is disabled".
+    match coordinator_db.lock() {
+        Ok(db) => match db.list_keep_online_disabled() {
+            Ok(v) => v.into_iter().collect(),
+            Err(e) => {
+                warn!(error = %e, "keep_online disabled-set read failed; replaying all (R6 fallback)");
+                std::collections::HashSet::new()
+            }
+        },
+        Err(_) => {
+            warn!("coordinator DB lock poisoned; replaying all keep_online (R6 fallback)");
+            std::collections::HashSet::new()
+        }
+    }
+}
+
 fn restore_browse_from_outbox(
     browse_aggregator: &BrowseAggregatorHandle,
     coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
@@ -2249,6 +2332,51 @@ mod tests {
         assert_eq!(results[0].project_id, pid);
 
         node.shutdown().await.ok();
+    }
+
+    #[test]
+    fn keep_online_disabled_app_not_rebroadcast() {
+        // Sprint 74 Phase D: the boot/NeighborUp re-broadcast gate. A real PoW
+        // envelope for an app that the node turned OFF must be suppressed; every
+        // other case replays (empty set, a different app disabled, undecodable
+        // bytes). Per-app id keying is what makes a shared-blob OFF safe.
+        use std::collections::HashSet;
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Disabled App"));
+        let ann = publish::ProjectAnnouncement::new(
+            "a".repeat(64),
+            "Disabled App".into(),
+            "tools".into(),
+            "x".into(),
+            vec![],
+        )
+        .with_project_id(pid.clone());
+        let payload = ann.to_gossip_bytes().unwrap();
+        let kp = nexus_core_rs::KeyPair::generate();
+        let policy = nexus_core_rs::RelayPowPolicy {
+            default_difficulty: 1,
+            topic_overrides: std::collections::BTreeMap::new(),
+        };
+        let proof = nexus_core_rs::PowSolveCache::new()
+            .ensure_proof([7u8; 32], &kp, &policy)
+            .unwrap();
+        let envelope = nexus_core_rs::PowEnvelope::encode(&proof, &payload).unwrap();
+
+        // Empty disabled set -> replay all (fast path, no decode).
+        assert!(super::keep_online_allows_rebroadcast(
+            &envelope,
+            &HashSet::new()
+        ));
+        // This app disabled -> suppressed.
+        let disabled: HashSet<String> = [pid.clone()].into_iter().collect();
+        assert!(!super::keep_online_allows_rebroadcast(&envelope, &disabled));
+        // A DIFFERENT app disabled -> this one still replays.
+        let other: HashSet<String> = ["b".repeat(64)].into_iter().collect();
+        assert!(super::keep_online_allows_rebroadcast(&envelope, &other));
+        // Undecodable bytes -> never dropped on a decode hiccup.
+        assert!(super::keep_online_allows_rebroadcast(
+            b"not an envelope",
+            &disabled
+        ));
     }
 
     use nexus_shell_daemon_core::registry::write_running as raw_write_running;

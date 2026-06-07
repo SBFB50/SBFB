@@ -271,6 +271,8 @@ pub fn build_router(
         .route("/api/daemon/curators/{pubkey}", delete(unsubscribe_curator))
         .route("/api/daemon/browse", get(list_browse))
         .route("/api/daemon/browse/pull", post(browse_pull))
+        // Sprint 74 Phase D: toggle a self-deployed app's local keep-online pin.
+        .route("/api/daemon/keep-online", post(set_keep_online))
         .route("/api/daemon/publish", post(publish_project))
         .route("/api/daemon/publish-blob", post(publish_blob))
         .route("/api/daemon/default-curators", get(default_curators))
@@ -992,6 +994,69 @@ async fn publish_project(
     .await;
 
     (StatusCode::OK, Json(PublishResponse { published: true })).into_response()
+}
+
+/// `POST /api/daemon/keep-online` — Sprint 74 Phase D — toggle a self-deployed
+/// app's LOCAL pin. ON re-tags the archive blob (skip-GC) and lets the boot
+/// re-broadcast diffuse it; OFF removes the per-intent tag (GC-eligible — no GC
+/// runs today, so "stored but no longer diffused") and gates the re-broadcast
+/// on EVERY outbox replay path (NeighborUp, browse_request, periodic republish).
+/// Loopback-authenticated like every `/api/daemon` route.
+#[derive(Debug, serde::Deserialize)]
+struct KeepOnlineRequest {
+    project_id: String,
+    enabled: bool,
+}
+
+async fn set_keep_online(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(req): Json<KeepOnlineRequest>,
+) -> impl IntoResponse {
+    debug!(project = %req.project_id, enabled = req.enabled, "POST /api/daemon/keep-online");
+
+    // The archive blob to (un)pin comes from the app's own Browse card.
+    let archive_hash = state
+        .browse_aggregator
+        .get_direct_entry(&req.project_id)
+        .and_then(|e| e.archive_hash.clone());
+
+    {
+        let db = state
+            .coordinator_db
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Err(e) = db.set_keep_online(&req.project_id, req.enabled, archive_hash.as_deref()) {
+            warn!(error = %e, "keep_online DB write failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "keep_online write failed"})),
+            )
+                .into_response();
+        }
+    }
+
+    // Tag/untag the archive blob (best-effort — the DB row is the source of
+    // truth; a tag hiccup must not fail the toggle).
+    let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+    let tag = crate::deploy::keep_online_tag(&req.project_id);
+    if req.enabled {
+        if let Some(arr) = archive_hash
+            .as_deref()
+            .and_then(crate::deploy::decode_hash_hex)
+        {
+            if let Err(e) = blobs.set_tag(&tag, arr).await {
+                debug!(error = %e, "keep-online tag set failed (non-fatal)");
+            }
+        }
+    } else if let Err(e) = blobs.delete_tag(&tag).await {
+        debug!(error = %e, "keep-online tag delete failed (non-fatal)");
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"ok": true, "enabled": req.enabled})),
+    )
+        .into_response()
 }
 
 /// Index a browse entry into the FTS5 search corpus so the app is findable by
@@ -7308,6 +7373,110 @@ mod tests {
         };
         assert_eq!(record.app_version.as_deref(), Some("2.1.0"));
         assert_eq!(record.commit_sha, sha);
+    }
+
+    // -- Sprint 74 Phase D: keep-online local pin --
+
+    /// True iff a tag with the exact `name` exists in the blob store.
+    async fn has_tag(state: &Arc<DaemonHttpState>, name: &str) -> bool {
+        use futures_lite::StreamExt;
+        let store = state.node.blobs_store();
+        let mut stream = store
+            .tags()
+            .list_prefix(name.as_bytes())
+            .await
+            .expect("list tags");
+        stream.next().await.is_some()
+    }
+
+    #[tokio::test]
+    async fn keep_online_off_removes_tag() {
+        // OFF removes ONLY this app's per-intent keep-online tag
+        // (keep-online/<project_id>); a sibling app's pin survives. Per-intent
+        // keying is exactly what makes a shared archive blob safe to unpin per
+        // app (preflight S3). Real frontier: real route + real blob-store tags.
+        let state = mk_state().await;
+        assert_eq!(
+            deploy_workspace_app(&state, "Pin A", make_zip(&[("index.html", b"a")])).await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            deploy_workspace_app(&state, "Pin B", make_zip(&[("index.html", b"b")])).await,
+            StatusCode::OK
+        );
+        let pid_a = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Pin A"));
+        let pid_b = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Pin B"));
+        let tag_a = crate::deploy::keep_online_tag(&pid_a);
+        let tag_b = crate::deploy::keep_online_tag(&pid_b);
+        assert!(has_tag(&state, &tag_a).await, "A pinned at deploy");
+        assert!(has_tag(&state, &tag_b).await, "B pinned at deploy");
+
+        // Turn A OFF via the real route.
+        let body = serde_json::json!({"project_id": pid_a, "enabled": false});
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/keep-online")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        assert!(
+            !has_tag(&state, &tag_a).await,
+            "A's keep-online tag removed"
+        );
+        assert!(
+            has_tag(&state, &tag_b).await,
+            "B's pin (different intent) survives"
+        );
+
+        // Deploy wrote keep_online=true rows (review P2: pin the deploy-time DB
+        // write + recorded archive_hash, not just the tag).
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            assert_eq!(
+                db.get_keep_online(&pid_a).unwrap().map(|(e, _)| e),
+                Some(false)
+            );
+            assert!(
+                matches!(db.get_keep_online(&pid_b).unwrap(), Some((true, Some(_)))),
+                "B still ON with a recorded archive_hash"
+            );
+            assert_eq!(db.list_keep_online_disabled().unwrap(), vec![pid_a.clone()]);
+        }
+
+        // Turn A back ON via the route (the "remettre en ligne" cycle) — the ON
+        // arm must re-resolve archive_hash and re-pin the blob (review P2:
+        // ON->re-tag path was otherwise untested).
+        let on_body = serde_json::json!({"project_id": pid_a, "enabled": true});
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/keep-online")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&on_body).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(has_tag(&state, &tag_a).await, "A re-pinned after toggle ON");
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            assert_eq!(
+                db.get_keep_online(&pid_a).unwrap().map(|(e, _)| e),
+                Some(true)
+            );
+            assert!(db.list_keep_online_disabled().unwrap().is_empty());
+        }
     }
 
     // -- Sprint 73 Phase D: search JSON carries the provenance triplet --

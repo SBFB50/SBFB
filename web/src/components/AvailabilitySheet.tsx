@@ -26,7 +26,7 @@
  */
 
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   FileCheck,
@@ -45,7 +45,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Toggle } from "@/components/ui/toggle";
-import { browsePull, type BrowseEntry } from "@/api/daemon";
+import { browsePull, setKeepOnline, type BrowseEntry } from "@/api/daemon";
 import { formatRelativeTime } from "@/lib/format";
 
 export interface AvailabilitySheetProps {
@@ -81,6 +81,25 @@ export function AvailabilitySheet({
   const queryClient = useQueryClient();
   const [reverifying, setReverifying] = useState(false);
   const state = mapStatus(entry.status);
+
+  // Sprint 74 Phase D — functional "Garder en ligne" pin (replaces the Phase A
+  // disabled-ON). No fetch on mount: a freshly deployed own app is ON by default;
+  // the toggle POSTs on click. The daemon echoes the persisted state back.
+  const [keepOnline, setKeepOnlineLocal] = useState(true);
+  const keepOnlineMutation = useMutation({
+    mutationFn: (next: boolean) => setKeepOnline(coordUrl, entry.project_id, next),
+    onSuccess: (res) => {
+      // Only reflect a state the daemon actually persisted. On error/unavailable
+      // leave the toggle at its prior position — never show a state the daemon
+      // did not echo (no failure-state lie).
+      if (res.kind === "data") {
+        setKeepOnlineLocal(res.body.enabled);
+        void queryClient.invalidateQueries({
+          queryKey: ["daemon-browse", coordUrl],
+        });
+      }
+    },
+  });
 
   const onReverify = async () => {
     setReverifying(true);
@@ -206,31 +225,38 @@ export function AvailabilitySheet({
                     </span>
                   </div>
                   {/*
-                    Read-only ON in Phase A. It is `disabled` (not a no-op
-                    handler) so it is honestly NON-interactive — it never looks
-                    clickable while silently swallowing the click (verrou §8(5)
-                    "jamais un faux bouton actif"). The OFF path lands Phase D
-                    (POST /api/daemon/keep-online). `disabled:opacity-100` keeps
-                    it visibly ON/active rather than greyed.
+                    Sprint 74 Phase D — FUNCTIONAL toggle (POST /api/daemon/
+                    keep-online). ON: blob pinned + diffused; OFF: tag removed +
+                    no longer re-broadcast ("stockee, plus diffusee" — no disk is
+                    freed today, no GC reaper yet). Disabled only WHILE the
+                    request is in flight (never a silent no-op, verrou §8(5)).
                   */}
                   <div className="flex flex-col items-end gap-1">
                     <Toggle
-                      pressed
-                      disabled
+                      pressed={keepOnline}
+                      disabled={keepOnlineMutation.isPending}
+                      onPressedChange={(next) => keepOnlineMutation.mutate(next)}
                       data-testid="keep-online-toggle"
-                      aria-label="Garder en ligne — active, bientôt configurable"
-                      className="border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 opacity-100 disabled:opacity-100 aria-pressed:bg-emerald-500/15"
+                      aria-label="Garder en ligne"
+                      className="border border-emerald-500/30 text-emerald-300 disabled:opacity-60 data-[state=on]:bg-emerald-500/15 data-[state=off]:bg-white/[0.04] data-[state=off]:text-white/50"
                     >
+                      {keepOnlineMutation.isPending && (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      )}
                       Garder en ligne
-                      <span className="ml-1 text-[10px] font-semibold">ON</span>
+                      <span className="ml-1 text-[10px] font-semibold">
+                        {keepOnline ? "ON" : "OFF"}
+                      </span>
                     </Toggle>
                     <span className="text-[10px] text-white/40">
-                      Bientôt configurable
+                      {keepOnline ? "Diffusee tant que ton noeud tourne" : "Stockee, plus diffusee"}
                     </span>
                   </div>
                 </div>
                 <p className="text-xs leading-relaxed text-white/40">
-                  Ton noeud diffuse l&apos;app tant qu&apos;il tourne.
+                  {keepOnline
+                    ? "Ton noeud diffuse l'app tant qu'il tourne."
+                    : "L'app reste stockee mais ton noeud ne la diffuse plus."}
                 </p>
               </div>
             ) : (

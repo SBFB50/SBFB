@@ -447,6 +447,27 @@ pub(crate) async fn finalize_deploy(
         }
     }
 
+    // Sprint 74 Phase D: keep this self-deployed app online by default — pin its
+    // archive blob under a removable per-intent tag (skip-GC) and record the
+    // local pin policy. The toggle (POST /api/daemon/keep-online) flips this; OFF
+    // removes the tag and gates the boot re-broadcast. Best-effort: a pin failure
+    // must never fail the deploy.
+    {
+        let blobs = BlobsClient::new(state.node.blobs_store());
+        if let Some(hash_arr) = decode_hash_hex(&hash_hex) {
+            if let Err(e) = blobs.set_tag(&keep_online_tag(project_id), hash_arr).await {
+                debug!(error = %e, "keep-online tag set failed (non-fatal)");
+            }
+        }
+        let db_guard = state
+            .coordinator_db
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Err(e) = db_guard.set_keep_online(project_id, true, Some(&hash_hex)) {
+            debug!(error = %e, "keep_online set failed (non-fatal)");
+        }
+    }
+
     publish_announcement(
         state,
         AnnouncementParams {
@@ -683,6 +704,19 @@ fn error_response(status: StatusCode, msg: &str) -> Response {
 
 fn is_valid_sha(s: &str) -> bool {
     s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Deterministic keep-online tag name for a project (Sprint 74 Phase D). Keyed
+/// per project_id (intent), NOT per blob hash, so two apps that happen to share
+/// an archive blob can be pinned/unpinned independently.
+pub(crate) fn keep_online_tag(project_id: &str) -> String {
+    format!("keep-online/{project_id}")
+}
+
+/// Decode a 64-hex blob hash into the raw 32 bytes (`None` on malformed input).
+pub(crate) fn decode_hash_hex(hash_hex: &str) -> Option<[u8; 32]> {
+    let bytes = hex::decode(hash_hex).ok()?;
+    <[u8; 32]>::try_from(bytes.as_slice()).ok()
 }
 
 async fn is_repo_public(url: &str) -> bool {

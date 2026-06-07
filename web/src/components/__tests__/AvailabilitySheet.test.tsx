@@ -3,7 +3,8 @@
  * Sprint 74 Phase A — AvailabilitySheet unit tests.
  *
  * Covers the three sealed-separately sections, the live-probe state mapping,
- * and the read-only "Garder en ligne" toggle (ON, never mutates in Phase A).
+ * and the FUNCTIONAL "Garder en ligne" toggle (Sprint 74 Phase D: POSTs to
+ * /api/daemon/keep-online, no fetch on mount).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -126,25 +127,57 @@ describe("AvailabilitySheet", () => {
     expect(await screen.findByText("Verification…")).toBeInTheDocument();
   });
 
-  it("keep_online_toggle_readonly_in_phase_a", async () => {
-    const fetchSpy = vi.fn(async () =>
-      new Response(JSON.stringify({ requested: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
+  it("keep_online_toggle_is_functional", async () => {
+    // Sprint 74 Phase D: the toggle starts ON, performs NO fetch on mount, and
+    // POSTs the OFF intent to /api/daemon/keep-online on click, then reflects the
+    // daemon's persisted state.
+    const user = userEvent.setup();
+    const calls: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({
+          url,
+          body: init?.body ? JSON.parse(init.body as string) : null,
+        });
+        return new Response(JSON.stringify({ ok: true, enabled: false }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }),
     );
-    vi.stubGlobal("fetch", fetchSpy);
 
     renderSheet({ entry: makeEntry({ status: "reachable" }), isOwn: true });
 
     const toggle = await screen.findByTestId("keep-online-toggle");
-    // Honest read-only ON: it is visibly ON (aria-pressed) AND disabled, so it
-    // is NOT a faux active button that looks clickable yet silently no-ops
-    // (verrou §8(5)). The OFF path lands Phase D.
+    // Starts ON, interactive (not disabled), no fetch on mount (verrou §8(5):
+    // a real control, not a faux button).
     expect(toggle).toHaveAttribute("aria-pressed", "true");
-    expect(toggle).toBeDisabled();
-    // No keep-online route exists yet, and the panel performs no fetch on mount.
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(toggle).not.toBeDisabled();
+    expect(calls).toHaveLength(0);
+
+    await user.click(toggle);
+
+    // It POSTed the OFF intent to the keep-online route...
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.url.includes("/api/daemon/keep-online")),
+      ).toBe(true);
+    });
+    const koCall = calls.find((c) =>
+      c.url.includes("/api/daemon/keep-online"),
+    )!;
+    expect(koCall.body).toMatchObject({
+      project_id: "aa".repeat(32),
+      enabled: false,
+    });
+    // ...and reflected the daemon's persisted state (now OFF).
+    await waitFor(() => {
+      expect(screen.getByTestId("keep-online-toggle")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
   });
 
   it("reverify triggers a browse pull", async () => {

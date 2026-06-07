@@ -70,10 +70,11 @@ impl<'a> BlobsClient<'a> {
     /// Store a byte slice and return its BLAKE3 content hash.
     ///
     /// The returned `[u8; 32]` is the raw hash; pass it back to
-    /// [`BlobsClient::get_bytes`] to retrieve the data. The blob
-    /// is pinned with a named tag equal to the hex of its hash
-    /// so the in-memory store does not garbage-collect it under
-    /// the caller's feet.
+    /// [`BlobsClient::get_bytes`] to retrieve the data. iroh-blobs assigns an
+    /// auto-named tag on add (so a fresh blob is not GC'd immediately), but that
+    /// auto-tag's name is not surfaced here. To pin a blob under a stable,
+    /// removable name (e.g. the Sprint 74 keep-online pin) use
+    /// [`BlobsClient::set_tag`] / [`BlobsClient::delete_tag`].
     pub async fn add_bytes(&self, data: impl AsRef<[u8]>) -> Result<[u8; 32]> {
         let bytes = data.as_ref().to_vec();
         // iroh-blobs 0.99: add_bytes() returns a TagInfo where
@@ -101,6 +102,35 @@ impl<'a> BlobsClient<'a> {
             .await
             .map_err(|e| NexusError::Blobs(format!("get_bytes failed: {e}")))?;
         Ok(bytes.to_vec())
+    }
+
+    /// Pin a blob under an explicit, deterministically-named tag so the store
+    /// never garbage-collects it (Sprint 74 Phase D keep-online). The caller
+    /// chooses `name` (e.g. `keep-online/<project_id>`) so it can later be
+    /// removed via [`BlobsClient::delete_tag`]. Keyed PER INTENT (not per hash)
+    /// so two apps sharing one blob can be pinned/unpinned independently —
+    /// removing one app's tag never orphans a blob another app still pins.
+    pub async fn set_tag(&self, name: &str, hash: [u8; 32]) -> Result<()> {
+        let h = Hash::from_bytes(hash);
+        self.inner
+            .tags()
+            .set(name.as_bytes(), iroh_blobs::HashAndFormat::raw(h))
+            .await
+            .map_err(|e| NexusError::Blobs(format!("set tag failed: {e}")))?;
+        Ok(())
+    }
+
+    /// Remove a named keep-online tag. Once a blob carries no tags the store MAY
+    /// garbage-collect it — though no GC is scheduled today, so this makes the
+    /// blob GC-eligible, it does not free disk now (Sprint 74 Phase D; the
+    /// reaper is post-launch). `delete` of a missing tag is not an error.
+    pub async fn delete_tag(&self, name: &str) -> Result<()> {
+        self.inner
+            .tags()
+            .delete(name.as_bytes())
+            .await
+            .map_err(|e| NexusError::Blobs(format!("delete tag failed: {e}")))?;
+        Ok(())
     }
 
     /// Return true if the given hash is present in the local

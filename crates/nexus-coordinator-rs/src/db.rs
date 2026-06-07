@@ -258,6 +258,19 @@ static MIGRATIONS: &[M<'static>] = &[
         tokenize='unicode61'
     );",
     ),
+    // M18 (Sprint 74 Phase D): per-app "keep online" local pin policy. A LOCAL
+    // schema overlay, never on the wire: which self-deployed apps THIS node
+    // keeps online (blob skip-GC tag + boot re-broadcast gate). An ABSENT row
+    // means enabled-by-default, so pre-M18 apps keep their current always-on
+    // behaviour (R6 — additive, never aborts boot).
+    M::up(
+        "CREATE TABLE IF NOT EXISTS keep_online (
+        project_id TEXT PRIMARY KEY,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        archive_hash TEXT,
+        pinned_at INTEGER NOT NULL
+    );",
+    ),
 ];
 
 pub struct StorageNamespaceRow {
@@ -610,6 +623,63 @@ impl CoordinatorDb {
     pub fn clear_outbox(&self) -> Result<(), CoordinatorError> {
         self.conn.execute("DELETE FROM gossip_outbox", [])?;
         Ok(())
+    }
+
+    // --- M18 keep_online (Sprint 74 Phase D): per-app local pin policy ---
+
+    /// Set (or clear) a per-app keep-online pin. `archive_hash` records the blob
+    /// the pin tags (for the skip-GC tag); pass the deployed app's archive hash.
+    /// `INSERT OR REPLACE` keeps a single row per `project_id`.
+    pub fn set_keep_online(
+        &self,
+        project_id: &str,
+        enabled: bool,
+        archive_hash: Option<&str>,
+    ) -> Result<(), CoordinatorError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.conn.execute(
+            "INSERT OR REPLACE INTO keep_online (project_id, enabled, archive_hash, pinned_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![project_id, enabled as i64, archive_hash, now as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Return the keep-online state for a project: `Some((enabled, archive_hash))`
+    /// if a row exists, `None` otherwise (absent = enabled-by-default, R6).
+    pub fn get_keep_online(
+        &self,
+        project_id: &str,
+    ) -> Result<Option<(bool, Option<String>)>, CoordinatorError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT enabled, archive_hash FROM keep_online WHERE project_id = ?1")?;
+        let mut rows = stmt.query(rusqlite::params![project_id])?;
+        if let Some(row) = rows.next()? {
+            let enabled: i64 = row.get(0)?;
+            let archive_hash: Option<String> = row.get(1)?;
+            Ok(Some((enabled != 0, archive_hash)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List the `project_id`s a node has EXPLICITLY turned off (`enabled = 0`).
+    /// The boot re-broadcast gate skips these; an absent row is never returned
+    /// (those stay enabled-by-default).
+    pub fn list_keep_online_disabled(&self) -> Result<Vec<String>, CoordinatorError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT project_id FROM keep_online WHERE enabled = 0")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
     }
 
     pub fn load_all_storage(
@@ -1319,6 +1389,49 @@ mod tests {
 
         db.clear_outbox().expect("clear");
         assert!(db.load_outbox().expect("load").is_empty());
+    }
+
+    #[test]
+    fn migration_m18_creates_keep_online_table() {
+        // M18 must create the keep_online table (a successful insert proves it).
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.set_keep_online(
+            "a".repeat(64).as_str(),
+            true,
+            Some("bb".repeat(32).as_str()),
+        )
+        .expect("M18 keep_online table must exist");
+    }
+
+    #[test]
+    fn keep_online_toggle_persists_m18() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let pid = "a".repeat(64);
+        let hash = "bb".repeat(32);
+
+        // Absent row = enabled-by-default (None), never in the disabled list.
+        assert_eq!(db.get_keep_online(&pid).unwrap(), None);
+        assert!(db.list_keep_online_disabled().unwrap().is_empty());
+
+        // ON.
+        db.set_keep_online(&pid, true, Some(&hash)).unwrap();
+        assert_eq!(
+            db.get_keep_online(&pid).unwrap(),
+            Some((true, Some(hash.clone())))
+        );
+        assert!(db.list_keep_online_disabled().unwrap().is_empty());
+
+        // OFF (single row per project — INSERT OR REPLACE).
+        db.set_keep_online(&pid, false, Some(&hash)).unwrap();
+        assert_eq!(
+            db.get_keep_online(&pid).unwrap(),
+            Some((false, Some(hash.clone())))
+        );
+        assert_eq!(db.list_keep_online_disabled().unwrap(), vec![pid.clone()]);
+
+        // Back ON.
+        db.set_keep_online(&pid, true, Some(&hash)).unwrap();
+        assert!(db.list_keep_online_disabled().unwrap().is_empty());
     }
 
     #[test]

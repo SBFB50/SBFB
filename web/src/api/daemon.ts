@@ -310,6 +310,23 @@ export function browsePull(
   });
 }
 
+// Sprint 74 Phase D — toggle a self-deployed app's local keep-online pin.
+const KeepOnlineResponseSchema = z
+  .object({ ok: z.boolean(), enabled: z.boolean() })
+  .strict();
+
+export function setKeepOnline(
+  baseUrl: string,
+  projectId: string,
+  enabled: boolean,
+): Promise<DaemonResult<{ ok: boolean; enabled: boolean }>> {
+  return callDaemon(baseUrl, "/api/daemon/keep-online", KeepOnlineResponseSchema, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project_id: projectId, enabled }),
+  });
+}
+
 // =================================================================
 // Search — FTS5 full-text index (Sprint 67 endpoint, Sprint 73 Phase E)
 // =================================================================
