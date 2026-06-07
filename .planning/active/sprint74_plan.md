@@ -106,6 +106,10 @@ CTA (« Ton noeud signe cette app et la garde en ligne… »), hashs replies
 AUTEUR scellee / Section ETAT (mapping reachable→« En ligne »/unreachable→
 « Hors ligne »/unknown→« Verification… ») / Section QUI-LA-GARDE. Toggle
 « Garder en ligne » **lecture-seule** (ON honnete, OFF = 2e passe Phase D).
+**App DISTANTE** : action « Garder en ligne — soutenir ce projet »
+presentationnelle/« Bientot » (seed VOLONTAIRE communautaire, amendement PO
+2026-06-07 ; fonctionnel D+F) — remplace le « Ce noeud (consultation) »
+lecture-seule du design §6/§7.
 Rappel hors-ligne conditionnel (greffe A, 1x/session/app dismissible, mes apps
 seulement) + placeholder « app tombee » (greffe D) → `/deploy` prerempli.
 **Rename « coordinateur »→« noeud »/« reseau »** (AppShell CoordinatorPicker,
@@ -290,6 +294,16 @@ scope cut #5 (pas de timer 22h) respecte.
 (D4 vol.2, token signe distinct de la cle de noeud, modele Tailscale).
 Faux-vert NAT libelle « En ligne (vu de ton noeud) » (D4 vol.1, `deploy.rs:456`).
 **Si deborde → arbitrage Checkpoint Q1 (slice de repli).**
+
+**Seed VOLONTAIRE communautaire (amendement PO 2026-06-07)** : en plus de
+l'invitation auteur->pair, tout noeud consultant une app publique peut s'auto-elire
+seeder (« Garder en ligne — soutenir ce projet », **SANS approbation auteur** —
+contenu deja public, sur par content-addressing blake3, seeder!=auteur). **PAS de
+`SeedRequest`** (acte unilateral local) : reutilise **D** (pin d'un blob DISTANT
+fetche) + **F** (`SeedAnnounced`). C'est le chemin always-on **PRINCIPAL** et le
+moins risque -> atterrit **des D+F**, AVANT la crypto d'invitation E. L'invitation
+authentifiee E reste le complement « designer MA machine (VPS) / un pair specifique ».
+Tests add : `voluntary_seed_distant_public_app_no_approval` + `voluntary_seeder_serves_author_provenance_intact` (content-addressed, pas de re-provenance).
 
 ### E.2 Fichiers touches
 | Fichier | Role |

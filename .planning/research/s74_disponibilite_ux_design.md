@@ -202,3 +202,33 @@ verrous anti-recentralisation câblés UI.
   masquage `| tail` du fail-fast, ajouter `bootstrap.ts` à `coverage.include`.
 - Carries audit S73 (cf. `sprint73_audit_findings.md`) : P2-A-1 rand, P2-AUDIT-2 iroh,
   T-NN+2 wasm, P3-OS-1, LT-2 Radicle PENDING + nouveaux P2 candidats.
+
+## 13. Amendement PO 2026-06-07 — Seed VOLONTAIRE communautaire
+
+En plus de l'invitation auteur->pair (E authentifie), **n'importe quel noeud qui
+consulte une app publique peut s'auto-elire seeder** pour la soutenir : action
+« Garder en ligne — soutenir ce projet » sur la fiche d'une app **distante**.
+**Pas d'approbation de l'auteur** (le seeder sert du contenu DEJA public).
+
+**Securite (pourquoi c'est sur ET plus simple que l'invitation)** :
+- **Content-addressing** : blob adresse par blake3, verifie au fetch -> un seeder
+  malveillant ne peut PAS servir un contenu altere (hash mismatch -> rejet).
+- **Seeder != auteur** : le supporter re-annonce « je detiens l'artefact *signe par
+  l'auteur* » (meme `archive_hash` provenance), il ne cree AUCUNE provenance ->
+  invariant identite intact.
+- **Pas de trou de moderation** : contenu deja publie/public ; curator lists +
+  quarantine restent la couche de confiance a la decouverte. Le panneau montre
+  l'AUTEUR (provenance) AVANT que le supporter ne coche.
+
+**Implementation** : **PAS de handshake `SeedRequest`** (acte unilateral local sur
+contenu public). Reutilise **Phase D** (pin local `keep_online` + tag/skip-GC,
+applique a un blob DISTANT fetche via `fetch_ticket` existant) + **Phase F**
+(re-annonce `SeedAnnounced`). -> « un supporter garde ton app en ligne » atterrit
+**des D+F**, SANS la crypto d'invitation E. **Chemin always-on PRINCIPAL** ;
+l'invitation authentifiee (E) = complement « designer MA propre machine (VPS) / un
+pair specifique ».
+
+**UI** : la Section « Qui la garde en ligne » d'une app **DISTANTE** gagne l'action
+« Garder en ligne — soutenir ce projet » (presentationnel/« Bientot » en Phase A ;
+fonctionnel des D+F) — remplace le « Ce noeud (consultation) » lecture-seule du
+§6/§7. Garde-fou anti-recentralisation inchange (additive, opt-in, zero defaut).
