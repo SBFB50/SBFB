@@ -3,15 +3,18 @@
  * Dialog for adding a new coordinator to the shell's known list.
  *
  * Flow:
- * 1. User types a URL (default `http://127.0.0.1:8765`).
+ * 1. User types a URL (default: the same origin that serves the
+ *    shell — i.e. the local daemon — so "Tester" works out of the
+ *    box; most users never touch this since the boot helper
+ *    auto-registers that origin).
  * 2. "Tester" button hits `GET /health` and shows a success /
  *    failure indicator. The health payload's `project_name` is
  *    pre-filled as the suggested nickname.
  * 3. "Ajouter" commits the entry to `useProjectStore` and closes.
  *
- * Sprint 5 decision D4: the dialog does NOT spawn a coordinator
+ * Sprint 5 decision D4: the dialog does NOT spawn a daemon
  * process. If the URL is unreachable, the shell tells the user
- * to start the coordinator themselves via the CLI and includes
+ * to start the daemon themselves via the CLI and includes
  * a copy-paste command.
  */
 
@@ -41,6 +44,22 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+/**
+ * Default URL prefilled in the dialog: the same origin that serves
+ * the shell (the local daemon), so "Tester" succeeds immediately.
+ * Falls back to a loopback hint when there is no http(s) origin
+ * (e.g. SSR / non-browser test contexts).
+ */
+function defaultCoordinatorUrl(): string {
+  if (
+    typeof window !== "undefined" &&
+    /^https?:\/\//i.test(window.location.origin)
+  ) {
+    return window.location.origin;
+  }
+  return "http://127.0.0.1";
+}
+
 type ProbeStatus =
   | { kind: "idle" }
   | { kind: "testing" }
@@ -48,13 +67,13 @@ type ProbeStatus =
   | { kind: "error"; message: string };
 
 export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
-  const [url, setUrl] = useState("http://127.0.0.1:8765");
+  const [url, setUrl] = useState(defaultCoordinatorUrl);
   const [nickname, setNickname] = useState("");
   const [status, setStatus] = useState<ProbeStatus>({ kind: "idle" });
   const addCoordinator = useProjectStore((s) => s.addCoordinator);
 
   const reset = () => {
-    setUrl("http://127.0.0.1:8765");
+    setUrl(defaultCoordinatorUrl());
     setNickname("");
     setStatus({ kind: "idle" });
   };
@@ -105,9 +124,9 @@ export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Ajouter un coordinateur</DialogTitle>
           <DialogDescription>
-            Entre l'URL d'un nexus-coordinator que tu as lancé localement.
-            Le shell ne lance pas de process — tu dois démarrer le
-            coordinateur toi-même via la CLI.
+            Entre l'URL d'un daemon nexus-shell-daemon joignable (par
+            défaut, ce nœud). Le shell ne lance pas de process — tu dois
+            démarrer le daemon toi-même via la CLI ou le launcher.
           </DialogDescription>
         </DialogHeader>
 
@@ -124,7 +143,7 @@ export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
                   setUrl(e.target.value);
                   setStatus({ kind: "idle" });
                 }}
-                placeholder="http://127.0.0.1:8765"
+                placeholder="http://127.0.0.1:PORT"
                 autoFocus
               />
               <Button
@@ -183,8 +202,7 @@ export function AddCoordinatorDialog({ open, onOpenChange }: Props) {
 
 function CliHint() {
   const [copied, setCopied] = useState(false);
-  const cmd =
-    "uv run --package nexus-coordinator nexus-coordinator init demo && uv run --package nexus-coordinator nexus-coordinator start demo";
+  const cmd = "nexus-shell-daemon start";
 
   const copy = async () => {
     try {
@@ -200,7 +218,7 @@ function CliHint() {
   return (
     <div className="rounded-md border border-border bg-muted/30 p-3">
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        Pas encore de coordinateur ?
+        Pas encore de daemon ?
       </p>
       <p className="mt-1 text-xs">
         Lance-en un dans un autre terminal :

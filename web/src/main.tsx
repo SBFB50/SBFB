@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
 import { fetchAuthToken, primeAuthToken } from './api/auth'
+import { autoRegisterLocalCoordinator } from './api/bootstrap'
 
 // Sprint 16 Phase A (D1): resolve the loopback bearer token
 // before mounting the app so every API call has it cached. The
@@ -11,15 +12,25 @@ import { fetchAuthToken, primeAuthToken } from './api/auth'
 // Playwright's `page.addInitScript` can pre-seed the cache via
 // `window.__SBFB_AUTH_TOKEN` so E2E tests do not depend on a
 // live launcher.
+//
+// Once the token is available, auto-register the same-origin
+// daemon as the default coordinator (hotfix: a fresh profile or a
+// new ephemeral port no longer lands on the empty "Aucun
+// coordinateur" wall when the serving daemon is right there).
 const seededToken = (
   window as unknown as { __SBFB_AUTH_TOKEN?: unknown }
 ).__SBFB_AUTH_TOKEN
 if (typeof seededToken === 'string' && seededToken.length === 64) {
   primeAuthToken(seededToken)
-} else {
-  void fetchAuthToken().catch((err) => {
-    console.warn('[sbfb] could not resolve launcher token:', err)
+  void autoRegisterLocalCoordinator().catch((err) => {
+    console.warn('[sbfb] auto-register local coordinator failed:', err)
   })
+} else {
+  void fetchAuthToken()
+    .then(() => autoRegisterLocalCoordinator())
+    .catch((err) => {
+      console.warn('[sbfb] could not resolve launcher token:', err)
+    })
 }
 
 createRoot(document.getElementById('root')!).render(
