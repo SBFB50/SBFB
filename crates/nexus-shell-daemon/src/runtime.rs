@@ -1924,7 +1924,25 @@ async fn boot_storage_namespace(
                 .try_into()
                 .map_err(|_| anyhow!("invalid namespace_id length in DB"))?;
             let ns_id = nexus_core_rs::docs::DocsNamespaceId::from(bytes);
-            match docs_client.open_doc(ns_id).await? {
+            // Self-heal: the M8 row may point at a namespace whose iroh-docs
+            // replica is gone (store reset, redb format migration, a DB carried
+            // over from another data dir). `open_doc` then returns `Ok(None)` OR
+            // an `Err` ("Replica not found"). Treat BOTH as "missing → recreate"
+            // instead of propagating the error, which used to leave the namespace
+            // uninitialized for the whole session (storage_set →
+            // "storage namespace not initialized").
+            let opened = match docs_client.open_doc(ns_id).await {
+                Ok(opt) => opt,
+                Err(e) => {
+                    warn!(
+                        app = %app_name,
+                        error = %e,
+                        "storage namespace open failed (stale DB pointer) — recreating"
+                    );
+                    None
+                }
+            };
+            match opened {
                 Some(doc) => {
                     let ticket_str = match row.doc_ticket {
                         Some(t) => t,
@@ -1944,7 +1962,7 @@ async fn boot_storage_namespace(
                 None => {
                     warn!(
                         app = %app_name,
-                        "storage namespace in DB but missing from iroh — recreating"
+                        "storage namespace missing from iroh — recreating"
                     );
                     let doc = docs_client.create_doc().await?;
                     let ticket = doc.share_write().await?;
@@ -2004,7 +2022,17 @@ async fn boot_feed_namespace(
                 .try_into()
                 .map_err(|_| anyhow!("invalid namespace_id length in DB"))?;
             let ns_id = nexus_core_rs::docs::DocsNamespaceId::from(bytes);
-            match docs_client.open_doc(ns_id).await? {
+            // Self-heal on a stale DB pointer (see boot_storage_namespace): an
+            // `Err` from open_doc ("Replica not found") is recovered like
+            // `Ok(None)` rather than failing the boot.
+            let opened = match docs_client.open_doc(ns_id).await {
+                Ok(opt) => opt,
+                Err(e) => {
+                    warn!(error = %e, "feed namespace open failed (stale DB pointer) — recreating");
+                    None
+                }
+            };
+            match opened {
                 Some(doc) => {
                     let ticket_str = match row.doc_ticket {
                         Some(t) => t,
@@ -2022,7 +2050,7 @@ async fn boot_feed_namespace(
                     (doc, ticket_str)
                 }
                 None => {
-                    warn!("feed namespace in DB but missing from iroh — recreating");
+                    warn!("feed namespace missing from iroh — recreating");
                     let doc = docs_client.create_doc().await?;
                     let ticket = doc.share_write().await?;
                     let ticket_str = ticket.to_string();
