@@ -180,7 +180,7 @@ mitigations livrees.
 | R | Peer nie avoir envoye une task | M | Task signee avec `task_id` + `claimant_id` (`crates/nexus-core-rs`) | **L** |
 | I | Metadata de l'annonce revele info sensible | M | ProjectAnnouncement champs publics par design (publique = public) | **L** |
 | D | Gossip flood | M | Rate limit iroh-gossip builtin + curator lists volontaires | **M** |
-| E | RCE via deserialization iroh | C | Version pinnee 0.97 + `cargo-audit` scope cut Sprint 17+ | **M** |
+| E | RCE via deserialization iroh | C | Version pinnee 0.98 (upgrade Sprint 32, Day 0 #3 leve) + `cargo-audit` | **M** |
 
 ### 5.5 Loopback HTTP (coordinator + daemon)
 
@@ -596,6 +596,16 @@ endpoints search (S68+).
 | Mitigation | Bearer auth + small corpus + FTS5 O(1) index lookup |
 | Residual | L (pas de rate limit per-client, acceptable pre-launch) |
 
+**D.1 recadrage (carry S73)** : le residual n'est PAS une course
+de debounce ni un vecteur multi-client — la surface est
+**loopback single-user** : seul un process du meme compte local,
+deja porteur du bearer (`/auth/token` same-origin), peut flood, et
+ce process a deja des moyens plus directs (§5.7). La mitigation
+durable retenue n'est donc pas un rate-limit reseau mais un **clamp
+de `q` (longueur) et `offset` (borne haute)** cote handler, pour
+borner le cout d'une requete pathologique unique ; differe S75
+(`SEARCH-VIEW`/clamp, faible priorite pre-launch).
+
 ### Closure P2-THREAT-MODEL-FEED-SURFACE 3/3
 
 Sprint 66 Phase B a livre 2/3 (T-FEED-1..4). Sprint 67 Phase B
@@ -812,7 +822,45 @@ d'une tache qu'il pouvait deja voir par `result_hash`.
 
 ---
 
-## 15. Revue et evolution
+## 15. Surface seed cross-noeud (Sprint 74)
+
+Le programme « Disponibilite » (Arc 3.5, ex-LT-5 tire en avant)
+ajoute trois primitives de seed cross-noeud : (E) un protocole
+authentifie `SeedRequest` sur ALPN dedie `sbfb/seed/0` (invite
+revocable liee a la paire `(project_id, archive_hash)`, M19), (E) un
+seed VOLONTAIRE communautaire (un noeud fetch+pin une app publique
+distante, sans approbation auteur — sur par content-addressing), et
+(F) une operation de feed `SeedAnnounced` + un registre best-effort
+en memoire qui agrege « Toi + N pairs (vus recemment) ».
+
+**Invariant cardinal** : *seeder != auteur*. Un seeder signe une
+revendication de seed (sa propre annonce), JAMAIS la provenance de
+l'app. Le content-addressing BLAKE3 reste la VERITE de joignabilite :
+une annonce forgee ne permet jamais de servir des octets qu'on ne
+detient pas (le fetch verifie le hash, rejette en cas de mismatch).
+Le compteur peut donc SUR-estimer, mais ne ment jamais sur la
+joignabilite reelle (la sonde ETAT est l'autorite, pas le compteur).
+
+| Menace | Exemple | Sev. brute | Mitigation (file:line) | res |
+|---|---|:---:|---|:---:|
+| S | `SeedAnnounced` forge (mauvaise sig) | H | FeedEntry Ed25519 `verify_entry` + PoW (`FEED_POW_DIFFICULTY=16`) a l'ingest (`feed_sync.rs ingest_doc_entry`) | **Nil** |
+| S | Impersonation (annoncer le seed d'un AUTRE noeud) | M | `record_announced` exige `seeder_node_id == FeedEntry.author_pubkey` (`seed_registry.rs`) — un noeud n'annonce que SON propre seed | **Nil** |
+| T | Capability-over-content (invite redeemed pour contenu etranger) | H | Invite liee a la paire `(project_id, archive_hash)` (M19) ; `consume_seed_invite` verifie la paire ; mint derive l'archive_hash du browse local | **Nil** |
+| I | Re-attribution d'auteur (R5) | H | `seeder_node_id` distinct de l'auteur app ; le seeder ne re-signe jamais la provenance (Radicle delegate != seeder) | **Nil** |
+| D | Sur-comptage / Sybil (faux « je seed X ») | M | best-effort par design (Q5) + content-addressing = verite joignabilite + PoW feed + pilote ferme ; registre reseau-large (SearchManifest) DIFFERE (scope cut #10) pour eviter la surface broadcast-Sybil (D3) | **M** |
+| D | Croissance non-bornee du registre / feed | M | registre : TTL 48h purge paresseuse + sweep global auto-cadence (`SEED_SWEEP_INTERVAL_SECS`, `seed_registry.rs`) ; feed : re-annonce reprovide best-effort bornee au pilote (cout assume, modele IPFS reprovide) | **L** |
+| E | Anti-replay `SeedRequest` (rejouer une requete capturee) | M | nonce + fenetre temporelle, `NonceCache` TTL `2*window+1` (`seed_protocol.rs`, Phase E Codex C3) | **L** |
+
+**Residual** : le sur-comptage (D, **M**) est un cout assume du
+compteur best-effort pilote-ferme. Le registre reseau-large signe
+(SearchManifest) est un scope cut explicite (#10/D3) precisement pour
+ne pas ouvrir la surface broadcast-Sybil avant un design noeud-index
+opt-in (PO-13, post-launch). Carry : re-credit d'une invite single-use
+brulee sur un fetch transitoire (Phase E P3, S75).
+
+---
+
+## 16. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :

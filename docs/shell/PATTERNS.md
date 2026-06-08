@@ -2204,3 +2204,26 @@ the **gated** privileged local agent pilot explicitly (PO-2).
 
 Cross-ref: **P27** (daemon loopback hardening), S71 Phase C (`a0337c6`),
 preflight SCOPE-CUT-CONSISTENT, kickoff §5 D3/D4/D5/D6.
+
+### P36 — Sprint 74 : seed cross-noeud witness + hot-upsert warn-only + system_prompt vide
+
+**C.4 — hot-upsert warn-only (rappel).** The hot FTS5 reindex on feed ingest
+(`upsert_feed_entry`, §P56 / rust §P56) is BEST-EFFORT relative to the durable
+feed insert: a reindex failure is `warn!`-logged, the entry is still stored, and
+the next `rebuild_from_feed` at boot recovers it. Never let a search-index
+hiccup fail or roll back a durable feed write.
+
+**Seed cross-noeud witness.** The availability programme's daemon-side surface
+(`/api/daemon/seed`, `/api/daemon/seed/invite*`, `/api/daemon/seed-count/{pid}`,
+`keep-online`) is detailed Rust-side in `docs/rust/PATTERNS.md §P58`. Shell-side
+rule: the count route (`seed-count`) is a DEDICATED route, NOT a field on every
+`BrowseEntry` — it serves a TTL-fresh value live and avoids churning every
+`BrowseEntry` construction site. The `is_own` flag IS on the browse JSON (a flatten view,
+§P58.2) because the shell needs it on every card to pick owner-toggle vs
+volunteer-CTA.
+
+**B.4 — output filter inert when `system_prompt` empty.** The Operator/worker
+output guardrail chain has rules keyed on a non-empty `system_prompt`; with an
+empty system prompt, 3/4 output-filter rules are inert (documented residual, not
+a regression). The guardrail-before-persist order (D5, rust §validator) is the
+load-bearing control, not these per-prompt rules.

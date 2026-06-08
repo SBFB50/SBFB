@@ -199,6 +199,21 @@ function SearchResultsView({
 }) {
   const result = query.data;
 
+  // SEARCH-VIEW-THROW-SKELETON (carry S73): callDaemon THROWS an
+  // ApiProtocolError on a Zod drift, which React Query surfaces as `isError`
+  // with `data === undefined`. Without this branch the view falls through to
+  // the loading skeleton forever. Render an error card instead.
+  if (query.isError) {
+    return (
+      <ErrorCard
+        message={
+          query.error instanceof Error
+            ? query.error.message
+            : "Erreur de recherche"
+        }
+      />
+    );
+  }
   if (query.isLoading || result === undefined) {
     return <LoadingSkeleton />;
   }
@@ -466,7 +481,7 @@ function AppCard({ entry }: { entry: BrowseEntry }) {
               Provenance
             </span>
           )}
-          {entry.repo_url && (
+          {isHttpsUrl(entry.repo_url) && (
             <a
               href={entry.repo_url}
               target="_blank"

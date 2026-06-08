@@ -3187,3 +3187,72 @@ full-binary smoke (daemon + auto-spawned worker, submit → poll result)
 must pass on the release artifacts. A frontier added in a future sprint
 (a new cross-node op, a new HTTP service path) carries the same
 obligation: one real-on-both-sides test, or it does not ship.
+
+## §P58 — Sprint 74 : seed cross-noeud + pin local (programme Disponibilite)
+
+The availability programme (Arc 3.5, ex-LT-5 pulled forward) adds the
+*hosting* half of the protocol: a node can keep a distant public app online
+and the network can show a best-effort "Toi + N pairs" count. Three composed
+primitives, no new crypto:
+
+- **Pin local (Phase D, M18 `keep_online`).** A per-app overlay policy
+  `(project_id, enabled, archive_hash, pinned_at)` that (a) tags the archive
+  blob skip-GC and (b) gates the boot re-broadcast. It is an OVERLAY on the
+  existing outbox replay (#7/#8), not a new broadcast path. BOTH states are
+  explicit: a self-deploy (`finalize_deploy`) or voluntary seed (`seed_voluntary`)
+  writes an `enabled = 1` row carrying the `archive_hash` (it drives the Phase F
+  boot `SeedAnnounced` re-announce via `list_keep_online_enabled` + the skip-GC
+  tag), and toggling "Garder en ligne" OFF writes an `enabled = 0` row. An absent
+  row defaults to enabled for the rebroadcast gate (R6 fallback: the gate only
+  suppresses rows it finds explicitly `enabled = 0`).
+
+- **Seed authentifie (Phase E, ALPN `sbfb/seed/0`).** `SeedRequest`/`Response`
+  signed Ed25519+JCS under a NEW domain `DOMAIN_SEED_REQUEST_V1` (separate ALPN
+  message, so unlike a feed op it needs its own domain). Invite-gated (M19
+  `seed_invite`, capability bound to the `(project_id, archive_hash)` PAIR — an
+  invite can never be redeemed to pin foreign content). The 4th ALPN rides
+  BEFORE node spawn (iroh 0.98 Router registers no post-spawn protocol →
+  `ExtraProtocolFactory` closure). Anti-replay nonce TTL `2*window+1` (closes
+  the inclusive-edge skew, Codex C3).
+
+- **Annonce + compteur (Phase F, `SeedAnnounced`).** A TYPED feed-op variant
+  (NOT a new domain — it rides the FeedEntry `DOMAIN_FEED_V1` chain). 0-bump
+  `FEED_FORMAT_VERSION` (S67 precedent: a typed variant is 0-bump AND gives
+  insert-time validation). `seeder_node_id == FeedEntry.author_pubkey` (the
+  daemon's pow_keypair == node identity, same secret) — the seeder signs ONLY
+  its seed claim, NEVER the app provenance (R5 / Radicle delegate!=seeder).
+  The count lives in an in-memory `SeedRegistry` (TTL 48h lazy-purge +
+  self-clocked global sweep), fed by ingest with three gates: op is
+  SeedAnnounced, `seeder == author` (anti-impersonation), `seeder != my_node`
+  (self counted once at query time, never via the feed echo). Best-effort by
+  design — **content-addressing BLAKE3 is the truth of reachability; the count
+  may over-state but a forged announcement can never serve bytes it lacks.**
+
+Cardinal invariant across all three: **heberger != publier, seeder != auteur.**
+Keeping an app online never changes its author; a seeder re-signs nothing of the
+provenance chain.
+
+### §P58.1 — typed feed-op validation: a KNOWN op_type that fails to parse is malformed
+
+`validate_feed_operation` previously validated only ops that parsed via
+`try_parse_op`; an op carrying a recognised `op_type` (e.g. `"SeedAnnounced"`)
+with a missing/wrong-typed field fell through to the "unknown op, size-check
+only" branch and was STORED as opaque junk. Fix (Phase F, Codex C1): a
+`KNOWN_OP_TYPES` set — an op whose `op_type` is known but does not parse is
+REJECTED as malformed; genuinely unknown `op_type`s still pass (raw-op
+forward-compat, P51). Because serde does not support `deny_unknown_fields` with
+an internally-tagged enum, an EXTRA key (e.g. a smuggled payload-level `sig`,
+which F-3 forbids) is enforced separately by an exact-key-set check on the
+SeedAnnounced op.
+
+### §P58.2 — BrowseEntry `is_own` via a serialize-only flatten view (no field churn)
+
+The shell needs "did THIS node publish it" to show the owner keep-online
+toggle. `project_id = blake3(name) != node_id` for per-app deploys, so the old
+`isOwn = node_id===project_id` heuristic was always false. The hosting `node_id`
+is already on `BrowseEntry` (`#[serde(skip)]`, set at publish/deploy and at
+gossip ingest, #6). `list_browse` wraps each aggregated entry in a
+`BrowseEntryView { #[serde(flatten)] entry, is_own }` computing
+`is_own = entry.node_id == state.node_id` at serialization time — ZERO changes
+to any `BrowseEntry { .. }` construction site. A voluntarily-seeded distant
+app keeps the AUTHOR's node_id, so it is correctly `is_own = false`.

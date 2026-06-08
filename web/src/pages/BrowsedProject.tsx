@@ -128,7 +128,13 @@ function ProjectView({
     daemonInfoQuery.data?.kind === "data"
       ? daemonInfoQuery.data.body
       : null;
-  const isLocal = daemonInfo !== null && daemonInfo.node_id === projectId;
+  // KEEP-ONLINE-READ-PATH (carry S74): prefer the daemon-derived `is_own`
+  // (entry's hosting node_id == our node_id) — accurate for per-app deploys
+  // whose project_id = blake3(name) != node_id. Fall back to the old
+  // node_id===projectId heuristic only when the daemon predates the field.
+  const isLocal =
+    entry?.is_own ??
+    (daemonInfo !== null && daemonInfo.node_id === projectId);
 
   if (browseQuery.isLoading || daemonInfoQuery.isLoading) {
     return (

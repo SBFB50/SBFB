@@ -32,6 +32,7 @@ import {
   SearchResponseSchema,
   seedCount,
   subscribeCurator,
+  triggerPanicWipe,
   unsubscribeCurator,
   type DaemonInfo,
 } from "@/api/daemon";
@@ -378,6 +379,60 @@ describe("BrowseEntry source field", () => {
 });
 
 // ---------------------------------------------------------------
+// BrowseEntry is_own (KEEP-ONLINE-READ-PATH, Sprint 74 Phase G)
+// ---------------------------------------------------------------
+
+describe("BrowseEntry is_own", () => {
+  it("parses the daemon-derived is_own flag (true for a self-hosted app)", async () => {
+    // The daemon's list_browse serializes is_own=true when the entry's
+    // hosting node_id == our node_id (a self-deployed/published app), so the
+    // shell shows the owner toggle even for per-app deploys whose
+    // project_id = blake3(name) != node_id.
+    mockFetchOk({
+      entries: [
+        {
+          project_id: "aa".repeat(32),
+          project_name: "gov",
+          category: "gov",
+          description: "desc",
+          curator_pubkey: "",
+          curator_name: "Self-published",
+          source: "direct",
+          status: "reachable",
+          last_probed_at: "2026-04-12T12:00:00Z",
+          is_own: true,
+        },
+      ],
+    });
+    const result = await listBrowse(BASE);
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.entries[0].is_own).toBe(true);
+  });
+
+  it("tolerates a daemon that predates is_own (undefined, not a parse error)", async () => {
+    mockFetchOk({
+      entries: [
+        {
+          project_id: "aa".repeat(32),
+          project_name: "gov",
+          category: "gov",
+          description: "desc",
+          curator_pubkey: "bb".repeat(32),
+          curator_name: "FlowUP",
+          status: "reachable",
+          last_probed_at: "2026-04-12T12:00:00Z",
+        },
+      ],
+    });
+    const result = await listBrowse(BASE);
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.entries[0].is_own).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------
 // BrowseEntry archive fields + helpers
 // ---------------------------------------------------------------
 
@@ -681,5 +736,26 @@ describe("seedCount", () => {
     // protocol drift, not a tolerated shape (.strict()).
     mockFetchOk({ peer_count: 1 });
     await expect(seedCount(BASE, "ab".repeat(32))).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------
+// triggerPanicWipe
+// ---------------------------------------------------------------
+
+describe("triggerPanicWipe", () => {
+  it("POSTs to the panic wipe route and parses {wiped:true}", async () => {
+    const spy = vi.fn(async () => mockFetchResponse({ status: 200, body: { wiped: true } }));
+    vi.stubGlobal("fetch", spy);
+    const result = await triggerPanicWipe(BASE);
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.wiped).toBe(true);
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    expect(String(calls[0][0])).toBe(`${BASE}/api/daemon/panic/wipe`);
+    expect(calls[0][1]?.method).toBe("POST");
   });
 });

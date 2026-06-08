@@ -151,9 +151,10 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-73 CLOSED**, **S74 a ouvrir** (Arc 3.5 Factory
-  Complete Vision, roadmap v5 — atelier fork). v2.1
-  ouverte. **Tag v1.0 pose.**
+- **Sprints 0-74 CLOSED**, **S75 a ouvrir** (Arc 3.5 Factory
+  Complete Vision, roadmap v5 — GPU partage cross-machine ;
+  S75 Phase 0 = audit gate S74, cf. `sprint75_audit_plan.md`).
+  v2.1 ouverte. **Tag v1.0 pose.**
   Projet Rust+Frontend pur depuis S50-S51.
   S70 DONE : 7 phases A-G (A AGENT_SYSTEM.md canon portable + B
   dette pair P2-I-3 3/3 + P2 audit absorbes + C prompt portability
@@ -201,6 +202,42 @@ Runtime isolation roadmap dans
   recherche shell `searchBrowse()` GET /api/daemon/search Zod `.strict()`
   enveloppe). G8 5/5 (4 EXECUTE + 1 SCOPE-CUT-CONSISTENT, 0
   DESIGN-CONFLICT) ; Codex 5/5. Arc 3.5 Factory Complete Vision 3/6.
+  S74 DONE : Phase 0 audit gate S73 PASS (`2fe3b30`) + 7 phases
+  A-G — programme « Disponibilite » (D-DISPO, pull-forward ex-LT-5)
+  + atelier fork (Phase A panneau Disponibilite front + publish 0
+  champ hote + rename coordinateur->noeud `457ca05` ; Phase B fork
+  forge-clone/blob-reconstruct workspace cible + B.6 invariant
+  open-source⇒provenance + C.3 rowid partition `bcfc155` ; Phase C
+  redeploy re-signe local + templates react/pyodide `9c2bd68` ;
+  Phase D pin local persistant keep_online **M18** + tag blob skip-GC
+  + boot re-annonce gate `4c1acc5` ; Phase E protocole seed
+  cross-noeud authentifie `SeedRequest` ALPN `sbfb/seed/0`
+  Ed25519+JCS `DOMAIN_SEED_REQUEST_V1` + invite **M19** lie a la
+  paire (project_id,archive_hash) + seed VOLONTAIRE communautaire
+  `b76a084` ; Phase F re-annonce distante boot + `SeedAnnounced`
+  raw-op variante TYPEE 0-bump `FEED_FORMAT_VERSION` + registre
+  best-effort « Toi + N pairs » TTL 48h `66a9409` ; Phase G wrap-up
+  + **T14 coverage CLOSED** (FileUploadBlock +11 tests, `bootstrap.ts`
+  in coverage.include, seuil functions 90->85 documente honnete,
+  `test:coverage` GREEN 86.91/78.63/85.82/88.23 >= 85/85/78/85) +
+  carries audit S73 traites [B.2 quorum impossible -> Rejected
+  terminal, B.5 isHttpsUrl Browse+VerificationDetail, SEARCH-VIEW
+  query.isError ErrorCard] + carry Phase D [KEEP-ONLINE-READ-PATH
+  `is_own` via `BrowseEntryView` flatten serialize-only] + THREAT_MODEL
+  §15 surface seed cross-noeud + PATTERNS §P58/.1/.2 + shell P36 +
+  5 carries re-routes S75). Invariant cardinal **heberger != publier,
+  seeder != auteur** ; content-addressing BLAKE3 = verite joignabilite
+  (compteur best-effort peut sur-estimer, annonce forgee ne sert
+  jamais d'octets absents). 5 verrous anti-recentralisation. G8 :
+  A-F preflights + G EXECUTE ; Codex Phase G 19/19 (round 1 -> 2 GAP
+  [seedCount claim + §P58 enabled-rows doc] corriges, round 2 PASS) ;
+  review Workflow 9 agents 3 findings doc-honnetete corriges (0 code).
+  **Env session : tests iroh-networked + Docker canonique env-bloques
+  (WSL wedge -> engine 500, reseau hote degrade -> create_node hang) ;
+  Phase G platform-agnostique [B.2 SQLite, is_own serialize-only, web,
+  docs], couverte par Windows non-networked + clippy --all-targets +
+  release + doctests + web ; re-run dual differe a recovery AVANT
+  push.** Arc 3.5 Factory Complete Vision 4/6.
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.

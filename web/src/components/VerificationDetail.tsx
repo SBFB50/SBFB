@@ -39,6 +39,14 @@ function truncate(s: string, len = 12): string {
   return s.length > len ? s.slice(0, len) + "…" : s;
 }
 
+// B.5 (carry S73): the provenance `repo_url` is feed-sourced (untrusted) and
+// React does not sanitise an `href`. Only render it as a clickable link when it
+// is an explicit https:// URL; otherwise show the raw text (no anchor) so a
+// `javascript:`/`data:` scheme can never become a live link.
+function isHttpsUrl(url: string | null | undefined): url is string {
+  return typeof url === "string" && url.startsWith("https://");
+}
+
 async function doFetch(
   coordUrl: string,
   projectId: string,
@@ -181,15 +189,21 @@ export function VerificationDetail({
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs">
               <dt className="text-white/40">Repo</dt>
               <dd>
-                <a
-                  href={result.record.repo_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 underline underline-offset-2 hover:text-blue-300"
-                  data-testid="prov-repo-url"
-                >
-                  {result.record.repo_url}
-                </a>
+                {isHttpsUrl(result.record.repo_url) ? (
+                  <a
+                    href={result.record.repo_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 underline underline-offset-2 hover:text-blue-300"
+                    data-testid="prov-repo-url"
+                  >
+                    {result.record.repo_url}
+                  </a>
+                ) : (
+                  <span className="text-white/70" data-testid="prov-repo-url">
+                    {result.record.repo_url}
+                  </span>
+                )}
               </dd>
 
               <dt className="text-white/40">Commit</dt>

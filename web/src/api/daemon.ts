@@ -169,6 +169,15 @@ export const BrowseEntrySchema = z
      * the parser stays forgiving rather than 422-erroring.
      */
     is_open_source: z.boolean().optional(),
+    /**
+     * KEEP-ONLINE-READ-PATH (Sprint 74 Phase G): true iff THIS node hosts the
+     * app (the entry's hosting node_id == our node_id), derived daemon-side in
+     * `list_browse`. The shell uses it to show the owner "Garder en ligne"
+     * toggle for per-app deploys (project_id = blake3(name) != node_id, where
+     * the old node_id===project_id heuristic was always false). `.optional()`
+     * for runtime tolerance with daemons that predate the field.
+     */
+    is_own: z.boolean().optional(),
   })
   .strict();
 

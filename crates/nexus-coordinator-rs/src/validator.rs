@@ -210,7 +210,36 @@ fn validate_quorum_pre_guardrail(
     let results = db.get_task_results(&task.task_id)?;
     let count = results.len() as u8;
 
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for r in &results {
+        *counts.entry(r.sha256.as_str()).or_insert(0) += 1;
+    }
+
+    let majority_threshold = (task.redundancy_factor as usize) / 2;
+
     if count < task.redundancy_factor {
+        // B.2 (carry S73): do not zombie-wait when quorum is already
+        // mathematically impossible. Acceptance needs some hash with
+        // `best_count > majority_threshold`; the most any hash can still reach
+        // is its current count plus every result yet to arrive. If even that
+        // ceiling cannot clear the threshold, no future vote can rescue the
+        // task — reject it terminally now instead of leaving it AwaitingQuorum
+        // forever (the redundancy>1 zombie). Only fires for redundancy >= 4,
+        // where enough distinct hashes can arrive before the full count.
+        let best_now = counts.values().copied().max().unwrap_or(0);
+        let remaining = (task.redundancy_factor - count) as usize;
+        if best_now + remaining <= majority_threshold {
+            db.update_task_status(&task.task_id, TaskStatus::Rejected, now)?;
+            tracing::warn!(
+                task_id = %task.task_id,
+                results = count,
+                required = task.redundancy_factor,
+                distinct_hashes = counts.len(),
+                "build quorum impossible (no hash can reach majority) — rejected early"
+            );
+            return Ok((ValidationOutcome::QuorumRejected, Some(task.clone()), None));
+        }
+
         if task.status != TaskStatus::AwaitingQuorum {
             db.update_task_status(&task.task_id, TaskStatus::AwaitingQuorum, now)?;
         }
@@ -224,12 +253,6 @@ fn validate_quorum_pre_guardrail(
         return Ok((ValidationOutcome::AwaitingQuorum, Some(task.clone()), None));
     }
 
-    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for r in &results {
-        *counts.entry(r.sha256.as_str()).or_insert(0) += 1;
-    }
-
-    let majority_threshold = (task.redundancy_factor as usize) / 2;
     let (best_hash, best_count) = counts
         .iter()
         .max_by_key(|(_, c)| **c)
@@ -578,6 +601,36 @@ mod tests {
 
         let task = db.get_task("build-003").expect("get").expect("found");
         assert_eq!(task.status, TaskStatus::Rejected);
+    }
+
+    #[test]
+    fn quorum_impossible_before_full_count_rejects_early() {
+        // B.2 (carry S73): redundancy=4 needs a hash with count > 2 (i.e. >= 3)
+        // agreeing. Three DISTINCT hashes arrive (1 each) with one slot left: the
+        // best any hash can still reach is 1 + 1 = 2, which can never exceed the
+        // majority threshold (2). Quorum is already impossible, so the task is
+        // rejected at the 3rd result — NOT left zombie in AwaitingQuorum.
+        let db = setup_build_task("build-imposs", 4);
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let w3 = KeyPair::generate();
+
+        let (o1, _) =
+            validate_result(&db, &make_build_result("build-imposs", &w1, "hash_a")).expect("v1");
+        assert_eq!(o1, ValidationOutcome::AwaitingQuorum);
+        let (o2, _) =
+            validate_result(&db, &make_build_result("build-imposs", &w2, "hash_b")).expect("v2");
+        assert_eq!(o2, ValidationOutcome::AwaitingQuorum, "2/4 still possible");
+
+        let (o3, _) =
+            validate_result(&db, &make_build_result("build-imposs", &w3, "hash_c")).expect("v3");
+        assert_eq!(
+            o3,
+            ValidationOutcome::QuorumRejected,
+            "3 distinct hashes + 1 slot left = quorum impossible"
+        );
+        let task = db.get_task("build-imposs").expect("get").expect("found");
+        assert_eq!(task.status, TaskStatus::Rejected, "terminal, not zombie");
     }
 
     #[test]

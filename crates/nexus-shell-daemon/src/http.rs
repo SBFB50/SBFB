@@ -679,6 +679,11 @@ pub struct CuratorsListResponse {
 /// Sorted flat list of every project entry across every cached
 /// curator list, each row carrying a reachability bucket the
 /// React shell renders as a coloured dot.
+/// Test-only deserialization target for the `/browse` JSON. Production serves
+/// the response via [`BrowseEntryView`] (BrowseEntry + the derived `is_own`),
+/// not this struct; the tests deserialize into it and `BrowseEntry` simply
+/// ignores the extra `is_own` key (no `deny_unknown_fields` on the entry).
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BrowseListResponse {
@@ -876,13 +881,40 @@ async fn unsubscribe_curator(
 /// (no subscribed curators, or no announcements received yet)
 /// this returns `{"entries": []}` at 200 rather than an error —
 /// the shell renders an empty-state card in that case.
+/// A browse entry plus the daemon-derived `is_own` flag (KEEP-ONLINE-READ-PATH,
+/// carry S74 Phase G). `is_own` is true iff the entry's hosting `node_id` equals
+/// THIS node's id — the precise "did this node publish it" signal. It fixes the
+/// shell's old `isOwn = (node_id === project_id)` heuristic, which is always
+/// false for per-app deploys whose `project_id = blake3(name) != node_id`, so
+/// the owner "Garder en ligne" toggle never rendered. A voluntarily-seeded
+/// distant app keeps the AUTHOR's node_id, so it is correctly `is_own = false`
+/// (the shell shows the volunteer CTA, never the owner toggle). `node_id` itself
+/// stays `#[serde(skip)]`; only this derived boolean crosses to the shell.
+#[derive(Serialize)]
+struct BrowseEntryView {
+    #[serde(flatten)]
+    entry: BrowseEntry,
+    is_own: bool,
+}
+
 async fn list_browse(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
     debug!("GET /browse");
     let entries = state
         .browse_aggregator
         .aggregate(&state.curator_runtime, &state.node)
         .await;
-    (StatusCode::OK, Json(BrowseListResponse { entries }))
+    let me = state.node_id.as_str();
+    let views: Vec<BrowseEntryView> = entries
+        .into_iter()
+        .map(|entry| {
+            let is_own = entry.node_id.as_deref() == Some(me);
+            BrowseEntryView { is_own, entry }
+        })
+        .collect();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "entries": views })),
+    )
 }
 
 /// `POST /api/daemon/browse/pull` — broadcast a browse_request
@@ -1199,7 +1231,7 @@ async fn seed_voluntary(
 /// Best-effort by design (scope cut #11): content-addressing (BLAKE3) is the
 /// truth of reachability, this count is only a freshness hint. A dedicated
 /// route (vs a `seed_count` field on every BrowseEntry) keeps the count fetched
-/// live with its TTL semantics and avoids churning the 18 BrowseEntry sites.
+/// live with its TTL semantics and avoids churning every BrowseEntry site.
 async fn seed_count(
     State(state): State<Arc<DaemonHttpState>>,
     Path(project_id): Path<String>,
