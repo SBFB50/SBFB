@@ -30,20 +30,32 @@ d'aplomb.** Ne refais PAS `wsl --shutdown` (c'est ce qui avait cassé Docker).
 - [ ] **0.6 Front** : `cd web && npm ci && npm run build` (le shell est bundlé et servi par le daemon).
 
 ### Setup nœud avec **port FIXE** (important — évite le bug localStorage)
-Le shell mémorise les coordinateurs par **origine** (port inclus). Un port
-éphémère qui change à chaque démarrage vide la liste → « Aucun nœud ». Pour
-tester proprement, fixe le port :
+Le shell mémorise les nœuds par **origine** (port inclus). Le port est **éphémère
+par défaut** (`api_port = 0` → l'OS en choisit un libre à chaque démarrage, vérifié
+en live : `7654` une fois), ce qui vide la liste → « Aucun nœud » entre redémarrages.
+Pour tester proprement, fixe le port dans le `config.toml` du nœud.
+
+**Chemin réel du `config.toml`** (vérifié live) :
+- Défaut Windows : `%APPDATA%\nexus-grid\shell-daemon\config.toml`
+  (= `C:\Users\<toi>\AppData\Roaming\nexus-grid\shell-daemon\config.toml`).
+- Défaut Linux/Mac : `~/.local/share/nexus-grid/shell-daemon/config.toml` (data_dir plateforme).
+- Override : si `NEXUS_GRID_ROOT` est posé → `<NEXUS_GRID_ROOT>\shell-daemon\config.toml`
+  (le sous-dossier `shell-daemon\` est TOUJOURS ajouté ; c'est la racine qui change).
 
 ```toml
-# <NEXUS_GRID_ROOT>/config.toml
+# .../nexus-grid/shell-daemon/config.toml
 [network]
+api_host = "127.0.0.1"
 api_port = 8787
 ```
 
-- [ ] **0.7 Nœud A** : `NEXUS_GRID_ROOT=~/.nexus-A` + `config.toml` port 8787 →
-  `nexus-shell-daemon start` (ou via `nexus-launcher` qui ouvre le navigateur).
-- [ ] **0.8 Shell** : ouvre `http://127.0.0.1:8787` → le daemon same-origin
-  s'auto-ajoute comme nœud (hotfix `a53b9f6`), pas de « Aucun nœud ».
+- [ ] **0.7 Nœud A (port fixe)** : crée/édite le `config.toml` ci-dessus avec
+  `api_port = 8787`, puis lance `.\target\release\nexus-launcher.exe` (il spawn le
+  daemon + ouvre le navigateur). Pour un root dédié (2 nœuds, §5), pose d'abord
+  `$env:NEXUS_GRID_ROOT="$HOME\.nexus-A"` dans le terminal AVANT le launcher, et
+  mets le `config.toml` sous `$HOME\.nexus-A\shell-daemon\`.
+- [ ] **0.8 Shell** : le navigateur s'ouvre sur `http://127.0.0.1:8787` → le daemon
+  same-origin s'auto-ajoute comme nœud (hotfix `a53b9f6`), pas de « Aucun nœud ».
 
 ---
 
@@ -263,13 +275,24 @@ Pour chaque section, reporte ici :
 
 ## Annexe — commandes utiles
 
+```powershell
+# Lancement normal (1 nœud) — le launcher spawn le daemon + ouvre le navigateur.
+# Prérequis déjà construits : nexus-shell-daemon.exe (sibling) + web/dist/.
+.\target\release\nexus-launcher.exe
+# Le port est dans %APPDATA%\nexus-grid\shell-daemon\config.toml ([network] api_port).
+# Démarrage direct du daemon (sans navigateur), si besoin headless :
+.\target\release\nexus-shell-daemon.exe start
+
+# Nœud A (root dédié — pose la racine AVANT, config.toml sous <root>\shell-daemon\)
+$env:NEXUS_GRID_ROOT = "$HOME\.nexus-A"   # config: $HOME\.nexus-A\shell-daemon\config.toml -> api_port=8787
+.\target\release\nexus-launcher.exe
+
+# Nœud B (2e nœud, même machine — AUTRE terminal, AUTRE racine + AUTRE port)
+$env:NEXUS_GRID_ROOT = "$HOME\.nexus-B"   # config: $HOME\.nexus-B\shell-daemon\config.toml -> api_port=8788
+.\target\release\nexus-launcher.exe
+```
+
 ```bash
-# Nœud A (port fixe, root dédié)
-NEXUS_GRID_ROOT=~/.nexus-A nexus-shell-daemon start   # config.toml [network] api_port=8787
-
-# Nœud B (2e nœud, même machine)
-NEXUS_GRID_ROOT=~/.nexus-B nexus-shell-daemon start   # config.toml [network] api_port=8788
-
 # Publier depuis un repo (ou via la page « Publier » du shell)
 curl -X POST http://127.0.0.1:8787/api/v1/deploy-from-repo \
   -H "X-SBFB-Token: <token>" -H "Content-Type: application/json" \
