@@ -198,6 +198,26 @@ pub const DOMAIN_DELEGATION_CERT_V1: &[u8] = b"nexus-delegation-cert-v1";
 /// and Ed25519 per-entry signature.
 pub const DOMAIN_FEED_V1: &[u8] = b"nexus-feed-v1";
 
+/// Domain separation tag for cross-node seed REQUEST canonical bytes.
+///
+/// Sprint 74 Phase E — authenticated cross-node seed protocol (ALPN
+/// `sbfb/seed/0`). A node (or an invited peer) signs a SeedRequest with
+/// its node key, proving it is the dialer that asked THIS app to be
+/// seeded by THAT peer. The domain tag keeps a seed-request signature
+/// from being replayed as a task / result / claim / invite / kudos /
+/// curator-list / provenance / canary / PoW / duress-ack / age-witness
+/// / contributor / key-rotation / delegation / feed signature — the
+/// pre-image spaces are disjoint by construction.
+pub const DOMAIN_SEED_REQUEST_V1: &[u8] = b"nexus-seed-request-v1";
+
+/// Domain separation tag for cross-node seed RESPONSE canonical bytes.
+///
+/// Sprint 74 Phase E — the seeder signs its accept/reject decision with
+/// its own node key so the requester gets a non-repudiable ack ("THIS
+/// peer agreed to seed"). Distinct from [`DOMAIN_SEED_REQUEST_V1`] so a
+/// response signature can never be replayed as a request, and vice versa.
+pub const DOMAIN_SEED_RESPONSE_V1: &[u8] = b"nexus-seed-response-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///

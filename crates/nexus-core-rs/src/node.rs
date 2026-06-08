@@ -42,7 +42,7 @@ use std::path::PathBuf;
 
 use iroh::address_lookup::memory::MemoryLookup;
 use iroh::endpoint::presets;
-use iroh::protocol::Router;
+use iroh::protocol::{DynProtocolHandler, Router};
 use iroh::{Endpoint, RelayMode, SecretKey};
 use iroh_blobs::api::Store;
 use iroh_blobs::store::fs::FsStore;
@@ -56,6 +56,31 @@ use tracing::{debug, info, warn};
 
 use crate::crypto::SECRET_KEY_BYTES;
 use crate::error::{NexusError, Result};
+
+/// ALPN for the Sprint 74 cross-node seed protocol. A 4th protocol
+/// alongside blobs / gossip / docs, registered via
+/// [`create_node_with_protocols`] (the handler lives in the daemon, not
+/// here, because it carries the coordinator DB + node keypair).
+///
+/// The trailing `/0` is the protocol generation; the payloads carry a
+/// fine-grained `version` field under it (see
+/// [`crate::seed::SEED_FORMAT_VERSION`]).
+pub const SEED_ALPN: &[u8] = b"sbfb/seed/0";
+
+/// A factory that builds an extra ALPN protocol handler once the node's
+/// blob store, endpoint and address lookup exist.
+///
+/// The iroh [`Router`] accepts NO post-spawn protocol registration —
+/// every ALPN must be handed to the builder before `.spawn()`. But a
+/// handler like the Sprint 74 seed protocol needs BOTH core node state
+/// (the blob store / endpoint, created inside
+/// [`create_node_with_config`]) AND caller state (the coordinator DB +
+/// keypair, created later in the daemon). This factory resolves the
+/// chicken-and-egg: the daemon builds the closure capturing its own
+/// state, and [`create_node_with_protocols`] invokes it with the freshly
+/// created store/endpoint/lookup right before wiring the Router.
+pub type ExtraProtocolFactory =
+    Box<dyn FnOnce(&Store, &Endpoint, &MemoryLookup) -> Box<dyn DynProtocolHandler> + Send>;
 
 /// Configuration for booting a [`Node`].
 ///
@@ -249,8 +274,27 @@ pub async fn create_node() -> Result<Node> {
 ///
 /// This is the general form. Use it when you need a persistent
 /// identity (loaded via [`crate::KeyPair::load_or_generate`]) or
-/// other non-default options.
+/// other non-default options. Equivalent to
+/// [`create_node_with_protocols`] with no extra protocols.
 pub async fn create_node_with_config(cfg: NodeConfig) -> Result<Node> {
+    create_node_with_protocols(cfg, Vec::new()).await
+}
+
+/// Boot a node with an explicit configuration plus extra ALPN protocol
+/// handlers built lazily once the node's stores exist.
+///
+/// `extra_protocols` is a list of `(alpn, factory)` pairs. Each factory
+/// is invoked exactly once with the freshly-created blob store, endpoint
+/// and address lookup, and its returned handler is registered on the
+/// Router before it spawns. See [`ExtraProtocolFactory`] for why this
+/// indirection is needed (the Router has no post-spawn registration).
+///
+/// The three core protocols (blobs / gossip / docs) are always
+/// registered first; the extras follow.
+pub async fn create_node_with_protocols(
+    cfg: NodeConfig,
+    extra_protocols: Vec<(Vec<u8>, ExtraProtocolFactory)>,
+) -> Result<Node> {
     debug!("building iroh endpoint with the N0 preset");
 
     // Attach a MemoryLookup to every node. Callers seed it with
@@ -338,11 +382,22 @@ pub async fn create_node_with_config(cfg: NodeConfig) -> Result<Node> {
         .await
         .map_err(|e| NexusError::Docs(format!("Docs spawn failed: {e}")))?;
 
-    let router = Router::builder(endpoint.clone())
+    let mut router_builder = Router::builder(endpoint.clone())
         .accept(BLOBS_ALPN, BlobsProtocol::new(&blobs_store, None))
         .accept(GOSSIP_ALPN, gossip.clone())
-        .accept(DOCS_ALPN, docs.clone())
-        .spawn();
+        .accept(DOCS_ALPN, docs.clone());
+
+    // Sprint 74 Phase E: register any extra ALPN handlers (e.g. the
+    // cross-node seed protocol). Each factory is invoked now, with the
+    // freshly-created store/endpoint/lookup, so a daemon-owned handler
+    // can be wired before the Router spawns (no post-spawn registration
+    // exists on the Router).
+    for (alpn, factory) in extra_protocols {
+        let handler = factory(&blobs_store, &endpoint, &memory_lookup);
+        router_builder = router_builder.accept(alpn, handler);
+    }
+
+    let router = router_builder.spawn();
 
     Ok(Node {
         endpoint,

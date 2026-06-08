@@ -77,6 +77,12 @@ zeroize = { workspace = true }
 # Sprint 12 Phase A: BlobTicket minting in the publish handler.
 iroh-blobs = { workspace = true }
 
+# Sprint 74 Phase E: the cross-node seed protocol handler implements
+# iroh's `ProtocolHandler` for the `sbfb/seed/0` ALPN and dials peers
+# via `Endpoint::connect`. Already in the lockfile transitively (the
+# node stack is iroh 0.98); this only makes the direct use explicit.
+iroh = { workspace = true }
+
 # Sprint 18 Phase E2: the canary publish handler implements the
 # core crate's `CanaryBroadcaster` trait on top of a live iroh
 # gossip `TopicHandle`, so it needs the `async_trait` attribute

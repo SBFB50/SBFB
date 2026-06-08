@@ -273,6 +273,16 @@ pub fn build_router(
         .route("/api/daemon/browse/pull", post(browse_pull))
         // Sprint 74 Phase D: toggle a self-deployed app's local keep-online pin.
         .route("/api/daemon/keep-online", post(set_keep_online))
+        // Sprint 74 Phase E: cross-node seed. `/seed` = voluntary community
+        // seed of a distant public app; `/seed/invite*` = revocable invite
+        // ledger for the authenticated `sbfb/seed/0` protocol.
+        .route("/api/daemon/seed", post(seed_voluntary))
+        .route("/api/daemon/seed/invite", post(seed_invite_mint))
+        .route("/api/daemon/seed/invite/revoke", post(seed_invite_revoke))
+        .route(
+            "/api/daemon/seed/invites/{project_id}",
+            get(seed_invite_list),
+        )
         .route("/api/daemon/publish", post(publish_project))
         .route("/api/daemon/publish-blob", post(publish_blob))
         .route("/api/daemon/default-curators", get(default_curators))
@@ -1057,6 +1067,224 @@ async fn set_keep_online(
         Json(serde_json::json!({"ok": true, "enabled": req.enabled})),
     )
         .into_response()
+}
+
+/// `POST /api/daemon/seed` — Sprint 74 Phase E — VOLUNTARY community seed.
+/// This node helps keep a DISTANT public app online: it fetches the app's
+/// archive blob (by the ticket already learned via gossip), pins it under the
+/// keep-online tag (skip-GC), and records a local `keep_online` row so the boot
+/// re-announce (Phase F) re-diffuses it. No `SeedRequest`, no invite, no author
+/// approval — the content is already public and content-addressed (BLAKE3), so a
+/// supporter can only ever hold the author's exact bytes and never re-signs any
+/// provenance (the author stays the author). Loopback-authenticated.
+#[derive(Debug, serde::Deserialize)]
+struct SeedVoluntaryRequest {
+    project_id: String,
+}
+
+async fn seed_voluntary(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(req): Json<SeedVoluntaryRequest>,
+) -> impl IntoResponse {
+    debug!(project = %req.project_id, "POST /api/daemon/seed (voluntary)");
+
+    // The app must be visible in Browse (learned via gossip) so we have its
+    // archive ticket + hash to fetch. A user can only seed what they can see.
+    let entry = state.browse_aggregator.get_direct_entry(&req.project_id);
+    let Some(entry) = entry else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "unknown app (not in browse)"})),
+        )
+            .into_response();
+    };
+    let (Some(ticket), Some(hash_hex)) = (entry.archive_ticket.clone(), entry.archive_hash.clone())
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "app has no archive to seed"})),
+        )
+            .into_response();
+    };
+    let Some(want_hash) = crate::deploy::decode_hash_hex(&hash_hex) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "app has a malformed archive hash"})),
+        )
+            .into_response();
+    };
+
+    let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+    let tag = crate::deploy::keep_online_tag(&req.project_id);
+    let fetched = blobs
+        .fetch_and_pin(
+            state.node.endpoint(),
+            state.node.memory_lookup(),
+            &ticket,
+            &tag,
+        )
+        .await;
+    match fetched {
+        Ok(h) if h == want_hash => {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Err(e) = db.set_keep_online(&req.project_id, true, Some(&hash_hex)) {
+                warn!(error = %e, "voluntary seed: keep_online persist failed");
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"ok": true, "seeding": req.project_id})),
+            )
+                .into_response()
+        }
+        Ok(_) => {
+            // Content hash disagreed with the declared hash — unpin and refuse.
+            let _ = blobs.delete_tag(&tag).await;
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": "fetched content hash mismatch"})),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            debug!(error = %e, "voluntary seed: fetch_and_pin failed");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": "could not fetch the app archive"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `POST /api/daemon/seed/invite` — Sprint 74 Phase E — mint a revocable seed
+/// invite token (Tailscale model). The token authorizes a trusted peer to ask
+/// THIS node, over the `sbfb/seed/0` protocol, to seed the given app. The invite
+/// is bound to the app's CURRENT archive hash (derived from this node's own
+/// browse view — "you can only authorize what you can see"), so an invited peer
+/// cannot redeem it to make this node pin foreign content (review P2). Returns
+/// the opaque token; the row stays local (only the token id ever travels).
+#[derive(Debug, serde::Deserialize)]
+struct SeedInviteMintRequest {
+    project_id: String,
+    /// Lifetime in seconds; defaults to 30 days (Tailscale default).
+    expires_in_secs: Option<u64>,
+    /// Optional cap on redemptions; `None` = reusable until expiry/revoke.
+    max_uses: Option<i64>,
+}
+
+async fn seed_invite_mint(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(req): Json<SeedInviteMintRequest>,
+) -> impl IntoResponse {
+    // Bind the invite to the exact content this node currently sees for the app
+    // (the operator can only authorize what is in their own browse view), not to
+    // an attacker-chosen hash (review P2).
+    let archive_hash = state
+        .browse_aggregator
+        .get_direct_entry(&req.project_id)
+        .and_then(|e| e.archive_hash.clone());
+    let Some(archive_hash) = archive_hash else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "app not visible (or has no archive) to authorize"})),
+        )
+            .into_response();
+    };
+    let token = hex::encode(nexus_core_rs::random_nonce());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let ttl = req.expires_in_secs.unwrap_or(30 * 24 * 3600);
+    let expires_at = now.saturating_add(ttl) as i64;
+    {
+        let db = state
+            .coordinator_db
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Err(e) = db.mint_seed_invite(
+            &token,
+            &req.project_id,
+            &archive_hash,
+            expires_at,
+            req.max_uses,
+        ) {
+            warn!(error = %e, "seed invite mint failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "seed invite mint failed"})),
+            )
+                .into_response();
+        }
+    }
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "token": token,
+            "expires_at": expires_at,
+            "archive_hash": archive_hash,
+        })),
+    )
+        .into_response()
+}
+
+/// `POST /api/daemon/seed/invite/revoke` — Sprint 74 Phase E — revoke a seed
+/// invite token in real time (the next `SeedRequest` carrying it is refused).
+#[derive(Debug, serde::Deserialize)]
+struct SeedInviteRevokeRequest {
+    token: String,
+}
+
+async fn seed_invite_revoke(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(req): Json<SeedInviteRevokeRequest>,
+) -> impl IntoResponse {
+    let revoked = {
+        let db = state
+            .coordinator_db
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        db.revoke_seed_invite(&req.token).unwrap_or(false)
+    };
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"revoked": revoked})),
+    )
+        .into_response()
+}
+
+/// `GET /api/daemon/seed/invites/{project_id}` — Sprint 74 Phase E — list the
+/// seed invites minted for an app, for the local management UI.
+async fn seed_invite_list(
+    State(state): State<Arc<DaemonHttpState>>,
+    axum::extract::Path(project_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let rows = {
+        let db = state
+            .coordinator_db
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        db.list_seed_invites(&project_id).unwrap_or_default()
+    };
+    let items: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|r| {
+            serde_json::json!({
+                "token": r.token,
+                "project_id": r.project_id,
+                "archive_hash": r.archive_hash,
+                "expires_at": r.expires_at,
+                "max_uses": r.max_uses,
+                "uses_count": r.uses_count,
+                "revoked_at": r.revoked_at,
+                "created_at": r.created_at,
+            })
+        })
+        .collect();
+    (StatusCode::OK, Json(serde_json::json!({"invites": items}))).into_response()
 }
 
 /// Index a browse entry into the FTS5 search corpus so the app is findable by
@@ -7387,6 +7615,101 @@ mod tests {
             .await
             .expect("list tags");
         stream.next().await.is_some()
+    }
+
+    #[tokio::test]
+    async fn voluntary_seed_distant_public_app_no_approval() {
+        // Sprint 74 Phase E (amendement PO §13): a node may VOLUNTARILY keep a
+        // DISTANT public app online — fetch+pin its archive + record keep_online —
+        // with NO SeedRequest, NO invite, NO author approval (the content is
+        // public + content-addressed). This test also covers
+        // `voluntary_seeder_serves_author_provenance_intact`: the seeder ends up
+        // with the AUTHOR's exact bytes (it re-signs no provenance). Real
+        // frontier: a 2nd iroh node hosts the blob, the route fetches it P2P.
+        use nexus_shell_daemon_core::browse::{BrowseEntry, BrowseSource, BrowseStatus};
+
+        // A distant node hosts the public app archive and mints a ticket.
+        let remote = create_node().await.expect("remote node");
+        let blobs_r = nexus_core_rs::BlobsClient::new(remote.blobs_store());
+        let payload = b"distant-public-app-author-signed-bytes".to_vec();
+        let hash = blobs_r.add_bytes(&payload).await.unwrap();
+        let r_addr = nexus_core_rs::discovery::DiscoveryClient::new(remote.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("remote addr");
+        let ticket = iroh_blobs::ticket::BlobTicket::new(
+            r_addr,
+            iroh_blobs::Hash::from_bytes(hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+
+        // The local node (the seeder) learned the app via gossip → a direct
+        // browse entry carrying the ticket + hash.
+        let state = mk_state().await;
+        let pid = "distant-public-app";
+        state.browse_aggregator.add_direct_entry(BrowseEntry {
+            project_id: pid.to_string(),
+            node_id: Some(remote.node_id()),
+            project_name: "Distant App".into(),
+            category: "demo".into(),
+            description: "a public app".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Distant".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Reachable,
+            last_probed_at: None,
+            archive_ticket: Some(ticket),
+            archive_hash: Some(hex::encode(hash)),
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        });
+
+        // Voluntary seed via the real route — the body is ONLY the project_id:
+        // no invite, no token, no approval anywhere in the request.
+        let body = serde_json::json!({"project_id": pid});
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // The seeder fetched + pinned the blob and recorded keep_online — with no
+        // approval step.
+        let blobs_local = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        assert!(
+            blobs_local.has(hash).await.unwrap(),
+            "the seeder fetched the distant blob"
+        );
+        assert!(
+            has_tag(&state, &crate::deploy::keep_online_tag(pid)).await,
+            "the seeder pinned the blob (skip-GC)"
+        );
+        assert_eq!(
+            state
+                .coordinator_db
+                .lock()
+                .unwrap()
+                .get_keep_online(pid)
+                .unwrap(),
+            Some((true, Some(hex::encode(hash))))
+        );
+        // Provenance intact: the seeder serves the AUTHOR's exact bytes.
+        assert_eq!(
+            blobs_local.get_bytes(hash).await.unwrap(),
+            payload,
+            "the seeder serves the author's exact bytes (no re-provenance)"
+        );
+
+        remote.shutdown().await.ok();
     }
 
     #[tokio::test]

@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use rusqlite::Connection;
+use rusqlite::OptionalExtension;
 use rusqlite_migration::{M, Migrations};
 
 use crate::error::CoordinatorError;
@@ -271,6 +272,31 @@ static MIGRATIONS: &[M<'static>] = &[
         pinned_at INTEGER NOT NULL
     );",
     ),
+    // M19 (Sprint 74 Phase E): revocable cross-node seed invite ledger.
+    // A LOCAL schema overlay, never on the wire — only the opaque `token`
+    // id circulates (inside a SeedRequest), never a row. Modelled on the
+    // Tailscale share link (revocable in real time by looking it up here)
+    // and on the existing `invites` ledger: a node mints a token to let a
+    // trusted peer ask it to seed a SPECIFIC app release, and can revoke it
+    // at any time. The token is verified by the node that RECEIVES the
+    // SeedRequest, against this table. The invite is a capability over a
+    // specific `(project_id, archive_hash)` PAIR — NOT a project namespace:
+    // the handler rejects a SeedRequest whose archive_hash differs from the
+    // one bound here, so an invited peer cannot make the seeder pin foreign
+    // content under the app's keep-online tag (review P2). Single-use or
+    // reusable+expiry via `max_uses`/`uses_count`.
+    M::up(
+        "CREATE TABLE IF NOT EXISTS seed_invite (
+        token TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        archive_hash TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        max_uses INTEGER,
+        uses_count INTEGER NOT NULL DEFAULT 0,
+        revoked_at INTEGER,
+        created_at INTEGER NOT NULL
+    );",
+    ),
 ];
 
 pub struct StorageNamespaceRow {
@@ -288,6 +314,37 @@ pub struct TaskResultDetail {
     pub status: String,
     pub result_text: Option<String>,
     pub result_hash: Option<String>,
+}
+
+/// Outcome of verifying + consuming a seed invite token (Sprint 74
+/// Phase E). Only `Ok` authorizes a cross-node seed; every other variant
+/// maps to a `SeedResponse` rejection reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeedInviteOutcome {
+    /// Token valid and not exhausted; a use was just recorded.
+    Ok,
+    /// No row for this token.
+    NotFound,
+    /// The author revoked the token.
+    Revoked,
+    /// `now >= expires_at`.
+    Expired,
+    /// `max_uses` reached (single-use already redeemed, or reusable cap hit).
+    NoUsesLeft,
+}
+
+/// A seed invite row, for the local management UI (mint/list/revoke).
+#[derive(Debug, Clone)]
+pub struct SeedInviteRow {
+    pub token: String,
+    pub project_id: String,
+    /// The specific archive hash this invite authorizes seeding of.
+    pub archive_hash: String,
+    pub expires_at: i64,
+    pub max_uses: Option<i64>,
+    pub uses_count: i64,
+    pub revoked_at: Option<i64>,
+    pub created_at: i64,
 }
 
 pub struct CoordinatorDb {
@@ -680,6 +737,137 @@ impl CoordinatorDb {
             result.push(row?);
         }
         Ok(result)
+    }
+
+    // --- M19 seed_invite (Sprint 74 Phase E): revocable seed invites ---
+
+    /// Mint a revocable seed invite token authorizing a trusted peer to
+    /// enrol as a seeder of `project_id`. `expires_at` is unix seconds;
+    /// `max_uses == None` means unlimited (reusable until expiry/revoke).
+    /// `INSERT OR REPLACE` so re-minting the same `token` resets it.
+    pub fn mint_seed_invite(
+        &self,
+        token: &str,
+        project_id: &str,
+        archive_hash: &str,
+        expires_at: i64,
+        max_uses: Option<i64>,
+    ) -> Result<(), CoordinatorError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0) as i64;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO seed_invite \
+             (token, project_id, archive_hash, expires_at, max_uses, uses_count, revoked_at, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL, ?6)",
+            rusqlite::params![token, project_id, archive_hash, expires_at, max_uses, now],
+        )?;
+        Ok(())
+    }
+
+    /// Verify a seed invite token for the `(project_id, archive_hash)` PAIR
+    /// at `now` (unix secs) and, if valid, record one use atomically.
+    /// Returns the [`SeedInviteOutcome`]. A token bound to a different
+    /// project OR a different archive_hash than the one being requested is
+    /// treated as [`SeedInviteOutcome::NotFound`] (it does not authorize
+    /// THIS content) — this is what prevents an invited peer from making
+    /// the seeder pin foreign content under the app's tag (review P2). The
+    /// row type is inferred from the closure (no written tuple type — keeps
+    /// clippy::type_complexity off this hot path).
+    pub fn consume_seed_invite(
+        &self,
+        token: &str,
+        project_id: &str,
+        archive_hash: &str,
+        now: i64,
+    ) -> Result<SeedInviteOutcome, CoordinatorError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT project_id, archive_hash, expires_at, max_uses, uses_count, revoked_at \
+                 FROM seed_invite WHERE token = ?1",
+                rusqlite::params![token],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, Option<i64>>(3)?,
+                        r.get::<_, i64>(4)?,
+                        r.get::<_, Option<i64>>(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((row_project_id, row_archive_hash, expires_at, max_uses, uses_count, revoked_at)) =
+            row
+        else {
+            return Ok(SeedInviteOutcome::NotFound);
+        };
+        // The token must authorize THIS exact (project, content) pair.
+        if row_project_id != project_id || row_archive_hash != archive_hash {
+            return Ok(SeedInviteOutcome::NotFound);
+        }
+        if revoked_at.is_some() {
+            return Ok(SeedInviteOutcome::Revoked);
+        }
+        if now >= expires_at {
+            return Ok(SeedInviteOutcome::Expired);
+        }
+        if let Some(max) = max_uses {
+            if uses_count >= max {
+                return Ok(SeedInviteOutcome::NoUsesLeft);
+            }
+        }
+        self.conn.execute(
+            "UPDATE seed_invite SET uses_count = uses_count + 1 WHERE token = ?1",
+            rusqlite::params![token],
+        )?;
+        Ok(SeedInviteOutcome::Ok)
+    }
+
+    /// Revoke a seed invite token. Returns true if a still-active token
+    /// was revoked (false if unknown or already revoked).
+    pub fn revoke_seed_invite(&self, token: &str) -> Result<bool, CoordinatorError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0) as i64;
+        let changed = self.conn.execute(
+            "UPDATE seed_invite SET revoked_at = ?1 WHERE token = ?2 AND revoked_at IS NULL",
+            rusqlite::params![now, token],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// List seed invites for a project (most recent first), for the
+    /// local management UI.
+    pub fn list_seed_invites(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<SeedInviteRow>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT token, project_id, archive_hash, expires_at, max_uses, uses_count, revoked_at, created_at \
+             FROM seed_invite WHERE project_id = ?1 ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![project_id], |r| {
+            Ok(SeedInviteRow {
+                token: r.get(0)?,
+                project_id: r.get(1)?,
+                archive_hash: r.get(2)?,
+                expires_at: r.get(3)?,
+                max_uses: r.get(4)?,
+                uses_count: r.get(5)?,
+                revoked_at: r.get(6)?,
+                created_at: r.get(7)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     pub fn load_all_storage(
@@ -1432,6 +1620,103 @@ mod tests {
         // Back ON.
         db.set_keep_online(&pid, true, Some(&hash)).unwrap();
         assert!(db.list_keep_online_disabled().unwrap().is_empty());
+    }
+
+    #[test]
+    fn migration_m19_creates_seed_invite_table() {
+        // M19 must create the seed_invite table (a successful mint proves it).
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        db.mint_seed_invite(
+            "tok-1",
+            &"a".repeat(64),
+            &"b".repeat(64),
+            9_999_999_999,
+            Some(1),
+        )
+        .expect("M19 seed_invite table must exist");
+    }
+
+    #[test]
+    fn seed_invite_lifecycle_mint_consume_revoke() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let pid = "a".repeat(64);
+        let ah = "b".repeat(64);
+        let now = 1_700_000_000_i64;
+
+        // Unknown token.
+        assert_eq!(
+            db.consume_seed_invite("nope", &pid, &ah, now).unwrap(),
+            SeedInviteOutcome::NotFound
+        );
+
+        // Reusable token (max_uses=None) consumes repeatedly while valid.
+        db.mint_seed_invite("reuse", &pid, &ah, now + 1000, None)
+            .unwrap();
+        assert_eq!(
+            db.consume_seed_invite("reuse", &pid, &ah, now).unwrap(),
+            SeedInviteOutcome::Ok
+        );
+        assert_eq!(
+            db.consume_seed_invite("reuse", &pid, &ah, now).unwrap(),
+            SeedInviteOutcome::Ok
+        );
+
+        // Wrong project_id => NotFound (the token does not authorize THIS app).
+        assert_eq!(
+            db.consume_seed_invite("reuse", &"c".repeat(64), &ah, now)
+                .unwrap(),
+            SeedInviteOutcome::NotFound
+        );
+
+        // Wrong archive_hash => NotFound (capability is over the (project,
+        // content) PAIR — an invited peer cannot swap in foreign content,
+        // review P2).
+        assert_eq!(
+            db.consume_seed_invite("reuse", &pid, &"d".repeat(64), now)
+                .unwrap(),
+            SeedInviteOutcome::NotFound
+        );
+
+        // Expired.
+        assert_eq!(
+            db.consume_seed_invite("reuse", &pid, &ah, now + 2000)
+                .unwrap(),
+            SeedInviteOutcome::Expired
+        );
+
+        // Revocation.
+        assert!(db.revoke_seed_invite("reuse").unwrap());
+        assert_eq!(
+            db.consume_seed_invite("reuse", &pid, &ah, now).unwrap(),
+            SeedInviteOutcome::Revoked
+        );
+        // Double-revoke is a no-op (already revoked).
+        assert!(!db.revoke_seed_invite("reuse").unwrap());
+    }
+
+    #[test]
+    fn seed_invite_single_use_exhausts() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let pid = "a".repeat(64);
+        let ah = "b".repeat(64);
+        let now = 1_700_000_000_i64;
+        db.mint_seed_invite("single", &pid, &ah, now + 1000, Some(1))
+            .unwrap();
+        assert_eq!(
+            db.consume_seed_invite("single", &pid, &ah, now).unwrap(),
+            SeedInviteOutcome::Ok
+        );
+        assert_eq!(
+            db.consume_seed_invite("single", &pid, &ah, now).unwrap(),
+            SeedInviteOutcome::NoUsesLeft
+        );
+
+        // list surfaces it for the UI.
+        let rows = db.list_seed_invites(&pid).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].token, "single");
+        assert_eq!(rows[0].archive_hash, ah);
+        assert_eq!(rows[0].uses_count, 1);
     }
 
     #[test]

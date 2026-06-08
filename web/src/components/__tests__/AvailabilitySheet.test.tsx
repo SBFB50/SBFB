@@ -206,7 +206,7 @@ describe("AvailabilitySheet", () => {
     });
   });
 
-  it("remote app shows the voluntary support CTA inert (Bientot)", async () => {
+  it("remote app shows the voluntary support CTA (functional)", async () => {
     renderSheet({ entry: makeEntry({ status: "reachable" }), isOwn: false });
     expect(
       await screen.findByTestId("support-seed-cta"),
@@ -214,5 +214,44 @@ describe("AvailabilitySheet", () => {
     expect(screen.getByText("Publiee par un autre noeud")).toBeInTheDocument();
     // No own-node toggle for a remote app.
     expect(screen.queryByTestId("keep-online-toggle")).not.toBeInTheDocument();
+  });
+
+  it("voluntary_seed_distant_app_posts_and_confirms", async () => {
+    // Sprint 74 Phase E: clicking the support CTA on a remote app POSTs to
+    // /api/daemon/seed and, on success, flips to the "supporting" state.
+    const user = userEvent.setup();
+    const calls: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({
+          url,
+          body: init?.body ? JSON.parse(init.body as string) : null,
+        });
+        return new Response(
+          JSON.stringify({ ok: true, seeding: "aa".repeat(32) }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+
+    renderSheet({ entry: makeEntry({ status: "reachable" }), isOwn: false });
+    const cta = await screen.findByTestId("support-seed-cta");
+    await user.click(cta);
+
+    // It POSTed the voluntary seed intent for this project...
+    await waitFor(() => {
+      expect(calls.some((c) => c.url.includes("/api/daemon/seed"))).toBe(true);
+    });
+    const seedCall = calls.find((c) => c.url.includes("/api/daemon/seed"))!;
+    expect(seedCall.body).toMatchObject({ project_id: "aa".repeat(32) });
+
+    // ...and reflected the confirmed "supporting" state.
+    expect(
+      await screen.findByTestId("support-seed-active"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Tu gardes ce projet en ligne"),
+    ).toBeInTheDocument();
   });
 });

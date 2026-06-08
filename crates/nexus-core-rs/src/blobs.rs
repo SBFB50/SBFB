@@ -191,6 +191,33 @@ impl<'a> BlobsClient<'a> {
 
         Ok(*hash.as_bytes())
     }
+
+    /// Fetch a blob by ticket AND immediately pin it under a removable
+    /// tag so the store does not garbage-collect it (Sprint 74 Phase E).
+    ///
+    /// Composes [`BlobsClient::fetch_ticket`] + [`BlobsClient::set_tag`].
+    /// A seeder calls this when it agrees to keep a remote app online:
+    /// `fetch_ticket` alone leaves the blob untagged (GC-eligible — that
+    /// is fine for the re-fetchable curator-list flow, but a seed pin
+    /// must survive), so this method tags it under `tag_name`
+    /// (typically `keep-online/<project_id>`, the same tag the local
+    /// keep-online toggle uses, unifying the ON/OFF + boot re-announce
+    /// machinery). Content-addressing (BLAKE3) guarantees the fetched
+    /// bytes can only be the exact `ticket.hash()` — a malicious source
+    /// cannot serve altered content.
+    pub async fn fetch_and_pin(
+        &self,
+        endpoint: &Endpoint,
+        memory_lookup: &MemoryLookup,
+        ticket_str: &str,
+        tag_name: &str,
+    ) -> Result<[u8; 32]> {
+        let hash = self
+            .fetch_ticket(endpoint, memory_lookup, ticket_str)
+            .await?;
+        self.set_tag(tag_name, hash).await?;
+        Ok(hash)
+    }
 }
 
 #[cfg(test)]
@@ -296,6 +323,55 @@ mod tests {
         // The blob is now in node B's local store.
         let got = blobs_b.get_bytes(fetched_hash).await.unwrap();
         assert_eq!(got, payload, "downloaded content matches source");
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn seeder_fetches_tags_pins_blob() {
+        // Sprint 74 Phase E (R3): fetch_and_pin downloads a remote blob AND
+        // pins it under a removable tag so the seeder's store keeps it. The
+        // returned hash matches the ticket; the blob is present locally and the
+        // pin tag is set.
+        use iroh_blobs::BlobFormat;
+
+        let node_a = spawn_node().await;
+        let node_b = spawn_node().await;
+
+        let blobs_a = BlobsClient::new(node_a.blobs_store());
+        let payload = b"seed-me-please-author-signed".to_vec();
+        let hash_bytes = blobs_a.add_bytes(&payload).await.unwrap();
+
+        let my_addr = crate::discovery::DiscoveryClient::new(node_a.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("node A should publish its address");
+        let ticket = BlobTicket::new(my_addr, Hash::from_bytes(hash_bytes), BlobFormat::Raw);
+
+        let blobs_b = BlobsClient::new(node_b.blobs_store());
+        let tag = "keep-online/seed-test-app";
+        let fetched = blobs_b
+            .fetch_and_pin(
+                node_b.endpoint(),
+                node_b.memory_lookup(),
+                &ticket.to_string(),
+                tag,
+            )
+            .await
+            .expect("fetch_and_pin should succeed on loopback");
+        assert_eq!(fetched, hash_bytes, "returned hash matches the ticket");
+        assert!(
+            blobs_b.has(hash_bytes).await.unwrap(),
+            "the seeder now holds the blob"
+        );
+        // The pin tag is present (proves set_tag ran inside fetch_and_pin).
+        let tags = node_b.blobs_store().tags();
+        let found = tags
+            .get(tag.as_bytes())
+            .await
+            .expect("tags().get must not error");
+        assert!(found.is_some(), "fetch_and_pin must leave a pin tag behind");
 
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();

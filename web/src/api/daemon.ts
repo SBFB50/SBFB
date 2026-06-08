@@ -327,6 +327,26 @@ export function setKeepOnline(
   });
 }
 
+// Sprint 74 Phase E — VOLUNTARY community seed of a DISTANT public app. This
+// node fetches + pins the app's archive (by the ticket already learned via
+// gossip) and keeps it online to support the project. No author approval is
+// needed: the content is already public and content-addressed (blake3), and
+// the supporter never re-signs provenance (the author stays the author).
+const SeedVoluntaryResponseSchema = z
+  .object({ ok: z.boolean(), seeding: z.string() })
+  .strict();
+
+export function seedVoluntary(
+  baseUrl: string,
+  projectId: string,
+): Promise<DaemonResult<{ ok: boolean; seeding: string }>> {
+  return callDaemon(baseUrl, "/api/daemon/seed", SeedVoluntaryResponseSchema, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project_id: projectId }),
+  });
+}
+
 // =================================================================
 // Search — FTS5 full-text index (Sprint 67 endpoint, Sprint 73 Phase E)
 // =================================================================

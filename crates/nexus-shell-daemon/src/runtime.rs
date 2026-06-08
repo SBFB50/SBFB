@@ -36,7 +36,7 @@ use std::time::SystemTime;
 use anyhow::{Context, Result, anyhow};
 use nexus_core_rs::{
     GossipClient, GossipEvent, KeyPair, Node, NodeConfig, PowSolveCache, PowVerifyCache,
-    RelayPowPolicy, create_node_with_config, load_quorum_resolvers_from_env,
+    RelayPowPolicy, create_node_with_protocols, load_quorum_resolvers_from_env,
     relay_pow_policy_file_path,
 };
 use nexus_shell_daemon_core::auth;
@@ -301,17 +301,39 @@ impl DaemonRuntime {
         // peers already know via gossip. A fallback ephemeral keypair
         // (generated when the launcher did not hand a secret) pairs
         // naturally with the `create_node()` ephemeral identity path.
+        // Sprint 74 Phase E: open the coordinator DB BEFORE the node so the
+        // cross-node seed protocol handler (registered on the Router, which
+        // accepts no post-spawn protocols) can capture it. The DB only needs
+        // `paths.root` — no dependency on the node — so opening it early is
+        // free. The single open lives here; the later steps reuse this handle.
+        let coordinator_db_path = opts.paths.root.join("coordinator.db");
+        let coordinator_db = nexus_coordinator_rs::db::CoordinatorDb::open(&coordinator_db_path)
+            .map_err(|e| anyhow::anyhow!("coordinator DB open failed: {e}"))?;
+        let coordinator_db = std::sync::Arc::new(std::sync::Mutex::new(coordinator_db));
+
+        // Shared anti-replay nonce cache for the seed handler (in-memory,
+        // TTL-purged). One instance, captured by the handler factory.
+        let seed_nonce_cache = std::sync::Arc::new(crate::seed_protocol::NonceCache::default());
+
         let iroh_data_dir = opts.paths.root.join("iroh");
         let (node, pow_keypair) = match read_optional_identity_env() {
             Some(secret_bytes) => {
                 info!("shell daemon using persistent identity from launcher keystore");
-                let pow_kp = KeyPair::from_secret_bytes(&secret_bytes);
+                let pow_kp = Arc::new(KeyPair::from_secret_bytes(&secret_bytes));
                 let cfg = NodeConfig::default()
                     .with_secret_key(secret_bytes)
                     .with_data_dir(iroh_data_dir.clone());
-                let n = create_node_with_config(cfg)
-                    .await
-                    .context("failed to boot iroh node with persistent identity")?;
+                let factory = crate::seed_protocol::seed_protocol_factory(
+                    Arc::clone(&coordinator_db),
+                    Arc::clone(&pow_kp),
+                    Arc::clone(&seed_nonce_cache),
+                );
+                let n = create_node_with_protocols(
+                    cfg,
+                    vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)],
+                )
+                .await
+                .context("failed to boot iroh node with persistent identity")?;
                 (n, pow_kp)
             }
             None => {
@@ -320,20 +342,27 @@ impl DaemonRuntime {
                     path = %opts.paths.root.join("node_key").display(),
                     "shell daemon using file-based persistent identity"
                 );
-                let pow_kp = KeyPair::from_secret_bytes(&secret_bytes);
+                let pow_kp = Arc::new(KeyPair::from_secret_bytes(&secret_bytes));
                 let cfg = NodeConfig::default()
                     .with_secret_key(secret_bytes)
                     .with_data_dir(iroh_data_dir.clone());
-                let n = create_node_with_config(cfg)
-                    .await
-                    .context("failed to boot iroh node with file-based identity")?;
+                let factory = crate::seed_protocol::seed_protocol_factory(
+                    Arc::clone(&coordinator_db),
+                    Arc::clone(&pow_kp),
+                    Arc::clone(&seed_nonce_cache),
+                );
+                let n = create_node_with_protocols(
+                    cfg,
+                    vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)],
+                )
+                .await
+                .context("failed to boot iroh node with file-based identity")?;
                 (n, pow_kp)
             }
         };
         let node_id = node.node_id();
         info!(node_id = %node_id, "shell daemon iroh node ready");
         let node = Arc::new(node);
-        let pow_keypair = Arc::new(pow_keypair);
 
         // 3. Bind the TCP listener. An empty host in the config
         //    was clamped to 127.0.0.1 at load time (see
@@ -527,11 +556,9 @@ impl DaemonRuntime {
             }
         }
 
-        // 6a. Open the coordinator SQLite database (persistent).
-        let coordinator_db_path = opts.paths.root.join("coordinator.db");
-        let coordinator_db = nexus_coordinator_rs::db::CoordinatorDb::open(&coordinator_db_path)
-            .map_err(|e| anyhow::anyhow!("coordinator DB open failed: {e}"))?;
-        let coordinator_db = std::sync::Arc::new(std::sync::Mutex::new(coordinator_db));
+        // 6a. The coordinator SQLite database was opened earlier (before the
+        //     node) so the seed protocol handler could capture it; reuse the
+        //     `coordinator_db` handle from that step.
 
         // 6a-2. Sprint 66 Phase D: restore the RevocationCache from
         //       persisted key rotations in SQLite.

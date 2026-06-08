@@ -54,6 +54,7 @@ pub mod pow_gossip;
 pub mod relay_config;
 pub mod relay_pow_policy;
 pub mod schemas;
+pub mod seed;
 pub mod task;
 pub mod tls_pinning;
 pub mod tor_transport;
@@ -71,7 +72,8 @@ pub use canonical::{
     DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_CONTRIBUTOR_ATTESTATION_V1,
     DOMAIN_CURATOR_LIST_V1, DOMAIN_DELEGATION_CERT_V1, DOMAIN_DURESS_ACK_V1, DOMAIN_FEED_V1,
     DOMAIN_INVITE_V1, DOMAIN_KEY_ROTATION_V1, DOMAIN_KUDOS_V1, DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1,
-    DOMAIN_RESULT_V1, DOMAIN_TASK_V1, DOMAIN_WARRANT_CANARY_V1, canonical_bytes,
+    DOMAIN_RESULT_V1, DOMAIN_SEED_REQUEST_V1, DOMAIN_SEED_RESPONSE_V1, DOMAIN_TASK_V1,
+    DOMAIN_WARRANT_CANARY_V1, canonical_bytes,
 };
 pub use crypto::{Blake3Chain, KeyPair, blake3_hash, verify};
 pub use curator::{
@@ -105,7 +107,10 @@ pub use keystore::{
     KeyStore, KeyStoreError, LocalFileKeyStore, NONCE_LEN, SALT_LEN, SBFB_IDENTITY_SECRET_HEX_ENV,
     TAG_LEN, UnlockError,
 };
-pub use node::{BlobStore, Node, NodeConfig, create_node, create_node_with_config};
+pub use node::{
+    BlobStore, ExtraProtocolFactory, Node, NodeConfig, SEED_ALPN, create_node,
+    create_node_with_config, create_node_with_protocols,
+};
 pub use pkarr_resolver::{
     CUSTOM_PKARR_RELAYS_ENV, DEFAULT_PKARR_RELAY_URL, PkarrQuorumResolver,
     load_quorum_resolvers_from_env,
@@ -134,6 +139,10 @@ pub use relay_pow_policy::{
 };
 pub use schemas::{
     TASK_RESPONSE_DOMAIN_TAG, TASK_RESPONSE_VERSION, TaskResponse, ToolCall, task_response_schema,
+};
+pub use seed::{
+    SEED_FORMAT_VERSION, SEED_NONCE_LEN, SEED_TS_WINDOW_SECS, SeedDecision, SeedRequest,
+    SeedRequestEnvelope, SeedResponse, SeedResponseEnvelope, random_nonce,
 };
 pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry};
 pub use tls_pinning::{

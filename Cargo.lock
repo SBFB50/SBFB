@@ -5242,6 +5242,7 @@ dependencies = [
  "hex",
  "hyper",
  "hyper-util",
+ "iroh",
  "iroh-blobs",
  "libc",
  "nexus-coordinator-rs",

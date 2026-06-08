@@ -10,14 +10,15 @@
  *   2. ETAT      — the live reachability probe (`browse.rs` status), humanised
  *                  + a "Reverifier" action that re-runs `browsePull`.
  *   3. QUI LA GARDE EN LIGNE — mutable. The seeder set. For the user's own app
- *                  the "Garder en ligne" toggle is shown ON but DISABLED (honestly
- *                  non-interactive, "Bientôt configurable") in Phase A — never a
- *                  control that looks clickable yet silently no-ops (verrou §8(5));
- *                  the local pin lands Phase D. For a remote app the
- *                  voluntary "soutenir ce projet" action is presented inert
- *                  ("Bientot") until D+F wire it (amendement PO §13).
+ *                  the "Garder en ligne" toggle is FUNCTIONAL (Sprint 74 Phase D:
+ *                  POST /api/daemon/keep-online). For a remote app the voluntary
+ *                  "soutenir ce projet" action is FUNCTIONAL (Sprint 74 Phase E:
+ *                  POST /api/daemon/seed — fetch+pin the distant public app, no
+ *                  author approval, amendement PO §13).
  *   4. COPIES DE SECOURS — additive redundancy, never substitutive. The
- *                  cross-node invite is inert ("Bientot") in Phase A (Phase E).
+ *                  authenticated peer invite ("Inviter un pair") stays inert
+ *                  ("Bientot") for the closed pilot (NF-2): the backend protocol
+ *                  is built + tested, the address-entry UI is deferred.
  *
  * Phase A is 100% front on existing S73 primitives. It introduces ZERO host
  * field (verrou §8(1)) and ZERO faux active button (verrou §8(5)): every
@@ -45,7 +46,12 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Toggle } from "@/components/ui/toggle";
-import { browsePull, setKeepOnline, type BrowseEntry } from "@/api/daemon";
+import {
+  browsePull,
+  seedVoluntary,
+  setKeepOnline,
+  type BrowseEntry,
+} from "@/api/daemon";
 import { formatRelativeTime } from "@/lib/format";
 
 export interface AvailabilitySheetProps {
@@ -100,6 +106,28 @@ export function AvailabilitySheet({
       }
     },
   });
+
+  // Sprint 74 Phase E — VOLUNTARY community seed of a DISTANT app. Any node
+  // consulting a public app may keep it online to support it, with NO author
+  // approval (safe by blake3 content-addressing, seeder != author — amendement
+  // PO §13). Functional from Phase E (replaces the Phase A inert "Bientot").
+  const [supporting, setSupporting] = useState(false);
+  const supportMutation = useMutation({
+    mutationFn: () => seedVoluntary(coordUrl, entry.project_id),
+    onSuccess: (res) => {
+      // Only flip to the "supporting" state the daemon actually confirmed
+      // (no failure-state lie, mirrors the keep-online toggle).
+      if (res.kind === "data") {
+        setSupporting(true);
+        void queryClient.invalidateQueries({
+          queryKey: ["daemon-browse", coordUrl],
+        });
+      }
+    },
+  });
+  const supportFailed =
+    supportMutation.data?.kind === "error" ||
+    supportMutation.data?.kind === "unavailable";
 
   const onReverify = async () => {
     setReverifying(true);
@@ -269,21 +297,44 @@ export function AvailabilitySheet({
                   Seed VOLONTAIRE communautaire (amendement PO §13): a node
                   consulting a public app may keep it online to support it,
                   with NO author approval (safe by blake3 content-addressing,
-                  seeder != author). Inert "Bientot" in Phase A; functional
-                  from D+F. NEVER a faux active button (verrou §8(5)).
+                  seeder != author). FUNCTIONAL from Phase E (POST
+                  /api/daemon/seed). On success the node fetches + pins the
+                  archive and keeps it online; the author stays the author.
                 */}
-                <div
-                  data-testid="support-seed-cta"
-                  className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-white/50"
-                >
-                  <span className="flex items-center gap-2">
+                {supporting ? (
+                  <div
+                    data-testid="support-seed-active"
+                    className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-emerald-300"
+                  >
                     <HeartHandshake className="h-4 w-4 shrink-0" />
-                    Garder en ligne — soutenir ce projet
-                  </span>
-                  <span className="shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium text-white/40">
-                    Bientôt
-                  </span>
-                </div>
+                    Tu gardes ce projet en ligne
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="support-seed-cta"
+                    onClick={() => supportMutation.mutate()}
+                    disabled={supportMutation.isPending}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-white/70 transition-colors hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-300 disabled:opacity-60"
+                  >
+                    <span className="flex items-center gap-2">
+                      {supportMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : (
+                        <HeartHandshake className="h-4 w-4 shrink-0" />
+                      )}
+                      Garder en ligne — soutenir ce projet
+                    </span>
+                  </button>
+                )}
+                {supportFailed && (
+                  <p
+                    data-testid="support-seed-error"
+                    className="text-[11px] text-red-300/80"
+                  >
+                    Impossible de recuperer cette app pour l&apos;instant.
+                  </p>
+                )}
               </div>
             )}
           </section>
