@@ -38,6 +38,27 @@ function makeEntry(overrides: Partial<BrowseEntry> = {}): BrowseEntry {
   };
 }
 
+/**
+ * Sprint 74 Phase F: the sheet fetches GET /api/daemon/seed-count/{id} on
+ * mount (while open). Tests that stub `fetch` must answer that GET with a
+ * valid `{ peer_count, self_seeding }` body, else the `.strict()` Zod parse
+ * throws inside the query. This helper returns the seed-count Response when
+ * the URL matches, or `null` to let the caller handle its own routes.
+ */
+function seedCountResponseFor(
+  url: string,
+  peer_count: number,
+  self_seeding: boolean,
+): Response | null {
+  if (url.includes("/api/daemon/seed-count")) {
+    return new Response(JSON.stringify({ peer_count, self_seeding }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  return null;
+}
+
 function renderSheet(props: Partial<AvailabilitySheetProps> = {}) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -58,6 +79,19 @@ function renderSheet(props: Partial<AvailabilitySheetProps> = {}) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // Default: every route is "daemon unavailable" so the Phase F seed-count GET
+  // fired on mount never reaches the real network (Node 18+ has a global
+  // `fetch`). Tests that assert on specific routes override this via
+  // `vi.stubGlobal("fetch", ...)`.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      new Response("{}", {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      }),
+    ),
+  );
 });
 
 afterEach(() => {
@@ -140,6 +174,8 @@ describe("AvailabilitySheet", () => {
           url,
           body: init?.body ? JSON.parse(init.body as string) : null,
         });
+        const seed = seedCountResponseFor(url, 0, true);
+        if (seed) return seed;
         return new Response(JSON.stringify({ ok: true, enabled: false }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -150,11 +186,14 @@ describe("AvailabilitySheet", () => {
     renderSheet({ entry: makeEntry({ status: "reachable" }), isOwn: true });
 
     const toggle = await screen.findByTestId("keep-online-toggle");
-    // Starts ON, interactive (not disabled), no fetch on mount (verrou §8(5):
-    // a real control, not a faux button).
+    // Starts ON, interactive (not disabled). The toggle itself does NOT POST on
+    // mount (verrou §8(5): a real control, not a faux button) — only the
+    // Phase F seed-count GET fires on open.
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(toggle).not.toBeDisabled();
-    expect(calls).toHaveLength(0);
+    expect(
+      calls.some((c) => c.url.includes("/api/daemon/keep-online")),
+    ).toBe(false);
 
     await user.click(toggle);
 
@@ -181,12 +220,14 @@ describe("AvailabilitySheet", () => {
   });
 
   it("reverify triggers a browse pull", async () => {
-    const fetchSpy = vi.fn(async () =>
-      new Response(JSON.stringify({ requested: true }), {
+    const fetchSpy = vi.fn(async (url: string) => {
+      const seed = seedCountResponseFor(url, 0, true);
+      if (seed) return seed;
+      return new Response(JSON.stringify({ requested: true }), {
         status: 200,
         headers: { "content-type": "application/json" },
-      }),
-    );
+      });
+    });
     vi.stubGlobal("fetch", fetchSpy);
     const user = userEvent.setup();
     renderSheet({ entry: makeEntry({ status: "reachable" }) });
@@ -228,6 +269,8 @@ describe("AvailabilitySheet", () => {
           url,
           body: init?.body ? JSON.parse(init.body as string) : null,
         });
+        const seed = seedCountResponseFor(url, 0, false);
+        if (seed) return seed;
         return new Response(
           JSON.stringify({ ok: true, seeding: "aa".repeat(32) }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -239,11 +282,13 @@ describe("AvailabilitySheet", () => {
     const cta = await screen.findByTestId("support-seed-cta");
     await user.click(cta);
 
-    // It POSTed the voluntary seed intent for this project...
+    // It POSTed the voluntary seed intent for this project... (match the exact
+    // /api/daemon/seed route, NOT the /api/daemon/seed-count GET that shares a
+    // prefix and also fires on mount).
     await waitFor(() => {
-      expect(calls.some((c) => c.url.includes("/api/daemon/seed"))).toBe(true);
+      expect(calls.some((c) => c.url.endsWith("/api/daemon/seed"))).toBe(true);
     });
-    const seedCall = calls.find((c) => c.url.includes("/api/daemon/seed"))!;
+    const seedCall = calls.find((c) => c.url.endsWith("/api/daemon/seed"))!;
     expect(seedCall.body).toMatchObject({ project_id: "aa".repeat(32) });
 
     // ...and reflected the confirmed "supporting" state.
@@ -253,5 +298,47 @@ describe("AvailabilitySheet", () => {
     expect(
       screen.getByText("Tu gardes ce projet en ligne"),
     ).toBeInTheDocument();
+  });
+
+  it("multi_seed_state_rendered", async () => {
+    // Sprint 74 Phase F: the "Copies de secours" section renders the live
+    // best-effort multi-seed count fetched from /api/daemon/seed-count. With
+    // remote seeders present it shows "Toi + N pairs"; with none it falls back
+    // to the "Aucune copie de secours" warning.
+    const withPeers = vi.fn(async (url: string) => {
+      const seed = seedCountResponseFor(url, 2, true);
+      if (seed) return seed;
+      return new Response("{}", {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", withPeers);
+
+    const present = renderSheet({ entry: makeEntry(), isOwn: true });
+    const backup = await screen.findByTestId("backup-count");
+    await waitFor(() => {
+      expect(backup).toHaveTextContent("Toi + 2 pairs");
+    });
+    expect(backup).toHaveTextContent("vus récemment");
+    present.unmount();
+    vi.unstubAllGlobals();
+
+    // No remote seeder → the sole-seeder warning.
+    const noPeers = vi.fn(async (url: string) => {
+      const seed = seedCountResponseFor(url, 0, true);
+      if (seed) return seed;
+      return new Response("{}", {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", noPeers);
+
+    renderSheet({ entry: makeEntry(), isOwn: true });
+    const backup2 = await screen.findByTestId("backup-count");
+    await waitFor(() => {
+      expect(backup2).toHaveTextContent("Aucune copie de secours");
+    });
   });
 });

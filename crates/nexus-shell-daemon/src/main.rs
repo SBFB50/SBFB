@@ -51,6 +51,7 @@ mod quarantine_api;
 mod result_sync;
 mod runtime;
 mod seed_protocol;
+mod seed_registry;
 mod shell_api;
 mod storage_api;
 mod tasks_api;

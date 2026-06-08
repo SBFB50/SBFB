@@ -107,14 +107,110 @@ pub async fn insert_and_publish_feed_operation(
 }
 
 // ---------------------------------------------------------------------------
+// Seed announcement emit (Sprint 74 Phase F)
+// ---------------------------------------------------------------------------
+
+/// Emit one `SeedAnnounced` feed op for `(project_id, archive_hash)` signed by
+/// `keypair` and publish it to iroh-docs.
+///
+/// The signer's public key is BOTH the FeedEntry `author_pubkey` AND the op's
+/// `seeder_node_id` (F-3): the seeder signs only its own seed claim — never the
+/// app's provenance — so authorship is never re-attributed (R5). The DB lock is
+/// taken only for the synchronous insert and dropped BEFORE the async publish
+/// (never held across an await, mirroring `feed_insert`).
+pub(crate) async fn emit_seed_announced(
+    feed_state: &FeedSyncState,
+    coordinator_db: &std::sync::Mutex<CoordinatorDb>,
+    keypair: &nexus_core_rs::KeyPair,
+    project_id: &str,
+    archive_hash: &str,
+) -> Result<(), String> {
+    let author_pubkey = hex::encode(keypair.public_bytes());
+    let op = serde_json::to_value(public_feed::PublicFeedOperation::SeedAnnounced(
+        public_feed::SeedAnnouncedPayload {
+            project_id: project_id.to_string(),
+            seeder_node_id: author_pubkey.clone(),
+            archive_hash: archive_hash.to_string(),
+        },
+    ))
+    .map_err(|e| format!("seed-announced op serialize: {e}"))?;
+
+    let entry = {
+        let db = coordinator_db
+            .lock()
+            .map_err(|e| format!("coordinator DB lock: {e}"))?;
+        public_feed::insert_feed_operation(&db, op, &author_pubkey, |data| {
+            keypair.sign(data).to_vec()
+        })?
+    };
+    publish_feed_entry_to_docs(feed_state, &entry).await?;
+    Ok(())
+}
+
+/// Re-emit a `SeedAnnounced` for every app this node is actively keeping online
+/// (its `keep_online enabled = 1` rows with a known archive hash). Called once
+/// at boot AFTER the feed namespace is ready, so a peer that rebooted re-tells
+/// the network it still seeds those apps (the freshness basis of the count).
+///
+/// This is a NEW feed-emit path, NOT the gossip outbox replay: the outbox holds
+/// PROJECT announcements (self-published apps), while `SeedAnnounced` is a FEED
+/// op propagated via iroh-docs and covers BOTH self-deployed AND voluntarily-
+/// seeded distant apps. Best-effort: a single failed emit is logged, the rest
+/// proceed. Returns the count actually emitted.
+pub(crate) async fn reannounce_seeds_at_boot(
+    feed_state: &FeedSyncState,
+    coordinator_db: &std::sync::Mutex<CoordinatorDb>,
+    keypair: &nexus_core_rs::KeyPair,
+) -> u64 {
+    let rows = {
+        let db = match coordinator_db.lock() {
+            Ok(db) => db,
+            Err(e) => {
+                warn!(error = %e, "seed re-announce: coordinator DB lock failed");
+                return 0;
+            }
+        };
+        match db.list_keep_online_enabled() {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(error = %e, "seed re-announce: list_keep_online_enabled failed");
+                return 0;
+            }
+        }
+    };
+    let mut emitted = 0u64;
+    for (project_id, archive_hash) in rows {
+        match emit_seed_announced(
+            feed_state,
+            coordinator_db,
+            keypair,
+            &project_id,
+            &archive_hash,
+        )
+        .await
+        {
+            Ok(()) => emitted += 1,
+            Err(e) => warn!(project = %project_id, error = %e, "seed re-announce emit failed"),
+        }
+    }
+    if emitted > 0 {
+        info!(emitted, "re-announced kept-online apps to the feed at boot");
+    }
+    emitted
+}
+
+// ---------------------------------------------------------------------------
 // Ingest a single iroh-docs entry into the local feed DB
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 async fn ingest_doc_entry(
     doc_entry: &DocsEntry,
     node: &nexus_core_rs::Node,
     coordinator_db: &std::sync::Mutex<CoordinatorDb>,
     feed_limiter: &FeedRateLimiter,
+    seed_registry: &crate::seed_registry::SeedRegistry,
+    my_node_id: &str,
     apply_rate_limit: bool,
 ) {
     let key_bytes = doc_entry.key();
@@ -277,6 +373,23 @@ async fn ingest_doc_entry(
                     "hot search reindex failed (entry stored, searchable after next rebuild)"
                 );
             }
+            // Sprint 74 Phase F: feed the best-effort multi-seed registry. A
+            // SeedAnnounced op from a REMOTE peer (author == seeder, seeder !=
+            // me) refreshes the "Toi + N pairs (vus recemment)" count; every
+            // other op (and our own echoed announcement) is ignored. The
+            // freshness basis is the entry's own timestamp, so a stale
+            // re-delivery never resurrects an expired seeder.
+            if seed_registry.record_announced(
+                &feed_entry.op,
+                &feed_entry.author_pubkey,
+                my_node_id,
+                feed_entry.timestamp,
+            ) {
+                debug!(
+                    author = &feed_entry.author_pubkey[..8],
+                    "seed announcement recorded in multi-seed registry"
+                );
+            }
             info!(
                 seq,
                 author = &feed_entry.author_pubkey[..8],
@@ -302,11 +415,14 @@ async fn ingest_doc_entry(
 // Subscribe — ingest remote entries (boot path, own namespace)
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_feed_subscribe(
     feed_state: Arc<FeedSyncState>,
     coordinator_db: Arc<std::sync::Mutex<CoordinatorDb>>,
     node: Arc<nexus_core_rs::Node>,
     feed_limiter: Arc<FeedRateLimiter>,
+    seed_registry: Arc<crate::seed_registry::SeedRegistry>,
+    my_node_id: String,
     shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -353,7 +469,7 @@ pub fn spawn_feed_subscribe(
                             Some(Ok(DocsLiveEvent::InsertRemote {
                                 entry: doc_entry, ..
                             })) => {
-                                ingest_doc_entry(&doc_entry, &node, &coordinator_db, &feed_limiter, true).await;
+                                ingest_doc_entry(&doc_entry, &node, &coordinator_db, &feed_limiter, &seed_registry, &my_node_id, true).await;
                             }
                             Some(Ok(_)) => {}
                             Some(Err(e)) => {
@@ -653,12 +769,23 @@ pub async fn feed_join(
     let db_sp = Arc::clone(&state.coordinator_db);
     let node_sp = Arc::clone(&state.node);
     let limiter_sp = Arc::clone(&state.feed_rate_limiter);
+    let registry_sp = Arc::clone(&state.seed_registry);
+    let my_node_id = state.node_id.clone();
     let handle = tokio::spawn(async move {
         match feed_st.doc.get_many_by_prefix(b"feed/").await {
             Ok(entries) => {
                 info!(count = entries.len(), "backfilling existing feed entries");
                 for doc_entry in &entries {
-                    ingest_doc_entry(doc_entry, &node_sp, &db_sp, &limiter_sp, false).await;
+                    ingest_doc_entry(
+                        doc_entry,
+                        &node_sp,
+                        &db_sp,
+                        &limiter_sp,
+                        &registry_sp,
+                        &my_node_id,
+                        false,
+                    )
+                    .await;
                 }
             }
             Err(e) => warn!(error = %e, "feed backfill scan failed"),
@@ -673,7 +800,7 @@ pub async fn feed_join(
                         Some(Ok(DocsLiveEvent::InsertRemote {
                             entry: doc_entry, ..
                         })) => {
-                            ingest_doc_entry(&doc_entry, &node_sp, &db_sp, &limiter_sp, true).await;
+                            ingest_doc_entry(&doc_entry, &node_sp, &db_sp, &limiter_sp, &registry_sp, &my_node_id, true).await;
                         }
                         Some(Ok(_)) => {}
                         Some(Err(e)) => {
@@ -795,5 +922,112 @@ mod tests {
         let json = serde_json::to_vec(&entry).unwrap();
         let back: FeedEntry = serde_json::from_slice(&json).unwrap();
         assert_eq!(entry, back);
+    }
+
+    /// §P57 real-frontier gate: a peer that pins a distant app re-announces it
+    /// to the feed AFTER a reboot, and a SECOND node ingesting that feed sees
+    /// its multi-seed count increment. Both sides are real iroh nodes syncing a
+    /// real iroh-docs feed namespace — only the work is mocked away (there is
+    /// none). multi_thread is mandatory: two iroh nodes each need the docs
+    /// actor on a dedicated thread (P2-A-1, PATTERNS §P54).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn remote_seeder_reannounces_after_reboot_e2e() {
+        use nexus_core_rs::KeyPair;
+        use nexus_core_rs::docs::{DocsClient, DocsTicket};
+
+        let project_id = "a".repeat(64);
+        let archive_hash = "cc".repeat(32);
+
+        // ---------- Node A: the remote seeder ----------
+        let node_a = Arc::new(nexus_core_rs::create_node().await.expect("boot node A"));
+        let docs_a = DocsClient::new(node_a.docs());
+        let author_a = docs_a.author_default().await.expect("author A");
+        let doc_a = Arc::new(docs_a.create_doc().await.expect("create doc A"));
+        let ticket = doc_a.share_write().await.expect("share write ticket");
+
+        let db_a = Arc::new(std::sync::Mutex::new(
+            CoordinatorDb::open_in_memory().expect("db A"),
+        ));
+        // The seeder identity that signs the feed (== seeder_node_id, F-3).
+        let a_keypair = KeyPair::generate();
+        // A pins the distant app (the keep_online row the boot loop re-emits).
+        db_a.lock()
+            .unwrap()
+            .set_keep_online(&project_id, true, Some(&archive_hash))
+            .expect("set keep_online A");
+        let fs_a = FeedSyncState {
+            doc: Arc::clone(&doc_a),
+            author: author_a,
+            ticket: ticket.to_string(),
+        };
+
+        // ---------- Node B: the ingesting observer ----------
+        let node_b = Arc::new(nexus_core_rs::create_node().await.expect("boot node B"));
+        let docs_b = DocsClient::new(node_b.docs());
+        let ticket_b: DocsTicket = ticket.to_string().parse().expect("parse ticket B");
+        let (doc_b, live_stream_b) = docs_b
+            .import_and_subscribe(ticket_b)
+            .await
+            .expect("B import+subscribe");
+        let _doc_b = Arc::new(doc_b);
+        let db_b = Arc::new(std::sync::Mutex::new(
+            CoordinatorDb::open_in_memory().expect("db B"),
+        ));
+        let limiter_b = Arc::new(FeedRateLimiter::new());
+        let registry_b = Arc::new(crate::seed_registry::SeedRegistry::new());
+        let node_id_b = node_b.node_id();
+
+        // B pumps the live feed stream through the real ingest path.
+        let node_b_sp = Arc::clone(&node_b);
+        let db_b_sp = Arc::clone(&db_b);
+        let limiter_b_sp = Arc::clone(&limiter_b);
+        let registry_b_sp = Arc::clone(&registry_b);
+        let node_id_b_sp = node_id_b.clone();
+        let pump = tokio::spawn(async move {
+            futures_lite::pin!(live_stream_b);
+            while let Some(ev) = live_stream_b.next().await {
+                if let Ok(DocsLiveEvent::InsertRemote { entry, .. }) = ev {
+                    ingest_doc_entry(
+                        &entry,
+                        &node_b_sp,
+                        &db_b_sp,
+                        &limiter_b_sp,
+                        &registry_b_sp,
+                        &node_id_b_sp,
+                        true,
+                    )
+                    .await;
+                }
+            }
+        });
+
+        // ---------- Simulate A's reboot: re-announce its kept-online apps ----------
+        let emitted = reannounce_seeds_at_boot(&fs_a, &db_a, &a_keypair).await;
+        assert_eq!(emitted, 1, "A must re-emit exactly one SeedAnnounced");
+
+        // ---------- B's registry must reflect the new seeder ----------
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let ok = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                if registry_b.count_recent(&project_id, now) == 1 {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await;
+        pump.abort();
+        ok.expect("B should record A as a seeder within 20s");
+
+        // The recorded seeder is EXACTLY A's feed identity (== seeder_node_id ==
+        // author_pubkey, F-3), not B itself and not a corrupted id — assert WHICH
+        // seeder, not just the count, so a mutation of the stored id is caught.
+        let a_pub = hex::encode(a_keypair.public_bytes());
+        assert_ne!(a_pub, node_id_b, "A's feed identity must differ from B");
+        assert_eq!(registry_b.count_recent(&project_id, now), 1);
+        assert_eq!(registry_b.seeders_recent(&project_id, now), vec![a_pub]);
     }
 }

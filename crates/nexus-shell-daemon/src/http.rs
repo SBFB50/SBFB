@@ -184,6 +184,12 @@ pub struct DaemonHttpState {
     /// Sprint 68 Phase B: ephemeral preview store for
     /// `sbfb-factory preview` uploads.
     pub preview_store: nexus_shell_daemon_core::preview::PreviewStore,
+    /// Sprint 74 Phase F: best-effort in-memory multi-seed registry. Fed by the
+    /// feed ingest path with REMOTE `SeedAnnounced` ops; read by
+    /// `GET /api/daemon/seed-count/{project_id}` to render "Toi + N pairs (vus
+    /// recemment)". Ephemeral by design (a freshness count has no value outside
+    /// its TTL window).
+    pub seed_registry: Arc<crate::seed_registry::SeedRegistry>,
 }
 
 impl DaemonHttpState {
@@ -283,6 +289,8 @@ pub fn build_router(
             "/api/daemon/seed/invites/{project_id}",
             get(seed_invite_list),
         )
+        // Sprint 74 Phase F: best-effort multi-seed availability count.
+        .route("/api/daemon/seed-count/{project_id}", get(seed_count))
         .route("/api/daemon/publish", post(publish_project))
         .route("/api/daemon/publish-blob", post(publish_blob))
         .route("/api/daemon/default-curators", get(default_curators))
@@ -1126,12 +1134,31 @@ async fn seed_voluntary(
         .await;
     match fetched {
         Ok(h) if h == want_hash => {
-            let db = state
-                .coordinator_db
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if let Err(e) = db.set_keep_online(&req.project_id, true, Some(&hash_hex)) {
-                warn!(error = %e, "voluntary seed: keep_online persist failed");
+            {
+                let db = state
+                    .coordinator_db
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                if let Err(e) = db.set_keep_online(&req.project_id, true, Some(&hash_hex)) {
+                    warn!(error = %e, "voluntary seed: keep_online persist failed");
+                }
+            }
+            // Sprint 74 Phase F: announce to the feed that this node now seeds
+            // the distant app, so the author + other peers see "Toi + N pairs"
+            // rise. The lock is taken+dropped inside the helper (never across the
+            // await). Best-effort: a feed hiccup must not undo a successful pin.
+            if let Some(ref fs) = state.feed_sync_state {
+                if let Err(e) = crate::feed_sync::emit_seed_announced(
+                    fs,
+                    &state.coordinator_db,
+                    &state.pow_keypair,
+                    &req.project_id,
+                    &hash_hex,
+                )
+                .await
+                {
+                    warn!(error = %e, "voluntary seed: SeedAnnounced emit failed (non-fatal)");
+                }
             }
             (
                 StatusCode::OK,
@@ -1157,6 +1184,46 @@ async fn seed_voluntary(
                 .into_response()
         }
     }
+}
+
+/// `GET /api/daemon/seed-count/{project_id}` — Sprint 74 Phase F — the
+/// best-effort multi-seed availability count for an app.
+///
+/// Returns `{ peer_count, self_seeding }`:
+///  - `peer_count`: distinct REMOTE seeders seen within the TTL (from the
+///    in-memory `SeedRegistry`, fed by ingested `SeedAnnounced` feed ops).
+///  - `self_seeding`: whether THIS node actively keeps the app online (an
+///    `enabled = 1` keep_online row). The front renders the pair as "Toi + N
+///    pairs (vus recemment)" — `self_seeding` is the "Toi", `peer_count` the N.
+///
+/// Best-effort by design (scope cut #11): content-addressing (BLAKE3) is the
+/// truth of reachability, this count is only a freshness hint. A dedicated
+/// route (vs a `seed_count` field on every BrowseEntry) keeps the count fetched
+/// live with its TTL semantics and avoids churning the 18 BrowseEntry sites.
+async fn seed_count(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(project_id): Path<String>,
+) -> impl IntoResponse {
+    let now = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let peer_count = state.seed_registry.count_recent(&project_id, now);
+    let self_seeding = {
+        let db = state
+            .coordinator_db
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        matches!(db.get_keep_online(&project_id), Ok(Some((true, _))))
+    };
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "peer_count": peer_count,
+            "self_seeding": self_seeding,
+        })),
+    )
+        .into_response()
 }
 
 /// `POST /api/daemon/seed/invite` — Sprint 74 Phase E — mint a revocable seed
@@ -2765,6 +2832,7 @@ mod tests {
             preview_store: nexus_shell_daemon_core::preview::PreviewStore::new(
                 nexus_shell_daemon_core::preview::DEFAULT_TTL,
             ),
+            seed_registry: Arc::new(crate::seed_registry::SeedRegistry::new()),
         })
     }
 
@@ -3583,6 +3651,7 @@ mod tests {
             preview_store: nexus_shell_daemon_core::preview::PreviewStore::new(
                 nexus_shell_daemon_core::preview::DEFAULT_TTL,
             ),
+            seed_registry: Arc::new(crate::seed_registry::SeedRegistry::new()),
         });
         let app = build_test_router(state);
         let resp = app

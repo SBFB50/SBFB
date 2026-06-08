@@ -30,6 +30,7 @@ import {
   listCurators,
   searchBrowse,
   SearchResponseSchema,
+  seedCount,
   subscribeCurator,
   unsubscribeCurator,
   type DaemonInfo,
@@ -634,5 +635,51 @@ describe("daemonBaseUrlFromInfo", () => {
       api_port: 7000,
     } as DaemonInfo;
     expect(daemonBaseUrlFromInfo(info)).toBe("http://127.0.0.1:7000");
+  });
+});
+
+// ---------------------------------------------------------------
+// seedCount (Sprint 74 Phase F)
+// ---------------------------------------------------------------
+
+describe("seedCount", () => {
+  it("parses {peer_count, self_seeding} and URL-encodes the project_id", async () => {
+    const spy = vi.fn(async () =>
+      mockFetchResponse({
+        status: 200,
+        body: { peer_count: 3, self_seeding: true },
+      }),
+    );
+    vi.stubGlobal("fetch", spy);
+
+    const result = await seedCount(BASE, "ab".repeat(32));
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.peer_count).toBe(3);
+    expect(result.body.self_seeding).toBe(true);
+
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    expect(String(calls[0][0])).toBe(
+      `${BASE}/api/daemon/seed-count/${"ab".repeat(32)}`,
+    );
+  });
+
+  it("returns kind=unavailable on 503", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => mockFetchResponse({ status: 503, body: {} })),
+    );
+    const result = await seedCount(BASE, "ab".repeat(32));
+    expect(result.kind).toBe("unavailable");
+  });
+
+  it("throws ApiProtocolError when a key is missing (strict schema)", async () => {
+    // The Rust handler ALWAYS serialises both keys; a body omitting one is a
+    // protocol drift, not a tolerated shape (.strict()).
+    mockFetchOk({ peer_count: 1 });
+    await expect(seedCount(BASE, "ab".repeat(32))).rejects.toThrow();
   });
 });

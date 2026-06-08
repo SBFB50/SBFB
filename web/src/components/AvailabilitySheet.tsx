@@ -27,7 +27,7 @@
  */
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   FileCheck,
@@ -48,6 +48,7 @@ import {
 import { Toggle } from "@/components/ui/toggle";
 import {
   browsePull,
+  seedCount,
   seedVoluntary,
   setKeepOnline,
   type BrowseEntry,
@@ -88,6 +89,22 @@ export function AvailabilitySheet({
   const [reverifying, setReverifying] = useState(false);
   const state = mapStatus(entry.status);
 
+  // Sprint 74 Phase F — best-effort multi-seed availability count. Fetched only
+  // while the sheet is open (a freshness count has no value off-screen) and
+  // re-fetched whenever this node's own seeding changes (keep-online toggle /
+  // voluntary seed). `peer_count` = distinct remote seeders seen recently;
+  // `self_seeding` = whether this node keeps the app online ("Toi").
+  const seedCountQuery = useQuery({
+    queryKey: ["seed-count", coordUrl, entry.project_id],
+    queryFn: () => seedCount(coordUrl, entry.project_id),
+    enabled: open,
+    refetchOnWindowFocus: false,
+  });
+  const seedCountData =
+    seedCountQuery.data?.kind === "data" ? seedCountQuery.data.body : undefined;
+  const peerCount = seedCountData?.peer_count ?? 0;
+  const selfSeeding = seedCountData?.self_seeding ?? false;
+
   // Sprint 74 Phase D — functional "Garder en ligne" pin (replaces the Phase A
   // disabled-ON). No fetch on mount: a freshly deployed own app is ON by default;
   // the toggle POSTs on click. The daemon echoes the persisted state back.
@@ -102,6 +119,9 @@ export function AvailabilitySheet({
         setKeepOnlineLocal(res.body.enabled);
         void queryClient.invalidateQueries({
           queryKey: ["daemon-browse", coordUrl],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["seed-count", coordUrl, entry.project_id],
         });
       }
     },
@@ -121,6 +141,9 @@ export function AvailabilitySheet({
         setSupporting(true);
         void queryClient.invalidateQueries({
           queryKey: ["daemon-browse", coordUrl],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["seed-count", coordUrl, entry.project_id],
         });
       }
     },
@@ -346,10 +369,31 @@ export function AvailabilitySheet({
             <h3 className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
               Copies de secours
             </h3>
-            <p className="text-xs leading-relaxed text-white/40">
-              Aucune copie de secours. Si ton noeud s&apos;eteint, l&apos;app
-              devient hors ligne.
-            </p>
+            {/*
+              Sprint 74 Phase F — live best-effort multi-seed count
+              (GET /api/daemon/seed-count). `peerCount` = distinct REMOTE
+              seeders seen recently; `selfSeeding` prefixes "Toi +". The count
+              is best-effort (content-addressing is the truth of reachability);
+              a peer that has not re-announced within the TTL drops out.
+            */}
+            {peerCount > 0 ? (
+              <p
+                data-testid="backup-count"
+                className="text-xs leading-relaxed text-emerald-300/80"
+              >
+                {selfSeeding ? "Toi + " : ""}
+                {peerCount} {peerCount > 1 ? "pairs" : "pair"} (vus récemment)
+                {" "}gardent une copie de secours.
+              </p>
+            ) : (
+              <p
+                data-testid="backup-count"
+                className="text-xs leading-relaxed text-white/40"
+              >
+                Aucune copie de secours. Si ton noeud s&apos;eteint, l&apos;app
+                devient hors ligne.
+              </p>
+            )}
             <div
               data-testid="invite-peer-cta"
               className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-white/50"

@@ -710,6 +710,9 @@ impl DaemonRuntime {
         //       storage_namespaces table with key "sbfb-feed".
         let feed_rate_limiter =
             Arc::new(nexus_shell_daemon_core::feed_limiter::FeedRateLimiter::new());
+        // Sprint 74 Phase F: best-effort multi-seed registry, created before the
+        // feed subscribe so the ingest path can record remote SeedAnnounced ops.
+        let seed_registry = Arc::new(crate::seed_registry::SeedRegistry::new());
         let (feed_shutdown_tx, feed_shutdown_rx) = tokio::sync::watch::channel(false);
         let (feed_sync_state, feed_handle) =
             match boot_feed_namespace(&docs_client, &coordinator_db, doc_author).await {
@@ -724,6 +727,8 @@ impl DaemonRuntime {
                         Arc::clone(&coordinator_db),
                         Arc::clone(&node),
                         Arc::clone(&feed_rate_limiter),
+                        Arc::clone(&seed_registry),
+                        node_id.clone(),
                         feed_shutdown_rx,
                     );
                     (Some(fs_arc), Some(handle))
@@ -823,6 +828,16 @@ impl DaemonRuntime {
             }
         }
 
+        // 6c-5c. Sprint 74 Phase F: re-announce every app this node keeps online
+        //        (its keep_online enabled rows) to the feed, so peers learn this
+        //        node still seeds them after a reboot. NEW feed-emit path (not
+        //        the gossip outbox replay); covers self-deployed AND voluntarily
+        //        seeded distant apps. Best-effort, after the feed namespace is
+        //        ready. Self never counts itself ("Toi" is added at query time).
+        if let Some(ref fs) = feed_sync_state {
+            crate::feed_sync::reannounce_seeds_at_boot(fs, &coordinator_db, &pow_keypair).await;
+        }
+
         // 6c-7. Sprint 67 Phase B: rebuild FTS5 search index from feed.
         {
             let db = coordinator_db
@@ -911,6 +926,7 @@ impl DaemonRuntime {
             preview_store: nexus_shell_daemon_core::preview::PreviewStore::new(
                 nexus_shell_daemon_core::preview::DEFAULT_TTL,
             ),
+            seed_registry: Arc::clone(&seed_registry),
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being

@@ -70,13 +70,43 @@ pub struct CuratorDisendorsedPayload {
     pub reason: Option<String>,
 }
 
+/// Payload for a seed-announced event (Sprint 74 Phase F).
+///
+/// Records that a node holds and serves an app's archive blob, so a
+/// best-effort "Toi + N pairs" availability count can aggregate the
+/// seeders of a project. `seeder_node_id` is the announcing node's
+/// public key and MUST equal the `FeedEntry.author_pubkey` that signs
+/// the entry (the seeder signs only its OWN seed claim — it is
+/// DISTINCT from the app author and never re-attributes authorship,
+/// R5 / Radicle delegate!=seeder). `archive_hash` is the BLAKE3 of the
+/// blob the seeder holds; content-addressing remains the truth of
+/// reachability (a forged announcement cannot let a node serve bytes
+/// it does not have), so the count may over-state but never lies about
+/// a fetch succeeding.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SeedAnnouncedPayload {
+    pub project_id: String,
+    pub seeder_node_id: String,
+    pub archive_hash: String,
+}
+
 /// Discriminated union of all public feed operation types.
 ///
 /// `ReleasePublished` and `SourceBecameStale` since Sprint 1.
 /// `CuratorVouched` and `CuratorDisendorsed` since Sprint 67.
+/// `SeedAnnounced` since Sprint 74 Phase F.
 /// Future variants (`BuildQuorumReached`, `SourceRecovered`,
 /// `SearchManifestPublished`) use the raw-op forward compat
 /// path (pattern P51) until implemented.
+///
+/// Adding a typed variant does NOT bump `FEED_FORMAT_VERSION` — the
+/// wire-format version lives on the `FeedEntry` envelope (`version`),
+/// not on this op union (S67 precedent: `CuratorVouched`/
+/// `CuratorDisendorsed` were added as variants with 0 bump). A typed
+/// variant is preferred over a pure raw-op `Value` for an op whose
+/// fields must be validated at insert time (it gives
+/// `validate_known_operation` a place to reject malformed payloads
+/// instead of storing opaque junk).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op_type")]
 pub enum PublicFeedOperation {
@@ -84,6 +114,7 @@ pub enum PublicFeedOperation {
     SourceBecameStale(SourceBecameStalePayload),
     CuratorVouched(CuratorVouchedPayload),
     CuratorDisendorsed(CuratorDisendorsedPayload),
+    SeedAnnounced(SeedAnnouncedPayload),
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +279,12 @@ pub const FEED_RATE_LIMIT_PER_MINUTE: u64 = 5;
 ///
 /// For unknown ops: accepts with size check only (store + forward).
 /// Size: serialized JSON must not exceed `MAX_OPERATION_JSON_SIZE`.
+///
+/// A KNOWN `op_type` that fails to parse into its typed payload (a missing or
+/// wrong-typed required field) is REJECTED as malformed rather than stored as an
+/// opaque "unknown" op — otherwise a peer could smuggle junk under a recognised
+/// discriminant that downstream consumers would silently drop. Genuinely unknown
+/// `op_type`s still pass with a size check only (raw-op forward compat, P51).
 pub fn validate_feed_operation(op: &Value) -> Result<(), String> {
     let json = serde_json::to_string(op).map_err(|e| format!("payload serialization: {e}"))?;
     if json.len() > MAX_OPERATION_JSON_SIZE {
@@ -256,11 +293,52 @@ pub fn validate_feed_operation(op: &Value) -> Result<(), String> {
             MAX_OPERATION_JSON_SIZE
         ));
     }
-    if let Some(typed) = try_parse_op(op) {
-        validate_known_operation(&typed)?;
+    match try_parse_op(op) {
+        Some(typed) => validate_known_operation(&typed)?,
+        None => {
+            if let Some(ot) = op_type(op) {
+                if KNOWN_OP_TYPES.contains(&ot) {
+                    return Err(format!(
+                        "malformed {ot} operation: known op_type failed to parse \
+                         (missing or wrong-typed required field)"
+                    ));
+                }
+            }
+        }
+    }
+    // F-3 (Sprint 74 Phase F): a SeedAnnounced op carries NO payload-level
+    // signature — the signature is the FeedEntry-level Ed25519 over
+    // DOMAIN_FEED_V1. The internally-tagged enum ignores unknown keys on parse
+    // (serde does not support deny_unknown_fields with `#[serde(tag)]`), so a
+    // remote op could smuggle a spurious `sig` (or any extra) key that survives
+    // into the stored raw `op`. Enforce the exact key set so the invariant holds
+    // on the wire, not just at the producer.
+    if op_type(op) == Some("SeedAnnounced") {
+        if let Some(obj) = op.as_object() {
+            const ALLOWED: &[&str] = &["op_type", "project_id", "seeder_node_id", "archive_hash"];
+            if let Some(extra) = obj.keys().find(|k| !ALLOWED.contains(&k.as_str())) {
+                return Err(format!(
+                    "SeedAnnounced op carries an unexpected field '{extra}' \
+                     (allowed: op_type, project_id, seeder_node_id, archive_hash; \
+                     no payload-level sig — F-3)"
+                ));
+            }
+        }
     }
     Ok(())
 }
+
+/// The set of `op_type` discriminants this build knows how to parse + validate.
+/// A wire op whose `op_type` is in this set MUST parse into its typed payload
+/// (else it is malformed and rejected); an `op_type` NOT in this set is treated
+/// as a forward-compat unknown op (stored + forwarded, never interpreted).
+const KNOWN_OP_TYPES: &[&str] = &[
+    "ReleasePublished",
+    "SourceBecameStale",
+    "CuratorVouched",
+    "CuratorDisendorsed",
+    "SeedAnnounced",
+];
 
 fn validate_known_operation(op: &PublicFeedOperation) -> Result<(), String> {
     match op {
@@ -313,6 +391,17 @@ fn validate_known_operation(op: &PublicFeedOperation) -> Result<(), String> {
             }
             if !is_hex_exact(&p.curator_pubkey, 64) {
                 return Err("curator_pubkey must be 64 hex characters".to_string());
+            }
+        }
+        PublicFeedOperation::SeedAnnounced(p) => {
+            if !is_hex_exact(&p.project_id, 64) {
+                return Err("project_id must be 64 hex characters".to_string());
+            }
+            if !is_hex_exact(&p.seeder_node_id, 64) {
+                return Err("seeder_node_id must be 64 hex characters".to_string());
+            }
+            if !is_hex_exact(&p.archive_hash, 64) {
+                return Err("archive_hash must be 64 hex characters".to_string());
             }
         }
     }
@@ -655,6 +744,83 @@ mod tests {
     #[test]
     fn test_feed_format_version() {
         assert_eq!(FEED_FORMAT_VERSION, 1);
+    }
+
+    fn sample_seed_announced_typed() -> PublicFeedOperation {
+        PublicFeedOperation::SeedAnnounced(SeedAnnouncedPayload {
+            project_id: "a1".repeat(32),
+            seeder_node_id: "b2".repeat(32),
+            archive_hash: "c3".repeat(32),
+        })
+    }
+
+    #[test]
+    fn seed_announced_raw_op_no_version_bump() {
+        // Adding the SeedAnnounced typed variant rides the UNCHANGED FeedEntry
+        // envelope under DOMAIN_FEED_V1 — it is a new op, not a wire-format
+        // break. Per the pre-launch protocol policy, a new operation does NOT
+        // bump FEED_FORMAT_VERSION (S67 CuratorVouched/CuratorDisendorsed
+        // precedent: still 1 after those additions).
+        let op = serde_json::to_value(sample_seed_announced_typed()).unwrap();
+
+        // 1. The op carries the expected discriminant + fields on the wire.
+        assert_eq!(op_type(&op), Some("SeedAnnounced"));
+        assert_eq!(op.get("project_id").unwrap().as_str().unwrap().len(), 64);
+        assert_eq!(
+            op.get("seeder_node_id").unwrap().as_str().unwrap().len(),
+            64
+        );
+        assert_eq!(op.get("archive_hash").unwrap().as_str().unwrap().len(), 64);
+        // The signature lives at the FeedEntry level (F-3): the op payload
+        // carries NO `sig` field of its own.
+        assert!(op.get("sig").is_none());
+
+        // 2. It validates (insert-time field validation on the typed variant).
+        assert!(validate_feed_operation(&op).is_ok());
+
+        // 3. It round-trips through the typed enum (op_type routing works).
+        assert_eq!(try_parse_op(&op), Some(sample_seed_announced_typed()));
+
+        // 4. The wire-format version is unchanged after building/validating it.
+        assert_eq!(FEED_FORMAT_VERSION, 1);
+
+        // 5. A malformed SeedAnnounced is REJECTED at validate (not stored as
+        //    junk that would pollute the count) — the typed variant's gain.
+        let bad_hex = serde_json::json!({
+            "op_type": "SeedAnnounced",
+            "project_id": "too-short",
+            "seeder_node_id": "b2".repeat(32),
+            "archive_hash": "c3".repeat(32),
+        });
+        assert!(validate_feed_operation(&bad_hex).is_err());
+
+        // 6. A SeedAnnounced MISSING a required field fails the typed parse; it
+        //    must be rejected as a malformed KNOWN op, NOT stored as an opaque
+        //    unknown op (C1 — known op_type that fails to parse).
+        let missing_field = serde_json::json!({
+            "op_type": "SeedAnnounced",
+            "project_id": "a1".repeat(32),
+            "seeder_node_id": "b2".repeat(32),
+        });
+        assert!(try_parse_op(&missing_field).is_none());
+        let err = validate_feed_operation(&missing_field).unwrap_err();
+        assert!(err.contains("malformed SeedAnnounced"), "{err}");
+
+        // 7. A SeedAnnounced smuggling a payload-level `sig` (or any extra key)
+        //    is rejected — F-3: the signature lives at the FeedEntry level only.
+        let with_sig = serde_json::json!({
+            "op_type": "SeedAnnounced",
+            "project_id": "a1".repeat(32),
+            "seeder_node_id": "b2".repeat(32),
+            "archive_hash": "c3".repeat(32),
+            "sig": "de".repeat(64),
+        });
+        let err = validate_feed_operation(&with_sig).unwrap_err();
+        assert!(err.contains("unexpected field 'sig'"), "{err}");
+
+        // 8. A genuinely UNKNOWN op_type still passes (forward compat, P51).
+        let future = serde_json::json!({ "op_type": "FutureSeedThing", "x": 1 });
+        assert!(validate_feed_operation(&future).is_ok());
     }
 
     #[test]

@@ -76,6 +76,12 @@ impl PublicRegistryView {
                 // publish/stale status. They will feed the trust
                 // overlay (S70+). For now, acknowledge and skip.
             }
+            PublicFeedOperation::SeedAnnounced(_) => {
+                // Sprint 74 Phase F: a seed announcement is an availability
+                // (reachability) signal, NOT a release/stale event. It feeds
+                // the in-memory multi-seed registry (daemon side), never the
+                // per-project publish/stale projection. Acknowledge and skip.
+            }
         }
     }
 }

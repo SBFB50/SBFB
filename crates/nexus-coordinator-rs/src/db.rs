@@ -739,6 +739,32 @@ impl CoordinatorDb {
         Ok(result)
     }
 
+    /// List `(project_id, archive_hash)` for every app this node is ACTIVELY
+    /// keeping online (`enabled = 1`) AND for which we know the blob hash.
+    ///
+    /// Sprint 74 Phase F: the boot loop re-emits a `SeedAnnounced` feed op for
+    /// each returned row, so distant peers learn this node still seeds the app
+    /// after a reboot (the seed registry's "Toi + N pairs" freshness count).
+    /// Rows with a NULL `archive_hash` are skipped — we cannot announce seeding
+    /// a blob whose hash we do not hold. This covers BOTH self-deployed apps
+    /// (the author is a legitimate first seeder, `finalize_deploy` sets the
+    /// row) AND voluntarily-seeded distant apps (`seed_voluntary` sets the
+    /// row); the author's authorship is never re-attributed by the seed claim.
+    pub fn list_keep_online_enabled(&self) -> Result<Vec<(String, String)>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT project_id, archive_hash FROM keep_online \
+             WHERE enabled = 1 AND archive_hash IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
     // --- M19 seed_invite (Sprint 74 Phase E): revocable seed invites ---
 
     /// Mint a revocable seed invite token authorizing a trusted peer to
@@ -1620,6 +1646,29 @@ mod tests {
         // Back ON.
         db.set_keep_online(&pid, true, Some(&hash)).unwrap();
         assert!(db.list_keep_online_disabled().unwrap().is_empty());
+    }
+
+    #[test]
+    fn list_keep_online_enabled_returns_pid_and_hash_for_active_rows() {
+        // Sprint 74 Phase F: the boot re-emit loop reads exactly the actively
+        // seeded apps (enabled = 1) that have a known archive hash.
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let pid_on = "a".repeat(64);
+        let pid_off = "b".repeat(64);
+        let pid_no_hash = "c".repeat(64);
+        let hash = "dd".repeat(32);
+
+        db.set_keep_online(&pid_on, true, Some(&hash)).unwrap();
+        db.set_keep_online(&pid_off, false, Some(&hash)).unwrap();
+        // Enabled but no blob hash known → cannot announce a seed for it.
+        db.set_keep_online(&pid_no_hash, true, None).unwrap();
+
+        let enabled = db.list_keep_online_enabled().unwrap();
+        assert_eq!(enabled, vec![(pid_on.clone(), hash.clone())]);
+
+        // Flipping OFF removes it from the re-emit set.
+        db.set_keep_online(&pid_on, false, Some(&hash)).unwrap();
+        assert!(db.list_keep_online_enabled().unwrap().is_empty());
     }
 
     #[test]

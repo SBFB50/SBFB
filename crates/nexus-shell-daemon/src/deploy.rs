@@ -537,6 +537,27 @@ pub(crate) async fn finalize_deploy(
         }
     }
 
+    // Sprint 74 Phase F: the deployer is the FIRST seeder of their own app. Emit
+    // a SeedAnnounced feed op so peers can aggregate the "Toi + N pairs"
+    // availability count and so the boot re-announce has a feed precedent.
+    // Unconditional (unlike the open-source-only ReleasePublished above): even an
+    // is_open_source=false fork is kept online by its deployer. The seeder signs
+    // ONLY its seed claim, never the provenance — authorship is unchanged (R5).
+    // Best-effort: a feed hiccup must never fail the deploy.
+    if let Some(ref fs) = state.feed_sync_state {
+        if let Err(e) = crate::feed_sync::emit_seed_announced(
+            fs,
+            &state.coordinator_db,
+            &state.pow_keypair,
+            project_id,
+            &hash_hex,
+        )
+        .await
+        {
+            warn!(error = %e, "deploy→feed: SeedAnnounced emit failed (non-fatal)");
+        }
+    }
+
     Ok((hash_hex, prov_hash))
 }
 

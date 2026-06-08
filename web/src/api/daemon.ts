@@ -347,6 +347,30 @@ export function seedVoluntary(
   });
 }
 
+// Sprint 74 Phase F — best-effort multi-seed availability count for an app.
+// `peer_count` is the number of distinct REMOTE seeders the daemon has seen
+// re-announce within the TTL (its in-memory SeedRegistry); `self_seeding` is
+// whether THIS node actively keeps the app online. The shell renders the pair
+// as "Toi + N pairs (vus recemment)". Both keys are ALWAYS present (the Rust
+// `seed_count` handler serialises them unconditionally), hence non-optional
+// under the `.strict()` parse — matching the S73 Phase E always-present rule.
+const SeedCountResponseSchema = z
+  .object({ peer_count: z.number().int().min(0), self_seeding: z.boolean() })
+  .strict();
+
+export type SeedCountResponse = z.infer<typeof SeedCountResponseSchema>;
+
+export function seedCount(
+  baseUrl: string,
+  projectId: string,
+): Promise<DaemonResult<SeedCountResponse>> {
+  return callDaemon(
+    baseUrl,
+    `/api/daemon/seed-count/${encodeURIComponent(projectId)}`,
+    SeedCountResponseSchema,
+  );
+}
+
 // =================================================================
 // Search — FTS5 full-text index (Sprint 67 endpoint, Sprint 73 Phase E)
 // =================================================================
