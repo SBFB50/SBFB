@@ -9,6 +9,18 @@ service de l'atelier Factory.
 + couche compute/RRV/OSS LLM distribue). Artefacts d'intake :
 `.planning/active/sprint71_intake.md` + `.planning/research/` (sharding).
 
+**AMENDEMENT 2026-06-09 (pivot PO découverte)** : un bug live (découverte
+PUSH-éphémère, fenêtre PoW 30 min → apps publiées >30 min invisibles aux
+nouveaux pairs, cross-machine Win↔Mac) impose une **découverte PULL
+node-centrique** *fondationale* avant le GPU (on ne partage pas du GPU entre
+nœuds qu'on ne découvre pas). **Ré-ordonnancement** : **S75 = découverte PULL
+node-centrique + ancre VPS** (annuaire `NodeDirectoryEntry` signé répliquable ;
+le SearchManifest D3/s73 reste DIFFÉRÉ — l'annuaire n'est PAS le SearchManifest,
+cf. `sprint75_pivot_proposal.md`) ; **GPU partagé cross-machine → S76** ;
+**sharding pipeline → S77**. Kickoff/plan/design_review/pivot_proposal :
+`.planning/active/sprint75_*`. La ligne « S75 — GPU partagé » §3 ci-dessous est
+décalée S76 par cet amendement.
+
 ---
 
 ## 0. Le pourquoi — Factory ferme la boucle SBFB
