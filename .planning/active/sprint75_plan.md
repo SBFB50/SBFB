@@ -253,6 +253,12 @@ Pages `/nodes` + `/node/:nodeId` (App.tsx lazy). node-Browse cohabite/supersede
 la grille (Q6). Intention « ajouter une ancre » (template `Curators.tsx`). UX
 cold-start 1er-run (C4 : pas d'écran vide mort). Intégration `AvailabilitySheet`.
 Strings FR (scan-en-strings).
+**Exigence PO provenance visible (verrou 4)** : chaque carte du catalogue node-
+Browse AFFICHE la preuve de provenance (auteur signé `provenance.json` commit→
+hash + identité BLAKE3), via le composant `VerificationDetail` existant ; une app
+**forkée/modifiée** (re-signée local, `is_open_source=false`, hash distinct) porte
+un **marqueur visuel « version dérivée/modifiée »** non ambigu, jamais le badge
+de l'original. Le badge d'autorité = signature AUTEUR, jamais le nœud seeder.
 
 ### F.2 Fichiers touchés
 | Fichier | Rôle |
@@ -268,7 +274,10 @@ Strings FR (scan-en-strings).
 ### F.3 Tests plan
 Vitest : `Nodes` rendu + empty/cold-start, `NodeCatalog` pull, `AddAnchorDialog`,
 `daemon` schémas `.strict()`, WEB-1 toggle reconcilié, lock-1 (0 champ
-cible/hôte au publish), lock-4 (provenance = auteur dans node-Browse).
+cible/hôte au publish), **lock-4 provenance** : (a) carte catalogue affiche la
+signature auteur (`VerificationDetail`), (b) app forkée/modifiée
+(`is_open_source=false`, hash distinct) rend le marqueur « version dérivée », pas
+le badge original ; (c) le seeder n'est jamais rendu comme autorité.
 
 ### F.4 Critère d'acceptation
 `(cd web && npm run test:unit && npm run test:coverage && npm run build && npm run size)` + `bash web/scripts/scan-en-strings.sh` + tsc + lint. Coverage ≥ seuils.

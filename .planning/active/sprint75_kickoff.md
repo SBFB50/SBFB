@@ -132,6 +132,15 @@ ancre**, **PAS LE serveur**. Les 5 verrous (s74 design :140-155, THREAT_MODEL
 4. **Provenance/signature toujours celles de l'auteur** quel que soit le seeder
    (Radicle : seed ≠ autorité). node-Browse rend la `provenance.json` de
    l'auteur comme badge d'autorité, JAMAIS le nœud hébergeur/seeder.
+   **Exigence PO (2026-06-09)** : au téléchargement (pull), l'utilisateur DOIT
+   voir la preuve de provenance — signature Ed25519 `provenance.json` liant
+   commit source → hash archive (S14) + identité content-addressée BLAKE3. Une
+   app **forkée/modifiée** (atelier S74 : re-signée sous l'identité locale du
+   forkeur, `is_open_source=false`, **hash BLAKE3 différent**) est
+   **distinctement marquée** comme version dérivée dans le catalogue — jamais
+   confondue avec l'original, jamais capable de se faire passer pour lui.
+   **Critère d'acceptation Phase F** (affichage) + invariant structurel (hash +
+   signature distincts, déjà câblé).
 5. **Suggestion déclenchée par l'état observé**, jamais poussée au publish.
 
 **Test cardinal — le réseau survit à la mort du VPS** : après destruction
