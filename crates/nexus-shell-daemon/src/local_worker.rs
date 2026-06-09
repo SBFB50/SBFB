@@ -190,16 +190,24 @@ impl LocalWorkerSupervisor {
     ) -> anyhow::Result<(std::process::Child, Option<()>)> {
         let (paths, sbfb_home) = provision(project_doc).await?;
         let mut cmd = base_command(&paths.config_file, &sbfb_home)?;
-        // Tie the worker's life to the daemon's: if the daemon dies
-        // (even on SIGKILL) the kernel sends the worker SIGTERM.
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| {
-                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
+        // Tie the worker's life to the daemon's. On Linux, PR_SET_PDEATHSIG
+        // makes the kernel send the worker SIGTERM if the daemon dies — even
+        // on SIGKILL, the abnormal-death case the graceful-shutdown kill can't
+        // cover. `prctl`/`PR_SET_PDEATHSIG` are Linux-only (not in libc on
+        // macOS/BSD), so this backstop is gated to Linux; elsewhere the worker
+        // relies on the daemon's explicit kill at graceful shutdown (a kqueue
+        // NOTE_EXIT watchdog is a future option for the macOS abnormal-death gap).
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::process::CommandExt;
+            unsafe {
+                cmd.pre_exec(|| {
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
         }
         let child = cmd.spawn()?;
         Ok((child, None))
