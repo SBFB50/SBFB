@@ -57,6 +57,9 @@
 //! - [`DOMAIN_CURATOR_LIST_V1`] — [`crate::curator::CuratorList`]
 //!   (Sprint 7 Phase B; consumed by the shell-daemon Phase C
 //!   gossip subscribe pipeline)
+//! - [`DOMAIN_NODE_DIRECTORY_V1`] — [`crate::node_directory::NodeDirectory`]
+//!   (Sprint 75 Phase B; the self-published catalog of apps a node
+//!   hosts/seeds, replicated on subscription like a curator list)
 //!
 //! The `v1` suffix is the domain version, independent from any
 //! struct version field. Bumping it changes the signature surface
@@ -217,6 +220,23 @@ pub const DOMAIN_SEED_REQUEST_V1: &[u8] = b"nexus-seed-request-v1";
 /// peer agreed to seed"). Distinct from [`DOMAIN_SEED_REQUEST_V1`] so a
 /// response signature can never be replayed as a request, and vice versa.
 pub const DOMAIN_SEED_RESPONSE_V1: &[u8] = b"nexus-seed-response-v1";
+
+/// Domain separation tag for node directory canonical bytes.
+///
+/// Sprint 75 Phase B — PULL node-centric discovery. A node signs a
+/// [`crate::node_directory::NodeDirectory`] advertising the catalog of
+/// apps it hosts/seeds (`project_id` + `archive_hash` + display
+/// metadata). The directory is fetched + verified + replicated on
+/// subscription exactly like a [`crate::curator::CuratorList`], reusing
+/// that machinery verbatim. The domain tag keeps a directory signature
+/// from being replayed as a curator-list / seed-request / seed-response
+/// / task / result / claim / invite / kudos / provenance / canary / PoW
+/// / duress-ack / age-witness / contributor / key-rotation / delegation
+/// / feed signature — the pre-image spaces are disjoint by
+/// construction. A brand-new signed type with its own domain: purely
+/// additive, 0-bump of every existing `*_FORMAT_VERSION` (the S74
+/// `DOMAIN_SEED_REQUEST_V1` pattern).
+pub const DOMAIN_NODE_DIRECTORY_V1: &[u8] = b"nexus-node-directory-v1";
 
 /// Produce the canonical byte representation of any serializable
 /// value for signing.

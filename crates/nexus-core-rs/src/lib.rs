@@ -48,6 +48,7 @@ pub mod hooks;
 pub mod key_rotation;
 pub mod keystore;
 pub mod node;
+pub mod node_directory;
 pub mod pkarr_resolver;
 pub mod pow;
 pub mod pow_gossip;
@@ -55,6 +56,7 @@ pub mod relay_config;
 pub mod relay_pow_policy;
 pub mod schemas;
 pub mod seed;
+pub mod signed_list;
 pub mod task;
 pub mod tls_pinning;
 pub mod tor_transport;
@@ -71,9 +73,9 @@ pub use blobs::{BlobsClient, Store};
 pub use canonical::{
     DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_CONTRIBUTOR_ATTESTATION_V1,
     DOMAIN_CURATOR_LIST_V1, DOMAIN_DELEGATION_CERT_V1, DOMAIN_DURESS_ACK_V1, DOMAIN_FEED_V1,
-    DOMAIN_INVITE_V1, DOMAIN_KEY_ROTATION_V1, DOMAIN_KUDOS_V1, DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1,
-    DOMAIN_RESULT_V1, DOMAIN_SEED_REQUEST_V1, DOMAIN_SEED_RESPONSE_V1, DOMAIN_TASK_V1,
-    DOMAIN_WARRANT_CANARY_V1, canonical_bytes,
+    DOMAIN_INVITE_V1, DOMAIN_KEY_ROTATION_V1, DOMAIN_KUDOS_V1, DOMAIN_NODE_DIRECTORY_V1,
+    DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1, DOMAIN_RESULT_V1, DOMAIN_SEED_REQUEST_V1,
+    DOMAIN_SEED_RESPONSE_V1, DOMAIN_TASK_V1, DOMAIN_WARRANT_CANARY_V1, canonical_bytes,
 };
 pub use crypto::{Blake3Chain, KeyPair, blake3_hash, verify};
 pub use curator::{
@@ -111,6 +113,12 @@ pub use node::{
     BlobStore, ExtraProtocolFactory, Node, NodeConfig, SEED_ALPN, create_node,
     create_node_with_config, create_node_with_protocols,
 };
+pub use node_directory::{
+    CatalogApp, NODE_DIRECTORY_ARCHIVE_HASH_MAX, NODE_DIRECTORY_CATEGORY_MAX,
+    NODE_DIRECTORY_DESCRIPTION_MAX, NODE_DIRECTORY_FORMAT_VERSION, NODE_DIRECTORY_MAX_ENTRIES,
+    NODE_DIRECTORY_PROJECT_ID_MAX, NODE_DIRECTORY_PROJECT_NAME_MAX, NodeDirectory,
+    NodeDirectoryEntry, is_valid_archive_hash,
+};
 pub use pkarr_resolver::{
     CUSTOM_PKARR_RELAYS_ENV, DEFAULT_PKARR_RELAY_URL, PkarrQuorumResolver,
     load_quorum_resolvers_from_env,
@@ -144,6 +152,7 @@ pub use seed::{
     SEED_FORMAT_VERSION, SEED_NONCE_LEN, SEED_TS_WINDOW_SECS, SeedDecision, SeedRequest,
     SeedRequestEnvelope, SeedResponse, SeedResponseEnvelope, random_nonce,
 };
+pub use signed_list::SignedList;
 pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry};
 pub use tls_pinning::{
     CUSTOM_PINS_FILE_ENV, PIN_FILE_FORMAT_VERSION, PinError, PinSource, PinValidator,

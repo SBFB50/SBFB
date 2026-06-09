@@ -14,6 +14,7 @@
 //! - `GET    /api/daemon/browse`              — aggregated browse entries
 //! - `POST   /api/daemon/publish`             — publish a project announcement
 //! - `POST   /api/daemon/publish-blob`        — upload a zip archive blob
+//! - `POST   /api/daemon/directory/publish`   — publish this node's signed catalog
 //! - `GET    /api/daemon/default-curators`    — config-provided curator list
 //! - `POST   /api/daemon/panic/wipe`          — irreversible identity wipe
 //! - `GET    /api/daemon/diagnostic/neighborhood` — peer snapshot
@@ -293,6 +294,7 @@ pub fn build_router(
         .route("/api/daemon/seed-count/{project_id}", get(seed_count))
         .route("/api/daemon/publish", post(publish_project))
         .route("/api/daemon/publish-blob", post(publish_blob))
+        .route("/api/daemon/directory/publish", post(publish_directory))
         .route("/api/daemon/default-curators", get(default_curators))
         .route("/api/daemon/panic/wipe", post(panic_wipe))
         .route(
@@ -1044,6 +1046,278 @@ async fn publish_project(
     .await;
 
     (StatusCode::OK, Json(PublishResponse { published: true })).into_response()
+}
+
+/// Response for `POST /api/daemon/directory/publish`.
+#[derive(Debug, Serialize)]
+struct PublishDirectoryResponse {
+    /// Hex of the publishing node's Ed25519 pubkey (== the signer).
+    node_id: String,
+    /// The monotone revision stamped on this directory.
+    revision: u64,
+    /// Number of apps advertised in the catalog.
+    catalog_len: usize,
+    /// Hex BLAKE3 hash of the stored signed directory blob.
+    archive_hash: String,
+}
+
+/// `POST /api/daemon/directory/publish` — Sprint 75 Phase B. Build,
+/// sign, blob-store, and gossip-announce THIS node's signed
+/// [`nexus_core_rs::NodeDirectoryEntry`]: the catalog of apps it hosts,
+/// advertised so fresh peers can PULL them (the discovery pivot — list
+/// of nodes → a node's catalogue → download). Loopback-authenticated
+/// like every `/api/daemon` route.
+///
+/// Anti-recentralization guards (kickoff §4): the node advertises only
+/// its OWN apps (the browse aggregator's direct entries tagged with our
+/// node id — never a peer's), signs with the LOCAL node keypair so
+/// provenance stays the author's (verrou 4), and embeds no peer node id
+/// anywhere (lock-3). The directory is a read-side projection of what we
+/// host, never a write-side "publish to X" selector (verrou 1).
+async fn publish_directory(State(state): State<Arc<DaemonHttpState>>) -> Response {
+    debug!("POST /api/daemon/directory/publish");
+
+    // Duress short-circuit BEFORE signing — never sign a directory under
+    // the fake keypair (mirrors publish_project).
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "published": false })),
+        )
+            .into_response();
+    }
+
+    // Source the OWN catalog: the apps this node hosts (direct entries tagged
+    // with our node id). A node never advertises a peer's apps. `node.node_id()`
+    // is the z-base-32 encoding of the SAME Ed25519 key as
+    // `pow_keypair.public_bytes()` below: on a real install both derive from one
+    // secret (the daemon keypair IS the iroh secret), so the catalog membership
+    // and the signed directory identity are the same key (verrou 4).
+    let my_node_id = state.node.node_id();
+    let own = state.browse_aggregator.own_entries(&my_node_id);
+
+    // Build the directory signed with the node keypair. directory.node_id == the
+    // signing pubkey == the dialable identity a puller dials.
+    let node_pubkey = state.pow_keypair.public_bytes();
+    let revision = next_directory_revision(&state);
+    let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+    let mut directory = nexus_core_rs::NodeDirectory::new(node_pubkey, revision);
+    for e in &own {
+        // Cap the catalog at NODE_DIRECTORY_MAX_ENTRIES so a pathological own-app
+        // count cannot drive sign() into its over-cap error and 500 the route
+        // (defense-in-depth; the gossip self-node_id guard already keeps a peer
+        // from inflating own_entries).
+        if directory.catalog.len() >= nexus_core_rs::NODE_DIRECTORY_MAX_ENTRIES {
+            break;
+        }
+        // Only advertise PULLABLE apps with a well-formed content address: skip
+        // an entry whose archive_hash is empty or not a valid BLAKE3 hash (exactly
+        // 64 lowercase hex). The hash is NOT truncated — truncating a content
+        // address yields a different, unfetchable hash; we skip the whole entry.
+        let Some(archive_hash) = e
+            .archive_hash
+            .clone()
+            .filter(|h| !h.is_empty() && nexus_core_rs::is_valid_archive_hash(h))
+        else {
+            continue;
+        };
+        // Content-addressing ownership guard: only advertise an app whose archive
+        // blob this node ACTUALLY HOLDS locally. A gossiped ProjectAnnouncement
+        // can forge `BrowseEntry.node_id == our node_id` (the gossip ingest does
+        // not cross-check `ann.node_id` against the PoW publisher), so the
+        // node_id filter alone is spoofable — a peer could otherwise trick us
+        // into signing its app into OUR directory (verrou 4 violation). Requiring
+        // local blob presence means a spoofed entry (whose blob we do not hold)
+        // can never be signed in: content-addressing is the ownership truth, and
+        // we only ever claim to host what we can actually serve.
+        let Some(hash_arr) = hex::decode(&archive_hash)
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b.as_slice()).ok())
+        else {
+            continue;
+        };
+        if !matches!(blobs.has(hash_arr).await, Ok(true)) {
+            continue;
+        }
+        // The DISPLAY fields are truncated to their NODE_DIRECTORY_*_MAX on a
+        // UTF-8 boundary: the deploy/publish path imposes no length cap, so a
+        // single over-long local description must NOT make sign() reject the
+        // WHOLE catalog (a self-inflicted availability hole) — the app still
+        // appears, just clamped.
+        directory.catalog.push(nexus_core_rs::CatalogApp {
+            project_id: truncate_on_char_boundary(
+                &e.project_id,
+                nexus_core_rs::NODE_DIRECTORY_PROJECT_ID_MAX,
+            ),
+            archive_hash,
+            project_name: truncate_on_char_boundary(
+                &e.project_name,
+                nexus_core_rs::NODE_DIRECTORY_PROJECT_NAME_MAX,
+            ),
+            category: truncate_on_char_boundary(
+                &e.category,
+                nexus_core_rs::NODE_DIRECTORY_CATEGORY_MAX,
+            ),
+            description: truncate_on_char_boundary(
+                &e.description,
+                nexus_core_rs::NODE_DIRECTORY_DESCRIPTION_MAX,
+            ),
+        });
+    }
+    let catalog_len = directory.catalog.len();
+
+    let entry = match nexus_core_rs::NodeDirectoryEntry::sign(directory, state.pow_keypair.as_ref())
+    {
+        Ok(entry) => entry,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to sign node directory: {e}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Blob-store the signed entry JSON so peers can fetch it by ticket.
+    let entry_bytes = match serde_json::to_vec(&entry) {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to serialize node directory: {e}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let hash_hex = match blobs.add_bytes(entry_bytes).await {
+        Ok(hash) => hex::encode(hash),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to store node directory blob: {e}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Gossip-announce: PoW-wrap a NodeDirectoryAnnouncement and broadcast it.
+    // Best-effort and LIVE-ONLY (a no-op while isolated) — unlike the project
+    // announce path this does NOT persist to the outbox, so it does not replay
+    // on NeighborUp / boot yet. Durable replay (outbox persist + a directory-
+    // aware branch in remint_and_wrap_for_replay) and the receive-side ingest
+    // arm that consumes a directory announcement are both Phase C deliverables.
+    if let Ok(ticket) = mint_blob_ticket(&state, &hash_hex).await {
+        let announcement = nexus_shell_daemon_core::iroh_runtime::NodeDirectoryAnnouncement::new(
+            node_pubkey,
+            ticket,
+        );
+        if let Ok(payload) = announcement.to_bytes() {
+            if let Ok(envelope) = wrap_payload_with_pow(&state, &payload) {
+                let sender_guard = state.gossip_sender.read().await;
+                if let Some(sender) = sender_guard.as_ref() {
+                    if let Err(e) = sender.broadcast(envelope).await {
+                        debug!(error = %e, "node directory announce broadcast failed (non-fatal)");
+                    }
+                }
+            }
+        }
+    }
+
+    debug!(
+        revision,
+        catalog = catalog_len,
+        "published signed node directory"
+    );
+    (
+        StatusCode::OK,
+        Json(PublishDirectoryResponse {
+            node_id: hex::encode(node_pubkey),
+            revision,
+            catalog_len,
+            archive_hash: hash_hex,
+        }),
+    )
+        .into_response()
+}
+
+/// On-disk shape of `<sbfb-home>/directory_revision.json`: the monotone
+/// counter stamped on this node's published directory. Persisted so a
+/// re-publish after a restart bumps past the last value rather than
+/// resetting to 1 (which a subscribed peer would reject as a rollback).
+#[derive(Debug, Serialize, Deserialize)]
+struct DirectoryRevisionFile {
+    schema_version: u32,
+    revision: u64,
+}
+
+/// Truncate `s` to at most `max_bytes` bytes without splitting a UTF-8
+/// character (the cut falls back to the nearest lower char boundary). Used to
+/// clamp catalog fields to their `NODE_DIRECTORY_*_MAX` before signing, since
+/// the deploy/publish producers impose no length cap of their own.
+fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
+
+/// Read the persisted directory revision, return `previous + 1`, and persist
+/// the new value atomically. The home directory resolves the same way every
+/// other persistence-backed route does (consent.rs / files.rs): the
+/// `state.sbfb_home` test override first, then [`auth::sbfb_home`]
+/// (`$SBFB_HOME` / `~/.sbfb`) for the real install. Production `DaemonHttpState`
+/// carries `sbfb_home: None`, so WITHOUT this fallback the counter would reset
+/// to 1 on every boot and a subscribed peer would reject each re-publish as a
+/// revision rollback — the anti-rollback control the `revision` field exists for
+/// would be inert. Best-effort on the write side: an IO error skips the persist
+/// and still returns the computed revision.
+///
+/// The read-modify-write is serialized by a process-wide lock so two concurrent
+/// `publish_directory` calls (the daemon runs on a multi-thread runtime) get
+/// strictly-distinct, strictly-increasing revisions rather than both reading the
+/// same value and signing two directories at the same revision (which a peer
+/// would then reject the second of as a rollback). The route is the only writer,
+/// so one process-wide lock suffices.
+fn next_directory_revision(state: &DaemonHttpState) -> u64 {
+    static REVISION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = REVISION_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    let Some(home) = state
+        .sbfb_home
+        .clone()
+        .or_else(nexus_shell_daemon_core::auth::sbfb_home)
+    else {
+        return 1;
+    };
+    let path = home.join("directory_revision.json");
+    let current = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<DirectoryRevisionFile>(&b).ok())
+        .map(|f| f.revision)
+        .unwrap_or(0);
+    let next = current.saturating_add(1);
+    if let Ok(body) = serde_json::to_vec_pretty(&DirectoryRevisionFile {
+        schema_version: 1,
+        revision: next,
+    }) {
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, &body).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+    next
 }
 
 /// `POST /api/daemon/keep-online` — Sprint 74 Phase D — toggle a self-deployed
@@ -2858,6 +3132,307 @@ mod tests {
             ),
             seed_registry: Arc::new(crate::seed_registry::SeedRegistry::new()),
         })
+    }
+
+    fn own_browse_entry(project_id: &str, name: &str, owner: Option<String>) -> BrowseEntry {
+        BrowseEntry {
+            project_id: project_id.into(),
+            node_id: owner,
+            project_name: name.into(),
+            category: "tools".into(),
+            description: "fixture".into(),
+            curator_pubkey: String::new(),
+            curator_name: "Self-published".into(),
+            source: nexus_shell_daemon_core::browse::BrowseSource::Direct,
+            status: nexus_shell_daemon_core::browse::BrowseStatus::Reachable,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: Some("ab".repeat(32)),
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        }
+    }
+
+    /// Sprint 75 Phase B: the authoring route builds a signed directory
+    /// from the node's OWN apps, stores it as a verifiable blob, and the
+    /// signature provenance is the node keypair (verrou 4). A remote
+    /// node's app (different node_id) is excluded from our catalog.
+    #[tokio::test]
+    async fn publish_directory_route_signs_and_announces() {
+        // sbfb_home is an isolated tempdir so the persisted revision counter does
+        // not touch (or read a stale value from) the real ~/.sbfb via the
+        // auth::sbfb_home fallback.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+        let my_id = state.node.node_id();
+        let a = "a".repeat(64);
+        let b = "b".repeat(64);
+        let c = "c".repeat(64);
+
+        // The two OWN apps reference blobs the node actually HOLDS (the ownership
+        // truth that blocks gossip-spoofed entries from being signed in).
+        let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        let ha = hex::encode(blobs.add_bytes(b"zip-babel".to_vec()).await.unwrap());
+        let hb = hex::encode(blobs.add_bytes(b"zip-atlas".to_vec()).await.unwrap());
+        let mut ea = own_browse_entry(&a, "Babel", Some(my_id.clone()));
+        ea.archive_hash = Some(ha);
+        let mut eb = own_browse_entry(&b, "Atlas", Some(my_id.clone()));
+        eb.archive_hash = Some(hb);
+        state.browse_aggregator.add_direct_entry(ea);
+        state.browse_aggregator.add_direct_entry(eb);
+        // A remote app discovered via gossip — different hosting node id (excluded
+        // by the node_id filter before the blob check).
+        state.browse_aggregator.add_direct_entry(own_browse_entry(
+            &c,
+            "RemoteApp",
+            Some("dead".repeat(16)),
+        ));
+
+        let resp = publish_directory(axum::extract::State(state.clone())).await;
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["revision"], 1);
+        assert_eq!(v["catalog_len"], 2);
+        assert_eq!(
+            v["node_id"].as_str().unwrap(),
+            hex::encode(state.pow_keypair.public_bytes())
+        );
+
+        // Fetch the stored blob back and prove it is a verifiable signed
+        // directory carrying only our OWN apps, sorted by project_id.
+        let archive_hash = v["archive_hash"].as_str().unwrap();
+        let hash: [u8; 32] = hex::decode(archive_hash).unwrap().try_into().unwrap();
+        let bytes = blobs.get_bytes(hash).await.unwrap();
+        let entry: nexus_core_rs::NodeDirectoryEntry = serde_json::from_slice(&bytes).unwrap();
+        entry
+            .verify_signature()
+            .expect("published directory must verify");
+        assert_eq!(entry.node_id, state.pow_keypair.public_bytes());
+        assert_eq!(entry.directory.revision, 1);
+        let ids: Vec<&str> = entry
+            .directory
+            .catalog
+            .iter()
+            .map(|app| app.project_id.as_str())
+            .collect();
+        assert_eq!(ids, vec![a.as_str(), b.as_str()]);
+        assert!(
+            entry
+                .directory
+                .catalog
+                .iter()
+                .all(|app| app.project_name != "RemoteApp"),
+            "a remote node's app must never appear in our own directory"
+        );
+    }
+
+    /// Sprint 75 Phase B: in duress mode the route never signs a
+    /// directory under the fake keypair — it returns `published: false`
+    /// before touching the keypair (mirrors `publish_project`).
+    #[tokio::test]
+    async fn publish_directory_noop_in_duress() {
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+        let resp = publish_directory(axum::extract::State(state.clone())).await;
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["published"], false);
+    }
+
+    /// Sprint 75 Phase B: the directory revision is a monotone counter
+    /// persisted under sbfb_home, so a re-publish after a restart bumps
+    /// past the last value rather than resetting to 1 (which a subscribed
+    /// peer would reject as a rollback).
+    #[tokio::test]
+    async fn publish_directory_revision_is_monotone_across_publishes() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+
+        let r1 = publish_directory(axum::extract::State(state.clone())).await;
+        let b1 = to_bytes(r1.into_body(), usize::MAX).await.unwrap();
+        let v1: serde_json::Value = serde_json::from_slice(&b1).unwrap();
+        assert_eq!(v1["revision"], 1);
+
+        let r2 = publish_directory(axum::extract::State(state.clone())).await;
+        let b2 = to_bytes(r2.into_body(), usize::MAX).await.unwrap();
+        let v2: serde_json::Value = serde_json::from_slice(&b2).unwrap();
+        assert_eq!(v2["revision"], 2);
+    }
+
+    /// Sprint 75 Phase B: the revision counter persists on disk, so a logical
+    /// restart (a fresh `DaemonHttpState` over the same home) continues the
+    /// sequence rather than resetting to 1 — the scenario the doc comment
+    /// motivates. Distinct from the same-state test above (which proves the
+    /// write→read→write round-trip within one process lifetime).
+    #[tokio::test]
+    async fn publish_directory_revision_survives_logical_restart() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let s1 = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+        let r1 = publish_directory(axum::extract::State(s1)).await;
+        let v1: serde_json::Value =
+            serde_json::from_slice(&to_bytes(r1.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(v1["revision"], 1);
+
+        // Fresh state, SAME on-disk home — simulates a daemon restart.
+        let s2 = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+        let r2 = publish_directory(axum::extract::State(s2)).await;
+        let v2: serde_json::Value =
+            serde_json::from_slice(&to_bytes(r2.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(
+            v2["revision"], 2,
+            "the counter must survive a logical restart"
+        );
+    }
+
+    /// Sprint 75 Phase B (review P1): production `DaemonHttpState` carries
+    /// `sbfb_home: None`, so `next_directory_revision` MUST fall back to
+    /// `auth::sbfb_home()` (`$SBFB_HOME` / `~/.sbfb`) — without it the counter
+    /// resets to 1 on every boot and peers reject re-publishes as rollbacks.
+    /// This drives the route with `sbfb_home: None` and only `$SBFB_HOME` set,
+    /// the way production resolves it. (nextest runs each test in its own
+    /// process, so the env mutation is isolated; no other test reads
+    /// `$SBFB_HOME` via the fallback.)
+    #[tokio::test]
+    async fn publish_directory_revision_falls_back_to_sbfb_home_env() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // SAFETY (edition 2024): same env-mutation pattern the runtime tests use.
+        unsafe {
+            std::env::set_var("SBFB_HOME", tmp.path());
+        }
+        let state = mk_state().await; // sbfb_home: None — the production shape.
+        let r1 = publish_directory(axum::extract::State(state.clone())).await;
+        let v1: serde_json::Value =
+            serde_json::from_slice(&to_bytes(r1.into_body(), usize::MAX).await.unwrap()).unwrap();
+        let r2 = publish_directory(axum::extract::State(state.clone())).await;
+        let v2: serde_json::Value =
+            serde_json::from_slice(&to_bytes(r2.into_body(), usize::MAX).await.unwrap()).unwrap();
+        unsafe {
+            std::env::remove_var("SBFB_HOME");
+        }
+        assert_eq!(v1["revision"], 1, "first publish via env-resolved home");
+        assert_eq!(
+            v2["revision"], 2,
+            "fallback home persists the counter (regression guard for the or_else fix)"
+        );
+    }
+
+    /// Sprint 75 Phase B (review P1): the deploy/publish path imposes no length
+    /// cap, but the directory signer enforces NODE_DIRECTORY_*_MAX. A single
+    /// over-cap local app must NOT 500 the whole route — the field is truncated
+    /// and the app still appears.
+    #[tokio::test]
+    async fn publish_directory_truncates_oversized_fields() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+        let my_id = state.node.node_id();
+        let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        let held = hex::encode(blobs.add_bytes(b"zip-babel".to_vec()).await.unwrap());
+        let mut entry = own_browse_entry(&"a".repeat(64), "Babel", Some(my_id));
+        entry.archive_hash = Some(held);
+        entry.description = "x".repeat(nexus_core_rs::NODE_DIRECTORY_DESCRIPTION_MAX + 50);
+        state.browse_aggregator.add_direct_entry(entry);
+
+        let resp = publish_directory(axum::extract::State(state.clone())).await;
+        assert_eq!(
+            resp.status(),
+            axum::http::StatusCode::OK,
+            "an over-cap field must be clamped, not 500 the route"
+        );
+        let v: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(v["catalog_len"], 1);
+        let archive_hash = v["archive_hash"].as_str().unwrap();
+        let hash: [u8; 32] = hex::decode(archive_hash).unwrap().try_into().unwrap();
+        let bytes = blobs.get_bytes(hash).await.unwrap();
+        let signed: nexus_core_rs::NodeDirectoryEntry = serde_json::from_slice(&bytes).unwrap();
+        signed
+            .verify_signature()
+            .expect("truncated directory must still verify");
+        assert!(
+            signed.directory.catalog[0].description.len()
+                <= nexus_core_rs::NODE_DIRECTORY_DESCRIPTION_MAX,
+            "description must be clamped to the cap"
+        );
+    }
+
+    /// Sprint 75 Phase B (Codex round 2 GAP): a gossiped ProjectAnnouncement can
+    /// forge `BrowseEntry.node_id == our node_id`. Such a spoofed entry — whose
+    /// archive blob we do NOT hold — must never be signed into our directory
+    /// (verrou 4: we only ever claim to host what we can actually serve).
+    /// Content-addressing (local blob presence) is the ownership truth.
+    #[tokio::test]
+    async fn publish_directory_excludes_spoofed_unheld_blob() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+        let my_id = state.node.node_id();
+        let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+
+        // A real, locally-held app → legitimately advertised.
+        let held = hex::encode(blobs.add_bytes(b"real-zip".to_vec()).await.unwrap());
+        let mut real = own_browse_entry(&"a".repeat(64), "Real", Some(my_id.clone()));
+        real.archive_hash = Some(held);
+        state.browse_aggregator.add_direct_entry(real);
+
+        // A spoofed entry: our node_id (as a remote gossip could forge), valid
+        // hash FORMAT, but a blob we do NOT hold.
+        let mut spoof = own_browse_entry(&"b".repeat(64), "Spoofed", Some(my_id));
+        spoof.archive_hash = Some("c".repeat(64));
+        state.browse_aggregator.add_direct_entry(spoof);
+
+        let resp = publish_directory(axum::extract::State(state.clone())).await;
+        let v: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(
+            v["catalog_len"], 1,
+            "only the locally-held app is advertised"
+        );
+        let hash: [u8; 32] = hex::decode(v["archive_hash"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let bytes = blobs.get_bytes(hash).await.unwrap();
+        let entry: nexus_core_rs::NodeDirectoryEntry = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(entry.directory.catalog.len(), 1);
+        assert_eq!(entry.directory.catalog[0].project_name, "Real");
+        assert!(
+            entry
+                .directory
+                .catalog
+                .iter()
+                .all(|app| app.project_name != "Spoofed"),
+            "a spoofed entry whose blob we do not hold must never be signed in"
+        );
+    }
+
+    /// Sprint 75 Phase B (Codex GAP): two CONCURRENT publishes (the daemon runs
+    /// on a multi-thread runtime) must get strictly-distinct, monotone revisions
+    /// — not both read the same value and sign two directories at the same
+    /// revision (the second of which a peer would reject as a rollback). Guards
+    /// the process-wide revision lock.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn publish_directory_concurrent_revisions_are_distinct() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+        let (ra, rb) = tokio::join!(
+            publish_directory(axum::extract::State(state.clone())),
+            publish_directory(axum::extract::State(state.clone())),
+        );
+        let va: serde_json::Value =
+            serde_json::from_slice(&to_bytes(ra.into_body(), usize::MAX).await.unwrap()).unwrap();
+        let vb: serde_json::Value =
+            serde_json::from_slice(&to_bytes(rb.into_body(), usize::MAX).await.unwrap()).unwrap();
+        let mut revs = [
+            va["revision"].as_u64().unwrap(),
+            vb["revision"].as_u64().unwrap(),
+        ];
+        revs.sort_unstable();
+        assert_eq!(
+            revs,
+            [1, 2],
+            "concurrent publishes must produce distinct monotone revisions"
+        );
     }
 
     #[tokio::test]

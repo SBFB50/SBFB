@@ -68,7 +68,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use nexus_core_rs::blobs::BlobsClient;
 use nexus_core_rs::crypto::PUBLIC_KEY_LENGTH;
-use nexus_core_rs::{CuratorListEntry, Node};
+use nexus_core_rs::{CuratorListEntry, Node, SignedList};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Semaphore;
@@ -145,6 +145,69 @@ impl CuratorAnnouncement {
     pub fn to_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
         serde_json::to_vec(self)
     }
+}
+
+/// The JSON payload a node broadcasts to announce its signed
+/// [`nexus_core_rs::NodeDirectoryEntry`] blob (Sprint 75 Phase B).
+///
+/// Mirrors [`CuratorAnnouncement`] field-for-field but keys the
+/// publisher under `"node"` (vs `"curator"`) so the receive-side
+/// dispatch can tell a directory announcement apart from a curator-list
+/// announcement by a clean parse, never a heuristic
+/// ([`is_node_directory_announcement`]). The producer side (the `POST
+/// /api/daemon/directory/publish` authoring route) lands in Phase B;
+/// the FULL ingest arm that fetches + verifies + stores the referenced
+/// blob lands in Phase C. In the meantime the gossip dispatch recognizes
+/// a directory announcement and drops it quietly at `debug!` — additive,
+/// never mis-ingested as a curator list, and no `warn!` spam.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeDirectoryAnnouncement {
+    /// Announcement version. Must equal [`ANNOUNCEMENT_VERSION`] to be
+    /// accepted.
+    #[serde(rename = "v")]
+    pub version: u16,
+
+    /// Lowercase hex of the publishing node's Ed25519 public key (64
+    /// chars). Used for the cheap attention-set filter before fetching.
+    #[serde(rename = "node")]
+    pub node_pubkey_hex: String,
+
+    /// `iroh_blobs::ticket::BlobTicket` string pointing at the signed
+    /// `NodeDirectoryEntry` JSON blob.
+    #[serde(rename = "ticket")]
+    pub blob_ticket: String,
+}
+
+impl NodeDirectoryAnnouncement {
+    /// Construct a fresh announcement at the current version.
+    pub fn new(node_pubkey_bytes: [u8; PUBLIC_KEY_LENGTH], blob_ticket: String) -> Self {
+        Self {
+            version: ANNOUNCEMENT_VERSION,
+            node_pubkey_hex: hex::encode(node_pubkey_bytes),
+            blob_ticket,
+        }
+    }
+
+    /// Serialize to a canonical JSON byte representation suitable for a
+    /// gossip broadcast.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec(self)
+    }
+}
+
+/// Cheap discriminator for the gossip receive dispatch: is this PoW-unwrapped
+/// payload UNAMBIGUOUSLY a [`NodeDirectoryAnnouncement`] (carries `node`) and NOT
+/// a [`CuratorAnnouncement`] (carries `curator`)? serde ignores unknown fields,
+/// so a hybrid `{v, node, curator, ticket}` parses as BOTH — requiring "parses
+/// as directory AND does NOT parse as curator" keeps such a hybrid on the
+/// curator path (its pre-Phase-B behaviour) instead of letting it silently
+/// suppress a legitimate curator announcement. The dispatch uses this to drop a
+/// pure directory announcement at `debug!` (its full ingest arm lands in
+/// Phase C) instead of warn!-ing it through the curator arm. Mirrors the
+/// `publish::is_*` partial-parse discriminators.
+pub fn is_node_directory_announcement(payload: &[u8]) -> bool {
+    serde_json::from_slice::<NodeDirectoryAnnouncement>(payload).is_ok()
+        && serde_json::from_slice::<CuratorAnnouncement>(payload).is_err()
 }
 
 // =================================================================
@@ -254,6 +317,109 @@ pub enum CuratorRuntimeError {
         #[source]
         source: std::io::Error,
     },
+}
+
+// =================================================================
+// Shared signed-list ingest gate (Sprint 75 Phase B)
+// =================================================================
+
+/// The outcome of the type-agnostic ingest gate
+/// [`verify_signed_list_ingest`]. Each variant maps 1:1 to the
+/// equivalent [`CuratorRuntimeError`] variant via the [`From`] impl
+/// below, so refactoring the curator arm onto the shared gate preserves
+/// its exact error surface — guarded end-to-end by the networked
+/// `two_nodes_reject_*` tests; the shared gate's type-symmetry across
+/// curator + node directory is guarded by `generic_ingest_helper_parity`.
+#[derive(Debug)]
+pub enum SignedListIngestError {
+    /// Full signature verification failed (bad version, oversized
+    /// payload, attribution split-brain inside the payload, tampered
+    /// bytes, wrong signer).
+    Verify(nexus_core_rs::NexusError),
+
+    /// The pubkey declared in the gossip announcement does not match the
+    /// signer pubkey inside the fetched, signed entry — a peer stapled a
+    /// legitimately-signed list to a different pubkey.
+    EnvelopeMismatch {
+        /// Hex of the announcement's declared pubkey.
+        announced: String,
+        /// Hex of the fetched entry's actual signer.
+        entry: String,
+    },
+
+    /// The new entry's revision is not strictly greater than the stored
+    /// one — rollback protection.
+    RevisionRollback {
+        /// The rejected (non-greater) revision.
+        new: u64,
+        /// The currently stored revision.
+        stored: u64,
+    },
+}
+
+impl From<SignedListIngestError> for CuratorRuntimeError {
+    fn from(e: SignedListIngestError) -> Self {
+        match e {
+            SignedListIngestError::Verify(err) => CuratorRuntimeError::EntryVerify(err),
+            SignedListIngestError::EnvelopeMismatch { announced, entry } => {
+                CuratorRuntimeError::EnvelopeMismatch {
+                    announcement: announced,
+                    entry,
+                }
+            }
+            SignedListIngestError::RevisionRollback { new, stored } => {
+                CuratorRuntimeError::RevisionRollback { new, stored }
+            }
+        }
+    }
+}
+
+/// The three type-agnostic ingest checks every [`SignedList`] gossip
+/// arm shares — factored out so a fix to one arm can never silently
+/// skip the other (drift risk R1, design_review C1).
+///
+/// Given a fetched, parsed `entry`, the pubkey declared in the gossip
+/// `announced_pubkey`, and the `stored_revision` currently held for that
+/// publisher (or `None` if nothing is stored yet), this runs:
+///
+/// - **Step 6 — signature verification** ([`SignedList::verify`]):
+///   version, caps, in-payload attribution, Ed25519 signature.
+/// - **Step 7 — envelope cross-check**: the announcement's declared
+///   pubkey MUST equal the entry's signer ([`SignedList::signer_pubkey`]).
+/// - **Step 8 — revision rollback protection**: the entry's revision
+///   MUST be strictly greater than `stored_revision`.
+///
+/// Returns `Ok(())` when the entry should be stored. Blob fetch
+/// (step 5) and storage (step 9) stay in the per-type arm because they
+/// touch type-specific transport + state.
+pub fn verify_signed_list_ingest<T: SignedList>(
+    entry: &T,
+    announced_pubkey: &[u8; PUBLIC_KEY_LENGTH],
+    stored_revision: Option<u64>,
+) -> Result<(), SignedListIngestError> {
+    // Step 6: full signature verification.
+    entry.verify().map_err(SignedListIngestError::Verify)?;
+
+    // Step 7: cross-check the announcement pubkey against the signer.
+    let signer = entry.signer_pubkey();
+    if signer != *announced_pubkey {
+        return Err(SignedListIngestError::EnvelopeMismatch {
+            announced: hex::encode(announced_pubkey),
+            entry: hex::encode(signer),
+        });
+    }
+
+    // Step 8: revision rollback protection.
+    if let Some(stored) = stored_revision {
+        if entry.list_revision() <= stored {
+            return Err(SignedListIngestError::RevisionRollback {
+                new: entry.list_revision(),
+                stored,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 // =================================================================
@@ -546,37 +712,21 @@ impl CuratorRuntime {
             .await
             .map_err(CuratorRuntimeError::BlobFetch)?;
 
-        // Step 6: parse + verify the entry. `verify_signature`
-        // layers version / cap / attribution / signature checks.
+        // Steps 6-8 via the shared signed-list ingest gate (Sprint 75
+        // Phase B): signature verification, the envelope-vs-payload
+        // attribution cross-check, and revision rollback protection are
+        // factored into `verify_signed_list_ingest` so the curator arm
+        // and the Phase C node-directory arm can never drift apart (R1,
+        // design_review C1). The gate's errors map 1:1 back to the curator
+        // error surface via `From<SignedListIngestError>`, so this refactor
+        // preserves the curator arm's behaviour — guarded end-to-end by the
+        // networked `two_nodes_reject_revision_rollback` /
+        // `two_nodes_reject_attribution_mismatch_in_announcement` tests. Blob
+        // fetch (step 5, above) and storage (step 9, below) stay type-specific.
         let entry: CuratorListEntry =
             serde_json::from_slice(&body).map_err(CuratorRuntimeError::EntryParse)?;
-        entry
-            .verify_signature()
-            .map_err(CuratorRuntimeError::EntryVerify)?;
-
-        // Step 7: cross-check the envelope pubkey against the
-        // fetched entry's inner pubkey. Both must point at the
-        // same curator. A mismatch here means some peer is
-        // stapling a legitimately-signed list to a different
-        // pubkey — a genuine spoofing attempt or a broken
-        // forwarder. Emit the `EnvelopeMismatch` variant so the
-        // gossip handler can log it at `warn!` with both hexes.
-        if entry.curator_pubkey != ann_pubkey {
-            return Err(CuratorRuntimeError::EnvelopeMismatch {
-                announcement: announcement.curator_pubkey_hex,
-                entry: hex::encode(entry.curator_pubkey),
-            });
-        }
-
-        // Step 8: revision rollback protection.
-        if let Some(stored) = self.lists.get(&entry.curator_pubkey) {
-            if entry.list.revision <= stored.value().list.revision {
-                return Err(CuratorRuntimeError::RevisionRollback {
-                    new: entry.list.revision,
-                    stored: stored.value().list.revision,
-                });
-            }
-        }
+        let stored_revision = self.lists.get(&ann_pubkey).map(|e| e.value().list.revision);
+        verify_signed_list_ingest(&entry, &ann_pubkey, stored_revision)?;
 
         // Step 9: store.
         self.lists.insert(entry.curator_pubkey, entry.clone());
@@ -757,6 +907,151 @@ mod tests {
         assert_eq!(back, ann);
         assert_eq!(back.version, ANNOUNCEMENT_VERSION);
         assert_eq!(back.curator_pubkey_hex.len(), 64);
+    }
+
+    // ---------------------------------------------------------
+    // Shared signed-list ingest gate (Sprint 75 Phase B)
+    // ---------------------------------------------------------
+
+    fn mk_directory_entry(kp: &KeyPair, revision: u64) -> nexus_core_rs::NodeDirectoryEntry {
+        let mut dir = nexus_core_rs::NodeDirectory::new(kp.public_bytes(), revision);
+        dir.catalog.push(nexus_core_rs::CatalogApp {
+            project_id: "a".repeat(64),
+            archive_hash: "b".repeat(64),
+            project_name: "Babel".into(),
+            category: "translation".into(),
+            description: "fixture".into(),
+        });
+        nexus_core_rs::NodeDirectoryEntry::sign(dir, kp).expect("sign directory")
+    }
+
+    #[test]
+    fn node_directory_announcement_round_trips_through_json() {
+        let ann = NodeDirectoryAnnouncement::new([0xCD; PUBLIC_KEY_LENGTH], "blobaaxxx".into());
+        let bytes = ann.to_bytes().unwrap();
+        let back: NodeDirectoryAnnouncement = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(back, ann);
+        assert_eq!(back.version, ANNOUNCEMENT_VERSION);
+        assert_eq!(back.node_pubkey_hex.len(), 64);
+    }
+
+    #[test]
+    fn node_directory_announcement_is_not_a_curator_announcement() {
+        // The two announcement types never parse as each other (directory has
+        // `node`, curator has `curator`, neither with a serde default) — this
+        // is what lets the dispatch discriminate cleanly and keeps a directory
+        // announcement from ever being mis-ingested as a curator list.
+        let ann = NodeDirectoryAnnouncement::new([0x11; PUBLIC_KEY_LENGTH], "blobaaxxx".into());
+        let bytes = ann.to_bytes().unwrap();
+        assert!(
+            serde_json::from_slice::<CuratorAnnouncement>(&bytes).is_err(),
+            "a node-directory announcement must NOT parse as a curator announcement"
+        );
+    }
+
+    #[test]
+    fn is_node_directory_announcement_discriminates() {
+        // The dispatch discriminator: true for a directory announcement, false
+        // for a curator one, so the gossip loop drops a directory announcement
+        // at debug! (Phase C wires its full ingest) instead of warn!-ing it
+        // through the curator arm.
+        let dir = NodeDirectoryAnnouncement::new([0x22; PUBLIC_KEY_LENGTH], "blobaaxxx".into());
+        let cur = CuratorAnnouncement::new([0x33; PUBLIC_KEY_LENGTH], "blobaaxxx".into());
+        assert!(is_node_directory_announcement(&dir.to_bytes().unwrap()));
+        assert!(!is_node_directory_announcement(&cur.to_bytes().unwrap()));
+    }
+
+    #[test]
+    fn is_node_directory_announcement_rejects_hybrid() {
+        // serde ignores unknown fields, so a hybrid carrying BOTH `node` and
+        // `curator` parses as each type. It must NOT be classified as a directory
+        // announcement (which would silently drop a legitimate curator
+        // announcement) — it stays on the curator path, preserving the
+        // pre-Phase-B dispatch behaviour. Cheap DoS/misclassification guard.
+        let hybrid =
+            serde_json::json!({ "v": 1, "node": "aa", "curator": "bb", "ticket": "blobx" });
+        let bytes = serde_json::to_vec(&hybrid).unwrap();
+        assert!(
+            !is_node_directory_announcement(&bytes),
+            "a node+curator hybrid must not be treated as a directory announcement"
+        );
+        assert!(
+            serde_json::from_slice::<CuratorAnnouncement>(&bytes).is_ok(),
+            "the hybrid still parses as a curator announcement (curator arm runs)"
+        );
+    }
+
+    #[test]
+    fn generic_ingest_helper_parity() {
+        // The shared gate must produce the SAME verdict for a curator list
+        // and a node directory on equivalent inputs: a valid entry passes, a
+        // wrong announced pubkey is an EnvelopeMismatch, and a non-monotone
+        // revision is a RevisionRollback. This guards the gate's TYPE-SYMMETRY
+        // (both SignedList impls treated identically); the curator arm's
+        // end-to-end behaviour-preservation across the refactor is guarded by
+        // the networked two_nodes_reject_* tests, not this unit test.
+        let kp = KeyPair::generate();
+        let other = KeyPair::generate();
+
+        let curator = mk_entry(&kp, 5, 1);
+        let directory = mk_directory_entry(&kp, 5);
+
+        // Valid: announced pubkey == signer, nothing stored yet.
+        assert!(verify_signed_list_ingest(&curator, &kp.public_bytes(), None).is_ok());
+        assert!(verify_signed_list_ingest(&directory, &kp.public_bytes(), None).is_ok());
+
+        // Envelope mismatch: announced pubkey != signer.
+        assert!(matches!(
+            verify_signed_list_ingest(&curator, &other.public_bytes(), None),
+            Err(SignedListIngestError::EnvelopeMismatch { .. })
+        ));
+        assert!(matches!(
+            verify_signed_list_ingest(&directory, &other.public_bytes(), None),
+            Err(SignedListIngestError::EnvelopeMismatch { .. })
+        ));
+
+        // Rollback: revision <= stored.
+        assert!(matches!(
+            verify_signed_list_ingest(&curator, &kp.public_bytes(), Some(5)),
+            Err(SignedListIngestError::RevisionRollback { new: 5, stored: 5 })
+        ));
+        assert!(matches!(
+            verify_signed_list_ingest(&directory, &kp.public_bytes(), Some(9)),
+            Err(SignedListIngestError::RevisionRollback { new: 5, stored: 9 })
+        ));
+    }
+
+    #[test]
+    fn signed_list_ingest_error_maps_to_curator_error() {
+        // The 1:1 mapping that keeps the curator arm's error surface
+        // unchanged after the refactor onto the shared gate.
+        let kp = KeyPair::generate();
+        let curator = mk_entry(&kp, 1, 1);
+        let err = verify_signed_list_ingest(&curator, &KeyPair::generate().public_bytes(), None)
+            .unwrap_err();
+        let mapped: CuratorRuntimeError = err.into();
+        assert!(matches!(
+            mapped,
+            CuratorRuntimeError::EnvelopeMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn node_directory_revision_monotone_rollback() {
+        // The shared gate rejects a node-directory revision that is not
+        // strictly greater than the stored one (the rollback guard the
+        // Phase C ingest arm relies on).
+        let kp = KeyPair::generate();
+        let entry = mk_directory_entry(&kp, 3);
+        assert!(matches!(
+            verify_signed_list_ingest(&entry, &kp.public_bytes(), Some(3)),
+            Err(SignedListIngestError::RevisionRollback { .. })
+        ));
+        assert!(matches!(
+            verify_signed_list_ingest(&entry, &kp.public_bytes(), Some(4)),
+            Err(SignedListIngestError::RevisionRollback { .. })
+        ));
+        assert!(verify_signed_list_ingest(&entry, &kp.public_bytes(), Some(2)).is_ok());
     }
 
     // ---------------------------------------------------------

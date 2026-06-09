@@ -47,6 +47,7 @@ use nexus_shell_daemon_core::browse_limiter::BrowseRequestLimiter;
 use nexus_shell_daemon_core::config::{CuratorConfig, ShellDaemonPaths};
 use nexus_shell_daemon_core::iroh_runtime::{
     CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle, curator_topic_id,
+    is_node_directory_announcement,
 };
 use nexus_shell_daemon_core::pow_policy_loader::PowPolicyWatcher;
 use nexus_shell_daemon_core::publish;
@@ -1531,11 +1532,39 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                     }
                                 }
                             } else if publish::is_project_announcement(&payload) {
-                                handle_project_announcement(
-                                    &browse_aggregator,
-                                    &coordinator_db,
-                                    &node,
-                                    &payload,
+                                // Sprint 75 Phase B (Codex round 3): drop a LIVE gossip
+                                // announcement that forges OUR own node_id. A peer can
+                                // never legitimately announce as us — our own apps reach
+                                // the aggregator via deploy (direct add) and boot-restore
+                                // (our own outbox), never via the live gossip-receive
+                                // path. Without this guard a peer could forge
+                                // `node_id == ours` (even reusing a hash we hold) and
+                                // poison `own_entries`, getting attacker-controlled
+                                // metadata signed into our node directory. Boot-restore
+                                // (restore_browse_from_outbox) calls the handler directly
+                                // and is unaffected.
+                                if announcement_claims_own_node_id(&payload, &node) {
+                                    debug!(
+                                        delivered_from = %delivered_from,
+                                        "dropping live project announcement that forges our own node_id"
+                                    );
+                                } else {
+                                    handle_project_announcement(
+                                        &browse_aggregator,
+                                        &coordinator_db,
+                                        &node,
+                                        &payload,
+                                    );
+                                }
+                            } else if is_node_directory_announcement(&payload) {
+                                // Sprint 75 Phase B: a node directory announcement is
+                                // recognized and dropped quietly here; its full ingest
+                                // arm (fetch + verify + store via the shared SignedList
+                                // gate) lands in Phase C. Dropping at debug! keeps the
+                                // Phase-B-to-C window free of the curator arm's warn!.
+                                debug!(
+                                    delivered_from = %delivered_from,
+                                    "node directory announcement received — ingest lands in Phase C, dropping"
                                 );
                             } else {
                                 handle_announcement(&curator_runtime, &node, &payload).await;
@@ -1862,6 +1891,18 @@ async fn remint_and_wrap_for_replay(
     }
     let fresh_payload = ann.to_gossip_bytes().ok()?;
     wrap_payload_with_pow_static(solve_cache, pow_policy, keypair, topic, &fresh_payload).ok()
+}
+
+/// Whether a gossiped [`publish::ProjectAnnouncement`] payload claims OUR own
+/// node_id. Used to drop a self-impersonating LIVE gossip announcement before it
+/// reaches the browse aggregator (Sprint 75 Phase B, Codex round 3): a remote
+/// peer announcing `node_id == ours` is always a spoof, since our own apps are
+/// added directly by deploy + boot-restore, never via the live gossip path.
+/// Returns `false` for an unparseable payload (the handler will skip it anyway).
+fn announcement_claims_own_node_id(payload: &[u8], node: &Node) -> bool {
+    publish::ProjectAnnouncement::from_gossip_bytes(payload)
+        .map(|ann| ann.node_id == node.node_id())
+        .unwrap_or(false)
 }
 
 fn handle_project_announcement(
@@ -2280,6 +2321,68 @@ mod tests {
         let entry = agg.get_direct_entry(&pid).expect("entry present");
         assert_eq!(entry.archive_hash, Some(hash_hex));
         assert!(entry.archive_ticket.is_some());
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn live_gossip_drops_self_node_id_spoof() {
+        use nexus_shell_daemon_core::browse::BrowseAggregator;
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        // Codex round 3 guard: a LIVE gossip announcement forging OUR own node_id
+        // must never enter the aggregator (it would poison own_entries → the
+        // signed node directory). A legit remote announcement is still added.
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let agg = std::sync::Arc::new(BrowseAggregator::new());
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+
+        // Spoof: announces OUR own node_id.
+        let spoof = ProjectAnnouncement::new(
+            node.node_id(),
+            "Spoofed".into(),
+            "tools".into(),
+            "evil".into(),
+            vec![],
+        )
+        .with_project_id(hex::encode(nexus_core_rs::crypto::blake3_hash(b"Spoofed")));
+        let spoof_bytes = spoof.to_gossip_bytes().unwrap();
+        assert!(
+            super::announcement_claims_own_node_id(&spoof_bytes, &node),
+            "guard must detect a self-node_id spoof"
+        );
+        // Mirror the live dispatch: the guard skips the handler for a self-spoof.
+        if !super::announcement_claims_own_node_id(&spoof_bytes, &node) {
+            super::handle_project_announcement(&agg, &db, &node, &spoof_bytes);
+        }
+        assert_eq!(
+            agg.direct_entry_count(),
+            0,
+            "a self-node_id spoof must never enter the aggregator"
+        );
+
+        // A legit remote announcement (different node_id) IS added.
+        let remote = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "Remote".into(),
+            "tools".into(),
+            "ok".into(),
+            vec![],
+        )
+        .with_project_id(hex::encode(nexus_core_rs::crypto::blake3_hash(b"Remote")));
+        let remote_bytes = remote.to_gossip_bytes().unwrap();
+        assert!(!super::announcement_claims_own_node_id(
+            &remote_bytes,
+            &node
+        ));
+        if !super::announcement_claims_own_node_id(&remote_bytes, &node) {
+            super::handle_project_announcement(&agg, &db, &node, &remote_bytes);
+        }
+        assert_eq!(
+            agg.direct_entry_count(),
+            1,
+            "a legit remote announcement is still added"
+        );
         node.shutdown().await.ok();
     }
 

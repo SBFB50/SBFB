@@ -578,6 +578,34 @@ impl BrowseAggregator {
             .map(|e| e.value().clone())
     }
 
+    /// Snapshot the direct entries whose `node_id` equals `my_node_id`
+    /// (set at local publish/deploy time to our own node id,
+    /// `deploy::publish_announcement`). This is the candidate set of a node's
+    /// OWN catalog for the signed node directory (Sprint 75 Phase B authoring).
+    ///
+    /// SECURITY: this is a node_id MATCH only, and `BrowseEntry.node_id` for
+    /// gossip-discovered entries comes from the (otherwise untrusted)
+    /// `ProjectAnnouncement.node_id`. Two layers keep a peer from forging
+    /// `node_id == my_node_id` to slip an entry into this set: (1) the LIVE gossip
+    /// dispatch drops any project announcement claiming our own node_id before it
+    /// reaches the aggregator (`runtime::announcement_claims_own_node_id`), so a
+    /// self-spoof never lands here; (2) the authoring route additionally requires
+    /// that the node actually HOLDS the entry's archive blob locally
+    /// (content-addressing = the ownership truth, verrou 4) and caps the catalog
+    /// before signing. See `http::publish_directory`.
+    pub fn own_entries(&self, my_node_id: &str) -> Vec<BrowseEntry> {
+        let mut out: Vec<BrowseEntry> = self
+            .direct_entries
+            .iter()
+            .filter(|e| e.value().node_id.as_deref() == Some(my_node_id))
+            .map(|e| e.value().clone())
+            .collect();
+        // Stable ordering so the signed directory's canonical bytes are
+        // deterministic across DashMap iteration shuffling.
+        out.sort_by(|a, b| a.project_id.cmp(&b.project_id));
+        out
+    }
+
     /// Find the archive ticket of a directly-announced project whose archive
     /// hash matches `hash_hex`. Used by blob-serve to P2P-download an app
     /// discovered on the network: the ticket carries the providing node's
@@ -829,6 +857,43 @@ mod tests {
         no_hash.archive_hash = None;
         agg.add_direct_entry(no_hash);
         assert_eq!(agg.find_archive_ticket_by_hash(""), None);
+    }
+
+    #[test]
+    fn own_entries_filters_by_node_id_and_sorts() {
+        // Sprint 75 Phase B: `own_entries` returns ONLY the direct
+        // entries tagged with our node id (the apps we host), sorted by
+        // project_id for deterministic signed-directory bytes. A remote
+        // app discovered via gossip (different node_id) and an untagged
+        // entry are both excluded.
+        let agg = BrowseAggregator::new();
+        let me = "11".repeat(32);
+        let peer = "22".repeat(32);
+        let mk = |pid: &str, owner: Option<&str>| BrowseEntry {
+            project_id: pid.into(),
+            node_id: owner.map(String::from),
+            project_name: "n".into(),
+            category: "c".into(),
+            description: "d".into(),
+            curator_pubkey: String::new(),
+            curator_name: "x".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Reachable,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: Some("ab".repeat(32)),
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        };
+        agg.add_direct_entry(mk("b_app", Some(&me)));
+        agg.add_direct_entry(mk("a_app", Some(&me)));
+        agg.add_direct_entry(mk("remote_app", Some(&peer)));
+        agg.add_direct_entry(mk("legacy_app", None));
+
+        let own = agg.own_entries(&me);
+        let ids: Vec<&str> = own.iter().map(|e| e.project_id.as_str()).collect();
+        assert_eq!(ids, vec!["a_app", "b_app"], "only our apps, sorted");
     }
 
     #[test]
