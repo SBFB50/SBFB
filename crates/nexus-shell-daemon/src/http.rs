@@ -1640,25 +1640,17 @@ pub(crate) async fn mint_blob_ticket(
     state: &DaemonHttpState,
     hash_hex: &str,
 ) -> Result<String, anyhow::Error> {
-    use iroh_blobs::ticket::BlobTicket;
-    use iroh_blobs::{BlobFormat, Hash};
-    use nexus_core_rs::DiscoveryClient;
+    use iroh_blobs::Hash;
 
     let hash_bytes: [u8; 32] = hex::decode(hash_hex)?
         .try_into()
         .map_err(|_| anyhow::anyhow!("hash must be 32 bytes"))?;
 
-    // Verify the blob exists locally.
-    let blobs = BlobsClient::new(state.node.blobs_store());
-    if !blobs.has(hash_bytes).await? {
-        anyhow::bail!("blob {hash_hex} not in local store");
-    }
-
-    let addr = DiscoveryClient::new(state.node.endpoint())
-        .my_endpoint_addr()
-        .await?;
-    let ticket = BlobTicket::new(addr, Hash::from_bytes(hash_bytes), BlobFormat::Raw);
-    Ok(ticket.to_string())
+    // Share the mint-from-current-address logic with the replay re-mint path
+    // (Sprint 75 Phase A): a ticket's EndpointAddr must always come from
+    // my_endpoint_addr() at mint time, never a stored snapshot. The helper also
+    // verifies the blob is still held locally.
+    crate::runtime::mint_ticket_for_hash(&state.node, Hash::from_bytes(hash_bytes)).await
 }
 
 /// `GET /diagnostic/neighborhood` — Sprint 23 Phase E. Returns the
@@ -2902,14 +2894,19 @@ mod tests {
             .await
             .expect("outbox send must arrive within 2s")
             .expect("channel open");
-        let crate::runtime::GossipCmd::Outbox(envelope) = cmd else {
+        let crate::runtime::GossipCmd::Outbox(payload) = cmd else {
             panic!("expected GossipCmd::Outbox, got a different command");
         };
-        // (b) the envelope decodes back to OUR announcement (real wire round-trip).
-        let (_proof, payload) =
-            nexus_core_rs::PowEnvelope::decode(&envelope).expect("envelope decodes");
-        let ann = nexus_shell_daemon_core::publish::ProjectAnnouncement::from_gossip_bytes(payload)
-            .expect("payload is a project announcement");
+        // (b) Sprint 75 Phase A: the outbox carries the UNWRAPPED announcement
+        // payload (so every replay re-mints the address + re-stamps a fresh PoW),
+        // NOT a frozen PoW envelope. It parses directly as a ProjectAnnouncement.
+        assert!(
+            nexus_shell_daemon_core::publish::is_project_announcement(&payload),
+            "outbox entry must be the unwrapped announcement payload, not a PoW envelope"
+        );
+        let ann =
+            nexus_shell_daemon_core::publish::ProjectAnnouncement::from_gossip_bytes(&payload)
+                .expect("payload is a project announcement");
         assert_eq!(ann.project_id, pid);
         assert_eq!(ann.project_name, "Outbox Test App");
         // (c) the card is in the aggregator immediately as well.
@@ -7548,12 +7545,14 @@ mod tests {
             .await
             .expect("outbox arrives")
             .expect("channel open");
-        let crate::runtime::GossipCmd::Outbox(envelope) = cmd else {
+        let crate::runtime::GossipCmd::Outbox(payload) = cmd else {
             panic!("expected GossipCmd::Outbox");
         };
-        let (_proof, payload) = nexus_core_rs::PowEnvelope::decode(&envelope).unwrap();
-        let ann = nexus_shell_daemon_core::publish::ProjectAnnouncement::from_gossip_bytes(payload)
-            .unwrap();
+        // Sprint 75 Phase A: the outbox carries the UNWRAPPED announcement payload
+        // (each replay re-mints + re-stamps), so it parses directly — no PoW unwrap.
+        let ann =
+            nexus_shell_daemon_core::publish::ProjectAnnouncement::from_gossip_bytes(&payload)
+                .unwrap();
         assert_eq!(ann.project_id, pid, "per-app id on the wire");
         assert_ne!(ann.project_id, ann.node_id, "per-app id is not the node_id");
     }

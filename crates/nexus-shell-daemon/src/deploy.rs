@@ -671,19 +671,28 @@ pub(crate) async fn publish_announcement(state: &DaemonHttpState, params: Announ
     // #7). The send stays AFTER drop(sender_guard) and OUTSIDE the Some-branch so
     // an isolated node still persists. Mirrors the `/publish` path exactly.
     if let Ok(payload) = announcement.to_gossip_bytes() {
+        // Live announce: a fresh PoW envelope broadcast under the sender guard
+        // (fresh issued_at + a ticket minted from the current address above).
         if let Ok(envelope) = crate::http::wrap_payload_with_pow(state, &payload) {
             let sender_guard = state.gossip_sender.read().await;
             if let Some(sender) = sender_guard.as_ref() {
-                if let Err(e) = sender.broadcast(envelope.clone()).await {
+                if let Err(e) = sender.broadcast(envelope).await {
                     debug!(error = %e, "gossip broadcast failed (non-fatal)");
                 }
             }
             drop(sender_guard);
-            let _ = state
-                .gossip_cmd_tx
-                .send(crate::runtime::GossipCmd::Outbox(envelope))
-                .await;
         }
+        // Persist the UNWRAPPED payload (Sprint 75 Phase A — FIX-A): every
+        // NeighborUp / browse_request / periodic-republish / boot replay re-mints
+        // the address + re-stamps the PoW from this payload, so an announcement is
+        // never replayed with a stale proof/address (the live discovery bug). Persist
+        // ALWAYS — even isolated (gossip_sender == None) and even if the live wrap
+        // failed: the outbox is the boot-restore + replay source (#7/#8), and replay
+        // re-wraps independently. Mirrors the `/publish` path exactly.
+        let _ = state
+            .gossip_cmd_tx
+            .send(crate::runtime::GossipCmd::Outbox(payload))
+            .await;
     }
 
     let browse_entry = BrowseEntry {

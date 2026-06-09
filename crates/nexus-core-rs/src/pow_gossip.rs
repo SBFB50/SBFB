@@ -80,11 +80,22 @@ use crate::pow::{
 use crate::relay_pow_policy::RelayPowPolicy;
 
 /// Session window for cached proofs, both publisher- and
-/// subscriber-side. Chosen to comfortably exceed the default
-/// [`crate::pow::MAX_PROOF_AGE_SECS`] (30 min) so a session
-/// never outlives the receiver's freshness bound ; a legit
-/// publisher never hits the boundary mid-broadcast.
+/// subscriber-side. Chosen to stay comfortably BELOW the default
+/// [`crate::pow::MAX_PROOF_AGE_SECS`] (30 min) so a cached proof,
+/// reused anywhere in the window, is never already older than the
+/// receiver's freshness bound — a legit publisher never hits the
+/// boundary mid-broadcast or mid-replay. Sprint 75 Phase A relies on
+/// this: replay re-stamps via this cache, so the window MUST be shorter
+/// than the receiver's max proof age, or a re-stamped proof could still
+/// be "too old". The `const _` assert below pins the invariant.
 pub const SESSION_WINDOW: Duration = Duration::from_secs(15 * 60);
+
+// Load-bearing invariant (Sprint 75 Phase A): a proof cached for at most
+// SESSION_WINDOW must never be older than MAX_PROOF_AGE_SECS when broadcast or
+// replayed, or a fresh receiver rejects it ("PoW proof too old" — the live
+// discovery bug). A future SESSION_WINDOW bump past the receiver's window would
+// silently reintroduce that bug; this compile-time assert forbids it.
+const _: () = assert!(SESSION_WINDOW.as_secs() < crate::pow::MAX_PROOF_AGE_SECS);
 
 /// Solve timeout applied to every fresh PoW session. Large
 /// enough to cover the default 2^18 difficulty (~100 ms)

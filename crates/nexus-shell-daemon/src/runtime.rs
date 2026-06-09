@@ -1440,10 +1440,10 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
         // re-indexes the search corpus with the real project_name (the feed's
         // ReleasePublished op carries none, which is why search-by-name was
         // empty too). Restored self entries (our own node_id) render Reachable
-        // through the aggregate() self-branch. We decode with
-        // PowEnvelope::decode (structural, no PoW re-verification) rather than
-        // verify_envelope: these are our OWN trusted envelopes, and a
-        // difficulty-policy bump since they were minted must NOT drop them.
+        // through the aggregate() self-branch. Sprint 75 Phase A: entries are
+        // unwrapped payloads; pre-S75 wrapped entries are normalized via
+        // normalize_outbox_payload (structural, no PoW re-verification: our OWN
+        // trusted bytes, and a difficulty-policy bump must NOT drop them).
         // `restored` counts announcements re-ingested (one per project
         // announcement envelope), not distinct cards — several envelopes for
         // the same project_id collapse to one card via add_direct_entry dedup.
@@ -1510,11 +1510,23 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                 debug!(delivered_from = %delivered_from, "browse_request received — replaying outbox");
                                 // Phase D OFF gate (same as NeighborUp/republish).
                                 let disabled = load_disabled_keep_online(&coordinator_db);
-                                for envelope in &outbox {
-                                    if !keep_online_allows_rebroadcast(envelope, &disabled) {
+                                for stored in &outbox {
+                                    if !keep_online_allows_rebroadcast(stored, &disabled) {
                                         continue;
                                     }
-                                    if let Err(e) = sender.broadcast(envelope.clone()).await {
+                                    let Some(fresh) = remint_and_wrap_for_replay(
+                                        &node,
+                                        &pow_solve_cache,
+                                        &pow_policy,
+                                        &pow_keypair,
+                                        &curator_topic,
+                                        stored,
+                                    )
+                                    .await
+                                    else {
+                                        continue;
+                                    };
+                                    if let Err(e) = sender.broadcast(fresh).await {
                                         debug!(error = %e, "browse_request outbox replay failed");
                                     }
                                 }
@@ -1541,11 +1553,23 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                             // has turned OFF (keep_online disabled). Fast path: an
                             // empty disabled set replays all without decoding.
                             let disabled = load_disabled_keep_online(&coordinator_db);
-                            for envelope in &outbox {
-                                if !keep_online_allows_rebroadcast(envelope, &disabled) {
+                            for stored in &outbox {
+                                if !keep_online_allows_rebroadcast(stored, &disabled) {
                                     continue;
                                 }
-                                if let Err(e) = sender.broadcast(envelope.clone()).await {
+                                let Some(fresh) = remint_and_wrap_for_replay(
+                                    &node,
+                                    &pow_solve_cache,
+                                    &pow_policy,
+                                    &pow_keypair,
+                                    &curator_topic,
+                                    stored,
+                                )
+                                .await
+                                else {
+                                    continue;
+                                };
+                                if let Err(e) = sender.broadcast(fresh).await {
                                     debug!(error = %e, "outbox replay broadcast failed");
                                 }
                             }
@@ -1569,21 +1593,40 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                 }
                 cmd = cmd_rx.recv() => {
                     match cmd {
-                        Some(GossipCmd::Outbox(envelope)) => {
+                        Some(GossipCmd::Outbox(payload)) => {
+                            // Sprint 75 Phase A: the outbox persists the UNWRAPPED
+                            // announcement payload (D2), so every later replay
+                            // re-mints the address + re-stamps the PoW from it.
                             // Best-effort DB persistence: gossip broadcast is the
-                            // primary transport, DB insert is boot-recovery only.
-                            // A failed insert still allows in-memory replay + broadcast.
+                            // primary transport, the DB insert is boot-recovery only;
+                            // a failed insert still allows in-memory replay.
                             if let Ok(guard) = coordinator_db.lock() {
-                                if let Err(e) = guard.insert_outbox(&envelope) {
+                                if let Err(e) = guard.insert_outbox(&payload) {
                                     warn!(error = %e, "outbox DB insert failed");
                                 }
                             }
-                            outbox.push(envelope.clone());
+                            // Broadcast a freshly minted + stamped envelope through
+                            // the SAME helper as every replay path (the just-published
+                            // payload's ticket is already fresh, so the re-mint is a
+                            // no-op here — one helper keeps all broadcast paths
+                            // identical). Push the unwrapped payload AFTER the borrow.
                             if neighbor_count > 0 {
-                                if let Err(e) = sender.broadcast(envelope).await {
-                                    debug!(error = %e, "outbox broadcast failed");
+                                if let Some(fresh) = remint_and_wrap_for_replay(
+                                    &node,
+                                    &pow_solve_cache,
+                                    &pow_policy,
+                                    &pow_keypair,
+                                    &curator_topic,
+                                    &payload,
+                                )
+                                .await
+                                {
+                                    if let Err(e) = sender.broadcast(fresh).await {
+                                        debug!(error = %e, "outbox broadcast failed");
+                                    }
                                 }
                             }
+                            outbox.push(payload);
                         }
                         Some(GossipCmd::RequestBrowse) => {
                             let req = publish::browse_request_bytes();
@@ -1612,11 +1655,23 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                         // Phase D OFF gate (same as NeighborUp/browse_request) — an
                         // app turned OFF must stop diffusing on EVERY replay path.
                         let disabled = load_disabled_keep_online(&coordinator_db);
-                        for envelope in &outbox {
-                            if !keep_online_allows_rebroadcast(envelope, &disabled) {
+                        for stored in &outbox {
+                            if !keep_online_allows_rebroadcast(stored, &disabled) {
                                 continue;
                             }
-                            if let Err(e) = sender.broadcast(envelope.clone()).await {
+                            let Some(fresh) = remint_and_wrap_for_replay(
+                                &node,
+                                &pow_solve_cache,
+                                &pow_policy,
+                                &pow_keypair,
+                                &curator_topic,
+                                stored,
+                            )
+                            .await
+                            else {
+                                continue;
+                            };
+                            if let Err(e) = sender.broadcast(fresh).await {
                                 debug!(error = %e, "periodic republish broadcast failed");
                             }
                         }
@@ -1715,6 +1770,100 @@ fn wrap_payload_with_pow_static(
     nexus_core_rs::PowEnvelope::encode(&proof, payload)
 }
 
+/// Mint a fresh `BlobTicket` for `hash` from the node's CURRENT endpoint address.
+/// Shared by the publish path ([`crate::http::mint_blob_ticket`]) and the replay
+/// re-mint helper ([`remint_and_wrap_for_replay`]): a ticket's `EndpointAddr` is a
+/// point-in-time snapshot, so every (re-)announce must mint from
+/// `my_endpoint_addr()` at announce time and never replay a stored address (a
+/// weeks-old snapshot is undialable after a NAT/relay change even with a valid
+/// proof — the address half of the Sprint 75 discovery bug). Fails if the blob is
+/// no longer held locally: a re-minted ticket to a GC'd blob would advertise an
+/// address that serves nothing, so content-addressing stays the truth of
+/// reachability rather than the directory claim.
+pub(crate) async fn mint_ticket_for_hash(
+    node: &Node,
+    hash: iroh_blobs::Hash,
+) -> anyhow::Result<String> {
+    use iroh_blobs::BlobFormat;
+    use iroh_blobs::ticket::BlobTicket;
+    let blobs = nexus_core_rs::BlobsClient::new(node.blobs_store());
+    if !blobs.has(*hash.as_bytes()).await? {
+        anyhow::bail!("blob {hash} no longer in local store");
+    }
+    let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+        .my_endpoint_addr()
+        .await?;
+    Ok(BlobTicket::new(addr, hash, BlobFormat::Raw).to_string())
+}
+
+/// Normalize a stored outbox entry to the unwrapped [`publish::ProjectAnnouncement`]
+/// gossip bytes. Sprint 75 Phase A persists the UNWRAPPED payload (D2) so every
+/// replay re-mints the address + re-stamps the PoW from a live source rather than
+/// rebroadcasting a frozen, stale envelope. Entries persisted BEFORE S75 are
+/// PoW-wrapped envelopes; we transparently unwrap them so a live node never loses
+/// its already-deployed apps on upgrade. This is runtime robustness for the
+/// persisted-state transition, NOT a wire-format legacy decoder — the wire is
+/// unchanged (a re-wrapped payload is byte-shape-identical on the topic). Returns
+/// `None` if neither shape is a project announcement.
+fn normalize_outbox_payload(stored: &[u8]) -> Option<Vec<u8>> {
+    // New shape (S75+): the stored bytes ARE the announcement payload.
+    if publish::is_project_announcement(stored) {
+        return Some(stored.to_vec());
+    }
+    // Legacy shape (pre-S75): a PoW-wrapped envelope of our own — unwrap
+    // structurally (no PoW re-verification; these are our trusted local bytes).
+    if let Ok((_proof, payload)) = nexus_core_rs::PowEnvelope::decode(stored) {
+        if publish::is_project_announcement(payload) {
+            return Some(payload.to_vec());
+        }
+    }
+    None
+}
+
+/// Re-mint the address + re-stamp the PoW of an OWN outbox announcement for
+/// replay (Sprint 75 Phase A — FIX-A, the fix for the live discovery bug where a
+/// fresh peer dropped every announcement older than `MAX_PROOF_AGE_SECS` because
+/// the outbox replayed a frozen proof). The `BlobTicket` `EndpointAddr` is
+/// re-minted from the current endpoint address, and the envelope is re-wrapped
+/// with a FRESH PoW. `MAX_PROOF_AGE_SECS` is unchanged: a re-stamp is a genuinely
+/// fresh legitimate proof (the publisher is online now), so the receiver's 30-min
+/// window stays intact — we make the window correct, we do not remove it.
+///
+/// Address re-mint is CONFINED to our OWN announcements (`node_id == ours`):
+/// re-pointing a third party's announcement to our address would be a hijack. The
+/// outbox is OWN-only by construction ([`handle_project_announcement`] routes
+/// third-party announces to the aggregator, never the outbox), so this guard is
+/// defense-in-depth. Returns the fresh wire envelope, or `None` if the entry does
+/// not parse or the PoW solve fails (a solve failure drops THIS entry from the
+/// replay pass, never the whole pass).
+async fn remint_and_wrap_for_replay(
+    node: &Node,
+    solve_cache: &Arc<PowSolveCache>,
+    pow_policy: &Arc<std::sync::RwLock<RelayPowPolicy>>,
+    keypair: &Arc<KeyPair>,
+    topic: &[u8; 32],
+    stored: &[u8],
+) -> Option<Vec<u8>> {
+    let payload = normalize_outbox_payload(stored)?;
+    let mut ann = publish::ProjectAnnouncement::from_gossip_bytes(&payload).ok()?;
+    if ann.node_id == node.node_id() {
+        if let Some(stale) = ann.archive_ticket.as_deref() {
+            use std::str::FromStr;
+            if let Ok(ticket) = iroh_blobs::ticket::BlobTicket::from_str(stale) {
+                let (_addr, hash, _fmt) = ticket.into_parts();
+                // Best-effort: on a mint error (e.g. the blob was GC'd) keep the
+                // stale ticket — the fresh PoW below still un-breaks discovery,
+                // which is the critical half of the fix.
+                if let Ok(fresh) = mint_ticket_for_hash(node, hash).await {
+                    ann.archive_ticket = Some(fresh);
+                }
+            }
+        }
+    }
+    let fresh_payload = ann.to_gossip_bytes().ok()?;
+    wrap_payload_with_pow_static(solve_cache, pow_policy, keypair, topic, &fresh_payload).ok()
+}
+
 fn handle_project_announcement(
     browse_aggregator: &BrowseAggregatorHandle,
     coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
@@ -1803,11 +1952,12 @@ fn handle_project_announcement(
 ///
 /// The aggregator is in-memory and starts empty on every boot, so a node's
 /// own published apps would otherwise disappear from its Browse after a
-/// restart — only the outbox (and the feed) survive. Each outbox entry is a
-/// PoW-wrapped envelope; we decode structurally with
-/// [`nexus_core_rs::PowEnvelope::decode`] (no PoW re-verification: these are
-/// our own trusted envelopes, and a difficulty-policy bump since they were
-/// minted must not drop them) and re-ingest every project announcement through
+/// restart — only the outbox (and the feed) survive. Sprint 75 Phase A: each
+/// outbox entry is the UNWRAPPED ProjectAnnouncement payload; pre-S75 entries are
+/// PoW-wrapped and transparently unwrapped via [`normalize_outbox_payload`] (no
+/// PoW re-verification: these are our own trusted local bytes, and a
+/// difficulty-policy bump since they were minted must not drop them). We re-ingest
+/// every project announcement through
 /// [`handle_project_announcement`], which repopulates the aggregator and
 /// re-indexes the search corpus with the real `project_name`. Returns the
 /// number of project announcements restored. Idempotent: `add_direct_entry`
@@ -1817,22 +1967,26 @@ fn handle_project_announcement(
 /// pre-rotation `node_id`, so they probe as remote instead of taking the
 /// self-branch — benign, since rotation also invalidates the old
 /// announcements (they are re-published under the new identity).
-/// Sprint 74 Phase D: should this outbox envelope still be re-broadcast to peers?
-/// Apps the node has turned OFF (`keep_online` disabled) are skipped; everything
-/// else — non-project envelopes (curator lists) and undecodable bytes — is
-/// replayed, so a decode hiccup never silently drops diffusion. Fast path: an
-/// empty disabled set replays all without decoding (the common case).
+/// Sprint 74 Phase D / Sprint 75 Phase A: should this outbox entry still be
+/// re-broadcast to peers? Apps the node has turned OFF (`keep_online` disabled) are
+/// skipped; everything else — including an unparseable entry — is replayed, so a
+/// decode hiccup never silently drops diffusion. Fast path: an empty disabled set
+/// replays all without parsing (the common case). Entries are unwrapped payloads
+/// (pre-S75 wrapped entries are normalized via [`normalize_outbox_payload`]).
 fn keep_online_allows_rebroadcast(
-    envelope: &[u8],
+    stored: &[u8],
     disabled: &std::collections::HashSet<String>,
 ) -> bool {
     if disabled.is_empty() {
         return true;
     }
-    let Ok((_proof, payload)) = nexus_core_rs::PowEnvelope::decode(envelope) else {
+    // Sprint 75 Phase A: stored entries are unwrapped payloads (pre-S75 wrapped
+    // entries are transparently normalized). A non-parseable entry replays — a
+    // decode hiccup must never silently drop diffusion.
+    let Some(payload) = normalize_outbox_payload(stored) else {
         return true;
     };
-    match publish::ProjectAnnouncement::from_gossip_bytes(payload) {
+    match publish::ProjectAnnouncement::from_gossip_bytes(&payload) {
         Ok(ann) => {
             // Per-app id (blake3(name)); legacy-empty falls back to node_id, the
             // same key the toggle / disabled list uses.
@@ -1880,17 +2034,16 @@ fn restore_browse_from_outbox(
     outbox: &[Vec<u8>],
 ) -> usize {
     let mut restored = 0usize;
-    for envelope in outbox {
-        match nexus_core_rs::PowEnvelope::decode(envelope) {
-            Ok((_proof, payload)) => {
-                if publish::is_project_announcement(payload) {
-                    handle_project_announcement(browse_aggregator, coordinator_db, node, payload);
-                    restored += 1;
-                }
-            }
-            Err(e) => {
-                debug!(error = %e, "browse restore: skipping undecodable outbox envelope");
-            }
+    for stored in outbox {
+        // Sprint 75 Phase A: outbox entries are unwrapped payloads; pre-S75
+        // PoW-wrapped entries are transparently normalized (own trusted bytes, no
+        // PoW re-verification). A non-announcement entry is skipped, never dropped
+        // loudly.
+        if let Some(payload) = normalize_outbox_payload(stored) {
+            handle_project_announcement(browse_aggregator, coordinator_db, node, &payload);
+            restored += 1;
+        } else {
+            debug!("browse restore: skipping unparseable outbox entry");
         }
     }
     restored
@@ -2302,6 +2455,387 @@ mod tests {
 
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
+    }
+
+    #[test]
+    fn normalize_outbox_payload_accepts_both_shapes() {
+        // Sprint 75 Phase A: the outbox stores unwrapped payloads, but a node
+        // upgraded mid-flight may still hold pre-S75 PoW-wrapped entries. Both
+        // normalize to the same announcement bytes; junk normalizes to None.
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Norm App"));
+        let ann = ProjectAnnouncement::new(
+            "b".repeat(64),
+            "Norm App".into(),
+            "tools".into(),
+            "x".into(),
+            vec![],
+        )
+        .with_project_id(pid);
+        let payload = ann.to_gossip_bytes().unwrap();
+
+        // New shape: the stored bytes ARE the payload.
+        let n1 = super::normalize_outbox_payload(&payload).expect("unwrapped payload normalizes");
+        assert_eq!(n1, payload);
+
+        // Legacy shape: a PoW-wrapped envelope of the same payload.
+        let kp = nexus_core_rs::KeyPair::generate();
+        let policy = nexus_core_rs::RelayPowPolicy {
+            default_difficulty: 1,
+            topic_overrides: std::collections::BTreeMap::new(),
+        };
+        let proof = nexus_core_rs::PowSolveCache::new()
+            .ensure_proof([3u8; 32], &kp, &policy)
+            .unwrap();
+        let wrapped = nexus_core_rs::PowEnvelope::encode(&proof, &payload).unwrap();
+        let n2 =
+            super::normalize_outbox_payload(&wrapped).expect("legacy wrapped entry normalizes");
+        assert_eq!(
+            n2, payload,
+            "legacy wrapped entry unwraps to the same payload"
+        );
+
+        // Junk normalizes to None (never re-broadcast garbage).
+        assert!(super::normalize_outbox_payload(b"not an announcement").is_none());
+    }
+
+    #[tokio::test]
+    async fn replay_restamps_pow_so_a_fresh_receiver_accepts() {
+        // FIX-A core: an OWN outbox payload, replayed, yields a FRESH PoW envelope
+        // a receiver verifies at "now" — the cure for the live "PoW proof too old"
+        // bug where the verbatim replay shipped a >30-min-old proof. The unwrapped
+        // payload is NOT itself a verifiable envelope; the replay re-wraps it.
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        use std::sync::{Arc, RwLock};
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Replay App"));
+        let ann = ProjectAnnouncement::new(
+            node.node_id(),
+            "Replay App".into(),
+            "tools".into(),
+            "x".into(),
+            vec![],
+        )
+        .with_project_id(pid.clone());
+        let payload = ann.to_gossip_bytes().unwrap();
+
+        let kp = Arc::new(nexus_core_rs::KeyPair::generate());
+        let policy = Arc::new(RwLock::new(nexus_core_rs::RelayPowPolicy {
+            default_difficulty: 1,
+            topic_overrides: std::collections::BTreeMap::new(),
+        }));
+        let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
+
+        let fresh =
+            super::remint_and_wrap_for_replay(&node, &cache, &policy, &kp, &[9u8; 32], &payload)
+                .await
+                .expect("replay produces a fresh envelope");
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let pol = policy.read().unwrap().clone();
+        let (_proof, out_payload) = nexus_core_rs::PowVerifyCache::new()
+            .verify_envelope(&fresh, &pol, now)
+            .expect("a fresh receiver accepts the re-stamped proof at now");
+        let out = ProjectAnnouncement::from_gossip_bytes(out_payload).unwrap();
+        assert_eq!(out.project_id, pid);
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn replay_remints_own_ticket_to_current_address() {
+        // FIX-A address half (positive control): replaying an OWN announcement whose
+        // ticket carries a STALE address (here a second node's) re-mints it to OUR
+        // current address, preserving the content hash. SENSITIVE: a regression that
+        // stopped re-minting would leave the stale ticket and this test would fail.
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        use std::str::FromStr;
+        use std::sync::{Arc, RwLock};
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let other = nexus_core_rs::create_node().await.unwrap();
+        // We hold the blob (so the re-mint succeeds), but the stored ticket points at
+        // `other`'s address — a stale snapshot the replay must overwrite.
+        let hash = nexus_core_rs::BlobsClient::new(node.blobs_store())
+            .add_bytes(b"zip".to_vec())
+            .await
+            .unwrap();
+        let stale_addr = nexus_core_rs::DiscoveryClient::new(other.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let stale_ticket = iroh_blobs::ticket::BlobTicket::new(
+            stale_addr,
+            iroh_blobs::Hash::from_bytes(hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+        let ann = ProjectAnnouncement::new(
+            node.node_id(),
+            "Ticket App".into(),
+            "tools".into(),
+            "x".into(),
+            vec![],
+        )
+        .with_project_id(hex::encode(nexus_core_rs::crypto::blake3_hash(
+            b"Ticket App",
+        )))
+        .with_archive_ticket(stale_ticket.clone());
+        let payload = ann.to_gossip_bytes().unwrap();
+
+        let kp = Arc::new(nexus_core_rs::KeyPair::generate());
+        let policy = Arc::new(RwLock::new(nexus_core_rs::RelayPowPolicy {
+            default_difficulty: 1,
+            topic_overrides: std::collections::BTreeMap::new(),
+        }));
+        let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
+        let fresh =
+            super::remint_and_wrap_for_replay(&node, &cache, &policy, &kp, &[5u8; 32], &payload)
+                .await
+                .expect("replay envelope");
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let pol = policy.read().unwrap().clone();
+        let (_proof, out_payload) = nexus_core_rs::PowVerifyCache::new()
+            .verify_envelope(&fresh, &pol, now)
+            .expect("verify");
+        let out = ProjectAnnouncement::from_gossip_bytes(out_payload).unwrap();
+        let new_ticket = out.archive_ticket.expect("ticket present after replay");
+        assert_ne!(
+            new_ticket, stale_ticket,
+            "an OWN ticket is re-minted from the current address, not left stale"
+        );
+        let stale_hash = iroh_blobs::ticket::BlobTicket::from_str(&stale_ticket)
+            .unwrap()
+            .into_parts()
+            .1;
+        let new_hash = iroh_blobs::ticket::BlobTicket::from_str(&new_ticket)
+            .unwrap()
+            .into_parts()
+            .1;
+        assert_eq!(new_hash, stale_hash, "re-mint preserves the content hash");
+        node.shutdown().await.ok();
+        other.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn replay_does_not_remint_a_third_party_address() {
+        // Hijack guard (anti-recentralisation, defense-in-depth): the outbox is
+        // OWN-only, but if a THIRD-PARTY announcement (different node_id) were ever
+        // in it, replay must NOT re-point its ticket to our address. SENSITIVE: WE
+        // also hold the blob, so removing the node_id guard would let the re-mint
+        // succeed and rewrite the address — this test would then fail.
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        use std::sync::{Arc, RwLock};
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let other = nexus_core_rs::create_node().await.unwrap();
+        let bytes = b"zip2".to_vec();
+        // Both nodes hold the blob, so a (wrongly) un-guarded re-mint on our node
+        // WOULD succeed and rewrite the address to ours.
+        let hash = nexus_core_rs::BlobsClient::new(node.blobs_store())
+            .add_bytes(bytes.clone())
+            .await
+            .unwrap();
+        nexus_core_rs::BlobsClient::new(other.blobs_store())
+            .add_bytes(bytes)
+            .await
+            .unwrap();
+        // The foreign ticket points at `other`'s address, under `other`'s node_id.
+        let foreign_addr = nexus_core_rs::DiscoveryClient::new(other.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let foreign_ticket = iroh_blobs::ticket::BlobTicket::new(
+            foreign_addr,
+            iroh_blobs::Hash::from_bytes(hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+        let ann = ProjectAnnouncement::new(
+            other.node_id(),
+            "Foreign App".into(),
+            "tools".into(),
+            "x".into(),
+            vec![],
+        )
+        .with_project_id(hex::encode(nexus_core_rs::crypto::blake3_hash(
+            b"Foreign App",
+        )))
+        .with_archive_ticket(foreign_ticket.clone());
+        let payload = ann.to_gossip_bytes().unwrap();
+
+        let kp = Arc::new(nexus_core_rs::KeyPair::generate());
+        let policy = Arc::new(RwLock::new(nexus_core_rs::RelayPowPolicy {
+            default_difficulty: 1,
+            topic_overrides: std::collections::BTreeMap::new(),
+        }));
+        let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
+        let fresh =
+            super::remint_and_wrap_for_replay(&node, &cache, &policy, &kp, &[6u8; 32], &payload)
+                .await
+                .expect("replay envelope");
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let pol = policy.read().unwrap().clone();
+        let (_proof, out_payload) = nexus_core_rs::PowVerifyCache::new()
+            .verify_envelope(&fresh, &pol, now)
+            .expect("verify");
+        let out = ProjectAnnouncement::from_gossip_bytes(out_payload).unwrap();
+        assert_eq!(
+            out.archive_ticket.as_deref(),
+            Some(foreign_ticket.as_str()),
+            "a third party's ticket address must NOT be re-minted (hijack guard)"
+        );
+        node.shutdown().await.ok();
+        other.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn replay_keeps_stale_ticket_when_blob_is_gone() {
+        // Mint-failure fallback (T3): an OWN announcement whose blob is no longer
+        // held (GC'd) must STILL replay — keep the stale ticket but re-stamp a fresh
+        // PoW, so a regression returning None (dropping the entry) would make
+        // GC'd-blob apps silently invisible. The blob hash here is never stored.
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        use std::sync::{Arc, RwLock};
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let absent_hash = nexus_core_rs::crypto::blake3_hash(b"never-stored-blob");
+        let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let stale_ticket = iroh_blobs::ticket::BlobTicket::new(
+            addr,
+            iroh_blobs::Hash::from_bytes(absent_hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+        let ann = ProjectAnnouncement::new(
+            node.node_id(),
+            "GC App".into(),
+            "tools".into(),
+            "x".into(),
+            vec![],
+        )
+        .with_project_id(hex::encode(nexus_core_rs::crypto::blake3_hash(b"GC App")))
+        .with_archive_ticket(stale_ticket.clone());
+        let payload = ann.to_gossip_bytes().unwrap();
+
+        let kp = Arc::new(nexus_core_rs::KeyPair::generate());
+        let policy = Arc::new(RwLock::new(nexus_core_rs::RelayPowPolicy {
+            default_difficulty: 1,
+            topic_overrides: std::collections::BTreeMap::new(),
+        }));
+        let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
+        let fresh =
+            super::remint_and_wrap_for_replay(&node, &cache, &policy, &kp, &[7u8; 32], &payload)
+                .await
+                .expect("replay still produces an envelope when the blob is gone");
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let pol = policy.read().unwrap().clone();
+        let (_proof, out_payload) = nexus_core_rs::PowVerifyCache::new()
+            .verify_envelope(&fresh, &pol, now)
+            .expect("fresh PoW even on mint failure");
+        let out = ProjectAnnouncement::from_gossip_bytes(out_payload).unwrap();
+        assert_eq!(
+            out.archive_ticket.as_deref(),
+            Some(stale_ticket.as_str()),
+            "mint failure keeps the stale ticket (fresh PoW still un-breaks discovery)"
+        );
+        node.shutdown().await.ok();
+    }
+
+    #[test]
+    fn keep_online_gate_handles_unwrapped_payload() {
+        // Sprint 75 Phase A hot path (T4): the outbox stores UNWRAPPED payloads, so
+        // the OFF gate must suppress a disabled app fed as a raw payload, not only
+        // the legacy wrapped envelope covered by keep_online_disabled_app_*.
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        use std::collections::HashSet;
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Unwrapped Disabled"));
+        let payload = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "Unwrapped Disabled".into(),
+            "tools".into(),
+            "x".into(),
+            vec![],
+        )
+        .with_project_id(pid.clone())
+        .to_gossip_bytes()
+        .unwrap();
+
+        let mut disabled = HashSet::new();
+        disabled.insert(pid);
+        assert!(
+            !super::keep_online_allows_rebroadcast(&payload, &disabled),
+            "an unwrapped payload for a disabled app is suppressed"
+        );
+        let mut other = HashSet::new();
+        other.insert("zz".repeat(32));
+        assert!(
+            super::keep_online_allows_rebroadcast(&payload, &other),
+            "a different app disabled still replays this one"
+        );
+        assert!(
+            super::keep_online_allows_rebroadcast(&payload, &HashSet::new()),
+            "empty disabled set fast-path replays all"
+        );
+    }
+
+    #[tokio::test]
+    async fn browse_boot_restore_from_unwrapped_outbox_e2e() {
+        // Sprint 75 Phase A steady-state (T5): the NEW on-disk shape is the
+        // UNWRAPPED payload. Persist it through the real DB outbox, load + restore
+        // exactly as boot does, and assert the card reappears (Reachable, indexed).
+        use nexus_shell_daemon_core::browse::{BrowseAggregator, BrowseStatus};
+        use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Unwrapped Restored"));
+        let payload = ProjectAnnouncement::new(
+            node.node_id(),
+            "Unwrapped Restored".into(),
+            "tools".into(),
+            "persisted unwrapped".into(),
+            vec![],
+        )
+        .with_project_id(pid.clone())
+        .to_gossip_bytes()
+        .unwrap();
+
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        // Persist the UNWRAPPED payload (the S75 shape) — not a PoW envelope.
+        db.lock().unwrap().insert_outbox(&payload).unwrap();
+        let outbox = db.lock().unwrap().load_outbox().unwrap();
+        assert_eq!(outbox.len(), 1);
+
+        let agg = std::sync::Arc::new(BrowseAggregator::new());
+        let restored = super::restore_browse_from_outbox(&agg, &db, &node, &outbox);
+        assert_eq!(restored, 1, "the unwrapped payload restores one card");
+
+        let curator = CuratorRuntime::new(None);
+        let out = agg.aggregate(&curator, &node).await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].project_name, "Unwrapped Restored");
+        assert_eq!(out[0].project_id, pid);
+        assert_eq!(out[0].status, BrowseStatus::Reachable);
+        let (_results, total) =
+            nexus_coordinator_rs::search::search(&db.lock().unwrap(), "Unwrapped", 20, 0).unwrap();
+        assert_eq!(total, 1, "restored unwrapped app is findable by name");
+        node.shutdown().await.ok();
     }
 
     #[tokio::test]
