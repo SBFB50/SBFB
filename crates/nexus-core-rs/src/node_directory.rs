@@ -129,9 +129,12 @@ pub struct CatalogApp {
     /// the exact content a puller fetches + integrity-checks. The
     /// dialable transport address is NOT stored here (a stored ticket
     /// would freeze a stale `EndpointAddr`, the bug Phase A fixed); the
-    /// puller re-mints a dialable ticket from `(node_id, archive_hash)`
-    /// at pull time. Empty only for a directory entry with no archive
-    /// (e.g. a private placeholder), which a puller skips.
+    /// puller downloads the bare hash directly from the publishing
+    /// node_id (plus any best-effort seeders) at pull time — no ticket
+    /// involved, pkarr resolves the bare endpoint id
+    /// (`BlobsClient::fetch_hash_multi`, Sprint 75 Phase D). Empty only
+    /// for a directory entry with no archive (e.g. a private
+    /// placeholder), which a puller skips.
     pub archive_hash: String,
 
     /// Human-readable app name (display only).

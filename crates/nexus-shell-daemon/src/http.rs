@@ -12,6 +12,7 @@
 //! - `POST   /api/daemon/curators/subscribe`  — add a curator to the attention set
 //! - `DELETE /api/daemon/curators/{pubkey}`   — remove a curator
 //! - `GET    /api/daemon/browse`              — aggregated browse entries
+//! - `GET    /api/daemon/nodes`               — subscribed node directories (catalog publishers)
 //! - `POST   /api/daemon/publish`             — publish a project announcement
 //! - `POST   /api/daemon/publish-blob`        — upload a zip archive blob
 //! - `POST   /api/daemon/directory/publish`   — publish this node's signed catalog
@@ -292,6 +293,9 @@ pub fn build_router(
         )
         // Sprint 74 Phase F: best-effort multi-seed availability count.
         .route("/api/daemon/seed-count/{project_id}", get(seed_count))
+        // Sprint 75 Phase D: node identity exposure — the subscribed node
+        // directories grouped by publishing node (read-only projection).
+        .route("/api/daemon/nodes", get(list_nodes))
         .route("/api/daemon/publish", post(publish_project))
         .route("/api/daemon/publish-blob", post(publish_blob))
         .route("/api/daemon/directory/publish", post(publish_directory))
@@ -1389,17 +1393,194 @@ async fn set_keep_online(
         .into_response()
 }
 
+// =================================================================
+// Directory-only pull resolution (Sprint 75 Phase D, carry PULL-2)
+// =================================================================
+
+/// Cap on the ordered provider vector handed to the multi-provider fetch.
+/// The anchor plus at most `PULL_PROVIDER_CAP - 1` TTL-fresh seeders: a Sybil
+/// swarm padding the SeedRegistry can never make the downloader attempt an
+/// unbounded dial chain (THREAT_MODEL §15 row D; SEED-2 bounds the registry
+/// itself, this bounds what one fetch will try).
+const PULL_PROVIDER_CAP: usize = 8;
+
+/// Wall-clock budget for one directory-only pull (the whole capped provider
+/// chain, worst case every provider dead). The existing single-provider
+/// ticket tier carries no explicit budget; the multi-provider chain gets one
+/// so a fully-dead provider set fails the HTTP request instead of hanging it.
+const DIRECTORY_PULL_TIMEOUT_SECS: u64 = 120;
+
+/// Locate, across every SUBSCRIBED node directory, the catalog app whose
+/// `archive_hash` equals `hash_hex`. Returns `(project_id, anchor_node_id_hex)`
+/// of the first match (snapshot order is deterministic, sorted by node_id).
+/// Empty archive hashes (placeholder rows) never match.
+fn find_directory_app_by_hash(
+    dirs: &[nexus_core_rs::NodeDirectoryEntry],
+    hash_hex: &str,
+) -> Option<(String, String)> {
+    for dir in dirs {
+        for app in &dir.directory.catalog {
+            if !app.archive_hash.is_empty() && app.archive_hash == hash_hex {
+                return Some((app.project_id.clone(), hex::encode(dir.directory.node_id)));
+            }
+        }
+    }
+    None
+}
+
+/// Locate, across every SUBSCRIBED node directory, the catalog app with
+/// `project_id`. Returns `(archive_hash_hex, anchor_node_id_hex)`; rows
+/// without an archive (empty hash) are skipped — there is nothing to pull.
+fn find_directory_app_by_project(
+    dirs: &[nexus_core_rs::NodeDirectoryEntry],
+    project_id: &str,
+) -> Option<(String, String)> {
+    for dir in dirs {
+        for app in &dir.directory.catalog {
+            if app.project_id == project_id && !app.archive_hash.is_empty() {
+                return Some((app.archive_hash.clone(), hex::encode(dir.directory.node_id)));
+            }
+        }
+    }
+    None
+}
+
+/// Build the ORDERED provider vector for a directory-only pull (Q5): the
+/// anchor that published the directory first (it authored the listing and is
+/// the most likely holder), then the TTL-fresh seeders of
+/// `(project_id, archive_hash)` from the best-effort SeedRegistry. Deduped,
+/// self excluded (we never dial ourselves), malformed ids skipped, capped at
+/// [`PULL_PROVIDER_CAP`] (the loop stops pushing at the cap; the primitive
+/// additionally enforces its own never-exceed ceiling). The iroh-blobs
+/// `Downloader` consumes the vec in iteration order and retries the next
+/// provider when one fails — so this ordering IS the fallback policy. A
+/// lying seeder entry costs one failed dial, never integrity: the requested
+/// object is the BLAKE3 hash itself.
+///
+/// Known availability residual (review Phase D): the seeder tail comes from
+/// `seeders_recent`, which sorts lexicographically — a Sybil minting keys
+/// with low hex prefixes can deterministically occupy the capped slots and
+/// crowd an honest seeder out of the dial set (the anchor slot is never
+/// crowdable). Integrity holds regardless (BLAKE3); random sampling of the
+/// fresh-seeder set is the tracked mitigation, carried to the S76 audit.
+fn directory_pull_providers(
+    seed_registry: &crate::seed_registry::SeedRegistry,
+    my_node_id: &str,
+    anchor_hex: &str,
+    project_id: &str,
+    archive_hash_hex: &str,
+    now: u64,
+) -> Vec<iroh::EndpointId> {
+    use std::str::FromStr as _;
+    fn push_unique(providers: &mut Vec<iroh::EndpointId>, my_node_id: &str, hex_id: &str) {
+        if hex_id == my_node_id {
+            return;
+        }
+        if let Ok(id) = iroh::EndpointId::from_str(hex_id) {
+            if !providers.contains(&id) {
+                providers.push(id);
+            }
+        }
+    }
+    let mut providers: Vec<iroh::EndpointId> = Vec::new();
+    push_unique(&mut providers, my_node_id, anchor_hex);
+    for seeder in seed_registry.seeders_recent(project_id, archive_hash_hex, now) {
+        if providers.len() >= PULL_PROVIDER_CAP {
+            break;
+        }
+        push_unique(&mut providers, my_node_id, &seeder);
+    }
+    providers
+}
+
+/// `GET /api/daemon/nodes` response envelope (Sprint 75 Phase D).
+///
+/// ENVELOPE, not a bare array (S73-E lesson — the search route pins
+/// `{results,total,took_ms}` for the same reason): the Phase-F frontend Zod
+/// schema validates `{ nodes: [...] }` and additive fields stay possible.
+/// One element per SUBSCRIBED publishing node — the directory store is keyed
+/// by node pubkey, so the grouping is structural, never recomputed.
+#[derive(Debug, Serialize)]
+struct NodesResponse {
+    nodes: Vec<NodeSummary>,
+}
+
+/// One catalog-publishing node in [`NodesResponse`].
+#[derive(Debug, Serialize)]
+struct NodeSummary {
+    /// Lowercase hex Ed25519 pubkey — the node's dialable identity AND the
+    /// signing identity of its directory (they are the same key).
+    node_id: String,
+    /// The directory's monotonic revision (anti-rollback floor).
+    revision: u64,
+    /// Convenience count of catalog rows.
+    app_count: usize,
+    /// The advertised apps, verbatim from the verified signed directory.
+    /// The anchor is a DISCOVERY source, never an authority: provenance is
+    /// derived from the author-signed provenance.json at pull time (verrou 4).
+    catalog: Vec<nexus_core_rs::CatalogApp>,
+}
+
+/// Pure projection from the verified directory snapshot to the `/nodes`
+/// response — extracted so the envelope shape is pinned by a unit test
+/// without a network boot.
+fn nodes_response(dirs: Vec<nexus_core_rs::NodeDirectoryEntry>) -> NodesResponse {
+    NodesResponse {
+        nodes: dirs
+            .into_iter()
+            .map(|d| NodeSummary {
+                node_id: hex::encode(d.directory.node_id),
+                revision: d.directory.revision,
+                app_count: d.directory.catalog.len(),
+                catalog: d.directory.catalog,
+            })
+            .collect(),
+    }
+}
+
+/// `GET /api/daemon/nodes` — Sprint 75 Phase D — node identity exposure.
+///
+/// Read-only projection of every SUBSCRIBED node directory (already
+/// signature-verified + revision-gated at ingest), grouped by publishing
+/// node. This is the additive route chosen over un-skipping
+/// `BrowseEntry.node_id`, which would have changed the `/browse` bytes —
+/// the preflight S2/S4 trace keeps that surface byte-identical. The full
+/// node-Browse front (`/nodes` page) consumes this in Phase F.
+async fn list_nodes(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    debug!("GET /api/daemon/nodes");
+    (
+        StatusCode::OK,
+        Json(nodes_response(state.curator_runtime.directory_snapshot())),
+    )
+        .into_response()
+}
+
 /// `POST /api/daemon/seed` — Sprint 74 Phase E — VOLUNTARY community seed.
 /// This node helps keep a DISTANT public app online: it fetches the app's
-/// archive blob (by the ticket already learned via gossip), pins it under the
-/// keep-online tag (skip-GC), and records a local `keep_online` row so the boot
-/// re-announce (Phase F) re-diffuses it. No `SeedRequest`, no invite, no author
-/// approval — the content is already public and content-addressed (BLAKE3), so a
-/// supporter can only ever hold the author's exact bytes and never re-signs any
-/// provenance (the author stays the author). Loopback-authenticated.
+/// archive blob, pins it under the keep-online tag (skip-GC), and records a
+/// local `keep_online` row so the boot re-announce (Phase F) re-diffuses it.
+/// No `SeedRequest`, no invite, no author approval — the content is already
+/// public and content-addressed (BLAKE3), so a supporter can only ever hold
+/// the author's exact bytes and never re-signs any provenance (the author
+/// stays the author). Loopback-authenticated.
+///
+/// Two acquisition paths (Sprint 75 Phase D closed GAP R5b):
+///  - a DIRECT (gossip) entry carries an archive ticket → single-provider
+///    `fetch_and_pin` via the ticket, the original Phase-E path;
+///  - a DIRECTORY-ONLY app (discovered through a subscribed node directory)
+///    has NO ticket, only `(anchor node_id, archive_hash)` → multi-provider
+///    `fetch_and_pin_multi` from the anchor + the best-effort seeders.
 #[derive(Debug, serde::Deserialize)]
 struct SeedVoluntaryRequest {
     project_id: String,
+}
+
+/// How `seed_voluntary` acquires the archive bytes for the requested app.
+enum SeedFetchPlan {
+    /// Direct entry: dial the single provider embedded in the BlobTicket.
+    Ticket(String),
+    /// Directory-only app: ordered multi-provider fetch by bare hash (Q5).
+    Multi(Vec<iroh::EndpointId>),
 }
 
 async fn seed_voluntary(
@@ -1408,21 +1589,51 @@ async fn seed_voluntary(
 ) -> impl IntoResponse {
     debug!(project = %req.project_id, "POST /api/daemon/seed (voluntary)");
 
-    // The app must be visible in Browse (learned via gossip) so we have its
-    // archive ticket + hash to fetch. A user can only seed what they can see.
-    let entry = state.browse_aggregator.get_direct_entry(&req.project_id);
-    let Some(entry) = entry else {
+    // The app must be visible in Browse so we know its archive hash. A user
+    // can only seed what they can see. A direct (gossip) entry wins — it
+    // carries a ready ticket; otherwise fall back to the subscribed node
+    // directories (directory-only apps have no ticket by design: a stored
+    // ticket would freeze a stale address, the Phase A bug).
+    let (hash_hex, plan): (String, SeedFetchPlan) = if let Some(entry) =
+        state.browse_aggregator.get_direct_entry(&req.project_id)
+    {
+        let (Some(ticket), Some(hash_hex)) =
+            (entry.archive_ticket.clone(), entry.archive_hash.clone())
+        else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "app has no archive to seed"})),
+            )
+                .into_response();
+        };
+        (hash_hex, SeedFetchPlan::Ticket(ticket))
+    } else if let Some((hash_hex, anchor_hex)) =
+        find_directory_app_by_project(&state.curator_runtime.directory_snapshot(), &req.project_id)
+    {
+        let now = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let providers = directory_pull_providers(
+            &state.seed_registry,
+            &state.node_id,
+            &anchor_hex,
+            &req.project_id,
+            &hash_hex,
+            now,
+        );
+        if providers.is_empty() {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": "no dialable provider for this app"})),
+            )
+                .into_response();
+        }
+        (hash_hex, SeedFetchPlan::Multi(providers))
+    } else {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "unknown app (not in browse)"})),
-        )
-            .into_response();
-    };
-    let (Some(ticket), Some(hash_hex)) = (entry.archive_ticket.clone(), entry.archive_hash.clone())
-    else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "app has no archive to seed"})),
         )
             .into_response();
     };
@@ -1436,14 +1647,31 @@ async fn seed_voluntary(
 
     let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
     let tag = crate::deploy::keep_online_tag(&req.project_id);
-    let fetched = blobs
-        .fetch_and_pin(
-            state.node.endpoint(),
-            state.node.memory_lookup(),
-            &ticket,
-            &tag,
-        )
-        .await;
+    let fetched = match plan {
+        SeedFetchPlan::Ticket(ticket) => {
+            blobs
+                .fetch_and_pin(
+                    state.node.endpoint(),
+                    state.node.memory_lookup(),
+                    &ticket,
+                    &tag,
+                )
+                .await
+        }
+        SeedFetchPlan::Multi(providers) => {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(DIRECTORY_PULL_TIMEOUT_SECS),
+                blobs.fetch_and_pin_multi(state.node.endpoint(), want_hash, providers, &tag),
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(_) => Err(nexus_core_rs::NexusError::Blobs(
+                    "directory pull timed out across all providers".into(),
+                )),
+            }
+        }
+    };
     match fetched {
         Ok(h) if h == want_hash => {
             {
@@ -1881,9 +2109,12 @@ async fn blob_serve(
         // Acquire the zip bytes from, in order: the ephemeral preview store
         // (Sprint 68), the local blob store, then — for an app DISCOVERED ON THE
         // NETWORK whose zip lives on the announcing node — a P2P download via the
-        // archive ticket resolved from the browse aggregator. Without that last
-        // tier, any app the user did not publish himself never renders (the whole
-        // point of "the network distributes the app").
+        // archive ticket resolved from the browse aggregator, and finally — for a
+        // DIRECTORY-ONLY app (Sprint 75 Phase D, closed GAP R5a) — a
+        // multi-provider download by bare hash from the publishing anchor + the
+        // best-effort seeders. Without those network tiers, any app the user did
+        // not publish himself never renders (the whole point of "the network
+        // distributes the app").
         let blobs = BlobsClient::new(state.node.blobs_store());
         let zip_bytes: Vec<u8> = if let Some(z) = state.preview_store.get(&hash) {
             z
@@ -1903,6 +2134,63 @@ async fn blob_serve(
                 )
                     .into_response();
             }
+            match blobs.get_bytes(hash_bytes).await {
+                Ok(z) => z,
+                Err(_) => {
+                    return (StatusCode::BAD_GATEWAY, "fetched archive unavailable")
+                        .into_response();
+                }
+            }
+        } else if let Some((project_id, anchor_hex)) =
+            find_directory_app_by_hash(&state.curator_runtime.directory_snapshot(), &hash)
+        {
+            // Directory-only app: the listing advertises (anchor node_id,
+            // archive_hash) and deliberately NO ticket (a stored ticket would
+            // freeze a stale address — the Phase A bug). Fetch the bare hash
+            // from the anchor first, then the TTL-fresh seeders (Q5 ordering);
+            // pkarr resolves the bare EndpointIds. Content-addressing is the
+            // integrity gate: whatever provider answers, the bytes ARE the
+            // requested BLAKE3 or the download fails.
+            let now = SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let providers = directory_pull_providers(
+                &state.seed_registry,
+                &state.node_id,
+                &anchor_hex,
+                &project_id,
+                &hash,
+                now,
+            );
+            if providers.is_empty() {
+                return (StatusCode::BAD_GATEWAY, "no dialable provider for this app")
+                    .into_response();
+            }
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(DIRECTORY_PULL_TIMEOUT_SECS),
+                blobs.fetch_hash_multi(state.node.endpoint(), hash_bytes, providers),
+            )
+            .await
+            {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    warn!(error = %e, hash = %hash, "directory-only archive fetch failed");
+                    return (
+                        StatusCode::BAD_GATEWAY,
+                        "failed to fetch app archive from network",
+                    )
+                        .into_response();
+                }
+                Err(_) => {
+                    warn!(hash = %hash, "directory-only archive fetch timed out");
+                    return (StatusCode::BAD_GATEWAY, "app archive fetch timed out")
+                        .into_response();
+                }
+            }
+            // Read back BY THE REQUESTED HASH — the same post-fetch integrity
+            // re-check as the ticket tier (verrou 4: only the author's exact
+            // bytes can land under this hash).
             match blobs.get_bytes(hash_bytes).await {
                 Ok(z) => z,
                 Err(_) => {
@@ -3554,6 +3842,407 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // ---- Sprint 75 Phase D: directory-only pull + node identity ----
+
+    /// Sign a directory under `kp` (the anchor identity, possibly never
+    /// dialable), host its blob on `host`, and ingest it into `state`'s
+    /// curator runtime through the REAL subscription-gated path (subscribe +
+    /// announcement + blob fetch + signature/revision verify).
+    async fn ingest_remote_directory(
+        state: &Arc<DaemonHttpState>,
+        host: &Node,
+        kp: &KeyPair,
+        catalog: Vec<nexus_core_rs::CatalogApp>,
+        revision: u64,
+    ) -> nexus_core_rs::NodeDirectoryEntry {
+        let mut dir = nexus_core_rs::NodeDirectory::new(kp.public_bytes(), revision);
+        dir.catalog = catalog;
+        let entry = nexus_core_rs::NodeDirectoryEntry::sign(dir, kp).expect("sign directory");
+        let body = serde_json::to_vec(&entry).unwrap();
+        let blobs_host = nexus_core_rs::BlobsClient::new(host.blobs_store());
+        let blob_hash = blobs_host.add_bytes(&body).await.unwrap();
+        let host_addr = nexus_core_rs::DiscoveryClient::new(host.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("host must expose an address");
+        let ticket = iroh_blobs::ticket::BlobTicket::new(
+            host_addr,
+            iroh_blobs::Hash::from_bytes(blob_hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+        let ann = nexus_shell_daemon_core::iroh_runtime::NodeDirectoryAnnouncement::new(
+            kp.public_bytes(),
+            ticket,
+        );
+        state
+            .curator_runtime
+            .subscribe(&hex::encode(kp.public_bytes()))
+            .expect("subscribe to the anchor");
+        state
+            .curator_runtime
+            .process_directory_announcement_bytes(&ann.to_bytes().unwrap(), &state.node)
+            .await
+            .expect("directory must ingest through the real gate")
+    }
+
+    fn catalog_app(project_id: &str, archive_hash: &str, name: &str) -> nexus_core_rs::CatalogApp {
+        nexus_core_rs::CatalogApp {
+            project_id: project_id.into(),
+            archive_hash: archive_hash.into(),
+            project_name: name.into(),
+            category: "tools".into(),
+            description: "fixture".into(),
+        }
+    }
+
+    #[test]
+    fn directory_resolvers_match_hash_and_project() {
+        // The two R5 resolution helpers (review Phase D: previously untested
+        // glue). by_hash: exact match wins, EMPTY archive hashes never match
+        // (a placeholder row must not shadow a real one when the query is
+        // empty/bogus), multi-directory scan, miss -> None. by_project:
+        // archive-less rows are skipped (nothing to pull).
+        let kp1 = KeyPair::generate();
+        let kp2 = KeyPair::generate();
+        let pid_a = "1".repeat(64); // placeholder row, NO archive
+        let pid_b = "2".repeat(64);
+        let pid_c = "3".repeat(64);
+        let h1 = "a1".repeat(32);
+        let h2 = "b2".repeat(32);
+
+        let mut dir1 = nexus_core_rs::NodeDirectory::new(kp1.public_bytes(), 1);
+        dir1.catalog = vec![
+            nexus_core_rs::CatalogApp {
+                project_id: pid_a.clone(),
+                archive_hash: String::new(),
+                project_name: "Placeholder".into(),
+                category: "tools".into(),
+                description: "no archive".into(),
+            },
+            catalog_app(&pid_b, &h1, "Babel"),
+        ];
+        let entry1 = nexus_core_rs::NodeDirectoryEntry::sign(dir1, &kp1).unwrap();
+        let mut dir2 = nexus_core_rs::NodeDirectory::new(kp2.public_bytes(), 1);
+        dir2.catalog = vec![catalog_app(&pid_c, &h2, "Atlas")];
+        let entry2 = nexus_core_rs::NodeDirectoryEntry::sign(dir2, &kp2).unwrap();
+        let dirs = vec![entry1, entry2];
+
+        // by_hash: each hash resolves to ITS app + ITS anchor.
+        assert_eq!(
+            find_directory_app_by_hash(&dirs, &h1),
+            Some((pid_b.clone(), hex::encode(kp1.public_bytes())))
+        );
+        assert_eq!(
+            find_directory_app_by_hash(&dirs, &h2),
+            Some((pid_c.clone(), hex::encode(kp2.public_bytes())))
+        );
+        // An empty query NEVER matches the placeholder's empty hash.
+        assert_eq!(find_directory_app_by_hash(&dirs, ""), None);
+        // Unknown hash -> None.
+        assert_eq!(find_directory_app_by_hash(&dirs, &"ff".repeat(32)), None);
+
+        // by_project: a real row resolves; an archive-less row is skipped.
+        assert_eq!(
+            find_directory_app_by_project(&dirs, &pid_b),
+            Some((h1.clone(), hex::encode(kp1.public_bytes())))
+        );
+        assert_eq!(find_directory_app_by_project(&dirs, &pid_a), None);
+        assert_eq!(find_directory_app_by_project(&dirs, &"9".repeat(64)), None);
+    }
+
+    #[test]
+    fn fetch_provider_ordering() {
+        // Q5 (plan D.3 #2): the provider vector is ORDERED — the publishing
+        // anchor first, then the TTL-fresh seeders — deduped, self excluded,
+        // capped. The iroh-blobs Downloader consumes it in iteration order,
+        // so this vector IS the fallback policy.
+        let reg = crate::seed_registry::SeedRegistry::new();
+        let now = 1_700_000_000u64;
+        let pid = "a".repeat(64);
+        let hash = "cc".repeat(32);
+        let me = hex::encode(KeyPair::generate().public_bytes());
+        let anchor = hex::encode(KeyPair::generate().public_bytes());
+        let s1 = hex::encode(KeyPair::generate().public_bytes());
+        let s2 = hex::encode(KeyPair::generate().public_bytes());
+
+        reg.record(&pid, &hash, &s1, now, now);
+        reg.record(&pid, &hash, &s2, now, now);
+        // The anchor also announced itself as a seeder → must dedup, not dial twice.
+        reg.record(&pid, &hash, &anchor, now, now);
+        // Our own node announced → must be excluded (we never dial ourselves).
+        reg.record(&pid, &hash, &me, now, now);
+        // A malformed id in the registry is skipped, never a panic.
+        reg.record(&pid, &hash, "not-hex-at-all", now, now);
+
+        let providers = directory_pull_providers(&reg, &me, &anchor, &pid, &hash, now);
+        use std::str::FromStr as _;
+        let anchor_id = iroh::EndpointId::from_str(&anchor).unwrap();
+        assert_eq!(
+            providers[0], anchor_id,
+            "the anchor must be the FIRST provider (Q5 ordering)"
+        );
+        assert_eq!(
+            providers.len(),
+            3,
+            "anchor + 2 seeders; anchor deduped, self + malformed excluded"
+        );
+        assert!(providers.contains(&iroh::EndpointId::from_str(&s1).unwrap()));
+        assert!(providers.contains(&iroh::EndpointId::from_str(&s2).unwrap()));
+        assert!(!providers.contains(&iroh::EndpointId::from_str(&me).unwrap()));
+
+        // The cap bounds a Sybil-padded registry: many distinct fresh seeders
+        // can never grow the dial chain past PULL_PROVIDER_CAP.
+        for _ in 0..(PULL_PROVIDER_CAP + 5) {
+            let sybil = hex::encode(KeyPair::generate().public_bytes());
+            reg.record(&pid, &hash, &sybil, now, now);
+        }
+        let capped = directory_pull_providers(&reg, &me, &anchor, &pid, &hash, now);
+        assert_eq!(capped.len(), PULL_PROVIDER_CAP, "provider vector is capped");
+        assert_eq!(capped[0], anchor_id, "the anchor survives the cap in front");
+    }
+
+    #[test]
+    fn nodes_response_pins_envelope_and_grouping() {
+        // Plan D.3 #6 (renamed from `nodes_endpoint_groups_by_node_id` for
+        // honesty: this pins the PROJECTION — the entire handler body — and
+        // the route itself is traversed over HTTP in
+        // `reachable_via_seeder_status` part (c)). The /api/daemon/nodes
+        // ENVELOPE shape is pinned now, before the Phase-F frontend consumer
+        // exists (S73-E lesson: envelope, not bare array; S72-D lesson: never
+        // ship a consumer-less shape without a producer-side pin test). Two
+        // apps of one node stay grouped under ONE node element.
+        let kp_a = KeyPair::generate();
+        let kp_b = KeyPair::generate();
+        let mut dir_a = nexus_core_rs::NodeDirectory::new(kp_a.public_bytes(), 3);
+        dir_a.catalog = vec![
+            catalog_app(&"1".repeat(64), &"a1".repeat(32), "Babel"),
+            catalog_app(&"2".repeat(64), &"a2".repeat(32), "Atlas"),
+        ];
+        let entry_a = nexus_core_rs::NodeDirectoryEntry::sign(dir_a, &kp_a).unwrap();
+        let mut dir_b = nexus_core_rs::NodeDirectory::new(kp_b.public_bytes(), 7);
+        dir_b.catalog = vec![catalog_app(&"3".repeat(64), &"b1".repeat(32), "Solo")];
+        let entry_b = nexus_core_rs::NodeDirectoryEntry::sign(dir_b, &kp_b).unwrap();
+
+        let json = serde_json::to_value(nodes_response(vec![entry_a, entry_b])).unwrap();
+
+        let nodes = json["nodes"]
+            .as_array()
+            .expect("envelope: a top-level `nodes` array, never a bare array");
+        assert_eq!(nodes.len(), 2, "one element per publishing node");
+        assert_eq!(nodes[0]["node_id"], hex::encode(kp_a.public_bytes()));
+        assert_eq!(nodes[0]["revision"], 3);
+        assert_eq!(nodes[0]["app_count"], 2);
+        let cat = nodes[0]["catalog"].as_array().unwrap();
+        assert_eq!(cat.len(), 2, "both apps grouped under their node");
+        assert_eq!(cat[0]["project_id"], "1".repeat(64));
+        assert_eq!(cat[0]["archive_hash"], "a1".repeat(32));
+        assert_eq!(cat[0]["project_name"], "Babel");
+        assert_eq!(nodes[1]["node_id"], hex::encode(kp_b.public_bytes()));
+        assert_eq!(nodes[1]["revision"], 7);
+        assert_eq!(nodes[1]["app_count"], 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reachable_via_seeder_status() {
+        // Q7 (plan D.3 #5) — the HONEST backend signal pair for a
+        // directory-only app whose anchor is dead but whose bytes a seeder
+        // still holds: (a) the Browse row NEVER lies `Reachable` on the dead
+        // anchor, (b) the version-exact seed-count reports the live seeder.
+        // The visible "reachable-via-seeder" badge that renders this pair is
+        // Phase F (keeping `/browse` byte-identical in a core+daemon phase).
+        let state = mk_state().await;
+        let host = create_node().await.expect("boot host node");
+
+        // The anchor identity never boots a node → its probe can only fail.
+        let kp_anchor = KeyPair::generate();
+        let pid = "d".repeat(64);
+        let archive_hash = "ee".repeat(32);
+        ingest_remote_directory(
+            &state,
+            &host,
+            &kp_anchor,
+            vec![catalog_app(&pid, &archive_hash, "Ghost App")],
+            1,
+        )
+        .await;
+
+        // A live seeder announced it holds this exact archive version.
+        let seeder = hex::encode(KeyPair::generate().public_bytes());
+        let now = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        state
+            .seed_registry
+            .record(&pid, &archive_hash, &seeder, now, now);
+
+        // (a) The browse row for the directory app reports the ANCHOR truth.
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/browse")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let entries = json["entries"].as_array().expect("entries array");
+        let row = entries
+            .iter()
+            .find(|e| e["project_id"] == pid)
+            .expect("the directory app must be discoverable (verrou 2)");
+        assert_eq!(row["source"], "nodedirectory");
+        assert_eq!(
+            row["status"], "unreachable",
+            "a dead anchor must never be reported Reachable (Q7 honesty)"
+        );
+
+        // (b) The version-exact seed-count carries the live-seeder signal.
+        let app = build_test_router(state.clone());
+        let uri = format!("/api/daemon/seed-count/{pid}?archive_hash={archive_hash}");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json["peer_count"], 1,
+            "the seeder holding the BLAKE3 must be visible in the backend signal"
+        );
+        assert_eq!(json["self_seeding"], false);
+
+        // (c) Route-level coverage of GET /api/daemon/nodes (the envelope
+        // shape itself is pinned by `nodes_response_pins_envelope_and_grouping`):
+        // the registered path serves the subscribed anchor's catalog.
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/nodes")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let nodes = json["nodes"].as_array().expect("envelope over HTTP");
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0]["node_id"], hex::encode(kp_anchor.public_bytes()));
+        assert_eq!(nodes[0]["catalog"][0]["project_id"], pid);
+
+        host.shutdown().await.ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn seed_voluntary_directory_only_app() {
+        // Sprint 75 Phase D closed GAP R5b: a directory-only app (no direct
+        // entry, no ticket) becomes voluntarily seedable. The anchor identity
+        // here is DEAD (never booted), so the pull must fall back to the
+        // SeedRegistry seeder that actually holds the bytes — the full
+        // multi-provider chain, E2E through the HTTP route.
+        let state = mk_state().await;
+        let seeder_node = create_node().await.expect("boot seeder node");
+
+        // The seeder holds the app archive (author bytes, content-addressed).
+        let payload = b"the-author-exact-archive-bytes".to_vec();
+        let blobs_seeder = nexus_core_rs::BlobsClient::new(seeder_node.blobs_store());
+        let archive_hash_bytes = blobs_seeder.add_bytes(&payload).await.unwrap();
+        let archive_hash = hex::encode(archive_hash_bytes);
+
+        // A dead anchor advertises the app in its (validly signed) directory,
+        // whose blob the seeder node hosts.
+        let kp_anchor = KeyPair::generate();
+        let pid = "e".repeat(64);
+        ingest_remote_directory(
+            &state,
+            &seeder_node,
+            &kp_anchor,
+            vec![catalog_app(&pid, &archive_hash, "Fallback App")],
+            1,
+        )
+        .await;
+        // NOT a direct entry — this is the directory-only shape.
+        assert!(state.browse_aggregator.get_direct_entry(&pid).is_none());
+
+        // The live seeder announced this exact version; seed its address so
+        // the fallback dial resolves without live pkarr propagation timing.
+        let now = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        state
+            .seed_registry
+            .record(&pid, &archive_hash, &seeder_node.node_id(), now, now);
+        let seeder_addr = nexus_core_rs::DiscoveryClient::new(seeder_node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("seeder must expose an address");
+        state.node.memory_lookup().add_endpoint_info(seeder_addr);
+
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"project_id": pid}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "voluntary seed of a directory-only app must succeed via the seeder fallback"
+        );
+
+        // The node now HOLDS the author bytes under the exact hash...
+        let blobs_local = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        assert!(blobs_local.has(archive_hash_bytes).await.unwrap());
+        let got = blobs_local.get_bytes(archive_hash_bytes).await.unwrap();
+        assert_eq!(got, payload, "content-addressing: the author's exact bytes");
+        // ...pinned skip-GC under the keep-online tag — this is the ONLY test
+        // exercising fetch_and_pin_multi, so the pin half of its contract
+        // must be asserted here (mirror of the ticket-path test).
+        assert!(
+            has_tag(&state, &crate::deploy::keep_online_tag(&pid)).await,
+            "fetch_and_pin_multi must leave the keep-online pin tag behind"
+        );
+        // ...and the keep-online row records the seed for the boot re-announce.
+        // Lexical block so the MutexGuard provably never crosses the await
+        // below (clippy::await_holding_lock reasons on scopes, not drop()).
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let row = db.get_keep_online(&pid).expect("keep_online read");
+            assert_eq!(row, Some((true, Some(archive_hash.clone()))));
+        }
+
+        seeder_node.shutdown().await.ok();
     }
 
     #[tokio::test]

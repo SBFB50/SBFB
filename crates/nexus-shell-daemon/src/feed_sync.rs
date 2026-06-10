@@ -378,12 +378,19 @@ async fn ingest_doc_entry(
             // me) refreshes the "Toi + N pairs (vus recemment)" count; every
             // other op (and our own echoed announcement) is ignored. The
             // freshness basis is the entry's own timestamp, so a stale
-            // re-delivery never resurrects an expired seeder.
+            // re-delivery never resurrects an expired seeder — and the
+            // registry clamps it to our local receive clock (SEED-1), so a
+            // forged FUTURE timestamp cannot stay "fresh" past the TTL.
+            let recv_now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
             if seed_registry.record_announced(
                 &feed_entry.op,
                 &feed_entry.author_pubkey,
                 my_node_id,
                 feed_entry.timestamp,
+                recv_now,
             ) {
                 debug!(
                     author = &feed_entry.author_pubkey[..8],

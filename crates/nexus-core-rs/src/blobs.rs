@@ -34,8 +34,8 @@
 
 use std::str::FromStr;
 
-use iroh::Endpoint;
 use iroh::address_lookup::memory::MemoryLookup;
+use iroh::{Endpoint, EndpointId};
 use iroh_blobs::Hash;
 // Re-exported (see `lib.rs`): `Store` is already reachable through the
 // public `BlobsClient::new(&Store)` signature and `Node::blobs_store`, so
@@ -51,6 +51,13 @@ use crate::error::{NexusError, Result};
 // Re-export BlobTicket so downstream callers (including the Python
 // bindings) don't need iroh-blobs as a direct dependency.
 pub use iroh_blobs::ticket::BlobTicket as BlobsTicket;
+
+/// Hard safety bound on the provider set [`BlobsClient::fetch_hash_multi`]
+/// will dial (Sprint 75 Phase D). Enforced INSIDE the primitive — not a
+/// caller convention — so no future call site can hand the downloader an
+/// unbounded dial chain. Callers typically apply a tighter policy cap
+/// (the daemon's directory pull uses 8); this is the never-exceed ceiling.
+pub const MAX_FETCH_PROVIDERS: usize = 16;
 
 /// Thin client around an iroh-blobs [`Store`].
 ///
@@ -192,6 +199,76 @@ impl<'a> BlobsClient<'a> {
         Ok(*hash.as_bytes())
     }
 
+    /// Download a blob by its **bare content hash** from an ordered set
+    /// of candidate providers (Sprint 75 Phase D, carry PULL-2).
+    ///
+    /// Unlike [`BlobsClient::fetch_ticket`] this needs NO pre-existing
+    /// [`BlobTicket`]: the requested object IS the BLAKE3 hash, and each
+    /// provider is a bare [`EndpointId`] that iroh resolves to a dialable
+    /// address through the `presets::N0` pkarr discovery wired at node
+    /// boot (a caller that already knows a provider's `EndpointAddr` can
+    /// seed the node's `MemoryLookup` beforehand, exactly like the
+    /// ticket path does). This is the consumer leg of the PULL discovery
+    /// model: a directory listing advertises `(node_id, archive_hash)`
+    /// only — the producer-side `mint_ticket_for_hash` helper cannot
+    /// serve here because the puller does not hold the blob yet.
+    ///
+    /// `providers` is **ordered** (Q5): the iroh-blobs `Downloader`
+    /// consumes an `IntoIterator<Item = EndpointId>` as its provider
+    /// stream in iteration order, retrying the next provider when one
+    /// fails. Callers put the publishing anchor first, then the
+    /// best-effort seeders. Content-addressing is the integrity gate
+    /// (verrou 4 / THREAT_MODEL §15): a malicious provider in the set
+    /// can only fail its own attempt — it can never serve bytes other
+    /// than the exact requested hash — so the fallback chain degrades
+    /// availability at worst, never authenticity. No internal timeout:
+    /// the caller bounds the whole call (`tokio::time::timeout`) with
+    /// its own budget. The provider set IS bounded here
+    /// ([`MAX_FETCH_PROVIDERS`]) — a guardrail belongs in the
+    /// primitive, not in caller conventions (S73 audit lesson), so a
+    /// future caller can never hand the downloader an unbounded dial
+    /// chain even if it skips the daemon-side policy cap.
+    pub async fn fetch_hash_multi(
+        &self,
+        endpoint: &Endpoint,
+        hash: [u8; 32],
+        mut providers: Vec<EndpointId>,
+    ) -> Result<[u8; 32]> {
+        if providers.is_empty() {
+            return Err(NexusError::Blobs(
+                "fetch_hash_multi requires at least one provider".into(),
+            ));
+        }
+        // Safety bound in the primitive: callers order best-first (Q5), so
+        // truncating keeps the highest-priority providers.
+        providers.truncate(MAX_FETCH_PROVIDERS);
+        let hash = Hash::from_bytes(hash);
+        let downloader = Downloader::new(self.inner, endpoint);
+        downloader
+            .download(hash, providers)
+            .await
+            .map_err(|e| NexusError::Blobs(format!("multi-provider download failed: {e}")))?;
+        Ok(*hash.as_bytes())
+    }
+
+    /// Multi-provider variant of [`BlobsClient::fetch_and_pin`]
+    /// (Sprint 75 Phase D): download a bare hash from an ordered
+    /// provider set, then pin it under `tag_name` so the store keeps it.
+    /// Used by the voluntary-seed path for a directory-only app, where
+    /// no `BlobTicket` exists — only `(anchor node_id, archive_hash)`
+    /// plus the best-effort seeder set.
+    pub async fn fetch_and_pin_multi(
+        &self,
+        endpoint: &Endpoint,
+        hash: [u8; 32],
+        providers: Vec<EndpointId>,
+        tag_name: &str,
+    ) -> Result<[u8; 32]> {
+        let hash = self.fetch_hash_multi(endpoint, hash, providers).await?;
+        self.set_tag(tag_name, hash).await?;
+        Ok(hash)
+    }
+
     /// Fetch a blob by ticket AND immediately pin it under a removable
     /// tag so the store does not garbage-collect it (Sprint 74 Phase E).
     ///
@@ -326,6 +403,127 @@ mod tests {
 
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn fetch_hash_multi_rejects_empty_providers() {
+        // An empty provider set is a caller bug (the directory resolution
+        // produced nothing dialable) — surfaced as a hard error, never a
+        // silent hang on a download that can have no source.
+        let node = spawn_node().await;
+        let blobs = BlobsClient::new(node.blobs_store());
+        let err = blobs
+            .fetch_hash_multi(node.endpoint(), [7u8; 32], Vec::new())
+            .await;
+        assert!(err.is_err(), "empty provider vec must error immediately");
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fetch_falls_back_to_seeder_when_anchor_offline() {
+        // Sprint 75 Phase D — the load-bearing multi-provider FALLBACK test
+        // (plan D.3 #1). A directory-only app advertises (anchor node_id,
+        // archive_hash). When the anchor is dead, the download must still
+        // succeed via another provider in the vec (a seeder that actually
+        // holds the BLAKE3) instead of failing outright, and the bytes must
+        // be the exact requested hash. The "anchor" here is an EndpointId
+        // derived from a keypair that never booted a node — pkarr has no
+        // record for it, so its dial attempt can only fail.
+        //
+        // Honest scope: this proves dead-provider RESILIENCE + integrity. It
+        // does NOT pin that the anchor is dialed strictly FIRST — the
+        // anchor-first ordering of the vec is asserted at construction
+        // (`fetch_provider_ordering`, daemon side), and the in-order
+        // consumption is iroh-blobs 0.100 documented behavior (blanket
+        // `ContentDiscovery for IntoIterator` yields iteration order);
+        // instrumenting actual dial order would require a protocol shim.
+        use std::time::Duration;
+
+        let seeder = spawn_node().await;
+        let puller = spawn_node().await;
+
+        let blobs_seeder = BlobsClient::new(seeder.blobs_store());
+        let payload = b"directory-only-app-archive-bytes".to_vec();
+        let hash = blobs_seeder.add_bytes(&payload).await.unwrap();
+
+        // Dead anchor: a valid Ed25519 endpoint id that was never published.
+        let dead_anchor =
+            EndpointId::from_str(&hex::encode(crate::KeyPair::generate().public_bytes()))
+                .expect("a fresh Ed25519 pubkey is a valid EndpointId");
+        let seeder_id = EndpointId::from_str(&seeder.node_id()).unwrap();
+
+        // Seed the puller's lookup with the seeder's address so the fallback
+        // leg can dial without depending on live pkarr propagation timing.
+        let seeder_addr = crate::discovery::DiscoveryClient::new(seeder.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("seeder must publish its address");
+        puller.memory_lookup().add_endpoint_info(seeder_addr);
+
+        let blobs_puller = BlobsClient::new(puller.blobs_store());
+        let fetched = tokio::time::timeout(
+            Duration::from_secs(120),
+            blobs_puller.fetch_hash_multi(puller.endpoint(), hash, vec![dead_anchor, seeder_id]),
+        )
+        .await
+        .expect("fallback download must complete within the test budget")
+        .expect("download must succeed via the seeder fallback");
+        assert_eq!(fetched, hash, "returned hash must be the requested hash");
+        assert!(
+            blobs_puller.has(hash).await.unwrap(),
+            "the puller now holds the blob fetched from the seeder"
+        );
+        let got = blobs_puller.get_bytes(hash).await.unwrap();
+        assert_eq!(got, payload, "content matches the author bytes (BLAKE3)");
+
+        seeder.shutdown().await.ok();
+        puller.shutdown().await.ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fetch_hash_multi_fails_when_provider_lacks_hash() {
+        // Integrity invariant (verrou 4 / THREAT_MODEL §15): a provider that
+        // does NOT hold the requested hash can only fail the download — it
+        // can never substitute different bytes, because the requested object
+        // IS the BLAKE3 hash. Ask a live node for a hash it does not have.
+        use std::time::Duration;
+
+        let provider = spawn_node().await;
+        let puller = spawn_node().await;
+
+        // The provider holds SOME blob, but we request a DIFFERENT hash.
+        let blobs_provider = BlobsClient::new(provider.blobs_store());
+        blobs_provider
+            .add_bytes(b"some-other-content")
+            .await
+            .unwrap();
+        let absent_hash = *Hash::new(b"content-the-provider-never-stored").as_bytes();
+
+        let provider_addr = crate::discovery::DiscoveryClient::new(provider.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("provider must publish its address");
+        puller.memory_lookup().add_endpoint_info(provider_addr);
+        let provider_id = EndpointId::from_str(&provider.node_id()).unwrap();
+
+        let blobs_puller = BlobsClient::new(puller.blobs_store());
+        let res = tokio::time::timeout(
+            Duration::from_secs(120),
+            blobs_puller.fetch_hash_multi(puller.endpoint(), absent_hash, vec![provider_id]),
+        )
+        .await
+        .expect("the failed download must resolve within the test budget");
+        assert!(
+            res.is_err(),
+            "a provider lacking the hash must fail the fetch, never serve other bytes"
+        );
+        assert!(
+            !blobs_puller.has(absent_hash).await.unwrap(),
+            "nothing was stored under the requested hash"
+        );
+
+        provider.shutdown().await.ok();
+        puller.shutdown().await.ok();
     }
 
     #[tokio::test]

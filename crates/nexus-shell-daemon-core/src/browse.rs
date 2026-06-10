@@ -748,19 +748,22 @@ impl BrowseAggregator {
         // provenance_hash: those are derived from the fetched provenance.json at
         // pull time, not from this discovery index.
         //
-        // SCOPE (Phase C = DISCOVERY, not yet PULL): a directory row carries
+        // PULL (Phase D closed the Phase-C deferral): a directory row carries
         // `archive_hash` but NO `archive_ticket`, because the app's BLOB is not
-        // held locally — only the catalog listing is. Rendering it (blob-serve)
-        // and voluntarily seeding it both need a dialable ticket, which a puller
-        // RE-MINTS from `(node_id, archive_hash)` at pull time — that multi-
-        // provider pull is **Phase D** (the CatalogApp doc spells this out), and
-        // the front "Download / open" action that drives it is **Phase F**. This
-        // is the F-Droid PULL model: an app appears in the index first, then you
-        // download it. So a directory-only row is intentionally
-        // DISCOVERABLE-but-not-yet-pulled — it is counted (verrou 2) and shown,
-        // but `find_archive_ticket_by_hash` / blob-serve / voluntary-seed (which
-        // operate on `direct_entries`) only act on it once Phase D has pulled it
-        // into the local store. Not a Phase C defect; the deferral is by design.
+        // held locally — only the catalog listing is (a stored ticket would
+        // freeze a stale address, the Phase A bug). Rendering it (blob-serve)
+        // and voluntarily seeding it resolve `(anchor node_id, archive_hash)`
+        // through the daemon's directory snapshot and fetch the bare hash via
+        // the multi-provider `fetch_hash_multi` (anchor first, then the
+        // best-effort seeders — no ticket involved; pkarr resolves the bare
+        // EndpointIds and BLAKE3 is the integrity gate). This is the F-Droid
+        // PULL model: an app appears in the index first, then you download it.
+        // The front "Download / open" action that drives the pull is **Phase F**.
+        // `find_archive_ticket_by_hash` still operates on `direct_entries` only;
+        // the directory-only resolution lives daemon-side (`http.rs`
+        // `find_directory_app_by_hash` / `find_directory_app_by_project`),
+        // because the SeedRegistry providing the fallback seeders is a daemon
+        // concern this core crate cannot see.
         for dir in curator_runtime.directory_snapshot() {
             let node_id_hex = hex::encode(dir.node_id);
             let (status, ts) = if node_id_hex == me.as_str() {
@@ -786,9 +789,9 @@ impl BrowseAggregator {
                     source: BrowseSource::NodeDirectory,
                     status,
                     last_probed_at: Some(iso_utc(ts)),
-                    // No ticket in the listing: a puller re-mints a dialable
-                    // ticket from (node_id, archive_hash) at pull time (Phase D),
-                    // never a frozen stale address (the Phase A bug).
+                    // No ticket in the listing: a puller fetches the bare hash
+                    // from (node_id + seeders) at pull time (Phase D), never a
+                    // frozen stale address (the Phase A bug).
                     archive_ticket: None,
                     archive_hash: if app.archive_hash.is_empty() {
                         None
