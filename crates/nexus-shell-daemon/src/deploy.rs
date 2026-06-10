@@ -501,6 +501,13 @@ pub(crate) async fn finalize_deploy(
                     artifact_hash: artifact_hash_hex.clone(),
                     provenance_hash: Some(prov_hash.clone()),
                     is_open_source: params.is_open_source,
+                    // Sprint 75 Phase C (WIRE-1): carry the human name + category
+                    // into the feed op so the release is full-text searchable by
+                    // name (the feed path previously indexed an empty name —
+                    // FRESHNESS-RELEASE-UNINDEXED). The values are the same ones
+                    // the gossip ProjectAnnouncement already advertises.
+                    project_name: Some(params.project_name.to_string()),
+                    category: Some(params.category.to_string()),
                 },
             ),
         );
@@ -1157,6 +1164,8 @@ mod tests {
                     artifact_hash: "b".repeat(64),
                     provenance_hash: Some("c".repeat(64)),
                     is_open_source: true,
+                    project_name: None,
+                    category: None,
                 },
             ),
         )

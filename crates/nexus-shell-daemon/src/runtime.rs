@@ -1456,6 +1456,15 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                 "gossip: restored project announcements from persisted outbox"
             );
         }
+        // Sprint 75 Phase C (D4 durability): re-pull each SUBSCRIBED anchor's
+        // node directory from its persisted locator (`anchors.json`) so a remote
+        // catalog survives this node's reboot — the in-memory directory store
+        // starts empty every boot, and OWN-only outbox restore above does not
+        // cover catalogs published by OTHER nodes. Gated on the attention set
+        // inside `repull_directories` (verrou 5: a fresh install with no
+        // subscription does ZERO boot network fetch) and bounded per anchor so a
+        // dead anchor cannot stall the gossip loop. Logs internally when > 0.
+        curator_runtime.repull_directories(&node).await;
         let mut neighbor_count: u32 = 0;
         let browse_limiter = BrowseRequestLimiter::new();
         let republish_delay = tokio::time::sleep(jittered_republish_duration());
@@ -1557,15 +1566,18 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                     );
                                 }
                             } else if is_node_directory_announcement(&payload) {
-                                // Sprint 75 Phase B: a node directory announcement is
-                                // recognized and dropped quietly here; its full ingest
-                                // arm (fetch + verify + store via the shared SignedList
-                                // gate) lands in Phase C. Dropping at debug! keeps the
-                                // Phase-B-to-C window free of the curator arm's warn!.
-                                debug!(
-                                    delivered_from = %delivered_from,
-                                    "node directory announcement received — ingest lands in Phase C, dropping"
-                                );
+                                // Sprint 75 Phase C: ingest the node directory via the
+                                // shared SignedList gate — subscription-gated fetch +
+                                // signature/attribution/revision verify + store, plus a
+                                // persisted re-fetch locator for boot durability. The
+                                // receive-side sibling of the curator arm; replaces the
+                                // Phase B drop-at-debug.
+                                handle_directory_announcement(
+                                    &curator_runtime,
+                                    &node,
+                                    &payload,
+                                )
+                                .await;
                             } else {
                                 handle_announcement(&curator_runtime, &node, &payload).await;
                             }
@@ -1776,6 +1788,50 @@ async fn handle_announcement(curator_runtime: &CuratorRuntimeHandle, node: &Node
         }
         Err(e) => {
             warn!(error = %e, "failed to process curator announcement");
+        }
+    }
+}
+
+/// Handle a gossip message identified as a node directory announcement
+/// (Sprint 75 Phase C). The receive-side sibling of [`handle_announcement`]:
+/// fetch + verify + store the referenced `NodeDirectoryEntry` through the shared
+/// `SignedList` ingest gate, subscription-gated. Mirrors the curator arm's error
+/// logging (non-subscribed/rollback at `debug!`, attribution mismatch at `warn!`)
+/// so a flood of routine drops never masks a real spoof attempt.
+async fn handle_directory_announcement(
+    curator_runtime: &CuratorRuntimeHandle,
+    node: &Node,
+    content: &[u8],
+) {
+    match curator_runtime
+        .process_directory_announcement_bytes_throttled(content, node)
+        .await
+    {
+        Ok(entry) => {
+            info!(
+                node = %hex::encode(entry.node_id),
+                revision = entry.directory.revision,
+                "node directory accepted via gossip"
+            );
+        }
+        Err(CuratorRuntimeError::NotSubscribed { curator }) => {
+            debug!(node = %curator, "dropped node directory from non-subscribed anchor");
+        }
+        Err(CuratorRuntimeError::EnvelopeMismatch {
+            announcement,
+            entry,
+        }) => {
+            warn!(
+                announcement = %announcement,
+                entry = %entry,
+                "node directory attribution mismatch — a peer is stapling a signed directory to a different pubkey"
+            );
+        }
+        Err(CuratorRuntimeError::RevisionRollback { new, stored }) => {
+            debug!(new, stored, "ignored node directory revision rollback");
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to process node directory announcement");
         }
     }
 }

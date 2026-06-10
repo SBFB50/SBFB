@@ -136,8 +136,13 @@ export type BrowseStatus = z.infer<typeof BrowseStatusSchema>;
  * curator list (`"curator"`) or directly via a gossip project
  * announcement (`"direct"`). Defaults to `"curator"` for
  * backward compat with daemons that predate Sprint 11.
+ *
+ * Sprint 75 Phase C: `"nodedirectory"` — an app discovered through a
+ * subscribed node's signed directory (the PULL discovery substrate). Additive:
+ * a daemon that predates Phase C never emits it, and the value is accepted
+ * here so a mixed-version `/browse` response still parses.
  */
-export const BrowseSourceSchema = z.enum(["curator", "direct"]);
+export const BrowseSourceSchema = z.enum(["curator", "direct", "nodedirectory"]);
 
 export type BrowseSource = z.infer<typeof BrowseSourceSchema>;
 
@@ -369,13 +374,22 @@ const SeedCountResponseSchema = z
 
 export type SeedCountResponse = z.infer<typeof SeedCountResponseSchema>;
 
+// Sprint 75 Phase C (WIRE-2): an optional `archiveHash` scopes the count to the
+// seeders of that EXACT version (the bytes the caller is about to pull), and
+// makes `self_seeding` honest about that version. Omitting it preserves the
+// pre-WIRE-2 version-agnostic behaviour. Callers that have a BrowseEntry pass its
+// `archive_hash` so the availability count is not silently version-agnostic.
 export function seedCount(
   baseUrl: string,
   projectId: string,
+  archiveHash?: string | null,
 ): Promise<DaemonResult<SeedCountResponse>> {
+  const query = archiveHash
+    ? `?archive_hash=${encodeURIComponent(archiveHash)}`
+    : "";
   return callDaemon(
     baseUrl,
-    `/api/daemon/seed-count/${encodeURIComponent(projectId)}`,
+    `/api/daemon/seed-count/${encodeURIComponent(projectId)}${query}`,
     SeedCountResponseSchema,
   );
 }

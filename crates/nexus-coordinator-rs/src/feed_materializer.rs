@@ -260,6 +260,8 @@ mod tests {
                 artifact_hash: "b".repeat(64),
                 provenance_hash: Some("c".repeat(64)),
                 is_open_source: true,
+                project_name: None,
+                category: None,
             },
         ))
         .unwrap()

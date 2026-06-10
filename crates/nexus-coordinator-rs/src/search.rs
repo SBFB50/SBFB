@@ -192,11 +192,14 @@ pub fn search(
 
 /// The indexable fields a feed operation contributes to the FTS5 index.
 ///
-/// Feed operations carry no `project_name`/`category` today (see
-/// `public_feed::*Payload`): only the curator/stale `reason` (or legacy
-/// `comment`) becomes matchable `description` text. A `ReleasePublished`
-/// op additionally carries the provenance triplet (Sprint 73 Phase D),
-/// stored UNINDEXED so a hit can drive a fork (S74).
+/// Most feed ops carry no `project_name`/`category`: only the curator/stale
+/// `reason` (or legacy `comment`) becomes matchable `description` text. Since
+/// Sprint 75 Phase C (WIRE-1) a `ReleasePublished` op MAY carry an optional
+/// `project_name`/`category` (`public_feed::ReleasePublishedPayload`), so a
+/// release becomes searchable by name/category; an op that omits them indexes
+/// empty strings exactly as before. A `ReleasePublished` op additionally
+/// carries the provenance triplet (Sprint 73 Phase D), stored UNINDEXED so a
+/// hit can drive a fork (S74).
 struct IndexFields {
     project_id: String,
     project_name: String,
@@ -212,9 +215,9 @@ struct IndexFields {
 /// Extract the FTS5 index fields from a parsed feed operation payload.
 ///
 /// Shared by the hot path ([`upsert_feed_entry`]) and the repair path
-/// ([`rebuild_from_feed`]) so the two cannot drift apart. Mirrors the
-/// historical boot-rebuild extraction: `project_name`/`category` are empty
-/// for current feed ops, `description` comes from `reason` (or `comment`).
+/// ([`rebuild_from_feed`]) so the two cannot drift apart. `project_name` and
+/// `category` come from a `ReleasePublished` op when present (WIRE-1, otherwise
+/// empty); `description` comes from `reason` (or `comment`).
 ///
 /// Provenance triplet (Phase D): pulled from a `ReleasePublishedPayload`
 /// (`public_feed.rs`); `None` for every other op type. Each value is an
@@ -239,9 +242,14 @@ fn extract_index_fields(op: &serde_json::Value) -> IndexFields {
     IndexFields {
         project_id: field("project_id"),
         project_name: field("project_name"),
-        // No feed op carries a category today; the boot rebuild always
-        // indexed an empty category for feed entries — mirror that here.
-        category: String::new(),
+        // Sprint 75 Phase C (WIRE-1): a `ReleasePublished` op now optionally
+        // carries `project_name`/`category` (`public_feed::ReleasePublishedPayload`),
+        // so read `category` from the op like `project_name` above. An op that
+        // omits the field (every pre-WIRE-1 op, and every non-release op) yields
+        // `""` — identical to the historical empty-category behaviour, so this is
+        // purely additive (a release that sets the field becomes searchable by
+        // category; nothing else changes).
+        category: field("category"),
         description: op
             .get("reason")
             .or_else(|| op.get("comment"))
@@ -958,6 +966,8 @@ mod tests {
             artifact_hash: "a".repeat(64),
             provenance_hash: Some("b".repeat(64)),
             is_open_source: true,
+            project_name: None,
+            category: None,
         };
         let op = serde_json::to_value(&payload).expect("serialize payload");
         upsert_feed_entry(&db, 7, &op, "ReleasePublished").expect("upsert");
@@ -996,6 +1006,63 @@ mod tests {
         assert_eq!(oss, Some(true));
     }
 
+    /// WIRE-1 (Sprint 75 Phase C): a `ReleasePublished` op that now carries the
+    /// optional `project_name`/`category` becomes full-text searchable by name
+    /// and category — closing FRESHNESS-RELEASE-UNINDEXED (the feed path
+    /// previously indexed an empty name, so a published release was invisible to
+    /// full-text search even though the gossip path indexed it).
+    #[test]
+    fn release_published_searchable_by_name() {
+        let db = setup_db();
+        let payload = crate::public_feed::ReleasePublishedPayload {
+            project_id: "p".repeat(64),
+            repo_url: "https://github.com/test/babel".to_string(),
+            commit_sha: "c".repeat(40),
+            artifact_hash: "a".repeat(64),
+            provenance_hash: Some("b".repeat(64)),
+            is_open_source: true,
+            project_name: Some("Babel Translation".to_string()),
+            category: Some("translation".to_string()),
+        };
+        let op = serde_json::to_value(&payload).expect("serialize payload");
+        upsert_feed_entry(&db, 9, &op, "ReleasePublished").expect("upsert");
+
+        // Found by its human name (the load-bearing WIRE-1 behaviour).
+        let (by_name, total_name) = search(&db, "Babel", 20, 0).expect("search by name");
+        assert_eq!(
+            total_name, 1,
+            "a release must be searchable by project_name"
+        );
+        assert_eq!(by_name[0].project_id, "p".repeat(64));
+        assert_eq!(by_name[0].project_name, "Babel Translation");
+
+        // Found by its category too.
+        let (_, total_cat) = search(&db, "translation", 20, 0).expect("search by category");
+        assert_eq!(total_cat, 1, "a release must be searchable by category");
+
+        // Control: a release WITHOUT the optional fields stays name-empty (no
+        // regression — the field is additive, an omitting op indexes "" as before).
+        let bare = crate::public_feed::ReleasePublishedPayload {
+            project_id: "q".repeat(64),
+            repo_url: "https://github.com/test/bare".to_string(),
+            commit_sha: "d".repeat(40),
+            artifact_hash: "e".repeat(64),
+            provenance_hash: None,
+            is_open_source: false,
+            project_name: None,
+            category: None,
+        };
+        let bare_op = serde_json::to_value(&bare).expect("serialize bare");
+        upsert_feed_entry(&db, 10, &bare_op, "ReleasePublished").expect("upsert bare");
+        // The bare release is not matched by the named one's terms.
+        let (still_one, _) = search(&db, "Babel", 20, 0).expect("search again");
+        assert_eq!(
+            still_one.len(),
+            1,
+            "the bare release must not match 'Babel'"
+        );
+    }
+
     /// Migration M17 (DROP + recreate with the 4 UNINDEXED provenance
     /// columns) loses no data: a feed entry rebuilt from the durable feed
     /// repopulates WITH the triplet. The columns are UNINDEXED — a MATCH on
@@ -1012,6 +1079,8 @@ mod tests {
             artifact_hash: "2".repeat(64),
             provenance_hash: None,
             is_open_source: false,
+            project_name: None,
+            category: None,
         };
         let op = serde_json::to_value(&payload).expect("serialize");
         let row = feed_row(0, op, "m17hash");

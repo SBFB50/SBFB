@@ -94,9 +94,15 @@ export function AvailabilitySheet({
   // re-fetched whenever this node's own seeding changes (keep-online toggle /
   // voluntary seed). `peer_count` = distinct remote seeders seen recently;
   // `self_seeding` = whether this node keeps the app online ("Toi").
+  // Sprint 75 Phase C (WIRE-2): pass this entry's archive_hash so the count is
+  // scoped to the EXACT version shown (a seeder of a different version cannot
+  // serve these bytes), instead of a version-agnostic count. The hash is part of
+  // the queryKey so switching versions refetches. The keep-online / voluntary-
+  // seed invalidations below use the 3-element prefix, which React Query matches
+  // against this 4-element key.
   const seedCountQuery = useQuery({
-    queryKey: ["seed-count", coordUrl, entry.project_id],
-    queryFn: () => seedCount(coordUrl, entry.project_id),
+    queryKey: ["seed-count", coordUrl, entry.project_id, entry.archive_hash],
+    queryFn: () => seedCount(coordUrl, entry.project_id, entry.archive_hash),
     enabled: open,
     refetchOnWindowFocus: false,
   });

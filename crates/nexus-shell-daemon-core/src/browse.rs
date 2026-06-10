@@ -117,6 +117,14 @@ pub enum BrowseSource {
     /// Entry was announced directly via gossip by the project's
     /// own daemon (self-publish, Sprint 11 Phase A).
     Direct,
+    /// Entry came from a subscribed node's signed directory — the
+    /// PULL discovery substrate (Sprint 75 Phase C). The hosting
+    /// anchor's `node_id` is the dialable identity a puller fetches
+    /// the app from; the authority over the app's provenance is
+    /// still the AUTHOR signature (verrou 4), never the anchor.
+    /// Serializes as `"nodedirectory"` — the frontend Zod enum
+    /// (`BrowseSourceSchema`) accepts it as an additive value.
+    NodeDirectory,
 }
 
 impl BrowseSource {
@@ -124,6 +132,7 @@ impl BrowseSource {
         match self {
             Self::Curator => "curator",
             Self::Direct => "direct",
+            Self::NodeDirectory => "nodedirectory",
         }
     }
 }
@@ -725,6 +734,74 @@ impl BrowseAggregator {
             out.push(e);
         }
 
+        // Sprint 75 Phase C (DQ4): append apps from every SUBSCRIBED node
+        // directory (the PULL discovery substrate). This is ADDITIVE (verrou 2)
+        // — it ADDS rows alongside the curator + direct loops, never replacing
+        // them, so `known_browse_entries` stays an honest superset. Each catalog
+        // app becomes a BrowseEntry whose `node_id` is the ANCHOR's dialable
+        // identity (probed for reachability once per directory, exactly like a
+        // direct entry — `node.node_id()` and `hex(directory.node_id)` are the
+        // same 64-hex Ed25519 form, so the self-branch and the probe both work).
+        // `archive_hash` is the AUTHOR's BLAKE3 content address — the seeder/anchor
+        // is NOT the authority; the authority is the author signature, surfaced in
+        // Phase F (verrou 4). The directory listing carries no repo_url /
+        // provenance_hash: those are derived from the fetched provenance.json at
+        // pull time, not from this discovery index.
+        //
+        // SCOPE (Phase C = DISCOVERY, not yet PULL): a directory row carries
+        // `archive_hash` but NO `archive_ticket`, because the app's BLOB is not
+        // held locally — only the catalog listing is. Rendering it (blob-serve)
+        // and voluntarily seeding it both need a dialable ticket, which a puller
+        // RE-MINTS from `(node_id, archive_hash)` at pull time — that multi-
+        // provider pull is **Phase D** (the CatalogApp doc spells this out), and
+        // the front "Download / open" action that drives it is **Phase F**. This
+        // is the F-Droid PULL model: an app appears in the index first, then you
+        // download it. So a directory-only row is intentionally
+        // DISCOVERABLE-but-not-yet-pulled — it is counted (verrou 2) and shown,
+        // but `find_archive_ticket_by_hash` / blob-serve / voluntary-seed (which
+        // operate on `direct_entries`) only act on it once Phase D has pulled it
+        // into the local store. Not a Phase C defect; the deferral is by design.
+        for dir in curator_runtime.directory_snapshot() {
+            let node_id_hex = hex::encode(dir.node_id);
+            let (status, ts) = if node_id_hex == me.as_str() {
+                (BrowseStatus::Reachable, SystemTime::now())
+            } else {
+                match self.cached(&node_id_hex) {
+                    Some(st) => (st, SystemTime::now()),
+                    None => self.probe_and_cache(node, &node_id_hex).await,
+                }
+            };
+            for app in &dir.directory.catalog {
+                out.push(BrowseEntry {
+                    project_id: app.project_id.clone(),
+                    node_id: Some(node_id_hex.clone()),
+                    project_name: app.project_name.clone(),
+                    category: app.category.clone(),
+                    description: app.description.clone(),
+                    // The anchor that PUBLISHED the directory (discovery source),
+                    // NOT an authority over the app. Distinct from a curator
+                    // vouch; the author provenance is rendered separately (F).
+                    curator_pubkey: node_id_hex.clone(),
+                    curator_name: "Node catalog".into(),
+                    source: BrowseSource::NodeDirectory,
+                    status,
+                    last_probed_at: Some(iso_utc(ts)),
+                    // No ticket in the listing: a puller re-mints a dialable
+                    // ticket from (node_id, archive_hash) at pull time (Phase D),
+                    // never a frozen stale address (the Phase A bug).
+                    archive_ticket: None,
+                    archive_hash: if app.archive_hash.is_empty() {
+                        None
+                    } else {
+                        Some(app.archive_hash.clone())
+                    },
+                    repo_url: None,
+                    provenance_hash: None,
+                    is_open_source: false,
+                });
+            }
+        }
+
         out.sort_by(|a, b| {
             a.project_id
                 .cmp(&b.project_id)
@@ -777,7 +854,8 @@ fn iso_utc(t: SystemTime) -> String {
 mod tests {
     use super::*;
     use nexus_core_rs::{
-        CuratorList, CuratorListEntry, CuratorProjectRef, KeyPair, Node, create_node,
+        CatalogApp, CuratorList, CuratorListEntry, CuratorProjectRef, KeyPair, Node, NodeDirectory,
+        NodeDirectoryEntry, create_node,
     };
 
     async fn spawn_node() -> Node {
@@ -1002,6 +1080,13 @@ mod tests {
             serde_json::to_string(&BrowseSource::Direct).unwrap(),
             "\"direct\""
         );
+        // Sprint 75 Phase C: the wire string the frontend Zod enum
+        // (`BrowseSourceSchema` in web/src/api/daemon.ts) MUST accept verbatim.
+        // Pin it here so a rename can never silently break /browse parsing.
+        assert_eq!(
+            serde_json::to_string(&BrowseSource::NodeDirectory).unwrap(),
+            "\"nodedirectory\""
+        );
     }
 
     // ---------------------------------------------------------
@@ -1047,6 +1132,58 @@ mod tests {
         let agg = BrowseAggregator::new();
         let out = agg.aggregate(&curator, &node).await;
         assert!(out.is_empty());
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn browse_aggregator_sets_node_id_from_directory() {
+        // Sprint 75 Phase C (DQ4): a subscribed node directory's catalog apps
+        // appear as additional Browse rows whose `node_id` is the ANCHOR's
+        // dialable identity (not None like a curator row) and whose
+        // `archive_hash` is the AUTHOR's content address, with `source =
+        // NodeDirectory`. The anchor (`curator_pubkey`) is the discovery source,
+        // never the authority; the directory carries no repo_url.
+        let node = spawn_node().await;
+        let kp = KeyPair::generate();
+        let mut dir = NodeDirectory::new(kp.public_bytes(), 1);
+        dir.catalog.push(CatalogApp {
+            project_id: "p".repeat(64),
+            archive_hash: "a".repeat(64),
+            project_name: "Babel".into(),
+            category: "translation".into(),
+            description: "community translation".into(),
+        });
+        let entry = NodeDirectoryEntry::sign(dir, &kp).expect("sign directory");
+        let node_id_hex = hex::encode(entry.node_id);
+
+        let curator = CuratorRuntime::new(None);
+        curator.insert_directory_for_test(entry);
+
+        let agg = BrowseAggregator::new();
+        // Skip the live reachability probe by pre-seeding the anchor's cache.
+        agg.inject_cached(&node_id_hex, BrowseStatus::Reachable);
+
+        let out = agg.aggregate(&curator, &node).await;
+        let card = out
+            .iter()
+            .find(|e| e.source == BrowseSource::NodeDirectory)
+            .expect("a node-directory card must appear in the aggregate");
+        assert_eq!(
+            card.node_id.as_deref(),
+            Some(node_id_hex.as_str()),
+            "the dialable anchor node_id is set (not None like a curator row)"
+        );
+        assert_eq!(card.project_id, "p".repeat(64));
+        assert_eq!(card.project_name, "Babel");
+        assert_eq!(card.category, "translation");
+        assert_eq!(card.archive_hash.as_deref(), Some("a".repeat(64).as_str()));
+        assert_eq!(card.curator_pubkey, node_id_hex, "anchor is the source");
+        assert_eq!(
+            card.repo_url, None,
+            "the directory listing carries no repo_url (Phase F derives provenance)"
+        );
+        assert_eq!(card.status, BrowseStatus::Reachable);
+
         node.shutdown().await.ok();
     }
 

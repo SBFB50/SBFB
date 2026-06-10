@@ -37,6 +37,20 @@ pub struct ReleasePublishedPayload {
     #[serde(default)]
     pub provenance_hash: Option<String>,
     pub is_open_source: bool,
+    /// Human-readable app name (Sprint 75 Phase C, WIRE-1). Additive and
+    /// 0-bump: a `ReleasePublished` op historically carried no name, so the FTS5
+    /// index left search-by-name empty for the feed path (only the gossip
+    /// `ProjectAnnouncement` path indexed a name). A producer now sets this so a
+    /// release becomes full-text searchable by name; an op without it
+    /// deserializes to `None` and serializes to byte-identical output
+    /// (`skip_serializing_if`), preserving the pre-launch additive policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
+    /// Free-form category tag (Sprint 75 Phase C, WIRE-1). Same additive 0-bump
+    /// shape as [`Self::project_name`]; lets the FTS5 index match a release by
+    /// category. `None` for any op that omits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 /// Payload for a source-became-stale event.
@@ -695,6 +709,8 @@ mod tests {
             artifact_hash: "b".repeat(64),
             provenance_hash: Some("c".repeat(64)),
             is_open_source: true,
+            project_name: None,
+            category: None,
         })
     }
 
@@ -839,6 +855,8 @@ mod tests {
                     artifact_hash: "b".repeat(64),
                     provenance_hash: Some("c".repeat(64)),
                     is_open_source: true,
+                    project_name: None,
+                    category: None,
                 },
             ))
             .unwrap(),
@@ -961,6 +979,8 @@ mod tests {
                 artifact_hash: "b".repeat(64),
                 provenance_hash: None,
                 is_open_source: true,
+                project_name: None,
+                category: None,
             },
         ))
         .unwrap();
@@ -1026,6 +1046,8 @@ mod tests {
                 artifact_hash: "b".repeat(64),
                 provenance_hash: Some("c".repeat(64)),
                 is_open_source: true,
+                project_name: None,
+                category: None,
             },
         ));
         assert!(
@@ -1043,6 +1065,8 @@ mod tests {
                 artifact_hash: "b".repeat(64),
                 provenance_hash: Some("c".repeat(64)),
                 is_open_source: true,
+                project_name: None,
+                category: None,
             },
         ));
         assert!(
@@ -1060,6 +1084,8 @@ mod tests {
                 artifact_hash: "b".repeat(64),
                 provenance_hash: Some("c".repeat(64)),
                 is_open_source: true,
+                project_name: None,
+                category: None,
             },
         ));
         assert!(
@@ -1077,6 +1103,8 @@ mod tests {
                 artifact_hash: "short".to_string(),
                 provenance_hash: Some("c".repeat(64)),
                 is_open_source: true,
+                project_name: None,
+                category: None,
             },
         ));
         assert!(
@@ -1497,6 +1525,8 @@ mod tests {
                 artifact_hash: "b".repeat(64),
                 provenance_hash: Some("c".repeat(64)),
                 is_open_source: true,
+                project_name: None,
+                category: None,
             },
         ))
         .unwrap();
@@ -1526,6 +1556,8 @@ mod tests {
                     artifact_hash: "b".repeat(64),
                     provenance_hash: Some("c".repeat(64)),
                     is_open_source: true,
+                    project_name: None,
+                    category: None,
                 },
             ))
             .unwrap();
@@ -1565,6 +1597,8 @@ mod tests {
                     artifact_hash: hash.to_string(),
                     provenance_hash: Some("c".repeat(64)),
                     is_open_source: true,
+                    project_name: None,
+                    category: None,
                 },
             ))
             .unwrap();

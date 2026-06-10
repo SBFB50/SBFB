@@ -904,6 +904,8 @@ mod tests {
                     artifact_hash: "b".repeat(64),
                     provenance_hash: Some("c".repeat(64)),
                     is_open_source: true,
+                    project_name: None,
+                    category: None,
                 },
             ),
         )
@@ -1012,7 +1014,7 @@ mod tests {
             .as_secs();
         let ok = tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
-                if registry_b.count_recent(&project_id, now) == 1 {
+                if registry_b.count_recent(&project_id, Some(&archive_hash), now) == 1 {
                     return;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -1027,7 +1029,13 @@ mod tests {
         // seeder, not just the count, so a mutation of the stored id is caught.
         let a_pub = hex::encode(a_keypair.public_bytes());
         assert_ne!(a_pub, node_id_b, "A's feed identity must differ from B");
-        assert_eq!(registry_b.count_recent(&project_id, now), 1);
-        assert_eq!(registry_b.seeders_recent(&project_id, now), vec![a_pub]);
+        assert_eq!(
+            registry_b.count_recent(&project_id, Some(&archive_hash), now),
+            1
+        );
+        assert_eq!(
+            registry_b.seeders_recent(&project_id, &archive_hash, now),
+            vec![a_pub]
+        );
     }
 }

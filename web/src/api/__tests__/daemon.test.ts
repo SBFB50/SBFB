@@ -356,6 +356,32 @@ describe("BrowseEntry source field", () => {
     expect(result.body.entries[0].source).toBe("direct");
   });
 
+  it("accepts entries with source='nodedirectory' (Sprint 75 Phase C PULL discovery)", async () => {
+    // The daemon emits "nodedirectory" for an app discovered through a
+    // subscribed node's signed directory; the Zod enum must accept it so a
+    // mixed-version /browse response still parses instead of erroring the list.
+    mockFetchOk({
+      entries: [
+        {
+          project_id: "cc".repeat(32),
+          project_name: "Babel",
+          category: "translation",
+          description: "community translation",
+          curator_pubkey: "dd".repeat(32),
+          curator_name: "Node catalog",
+          source: "nodedirectory",
+          status: "reachable",
+          last_probed_at: "2026-06-09T12:00:00Z",
+          archive_hash: "ee".repeat(32),
+        },
+      ],
+    });
+    const result = await listBrowse(BASE);
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.entries[0].source).toBe("nodedirectory");
+  });
+
   it("accepts entries without source (backward compat, defaults to undefined)", async () => {
     mockFetchOk({
       entries: [
@@ -736,6 +762,46 @@ describe("seedCount", () => {
     // protocol drift, not a tolerated shape (.strict()).
     mockFetchOk({ peer_count: 1 });
     await expect(seedCount(BASE, "ab".repeat(32))).rejects.toThrow();
+  });
+
+  it("appends ?archive_hash= for version-scoped counts (Sprint 75 Phase C WIRE-2)", async () => {
+    // Without this query the count would be version-agnostic even when the caller
+    // knows the exact archive_hash — the WIRE-2 read-side that closes the carry.
+    const spy = vi.fn(async () =>
+      mockFetchResponse({
+        status: 200,
+        body: { peer_count: 2, self_seeding: false },
+      }),
+    );
+    vi.stubGlobal("fetch", spy);
+    const hash = "cd".repeat(32);
+    const result = await seedCount(BASE, "ab".repeat(32), hash);
+    expect(result.kind).toBe("data");
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    expect(String(calls[0][0])).toBe(
+      `${BASE}/api/daemon/seed-count/${"ab".repeat(32)}?archive_hash=${hash}`,
+    );
+  });
+
+  it("omits the query when no archiveHash is given (version-agnostic, backward compatible)", async () => {
+    const spy = vi.fn(async () =>
+      mockFetchResponse({
+        status: 200,
+        body: { peer_count: 1, self_seeding: false },
+      }),
+    );
+    vi.stubGlobal("fetch", spy);
+    await seedCount(BASE, "ab".repeat(32), null);
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    expect(String(calls[0][0])).toBe(
+      `${BASE}/api/daemon/seed-count/${"ab".repeat(32)}`,
+    );
   });
 });
 

@@ -685,8 +685,19 @@ impl CoordinatorDb {
     // --- M18 keep_online (Sprint 74 Phase D): per-app local pin policy ---
 
     /// Set (or clear) a per-app keep-online pin. `archive_hash` records the blob
-    /// the pin tags (for the skip-GC tag); pass the deployed app's archive hash.
-    /// `INSERT OR REPLACE` keeps a single row per `project_id`.
+    /// the pin tags (for the skip-GC tag); pass the deployed app's archive hash,
+    /// or `None` when the caller does not currently know it.
+    ///
+    /// Sprint 75 Phase C (DBQ-1): the UPSERT **coalesces** the archive_hash —
+    /// when `archive_hash` is `None`, the previously-stored hash is KEPT rather
+    /// than overwritten to NULL. The keep-online toggle (`http::set_keep_online`)
+    /// sources the hash from the volatile browse aggregator, which after a reboot
+    /// no longer holds remote/late-restored entries and so passes `None`; without
+    /// this coalesce a re-toggle would NULL the M18 hash that the skip-GC tag and
+    /// the boot re-announce (`list_keep_online_enabled` skips NULL rows) depend on,
+    /// silently dropping the app from the seed set. `Some(hash)` still overwrites
+    /// (a genuine new deploy of the same project_id updates the hash). Keeps a
+    /// single row per `project_id` (the PRIMARY KEY).
     pub fn set_keep_online(
         &self,
         project_id: &str,
@@ -698,8 +709,12 @@ impl CoordinatorDb {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         self.conn.execute(
-            "INSERT OR REPLACE INTO keep_online (project_id, enabled, archive_hash, pinned_at) \
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO keep_online (project_id, enabled, archive_hash, pinned_at) \
+             VALUES (?1, ?2, ?3, ?4) \
+             ON CONFLICT(project_id) DO UPDATE SET \
+                 enabled = excluded.enabled, \
+                 archive_hash = COALESCE(excluded.archive_hash, keep_online.archive_hash), \
+                 pinned_at = excluded.pinned_at",
             rusqlite::params![project_id, enabled as i64, archive_hash, now as i64],
         )?;
         Ok(())
@@ -1635,7 +1650,7 @@ mod tests {
         );
         assert!(db.list_keep_online_disabled().unwrap().is_empty());
 
-        // OFF (single row per project — INSERT OR REPLACE).
+        // OFF (single row per project — UPSERT on the project_id PRIMARY KEY).
         db.set_keep_online(&pid, false, Some(&hash)).unwrap();
         assert_eq!(
             db.get_keep_online(&pid).unwrap(),
@@ -1669,6 +1684,47 @@ mod tests {
         // Flipping OFF removes it from the re-emit set.
         db.set_keep_online(&pid_on, false, Some(&hash)).unwrap();
         assert!(db.list_keep_online_enabled().unwrap().is_empty());
+    }
+
+    #[test]
+    fn set_keep_online_coalesces_known_hash() {
+        // DBQ-1 (Sprint 75 Phase C): a re-toggle that passes archive_hash=None
+        // (the post-reboot case where the volatile browse aggregator no longer
+        // holds the entry) must NOT NULL the stored M18 hash — the skip-GC tag
+        // and the boot re-announce (`list_keep_online_enabled` skips NULL rows)
+        // depend on it.
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let pid = "a".repeat(64);
+        let hash = "bb".repeat(32);
+
+        // ON with a known hash.
+        db.set_keep_online(&pid, true, Some(&hash)).unwrap();
+        assert_eq!(
+            db.get_keep_online(&pid).unwrap(),
+            Some((true, Some(hash.clone())))
+        );
+
+        // Toggle OFF with the hash UNKNOWN (None): the stored hash must survive.
+        db.set_keep_online(&pid, false, None).unwrap();
+        assert_eq!(
+            db.get_keep_online(&pid).unwrap(),
+            Some((false, Some(hash.clone()))),
+            "a None re-toggle must coalesce the stored hash, never NULL it"
+        );
+
+        // Back ON, still None: the app stays in the seed re-emit set because the
+        // hash was preserved across both toggles.
+        db.set_keep_online(&pid, true, None).unwrap();
+        assert_eq!(
+            db.list_keep_online_enabled().unwrap(),
+            vec![(pid.clone(), hash.clone())]
+        );
+
+        // A genuine new hash (Some) still OVERWRITES — a re-deploy of the same
+        // project_id updates the pinned blob.
+        let hash2 = "cc".repeat(32);
+        db.set_keep_online(&pid, true, Some(&hash2)).unwrap();
+        assert_eq!(db.get_keep_online(&pid).unwrap(), Some((true, Some(hash2))));
     }
 
     #[test]

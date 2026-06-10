@@ -68,7 +68,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use nexus_core_rs::blobs::BlobsClient;
 use nexus_core_rs::crypto::PUBLIC_KEY_LENGTH;
-use nexus_core_rs::{CuratorListEntry, Node, SignedList};
+use nexus_core_rs::{CuratorListEntry, Node, NodeDirectoryEntry, SignedList};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Semaphore;
@@ -155,11 +155,13 @@ impl CuratorAnnouncement {
 /// dispatch can tell a directory announcement apart from a curator-list
 /// announcement by a clean parse, never a heuristic
 /// ([`is_node_directory_announcement`]). The producer side (the `POST
-/// /api/daemon/directory/publish` authoring route) lands in Phase B;
-/// the FULL ingest arm that fetches + verifies + stores the referenced
-/// blob lands in Phase C. In the meantime the gossip dispatch recognizes
-/// a directory announcement and drops it quietly at `debug!` — additive,
-/// never mis-ingested as a curator list, and no `warn!` spam.
+/// /api/daemon/directory/publish` authoring route) landed in Phase B.
+/// Sprint 75 Phase C wired the FULL ingest arm
+/// ([`CuratorRuntime::process_directory_announcement_bytes`]): the gossip
+/// dispatch now fetches + verifies (signature, attribution, revision floor) +
+/// stores the referenced blob, subscription-gated on the same attention set as
+/// curator lists. The clean directory-vs-curator discrimination keeps a
+/// directory announcement from ever being mis-ingested as a curator list.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NodeDirectoryAnnouncement {
     /// Announcement version. Must equal [`ANNOUNCEMENT_VERSION`] to be
@@ -232,6 +234,62 @@ pub struct SubscriptionsFile {
     /// lowercase hex chars. Serialized as an array rather than
     /// a set to keep the file format stable and diff-friendly.
     pub curators: Vec<String>,
+}
+
+/// Schema version for the `anchors.json` directory-locator persistence file
+/// (Sprint 75 Phase C). Independent from [`SUBSCRIPTIONS_SCHEMA_VERSION`]: this
+/// is a separate local disk layout.
+pub const ANCHORS_SCHEMA_VERSION: u32 = 1;
+
+/// One persisted anchor LOCATOR: where to re-fetch a subscribed anchor's signed
+/// node directory after a reboot.
+///
+/// Sprint 75 Phase C (D4 durability, the F-Droid "fingerprint + repo URL"
+/// shape): the node-directory ENTRIES are RAM-only (durably persisting remote
+/// catalog content would invite over-count / staleness, D4). What persists is
+/// only the **locator** — the anchor pubkey plus the last blob ticket we saw
+/// advertise its directory — so the boot re-pull can actively re-fetch and
+/// re-validate the catalog (signature + revision) instead of waiting for the
+/// anchor to re-announce. A stale ticket address is tolerated: pkarr re-resolves
+/// the node_id, and a re-fetched blob that fails verification or whose anchor is
+/// offline simply yields nothing (the catalog reappears on the next live
+/// announce). The persisted ticket is metadata about WHERE to re-fetch, never
+/// the catalog itself.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnchorLocator {
+    /// The anchor's Ed25519 public key, 64 lowercase hex chars. MUST also be in
+    /// the attention set (`subscriptions.json`) for the boot re-pull to act on
+    /// it — an unsubscribed locator is ignored (verrou 5: subscribed-only).
+    pub pubkey: String,
+    /// The most recent `iroh_blobs::ticket::BlobTicket` string seen announcing
+    /// this anchor's `NodeDirectoryEntry` blob.
+    pub ticket: String,
+    /// The directory `revision` of the last entry we ingested from this anchor.
+    /// Persisted so the boot re-pull can carry the rollback floor ACROSS a
+    /// reboot: the RAM directory store starts empty, so without it the re-pull
+    /// would accept any revision (the floor would be `None`). At re-pull the
+    /// fetched blob must verify at a revision `>=` this value — the ticket pins
+    /// an immutable content hash so a re-fetch already yields exactly this
+    /// revision, but persisting it makes the anti-rollback guarantee explicit and
+    /// reboot-durable rather than relying on content-addressing alone (Codex
+    /// round-2 GAP). Mirrors F-Droid persisting the last index version next to
+    /// the repo fingerprint.
+    #[serde(default)]
+    pub revision: u64,
+}
+
+/// On-disk shape of `<shell-daemon-dir>/anchors.json` — the set of anchor
+/// directory locators to re-pull at boot. Mirrors [`SubscriptionsFile`]'s
+/// schema-versioned, atomically-rewritten shape.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnchorsFile {
+    /// Always [`ANCHORS_SCHEMA_VERSION`]. A mismatch is treated like a missing
+    /// file: start with no locators (the catalogs re-arrive on the next live
+    /// announce).
+    pub schema_version: u32,
+    /// The anchor locators, one per subscribed anchor whose directory we have
+    /// ingested at least once.
+    pub anchors: Vec<AnchorLocator>,
 }
 
 // =================================================================
@@ -432,6 +490,12 @@ pub fn verify_signed_list_ingest<T: SignedList>(
 /// announcements/s serialises through a single fetch chain.
 pub const MAX_INFLIGHT_ANNOUNCEMENTS: usize = 32;
 
+/// Per-anchor timeout for the boot directory re-pull (Sprint 75 Phase C). Bounds
+/// the worst case so a single dead/slow anchor cannot stall the gossip loop's
+/// startup: a re-fetch that does not complete in this window is abandoned for
+/// that anchor (its catalog reappears on the next live announce).
+const REPULL_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// Inner storage — two hashmaps, a semaphore and a file path.
 /// Kept in a single struct so the public runtime handle can hand
 /// out an `Arc<CuratorRuntime>` cheaply (DashMap is already Arc
@@ -463,6 +527,30 @@ pub struct CuratorRuntime {
     /// limiting concurrent `process_announcement_bytes` calls so a
     /// gossip flood cannot saturate the fetch pipeline unboundedly.
     announcement_semaphore: Semaphore,
+
+    /// Sprint 75 Phase C: verified node directories, keyed by the publishing
+    /// node's Ed25519 pubkey bytes. The value is the most recent verified
+    /// [`NodeDirectoryEntry`] for that anchor (revision rollback protection
+    /// applies on insert, via the shared `verify_signed_list_ingest` gate). A
+    /// directory is gated by the SAME attention set as curator lists
+    /// (`attention`): a node directory is signed by the node's keypair = the same
+    /// key family as a curator pubkey, so one subscription covers both. RAM-only
+    /// by design (D4) — re-pulled at boot from the persisted [`AnchorLocator`]s.
+    directories: DashMap<[u8; PUBLIC_KEY_LENGTH], NodeDirectoryEntry>,
+
+    /// Sprint 75 Phase C: the persisted re-fetch locator per anchor — the last
+    /// blob `(ticket, revision)` seen advertising each anchor's directory.
+    /// Populated on every successful directory ingest and rewritten to
+    /// `anchors.json`. The boot re-pull iterates the SUBSCRIBED subset of these to
+    /// re-fetch + re-validate the catalogs (D4: persist the locator, never the
+    /// catalog content). The `revision` carries the anti-rollback floor across a
+    /// reboot (the RAM `directories` map starts empty).
+    anchor_locators: DashMap<[u8; PUBLIC_KEY_LENGTH], (String, u64)>,
+
+    /// Path to the `anchors.json` locator persistence file. Derived from
+    /// [`Self::persistence_path`] (the `subscriptions.json` sibling); `None`
+    /// disables anchor persistence (the unit tests that do not touch disk).
+    anchors_path: Option<PathBuf>,
 }
 
 impl CuratorRuntime {
@@ -474,11 +562,18 @@ impl CuratorRuntime {
     /// unsubscribe call and read it back from
     /// [`Self::load_subscriptions`].
     pub fn new(persistence_path: Option<PathBuf>) -> Self {
+        // The anchors locator file lives next to subscriptions.json.
+        let anchors_path = persistence_path
+            .as_ref()
+            .map(|p| p.with_file_name("anchors.json"));
         Self {
             lists: DashMap::new(),
             attention: DashMap::new(),
             persistence_path,
             announcement_semaphore: Semaphore::new(MAX_INFLIGHT_ANNOUNCEMENTS),
+            directories: DashMap::new(),
+            anchor_locators: DashMap::new(),
+            anchors_path,
         }
     }
 
@@ -489,6 +584,9 @@ impl CuratorRuntime {
     pub fn with_persistence(persistence_path: PathBuf) -> Self {
         let runtime = Self::new(Some(persistence_path.clone()));
         runtime.load_subscriptions();
+        // Sprint 75 Phase C: restore the anchor locators so the boot re-pull
+        // (`repull_directories`) can re-fetch each subscribed anchor's catalog.
+        runtime.load_anchors();
         runtime
     }
 
@@ -550,6 +648,18 @@ impl CuratorRuntime {
             return Err(e);
         }
         info!(curator = %pubkey_hex, "unsubscribed from curator");
+        // Sprint 75 Phase C: also drop any node directory + persisted locator
+        // for this pubkey. An unsubscribed anchor must neither keep surfacing its
+        // catalog in Browse nor be re-pulled at boot (verrou 5: subscribed-only).
+        // Best-effort and AFTER the attention-set persist already succeeded: a
+        // directory left in RAM on a failed locator rewrite is harmless because
+        // `directory_snapshot` / `repull_directories` re-gate on `is_subscribed`.
+        self.directories.remove(&pubkey);
+        if self.anchor_locators.remove(&pubkey).is_some() {
+            if let Err(e) = self.persist_anchors() {
+                warn!(error = %e, "failed to rewrite anchors.json after unsubscribe");
+            }
+        }
         Ok(pubkey)
     }
 
@@ -585,11 +695,67 @@ impl CuratorRuntime {
     /// list. Used by [`crate::state::DaemonStateSnapshot`] to
     /// populate `known_browse_entries` without the shell
     /// polling every list individually.
+    ///
+    /// Sprint 75 Phase C (verrou 2 — honest count): also includes the catalog
+    /// apps of every SUBSCRIBED node directory, so the discoverable-app count
+    /// reflects PULL-discovered catalogs too, not just curator-vouched projects.
+    /// Gated on `is_subscribed` for the same reason `directory_snapshot` is.
     pub fn known_entry_count(&self) -> usize {
-        self.lists
+        let curator: usize = self
+            .lists
             .iter()
             .map(|e| e.value().list.entries.len())
-            .sum()
+            .sum();
+        let directory: usize = self
+            .directories
+            .iter()
+            .filter(|e| self.is_subscribed(e.key()))
+            .map(|e| e.value().directory.catalog.len())
+            .sum();
+        curator + directory
+    }
+
+    /// Test-only: subscribe to the entry's anchor and insert a verified
+    /// directory directly, bypassing the network fetch. Used by the browse
+    /// aggregator unit test to populate the directory store without two nodes.
+    #[cfg(test)]
+    pub fn insert_directory_for_test(&self, entry: NodeDirectoryEntry) {
+        self.attention.insert(entry.node_id, ());
+        self.directories.insert(entry.node_id, entry);
+    }
+
+    /// Test-only: inject a raw anchor locator (pubkey → ticket) WITHOUT
+    /// subscribing. Lets a test exercise the `repull_directories` `is_subscribed`
+    /// filter and bad-locator tolerance on a present-but-untrusted locator.
+    #[cfg(test)]
+    pub fn insert_anchor_locator_for_test(&self, pubkey: [u8; PUBLIC_KEY_LENGTH], ticket: &str) {
+        self.anchor_locators.insert(pubkey, (ticket.to_string(), 0));
+    }
+
+    /// Number of node directories currently cached from SUBSCRIBED anchors.
+    pub fn known_directory_count(&self) -> usize {
+        self.directories
+            .iter()
+            .filter(|e| self.is_subscribed(e.key()))
+            .count()
+    }
+
+    /// Snapshot of every cached node directory from a SUBSCRIBED anchor,
+    /// deep-cloned so the caller (the browse aggregator) can flatten it without
+    /// holding a DashMap iterator guard across an async probe. Gated on
+    /// `is_subscribed` at read time (defense-in-depth alongside the unsubscribe
+    /// eviction): an anchor the user dropped never surfaces its catalog even if
+    /// a stale entry lingers in RAM. Sorted by node_id for a deterministic
+    /// `/browse` order. Sprint 75 Phase C.
+    pub fn directory_snapshot(&self) -> Vec<NodeDirectoryEntry> {
+        let mut out: Vec<NodeDirectoryEntry> = self
+            .directories
+            .iter()
+            .filter(|e| self.is_subscribed(e.key()))
+            .map(|e| e.value().clone())
+            .collect();
+        out.sort_by_key(|e| e.node_id);
+        out
     }
 
     /// Snapshot of every cached curator list, deep-cloned so
@@ -740,6 +906,233 @@ impl CuratorRuntime {
     }
 
     // ---------------------------------------------------------
+    // Node directory ingestion (Sprint 75 Phase C)
+    // ---------------------------------------------------------
+
+    /// Acquire a backpressure permit then delegate to
+    /// [`Self::process_directory_announcement_bytes`]. The gossip loop uses this
+    /// so a directory-announcement flood shares the SAME in-flight fetch cap
+    /// ([`MAX_INFLIGHT_ANNOUNCEMENTS`]) as the curator arm.
+    pub async fn process_directory_announcement_bytes_throttled(
+        &self,
+        announcement_bytes: &[u8],
+        node: &Node,
+    ) -> Result<NodeDirectoryEntry, CuratorRuntimeError> {
+        let _permit = self
+            .announcement_semaphore
+            .acquire()
+            .await
+            .expect("announcement_semaphore is never closed");
+        self.process_directory_announcement_bytes(announcement_bytes, node)
+            .await
+    }
+
+    /// Parse, verify, and store a node-directory gossip announcement + its
+    /// referenced blob — the receive-side sibling of
+    /// [`Self::process_announcement_bytes`], reusing the SAME shared ingest gate
+    /// ([`verify_signed_list_ingest`]) so the curator and directory arms can
+    /// never drift apart (R1, design_review C1). The pipeline mirrors the curator
+    /// arm step-for-step:
+    ///
+    /// 1. Parse the [`NodeDirectoryAnnouncement`] envelope.
+    /// 2. Reject an unknown `v`.
+    /// 3. Parse the node pubkey hex.
+    /// 4. Drop a non-subscribed anchor BEFORE any fetch — a node directory is
+    ///    gated by the SAME attention set as a curator list (DQ3: one
+    ///    subscription covers both, since the node signs with the same key
+    ///    family). This is the curation leg of the anti-Sybil triad.
+    /// 5. Fetch the referenced blob.
+    /// 6. Verify the signature, cross-check envelope-vs-payload attribution, and
+    ///    reject a revision rollback — steps 6-8 of the curator pipeline, all via
+    ///    the shared `verify_signed_list_ingest` gate.
+    /// 9. Store the verified entry (RAM) AND persist the re-fetch locator
+    ///    (`anchors.json`) so the catalog survives a reboot (D4 durability).
+    pub async fn process_directory_announcement_bytes(
+        &self,
+        announcement_bytes: &[u8],
+        node: &Node,
+    ) -> Result<NodeDirectoryEntry, CuratorRuntimeError> {
+        // Step 1 + 2: parse envelope + version check.
+        let announcement: NodeDirectoryAnnouncement = serde_json::from_slice(announcement_bytes)?;
+        if announcement.version != ANNOUNCEMENT_VERSION {
+            return Err(CuratorRuntimeError::AnnouncementVersion {
+                got: announcement.version,
+                expected: ANNOUNCEMENT_VERSION,
+            });
+        }
+
+        // Step 3: parse pubkey hex.
+        let ann_pubkey = parse_pubkey_hex(&announcement.node_pubkey_hex)?;
+
+        // Step 4: attention-set filter (same set as curator lists, DQ3).
+        if !self.is_subscribed(&ann_pubkey) {
+            debug!(
+                node = %announcement.node_pubkey_hex,
+                "ignoring node directory announcement from non-subscribed anchor"
+            );
+            return Err(CuratorRuntimeError::NotSubscribed {
+                curator: announcement.node_pubkey_hex.clone(),
+            });
+        }
+
+        // Step 5: fetch the blob via the wrapped BlobsClient.
+        let blobs = BlobsClient::new(node.blobs_store());
+        let hash = blobs
+            .fetch_ticket(
+                node.endpoint(),
+                node.memory_lookup(),
+                &announcement.blob_ticket,
+            )
+            .await
+            .map_err(CuratorRuntimeError::BlobFetch)?;
+        let body = blobs
+            .get_bytes(hash)
+            .await
+            .map_err(CuratorRuntimeError::BlobFetch)?;
+
+        // Steps 6-8 via the shared signed-list ingest gate. The rollback floor
+        // depends on WHERE the last-seen revision lives, with two different
+        // strictnesses (Codex rounds 4 + 6):
+        //  - RAM holds a directory for this anchor → strict `>` dedup, exactly like
+        //    the curator arm: a same-revision live re-announce is a duplicate.
+        //  - RAM is empty but the PERSISTED locator carries revision P (a boot
+        //    re-pull failed → the catalog was lost on reboot) → accept revision
+        //    `>= P` so a same-revision live re-announce RESTORES the lost catalog,
+        //    while a lower revision is still rejected as a rollback. The gate's
+        //    strict `>` is fed `P - 1` to mean `>= P`.
+        //  - Never seen → no floor.
+        let entry: NodeDirectoryEntry =
+            serde_json::from_slice(&body).map_err(CuratorRuntimeError::EntryParse)?;
+        let ram_revision = self
+            .directories
+            .get(&ann_pubkey)
+            .map(|e| e.value().directory.revision);
+        let persisted_revision = self.anchor_locators.get(&ann_pubkey).map(|e| e.value().1);
+        let stored_revision = match (ram_revision, persisted_revision) {
+            (Some(r), _) => Some(r),
+            (None, Some(p)) => Some(p.saturating_sub(1)),
+            (None, None) => None,
+        };
+        verify_signed_list_ingest(&entry, &ann_pubkey, stored_revision)?;
+
+        // Step 9: store the verified entry (RAM) + persist the re-fetch locator
+        // (ticket + the revision just accepted, for the reboot rollback floor).
+        self.directories.insert(ann_pubkey, entry.clone());
+        self.anchor_locators.insert(
+            ann_pubkey,
+            (announcement.blob_ticket.clone(), entry.directory.revision),
+        );
+        if let Err(e) = self.persist_anchors() {
+            // Best-effort: a locator-persist failure does not reject an already
+            // verified+stored directory; it only weakens boot durability.
+            warn!(error = %e, "failed to persist anchors.json after directory ingest");
+        }
+        info!(
+            node = %hex::encode(entry.node_id),
+            revision = entry.directory.revision,
+            catalog = entry.directory.catalog.len(),
+            "accepted node directory"
+        );
+        Ok(entry)
+    }
+
+    /// Re-pull every SUBSCRIBED anchor's node directory from its persisted
+    /// locator (Sprint 75 Phase C — the D4 durability primitive). Called once at
+    /// boot, after `subscriptions.json` + `anchors.json` are loaded: the in-memory
+    /// `directories` map starts empty on every boot, so without this a remote
+    /// catalog would not survive a reboot until the anchor next re-announces.
+    ///
+    /// For each `(pubkey, ticket, revision)` locator whose pubkey is in the
+    /// attention set (verrou 5 — never fetch an unsubscribed anchor; an empty
+    /// default attention set means a fresh install does ZERO boot network fetch /
+    /// no silent leak), fetch the blob by ticket and run it through the SAME
+    /// `verify_signed_list_ingest` gate as a live announce (signature +
+    /// per-anchor revision floor). A re-fetch that fails verify, finds the anchor
+    /// offline, or times out yields nothing for that anchor — the catalog
+    /// reappears on the next live announce. Each fetch is bounded by
+    /// [`REPULL_FETCH_TIMEOUT`] so a single dead anchor cannot stall boot.
+    /// Returns the number of anchors successfully restored.
+    pub async fn repull_directories(&self, node: &Node) -> usize {
+        // Snapshot the subscribed locators so we don't hold a DashMap guard
+        // across the awaits below.
+        let locators: Vec<([u8; PUBLIC_KEY_LENGTH], String, u64)> = self
+            .anchor_locators
+            .iter()
+            .filter(|e| self.is_subscribed(e.key()))
+            .map(|e| (*e.key(), e.value().0.clone(), e.value().1))
+            .collect();
+        let mut restored = 0usize;
+        for (pubkey, ticket, revision) in locators {
+            match tokio::time::timeout(
+                REPULL_FETCH_TIMEOUT,
+                self.repull_one_directory(node, &pubkey, &ticket, revision),
+            )
+            .await
+            {
+                Ok(Ok(())) => restored += 1,
+                Ok(Err(e)) => {
+                    debug!(anchor = %hex::encode(pubkey), error = %e, "boot re-pull of anchor directory failed");
+                }
+                Err(_) => {
+                    debug!(anchor = %hex::encode(pubkey), "boot re-pull of anchor directory timed out");
+                }
+            }
+        }
+        if restored > 0 {
+            info!(
+                restored,
+                "re-pulled node directories from persisted anchors"
+            );
+        }
+        restored
+    }
+
+    /// Fetch + verify + store ONE anchor's directory from its locator ticket.
+    /// Shared by [`Self::repull_directories`]; split out so each anchor's fetch
+    /// can be wrapped in its own timeout. Re-validates the re-fetched blob
+    /// exactly as a live announce (the persisted ticket is an untrusted locator —
+    /// the signature + revision gate is the authority, not the ticket).
+    ///
+    /// `persisted_revision` is the directory revision we last ingested from this
+    /// anchor (from `anchors.json`). It carries the anti-rollback floor ACROSS the
+    /// reboot: the RAM `directories` map is empty at boot, so the gate floor is
+    /// taken from the persisted revision. The fetched blob must verify at a
+    /// revision `>= persisted_revision` (the gate's strict `>` is fed
+    /// `persisted_revision - 1`) so the re-fetch of the persisted blob RESTORES the
+    /// catalog; the immutable content hash means a re-fetch already yields exactly
+    /// that revision, so this rejects only a forged older-but-signed substitution —
+    /// defense-in-depth on top of content-addressing (Codex round-2 GAP).
+    async fn repull_one_directory(
+        &self,
+        node: &Node,
+        pubkey: &[u8; PUBLIC_KEY_LENGTH],
+        ticket: &str,
+        persisted_revision: u64,
+    ) -> Result<(), CuratorRuntimeError> {
+        let blobs = BlobsClient::new(node.blobs_store());
+        let hash = blobs
+            .fetch_ticket(node.endpoint(), node.memory_lookup(), ticket)
+            .await
+            .map_err(CuratorRuntimeError::BlobFetch)?;
+        let body = blobs
+            .get_bytes(hash)
+            .await
+            .map_err(CuratorRuntimeError::BlobFetch)?;
+        let entry: NodeDirectoryEntry =
+            serde_json::from_slice(&body).map_err(CuratorRuntimeError::EntryParse)?;
+        // Floor = `persisted_revision - 1`, so the re-fetch of the persisted blob
+        // (revision == persisted) passes the gate's strict `>` and RESTORES the
+        // catalog, while any older signed blob is rejected even though RAM started
+        // empty at boot. The persisted ticket pins the LATEST revision (the locator
+        // is rewritten on every ingest), so a re-fetch never yields an older one —
+        // this floor is defense-in-depth on top of content-addressing; if RAM
+        // already holds the same revision, re-storing it is idempotent.
+        verify_signed_list_ingest(&entry, pubkey, Some(persisted_revision.saturating_sub(1)))?;
+        self.directories.insert(*pubkey, entry);
+        Ok(())
+    }
+
+    // ---------------------------------------------------------
     // Persistence
     // ---------------------------------------------------------
 
@@ -839,6 +1232,115 @@ impl CuratorRuntime {
         info!(
             count = self.attention.len(),
             "attention set restored from subscriptions.json"
+        );
+    }
+
+    /// Atomically rewrite `anchors.json` from the current locator set. No-op
+    /// when `anchors_path` is `None`. Mirrors [`Self::persist_subscriptions`]'s
+    /// tmp-file + fsync + rename durability. Sprint 75 Phase C.
+    fn persist_anchors(&self) -> Result<(), CuratorRuntimeError> {
+        let Some(path) = self.anchors_path.as_ref() else {
+            return Ok(());
+        };
+        let mut anchors: Vec<AnchorLocator> = self
+            .anchor_locators
+            .iter()
+            .map(|e| AnchorLocator {
+                pubkey: hex::encode(e.key()),
+                ticket: e.value().0.clone(),
+                revision: e.value().1,
+            })
+            .collect();
+        // Stable order so the file is diff-friendly across DashMap shuffling.
+        anchors.sort_by(|a, b| a.pubkey.cmp(&b.pubkey));
+        let file = AnchorsFile {
+            schema_version: ANCHORS_SCHEMA_VERSION,
+            anchors,
+        };
+        let body =
+            serde_json::to_vec_pretty(&file).map_err(|e| CuratorRuntimeError::Persistence {
+                path: path.clone(),
+                source: std::io::Error::new(std::io::ErrorKind::InvalidData, e),
+            })?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| CuratorRuntimeError::Persistence {
+                path: parent.to_path_buf(),
+                source: e,
+            })?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        {
+            let mut f = fs::File::create(&tmp).map_err(|e| CuratorRuntimeError::Persistence {
+                path: tmp.clone(),
+                source: e,
+            })?;
+            f.write_all(&body)
+                .map_err(|e| CuratorRuntimeError::Persistence {
+                    path: tmp.clone(),
+                    source: e,
+                })?;
+            f.sync_all().map_err(|e| CuratorRuntimeError::Persistence {
+                path: tmp.clone(),
+                source: e,
+            })?;
+        }
+        fs::rename(&tmp, path).map_err(|e| CuratorRuntimeError::Persistence {
+            path: path.clone(),
+            source: e,
+        })?;
+        debug!(path = %path.display(), "anchors.json rewritten");
+        Ok(())
+    }
+
+    /// Populate the anchor locator set from `anchors.json`. A missing,
+    /// unreadable, or schema-mismatched file is treated as an empty set and
+    /// logged at warn level — boot never crashes over a stale disk file.
+    /// Sprint 75 Phase C.
+    pub fn load_anchors(&self) {
+        let Some(path) = self.anchors_path.as_ref() else {
+            return;
+        };
+        if !path.exists() {
+            debug!(path = %path.display(), "no anchors.json — no directories to re-pull at boot");
+            return;
+        }
+        let body = match fs::read_to_string(path) {
+            Ok(b) => b,
+            Err(e) => {
+                warn!(path = %path.display(), error = %e, "failed to read anchors.json");
+                return;
+            }
+        };
+        let file: AnchorsFile = match serde_json::from_str(&body) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!(path = %path.display(), error = %e, "anchors.json is not valid JSON");
+                return;
+            }
+        };
+        if file.schema_version != ANCHORS_SCHEMA_VERSION {
+            warn!(
+                path = %path.display(),
+                found = file.schema_version,
+                expected = ANCHORS_SCHEMA_VERSION,
+                "anchors.json schema mismatch — ignoring"
+            );
+            return;
+        }
+        for loc in &file.anchors {
+            match parse_pubkey_hex(&loc.pubkey) {
+                Ok(pk) => {
+                    self.anchor_locators
+                        .insert(pk, (loc.ticket.clone(), loc.revision));
+                }
+                Err(e) => {
+                    warn!(bad_hex = %loc.pubkey, error = %e, "ignoring invalid pubkey in anchors.json");
+                }
+            }
+        }
+        info!(
+            count = self.anchor_locators.len(),
+            "anchor locators restored from anchors.json"
         );
     }
 }
@@ -1401,6 +1903,295 @@ mod tests {
 
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
+    }
+
+    // ---------------------------------------------------------
+    // 2-node node-directory integration tests (Sprint 75 Phase C)
+    // ---------------------------------------------------------
+
+    async fn publish_directory_and_mint_announcement(
+        node_a: &Node,
+        entry: &NodeDirectoryEntry,
+    ) -> NodeDirectoryAnnouncement {
+        let body = serde_json::to_vec(entry).unwrap();
+        let blobs_a = BlobsClient::new(node_a.blobs_store());
+        let hash = blobs_a.add_bytes(&body).await.unwrap();
+        let my_addr = nexus_core_rs::DiscoveryClient::new(node_a.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("publisher must expose an address");
+        let ticket = mint_ticket(&blobs_a, hash, my_addr);
+        NodeDirectoryAnnouncement::new(entry.node_id, ticket)
+    }
+
+    #[tokio::test]
+    async fn node_directory_ingest_subscription_gated() {
+        // A node directory from a non-subscribed anchor is dropped at the
+        // attention gate (no fetch); the SAME announcement ingests once the
+        // anchor is subscribed. Mirrors the curator subscription gate (DQ3: one
+        // attention set covers both), reusing the shared ingest path.
+        let node_a = spawn_node().await;
+        let node_b = spawn_node().await;
+
+        let kp = KeyPair::generate();
+        let entry = mk_directory_entry(&kp, 1);
+        let announcement = publish_directory_and_mint_announcement(&node_a, &entry).await;
+
+        let runtime = CuratorRuntime::new(None);
+        // Not subscribed → dropped at step 4, nothing stored.
+        let result = runtime
+            .process_directory_announcement_bytes(&announcement.to_bytes().unwrap(), &node_b)
+            .await;
+        assert!(
+            matches!(result, Err(CuratorRuntimeError::NotSubscribed { .. })),
+            "a non-subscribed anchor's directory must be dropped at the attention gate"
+        );
+        assert_eq!(runtime.known_directory_count(), 0);
+
+        // Subscribe to the anchor pubkey → the same announcement now ingests.
+        runtime
+            .subscribe(&hex::encode(kp.public_bytes()))
+            .expect("subscribe");
+        let accepted = runtime
+            .process_directory_announcement_bytes(&announcement.to_bytes().unwrap(), &node_b)
+            .await
+            .expect("a subscribed anchor's directory must ingest");
+        assert_eq!(accepted, entry);
+        assert_eq!(runtime.known_directory_count(), 1);
+        // The catalog apps count toward the honest discoverable-app total (verrou 2).
+        assert_eq!(runtime.known_entry_count(), entry.directory.catalog.len());
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn boot_repull_restores_remote_catalogs() {
+        // THE load-bearing durability assertion (D4): a remote catalog ingested
+        // by node B survives B's reboot via the persisted anchor locator + boot
+        // re-pull — even though the in-memory directory store is RAM-only and
+        // starts empty on every boot.
+        let tmp = tempdir().unwrap();
+        let subs_path = tmp.path().join("subscriptions.json");
+
+        let node_a = spawn_node().await;
+        let node_b = spawn_node().await;
+
+        let kp = KeyPair::generate();
+        let entry = mk_directory_entry(&kp, 5);
+        let announcement = publish_directory_and_mint_announcement(&node_a, &entry).await;
+
+        // ---- B's first boot: subscribe + ingest A's directory ----
+        {
+            let runtime = CuratorRuntime::with_persistence(subs_path.clone());
+            runtime
+                .subscribe(&hex::encode(kp.public_bytes()))
+                .expect("subscribe");
+            runtime
+                .process_directory_announcement_bytes(&announcement.to_bytes().unwrap(), &node_b)
+                .await
+                .expect("ingest");
+            assert_eq!(runtime.known_directory_count(), 1);
+            // The subscription (subscriptions.json) + the anchor locator
+            // (anchors.json) are now persisted next to each other on disk.
+        }
+
+        // The anchors.json locator persists the REVISION (5), not just the ticket,
+        // so the anti-rollback floor survives the reboot (Codex round-2 GAP): the
+        // RAM directory map is empty at boot, and without the persisted revision
+        // the re-pull would have no floor.
+        let anchors_path = subs_path.with_file_name("anchors.json");
+        let anchors_file: AnchorsFile = serde_json::from_str(
+            &std::fs::read_to_string(&anchors_path).expect("read anchors.json"),
+        )
+        .expect("parse anchors.json");
+        assert_eq!(anchors_file.anchors.len(), 1);
+        assert_eq!(
+            anchors_file.anchors[0].revision, 5,
+            "anchors.json must persist the last ingested revision as the rollback floor"
+        );
+
+        // ---- B reboots: a fresh runtime over the SAME persistence path ----
+        let rebooted = CuratorRuntime::with_persistence(subs_path.clone());
+        // The directory store is RAM-only → empty after reboot...
+        assert_eq!(
+            rebooted.known_directory_count(),
+            0,
+            "the RAM-only directory store must start empty on boot"
+        );
+        // ...but the subscription + the re-fetch locator survived.
+        assert!(rebooted.is_subscribed(&kp.public_bytes()));
+
+        // The boot re-pull re-fetches A's still-served blob and restores it.
+        let restored = rebooted.repull_directories(&node_b).await;
+        assert_eq!(restored, 1, "the subscribed anchor's catalog must re-pull");
+        assert_eq!(rebooted.known_directory_count(), 1);
+        let snap = rebooted.directory_snapshot();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(
+            snap[0], entry,
+            "the re-pulled catalog must match what A published"
+        );
+        assert_eq!(snap[0].directory.revision, 5);
+
+        // The rollback floor is ACTIVE post-reboot: a live announce at a LOWER
+        // revision than the re-pulled one (5) is rejected, even though RAM started
+        // empty before the re-pull restored the floor from anchors.json.
+        let older = mk_directory_entry(&kp, 4);
+        let older_ann = publish_directory_and_mint_announcement(&node_a, &older).await;
+        let rollback = rebooted
+            .process_directory_announcement_bytes(&older_ann.to_bytes().unwrap(), &node_b)
+            .await;
+        assert!(
+            matches!(rollback, Err(CuratorRuntimeError::RevisionRollback { .. })),
+            "a lower-revision announce must be rejected after reboot+re-pull restored the floor"
+        );
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn live_ingest_respects_persisted_floor_after_failed_repull() {
+        // Codex round-4 GAP: even when the boot re-pull did NOT restore an anchor
+        // (it was offline → RAM directory store empty for it), a LIVE announce at
+        // a LOWER revision than the last-seen one must STILL be rejected, using the
+        // persisted locator revision as the floor. Otherwise a failed re-pull opens
+        // a rollback window.
+        let tmp = tempdir().unwrap();
+        let subs_path = tmp.path().join("subscriptions.json");
+        let node_a = spawn_node().await;
+        let node_b = spawn_node().await;
+        let kp = KeyPair::generate();
+
+        // First boot: ingest revision 5 → persists locator revision 5.
+        {
+            let rt = CuratorRuntime::with_persistence(subs_path.clone());
+            rt.subscribe(&hex::encode(kp.public_bytes())).unwrap();
+            let entry5 = mk_directory_entry(&kp, 5);
+            let ann5 = publish_directory_and_mint_announcement(&node_a, &entry5).await;
+            rt.process_directory_announcement_bytes(&ann5.to_bytes().unwrap(), &node_b)
+                .await
+                .expect("ingest 5");
+        }
+
+        // Reboot: a fresh runtime loads anchors.json (revision 5) but does NOT
+        // re-pull (simulate the anchor offline at boot — RAM stays empty).
+        let rebooted = CuratorRuntime::with_persistence(subs_path.clone());
+        assert_eq!(rebooted.known_directory_count(), 0);
+
+        // A live announce at revision 4 must be rejected via the PERSISTED floor,
+        // even though RAM is empty (no re-pull ran).
+        let entry4 = mk_directory_entry(&kp, 4);
+        let ann4 = publish_directory_and_mint_announcement(&node_a, &entry4).await;
+        let res = rebooted
+            .process_directory_announcement_bytes(&ann4.to_bytes().unwrap(), &node_b)
+            .await;
+        assert!(
+            matches!(res, Err(CuratorRuntimeError::RevisionRollback { .. })),
+            "a lower-revision live announce must be rejected via the persisted floor after a failed re-pull"
+        );
+
+        // But a SAME-revision live re-announce (5) must RESTORE the lost catalog
+        // (Codex round-6): the persisted floor means `>= 5`, not `> 5` — otherwise
+        // a failed re-pull would leave the catalog unrecoverable until the
+        // publisher bumps its revision.
+        let entry5b = mk_directory_entry(&kp, 5);
+        let ann5b = publish_directory_and_mint_announcement(&node_a, &entry5b).await;
+        rebooted
+            .process_directory_announcement_bytes(&ann5b.to_bytes().unwrap(), &node_b)
+            .await
+            .expect(
+                "a same-revision live re-announce must restore the catalog after a failed re-pull",
+            );
+        assert_eq!(rebooted.known_directory_count(), 1);
+
+        // Once RAM holds revision 5 again, the strict same-revision dedup is back
+        // (the curator-arm behaviour): a SECOND announce at 5 is now a duplicate.
+        let dup = rebooted
+            .process_directory_announcement_bytes(&ann5b.to_bytes().unwrap(), &node_b)
+            .await;
+        assert!(
+            matches!(dup, Err(CuratorRuntimeError::RevisionRollback { .. })),
+            "with RAM repopulated, a same-revision re-announce is deduped strictly"
+        );
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn repull_skips_unsubscribed_anchor() {
+        // verrou 5: a locator whose anchor is NOT in the attention set is never
+        // re-pulled (a fresh install with an empty attention set does zero boot
+        // fetch). Here we persist a locator then unsubscribe before reboot.
+        let tmp = tempdir().unwrap();
+        let subs_path = tmp.path().join("subscriptions.json");
+
+        let node_a = spawn_node().await;
+        let node_b = spawn_node().await;
+
+        let kp = KeyPair::generate();
+        let entry = mk_directory_entry(&kp, 1);
+        let announcement = publish_directory_and_mint_announcement(&node_a, &entry).await;
+
+        let runtime = CuratorRuntime::with_persistence(subs_path.clone());
+        runtime
+            .subscribe(&hex::encode(kp.public_bytes()))
+            .expect("subscribe");
+        runtime
+            .process_directory_announcement_bytes(&announcement.to_bytes().unwrap(), &node_b)
+            .await
+            .expect("ingest");
+        // Unsubscribing evicts the directory + drops the locator (verrou 5).
+        runtime
+            .unsubscribe(&hex::encode(kp.public_bytes()))
+            .expect("unsubscribe");
+        assert_eq!(runtime.known_directory_count(), 0);
+        // A re-pull now finds no subscribed locator → restores nothing.
+        assert_eq!(runtime.repull_directories(&node_b).await, 0);
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn repull_filters_unsubscribed_locator() {
+        // verrou 5 defense-in-depth: even if a locator lingers in `anchors.json`
+        // for a pubkey that is NOT in the attention set, the boot re-pull filters
+        // it out BEFORE any fetch (it never dials an unsubscribed anchor). Inject
+        // a locator directly without subscribing and assert zero re-pull — no
+        // network is even attempted (a real ticket is unnecessary).
+        let node = spawn_node().await;
+        let kp = KeyPair::generate();
+        let runtime = CuratorRuntime::new(None);
+        runtime.insert_anchor_locator_for_test(kp.public_bytes(), "any-ticket-string");
+        // Not subscribed → the locator is filtered, nothing fetched or restored.
+        assert_eq!(runtime.repull_directories(&node).await, 0);
+        assert_eq!(runtime.known_directory_count(), 0);
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn repull_tolerates_bad_locator() {
+        // The tolerated failure path the durability story rests on: a SUBSCRIBED
+        // anchor whose persisted ticket is unusable (malformed / forged / stale)
+        // must yield NOTHING gracefully — no panic, no poisoned store — rather
+        // than aborting the whole re-pull pass. Here the ticket is malformed, so
+        // the fetch errors fast (no 15s timeout); the same `Ok(Err)` branch covers
+        // an offline anchor.
+        let node = spawn_node().await;
+        let kp = KeyPair::generate();
+        let runtime = CuratorRuntime::new(None);
+        runtime
+            .subscribe(&hex::encode(kp.public_bytes()))
+            .expect("subscribe");
+        runtime.insert_anchor_locator_for_test(kp.public_bytes(), "not-a-valid-blob-ticket");
+        // Subscribed but the locator is unusable → 0 restored, store stays empty,
+        // no panic.
+        assert_eq!(runtime.repull_directories(&node).await, 0);
+        assert_eq!(runtime.known_directory_count(), 0);
+        node.shutdown().await.ok();
     }
 
     #[tokio::test]

@@ -1209,11 +1209,17 @@ async fn publish_directory(State(state): State<Arc<DaemonHttpState>>) -> Respons
     };
 
     // Gossip-announce: PoW-wrap a NodeDirectoryAnnouncement and broadcast it.
-    // Best-effort and LIVE-ONLY (a no-op while isolated) — unlike the project
-    // announce path this does NOT persist to the outbox, so it does not replay
-    // on NeighborUp / boot yet. Durable replay (outbox persist + a directory-
-    // aware branch in remint_and_wrap_for_replay) and the receive-side ingest
-    // arm that consumes a directory announcement are both Phase C deliverables.
+    // Best-effort and LIVE-ONLY (a no-op while isolated): unlike the project
+    // announce path this does NOT persist to the outbox, so this PRODUCER does
+    // not itself re-announce on NeighborUp / boot. The receive-side ingest arm
+    // that consumes a directory announcement IS delivered (Sprint 75 Phase C —
+    // `handle_directory_announcement` → `process_directory_announcement_bytes`),
+    // and remote-catalog DURABILITY is handled CONSUMER-side: a subscriber
+    // persists a re-fetch locator (`anchors.json`) and re-pulls + re-validates at
+    // boot (`CuratorRuntime::repull_directories`), so producer outbox-replay is
+    // not required for a catalog to survive a subscriber's reboot. A PRODUCER
+    // re-announce timer (so a peer's first-ever discovery does not wait for the
+    // next manual publish) is the VPS headless driver's job (Phase E).
     if let Ok(ticket) = mint_blob_ticket(&state, &hash_hex).await {
         let announcement = nexus_shell_daemon_core::iroh_runtime::NodeDirectoryAnnouncement::new(
             node_pubkey,
@@ -1492,6 +1498,21 @@ async fn seed_voluntary(
     }
 }
 
+/// Query string for [`seed_count`] (Sprint 75 Phase C, WIRE-2).
+#[derive(Debug, serde::Deserialize)]
+struct SeedCountQuery {
+    /// Optional EXACT archive version to count. When present, `peer_count` is
+    /// the seeders of that specific BLAKE3 hash (the honest "peers that can serve
+    /// the bytes I am about to pull" answer) and `self_seeding` is true only if
+    /// this node's own pin IS that version. When absent, the count is STRICTLY
+    /// version-agnostic — the distinct seeders across all versions, the exact
+    /// pre-WIRE-2 semantics (no silent substitution of this node's own pinned
+    /// hash). Backward compatible: an old caller that omits it keeps the
+    /// previous behaviour.
+    #[serde(default)]
+    archive_hash: Option<String>,
+}
+
 /// `GET /api/daemon/seed-count/{project_id}` — Sprint 74 Phase F — the
 /// best-effort multi-seed availability count for an app.
 ///
@@ -1506,22 +1527,49 @@ async fn seed_voluntary(
 /// truth of reachability, this count is only a freshness hint. A dedicated
 /// route (vs a `seed_count` field on every BrowseEntry) keeps the count fetched
 /// live with its TTL semantics and avoids churning every BrowseEntry site.
+///
+/// Sprint 75 Phase C (WIRE-2): an optional `?archive_hash=` scopes `peer_count`
+/// to the seeders of that exact version (see [`SeedCountQuery`]).
 async fn seed_count(
     State(state): State<Arc<DaemonHttpState>>,
     Path(project_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<SeedCountQuery>,
 ) -> impl IntoResponse {
     let now = SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let peer_count = state.seed_registry.count_recent(&project_id, now);
-    let self_seeding = {
+    let (keep_online_enabled, own_hash) = {
         let db = state
             .coordinator_db
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        matches!(db.get_keep_online(&project_id), Ok(Some((true, _))))
+        match db.get_keep_online(&project_id) {
+            Ok(Some((enabled, hash))) => (enabled, hash),
+            _ => (false, None),
+        }
     };
+    let requested = params.archive_hash.as_deref();
+    // WIRE-2: `peer_count` is scoped to the EXACT version the caller asks about
+    // (`?archive_hash=`), else a version-agnostic distinct count across all
+    // versions when omitted. The omitted case is STRICTLY the pre-WIRE-2
+    // non-regression semantics (`None`) — we do NOT silently substitute our own
+    // pinned hash, which would surprise a caller that asked for an aggregate count
+    // (Codex GAP). The frontend always passes the displayed entry's archive_hash,
+    // so the version-specific path is the one exercised in practice.
+    let peer_count = state
+        .seed_registry
+        .count_recent(&project_id, requested, now);
+    // `self_seeding` ("Toi") must be HONEST about the queried version: when the
+    // caller asks about a SPECIFIC archive_hash, this node only counts as a
+    // self-seeder if its pinned hash IS that exact version. Without this check a
+    // node pinning version Y would falsely claim "Toi" for a query about version
+    // X (Codex GAP). With no version requested, it reflects the enabled state.
+    let self_seeding = keep_online_enabled
+        && match requested {
+            Some(req) => own_hash.as_deref() == Some(req),
+            None => true,
+        };
     (
         StatusCode::OK,
         Json(serde_json::json!({
