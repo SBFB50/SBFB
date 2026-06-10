@@ -289,13 +289,12 @@ impl ProtocolHandler for SeedProtocol {
 /// (`response.author_pubkey == conn.remote_id()`), so a relay cannot
 /// forge an "accepted" ack on the seeder's behalf.
 ///
-/// The production caller is the authenticated peer-designation UI, which
-/// is deliberately deferred ("Bientot") for the closed pilot (preflight
-/// NF-2): the wire protocol + this dialer are fully built and exercised
-/// by the two-node E2E tests, but the address-entry UI that calls this in
-/// prod ships later. Kept as a real (non-test-only) API so that UI can
-/// wire it without duplication.
-#[allow(dead_code)]
+/// The production caller is `http::seed_request_peer`
+/// (`POST /api/daemon/seed/request`, Sprint 75 Phase E): the loopback-
+/// scriptable requester leg of the headless anchor model — after a
+/// deploy, a script asks a designated peer (typically the operator's VPS)
+/// to seed the app, no browser required. The richer peer-designation UI
+/// remains deferred ("Bientot") and will reuse the same route.
 pub async fn request_seed(
     endpoint: &Endpoint,
     memory_lookup: &MemoryLookup,

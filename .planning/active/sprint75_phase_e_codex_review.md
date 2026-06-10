@@ -1,0 +1,20 @@
+CONFIRMED `[seed]` is a project-id list only, serde-defaulted and default-empty: crates/nexus-shell-daemon-core/src/config.rs:193 crates/nexus-shell-daemon-core/src/config.rs:278 crates/nexus-shell-daemon-core/src/config.rs:638
+CONFIRMED seed ids are lowercased then retained only if 64-hex: crates/nexus-shell-daemon-core/src/config.rs:359 crates/nexus-shell-daemon-core/src/config.rs:362
+CONFIRMED config example matches parser and ships empty `default_curators` / empty `keep_online_projects`: deploy/config.toml.example:28 deploy/config.toml.example:30 deploy/config.toml.example:46
+CONFIRMED runtime plumbs `cfg.seed` and resolves `sbfb_home` onto daemon state: crates/nexus-shell-daemon/src/main.rs:184 crates/nexus-shell-daemon/src/runtime.rs:940
+CONFIRMED boot task waits for gossip replay, reannounces directory first, then runs seed driver: crates/nexus-shell-daemon/src/runtime.rs:1089 crates/nexus-shell-daemon/src/runtime.rs:1145 crates/nexus-shell-daemon/src/runtime.rs:1149
+CONFIRMED boot task handle is retained and abort+joined before node reclamation: crates/nexus-shell-daemon/src/runtime.rs:266 crates/nexus-shell-daemon/src/runtime.rs:1180 crates/nexus-shell-daemon/src/runtime.rs:1238
+CONFIRMED publish-directory refactor preserves duress 200 noop and success response fields: crates/nexus-shell-daemon/src/http.rs:1087 crates/nexus-shell-daemon/src/http.rs:1088 crates/nexus-shell-daemon/src/http.rs:1093
+CONFIRMED directory authoring still gates on own entries plus locally held blobs before signing: crates/nexus-shell-daemon/src/http.rs:1157 crates/nexus-shell-daemon/src/http.rs:1200
+CONFIRMED directory revision read/write split is state-gated and serialized for writers: crates/nexus-shell-daemon/src/http.rs:1370 crates/nexus-shell-daemon/src/http.rs:1405
+CONFIRMED boot directory reannounce is revision-gated and reuses duress-aware authoring core: crates/nexus-shell-daemon/src/http.rs:1315 crates/nexus-shell-daemon/src/http.rs:1316 crates/nexus-shell-daemon/src/http.rs:1319
+CONFIRMED boot seed driver duress short-circuits at top and dedups configured projects: crates/nexus-shell-daemon/src/http.rs:1640 crates/nexus-shell-daemon/src/http.rs:1646
+CONFIRMED boot seed acquisition is first-applicable: held re-pin, direct ticket, then bounded multi-provider bare-hash pull: crates/nexus-shell-daemon/src/http.rs:1692 crates/nexus-shell-daemon/src/http.rs:1703 crates/nexus-shell-daemon/src/http.rs:1732
+CONFIRMED boot seed persists keep_online and suppresses duplicate `SeedAnnounced` via pure predicate: crates/nexus-shell-daemon/src/http.rs:1786 crates/nexus-shell-daemon/src/http.rs:1792 crates/nexus-shell-daemon/src/http.rs:1828
+CONFIRMED requester route is mounted and duress short-circuits before parse/sign/dial: crates/nexus-shell-daemon/src/http.rs:291 crates/nexus-shell-daemon/src/http.rs:2333
+CONFIRMED requester route parses peer id, blocks self-designation, requires visible archive, and mints through local-blob gate: crates/nexus-shell-daemon/src/http.rs:2344 crates/nexus-shell-daemon/src/http.rs:2354 crates/nexus-shell-daemon/src/http.rs:2364 crates/nexus-shell-daemon/src/http.rs:2381
+CONFIRMED requester route signs `SeedRequest`, dials with bounded timeout, verifies nonce echo, and returns seeder id: crates/nexus-shell-daemon/src/http.rs:2398 crates/nexus-shell-daemon/src/http.rs:2429 crates/nexus-shell-daemon/src/http.rs:2459 crates/nexus-shell-daemon/src/http.rs:2472
+CONFIRMED `request_seed` no longer has `#[allow(dead_code)]` and names the production caller: crates/nexus-shell-daemon/src/seed_protocol.rs:292 crates/nexus-shell-daemon/src/seed_protocol.rs:298
+CONFIRMED systemd unit pins both writable roots under StateDirectory and includes required hardening/netlink allowances: deploy/nexus-shell-daemon.service:48 deploy/nexus-shell-daemon.service:49 deploy/nexus-shell-daemon.service:50 deploy/nexus-shell-daemon.service:63
+CONFIRMED 13 new tests cover the declared Phase E surfaces: crates/nexus-shell-daemon-core/src/config.rs:606 crates/nexus-shell-daemon/src/http.rs:4788 crates/nexus-shell-daemon/src/http.rs:5242
+OVERALL: PASS

@@ -57,7 +57,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 /// Shared handle to the gossip topic sender. `None` until the
 /// gossip task has joined the curator topic. Sprint 11 Phase A.
@@ -285,6 +285,10 @@ pub fn build_router(
         // seed of a distant public app; `/seed/invite*` = revocable invite
         // ledger for the authenticated `sbfb/seed/0` protocol.
         .route("/api/daemon/seed", post(seed_voluntary))
+        // Sprint 75 Phase E: REQUESTER leg of the authenticated
+        // `sbfb/seed/0` protocol — ask a designated peer (my anchor) to
+        // seed an app this node holds. Scriptable, headless-compatible.
+        .route("/api/daemon/seed/request", post(seed_request_peer))
         .route("/api/daemon/seed/invite", post(seed_invite_mint))
         .route("/api/daemon/seed/invite/revoke", post(seed_invite_revoke))
         .route(
@@ -1080,22 +1084,73 @@ struct PublishDirectoryResponse {
 /// host, never a write-side "publish to X" selector (verrou 1).
 async fn publish_directory(State(state): State<Arc<DaemonHttpState>>) -> Response {
     debug!("POST /api/daemon/directory/publish");
+    match build_sign_announce_directory(&state).await {
+        Ok(DirectoryPublishOutcome::DuressNoop) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "published": false })),
+        )
+            .into_response(),
+        Ok(DirectoryPublishOutcome::Published {
+            node_id_hex,
+            revision,
+            catalog_len,
+            archive_hash,
+        }) => (
+            StatusCode::OK,
+            Json(PublishDirectoryResponse {
+                node_id: node_id_hex,
+                revision,
+                catalog_len,
+                archive_hash,
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+            .into_response(),
+    }
+}
 
+/// What [`build_sign_announce_directory`] produced.
+pub(crate) enum DirectoryPublishOutcome {
+    /// Duress mode: nothing was signed (never sign under the fake keypair).
+    DuressNoop,
+    /// A signed directory was built, blob-stored and (best-effort)
+    /// gossip-announced.
+    Published {
+        node_id_hex: String,
+        revision: u64,
+        catalog_len: usize,
+        archive_hash: String,
+    },
+}
+
+/// Core of the directory authoring path, shared by the HTTP route and the
+/// headless boot re-announce (Sprint 75 Phase E): build THIS node's signed
+/// [`nexus_core_rs::NodeDirectoryEntry`] from the apps it actually holds,
+/// blob-store it, and gossip-announce it with a fresh ticket + PoW.
+///
+/// Every anti-recentralization guard lives HERE so each caller (browser
+/// route, scripted loopback call, headless boot driver) inherits them
+/// identically: duress no-op BEFORE any signing, own-apps-only +
+/// local-blob-held ownership gate (verrou 4), LOCAL node keypair
+/// provenance, no peer node id anywhere (lock-3).
+pub(crate) async fn build_sign_announce_directory(
+    state: &Arc<DaemonHttpState>,
+) -> Result<DirectoryPublishOutcome, String> {
     // Duress short-circuit BEFORE signing — never sign a directory under
     // the fake keypair (mirrors publish_project).
     if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
         == crate::noop_identity::PublishOutcome::Noop
     {
-        return (
-            StatusCode::OK,
-            Json(serde_json::json!({ "published": false })),
-        )
-            .into_response();
+        return Ok(DirectoryPublishOutcome::DuressNoop);
     }
 
     // Source the OWN catalog: the apps this node hosts (direct entries tagged
     // with our node id). A node never advertises a peer's apps. `node.node_id()`
-    // is the z-base-32 encoding of the SAME Ed25519 key as
+    // is the lowercase-hex encoding of the SAME Ed25519 key as
     // `pow_keypair.public_bytes()` below: on a real install both derive from one
     // secret (the daemon keypair IS the iroh secret), so the catalog membership
     // and the signed directory identity are the same key (verrou 4).
@@ -1105,7 +1160,7 @@ async fn publish_directory(State(state): State<Arc<DaemonHttpState>>) -> Respons
     // Build the directory signed with the node keypair. directory.node_id == the
     // signing pubkey == the dialable identity a puller dials.
     let node_pubkey = state.pow_keypair.public_bytes();
-    let revision = next_directory_revision(&state);
+    let revision = next_directory_revision(state);
     let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
     let mut directory = nexus_core_rs::NodeDirectory::new(node_pubkey, revision);
     for e in &own {
@@ -1176,13 +1231,7 @@ async fn publish_directory(State(state): State<Arc<DaemonHttpState>>) -> Respons
     {
         Ok(entry) => entry,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("failed to sign node directory: {e}"),
-                }),
-            )
-                .into_response();
+            return Err(format!("failed to sign node directory: {e}"));
         }
     };
 
@@ -1190,47 +1239,39 @@ async fn publish_directory(State(state): State<Arc<DaemonHttpState>>) -> Respons
     let entry_bytes = match serde_json::to_vec(&entry) {
         Ok(b) => b,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("failed to serialize node directory: {e}"),
-                }),
-            )
-                .into_response();
+            return Err(format!("failed to serialize node directory: {e}"));
         }
     };
     let hash_hex = match blobs.add_bytes(entry_bytes).await {
         Ok(hash) => hex::encode(hash),
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("failed to store node directory blob: {e}"),
-                }),
-            )
-                .into_response();
+            return Err(format!("failed to store node directory blob: {e}"));
         }
     };
 
     // Gossip-announce: PoW-wrap a NodeDirectoryAnnouncement and broadcast it.
     // Best-effort and LIVE-ONLY (a no-op while isolated): unlike the project
-    // announce path this does NOT persist to the outbox, so this PRODUCER does
-    // not itself re-announce on NeighborUp / boot. The receive-side ingest arm
-    // that consumes a directory announcement IS delivered (Sprint 75 Phase C —
-    // `handle_directory_announcement` → `process_directory_announcement_bytes`),
-    // and remote-catalog DURABILITY is handled CONSUMER-side: a subscriber
-    // persists a re-fetch locator (`anchors.json`) and re-pulls + re-validates at
-    // boot (`CuratorRuntime::repull_directories`), so producer outbox-replay is
-    // not required for a catalog to survive a subscriber's reboot. A PRODUCER
-    // re-announce timer (so a peer's first-ever discovery does not wait for the
-    // next manual publish) is the VPS headless driver's job (Phase E).
-    if let Ok(ticket) = mint_blob_ticket(&state, &hash_hex).await {
+    // announce path this does NOT persist to the outbox — it does not need to.
+    // The receive-side ingest arm that consumes a directory announcement is
+    // `handle_directory_announcement` → `process_directory_announcement_bytes`
+    // (Sprint 75 Phase C), and remote-catalog DURABILITY is handled
+    // CONSUMER-side: a subscriber persists a re-fetch locator (`anchors.json`)
+    // and re-pulls + re-validates at boot (`CuratorRuntime::repull_directories`).
+    // The PRODUCER side re-emits at boot via `reannounce_directory_at_boot`
+    // (Sprint 75 Phase E, the headless boot driver): state-driven on the
+    // persisted revision counter, it re-builds + re-signs + re-announces this
+    // same announcement so a subscribed peer ONLINE AT THIS ANCHOR'S BOOT
+    // does not wait for the next manual publish. A subscriber that joins
+    // LATER still needs a live overlap (boot-only re-emit, no outbox replay
+    // for directory announcements — accepted residual of the Phase C
+    // deferral closure).
+    if let Ok(ticket) = mint_blob_ticket(state, &hash_hex).await {
         let announcement = nexus_shell_daemon_core::iroh_runtime::NodeDirectoryAnnouncement::new(
             node_pubkey,
             ticket,
         );
         if let Ok(payload) = announcement.to_bytes() {
-            if let Ok(envelope) = wrap_payload_with_pow(&state, &payload) {
+            if let Ok(envelope) = wrap_payload_with_pow(state, &payload) {
                 let sender_guard = state.gossip_sender.read().await;
                 if let Some(sender) = sender_guard.as_ref() {
                     if let Err(e) = sender.broadcast(envelope).await {
@@ -1246,16 +1287,54 @@ async fn publish_directory(State(state): State<Arc<DaemonHttpState>>) -> Respons
         catalog = catalog_len,
         "published signed node directory"
     );
-    (
-        StatusCode::OK,
-        Json(PublishDirectoryResponse {
-            node_id: hex::encode(node_pubkey),
+    Ok(DirectoryPublishOutcome::Published {
+        node_id_hex: hex::encode(node_pubkey),
+        revision,
+        catalog_len,
+        archive_hash: hash_hex,
+    })
+}
+
+/// Sprint 75 Phase E — the PRODUCER side of directory durability (the
+/// Phase C deferral): `publish_directory`'s gossip announce is LIVE-only
+/// and never persisted to the outbox, so after a reboot a catalogue
+/// publisher goes silent — without this, a subscribed peer online at the
+/// anchor's boot would wait for the next manual publish to (re)discover
+/// the catalogue. The re-emit is boot-only: a subscriber that joins
+/// later still needs a live overlap (accepted residual). The
+/// consumer-side re-pull (`repull_directories`) covers SUBSCRIBERS, not
+/// the producer's own re-emission.
+///
+/// State-driven gate: only a node that ALREADY published a directory
+/// (persisted revision > 0) re-builds, re-signs (revision bump, monotone)
+/// and re-announces at boot. A node that never published stays silent —
+/// this is not a default-on behaviour, and the re-announce is a gossip
+/// EMIT of our own signed catalogue, never a fetch (verrou 5). The
+/// rebuilt catalogue reflects the apps actually held at boot, through the
+/// same ownership gate as the route.
+pub(crate) async fn reannounce_directory_at_boot(state: &Arc<DaemonHttpState>) -> bool {
+    if read_directory_revision(state) == 0 {
+        return false;
+    }
+    match build_sign_announce_directory(state).await {
+        Ok(DirectoryPublishOutcome::Published {
             revision,
             catalog_len,
-            archive_hash: hash_hex,
-        }),
-    )
-        .into_response()
+            ..
+        }) => {
+            info!(
+                revision,
+                catalog = catalog_len,
+                "producer directory re-announced at boot"
+            );
+            true
+        }
+        Ok(DirectoryPublishOutcome::DuressNoop) => false,
+        Err(e) => {
+            warn!(error = %e, "producer directory boot re-announce failed");
+            false
+        }
+    }
 }
 
 /// On-disk shape of `<sbfb-home>/directory_revision.json`: the monotone
@@ -1283,23 +1362,46 @@ fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> String {
     s[..end].to_string()
 }
 
+/// Read the persisted directory revision WITHOUT incrementing it. `0`
+/// means this node never published a directory (no persisted counter, or
+/// no resolvable home) — the state-driven gate
+/// [`reannounce_directory_at_boot`] keys on: a non-producer must stay
+/// silent at boot.
+pub(crate) fn read_directory_revision(state: &DaemonHttpState) -> u64 {
+    let Some(home) = state
+        .sbfb_home
+        .clone()
+        .or_else(nexus_shell_daemon_core::auth::sbfb_home)
+    else {
+        return 0;
+    };
+    let path = home.join("directory_revision.json");
+    std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<DirectoryRevisionFile>(&b).ok())
+        .map(|f| f.revision)
+        .unwrap_or(0)
+}
+
 /// Read the persisted directory revision, return `previous + 1`, and persist
-/// the new value atomically. The home directory resolves the same way every
-/// other persistence-backed route does (consent.rs / files.rs): the
-/// `state.sbfb_home` test override first, then [`auth::sbfb_home`]
-/// (`$SBFB_HOME` / `~/.sbfb`) for the real install. Production `DaemonHttpState`
-/// carries `sbfb_home: None`, so WITHOUT this fallback the counter would reset
-/// to 1 on every boot and a subscribed peer would reject each re-publish as a
-/// revision rollback — the anti-rollback control the `revision` field exists for
-/// would be inert. Best-effort on the write side: an IO error skips the persist
-/// and still returns the computed revision.
+/// the new value atomically. The home directory is `state.sbfb_home`,
+/// resolved ONCE at daemon boot (explicit test override or
+/// [`auth::sbfb_home`] `$SBFB_HOME` / `~/.sbfb`). WITHOUT a resolvable
+/// home the counter would reset to 1 on every boot and a subscribed peer
+/// would reject each re-publish as a revision rollback — the anti-rollback
+/// control the `revision` field exists for would be inert (the shipped
+/// systemd unit pins `SBFB_HOME` for exactly this reason). Best-effort on
+/// the write side: an IO error skips the persist and still returns the
+/// computed revision.
 ///
-/// The read-modify-write is serialized by a process-wide lock so two concurrent
-/// `publish_directory` calls (the daemon runs on a multi-thread runtime) get
-/// strictly-distinct, strictly-increasing revisions rather than both reading the
-/// same value and signing two directories at the same revision (which a peer
-/// would then reject the second of as a rollback). The route is the only writer,
-/// so one process-wide lock suffices.
+/// The read-modify-write is serialized by a process-wide lock so two
+/// concurrent calls (the daemon runs on a multi-thread runtime) get
+/// strictly-distinct, strictly-increasing revisions rather than both
+/// reading the same value and signing two directories at the same revision
+/// (which a peer would then reject the second of as a rollback). The
+/// publish route and the boot re-announce are the only writers, both
+/// in-process through [`build_sign_announce_directory`], so one
+/// process-wide lock suffices.
 fn next_directory_revision(state: &DaemonHttpState) -> u64 {
     static REVISION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = REVISION_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -1312,12 +1414,7 @@ fn next_directory_revision(state: &DaemonHttpState) -> u64 {
         return 1;
     };
     let path = home.join("directory_revision.json");
-    let current = std::fs::read(&path)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<DirectoryRevisionFile>(&b).ok())
-        .map(|f| f.revision)
-        .unwrap_or(0);
-    let next = current.saturating_add(1);
+    let next = read_directory_revision(state).saturating_add(1);
     if let Ok(body) = serde_json::to_vec_pretty(&DirectoryRevisionFile {
         schema_version: 1,
         revision: next,
@@ -1491,6 +1588,245 @@ fn directory_pull_providers(
         push_unique(&mut providers, my_node_id, &seeder);
     }
     providers
+}
+
+/// Sprint 75 Phase E (D3): the headless boot seed driver. For every
+/// project id the operator EXPLICITLY listed under `[seed]
+/// keep_online_projects`, acquire the app's archive — an app this node may
+/// have NEVER deployed locally — pin it under the keep-online tag
+/// (skip-GC), persist the `keep_online` row, and announce the seed to the
+/// feed. This is how an always-on anchor seeds its operator's chosen apps
+/// without a UI session. An EMPTY list does zero work and zero network
+/// calls (verrou 5: the boot fetch is config-driven explicit, never a
+/// shipped default — verrou 3 keeps the compiled default empty).
+///
+/// Resolution order per project id (most-authoritative content source
+/// first): the local direct browse entry (an app this node hosts,
+/// restored from its own outbox), then the persisted `keep_online` row's
+/// archive hash (M18, the hash source-of-truth across reboots), then the
+/// SUBSCRIBED node directories (the "configured app I never had" case).
+/// Acquisition picks the FIRST APPLICABLE source ONLY — bytes already
+/// held locally (re-pin, no network), else the direct entry's ticket,
+/// else the Phase D multi-provider chain (`directory_pull_providers` →
+/// `fetch_and_pin_multi`, a bare-hash download — NEVER a ticket re-mint:
+/// `mint_ticket_for_hash` is the producer helper and bails on a blob we
+/// do not hold). There is NO cross-tier failover: a dead ticket tier is
+/// one warn + skip (same shape as PULL-3, deferred to the S76 audit).
+///
+/// Sequential on purpose (one bounded network budget per app — the Phase
+/// C re-pull pattern): a long list cannot fan out unbounded dials at
+/// boot, and a fully-dead provider set costs at most one timeout per app.
+/// Best-effort, ONE-SHOT: a failed app is logged and skipped, the rest
+/// proceed; nothing re-drives until the next daemon restart. Known
+/// first-boot dead window: on a FRESH anchor (no persisted `anchors.json`
+/// yet) the boot re-pull has nothing to restore, so a configured app that
+/// only exists in a not-yet-ingested directory is skipped this boot —
+/// the operator remedy is `POST /api/daemon/seed {project_id}` once the
+/// directory ingests live, or a daemon restart (re-drive-on-ingest is a
+/// tracked S76 carry). Returns the number of apps pinned (newly acquired
+/// or re-pinned).
+pub(crate) async fn run_boot_seed_driver(
+    state: &Arc<DaemonHttpState>,
+    configured: &[String],
+) -> u64 {
+    // Duress short-circuit (mirrors every signing/publishing surface,
+    // and the sibling `reannounce_directory_at_boot` via its DuressNoop):
+    // a decoy node must perform ZERO seed acquisition, ZERO keep_online
+    // mutation and ZERO `SeedAnnounced` emission. The launcher's duress
+    // path swaps only the identity — config.toml, coordinator.db and the
+    // blob store are the operator's REAL ones — so an un-gated driver
+    // would re-pin and announce the real configured app set under the
+    // fake keypair, correlating the decoy with the real node.
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return 0;
+    }
+    let mut pinned = 0u64;
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for pid in configured {
+        if !seen.insert(pid.as_str()) {
+            continue;
+        }
+
+        // --- Resolve the archive hash (+ the anchor when directory-resolved).
+        let direct = state.browse_aggregator.get_direct_entry(pid);
+        // Lexical block: the DB guard must provably never cross an await
+        // (clippy::await_holding_lock reasons on scopes, not drop()).
+        let keep_online_row = {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            db.get_keep_online(pid).ok().flatten()
+        };
+        // Trust boundary: the subscribed anchor IS the gate — a directory
+        // hit pins whatever hash the FIRST advertising anchor (snapshot
+        // sorted by node_id) signed for this project id, with BLAKE3 as
+        // the only integrity check (no author-provenance verification at
+        // auto-seed time). Multiple subscribed anchors advertising the
+        // same project id resolve lexicographic-first; tracked with the
+        // Sybil-sampling residual in the S76 audit.
+        let dir_hit =
+            find_directory_app_by_project(&state.curator_runtime.directory_snapshot(), pid);
+        let Some(hash_hex) = direct
+            .as_ref()
+            .and_then(|e| e.archive_hash.clone())
+            .or_else(|| keep_online_row.as_ref().and_then(|(_, h)| h.clone()))
+            .or_else(|| dir_hit.as_ref().map(|(h, _)| h.clone()))
+        else {
+            warn!(
+                project = %pid,
+                "boot seed driver: configured app not resolvable yet (no direct entry, no keep_online hash, not in any subscribed directory) — skipped"
+            );
+            continue;
+        };
+        let Some(want_hash) = crate::deploy::decode_hash_hex(&hash_hex) else {
+            warn!(project = %pid, hash = %hash_hex, "boot seed driver: malformed archive hash — skipped");
+            continue;
+        };
+
+        // --- Acquire (or re-pin) the bytes, one bounded budget per app.
+        let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        let tag = crate::deploy::keep_online_tag(pid);
+        let already_held = matches!(blobs.has(want_hash).await, Ok(true));
+        let acquired = if already_held {
+            // Re-pin (plan §E.3 #2): the blob survived in the store; make
+            // sure the keep-online skip-GC tag does too — idempotent.
+            match blobs.set_tag(&tag, want_hash).await {
+                Ok(()) => true,
+                Err(e) => {
+                    warn!(project = %pid, error = %e, "boot seed driver: re-pin set_tag failed");
+                    false
+                }
+            }
+        } else if let Some(ticket) = direct.as_ref().and_then(|e| e.archive_ticket.clone()) {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(DIRECTORY_PULL_TIMEOUT_SECS),
+                blobs.fetch_and_pin(
+                    state.node.endpoint(),
+                    state.node.memory_lookup(),
+                    &ticket,
+                    &tag,
+                ),
+            )
+            .await
+            {
+                Ok(Ok(h)) if h == want_hash => true,
+                Ok(Ok(_)) => {
+                    // The ticket's content disagrees with the resolved hash:
+                    // drop the misplaced pin (mirrors the seed handler).
+                    let _ = blobs.delete_tag(&tag).await;
+                    warn!(project = %pid, "boot seed driver: ticket content does not match the resolved archive hash — skipped");
+                    false
+                }
+                Ok(Err(e)) => {
+                    warn!(project = %pid, error = %e, "boot seed driver: ticket fetch failed");
+                    false
+                }
+                Err(_) => {
+                    warn!(project = %pid, "boot seed driver: ticket fetch timed out");
+                    false
+                }
+            }
+        } else if let Some((_, anchor_hex)) = dir_hit.as_ref() {
+            let now = SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let providers = directory_pull_providers(
+                &state.seed_registry,
+                &state.node_id,
+                anchor_hex,
+                pid,
+                &hash_hex,
+                now,
+            );
+            if providers.is_empty() {
+                warn!(project = %pid, "boot seed driver: no dialable provider for this app — skipped");
+                false
+            } else {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(DIRECTORY_PULL_TIMEOUT_SECS),
+                    blobs.fetch_and_pin_multi(state.node.endpoint(), want_hash, providers, &tag),
+                )
+                .await
+                {
+                    Ok(Ok(h)) if h == want_hash => true,
+                    // Defensively unreachable: fetch_and_pin_multi returns
+                    // the requested hash by construction (content-addressed
+                    // download). Kept as the verrou-4 belt-and-braces guard.
+                    Ok(Ok(_)) => {
+                        let _ = blobs.delete_tag(&tag).await;
+                        warn!(project = %pid, "boot seed driver: fetched content does not match the requested hash — skipped");
+                        false
+                    }
+                    Ok(Err(e)) => {
+                        warn!(project = %pid, error = %e, "boot seed driver: multi-provider pull failed");
+                        false
+                    }
+                    Err(_) => {
+                        warn!(project = %pid, "boot seed driver: multi-provider pull timed out across all providers");
+                        false
+                    }
+                }
+            }
+        } else {
+            warn!(
+                project = %pid,
+                "boot seed driver: hash known but no acquisition source (no local bytes, no ticket, no directory anchor) — skipped"
+            );
+            false
+        };
+        if !acquired {
+            continue;
+        }
+
+        // --- Persist + announce.
+        let was_already_announced = seed_already_announced(&keep_online_row, &hash_hex);
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Err(e) = db.set_keep_online(pid, true, Some(&hash_hex)) {
+                warn!(project = %pid, error = %e, "boot seed driver: keep_online persist failed");
+            }
+        }
+        // `reannounce_seeds_at_boot` already re-emitted `SeedAnnounced` for
+        // every row that was ALREADY enabled with this hash when the daemon
+        // booted — only emit for an app this driver newly acquired/enabled,
+        // so a configured app never double-announces in one boot.
+        if !was_already_announced {
+            if let Some(ref fs) = state.feed_sync_state {
+                if let Err(e) = crate::feed_sync::emit_seed_announced(
+                    fs,
+                    &state.coordinator_db,
+                    &state.pow_keypair,
+                    pid,
+                    &hash_hex,
+                )
+                .await
+                {
+                    warn!(project = %pid, error = %e, "boot seed driver: seed announce failed (non-fatal)");
+                }
+            }
+        }
+        info!(project = %pid, held_locally = already_held, "boot seed driver: app pinned + kept online");
+        pinned += 1;
+    }
+    pinned
+}
+
+/// Pure predicate behind the driver's anti-double-emission guard: was this
+/// app ALREADY enabled with this EXACT hash when the daemon booted? If so,
+/// `reannounce_seeds_at_boot` (awaited inline before the driver spawns)
+/// already re-emitted its `SeedAnnounced` this boot, and the driver must
+/// not emit a second one. A row that is disabled, hash-less, or enabled
+/// for a DIFFERENT hash was not covered by the boot re-announce for the
+/// hash being pinned now — emit.
+pub(crate) fn seed_already_announced(row: &Option<(bool, Option<String>)>, hash_hex: &str) -> bool {
+    matches!(row, Some((true, Some(h))) if h == hash_hex)
 }
 
 /// `GET /api/daemon/nodes` response envelope (Sprint 75 Phase D).
@@ -1934,6 +2270,209 @@ async fn seed_invite_list(
         })
         .collect();
     (StatusCode::OK, Json(serde_json::json!({"invites": items}))).into_response()
+}
+
+/// Wall-clock budget for one outbound `sbfb/seed/0` request (dial +
+/// request + the seeder's own fetch of our archive + signed response).
+/// The seeder side fetches the app archive BEFORE replying, so this is
+/// aligned on [`DIRECTORY_PULL_TIMEOUT_SECS`] — the budget the codebase
+/// already grants the equivalent transfer. NOTE for callers: a
+/// 504 from the route does NOT prove the seed failed — the seeder may
+/// still complete its fetch + pin after our deadline (and a single-use
+/// invite is consumed BEFORE the fetch), so verify via the per-app
+/// seed-count rather than blind-retrying a fresh invite.
+const SEED_REQUEST_TIMEOUT_SECS: u64 = DIRECTORY_PULL_TIMEOUT_SECS;
+
+/// `POST /api/daemon/seed/request` — Sprint 75 Phase E — the REQUESTER leg
+/// of the authenticated `sbfb/seed/0` protocol (S74 Phase E), and the
+/// first production caller of [`crate::seed_protocol::request_seed`].
+///
+/// "Ask a DESIGNATED peer (typically my always-on VPS anchor) to fetch,
+/// pin and keep online an app whose archive THIS node holds." Loopback-
+/// authenticated and fully scriptable — the headless operational model:
+/// after a deploy, a script (or the future peer-designation UI) posts
+/// here to hand the app to the anchor, no browser required.
+///
+/// Roles (do not conflate, preflight delta #4): this is the AUTHOR-side
+/// REQUESTER — the voluntary community-seed path (`POST /api/daemon/seed`)
+/// is the SEEDER-side unilateral act and never uses `SeedRequest`. The
+/// designated peer enforces its own gates (Ed25519 + dialer cross-check +
+/// nonce + ts window + the M19 invite ledger bound to
+/// `(project_id, archive_hash)`); an `invite_token` minted BY THE PEER is
+/// ALWAYS required — the S74 handler rejects an empty token
+/// unconditionally (`"no-invite"`), there is no same-key exemption in the
+/// wire protocol.
+///
+/// Anti-recentralization: the peer is the operator's EXPLICIT choice per
+/// request — no default peer exists anywhere (verrou 3), and the archive
+/// ticket is minted fresh from `my_endpoint_addr()` at request time
+/// (Phase A: never a stored snapshot). The seeder ends up with the
+/// author's exact BLAKE3 bytes and re-signs no provenance (verrou 4).
+#[derive(Debug, serde::Deserialize)]
+struct SeedRequestPeerRequest {
+    /// Hex Ed25519 endpoint id of the designated seeder peer.
+    peer_node_id: String,
+    project_id: String,
+    /// Invite token minted by the PEER for `(project_id, archive_hash)`.
+    /// ALWAYS required by the seeder's M19 handler (an empty token is
+    /// rejected `"no-invite"`); the `#[serde(default)]` is runtime
+    /// tolerance only — an omitted field deserializes to empty instead of
+    /// a 422, then fails the peer's gate with a clear reason.
+    #[serde(default)]
+    invite_token: String,
+}
+
+async fn seed_request_peer(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(req): Json<SeedRequestPeerRequest>,
+) -> Response {
+    debug!(project = %req.project_id, peer = %req.peer_node_id, "POST /api/daemon/seed/request");
+
+    // Duress short-circuit BEFORE signing — never sign a SeedRequest under
+    // the fake keypair (mirrors publish_project / publish_directory).
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "requested": false })),
+        )
+            .into_response();
+    }
+
+    use std::str::FromStr as _;
+    let Ok(peer_id) = iroh::EndpointId::from_str(&req.peer_node_id) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "malformed peer_node_id (expected an iroh endpoint id)"})),
+        )
+            .into_response();
+    };
+    // Compare PARSED identities, not raw strings: `from_str` also accepts
+    // the base32 rendering of an endpoint id, which a raw string compare
+    // against our hex-lowercase node_id would let through.
+    if peer_id.to_string() == state.node_id {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "cannot designate this node as its own seeder"})),
+        )
+            .into_response();
+    }
+
+    // The app must be a local direct entry with a known archive: the
+    // requester PROPOSES a source, so it must actually hold the bytes.
+    let Some(entry) = state.browse_aggregator.get_direct_entry(&req.project_id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "unknown app (not in browse)"})),
+        )
+            .into_response();
+    };
+    let Some(hash_hex) = entry.archive_hash else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "app has no archive to seed"})),
+        )
+            .into_response();
+    };
+    // Fresh ticket from my_endpoint_addr() at request time. The producer
+    // helper also enforces local blob presence — a node can never ask a
+    // peer to seed bytes it does not itself hold.
+    let ticket = match mint_blob_ticket(&state, &hash_hex).await {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": format!("archive blob not mintable locally: {e}")
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let now = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let request = nexus_core_rs::seed::SeedRequest {
+        version: nexus_core_rs::seed::SEED_FORMAT_VERSION,
+        project_id: req.project_id.clone(),
+        archive_hash: hash_hex.clone(),
+        archive_ticket: ticket,
+        requester_node_id: state.pow_keypair.public_bytes(),
+        nonce: nexus_core_rs::seed::random_nonce(),
+        ts: now,
+        invite_token: req.invite_token.clone(),
+    };
+    let sent_nonce = request.nonce.clone();
+    // The daemon signs with its node keypair — the SAME Ed25519 secret the
+    // iroh endpoint boots with (runtime.rs), so the seeder's
+    // `author_pubkey == conn.remote_id()` dialer cross-check holds.
+    let envelope =
+        match nexus_core_rs::seed::SeedRequestEnvelope::sign(request, state.pow_keypair.as_ref()) {
+            Ok(env) => env,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("failed to sign seed request: {e}")})),
+                )
+                    .into_response();
+            }
+        };
+
+    // A bare EndpointId is dialable: pkarr (presets::N0) resolves it in
+    // production; tests pre-seed the node's MemoryLookup (which merges,
+    // never overwrites, so the empty-addr add inside request_seed is
+    // harmless).
+    let peer_addr = iroh::EndpointAddr::from(peer_id);
+    let resp = match tokio::time::timeout(
+        std::time::Duration::from_secs(SEED_REQUEST_TIMEOUT_SECS),
+        crate::seed_protocol::request_seed(
+            state.node.endpoint(),
+            state.node.memory_lookup(),
+            peer_addr,
+            &envelope,
+        ),
+    )
+    .await
+    {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": format!("seed request failed: {e}")})),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({"error": "seed request timed out"})),
+            )
+                .into_response();
+        }
+    };
+    // Correlation defence-in-depth on top of request_seed's signature +
+    // dialed-peer checks: the signed response must echo OUR nonce, so a
+    // (signed) response to some other request cannot be confused in.
+    if resp.response.nonce != sent_nonce {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({"error": "seed response does not echo the request nonce"})),
+        )
+            .into_response();
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "accepted": resp.response.decision == nexus_core_rs::seed::SeedDecision::Accepted,
+            "reason": resp.response.reason,
+            "seeder_node_id": hex::encode(resp.author_pubkey),
+        })),
+    )
+        .into_response()
 }
 
 /// Index a browse entry into the FTS5 search corpus so the app is findable by
@@ -4243,6 +4782,546 @@ mod tests {
         }
 
         seeder_node.shutdown().await.ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn boot_seed_driver_pins_configured_projects() {
+        // Plan §E.3 #1 — THE Phase E test: a headless anchor seeds an app
+        // it NEVER deployed locally, purely from its operator-written
+        // `[seed]` accept-list. The app resolves through a subscribed node
+        // directory (whose anchor identity is dead) and the bytes come
+        // from a live seeder — the same Phase D multi-provider consumer
+        // chain as seed_voluntary, never a ticket re-mint.
+        let state = mk_state().await;
+        let seeder_node = create_node().await.expect("boot seeder node");
+
+        let payload = b"vps-config-driven-seed-bytes".to_vec();
+        let blobs_seeder = nexus_core_rs::BlobsClient::new(seeder_node.blobs_store());
+        let archive_hash_bytes = blobs_seeder.add_bytes(&payload).await.unwrap();
+        let archive_hash = hex::encode(archive_hash_bytes);
+
+        let kp_anchor = KeyPair::generate();
+        let pid = "f".repeat(64);
+        ingest_remote_directory(
+            &state,
+            &seeder_node,
+            &kp_anchor,
+            vec![catalog_app(&pid, &archive_hash, "Configured App")],
+            1,
+        )
+        .await;
+        assert!(
+            state.browse_aggregator.get_direct_entry(&pid).is_none(),
+            "the configured app must NOT be a local/direct app (never deployed here)"
+        );
+
+        // A live seeder announced this exact version; pre-seed its address
+        // so the dial resolves without live pkarr propagation timing.
+        let now = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        state
+            .seed_registry
+            .record(&pid, &archive_hash, &seeder_node.node_id(), now, now);
+        let seeder_addr = nexus_core_rs::DiscoveryClient::new(seeder_node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("seeder must expose an address");
+        state.node.memory_lookup().add_endpoint_info(seeder_addr);
+
+        let pinned = run_boot_seed_driver(&state, std::slice::from_ref(&pid)).await;
+        assert_eq!(pinned, 1, "the configured app must be acquired + pinned");
+
+        // The anchor now HOLDS the author's exact bytes (content-addressed)...
+        let blobs_local = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        assert!(blobs_local.has(archive_hash_bytes).await.unwrap());
+        assert_eq!(
+            blobs_local.get_bytes(archive_hash_bytes).await.unwrap(),
+            payload
+        );
+        // ...pinned skip-GC under the keep-online tag...
+        assert!(
+            has_tag(&state, &crate::deploy::keep_online_tag(&pid)).await,
+            "the boot driver must leave the keep-online pin tag behind"
+        );
+        // ...with the keep_online row recorded for future boots.
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            assert_eq!(
+                db.get_keep_online(&pid).expect("keep_online read"),
+                Some((true, Some(archive_hash.clone())))
+            );
+        }
+
+        seeder_node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn boot_repins_keep_online_blobs() {
+        // Plan §E.3 #2 — re-pin, not just re-announce: a kept-online app
+        // whose blob survived in the store but whose skip-GC tag is gone
+        // gets its pin re-asserted at boot, with ZERO network involved
+        // (the keep_online row's hash is the M18 source-of-truth).
+        let state = mk_state().await;
+        let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        let payload = b"locally-held-keep-online-bytes".to_vec();
+        let hash = blobs.add_bytes(&payload).await.unwrap();
+        let hash_hex = hex::encode(hash);
+        let pid = "9".repeat(64);
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            db.set_keep_online(&pid, true, Some(&hash_hex)).unwrap();
+        }
+        let tag = crate::deploy::keep_online_tag(&pid);
+        assert!(
+            !has_tag(&state, &tag).await,
+            "precondition: no keep-online tag before the driver runs"
+        );
+
+        // Deliberate duplicate in the configured list: the `seen` dedup
+        // guarantees ONE acquisition — the counter discriminates (without
+        // the guard, the idempotent set_tag would yield 2).
+        let pinned = run_boot_seed_driver(&state, &[pid.clone(), pid.clone()]).await;
+        assert_eq!(pinned, 1);
+        assert!(
+            has_tag(&state, &tag).await,
+            "the driver must re-assert the skip-GC pin on locally-held bytes"
+        );
+    }
+
+    #[tokio::test]
+    async fn boot_seed_driver_empty_config_is_noop() {
+        // Verrou 5: an empty accept-list (the compiled default, verrou 3)
+        // does zero work. An unresolvable configured id is skipped loudly,
+        // never fabricated into a keep_online row.
+        let state = mk_state().await;
+        assert_eq!(run_boot_seed_driver(&state, &[]).await, 0);
+
+        let unknown = "8".repeat(64);
+        assert_eq!(
+            run_boot_seed_driver(&state, std::slice::from_ref(&unknown)).await,
+            0
+        );
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            assert_eq!(
+                db.get_keep_online(&unknown).unwrap(),
+                None,
+                "an unresolvable configured app must leave no keep_online row"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn vps_authoring_signs_own_directory() {
+        // Plan §E.3 #4 + the Phase C producer-reannounce carry: the
+        // headless authoring path — no HTTP route, no browser — signs THIS
+        // node's directory with the node keypair, and the boot re-announce
+        // is state-driven: a node that never published stays silent; one
+        // that did re-signs at a bumped (monotone) revision.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+
+        // Never published → the boot re-announce must be a strict no-op.
+        assert!(
+            !reannounce_directory_at_boot(&state).await,
+            "a node that never published a directory must stay silent at boot"
+        );
+        assert_eq!(read_directory_revision(&state), 0);
+
+        // Publish headlessly via the boot-builder core (the same core the
+        // HTTP route wraps): one OWN app whose blob this node holds.
+        let my_id = state.node.node_id();
+        let pid = "7".repeat(64);
+        let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        let held = hex::encode(blobs.add_bytes(b"vps-own-app-zip".to_vec()).await.unwrap());
+        let mut e = own_browse_entry(&pid, "VpsApp", Some(my_id));
+        e.archive_hash = Some(held);
+        state.browse_aggregator.add_direct_entry(e);
+
+        let out = build_sign_announce_directory(&state)
+            .await
+            .expect("headless publish must succeed");
+        let DirectoryPublishOutcome::Published {
+            node_id_hex,
+            revision,
+            catalog_len,
+            archive_hash,
+        } = out
+        else {
+            panic!("expected a Published outcome");
+        };
+        assert_eq!(revision, 1);
+        assert_eq!(catalog_len, 1);
+        assert_eq!(node_id_hex, hex::encode(state.pow_keypair.public_bytes()));
+        // The stored blob is a verifiable signed directory — provenance is
+        // the node keypair, no browser anywhere in this path.
+        let hash: [u8; 32] = hex::decode(&archive_hash).unwrap().try_into().unwrap();
+        let bytes = blobs.get_bytes(hash).await.unwrap();
+        let entry: nexus_core_rs::NodeDirectoryEntry = serde_json::from_slice(&bytes).unwrap();
+        entry
+            .verify_signature()
+            .expect("headless-published directory must verify");
+        assert_eq!(entry.node_id, state.pow_keypair.public_bytes());
+
+        // Reboot shape: the producer re-announce now fires and bumps the
+        // monotone revision (a subscriber's persisted floor accepts it).
+        assert!(
+            reannounce_directory_at_boot(&state).await,
+            "a publisher must re-announce its directory at boot"
+        );
+        assert_eq!(
+            read_directory_revision(&state),
+            2,
+            "the boot re-announce re-signs at a bumped revision"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn request_seed_prod_caller() {
+        // Plan §E.3 #3 (preflight delta #4 honored — REQUESTER role, not
+        // the seed driver): `request_seed`'s first production caller is
+        // the loopback route `POST /api/daemon/seed/request` — the author
+        // asks a DESIGNATED peer (its anchor) to seed an app the author
+        // holds. The peer runs the real `sbfb/seed/0` handler with its M19
+        // invite ledger; the route signs with the node identity (the same
+        // Ed25519 secret as the QUIC dialer, exactly the prod boot shape).
+        use nexus_core_rs::node::{SEED_ALPN, create_node_with_protocols};
+        use nexus_core_rs::{NodeConfig, create_node_with_config};
+
+        // Requester state whose pow_keypair IS the node identity.
+        let secret = KeyPair::generate().secret_bytes();
+        let kp = KeyPair::from_secret_bytes(&secret);
+        let node = create_node_with_config(NodeConfig::default().with_secret_key(secret))
+            .await
+            .expect("requester node");
+        let mut state = (*mk_state().await).clone();
+        state.node_id = node.node_id();
+        state.node = Arc::new(node);
+        state.pow_keypair = Arc::new(kp);
+        let state = Arc::new(state);
+
+        // The app: a local direct entry whose blob THIS node holds (the
+        // route mints a fresh ticket — producer side, blob presence gated).
+        let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        let payload = b"author-app-handed-to-anchor".to_vec();
+        let hash = blobs.add_bytes(&payload).await.unwrap();
+        let hash_hex = hex::encode(hash);
+        let pid = "6".repeat(64);
+        let mut entry = own_browse_entry(&pid, "HandedApp", Some(state.node_id.clone()));
+        entry.archive_hash = Some(hash_hex.clone());
+        state.browse_aggregator.add_direct_entry(entry);
+
+        // The designated seeder peer: real SeedProtocol handler + invite
+        // minted for exactly (project_id, archive_hash) — M19.
+        let seeder_secret = KeyPair::generate().secret_bytes();
+        let seeder_kp = Arc::new(KeyPair::from_secret_bytes(&seeder_secret));
+        let seeder_db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().expect("seeder db"),
+        ));
+        let factory = crate::seed_protocol::seed_protocol_factory(
+            std::sync::Arc::clone(&seeder_db),
+            Arc::clone(&seeder_kp),
+            Arc::new(crate::seed_protocol::NonceCache::default()),
+        );
+        let seeder_node = create_node_with_protocols(
+            NodeConfig::default().with_secret_key(seeder_secret),
+            vec![(SEED_ALPN.to_vec(), factory)],
+        )
+        .await
+        .expect("seeder node");
+        let now = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        seeder_db
+            .lock()
+            .unwrap()
+            .mint_seed_invite(
+                "tok-prod-caller",
+                &pid,
+                &hash_hex,
+                (now + 1000) as i64,
+                Some(1),
+            )
+            .unwrap();
+        // Tests skip live pkarr: pre-seed the requester's lookup (it
+        // merges, so request_seed's empty-addr add cannot clobber it).
+        let seeder_addr = nexus_core_rs::DiscoveryClient::new(seeder_node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("seeder addr");
+        state.node.memory_lookup().add_endpoint_info(seeder_addr);
+
+        let body = serde_json::json!({
+            "peer_node_id": seeder_node.node_id(),
+            "project_id": pid,
+            "invite_token": "tok-prod-caller",
+        });
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed/request")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(json["accepted"], true, "reason: {}", json["reason"]);
+        assert_eq!(json["seeder_node_id"], seeder_node.node_id());
+
+        // The designated peer now holds + keeps the author's exact bytes
+        // (it re-signed no provenance — the author stays the author).
+        let blobs_seeder = nexus_core_rs::BlobsClient::new(seeder_node.blobs_store());
+        assert!(blobs_seeder.has(hash).await.unwrap());
+        assert_eq!(blobs_seeder.get_bytes(hash).await.unwrap(), payload);
+        {
+            let db = seeder_db.lock().unwrap();
+            assert_eq!(
+                db.get_keep_online(&pid).unwrap(),
+                Some((true, Some(hash_hex)))
+            );
+        }
+
+        seeder_node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn boot_seed_driver_noop_in_duress() {
+        // Review P1 (security): a decoy node must perform ZERO seed work —
+        // no fetch, no keep_online mutation, no SeedAnnounced — even with a
+        // resolvable configured list (the duress launcher shares the real
+        // data root, so the driver would otherwise replay the operator's
+        // real app set under the fake keypair).
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+        let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        let hash = blobs
+            .add_bytes(b"duress-held-bytes".to_vec())
+            .await
+            .unwrap();
+        let hash_hex = hex::encode(hash);
+        let pid = "4".repeat(64);
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            db.set_keep_online(&pid, true, Some(&hash_hex)).unwrap();
+        }
+
+        assert_eq!(
+            run_boot_seed_driver(&state, std::slice::from_ref(&pid)).await,
+            0,
+            "a decoy node must perform zero seed work"
+        );
+        assert!(
+            !has_tag(&state, &crate::deploy::keep_online_tag(&pid)).await,
+            "no pin tag may appear under duress"
+        );
+    }
+
+    #[test]
+    fn seed_already_announced_predicate() {
+        // The driver's anti-double-emission guard, as pure logic: only an
+        // app ALREADY enabled with the EXACT hash being pinned was covered
+        // by reannounce_seeds_at_boot — everything else must emit.
+        let h = "ab".repeat(32);
+        assert!(seed_already_announced(&Some((true, Some(h.clone()))), &h));
+        assert!(!seed_already_announced(
+            &Some((true, Some("cd".repeat(32)))),
+            &h
+        ));
+        assert!(!seed_already_announced(&Some((false, Some(h.clone()))), &h));
+        assert!(!seed_already_announced(&Some((true, None)), &h));
+        assert!(!seed_already_announced(&None, &h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn boot_driver_prefers_keep_online_hash_over_directory() {
+        // Pins the resolution priority (direct > keep_online row M18 >
+        // subscribed directories): an anchor advertising a DIFFERENT hash
+        // for the same project id must not override the M18 row's
+        // source-of-truth hash, trigger a network fetch, or rewrite the row.
+        let state = mk_state().await;
+        let host = create_node().await.expect("host node");
+
+        let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        let payload = b"version-A-bytes".to_vec();
+        let hash_a = blobs.add_bytes(&payload).await.unwrap();
+        let hash_a_hex = hex::encode(hash_a);
+        let pid = "5".repeat(64);
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            db.set_keep_online(&pid, true, Some(&hash_a_hex)).unwrap();
+        }
+        // A subscribed anchor advertises ANOTHER version of the same app.
+        let kp_anchor = KeyPair::generate();
+        let hash_b_hex = "bb".repeat(32);
+        ingest_remote_directory(
+            &state,
+            &host,
+            &kp_anchor,
+            vec![catalog_app(&pid, &hash_b_hex, "Other Version")],
+            1,
+        )
+        .await;
+
+        let pinned = run_boot_seed_driver(&state, std::slice::from_ref(&pid)).await;
+        assert_eq!(pinned, 1);
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            assert_eq!(
+                db.get_keep_online(&pid).unwrap(),
+                Some((true, Some(hash_a_hex.clone()))),
+                "the M18 row must keep hash A — never rewritten to the directory's hash"
+            );
+        }
+        assert!(has_tag(&state, &crate::deploy::keep_online_tag(&pid)).await);
+        let hash_b: [u8; 32] = hex::decode(&hash_b_hex).unwrap().try_into().unwrap();
+        assert!(
+            !blobs.has(hash_b).await.unwrap(),
+            "the directory's other version must never be fetched"
+        );
+
+        host.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn seed_request_peer_noop_in_duress() {
+        // Mirrors publish_directory_noop_in_duress: never sign a
+        // SeedRequest under the fake keypair — short-circuit BEFORE parse,
+        // mint, or dial.
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+        let body = serde_json::json!({
+            "peer_node_id": "ab".repeat(32),
+            "project_id": "1".repeat(64),
+            "invite_token": "tok",
+        });
+        let resp = build_test_router(state)
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed/request")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(
+            json["requested"], false,
+            "duress must short-circuit before signing"
+        );
+    }
+
+    #[tokio::test]
+    async fn seed_request_peer_rejects_local_errors() {
+        // The four pure-local rejections of the requester route — no
+        // network, no peer: malformed id, self-designation, unknown app,
+        // and the held-bytes gate (a node never proposes bytes it does not
+        // hold — the producer-side mint enforces it).
+        let state = mk_state().await;
+
+        // (1) malformed peer id -> 400.
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed/request")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"peer_node_id": "zzz", "project_id": "1".repeat(64)})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // (2) self-designation -> 400 (parsed-identity compare).
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed/request")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"peer_node_id": state.node_id, "project_id": "1".repeat(64)})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // (3) unknown app -> 404.
+        let other_peer = hex::encode(KeyPair::generate().public_bytes());
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed/request")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"peer_node_id": other_peer, "project_id": "2".repeat(64)})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // (4) app whose archive blob is NOT held locally -> 409.
+        let pid = "3".repeat(64);
+        let mut entry = own_browse_entry(&pid, "GhostBytes", Some(state.node_id.clone()));
+        entry.archive_hash = Some("ee".repeat(32));
+        state.browse_aggregator.add_direct_entry(entry);
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed/request")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"peer_node_id": other_peer, "project_id": pid})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::CONFLICT,
+            "a node must never ask a peer to seed bytes it does not itself hold"
+        );
     }
 
     #[tokio::test]

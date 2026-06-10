@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # Shell daemon configuration for VPS bootstrap nodes.
-# Copy to /opt/nexus-grid/shell-daemon/config.toml and adjust.
+# Copy to $NEXUS_GRID_ROOT/shell-daemon/config.toml and adjust —
+# /var/lib/nexus-grid/shell-daemon/config.toml under the shipped
+# nexus-shell-daemon.service unit.
 
 [logging]
 level = "info"
@@ -17,4 +19,28 @@ api_port = 7000
 # Ed25519 public keys (hex) to auto-subscribe at first boot.
 # Populated after first curator list creation on this VPS.
 # Other VPS nodes set this to the primary curator's pubkey.
+#
+# Sprint 75 (Q3): a node-directory ANCHOR is subscribed here too —
+# curator lists and node directories share ONE attention set, so
+# putting an anchor's node pubkey in this list is what makes its
+# signed catalog ingest + re-pull at boot. There is deliberately no
+# separate [directory] section (one attention set, one subscribe).
 default_curators = []
+
+[seed]
+# Sprint 75 Phase E: the headless boot seed driver's accept-list.
+# Project ids (64-char hex, blake3 of the project name) this node
+# acquires + pins + keeps online at boot — including apps it never
+# deployed locally (resolved through the subscribed directories
+# above + the best-effort seeder registry).
+#
+# EMPTY by default (anti-recentralization verrou 3): an anchor's
+# seed set only ever comes from the operator's own config, never a
+# shipped default. The accept-list IS the bound — seed only YOUR
+# apps + accepted invites, never a universal mirror.
+#
+# First-boot note: the driver is one-shot. An app that only exists
+# in a directory this node has not yet ingested is skipped this
+# boot — trigger it live with POST /api/daemon/seed {"project_id"}
+# once the directory arrives, or restart the daemon.
+keep_online_projects = []

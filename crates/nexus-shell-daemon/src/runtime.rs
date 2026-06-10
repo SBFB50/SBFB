@@ -44,7 +44,7 @@ use nexus_shell_daemon_core::browse::{
     BrowseAggregator, BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
 };
 use nexus_shell_daemon_core::browse_limiter::BrowseRequestLimiter;
-use nexus_shell_daemon_core::config::{CuratorConfig, ShellDaemonPaths};
+use nexus_shell_daemon_core::config::{CuratorConfig, SeedConfig, ShellDaemonPaths};
 use nexus_shell_daemon_core::iroh_runtime::{
     CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle, curator_topic_id,
     is_node_directory_announcement,
@@ -150,6 +150,13 @@ fn load_or_generate_node_key(root: &Path) -> Result<[u8; 32]> {
     Ok(secret)
 }
 
+/// How long the headless boot seed driver (Sprint 75 Phase E) waits for
+/// the gossip task's boot replay (outbox browse-restore + subscribed
+/// directory re-pull) before proceeding best-effort. The replay itself is
+/// bounded (per-anchor re-pull timeout, no network on a fresh install), so
+/// this only fires when gossip subscription itself wedges.
+const BOOT_DRIVER_REPLAY_WAIT_SECS: u64 = 90;
+
 /// Options the binary hands to [`DaemonRuntime::start`].
 ///
 /// Owned rather than borrowed so the runtime can hold on to the
@@ -164,6 +171,16 @@ pub struct DaemonStartOptions {
     pub daemon_version: String,
     /// Sprint 11 Phase B: `[curator]` section from config.
     pub curator: CuratorConfig,
+    /// Sprint 75 Phase E (D3): `[seed]` section from config — the
+    /// headless boot seed driver's accept-list. Empty by default
+    /// (verrou 3); an empty list drives ZERO boot network calls.
+    pub seed: SeedConfig,
+    /// Sprint 75 Phase E: explicit `.sbfb` security-root override.
+    /// `None` (production) resolves `auth::sbfb_home()` ONCE at boot;
+    /// the runtime tests inject a tempdir so the boot driver's
+    /// directory-revision reads/writes can never touch the developer's
+    /// real `~/.sbfb` (test-isolation finding, Phase E review).
+    pub sbfb_home: Option<PathBuf>,
     /// Sprint 20 Phase B : which slot the launcher's `sbfb
     /// unlock` matched. `Normal` in the typical case, `Duress`
     /// when the user typed the duress PIN. Propagated into
@@ -240,6 +257,13 @@ pub struct DaemonRuntime {
     feed_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     feed_join_handles: Option<Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>>,
     feed_join_shutdown: Option<Arc<tokio::sync::watch::Sender<bool>>>,
+    /// Sprint 75 Phase E (Codex round 1): the headless boot task
+    /// (producer re-announce + seed driver). Retained so shutdown can
+    /// abort+join it — it holds an `Arc<DaemonHttpState>` (and through it
+    /// the `Arc<Node>`), so a detached task still mid-pull (up to 120s
+    /// per app) would keep boot network work alive past shutdown and
+    /// make the Node Arc reclamation fail.
+    boot_driver_handle: Option<JoinHandle<()>>,
     bound_addr: std::net::SocketAddr,
     #[allow(dead_code)]
     revocation_cache: Arc<std::sync::RwLock<nexus_core_rs::RevocationCache>>,
@@ -908,7 +932,15 @@ impl DaemonRuntime {
                 ))
             },
             canary_input: None,
-            sbfb_home: None,
+            // Resolved ONCE at boot: the caller's explicit override (tests)
+            // or the env-derived security root. Routes and the boot driver
+            // all read this field's value through the same
+            // `state.sbfb_home.or_else(auth::sbfb_home)` chain as before —
+            // pinning it here makes the override reach the boot driver.
+            sbfb_home: opts
+                .sbfb_home
+                .clone()
+                .or_else(nexus_shell_daemon_core::auth::sbfb_home),
             project_doc: Some(Arc::clone(&project_doc)),
             task_dispatch_tx: Some(task_dispatch_tx),
             local_worker: Arc::clone(&local_worker),
@@ -996,6 +1028,10 @@ impl DaemonRuntime {
             });
         }
 
+        // Sprint 75 Phase E: keep a handle for the headless boot driver
+        // spawned below — build_router takes ownership of http_state.
+        let boot_driver_state = Arc::clone(&http_state);
+
         let router = build_router(
             http_state,
             auth_state,
@@ -1050,6 +1086,7 @@ impl DaemonRuntime {
                 .load_outbox()
                 .map_err(|e| anyhow::anyhow!("outbox load failed: {e}"))?
         };
+        let (boot_replay_done_tx, boot_replay_done_rx) = oneshot::channel::<()>();
         let gossip_handle = spawn_gossip_subscribe_task(GossipTaskConfig {
             node: Arc::clone(&node),
             curator_runtime: Arc::clone(&curator_runtime),
@@ -1065,7 +1102,59 @@ impl DaemonRuntime {
             curator_topic,
             coordinator_db: Arc::clone(&coordinator_db),
             initial_outbox,
+            boot_replay_done: Some(boot_replay_done_tx),
         });
+
+        // Sprint 75 Phase E (D3, PO-signed): the headless boot driver.
+        // Two state-driven jobs, both no-ops on a fresh default install
+        // (verrou 5: empty config + never-published = zero work):
+        //   1. acquire + pin every `[seed] keep_online_projects` app — the
+        //      operator's EXPLICIT accept-list (an app this node may have
+        //      NEVER deployed locally resolves through the subscribed node
+        //      directories + the best-effort seeder registry, then
+        //      `fetch_and_pin_multi` — the Phase D consumer leg, never a
+        //      ticket re-mint);
+        //   2. re-announce this PRODUCER's own signed `NodeDirectoryEntry`
+        //      if it ever published one (the Phase C deferral: the publish
+        //      route's gossip announce is live-only and does not survive a
+        //      reboot on the producer side).
+        // Waits for the gossip task's boot replay (outbox restore +
+        // directory re-pull) so resolution sees the restored state;
+        // proceeds best-effort on timeout. The handle is RETAINED on the
+        // runtime (Codex round 1): shutdown aborts+joins it so a pull
+        // still in flight cannot outlive the daemon or block the Node
+        // Arc reclamation.
+        let boot_driver_handle = {
+            let configured = opts.seed.keep_online_projects.clone();
+            tokio::spawn(async move {
+                if tokio::time::timeout(
+                    std::time::Duration::from_secs(BOOT_DRIVER_REPLAY_WAIT_SECS),
+                    boot_replay_done_rx,
+                )
+                .await
+                .is_err()
+                {
+                    warn!(
+                        "boot seed driver: gossip boot-replay signal timed out — proceeding best-effort"
+                    );
+                }
+                // Producer re-announce FIRST: it is local + instantaneous
+                // (build/sign/store + one gossip emit) and must not wait
+                // behind the seed acquisition's network budgets — closing
+                // the discovery window is the very point of the re-emit.
+                if crate::http::reannounce_directory_at_boot(&boot_driver_state).await {
+                    info!("producer node directory re-announced at boot");
+                }
+                let pinned =
+                    crate::http::run_boot_seed_driver(&boot_driver_state, &configured).await;
+                if pinned > 0 {
+                    info!(
+                        pinned,
+                        "boot seed driver: configured apps acquired + pinned"
+                    );
+                }
+            })
+        };
 
         Ok(Self {
             node: Some(node),
@@ -1088,6 +1177,7 @@ impl DaemonRuntime {
             feed_shutdown: Some(feed_shutdown_tx),
             feed_join_handles: Some(feed_join_handles),
             feed_join_shutdown: Some(feed_join_shutdown),
+            boot_driver_handle: Some(boot_driver_handle),
             bound_addr,
             revocation_cache,
         })
@@ -1137,6 +1227,21 @@ impl DaemonRuntime {
         // doc subscriptions and the iroh node close.
         if let Some(lw) = self.local_worker.take() {
             lw.shutdown().await;
+        }
+
+        // Sprint 75 Phase E (Codex round 1): abort+join the boot task
+        // BEFORE reclaiming the node — it holds an Arc<DaemonHttpState>
+        // (and through it the Arc<Node>), and a seed pull can run up to
+        // 120s per app. Abort is safe here: the driver never holds a sync
+        // lock across an await (lexical-block discipline) and every DB
+        // write inside it is a single synchronous statement.
+        if let Some(handle) = self.boot_driver_handle.take() {
+            handle.abort();
+            if let Err(e) = handle.await {
+                if !e.is_cancelled() {
+                    warn!(error = %e, "boot driver task join failed");
+                }
+            }
         }
 
         if let Some(tx) = self.gossip_shutdown.take() {
@@ -1377,6 +1482,12 @@ struct GossipTaskConfig {
     curator_topic: [u8; 32],
     coordinator_db: std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
     initial_outbox: Vec<Vec<u8>>,
+    /// Sprint 75 Phase E: fired once after the boot replay work inside the
+    /// gossip task (outbox browse-restore + subscribed-directory re-pull) so
+    /// the headless boot seed driver starts only when the directory snapshot
+    /// it resolves configured apps against is populated. Best-effort: the
+    /// driver proceeds on timeout if the gossip task never reaches it.
+    boot_replay_done: Option<oneshot::Sender<()>>,
 }
 
 /// Spawn the background task that subscribes to the curator
@@ -1398,6 +1509,7 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
         curator_topic,
         coordinator_db,
         initial_outbox,
+        boot_replay_done,
     } = cfg;
     tokio::spawn(async move {
         let gossip = GossipClient::new(node.gossip());
@@ -1465,6 +1577,12 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
         // subscription does ZERO boot network fetch) and bounded per anchor so a
         // dead anchor cannot stall the gossip loop. Logs internally when > 0.
         curator_runtime.repull_directories(&node).await;
+        // Sprint 75 Phase E: boot replay done — outbox restored + subscribed
+        // directories re-pulled. Unblock the headless boot seed driver, which
+        // resolves its configured apps against this state.
+        if let Some(tx) = boot_replay_done {
+            let _ = tx.send(());
+        }
         let mut neighbor_count: u32 = 0;
         let browse_limiter = BrowseRequestLimiter::new();
         let republish_delay = tokio::time::sleep(jittered_republish_duration());
@@ -3155,6 +3273,10 @@ mod tests {
             api_port: 0,
             daemon_version: "0.1.0-test".to_string(),
             curator: CuratorConfig::default(),
+            seed: SeedConfig::default(),
+            // Isolate the boot driver's directory-revision persistence in
+            // the test root — never the developer's real ~/.sbfb.
+            sbfb_home: Some(root.join(".sbfb")),
             identity_mode: nexus_core_rs::IdentityMode::Normal,
             cors_origins: vec![],
             web_root: None,

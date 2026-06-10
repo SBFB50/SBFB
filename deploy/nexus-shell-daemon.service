@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Headless SBFB anchor unit (Sprint 75 Phase E, D3 PO-signed).
+#
+# The VPS anchor model: a config-driven always-on node that seeds the
+# operator's chosen apps at boot ([seed] keep_online_projects) and
+# re-announces its own signed node directory. It is ONE anchor among N
+# (never THE server): nothing here is a network default, the seed list
+# and the subscribed anchors live in the operator's own config.toml.
+#
+# Install:
+#   useradd --system --home-dir /var/lib/nexus-grid --shell /usr/sbin/nologin sbfb
+#   install -d -o sbfb -g sbfb -m 0700 /var/lib/nexus-grid/shell-daemon
+#   cp config.toml.example /var/lib/nexus-grid/shell-daemon/config.toml  # then edit
+#   cp nexus-shell-daemon.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now nexus-shell-daemon
+# The daemon generates its loopback auth token + node key itself on
+# first boot once the state paths resolve (no manual secret seeding).
+
+[Unit]
+Description=SBFB nexus-shell-daemon (headless P2P anchor)
+Documentation=https://github.com/sbfb/nexus-grid
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sbfb
+Group=sbfb
+ExecStart=/usr/local/bin/nexus-shell-daemon start --headless
+Restart=on-failure
+RestartSec=5
+
+# State trees. ProtectSystem=strict mounts the filesystem read-only for
+# the unit, so every writable path MUST be granted explicitly. The
+# daemon writes TWO roots:
+#  - $NEXUS_GRID_ROOT (config.toml, the iroh blob store, coordinator.db,
+#    anchors.json, subscriptions.json, running.json, logs);
+#  - the .sbfb security root (loopback auth_token, tokens.json, the UDS
+#    run/ dir, directory_revision.json — the persisted counter that
+#    gates the boot directory re-announce and keeps re-publishes
+#    monotone for subscribers).
+# BOTH are pinned under the StateDirectory: a system service gets NO
+# $HOME on stock systemd (User= does not set it; SetLoginEnvironment=
+# is v255+), so leaving SBFB_HOME unset would crash the boot at the
+# auth-token resolution step and permanently disable the producer
+# re-announce.
+Environment=NEXUS_GRID_ROOT=/var/lib/nexus-grid
+Environment=SBFB_HOME=/var/lib/nexus-grid/.sbfb
+StateDirectory=nexus-grid
+StateDirectoryMode=0700
+
+# Hardening (systemd.exec canonical set for a network daemon; the
+# daemon is pure Rust, no JIT, loopback HTTP + QUIC/UDP only).
+# AF_NETLINK is REQUIRED: iroh's interface/route monitoring (netwatch)
+# and glibc getifaddrs() enumerate local addresses over netlink — an
+# anchor without it degrades to relay-only or fails address discovery.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

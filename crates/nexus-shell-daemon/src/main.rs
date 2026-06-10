@@ -181,6 +181,8 @@ async fn handle_start(
         api_port: cfg.network.api_port,
         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
         curator: cfg.curator.clone(),
+        seed: cfg.seed.clone(),
+        sbfb_home: None,
         identity_mode,
         cors_origins,
         web_root,

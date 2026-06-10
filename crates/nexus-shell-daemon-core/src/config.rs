@@ -189,6 +189,8 @@ pub struct ShellDaemonConfig {
     pub network: NetworkConfig,
     #[serde(default)]
     pub curator: CuratorConfig,
+    #[serde(default)]
+    pub seed: SeedConfig,
 }
 
 /// `[logging]` section: tracing-subscriber filter directive.
@@ -248,6 +250,37 @@ pub struct CuratorConfig {
     /// auto-subscribe at first boot. Empty by default.
     #[serde(default)]
     pub default_curators: Vec<String>,
+}
+
+/// `[seed]` section: headless boot seed driver (Sprint 75 Phase E, D3).
+///
+/// The operational model of an always-on anchor (a VPS) without a UI
+/// session: at boot the daemon acquires and pins every project listed
+/// here — apps it may have NEVER deployed locally — resolving each one
+/// through the subscribed node directories + the best-effort seeder
+/// registry, then records a `keep_online` row and re-announces the seed
+/// to the feed.
+///
+/// Anti-recentralization guards (kickoff §4):
+/// - **Verrou 3** — the compiled default is EMPTY. The anchor's seed
+///   list lives in the OPERATOR's own `config.toml`, never in a
+///   non-empty default shipped to everyone (a non-empty compiled
+///   default would make one node a de-facto central server).
+/// - **Verrou 5 (nuance)** — the boot fetch this section drives is a
+///   network call at boot, but it is config-driven EXPLICIT: the
+///   operator wrote these project ids. An empty list means ZERO boot
+///   network calls from this driver.
+/// - **Bounded seed (Q4)** — the per-project accept-list IS the bound
+///   (Radicle `seedingPolicy: default block + allow` shape). There is
+///   deliberately no numeric disk/app quota knob; the GC reaper /
+///   enforced disk budget is deferred post-launch (scope cut #3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SeedConfig {
+    /// Project ids (64-char hex, the `blake3(project_name)` id every
+    /// deploy/publish path derives) this node acquires + pins at boot.
+    /// Empty by default (verrou 3).
+    #[serde(default)]
+    pub keep_online_projects: Vec<String>,
 }
 
 // =================================================================
@@ -311,6 +344,27 @@ impl ShellDaemonConfig {
                 tracing::warn!(
                     curator = %hex,
                     "dropping invalid default_curators entry (expected 64 hex chars)"
+                );
+            }
+            valid
+        });
+        // Sprint 75 Phase E: same shape rule for the boot seed list — a
+        // project id is `hex::encode(blake3(project_name))`, exactly 64 hex
+        // chars. A malformed entry can never resolve to pullable content,
+        // so drop it loudly at load (mirrors T31). Case is NORMALIZED to
+        // lowercase first (the Phase D SeedRegistry lesson): every
+        // downstream lookup is an exact lowercase string match, so an
+        // uppercase paste would otherwise survive validation but silently
+        // never resolve at boot.
+        for pid in &mut self.seed.keep_online_projects {
+            pid.make_ascii_lowercase();
+        }
+        self.seed.keep_online_projects.retain(|hex| {
+            let valid = hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit());
+            if !valid {
+                tracing::warn!(
+                    project = %hex,
+                    "dropping invalid [seed] keep_online_projects entry (expected 64 hex chars)"
                 );
             }
             valid
@@ -542,5 +596,91 @@ default_curators = ["not-hex", "ab112233445566778899aabbccddeeff0011223344556677
         let body = toml::to_string_pretty(&cfg).unwrap();
         let back: ShellDaemonConfig = toml::from_str(&body).unwrap();
         assert_eq!(cfg.curator, back.curator);
+    }
+
+    /// Sprint 75 Phase E (plan §E.3 #5): the on-disk `[seed]` section and
+    /// the parser are a producer/consumer pair — this pins the exact TOML
+    /// shape `deploy/config.toml.example` documents (section name, key
+    /// name, list of 64-hex strings) plus the serde round-trip.
+    #[test]
+    fn config_seed_section_parsed() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let pid_a = "1a".repeat(32);
+        let pid_b = "2b".repeat(32);
+        std::fs::write(
+            &path,
+            format!(
+                r#"
+[seed]
+keep_online_projects = ["{pid_a}", "{pid_b}"]
+"#
+            ),
+        )
+        .unwrap();
+
+        let loaded = ShellDaemonConfig::load(&path).unwrap();
+        assert_eq!(
+            loaded.seed.keep_online_projects,
+            vec![pid_a, pid_b],
+            "the [seed] keep_online_projects list must parse verbatim"
+        );
+
+        let body = toml::to_string_pretty(&loaded).unwrap();
+        let back: ShellDaemonConfig = toml::from_str(&body).unwrap();
+        assert_eq!(loaded.seed, back.seed, "serde round-trip must be stable");
+    }
+
+    /// Verrou 3 tripwire (kickoff §4, fail-fast row 13): the COMPILED
+    /// default seed list is empty — an anchor's seed set only ever comes
+    /// from the operator's own config.toml, never from a shipped default.
+    #[test]
+    fn seed_section_empty_by_default() {
+        assert!(
+            ShellDaemonConfig::default()
+                .seed
+                .keep_online_projects
+                .is_empty(),
+            "compiled default [seed] list MUST be empty (verrou 3)"
+        );
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("no-seed.toml");
+        std::fs::write(&path, "[logging]\nlevel = \"debug\"\n").unwrap();
+        let loaded = ShellDaemonConfig::load(&path).unwrap();
+        assert!(
+            loaded.seed.keep_online_projects.is_empty(),
+            "absent [seed] section must yield an empty list (zero boot fetch)"
+        );
+    }
+
+    /// Mirrors T31: a malformed project id (not 64 hex chars) can never
+    /// resolve to pullable content — dropped loudly at load. Case
+    /// variants are NORMALIZED to lowercase (not dropped): every
+    /// downstream lookup is an exact lowercase match, so an uppercase
+    /// paste must resolve instead of silently never matching.
+    #[test]
+    fn invalid_seed_project_ids_dropped_at_load() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("bad-seed.toml");
+        let valid = "ab".repeat(32);
+        let uppercase = "CD".repeat(32);
+        std::fs::write(
+            &path,
+            format!(
+                r#"
+[seed]
+keep_online_projects = ["not-a-project-id", "{valid}", "deadbeef", "{uppercase}"]
+"#
+            ),
+        )
+        .unwrap();
+
+        let loaded = ShellDaemonConfig::load(&path).unwrap();
+        assert_eq!(
+            loaded.seed.keep_online_projects,
+            vec![valid, "cd".repeat(32)],
+            "valid ids survive; the uppercase paste survives NORMALIZED to lowercase"
+        );
     }
 }
