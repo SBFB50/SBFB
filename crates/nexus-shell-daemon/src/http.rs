@@ -1528,13 +1528,25 @@ fn find_directory_app_by_hash(
 /// Locate, across every SUBSCRIBED node directory, the catalog app with
 /// `project_id`. Returns `(archive_hash_hex, anchor_node_id_hex)`; rows
 /// without an archive (empty hash) are skipped — there is nothing to pull.
+///
+/// Sprint 75 Phase F (review-D deferral): `want_hash` narrows the first-match
+/// to the EXACT archive version the caller asked about — two subscribed
+/// anchors listing the same `project_id` with different hashes (a fork, or an
+/// older release) would otherwise resolve to whichever anchor sorts first,
+/// and the caller would pin bytes it did not ask for. `None` keeps the
+/// version-agnostic first-match (today's behaviour for callers that only know
+/// the project id).
 fn find_directory_app_by_project(
     dirs: &[nexus_core_rs::NodeDirectoryEntry],
     project_id: &str,
+    want_hash: Option<&str>,
 ) -> Option<(String, String)> {
     for dir in dirs {
         for app in &dir.directory.catalog {
-            if app.project_id == project_id && !app.archive_hash.is_empty() {
+            if app.project_id == project_id
+                && !app.archive_hash.is_empty()
+                && want_hash.is_none_or(|w| w == app.archive_hash)
+            {
                 return Some((app.archive_hash.clone(), hex::encode(dir.directory.node_id)));
             }
         }
@@ -1668,7 +1680,7 @@ pub(crate) async fn run_boot_seed_driver(
         // same project id resolve lexicographic-first; tracked with the
         // Sybil-sampling residual in the S76 audit.
         let dir_hit =
-            find_directory_app_by_project(&state.curator_runtime.directory_snapshot(), pid);
+            find_directory_app_by_project(&state.curator_runtime.directory_snapshot(), pid, None);
         let Some(hash_hex) = direct
             .as_ref()
             .and_then(|e| e.archive_hash.clone())
@@ -1909,6 +1921,14 @@ async fn list_nodes(State(state): State<Arc<DaemonHttpState>>) -> impl IntoRespo
 #[derive(Debug, serde::Deserialize)]
 struct SeedVoluntaryRequest {
     project_id: String,
+    /// Sprint 75 Phase F (review-D deferral): optional version discriminator.
+    /// When present, the seed targets the EXACT archive version the user was
+    /// shown — a direct entry carrying a DIFFERENT version no longer shadows
+    /// the requested one, and the directory first-match is narrowed to this
+    /// hash (multi-anchor collision). `#[serde(default)]` = runtime tolerance:
+    /// a body omitting it keeps the pre-F version-agnostic behaviour.
+    #[serde(default)]
+    archive_hash: Option<String>,
 }
 
 /// How `seed_voluntary` acquires the archive bytes for the requested app.
@@ -1926,26 +1946,47 @@ async fn seed_voluntary(
     debug!(project = %req.project_id, "POST /api/daemon/seed (voluntary)");
 
     // The app must be visible in Browse so we know its archive hash. A user
-    // can only seed what they can see. A direct (gossip) entry wins — it
-    // carries a ready ticket; otherwise fall back to the subscribed node
-    // directories (directory-only apps have no ticket by design: a stored
-    // ticket would freeze a stale address, the Phase A bug).
-    let (hash_hex, plan): (String, SeedFetchPlan) = if let Some(entry) =
-        state.browse_aggregator.get_direct_entry(&req.project_id)
-    {
-        let (Some(ticket), Some(hash_hex)) =
-            (entry.archive_ticket.clone(), entry.archive_hash.clone())
-        else {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "app has no archive to seed"})),
-            )
-                .into_response();
-        };
-        (hash_hex, SeedFetchPlan::Ticket(ticket))
-    } else if let Some((hash_hex, anchor_hex)) =
-        find_directory_app_by_project(&state.curator_runtime.directory_snapshot(), &req.project_id)
-    {
+    // can only seed what they can see. A direct (gossip) entry wins WHEN it
+    // can serve the request — it carries a ready ticket; otherwise fall back
+    // to the subscribed node directories (directory-only apps have no ticket
+    // by design: a stored ticket would freeze a stale address, the Phase A
+    // bug). Sprint 75 Phase F (review-D deferral): a direct entry is skipped
+    // when it has NO archive (a ticket-less card must not shadow a pullable
+    // directory listing) or when the caller pinned a SPECIFIC version the
+    // direct entry does not carry.
+    // Reads normalize like writes (hex-case lesson, Phase D SeedRegistry): a
+    // mixed-case hash from a raw client must match the lowercase hashes the
+    // daemon mints everywhere, never miss on case alone.
+    let requested_hash = req.archive_hash.as_deref().map(str::to_ascii_lowercase);
+    let requested_hash = requested_hash.as_deref();
+    let direct_entry = state.browse_aggregator.get_direct_entry(&req.project_id);
+    let had_direct_entry = direct_entry.is_some();
+    // The direct card's DISPLAYED hash even when it carries no ticket: the
+    // agnostic fallback below must not silently pin a DIFFERENT version than
+    // the one the direct card shows the user (review F P3 — pre-F this shape
+    // was a 400, never a divergent pin).
+    let direct_hash_no_ticket = direct_entry.as_ref().and_then(|e| {
+        if e.archive_ticket.is_none() {
+            e.archive_hash.clone()
+        } else {
+            None
+        }
+    });
+    let direct_plan =
+        direct_entry.and_then(|entry| match (entry.archive_ticket, entry.archive_hash) {
+            (Some(ticket), Some(hash_hex)) => match requested_hash {
+                Some(want) if want != hash_hex => None,
+                _ => Some((hash_hex, SeedFetchPlan::Ticket(ticket))),
+            },
+            _ => None,
+        });
+    let (hash_hex, plan): (String, SeedFetchPlan) = if let Some(found) = direct_plan {
+        found
+    } else if let Some((hash_hex, anchor_hex)) = find_directory_app_by_project(
+        &state.curator_runtime.directory_snapshot(),
+        &req.project_id,
+        requested_hash.or(direct_hash_no_ticket.as_deref()),
+    ) {
         let now = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -1966,6 +2007,20 @@ async fn seed_voluntary(
                 .into_response();
         }
         (hash_hex, SeedFetchPlan::Multi(providers))
+    } else if had_direct_entry && requested_hash.is_none() {
+        // Pre-F behaviour preserved: a direct card with nothing to pull (no
+        // archive) and no directory fallback is a 400, not an unknown app.
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "app has no archive to seed"})),
+        )
+            .into_response();
+    } else if requested_hash.is_some() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no source for the requested app version"})),
+        )
+            .into_response();
     } else {
         return (
             StatusCode::NOT_FOUND,
@@ -2080,12 +2135,20 @@ struct SeedCountQuery {
 /// `GET /api/daemon/seed-count/{project_id}` — Sprint 74 Phase F — the
 /// best-effort multi-seed availability count for an app.
 ///
-/// Returns `{ peer_count, self_seeding }`:
+/// Returns `{ peer_count, self_seeding, self_pin_enabled }`:
 ///  - `peer_count`: distinct REMOTE seeders seen within the TTL (from the
 ///    in-memory `SeedRegistry`, fed by ingested `SeedAnnounced` feed ops).
 ///  - `self_seeding`: whether THIS node actively keeps the app online (an
 ///    `enabled = 1` keep_online row). The front renders the pair as "Toi + N
 ///    pairs (vus recemment)" — `self_seeding` is the "Toi", `peer_count` the N.
+///  - `self_pin_enabled` (Sprint 75 Phase F, WEB-1): the operator's PERSISTED
+///    keep-online intent, three-valued — `null` = never toggled (no
+///    keep_online row; the app still rebroadcasts by default, only an
+///    explicit OFF row gates the outbox replay), `true`/`false` = the
+///    explicit toggle state. Distinct from `self_seeding`, which is
+///    version-scoped serving truth: the shell's "Garder en ligne" toggle
+///    must reflect INTENT, and a fresh never-toggled own app must not render
+///    OFF (it is still diffused via the outbox replay).
 ///
 /// Best-effort by design (scope cut #11): content-addressing (BLAKE3) is the
 /// truth of reachability, this count is only a freshness hint. A dedicated
@@ -2103,24 +2166,31 @@ async fn seed_count(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let (keep_online_enabled, own_hash) = {
+    let keep_online_row = {
         let db = state
             .coordinator_db
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        match db.get_keep_online(&project_id) {
-            Ok(Some((enabled, hash))) => (enabled, hash),
-            _ => (false, None),
-        }
+        db.get_keep_online(&project_id).ok().flatten()
     };
-    let requested = params.archive_hash.as_deref();
+    // WEB-1: the raw persisted intent, BEFORE the row-absent default collapses
+    // it — `None` (never toggled) must stay distinguishable from `Some(false)`
+    // (explicit OFF) for the shell toggle.
+    let self_pin_enabled: Option<bool> = keep_online_row.as_ref().map(|(enabled, _)| *enabled);
+    let (keep_online_enabled, own_hash) = keep_online_row.unwrap_or((false, None));
+    // Reads normalize like writes (hex-case lesson): without this, a
+    // mixed-case query would still COUNT the version's peers (the registry
+    // normalizes internally) while denying the "Toi" (the own_hash compare
+    // below is byte-exact) — an inconsistent answer from one handler.
+    let requested = params.archive_hash.as_deref().map(str::to_ascii_lowercase);
+    let requested = requested.as_deref();
     // WIRE-2: `peer_count` is scoped to the EXACT version the caller asks about
     // (`?archive_hash=`), else a version-agnostic distinct count across all
     // versions when omitted. The omitted case is STRICTLY the pre-WIRE-2
     // non-regression semantics (`None`) — we do NOT silently substitute our own
     // pinned hash, which would surprise a caller that asked for an aggregate count
-    // (Codex GAP). The frontend always passes the displayed entry's archive_hash,
-    // so the version-specific path is the one exercised in practice.
+    // (Codex GAP). The shell passes the displayed entry's archive_hash on every
+    // surface that knows it, so the version-specific path is the practical one.
     let peer_count = state
         .seed_registry
         .count_recent(&project_id, requested, now);
@@ -2139,6 +2209,7 @@ async fn seed_count(
         Json(serde_json::json!({
             "peer_count": peer_count,
             "self_seeding": self_seeding,
+            "self_pin_enabled": self_pin_enabled,
         })),
     )
         .into_response()
@@ -4485,11 +4556,48 @@ mod tests {
 
         // by_project: a real row resolves; an archive-less row is skipped.
         assert_eq!(
-            find_directory_app_by_project(&dirs, &pid_b),
+            find_directory_app_by_project(&dirs, &pid_b, None),
             Some((h1.clone(), hex::encode(kp1.public_bytes())))
         );
-        assert_eq!(find_directory_app_by_project(&dirs, &pid_a), None);
-        assert_eq!(find_directory_app_by_project(&dirs, &"9".repeat(64)), None);
+        assert_eq!(find_directory_app_by_project(&dirs, &pid_a, None), None);
+        assert_eq!(
+            find_directory_app_by_project(&dirs, &"9".repeat(64), None),
+            None
+        );
+
+        // Sprint 75 Phase F (review-D deferral): `want_hash` discriminates
+        // between two anchors listing the SAME project id with different
+        // archive versions — the first-match must not pin bytes the caller
+        // did not ask for.
+        let kp3 = KeyPair::generate();
+        let h3 = "d4".repeat(32);
+        let mut dir3 = nexus_core_rs::NodeDirectory::new(kp3.public_bytes(), 1);
+        dir3.catalog = vec![catalog_app(&pid_b, &h3, "Babel (derived)")];
+        let entry3 = nexus_core_rs::NodeDirectoryEntry::sign(dir3, &kp3).unwrap();
+        let mut dirs_collided = dirs.clone();
+        dirs_collided.push(entry3);
+
+        // Version-agnostic: still the first anchor's version (pre-F behaviour).
+        assert_eq!(
+            find_directory_app_by_project(&dirs_collided, &pid_b, None),
+            Some((h1.clone(), hex::encode(kp1.public_bytes())))
+        );
+        // Discriminated: the requested version resolves to ITS anchor, even
+        // when another anchor's listing of the same project sorts first.
+        assert_eq!(
+            find_directory_app_by_project(&dirs_collided, &pid_b, Some(&h3)),
+            Some((h3.clone(), hex::encode(kp3.public_bytes())))
+        );
+        assert_eq!(
+            find_directory_app_by_project(&dirs_collided, &pid_b, Some(&h1)),
+            Some((h1.clone(), hex::encode(kp1.public_bytes())))
+        );
+        // A version nobody lists resolves to None (the handler 404s instead
+        // of silently pinning a different version).
+        assert_eq!(
+            find_directory_app_by_project(&dirs_collided, &pid_b, Some(&"ee".repeat(32))),
+            None
+        );
     }
 
     #[test]
@@ -4665,6 +4773,9 @@ mod tests {
             "the seeder holding the BLAKE3 must be visible in the backend signal"
         );
         assert_eq!(json["self_seeding"], false);
+        // WEB-1 (Phase F): never-toggled app → the persisted intent is null,
+        // NOT false — the shell toggle must not render OFF for it.
+        assert_eq!(json["self_pin_enabled"], serde_json::Value::Null);
 
         // (c) Route-level coverage of GET /api/daemon/nodes (the envelope
         // shape itself is pinned by `nodes_response_pins_envelope_and_grouping`):
@@ -4737,6 +4848,10 @@ mod tests {
             .expect("seeder must expose an address");
         state.node.memory_lookup().add_endpoint_info(seeder_addr);
 
+        // Phase F: the request pins the EXACT displayed version (the shell
+        // passes the entry's archive_hash on every surface that knows it) —
+        // this E2E exercises the discriminated resolution path end-to-end,
+        // not the agnostic one.
         let app = build_test_router(state.clone());
         let resp = app
             .oneshot(
@@ -4745,7 +4860,8 @@ mod tests {
                     .uri("/api/daemon/seed")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(
-                        serde_json::json!({"project_id": pid}).to_string(),
+                        serde_json::json!({"project_id": pid, "archive_hash": archive_hash})
+                            .to_string(),
                     ))
                     .unwrap(),
             )
@@ -4782,6 +4898,227 @@ mod tests {
         }
 
         seeder_node.shutdown().await.ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn seed_voluntary_version_discriminator_local_rejects() {
+        // Sprint 75 Phase F (review-D deferral closed): the optional
+        // `archive_hash` on POST /api/daemon/seed pins the EXACT version.
+        // Local-rejection paths only — no fetch is ever started.
+        let state = mk_state().await;
+
+        // A direct card carries version A (ready ticket).
+        let version_a = "aa".repeat(32);
+        let pid = "5".repeat(64);
+        let mut entry = own_browse_entry(&pid, "Two Versions", None);
+        entry.archive_ticket = Some("ticket-version-a".into());
+        entry.archive_hash = Some(version_a.clone());
+        state.browse_aggregator.add_direct_entry(entry);
+
+        // Asking for version B (listed nowhere) must NOT silently fall back
+        // to the direct card's version A — 404, version-specific message.
+        let version_b = "bb".repeat(32);
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"project_id": pid, "archive_hash": version_b})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "a direct entry of a DIFFERENT version must not shadow the requested one"
+        );
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json["error"], "no source for the requested app version",
+            "the rejection names the version miss, not an unknown app"
+        );
+
+        // Pre-F behaviour preserved: an archive-less direct card with no
+        // requested version (and no directory fallback) is still a 400.
+        let pid_bare = "6".repeat(64);
+        state
+            .browse_aggregator
+            .add_direct_entry(own_browse_entry(&pid_bare, "No Archive", None));
+        // own_browse_entry sets a placeholder hash — strip it to model the
+        // archive-less card shape.
+        let mut bare = state.browse_aggregator.get_direct_entry(&pid_bare).unwrap();
+        bare.archive_hash = None;
+        bare.archive_ticket = None;
+        state.browse_aggregator.add_direct_entry(bare);
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"project_id": pid_bare}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"], "app has no archive to seed");
+
+        // The MATCHING-version branch takes the Ticket arm (review F P2: the
+        // main prod path was never selection-pinned). The ticket is malformed
+        // so the fetch fails fast — 502 "could not fetch", which proves the
+        // selection entered the Ticket arm instead of 404ing the version.
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"project_id": pid, "archive_hash": version_a})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_GATEWAY,
+            "a matching requested version must select the direct ticket arm"
+        );
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"], "could not fetch the app archive");
+
+        // Case normalization: the SAME request with an UPPERCASE hash must
+        // reach the same arm (hex-case lesson), never 404 on case alone.
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({
+                            "project_id": pid,
+                            "archive_hash": version_a.to_ascii_uppercase()
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+
+        // A direct card with a hash but NO ticket (restored-from-outbox shape)
+        // and no directory fallback: still the pre-F 400 — and the agnostic
+        // fallback is narrowed by the card's own hash, so it can never pin a
+        // DIFFERENT version than the one displayed (review F P3).
+        let pid_hash_only = "8".repeat(64);
+        let mut hash_only = own_browse_entry(&pid_hash_only, "Hash No Ticket", None);
+        hash_only.archive_ticket = None;
+        hash_only.archive_hash = Some("dd".repeat(32));
+        state.browse_aggregator.add_direct_entry(hash_only);
+        let app = build_test_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/seed")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"project_id": pid_hash_only}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"], "app has no archive to seed");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn seed_count_exposes_self_pin_intent() {
+        // WEB-1 (Sprint 75 Phase F): `self_pin_enabled` is the THREE-valued
+        // persisted intent — null (never toggled, still diffused by default),
+        // true (explicit ON), false (explicit OFF). `self_seeding` stays the
+        // version-scoped serving truth and must NOT be conflated with it.
+        let state = mk_state().await;
+        let pid = "7".repeat(64);
+        let hash = "cd".repeat(32);
+
+        let get_count = |uri: String| {
+            let state = state.clone();
+            async move {
+                let app = build_test_router(state);
+                let resp = app
+                    .oneshot(
+                        Request::builder()
+                            .method(Method::GET)
+                            .uri(&uri)
+                            .body(axum::body::Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(resp.status(), StatusCode::OK);
+                let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+            }
+        };
+
+        // Never toggled: intent is null, not false.
+        let json = get_count(format!("/api/daemon/seed-count/{pid}")).await;
+        assert_eq!(json["self_pin_enabled"], serde_json::Value::Null);
+        assert_eq!(json["self_seeding"], false);
+
+        // Explicit ON.
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            db.set_keep_online(&pid, true, Some(&hash)).unwrap();
+        }
+        let json = get_count(format!("/api/daemon/seed-count/{pid}")).await;
+        assert_eq!(json["self_pin_enabled"], true);
+        assert_eq!(json["self_seeding"], true);
+        // Intent is NOT version-scoped: a query about a DIFFERENT version
+        // keeps the intent (true) while the serving truth drops to false.
+        let other = "ef".repeat(32);
+        let json = get_count(format!("/api/daemon/seed-count/{pid}?archive_hash={other}")).await;
+        assert_eq!(json["self_pin_enabled"], true);
+        assert_eq!(json["self_seeding"], false);
+
+        // Explicit OFF.
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            db.set_keep_online(&pid, false, Some(&hash)).unwrap();
+        }
+        let json = get_count(format!("/api/daemon/seed-count/{pid}")).await;
+        assert_eq!(json["self_pin_enabled"], false);
+        assert_eq!(json["self_seeding"], false);
     }
 
     #[tokio::test(flavor = "multi_thread")]

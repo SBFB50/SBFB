@@ -28,6 +28,18 @@ interface Props {
   coordUrl: string;
   projectId: string;
   provenanceHash: string | null;
+  /**
+   * Sprint 75 Phase F (verrou 4, résiduel review F) : le hash BLAKE3 de la
+   * VERSION que l'appelant affiche (row catalogue). La route provenance est
+   * keyée par projectId et renvoie le record que CE nœud détient — qui peut
+   * prouver une AUTRE version que celle cliquée. Quand cette prop est
+   * fournie et que `record.artifact_hash` diffère, un avertissement
+   * « version différente » s'affiche à côté du verdict de signature, pour
+   * que « Signature valide » ne soit jamais lu comme « ces octets-là sont
+   * prouvés ». Optionnelle : les appelants historiques (fiche app, dont la
+   * version affichée EST celle du record local) sont inchangés.
+   */
+  expectedArtifactHash?: string | null;
 }
 
 type FetchResult =
@@ -82,6 +94,7 @@ export function VerificationDetail({
   coordUrl,
   projectId,
   provenanceHash,
+  expectedArtifactHash,
 }: Props) {
   const [result, setResult] = useState<FetchResult | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -128,6 +141,14 @@ export function VerificationDetail({
     provenanceHash != null &&
     result.provenance_hash !== provenanceHash;
 
+  // Verrou 4 : la signature peut être valide pour d'AUTRES octets que la
+  // version affichée par l'appelant — l'avertir explicitement.
+  const versionMismatch =
+    result?.kind === "loaded" &&
+    expectedArtifactHash != null &&
+    expectedArtifactHash !== "" &&
+    result.record.artifact_hash !== expectedArtifactHash;
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md" data-testid="verification-detail">
@@ -165,6 +186,17 @@ export function VerificationDetail({
               >
                 <AlertTriangle className="h-4 w-4 shrink-0" />
                 Le hash de provenance retourne ne correspond pas au hash annonce dans le reseau.
+              </div>
+            )}
+
+            {versionMismatch && (
+              <div
+                className="flex items-center gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-400"
+                data-testid="version-mismatch-warning"
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                Cette preuve concerne une autre version que celle affichee :
+                la signature ne couvre pas les octets de la version listee.
               </div>
             )}
 

@@ -5,8 +5,8 @@
 
 import { useState } from "react";
 import { keepPreviousData, useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import { ExternalLink, FileCheck, Globe, Play, RefreshCw, Search, Signal, SignalZero, Sparkles } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ExternalLink, FileCheck, Globe, Play, RefreshCw, Search, Server, Signal, SignalZero, Sparkles } from "lucide-react";
 
 import {
   browsePull,
@@ -94,20 +94,33 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
             Apps distribuees sur le reseau SBFB
           </p>
         </div>
-        <button
-          onClick={async () => {
-            await browsePull(coordUrl);
-            setTimeout(() => browseQuery.refetch(), 2000);
-          }}
-          disabled={browseQuery.isFetching}
-          className="glass-pill flex items-center gap-2 text-xs"
-          data-testid="browse-refresh"
-        >
-          <RefreshCw
-            className={`h-3.5 w-3.5 ${browseQuery.isFetching ? "animate-spin" : ""}`}
-          />
-          Rafraichir
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Sprint 75 Phase F (Q6: additive cohabitation, verrou 2) — the
+              by-node lens NEVER replaces this grid (the honest superset);
+              it is an extra surface, like F-Droid's Repositories screen. */}
+          <Link
+            to="/nodes"
+            className="glass-pill flex items-center gap-2 text-xs"
+            data-testid="browse-by-node-link"
+          >
+            <Server className="h-3.5 w-3.5" />
+            Parcourir par noeud
+          </Link>
+          <button
+            onClick={async () => {
+              await browsePull(coordUrl);
+              setTimeout(() => browseQuery.refetch(), 2000);
+            }}
+            disabled={browseQuery.isFetching}
+            className="glass-pill flex items-center gap-2 text-xs"
+            data-testid="browse-refresh"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${browseQuery.isFetching ? "animate-spin" : ""}`}
+            />
+            Rafraichir
+          </button>
+        </div>
       </div>
 
       {/* ---- Search bar ---- */}

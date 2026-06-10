@@ -207,4 +207,25 @@ describe("Browse search bar", () => {
     expect(screen.queryByTestId("browse-search-grid")).not.toBeInTheDocument();
     expect(screen.queryByTestId("browse-search-empty")).not.toBeInTheDocument();
   });
+
+  it("q6_cohabitation : le lien par-noeud est additif, la grille reste (verrou 2)", async () => {
+    // Sprint 75 Phase F — node-Browse est une lentille SUPPLÉMENTAIRE
+    // (écran Dépôts de F-Droid), jamais un remplacement silencieux de la
+    // grille (le sur-ensemble honnête).
+    mockFetch({
+      "/api/daemon/browse": { entries: [makeBrowseEntry()] },
+      "/api/daemon/search": { results: [], total: 0, took_ms: 0 },
+    });
+
+    renderBrowse();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("browse-grid")).toBeInTheDocument();
+    });
+    const link = screen.getByTestId("browse-by-node-link");
+    expect(link).toHaveTextContent("Parcourir par noeud");
+    expect(link).toHaveAttribute("href", "/nodes");
+    // La grille co-existe avec le lien — pas de substitution.
+    expect(screen.getByTestId("browse-card")).toBeInTheDocument();
+  });
 });

@@ -65,6 +65,16 @@ const router = createBrowserRouter([
         path: "/curators",
         lazy: () => import("@/pages/Curators"),
       },
+      // Sprint 75 Phase F — node-centric PULL discovery (Q6: additive
+      // cohabitation; the /browse grid stays the default superset view).
+      {
+        path: "/nodes",
+        lazy: () => import("@/pages/Nodes"),
+      },
+      {
+        path: "/node/:nodeId",
+        lazy: () => import("@/pages/NodeCatalog"),
+      },
       {
         path: "/deploy",
         lazy: () => import("@/pages/Deploy"),

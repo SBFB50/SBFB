@@ -242,9 +242,22 @@ async function callDaemon<T>(
   }
 
   if (!res.ok) {
+    // Sprint 75 Phase F (GAP Codex R2) : remonter la raison {"error": ...}
+    // que le daemon Rust met dans le body — le statusText générique seul
+    // cache la cause actionnable (ex. « bad key » d'un subscribe refusé).
+    // Best-effort : un body non-JSON garde la raison générique.
+    let detail = "";
+    try {
+      const raw = (await res.json()) as { error?: unknown };
+      if (typeof raw?.error === "string" && raw.error.length > 0) {
+        detail = ` — ${raw.error}`;
+      }
+    } catch {
+      /* body non-JSON — raison générique conservée */
+    }
     return {
       kind: "error",
-      reason: `HTTP ${res.status} ${res.statusText}`,
+      reason: `HTTP ${res.status} ${res.statusText}${detail}`,
     };
   }
 
@@ -350,14 +363,25 @@ const SeedVoluntaryResponseSchema = z
   .object({ ok: z.boolean(), seeding: z.string() })
   .strict();
 
+/**
+ * Sprint 75 Phase F (review-D deferral): `archiveHash` pins the EXACT version
+ * the user was shown. Without it, two subscribed anchors listing the same
+ * project id with different versions resolve first-match — the daemon could
+ * pin bytes the user did not ask for. Callers that have a BrowseEntry or a
+ * catalog row always pass its `archive_hash` (mirrors `seedCount`).
+ */
 export function seedVoluntary(
   baseUrl: string,
   projectId: string,
+  archiveHash?: string | null,
 ): Promise<DaemonResult<{ ok: boolean; seeding: string }>> {
   return callDaemon(baseUrl, "/api/daemon/seed", SeedVoluntaryResponseSchema, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ project_id: projectId }),
+    body: JSON.stringify({
+      project_id: projectId,
+      ...(archiveHash ? { archive_hash: archiveHash } : {}),
+    }),
   });
 }
 
@@ -368,8 +392,21 @@ export function seedVoluntary(
 // as "Toi + N pairs (vus recemment)". Both keys are ALWAYS present (the Rust
 // `seed_count` handler serialises them unconditionally), hence non-optional
 // under the `.strict()` parse — matching the S73 Phase E always-present rule.
+// Sprint 75 Phase F (WEB-1): `self_pin_enabled` is the operator's PERSISTED
+// keep-online intent, three-valued — `null` = never toggled (no keep_online
+// row; the app still rebroadcasts by default), `true`/`false` = the explicit
+// toggle state. The Rust handler serialises the key unconditionally (an
+// Option maps to JSON null, never an absent key) → `.nullable()`, NOT
+// `.optional()` (S73-E rule). The shell's "Garder en ligne" toggle reconciles
+// from THIS field; `self_seeding` stays the version-scoped serving truth and
+// must not drive the toggle (a fresh never-toggled own app would render a
+// false OFF).
 const SeedCountResponseSchema = z
-  .object({ peer_count: z.number().int().min(0), self_seeding: z.boolean() })
+  .object({
+    peer_count: z.number().int().min(0),
+    self_seeding: z.boolean(),
+    self_pin_enabled: z.boolean().nullable(),
+  })
   .strict();
 
 export type SeedCountResponse = z.infer<typeof SeedCountResponseSchema>;
@@ -393,6 +430,80 @@ export function seedCount(
     SeedCountResponseSchema,
   );
 }
+
+// =================================================================
+// Node directories — PULL discovery (Sprint 75 Phase F)
+// =================================================================
+
+/**
+ * Mirrors `nexus_core_rs::CatalogApp` — one app a subscribed node advertises
+ * in its signed directory.
+ *
+ * Deliberately NOT `.strict()` (review-D deferral): the catalog rows travel
+ * inside the signed directory and the pre-launch policy adds fields
+ * additively with 0 bump — a `.strict()` row schema would 422 the whole
+ * `/nodes` page on the FIRST additive Rust field. Unknown keys are stripped
+ * (Zod default), known keys are all always-present Rust `String`s.
+ */
+export const CatalogAppSchema = z.object({
+  project_id: z.string(),
+  /** Empty string for a placeholder row with no archive (a puller skips it). */
+  archive_hash: z.string(),
+  project_name: z.string(),
+  category: z.string(),
+  description: z.string(),
+});
+
+export type CatalogApp = z.infer<typeof CatalogAppSchema>;
+
+/**
+ * Mirrors the daemon's `NodeSummary` — one catalog-publishing node. The node
+ * is a DISCOVERY source, never an authority (verrou 4): provenance comes from
+ * the author-signed provenance.json at pull time, not from this row. Like the
+ * catalog rows, not `.strict()` so a future additive field cannot brick the
+ * page.
+ */
+export const NodeSummarySchema = z.object({
+  /** Lowercase hex Ed25519 pubkey — dialable identity AND directory signer. */
+  node_id: z.string().min(1),
+  revision: z.number().int().min(0),
+  app_count: z.number().int().min(0),
+  catalog: z.array(CatalogAppSchema),
+});
+
+export type NodeSummary = z.infer<typeof NodeSummarySchema>;
+
+/**
+ * Mirrors `GET /api/daemon/nodes` — `{ nodes: [...] }`. The ENVELOPE is
+ * `.strict()` (pinned by the Rust test `nodes_response_pins_envelope_and_
+ * grouping`); only the rows stay additive-tolerant.
+ */
+export const NodesResponseSchema = z
+  .object({
+    nodes: z.array(NodeSummarySchema),
+  })
+  .strict();
+
+export type NodesResponse = z.infer<typeof NodesResponseSchema>;
+
+/** Sprint 75 Phase F — list the subscribed catalogue-publishing nodes. */
+export function listNodes(
+  baseUrl: string,
+): Promise<DaemonResult<NodesResponse>> {
+  return callDaemon(baseUrl, "/api/daemon/nodes", NodesResponseSchema);
+}
+
+/**
+ * Sprint 75 Phase F — "ajouter une ancre". An anchor IS a subscription in the
+ * SAME attention set as curators (kickoff D1/Q3/DQ3: one attention set, no
+ * separate `[directory]` section) — so adding an anchor is exactly the
+ * existing `POST /api/daemon/curators/subscribe`. The alias keeps the
+ * node-Browse vocabulary honest without inventing a second route. The
+ * directory then arrives via gossip or the boot re-pull (subscribe is NOT
+ * synchronous-ingest), hence the "waiting for the first announcement"
+ * cold-start affordance in the UI.
+ */
+export const addAnchor = subscribeCurator;
 
 // =================================================================
 // Search — FTS5 full-text index (Sprint 67 endpoint, Sprint 73 Phase E)

@@ -22,15 +22,19 @@ import {
 } from "vitest";
 
 import {
+  addAnchor,
   blobServeUrl,
   daemonBaseUrlFromInfo,
   getDaemonInfo,
   isValidCuratorPubkey,
   listBrowse,
   listCurators,
+  listNodes,
+  NodesResponseSchema,
   searchBrowse,
   SearchResponseSchema,
   seedCount,
+  seedVoluntary,
   subscribeCurator,
   triggerPanicWipe,
   unsubscribeCurator,
@@ -728,7 +732,7 @@ describe("seedCount", () => {
     const spy = vi.fn(async () =>
       mockFetchResponse({
         status: 200,
-        body: { peer_count: 3, self_seeding: true },
+        body: { peer_count: 3, self_seeding: true, self_pin_enabled: true },
       }),
     );
     vi.stubGlobal("fetch", spy);
@@ -770,7 +774,7 @@ describe("seedCount", () => {
     const spy = vi.fn(async () =>
       mockFetchResponse({
         status: 200,
-        body: { peer_count: 2, self_seeding: false },
+        body: { peer_count: 2, self_seeding: false, self_pin_enabled: null },
       }),
     );
     vi.stubGlobal("fetch", spy);
@@ -790,7 +794,7 @@ describe("seedCount", () => {
     const spy = vi.fn(async () =>
       mockFetchResponse({
         status: 200,
-        body: { peer_count: 1, self_seeding: false },
+        body: { peer_count: 1, self_seeding: false, self_pin_enabled: null },
       }),
     );
     vi.stubGlobal("fetch", spy);
@@ -802,6 +806,151 @@ describe("seedCount", () => {
     expect(String(calls[0][0])).toBe(
       `${BASE}/api/daemon/seed-count/${"ab".repeat(32)}`,
     );
+  });
+
+  it("parses the three-valued self_pin_enabled (WEB-1, Sprint 75 Phase F)", async () => {
+    // null = never toggled (row absent), true/false = explicit intent. The
+    // Rust handler ALWAYS serialises the key (Option -> JSON null), so the
+    // schema is .nullable(), never .optional() — an ABSENT key is a drift,
+    // rejected because the key is REQUIRED (non-optional) in the schema
+    // (`.strict()` only rejects EXTRA keys, not missing ones).
+    for (const pin of [null, true, false]) {
+      mockFetchOk({ peer_count: 0, self_seeding: false, self_pin_enabled: pin });
+      const result = await seedCount(BASE, "ab".repeat(32));
+      expect(result.kind).toBe("data");
+      if (result.kind !== "data") throw new Error("unreachable");
+      expect(result.body.self_pin_enabled).toBe(pin);
+      vi.unstubAllGlobals();
+    }
+    // An absent key is a protocol drift under .strict() — throws.
+    mockFetchOk({ peer_count: 0, self_seeding: false });
+    await expect(seedCount(BASE, "ab".repeat(32))).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------
+// listNodes + NodesResponseSchema (Sprint 75 Phase F)
+// ---------------------------------------------------------------
+
+describe("listNodes", () => {
+  const NODE = {
+    node_id: "ee".repeat(32),
+    revision: 3,
+    app_count: 1,
+    catalog: [
+      {
+        project_id: "ab".repeat(32),
+        archive_hash: "cd".repeat(32),
+        project_name: "Babel",
+        category: "tools",
+        description: "Translation hub",
+      },
+    ],
+  };
+
+  it("parses the {nodes} envelope from GET /api/daemon/nodes", async () => {
+    const spy = vi.fn(async () =>
+      mockFetchResponse({ status: 200, body: { nodes: [NODE] } }),
+    );
+    vi.stubGlobal("fetch", spy);
+    const result = await listNodes(BASE);
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.nodes).toHaveLength(1);
+    expect(result.body.nodes[0].node_id).toBe("ee".repeat(32));
+    expect(result.body.nodes[0].catalog[0].project_name).toBe("Babel");
+    const calls = spy.mock.calls as unknown as [RequestInfo | URL][];
+    expect(String(calls[0][0])).toBe(`${BASE}/api/daemon/nodes`);
+  });
+
+  it("rejects an unknown key on the ENVELOPE (strict)", async () => {
+    // The envelope is pinned by the Rust producer test
+    // (`nodes_response_pins_envelope_and_grouping`) — an extra top-level key
+    // is a protocol drift, not a tolerated shape.
+    mockFetchOk({ nodes: [], extra_envelope_key: 1 });
+    await expect(listNodes(BASE)).rejects.toThrow();
+  });
+
+  it("tolerates an additive field on rows (review-D rule: rows NOT strict)", () => {
+    // Pre-launch policy adds CatalogApp/NodeSummary fields additively with
+    // 0 bump — the FIRST additive Rust field must not brick the /nodes page.
+    const parsed = NodesResponseSchema.parse({
+      nodes: [
+        {
+          ...NODE,
+          future_node_field: "ignored",
+          catalog: [{ ...NODE.catalog[0], future_app_field: 42 }],
+        },
+      ],
+    });
+    expect(parsed.nodes[0].catalog[0].project_id).toBe("ab".repeat(32));
+    // Unknown keys are STRIPPED, not kept (Zod default object behaviour).
+    expect(
+      (parsed.nodes[0] as Record<string, unknown>)["future_node_field"],
+    ).toBeUndefined();
+  });
+
+  it("addAnchor is the curators/subscribe route (anchor = subscription, Q3/DQ3)", async () => {
+    const spy = vi.fn(async () =>
+      mockFetchResponse({
+        status: 200,
+        body: { subscribed_curators: ["ee".repeat(32)] },
+      }),
+    );
+    vi.stubGlobal("fetch", spy);
+    const result = await addAnchor(BASE, "ee".repeat(32));
+    expect(result.kind).toBe("data");
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    expect(String(calls[0][0])).toBe(`${BASE}/api/daemon/curators/subscribe`);
+    expect(addAnchor).toBe(subscribeCurator);
+  });
+});
+
+// ---------------------------------------------------------------
+// seedVoluntary version discriminator (Sprint 75 Phase F)
+// ---------------------------------------------------------------
+
+describe("seedVoluntary", () => {
+  it("pins the displayed version via archive_hash in the body", async () => {
+    const spy = vi.fn(async () =>
+      mockFetchResponse({
+        status: 200,
+        body: { ok: true, seeding: "ab".repeat(32) },
+      }),
+    );
+    vi.stubGlobal("fetch", spy);
+    const hash = "cd".repeat(32);
+    await seedVoluntary(BASE, "ab".repeat(32), hash);
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    expect(String(calls[0][0])).toBe(`${BASE}/api/daemon/seed`);
+    expect(JSON.parse(calls[0][1]?.body as string)).toEqual({
+      project_id: "ab".repeat(32),
+      archive_hash: hash,
+    });
+  });
+
+  it("omits archive_hash when unknown (runtime-tolerant pre-F behaviour)", async () => {
+    const spy = vi.fn(async () =>
+      mockFetchResponse({
+        status: 200,
+        body: { ok: true, seeding: "ab".repeat(32) },
+      }),
+    );
+    vi.stubGlobal("fetch", spy);
+    await seedVoluntary(BASE, "ab".repeat(32));
+    const calls = spy.mock.calls as unknown as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    expect(JSON.parse(calls[0][1]?.body as string)).toEqual({
+      project_id: "ab".repeat(32),
+    });
   });
 });
 

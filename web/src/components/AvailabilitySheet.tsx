@@ -111,10 +111,17 @@ export function AvailabilitySheet({
   const peerCount = seedCountData?.peer_count ?? 0;
   const selfSeeding = seedCountData?.self_seeding ?? false;
 
-  // Sprint 74 Phase D — functional "Garder en ligne" pin (replaces the Phase A
-  // disabled-ON). No fetch on mount: a freshly deployed own app is ON by default;
-  // the toggle POSTs on click. The daemon echoes the persisted state back.
-  const [keepOnline, setKeepOnlineLocal] = useState(true);
+  // Sprint 74 Phase D — functional "Garder en ligne" pin. Sprint 75 Phase F
+  // (carry WEB-1 CLOSED): the toggle RECONCILES from the daemon's persisted
+  // intent (`self_pin_enabled`, three-valued) instead of a local
+  // `useState(true)` that lied after a remount (toggle OFF, close, reopen →
+  // ON again). Precedence: the POST echo (an in-session action the daemon
+  // confirmed) > the persisted intent row > the never-toggled default ON
+  // (row absent — the app still rebroadcasts by default, so OFF would be
+  // the inverse lie; `self_seeding` must NOT drive this, it is the
+  // version-scoped serving truth, false for a fresh row-less own app).
+  const [keepOnlineEcho, setKeepOnlineEcho] = useState<boolean | null>(null);
+  const keepOnline = keepOnlineEcho ?? seedCountData?.self_pin_enabled ?? true;
   const keepOnlineMutation = useMutation({
     mutationFn: (next: boolean) => setKeepOnline(coordUrl, entry.project_id, next),
     onSuccess: (res) => {
@@ -122,7 +129,7 @@ export function AvailabilitySheet({
       // leave the toggle at its prior position — never show a state the daemon
       // did not echo (no failure-state lie).
       if (res.kind === "data") {
-        setKeepOnlineLocal(res.body.enabled);
+        setKeepOnlineEcho(res.body.enabled);
         void queryClient.invalidateQueries({
           queryKey: ["daemon-browse", coordUrl],
         });
@@ -137,14 +144,37 @@ export function AvailabilitySheet({
   // consulting a public app may keep it online to support it, with NO author
   // approval (safe by blake3 content-addressing, seeder != author — amendement
   // PO §13). Functional from Phase E (replaces the Phase A inert "Bientot").
-  const [supporting, setSupporting] = useState(false);
+  // Sprint 75 Phase F (WEB-1): reconciled from `self_seeding` — if this node
+  // already keeps THIS exact version online (version-scoped truth), the CTA
+  // renders the active state after a remount instead of re-offering the seed.
+  // The request pins the displayed version (`archive_hash` discriminator).
+  const [supportEcho, setSupportEcho] = useState(false);
+  const supporting = supportEcho || selfSeeding;
+
+  // La route est lazy() sans key : la même instance peut passer d'une app à
+  // une autre — OU d'une VERSION à une autre du même projet — sans remount.
+  // Les échos in-session ne doivent jamais habiller une autre (app, version) :
+  // le seed est versionné (WIRE-2), donc la clé suivie est la PAIRE
+  // (project_id, archive_hash) — un écho « tu gardes cette version en
+  // ligne » resterait sinon collé à une version différente (GAP Codex R1).
+  // Pattern React canonique « adjust state during render » (pas un effect :
+  // un setState synchrone dans un effect déclenche des rendus en cascade,
+  // règle lint) : React relance le rendu immédiatement, rien d'incohérent
+  // n'est jamais commit.
+  const entryKey = `${entry.project_id}:${entry.archive_hash ?? ""}`;
+  const [trackedEntryKey, setTrackedEntryKey] = useState(entryKey);
+  if (trackedEntryKey !== entryKey) {
+    setTrackedEntryKey(entryKey);
+    setKeepOnlineEcho(null);
+    setSupportEcho(false);
+  }
   const supportMutation = useMutation({
-    mutationFn: () => seedVoluntary(coordUrl, entry.project_id),
+    mutationFn: () => seedVoluntary(coordUrl, entry.project_id, entry.archive_hash),
     onSuccess: (res) => {
       // Only flip to the "supporting" state the daemon actually confirmed
       // (no failure-state lie, mirrors the keep-online toggle).
       if (res.kind === "data") {
-        setSupporting(true);
+        setSupportEcho(true);
         void queryClient.invalidateQueries({
           queryKey: ["daemon-browse", coordUrl],
         });
@@ -230,10 +260,30 @@ export function AvailabilitySheet({
                     ? "En ligne (vu de ton noeud)"
                     : "En ligne — joignable par tous"
                   : state === "offline"
-                    ? "Hors ligne — relance ton noeud pour la rediffuser"
+                    ? peerCount > 0 && !!entry.archive_hash && !isOwn
+                      ? "Hors ligne chez son noeud d'origine"
+                      : "Hors ligne — relance ton noeud pour la rediffuser"
                     : "Verification…"}
               </span>
             </div>
+            {/* Q7 (Sprint 75 Phase F, PLAN-ADAPT preflight) : badge composé
+                FRONT-SIDE depuis la paire de signaux existante — statut
+                unreachable (sonde /browse) + peer_count > 0 version-exacte
+                (/seed-count). Aucun variant wire : /browse reste
+                byte-identique (décision Phase D). GATE sur archive_hash :
+                sans hash la requête seed-count est version-AGNOSTIQUE et le
+                signal n'aurait plus le sens « ces octets-là sont servis »
+                (review F). Best-effort assumé : le content-addressing BLAKE3
+                reste la seule vérité au pull. */}
+            {state === "offline" && peerCount > 0 && !!entry.archive_hash && (
+              <p
+                data-testid="reachable-via-seeder"
+                className="flex items-center gap-1.5 text-xs text-sky-300/90"
+              >
+                <Signal className="h-3.5 w-3.5 shrink-0" />
+                Joignable via un pair qui la garde en ligne (best-effort).
+              </p>
+            )}
             <div className="flex items-center gap-3 text-xs text-white/40">
               <span data-testid="availability-freshness">
                 {entry.last_probed_at
@@ -291,7 +341,16 @@ export function AvailabilitySheet({
                   <div className="flex flex-col items-end gap-1">
                     <Toggle
                       pressed={keepOnline}
-                      disabled={keepOnlineMutation.isPending}
+                      // Désactivé pendant la requête ET pendant la
+                      // réconciliation initiale de l'intent (sinon une app
+                      // togglée OFF flasherait un ON cliquable avant la
+                      // réponse seed-count — review F). Sur échec de la
+                      // query, le défaut ON documenté reste (pas de
+                      // régression vs pré-F, route loopback locale).
+                      disabled={
+                        keepOnlineMutation.isPending ||
+                        (seedCountQuery.isLoading && keepOnlineEcho === null)
+                      }
                       onPressedChange={(next) => keepOnlineMutation.mutate(next)}
                       data-testid="keep-online-toggle"
                       aria-label="Garder en ligne"
