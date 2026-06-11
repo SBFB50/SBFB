@@ -1543,6 +1543,20 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                 "gossip: loaded persisted outbox from DB"
             );
         }
+        // Self-heal (production): drop outbox announcements whose archive blob is
+        // no longer held (the app was retired / GC'd). The node must not keep
+        // re-advertising a card that fails to fetch on open, and a fresh peer
+        // must never hear it. Runs once before restore/replay; rewrites the DB so
+        // the prune is durable. Kept-online apps are pinned (skip-GC) so this
+        // never removes a live app.
+        let pruned = prune_stale_outbox(&node, &coordinator_db, &mut outbox).await;
+        if pruned > 0 {
+            info!(
+                pruned,
+                remaining = outbox.len(),
+                "gossip: pruned stale outbox announcements (archive blob GC'd)"
+            );
+        }
         // Remediation #7 (Browse boot-restore): the in-memory Browse
         // aggregator starts empty on every boot, so a node's OWN published
         // apps vanish from its Browse after a restart even though their
@@ -2023,6 +2037,73 @@ fn normalize_outbox_payload(stored: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
+/// Whether an outbox entry is still SERVEABLE by this node — i.e. it carries no
+/// archive (metadata-only, nothing to serve) OR its archive blob is still held
+/// locally. A non-serveable entry is a stale announcement: the app's archive was
+/// GC'd (the app was retired / never kept online — a kept-online app is pinned
+/// skip-GC, M18, so it is never GC'd), and re-advertising it surfaces a dead
+/// card that fails to fetch on open. Unparseable / malformed entries are treated
+/// as non-serveable so the boot prune cleans them too.
+async fn outbox_entry_is_serveable(node: &Node, stored: &[u8]) -> bool {
+    let Some(payload) = normalize_outbox_payload(stored) else {
+        return false;
+    };
+    let Ok(ann) = publish::ProjectAnnouncement::from_gossip_bytes(&payload) else {
+        return false;
+    };
+    let Some(ticket_str) = ann.archive_ticket.as_deref() else {
+        // No archive to serve — a metadata-only announcement is not stale.
+        return true;
+    };
+    use std::str::FromStr;
+    let Ok(ticket) = iroh_blobs::ticket::BlobTicket::from_str(ticket_str) else {
+        return false;
+    };
+    let (_addr, hash, _fmt) = ticket.into_parts();
+    let blobs = nexus_core_rs::BlobsClient::new(node.blobs_store());
+    blobs.has(*hash.as_bytes()).await.unwrap_or(false)
+}
+
+/// Drop every stale (non-serveable) entry from the in-memory outbox and rewrite
+/// the persisted outbox to match, so the node stops re-advertising apps whose
+/// archive it no longer holds AND a fresh peer never hears them. Self-healing,
+/// runs once at boot before the replay/restore. Returns the number pruned.
+///
+/// The DB has no per-row delete (`gossip_outbox` is a replace-the-set table), so
+/// a prune rewrites it: `clear_outbox` then re-insert the survivors in order,
+/// under one lock so the set is never observed empty. A DB rewrite failure is
+/// best-effort — the in-memory filter still takes effect this session.
+async fn prune_stale_outbox(
+    node: &Node,
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    outbox: &mut Vec<Vec<u8>>,
+) -> usize {
+    let before = outbox.len();
+    let mut live = Vec::with_capacity(before);
+    for stored in outbox.drain(..) {
+        if outbox_entry_is_serveable(node, &stored).await {
+            live.push(stored);
+        }
+    }
+    let pruned = before - live.len();
+    if pruned > 0 {
+        // Rewrite the persisted outbox to the surviving set (best-effort).
+        if let Ok(guard) = coordinator_db.lock() {
+            if let Err(e) = guard.clear_outbox() {
+                warn!(error = %e, "prune: clear_outbox failed");
+            } else {
+                for entry in &live {
+                    if let Err(e) = guard.insert_outbox(entry) {
+                        warn!(error = %e, "prune: re-insert_outbox failed");
+                    }
+                }
+            }
+        }
+    }
+    *outbox = live;
+    pruned
+}
+
 /// Re-mint the address + re-stamp the PoW of an OWN outbox announcement for
 /// replay (Sprint 75 Phase A — FIX-A, the fix for the live discovery bug where a
 /// fresh peer dropped every announcement older than `MAX_PROOF_AGE_SECS` because
@@ -2054,11 +2135,18 @@ async fn remint_and_wrap_for_replay(
             use std::str::FromStr;
             if let Ok(ticket) = iroh_blobs::ticket::BlobTicket::from_str(stale) {
                 let (_addr, hash, _fmt) = ticket.into_parts();
-                // Best-effort: on a mint error (e.g. the blob was GC'd) keep the
-                // stale ticket — the fresh PoW below still un-breaks discovery,
-                // which is the critical half of the fix.
-                if let Ok(fresh) = mint_ticket_for_hash(node, hash).await {
-                    ann.archive_ticket = Some(fresh);
+                // Self-heal (production): an OWN announcement whose archive blob
+                // is no longer held (GC'd) must NOT keep being advertised — a
+                // re-minted ticket would point at an address that serves nothing,
+                // surfacing a dead card that fails on open. Drop it from this
+                // replay pass. The boot prune (`prune_stale_outbox`) removes it
+                // from the outbox + DB once and for all; this guard additionally
+                // catches an app GC'd MID-session. Kept-online apps are pinned
+                // (skip-GC tag, M18) so their blob is never GC'd and they are
+                // never dropped here — only genuinely-retired apps are.
+                match mint_ticket_for_hash(node, hash).await {
+                    Ok(fresh) => ann.archive_ticket = Some(fresh),
+                    Err(_) => return None,
                 }
             }
         }
@@ -2974,36 +3062,49 @@ mod tests {
         other.shutdown().await.ok();
     }
 
-    #[tokio::test]
-    async fn replay_keeps_stale_ticket_when_blob_is_gone() {
-        // Mint-failure fallback (T3): an OWN announcement whose blob is no longer
-        // held (GC'd) must STILL replay — keep the stale ticket but re-stamp a fresh
-        // PoW, so a regression returning None (dropping the entry) would make
-        // GC'd-blob apps silently invisible. The blob hash here is never stored.
+    /// Build a project announcement payload for OUR node carrying a ticket that
+    /// points at `hash` — held or not depending on whether the caller stored it.
+    async fn own_announcement_with_ticket_for_hash(
+        node: &Node,
+        name: &str,
+        hash: iroh_blobs::Hash,
+    ) -> Vec<u8> {
         use nexus_shell_daemon_core::publish::ProjectAnnouncement;
-        use std::sync::{Arc, RwLock};
-        let node = nexus_core_rs::create_node().await.unwrap();
-        let absent_hash = nexus_core_rs::crypto::blake3_hash(b"never-stored-blob");
         let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
             .my_endpoint_addr()
             .await
             .unwrap();
-        let stale_ticket = iroh_blobs::ticket::BlobTicket::new(
-            addr,
-            iroh_blobs::Hash::from_bytes(absent_hash),
-            iroh_blobs::BlobFormat::Raw,
-        )
-        .to_string();
-        let ann = ProjectAnnouncement::new(
+        let ticket = iroh_blobs::ticket::BlobTicket::new(addr, hash, iroh_blobs::BlobFormat::Raw)
+            .to_string();
+        ProjectAnnouncement::new(
             node.node_id(),
-            "GC App".into(),
+            name.into(),
             "tools".into(),
             "x".into(),
             vec![],
         )
-        .with_project_id(hex::encode(nexus_core_rs::crypto::blake3_hash(b"GC App")))
-        .with_archive_ticket(stale_ticket.clone());
-        let payload = ann.to_gossip_bytes().unwrap();
+        .with_project_id(hex::encode(nexus_core_rs::crypto::blake3_hash(
+            name.as_bytes(),
+        )))
+        .with_archive_ticket(ticket)
+        .to_gossip_bytes()
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn replay_drops_announcement_when_blob_is_gone() {
+        // Production self-heal (reverses T3): an OWN announcement whose archive
+        // blob is no longer held (GC'd / app retired) must NOT keep being
+        // re-advertised — re-broadcasting it surfaced a dead card that failed to
+        // fetch on open. `remint_and_wrap_for_replay` now returns None so the
+        // node stops advertising what it cannot serve. A kept-online app is
+        // pinned (skip-GC) so its blob is never GC'd and it is never dropped.
+        use std::sync::{Arc, RwLock};
+        let node = nexus_core_rs::create_node().await.unwrap();
+        // A ticket to a hash that was NEVER stored = the GC'd-blob case.
+        let absent_hash =
+            iroh_blobs::Hash::from_bytes(nexus_core_rs::crypto::blake3_hash(b"never-stored-blob"));
+        let payload = own_announcement_with_ticket_for_hash(&node, "GC App", absent_hash).await;
 
         let kp = Arc::new(nexus_core_rs::KeyPair::generate());
         let policy = Arc::new(RwLock::new(nexus_core_rs::RelayPowPolicy {
@@ -3011,25 +3112,65 @@ mod tests {
             topic_overrides: std::collections::BTreeMap::new(),
         }));
         let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
-        let fresh =
+        let dropped =
             super::remint_and_wrap_for_replay(&node, &cache, &policy, &kp, &[7u8; 32], &payload)
-                .await
-                .expect("replay still produces an envelope when the blob is gone");
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let pol = policy.read().unwrap().clone();
-        let (_proof, out_payload) = nexus_core_rs::PowVerifyCache::new()
-            .verify_envelope(&fresh, &pol, now)
-            .expect("fresh PoW even on mint failure");
-        let out = ProjectAnnouncement::from_gossip_bytes(out_payload).unwrap();
-        assert_eq!(
-            out.archive_ticket.as_deref(),
-            Some(stale_ticket.as_str()),
-            "mint failure keeps the stale ticket (fresh PoW still un-breaks discovery)"
+                .await;
+        assert!(
+            dropped.is_none(),
+            "an announcement whose archive blob is GC'd must be dropped from the replay"
         );
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn prune_stale_outbox_drops_gc_blob_and_rewrites_db() {
+        // The boot prune removes outbox entries whose archive blob is gone (and
+        // rewrites the persisted outbox), while KEEPING an entry whose blob is
+        // still held. This is what makes a retired app self-clean from the node
+        // and never reach a fresh peer.
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let blobs = nexus_core_rs::BlobsClient::new(node.blobs_store());
+
+        // Held app: store its blob first, so its ticket resolves.
+        let held_hash = blobs.add_bytes(b"a-real-archive-blob").await.unwrap();
+        let held = own_announcement_with_ticket_for_hash(
+            &node,
+            "Live App",
+            iroh_blobs::Hash::from_bytes(held_hash),
+        )
+        .await;
+        // Stale app: a ticket to a never-stored hash.
+        let absent =
+            iroh_blobs::Hash::from_bytes(nexus_core_rs::crypto::blake3_hash(b"gc-d-archive"));
+        let stale = own_announcement_with_ticket_for_hash(&node, "Retired App", absent).await;
+
+        // Per-entry serveable check.
+        assert!(super::outbox_entry_is_serveable(&node, &held).await);
+        assert!(!super::outbox_entry_is_serveable(&node, &stale).await);
+
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        {
+            let g = db.lock().unwrap();
+            g.insert_outbox(&held).unwrap();
+            g.insert_outbox(&stale).unwrap();
+        }
+        let mut outbox = db.lock().unwrap().load_outbox().unwrap();
+        assert_eq!(outbox.len(), 2);
+
+        let pruned = super::prune_stale_outbox(&node, &db, &mut outbox).await;
+        assert_eq!(pruned, 1, "exactly the one stale entry is pruned");
+        assert_eq!(outbox.len(), 1, "the held entry survives in memory");
+        assert_eq!(outbox[0], held);
+        // The DB was rewritten to the surviving set (durable prune).
+        let persisted = db.lock().unwrap().load_outbox().unwrap();
+        assert_eq!(
+            persisted,
+            vec![held],
+            "the persisted outbox is rewritten to the live set"
+        );
+
         node.shutdown().await.ok();
     }
 
