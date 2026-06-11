@@ -60,10 +60,11 @@
 //! attribution split-brain mitigation [`CuratorListEntry::verify_signature`]
 //! already applies at the crypto level.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
 use nexus_core_rs::blobs::BlobsClient;
@@ -496,6 +497,49 @@ pub const MAX_INFLIGHT_ANNOUNCEMENTS: usize = 32;
 /// that anchor (its catalog reappears on the next live announce).
 const REPULL_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// UX-ARRIVAL (post-S75): hard cap on resident OBSERVED directory publishers
+/// (non-subscribed nodes whose announcement arrived inside a PoW-valid gossip
+/// envelope). Bounds the registry in SPACE against a burst of distinct Sybil
+/// identities arriving faster than the TTL purge; when full, a fresher
+/// newcomer evicts the stalest resident, a staler one is dropped (the
+/// SeedRegistry SEED-2 policy).
+///
+/// Accepted residual (review UX-OBS-RATELIMIT-UNAUTH, honest framing): the
+/// announcement's `node` field is an UNAUTHENTICATED claim and the PoW
+/// envelope is bound to `(publisher, topic)`, NOT to the payload — so one
+/// solved PoW can cover many announcements naming distinct forged pubkeys.
+/// The per-node rate limit throttles each claimed identity's churn, and this
+/// cap bounds the resident SIZE, but neither prices distinct forged
+/// identities individually: a determined flood can fill the registry and
+/// displace honest hints (same class as the SeedRegistry fresh-flood
+/// residual, THREAT_MODEL §15.1). Impact is the visibility of a non-
+/// authoritative HINT only — the catalog of an observed node is never
+/// fetched, the subscribe CTA stays an explicit user action, and a forged
+/// pubkey yields nothing but an honest "waiting for first announcement" row.
+/// Binding the capture to the PoW publisher identity is routed to the S76
+/// audit alongside the duress-sibling lot.
+pub const MAX_OBSERVED_DIRECTORIES: usize = 256;
+
+/// UX-ARRIVAL: an observed publisher not re-heard within this window drops out
+/// of the registry (lazy purge on write + read). Same freshness horizon as the
+/// SeedRegistry: a hint older than ~2 days has no arrival-screen value.
+pub const OBSERVED_SEEN_TTL_SECS: u64 = 48 * 60 * 60;
+
+/// UX-ARRIVAL: per-node ingest rate limit (PO requirement). One accepted
+/// `last_seen` refresh per CLAIMED node identity per this window — a
+/// re-publish spam loop on one identity cannot churn the registry (or the
+/// `/nodes` payload) faster than this. It does NOT price distinct forged
+/// identities (see the [`MAX_OBSERVED_DIRECTORIES`] residual note).
+pub const OBSERVED_REFRESH_MIN_SECS: u64 = 60;
+
+/// Local receive clock (unix secs) for the observed-directory registry.
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// Inner storage — two hashmaps, a semaphore and a file path.
 /// Kept in a single struct so the public runtime handle can hand
 /// out an `Arc<CuratorRuntime>` cheaply (DashMap is already Arc
@@ -551,6 +595,24 @@ pub struct CuratorRuntime {
     /// [`Self::persistence_path`] (the `subscriptions.json` sibling); `None`
     /// disables anchor persistence (the unit tests that do not touch disk).
     anchors_path: Option<PathBuf>,
+
+    /// UX-ARRIVAL (post-S75): NON-subscribed directory publishers heard on
+    /// gossip, keyed by node pubkey → `last_seen` (LOCAL receive clock, unix
+    /// secs). Cheap-envelope METADATA only — the announcement's blob is NEVER
+    /// fetched for a non-subscribed node (THREAT_MODEL §15.1: an unsolicited
+    /// announcement must never trigger an outbound fetch/dial — the BitTorrent
+    /// DRDoS / libp2p "don't store what you didn't ask for" lesson), so there
+    /// is no `revision` / `app_count` here and the identity is PoW-backed, not
+    /// Ed25519-verified. RAM-only by design: a hint with no freshness window
+    /// has no arrival-screen value. Bounded IN the primitive
+    /// ([`Self::record_observed_directory`]): cap + stalest eviction + TTL +
+    /// per-node rate limit, never caller conventions (§P59.2). A `Mutex` (the
+    /// SeedRegistry pattern), not a DashMap sibling: cap-check + eviction +
+    /// insert must be one atomic step or two concurrent inserts overshoot the
+    /// cap. Mutually exclusive with `directories` by the subscription gate;
+    /// [`Self::subscribe`] purges the entry on the observed→subscribed
+    /// transition.
+    observed: Mutex<HashMap<[u8; PUBLIC_KEY_LENGTH], u64>>,
 }
 
 impl CuratorRuntime {
@@ -574,6 +636,7 @@ impl CuratorRuntime {
             directories: DashMap::new(),
             anchor_locators: DashMap::new(),
             anchors_path,
+            observed: Mutex::new(HashMap::new()),
         }
     }
 
@@ -617,6 +680,13 @@ impl CuratorRuntime {
             self.attention.remove(&pubkey);
             return Err(e);
         }
+        // UX-ARRIVAL: observed→subscribed transition — the node now belongs to
+        // the attention set, so its "heard but not followed" hint is retired
+        // (the two stores are mutually exclusive by the subscription gate).
+        self.observed
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&pubkey);
         info!(curator = %pubkey_hex, "subscribed to curator");
         Ok(pubkey)
     }
@@ -756,6 +826,115 @@ impl CuratorRuntime {
             .collect();
         out.sort_by_key(|e| e.node_id);
         out
+    }
+
+    // ---------------------------------------------------------
+    // Observed (non-subscribed) directory publishers — UX-ARRIVAL
+    // ---------------------------------------------------------
+
+    /// Record that the NON-subscribed `pubkey` emitted a PoW-valid directory
+    /// announcement, observed at LOCAL clock `now` (unix secs). Returns `true`
+    /// when the registry accepted the observation (insert or `last_seen`
+    /// refresh), `false` when it was dropped.
+    ///
+    /// Defenses live IN the primitive, never as caller conventions (§P59.2):
+    ///
+    ///  - **Subscribed exclusion**: a node in the attention set never enters
+    ///    `observed` (it has a real `directories` arm); the announce path only
+    ///    reaches this on the `!is_subscribed` branch, this re-check is
+    ///    defense-in-depth.
+    ///  - **Rate limit (PO requirement)**: at most one accepted refresh per
+    ///    node per [`OBSERVED_REFRESH_MIN_SECS`] — a one-identity re-publish
+    ///    spam loop cannot churn the registry faster than this.
+    ///  - **TTL**: entries older than [`OBSERVED_SEEN_TTL_SECS`] are lazily
+    ///    purged on every write (the map is ≤ 256 entries, a full retain is
+    ///    cheap) and on every read ([`Self::observed_snapshot`]).
+    ///  - **Cap + stalest eviction**: at most [`MAX_OBSERVED_DIRECTORIES`]
+    ///    resident; when full a fresher newcomer evicts the stalest resident
+    ///    and a staler newcomer is dropped (SeedRegistry SEED-2 policy,
+    ///    deterministic pubkey tie-break).
+    ///  - **Clamp**: `last_seen` IS the local receive clock — the gossip
+    ///    envelope carries no claimed timestamp, so `min(now, claimed)`
+    ///    (SEED-1) is trivially satisfied by construction.
+    ///
+    /// The key is the PARSED pubkey (`[u8; 32]`): hex-case normalization
+    /// (§P59.3) is structural — `parse_pubkey_hex` only accepts lowercase and
+    /// every hex serialization back out (`hex::encode`) is lowercase.
+    pub fn record_observed_directory(&self, pubkey: [u8; PUBLIC_KEY_LENGTH], now: u64) -> bool {
+        if self.is_subscribed(&pubkey) {
+            return false;
+        }
+        let mut observed = self.observed.lock().unwrap_or_else(|p| p.into_inner());
+        // Lazy TTL purge (write side).
+        let cutoff = now.saturating_sub(OBSERVED_SEEN_TTL_SECS);
+        observed.retain(|_, ts| *ts >= cutoff);
+        // Per-node rate limit: an entry refreshed less than the window ago
+        // keeps its current `last_seen`. `saturating_sub` keeps a backwards
+        // clock step rate-limited rather than panicking/underflowing.
+        //
+        // Limiter state IS the resident entry — deliberately (Codex R1 GAP,
+        // adjudicated as designed): an identity evicted by the cap is indeed
+        // re-accepted immediately if it re-announces, but ONE identity can
+        // never exploit that to self-churn. Getting evicted requires being
+        // the registry-wide STALEST, i.e. 256 distinct fresher identities
+        // exist — already the multi-identity flood regime documented as the
+        // accepted residual (THREAT_MODEL §15.1: forged identities are not
+        // priced individually). Once re-admitted it is the freshest entry,
+        // so this rate check holds it again for the full window; outside the
+        // flood regime an entry only leaves through the 48h TTL (>> 60s), so
+        // the limiter state cannot be lost while it matters. A limiter store
+        // that survived eviction would itself need a cap, reopening the same
+        // displacement question one level down — no extra defense, just
+        // moved state.
+        if let Some(ts) = observed.get(&pubkey) {
+            if now.saturating_sub(*ts) < OBSERVED_REFRESH_MIN_SECS {
+                return false;
+            }
+        }
+        // Cap: only a NEW key can grow the map past the bound.
+        if !observed.contains_key(&pubkey) && observed.len() >= MAX_OBSERVED_DIRECTORIES {
+            let stalest = observed
+                .iter()
+                .map(|(k, ts)| (*k, *ts))
+                .min_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+            match stalest {
+                Some((victim, victim_ts)) if now > victim_ts => {
+                    observed.remove(&victim);
+                }
+                // A newcomer no fresher than every resident bounces off the
+                // full registry — a stale flood cannot displace live hints.
+                _ => return false,
+            }
+        }
+        observed.insert(pubkey, now);
+        true
+    }
+
+    /// Snapshot of the observed (non-subscribed) directory publishers still
+    /// within the TTL at `now`, freshest first (then pubkey ascending, for a
+    /// deterministic `/nodes` payload). Lazily purges expired entries, and
+    /// re-gates on `!is_subscribed` at read time (defense-in-depth alongside
+    /// the [`Self::subscribe`] purge): a node the user just followed never
+    /// surfaces as "observed" even if a stale entry lingers.
+    pub fn observed_snapshot(&self, now: u64) -> Vec<([u8; PUBLIC_KEY_LENGTH], u64)> {
+        let mut observed = self.observed.lock().unwrap_or_else(|p| p.into_inner());
+        let cutoff = now.saturating_sub(OBSERVED_SEEN_TTL_SECS);
+        observed.retain(|_, ts| *ts >= cutoff);
+        let mut out: Vec<([u8; PUBLIC_KEY_LENGTH], u64)> = observed
+            .iter()
+            .filter(|(k, _)| !self.is_subscribed(k))
+            .map(|(k, ts)| (*k, *ts))
+            .collect();
+        out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        out
+    }
+
+    /// Number of observed publishers currently resident (test assertions).
+    pub fn observed_count(&self) -> usize {
+        self.observed
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len()
     }
 
     /// Snapshot of every cached curator list, deep-cloned so
@@ -966,10 +1145,31 @@ impl CuratorRuntime {
 
         // Step 4: attention-set filter (same set as curator lists, DQ3).
         if !self.is_subscribed(&ann_pubkey) {
-            debug!(
-                node = %announcement.node_pubkey_hex,
-                "ignoring node directory announcement from non-subscribed anchor"
-            );
+            // UX-ARRIVAL (post-S75): retain the cheap-envelope METADATA of the
+            // publisher (pubkey + local receive clock) BEFORE the drop, so the
+            // arrival screen can list "nodes heard on the network" with a
+            // subscribe CTA. The drop itself is UNCHANGED: no fetch, no dial,
+            // no catalog ingest for a non-subscribed node (S75-C decision +
+            // THREAT_MODEL §15.1 anti-amplification) — the registry only ever
+            // stores what this envelope already gave us. Bounded + rate-limited
+            // inside the primitive. Self-guard (review UX-OBS-SELF-NODE): this
+            // node never observes ITSELF — neither via the gossip echo of its
+            // own directory broadcast (a node is not subscribed to its own
+            // key) nor via a remote announce forging our node_id (the claimed
+            // pubkey is unauthenticated; the projects arm has the same guard,
+            // `announcement_claims_own_node_id`).
+            if announcement.node_pubkey_hex == node.node_id() {
+                debug!(
+                    "ignoring node directory announcement claiming OUR node_id (self-echo or forgery)"
+                );
+            } else {
+                let recorded = self.record_observed_directory(ann_pubkey, unix_now());
+                debug!(
+                    node = %announcement.node_pubkey_hex,
+                    observed = recorded,
+                    "ignoring node directory announcement from non-subscribed anchor"
+                );
+            }
             return Err(CuratorRuntimeError::NotSubscribed {
                 curator: announcement.node_pubkey_hex.clone(),
             });
@@ -1947,22 +2147,276 @@ mod tests {
             "a non-subscribed anchor's directory must be dropped at the attention gate"
         );
         assert_eq!(runtime.known_directory_count(), 0);
+        // UX-ARRIVAL: the drop retained the cheap-envelope observed hint
+        // (pubkey + local clock), catalog still NOT ingested.
+        assert_eq!(runtime.observed_count(), 1);
+        let observed = runtime.observed_snapshot(unix_now());
+        assert_eq!(observed.len(), 1);
+        assert_eq!(
+            observed[0].0,
+            kp.public_bytes(),
+            "the observed hint must carry the announcing node's pubkey"
+        );
 
         // Subscribe to the anchor pubkey → the same announcement now ingests.
         runtime
             .subscribe(&hex::encode(kp.public_bytes()))
             .expect("subscribe");
+        // The observed→subscribed transition retires the hint.
+        assert_eq!(
+            runtime.observed_count(),
+            0,
+            "subscribing must purge the node from the observed registry"
+        );
         let accepted = runtime
             .process_directory_announcement_bytes(&announcement.to_bytes().unwrap(), &node_b)
             .await
             .expect("a subscribed anchor's directory must ingest");
         assert_eq!(accepted, entry);
         assert_eq!(runtime.known_directory_count(), 1);
+        // A subscribed ingest never re-enters the observed registry.
+        assert_eq!(runtime.observed_count(), 0);
         // The catalog apps count toward the honest discoverable-app total (verrou 2).
         assert_eq!(runtime.known_entry_count(), entry.directory.catalog.len());
 
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
+    }
+
+    // ---------------------------------------------------------
+    // Observed directory registry (UX-ARRIVAL, post-S75)
+    // ---------------------------------------------------------
+
+    /// Deterministic distinct pubkey for registry tests.
+    fn observed_pk(i: usize) -> [u8; PUBLIC_KEY_LENGTH] {
+        let mut pk = [0u8; PUBLIC_KEY_LENGTH];
+        pk[..8].copy_from_slice(&(i as u64).to_be_bytes());
+        pk
+    }
+
+    #[test]
+    fn observed_registry_rate_limits_per_node() {
+        // PO requirement: one accepted refresh per node per window — a
+        // one-identity re-publish spam loop cannot churn the registry.
+        let runtime = CuratorRuntime::new(None);
+        let pk = observed_pk(7);
+        let t0 = 1_700_000_000u64;
+
+        assert!(runtime.record_observed_directory(pk, t0));
+        // Inside the window: dropped, last_seen unchanged.
+        assert!(!runtime.record_observed_directory(pk, t0 + OBSERVED_REFRESH_MIN_SECS - 1));
+        assert_eq!(runtime.observed_snapshot(t0 + 1), vec![(pk, t0)]);
+        // At the window boundary: accepted, last_seen refreshed.
+        let t1 = t0 + OBSERVED_REFRESH_MIN_SECS;
+        assert!(runtime.record_observed_directory(pk, t1));
+        assert_eq!(runtime.observed_snapshot(t1), vec![(pk, t1)]);
+        // A backwards clock step stays rate-limited (saturating_sub), never
+        // a panic or an accepted past-dated refresh.
+        assert!(!runtime.record_observed_directory(pk, t0));
+        assert_eq!(runtime.observed_snapshot(t1), vec![(pk, t1)]);
+    }
+
+    #[test]
+    fn observed_registry_ttl_expires() {
+        // An observed hint not re-heard within the TTL drops out on read,
+        // and the lazy purge actually frees the entry.
+        let runtime = CuratorRuntime::new(None);
+        let pk = observed_pk(1);
+        let t0 = 1_700_000_000u64;
+
+        assert!(runtime.record_observed_directory(pk, t0));
+        // Still resident at the TTL boundary (ts >= cutoff)...
+        assert_eq!(
+            runtime.observed_snapshot(t0 + OBSERVED_SEEN_TTL_SECS).len(),
+            1
+        );
+        // ...gone one second past it, and physically purged.
+        assert!(
+            runtime
+                .observed_snapshot(t0 + OBSERVED_SEEN_TTL_SECS + 1)
+                .is_empty()
+        );
+        assert_eq!(runtime.observed_count(), 0);
+    }
+
+    #[test]
+    fn observed_registry_cap_evicts_stalest() {
+        // SEED-2 policy transposed: bounded in SPACE, fresher newcomer evicts
+        // the stalest resident, staler newcomer bounces off the full registry.
+        //
+        // Decorrelation (review TI-1): pubkeys DESCEND while timestamps
+        // ASCEND, so an eviction that picked its victim by key order instead
+        // of by staleness would be unmasked (with correlated fixtures both
+        // policies select the same victim — a tautology).
+        let runtime = CuratorRuntime::new(None);
+        let t0 = 1_700_000_000u64;
+        let total = MAX_OBSERVED_DIRECTORIES + 10;
+
+        for i in 0..total {
+            assert!(runtime.record_observed_directory(observed_pk(total - i), t0 + i as u64));
+        }
+        assert_eq!(
+            runtime.observed_count(),
+            MAX_OBSERVED_DIRECTORIES,
+            "exactly the cap after 1-for-1 eviction, never fewer"
+        );
+        let t_end = t0 + total as u64;
+        let snapshot = runtime.observed_snapshot(t_end);
+        // Victim choice pinned by STALENESS: the 10 oldest inserts (i=0..9,
+        // i.e. the LARGEST pubkeys total..total-9) were evicted; the oldest
+        // non-victim (i=10 → pk(total-10)=pk(MAX)) and the freshest (i=total-1
+        // → pk(1)) both survive.
+        assert!(
+            !snapshot.iter().any(|(k, _)| *k == observed_pk(total - 9)),
+            "the stalest resident must be the eviction victim"
+        );
+        assert!(
+            snapshot
+                .iter()
+                .any(|(k, _)| *k == observed_pk(MAX_OBSERVED_DIRECTORIES)),
+            "the oldest non-victim must survive"
+        );
+        let freshest = observed_pk(1);
+        assert!(snapshot.iter().any(|(k, _)| *k == freshest));
+        // Snapshot order: freshest first (deterministic /nodes payload).
+        assert_eq!(snapshot[0].0, freshest);
+        // Anti-displacement: a newcomer no fresher than the stalest resident
+        // (ts = t0+10) is dropped — a stale flood cannot displace live hints.
+        assert!(!runtime.record_observed_directory(observed_pk(999_999), t0 + 10));
+        assert_eq!(runtime.observed_count(), MAX_OBSERVED_DIRECTORIES);
+        // Post-bounce content pinned (review TI-3): the bounced newcomer is
+        // NOT resident and the stalest resident it failed to displace is.
+        let after = runtime.observed_snapshot(t_end);
+        assert!(
+            !after.iter().any(|(k, _)| *k == observed_pk(999_999)),
+            "the bounced newcomer must not be resident"
+        );
+        assert!(
+            after
+                .iter()
+                .any(|(k, _)| *k == observed_pk(MAX_OBSERVED_DIRECTORIES)),
+            "the resident the newcomer failed to displace must survive intact"
+        );
+        // Eviction does erase the limiter state for the victim (limiter state
+        // IS the entry — deliberate, Codex R1 adjudication): an evicted
+        // identity re-announcing is re-admitted immediately... but once
+        // re-admitted it is the FRESHEST entry, so the rate limit holds it
+        // again for the full window — one identity can never self-churn.
+        let evicted = observed_pk(total - 9);
+        assert!(
+            runtime.record_observed_directory(evicted, t_end + 1),
+            "an evicted identity is re-admitted on its next announce"
+        );
+        assert!(
+            !runtime.record_observed_directory(evicted, t_end + 2),
+            "a re-admitted identity is immediately rate-limited again"
+        );
+        assert_eq!(runtime.observed_count(), MAX_OBSERVED_DIRECTORIES);
+    }
+
+    #[test]
+    fn observed_registry_excludes_subscribed() {
+        // The two stores are mutually exclusive: a subscribed node is never
+        // recorded, the observed→subscribed transition purges the hint, and
+        // the snapshot re-gates at read time on a lingering stale entry.
+        let runtime = CuratorRuntime::new(None);
+        let t0 = 1_700_000_000u64;
+
+        // A subscribed node never enters observed (primitive-level guard).
+        let kp = KeyPair::generate();
+        runtime
+            .subscribe(&hex::encode(kp.public_bytes()))
+            .expect("subscribe");
+        assert!(!runtime.record_observed_directory(kp.public_bytes(), t0));
+        assert_eq!(runtime.observed_count(), 0);
+
+        // observed → subscribed purges the resident hint.
+        let kp2 = KeyPair::generate();
+        assert!(runtime.record_observed_directory(kp2.public_bytes(), t0));
+        assert_eq!(runtime.observed_count(), 1);
+        runtime
+            .subscribe(&hex::encode(kp2.public_bytes()))
+            .expect("subscribe");
+        assert_eq!(runtime.observed_count(), 0);
+        assert!(runtime.observed_snapshot(t0).is_empty());
+
+        // Read-time gate: an entry that lingers past a subscription that
+        // bypassed the purge (direct attention insert) never surfaces.
+        let kp3 = KeyPair::generate();
+        assert!(runtime.record_observed_directory(kp3.public_bytes(), t0));
+        runtime.attention.insert(kp3.public_bytes(), ());
+        assert!(runtime.observed_snapshot(t0).is_empty());
+    }
+
+    #[tokio::test]
+    async fn observed_recorded_without_any_fetch() {
+        // THE anti-amplification assertion (THREAT_MODEL §15.1): an
+        // unsolicited directory announcement is retained as cheap-envelope
+        // metadata WITHOUT any outbound fetch — the ticket here is
+        // unfetchable, so reaching step 5 would error `BlobFetch`, never
+        // `NotSubscribed`.
+        let node = spawn_node().await;
+        let kp = KeyPair::generate();
+        let ann =
+            NodeDirectoryAnnouncement::new(kp.public_bytes(), "fake-ticket-never-fetched".into());
+
+        let runtime = CuratorRuntime::new(None);
+        let result = runtime
+            .process_directory_announcement_bytes(&ann.to_bytes().unwrap(), &node)
+            .await;
+        assert!(
+            matches!(result, Err(CuratorRuntimeError::NotSubscribed { .. })),
+            "the drop must fire at step 4, before any fetch"
+        );
+        assert_eq!(runtime.observed_count(), 1);
+        let observed = runtime.observed_snapshot(unix_now());
+        assert_eq!(observed.len(), 1);
+        assert_eq!(observed[0].0, kp.public_bytes());
+        let first_seen = observed[0].1;
+
+        // Rate limit through the FULL ingest path (review TI-4): the same
+        // announcement re-emitted immediately is dropped by the primitive —
+        // the registry stays at one entry and last_seen is NOT refreshed.
+        let again = runtime
+            .process_directory_announcement_bytes(&ann.to_bytes().unwrap(), &node)
+            .await;
+        assert!(matches!(
+            again,
+            Err(CuratorRuntimeError::NotSubscribed { .. })
+        ));
+        assert_eq!(runtime.observed_count(), 1);
+        let after = runtime.observed_snapshot(unix_now());
+        assert_eq!(
+            after[0].1, first_seen,
+            "an immediate re-publish must not refresh last_seen (1/min rate limit)"
+        );
+
+        // Self-guard (review UX-OBS-SELF-NODE): an announcement claiming OUR
+        // node_id — the gossip echo of our own broadcast, or a remote forgery
+        // of our identity — is never captured as observed.
+        let self_pk = parse_pubkey_hex(&node.node_id())
+            .expect("node_id() must be the same 64-hex form the announce wire uses");
+        let self_ann = NodeDirectoryAnnouncement::new(self_pk, "fake-ticket-never-fetched".into());
+        let result = runtime
+            .process_directory_announcement_bytes(&self_ann.to_bytes().unwrap(), &node)
+            .await;
+        assert!(matches!(
+            result,
+            Err(CuratorRuntimeError::NotSubscribed { .. })
+        ));
+        assert_eq!(
+            runtime.observed_count(),
+            1,
+            "an announcement claiming OUR node_id must never enter observed"
+        );
+        assert!(
+            !runtime
+                .observed_snapshot(unix_now())
+                .iter()
+                .any(|(k, _)| *k == self_pk)
+        );
+
+        node.shutdown().await.ok();
     }
 
     #[tokio::test]

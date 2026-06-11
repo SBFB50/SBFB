@@ -36,11 +36,25 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   coordUrl: string;
+  /**
+   * UX-ARRIVAL : pré-remplissage du champ identité, déclenché UNIQUEMENT par
+   * une action utilisateur explicite (le clic « S'abonner » d'une ligne de
+   * nœud observé). Jamais un défaut : le dialog ouvert à la main garde son
+   * placeholder INERTE (verrou 3), et la soumission reste un geste explicite
+   * dans tous les cas. Le parent doit `key`-er le composant sur cette valeur
+   * pour que l'état initial du champ suive (remount, pas d'effect).
+   */
+  initialPubkey?: string;
 }
 
-export function AddAnchorDialog({ open, onOpenChange, coordUrl }: Props) {
+export function AddAnchorDialog({
+  open,
+  onOpenChange,
+  coordUrl,
+  initialPubkey,
+}: Props) {
   const queryClient = useQueryClient();
-  const [pubkeyInput, setPubkeyInput] = useState("");
+  const [pubkeyInput, setPubkeyInput] = useState(initialPubkey ?? "");
   const [formError, setFormError] = useState<string | null>(null);
 
   const mutation = useMutation({

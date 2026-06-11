@@ -183,6 +183,20 @@ export const BrowseEntrySchema = z
      * for runtime tolerance with daemons that predate the field.
      */
     is_own: z.boolean().optional(),
+    /**
+     * UX-ARRIVAL (post-S75) : true ssi l'app est à nous OU si sa paire
+     * (project_id, archive_hash) figure dans le catalogue Ed25519-VÉRIFIÉ de
+     * l'annuaire signé du nœud qu'elle revendique (dérivé daemon-side dans
+     * `list_browse` — CATALOG-BACKED, jamais la simple appartenance du
+     * node_id réclamé à l'attention set : une annonce direct n'est pas
+     * signée, son node_id est spoofable). Le shell s'en sert pour séparer la
+     * grille (MES sources) de la section « Découvert sur le réseau » — le
+     * flag n'est DÉCISIF que pour les entrées `direct` (les rows
+     * `curator`/`nodedirectory` sont déjà subscription-gated à l'ingest et
+     * classées par `source`). `.optional()` pour la tolérance runtime avec
+     * un daemon antérieur au champ.
+     */
+    from_subscribed: z.boolean().optional(),
   })
   .strict();
 
@@ -474,13 +488,33 @@ export const NodeSummarySchema = z.object({
 export type NodeSummary = z.infer<typeof NodeSummarySchema>;
 
 /**
- * Mirrors `GET /api/daemon/nodes` — `{ nodes: [...] }`. The ENVELOPE is
- * `.strict()` (pinned by the Rust test `nodes_response_pins_envelope_and_
- * grouping`); only the rows stay additive-tolerant.
+ * UX-ARRIVAL (post-S75) — un nœud OBSERVÉ : un éditeur d'annuaire entendu sur
+ * le gossip SANS abonnement. Métadonnée cheap-envelope UNIQUEMENT (le blob
+ * signé n'est jamais fetché pour un non-abonné — pas de `revision` ni
+ * `app_count` ici) : l'identité est adossée au PoW gossip, pas à une
+ * vérification Ed25519 du catalogue. Row tolérante (règle P37, pas de
+ * `.strict()`) : un champ additif futur ne doit pas briquer la page.
+ */
+export const ObservedNodeSchema = z.object({
+  /** Hex Ed25519 minuscule annoncé par l'enveloppe gossip. */
+  node_id: z.string().min(1),
+  /** Unix secondes (horloge LOCALE de réception) de la dernière annonce. */
+  last_seen: z.number().int().min(0),
+});
+
+export type ObservedNode = z.infer<typeof ObservedNodeSchema>;
+
+/**
+ * Mirrors `GET /api/daemon/nodes` — `{ nodes: [...], observed: [...] }`. The
+ * ENVELOPE is `.strict()` (pinned by the Rust test
+ * `nodes_response_pins_envelope_and_grouping`); only the rows stay
+ * additive-tolerant. `observed` is `.optional()` as runtime tolerance for a
+ * daemon that predates UX-ARRIVAL (the current daemon ALWAYS serializes it).
  */
 export const NodesResponseSchema = z
   .object({
     nodes: z.array(NodeSummarySchema),
+    observed: z.array(ObservedNodeSchema).optional(),
   })
   .strict();
 

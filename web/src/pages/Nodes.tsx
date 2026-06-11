@@ -17,12 +17,20 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Anchor, ChevronRight, Globe, RefreshCw, Server } from "lucide-react";
+import {
+  Anchor,
+  ChevronRight,
+  Globe,
+  Radio,
+  RefreshCw,
+  Server,
+} from "lucide-react";
 
 import {
   listCurators,
   listNodes,
   type NodeSummary,
+  type ObservedNode,
 } from "@/api/daemon";
 import { AddAnchorDialog } from "@/components/AddAnchorDialog";
 import { DaemonOfflineBanner } from "@/pages/Browse";
@@ -67,6 +75,11 @@ function PageHeader() {
 
 function NodesContent({ coordUrl }: { coordUrl: string }) {
   const [addOpen, setAddOpen] = useState(false);
+  // UX-ARRIVAL : pré-remplissage du dialog déclenché UNIQUEMENT par le clic
+  // « S'abonner » d'une ligne observée (intention explicite, verrou 3 : le
+  // dialog ouvert à la main garde son placeholder inerte). La `key` du dialog
+  // force un remount au changement, donc l'état du champ suit.
+  const [anchorPrefill, setAnchorPrefill] = useState<string | null>(null);
 
   const nodesQuery = useQuery({
     queryKey: ["daemon-nodes", coordUrl],
@@ -131,6 +144,11 @@ function NodesContent({ coordUrl }: { coordUrl: string }) {
   }
 
   const nodes: NodeSummary[] = result?.kind === "data" ? result.body.nodes : [];
+  // UX-ARRIVAL : les éditeurs d'annuaire entendus sur le gossip SANS
+  // abonnement (métadonnées cheap-envelope, le daemon ne fetch jamais leur
+  // catalogue). `?? []` = tolérance pour un daemon antérieur à la clé.
+  const observed: ObservedNode[] =
+    result?.kind === "data" ? (result.body.observed ?? []) : [];
   const knownIds = new Set(nodes.map((n) => n.node_id));
   // Le cold-start exige des subscriptions CONNUES-vides : tant que la query
   // charge OU répond non-data (daemon indisponible, erreur), l'état des
@@ -144,7 +162,13 @@ function NodesContent({ coordUrl }: { coordUrl: string }) {
       ? curatorsResult.body.subscribed_curators
       : [];
   const waiting = subscribed.filter((hex) => !knownIds.has(hex));
-  const isEmpty = nodes.length === 0 && waiting.length === 0 && subsKnown;
+  // Un nœud observé n'est pas « rien » : le cold-start ne s'affiche que si
+  // les trois familles (catalogues, en-attente, observés) sont vides.
+  const isEmpty =
+    nodes.length === 0 &&
+    waiting.length === 0 &&
+    observed.length === 0 &&
+    subsKnown;
 
   return (
     <div className="space-y-6">
@@ -176,21 +200,116 @@ function NodesContent({ coordUrl }: { coordUrl: string }) {
       {isEmpty ? (
         <ColdStart onAdd={() => setAddOpen(true)} />
       ) : (
-        <div className="space-y-3" data-testid="nodes-list">
-          {nodes.map((node) => (
-            <NodeRow key={node.node_id} node={node} />
-          ))}
-          {waiting.map((hex) => (
-            <WaitingRow key={hex} pubkeyHex={hex} />
-          ))}
-        </div>
+        <>
+          {(nodes.length > 0 || waiting.length > 0) && (
+            <div className="space-y-3" data-testid="nodes-list">
+              {nodes.map((node) => (
+                <NodeRow key={node.node_id} node={node} />
+              ))}
+              {waiting.map((hex) => (
+                <WaitingRow key={hex} pubkeyHex={hex} />
+              ))}
+            </div>
+          )}
+          {observed.length > 0 && (
+            <ObservedSection
+              observed={observed}
+              onSubscribe={(nodeId) => {
+                setAnchorPrefill(nodeId);
+                setAddOpen(true);
+              }}
+            />
+          )}
+        </>
       )}
 
       <AddAnchorDialog
+        key={anchorPrefill ?? "manual"}
         open={addOpen}
-        onOpenChange={setAddOpen}
+        onOpenChange={(open) => {
+          setAddOpen(open);
+          if (!open) setAnchorPrefill(null);
+        }}
         coordUrl={coordUrl}
+        initialPubkey={anchorPrefill ?? undefined}
       />
+    </div>
+  );
+}
+
+/**
+ * UX-ARRIVAL — « Nœuds découverts sur le réseau » : les éditeurs entendus
+ * par gossip sans abonnement. Le daemon n'a JAMAIS fetché leur catalogue
+ * (anti-amplification) — on n'affiche donc ni compte d'apps ni révision,
+ * seulement l'identité et un CTA d'abonnement explicite (verrou 5 :
+ * l'utilisateur choisit ses sources, rien ne s'auto-abonne).
+ */
+function ObservedSection({
+  observed,
+  onSubscribe,
+}: {
+  observed: ObservedNode[];
+  onSubscribe: (nodeId: string) => void;
+}) {
+  return (
+    <div className="space-y-3" data-testid="nodes-observed-section">
+      <div>
+        <h2 className="text-lg font-bold text-white/80">
+          Nœuds découverts sur le réseau
+        </h2>
+        <p className="mt-1 text-xs text-white/40">
+          Entendus sur le réseau sans abonnement — identité seulement, leur
+          catalogue n&apos;est jamais téléchargé tant que tu ne les suis pas.
+        </p>
+      </div>
+      {observed.map((node) => (
+        <ObservedRow
+          key={node.node_id}
+          node={node}
+          onSubscribe={onSubscribe}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ObservedRow({
+  node,
+  onSubscribe,
+}: {
+  node: ObservedNode;
+  onSubscribe: (nodeId: string) => void;
+}) {
+  return (
+    <div
+      className="glass-card flex items-center justify-between gap-4 p-5"
+      data-testid="node-observed-row"
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.04]">
+          <Radio className="h-5 w-5 text-white/30" />
+        </div>
+        <div>
+          <p className="font-mono text-sm font-bold text-white/70">
+            {truncateHex(node.node_id)}
+          </p>
+          {/* Copy prudente (review SEC-UXARR-3) : on décrit NOTRE observation
+              (une annonce entendue), pas une agence prouvée du nœud — le champ
+              identité d'une annonce gossip n'est pas authentifié. */}
+          <p className="mt-1 text-xs text-white/40">
+            Annonce entendue sur le réseau — abonne-toi pour voir son
+            catalogue.
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={() => onSubscribe(node.node_id)}
+        className="glass-pill flex items-center gap-2 text-xs"
+        data-testid="observed-subscribe-cta"
+      >
+        <Anchor className="h-3.5 w-3.5" />
+        S&apos;abonner
+      </button>
     </div>
   );
 }

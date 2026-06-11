@@ -72,8 +72,14 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
   });
 
   const result = browseQuery.data;
-  const entries =
+  // UX-ARRIVAL (décision PO C-hybride) : le split grille/section se calcule
+  // sur l'ensemble DÉDUPÉ — la classification d'une app vue par deux canaux
+  // se joue sur l'entrée fusionnée, jamais sur un représentant isolé.
+  const allEntries =
     result?.kind === "data" ? dedupeBrowseEntries(result.body.entries) : [];
+  const entries = allEntries.filter(isFromMySources);
+  const ambientAll = allEntries.filter((e) => !isFromMySources(e));
+  const ambientEntries = ambientAll.slice(0, AMBIENT_DISPLAY_CAP);
 
   // Daemon offline or proxy error — show banner before grid
   const daemonOffline = result?.kind === "unavailable";
@@ -82,6 +88,9 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
   return (
     <div className="space-y-8">
       {/* ---- Hero (browse mode only) ---- */}
+      {/* « En vedette » pointe sur la GRILLE (mes sources), jamais sur la
+          section découverte : une annonce non sollicitée ne se met pas
+          elle-même en avant. */}
       {!isSearching && entries.length > 0 && <HeroSection entry={entries[0]} />}
 
       {/* ---- Top bar ---- */}
@@ -143,14 +152,51 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
         <DaemonOfflineBanner reason={result.reason} />
       ) : proxyError ? (
         <ErrorCard message={result.reason} />
-      ) : entries.length === 0 ? (
+      ) : allEntries.length === 0 ? (
         <EmptyState />
       ) : (
-        <AppGrid entries={entries} />
+        <>
+          {entries.length > 0 ? (
+            <AppGrid entries={entries} />
+          ) : (
+            <EmptyState ambientOnly />
+          )}
+          {ambientEntries.length > 0 && (
+            <DiscoveredSection
+              entries={ambientEntries}
+              total={ambientAll.length}
+            />
+          )}
+        </>
       )}
     </div>
   );
 }
+
+/**
+ * UX-ARRIVAL (décision PO C-hybride) : la grille = MES sources — `is_own`,
+ * les rows `curator`/`nodedirectory` (subscription-gated à l'ingest daemon),
+ * et les `direct` d'un nœud ABONNÉ (`from_subscribed`, dérivé daemon-side à
+ * la sérialisation). Tout le reste = annonces gossip poussées non
+ * sollicitées → la section « Découvert sur le réseau », jamais mélangées.
+ */
+function isFromMySources(e: BrowseEntry): boolean {
+  const source = e.source ?? "curator";
+  return (
+    e.is_own === true ||
+    source === "curator" ||
+    source === "nodedirectory" ||
+    e.from_subscribed === true
+  );
+}
+
+/**
+ * Cap d'affichage de la section découverte : l'ambiant non sollicité reste
+ * borné à l'écran quoi qu'il arrive sur le réseau. L'ordre est l'ordre
+ * stable du daemon (project_id) — `/browse` ne porte pas de timestamp de
+ * réception par fiche, donc « plus récent d'abord » n'est pas dérivable ici.
+ */
+const AMBIENT_DISPLAY_CAP = 24;
 
 // ================================================================
 // Search bar + results (Sprint 73 Phase E)
@@ -203,6 +249,20 @@ function dedupeBrowseEntries(entries: BrowseEntry[]): BrowseEntry[] {
     byKey.set(key, {
       ...richer,
       status: reachable ? "reachable" : richer.status,
+      // UX-ARRIVAL : la classification mes-sources s'OR-e dans le merge — une
+      // app vue par un canal sollicité (curator/nodedirectory/abonné/own) ET
+      // un canal inconnu appartient à MES sources. Garder seulement les flags
+      // du représentant le plus riche (souvent le `direct`) écraserait la
+      // source sollicitée de l'autre côté et la ferait tomber dans
+      // « Découvert sur le réseau » (faux non-sollicité). Post-merge,
+      // `from_subscribed` porte donc « au moins un canal sollicité » —
+      // une réinterprétation d'affichage, comme le dedupe lui-même.
+      is_own: prev.is_own === true || entry.is_own === true,
+      from_subscribed:
+        prev.from_subscribed === true ||
+        entry.from_subscribed === true ||
+        isFromMySources(prev) ||
+        isFromMySources(entry),
     });
   }
   return order.map((k) => byKey.get(k)!);
@@ -449,8 +509,10 @@ function HeroSection({ entry }: { entry: BrowseEntry }) {
 function AppGrid({ entries }: { entries: BrowseEntry[] }) {
   return (
     <div>
+      {/* UX-ARRIVAL : la grille n'est plus « toutes les apps » du réseau —
+          c'est l'index de TES sources (tes apps + nœuds/curators suivis). */}
       <h3 className="mb-4 px-2 text-lg font-bold text-white/80">
-        Toutes les apps
+        Tes sources
         <span className="ml-2 text-sm font-normal text-white/40">
           {entries.length}
         </span>
@@ -458,6 +520,52 @@ function AppGrid({ entries }: { entries: BrowseEntry[] }) {
       <div
         className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
         data-testid="browse-grid"
+      >
+        {entries.map((entry) => (
+          <AppCard
+            key={`${entry.project_id}::${entry.archive_hash ?? entry.curator_pubkey}`}
+            entry={entry}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * UX-ARRIVAL — la section « Découvert sur le réseau » : l'ambiant non
+ * sollicité (annonces gossip de nœuds que l'utilisateur ne suit pas),
+ * TOUJOURS séparé de la grille, jamais mélangé, jamais rendu si vide, et
+ * cappé à l'affichage ([`AMBIENT_DISPLAY_CAP`]).
+ */
+function DiscoveredSection({
+  entries,
+  total,
+}: {
+  entries: BrowseEntry[];
+  total: number;
+}) {
+  return (
+    <div data-testid="browse-discovered-section">
+      <h3 className="mb-1 px-2 text-lg font-bold text-white/80">
+        Découvert sur le réseau
+        <span
+          className="ml-2 text-sm font-normal text-white/40"
+          data-testid="browse-discovered-count"
+        >
+          {entries.length < total
+            ? `${entries.length} sur ${total}`
+            : entries.length}
+        </span>
+      </h3>
+      <p className="mb-4 px-2 text-xs text-white/40">
+        Annoncé sur le réseau par des nœuds que tu ne suis pas — non
+        sollicité. Abonne-toi à un nœud depuis la page Nœuds pour suivre son
+        catalogue.
+      </p>
+      <div
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        data-testid="browse-discovered-grid"
       >
         {entries.map((entry) => (
           <AppCard
@@ -627,15 +735,23 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState() {
+/**
+ * UX-ARRIVAL (review UXC-1) : quand la grille « Tes sources » est vide mais
+ * que la section découverte est pleine, « Aucune app » serait déroutant — la
+ * variante `ambientOnly` explique l'état réel et garde un CTA pertinent.
+ */
+function EmptyState({ ambientOnly = false }: { ambientOnly?: boolean }) {
   return (
     <div className="flex min-h-[40vh] items-center justify-center">
       <div className="glass-card max-w-sm p-8 text-center">
         <Globe className="mx-auto mb-4 h-10 w-10 text-white/20" />
-        <h3 className="mb-2 font-bold">Aucune app</h3>
+        <h3 className="mb-2 font-bold">
+          {ambientOnly ? "Aucune app dans tes sources" : "Aucune app"}
+        </h3>
         <p className="text-sm text-white/50">
-          Abonne-toi a un curator ou publie ta premiere app pour la
-          voir apparaitre ici.
+          {ambientOnly
+            ? "Le réseau annonce des apps ci-dessous, mais tu ne suis encore aucune source. Abonne-toi à un nœud ou à un curator, ou publie ta première app."
+            : "Abonne-toi a un curator ou publie ta premiere app pour la voir apparaitre ici."}
         </p>
       </div>
     </div>

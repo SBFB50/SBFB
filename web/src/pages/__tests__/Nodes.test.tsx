@@ -191,6 +191,118 @@ describe("Nodes", () => {
     ).toBeInTheDocument();
   });
 
+  it("ux-arrival : les noeuds observes rendent une section dediee + CTA s'abonner pre-rempli", async () => {
+    // Un éditeur d'annuaire entendu par gossip SANS abonnement apparaît en
+    // métadonnée seulement (le daemon ne fetch jamais son catalogue) avec un
+    // CTA d'abonnement explicite qui ouvre le dialog pré-rempli sur SON
+    // identité — la soumission reste un geste utilisateur (verrou 3/5).
+    const user = userEvent.setup();
+    const OBSERVED_C = "aa".repeat(32);
+    mockFetch({
+      "/api/daemon/nodes": {
+        nodes: [makeNode()],
+        observed: [{ node_id: OBSERVED_C, last_seen: 1_700_000_000 }],
+      },
+      "/api/daemon/curators": { entries: [], subscribed_curators: [NODE_A] },
+    });
+    renderNodes();
+
+    expect(
+      await screen.findByTestId("nodes-observed-section"),
+    ).toBeInTheDocument();
+    const row = screen.getByTestId("node-observed-row");
+    // Copy prudente (SEC-UXARR-3) : on décrit l'annonce ENTENDUE, jamais une
+    // agence prouvée du nœud (l'identité d'enveloppe n'est pas authentifiée).
+    expect(row).toHaveTextContent(
+      "Annonce entendue sur le réseau — abonne-toi pour voir son catalogue.",
+    );
+    await user.click(screen.getByTestId("observed-subscribe-cta"));
+    expect(await screen.findByTestId("add-anchor-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("anchor-pubkey-input")).toHaveValue(OBSERVED_C);
+  });
+
+  it("ux-arrival : le prefill est efface a la reouverture manuelle du dialog", async () => {
+    // CTA observed → champ pré-rempli ; fermeture ; réouverture par le
+    // bouton manuel → champ VIDE. Le pré-remplissage ne survit jamais à
+    // l'intention explicite qui l'a déclenché (verrou 3 : placeholder
+    // inerte par défaut).
+    const user = userEvent.setup();
+    const OBSERVED_C = "aa".repeat(32);
+    mockFetch({
+      "/api/daemon/nodes": {
+        nodes: [makeNode()],
+        observed: [{ node_id: OBSERVED_C, last_seen: 1_700_000_000 }],
+      },
+      "/api/daemon/curators": { entries: [], subscribed_curators: [NODE_A] },
+    });
+    renderNodes();
+
+    await user.click(await screen.findByTestId("observed-subscribe-cta"));
+    expect(screen.getByTestId("anchor-pubkey-input")).toHaveValue(OBSERVED_C);
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("add-anchor-dialog"),
+      ).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("nodes-add-anchor"));
+    expect(await screen.findByTestId("add-anchor-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("anchor-pubkey-input")).toHaveValue("");
+  });
+
+  it("ux-arrival : un noeud observe seul suffit a ecarter le cold-start", async () => {
+    // « Aucun nœud-catalogue connu » serait un mensonge : on en a entendu un.
+    mockFetch({
+      "/api/daemon/nodes": {
+        nodes: [],
+        observed: [{ node_id: "bb".repeat(32), last_seen: 1_700_000_000 }],
+      },
+      "/api/daemon/curators": { entries: [], subscribed_curators: [] },
+    });
+    renderNodes();
+
+    expect(
+      await screen.findByTestId("nodes-observed-section"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("nodes-cold-start")).not.toBeInTheDocument();
+  });
+
+  it("ux-arrival : tolerance Zod — cle observed absente et row additive", async () => {
+    // (1) Un daemon antérieur à UX-ARRIVAL n'émet pas `observed` : la page
+    // parse et rend sans section. (2) Une row observed portant un champ
+    // additif futur ne brique pas la page (règle P37 : rows tolérantes,
+    // seule l'ENVELOPPE est .strict()).
+    mockFetch({
+      "/api/daemon/nodes": { nodes: [makeNode()] },
+      "/api/daemon/curators": { entries: [], subscribed_curators: [NODE_A] },
+    });
+    const first = renderNodes();
+    expect(await screen.findByTestId("nodes-list")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("nodes-observed-section"),
+    ).not.toBeInTheDocument();
+    first.unmount();
+
+    mockFetch({
+      "/api/daemon/nodes": {
+        nodes: [],
+        observed: [
+          {
+            node_id: "cc".repeat(32),
+            last_seen: 1_700_000_000,
+            future_additive_field: "ignored",
+          },
+        ],
+      },
+      "/api/daemon/curators": { entries: [], subscribed_curators: [] },
+    });
+    renderNodes();
+    expect(
+      await screen.findByTestId("nodes-observed-section"),
+    ).toBeInTheDocument();
+  });
+
   it("pas de cold-start quand l'etat des subscriptions est INCONNU (GAP Codex R2)", async () => {
     // /nodes répond une liste vide mais /curators est indisponible : les
     // abonnements sont INCONNUS, pas vides — afficher « aucun noeud connu »
