@@ -59,6 +59,14 @@ pub const MAX_DECOMPRESSED_BYTES: u64 = 500 * 1024 * 1024;
 /// Hard ceiling on the cloned forge workspace size (mirrors deploy.rs).
 pub const MAX_CLONE_BYTES: u64 = 500 * 1024 * 1024;
 
+/// Hard ceiling on the NUMBER of entries in a forked archive (FORK-1, S74
+/// audit / Sprint 75 Phase G). The byte caps above do not stop a flood of
+/// tiny entries — thousands of near-empty files pass both size guards while
+/// exhausting inodes/file handles and create/canonicalize syscalls (the
+/// many-entries zip-bomb class, cf. GHSA-j47w-4g3g-c36v). Generous for a
+/// built web app, fatal for a bomb.
+pub const MAX_ARCHIVE_ENTRIES: usize = 4096;
+
 const CLONE_TIMEOUT_SECS: u64 = 30;
 const CHECKOUT_TIMEOUT_SECS: u64 = 10;
 
@@ -80,6 +88,8 @@ pub enum ForkError {
     GitTimeout { action: String, secs: u64 },
     #[error("archive too large: {0} bytes (max {max})", max = MAX_ARCHIVE_BYTES)]
     ArchiveTooLarge(u64),
+    #[error("archive has too many entries: {0} (max {max})", max = MAX_ARCHIVE_ENTRIES)]
+    TooManyEntries(usize),
     #[error("cloned workspace too large: {0} bytes (max {max})", max = MAX_CLONE_BYTES)]
     CloneTooLarge(u64),
     #[error("unsafe archive entry (zip-slip / escape): {0}")]
@@ -187,7 +197,10 @@ pub async fn fork_from_forge(
 /// - **path escape** — the canonical output path is re-checked to be inside
 ///   `dest` after `join` (defense in depth against platform-specific quirks);
 /// - **size** — both the compressed input ([`MAX_ARCHIVE_BYTES`]) and the
-///   decompressed output ([`MAX_DECOMPRESSED_BYTES`], the zip-bomb guard).
+///   decompressed output ([`MAX_DECOMPRESSED_BYTES`], the zip-bomb guard);
+/// - **entry flood** — at most [`MAX_ARCHIVE_ENTRIES`] entries, rejected
+///   before any disk write (FORK-1: byte caps alone miss an inode/handle
+///   exhaustion bomb made of thousands of tiny files).
 pub fn fork_from_blob(zip_bytes: &[u8], dest: &Path) -> Result<(), ForkError> {
     extract_zip(zip_bytes, dest, MAX_DECOMPRESSED_BYTES)
 }
@@ -201,6 +214,12 @@ fn extract_zip(zip_bytes: &[u8], dest: &Path, max_decompressed: u64) -> Result<(
     }
     let reader = std::io::Cursor::new(zip_bytes);
     let mut archive = zip::ZipArchive::new(reader).map_err(|e| ForkError::Zip(e.to_string()))?;
+
+    // Entry-count cap BEFORE any disk write (FORK-1): the per-byte budgets
+    // below cannot see a flood of tiny entries.
+    if archive.len() > MAX_ARCHIVE_ENTRIES {
+        return Err(ForkError::TooManyEntries(archive.len()));
+    }
 
     std::fs::create_dir_all(dest).map_err(|e| ForkError::Io(e.to_string()))?;
     let dest_canon = canonicalize_lossy(dest);
@@ -595,6 +614,31 @@ mod tests {
         let zip = make_zip(&[("big.txt", &"A".repeat(10_000))]);
         let err = extract_zip(&zip, &dest, 1024).unwrap_err();
         assert!(matches!(err, ForkError::ArchiveTooLarge(_)));
+    }
+
+    #[test]
+    fn fork_entry_count_capped() {
+        // FORK-1 (S74 audit, Sprint 75 Phase G): a flood of tiny entries
+        // passes both byte caps but must be rejected by the entry-count cap
+        // BEFORE any disk write — nothing may be materialised.
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("ws");
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut zw = zip::ZipWriter::new(&mut buf);
+            let opts = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            for i in 0..=MAX_ARCHIVE_ENTRIES {
+                zw.start_file(format!("f{i}.txt"), opts).unwrap();
+            }
+            zw.finish().unwrap();
+        }
+        let err = fork_from_blob(&buf.into_inner(), &dest).unwrap_err();
+        assert!(matches!(err, ForkError::TooManyEntries(n) if n == MAX_ARCHIVE_ENTRIES + 1));
+        assert!(
+            !dest.exists(),
+            "rejection must happen before any disk write"
+        );
     }
 
     #[test]

@@ -375,6 +375,20 @@ pub(crate) async fn finalize_deploy(
 ) -> Result<(String, String), String> {
     let repo_url = params.repo_url.unwrap_or("");
 
+    // PULL-1 (S74 audit, Sprint 75 Phase G): drop any pre-existing
+    // `provenance.json` BEFORE hashing and re-injecting the fresh one.
+    // A fork redeploy zips a blob-reconstructed workspace that still
+    // carries the ORIGINAL author's provenance file, and
+    // `ZipWriter::new_append` + `start_file` always APPENDS — the archive
+    // would end up with two same-named members (which one an extractor
+    // serves is implementation-defined, and a crafted upload could even
+    // smuggle a forged provenance next to the real one). Stripping first
+    // also makes `artifact_hash` reference the app content alone, never a
+    // stale attestation. No-op (byte-identical input) when the member is
+    // absent — the common non-fork path is untouched.
+    let zip_bytes = strip_zip_member(&zip_bytes, "provenance.json")
+        .map_err(|e| format!("provenance strip: {e}"))?;
+
     let artifact_hash_bytes = blake3_hash(&zip_bytes);
     let artifact_hash_hex = hex::encode(artifact_hash_bytes);
 
@@ -934,6 +948,33 @@ fn add_to_zip(zip_bytes: &[u8], name: &str, content: &str) -> Result<Vec<u8>, io
     Ok(buf.into_inner())
 }
 
+/// Rebuild the archive WITHOUT the named member (PULL-1, Sprint 75 Phase G).
+///
+/// Returns the input bytes unchanged (byte-identical) when no member
+/// matches, so the common non-fork deploy path keeps its exact archive
+/// bytes and hash. When the member is present, every OTHER entry is
+/// raw-copied (no recompression) into a fresh archive.
+fn strip_zip_member(zip_bytes: &[u8], name: &str) -> Result<Vec<u8>, io::Error> {
+    let reader = io::Cursor::new(zip_bytes.to_vec());
+    let mut archive = zip::ZipArchive::new(reader).map_err(io::Error::other)?;
+    if !archive.file_names().any(|n| n == name) {
+        return Ok(zip_bytes.to_vec());
+    }
+    let mut buf = io::Cursor::new(Vec::new());
+    {
+        let mut zw = zip::ZipWriter::new(&mut buf);
+        for i in 0..archive.len() {
+            let file = archive.by_index_raw(i).map_err(io::Error::other)?;
+            if file.name() == name {
+                continue;
+            }
+            zw.raw_copy_file(file).map_err(io::Error::other)?;
+        }
+        zw.finish().map_err(io::Error::other)?;
+    }
+    Ok(buf.into_inner())
+}
+
 fn dir_size(path: &Path) -> u64 {
     let mut total: u64 = 0;
     if let Ok(entries) = walkdir(path) {
@@ -1029,6 +1070,58 @@ mod tests {
         let names: Vec<&str> = archive.file_names().collect();
         assert!(names.contains(&"index.html"));
         assert!(names.contains(&"provenance.json"));
+    }
+
+    #[test]
+    fn deploy_strips_existing_provenance() {
+        // PULL-1 (S74 audit, Sprint 75 Phase G): a fork redeploy zips a
+        // blob-reconstructed workspace that still carries the ORIGINAL
+        // author's provenance.json, and `add_to_zip` always APPENDS — the
+        // finalize_deploy strip+inject sequence must leave exactly ONE,
+        // FRESH member.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("index.html"), "<html></html>").unwrap();
+        let zip_bytes = zip_directory(tmp.path()).unwrap();
+
+        // Simulate the fork input: archive already carries a stale member.
+        let with_stale = add_to_zip(
+            &zip_bytes,
+            "provenance.json",
+            r#"{"builder":"original-author"}"#,
+        )
+        .unwrap();
+
+        // The finalize_deploy sequence: strip, then inject fresh.
+        let stripped = strip_zip_member(&with_stale, "provenance.json").unwrap();
+        let fresh = add_to_zip(&stripped, "provenance.json", r#"{"builder":"forker"}"#).unwrap();
+
+        let reader = io::Cursor::new(&fresh);
+        let mut archive = zip::ZipArchive::new(reader).unwrap();
+        let count = archive
+            .file_names()
+            .filter(|n| *n == "provenance.json")
+            .count();
+        assert_eq!(count, 1, "exactly one provenance.json after strip+inject");
+        let mut surviving = String::new();
+        std::io::Read::read_to_string(
+            &mut archive.by_name("provenance.json").unwrap(),
+            &mut surviving,
+        )
+        .unwrap();
+        assert_eq!(
+            surviving, r#"{"builder":"forker"}"#,
+            "the surviving member must be the FRESH one, never the stale author copy"
+        );
+        // App content survives the raw-copy rebuild.
+        assert!(archive.by_name("index.html").is_ok());
+
+        // No-op guarantee: an archive WITHOUT the member comes back
+        // byte-identical (the common non-fork deploy keeps its exact hash).
+        let untouched = strip_zip_member(&zip_bytes, "provenance.json").unwrap();
+        assert_eq!(
+            untouched, zip_bytes,
+            "absent member must be a byte-identical no-op"
+        );
     }
 
     #[test]

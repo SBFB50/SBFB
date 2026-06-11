@@ -86,6 +86,16 @@ fn process_result(db: &Arc<Mutex<CoordinatorDb>>, entry: &ResultEntry) {
                     %reason,
                     "gossip result rejected by output guardrail — not persisted, no kudos credited"
                 );
+                // CARRY-2 (S74 audit, Sprint 75 Phase G): a tripwire is
+                // terminal. The validated submission is already consumed, so
+                // leaving the task Pending/AwaitingQuorum would zombie it
+                // forever — no future event can rescue it.
+                if let Err(e) = validator::reject_result_on_guardrail_trip(&guard, &pending) {
+                    tracing::error!(
+                        task_id = %entry.payload.task_id,
+                        "failed to mark guardrail-tripped task rejected: {e}"
+                    );
+                }
                 return;
             }
             if let Err(e) = validator::validate_result_post_guardrail(&guard, &pending) {
@@ -261,7 +271,9 @@ mod tests {
         // A gossip-sourced result whose text trips the output guardrail
         // (invisible char) must NOT be persisted and must NOT credit kudos.
         // Before D5 the validator_loop had no guardrail at all and would
-        // have completed the task with the rejected text.
+        // have completed the task with the rejected text. Since CARRY-2
+        // (Sprint 75 Phase G) the trip is also TERMINAL: the task flips to
+        // Rejected instead of silently staying Pending forever.
         let db = setup_db_with_task("task-vl-gr");
         let db = Arc::new(Mutex::new(db));
         let (tx, rx) = create_result_channel();
@@ -280,8 +292,8 @@ mod tests {
         let task = guard.get_task("task-vl-gr").expect("get").expect("found");
         assert_eq!(
             task.status,
-            TaskStatus::Pending,
-            "guardrail tripwire must not transition the task to completed"
+            TaskStatus::Rejected,
+            "guardrail tripwire must terminally reject the task (CARRY-2)"
         );
         assert!(
             guard
@@ -296,6 +308,53 @@ mod tests {
             guard.get_project_kudos_total("proj-1").expect("k"),
             0,
             "no kudos for guardrail-rejected output"
+        );
+    }
+
+    #[tokio::test]
+    async fn guardrail_trip_sets_rejected_terminal() {
+        // CARRY-2 (S74 audit, Sprint 75 Phase G): the decisive zombie
+        // scenario. A tripped result must flip the task to Rejected, and
+        // Rejected must be TERMINAL — a later CLEAN submission for the same
+        // task is refused by the status guard (RejectedTaskNotPending), so
+        // the task can never be resurrected to Completed nor credit kudos.
+        let db = setup_db_with_task("task-vl-term");
+        let db = Arc::new(Mutex::new(db));
+        let (tx, rx) = create_result_channel();
+
+        let worker_kp = KeyPair::generate();
+        let tripped = make_result_with_text("task-vl-term", &worker_kp, "leaked\u{200B}secret");
+        let clean = make_result_with_text("task-vl-term", &worker_kp, "clean output");
+
+        let db_clone = Arc::clone(&db);
+        let handle = tokio::spawn(run(db_clone, rx));
+
+        // Trip first, then attempt the rescue submission on the same loop.
+        tx.send(ResultEvent::NewResult(tripped)).expect("send 1");
+        tx.send(ResultEvent::NewResult(clean)).expect("send 2");
+        drop(tx);
+        handle.await.expect("validator loop joins");
+
+        let guard = db.lock().unwrap();
+        let task = guard.get_task("task-vl-term").expect("get").expect("found");
+        assert_eq!(
+            task.status,
+            TaskStatus::Rejected,
+            "a clean submission after the trip must NOT resurrect the task"
+        );
+        assert!(
+            guard
+                .get_task_result("task-vl-term")
+                .expect("get")
+                .expect("found")
+                .result_text
+                .is_none(),
+            "no retrievable text may ever be persisted on a tripped task"
+        );
+        assert_eq!(
+            guard.get_project_kudos_total("proj-1").expect("k"),
+            0,
+            "no kudos on a terminally rejected task"
         );
     }
 
@@ -334,6 +393,78 @@ mod tests {
         assert!(
             guard.get_project_kudos_total("proj-1").expect("k") > 0,
             "kudos credited for guardrail-cleared output"
+        );
+    }
+
+    #[tokio::test]
+    async fn guardrail_trip_on_quorum_path_sets_rejected_terminal() {
+        // CARRY-2 quorum coverage (redundancy > 1, Sprint 75 Phase G): the
+        // helper's docstring claims terminality on the quorum path too, but
+        // the single-result tests never exercise it. Two honest workers agree
+        // (quorum) on text that trips the output guardrail -> the trip must
+        // flip the REDUNDANT task to Rejected TERMINAL, persist no text, and
+        // refuse a later clean submission.
+        let db = {
+            let db = CoordinatorDb::open_in_memory().expect("open");
+            let record = TaskRecord {
+                task_id: "task-vl-quorum".to_string(),
+                status: TaskStatus::Pending,
+                project_id: "proj-1".to_string(),
+                model: "llama3".to_string(),
+                created_at: 1714300000,
+                updated_at: 1714300000,
+                task_hash: "abc".to_string(),
+                worker_node_id: None,
+                result_hash: None,
+                task_type: "inference".to_string(),
+                redundancy_factor: 2,
+            };
+            db.insert_task(&record).expect("insert");
+            db
+        };
+        let db = Arc::new(Mutex::new(db));
+        let (tx, rx) = create_result_channel();
+
+        // Two DISTINCT workers submit the SAME tripping text -> quorum reached
+        // over text the output guardrail rejects.
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let r1 = make_result_with_text("task-vl-quorum", &w1, "leaked\u{200B}secret");
+        let r2 = make_result_with_text("task-vl-quorum", &w2, "leaked\u{200B}secret");
+        // A later CLEAN submission must NOT resurrect the rejected task.
+        let clean = make_result_with_text("task-vl-quorum", &w1, "clean output");
+
+        let db_clone = Arc::clone(&db);
+        let handle = tokio::spawn(run(db_clone, rx));
+        tx.send(ResultEvent::NewResult(r1)).expect("send 1");
+        tx.send(ResultEvent::NewResult(r2)).expect("send 2");
+        tx.send(ResultEvent::NewResult(clean)).expect("send 3");
+        drop(tx);
+        handle.await.expect("validator loop joins");
+
+        let guard = db.lock().unwrap();
+        let task = guard
+            .get_task("task-vl-quorum")
+            .expect("get")
+            .expect("found");
+        assert_eq!(
+            task.status,
+            TaskStatus::Rejected,
+            "quorum over tripping text must terminally reject the redundant task"
+        );
+        assert!(
+            guard
+                .get_task_result("task-vl-quorum")
+                .expect("get")
+                .expect("found")
+                .result_text
+                .is_none(),
+            "no retrievable text after a quorum-path guardrail rejection"
+        );
+        assert_eq!(
+            guard.get_project_kudos_total("proj-1").expect("k"),
+            0,
+            "no kudos on a terminally rejected quorum task"
         );
     }
 }

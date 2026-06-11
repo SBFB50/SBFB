@@ -151,10 +151,11 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-74 CLOSED**, **S75 a ouvrir** (Arc 3.5 Factory
-  Complete Vision, roadmap v5 — GPU partage cross-machine ;
-  S75 Phase 0 = audit gate S74, cf. `sprint75_audit_plan.md`).
-  v2.1 ouverte. **Tag v1.0 pose.**
+- **Sprints 0-75 CLOSED**, **S76 a ouvrir** (Arc 3.5 Factory
+  Complete Vision, roadmap v5 amendee — GPU partage cross-machine ;
+  S76 Phase 0 = audit gate S75, cf. `sprint76_audit_plan.md`).
+  v2.1 ouverte. **Tag v1.0 pose et pousse (LT-2 ARME, dry-run
+  Radicle prive fait).**
   Projet Rust+Frontend pur depuis S50-S51.
   S70 DONE : 7 phases A-G (A AGENT_SYSTEM.md canon portable + B
   dette pair P2-I-3 3/3 + P2 audit absorbes + C prompt portability
@@ -238,18 +239,52 @@ Runtime isolation roadmap dans
   docs], couverte par Windows non-networked + clippy --all-targets +
   release + doctests + web ; re-run dual differe a recovery AVANT
   push.** Arc 3.5 Factory Complete Vision 4/6.
+  S75 DONE : Phase 0 audit gate S74 PASS (`0e2fb6b`) + 7 phases
+  A-G — **pivot decouverte PULL node-centrique + ancre VPS**
+  (amendement roadmap v5 : la decouverte PUSH-ephemere etait un bug
+  live [PoW 1800s rejoue verbatim -> apps >30 min invisibles aux
+  pairs frais] ; GPU -> S76, sharding -> S77). Phase A `479a87c`
+  re-mint PoW+adresse aux 3 sites replay outbox ; B `f6637d3`
+  `NodeDirectoryEntry` + `DOMAIN_NODE_DIRECTORY_V1` + gate ingest
+  partage + route authoring ; C `821aa8c` ingest annuaire
+  subscription-gated + 3e bras `BrowseSource::NodeDirectory` +
+  **locator `anchors.json` persiste + floor anti-rollback** +
+  WIRE-1/WIRE-2/DBQ-1 CLOSED ; D `0010450` `fetch_hash_multi`
+  multi-provider ancre-d'abord (cap DANS la primitive) + SeedRegistry
+  prod + route additive `/nodes` (`/browse` BYTE-IDENTIQUE) ;
+  E `1486fc9` ancre VPS headless ([seed] defaut VIDE verrou-3 +
+  boot driver duress-gate + unit systemd SBFB_HOME epingle) ;
+  F `4f52bea` front node-Browse /nodes + /node/:id + verrou-4
+  provenance editeur `source==="direct"` + badge Q7 front-compose +
+  WEB-1 self_pin_enabled 3-etats ; G wrap-up : 4 carries S74
+  (CARRY-5 clamp offset+q, CARRY-2 `reject_result_on_guardrail_trip`
+  TERMINAL 2 chemins, PULL-1 `strip_zip_member` avant inject,
+  FORK-1 `MAX_ARCHIVE_ENTRIES=4096`) + THREAT_MODEL §15.1 v8 +
+  **acceptance survives-VPS-death LIVE PASS** (VPS Hetzner install
+  stock systemd 1er boot 0 crash-loop, `systemd-analyze security`
+  1.7 OK, QUIC sous seccomp ; chaine E2E WAN : annuaire Windows ->
+  ingest gossip VPS -> locator -> re-pull boot -> driver fetch WAN
+  -> pin ; pair frais Mac 7 entrees [C6 re-mint >jours prouve] ;
+  VPS stop -> render 200 + Browse intact) + LT-2 ARME dry-run
+  Radicle prive (rad 1.9.1, visibility=private) + META-1 + PATTERNS
+  §P59/P37. G8 7/7 (0 DESIGN-CONFLICT, PLAN-ADAPT C/D/F) ; reviews
+  7/7 PASS (9 P1 corriges in-phase) ; Codex 18+ rounds cumules.
+  Invariant **heberger != publier, seeder != auteur** tenu ; 0 bump
+  wire, 0 dep. Rust nextest 1674→1755 Win (+81) / 1759 Docker ;
+  Vitest 331→367. Arc 3.5 Factory Complete Vision 5/6.
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~1866 tests total** (1570 Rust canonique CI Linux / 1566 Windows
-  natif / 289 Vitest `web/` / 7 Vitest factory-operator / 6/6
-  size-limit) — tous verts. S73 delta : +22 Rust Windows (A +5, B +7,
-  C +5, D +5, E +0 ; canonique Linux +26, l'ecart +4 = tests
-  `#[cfg(unix)]` structurels absents sous Windows), +10 Vitest (`web/`
-  Phase E), +7 Vitest factory-operator (infra NEW Phase B). Re-mesure
-  Phase F : Docker Linux sbfb-ci (libgtk-3-dev) 1570/1570 0-skip +
-  Windows natif 1566/1566 0-skip ; worker-pump P2-A-1 vert aussi sous
-  `cargo test` shared-process (le gate d'origine du hang, pas nextest).
+- **~2129 tests total** (1755 Rust nextest Windows natif 0-skip /
+  1759 canonique Docker Linux [+4 `#[cfg(unix)]`] / 367 Vitest `web/` /
+  7 Vitest factory-operator / 6/6 size-limit) — tous verts. S75
+  delta : +81 Rust Windows depuis S74 sortie 1674 (A +8 [→1682],
+  B +32, C +10, D +11, E +13, F +2, G +5 ; somme = 81 → 1755),
+  +36 Vitest (C +3, F +33 ; 331->367). Image `sbfb-ci` re-pinnee
+  S75-G (`rust:1.94` + libgtk-3-dev au Dockerfile — une derive locale
+  l'avait rebuildee trixie/rustc 1.95 glibc 2.41, incompatible binaire
+  VPS Ubuntu 24.04 glibc 2.39 ; les builds binaires VPS passent par
+  `rust:1.94-bookworm`).
 - Carry S73 CLOSED :
   P2-RESULT-TEXT-GUARDRAIL-ORDER (Phase A — guardrail AVANT persist
   2 chemins HTTP+gossip, split pre/post, claims THREAT_MODEL §14 +
@@ -264,24 +299,28 @@ Runtime isolation roadmap dans
   P2-PREFLIGHT-TRANSITIVE-DEPTH + P2-PREFLIGHT-WIRE-CONTRACT-DEPTH
   (Phase F — skill/agent/portable preflight : S1b graphe transitif
   `Cargo.lock`+`cargo tree -d` ; S4 trace wire producteur→consommateur).
-- Carry S74 (vers audit gate S73 — `sprint74_audit_plan.md`) :
-  P2-A-1 rand blocker upstream (exemption externe).
-  P2-AUDIT-2 pre-release transitives iroh (herite pin 0.98).
-  T-NN+2 iframe Rust-wasm (PATTERNS §P34).
-  P3-OS-1 `operator_server` OR duplique (pre-existant, non touche S73).
-  LT-2 Radicle sortie cap G7 — **trigger PENDING** (tag v1.0 pose
-  localement, pas encore pousse vers origin ; 37 ahead).
-  Nouveaux P2 candidats S73 (surfaces scrutiny adversariale Phase F,
-  routes audit S74) : freshness `ReleasePublished` non-indexe (op
-  publication-projet a description vide → invisible full-text) ; rowid
-  partition tripwire AVANT browse-indexing prod (`search.rs:241-244`) ;
-  guardrail-before-persist = convention d'appelant pas type (+ quorum
-  `task_results` residue, zombie sur trip) ; `SearchResultsView` sans
-  branche `query.isError` → `LoadingSkeleton` infini sur drift Zod ;
-  scheme-guard `isHttpsUrl` non normalise sur ancres `repo_url`
-  pre-existantes (Browse:264, BrowsedProject, VerificationDetail).
+- Carry S75 (vers audit gate S75 — `sprint76_audit_plan.md` §3,
+  13 tracks, tous les P2/P3 des 6 phase reviews routes) :
+  **Lot duress freres pre-existants** (`seed_voluntary`,
+  `set_keep_online`, `reannounce_seeds_at_boot` — gap S74,
+  exposition UX accrue par F). **PULL-3** cross-tier failover
+  (ticket mort -> pas de bascule directory/multi-provider ; aggrave
+  par SeedAnnounced non-converge observe a l'acceptance G).
+  **Sampling anti-Sybil** seeder tail (crowding lexicographique).
+  **Re-drive-on-ingest** du boot driver one-shot (fenetre morte
+  1er boot OBSERVEE live a l'acceptance). Discriminateur
+  curator-vs-ancre des lignes en-attente /nodes. T6 GossipCmd::Outbox
+  non teste direct (2 noeuds). WS-3/PD-5 hoisting. 2 constats
+  acceptance G : `SeedAnnounced` ne converge pas cross-noeud
+  (peer_count:0 partout ~10 min) ; l'annuaire d'un seeder n'annonce
+  pas ce qu'il seede (`catalog_len:0`, question design PO).
+  **Externes inchanges** : P2-A-1 rand (exemption), P2-AUDIT-2 iroh
+  (pin 0.98), T-NN+2 iframe Rust-wasm (§P34), P3-OS-1.
+  LT-2 Radicle — **ARME, dry-run prive FAIT** (flip publie =
+  decision PO, hors-sprint).
   LT-3/LT-4 hors-sprint (post-v1.0).
-  LT-5 redundancy persistence (ex-P2-D-1, reclassifie S26).
+  LT-5 redundancy persistence — programme Disponibilite S74/S75
+  en a livre le coeur (keep_online M18 + seed cross-noeud + pull).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
   LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 P2P infra
   validee (S60). Worker quorum E2E carry post-tag. Diversite

@@ -21,6 +21,15 @@ cf. `sprint75_pivot_proposal.md`) ; **GPU partagé cross-machine → S76** ;
 `.planning/active/sprint75_*`. La ligne « S75 — GPU partagé » §3 ci-dessous est
 décalée S76 par cet amendement.
 
+**LIVRAISON 2026-06-11 (S75 Phase G)** : l'amendement est exécuté — S75 a
+livré la découverte PULL node-centrique complète (FIX-A re-mint,
+`NodeDirectoryEntry` + `DOMAIN_NODE_DIRECTORY_V1`, ingest + durabilité
+locator `anchors.json`, pull multi-provider, ancre VPS headless systemd,
+front node-Browse `/nodes` + `/node/:id`, acceptance survives-VPS-death).
+Détail : `sprint75_verification.md`. **Prochain : S76 = GPU partagé
+cross-machine** (la ligne « S75 — GPU partagé » §3 se lit S76 ; sharding
+S77 inchangé).
+
 ---
 
 ## 0. Le pourquoi — Factory ferme la boucle SBFB

@@ -41,7 +41,7 @@ Derniere revue).
 | ID   | Title                                                         | Status     | Owner          | Last reviewed |
 |------|---------------------------------------------------------------|------------|----------------|---------------|
 | LT-1 | Kudos-v2 fairness reform (log-utility + DRF + EMA fitness)    | **reclassifie pre-v1.0** | S50 | 2026-04-30 |
-| LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | **trigger PENDING** | `<post-v1.0>` | 2026-05-12 |
+| LT-2 | Meta-1 Radicle-v1.0 activation tracking (flip Codeberg→Radicle) | **trigger ARME** (dry-run prive fait) | decision PO (flip publie) | 2026-06-11 |
 | LT-3 | Contribution family Sybil matrix (3 couches asymetriques post-v1.0) | latent | `<post-v1.0>`  | 2026-04-20    |
 | LT-4 | OS biometric gate cross-platform (Windows Hello / TouchID / polkit) | latent | `<post-v1.0>` | 2026-04-20    |
 | LT-5 | Redundancy persistence SQLite + wire-up prod               | latent     | `<post-v1.0>`  | 2026-04-22    |
@@ -124,15 +124,24 @@ Derniere revue).
     self-hosted docker image (S19 Phase E `2fd4d72`).
   - Re-calibration Radicle adoption vs S22 Couche 3 Radicle cross-
     validate (S25-S27 implem).
-- **Derniere revue** : 2026-05-12 (tag v1.0 pose localement S60
-  Phase E). **Trigger PENDING** : tag v1.0 existe sur master local
-  mais n'a pas ete pousse vers origin. La condition "tag go-live
-  pose sur master" est satisfaite localement. Le trigger devient
-  pleinement ACTIVE quand le tag est pousse + GitHub Release draft
-  publiee (`.github/workflows/release.yml` declenche sur push
-  tag `v*`). Prochaine action : pousser le tag, verifier la
-  release draft, puis reouvrir Meta-1 comme carry actif au sprint
-  S61 et executer flip sequence `docs/release/MIRROR_FALLBACK.md §3`.
+- **Derniere revue** : 2026-06-11 (Sprint 75 Phase G, CARRY-1).
+  **Trigger ARME** : le tag v1.0 est pousse sur origin (constat
+  audit gate S74, 2026-06-09) — la condition de declenchement est
+  REMPLIE. **Dry-run prive execute** (2026-06-11T05:40:15Z, VPS
+  135.181.42.188, rad 1.9.1) : identite jetable `sbfb-lt2-dryrun`
+  (did:key:z6Mkozq2hMC1W3qHAWySZVRVeMyTYSc92wkDYHjXQpiernLD),
+  `rad init --private` sur repo test → RID
+  `rad:z2v4pgUBjUQiV79asEvA47wUahod9`, `rad inspect --visibility`
+  = `private`. Preuve que la replication selective privee (memory
+  feedback_radicle_private) fonctionne en 1.9.1 : un repo Radicle
+  peut etre prive d'abord, publie ensuite (`rad publish`) — le flip
+  §3 peut donc commencer par un dry-run prive du VRAI repo avant
+  toute exposition publique. Le flip complet (MIRROR_FALLBACK §3 :
+  visibilite forges + identites maintainer/machine + secrets GHA +
+  seed nodes) reste l'etape suivante, a executer hors-sprint sur
+  decision PO — il publie le repo, action irreversible vers
+  l'exterieur. Note : §3.2 cite radicle.xyz/install (redirige
+  desormais 307 vers radicle.dev — utiliser `curl -sSfL`).
 
 ## LT-3 Contribution family Sybil matrix
 

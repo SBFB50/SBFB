@@ -858,6 +858,35 @@ ne pas ouvrir la surface broadcast-Sybil avant un design noeud-index
 opt-in (PO-13, post-launch). Carry : re-credit d'une invite single-use
 brulee sur un fetch transitoire (Phase E P3, S75).
 
+### 15.1 Extension Sprint 75 — decouverte PULL node-centrique
+
+S75 pivote la decouverte de PUSH-ephemere vers PULL node-centrique :
+`NodeDirectoryEntry` signe (`DOMAIN_NODE_DIRECTORY_V1`, machinerie
+CuratorList reutilisee, ingest subscription-gated), locator persiste
+`anchors.json {pubkey, ticket, revision}` re-valide signature+revision
+au re-pull (floor anti-rollback durable), pull multi-provider
+`fetch_hash_multi` (ancre d'abord puis seeders `SeedRegistry`), routes
+additives `GET /api/daemon/nodes` + `POST /api/daemon/seed/request`,
+driver seed boot config-driven (`[seed] keep_online_projects`), front
+`/nodes` + `/node/:id`. Rows deferes des phases D/E/F, consolides ici
+(Phase G).
+
+| Menace | Exemple | Sev. brute | Mitigation (file:line) | res |
+|---|---|:---:|---|:---:|
+| I/D | **Oracle blob-serve drive-by + amplification de dials** : un `GET /blob-serve/{hash}` sur un hash absent declenche le 4e tier directory-only → dials sortants vers ancre+seeders (observation du graphe, amplification) | M | resolution UNIQUEMENT sur annuaires ABONNES (`verrou 5`, attention-set explicite) ; cap `MAX_FETCH_PROVIDERS=16` enforce DANS la primitive (`blobs.rs fetch_hash_multi`) ; timeout appelant ; loopback bearer requis sur la route | **L** |
+| I | **Inventaire /nodes** : enumeration des catalogues connus du noeud | L | loopback bearer ; contenu = annuaires signes deja publics par construction ; route additive, `/browse` byte-identique | **Nil** |
+| S/D | **Timestamp futur dans `SeedAnnounced`** (monopoliser la fraicheur du registre) | M | SEED-1 : clamp `seen_at = min(seen_at, now)` DANS `SeedRegistry::record` (pas une convention d'appelant) | **Nil** |
+| D | **Gonflement du registre seeders** (buckets/slots illimites, variantes de casse d'une meme pubkey) | M | SEED-2 : double cap 1024 buckets / 64 seeders + eviction stalest-si-newcomer-plus-frais ; normalisation hex lowercase write+read (2^64 variantes de casse = 1 slot) | **L** |
+| D | **Fresh-flood displacement** : annonces continues fraiches evincent les vrais seeders du registre cappe | M | residuel assume best-effort (doc `MAX_REGISTRY_BUCKETS`) : le compteur n'est jamais l'autorite, la sonde live + BLAKE3 le sont ; sampling anti-Sybil du tail route audit S76 | **M** |
+| E/T | **Boot seed driver** : config `[seed]` rejouee sous identite duress ; annuaire divergent ecrasant le pin local | M | duress short-circuit EN TETE du driver (`http.rs run_boot_seed_driver`) ; resolution direct > row M18 > annuaires FIGEE par test ; clamp lowercase-64-hex au load ; defaut compile VIDE (verrou 3 tripwire) | **L** |
+| E | **Requester route `/seed/request`** : self-designation, replay, mint sans detention | M | invite M19 TOUJOURS requise ; self-guard sur identites PARSEES (anti-base32) ; mint frais gate-detention 409 ; echo nonce verifie ; timeout 120s documente (504 ≠ echec, invite consommee AVANT fetch) | **L** |
+| E | **Surfaces front F sans duress gate** : `seed_voluntary` + `set_keep_online` exposes par l'UI /nodes-/node/:id alors que leurs handlers PRE-EXISTANTS (S74) ne sont pas duress-gates | M | gap residuel EXPLICITE — lot dette duress route audit S76 (avec `reannounce_seeds_at_boot`) ; le driver boot E, lui, EST gate | **M** |
+
+**Residuals S75** : fresh-flood (M, sonde=autorite) et duress des
+freres pre-existants (M, route S76). Le sur-comptage §15 row D reste
+M : `known_entry_count` agrege le 3e bras nodedirectory en best-effort
+(sur-estimation toleree, jamais une preuve de joignabilite).
+
 ---
 
 ## 16. Revue et evolution
@@ -896,3 +925,8 @@ Historique versions :
   (S71 G7 token+Host+CORS / G2 gate SENSITIVE_ACTIONS) etait deja
   livree ; ce catalogue rattrape le retard documentaire avant
   l'extension de surface SSE par le ProviderRouter S72.
+- **v8 (Sprint 75 Phase G, 2026-06-11)** : ajout §15.1 extension
+  decouverte PULL node-centrique (oracle blob-serve 4e tier, /nodes,
+  SEED-1/SEED-2, fresh-flood, boot seed driver, requester route,
+  surfaces front sans duress gate). Rows deferes des phases D/E/F
+  consolides ; residuals fresh-flood + duress freres routes audit S76.

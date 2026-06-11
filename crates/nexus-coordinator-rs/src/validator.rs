@@ -171,6 +171,34 @@ pub fn validate_result_post_guardrail(
     Ok(())
 }
 
+/// Terminally reject a task whose validated result tripped the output
+/// guardrail (Sprint 75 Phase G, CARRY-2 / S74 audit).
+///
+/// Both network ingress points (HTTP `coordinator_submit_result` and the
+/// gossip `validator_loop`) run the output guardrail between
+/// [`validate_result_pre_guardrail`] and
+/// [`validate_result_post_guardrail`]. Before this helper a tripwire was
+/// only logged and the task silently kept its prior non-terminal state —
+/// a zombie: the validated submission was already consumed (single path)
+/// or the quorum already reached (redundant path), so no future event
+/// could ever move the task again. Marking it `Rejected` makes the trip
+/// terminal and observable, and the status guard in
+/// [`validate_result_pre_guardrail`] then refuses any late submission.
+/// The quorum `task_results` rows are kept deliberately: they are the
+/// audit trail of what was submitted and become inert once the task is
+/// terminal.
+pub fn reject_result_on_guardrail_trip(
+    db: &CoordinatorDb,
+    pending: &PendingResultPersist,
+) -> Result<(), CoordinatorError> {
+    db.update_task_status(&pending.task_id, TaskStatus::Rejected, pending.now)?;
+    tracing::warn!(
+        task_id = %pending.task_id,
+        "task terminally rejected after output-guardrail tripwire"
+    );
+    Ok(())
+}
+
 /// Quorum path for redundant tasks (`redundancy_factor > 1`).
 ///
 /// Workers agree by **exact equality of `result_text`**. The

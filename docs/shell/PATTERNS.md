@@ -2227,3 +2227,46 @@ output guardrail chain has rules keyed on a non-empty `system_prompt`; with an
 empty system prompt, 3/4 output-filter rules are inert (documented residual, not
 a regression). The guardrail-before-persist order (D5, rust §validator) is the
 load-bearing control, not these per-prompt rules.
+
+### P37 — Sprint 75 : node-centric Browse (front PULL patterns)
+
+**`self_pin_enabled` = intent vs truth (3-state loopback key).** The owner
+keep-online toggle must reconcile on the daemon's INTENT key
+(`self_pin_enabled`: true / false / null), never on `self_seeding` alone:
+a fresh deploy writes NO M18 row (null = "diffused by default") and the
+outbox replay only filters EXPLICIT offs — reading `self_seeding` alone
+shows a FALSE off on a fresh app. Precedence: in-session POST echo >
+daemon intent > default ON. Echoes reset on the PAIR `project_id:archive_hash`
+(a pid-keyed echo sticks to another version) via the React
+"adjust state during render" pattern — **lint trap: a synchronous setState
+inside an effect is a cascading-renders ERROR; compare-and-set during
+render instead.**
+
+**Zod `.strict()` on the ENVELOPE only.** `/nodes` pins
+`{nodes: [...]}` strictly but keeps row schemas (NodeSummary/CatalogApp)
+tolerant: the first additive row field must not brick the page. Same rule
+as `/browse` (S73-E): strict envelope, tolerant rows, both sides pinned by
+producer + consumer tests.
+
+**Compose status badges FRONT-SIDE from existing wire pairs.** The Q7
+"reachable via seeder" badge is NOT a wire variant (`BrowseStatusSchema`
+intact, `/browse` byte-identical): the daemon emits the honest pair
+(row unreachable + version-exact `peer_count > 0`) and the front composes
+the badge, gated on `!!entry.archive_hash` (without the hash the
+seed-count is version-agnostic). Prefer composing signals over widening
+the wire.
+
+**Publisher claims come from `source === "direct"` rows ONLY.** The
+curator AND nodedirectory aggregation arms hardcode
+`is_open_source: false` (browse.rs) — reading those rows for a "derived
+version" / provenance marker produces FALSE claims. The publisher
+cross-check requires an exact `(project_id, archive_hash)` match on a
+`direct` row; a catalog row without a publisher announcement carries NO
+claim at all. Pinned by an orphan-fixture test (lock-4b, the S75-F P1:
+fixture order made the exclusion dead — put non-direct fixtures FIRST).
+
+**`callDaemon` surfaces the non-2xx `{"error"}` reason.** Every
+DaemonResult consumer gets the daemon's error string in `reason` instead
+of a generic failure — cold-start/CTA gating must key on KNOWN-empty data
+(`kind === "data"` and empty), never on a non-data error state collapsing
+to "empty".

@@ -3256,3 +3256,90 @@ gossip ingest, #6). `list_browse` wraps each aggregated entry in a
 `is_own = entry.node_id == state.node_id` at serialization time — ZERO changes
 to any `BrowseEntry { .. }` construction site. A voluntarily-seeded distant
 app keeps the AUTHOR's node_id, so it is correctly `is_own = false`.
+
+## §P59 — Sprint 75 : PULL node-centric discovery (anchor directory + multi-provider fetch)
+
+S75 replaced PUSH-ephemeral discovery (PoW window 1800s, replayed verbatim →
+apps older than 30 min invisible to fresh peers) with PULL node-centric
+discovery. Patterns extracted from phases A-G:
+
+### §P59.1 — Persist the LOCATOR, never the content (anchors.json)
+
+iroh downloads require the CONTENT-HASH: a bare node_id gives neither hash
+nor a catalog RPC. The durable artifact is a locator
+`anchors.json {pubkey, ticket, revision}` re-VALIDATED (signature + revision)
+at every re-fetch — the F-Droid "fingerprint persists, index is re-fetched"
+shape. Remote entries stay RAM-only. The persisted `revision` is the
+anti-rollback floor; the dedup rule is split by state: **RAM present →
+strict `>` dedup ; RAM empty (post-boot) → floor `>= persisted`** so a
+same-revision re-announce can restore the catalog after a failed re-pull
+without letting an older revision roll it back.
+
+### §P59.2 — Enforce caps INSIDE the primitive, not at call sites
+
+Lesson from the S73 guardrail-order carry (a convention-of-caller is not a
+type-level invariant), applied three times in S75: `MAX_FETCH_PROVIDERS=16`
+truncates inside `fetch_hash_multi` (D); the SEED-1 freshness clamp
+`seen_at = min(seen_at, now)` lives inside `SeedRegistry::record` (D); the
+`[seed]` config clamp (lowercase-then-64-hex) lives at config load (E). A
+new call site cannot forget a cap it never had to apply.
+
+### §P59.3 — Normalize hex case at write AND read (registry keys)
+
+A pubkey/hash key has 2^64 case variants; an attacker can monopolize capped
+slots (SEED-2: 1024 buckets / 64 seeders) by re-announcing the same identity
+in different casings. Normalize to lowercase at BOTH the write path and every
+read path — one slot per identity, no case-aliased displacement.
+
+### §P59.4 — Guardrail tripwire is a TERMINAL transition (CARRY-2)
+
+Both result-ingress points (HTTP `coordinator_submit_result`, gossip
+`validator_loop`) run the output guardrail between
+`validate_result_pre_guardrail` and `validate_result_post_guardrail`. A trip
+must call `reject_result_on_guardrail_trip` (task → `Rejected`): the
+validated submission is already consumed, so a logged-and-return leaves a
+zombie Pending/AwaitingQuorum task no future event can rescue. The quorum
+`task_results` rows are kept as audit trail — terminal status makes them
+inert via the pre-guardrail status gate.
+
+### §P59.5 — Zip member injection: strip-before-inject, count caps beside byte caps
+
+`ZipWriter::new_append` + `start_file` always APPENDS — injecting
+`provenance.json` into an archive that already carries one (fork redeploy of
+a blob-reconstructed workspace) stacks two same-named members, and which one
+an extractor sees is implementation-defined (PULL-1: `strip_zip_member`
+first, byte-identical no-op when absent, then inject; the artifact hash then
+covers app content only). Byte caps (`MAX_ARCHIVE_BYTES`,
+`MAX_DECOMPRESSED_BYTES`) do NOT stop a flood of tiny entries — an
+entry-count cap (`MAX_ARCHIVE_ENTRIES=4096`, FORK-1) must reject BEFORE any
+disk write (inode/handle-exhaustion bomb class, GHSA-j47w-4g3g-c36v).
+
+### §P59.6 — clippy `await_holding_lock` is lexical: use a block, not drop()
+
+clippy's `await_holding_lock` ignores an explicit `drop(guard)` (lexical
+analysis only). Wrap the `MutexGuard` in a `{ }` block so the guard's scope
+visibly ends before the `.await`.
+
+### §P59.7 — Boot driver hygiene (headless anchor, E)
+
+A config-driven boot task must be: (a) duress-gated AT THE TOP (the duress
+launcher swaps the identity, not the data root — an ungated driver replays
+the REAL config under the decoy keypair); (b) retained as a handle and
+abort()+joined at shutdown BEFORE node reclamation (a detached
+`tokio::spawn` leaves live network work after shutdown); (c) resolution
+priority FROZEN by test (direct > local pin row > subscribed directories) so
+a divergent directory can never override the local pin.
+
+## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
+
+Origin: S74 Phase D was committed while its Codex review still carried an
+unresolved `GAP` verdict (`sprint74_phase_d_codex_review.md`). The commit body
+DISCLOSED both gaps and routed them (one closed in Phase G, one re-routed
+S75) — that is the acceptable shape. The RULE (S74 audit META-1, logged S75
+Phase G): committing over a Codex `GAP` is allowed ONLY when (1) the commit
+body `## Codex verification` section names each unresolved GAP explicitly,
+(2) each GAP has a routed owner (a later phase of the same sprint, or the
+next sprint's audit plan), and (3) the phase review.md documents the
+reconciliation decision. A silent commit over a GAP — body says "0 GAP" or
+omits it — is a P1 process violation (lightcheck Check 7 enforces the
+artifact side; this rule covers the routing side).

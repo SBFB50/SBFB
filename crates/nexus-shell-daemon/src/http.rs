@@ -1350,7 +1350,8 @@ struct DirectoryRevisionFile {
 /// Truncate `s` to at most `max_bytes` bytes without splitting a UTF-8
 /// character (the cut falls back to the nearest lower char boundary). Used to
 /// clamp catalog fields to their `NODE_DIRECTORY_*_MAX` before signing, since
-/// the deploy/publish producers impose no length cap of their own.
+/// the deploy/publish producers impose no length cap of their own, and to cap
+/// the search `q` param to [`MAX_SEARCH_QUERY_BYTES`] (CARRY-5).
 fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
         return s.to_string();
@@ -3185,6 +3186,18 @@ async fn coordinator_submit_result(
                     %reason,
                     "result rejected by output guardrail — not persisted, no kudos credited"
                 );
+                // CARRY-2 (S74 audit, Sprint 75 Phase G): a tripwire is
+                // terminal — the validated submission is already consumed, so
+                // leaving the task Pending/AwaitingQuorum would zombie it
+                // forever. Same transition as the gossip `validator_loop`.
+                if let Err(e) =
+                    nexus_coordinator_rs::validator::reject_result_on_guardrail_trip(&db, &pending)
+                {
+                    tracing::error!(
+                        task_id = %entry.payload.task_id,
+                        "failed to mark guardrail-tripped task rejected: {e}"
+                    );
+                }
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(
@@ -3637,6 +3650,16 @@ fn default_search_limit() -> usize {
     20
 }
 
+/// Server-side caps on the attacker-supplied search params (Sprint 75
+/// Phase G, CARRY-5 / S74 audit). `limit` was already clamped to 100; an
+/// unbounded `offset` walks the whole FTS5 match set inside SQLite
+/// (`LIMIT ?2 OFFSET ?3`) — and `usize::MAX as i64` even flips negative,
+/// which SQLite silently treats as "no offset". An unbounded `q` is
+/// tokenised + quoted per word before the MATCH parse, so a megabyte
+/// query is a cheap CPU/allocation lever on the loopback API.
+const MAX_SEARCH_OFFSET: usize = 10_000;
+const MAX_SEARCH_QUERY_BYTES: usize = 1024;
+
 async fn search_handler(
     State(state): State<Arc<DaemonHttpState>>,
     axum::extract::Query(params): axum::extract::Query<SearchQuery>,
@@ -3653,20 +3676,22 @@ async fn search_handler(
     };
 
     let limit = params.limit.min(100);
+    let offset = params.offset.min(MAX_SEARCH_OFFSET);
+    // UTF-8-safe truncation: a naive byte slice would panic mid-char.
+    let q = truncate_on_char_boundary(&params.q, MAX_SEARCH_QUERY_BYTES);
     let start = std::time::Instant::now();
 
-    let (results, total) =
-        match nexus_coordinator_rs::search::search(&db, &params.q, limit, params.offset) {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("search query failed: {e}");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": "internal"})),
-                )
-                    .into_response();
-            }
-        };
+    let (results, total) = match nexus_coordinator_rs::search::search(&db, &q, limit, offset) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("search query failed: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
 
     let took_ms = start.elapsed().as_millis() as u64;
     let entries: Vec<serde_json::Value> = results
@@ -7721,16 +7746,18 @@ mod tests {
 
         // Sprint 73 Phase A (D5): the guardrail runs BEFORE persistence, so a
         // rejected result leaves no completed task, no retrievable text, and
-        // credits no kudos.
+        // credits no kudos. Since CARRY-2 (Sprint 75 Phase G) the trip is also
+        // TERMINAL on this HTTP path: the task flips to Rejected instead of
+        // silently keeping its prior non-terminal state.
         let db = state.coordinator_db.lock().unwrap();
         let task = db
             .get_task(&task_entry.task.task_id)
             .expect("get")
             .expect("found");
-        assert_ne!(
+        assert_eq!(
             task.status,
-            nexus_coordinator_rs::types::TaskStatus::Completed,
-            "guardrail-rejected result must not complete the task"
+            nexus_coordinator_rs::types::TaskStatus::Rejected,
+            "guardrail-rejected result must terminally reject the task (CARRY-2)"
         );
         assert!(
             db.get_task_result(&task_entry.task.task_id)
@@ -10691,6 +10718,94 @@ mod tests {
             "ee00000000000000000000000000000000000000000000000000000000000000"
         );
         assert_eq!(hit["is_open_source"], true);
+    }
+
+    #[tokio::test]
+    async fn search_clamps_offset_and_query() {
+        // CARRY-5 (S74 audit, Sprint 75 Phase G): `offset` and `q` are
+        // attacker-supplied query params; only `limit` was clamped before.
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::search::index_entry(
+                &db,
+                "proj-clamp",
+                "Clampable App",
+                "tools",
+                "an app for the clamp test",
+                "",
+                "browse",
+                &nexus_coordinator_rs::search::Provenance::default(),
+            )
+            .expect("index");
+        }
+
+        // (a) offset = usize::MAX. Unclamped, `usize::MAX as i64` flips to -1
+        // and SQLite treats a negative OFFSET as zero — the row would come
+        // BACK. Clamped to MAX_SEARCH_OFFSET (way past the 1-row match set),
+        // the page is defined and empty while `total` still counts the match.
+        let resp = build_test_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/daemon/search?q=clampable&offset={}", usize::MAX).as_str())
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(json["total"], 1, "total still counts the match");
+        assert_eq!(
+            json["results"].as_array().unwrap().len(),
+            0,
+            "a huge offset must be clamped, not wrap negative and return rows"
+        );
+
+        // (b) q far beyond MAX_SEARCH_QUERY_BYTES, with a multi-byte char
+        // straddling the 1024-byte cut: a naive byte slice would panic
+        // mid-char (500); the boundary-safe truncation must answer 200.
+        // `%C3%A9` percent-encodes "é" (2 bytes once decoded), so the
+        // decoded q is 1023 ASCII bytes then 2000 two-byte chars — the cut
+        // at byte 1024 falls mid-"é".
+        let big_q = format!(
+            "{}{}",
+            "x".repeat(MAX_SEARCH_QUERY_BYTES - 1),
+            "%C3%A9".repeat(2_000)
+        );
+        let resp = build_test_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/daemon/search?q={big_q}").as_str())
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "an oversized q must be truncated UTF-8-safely, never error"
+        );
+
+        // (c) sanity: a normal query still finds the row.
+        let resp = build_test_router(state)
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/search?q=clampable")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(json["results"].as_array().unwrap().len(), 1);
     }
 
     // ---------------------------------------------------------
