@@ -92,52 +92,147 @@ communautaires, en GPU partagé (S76) + gros modèles, construisent l'app.
 (dispatch Claude/Ollama/réseau), GPU cross-machine = S76, provenance
 Ed25519+SLSA, guardrails + quorum sur les résultats réseau, atelier fork S74.
 
+**Le rôle « structureur de fondations »** est la pépite produit de la
+vision : tout le monde ne code pas — certains STRUCTURENT. Prendre une idée
+brute et la transformer en fondation exploitable (roadmap, sprints, critères)
+est un travail réel, valorisable, et Factory est exactement son outil. Le
+structureur gagne de la renommée quand ses fondations se font construire :
+une voie de réputation par la valeur produite, pas par un cartel.
+
+### 4.1 Le débat marché vs bien commun — les trois murs et leur relecture
+
 **Trois murs initiaux (lecture marché)** : (1) qualité de la construction
-autonome non résolue ; (2) incitation — pourquoi brûler son GPU sans argent ;
-(3) confiance — le build implémente-t-il la roadmap ?
+autonome non résolue — sortir une roadmap est facile, construire un logiciel
+correct automatiquement est le front de recherche ; (2) incitation — pourquoi
+un builder dépenserait son GPU et son électricité pour l'idée d'un inconnu,
+sans argent ; (3) confiance — comment savoir que le build implémente
+fidèlement la roadmap ?
 
-**Relecture PO (lentille bien commun)** : les projets sont des biens communs
-pour l'humanité ; un groupe prend une idée parce qu'elle l'intéresse ; la
-renommée est inscrite à jamais dans chaque nœud ; les dérives importent peu
-car plusieurs équipes peuvent créer des solutions concurrentes.
+**Réponse du PO (lentille bien commun, assumée anti-capitaliste)** — citée
+parce qu'elle est le cœur philosophique du projet :
+- les projets sont des **biens communs à but d'améliorer l'humanité** —
+  pas des produits à rentabiliser ;
+- si un groupe prend un projet, **c'est qu'il l'intéresse** — l'intérêt
+  intrinsèque EST l'incitation ;
+- tout ce qui se passe est **inscrit pour toujours dans chaque nœud** — la
+  renommée s'accumule sur l'historique complet, elle ne s'efface pas ;
+- la confiance dans le résultat : « on s'en fout s'il y a des dérives » —
+  **plusieurs équipes peuvent créer la solution**, la pluralité fait le tri ;
+- les idées seront prises en main par des **communautés humanistes**.
 
-**Première révision (débat)** : l'incitation a des précédents
-(Folding@home, BOINC, Wikipedia, Linux) ; la confiance est remplacée par la
-pluralité + la sélection ; la qualité autonome se ramollit en
-« augmentation » humain+agent. Restent deux goulots : masse critique
-d'humains alignés + couche de sélection navigable.
+**Ce que cette relecture change réellement (acté au débat)** :
+- Le mur de l'incitation **tombe largement** : les communs de compute ont
+  déjà scalé sans un centime (Folding@home ~2,4 exaFLOPS au pic COVID,
+  BOINC, Wikipedia, Linux) — l'erreur de la lecture marché était de
+  présupposer qu'il faut un paiement. La registre permanent par nœud est
+  une réputation plus durable que n'importe quel profil de plateforme.
+- Le mur de la confiance est **remplacé par la pluralité** : on ne vérifie
+  pas chaque build, on laisse plusieurs versions exister (fork-and-compete) ;
+  la charge se déplace vers la couche découverte/sélection — qui est
+  précisément ce que l'UX-ARRIVAL vient de commencer à construire.
+- Le mur de la qualité **se ramollit** : plus besoin d'autonomie totale ;
+  l'humain structure et juge, l'agent exécute, la pluralité corrige —
+  c'est de l'augmentation, atteignable par incréments.
+- Restent deux goulots honnêtes : **réunir assez d'humains alignés** (la
+  ressource rare n'est pas l'argent, c'est l'attention alignée) et rendre la
+  **pluralité navigable** (la couche de sélection devient load-bearing).
 
-→ Cette première révision est elle-même **corrigée** par le re-examen
-adversarial (§6) : elle était encore trop optimiste sur « les communautés »
-et trop dure sur le PoW.
+→ Cette relecture est elle-même **affinée** par le re-examen adversarial
+(§6) : elle était encore trop optimiste sur « les communautés » comme unité
+de production (§6.1) et trop dure sur le PoW (§6.4) — mais sa structure
+(intérêt intrinsèque + pluralité + augmentation) survit.
 
-## 5. Alignement sociétal et énergétique
+## 5. L'alliance sociétale : « le numérique en commun », l'énergie, l'orientation des usages
 
-**« Numérique en commun »** (corpus LFI 2022 fourni par le PO) : l'alignement
-est structurel, pas cosmétique — anti-monopole gravé dans le protocole (pas
-de serveur central, pas de ranking global), logiciel libre AGPL, « clouds de
-confiance décentralisés, associatifs et pluriels », fabrication distribuée,
-refus de la censure privée, chiffrement. SBFB est le fil « commun par la
-base » (associatif/pluriel) du programme, pas le fil étatique (cloud
-souverain public) — les deux sont complémentaires (le n°1 peut financer le
-n°2). Deux conditions d'adoption par ce milieu : une réponse défendable sur
-la **sobriété** (cf. §6.4) et l'**accessibilité non-technique** (cohérent
-avec la règle projet « v1.0 = prod ready non-technicien »).
+### 5.1 L'alignement avec le « numérique en commun » (corpus LFI 2022)
 
-**Énergie** : le mix électrique français (~50-60 gCO₂/kWh, nucléaire +
-renouvelables) est un bouclier réel — et un argument de souveraineté — pour
-le **compute UTILE** (les builders GPU). Il ne couvre pas l'axe « gaspillage
-de principe » : la réponse au PoW n'est pas « c'est propre » mais « c'est
-micro, borné, et dormant » (§6.4).
+Le PO a versé au débat le livret numérique de la France insoumise — non comme
+adhésion partisane du projet, mais comme **preuve qu'une très grande
+communauté humaniste organisée existe en France** dont le programme converge
+point par point avec ce que SBFB est déjà :
 
-**Orientation des usages** : la majorité du compute IA marchand part dans la
-génération à faible valeur (slop SEO, engagement) parce que la pub le
-rémunère. Un commun **non-monétaire retire ce moteur** : personne ne brûle du
-GPU pour du spam sans modèle d'affaires. Le même compute, rebranché sur ce
-que des humains alignés valorisent, s'oriente vers l'utile. C'est l'argument
-structurel le plus fort de la vision — avec sa limite honnête : c'est une
-**garantie culturelle, pas une garantie de code** (l'inscrire dans le
-protocole = recréer un comité). Elle vaut ce que vaudra la communauté.
+| Le programme demande | SBFB l'est / le fait |
+|---|---|
+| « Le numérique comme bien commun » | Bien commun assumé, AGPL, non-monétaire, vision anti-startup/anti-financiarisation (memory `vision_model`) |
+| Lois de déconcentration anti-monopole | Anti-monopole **gravé dans le protocole** : pas de serveur central, pas d'admin, pas de ranking global, 5 verrous anti-recentralisation — pas une politique appliquée, une structure |
+| « Clouds de confiance décentralisés, associatifs et pluriels » | C'est littéralement SBFB : des nœuds que n'importe qui héberge, pluriels, sans propriétaire |
+| « Hébergements de proximité », « fabrication distribuée » (fablabs) | Chaque nœud est un hébergement de proximité ; le fork outillé + Factory = fabrication distribuée du logiciel |
+| Logiciel libre, interopérabilité, anti-captivité | AGPL, apps à source vérifiable, zéro lock-in |
+| Refus de la censure privée des plateformes | Zéro modération centrale ; chaque nœud cure SA vue |
+| Transparence, maîtrise des données | Tout signé Ed25519, provenance SLSA, historique inscrit dans chaque nœud |
+| Chiffrement, vie privée | Crypto de bout en bout du protocole, durcissement loopback, sandbox |
+
+**Nuance structurante** : le programme porte DEUX fils — le commun garanti
+par l'ÉTAT (cloud souverain public, agences) et le commun PAR LA BASE
+(associatif, pluriel, fablabs). SBFB est le fil n°2 : personne ne le
+« garantit » d'en haut, des pairs le font tourner. Les deux sont
+complémentaires (le programme prévoit explicitement de « soutenir les
+projets de clouds décentralisés associatifs ») : SBFB ne se présente pas
+comme infrastructure d'État mais comme **l'outil que cette base peut
+s'approprier** — cohérent avec « les idées prises en main par des
+communautés humanistes ».
+
+**Les deux conditions d'adoption par ce milieu** (les valeurs sont déjà au
+rendez-vous, la crédibilité se joue ailleurs) :
+1. **La sobriété** — c'est LE point que ce public scrutera : le programme
+   cible « les usages énergivores des serveurs, comme le minage ». Réponse
+   construite au débat puis chiffrée au re-examen (§5.2, §6.4).
+2. **L'accessibilité non-technique** — le programme martèle l'illectronisme
+   (13 M de Français) ; un outil de dev ne touche pas cette base. Cohérent
+   avec la règle projet déjà gelée « v1.0 = prod ready non-technicien ».
+3. Et la leçon des réseaux (§6.3) précise COMMENT aborder ce milieu : pas
+   par l'affinité idéologique (SSB est mort en l'ayant) mais par un **outil
+   utile dès la première session** — arriver avec 10-30 apps réellement
+   utiles, pas avec un manifeste.
+
+### 5.2 L'argument énergétique français
+
+La France a un des mix électriques les plus bas-carbone du monde
+(~50-60 gCO₂/kWh, nucléaire + renouvelables, contre ~400+ pour la moyenne
+mondiale). Conséquence objective : une heure de GPU en France émet une
+fraction de ce qu'elle émet ailleurs — le reproche « le compute IA = mauvais
+pour le climat » est matériellement plus faible ici.
+
+Mais la sobriété du programme a DEUX axes, et le nucléaire n'en règle qu'un :
+- **Axe carbone** : la France gagne. Mieux : un réseau de compute
+  décentralisé bas-carbone sur sol français coche « centres de calcul
+  régionaux » + « souveraineté » du programme — le GPU partagé devient un
+  argument de souveraineté énergético-numérique, pas une excuse.
+- **Axe gaspillage de principe** (« règle verte » : ne pas prendre plus que
+  ce qui se reconstitue) : propre ne veut pas dire non-gaspillé. D'où la
+  distinction décisive actée au débat :
+  - le **GPU qui construit des apps = compute UTILE** (l'énergie produit un
+    bien commun) — défendable sur les deux axes en France ;
+  - le **PoW = travail inutile par conception** — c'est le seul maillon
+    attaquable, et sa défense n'est pas « c'est propre » mais « c'est micro,
+    borné par l'usage, et dormant » (réhabilitation chiffrée au §6.4 :
+    2-3 J/écriture, précédent Tor 2023).
+
+### 5.3 L'orientation des usages — l'argument structurel du PO
+
+Constat PO : l'utilisation massive actuelle de l'IA part dans la génération
+de texte/image **sans réelle utilité** (slop SEO, contenu d'engagement,
+images jetables). Précision actée : c'est vrai de la majorité MARCHANDE, pas
+de toute génération (la traduction — Babel —, l'accessibilité, l'éducation
+sont de la génération utile). Le bon cadrage : **le profit oriente
+aujourd'hui le compute vers le futile ; un commun l'oriente vers ce que les
+humains valorisent.**
+
+L'argument est structurel, pas moral : le slop existe PARCE QUE la pub et
+l'engagement le rémunèrent. Un commun **non-monétaire retire ce moteur** —
+personne ne brûle du GPU pour du spam SEO sans modèle d'affaires. Le même
+compute, débranché de l'incitation marchande et rebranché sur ce que des
+communautés alignées valorisent, s'oriente mécaniquement vers l'utile :
+« des applications d'intérêt public pour la planète » (PO). C'est exactement
+la position du programme cité : le problème n'a jamais été l'IA, c'est **à
+qui elle obéit**.
+
+Limite honnête, assumée au débat : SBFB ne peut pas IMPOSER l'usage vertueux
+par le protocole — ce serait recréer un comité, un trône, un GAFAM bis.
+L'orientation est une **garantie culturelle, pas une garantie de code** :
+elle vaut ce que vaudra la communauté qui s'empare de l'outil. C'est
+précisément pourquoi la couche découverte/curation (§2, §6.3) et
+l'accessibilité sont les pièces qui décident si la promesse devient réalité.
 
 ---
 
