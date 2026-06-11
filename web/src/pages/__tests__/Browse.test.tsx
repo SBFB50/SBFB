@@ -208,6 +208,87 @@ describe("Browse search bar", () => {
     expect(screen.queryByTestId("browse-search-empty")).not.toBeInTheDocument();
   });
 
+  it("dedups the same app reaching the grid from two discovery channels", async () => {
+    // Sprint 75 fix — an app pushed by gossip (source "direct", re-minted PUSH)
+    // AND listed in a subscribed node directory (source "nodedirectory", PULL)
+    // is ONE content address (same project_id + archive_hash). The aggregator
+    // emits both rows additively; the grid must render ONE card, keep the
+    // publisher provenance badge, and stay reachable if either channel is.
+    const pid = "ab".repeat(32);
+    const hash = "cd".repeat(32);
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: pid,
+            project_name: "sbfb-explorer",
+            archive_hash: hash,
+            provenance_hash: "ef".repeat(32),
+            curator_pubkey: "",
+            curator_name: "Self-published",
+            source: "direct",
+            status: "reachable",
+          }),
+          makeBrowseEntry({
+            project_id: pid,
+            project_name: "sbfb-explorer",
+            archive_hash: hash,
+            curator_pubkey: "99".repeat(32),
+            curator_name: "anchor",
+            source: "nodedirectory",
+            status: "unreachable",
+          }),
+        ],
+      },
+      "/api/daemon/search": { results: [], total: 0, took_ms: 0 },
+    });
+
+    renderBrowse();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("browse-grid")).toBeInTheDocument();
+    });
+    // Exactly ONE card for the app reaching the grid from two channels.
+    expect(screen.getAllByTestId("browse-card")).toHaveLength(1);
+    // The publisher representative wins → its provenance badge survives.
+    expect(screen.getByTestId("verified-badge")).toBeInTheDocument();
+    // The "Upload direct" source badge is kept (publisher entry chosen).
+    expect(screen.getByTestId("source-badge-direct")).toBeInTheDocument();
+  });
+
+  it("keeps distinct versions of one app as separate cards", async () => {
+    // Two DIFFERENT archive_hash for the same project_id are distinct
+    // deployables — the dedup keys on (project_id, archive_hash), so they
+    // must NOT be collapsed.
+    const pid = "ab".repeat(32);
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: pid,
+            archive_hash: "11".repeat(32),
+            source: "direct",
+            curator_pubkey: "",
+          }),
+          makeBrowseEntry({
+            project_id: pid,
+            archive_hash: "22".repeat(32),
+            source: "nodedirectory",
+            curator_pubkey: "99".repeat(32),
+          }),
+        ],
+      },
+      "/api/daemon/search": { results: [], total: 0, took_ms: 0 },
+    });
+
+    renderBrowse();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("browse-grid")).toBeInTheDocument();
+    });
+    expect(screen.getAllByTestId("browse-card")).toHaveLength(2);
+  });
+
   it("q6_cohabitation : le lien par-noeud est additif, la grille reste (verrou 2)", async () => {
     // Sprint 75 Phase F — node-Browse est une lentille SUPPLÉMENTAIRE
     // (écran Dépôts de F-Droid), jamais un remplacement silencieux de la

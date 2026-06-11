@@ -73,7 +73,7 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
 
   const result = browseQuery.data;
   const entries =
-    result?.kind === "data" ? result.body.entries : [];
+    result?.kind === "data" ? dedupeBrowseEntries(result.body.entries) : [];
 
   // Daemon offline or proxy error — show banner before grid
   const daemonOffline = result?.kind === "unavailable";
@@ -165,6 +165,55 @@ function BrowseContent({ coordUrl }: { coordUrl: string }) {
  */
 function isHttpsUrl(url: string | null | undefined): url is string {
   return typeof url === "string" && url.startsWith("https://");
+}
+
+/**
+ * Sprint 75 fix — collapse the SAME app reaching the grid from MORE THAN ONE
+ * discovery channel into a single card. An app the node receives BOTH as a
+ * gossip-pushed announcement (`source: "direct"`, the re-minted PUSH path kept
+ * for the rollout window, D2) AND as a listing in a subscribed node directory
+ * (`source: "nodedirectory"`, the PULL catalogue) is the same content address —
+ * same `project_id`, same `archive_hash` — yet `aggregate()` emits BOTH rows
+ * additively (verrou 2, `browse.rs`), so the grid would render the app twice.
+ *
+ * Dedup by `(project_id, archive_hash)` for DISPLAY only: verrou 2 is about the
+ * grid never being REPLACED by the by-node lens, not about showing one app
+ * twice. Keep the richest representative — a publisher entry (`direct` /
+ * `provenance_hash`) outranks a bare directory listing, so the provenance badge
+ * survives — and OR the reachability (any channel reachable ⇒ the app is
+ * reachable). The per-node catalogue (`/node/:id`) already dedups via
+ * `dedupeCatalog`; this brings the flat grid to parity. The daemon `/browse`
+ * bytes are UNCHANGED (the lock-4 cross-reference still reads every source).
+ */
+function dedupeBrowseEntries(entries: BrowseEntry[]): BrowseEntry[] {
+  const byKey = new Map<string, BrowseEntry>();
+  const order: string[] = [];
+  for (const entry of entries) {
+    const key = `${entry.project_id}::${entry.archive_hash ?? ""}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, entry);
+      order.push(key);
+      continue;
+    }
+    const reachable =
+      prev.status === "reachable" || entry.status === "reachable";
+    const richer =
+      entryRichness(entry) > entryRichness(prev) ? entry : prev;
+    byKey.set(key, {
+      ...richer,
+      status: reachable ? "reachable" : richer.status,
+    });
+  }
+  return order.map((k) => byKey.get(k)!);
+}
+
+/** A publisher / provenance entry outranks a bare directory listing. */
+function entryRichness(e: BrowseEntry): number {
+  let score = 0;
+  if (e.provenance_hash) score += 2;
+  if ((e.source ?? "curator") === "direct") score += 1;
+  return score;
 }
 
 function SearchBar({
@@ -412,7 +461,7 @@ function AppGrid({ entries }: { entries: BrowseEntry[] }) {
       >
         {entries.map((entry) => (
           <AppCard
-            key={`${entry.project_id}-${entry.curator_pubkey}`}
+            key={`${entry.project_id}::${entry.archive_hash ?? entry.curator_pubkey}`}
             entry={entry}
           />
         ))}
