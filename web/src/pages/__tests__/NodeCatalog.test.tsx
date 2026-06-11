@@ -556,6 +556,49 @@ describe("NodeCatalog", () => {
     ).toBeInTheDocument();
   });
 
+  it("le CTA garder-en-ligne survit a un refresh (reconciliation self_seeding)", async () => {
+    // Bug live-found (classe WEB-1, intent vs truth) : l'état « Gardée en
+    // ligne » était un useState in-session — un refresh re-rendait le bouton
+    // neutre alors que le daemon seede réellement (row M18 + pin posés).
+    // Au mount (= après refresh), seed-count.self_seeding version-exacte est
+    // la vérité : true ⇒ l'état actif se rend SANS aucun clic.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const path = new URL(url).pathname;
+        if (path.includes("/api/daemon/nodes")) {
+          return new Response(JSON.stringify({ nodes: [makeNode()] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (path.includes("/api/daemon/browse")) {
+          return new Response(JSON.stringify(browseFixture("reachable")), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (path.includes("/api/daemon/seed-count")) {
+          // Ce nœud seede déjà la version exacte demandée.
+          return new Response(
+            JSON.stringify({
+              peer_count: 0,
+              self_seeding: true,
+              self_pin_enabled: true,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("{}", { status: 404 });
+      }),
+    );
+    renderCatalog();
+
+    // L'état actif apparaît sans interaction (réconcilié depuis le daemon).
+    const actives = await screen.findAllByTestId("catalog-support-active");
+    expect(actives.length).toBeGreaterThan(0);
+  });
+
   it("catalogue inconnu : etat introuvable avec retour vers /nodes", async () => {
     mockFetch({
       "/api/daemon/nodes": { nodes: [] },

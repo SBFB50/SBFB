@@ -416,6 +416,22 @@ function SupportButton({
 }) {
   const queryClient = useQueryClient();
   const [supporting, setSupporting] = useState(false);
+  // Réconciliation au mount (classe WEB-1, fix live-found) : `supporting`
+  // est un écho IN-SESSION — il ne survit pas à un refresh. Le daemon est
+  // la vérité : `self_seeding` version-exacte (la paire pid+hash) dit si CE
+  // nœud garde déjà cette version en ligne. Sans cette lecture, un refresh
+  // re-rendait le bouton neutre alors que le seed est actif (row M18 + pin
+  // posés par le clic précédent). Même clé React Query que SeederReachBadge
+  // → une seule requête réseau par carte, dédupliquée par le cache.
+  const countQuery = useQuery({
+    queryKey: ["seed-count", coordUrl, projectId, archiveHash],
+    queryFn: () => seedCount(coordUrl, projectId, archiveHash),
+    enabled: archiveHash !== null,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+  const selfSeeding =
+    countQuery.data?.kind === "data" && countQuery.data.body.self_seeding;
   const mutation = useMutation({
     mutationFn: () => seedVoluntary(coordUrl, projectId, archiveHash),
     onSuccess: (res) => {
@@ -440,7 +456,7 @@ function SupportButton({
 
   if (!archiveHash) return null;
 
-  if (supporting) {
+  if (supporting || selfSeeding) {
     return (
       <span
         className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1.5 text-[11px] text-emerald-300"
