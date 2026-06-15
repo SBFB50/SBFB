@@ -161,7 +161,19 @@ pub(crate) async fn reannounce_seeds_at_boot(
     feed_state: &FeedSyncState,
     coordinator_db: &std::sync::Mutex<CoordinatorDb>,
     keypair: &nexus_core_rs::KeyPair,
+    identity_mode: nexus_core_rs::IdentityMode,
 ) -> u64 {
+    // Sprint 75 audit (DURESS-BOOT-LEAK, P1): a decoy identity must NOT
+    // re-announce the operator's REAL kept-online apps to the feed under the
+    // fake keypair. The duress launcher swaps only the identity — coordinator.db
+    // (the keep_online rows) is the operator's real one — so an un-gated
+    // re-announce would sign the real app set with the decoy key and correlate
+    // the two identities at every boot. Mirrors `run_boot_seed_driver`.
+    if crate::noop_identity::gossip_publish_in_duress(identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return 0;
+    }
     let rows = {
         let db = match coordinator_db.lock() {
             Ok(db) => db,
@@ -933,6 +945,66 @@ mod tests {
         assert_eq!(entry, back);
     }
 
+    /// Sprint 75 audit (DURESS-BOOT-LEAK, P1): a decoy identity must perform
+    /// ZERO boot feed re-announce. With a resolvable `keep_online` row that
+    /// WOULD emit a `SeedAnnounced` in Normal mode, the duress path must emit
+    /// nothing and write nothing to the iroh-docs feed. Mirror of
+    /// `boot_seed_driver_noop_in_duress` for the feed-emit sibling.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn reannounce_seeds_noop_in_duress() {
+        use nexus_core_rs::KeyPair;
+        use nexus_core_rs::docs::DocsClient;
+
+        let project_id = "a".repeat(64);
+        let archive_hash = "cc".repeat(32);
+
+        // Not Arc-wrapped (unlike the 2-node test): this single node is never
+        // shared across a task, so it can be moved into `shutdown()` at the end.
+        let node_a = nexus_core_rs::create_node().await.expect("boot node A");
+        let docs_a = DocsClient::new(node_a.docs());
+        let author_a = docs_a.author_default().await.expect("author A");
+        let doc_a = Arc::new(docs_a.create_doc().await.expect("create doc A"));
+        let ticket = doc_a.share_write().await.expect("share write ticket");
+
+        let db_a = Arc::new(std::sync::Mutex::new(
+            CoordinatorDb::open_in_memory().expect("db A"),
+        ));
+        let a_keypair = KeyPair::generate();
+        // A real kept-online row that WOULD be re-announced in Normal mode.
+        db_a.lock()
+            .unwrap()
+            .set_keep_online(&project_id, true, Some(&archive_hash))
+            .expect("set keep_online A");
+        let fs_a = FeedSyncState {
+            doc: Arc::clone(&doc_a),
+            author: author_a,
+            ticket: ticket.to_string(),
+        };
+
+        let emitted = reannounce_seeds_at_boot(
+            &fs_a,
+            &db_a,
+            &a_keypair,
+            nexus_core_rs::IdentityMode::Duress,
+        )
+        .await;
+
+        assert_eq!(
+            emitted, 0,
+            "a decoy node must re-announce ZERO kept-online apps under duress"
+        );
+        let feed_entries = doc_a
+            .get_many_by_prefix("feed/")
+            .await
+            .expect("query feed entries");
+        assert!(
+            feed_entries.is_empty(),
+            "no feed entry may be written to iroh-docs under duress"
+        );
+
+        node_a.shutdown().await.ok();
+    }
+
     /// §P57 real-frontier gate: a peer that pins a distant app re-announces it
     /// to the feed AFTER a reboot, and a SECOND node ingesting that feed sees
     /// its multi-seed count increment. Both sides are real iroh nodes syncing a
@@ -1011,7 +1083,13 @@ mod tests {
         });
 
         // ---------- Simulate A's reboot: re-announce its kept-online apps ----------
-        let emitted = reannounce_seeds_at_boot(&fs_a, &db_a, &a_keypair).await;
+        let emitted = reannounce_seeds_at_boot(
+            &fs_a,
+            &db_a,
+            &a_keypair,
+            nexus_core_rs::IdentityMode::Normal,
+        )
+        .await;
         assert_eq!(emitted, 1, "A must re-emit exactly one SeedAnnounced");
 
         // ---------- B's registry must reflect the new seeder ----------

@@ -764,9 +764,22 @@ impl DaemonRuntime {
                 }
             };
 
+        // Sprint 75 audit (DURESS-BOOT-LEAK, P1): under duress the boot feed
+        // republish (6c-5 + 6c-5b) is a no-op — a decoy must not re-emit the
+        // operator's REAL feed history to iroh-docs under the fake keypair
+        // (mirrors `run_boot_seed_driver`). Presenting `None` to both blocks
+        // skips them without touching the working logic below.
+        let feed_sync_for_republish =
+            if crate::noop_identity::gossip_publish_in_duress(identity_mode)
+                == crate::noop_identity::PublishOutcome::Noop
+            {
+                None
+            } else {
+                feed_sync_state.as_ref()
+            };
         // 6c-5. Sprint 66 Phase C: republish SQLite feed entries to
         //       iroh-docs at boot (one-shot, synchronous before HTTP).
-        if let Some(ref fs) = feed_sync_state {
+        if let Some(fs) = feed_sync_for_republish {
             let entries_result = {
                 let db = coordinator_db
                     .lock()
@@ -796,7 +809,9 @@ impl DaemonRuntime {
 
         // 6c-5b. Sprint 66 Phase D: orphan recovery — detect entries
         //        in SQLite but missing from iroh-docs and republish.
-        if let Some(ref fs) = feed_sync_state {
+        //        (Sprint 75 audit DURESS-BOOT-LEAK: also a no-op under duress
+        //        via `feed_sync_for_republish`.)
+        if let Some(fs) = feed_sync_for_republish {
             match fs.doc.get_many_by_prefix("feed/").await {
                 Ok(doc_entries) => {
                     let present_keys: std::collections::HashSet<String> = doc_entries
@@ -860,7 +875,13 @@ impl DaemonRuntime {
         //        seeded distant apps. Best-effort, after the feed namespace is
         //        ready. Self never counts itself ("Toi" is added at query time).
         if let Some(ref fs) = feed_sync_state {
-            crate::feed_sync::reannounce_seeds_at_boot(fs, &coordinator_db, &pow_keypair).await;
+            crate::feed_sync::reannounce_seeds_at_boot(
+                fs,
+                &coordinator_db,
+                &pow_keypair,
+                identity_mode,
+            )
+            .await;
         }
 
         // 6c-7. Sprint 67 Phase B: rebuild FTS5 search index from feed.
