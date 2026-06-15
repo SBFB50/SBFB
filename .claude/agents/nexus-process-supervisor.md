@@ -1,4 +1,4 @@
-﻿---
+---
 name: nexus-process-supervisor
 description: >
   Superviseur process nexus-grid. Mode prefere: teammate Agent Team

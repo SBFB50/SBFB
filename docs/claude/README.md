@@ -1812,6 +1812,53 @@ DEMANDER (STOP) seulement si :
 Anti-pattern : "tu confirmes que je commit chore(planning) d'abord ?"
 — la procédure répond, pas l'utilisateur.
 
+# === Mode ultracode + orchestration multi-agents (defaut session SBFB) ===
+
+Cette session est en mode ULTRACODE par defaut : on optimise pour la
+reponse la plus exhaustive et correcte, pas la plus rapide ni la moins
+chere. Le cout en tokens n'est PAS une contrainte (coherent avec la
+directive PO « sprints ultra-complets »).
+
+DEUX niveaux d'orchestration, a ne JAMAIS confondre :
+
+  1. ORCHESTRATION DE GATE (toujours active, via l'outil Agent) —
+     c'est le coeur du process §7.1. Les 6 agents `.claude/agents/*.md`
+     sont TOUS enregistres. Rappel incident 2026-06-15 : un BOM UTF-8
+     (`EF BB BF`) en tete de 5 des 6 fichiers cassait silencieusement
+     le parsing du frontmatter -> agents non charges -> fallback
+     general-purpose systematique sprint apres sprint. Corrige (strip
+     BOM). N'utilise PLUS le fallback general-purpose comme defaut :
+     INVOQUE l'agent specialise du gate (`nexus-phase-preflight-deep`,
+     `nexus-phase-review-deep`, `nexus-audit-gate`,
+     `nexus-sprint-kickoff`, `nexus-phase-auditor`) et le superviseur
+     long-lived (`nexus-process-supervisor` en teammate Agent Team ;
+     `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` deja active dans
+     settings.json). Le fallback general-purpose n'est legitime QUE si
+     l'Agent meurt ou si le type est REELLEMENT absent de la liste
+     « Available agent types » — verifier cette liste avant de conclure
+     a l'indisponibilite, ne PAS presumer le fallback.
+
+  2. MODE ULTRACODE (Workflow fan-out) — pour les phases de DECOUVERTE
+     et de VERIFICATION (kickoff, audit gate, review profonde,
+     recherche multi-source), preferer un Workflow multi-agents
+     (fan-out + verification adversariale + synthese) plutot qu'un agent
+     unique. Le pattern Workflow brille en LECTURE/verification ; il ne
+     code JAMAIS une phase en parallele (editions concurrentes des
+     fichiers partages http.rs/runtime.rs = conflits + commit atomique
+     casse). L'ECRITURE d'une phase reste main-thread, sequentielle, un
+     commit atomique par phase. L'outil Workflow exige un opt-in,
+     satisfait quand le toggle runtime ultracode est on (un
+     system-reminder le confirme) : garder ce toggle ACTIVE pour les
+     sessions SBFB. S'il ne l'est pas, l'orchestration de gate (niveau 1,
+     via Agent) reste OBLIGATOIRE ; seul le fan-out Workflow attend
+     l'opt-in.
+
+Regle de decision rapide :
+  - lecture/verif large (audit, review, recherche, balayage N fichiers)
+    -> Workflow OU plusieurs Agent en parallele ;
+  - ecriture coherente d'une phase -> main-thread + gates Agent §7.1 ;
+  - tache conversationnelle/triviale -> solo.
+
 # === Pre-flight (un seul copy-paste, lis tout l'output) ===
 
 # IMPORTANT : ce bloc est execute par l'outil Bash de Claude Code.
