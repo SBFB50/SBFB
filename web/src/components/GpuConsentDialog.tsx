@@ -37,6 +37,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  CONSENT_LEVEL,
+  CONSENT_LEVELS_ASCENDING,
   type ConsentConfig,
   type ConsentLevel,
   DEFAULT_CONSENT,
@@ -57,25 +59,25 @@ const LEVEL_LABELS: Record<
   ConsentLevel,
   { title: string; hint: string; threatNote: string }
 > = {
-  1: {
+  [CONSENT_LEVEL.OWN_PROJECTS]: {
     title: "Mes projets uniquement",
     hint: "Aucun partage avec le réseau public. Sécurisé par défaut.",
     threatNote:
       "Aucune exposition tierce. Seules vos propres apps s'exécutent.",
   },
-  2: {
+  [CONSENT_LEVEL.OPEN_SOURCE]: {
     title: "Apps depuis un depot public",
     hint: "Accepte les apps deployees depuis un depot Git public (provenance auto-attestee).",
     threatNote:
       "Apps a source verifiable (SLSA L1). Exposition Sybil si contributeur malveillant.",
   },
-  3: {
+  [CONSENT_LEVEL.WHITELIST]: {
     title: "Projets spécifiques (whitelist)",
     hint: "Tu choisis manuellement chaque projet auquel tu contribues.",
     threatNote:
       "Apps sélectionnées manuellement. Vous êtes responsable de la vérification.",
   },
-  4: {
+  [CONSENT_LEVEL.ALL]: {
     title: "Tous les projets publics",
     hint: "Le worker accepte n'importe quelle tâche publique du réseau.",
     threatNote:
@@ -109,6 +111,10 @@ export function GpuConsentDialog({
   const [pendingError, setPendingError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Sprint 76 Phase A (D1): L4 (All) is the maximum-risk opt-in, so a
+  // first "Enregistrer" click arms an explicit second confirmation
+  // instead of POSTing immediately.
+  const [confirmingAll, setConfirmingAll] = useState(false);
 
   const builtConfig = useMemo<ConsentConfig>(
     () => ({
@@ -145,7 +151,7 @@ export function GpuConsentDialog({
     setAllowedIds((prev) => prev.filter((p) => p !== id));
   }
 
-  async function handleSave() {
+  async function doSave() {
     setSaving(true);
     setSaveError(null);
     try {
@@ -157,6 +163,16 @@ export function GpuConsentDialog({
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSaveClick() {
+    // L4 (All) requires a second, explicit confirmation before the
+    // worker is opened to every public task. Lower levels POST directly.
+    if (level === CONSENT_LEVEL.ALL && !confirmingAll) {
+      setConfirmingAll(true);
+      return;
+    }
+    void doSave();
   }
 
   return (
@@ -174,10 +190,14 @@ export function GpuConsentDialog({
         <TooltipProvider>
           <RadioGroup<ConsentLevel>
             value={level}
-            onValueChange={(v) => setLevel(v as ConsentLevel)}
+            onValueChange={(v) => {
+              setLevel(v as ConsentLevel);
+              // Changing level disarms a pending L4 confirmation.
+              setConfirmingAll(false);
+            }}
             aria-label="Niveau de partage GPU"
           >
-            {([1, 2, 3, 4] as const).map((lvl) => (
+            {CONSENT_LEVELS_ASCENDING.map((lvl) => (
               <label
                 key={lvl}
                 className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/[0.06] p-3 hover:bg-white/[0.04]"
@@ -215,7 +235,7 @@ export function GpuConsentDialog({
           </RadioGroup>
         </TooltipProvider>
 
-        {level === 3 && (
+        {level === CONSENT_LEVEL.WHITELIST && (
           <section
             className="space-y-3 rounded-lg border border-white/[0.06] p-3"
             data-testid="consent-whitelist-section"
@@ -337,6 +357,18 @@ export function GpuConsentDialog({
           </p>
         )}
 
+        {confirmingAll && (
+          <p
+            className="rounded-lg border border-amber-500/20 bg-amber-500/[0.06] p-3 text-xs text-amber-300"
+            role="alert"
+            data-testid="consent-confirm-all"
+          >
+            Niveau maximum : ton worker acceptera n'importe quelle tâche
+            publique du réseau, dans la limite de tes caps. Clique sur
+            « Confirmer le niveau maximum » pour valider.
+          </p>
+        )}
+
         <DialogFooter>
           <Button
             variant="outline"
@@ -348,7 +380,7 @@ export function GpuConsentDialog({
           </Button>
           <Button
             type="button"
-            onClick={handleSave}
+            onClick={handleSaveClick}
             disabled={saving}
             data-testid="consent-save"
           >
@@ -357,7 +389,7 @@ export function GpuConsentDialog({
             ) : (
               <Heart className="h-3.5 w-3.5" />
             )}
-            Enregistrer
+            {confirmingAll ? "Confirmer le niveau maximum" : "Enregistrer"}
           </Button>
         </DialogFooter>
       </DialogContent>

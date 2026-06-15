@@ -3237,7 +3237,11 @@ async fn coordinator_submit_task(
             // submit returns the task id immediately. Idempotent.
             if let Some(doc) = state.project_doc.clone() {
                 let lw = std::sync::Arc::clone(&state.local_worker);
-                tokio::spawn(async move { lw.ensure_spawned(doc).await });
+                // Sprint 76 Phase A (D1): pass the user's resolved
+                // SBFB_HOME so the provisioned worker can adopt the
+                // public sharing level the "offer my power" panel wrote.
+                let user_home = state.sbfb_home.clone();
+                tokio::spawn(async move { lw.ensure_spawned(doc, user_home).await });
             }
             match serde_json::to_value(&entry) {
                 Ok(body) => (StatusCode::OK, Json(body)).into_response(),

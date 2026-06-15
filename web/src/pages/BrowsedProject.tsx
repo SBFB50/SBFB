@@ -38,6 +38,7 @@ import { AvailabilitySheet } from "@/components/AvailabilitySheet";
 import { ProofCard, type ProofCardData } from "@/components/ProofCard";
 
 import {
+  CONSENT_LEVEL,
   addToWhitelist,
   getConsent,
   removeFromWhitelist,
@@ -707,7 +708,7 @@ function ContributeGpuButton({
     },
   });
 
-  if (consentQuery.data?.level !== 3) return null;
+  if (consentQuery.data?.level !== CONSENT_LEVEL.WHITELIST) return null;
   if (!isHexNodeId) return null;
 
   const inWhitelist =

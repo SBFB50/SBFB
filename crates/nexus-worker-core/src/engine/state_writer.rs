@@ -77,6 +77,44 @@ pub struct WorkerStateSnapshot {
     /// `None` until the worker has actually completed at least
     /// one task since boot.
     pub last_task: Option<LastTask>,
+    /// Sprint 76 Phase A (D1) — active sharing level + caps
+    /// consumption, so the "offer my power" panel can render a live
+    /// caps gauge without a new endpoint.
+    ///
+    /// Additive optional field. `None` when the worker has no consent
+    /// watcher wired (an older worker, or one that never shares). It
+    /// is omitted from the JSON when absent (`skip_serializing_if`)
+    /// so a newer coordinator reading an older worker's snapshot stays
+    /// byte-compatible — this is **runtime tolerance**, NOT a
+    /// legacy-compat shim: [`SCHEMA_VERSION`] stays 1 (additive, per
+    /// the module "Schema versioning" note above).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consent: Option<ConsentSnapshot>,
+}
+
+/// Active consent level + cap consumption for the state snapshot —
+/// Sprint 76 Phase A (D1). Mirrors the fields the "offer my power"
+/// panel renders: the level (1..=4), the day's hours cap and how many
+/// have been spent, plus the watts / VRAM ceilings. `None` cap fields
+/// mean "no cap" and are omitted from the JSON.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConsentSnapshot {
+    /// Active sharing level, stable on the wire as 1..=4
+    /// (OwnProjects / OpenSource / Whitelist / All).
+    pub level: u8,
+    /// Maximum cumulative task-hours per local day. `None` = no cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_hours_day: Option<f64>,
+    /// Hours already spent on tasks today (read from the
+    /// `UsageTracker`, resets at local midnight).
+    pub hours_used_today: f64,
+    /// Maximum sustained watts a task may draw. `None` = no cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_watts: Option<u32>,
+    /// Maximum VRAM in megabytes a single task may request.
+    /// `None` = no cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_vram_mb: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +180,10 @@ pub struct SnapshotInputs<'a> {
     pub allowlist: &'a Allowlist,
     /// Last completed task reported by the engine, if any.
     pub last_task: Option<LastTask>,
+    /// Sprint 76 Phase A (D1) — active consent level + cap usage.
+    /// `None` leaves the snapshot's `consent` field absent (the
+    /// worker shares nothing / has no consent watcher).
+    pub consent: Option<ConsentSnapshot>,
 }
 
 impl WorkerStateSnapshot {
@@ -199,6 +241,7 @@ impl WorkerStateSnapshot {
             gpu,
             projects_served,
             last_task: inputs.last_task,
+            consent: inputs.consent,
         }
     }
 }
@@ -337,6 +380,7 @@ mod tests {
             gpu_stats: None,
             allowlist: al,
             last_task: None,
+            consent: None,
         }
     }
 
@@ -359,6 +403,66 @@ mod tests {
         assert!(snap.gpu.is_none());
         assert!(snap.projects_served.is_empty());
         assert!(snap.last_task.is_none());
+    }
+
+    #[test]
+    fn consent_snapshot_serializes_additively() {
+        // Sprint 76 Phase A (D1): a snapshot WITHOUT consent omits
+        // the key entirely (not `null`) and stays on SCHEMA_VERSION 1
+        // — the field is additive, never a wire bump.
+        let al = mk_allowlist();
+        let snap = WorkerStateSnapshot::from_inputs(mk_inputs(&al));
+        assert!(snap.consent.is_none());
+
+        let json = serde_json::to_value(&snap).unwrap();
+        assert_eq!(json["schema_version"], serde_json::json!(1));
+        assert!(
+            json.get("consent").is_none(),
+            "absent consent must be omitted, not serialized as null"
+        );
+
+        // And a legacy state.json with no `consent` key still
+        // deserializes (the field defaults to None).
+        let legacy = serde_json::json!({
+            "schema_version": 1,
+            "node_id": "n".repeat(64),
+            "worker_version": "v",
+            "uptime_secs": 1,
+            "started_at": "1970-01-01T00:00:00Z",
+            "last_updated_at": "1970-01-01T00:00:00Z",
+            "gpu": null,
+            "projects_served": [],
+            "last_task": null
+        });
+        let back: WorkerStateSnapshot = serde_json::from_value(legacy).unwrap();
+        assert!(back.consent.is_none());
+    }
+
+    #[test]
+    fn consent_snapshot_carries_level_and_usage() {
+        // The flush carries the active level + today's usage from the
+        // engine through to the on-disk snapshot.
+        let al = mk_allowlist();
+        let mut inputs = mk_inputs(&al);
+        inputs.consent = Some(ConsentSnapshot {
+            level: 4,
+            max_hours_day: Some(12.0),
+            hours_used_today: 3.5,
+            max_watts: Some(400),
+            max_vram_mb: Some(16 * 1024),
+        });
+        let snap = WorkerStateSnapshot::from_inputs(inputs);
+
+        let c = snap.consent.clone().expect("consent carried into snapshot");
+        assert_eq!(c.level, 4);
+        assert!((c.hours_used_today - 3.5).abs() < 1e-9);
+        assert_eq!(c.max_watts, Some(400));
+        assert_eq!(c.max_vram_mb, Some(16 * 1024));
+
+        // Serialized form carries the nested consent object.
+        let json = serde_json::to_value(&snap).unwrap();
+        assert_eq!(json["consent"]["level"], serde_json::json!(4));
+        assert_eq!(json["consent"]["hours_used_today"], serde_json::json!(3.5));
     }
 
     #[test]

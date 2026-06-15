@@ -141,7 +141,7 @@ describe("<GpuConsentDialog>", () => {
     expect(screen.getByTestId("consent-cap-hours")).toHaveTextContent("12 h");
   });
 
-  it("POST /consent/set au save avec le payload courant", async () => {
+  it("POST /api/v1/consent/set au save (L4 exige une double confirmation)", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
     fetchMock.mockResolvedValue(
       new Response(
@@ -160,17 +160,63 @@ describe("<GpuConsentDialog>", () => {
       onSaved,
     });
 
+    // First click on an L4 config arms the confirmation — it must NOT
+    // POST until the user confirms the maximum-risk level.
+    await user.click(screen.getByTestId("consent-save"));
+    expect(screen.getByTestId("consent-confirm-all")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Confirming POSTs to the /api/v1-prefixed route.
     await user.click(screen.getByTestId("consent-save"));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:7777/consent/set");
+    expect(url).toBe("http://127.0.0.1:7777/api/v1/consent/set");
     expect(init?.method).toBe("POST");
     const body = JSON.parse(init?.body as string);
     expect(body.level).toBe(4);
     expect(body.caps.max_watts).toBe(400);
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+  });
+
+  it("désarme la confirmation L4 quand on change de niveau", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const user = userEvent.setup();
+
+    renderDialog({ initialConfig: { ...baseConfig, level: 4 } });
+
+    // Arm the L4 confirmation.
+    await user.click(screen.getByTestId("consent-save"));
+    expect(screen.getByTestId("consent-confirm-all")).toBeInTheDocument();
+
+    // Switching to L2 must disarm it — no POST, no confirm banner.
+    await user.click(screen.getByTestId("consent-level-2"));
+    expect(
+      screen.queryByTestId("consent-confirm-all"),
+    ).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("un niveau < 4 enregistre directement sans double confirmation", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ...baseConfig, level: 2 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderDialog({ initialConfig: { ...baseConfig, level: 2 } });
+
+    await user.click(screen.getByTestId("consent-save"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://127.0.0.1:7777/api/v1/consent/set",
+    );
+    expect(screen.queryByTestId("consent-confirm-all")).not.toBeInTheDocument();
   });
 
   it("affiche une erreur quand /consent/set échoue", async () => {

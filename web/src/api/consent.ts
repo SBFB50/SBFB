@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Typed client for the `/consent/*` endpoints (Sprint 16 Phase C).
+ * Typed client for the `/api/v1/consent*` endpoints (Sprint 16 Phase C;
+ * route prefix reconciled Sprint 76 Phase A).
  *
  * Mirrors the Pydantic schema in
  * `packages/nexus-coordinator/src/nexus_coordinator/api/consent.py`
@@ -27,6 +28,38 @@ export const ConsentLevelSchema = z.union([
 ]);
 export type ConsentLevel = z.infer<typeof ConsentLevelSchema>;
 
+/**
+ * Named consent levels — the single source of truth for the 1..=4
+ * integers, mirroring the Rust `ConsentLevel` enum
+ * (`crates/nexus-worker-core/src/consent.rs`). Use these everywhere
+ * instead of bare numeric literals so the intent (which level opens
+ * public sharing) is explicit and refactor-safe.
+ */
+export const CONSENT_LEVEL = {
+  /** L1 — own projects only (least privilege, GDPR-safe default). */
+  OWN_PROJECTS: 1,
+  /** L2 — any project flagged open source. */
+  OPEN_SOURCE: 2,
+  /** L3 — manually whitelisted projects only. */
+  WHITELIST: 3,
+  /** L4 — every public project (maximum risk, double-confirmed). */
+  ALL: 4,
+} as const satisfies Record<string, ConsentLevel>;
+
+/** Levels that actually enroll the co-located worker at-large (D1). */
+export const PUBLIC_SHARING_LEVELS: readonly ConsentLevel[] = [
+  CONSENT_LEVEL.OPEN_SOURCE,
+  CONSENT_LEVEL.ALL,
+];
+
+/** All levels in ascending order — for exhaustive UI enumerations. */
+export const CONSENT_LEVELS_ASCENDING = [
+  CONSENT_LEVEL.OWN_PROJECTS,
+  CONSENT_LEVEL.OPEN_SOURCE,
+  CONSENT_LEVEL.WHITELIST,
+  CONSENT_LEVEL.ALL,
+] as const;
+
 export const CapsSchema = z.object({
   max_watts: z.number().int().min(1).max(2000).nullable(),
   max_vram_mb: z.number().int().min(1).nullable(),
@@ -50,7 +83,7 @@ export type ConsentConfig = z.infer<typeof ConsentConfigSchema>;
  * the "blank slate" baseline.
  */
 export const DEFAULT_CONSENT: ConsentConfig = {
-  level: 1,
+  level: CONSENT_LEVEL.OWN_PROJECTS,
   caps: {
     max_watts: 400,
     max_vram_mb: 16 * 1024,
@@ -77,11 +110,15 @@ class ConsentHttpError extends Error {
 }
 
 async function consentGet(baseUrl: string): Promise<ConsentConfig> {
-  const res = await authFetch(`${baseUrl}/consent/get`, {
+  // The daemon mounts the read endpoint at `/api/v1/consent` (GET) —
+  // not `/consent/get`. Without the `/api/v1` prefix the request fell
+  // through to the SPA GET fallback and never reached `get_consent`
+  // (Sprint 76 Phase A route reconciliation).
+  const res = await authFetch(`${baseUrl}/api/v1/consent`, {
     headers: { accept: "application/json" },
   });
   if (!res.ok) {
-    throw new ConsentHttpError("/consent/get", res.status, res.statusText);
+    throw new ConsentHttpError("/api/v1/consent", res.status, res.statusText);
   }
   const body: unknown = await res.json();
   return ConsentConfigSchema.parse(body);
@@ -119,14 +156,14 @@ export function setConsent(
   baseUrl: string,
   cfg: ConsentConfig,
 ): Promise<ConsentConfig> {
-  return consentPost(baseUrl, "/consent/set", cfg);
+  return consentPost(baseUrl, "/api/v1/consent/set", cfg);
 }
 
 export function addToWhitelist(
   baseUrl: string,
   projectId: string,
 ): Promise<ConsentConfig> {
-  return consentPost(baseUrl, "/consent/whitelist/add", {
+  return consentPost(baseUrl, "/api/v1/consent/whitelist/add", {
     project_id: projectId,
   });
 }
@@ -135,7 +172,7 @@ export function removeFromWhitelist(
   baseUrl: string,
   projectId: string,
 ): Promise<ConsentConfig> {
-  return consentPost(baseUrl, "/consent/whitelist/remove", {
+  return consentPost(baseUrl, "/api/v1/consent/whitelist/remove", {
     project_id: projectId,
   });
 }

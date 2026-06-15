@@ -1217,9 +1217,36 @@ impl Engine {
             gpu_stats: gpu_stats.as_ref(),
             allowlist: &self.allowlist,
             last_task: self.last_task.clone(),
+            consent: self.consent_snapshot(),
         };
 
         state_writer::flush(inputs, &dest);
+    }
+
+    /// Sprint 76 Phase A (D1): build the optional consent snapshot for
+    /// the state file — the active sharing level + caps from the
+    /// consent watcher plus today's hours from the usage tracker, so
+    /// the "offer my power" panel renders a live caps gauge without a
+    /// new endpoint. Returns `None` when no consent watcher is wired
+    /// (the worker shares nothing), leaving the snapshot field absent.
+    fn consent_snapshot(&self) -> Option<state_writer::ConsentSnapshot> {
+        let cfg = self.consent.as_ref()?.current().ok()?;
+        // Usage is read non-blocking: the flush runs on the same task
+        // as the claim pump, so the tokio mutex is virtually never
+        // contended; a rare miss reports 0h for this tick and the next
+        // flush recovers the real value.
+        let hours_used_today = self
+            .usage
+            .as_ref()
+            .and_then(|u| u.try_lock().ok().map(|mut g| g.hours_used_today()))
+            .unwrap_or(0.0);
+        Some(state_writer::ConsentSnapshot {
+            level: u8::from(cfg.level),
+            max_hours_day: cfg.caps.max_hours_day,
+            hours_used_today,
+            max_watts: cfg.caps.max_watts,
+            max_vram_mb: cfg.caps.max_vram_mb,
+        })
     }
 
     /// Returns true if the doc already has a `claim:<id>` or

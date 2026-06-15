@@ -1368,6 +1368,40 @@ grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md
 Origine : S19, HARDENING_ROADMAP S17 hérité sans audit → D2 PoW
 Hashcash drift. Rationale complet : `fe0a8fd`.
 
+### 6.9 Constantes nommées — pas de magic numbers pour un domaine énuméré
+
+Tout littéral qui encode une **valeur de domaine énumérée** (un niveau,
+un statut, un mode, un seuil métier réutilisé) doit être une **constante
+nommée unique**, réutilisée partout — jamais un nombre nu répété dans le
+code source.
+
+- **Foyer canonique unique** : la constante vit dans le module qui
+  possède le type (ex. `web/src/api/consent.ts` pour `CONSENT_LEVEL`),
+  et **reflète l'énum source de vérité** quand elle existe côté Rust
+  (`ConsentLevel` = `OwnProjects/OpenSource/Whitelist/All`). Pas de
+  re-déclaration locale du même mapping dans deux fichiers.
+- **Réutilisée PARTOUT** : comparaisons (`level === CONSENT_LEVEL.ALL`,
+  pas `=== 4`), clés d'objet/`Record` (`[CONSENT_LEVEL.WHITELIST]:`, pas
+  `3:`), énumérations exhaustives (`CONSENT_LEVELS_ASCENDING`, pas
+  `[1,2,3,4]`), et tout sous-ensemble sémantique (`PUBLIC_SHARING_LEVELS`).
+  Un sous-ensemble nommé exprime l'**intention** (« quels niveaux ouvrent
+  le partage public ») mieux qu'un `=== 2 || === 4`.
+- **Portée** : s'applique au **code de production/source**. Les fixtures
+  de test peuvent rester littérales (input explicite, le nom du test dit
+  déjà « niveau 4 ») — mais une comparaison/branche de test gagne aussi à
+  être nommée si elle encode la sémantique du domaine.
+- **Vérifié à G-REVIEW** : la review de phase (`nexus-phase-review-deep`
+  / skill `nexus-phase-review`) signale tout magic number de domaine
+  comme finding (P2 si récurrent, P3 si isolé). Grep type :
+  `grep -nE '\b<champ>\s*[=!<>]==?\s*[0-9]' web/src/**/*.{ts,tsx}` hors
+  `status === 404` / longueurs / versions de schéma.
+
+Origine : S76 Phase A — les niveaux consent (1..4) comparés en littéraux
+(`level === 2 || level === 4`, clés `Record` numériques, `[1,2,3,4]`)
+masquaient l'intention ; remplacés par `CONSENT_LEVEL` + dérivés. Feedback
+PO : « avoir des constantes nommées réutilisées partout ». Cf. memory
+[[feedback-named-constants]].
+
 ---
 
 ### 6.9 Phase pre-flight factual evolution check (G8)

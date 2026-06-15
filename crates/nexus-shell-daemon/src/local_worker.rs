@@ -49,7 +49,7 @@ use std::sync::Arc;
 use nexus_core_rs::docs::DocHandle;
 use nexus_worker_core::allowlist::{Allowlist, NewProject};
 use nexus_worker_core::config::{WorkerConfig, WorkerPaths};
-use nexus_worker_core::consent::{ConsentConfig, ConsentLevel};
+use nexus_worker_core::consent::{Caps, ConsentConfig, ConsentLevel};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
@@ -101,7 +101,17 @@ impl LocalWorkerSupervisor {
     /// Ensure a local worker is running, provisioning + spawning one
     /// on first call. Idempotent: a no-op while a worker is alive.
     /// Safe to call (fire-and-forget) on every task submit.
-    pub async fn ensure_spawned(&self, project_doc: Arc<DocHandle>) {
+    ///
+    /// `user_sbfb_home` is the daemon's resolved user `SBFB_HOME`
+    /// (`state.sbfb_home`) — the directory holding the user-facing
+    /// `consent.json` the "offer my power" panel writes. When the user
+    /// opted into public sharing (`OpenSource` / `All`), the
+    /// provisioned worker adopts that level (Sprint 76 Phase A, D1).
+    pub async fn ensure_spawned(
+        &self,
+        project_doc: Arc<DocHandle>,
+        user_sbfb_home: Option<PathBuf>,
+    ) {
         if std::env::var_os(DISABLE_ENV).is_some() {
             return;
         }
@@ -131,7 +141,10 @@ impl LocalWorkerSupervisor {
             }
         }
 
-        match self.provision_and_spawn(&project_doc).await {
+        match self
+            .provision_and_spawn(&project_doc, user_sbfb_home.as_deref())
+            .await
+        {
             Ok((child, _job_opt)) => {
                 info!(pid = child.id(), "on-demand local worker spawned");
                 st.child = Some(child);
@@ -165,8 +178,9 @@ impl LocalWorkerSupervisor {
     async fn provision_and_spawn(
         &self,
         project_doc: &Arc<DocHandle>,
+        user_sbfb_home: Option<&std::path::Path>,
     ) -> anyhow::Result<(std::process::Child, Option<windows_job::Job>)> {
-        let (paths, sbfb_home) = provision(project_doc).await?;
+        let (paths, sbfb_home) = provision(project_doc, user_sbfb_home).await?;
         let mut cmd = base_command(&paths.config_file, &sbfb_home)?;
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -187,8 +201,9 @@ impl LocalWorkerSupervisor {
     async fn provision_and_spawn(
         &self,
         project_doc: &Arc<DocHandle>,
+        user_sbfb_home: Option<&std::path::Path>,
     ) -> anyhow::Result<(std::process::Child, Option<()>)> {
-        let (paths, sbfb_home) = provision(project_doc).await?;
+        let (paths, sbfb_home) = provision(project_doc, user_sbfb_home).await?;
         let mut cmd = base_command(&paths.config_file, &sbfb_home)?;
         // Tie the worker's life to the daemon's. On Linux, PR_SET_PDEATHSIG
         // makes the kernel send the worker SIGTERM if the daemon dies — even
@@ -256,7 +271,16 @@ fn worker_bin_name() -> &'static str {
 /// `worker.toml` + key + allowlist (enrolling the project doc by a
 /// fresh write ticket) + `consent.json`. Returns the worker paths and
 /// the SBFB_HOME the consent file lives in.
-async fn provision(project_doc: &Arc<DocHandle>) -> anyhow::Result<(WorkerPaths, PathBuf)> {
+///
+/// `user_sbfb_home` points at the user-facing `consent.json` (the file
+/// the "offer my power" panel writes). When the user opted into public
+/// sharing (`OpenSource` / `All`), the provisioned worker adopts that
+/// level + caps (Sprint 76 Phase A, D1); otherwise it keeps the
+/// least-privilege `Whitelist[own_doc]` floor below.
+async fn provision(
+    project_doc: &Arc<DocHandle>,
+    user_sbfb_home: Option<&std::path::Path>,
+) -> anyhow::Result<(WorkerPaths, PathBuf)> {
     let home = local_worker_home()?;
     // Fresh each provision so the enrolled ticket always carries the
     // live node addresses (a stale ticket from a previous boot points
@@ -303,14 +327,55 @@ async fn provision(project_doc: &Arc<DocHandle>) -> anyhow::Result<(WorkerPaths,
     let sbfb_home = home.join("sbfb");
     std::fs::create_dir_all(&sbfb_home)?;
     let mut consent = ConsentConfig::default_for("local-worker");
-    // Whitelist the node's own project doc only (least privilege).
+    // Base: whitelist the node's own project doc only (least
+    // privilege). A stale `OwnProjects` level would *reject* the
+    // node's own tasks (`own_node_id` != doc id — a live-smoke
+    // finding, see module docs).
     consent.level = ConsentLevel::Whitelist;
     consent.allowed_project_ids.insert(project_id);
+    // Sprint 76 Phase A (D1) — voluntary public enrollment. When the
+    // user opted into public sharing via the "offer my power" panel
+    // (`OpenSource` / `All`), the co-located worker adopts that level
+    // + the user's caps so it actually serves the public network, not
+    // just its own doc. `OwnProjects` / `Whitelist` keep the
+    // least-privilege floor above (the panel is OFF for those). We
+    // copy `level` + `caps` only — NOT the user's `own_node_id` — so
+    // the own-doc whitelist floor and the worker's identity stay
+    // intact. `All` is the double-confirmed maximum-risk opt-in
+    // (enforced front-side in the dialog).
+    if let Some((level, caps)) = user_public_consent(user_sbfb_home) {
+        consent.level = level;
+        consent.caps = caps;
+    }
     consent
         .save_atomic(&sbfb_home.join("consent.json"))
         .map_err(|e| anyhow::anyhow!("consent.json save: {e}"))?;
 
     Ok((paths, sbfb_home))
+}
+
+/// Read the user-facing `consent.json` (the file the "offer my power"
+/// panel writes via `POST /api/v1/consent/set`) and return the
+/// `(level, caps)` to provision the co-located worker with — but only
+/// when the user opted into PUBLIC sharing (`OpenSource` / `All`).
+/// Returns `None` for the least-privilege levels (`OwnProjects` /
+/// `Whitelist`) and when no consent file exists yet, so the caller
+/// keeps the own-doc whitelist floor.
+///
+/// Resolving the path uses the same `sbfb_home` override →
+/// `auth::sbfb_home()` chain as the consent HTTP handler, so the
+/// worker reads exactly what the panel wrote.
+fn user_public_consent(user_sbfb_home: Option<&std::path::Path>) -> Option<(ConsentLevel, Caps)> {
+    let home = user_sbfb_home
+        .map(|p| p.to_path_buf())
+        .or_else(nexus_shell_daemon_core::auth::sbfb_home)?;
+    // `own_node_id` is irrelevant here (we keep the worker's own
+    // whitelist floor + identity); a placeholder is fine.
+    let cfg = ConsentConfig::load_or_default(&home.join("consent.json"), "").ok()?;
+    match cfg.level {
+        ConsentLevel::OpenSource | ConsentLevel::All => Some((cfg.level, cfg.caps)),
+        ConsentLevel::OwnProjects | ConsentLevel::Whitelist => None,
+    }
 }
 
 /// `<shell_daemon_dir>/local-worker/`.
@@ -387,7 +452,13 @@ mod tests {
     // nexus-worker-core provisioning and asserts the files the worker
     // will read are correct: consent Whitelists the doc, the allowlist
     // enrolls it with a non-empty ticket, worker.toml exists.
+    // `sbfb_env` group: these tests mutate `NEXUS_GRID_ROOT_ENV`, the
+    // same process-global the runtime e2e gate guards
+    // (`runtime.rs` `#[serial(sbfb_env)]`). Joining the group keeps
+    // them mutually exclusive under shared-process `cargo test`
+    // (nextest isolates per-process; the group covers the shared run).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[serial_test::serial(sbfb_env)]
     async fn provision_writes_consent_allowlist_and_config() {
         // Isolate the shell-daemon dir so we use a temp local-worker home.
         let tmp = tempfile::tempdir().expect("tmp");
@@ -397,13 +468,16 @@ mod tests {
                 tmp.path(),
             );
         }
+        // No user consent file present -> the worker keeps the
+        // least-privilege own-doc whitelist floor.
+        let user_home = tmp.path().join("user-sbfb");
 
         let node = nexus_core_rs::create_node().await.expect("node");
         let docs = nexus_core_rs::docs::DocsClient::new(node.docs());
         let doc = Arc::new(docs.create_doc().await.expect("doc"));
         let doc_id = doc.id().to_string();
 
-        let (paths, sbfb_home) = provision(&doc).await.expect("provision");
+        let (paths, sbfb_home) = provision(&doc, Some(&user_home)).await.expect("provision");
 
         // worker.toml written.
         assert!(paths.config_file.exists(), "worker.toml must exist");
@@ -429,6 +503,98 @@ mod tests {
         assert!(
             consent.allowed_project_ids.contains(&doc_id),
             "consent must whitelist the node's project doc"
+        );
+
+        unsafe {
+            std::env::remove_var(nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV);
+        }
+    }
+
+    // Sprint 76 Phase A (D1): when the user opted into PUBLIC sharing
+    // (`All` here) via the "offer my power" panel, the co-located
+    // worker adopts that level + the user's caps — but keeps its own
+    // identity + the own-doc whitelist floor.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[serial_test::serial(sbfb_env)]
+    async fn colocated_worker_honors_user_consent_when_public() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        unsafe {
+            std::env::set_var(
+                nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV,
+                tmp.path(),
+            );
+        }
+
+        // The user picked L4 (All) + a custom watt cap via the panel.
+        let user_home = tmp.path().join("user-sbfb");
+        std::fs::create_dir_all(&user_home).unwrap();
+        let mut user = ConsentConfig::default_for("user-node");
+        user.level = ConsentLevel::All;
+        user.caps.max_watts = Some(321);
+        user.save_atomic(&user_home.join("consent.json")).unwrap();
+
+        let node = nexus_core_rs::create_node().await.expect("node");
+        let docs = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let doc = Arc::new(docs.create_doc().await.expect("doc"));
+        let doc_id = doc.id().to_string();
+
+        let (_paths, sbfb_home) = provision(&doc, Some(&user_home)).await.expect("provision");
+
+        let consent =
+            ConsentConfig::load_or_default(&sbfb_home.join("consent.json"), "x").expect("consent");
+        // Adopted the user's public level + caps...
+        assert_eq!(consent.level, ConsentLevel::All);
+        assert_eq!(consent.caps.max_watts, Some(321));
+        // ...while keeping its own identity + the own-doc floor.
+        assert_eq!(consent.own_node_id, "local-worker");
+        assert!(
+            consent.allowed_project_ids.contains(&doc_id),
+            "the own-doc whitelist floor must survive the public override"
+        );
+
+        unsafe {
+            std::env::remove_var(nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV);
+        }
+    }
+
+    // Sprint 76 Phase A (D1): a non-public user level (`Whitelist`
+    // here, or `OwnProjects`) leaves the co-located worker on its
+    // least-privilege own-doc floor — the panel is OFF for those, so
+    // the worker does NOT inherit the user's whitelist.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[serial_test::serial(sbfb_env)]
+    async fn colocated_worker_least_privilege_when_off() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        unsafe {
+            std::env::set_var(
+                nexus_shell_daemon_core::paths::NEXUS_GRID_ROOT_ENV,
+                tmp.path(),
+            );
+        }
+
+        let user_home = tmp.path().join("user-sbfb");
+        std::fs::create_dir_all(&user_home).unwrap();
+        let mut user = ConsentConfig::default_for("user-node");
+        user.level = ConsentLevel::Whitelist;
+        let foreign = "f".repeat(64);
+        user.allowed_project_ids.insert(foreign.clone());
+        user.save_atomic(&user_home.join("consent.json")).unwrap();
+
+        let node = nexus_core_rs::create_node().await.expect("node");
+        let docs = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let doc = Arc::new(docs.create_doc().await.expect("doc"));
+        let doc_id = doc.id().to_string();
+
+        let (_paths, sbfb_home) = provision(&doc, Some(&user_home)).await.expect("provision");
+
+        let consent =
+            ConsentConfig::load_or_default(&sbfb_home.join("consent.json"), "x").expect("consent");
+        // Stayed least-privilege on its own doc, NOT the user's whitelist.
+        assert_eq!(consent.level, ConsentLevel::Whitelist);
+        assert!(consent.allowed_project_ids.contains(&doc_id));
+        assert!(
+            !consent.allowed_project_ids.contains(&foreign),
+            "the worker must not inherit the user's L3 whitelist entries"
         );
 
         unsafe {

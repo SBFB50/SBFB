@@ -390,6 +390,21 @@ export const LastTaskSchema = z.object({
 });
 export type LastTask = z.infer<typeof LastTaskSchema>;
 
+// Sprint 76 Phase A (D1) — active sharing level + cap consumption.
+// The Rust side omits the optional cap fields (and the whole object)
+// when absent (`skip_serializing_if`), so they are `.optional()`;
+// `.nullable()` is layered on for defence in case a `null` ever
+// reaches the wire. `hours_used_today` and `level` are always present
+// when the object exists.
+export const ConsentSnapshotSchema = z.object({
+  level: z.number().int().min(1).max(4),
+  max_hours_day: z.number().nullable().optional(),
+  hours_used_today: z.number().nonnegative(),
+  max_watts: z.number().int().nullable().optional(),
+  max_vram_mb: z.number().int().nullable().optional(),
+});
+export type ConsentSnapshot = z.infer<typeof ConsentSnapshotSchema>;
+
 export const WorkerStateV1Schema = z.object({
   schema_version: z.literal(1),
   node_id: z.string(),
@@ -400,6 +415,11 @@ export const WorkerStateV1Schema = z.object({
   gpu: GpuSnapshotSchema.nullable(),
   projects_served: z.array(ProjectServedSchema),
   last_task: LastTaskSchema.nullable(),
+  // Additive: absent on older workers / workers that never share.
+  // The schema is intentionally non-strict so an unknown future
+  // field never breaks the parse; this opt-in field lets the shell
+  // *read* the consent snapshot.
+  consent: ConsentSnapshotSchema.nullable().optional(),
 });
 export type WorkerStateV1 = z.infer<typeof WorkerStateV1Schema>;
 

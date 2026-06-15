@@ -397,8 +397,8 @@ et le niveau selectionne.
 **Annotation in-product** : `consent.json` porte un champ
 `level_threat_note` (texte court, tooltip UI) et
 `residual_threats_acknowledged` (liste threats §8 actifs pour le
-niveau choisi). Le coordinator les calcule au `GET /consent/get` et
-au `POST /consent/set`. Cf. `LOOPBACK_ENDPOINTS_TRUST_TIERS.md` §4.
+niveau choisi). Le coordinator les calcule au `GET /api/v1/consent` et
+au `POST /api/v1/consent/set`. Cf. `LOOPBACK_ENDPOINTS_TRUST_TIERS.md` §4.
 
 ### 9.2 Loopback 3 trust tiers (Sprint 22 Phase F)
 
