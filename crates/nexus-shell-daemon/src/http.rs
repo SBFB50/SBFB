@@ -1532,6 +1532,24 @@ async fn set_keep_online(
 ) -> impl IntoResponse {
     debug!(project = %req.project_id, enabled = req.enabled, "POST /api/daemon/keep-online");
 
+    // Sprint 76 Phase B (B1, duress siblings): short-circuit BEFORE any local
+    // mutation. A decoy node must perform ZERO keep_online persistence and ZERO
+    // blob (un)tag — the duress launcher shares the operator's REAL
+    // coordinator.db + blob store, so an un-gated toggle would pin/persist the
+    // operator's real app set under the fake keypair, correlating the decoy
+    // with the real node. Mirrors `run_boot_seed_driver` + `seed_voluntary`:
+    // reply a plausible benign success so an observer cannot tell duress from a
+    // normal toggle (the local-mutation half of the P1 wire-emit fix 23a08c9).
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({"ok": true, "enabled": req.enabled})),
+        )
+            .into_response();
+    }
+
     // The archive blob to (un)pin comes from the app's own Browse card.
     let archive_hash = state
         .browse_aggregator
@@ -2069,6 +2087,23 @@ async fn seed_voluntary(
 ) -> impl IntoResponse {
     debug!(project = %req.project_id, "POST /api/daemon/seed (voluntary)");
 
+    // Sprint 76 Phase B (B1, duress siblings): short-circuit BEFORE any fetch,
+    // pin, keep_online persist, or SeedAnnounced emit. A decoy node must perform
+    // ZERO voluntary-seed work — the duress launcher shares the operator's REAL
+    // blob store + coordinator.db, so an un-gated seed would pin the operator's
+    // app set AND emit a SeedAnnounced under the fake keypair (the local-mutation
+    // sibling of the P1 wire-emit fix 23a08c9; this single early-return covers
+    // BOTH the local pin and the emit). Reply a plausible benign success.
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({"ok": true, "seeding": req.project_id})),
+        )
+            .into_response();
+    }
+
     // The app must be visible in Browse so we know its archive hash. A user
     // can only seed what they can see. A direct (gossip) entry wins WHEN it
     // can serve the request — it carries a ready ticket; otherwise fall back
@@ -2104,141 +2139,191 @@ async fn seed_voluntary(
             },
             _ => None,
         });
-    let (hash_hex, plan): (String, SeedFetchPlan) = if let Some(found) = direct_plan {
-        found
-    } else if let Some((hash_hex, anchor_hex)) = find_directory_app_by_project(
+
+    // Sprint 76 Phase B (B3, PULL-3): resolve the directory tier UP FRONT, even
+    // when a direct ticket exists, so a dead ticket can fall through to it
+    // instead of returning a terminal BAD_GATEWAY (audit S75 Track E: the
+    // iroh-blobs downloader's intra-vector failover never covers a single dead
+    // ticket, which is not a provider SEQUENCE). The fallback targets the SAME
+    // content the direct tier would have served (cross-tier = same bytes,
+    // different source); for a ticket-less app it targets the requested/displayed
+    // version, exactly as before.
+    let directory_constraint = direct_plan
+        .as_ref()
+        .map(|(h, _)| h.as_str())
+        .or(requested_hash)
+        .or(direct_hash_no_ticket.as_deref());
+    let directory_hit = find_directory_app_by_project(
         &state.curator_runtime.directory_snapshot(),
         &req.project_id,
-        requested_hash.or(direct_hash_no_ticket.as_deref()),
-    ) {
-        let now = SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let providers = directory_pull_providers(
-            &state.seed_registry,
-            &state.node_id,
-            &anchor_hex,
-            &req.project_id,
-            &hash_hex,
-            now,
-        );
-        if providers.is_empty() {
+        directory_constraint,
+    );
+    let mut directory_hit_without_provider = false;
+    let directory_plan: Option<(String, SeedFetchPlan)> =
+        if let Some((hash_hex, anchor_hex)) = directory_hit {
+            let now = SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let providers = directory_pull_providers(
+                &state.seed_registry,
+                &state.node_id,
+                &anchor_hex,
+                &req.project_id,
+                &hash_hex,
+                now,
+            );
+            if providers.is_empty() {
+                directory_hit_without_provider = true;
+                None
+            } else {
+                Some((hash_hex, SeedFetchPlan::Multi(providers)))
+            }
+        } else {
+            None
+        };
+
+    let chain = build_seed_fetch_chain(direct_plan, directory_plan);
+    if chain.is_empty() {
+        // No tier resolved — preserve the precise pre-B3 error disambiguation.
+        if directory_hit_without_provider {
             return (
                 StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({"error": "no dialable provider for this app"})),
             )
                 .into_response();
+        } else if had_direct_entry && requested_hash.is_none() {
+            // A direct card with nothing to pull (no archive) and no directory
+            // fallback is a 400, not an unknown app (pre-F behaviour preserved).
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "app has no archive to seed"})),
+            )
+                .into_response();
+        } else if requested_hash.is_some() {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "no source for the requested app version"})),
+            )
+                .into_response();
+        } else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "unknown app (not in browse)"})),
+            )
+                .into_response();
         }
-        (hash_hex, SeedFetchPlan::Multi(providers))
-    } else if had_direct_entry && requested_hash.is_none() {
-        // Pre-F behaviour preserved: a direct card with nothing to pull (no
-        // archive) and no directory fallback is a 400, not an unknown app.
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "app has no archive to seed"})),
-        )
-            .into_response();
-    } else if requested_hash.is_some() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "no source for the requested app version"})),
-        )
-            .into_response();
-    } else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "unknown app (not in browse)"})),
-        )
-            .into_response();
-    };
-    let Some(want_hash) = crate::deploy::decode_hash_hex(&hash_hex) else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "app has a malformed archive hash"})),
-        )
-            .into_response();
-    };
+    }
 
     let blobs = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
     let tag = crate::deploy::keep_online_tag(&req.project_id);
-    let fetched = match plan {
-        SeedFetchPlan::Ticket(ticket) => {
-            blobs
-                .fetch_and_pin(
-                    state.node.endpoint(),
-                    state.node.memory_lookup(),
-                    &ticket,
-                    &tag,
-                )
-                .await
-        }
-        SeedFetchPlan::Multi(providers) => {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(DIRECTORY_PULL_TIMEOUT_SECS),
-                blobs.fetch_and_pin_multi(state.node.endpoint(), want_hash, providers, &tag),
-            )
-            .await
-            {
-                Ok(r) => r,
-                Err(_) => Err(nexus_core_rs::NexusError::Blobs(
-                    "directory pull timed out across all providers".into(),
-                )),
+    // Try each tier in order; the first that returns the wanted bytes wins. A
+    // dead tier-1 ticket falls through to the tier-2 directory multi-provider.
+    let mut last_error: (StatusCode, &'static str) =
+        (StatusCode::BAD_GATEWAY, "could not fetch the app archive");
+    for (hash_hex, plan) in chain {
+        let Some(want_hash) = crate::deploy::decode_hash_hex(&hash_hex) else {
+            last_error = (StatusCode::BAD_REQUEST, "app has a malformed archive hash");
+            continue;
+        };
+        let fetched = match plan {
+            SeedFetchPlan::Ticket(ticket) => {
+                blobs
+                    .fetch_and_pin(
+                        state.node.endpoint(),
+                        state.node.memory_lookup(),
+                        &ticket,
+                        &tag,
+                    )
+                    .await
             }
-        }
-    };
-    match fetched {
-        Ok(h) if h == want_hash => {
-            {
-                let db = state
-                    .coordinator_db
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner());
-                if let Err(e) = db.set_keep_online(&req.project_id, true, Some(&hash_hex)) {
-                    warn!(error = %e, "voluntary seed: keep_online persist failed");
-                }
-            }
-            // Sprint 74 Phase F: announce to the feed that this node now seeds
-            // the distant app, so the author + other peers see "Toi + N pairs"
-            // rise. The lock is taken+dropped inside the helper (never across the
-            // await). Best-effort: a feed hiccup must not undo a successful pin.
-            if let Some(ref fs) = state.feed_sync_state {
-                if let Err(e) = crate::feed_sync::emit_seed_announced(
-                    fs,
-                    &state.coordinator_db,
-                    &state.pow_keypair,
-                    &req.project_id,
-                    &hash_hex,
+            SeedFetchPlan::Multi(providers) => {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(DIRECTORY_PULL_TIMEOUT_SECS),
+                    blobs.fetch_and_pin_multi(state.node.endpoint(), want_hash, providers, &tag),
                 )
                 .await
                 {
-                    warn!(error = %e, "voluntary seed: SeedAnnounced emit failed (non-fatal)");
+                    Ok(r) => r,
+                    Err(_) => Err(nexus_core_rs::NexusError::Blobs(
+                        "directory pull timed out across all providers".into(),
+                    )),
                 }
             }
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({"ok": true, "seeding": req.project_id})),
-            )
-                .into_response()
-        }
-        Ok(_) => {
-            // Content hash disagreed with the declared hash — unpin and refuse.
-            let _ = blobs.delete_tag(&tag).await;
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({"error": "fetched content hash mismatch"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            debug!(error = %e, "voluntary seed: fetch_and_pin failed");
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({"error": "could not fetch the app archive"})),
-            )
-                .into_response()
+        };
+        match fetched {
+            Ok(h) if h == want_hash => {
+                {
+                    let db = state
+                        .coordinator_db
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner());
+                    if let Err(e) = db.set_keep_online(&req.project_id, true, Some(&hash_hex)) {
+                        warn!(error = %e, "voluntary seed: keep_online persist failed");
+                    }
+                }
+                // Sprint 74 Phase F: announce to the feed that this node now seeds
+                // the distant app, so the author + other peers see "Toi + N pairs"
+                // rise. The lock is taken+dropped inside the helper (never across
+                // the await). Best-effort: a feed hiccup must not undo the pin.
+                if let Some(ref fs) = state.feed_sync_state {
+                    if let Err(e) = crate::feed_sync::emit_seed_announced(
+                        fs,
+                        &state.coordinator_db,
+                        &state.pow_keypair,
+                        &req.project_id,
+                        &hash_hex,
+                    )
+                    .await
+                    {
+                        warn!(error = %e, "voluntary seed: SeedAnnounced emit failed (non-fatal)");
+                    }
+                }
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({"ok": true, "seeding": req.project_id})),
+                )
+                    .into_response();
+            }
+            Ok(_) => {
+                // Content hash disagreed with the declared hash — unpin and try
+                // the next tier (a mismatched tier never wins).
+                let _ = blobs.delete_tag(&tag).await;
+                last_error = (StatusCode::BAD_GATEWAY, "fetched content hash mismatch");
+            }
+            Err(e) => {
+                debug!(error = %e, "voluntary seed: tier fetch failed (trying next tier if any)");
+                last_error = (StatusCode::BAD_GATEWAY, "could not fetch the app archive");
+            }
         }
     }
+    // Every tier failed (dead ticket AND no live directory provider).
+    let (code, msg) = last_error;
+    (code, Json(serde_json::json!({"error": msg}))).into_response()
+}
+
+/// Build the ordered cross-tier fetch chain for a voluntary seed (Sprint 76
+/// Phase B, B3 PULL-3). Tier 1 is the direct entry's embedded ticket (a ready
+/// provider address); tier 2 is the subscribed node directories' multi-provider
+/// fetch by bare hash. A dead tier-1 ticket falls THROUGH to tier 2 instead of a
+/// terminal BAD_GATEWAY — the cross-tier failover audit S75 Track E (PULL-3)
+/// flagged as missing (a single ticket is not a provider SEQUENCE, so the
+/// iroh-blobs downloader's intra-vector retry never covers it). Order is
+/// load-bearing: the ticket is the cheapest single dial, the directory is the
+/// resilient fallback. Pure + total so the chain shape is unit-testable without
+/// a network.
+fn build_seed_fetch_chain(
+    direct_plan: Option<(String, SeedFetchPlan)>,
+    directory_plan: Option<(String, SeedFetchPlan)>,
+) -> Vec<(String, SeedFetchPlan)> {
+    let mut chain = Vec::with_capacity(2);
+    if let Some(p) = direct_plan {
+        chain.push(p);
+    }
+    if let Some(p) = directory_plan {
+        chain.push(p);
+    }
+    chain
 }
 
 /// Query string for [`seed_count`] (Sprint 75 Phase C, WIRE-2).
@@ -2676,6 +2761,23 @@ async fn seed_request_peer(
 /// already succeeded). Mirrors the best-effort feed-ingest indexing in
 /// `feed_sync`. Shared by the deploy and self-publish paths; the gossip-announce
 /// path indexes via this helper too once it carries a per-app project_id.
+/// Whether a browse entry's `is_open_source=true` claim is backed by a provable
+/// provenance chain (a signed provenance hash AND a source repo URL). A gossiped
+/// [`publish::ProjectAnnouncement`] from an untrusted peer can SET
+/// `is_open_source=true` with neither field; this single predicate is what every
+/// ingress chokepoint uses to downgrade such a claim to `false` so a forged badge
+/// never reaches the search index NOR the `/browse` payload. This is DECLARATIVE
+/// trust (provenance present), NOT a cryptographic attestation that the archive
+/// was actually built from that repo — front "verrou 4" reads `source=="direct"`
+/// plus this flag, and the THREAT_MODEL §15.1 row documents that distinction.
+pub(crate) fn trustworthy_open_source(
+    is_open_source: bool,
+    provenance_hash: Option<&str>,
+    repo_url: Option<&str>,
+) -> bool {
+    is_open_source && provenance_hash.is_some() && repo_url.is_some()
+}
+
 pub(crate) fn index_browse_entry(
     db: &nexus_coordinator_rs::db::CoordinatorDb,
     entry: &BrowseEntry,
@@ -2690,8 +2792,16 @@ pub(crate) fn index_browse_entry(
     // carry the lie — driving the fork consumer and worker L2 consent on a
     // forged source claim (THREAT_MODEL §5.6). Downgrade to `false` here so the
     // index reflects only a genuinely provable open-source chain.
-    let trustworthy_open_source =
-        entry.is_open_source && entry.provenance_hash.is_some() && entry.repo_url.is_some();
+    //
+    // Sprint 76 Phase B (B2, CARRY-3): the SAME predicate is now also applied at
+    // the `/browse`-aggregator ingress (`runtime::handle_project_announcement`)
+    // so the served Browse card — not only the search index — reflects the
+    // downgrade. Both chokepoints share `trustworthy_open_source`.
+    let trustworthy_open_source = trustworthy_open_source(
+        entry.is_open_source,
+        entry.provenance_hash.as_deref(),
+        entry.repo_url.as_deref(),
+    );
     if entry.is_open_source && !trustworthy_open_source {
         tracing::warn!(
             project = %entry.project_id,
@@ -5870,6 +5980,133 @@ mod tests {
             json["requested"], false,
             "duress must short-circuit before signing"
         );
+    }
+
+    #[tokio::test]
+    async fn set_keep_online_noop_in_duress() {
+        // Sprint 76 Phase B (B1): a decoy node must perform ZERO keep_online
+        // mutation — no DB row, no blob skip-GC tag — and reply a plausible
+        // benign success. The duress launcher shares the operator's REAL
+        // coordinator.db + blob store, so an un-gated toggle would persist the
+        // real app set under the fake keypair (local-mutation sibling of the
+        // P1 wire-emit fix 23a08c9).
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+        let pid = "7".repeat(64);
+        // The app is visible, so a NON-duress toggle WOULD write a row + tag.
+        state
+            .browse_aggregator
+            .add_direct_entry(own_browse_entry(&pid, "Decoy App", None));
+
+        let resp = set_keep_online(
+            State(state.clone()),
+            Json(KeepOnlineRequest {
+                project_id: pid.clone(),
+                enabled: true,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            assert_eq!(
+                db.get_keep_online(&pid).unwrap(),
+                None,
+                "duress must not persist a keep_online row"
+            );
+        }
+        assert!(
+            !has_tag(&state, &crate::deploy::keep_online_tag(&pid)).await,
+            "duress must not tag the archive blob"
+        );
+    }
+
+    #[tokio::test]
+    async fn seed_voluntary_noop_in_duress() {
+        // Sprint 76 Phase B (B1): a decoy node must perform ZERO voluntary-seed
+        // work — no fetch, no pin, no keep_online row, no SeedAnnounced — and
+        // reply a plausible benign success. The single early-return covers BOTH
+        // the local pin and the emit (the local-mutation sibling of 23a08c9).
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+        let pid = "8".repeat(64);
+        state
+            .browse_aggregator
+            .add_direct_entry(own_browse_entry(&pid, "Decoy App", None));
+
+        let resp = seed_voluntary(
+            State(state.clone()),
+            Json(SeedVoluntaryRequest {
+                project_id: pid.clone(),
+                archive_hash: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            assert_eq!(
+                db.get_keep_online(&pid).unwrap(),
+                None,
+                "duress must not persist a keep_online row"
+            );
+        }
+        assert!(
+            !has_tag(&state, &crate::deploy::keep_online_tag(&pid)).await,
+            "duress must not tag/pin under the fake keypair"
+        );
+    }
+
+    #[test]
+    fn pull_falls_back_across_tiers_when_ticket_dead() {
+        // Sprint 76 Phase B (B3, PULL-3): when a direct entry carries a ticket
+        // AND the subscribed directories resolve the app, the fetch chain has
+        // BOTH tiers IN ORDER — ticket FIRST, directory multi-provider SECOND.
+        // The handler loop tries them in order, so a dead tier-1 ticket falls
+        // through to tier 2 instead of a terminal BAD_GATEWAY (pre-B3 a
+        // ticket-bearing entry produced only [Ticket]).
+        let chain = build_seed_fetch_chain(
+            Some(("aa".repeat(32), SeedFetchPlan::Ticket("dead-ticket".into()))),
+            Some(("aa".repeat(32), SeedFetchPlan::Multi(vec![]))),
+        );
+        assert_eq!(
+            chain.len(),
+            2,
+            "both tiers must be present so a dead ticket can fail over to the directory"
+        );
+        assert!(
+            matches!(chain[0].1, SeedFetchPlan::Ticket(_)),
+            "the cheap ticket tier must be tried first"
+        );
+        assert!(
+            matches!(chain[1].1, SeedFetchPlan::Multi(_)),
+            "the resilient directory tier must be the fallback"
+        );
+
+        // Ticket-only (no directory hit) → single tier, unchanged.
+        let only_ticket = build_seed_fetch_chain(
+            Some(("bb".repeat(32), SeedFetchPlan::Ticket("t".into()))),
+            None,
+        );
+        assert_eq!(only_ticket.len(), 1);
+        assert!(matches!(only_ticket[0].1, SeedFetchPlan::Ticket(_)));
+
+        // Directory-only (ticket-less app) → single directory tier.
+        let only_dir =
+            build_seed_fetch_chain(None, Some(("cc".repeat(32), SeedFetchPlan::Multi(vec![]))));
+        assert_eq!(only_dir.len(), 1);
+        assert!(matches!(only_dir[0].1, SeedFetchPlan::Multi(_)));
+
+        // No tier → empty chain (the handler then returns the precise 400/404).
+        assert!(build_seed_fetch_chain(None, None).is_empty());
     }
 
     #[tokio::test]

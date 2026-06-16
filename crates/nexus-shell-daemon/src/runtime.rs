@@ -1673,24 +1673,29 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                 debug!(delivered_from = %delivered_from, "browse_request received — replaying outbox");
                                 // Phase D OFF gate (same as NeighborUp/republish).
                                 let disabled = load_disabled_keep_online(&coordinator_db);
-                                for stored in &outbox {
-                                    if !keep_online_allows_rebroadcast(stored, &disabled) {
-                                        continue;
-                                    }
-                                    let Some(fresh) = remint_and_wrap_for_replay(
-                                        &node,
-                                        &pow_solve_cache,
-                                        &pow_policy,
-                                        &pow_keypair,
-                                        &curator_topic,
-                                        stored,
-                                    )
-                                    .await
-                                    else {
-                                        continue;
-                                    };
-                                    if let Err(e) = sender.broadcast(fresh).await {
-                                        debug!(error = %e, "browse_request outbox replay failed");
+                                // Sprint 76 Phase B (B5): one endpoint-address
+                                // fetch for the whole pass, reused per entry.
+                                if let Some(addr) = current_replay_addr(&node).await {
+                                    for stored in &outbox {
+                                        if !keep_online_allows_rebroadcast(stored, &disabled) {
+                                            continue;
+                                        }
+                                        let Some(fresh) = remint_and_wrap_for_replay(
+                                            &node,
+                                            &pow_solve_cache,
+                                            &pow_policy,
+                                            &pow_keypair,
+                                            &curator_topic,
+                                            &addr,
+                                            stored,
+                                        )
+                                        .await
+                                        else {
+                                            continue;
+                                        };
+                                        if let Err(e) = sender.broadcast(fresh).await {
+                                            debug!(error = %e, "browse_request outbox replay failed");
+                                        }
                                     }
                                 }
                             } else if publish::is_project_announcement(&payload) {
@@ -1747,24 +1752,29 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                             // has turned OFF (keep_online disabled). Fast path: an
                             // empty disabled set replays all without decoding.
                             let disabled = load_disabled_keep_online(&coordinator_db);
-                            for stored in &outbox {
-                                if !keep_online_allows_rebroadcast(stored, &disabled) {
-                                    continue;
-                                }
-                                let Some(fresh) = remint_and_wrap_for_replay(
-                                    &node,
-                                    &pow_solve_cache,
-                                    &pow_policy,
-                                    &pow_keypair,
-                                    &curator_topic,
-                                    stored,
-                                )
-                                .await
-                                else {
-                                    continue;
-                                };
-                                if let Err(e) = sender.broadcast(fresh).await {
-                                    debug!(error = %e, "outbox replay broadcast failed");
+                            // Sprint 76 Phase B (B5): hoist the endpoint-address
+                            // fetch out of the per-entry path.
+                            if let Some(addr) = current_replay_addr(&node).await {
+                                for stored in &outbox {
+                                    if !keep_online_allows_rebroadcast(stored, &disabled) {
+                                        continue;
+                                    }
+                                    let Some(fresh) = remint_and_wrap_for_replay(
+                                        &node,
+                                        &pow_solve_cache,
+                                        &pow_policy,
+                                        &pow_keypair,
+                                        &curator_topic,
+                                        &addr,
+                                        stored,
+                                    )
+                                    .await
+                                    else {
+                                        continue;
+                                    };
+                                    if let Err(e) = sender.broadcast(fresh).await {
+                                        debug!(error = %e, "outbox replay broadcast failed");
+                                    }
                                 }
                             }
                         }
@@ -1805,18 +1815,21 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                             // no-op here — one helper keeps all broadcast paths
                             // identical). Push the unwrapped payload AFTER the borrow.
                             if neighbor_count > 0 {
-                                if let Some(fresh) = remint_and_wrap_for_replay(
-                                    &node,
-                                    &pow_solve_cache,
-                                    &pow_policy,
-                                    &pow_keypair,
-                                    &curator_topic,
-                                    &payload,
-                                )
-                                .await
-                                {
-                                    if let Err(e) = sender.broadcast(fresh).await {
-                                        debug!(error = %e, "outbox broadcast failed");
+                                if let Some(addr) = current_replay_addr(&node).await {
+                                    if let Some(fresh) = remint_and_wrap_for_replay(
+                                        &node,
+                                        &pow_solve_cache,
+                                        &pow_policy,
+                                        &pow_keypair,
+                                        &curator_topic,
+                                        &addr,
+                                        &payload,
+                                    )
+                                    .await
+                                    {
+                                        if let Err(e) = sender.broadcast(fresh).await {
+                                            debug!(error = %e, "outbox broadcast failed");
+                                        }
                                     }
                                 }
                             }
@@ -1849,24 +1862,28 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                         // Phase D OFF gate (same as NeighborUp/browse_request) — an
                         // app turned OFF must stop diffusing on EVERY replay path.
                         let disabled = load_disabled_keep_online(&coordinator_db);
-                        for stored in &outbox {
-                            if !keep_online_allows_rebroadcast(stored, &disabled) {
-                                continue;
-                            }
-                            let Some(fresh) = remint_and_wrap_for_replay(
-                                &node,
-                                &pow_solve_cache,
-                                &pow_policy,
-                                &pow_keypair,
-                                &curator_topic,
-                                stored,
-                            )
-                            .await
-                            else {
-                                continue;
-                            };
-                            if let Err(e) = sender.broadcast(fresh).await {
-                                debug!(error = %e, "periodic republish broadcast failed");
+                        // Sprint 76 Phase B (B5): one address fetch for the pass.
+                        if let Some(addr) = current_replay_addr(&node).await {
+                            for stored in &outbox {
+                                if !keep_online_allows_rebroadcast(stored, &disabled) {
+                                    continue;
+                                }
+                                let Some(fresh) = remint_and_wrap_for_replay(
+                                    &node,
+                                    &pow_solve_cache,
+                                    &pow_policy,
+                                    &pow_keypair,
+                                    &curator_topic,
+                                    &addr,
+                                    stored,
+                                )
+                                .await
+                                else {
+                                    continue;
+                                };
+                                if let Err(e) = sender.broadcast(fresh).await {
+                                    debug!(error = %e, "periodic republish broadcast failed");
+                                }
                             }
                         }
                         debug!(entries = outbox.len(), neighbors = neighbor_count, "periodic republish completed");
@@ -2022,16 +2039,49 @@ pub(crate) async fn mint_ticket_for_hash(
     node: &Node,
     hash: iroh_blobs::Hash,
 ) -> anyhow::Result<String> {
+    let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+        .my_endpoint_addr()
+        .await?;
+    mint_ticket_for_hash_with_addr(node, hash, &addr).await
+}
+
+/// Like [`mint_ticket_for_hash`] but reuses a PRE-FETCHED endpoint address
+/// (Sprint 76 Phase B, B5 hoisting). A replay pass fetches `my_endpoint_addr()`
+/// ONCE ([`current_replay_addr`]) and threads it through every entry, instead of
+/// querying the address watcher once per outbox entry — a node with N kept-online
+/// apps did N redundant watcher round-trips per NeighborUp / browse_request /
+/// periodic tick. The blob-presence check stays per-hash (content-addressing is
+/// the truth of reachability: a re-minted ticket to a GC'd blob would advertise
+/// an address that serves nothing).
+pub(crate) async fn mint_ticket_for_hash_with_addr(
+    node: &Node,
+    hash: iroh_blobs::Hash,
+    addr: &iroh::EndpointAddr,
+) -> anyhow::Result<String> {
     use iroh_blobs::BlobFormat;
     use iroh_blobs::ticket::BlobTicket;
     let blobs = nexus_core_rs::BlobsClient::new(node.blobs_store());
     if !blobs.has(*hash.as_bytes()).await? {
         anyhow::bail!("blob {hash} no longer in local store");
     }
-    let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+    Ok(BlobTicket::new(addr.clone(), hash, BlobFormat::Raw).to_string())
+}
+
+/// Fetch the node's current endpoint address once for a replay pass (Sprint 76
+/// Phase B, B5 hoisting). Returns `None` (and logs at debug) when the address is
+/// not yet ready, so the caller skips the whole pass — no entry could re-mint
+/// anyway, turning N per-entry failures into one log line.
+async fn current_replay_addr(node: &Node) -> Option<iroh::EndpointAddr> {
+    match nexus_core_rs::DiscoveryClient::new(node.endpoint())
         .my_endpoint_addr()
-        .await?;
-    Ok(BlobTicket::new(addr, hash, BlobFormat::Raw).to_string())
+        .await
+    {
+        Ok(addr) => Some(addr),
+        Err(e) => {
+            debug!(error = %e, "outbox replay skipped: endpoint address not ready");
+            None
+        }
+    }
 }
 
 /// Normalize a stored outbox entry to the unwrapped [`publish::ProjectAnnouncement`]
@@ -2147,6 +2197,7 @@ async fn remint_and_wrap_for_replay(
     pow_policy: &Arc<std::sync::RwLock<RelayPowPolicy>>,
     keypair: &Arc<KeyPair>,
     topic: &[u8; 32],
+    addr: &iroh::EndpointAddr,
     stored: &[u8],
 ) -> Option<Vec<u8>> {
     let payload = normalize_outbox_payload(stored)?;
@@ -2165,7 +2216,10 @@ async fn remint_and_wrap_for_replay(
                 // catches an app GC'd MID-session. Kept-online apps are pinned
                 // (skip-GC tag, M18) so their blob is never GC'd and they are
                 // never dropped here — only genuinely-retired apps are.
-                match mint_ticket_for_hash(node, hash).await {
+                //
+                // Sprint 76 Phase B (B5): re-mint from the PRE-FETCHED pass
+                // address rather than querying the watcher per entry.
+                match mint_ticket_for_hash_with_addr(node, hash, addr).await {
                     Ok(fresh) => ann.archive_ticket = Some(fresh),
                     Err(_) => return None,
                 }
@@ -2232,6 +2286,27 @@ fn handle_project_announcement(
                     }
                 }
             }
+            // Sprint 76 Phase B (B2, CARRY-3): downgrade a byzantine
+            // `is_open_source=true` carrying no provenance chain to `false` at
+            // THIS ingress — the `/browse`-aggregator chokepoint — not only at
+            // the search index (`index_browse_entry`, S74 B.6). A gossiped
+            // announcement from an untrusted peer can set the flag with a null
+            // `provenance_hash`/`repo_url`; without the downgrade the served
+            // `/browse` card would carry the spoofable badge, and front "verrou
+            // 4" (reads `source=="direct"` + `is_open_source`) would surface it.
+            // Same predicate as the index path (THREAT_MODEL §15.1: declarative
+            // trust, not a crypto attestation).
+            let is_open_source = crate::http::trustworthy_open_source(
+                ann.is_open_source,
+                ann.provenance_hash.as_deref(),
+                ann.repo_url.as_deref(),
+            );
+            if ann.is_open_source && !is_open_source {
+                warn!(
+                    project = %project_id,
+                    "downgrading is_open_source at /browse ingress: missing provenance_hash/repo_url"
+                );
+            }
             let entry = BrowseEntry {
                 project_id,
                 // Remediation #6: the hosting node's dialable identity. The
@@ -2249,7 +2324,7 @@ fn handle_project_announcement(
                 archive_hash,
                 repo_url: ann.repo_url,
                 provenance_hash: ann.provenance_hash,
-                is_open_source: ann.is_open_source,
+                is_open_source,
             };
             // Index the gossiped app for search (the gossip path deferred from the
             // search hotfix). Best-effort: a search-index hiccup must never drop
@@ -2608,6 +2683,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn aggregator_downgrades_open_source_without_provenance() {
+        // Sprint 76 Phase B (B2, CARRY-3): a gossiped announcement claiming
+        // `is_open_source=true` with NO provenance chain (null provenance_hash /
+        // repo_url) is downgraded to `false` at the /browse-aggregator INGRESS,
+        // so the SERVED Browse card never carries the spoofable badge — not only
+        // the search index (S74 B.6). A full provenance chain is preserved.
+        use nexus_shell_daemon_core::browse::BrowseAggregator;
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let agg = std::sync::Arc::new(BrowseAggregator::new());
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+
+        // Byzantine: claims open-source, no provenance/repo → downgraded to false.
+        let liar_pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Liar App"));
+        let liar = ProjectAnnouncement::new(
+            "a".repeat(64),
+            "Liar App".into(),
+            "tools".into(),
+            "d".into(),
+            vec![],
+        )
+        .with_project_id(liar_pid.clone())
+        .with_open_source(true);
+        super::handle_project_announcement(&agg, &db, &node, &liar.to_gossip_bytes().unwrap());
+        let entry = agg.get_direct_entry(&liar_pid).expect("liar entry present");
+        assert!(
+            !entry.is_open_source,
+            "a gossiped open-source claim with no provenance chain must be downgraded at /browse ingress"
+        );
+
+        // Honest: full provenance chain (repo_url + provenance_hash) → preserved.
+        let honest_pid = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Honest App"));
+        let honest = ProjectAnnouncement::new(
+            "b".repeat(64),
+            "Honest App".into(),
+            "tools".into(),
+            "d".into(),
+            vec![],
+        )
+        .with_project_id(honest_pid.clone())
+        .with_repo_url("https://codeberg.org/me/app.git".into())
+        .with_provenance_hash("ef".repeat(32))
+        .with_open_source(true);
+        super::handle_project_announcement(&agg, &db, &node, &honest.to_gossip_bytes().unwrap());
+        let entry = agg
+            .get_direct_entry(&honest_pid)
+            .expect("honest entry present");
+        assert!(
+            entry.is_open_source,
+            "an honest open-source claim with full provenance chain must be preserved"
+        );
+
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
     async fn live_gossip_drops_self_node_id_spoof() {
         use nexus_shell_daemon_core::browse::BrowseAggregator;
         use nexus_shell_daemon_core::publish::ProjectAnnouncement;
@@ -2772,6 +2905,99 @@ mod tests {
         node.shutdown().await.ok();
     }
 
+    // multi_thread is mandatory: a real iroh node's gossip actor needs a
+    // dedicated thread (P2-A-1, PATTERNS §P54) — current_thread can deadlock.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn gossip_cmd_outbox_persists_to_db() {
+        // Sprint 76 Phase B (B4, T6-OUTBOX-DIRECT): the GossipCmd::Outbox handler
+        // had no direct test (grep = the handler is its sole occurrence). Drive
+        // the REAL gossip subscribe task and assert that an Outbox command
+        // persists the unwrapped announcement to the DB outbox — the
+        // deterministic, neighbor-independent half (boot-recovery durability, D2).
+        // The neighbor-gated broadcast half is exercised by the S75 LIVE
+        // cross-node WAN acceptance, not a flaky in-process gossip mesh: NO 2-node
+        // NeighborUp test exists in this crate — every cross-node test uses direct
+        // ticket/docs connectivity, never gossip-mesh formation.
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        let node = Arc::new(nexus_core_rs::create_node().await.expect("boot node"));
+        let coordinator_db = Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().expect("db"),
+        ));
+        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel::<GossipCmd>(16);
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        let (boot_done_tx, boot_done_rx) = oneshot::channel::<()>();
+
+        let handle = spawn_gossip_subscribe_task(GossipTaskConfig {
+            node: Arc::clone(&node),
+            curator_runtime: Arc::new(CuratorRuntime::new(None)),
+            browse_aggregator: Arc::new(BrowseAggregator::new()),
+            gossip_sender_slot: Arc::new(tokio::sync::RwLock::new(None)),
+            pow_verify_cache: Arc::new(PowVerifyCache::new()),
+            pow_policy: Arc::new(std::sync::RwLock::new(RelayPowPolicy {
+                default_difficulty: 1,
+                topic_overrides: std::collections::BTreeMap::new(),
+            })),
+            shutdown_rx,
+            bootstrap_peers: vec![],
+            cmd_rx,
+            pow_solve_cache: Arc::new(PowSolveCache::new()),
+            pow_keypair: Arc::new(KeyPair::generate()),
+            curator_topic: curator_topic_id(),
+            coordinator_db: Arc::clone(&coordinator_db),
+            initial_outbox: vec![],
+            boot_replay_done: Some(boot_done_tx),
+        });
+
+        // Wait for the boot replay to finish so the select loop is consuming cmds
+        // (bounded — the cmd also buffers in the channel regardless).
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(10), boot_done_rx).await;
+
+        let ann = ProjectAnnouncement::new(
+            node.node_id(),
+            "Outbox App".into(),
+            "tools".into(),
+            "d".into(),
+            vec![],
+        )
+        .with_project_id(hex::encode(nexus_core_rs::crypto::blake3_hash(
+            b"Outbox App",
+        )));
+        let payload = ann.to_gossip_bytes().unwrap();
+        cmd_tx
+            .send(GossipCmd::Outbox(payload.clone()))
+            .await
+            .expect("send Outbox cmd");
+
+        // Poll the DB until the handler has persisted the entry (bounded 5s).
+        let mut persisted: Vec<Vec<u8>> = vec![];
+        for _ in 0..50 {
+            persisted = {
+                let db = coordinator_db.lock().unwrap_or_else(|p| p.into_inner());
+                db.load_outbox().unwrap_or_default()
+            };
+            if !persisted.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert_eq!(
+            persisted.len(),
+            1,
+            "GossipCmd::Outbox must persist the announcement to the DB outbox"
+        );
+        assert_eq!(
+            persisted[0], payload,
+            "the persisted outbox bytes must be the unwrapped announcement payload (D2)"
+        );
+
+        let _ = shutdown_tx.send(());
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+        // `node` is an Arc<Node> (GossipTaskConfig owns a clone); shutdown() takes
+        // owned self, so we cannot move out of the Arc — drop it and let the gossip
+        // task (already signalled) and the node clean up on drop.
+        drop(node);
+    }
+
     #[tokio::test]
     async fn freshness_probe_marks_gossiped_remote_app_reachable_e2e() {
         // Remediation #6 real-frontier gate (PATTERNS §P57): a genuine
@@ -2912,10 +3138,15 @@ mod tests {
         }));
         let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
 
-        let fresh =
-            super::remint_and_wrap_for_replay(&node, &cache, &policy, &kp, &[9u8; 32], &payload)
-                .await
-                .expect("replay produces a fresh envelope");
+        let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let fresh = super::remint_and_wrap_for_replay(
+            &node, &cache, &policy, &kp, &[9u8; 32], &addr, &payload,
+        )
+        .await
+        .expect("replay produces a fresh envelope");
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2976,10 +3207,15 @@ mod tests {
             topic_overrides: std::collections::BTreeMap::new(),
         }));
         let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
-        let fresh =
-            super::remint_and_wrap_for_replay(&node, &cache, &policy, &kp, &[5u8; 32], &payload)
-                .await
-                .expect("replay envelope");
+        let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let fresh = super::remint_and_wrap_for_replay(
+            &node, &cache, &policy, &kp, &[5u8; 32], &addr, &payload,
+        )
+        .await
+        .expect("replay envelope");
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -3004,6 +3240,96 @@ mod tests {
             .into_parts()
             .1;
         assert_eq!(new_hash, stale_hash, "re-mint preserves the content hash");
+        node.shutdown().await.ok();
+        other.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn endpoint_addr_hoisted_once_per_pass() {
+        // Sprint 76 Phase B (B5, WS-3/PD-5 hoisting): `remint_and_wrap_for_replay`
+        // re-mints from the PRE-FETCHED pass address it is GIVEN, never a fresh
+        // per-entry `my_endpoint_addr()` query. Proof: hand it `other`'s address
+        // and assert the re-minted OWN ticket embeds OTHER's endpoint id — a
+        // per-entry re-fetch would have stamped our OWN id instead. This is what
+        // makes the once-per-pass hoist correct: the replay loop fetches the
+        // address once (`current_replay_addr`) and threads it through every entry.
+        use nexus_shell_daemon_core::publish::ProjectAnnouncement;
+        use std::str::FromStr;
+        use std::sync::{Arc, RwLock};
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let other = nexus_core_rs::create_node().await.unwrap();
+        // We hold the blob (so the re-mint succeeds) and the announcement is OURS.
+        let hash = nexus_core_rs::BlobsClient::new(node.blobs_store())
+            .add_bytes(b"zip".to_vec())
+            .await
+            .unwrap();
+        let own_addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let stale_ticket = iroh_blobs::ticket::BlobTicket::new(
+            own_addr,
+            iroh_blobs::Hash::from_bytes(hash),
+            iroh_blobs::BlobFormat::Raw,
+        )
+        .to_string();
+        let ann = ProjectAnnouncement::new(
+            node.node_id(),
+            "Hoist App".into(),
+            "tools".into(),
+            "x".into(),
+            vec![],
+        )
+        .with_project_id(hex::encode(nexus_core_rs::crypto::blake3_hash(
+            b"Hoist App",
+        )))
+        .with_archive_ticket(stale_ticket);
+        let payload = ann.to_gossip_bytes().unwrap();
+
+        // The address handed to the pass is OTHER's, not ours.
+        let pass_addr = nexus_core_rs::DiscoveryClient::new(other.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let other_id = pass_addr.id.to_string();
+
+        let kp = Arc::new(nexus_core_rs::KeyPair::generate());
+        let policy = Arc::new(RwLock::new(nexus_core_rs::RelayPowPolicy {
+            default_difficulty: 1,
+            topic_overrides: std::collections::BTreeMap::new(),
+        }));
+        let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
+        let fresh = super::remint_and_wrap_for_replay(
+            &node, &cache, &policy, &kp, &[8u8; 32], &pass_addr, &payload,
+        )
+        .await
+        .expect("replay envelope");
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let pol = policy.read().unwrap().clone();
+        let (_proof, out_payload) = nexus_core_rs::PowVerifyCache::new()
+            .verify_envelope(&fresh, &pol, now)
+            .expect("verify");
+        let out = ProjectAnnouncement::from_gossip_bytes(out_payload).unwrap();
+        let new_ticket = out.archive_ticket.expect("ticket present after replay");
+        let minted_id = iroh_blobs::ticket::BlobTicket::from_str(&new_ticket)
+            .unwrap()
+            .into_parts()
+            .0
+            .id
+            .to_string();
+        assert_eq!(
+            minted_id, other_id,
+            "the re-mint must embed the PASSED pass-address, proving it is not re-fetched per entry"
+        );
+        assert_ne!(
+            minted_id,
+            node.node_id(),
+            "a per-entry re-fetch would have stamped our OWN id — the hoist prevents that"
+        );
         node.shutdown().await.ok();
         other.shutdown().await.ok();
     }
@@ -3060,10 +3386,15 @@ mod tests {
             topic_overrides: std::collections::BTreeMap::new(),
         }));
         let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
-        let fresh =
-            super::remint_and_wrap_for_replay(&node, &cache, &policy, &kp, &[6u8; 32], &payload)
-                .await
-                .expect("replay envelope");
+        let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let fresh = super::remint_and_wrap_for_replay(
+            &node, &cache, &policy, &kp, &[6u8; 32], &addr, &payload,
+        )
+        .await
+        .expect("replay envelope");
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -3133,9 +3464,14 @@ mod tests {
             topic_overrides: std::collections::BTreeMap::new(),
         }));
         let cache = Arc::new(nexus_core_rs::PowSolveCache::new());
-        let dropped =
-            super::remint_and_wrap_for_replay(&node, &cache, &policy, &kp, &[7u8; 32], &payload)
-                .await;
+        let addr = nexus_core_rs::DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .unwrap();
+        let dropped = super::remint_and_wrap_for_replay(
+            &node, &cache, &policy, &kp, &[7u8; 32], &addr, &payload,
+        )
+        .await;
         assert!(
             dropped.is_none(),
             "an announcement whose archive blob is GC'd must be dropped from the replay"

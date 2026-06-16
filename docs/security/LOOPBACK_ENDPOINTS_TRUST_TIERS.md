@@ -79,6 +79,13 @@ confiance OS. Sa couverture threat model est tracée séparément en §8.1.
 | `GET /auth/token` | S16 Phase A | T0 (Host+Origin only) | T0 | Bootstrap bearer token |
 | `POST /canary/cosign` FROST (S30 N1) | S30 futur | N/A | **T2** | Co-signer canary = engagement cryptographique plateforme, LT-4 consumer natif |
 | `POST /quarantine/flush` | S21 Phase D CLI | T0 | T1 | Purge queue = perte d'évidence, validator humain recommandé |
+| `POST /api/daemon/keep-online` | S74 Phase D (M18) | T0 | T0 | Toggle un pin LOCAL d'app auto-déployée (skip-GC). Mutation locale + (dé)tag blob, pas de signature ni broadcast. **Duress no-op** (S76 B1). |
+| `POST /api/daemon/seed` | S74 Phase E | T0 | T0 | Seed VOLONTAIRE communautaire d'une app distante (fetch + pin + emit `SeedAnnounced`). Borné subscribed-only + `PULL_PROVIDER_CAP=8`. **Duress no-op** (S76 B1). |
+| `GET /api/daemon/seed-count/{project_id}` | S75 Phase C (WIRE-2) | T0 | T0 | Lecture seule du compteur best-effort de seeders (peut sur-estimer ; jamais une preuve de joignabilité — BLAKE3 reste la vérité). |
+| `GET /api/daemon/nodes` | S75 Phase D | T0 | T0 | Lecture seule de l'annuaire de nœuds ingéré + registre observed borné. Additive à `/browse` (byte-identique préservé). |
+| `POST /api/daemon/directory/publish` | S75 Phase B/C | T0 | **T1** | Signe + broadcast le `NodeDirectoryEntry` de CE nœud (Ed25519 + JCS). Action d'autorité d'éditeur ⇒ candidat T1 (CONFIRM_PROMPT). |
+| `POST /api/daemon/seed/request` | S74 Phase E | T0 | **T1** | Mint + signe un `SeedRequest` (ALPN `sbfb/seed/0`) lié à (project_id, archive_hash). Action signante déléguée ⇒ candidat T1. **Duress no-op** (short-circuit avant signature). |
+| `GET /api/daemon/search` | S73 Phase E | T0 | T0 | Lecture seule FTS5 du corpus local (enveloppe Zod `.strict()`). Pas de mutation. |
 
 ## 3.1 Serveur Operator (sbfb-factory, port `:3001`) — surface write + spawn
 

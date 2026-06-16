@@ -2348,6 +2348,35 @@ mod tests {
         assert!(runtime.observed_snapshot(t0).is_empty());
     }
 
+    #[test]
+    fn observed_capture_is_availability_only() {
+        // Sprint 76 Phase B (B1, publisher-binding — decision (b)): the observed
+        // registry is AVAILABILITY-ONLY, not publisher-authenticated. At the
+        // `process_directory_announcement_bytes` layer the claimed
+        // `node_pubkey_hex` is unauthenticated — the gossip envelope's PoW binds
+        // (publisher, topic), NOT the payload's self-declared pubkey, and the
+        // verified envelope author is not plumbed to this layer (the call-site
+        // passes only content + node). So ANY non-subscribed pubkey is recorded
+        // as an availability hint, BY DESIGN. The real anti-flood defenses are:
+        // (1) the self-forge guard — a claim of OUR node_id is dropped
+        // (`observed_recorded_without_any_fetch`); (2) subscribed exclusion
+        // (`observed_registry_excludes_subscribed`); (3) the bounded +
+        // rate-limited registry (cap + stalest-eviction + 1/min + 48h TTL). This
+        // test PINS decision (b): never mistake observed for an authenticated set
+        // (THREAT_MODEL §15.1). Binding it to the PoW publisher would need the
+        // envelope author at this layer — deferred, not over-promised here.
+        let runtime = CuratorRuntime::new(None);
+        let t0 = 1_700_000_000u64;
+        // Two distinct, unrelated, unauthenticated pubkeys are BOTH recorded.
+        assert!(runtime.record_observed_directory(observed_pk(101), t0));
+        assert!(runtime.record_observed_directory(observed_pk(202), t0));
+        assert_eq!(
+            runtime.observed_count(),
+            2,
+            "observed is availability-only: any non-subscribed pubkey is a hint, no PoW binding"
+        );
+    }
+
     #[tokio::test]
     async fn observed_recorded_without_any_fetch() {
         // THE anti-amplification assertion (THREAT_MODEL §15.1): an

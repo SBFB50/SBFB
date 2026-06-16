@@ -78,11 +78,12 @@ jobs:
       - name: "[9] size-limit"
         run: cd web && npm run size
 
-      - name: Install Playwright browsers
-        run: cd web && npx playwright install --with-deps chromium
-
-      - name: "[10] playwright"
-        run: cd web && xvfb-run npx playwright test
+      # Sprint 76 Phase B (B9, CI-PLAYWRIGHT-NOOP): the former "[10] playwright"
+      # step ran `playwright test` with NO playwright.config and NO *.spec.ts —
+      # a vacuous green (plus a slow chromium install) that gave false E2E
+      # confidence. Removed rather than faked. A real browser E2E (serve dist +
+      # navigate) is a post-launch investment, not a debt-phase placeholder; the
+      # `@playwright/test` devDep is kept for that future, unused for now.
 
       - name: "[11] scan-en-strings"
         run: cd web && bash scripts/scan-en-strings.sh

@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BridgeEventSchema,
+  BridgeMethodSchema,
   BridgeRequestSchema,
   BridgeResponseSchema,
   PII_REDACT_MAX_TEXT_LENGTH,
@@ -135,5 +136,44 @@ describe("PiiRedactPayloadSchema (Sprint 21 Phase B)", () => {
       policy: { enabled: false, confidence_threshold: 0.2 },
     };
     expect(PiiRedactPayloadSchema.safeParse(payload).success).toBe(true);
+  });
+});
+
+describe("BridgeMethodSchema parity (Sprint 76 Phase B, B10)", () => {
+  // The canonical bridge-method set. The Rust declarative manifest allowlist
+  // (`crates/sbfb-manifest/src/lib.rs` BRIDGE_METHOD_ALLOWLIST) MUST mirror this
+  // exact set — the Rust-side test `allowlist_mirrors_host_dispatch_schema` and
+  // this one are the two halves of the cross-language parity lock (BRIDGE-
+  // ALLOWLIST-DRIFT). The TS schema IS the host dispatch boundary; the Rust list
+  // is declarative manifest validation, so they must stay in lockstep.
+  const CANONICAL = [
+    "task_submit",
+    "storage_get",
+    "storage_set",
+    "pii_redact",
+    "storage_list",
+    "storage_delete",
+    "identity_pubkey",
+    "node_status",
+    "browse_list",
+    "storage_version",
+    "provenance_get",
+    "provenance_verify",
+    "feed_cursor_get",
+    "search",
+    "proof_card_get",
+  ];
+
+  it("the host dispatch schema is exactly the 15 canonical methods", () => {
+    expect([...BridgeMethodSchema.options].sort()).toEqual(
+      [...CANONICAL].sort(),
+    );
+  });
+
+  it("every canonical method parses, an unknown one is rejected", () => {
+    for (const m of CANONICAL) {
+      expect(BridgeMethodSchema.safeParse(m).success).toBe(true);
+    }
+    expect(BridgeMethodSchema.safeParse("evil_method").success).toBe(false);
   });
 });

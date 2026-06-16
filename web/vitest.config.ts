@@ -12,7 +12,17 @@
  *  - src/stores/projectStore.ts
  *  - src/components/app/tabview/** (renderer + schema)
  *
- * Everything else is covered by Playwright (real coordinator).
+ * Sprint 76 Phase B (B9): the former "everything else is covered by Playwright"
+ * claim was hollow — the CI Playwright step ran zero specs (no config, no
+ * *.spec.ts) and was removed rather than faked. The measured `coverage.include`
+ * set below stays the security/protocol-critical CORE (renderer, stores, daemon
+ * API, bootstrap, BrowsedProject iframe host) so the threshold gates real signal
+ * and is not diluted by full-page UI. The route pages (Curators, OnboardingEmpty,
+ * ProjectDetail, Projects, Nodes, Network, ...) carry Vitest SMOKE tests that
+ * fail if a page crashes on render — regression protection closing the 0-test
+ * gap — but stay OUT of the measured set: a smoke test hits only the main render
+ * path, so including these large branchy pages would lower the aggregate without
+ * adding security coverage. A real browser E2E is a post-launch investment.
  */
 
 import path from "node:path";

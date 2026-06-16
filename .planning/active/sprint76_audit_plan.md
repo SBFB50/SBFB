@@ -377,9 +377,13 @@ feature non-trivial = OK. Absent = **P1** (gate bypasse). Present sans scoring
 S75 ajoute des surfaces : nouveau domaine signe (`DOMAIN_NODE_DIRECTORY_V1`),
 ingest annuaire gossip, route requester seed, route `/nodes`, driver headless
 boot, unit systemd durcie. Comparer `HARDENING_ROADMAP.md §3` vs livre :
-- THREAT_MODEL §15/§15.1 couvre les nouvelles surfaces (cf. Track H) ; LOOPBACK
-  trust tiers couvre les routes additives (`/nodes` read-only, `/seed/request`,
-  `/directory/publish`).
+- THREAT_MODEL §15/§15.1 couvre les nouvelles surfaces (cf. Track H). **Correction
+  S76 Phase B (B7, LOOPBACK-TIERS-STALE) : ce plan affirmait a tort que LOOPBACK
+  trust tiers couvrait deja les routes additives — `/api/daemon/{nodes,seed,
+  seed-count,keep-online,search}`, `/api/daemon/seed/request`, `/api/daemon/
+  directory/publish` etaient ABSENTES de `LOOPBACK_ENDPOINTS_TRUST_TIERS.md §3`
+  (drift cumule 2 sprints S74+S75). S76 B7 les a inscrites (toutes T0 ; T1
+  candidats `/seed/request` + `/directory/publish` = actions signantes).**
 - Pour chaque item prescrit non livre : scope-cut justifie kickoff §9 ou blocker
   documente, sinon P2 (drift). Informative, pas bloquante. Drift cumule 3+
   sprints sans justification → remonter le signal HARDENING_ROADMAP lui-meme.
@@ -424,6 +428,21 @@ boot, unit systemd durcie. Comparer `HARDENING_ROADMAP.md §3` vs livre :
 | **NITs F** (404, 400/404, fixtures, truncateHex x4, addAnchor grouping) | F | Sans action (advisory) | Opportuniste si une phase touche la zone |
 | **SeedAnnounced ne converge pas cross-noeud** | G (constat acceptance live) | `peer_count:0` sur Windows ET Mac ~10 min apres le pin VPS (`.git/S75_PHASE_G_ACCEPTANCE.md`) ; hypothese : asymetrie d'abonnement feed (personne ne suit le feed du seeder). Best-effort par design MAIS un registre toujours-vide affaiblit le dial-set multi-provider (aggrave PULL-3) | Investiguer la propagation feed du `SeedAnnounced` (sync doc cross-swarm) ; lier a PULL-3 |
 | **Annuaire du seeder n'annonce pas ce qu'il seede** | G (constat acceptance live) | `directory/publish` du VPS = `catalog_len:0` (own/direct-only) — un pair frais dont la seule ancre est le seeder ne peut pas DECOUVRIR l'app servie. Conforme verrou-4 (seeder != editeur), mais a arbitrer : section « seeded » distincte non-autoritaire dans `NodeDirectoryEntry` ? | Question design PO (pas un bug) — peser contre verrou-4 et le modele F-Droid |
+| **Surface UX-ARRIVAL (B11, COUVERTE S76-B)** | post-S75 hotfix `e980d7e` | Registre observed RAM + split arrivee (`/browse` mes-sources vs « Decouvert ») + `/nodes` observed catalog-backed — surface inscrite tardivement, jamais routee a un track d'audit | **Couverte** : observed borne+rate-limite (tests cap/TTL/rate-limit/self-guard + `observed_capture_is_availability_only` S76-B), `from_subscribed` CATALOG-BACKED (`browse_views_derives_from_subscribed`), discriminateur curateur/ancre (B6, `Nodes.test.tsx`). THREAT_MODEL §15.1 rows observed + spoof « Tes sources ». Auditer comme TRACK COUVERT, pas comme gap |
+
+**Statut S76 Phase B (dette reservee, `fix(daemon+shell)`)** : carries §3 traites
+par la phase dette — **Lot duress freres** (B1, `seed_voluntary` + `set_keep_online`
+duress no-op, THREAT_MODEL row L→Nil), **PULL-3** (B3, chaine cross-tier
+`build_seed_fetch_chain` ticket→directory→multi), **CARRY-3** (B2, downgrade
+`is_open_source` a l'ingress aggregator), **Discriminateur curator-vs-ancre** (B6),
+**T6 GossipCmd::Outbox direct** (B4, test consommateur DB), **WS-3/PD-5 hoisting**
+(B5, `my_endpoint_addr()` once-per-pass), **LOOPBACK-TIERS** (B7), **blob-serve
+bearer** (B8 doc), **bridge allowlist parite** (B10), **UX-ARRIVAL** (B11).
+**NON traites (reconduits S77, exemption nommee)** : Sampling anti-Sybil seeder
+tail (dependance interne sharding), Re-drive-on-ingest, same-key seed.rs doc P3,
+SeedAnnounced non-converge + annuaire-du-seeder (questions design PO, hors dette
+mecanique). L'audit S76 verifie les CLOTURES citees, ne re-route pas les lignes
+couvertes.
 
 **Externes inchanges (a reporter tels quels)** : P2-A-1 rand (exemption
 upstream), P2-AUDIT-2 iroh pre-release transitives (pin 0.98), T-NN+2 iframe

@@ -128,14 +128,64 @@ describe("Nodes", () => {
 
     const waiting = await screen.findAllByTestId("node-waiting-row");
     expect(waiting).toHaveLength(1);
-    // Copy honnête (review F) : l'attention set est unique — une identité
-    // suivie comme curator pur ne publiera peut-être jamais de catalogue, la
-    // ligne décrit l'état observé sans promettre une annonce future.
+    // B6 (discriminateur) : WAITING_B est abonné mais absent des `entries`
+    // (aucune liste de curation ingérée) → c'est une ANCRE en attente de sa
+    // première annonce, pas un curateur. Copy honnête (review F) : on décrit
+    // l'état observé sans promettre une annonce future.
+    expect(waiting[0]).toHaveAttribute("data-kind", "anchor");
     expect(waiting[0]).toHaveTextContent(
-      "Abonnement actif — aucun catalogue annonce pour l'instant.",
+      "Ancre abonnée — en attente de sa première annonce d'annuaire.",
     );
     // L'identité abonnée AVEC annuaire ne double pas en ligne d'attente.
     expect(screen.queryByTestId("nodes-cold-start")).not.toBeInTheDocument();
+  });
+
+  it("b6 : distingue un curateur (liste ingérée) d'une ancre en attente", async () => {
+    // L'attention set est UNIQUE (Q3/DQ3) : une identité abonnée dont on a
+    // déjà ingéré une liste de curation signée curate — même sans annuaire de
+    // nœud. On la libelle « curateur », distincte d'une ancre muette en
+    // attente de sa première annonce. CURATOR_B est dans `entries`, ANCHOR_C
+    // ne l'est pas ; aucun des deux n'a d'annuaire ingéré (absent de /nodes).
+    const CURATOR_B = "bb".repeat(32);
+    const ANCHOR_C = "cc".repeat(32);
+    mockFetch({
+      "/api/daemon/nodes": { nodes: [makeNode()] },
+      "/api/daemon/curators": {
+        entries: [
+          {
+            list: {
+              version: 1,
+              curator_pubkey: Array.from({ length: 32 }, () => 0xbb),
+              curator_name: "Curateur B",
+              created_at: 1_700_000_000,
+              revision: 1,
+              entries: [],
+            },
+            curator_pubkey: Array.from({ length: 32 }, () => 0xbb),
+            signature: Array.from({ length: 64 }, () => 0),
+          },
+        ],
+        subscribed_curators: [NODE_A, CURATOR_B, ANCHOR_C],
+      },
+    });
+    renderNodes();
+
+    const rows = await screen.findAllByTestId("node-waiting-row");
+    expect(rows).toHaveLength(2);
+    const curatorRow = rows.find(
+      (r) => r.getAttribute("data-kind") === "curator",
+    );
+    const anchorRow = rows.find(
+      (r) => r.getAttribute("data-kind") === "anchor",
+    );
+    expect(curatorRow).toBeDefined();
+    expect(anchorRow).toBeDefined();
+    expect(curatorRow).toHaveTextContent(
+      "Curateur — listes de curation signées suivies ; aucun annuaire de nœud publié.",
+    );
+    expect(anchorRow).toHaveTextContent(
+      "Ancre abonnée — en attente de sa première annonce d'annuaire.",
+    );
   });
 
   it("rend une carte erreur sur un drift de schema (branche isError, lecon SEARCH-VIEW)", async () => {

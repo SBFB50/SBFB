@@ -161,6 +161,17 @@ function NodesContent({ coordUrl }: { coordUrl: string }) {
     curatorsResult?.kind === "data"
       ? curatorsResult.body.subscribed_curators
       : [];
+  // B6 (discriminateur curateur/ancre) : l'attention set est UNIQUE (Q3/DQ3),
+  // donc une ligne « en attente » peut être soit une ancre dont on n'a pas
+  // encore ingéré l'annuaire de nœud, soit un curateur dont on a déjà la liste
+  // signée mais qui ne publiera peut-être JAMAIS d'annuaire. On les distingue :
+  // une identité présente dans les `entries` (listes de curation ingérées)
+  // curate déjà — sinon c'est une ancre en attente de sa première annonce.
+  const curatingHexes = new Set(
+    curatorsResult?.kind === "data"
+      ? curatorsResult.body.entries.map((e) => bytesToHex(e.curator_pubkey))
+      : [],
+  );
   const waiting = subscribed.filter((hex) => !knownIds.has(hex));
   // Un nœud observé n'est pas « rien » : le cold-start ne s'affiche que si
   // les trois familles (catalogues, en-attente, observés) sont vides.
@@ -207,7 +218,11 @@ function NodesContent({ coordUrl }: { coordUrl: string }) {
                 <NodeRow key={node.node_id} node={node} />
               ))}
               {waiting.map((hex) => (
-                <WaitingRow key={hex} pubkeyHex={hex} />
+                <WaitingRow
+                  key={hex}
+                  pubkeyHex={hex}
+                  isCurator={curatingHexes.has(hex)}
+                />
               ))}
             </div>
           )}
@@ -344,9 +359,19 @@ function NodeRow({ node }: { node: NodeSummary }) {
   );
 }
 
-function WaitingRow({ pubkeyHex }: { pubkeyHex: string }) {
+function WaitingRow({
+  pubkeyHex,
+  isCurator,
+}: {
+  pubkeyHex: string;
+  isCurator: boolean;
+}) {
   return (
-    <div className="glass-card p-5" data-testid="node-waiting-row">
+    <div
+      className="glass-card p-5"
+      data-testid="node-waiting-row"
+      data-kind={isCurator ? "curator" : "anchor"}
+    >
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.04]">
           <Server className="h-5 w-5 text-white/30" />
@@ -355,17 +380,33 @@ function WaitingRow({ pubkeyHex }: { pubkeyHex: string }) {
           <p className="font-mono text-sm font-bold text-white/50">
             {truncateHex(pubkeyHex)}
           </p>
-          {/* Copy honnête : l'attention set est UNIQUE (Q3/DQ3) — une
-              identité suivie comme curator pur ne publiera peut-être JAMAIS
-              de catalogue ; on décrit l'état observé sans promettre une
-              annonce future (review F). */}
-          <p className="mt-1 text-xs text-white/40">
-            Abonnement actif — aucun catalogue annonce pour l&apos;instant.
-          </p>
+          {/* B6 (discriminateur curateur/ancre) : copy honnête — l'attention
+              set est UNIQUE (Q3/DQ3). Une identité dont on a déjà ingéré une
+              liste de curation signée curate ; elle ne publiera peut-être
+              JAMAIS d'annuaire de nœud. Une ancre sans rien d'ingéré est en
+              attente de sa première annonce. On décrit l'état observé sans
+              promettre une annonce future (review F). */}
+          {isCurator ? (
+            <p className="mt-1 text-xs text-white/40">
+              Curateur — listes de curation signées suivies ; aucun annuaire de
+              nœud publié.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-white/40">
+              Ancre abonnée — en attente de sa première annonce d&apos;annuaire.
+            </p>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+/** Convert a `[u8; 32]`-style byte array (as sent by the daemon) to lowercase
+ *  hex so a curator entry's `curator_pubkey` can be matched against the
+ *  hex-encoded subscribed-curator list (B6 discriminator). */
+function bytesToHex(bytes: number[]): string {
+  return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function ColdStart({ onAdd }: { onAdd: () => void }) {
