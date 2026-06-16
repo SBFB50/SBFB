@@ -84,6 +84,7 @@ mod tests {
             redundancy_factor: 1,
             verifiable: false,
             watermark_seed: Vec::new(),
+            required_runtime: None,
         };
         let kp = KeyPair::generate();
         TaskEntry::sign(task, &kp).expect("sign")

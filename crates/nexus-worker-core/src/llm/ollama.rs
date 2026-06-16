@@ -23,6 +23,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use nexus_core_rs::RuntimeTuple;
 use ollama_rs::Ollama;
 use ollama_rs::generation::completion::request::GenerationRequest;
 use ollama_rs::generation::parameters::FormatType;
@@ -235,6 +236,24 @@ impl LlmBackend for OllamaBackend {
             output_token_ids: vec![],
         })
     }
+
+    async fn runtime_tuple(&self, model: &str) -> RuntimeTuple {
+        // `runtime_family` is reliably known: this IS the Ollama HTTP
+        // backend. `quant` is left empty (wildcard) on purpose:
+        // ollama-rs 0.3.4 exposes no clean quantization accessor —
+        // `LocalModel { name, modified_at, size }` and `ModelInfo`
+        // carry no quant field; only the modelfile `FROM .../blobs/
+        // sha256:` line does, whose parse is fragile and breaks the
+        // hermetic StubBackend. A real quant / weight digest is gated
+        // on a file-exposing backend (`llm_llama_cpp`, Sprint 77 /
+        // D3 etage 2) — the same honesty constraint that keeps
+        // `ResultPayload::model_digest` a name-hash this sprint.
+        RuntimeTuple {
+            model: model.to_string(),
+            quant: String::new(),
+            runtime_family: "ollama".to_string(),
+        }
+    }
 }
 
 /// Build the Ollama [`ModelOptions`] for an explicit sampling
@@ -293,6 +312,14 @@ pub struct StubBackend {
     /// default echo template. Tests use this to feed the defensive
     /// validator known-good / known-bad JSON payloads.
     pub forced_output: Option<String>,
+    /// Quantization label this stub reports from [`Self::runtime_tuple`]
+    /// (Sprint 76 Phase C cohort gate). Defaults to `"stub"`; tests
+    /// override via [`Self::with_runtime_tuple`] to simulate
+    /// homogeneous / heterogeneous cohorts.
+    pub quant: String,
+    /// Runtime family this stub reports from [`Self::runtime_tuple`].
+    /// Defaults to `"stub"`.
+    pub runtime_family: String,
 }
 
 impl StubBackend {
@@ -302,6 +329,8 @@ impl StubBackend {
         Self {
             models: vec!["stub-model:latest".to_string()],
             forced_output: None,
+            quant: "stub".to_string(),
+            runtime_family: "stub".to_string(),
         }
     }
 
@@ -310,6 +339,8 @@ impl StubBackend {
         Self {
             models,
             forced_output: None,
+            quant: "stub".to_string(),
+            runtime_family: "stub".to_string(),
         }
     }
 
@@ -317,6 +348,19 @@ impl StubBackend {
     /// Used by tests to drive the defensive validator.
     pub fn with_forced_output(mut self, text: impl Into<String>) -> Self {
         self.forced_output = Some(text.into());
+        self
+    }
+
+    /// Override the runtime fingerprint the stub advertises (Sprint 76
+    /// Phase C cohort gate). Lets a test stand up homogeneous vs
+    /// heterogeneous workers without a live Ollama.
+    pub fn with_runtime_tuple(
+        mut self,
+        quant: impl Into<String>,
+        runtime_family: impl Into<String>,
+    ) -> Self {
+        self.quant = quant.into();
+        self.runtime_family = runtime_family.into();
         self
     }
 }
@@ -356,6 +400,14 @@ impl LlmBackend for StubBackend {
             completion_tokens: Some(16),
             output_token_ids: vec![],
         })
+    }
+
+    async fn runtime_tuple(&self, model: &str) -> RuntimeTuple {
+        RuntimeTuple {
+            model: model.to_string(),
+            quant: self.quant.clone(),
+            runtime_family: self.runtime_family.clone(),
+        }
     }
 }
 

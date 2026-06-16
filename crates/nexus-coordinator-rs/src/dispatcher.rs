@@ -61,6 +61,18 @@ pub fn submit_task(
         submission.redundancy_factor
     };
 
+    // Sprint 76 Phase C (D3 etage 1): a cohort-homogeneity requirement
+    // is only meaningful for deterministic-quorum dispatch — a
+    // `verifiable` task replicated across `redundancy > 1` workers,
+    // where the hash-exact quorum needs byte-identical outputs from a
+    // homogeneous cohort. For a single-worker or best-effort task it
+    // would only needlessly restrict who can claim, so drop it.
+    let required_runtime = if submission.verifiable && redundancy > 1 {
+        submission.required_runtime.clone()
+    } else {
+        None
+    };
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -87,6 +99,7 @@ pub fn submit_task(
         redundancy_factor: redundancy,
         verifiable: submission.verifiable,
         watermark_seed: Vec::new(),
+        required_runtime,
     };
 
     let entry =
@@ -137,6 +150,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use nexus_core_rs::RuntimeTuple;
 
     fn make_submission() -> TaskSubmission {
         TaskSubmission {
@@ -154,6 +168,7 @@ mod tests {
             estimated_hours: 0.0,
             redundancy_factor: 1,
             verifiable: false,
+            required_runtime: None,
         }
     }
 
@@ -191,6 +206,60 @@ mod tests {
         // A default submission stays best-effort (verifiable = false).
         let plain = dispatcher.submit(make_submission()).expect("submit");
         assert!(!plain.task.verifiable);
+    }
+
+    #[test]
+    fn submit_sets_required_runtime_only_for_verifiable_redundant() {
+        // Sprint 76 Phase C (D3 etage 1): the cohort-homogeneity
+        // requirement is copied onto the signed Task ONLY for
+        // deterministic-quorum dispatch (`verifiable` + redundancy>1).
+        // A single-worker or best-effort task drops it so it is never
+        // needlessly restricted.
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let kp = KeyPair::generate();
+        let dispatcher = TaskDispatcher::new(db, kp);
+
+        let cohort = RuntimeTuple {
+            model: "llama3".into(),
+            quant: String::new(),
+            runtime_family: "ollama".into(),
+        };
+
+        // verifiable + redundancy>1 => requirement carried into the
+        // signed canonical bytes.
+        let mut sub = make_submission();
+        sub.verifiable = true;
+        sub.redundancy_factor = 2;
+        sub.required_runtime = Some(cohort.clone());
+        let entry = dispatcher.submit(sub).expect("submit");
+        assert_eq!(
+            entry.task.required_runtime,
+            Some(cohort.clone()),
+            "deterministic-quorum dispatch must carry the cohort requirement"
+        );
+        entry.verify_signature().expect("signature must verify");
+
+        // verifiable but redundancy == 1 => dropped (single worker).
+        let mut single = make_submission();
+        single.verifiable = true;
+        single.redundancy_factor = 1;
+        single.required_runtime = Some(cohort.clone());
+        let single_entry = dispatcher.submit(single).expect("submit");
+        assert_eq!(
+            single_entry.task.required_runtime, None,
+            "single-worker task must not be cohort-restricted"
+        );
+
+        // redundancy>1 but best-effort (not verifiable) => dropped.
+        let mut best_effort = make_submission();
+        best_effort.verifiable = false;
+        best_effort.redundancy_factor = 3;
+        best_effort.required_runtime = Some(cohort);
+        let be_entry = dispatcher.submit(best_effort).expect("submit");
+        assert_eq!(
+            be_entry.task.required_runtime, None,
+            "best-effort task must not be cohort-restricted"
+        );
     }
 
     #[test]

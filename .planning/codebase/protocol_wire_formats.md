@@ -165,7 +165,7 @@ pub struct ResultPayload {
     pub result_text: String,
     pub tokens_generated: u64,
     pub generation_time_ms: u64,
-    pub model_digest: [u8; 32],    // BLAKE3 of model weights
+    pub model_digest: [u8; 32],    // BLAKE3 of model NAME (S76 doc-note; weights-file digest = S77/llm_llama_cpp)
     pub logprobs_hash: [u8; 32],   // BLAKE3 of calibration logprobs
     pub started_at: u64,
     pub finished_at: u64,
@@ -550,7 +550,7 @@ Future: `CuratorVouched`, `BuildQuorumReached`, `SourceRecovered`, `SearchManife
 
 ### Layer 2 -- Model Digest Whitelist (WHICH model ran)
 
-BLAKE3 hash of model weights file compared against `digest_whitelist` HashMap. Failure: trust -50, auto-ban.
+BLAKE3 of the model NAME compared against `digest_whitelist` HashMap (S76 Phase C doc-note: the worker hashes the model name, not the weights file; a real weights-file digest is gated on `llm_llama_cpp`, S77, and `Verifier` has no live caller — the live path is the quorum over `result_text`). Failure: trust -50, auto-ban.
 
 ### Layer 3 -- Logprob Fingerprint (DID the model actually run)
 

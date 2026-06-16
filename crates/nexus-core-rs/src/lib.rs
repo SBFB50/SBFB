@@ -153,7 +153,7 @@ pub use seed::{
     SeedRequestEnvelope, SeedResponse, SeedResponseEnvelope, random_nonce,
 };
 pub use signed_list::SignedList;
-pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, Task, TaskEntry};
+pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, RuntimeTuple, Task, TaskEntry};
 pub use tls_pinning::{
     CUSTOM_PINS_FILE_ENV, PIN_FILE_FORMAT_VERSION, PinError, PinSource, PinValidator,
     RELAY_PINS_FILE_NAME, RelayPin, RelayPinsFile, extract_spki_sha256,

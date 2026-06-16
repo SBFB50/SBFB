@@ -55,6 +55,7 @@ pub mod schema_bridge;
 pub mod watermark;
 
 use async_trait::async_trait;
+use nexus_core_rs::RuntimeTuple;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -322,6 +323,27 @@ pub trait LlmBackend: Send + Sync {
     /// guaranteed to deserialize against the schema identity
     /// (Sprint 20 ships only [`nexus_core_rs::TaskResponse`]).
     async fn generate(&self, params: GenerateParams) -> LlmBackendResult<GenerateResponse>;
+
+    /// Report this worker's runtime fingerprint for `model` — the
+    /// [`RuntimeTuple`] used to keep a deterministic-quorum cohort
+    /// homogeneous at claim time (Sprint 76 Phase C, D3 etage 1).
+    ///
+    /// The default returns the model tag with empty
+    /// `quant`/`runtime_family` (a pure wildcard) — adequate for any
+    /// backend that cannot reliably report its engine identity, and
+    /// the safe shape for the feature-gated `llama_cpp` backend until
+    /// Sprint 77 tightens it. Real backends override `runtime_family`
+    /// (and, where a backend exposes it, `quant`). A backend reporting
+    /// an empty `runtime_family` simply never satisfies a
+    /// family-constrained cohort requirement — it is excluded, not
+    /// wrongly homogenized.
+    async fn runtime_tuple(&self, model: &str) -> RuntimeTuple {
+        RuntimeTuple {
+            model: model.to_string(),
+            quant: String::new(),
+            runtime_family: String::new(),
+        }
+    }
 }
 
 // =================================================================

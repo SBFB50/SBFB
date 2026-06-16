@@ -244,7 +244,7 @@ JCS (RFC 8785) ensures cross-language byte-identical serialization (Rust `serde_
 
 ### 7.2 Layer 2 — Model Digest Whitelist (WHICH)
 
-- SHA-256 / BLAKE3 of model weights compared against approved digests
+- BLAKE3 of the model NAME compared against approved digests (S76 Phase C doc-note: a real weights-file digest is gated on `llm_llama_cpp`, S77; `Verifier` has no live caller — the live path is the quorum over `result_text`)
 - Empty whitelist = pass with `NoWhitelist` reason
 - Mismatch: trust -50 + auto-ban (critical)
 

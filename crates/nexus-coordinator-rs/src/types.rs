@@ -6,6 +6,7 @@
 //! internal bookkeeping structs that track submission and validation
 //! state in the local SQLite database.
 
+use nexus_core_rs::RuntimeTuple;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +100,15 @@ pub struct TaskSubmission {
     /// sampling). (Sprint 71 Phase B, B-2.)
     #[serde(default)]
     pub verifiable: bool,
+
+    /// Optional cohort-homogeneity requirement (Sprint 76 Phase C,
+    /// D3 etage 1). Only meaningful for deterministic-quorum dispatch
+    /// (`verifiable` + `redundancy_factor > 1`): the dispatcher copies
+    /// it onto `Task::required_runtime` there and drops it otherwise,
+    /// so a single-worker task is never needlessly restricted.
+    /// `#[serde(default)]` keeps it optional for clients that omit it.
+    #[serde(default)]
+    pub required_runtime: Option<RuntimeTuple>,
 }
 
 fn default_priority() -> u8 {

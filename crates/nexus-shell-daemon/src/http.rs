@@ -8038,6 +8038,7 @@ mod tests {
             estimated_hours: 0.0,
             redundancy_factor: 1,
             verifiable: false,
+            required_runtime: None,
         }
     }
 

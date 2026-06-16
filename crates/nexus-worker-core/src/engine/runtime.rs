@@ -1029,6 +1029,35 @@ impl Engine {
                     }
                 }
 
+                // Sprint 76 Phase C (D3 etage 1): cohort-homogeneity
+                // claim-gate. When the coordinator pinned a
+                // `required_runtime` tuple (deterministic-quorum
+                // dispatch — `verifiable` + redundancy>1), a worker
+                // claims only if its local runtime fingerprint
+                // satisfies the requirement. A mismatch defers the
+                // task with NO claim emitted — exactly like the
+                // rate-limit defer above — so it stays live on the doc
+                // for a homogeneous peer. This is the PULL-correct
+                // point of application: the worker self-selects; the
+                // coordinator never assigns. The gate is advisory
+                // routing, not a trust boundary — the unchanged
+                // exact-match quorum (`validate_quorum_pre_guardrail`)
+                // still rejects a divergent result as an outlier.
+                if let Some(required) = task_entry.task.required_runtime.as_ref() {
+                    let local = self.llm.runtime_tuple(&task_entry.task.model).await;
+                    if !local.matches(required) {
+                        debug!(
+                            task_id = %task_id,
+                            required_family = %required.runtime_family,
+                            required_quant = %required.quant,
+                            local_family = %local.runtime_family,
+                            local_quant = %local.quant,
+                            "runtime tuple mismatch; deferring task (cohort homogeneity, no claim emitted)"
+                        );
+                        continue;
+                    }
+                }
+
                 let task_started_at = Instant::now();
 
                 // Sign + write claim.
@@ -1073,13 +1102,20 @@ impl Engine {
 
                 // Build the result payload.
                 //
-                // model_digest: deterministic BLAKE3 of the model
-                //   name string. Matches what the coordinator's
-                //   stub verifier expects when no whitelist was
-                //   loaded (unprofiled_model_passes_digest test).
+                // model_digest: BLAKE3 of the model NAME string (see
+                //   `model_name_digest`). Sprint 76 Phase C doc-note
+                //   (D3 etage 1): this is a name hash, NOT a GGUF
+                //   weight-file hash — Ollama exposes no clean file
+                //   digest and `Verifier` has no prod caller, so the
+                //   live path (hash-exact quorum over result_text) is
+                //   unaffected. A real weight digest is gated on a
+                //   file-exposing backend (`llm_llama_cpp`, S77 / D3
+                //   etage 2). Matches what the coordinator's stub
+                //   verifier expects when no whitelist was loaded
+                //   (unprofiled_model_passes_digest test).
                 // logprobs_hash: 32 zero bytes — "logprobs not
                 //   provided" in the Sprint 3 Verifier semantics.
-                let model_digest: [u8; 32] = blake3_hash(task_entry.task.model.as_bytes());
+                let model_digest: [u8; 32] = model_name_digest(&task_entry.task.model);
                 let now = now_unix_secs();
                 let payload = ResultPayload {
                     version: TASK_FORMAT_VERSION,
@@ -1311,6 +1347,22 @@ fn deterministic_seed(task_id: &str) -> u32 {
     u32::from_le_bytes([digest[0], digest[1], digest[2], digest[3]])
 }
 
+/// BLAKE3 digest the worker writes into [`ResultPayload::model_digest`].
+///
+/// **Sprint 76 Phase C doc-note (D3 etage 1):** this hashes the model
+/// *name* string, NOT the GGUF weight file. The Ollama HTTP backend
+/// (ollama-rs 0.3.4) exposes no clean file-digest accessor, and
+/// `Verifier` (the sole consumer of the layer-2 `model_digest`) has no
+/// production caller, so the live result path — the hash-exact quorum
+/// over `result_text` (`validate_quorum_pre_guardrail`) — is
+/// unaffected by the name-vs-file distinction. A real weight digest is
+/// gated on a file-exposing backend (`llm_llama_cpp` C-API, Sprint 77 /
+/// D3 etage 2). This helper is the single seam that pins the contract:
+/// changing it to a file hash must be a deliberate, reviewed break.
+fn model_name_digest(model: &str) -> [u8; 32] {
+    blake3_hash(model.as_bytes())
+}
+
 /// Unix seconds with a graceful fallback on clock failure. Used
 /// by the W9.1 task flow for `Claim::claimed_at` and
 /// `ResultPayload::started_at` / `finished_at`.
@@ -1361,7 +1413,7 @@ mod tests {
     use crate::consent::{ConsentConfig, ConsentLevel};
     use crate::llm::StubBackend;
     use nexus_core_rs::docs::DocsClient as RsDocsClient;
-    use nexus_core_rs::task::{Task, TaskEntry};
+    use nexus_core_rs::task::{RuntimeTuple, Task, TaskEntry};
     use tempfile::TempDir;
 
     #[test]
@@ -1736,6 +1788,58 @@ mod tests {
         serde_json::to_vec(&task_entry).unwrap()
     }
 
+    // Sprint 76 Phase C: like `sign_test_task` but pins a cohort
+    // `required_runtime` so the claim-gate is exercised. `model` stays
+    // `stub-model:latest` (the StubBackend's model) so a worker's local
+    // tuple resolves consistently.
+    fn sign_test_task_with_runtime(
+        id: &str,
+        coord_kp: &KeyPair,
+        required: Option<RuntimeTuple>,
+    ) -> Vec<u8> {
+        let mut task = Task::new(
+            id,
+            "analysis",
+            "hello",
+            "stub-model:latest",
+            5,
+            1_000_000_000,
+        );
+        task.system_prompt = "".into();
+        task.required_runtime = required;
+        let task_entry = TaskEntry::sign(task, coord_kp).unwrap();
+        serde_json::to_vec(&task_entry).unwrap()
+    }
+
+    #[test]
+    fn model_digest_is_name_hash_doc_note_s77() {
+        // Sprint 76 Phase C doc-note (D3 etage 1): the worker computes
+        // `model_digest = blake3(model NAME)` (`model_name_digest`),
+        // NOT a GGUF weight-file hash. Ollama (ollama-rs 0.3.4) exposes
+        // no clean file digest and `Verifier` has no prod caller, so
+        // the name-hash regresses nothing; a real weight digest is
+        // gated on `llm_llama_cpp` (Sprint 77 / D3 etage 2). This test
+        // PINS the current contract so a future switch to a file hash
+        // is a deliberate, reviewed break — not a silent drift.
+        let model = "llama3.1:8b";
+        // The seam the engine uses is `model_name_digest`, which is
+        // exactly blake3 over the NAME bytes.
+        assert_eq!(
+            model_name_digest(model),
+            blake3_hash(model.as_bytes()),
+            "model_digest must remain blake3(model NAME) until a file-digest backend (S77)"
+        );
+        // And it is NOT a content hash of any weight bytes: a distinct
+        // byte string (standing in for GGUF file bytes) must not
+        // collide with the name digest — the documented discordance.
+        let pretend_weight_bytes = b"GGUF\x00 pretend weight file contents";
+        assert_ne!(
+            model_name_digest(model),
+            blake3_hash(pretend_weight_bytes),
+            "documented discordance: name-hash != weight-file-hash (tighten in S77)"
+        );
+    }
+
     // P2-A-1 (S71->S73): spawns the engine pump and waits on a real-time loop
     // for `result:`. current_thread deadlocks under Windows `cargo test`
     // shared-process teardown (tokio #7049); multi_thread matches prod.
@@ -1788,6 +1892,134 @@ burst_multiplier = 2.0
         assert_eq!(claims.len(), 1, "claim must be emitted for fresh tuple");
 
         let _ = tx.send(());
+        handle.await.unwrap().unwrap();
+    }
+
+    // Sprint 76 Phase C (D3 etage 1): a worker whose local runtime
+    // tuple SATISFIES the task's `required_runtime` claims + executes
+    // just like a no-cohort task — the gate must not starve a
+    // homogeneous cohort. Real time + multi_thread for the same reason
+    // as `rate_limit_gate_admits_fresh_tuple` (waits on `result:`).
+    // See PATTERNS §P54.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cohort_gate_admits_homogeneous_worker() {
+        let (mut engine, _home, _policy_path, docs, coord_kp, project_id) =
+            build_engine_with_rate_limit_policy(
+                r#"
+[default]
+per_min = 60
+burst_multiplier = 2.0
+"#,
+            )
+            .await;
+
+        // The StubBackend reports runtime_family = "stub". A
+        // requirement pinning family "stub" (other dims wildcard) is
+        // satisfied, so the worker claims and produces a result.
+        let author = docs.author_create().await.unwrap();
+        let doc = docs.create_doc().await.unwrap();
+        let required = Some(RuntimeTuple {
+            model: String::new(),
+            quant: String::new(),
+            runtime_family: "stub".to_string(),
+        });
+        let task_json = sign_test_task_with_runtime("t-homog", &coord_kp, required);
+        doc.set(author, b"task:t-homog".to_vec(), task_json)
+            .await
+            .unwrap();
+        engine.register_task_doc(&project_id, doc.clone());
+
+        let tx = engine.take_shutdown_sender().unwrap();
+        let handle = tokio::spawn(async move { engine.run_until_shutdown().await });
+
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let entries = doc.get_many_by_prefix(b"result:").await.unwrap();
+                if !entries.is_empty() {
+                    return entries;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("homogeneous worker must produce a result within 10s");
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].key(), b"result:t-homog");
+        let claims = doc.get_many_by_prefix(b"claim:").await.unwrap();
+        assert_eq!(claims.len(), 1, "homogeneous worker must emit a claim");
+
+        let _ = tx.send(());
+        handle.await.unwrap().unwrap();
+    }
+
+    // P2-A-1 note: this test MUST stay current_thread (virtual time via
+    // `tokio::time::pause` + `advance`, deterministic and immune to the
+    // Windows real-time poll-loop hang). See PATTERNS §P54.
+    #[tokio::test]
+    async fn cohort_gate_blocks_non_homogeneous_worker() {
+        // Sprint 76 Phase C (D3 etage 1): a worker whose local runtime
+        // tuple does NOT satisfy the task's `required_runtime` must NOT
+        // claim — the task stays live on the doc for a homogeneous
+        // peer, exactly like the rate-limit defer. A generous rate
+        // budget isolates the cohort gate as the sole cause (cf.
+        // `cohort_gate_admits_homogeneous_worker`, same harness,
+        // matching tuple => claims).
+        let (mut engine, _home, _policy_path, docs, coord_kp, project_id) =
+            build_engine_with_rate_limit_policy(
+                r#"
+[default]
+per_min = 60
+burst_multiplier = 2.0
+"#,
+            )
+            .await;
+
+        // The StubBackend reports runtime_family = "stub"; require
+        // "ollama" => mismatch => no claim.
+        let author = docs.author_create().await.unwrap();
+        let doc = docs.create_doc().await.unwrap();
+        let required = Some(RuntimeTuple {
+            model: String::new(),
+            quant: String::new(),
+            runtime_family: "ollama".to_string(),
+        });
+        let task_json = sign_test_task_with_runtime("t-heterog", &coord_kp, required);
+        doc.set(author, b"task:t-heterog".to_vec(), task_json)
+            .await
+            .unwrap();
+        engine.register_task_doc(&project_id, doc.clone());
+
+        let tx = engine.take_shutdown_sender().unwrap();
+        let handle = tokio::spawn(async move { engine.run_until_shutdown().await });
+
+        tokio::time::pause();
+        for _ in 0..15 {
+            tokio::time::advance(Duration::from_millis(100)).await;
+            tokio::task::yield_now().await;
+        }
+
+        // Task stays live; no claim, no result.
+        let tasks = doc.get_many_by_prefix(b"task:").await.unwrap();
+        assert_eq!(
+            tasks.len(),
+            1,
+            "non-homogeneous worker must leave the task live for a peer"
+        );
+        assert_eq!(tasks[0].key(), b"task:t-heterog");
+        let claims = doc.get_many_by_prefix(b"claim:").await.unwrap();
+        assert!(
+            claims.is_empty(),
+            "non-homogeneous worker must not emit a claim"
+        );
+        let results = doc.get_many_by_prefix(b"result:").await.unwrap();
+        assert!(
+            results.is_empty(),
+            "non-homogeneous worker must not emit a result"
+        );
+
+        let _ = tx.send(());
+        tokio::time::resume();
         handle.await.unwrap().unwrap();
     }
 

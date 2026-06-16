@@ -14,11 +14,21 @@
 //!
 //! ## Layer 2 — Model digest whitelist (WHICH model ran)
 //!
-//! SHA-256 / BLAKE3 of the model weights file is unique per model.
-//! We compare against a whitelist of approved digests per model
-//! name. An empty whitelist is treated as "no check configured"
-//! (the layer passes with a `NoWhitelist` reason). A digest
-//! mismatch is also treated as critical: -50 trust + auto-ban.
+//! A per-model BLAKE3 digest compared against a whitelist of
+//! approved digests per model name. An empty whitelist is treated as
+//! "no check configured" (the layer passes with a `NoWhitelist`
+//! reason). A digest mismatch is treated as critical: -50 trust +
+//! auto-ban.
+//!
+//! Sprint 76 Phase C doc-note (D3 etage 1): the worker currently
+//! reports BLAKE3 of the model NAME string, NOT the weights file —
+//! the Ollama backend exposes no clean file digest. A real
+//! weights-file digest is gated on a file-exposing backend
+//! (`llm_llama_cpp`, Sprint 77). This `Verifier` is also not wired
+//! into the live result path today (it has no production caller); the
+//! live path is the hash-exact quorum over `result_text`
+//! (`validate_quorum_pre_guardrail`). Callers must not treat the
+//! digest as a weights attestation until S77.
 //!
 //! ## Layer 3 — Logprob fingerprint (DID the model actually run)
 //!
@@ -115,7 +125,10 @@ pub struct VerificationReport {
 /// populate the layer-2 and layer-3 references respectively.
 #[derive(Debug, Default)]
 pub struct Verifier {
-    /// Maps model name -> whitelisted BLAKE3 digest of the weights.
+    /// Maps model name -> whitelisted BLAKE3 model digest. Today the
+    /// worker reports a hash of the model NAME, not the weights file
+    /// (S76 Phase C doc-note; a real weights digest is gated on
+    /// `llm_llama_cpp`, S77).
     digest_whitelist: HashMap<String, [u8; BLAKE3_BYTES]>,
     /// Maps (model, calibration_prompt_id) -> reference logprobs hash.
     logprob_profiles: HashMap<String, HashMap<String, [u8; BLAKE3_BYTES]>>,

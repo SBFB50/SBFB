@@ -420,6 +420,7 @@ mod tests {
             redundancy_factor: 1,
             verifiable: false,
             watermark_seed: Vec::new(),
+            required_runtime: None,
         };
         let coord_kp = KeyPair::generate();
         let entry = TaskEntry::sign(task, &coord_kp).expect("sign task");

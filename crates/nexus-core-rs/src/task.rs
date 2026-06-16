@@ -60,6 +60,85 @@ fn task_canonical_bytes(task: &Task, domain: &[u8]) -> Result<Vec<u8>> {
 /// bumps the version.
 pub const TASK_FORMAT_VERSION: u16 = 1;
 
+/// A worker runtime fingerprint used to keep a deterministic-quorum
+/// **cohort homogeneous** (Sprint 76 Phase C, D3 etage 1).
+///
+/// For a [`Task::verifiable`] task replicated across more than one
+/// worker (`redundancy_factor` above 1), every honest worker must
+/// produce a byte-identical `result_text` so the coordinator's
+/// hash-exact quorum can vote.
+/// Greedy decoding with a fixed seed only reproduces across workers
+/// that run the **same weights on the same engine** — a different
+/// quantization or a different runtime family yields different logits
+/// and the quorum splits. This tuple lets the coordinator pin the
+/// cohort and the worker self-select at claim time (the PULL-correct
+/// point of application — the coordinator never assigns).
+///
+/// ## Fields and observability
+/// - `model`: the model tag/name (already pinned by [`Task::model`];
+///   carried here so the requirement is a self-contained contract).
+/// - `quant`: quantization label (e.g. `"Q4_0"`). **Best-effort**:
+///   the Ollama HTTP backend (ollama-rs 0.3.4) exposes no clean
+///   quantization accessor, so it reports `""` (unknown) — the same
+///   honesty constraint that keeps [`ResultPayload::model_digest`] a
+///   name-hash this sprint. A real quant / weight digest is gated on a
+///   backend that exposes the file (`llm_llama_cpp`, Sprint 77 / D3
+///   etage 2).
+/// - `runtime_family`: the engine identity (e.g. `"ollama"`,
+///   `"llama-cpp"`, `"stub"`). Reliably known by the worker.
+///
+/// ## Match semantics
+/// [`RuntimeTuple::matches`] treats an **empty** requirement field as
+/// a wildcard: a worker satisfies a requirement when every *non-empty*
+/// requirement field equals the worker's own value. This keeps the
+/// cohort gate advisory on dimensions no backend can observe yet,
+/// while still enforcing the ones that are reliable (runtime family +
+/// model tag).
+///
+/// The gate is **advisory routing, not a trust boundary**: a worker
+/// that lies about its tuple but produces a divergent `result_text` is
+/// still rejected by the unchanged exact-match quorum
+/// (`validate_quorum_pre_guardrail`) as an outlier.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeTuple {
+    /// Model tag/name the cohort must run. `""` = unspecified
+    /// (wildcard).
+    #[serde(default)]
+    pub model: String,
+
+    /// Quantization label (e.g. `"Q4_0"`). `""` = unspecified/unknown
+    /// (wildcard) — the Ollama backend reports `""` (no clean
+    /// accessor; tightened in Sprint 77 / D3 etage 2).
+    #[serde(default)]
+    pub quant: String,
+
+    /// Engine family (`"ollama"`, `"llama-cpp"`, `"stub"`). `""` =
+    /// unspecified (wildcard).
+    #[serde(default)]
+    pub runtime_family: String,
+}
+
+impl RuntimeTuple {
+    /// True iff this (worker-local) tuple satisfies `requirement`.
+    ///
+    /// Each requirement field constrains only when non-empty: an empty
+    /// requirement field is a wildcard. A `requirement` with all-empty
+    /// fields matches any worker (the no-cohort case is normally
+    /// expressed as [`Task::required_runtime`] `= None`, but an empty
+    /// tuple is treated identically for robustness).
+    pub fn matches(&self, requirement: &RuntimeTuple) -> bool {
+        runtime_field_matches(&requirement.model, &self.model)
+            && runtime_field_matches(&requirement.quant, &self.quant)
+            && runtime_field_matches(&requirement.runtime_family, &self.runtime_family)
+    }
+}
+
+/// A [`RuntimeTuple`] requirement field constrains only when non-empty
+/// (wildcard on empty).
+fn runtime_field_matches(required: &str, local: &str) -> bool {
+    required.is_empty() || required == local
+}
+
 /// An LLM inference task as the coordinator creates it.
 ///
 /// A `Task` is the fully-signed unit that gets written into the
@@ -210,6 +289,31 @@ pub struct Task {
     /// the field get an empty vec (no watermark), not a parse error.
     #[serde(default)]
     pub watermark_seed: Vec<u8>,
+
+    /// Optional **cohort homogeneity requirement** for a
+    /// deterministic quorum (Sprint 76 Phase C, D3 etage 1).
+    ///
+    /// `None` (the default) means no cohort constraint: any eligible
+    /// worker may claim — the pre-Sprint-76 behavior, and the only
+    /// shape used for single-worker (`redundancy_factor == 1`)
+    /// dispatch. `Some(tuple)` pins the [`RuntimeTuple`] a worker must
+    /// satisfy at claim time; a worker whose local runtime tuple does
+    /// not [`RuntimeTuple::matches`] the requirement does **not** emit
+    /// a `ClaimEntry`, leaving the task live for a homogeneous peer.
+    ///
+    /// Like [`Task::verifiable`] (and unlike the dispatch-only
+    /// [`Task::redundancy_factor`], excluded from the canonical bytes
+    /// at `34c77ce`), this field is part of the **signed** canonical
+    /// identity: it changes *which cohort may compute the task*, so a
+    /// worker reads it only after `verify_signature()` and an
+    /// application-level MITM cannot redirect the task to a
+    /// heterogeneous cohort without breaking the coordinator signature.
+    ///
+    /// `#[serde(default)]` = runtime tolerance: a minimal client JSON
+    /// that omits the field decodes to `None` (no cohort), not a parse
+    /// error — not historical backward compat (pre-launch policy).
+    #[serde(default)]
+    pub required_runtime: Option<RuntimeTuple>,
 }
 
 fn default_redundancy_factor() -> u8 {
@@ -250,6 +354,7 @@ impl Task {
             estimated_hours: 0.0,
             redundancy_factor: 1,
             watermark_seed: Vec::new(),
+            required_runtime: None,
         }
     }
 
@@ -291,6 +396,14 @@ impl Task {
     /// can bias green-list tokens during sampling.
     pub fn with_watermark_seed(mut self, seed: Vec<u8>) -> Self {
         self.watermark_seed = seed;
+        self
+    }
+
+    /// Pin a cohort-homogeneity [`RuntimeTuple`] this task's workers
+    /// must satisfy at claim time (deterministic-quorum dispatch).
+    /// Builder sugar; mutates in place. See [`Task::required_runtime`].
+    pub fn with_required_runtime(mut self, tuple: Option<RuntimeTuple>) -> Self {
+        self.required_runtime = tuple;
         self
     }
 }
@@ -367,9 +480,24 @@ pub struct ResultPayload {
     /// that may indicate cheating.
     pub generation_time_ms: u64,
 
-    /// BLAKE3 hash of the exact model file the worker loaded.
-    /// Serves as layer 2 of the verification stack: the coordinator
-    /// compares this against a whitelist of known-good model
+    /// BLAKE3 hash identifying the model the worker ran.
+    ///
+    /// **Sprint 76 Phase C doc-note (D3 etage 1):** the worker
+    /// currently hashes the model *name* string
+    /// (`blake3(task.model)`, `engine/runtime.rs`
+    /// `model_name_digest`), NOT the GGUF weight file. The Ollama HTTP
+    /// backend (ollama-rs 0.3.4) exposes no clean file-digest
+    /// accessor, and `Verifier` (the sole consumer of this layer-2
+    /// field) has no production caller — the live result path is the
+    /// hash-exact quorum over `result_text`
+    /// (`validate_quorum_pre_guardrail`), so the name-hash regresses
+    /// nothing. A real weight-file digest is gated on a backend that
+    /// exposes the file (`llm_llama_cpp` C-API, Sprint 77 / D3
+    /// etage 2). Until then this is a model-*name* digest, and callers
+    /// must not treat it as a weight attestation.
+    ///
+    /// When wired, it serves as layer 2 of the verification stack: the
+    /// coordinator compares it against a whitelist of known-good model
     /// digests and rejects any worker that used the wrong model.
     pub model_digest: [u8; 32],
 
@@ -883,6 +1011,132 @@ mod tests {
         });
         let t: Task = serde_json::from_value(json).unwrap();
         assert!(!t.verifiable);
+    }
+
+    // -----------------------------------------------------------
+    // Sprint 76 Phase C — cohort-homogeneity `required_runtime`
+    // -----------------------------------------------------------
+
+    fn tuple(model: &str, quant: &str, family: &str) -> RuntimeTuple {
+        RuntimeTuple {
+            model: model.to_string(),
+            quant: quant.to_string(),
+            runtime_family: family.to_string(),
+        }
+    }
+
+    #[test]
+    fn runtime_tuple_empty_requirement_matches_any_worker() {
+        // An all-empty requirement is a pure wildcard: every worker
+        // satisfies it (this is the "no real cohort constraint" shape).
+        let req = RuntimeTuple::default();
+        assert!(tuple("llama3.1:8b", "Q4_0", "ollama").matches(&req));
+        assert!(tuple("", "", "stub").matches(&req));
+    }
+
+    #[test]
+    fn runtime_tuple_nonempty_field_must_match_exactly() {
+        // A worker matches only when every NON-empty requirement field
+        // equals its own; empty requirement fields stay wildcards.
+        let req = tuple("", "", "ollama"); // constrain runtime family only
+        assert!(
+            tuple("llama3.1:8b", "Q4_0", "ollama").matches(&req),
+            "same family, other dims wildcard => match"
+        );
+        assert!(
+            !tuple("llama3.1:8b", "Q4_0", "stub").matches(&req),
+            "different family => no match"
+        );
+
+        // Quant discriminates when the requirement pins it.
+        let req_q = tuple("", "Q4_0", "ollama");
+        assert!(tuple("m", "Q4_0", "ollama").matches(&req_q));
+        assert!(
+            !tuple("m", "Q8_0", "ollama").matches(&req_q),
+            "different quant => no match (cohort would diverge)"
+        );
+
+        // Model discriminates when the requirement pins it.
+        let req_m = tuple("llama3.1:8b", "", "");
+        assert!(tuple("llama3.1:8b", "anything", "anything").matches(&req_m));
+        assert!(!tuple("mistral:7b", "", "").matches(&req_m));
+    }
+
+    #[test]
+    fn task_canonical_includes_required_runtime() {
+        // Like `task_canonical_includes_verifiable` and UNLIKE
+        // `task_canonical_excludes_redundancy_factor`: the cohort
+        // requirement changes WHICH workers may compute the task, so
+        // it IS part of the signed identity — two tasks differing only
+        // by `required_runtime` MUST produce different canonical bytes.
+        let plain = Task::new("id", "t", "p", "m", 5, 0);
+        let pinned = Task::new("id", "t", "p", "m", 5, 0)
+            .with_required_runtime(Some(tuple("m", "", "ollama")));
+        let bytes_plain = task_canonical_bytes(&plain, DOMAIN_TASK_V1).unwrap();
+        let bytes_pinned = task_canonical_bytes(&pinned, DOMAIN_TASK_V1).unwrap();
+        assert_ne!(
+            bytes_plain, bytes_pinned,
+            "cohort requirement is task identity and must affect canonical bytes"
+        );
+        // Marker lands at a stable key an off-wire auditor can grep.
+        let body = &bytes_pinned[DOMAIN_TASK_V1.len() + 1..];
+        let text = std::str::from_utf8(body).unwrap();
+        assert!(text.contains("\"required_runtime\""));
+        assert!(text.contains("\"runtime_family\":\"ollama\""));
+    }
+
+    #[test]
+    fn task_entry_different_required_runtime_different_signature() {
+        // Because `required_runtime` is signed, changing it changes
+        // the signature — an application-level MITM cannot redirect a
+        // task to a heterogeneous cohort without breaking the
+        // coordinator signature.
+        let kp = KeyPair::generate();
+        let none = TaskEntry::sign(sample_task().with_required_runtime(None), &kp).unwrap();
+        let pinned = TaskEntry::sign(
+            sample_task().with_required_runtime(Some(tuple("m", "Q4_0", "ollama"))),
+            &kp,
+        )
+        .unwrap();
+        assert_ne!(
+            none.signature, pinned.signature,
+            "cohort requirement is signed, so it must change the signature"
+        );
+        pinned
+            .verify_signature()
+            .expect("pinned-cohort task must verify");
+    }
+
+    #[test]
+    fn task_wire_required_runtime_roundtrip() {
+        let t = Task::new("id", "t", "p", "m", 5, 0)
+            .with_required_runtime(Some(tuple("m", "Q4_0", "ollama")));
+        let json = serde_json::to_string(&t).unwrap();
+        let restored: Task = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            restored.required_runtime,
+            Some(tuple("m", "Q4_0", "ollama"))
+        );
+    }
+
+    #[test]
+    fn task_wire_default_required_runtime_none() {
+        // A minimal client JSON that omits `required_runtime` decodes
+        // to None (no cohort), not a parse error — runtime tolerance.
+        let json = serde_json::json!({
+            "version": 1,
+            "task_id": "x",
+            "task_type": "t",
+            "prompt": "p",
+            "system_prompt": "",
+            "model": "m",
+            "priority": 5,
+            "created_at": 0,
+            "parent_task_id": "",
+            "metadata": {}
+        });
+        let t: Task = serde_json::from_value(json).unwrap();
+        assert_eq!(t.required_runtime, None);
     }
 
     #[test]
