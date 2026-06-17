@@ -22,7 +22,7 @@ d'erreurs differente.
 | # | Couche | Moment | Outil principal |
 |---|---|---|---|
 | 1 | Garde-fous automatiques | PostToolUse (chaque write) | `.claude/hooks/verify-on-write.sh` + Semgrep |
-| 2 | Supervision continue + plan contexte | Session entiere + chaque gate | Agent Team teammate `nexus-process-supervisor` + task list + Stop hook |
+| 2 | Verification de gate par etape de phase | Chaque gate (preflight/review/codex/commit/post) | Orchestration Workflow ultracode gate-check + plan sequentiel (task list) |
 | 3 | Skills qualite specialises | Sur demande Claude | Trail of Bits skills + `nexus-phase-review` |
 | 4 | Subagent review intra-sprint | Pre-commit d'une phase | `nexus-phase-auditor` agent (inconditionnel) |
 
@@ -35,11 +35,12 @@ la couche de reference. Ce tooling la complete sans la remplacer.
 
 ### 2.1 Prerequis
 
-- Claude Code >= 2.1 (hooks `PostToolUse` / `PreToolUse`, `Stop`, `matcher`, stdin JSON)
-- Claude Code avec Agent Teams si disponible (mode prefere). Le repo active
-  `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` dans `.claude/settings.json`.
-  Si la version locale ne supporte pas encore Agent Teams, le process bascule
-  en consultation Agent gate-check a chaque gate.
+- Claude Code >= 2.1 (hooks `PostToolUse` / `PreToolUse`, `matcher`, stdin JSON ; orchestration Workflow)
+- Claude Code recent (hooks + orchestration Workflow ultracode). Les gates
+  sont orchestres par etape de phase via le Workflow, pas via un teammate
+  long-lived. Le flag `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` dans
+  `.claude/settings.json` est residuel : inoffensif s'il reste present, mais
+  plus requis.
 - Bash >= 4 (Git Bash sur Windows fonctionne)
 - `jq` dans le PATH **OU** `python3` (les hooks detectent auto lequel utiliser
   pour parser l'input JSON — fail-open silent si aucun des deux n'est present)
@@ -53,16 +54,13 @@ Rien a installer. Le fichier `.claude/settings.json` est committe dans
 le repo, donc toute session Claude Code ouverte dans nexus herite
 automatiquement :
 
-- de `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` pour permettre le mode
-  superviseur long-lived quand Claude Code le supporte ;
-- de `teammateMode: in-process`, plus robuste sur Windows qu'une dependance
-  tmux/split-pane ;
+- de `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (residuel, sans effet requis :
+  les gates sont orchestres par le Workflow ultracode phase-par-phase) ;
+- de `teammateMode: in-process` (residuel) ;
 - du hook `PostToolUse` qui execute `.claude/hooks/verify-on-write.sh` ;
-- du hook `Stop` qui execute `.claude/hooks/process-supervisor-stop.sh` ;
-- des hooks `TaskCreated` / `TaskCompleted` qui executent
-  `.claude/hooks/process-task-gate.sh` ;
-- du hook `TeammateIdle` qui execute
-  `.claude/hooks/process-teammate-idle.sh`.
+- des hooks `PreToolUse` qui executent `.claude/hooks/phase-auditor-gate.sh`
+  (gate review PASS au commit) et `.claude/hooks/phase-precommit-lightcheck.sh`
+  (lightcheck + enforcement Codex au commit) — seul backstop mecanique.
 
 Verifier que ca marche :
 
@@ -73,16 +71,16 @@ echo '{"tool_input":{"file_path":"docs/claude/README.md"}}' \
 
 Sortie attendue : `hook OK` (le hook no-op sur docs/).
 
-Verifier le Stop hook :
+Verifier le gate de commit (lightcheck) :
 
 ```bash
-echo '{"last_assistant_message":"Fait, worktree clean"}' \
-  | bash .claude/hooks/process-supervisor-stop.sh
+git commit --allow-empty -m "feat(scope): Sprint 0 Phase A — dry-run gate"
 ```
 
-Si le worktree est sale, la sortie attendue est un JSON `decision: block`.
-Si le worktree est propre ou que le message ne ressemble pas a une conclusion,
-le hook no-op.
+Hors d'un contexte de phase reel (artefacts absents), le hook
+`phase-precommit-lightcheck.sh` BLOQUE le commit : c'est le comportement
+fail-closed attendu. Annuler avec `git reset HEAD~1` si un commit vide
+est passe.
 
 ### 2.3 Trail of Bits skills (user-level)
 
@@ -156,31 +154,33 @@ signal pour eviter de repeter le message a chaque session. Delete le
 marker pour re-signaler (utile apres un `bash scripts/install-claude-
 tooling.sh` partiel qui laisse des composants manquants).
 
-### 2.6 Superviseur long-lived et plan contexte
+### 2.6 Orchestration de gate par etape de phase et plan contexte
 
-Le process prefere maintenant un superviseur permanent, mais seulement quand
-la surface Claude Code le permet factuellement :
+Le process orchestre chaque gate via le Workflow ultracode, sans
+teammate long-lived :
 
-- **Mode prefere** : Agent Team avec teammate `supervisor` de type
-  `nexus-process-supervisor`. Le teammate reste actif pendant le contexte,
-  voit la task list partagee, peut communiquer avec le lead, et envoie un
-  `BLOCK-*` proactif si le process derive.
-- **Mode degrade** : subagent classique `Agent(...)` re-invoque a chaque gate.
-  Ce mode est requis si Agent Teams est absent ou si la session ne peut plus
-  envoyer de message a `@supervisor`. Un affichage `Done` / idle apres
-  GO-SPAWN n'est pas un probleme si le handle reste adressable.
-- **Backstop automatique** : les hooks ne remplacent pas le superviseur, mais
-  ils donnent du feedback mecanique si le modele oublie. `Stop` bloque les fins
-  de tour qui ressemblent a un faux "termine" avec worktree sale ou a un debut
-  Phase C/SBFB factory sans preflight G8. `TaskCreated` autorise la creation du
-  plan futur ; `TaskCompleted` bloque les tasks de gate/implementation terminees
-  sans artefact. `TeammateIdle` garde `supervisor` non-idle tant que le worktree
-  est sale, mais accepte idle/Done quand le repo est propre.
+- **Mode unique** : a chaque gate (preflight / review / Codex / commit /
+  post-commit), l'orchestration Workflow invoque un check `gate-check`
+  (lecture seule) qui lit le plan, les artefacts et le git state, puis
+  renvoie GO/BLOCK. Il n'est PAS maintenu actif entre les gates : il est
+  (re)invoque a l'etape. Le Workflow n'avance qu'apres verdict de l'etape
+  courante.
+- **Contrainte de composition** : un Workflow lance en arriere-plan ou via
+  Monitor ne notifie qu'en fin de tour. Pour une etape qui doit aboutir
+  dans le tour courant, utiliser un fan-out en avant-plan et ne terminer
+  le tour qu'avec un arbre de travail propre.
+- **Backstop automatique** : les hooks `.claude/hooks/*` au commit donnent
+  le seul feedback mecanique fail-closed. `phase-auditor-gate.sh` bloque le
+  commit d'une phase sans review `## Verdict: PASS` ; `phase-precommit-lightcheck.sh`
+  bloque sur staging incoherent, 9 sections de body, artefact Codex brut,
+  design_review Phase A, et preflight manquant. Il n'y a plus de hook
+  `Stop` / `TaskCreated` / `TaskCompleted` / `TeammateIdle`.
 
 Le bootstrap [`README.md`](README.md) impose aussi un plan sequentiel visible
 dans le contexte principal (`TaskCreate`/`TaskUpdate`/`TaskList`, fallback
-`TodoWrite`). Le superviseur surveille cette task list : exactement une tache
-`in_progress`, aucune tache `completed` sans artefact, et gates dans l'ordre.
+`TodoWrite`) : exactement une tache `in_progress`, aucune tache `completed`
+sans artefact, gates dans l'ordre. C'est l'orchestration Workflow qui en
+verifie la coherence, plus un superviseur.
 
 ---
 

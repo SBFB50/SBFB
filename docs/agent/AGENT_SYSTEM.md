@@ -44,14 +44,14 @@ l'artefact requis.
 | `preflight-checker` | Lire repo, web, historique | Executer 5 scans S1-S4, produire verdict EXECUTE/PLAN-ADAPT/SCOPE-CUT-CONSISTENT/DESIGN-CONFLICT | Ne code pas ; ne tranche pas DESIGN-CONFLICT |
 | `kickoff-author` | Lire roadmap, recherche, planning | Produire kickoff + plan + design review (D1-D5, G1-G2-G7-G9) | Ne code pas ; decisions D1-D5 gelee apres kickoff |
 | `audit-gate-runner` | Lire diff sprint complet, artefacts | Jouer 9 tracks audit, classifier P0-P3, produire verdict PASS/CONDITIONAL/FAIL | Ne code que les fix P0/P1 |
-| `process-supervisor` | Lire plan, artefacts, repo state | Surveiller gates, envoyer BLOCK si deviation | Ne code jamais ; ne modifie jamais de fichier ; optionnel (D17) |
+| `gate-check` | Lire plan, artefacts, repo state | Verifier le gate courant (preflight/review/codex/commit/post) et renvoyer GO/BLOCK | Ne code jamais ; ne modifie jamais de fichier ; orchestre par le Workflow phase-par-phase, jamais un teammate long-lived (ex-D17, amendement 2026-06-17) |
 
 ### Combinaisons typiques
 
 - Sprint standard : `driver` + `reviewer` + `codex-verifier` + `preflight-checker`
 - Kickoff : `kickoff-author` + `reviewer` (design review independant)
 - Audit gate : `audit-gate-runner`
-- Supervision : `process-supervisor` (optionnel, hooks = backstop)
+- Verification de gate : `gate-check` invoque par etape de phase via l'orchestration Workflow ultracode (optionnel ; hooks `.claude/hooks/*` lightcheck/Codex = seul backstop mecanique au commit). Un Workflow en arriere-plan ne notifie qu'en fin de tour : pour une etape qui doit aboutir dans le tour, fan-out en avant-plan + arbre propre avant de terminer.
 
 ---
 

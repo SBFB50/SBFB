@@ -36,20 +36,28 @@ lit le verdict et avance ou s'arrete.
 
 | Agent | Cas | Artefact | Fallback |
 |---|---|---|---|
-| `nexus-process-supervisor` | **TOUS** | verdicts GO/BLOCK | hooks `.claude/hooks/*` (backstop mecanique) |
 | `nexus-audit-gate` | A | audit_findings.md | main thread + README §3 |
 | `nexus-sprint-kickoff` | C | kickoff.md + plan.md + design_review.md | main thread + README §2 |
 | `nexus-phase-preflight-deep` | B pre-code | preflight.md | skill nexus-phase-preflight |
 | `nexus-phase-review-deep` | B post-code | review.md | skill nexus-phase-review |
 | `nexus-phase-auditor` | B post-code | review.md | subsume par review-deep |
 
-**Superviseur process** : `nexus-process-supervisor` est optionnel
-(amendement D17, 2026-05-22). Les hooks `.claude/hooks/*` servent
-de backstop mecanique et suffisent a garantir la discipline commit.
-Quand deploye, le superviseur surveille le plan sequentiel et les
-gates (preflight, review, Codex, commit, post-commit) via Agent
-Team ou invocation gate-check. Il ne code jamais, ne cree jamais
-d'artefact — il verifie et bloque si deviation.
+**Orchestration via ULTRACODE WORKFLOW** : chaque etape d'une phase
+(preflight, code, review, Codex, commit, post-commit) est sequencee
+par l'orchestration Workflow ultracode. Le Workflow invoque les
+agents specialises (`nexus-phase-preflight-deep`, `nexus-phase-review-deep`,
+`nexus-audit-gate`, `nexus-sprint-kickoff`) et n'avance d'une etape
+a la suivante qu'apres verdict explicite de l'etape courante. Il n'y
+a plus de superviseur process dedie ni de consultation GO/BLOCK entre
+etapes (amendement 2026-06-17, ex-D17) : l'orchestration EST le
+sequenceur. Les hooks mecaniques `.claude/hooks/*` (lightcheck
+pre-commit + enforcement Codex au commit) restent le SEUL backstop
+automatique — ils garantissent la discipline commit meme si une etape
+du Workflow est sautee. Contrainte de composition : un Workflow lance
+en arriere-plan (ou via Monitor) ne notifie qu'en fin de tour ; pour
+une etape mid-phase qui doit aboutir dans le tour courant, utiliser un
+fan-out Workflow en avant-plan, et ne terminer le tour qu'avec un arbre
+de travail propre.
 
 **Regle modele** : ne JAMAIS passer le parametre `model` dans les
 appels Agent(). Les agents ont `model: claude-opus-4-8[1m]` dans
@@ -430,7 +438,10 @@ Cf. `nexus_grid_pivot.md` (memory) — **a ne PAS re-debattre** :
   phase", "Verifier avant validation", "Transmettre a un autre agent"),
   pas des commandes `sbfb-factory` ni du jargon `kind/provider/preflight`
   en CTA principal.
-- Superviseur process optionnel, hooks = backstop mecanique (D17)
+- Orchestration via ULTRACODE WORKFLOW pour toutes les etapes de phase
+  (preflight/code/review/Codex/commit/post), plus de superviseur
+  process ; hooks lightcheck/Codex = seul backstop mecanique (ex-D17,
+  amendement 2026-06-17)
 
 ## Principe de conception — sessions fraiches
 **Ne jamais propager les scope cuts des sprints precedents comme

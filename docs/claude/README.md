@@ -723,20 +723,21 @@ TOUTES les phases sans exception (§4.5.6). Sequence complete avant
 commit phase :
 
 1. Suites §7.4 vertes (Rust + Frontend)
-2. Review Claude — verdict `PASS-PENDING` possible (agent
-   nexus-phase-review-deep ou fallback skill nexus-phase-review +
-   agent nexus-phase-auditor)
+2. Review Workflow (fan-out dimensions + verification adversariale,
+   §4.5.7) — verdict `PASS-PENDING` possible (fallback skill
+   nexus-phase-review si l'opt-in Workflow est absent)
 3. Codex verification croisee (§4.5) — GAPs corriges ou documentes
 4. Reconciliation Claude post-Codex — review.md promu a `PASS` final
    avec section `## Codex reconciliation`
-5. Supervisor gates (`G-CODEX`, puis `G-COMMIT`) — seulement apres
-   review final `PASS`
-6. Commit atomique
+5. Commit atomique — l'unique gate automatise est le hook mecanique
+   `phase-precommit-lightcheck.sh` (staging coherence, body 9
+   sections, artefact Codex brut). Plus de consultation superviseur
+   GO/BLOCK.
 
 L'ordre preflight → code/tests → review `PASS-PENDING` → Codex →
-reconciliation/promote review `PASS` → supervisor → commit est strict.
+reconciliation/promote review `PASS` → commit est strict.
 Ne jamais committer avec un review.md encore en `PASS-PENDING`.
-Ne jamais lancer Codex avant la review Claude.
+Ne jamais lancer Codex avant la review.
 
 ### 4.4 Phase de sortie — parse phase reviews et route les P2/P3 au audit_plan
 
@@ -791,41 +792,56 @@ etc.) + Meta-track LOC estimations (transverse P3-S22A-1 +
 P3-B-1 + P2-E-2 + Phase D déviation LOC = 4 occurrences du
 même pattern à fermer S23 chore planning).
 
-### 4.5 Dual-Agent Verification Process — Claude Teams + Codex GPT 5.5
+### 4.5 Verification Process — Workflow ultracode + Codex GPT 5.5
 
 Depuis Sprint 65, chaque phase de chaque sprint est verifiee par un
-processus dual-agent : equipe d'agents Claude ultra-profonds (Opus
-4.6, 1M tokens chacun) pour le preflight, l'execution et la review,
-puis verification croisee independante par Codex CLI (GPT 5.5).
+processus a deux couches : une **orchestration Workflow ultracode**
+(fan-out d'agents Claude ultra-profonds, 1M tokens chacun, +
+verification adversariale + synthese) pour le preflight et la review,
+puis une verification croisee independante par Codex CLI (GPT 5.5).
+
+Le superviseur process (`nexus-process-supervisor`) et les
+consultations de gate GO/BLOCK (`G-SPAWN`/`G-PREFLIGHT`/`G-REVIEW`/
+`G-CODEX`/`G-COMMIT`/`G-POST`) sont **supprimes** (amendement
+2026-06-17). Ils sont remplaces par : (1) l'orchestration Workflow
+elle-meme, qui porte le verdict du preflight et de la review ;
+(2) Codex, la verification croisee externe ; (3) le hook mecanique
+`phase-precommit-lightcheck.sh`, l'unique gate automatise avant
+commit. Aucun agent ne repond plus GO/BLOCK a chaque etape — le
+main thread enchaine les couches et le hook bloque mecaniquement
+au commit si un invariant est viole.
 
 Ce processus ajoute une couche de verification que ni l'auto-
 attestation (verification.md) ni l'audit gate intra-sprint (Phase 0)
-ne couvrent : une review par un modele fondamentalement different,
-sans partage de contexte avec l'executeur, sur le code reel commite.
+ne couvrent : une review par des agents en fan-out puis par un modele
+fondamentalement different (Codex), sans partage de contexte avec
+l'executeur, sur le code reel commite.
 
-#### 4.5.1 Cycle de vie d'une phase avec dual-agent
+**Contrainte de composition Workflow (a respecter).** Les Workflows
+lances en arriere-plan et le Monitor notifient en **fin de tour** :
+ils composent proprement avec un **working tree propre**. En
+milieu de phase, lancer l'orchestration Workflow AVANT que l'arbre
+de travail ne soit committe-sale d'une maniere qui bloquerait, OU
+s'appuyer sur des **agents paralleles en avant-plan** (fan-out
+synchrone, un seul tour maintenu vivant) quand un tour doit rester
+actif jusqu'au verdict. Le preflight et la review etant des etapes
+de LECTURE/verification (pas d'ecriture concurrente des fichiers
+partages), le fan-out avant-plan est le mode par defaut sur.
+
+#### 4.5.1 Cycle de vie d'une phase
 
 ```
-Superviseur spawne (G-SPAWN — confirmation cas)
-  |
-  v
 Plan section Phase X lue
   |
   v
-Claude team preflight (agents 1M, claude-opus-4-6)
-  |  5 scans factuels S1a-S4 en parallele
+Workflow preflight (fan-out agents 1M, claude-opus-4-8[1m])
+  |  5 scans factuels S1a-S4 en parallele + synthese -> verdict
   v
-Superviseur G-PREFLIGHT (verifie artefact + verdict)
+Code ecrit par Claude (execution phase standard, main-thread)
   |
   v
-Code ecrit par Claude (execution phase standard)
-  |
-  v
-Claude team phase review (agent review-deep 1M)
-  |  6 dimensions, verdict PASS-PENDING/CONCERN/FAIL
-  v
-Superviseur G-REVIEW (verifie PASS-PENDING transitoire, jamais commit)
-  |
+Workflow phase review (fan-out dimensions + verif adversariale)
+  |  6+ dimensions, synthese -> verdict PASS-PENDING/CONCERN/FAIL
   v
 Codex verification (codex exec, prompt structure, findings)
   |  Review croisee independante GPT 5.5
@@ -833,24 +849,24 @@ Codex verification (codex exec, prompt structure, findings)
 Claude reconciliation (lit Codex, corrige/documente, promeut review.md a PASS)
   |
   v
-Superviseur G-CODEX (verifie output reel + review final PASS)
-  |
-  v
 Claude correction loop (si Codex trouve des issues)
-  |  Fix + re-run suites + review + Codex (boucle complete)
+  |  Fix + re-run suites + review Workflow + Codex (boucle complete)
   v
-Superviseur G-COMMIT (artefacts + body + delta tests + model)
+Hook phase-precommit-lightcheck.sh (gate mecanique : staging,
+  body 9 sections, artefact Codex brut)
   |
   v
 Commit atomique feat(scope): Sprint N Phase X
   |
   v
-Superviseur G-POST (memory + chore planning)
+Memory + chore planning a jour (G6)
 ```
 
-Le preflight et la review Claude restent les gates primaires
-(G8 + G4). Codex est une verification supplementaire — il ne
-remplace ni le preflight, ni la review, ni l'audit gate.
+Le preflight et la review Workflow restent les gates primaires
+(G8 + G4) ; le hook lightcheck est l'unique gate automatise au
+commit. Codex est une verification supplementaire — il ne
+remplace ni le preflight, ni la review, ni l'audit gate. Il n'y a
+plus de superviseur ni de consultation GO/BLOCK entre les etapes.
 
 #### 4.5.2 Lancer Codex depuis Claude Code — pattern valide
 
@@ -963,19 +979,49 @@ Si Codex n'est pas disponible, le commit reste bloque en
 demander un arbitrage PO explicite. Sans "PO dit skip codex", il
 n'existe pas de review final `PASS` ni de commit autorise.
 
-#### 4.5.7 Parallelisation Claude teams
+#### 4.5.7 Orchestration Workflow ultracode — preflight + review
 
-Les 5 scans G8 sont lances en parallele via agents independants
-(Opus 4.6, 1M tokens chacun). Gain mesure : ~3x sur phases > 10
-fichiers.
+Le preflight et la review de phase sont des etapes de LECTURE /
+verification : elles s'orchestrent en **Workflow ultracode**
+(fan-out d'agents independants, 1M tokens chacun, claude-opus-4-8[1m],
++ verification adversariale + synthese). Gain mesure : ~3x sur
+phases > 10 fichiers. Le Workflow ne code JAMAIS une phase en
+parallele (editions concurrentes des fichiers partages = conflits +
+commit atomique casse) — l'ecriture reste main-thread sequentielle.
+
+**Preflight Workflow (G8)** — fan-out des 5 scans factuels, la
+synthese emet le verdict EXECUTE / PLAN-ADAPT / SCOPE-CUT-CONSISTENT
+/ DESIGN-CONFLICT et ecrit `sprint{N}_phase_{X}_preflight.md` :
 
 ```
 Agent S1a (OSS prior art)    --+
 Agent S1b (deps/libs)        --+
-Agent S2  (historiques)      --+---> Orchestrateur -> verdict
-Agent S3  (threat model)     --+
+Agent S2  (historiques)      --+---> Synthese Workflow -> verdict
+Agent S3  (threat model)     --+      -> preflight.md
 Agent S4  (wire format)      --+
 ```
+
+**Review Workflow (G4)** — fan-out des dimensions de review +
+verification adversariale, la synthese emet le verdict
+PASS-PENDING / CONCERN / FAIL et ecrit `sprint{N}_phase_{X}_review.md` :
+
+```
+Agent R1 (diff ligne-a-ligne + branch coverage)  --+
+Agent R2 (scope cuts semantiques + research)      --+
+Agent R3 (securite deep + threat model)           --+--> Synthese
+Agent R4 (livrables vs plan + patterns)           --+    Workflow
+Agent Rv (verification adversariale des findings) --+    -> review.md
+```
+
+**Composition arriere-plan vs avant-plan** (cf. §4.5 contrainte).
+Les Workflows en arriere-plan et le Monitor notifient en fin de
+tour : ils composent avec un working tree propre. En milieu de
+phase (arbre potentiellement sale), preferer le **fan-out
+avant-plan** (synchrone, un seul tour maintenu vivant jusqu'au
+verdict) ; reserver l'arriere-plan aux moments ou l'arbre est
+propre. Fallback si l'opt-in Workflow est absent : plusieurs
+appels `Agent` en parallele dans un meme tour, ou les skills
+`nexus-phase-preflight` / `nexus-phase-review` en sequentiel.
 
 ---
 
@@ -1390,9 +1436,10 @@ code source.
   de test peuvent rester littérales (input explicite, le nom du test dit
   déjà « niveau 4 ») — mais une comparaison/branche de test gagne aussi à
   être nommée si elle encode la sémantique du domaine.
-- **Vérifié à G-REVIEW** : la review de phase (`nexus-phase-review-deep`
-  / skill `nexus-phase-review`) signale tout magic number de domaine
-  comme finding (P2 si récurrent, P3 si isolé). Grep type :
+- **Vérifié à la review** : la review Workflow de phase (fan-out
+  dimensions, §4.5.7 ; fallback skill `nexus-phase-review`) signale
+  tout magic number de domaine comme finding (P2 si récurrent, P3 si
+  isolé). Grep type :
   `grep -nE '\b<champ>\s*[=!<>]==?\s*[0-9]' web/src/**/*.{ts,tsx}` hors
   `status === 404` / longueurs / versions de schéma.
 
@@ -1435,8 +1482,11 @@ format condensé (template Step 7 "condense") est le défaut pour les
 phases standard. Le format complet (S1a OSS research profonde) est
 réservé aux phases qui introduisent un nouveau composant de sécurité,
 un nouveau wire format, ou une nouvelle dépendance cryptographique.
-Le superviseur process (nexus-process-supervisor) est optionnel —
-les hooks `.claude/hooks/*` servent de backstop mécanique.
+Le preflight s'orchestre en Workflow ultracode (fan-out des 5 scans
++ synthèse, §4.5.7) ; fallback skill `nexus-phase-preflight`. Il n'y
+a plus de superviseur process ni de consultation de gate — le hook
+mécanique `phase-precommit-lightcheck.sh` est l'unique gate
+automatisé au commit.
 
 #### Quand
 
@@ -1819,45 +1869,64 @@ reponse la plus exhaustive et correcte, pas la plus rapide ni la moins
 chere. Le cout en tokens n'est PAS une contrainte (coherent avec la
 directive PO « sprints ultra-complets »).
 
-DEUX niveaux d'orchestration, a ne JAMAIS confondre :
+ORCHESTRATION PAR WORKFLOW ULTRACODE (defaut pour toute etape de
+DECOUVERTE et de VERIFICATION : kickoff, audit gate, preflight de
+phase, review de phase, recherche multi-source). Pour chacune de ces
+etapes, preferer un Workflow multi-agents (fan-out + verification
+adversariale + synthese) plutot qu'un agent unique. Le pattern
+Workflow brille en LECTURE/verification ; il ne code JAMAIS une phase
+en parallele (editions concurrentes des fichiers partages
+http.rs/runtime.rs = conflits + commit atomique casse). L'ECRITURE
+d'une phase reste main-thread, sequentielle, un commit atomique par
+phase.
 
-  1. ORCHESTRATION DE GATE (toujours active, via l'outil Agent) —
-     c'est le coeur du process §7.1. Les 6 agents `.claude/agents/*.md`
-     sont TOUS enregistres. Rappel incident 2026-06-15 : un BOM UTF-8
-     (`EF BB BF`) en tete de 5 des 6 fichiers cassait silencieusement
-     le parsing du frontmatter -> agents non charges -> fallback
-     general-purpose systematique sprint apres sprint. Corrige (strip
-     BOM). N'utilise PLUS le fallback general-purpose comme defaut :
-     INVOQUE l'agent specialise du gate (`nexus-phase-preflight-deep`,
-     `nexus-phase-review-deep`, `nexus-audit-gate`,
-     `nexus-sprint-kickoff`, `nexus-phase-auditor`) et le superviseur
-     long-lived (`nexus-process-supervisor` en teammate Agent Team ;
-     `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` deja active dans
-     settings.json). Le fallback general-purpose n'est legitime QUE si
-     l'Agent meurt ou si le type est REELLEMENT absent de la liste
-     « Available agent types » — verifier cette liste avant de conclure
-     a l'indisponibilite, ne PAS presumer le fallback.
+  - Le PREFLIGHT de phase (G8) = Workflow : fan-out des 5 scans
+    factuels (S1a OSS prior-art + S1b deps + S2 decisions historiques
+    + S3 threat model + S4 wire format), synthese -> verdict (§4.5.7).
+    Remplace l'agent unique `nexus-phase-preflight-deep`.
+  - La REVIEW de phase (G4) = Workflow : fan-out des dimensions de
+    review + verification adversariale, synthese -> verdict (§4.5.7).
+    Remplace l'agent unique `nexus-phase-review-deep` + le gate
+    superviseur. Plus aucune consultation GO/BLOCK.
+  - Codex (GPT 5.5) reste la verification croisee externe apres la
+    review Workflow PASS-PENDING.
+  - L'unique gate AUTOMATISE avant commit est le hook mecanique
+    `phase-precommit-lightcheck.sh` (staging coherence, body 9
+    sections, artefact Codex brut). Il n'y a plus de superviseur
+    process (`nexus-process-supervisor`) ni de gates GO/BLOCK
+    `G-SPAWN`/`G-PREFLIGHT`/`G-REVIEW`/`G-CODEX`/`G-COMMIT`/`G-POST`.
 
-  2. MODE ULTRACODE (Workflow fan-out) — pour les phases de DECOUVERTE
-     et de VERIFICATION (kickoff, audit gate, review profonde,
-     recherche multi-source), preferer un Workflow multi-agents
-     (fan-out + verification adversariale + synthese) plutot qu'un agent
-     unique. Le pattern Workflow brille en LECTURE/verification ; il ne
-     code JAMAIS une phase en parallele (editions concurrentes des
-     fichiers partages http.rs/runtime.rs = conflits + commit atomique
-     casse). L'ECRITURE d'une phase reste main-thread, sequentielle, un
-     commit atomique par phase. L'outil Workflow exige un opt-in,
-     satisfait quand le toggle runtime ultracode est on (un
-     system-reminder le confirme) : garder ce toggle ACTIVE pour les
-     sessions SBFB. S'il ne l'est pas, l'orchestration de gate (niveau 1,
-     via Agent) reste OBLIGATOIRE ; seul le fan-out Workflow attend
-     l'opt-in.
+L'outil Workflow exige un opt-in, satisfait quand le toggle runtime
+ultracode est on (un system-reminder le confirme) : garder ce toggle
+ACTIVE pour les sessions SBFB. Fallback si l'opt-in Workflow est
+absent : plusieurs appels `Agent` en parallele dans un meme tour, ou
+les skills `nexus-phase-preflight` / `nexus-phase-review` en
+sequentiel — jamais un retour au superviseur supprime.
+
+CONTRAINTE DE COMPOSITION (a respecter strictement). Les Workflows
+lances en arriere-plan et le Monitor notifient en FIN DE TOUR : ils
+composent proprement avec un working tree PROPRE. En milieu de phase,
+lancer l'orchestration Workflow AVANT que l'arbre de travail ne soit
+committe-sale d'une maniere qui bloquerait, OU s'appuyer sur des
+agents paralleles en AVANT-PLAN (fan-out synchrone, un seul tour
+maintenu vivant jusqu'au verdict) quand un tour doit rester actif.
+Le preflight et la review etant des etapes de lecture, le fan-out
+avant-plan est le mode par defaut sur.
 
 Regle de decision rapide :
-  - lecture/verif large (audit, review, recherche, balayage N fichiers)
-    -> Workflow OU plusieurs Agent en parallele ;
-  - ecriture coherente d'une phase -> main-thread + gates Agent §7.1 ;
+  - lecture/verif large (audit, preflight, review, recherche,
+    balayage N fichiers) -> Workflow (fan-out) OU plusieurs Agent en
+    parallele dans un meme tour ;
+  - ecriture coherente d'une phase -> main-thread sequentiel, gate
+    final = hook lightcheck au commit ;
   - tache conversationnelle/triviale -> solo.
+
+Note agents : les 5 fichiers `.claude/agents/*.md` restants
+(`nexus-audit-gate`, `nexus-sprint-kickoff`, `nexus-phase-preflight-deep`,
+`nexus-phase-review-deep`, `nexus-phase-auditor`) restent enregistres
+(incident BOM 2026-06-15 corrige) et servent de fallback pour les etapes
+ou le Workflow n'est pas disponible ; `nexus-process-supervisor` est
+supprime (amendement 2026-06-17) et n'est plus invoque.
 
 # === Pre-flight (un seul copy-paste, lis tout l'output) ===
 
@@ -1883,7 +1952,7 @@ grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md docs/she
 # (lecture rapide, signal uniquement, le scan S2 complet vit dans skill preflight)
 git log --all --extended-regexp --grep='DEVIATION|rejected|threat-model|scope-cut' --oneline | head -10 || true
 
-# === Supervision continue + plan sequentiel (OBLIGATOIRE, avant tout) ===
+# === Plan sequentiel + gate mecanique (OBLIGATOIRE, avant tout) ===
 
 IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
 
@@ -1892,80 +1961,39 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
      `TaskList` si disponibles. Si cette version expose seulement
      `TodoWrite`, utiliser `TodoWrite` comme fallback.
 
-     Plan minimal attendu :
-       - G-SPAWN : pre-flight resume + superviseur actif/confirme
+     Plan minimal attendu (Cas B) :
+       - Pre-flight resume + detection du cas
        - Lire decision + active plan files
-       - G-PREFLIGHT : produire/valider le preflight de phase
+       - Preflight Workflow de phase (fan-out 5 scans -> verdict)
        - Si EXECUTE/PLAN-ADAPT : coder uniquement dans le scope valide
-       - G-REVIEW : review-deep -> PASS-PENDING
-       - G-CODEX : codex_review brut + reconciliation review PASS
-       - G-COMMIT : verifier artefacts + commit body + staged diff
-       - G-POST : commit, planning/memory a jour, phase suivante claire
+       - Review Workflow (fan-out dimensions + adversarial) -> PASS-PENDING
+       - Codex : codex_review brut + reconciliation review PASS
+       - Commit (hook lightcheck = gate mecanique) + planning/memory a jour
 
      Regles plan :
        - exactement une tache `in_progress` ;
-       - mise a jour AVANT et APRES chaque gate ;
-       - aucune tache `completed` sans artefact/verdict correspondant ;
-       - le superviseur peut bloquer si le plan et le repo divergent.
+       - mise a jour AVANT et APRES chaque etape ;
+       - aucune tache `completed` sans artefact/verdict correspondant
+         (preflight.md, review.md PASS, codex_review.md brut, commit SHA).
 
-  2. Mode prefere : superviseur long-lived via Agent Team.
-     Si Claude Code supporte les Agent Teams / teammates :
-       - creer une team de session ;
-       - ajouter un teammate nomme `supervisor` avec le type
-         `nexus-process-supervisor` ;
-       - mission : surveiller le plan sequentiel, les gates et les
-         artefacts ; envoyer un message proactif si deviation/oubli ;
-       - ne jamais passer `model:` dans la demande de spawn.
+  2. PLUS DE SUPERVISEUR. Le superviseur long-lived
+     (`nexus-process-supervisor` en teammate Agent Team) et les
+     consultations de gate GO/BLOCK sont SUPPRIMES (amendement
+     2026-06-17). Ne PAS creer de teammate supervisor, ne PAS
+     invoquer d'Agent `supervisor-gate`, ne PAS attendre de verdict
+     GO-* / BLOCK-* entre les etapes. Le verdict du preflight et de
+     la review est porte par l'orchestration Workflow elle-meme ;
+     Codex est la verification croisee ; le commit n'a qu'un gate.
 
-     Prompt recommande :
-       "Cree une Agent Team pour cette session. Ajoute un teammate
-       permanent nomme supervisor, de type nexus-process-supervisor.
-       Il ne code pas et ne modifie aucun fichier. Il surveille le plan
-       sequentiel, les gates G-SPAWN/G-PREFLIGHT/G-REVIEW/G-CODEX/
-       G-COMMIT/G-POST, et m'envoie un message BLOCK-* des qu'il voit
-       une deviation. Etat pre-flight : [coller le resume]."
-
-     Le teammate doit rester adressable jusqu'a G-POST ou shutdown explicite.
-     Important : `Done` / idle apres un verdict GO-SPAWN n'est pas toujours
-     un echec. Si `@supervisor` reste adressable, continuer et le consulter a
-     chaque gate. Si `@supervisor` n'est plus adressable, ou si Agent Teams est
-     indisponible, passer immediatement en mode degrade ci-dessous.
-
-  3. Mode degrade : consultation gate-check par Agent classique.
-     Utiliser ce fallback seulement si Agent Teams est indisponible ou si
-     le teammate permanent n'est plus actif.
-
-       Agent(
-         name: "supervisor-gate",
-         description: "Gate-check superviseur nexus-grid pour {GATE}.",
-         subagent_type: "nexus-process-supervisor",
-         prompt: "{GATE} Phase X. Contexte G-SPAWN : [resume].
-           Plan actuel : [task list]. Artefacts : [fichiers].
-           Verdict observe : [verdict]."
-       )
-
-     NE PAS passer `model:` - le frontmatter porte claude-opus-4-8[1m].
-
-  Gates surveilles :
-    - G-SPAWN : confirmation du cas detecte
-    - G-PREFLIGHT : apres preflight agent (Cas B)
-    - G-REVIEW : apres review agent (Cas B)
-    - G-CODEX : apres codex exec + reconciliation review PASS (Cas B)
-    - G-COMMIT : avant git commit (TOUS les cas A/B/C/D)
-    - G-POST : apres commit + chore (TOUS les cas A/B/C/D)
-
-  Si le superviseur repond BLOCK-* : STOP, corriger, re-consulter le gate.
-  Le main thread ne peut PAS ignorer un BLOCK.
-  Les hooks `.claude/hooks/*` restent le backstop automatique si le main
-  thread oublie le plan ou le superviseur :
-    - Stop : bloque une fin de tour qui sonne "termine" alors que le repo
-      n'est pas propre, ou un debut Phase C/factory sans preflight ;
-    - TaskCreated : autorise la creation du plan futur meme si les artefacts
-      n'existent pas encore ;
-    - TaskCompleted : bloque les tasks de gate/implementation terminees sans
-      artefact attendu ;
-    - TeammateIdle : garde le teammate supervisor non-idle tant que le
-      worktree est sale ; si le repo est propre, idle/Done est acceptable.
+  3. Gate mecanique unique : le hook `phase-precommit-lightcheck.sh`
+     s'execute automatiquement au commit et BLOQUE si un invariant
+     est viole (staging coherence STRICT BLOCK, body 9 sections
+     Check 9, artefact Codex brut Check 7, design_review.md Phase A
+     Check 5). C'est le seul mecanisme d'arret automatise restant.
+     Le hook `Stop` peut aussi bloquer une fin de tour qui sonne
+     "termine" alors que le repo n'est pas propre. Aucune action
+     manuelle de consultation de gate n'est requise — enchainer les
+     etapes du plan et laisser le hook trancher au commit.
 
 # === Regle modele agents (§7.1.1) ===
 
@@ -1999,39 +2027,40 @@ procédure lui-même (sauf Cas D hotfix).
              commits fix(sprint{N-1}) pour les P0/P1.
     Verdict G4 (rigor signal) : 0 P0/P1 ET 0 P2+ = CONCERN
              (pas PASS). PASS exige >=1 P2+ documente.
-    Fallback : si l'agent n'est pas disponible, le main thread
+    Variante ultracode : jouer l'audit gate en Workflow (fan-out
+             des 9 tracks + verification adversariale + synthese du
+             verdict) plutot qu'un agent unique. Fallback : si ni
+             Workflow ni l'agent ne sont disponibles, le main thread
              joue manuellement la procedure §3 + §8.
 
-    AVANT chaque commit fix(sprint{N-1}) :
-      CONSULTER superviseur G-COMMIT puis G-POST
-      (teammate permanent si actif, sinon Agent fallback).
+    Chaque commit fix(sprint{N-1}) passe par le hook lightcheck
+    (gate mecanique). Pas de consultation superviseur.
 
   Cas B — Sprint en cours
     Signal : .planning/active/ contient sprint{N}_kickoff.md +
              sprint{N}_plan.md mais pas verification.md.
     Identifier la phase X suivante : git log + plan.md.
 
-    AVANT code (G8 preflight) :
-      INVOQUER agent `nexus-phase-preflight-deep` pour la phase X.
-      L'agent execute les 5 scans (S1a OSS prior art profond +
-      S1b deps/CVE + S2 decisions historiques complet + S3 threat
-      model + S4 wire format), produit
+    AVANT code (G8 preflight = Workflow ultracode) :
+      ORCHESTRER un Workflow preflight pour la phase X : fan-out des
+      5 scans (S1a OSS prior art profond + S1b deps/CVE + S2 decisions
+      historiques complet + S3 threat model + S4 wire format) +
+      verification adversariale, puis synthese qui produit
       `.planning/active/sprint{N}_phase_{X}_preflight.md` avec
       verdict EXECUTE / PLAN-ADAPT / SCOPE-CUT-CONSISTENT /
-      DESIGN-CONFLICT.
+      DESIGN-CONFLICT (§4.5.7).
+      Lancer ce Workflow AVANT que l'arbre de travail ne devienne
+      sale, OU en fan-out avant-plan (synchrone) si le tour doit
+      rester vivant jusqu'au verdict (contrainte §4.5).
       Si DESIGN-CONFLICT : STOP, lire pivot_proposal, arbitrage
       utilisateur sur option A/B/C.
       Si PLAN-ADAPT : le code suit l'approche corrigée dans le
       preflight (pas le plan original).
-      Fallback : skill nexus-phase-preflight (profondeur réduite,
-      même verdicts).
-
-      CONSULTER superviseur (G-PREFLIGHT)
-      (teammate permanent si actif, sinon Agent fallback) :
-        Gate G-PREFLIGHT Phase X.
-        Fichier : sprint{N}_phase_{X}_preflight.md.
-        Verdict : {verdict}.
-        Attendre GO-PREFLIGHT avant de coder.
+      Fallback si l'opt-in Workflow est absent : plusieurs Agent en
+      parallele dans un meme tour, ou skill nexus-phase-preflight
+      (profondeur reduite, memes verdicts). PAS de consultation
+      superviseur, PAS d'attente de GO-PREFLIGHT — le verdict du
+      Workflow suffit pour enchainer.
 
     PENDANT code : le main thread implémente la phase
       conformément au plan (ou à l'adaptation PLAN-ADAPT).
@@ -2042,26 +2071,25 @@ procédure lui-même (sauf Cas D hotfix).
       Avant scope cut S+1 (G7) : verifier compteur reports de
       chaque carry (§6.2.1 Regle 2).
 
-    APRÈS code, AVANT commit (review Claude) :
-      INVOQUER agent `nexus-phase-review-deep`.
-      L'agent lit le diff complet ligne par ligne, lance les 3
-      blocs verification §7.4, vérifie la branch coverage
-      sémantique, les scope cuts sémantiques, le research
-      grounding, la sécurité deep, les livrables, les patterns,
-      et produit `.planning/active/sprint{N}_phase_{X}_review.md`
-      avec verdict PASS-PENDING / CONCERN / FAIL. PASS-PENDING
-      signifie uniquement "review Claude OK, Codex pas encore fait" ;
-      ce n'est jamais un verdict final committable.
-      Si FAIL : corriger les P0/P1, re-invoquer l'agent.
-      Fallback : skill nexus-phase-review (profondeur réduite).
-
-      CONSULTER superviseur (G-REVIEW)
-      (teammate permanent si actif, sinon Agent fallback) :
-        Gate G-REVIEW Phase X.
-        Fichier : sprint{N}_phase_{X}_review.md.
-        Verdict : {verdict}.
-        Attendre GO-REVIEW avant Codex. GO-REVIEW autorise seulement
-        le passage a Codex, pas le commit.
+    APRÈS code, AVANT commit (review = Workflow ultracode) :
+      ORCHESTRER un Workflow review : fan-out des dimensions (diff
+      complet ligne par ligne + 3 blocs verification §7.4 + branch
+      coverage semantique + scope cuts semantiques + research
+      grounding + securite deep + livrables + patterns) +
+      verification adversariale des findings, puis synthese qui
+      produit `.planning/active/sprint{N}_phase_{X}_review.md` avec
+      verdict PASS-PENDING / CONCERN / FAIL (§4.5.7). PASS-PENDING
+      signifie uniquement "review OK, Codex pas encore fait" ; ce
+      n'est jamais un verdict final committable.
+      Composition §4.5 : si le tour doit rester vivant jusqu'au
+      verdict (arbre potentiellement sale), preferer le fan-out
+      avant-plan synchrone ; reserver l'arriere-plan a un arbre propre.
+      Si FAIL : corriger les P0/P1, ré-orchestrer le Workflow review.
+      Fallback si l'opt-in Workflow est absent : plusieurs Agent en
+      parallele dans un meme tour, ou skill nexus-phase-review
+      (profondeur reduite). PAS de consultation superviseur, PAS
+      d'attente de GO-REVIEW — le verdict PASS-PENDING du Workflow
+      autorise directement le passage a Codex.
 
     APRÈS review PASS-PENDING, AVANT commit (Codex §4.5) :
       Lancer la verification croisee Codex GPT 5.5 pour TOUTES
@@ -2071,13 +2099,13 @@ procédure lui-même (sauf Cas D hotfix).
       sprint{N}_phase_{X}_codex_review.md`.
       Le fichier codex_review.md DOIT etre l'output BRUT de
       `codex exec -o`. Claude NE DOIT PAS le reecrire, le
-      condenser, ni le resumer. Le superviseur G-CODEX verifie
+      condenser, ni le resumer. Le hook lightcheck Check 7 verifie
       l'authenticite (format par-livrable, fichier:ligne, evidence).
       Si GAPs P0/P1 : corriger, puis BOUCLE COMPLETE :
         1. Re-run suites §7.4
-        2. Re-invoquer review-deep (re-consultation G-REVIEW,
-           verdict PASS-PENDING attendu si clean)
-        3. Re-lancer Codex (re-consultation G-CODEX)
+        2. Ré-orchestrer le Workflow review (verdict PASS-PENDING
+           attendu si clean)
+        3. Re-lancer Codex
         Boucle jusqu'a CLEAN ou P2/P3 documentes uniquement.
       Si GAPs P2/P3 : documenter dans commit body.
       Quand Codex est reconcilié : promouvoir le review.md a
@@ -2089,29 +2117,21 @@ procédure lui-même (sauf Cas D hotfix).
       presence, staging, non-reecriture Claude, verdicts par livrable,
       evidence fichier:ligne, coherence PARTIEL/GAP entre artefact et body.
       Sequence stricte : review PASS-PENDING → Codex →
-      reconciliation/promote review PASS → supervisor → commit.
+      reconciliation/promote review PASS → commit.
       JAMAIS committer avant le verdict Codex et le review final PASS.
 
-      CONSULTER superviseur (G-CODEX)
-      (teammate permanent si actif, sinon Agent fallback) :
-        Gate G-CODEX Phase X.
-        Fichier : sprint{N}_phase_{X}_codex_review.md.
-        Review final : PASS.
-        Attendre GO-CODEX avant commit.
-
-      CONSULTER superviseur (G-COMMIT)
-      (teammate permanent si actif, sinon Agent fallback) :
-        Gate G-COMMIT Phase X.
-        Commit body pret, tous artefacts presents.
-        Attendre GO-COMMIT avant git commit.
+    AVANT commit : verifier que tous les artefacts sont presents
+      (preflight.md, review.md PASS, codex_review.md brut) et que le
+      commit body couvre les 9 sections. Le hook lightcheck tranche
+      mecaniquement au commit (staging + body + Codex + design_review
+      Phase A) ; il n'y a plus de consultation superviseur GO/BLOCK.
 
     Livrable final : 1 commit feat(scope): Sprint N Phase X.
 
-      CONSULTER superviseur (G-POST)
-      (teammate permanent si actif, sinon Agent fallback) :
-        Gate G-POST Phase X.
-        Commit {sha}. Chore planning fait. Memory a jour.
-        Attendre GO-POST avant de passer a la phase suivante.
+    APRÈS commit : mettre planning/memory a jour (G6 — §5.1.1,
+      §7.5) et s'assurer que la phase suivante est claire. Pas de
+      gate G-POST ; le hook `Stop` est le backstop si le repo reste
+      sale en fin de tour.
 
   Cas C — Nouveau sprint à ouvrir
     Signal : .planning/active/ contient au max le
@@ -2126,17 +2146,22 @@ procédure lui-même (sauf Cas D hotfix).
              G9 factual research, et produit 3 fichiers :
              `.planning/active/sprint{N}_kickoff.md` +
              `sprint{N}_plan.md` + `sprint{N}_design_review.md`.
-    Après retour agent :
+    Variante ultracode : orchestrer le kickoff en Workflow (fan-out
+             recherche D1..D5 + G1 design review + G2/G7/G9 +
+             verification adversariale + synthese) plutot qu'un agent
+             unique ; l'ecriture des 3 fichiers reste sequentielle
+             (1 writer par fichier — un mega-writer en un tour
+             sature et meurt, cf. memory).
+    Après retour Workflow/agent :
       1. Review kickoff D1..D5 + Checkpoint §11
       2. git mv migration active/ → archive/ si nécessaire
       3. Memory carry-over G6 : fusionner manuellement
          sprint{N-1}_verification.md §5 dans les memories
-      4. CONSULTER superviseur G-COMMIT puis G-POST
-         (teammate permanent si actif, sinon Agent fallback)
-      5. Commit chore(planning): Sprint N kickoff + plan
-      6. Update memory nexus_grid_pivot.md
-    Fallback : si l'agent n'est pas disponible, le main thread
-             joue manuellement la procedure §2 + §6.1.1 + §6.2.1.
+      4. Commit chore(planning): Sprint N kickoff + plan
+         (gate mecanique = hook lightcheck ; pas de superviseur)
+      5. Update memory nexus_grid_pivot.md
+    Fallback : si ni Workflow ni l'agent ne sont disponibles, le main
+             thread joue manuellement la procedure §2 + §6.1.1 + §6.2.1.
 
   Cas D — Hotfix hors sprint (main thread direct)
     Signal : utilisateur demande explicitement un fix urgent.
@@ -2154,10 +2179,10 @@ procédure lui-même (sauf Cas D hotfix).
                   git log --grep="DEVIATION\|rejected" -- <fichiers hotfix>
                 Si conflit -> escalation user avant fix.
     Pas d'agent specialise — le main thread gere directement.
-    MAIS : CONSULTER superviseur G-COMMIT avant commit +
-           G-POST apres commit (teammate permanent si actif,
-           sinon Agent fallback)
-           (supervision obligatoire pour TOUS les cas, y compris hotfix).
+    Gate au commit : hook lightcheck (staging coherence reste
+           obligatoire meme en hotfix). Plus de consultation
+           superviseur G-COMMIT / G-POST — supprimes pour tous les
+           cas, y compris hotfix.
 
 # === Lecture ciblée par cas ===
 
@@ -2674,9 +2699,20 @@ Changements majeurs surveilles :
   communication iframe ↔ reseau, open source enforcement,
   et launcher Rust. Le pattern sprint s'est stabilise :
   les sessions livrent 4 phases en une seule session.
-- Sprint 65 : introduction du dual-agent verification process
-  (§4.5). Chaque phase est verifiee par Claude teams (Opus 4.6,
-  1M tokens, agents paralleles pour G8) puis par Codex CLI
-  GPT 5.5 en review croisee independante. Preflight G8 passe
-  de sequentiel a parallele (~3x). Templates de prompt Codex
-  normalises (§4.5.3, §4.5.4). Anti-patterns documentes (§4.5.2).
+- Sprint 65 : introduction du verification process a deux couches
+  (§4.5). Chaque phase est verifiee par des agents Claude
+  paralleles (1M tokens) pour G8 puis par Codex CLI GPT 5.5 en
+  review croisee independante. Preflight G8 passe de sequentiel a
+  parallele (~3x). Templates de prompt Codex normalises (§4.5.3,
+  §4.5.4). Anti-patterns documentes (§4.5.2).
+- Amendement 2026-06-17 : suppression du superviseur process
+  (`nexus-process-supervisor`) et des consultations de gate GO/BLOCK
+  (`G-SPAWN`/`G-PREFLIGHT`/`G-REVIEW`/`G-CODEX`/`G-COMMIT`/`G-POST`).
+  Le preflight et la review deviennent des **Workflows ultracode**
+  (fan-out + verification adversariale + synthese, §4.5.7) ; Codex
+  reste la verification croisee externe ; le hook mecanique
+  `phase-precommit-lightcheck.sh` devient l'unique gate automatise
+  au commit. Contrainte de composition documentee (§4.5) : les
+  Workflows arriere-plan / Monitor notifient en fin de tour donc
+  composent avec un arbre propre — en milieu de phase, fan-out
+  avant-plan synchrone.
