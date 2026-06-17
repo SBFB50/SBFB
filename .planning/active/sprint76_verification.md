@@ -9,12 +9,13 @@
 
 - **HEAD entree S76** : handoff kickoff `3faee6e` (docs(sprint76), POUSSE
   origin/master apres gate dual-platform vert).
-- **HEAD courant** : `768e235` (Phase E feat) + ce chore verification. NON
-  push (ahead 11 vs origin : Phase A `ce43894` + chore agents `d6dea45` +
+- **HEAD courant** : `a547de6` (Phase F feat) + ce chore verification. NON
+  push (ahead 13 vs origin : Phase A `ce43894` + chore agents `d6dea45` +
   Phase B `6904cdd` + Phase C `1cc28e7` + chore verif C `5b07472` + Phase D
   `d75ae77` + chore verif D `1de6f8a` + chore supervisor-supprime `42c7448` +
-  chore README-bootstrap `a21aaad` + Phase E `768e235` + ce chore). Push
-  differe post-phases E-G + recovery Docker dual-platform.
+  chore README-bootstrap `a21aaad` + Phase E `768e235` + chore verif E
+  `24bda54` + Phase F `a547de6` + ce chore). Push differe post-phase G +
+  recovery Docker dual-platform.
 
 ## §2 §7.4 par phase (fail-fast)
 
@@ -25,6 +26,30 @@
 | C | `1cc28e7` | 1775 -> **1785** (+10) 0-skip | **1789/1789** 0-skip (code fonctionnel, round 1) | 0 (aucun changement web) | 0 / 0 / 0 / 0 |
 | D | `d75ae77` | 1785 -> **1789** (+4) 0-skip | DIFFERE recovery pre-push (§4) | 0 (aucun changement web) | 0 / 0 / 0 / 0 |
 | E | `768e235` | 1789 -> **1799** (+10) 0-skip | DIFFERE recovery pre-push (§4) | Vitest 396 -> 397 (+1) | 0 / 0 / 0 / 0 |
+| F | `a547de6` | 1799 -> **1804** (+5) 0-skip | DIFFERE recovery pre-push (§4) | Vitest 397 -> 398 (+1) | drift* / 0 / 0 / 0 |
+
+(*) Phase F `cargo fmt --all --check` : SEUL `crates/nexus-shell-daemon/src/http.rs:8528`
+flagge = **faux positif derive toolchain local** (rustfmt 1.9.0 / rustc 1.95 vs
+canonique 1.94, pas de pin `rust-toolchain.toml`). `http.rs` N'EST PAS touche par
+Phase F (committe clean en Phase E sous 1.94). Les 4 fichiers Phase F sont fmt-clean
+sous 1.95. Fmt canonique = Docker `rust:1.94`, differe au pre-push (§4, pattern S74/S75).
+
+Delta tests Phase F = **+5 Rust** (1799 -> 1804) + **+1 Vitest** (397 -> 398) : phase
+**doc-only D5** (quantization 4-bit documentee). `crates/nexus-worker-core/tests/quantization_doc.rs`
++5 (present, footprint-table, 70b-is-s77, quorum-precondition, llama_cpp_unchanged_doc_only —
+tests d'integration lecture texte, feature-independants) ; `GpuConsentDialog.test.tsx` +1
+(rendu hint). Detail des suites Phase F :
+- Windows : clippy `--workspace --all-targets -D warnings` 0 ; nextest workspace
+  **1804/1804** 0-skip ; doctests 0 ; release `nexus-shell-daemon` 0. Frontend : lint 0 ;
+  tsc 0 ; test:unit 398 ; coverage 87.2/79.01/85.92/88.52 (>= 85/78/85/85) ; build +
+  size (128.76 kB < 130) + scan-en-strings 0. fmt : voir note (*) ci-dessus.
+- Preflight Workflow ultracode = PLAN-ADAPT (Livrable 3 lien front non-relatif ->
+  Option B texte non-cliquable, defaut sur) ; Review Workflow = PASS (2 P2 honnetete
+  corriges en-phase) ; Codex GPT5.5 = **5/5 CONFIRME / 0 GAP / 0 PARTIEL**.
+- Docker Linux sbfb-ci (canonique) : **DIFFERE** recovery avant push (§4) ; diff
+  platform-agnostique (doc `.md` + web + test lecture texte stdlib, 0 `#[cfg(unix)]`).
+- Invariant anti-scope-creep verrouille : `llama_cpp.rs` non touche (git diff vide),
+  ne cable que `with_n_gpu_layers` (grep `with_split_mode|with_devices` = 0).
 
 Delta tests Phase E = **+10 Rust** (1789 -> 1799) + **+1 Vitest** (396 -> 397) :
 kudos_ledger.rs +6 (sanity-bound clamp/preserve/credit + contributor summary
@@ -127,8 +152,18 @@ Docker Desktop) AVANT push.
   cette acceptance possible (avant : le 2e worker etait jete). > 30s
   convergence = BLOCK a diagnostiquer, PAS un timeout a rallonger.
 - Consigner la trace de l'acceptance LIVE B-3 une fois executee (§3).
+- **Phase F (doc-only D5) DONE** (`a547de6`) : `QUANTIZATION.md` (reco format
+  par carte + table empreintes VRAM + cible <=14B + 70B=S77 + pre-condition
+  quorum meme-GGUF + design-note caps VRAM) + pointeur panneau D1 (Option B
+  non-cliquable) + 5 tests garde. Lien D1 -> doc livre. Arc 3.5 5/6 -> Phase G.
+- **Env-note fmt (Phase F)** : la derive toolchain local (rustc 1.95 / rustfmt
+  1.9.0 vs canonique 1.94) fait faux-positiver `cargo fmt --all --check` sur
+  `http.rs:8528` (non touche Phase F). A confirmer clean sous Docker `rust:1.94`
+  au pre-push (attendu : 0, car committe clean sous 1.94). NE PAS reformater
+  http.rs localement (casserait le canonique 1.94).
 - Re-run Docker dual-platform sur l'arbre final apres recovery du moteur
-  (§4), AVANT push — inclut le delta Phase D (platform-agnostique, attendu vert).
+  (§4), AVANT push — inclut le delta Phases D + E + F (platform-agnostiques,
+  attendu vert) ET la verification fmt canonique 1.94 (resout le faux-positif http.rs).
 - P3-D-3 (branche send-failure `seen.remove` non testee) + P3-D-4 (log
   cosmetique) : routes `sprint77_audit_plan.md`.
 - model_digest : durcissement en hash du fichier GGUF = S77 (chemin
