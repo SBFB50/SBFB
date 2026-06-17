@@ -791,6 +791,71 @@ mod tests {
     }
 
     // -----------------------------------------------------------
+    // Sprint 76 Phase D — quorum trust contract locked (validator INCHANGE)
+    // -----------------------------------------------------------
+
+    /// Verrou: the quorum's trust contract is UNCHANGED by Phase D —
+    /// `validate_quorum_pre_guardrail` counts ONE vote per worker and
+    /// accepts only on a strict majority of byte-identical `result_text`.
+    /// This is the invariant the Phase D result-sync dedup fix MIRRORS at
+    /// the bridge: the bridge now forwards one entry per distinct worker
+    /// (so a redundancy>1 quorum can form), and the validator's own
+    /// per-`(worker, task)` dedup guarantees a single worker still cannot
+    /// manufacture a quorum by submitting twice. The function body itself
+    /// stays diff-empty this phase (verified by
+    /// `git diff --stat validator.rs`).
+    #[test]
+    fn validator_quorum_unchanged() {
+        // A single worker cannot self-inflate a redundancy=2 quorum by
+        // resubmitting the same result: the (worker, task) dedup keeps it
+        // at one vote → AwaitingQuorum, never Accepted.
+        let db = setup_build_task("quorum-self-inflate", 2);
+        let solo = KeyPair::generate();
+        let r = make_build_result("quorum-self-inflate", &solo, "lonely greedy output");
+
+        let (o1, _) = validate_result(&db, &r).expect("v1");
+        assert_eq!(o1, ValidationOutcome::AwaitingQuorum);
+        let (o2, _) = validate_result(&db, &r).expect("v2 (same worker, same result)");
+        assert_eq!(
+            o2,
+            ValidationOutcome::AwaitingQuorum,
+            "one worker resubmitting must NOT manufacture a quorum"
+        );
+        let solo_task = db
+            .get_task("quorum-self-inflate")
+            .expect("get")
+            .expect("found");
+        assert_eq!(solo_task.status, TaskStatus::AwaitingQuorum);
+        assert_eq!(
+            db.get_task_results("quorum-self-inflate")
+                .expect("results")
+                .len(),
+            1,
+            "a duplicate (worker, task) result is deduped to a single vote"
+        );
+
+        // Two DISTINCT workers agreeing reach the strict majority →
+        // Accepted, with the agreed text as the canonical result. The
+        // exact-match boundary is intact.
+        let db2 = setup_build_task("quorum-two-distinct", 2);
+        let agreed = "stable greedy answer";
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let (a1, _) = validate_result(&db2, &make_build_result("quorum-two-distinct", &w1, agreed))
+            .expect("a1");
+        assert_eq!(a1, ValidationOutcome::AwaitingQuorum);
+        let (a2, _) = validate_result(&db2, &make_build_result("quorum-two-distinct", &w2, agreed))
+            .expect("a2");
+        assert_eq!(a2, ValidationOutcome::Accepted);
+        let done = db2
+            .get_task("quorum-two-distinct")
+            .expect("get")
+            .expect("found");
+        assert_eq!(done.status, TaskStatus::Completed);
+        assert_eq!(done.result_hash.as_deref(), Some(agreed));
+    }
+
+    // -----------------------------------------------------------
     // Sprint 73 Phase A — guardrail-before-persist (D5)
     // -----------------------------------------------------------
 

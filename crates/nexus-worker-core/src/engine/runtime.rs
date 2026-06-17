@@ -1451,6 +1451,42 @@ mod tests {
         assert_eq!(plain_params.seed, None);
     }
 
+    /// Sprint 76 Phase D: the `verifiable` determinism seed is
+    /// **cross-worker stable** — every honest worker computing the same
+    /// task derives the SAME seed, the premise the redundancy>1 quorum
+    /// relies on. This test pins the HONEST contract the plan's shorthand
+    /// "seed = blake3(task_id)" abbreviates: the seed is the `u32`
+    /// little-endian of the **first 4 bytes** of `blake3(task_id)`, a
+    /// truncation of the 32-byte digest, not the whole hash.
+    #[test]
+    fn verifiable_seed_is_cross_worker_stable() {
+        let task_id = "task-quorum-seed";
+
+        // Two independent "workers" derive the identical seed for the task.
+        let worker_a_seed = deterministic_seed(task_id);
+        let worker_b_seed = deterministic_seed(task_id);
+        assert_eq!(
+            worker_a_seed, worker_b_seed,
+            "two honest workers on the same task must derive the same seed"
+        );
+
+        // Honest contract: the seed is the u32 LE of blake3(task_id)[..4],
+        // a truncation of the digest — NOT the full 32-byte hash.
+        let digest = blake3_hash(task_id.as_bytes());
+        let expected = u32::from_le_bytes([digest[0], digest[1], digest[2], digest[3]]);
+        assert_eq!(
+            worker_a_seed, expected,
+            "seed must be the u32 LE truncation of the first 4 bytes of blake3(task_id)"
+        );
+
+        // Distinct task ids derive distinct seeds (no accidental constant).
+        assert_ne!(
+            deterministic_seed(task_id),
+            deterministic_seed("task-quorum-seed-other"),
+            "different task ids derive different seeds"
+        );
+    }
+
     async fn build_engine_with_stub_ollama() -> Engine {
         let worker_config = WorkerConfig::default();
         let keypair = KeyPair::generate();

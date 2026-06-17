@@ -56,11 +56,23 @@ const RESULT_PREFIX: &[u8] = b"result:";
 /// Decode the [`ResultEntry`] behind a `result:` doc entry and forward
 /// it to the validator loop. No-op for any other key prefix.
 ///
-/// `seen` deduplicates by `task_id`: the validator loop is already
-/// idempotent (a second result for a completed task is rejected with
-/// no double-credit), but `InsertRemote` can refire for the same key
-/// and the boot catch-up overlaps the live stream, so skipping avoids
-/// channel and log noise. A send failure un-marks the id so a later
+/// `seen` deduplicates by `(worker_pubkey, task_id)` — the SAME identity
+/// the validator uses (`validator_loop` derives
+/// `worker_id = hex(worker_pubkey)` and `insert_task_result` dedups on
+/// `(worker_id, task_id)`). Mirroring that key is load-bearing for
+/// `redundancy_factor > 1`: a quorum task receives one `result:{task_id}`
+/// entry **per worker** under a DISTINCT iroh-docs author, and every
+/// distinct worker's vote must reach the validator for a strict majority
+/// to form. Deduplicating on `task_id` alone (the pre-Sprint-76-D
+/// behaviour) collapsed all workers onto the first vote, so a
+/// cross-machine `redundancy > 1` quorum never completed — the task sat in
+/// `AwaitingQuorum` forever (Sprint 76 Phase D, PO Option A; the
+/// HTTP-submit ingress was never affected because it has no such dedup).
+/// The same worker's refire is still suppressed — an `InsertRemote`
+/// re-emit and the boot catch-up overlapping the live stream both carry
+/// the same `(worker_pubkey, task_id)`. The validator loop stays the
+/// idempotent backstop (a second result for a completed task is rejected
+/// with no double-credit). A send failure un-marks the key so a later
 /// retry can re-forward.
 async fn forward_result_entry(
     doc_entry: &DocsEntry,
@@ -110,8 +122,19 @@ async fn forward_result_entry(
     };
 
     let task_id = entry.payload.task_id.clone();
-    if !seen.insert(task_id.clone()) {
-        debug!(task_id = %task_id, "result already forwarded, skipping");
+    // Dedup on the validator's own identity — one vote per (worker, task),
+    // NOT one per task. Keying on task_id alone drops every worker after
+    // the first and breaks the redundancy>1 quorum (Sprint 76 Phase D).
+    // worker_pubkey is fixed-length hex, so `{worker}:{task}` is an
+    // unambiguous composite even when a task_id contains a colon.
+    let worker_id = hex::encode(entry.worker_pubkey);
+    let dedup_key = format!("{worker_id}:{task_id}");
+    if !seen.insert(dedup_key.clone()) {
+        debug!(
+            task_id = %task_id,
+            worker = %&worker_id[..16.min(worker_id.len())],
+            "result already forwarded for this worker, skipping"
+        );
         return;
     }
 
@@ -119,8 +142,8 @@ async fn forward_result_entry(
         Ok(_) => info!(task_id = %task_id, "forwarded worker result to validator loop"),
         Err(_) => {
             // No active receiver — the validator loop is gone. Un-mark
-            // so a future entry for this task can retry.
-            seen.remove(&task_id);
+            // so a future entry for this (worker, task) can retry.
+            seen.remove(&dedup_key);
             warn!(
                 task_id = %task_id,
                 "validator loop receiver dropped; result not forwarded"
@@ -256,6 +279,16 @@ mod tests {
             result_hash: None,
             task_type: "inference".to_string(),
             redundancy_factor: 1,
+        }
+    }
+
+    /// A pending task record with an explicit `redundancy_factor` so the
+    /// validator runs the quorum path (`redundancy_factor > 1`) instead of
+    /// the single-result inference bypass (Sprint 76 Phase D).
+    fn pending_quorum_task_record(task_id: &str, project_id: &str, redundancy: u8) -> TaskRecord {
+        TaskRecord {
+            redundancy_factor: redundancy,
+            ..pending_task_record(task_id, project_id)
         }
     }
 
@@ -515,4 +548,204 @@ mod tests {
         let _ = rs_stop_tx.send(true);
         rs_handle.await.expect("result sync loop joins");
     }
+
+    // -----------------------------------------------------------------
+    // Sprint 76 Phase D (PO Option A) — redundancy>1 quorum over the bridge
+    // -----------------------------------------------------------------
+
+    /// The redundancy>1 quorum forms over the result-sync bridge: two
+    /// DISTINCT workers (distinct keypairs → distinct `worker_pubkey`)
+    /// write the SAME `result:{task_id}` key under DISTINCT iroh-docs
+    /// authors with byte-identical `result_text`. The bridge must forward
+    /// BOTH votes (dedup by `(worker, task)`, not `task` alone) so the
+    /// validator counts a strict majority and accepts the quorum.
+    ///
+    /// **Red-before-green guard for the Phase D fix.** Before the fix the
+    /// bridge keyed `seen` on `task_id` alone and dropped the second
+    /// worker's result — the task stayed `AwaitingQuorum` and this assert
+    /// timed out. It is the hermetic, deterministic proof of the fix; the
+    /// full cross-node engine variant is
+    /// `quorum_redundancy_two_stubworkers_byte_identical` below.
+    // multi_thread matches the iroh-docs actor requirement (P2-A-1, §P54).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn quorum_redundancy_two_workers_reach_validator() {
+        let task_id = "task-quorum-2workers";
+        let project_id = "proj-quorum";
+        let agreed = "deterministic greedy output";
+
+        let node = Arc::new(nexus_core_rs::create_node().await.expect("boot node"));
+        let docs = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author_a = docs.author_default().await.expect("author a");
+        let author_b = docs.author_create().await.expect("author b");
+        let doc = Arc::new(docs.create_doc().await.expect("create doc"));
+
+        // redundancy=2 task pending in the coordinator DB.
+        let db = CoordinatorDb::open_in_memory().expect("db");
+        db.insert_task(&pending_quorum_task_record(task_id, project_id, 2))
+            .expect("insert task");
+        let db = Arc::new(Mutex::new(db));
+
+        // Two distinct workers, byte-identical text, written under two
+        // distinct authors so iroh-docs keeps both (author, key) entries.
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        assert_ne!(
+            w1.public_bytes(),
+            w2.public_bytes(),
+            "the two workers must have distinct identities"
+        );
+        doc.set(
+            author_a,
+            format!("result:{task_id}").into_bytes(),
+            serde_json::to_vec(&signed_result(task_id, agreed, &w1)).expect("ser w1"),
+        )
+        .await
+        .expect("write w1 result");
+        doc.set(
+            author_b,
+            format!("result:{task_id}").into_bytes(),
+            serde_json::to_vec(&signed_result(task_id, agreed, &w2)).expect("ser w2"),
+        )
+        .await
+        .expect("write w2 result");
+
+        // Both distinct-author entries must coexist on the doc — the bridge
+        // has two votes to forward.
+        assert_eq!(
+            doc.get_many_by_prefix(b"result:")
+                .await
+                .expect("scan")
+                .len(),
+            2,
+            "two distinct-author result entries must coexist on the doc"
+        );
+
+        let (tx, rx) = crate::validator_loop::create_result_channel();
+        tokio::spawn(crate::validator_loop::run(Arc::clone(&db), rx));
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let handle = spawn_result_subscribe(Arc::clone(&doc), Arc::clone(&node), tx, stop_rx);
+
+        // The quorum must complete: both votes reach the validator → the
+        // task is Completed with the agreed text as the canonical result.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                {
+                    let g = db.lock().unwrap();
+                    let task = g.get_task(task_id).expect("get").expect("row");
+                    if task.status == TaskStatus::Completed {
+                        assert_eq!(task.result_hash.as_deref(), Some(agreed));
+                        assert_eq!(
+                            g.get_task_results(task_id).expect("results").len(),
+                            2,
+                            "both workers' votes were counted"
+                        );
+                        return;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("redundancy=2 quorum should complete within 10s (both workers forwarded)");
+
+        let _ = stop_tx.send(true);
+        handle.await.expect("result sync loop joins");
+    }
+
+    /// The mirror property: two distinct workers whose `result_text`
+    /// DIVERGES (the cross-GPU heterogeneous case the plan documents as
+    /// expected-not-a-bug) reach no strict majority, so the validator
+    /// rejects the task as a quorum divergence. This ALSO exercises the
+    /// Phase D fix — both votes must be forwarded for the validator to see
+    /// the divergence at all (without the fix only one arrives → the task
+    /// would hang in AwaitingQuorum, never Rejected).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn quorum_redundancy_diverging_outputs_rejected() {
+        let task_id = "task-quorum-diverge";
+        let project_id = "proj-quorum";
+
+        let node = Arc::new(nexus_core_rs::create_node().await.expect("boot node"));
+        let docs = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author_a = docs.author_default().await.expect("author a");
+        let author_b = docs.author_create().await.expect("author b");
+        let doc = Arc::new(docs.create_doc().await.expect("create doc"));
+
+        let db = CoordinatorDb::open_in_memory().expect("db");
+        db.insert_task(&pending_quorum_task_record(task_id, project_id, 2))
+            .expect("insert task");
+        let db = Arc::new(Mutex::new(db));
+
+        // Two distinct workers, DIVERGENT text (simulating cross-GPU
+        // non-determinism the validator must reject as outliers).
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        doc.set(
+            author_a,
+            format!("result:{task_id}").into_bytes(),
+            serde_json::to_vec(&signed_result(task_id, "output from worker A", &w1))
+                .expect("ser w1"),
+        )
+        .await
+        .expect("write w1 result");
+        doc.set(
+            author_b,
+            format!("result:{task_id}").into_bytes(),
+            serde_json::to_vec(&signed_result(task_id, "output from worker B", &w2))
+                .expect("ser w2"),
+        )
+        .await
+        .expect("write w2 result");
+
+        let (tx, rx) = crate::validator_loop::create_result_channel();
+        tokio::spawn(crate::validator_loop::run(Arc::clone(&db), rx));
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let handle = spawn_result_subscribe(Arc::clone(&doc), Arc::clone(&node), tx, stop_rx);
+
+        // Both votes reach the validator; no strict majority → Rejected.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                {
+                    let g = db.lock().unwrap();
+                    let task = g.get_task(task_id).expect("get").expect("row");
+                    if task.status == TaskStatus::Rejected {
+                        // No canonical result was persisted on divergence.
+                        assert_eq!(task.result_hash, None);
+                        assert_eq!(
+                            g.get_task_results(task_id).expect("results").len(),
+                            2,
+                            "both divergent votes were seen before rejection"
+                        );
+                        return;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("divergent redundancy=2 should be Rejected within 10s (both workers forwarded)");
+
+        let _ = stop_tx.send(true);
+        handle.await.expect("result sync loop joins");
+    }
+
+    // NOTE (Sprint 76 Phase D, Codex S76-D P2) — why there is no in-process
+    // 3-node `quorum_redundancy_two_stubworkers_byte_identical` test here:
+    // a literal multi-worker cross-node E2E needs THREE iroh nodes
+    // (coordinator + two worker engines, since each `Engine` boots its own
+    // node). That is too heavy for the `cargo test` shared-process gate —
+    // under full-crate parallelism the crate's other iroh tests starve its
+    // runtimes and it times out (it passes alone and under nextest's
+    // process-per-test isolation, but a test that is green under one runner
+    // and red under another is not a portable gate, and P2-A-1 closed the
+    // shared-process gate deliberately). The redundancy>1 quorum is proven
+    // WITHOUT it, by composition:
+    //   * the two hermetic two-author tests above exercise the REAL bridge
+    //     (`forward_result_entry` dedup fix) + `validator_loop` + DB and are
+    //     red-before-green against the fix (revert the dedup key -> the
+    //     second worker is dropped -> AwaitingQuorum timeout);
+    //   * `worker_result_syncs_into_coordinator_db_across_two_nodes` already
+    //     proves genuine cross-node iroh-docs replication delivers a worker's
+    //     result to the validator (redundancy=1);
+    //   * the literal cross-machine redundancy=2 run (VPS + PC + Mac) is the
+    //     Phase G LIVE acceptance (the D2 falsifiable criterion).
 }

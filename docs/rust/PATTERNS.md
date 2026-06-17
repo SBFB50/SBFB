@@ -3330,6 +3330,89 @@ abort()+joined at shutdown BEFORE node reclamation (a detached
 priority FROZEN by test (direct > local pin row > subscribed directories) so
 a divergent directory can never override the local pin.
 
+## §P60 — Sprint 76 Phase D : redundancy>1 deterministic quorum over the bridge + TOPLOC étage-2 note
+
+S76 Phase D proved the `redundancy_factor > 1` deterministic quorum (D3 étage
+1 palier 2) and, doing so, surfaced and fixed a production gap that silently
+blocked it. The proof is by composition (no single in-process test stacks all
+of it — a literal multi-worker E2E needs three iroh nodes, too heavy for the
+`cargo test` shared-process gate): two hermetic two-author tests exercise the
+REAL bridge + validator loop + DB (red-before-green against the fix); the
+pre-existing `worker_result_syncs_into_coordinator_db_across_two_nodes` proves
+genuine cross-node iroh-docs replication (redundancy=1); the literal
+cross-machine run (distinct OS processes on VPS + PC + Mac) is the Phase G
+LIVE acceptance.
+
+### §P60.1 — Mirror the validator's dedup identity in the result-sync bridge
+
+The result-sync bridge (`nexus-shell-daemon/src/result_sync.rs`,
+`forward_result_entry`) forwards each replicated `result:` doc entry into
+the validator loop. It keeps a `seen` set to suppress duplicate forwards.
+Pre-Phase-D it keyed `seen` on `task_id` **alone** — fine for
+`redundancy_factor = 1`, fatal for a quorum: a `redundancy = 2` task
+receives one `result:{task_id}` entry **per worker** under a DISTINCT
+iroh-docs author (`runtime.rs` writes `result:{task_id}` keyed by the
+worker's own author), so the second worker's vote was dropped ("result
+already forwarded") before the validator ever counted it. The task sat in
+`AwaitingQuorum` forever (the B.2 early-reject only fires at redundancy≥4),
+so a cross-machine quorum NEVER completed. The synchronous HTTP-submit
+ingress was never affected (no such dedup), which is why the gap hid behind
+the co-located path.
+
+Fix: key `seen` on `(worker_pubkey, task_id)` — the SAME identity the
+validator uses (`validator_loop` derives `worker_id = hex(worker_pubkey)`
+and `insert_task_result` dedups on `(worker_id, task_id)`). The two dedup
+layers now agree on "one vote per worker." Same-worker refire
+(`InsertRemote` re-emit, boot catch-up overlapping the live stream) is still
+suppressed; distinct workers' votes all reach the validator. **Lesson: when
+two layers dedup the same logical event, they must key on the SAME identity
+— a narrower key in the bridge silently defeats the wider key in the
+validator.** Zero wire/dep change (daemon-internal logic).
+
+Security: the fix opens no new surface. Before, the bridge collapsed all
+workers to the first vote (quorum never formed); after, it forwards exactly
+one vote per distinct `worker_pubkey`. A single worker still cannot vote
+twice (same pubkey deduped at BOTH layers — locked by
+`validator_quorum_unchanged`). Quorum inflation needs N distinct keypairs =
+the pre-existing Sybil concern (PoW / AgeWitness mitigations elsewhere),
+unchanged. The exact-match strict-majority + outlier rejection in
+`validate_quorum_pre_guardrail` stays the trust boundary, INCHANGÉ (diff
+verrou).
+
+### §P60.2 — Homogeneous-redundancy exact-match; cross-GPU divergence is expected, not a bug
+
+The quorum accepts a result when a strict majority of workers report a
+byte-identical `result_text` — the mature BOINC homogeneous-redundancy
+pattern (`JobReplication`: "byte for byte" + "canonical result"). It is only
+useful because `verifiable` forces deterministic decoding (greedy + a fixed
+seed = the `u32` LITTLE-ENDIAN truncation of the first 4 bytes of
+`blake3(task_id)`, `runtime.rs` `deterministic_seed`, §P53 — locked by
+`verifiable_seed_is_cross_worker_stable`). The honest limit (D2 ⚠️, written as an acceptance criterion to
+defeat false-green): exact-match holds for a HOMOGENEOUS cohort
+(same model/quant/runtime, the Phase C cohort gate routes these together)
+and is EXPECTED to diverge across heterogeneous GPUs (float reordering —
+Thinking Machines 2025-09, Ingonyama). A cross-GPU divergence is rejected as
+a quorum outlier (correct), NOT silently read as a bug. The cohort gate is
+advisory routing; the exact-match quorum is the real defense.
+
+### §P60.3 — TOPLOC étage-2 (`logprobs_hash`) is the cross-hardware slot, gated on a file-exposing backend
+
+True cross-hardware verifiable inference needs a locality-sensitive
+commitment over model intermediate activations (TOPLOC, Prime Intellect,
+arXiv:2501.16007: "robust across diverse hardware configurations, GPU types,
+and algebraic reorderings", 258 bytes / 32 tokens). The signed
+`ResultPayload.logprobs_hash: [u8; 32]` (already v1, `task.rs`) is the
+reserved slot — it is currently `[0u8; 32]` ("logprobs not provided"). A
+real commitment requires access to top-k hidden states, which the Ollama
+HTTP backend does not expose; it is gated on a file/activation-exposing
+backend (`LlamaCppBackend`, feature `llm_llama_cpp`) = S77 (étage 2). S76
+Phase D adds NO code here — design note only, zero wire bump (the slot is
+already v1).
+
+Cross-ref: S76 Phase C (`1cc28e7`, RuntimeTuple + cohort gate), §P53
+(deterministic quorum B-2), §P54 (cross-process compute E2E B-3), §P59.4
+(guardrail-before-persist terminal), kickoff §D3.
+
 ## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
 
 Origin: S74 Phase D was committed while its Codex review still carried an

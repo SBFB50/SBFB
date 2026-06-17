@@ -892,6 +892,39 @@ wire-emit sont gates par l'audit S75 DURESS-BOOT-LEAK). Le sur-comptage §15 row
 M : `known_entry_count` agrege le 3e bras nodedirectory en best-effort
 (sur-estimation toleree, jamais une preuve de joignabilite).
 
+### 15.2 Extension Sprint 76 Phase D — quorum compute redundancy>1 cross-machine
+
+S76 Phase D prouve le quorum deterministe `redundancy_factor > 1` par
+composition (tests hermetiques 2-auteurs sur le VRAI bridge + validator loop +
+DB, rouge-avant-vert ; la replication iroh cross-nœud est deja prouvee par
+`worker_result_syncs_into_coordinator_db_across_two_nodes` en redundancy=1 ;
+D3 etage 1 palier 2) ; la preuve LITTERALEMENT cross-machine (VPS + PC + Mac,
+processus OS distincts) est l'acceptance LIVE Phase G. La cohorte homogene (gate Phase C,
+`required_runtime`) est un **routage ADVISORY** : elle co-localise les
+workers homogenes pour que l'exact-match tienne, mais n'est JAMAIS une
+frontiere de confiance. La vraie defense reste le quorum exact-match a
+majorite stricte (`validate_quorum_pre_guardrail`, **INCHANGE** ce phase) qui
+rejette tout `result_text` divergent comme outlier. Le fix du bridge
+result-sync (dedup `(worker_pubkey, task_id)` au lieu de `task_id` seul,
+miroir de la cle du validator) debloque la formation du quorum cross-machine
+sans deplacer cette frontiere.
+
+| Menace | Exemple | Sev. brute | Mitigation (file:line) | res |
+|---|---|:---:|---|:---:|
+| S/D | **Self-inflation du quorum** (un worker soumet 2 fois pour fabriquer une majorite) | M | dedup `(worker_id, task_id)` aux DEUX couches : `insert_task_result` (validator) ET `forward_result_entry` (bridge, S76-D) — un meme `worker_pubkey` = une seule voix. Verrou `validator_quorum_unchanged` | **Nil** |
+| T/D | **Sybil multi-keypair** (N identites forgees votent la meme reponse pour forcer un faux consensus) | H | inchange par le fix (le fix forwarde une voix par pubkey distincte, il n'en cree aucune) ; gonfler le quorum exige N keypairs reels = surface Sybil pre-existante (PoW / AgeWitness + pilote ferme) ; le quorum n'est PAS une frontiere anti-Sybil par lui-meme | **M** |
+| T | **Worker menteur** (un GGUF/poids different ou un mensonge sur la cohorte) | M | rejet outlier exact-match (`validator.rs:290-336`) : un `result_text` divergent ne forme jamais la majorite — la cohorte advisory ne sert qu'au routage, pas a la confiance ; tests `quorum_redundancy_diverging_outputs_rejected` (bridge) + `quorum_rejects_nondeterministic_divergence` (in-DB) | **L** |
+| Faux-vert | **Divergence cross-GPU lue comme un bug** | M | anti faux-vert (T1) : exact-match garanti HOMOGENE seulement (meme model/quant/runtime) ; divergence cross-GPU heterogene = ATTENDUE (float reordering, Thinking Machines/Ingonyama) et rejetee comme outlier, ECRITE comme resultat attendu dans l'acceptance LIVE (PATTERNS §P60.2) | **M** |
+| I | **Verification cross-hardware semantique manquante** (l'exact-match ne couvre pas les GPU heterogenes) | L | reserve etage 2 : commitment TOPLOC sur `ResultPayload.logprobs_hash` (deja v1, `task.rs:511`), gate sur backend exposant les hidden states (`llm_llama_cpp`, S77). Design note seul ce phase, zero code, zero bump (PATTERNS §P60.3) | **L (S77)** |
+
+**Residual S76-D** : le Sybil multi-keypair (T/D, **M**) reste le cout
+assume du quorum par accord de sortie — le quorum prouve la reproductibilite
+deterministe entre voix, pas l'unicite des votants (mitige hors-quorum :
+PoW/AgeWitness + pilote ferme). La divergence cross-GPU (**M**) est un cout
+physique assume, rendu visible (pas masque) ; sa resorption = TOPLOC etage 2
+(S77). Le fix bridge result-sync n'ajoute AUCUNE surface : il fait passer une
+voix par worker distinct la ou il les collapsait sur la premiere.
+
 ---
 
 ## 16. Revue et evolution
