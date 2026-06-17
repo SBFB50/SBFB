@@ -39,6 +39,93 @@ autre LLM) qui doit ouvrir, livrer ou auditer un sprint.
 
 ---
 
+## 0. DÉMARRAGE — prompt à coller + comment lire ce README parfaitement
+
+**Tu démarres une session ? Colle le bloc ci-dessous tel quel.** C'est le
+prompt de bootstrap canonique (version courte / pointeur). La version
+longue/détaillée vit en **§7.1**, entre les marqueurs `<!-- BOOTSTRAP:BEGIN -->`
+et `<!-- BOOTSTRAP:END -->` (greppables, drift-proof, insensibles au numéro
+de ligne).
+
+```
+Tu démarres une session sur nexus-grid (SBFB).
+
+SOURCE DE VÉRITÉ UNIQUE : docs/claude/README.md. Avant TOUTE action (avant
+le moindre Read d'un autre fichier, avant le pre-flight, avant de détecter
+le cas), lis INTÉGRALEMENT le bloc de bootstrap §7.1. Pour cibler la plage
+exacte sans deviner : Grep BOOTSTRAP:BEGIN et BOOTSTRAP:END dans
+docs/claude/README.md -> 2 numéros de ligne -> Read en UN appel
+(offset = ligne du BEGIN, limit = END - BEGIN + 5, ~450 lignes, sous le cap
+Read). Tu DOIS voir « <!-- BOOTSTRAP:END --> » dans ce que tu as réellement
+lu ; sinon la lecture est tronquée : augmente limit / re-Read par fenêtres
+jusqu'à voir le marqueur de fin AVANT le pre-flight. (Un Read naïf du fichier
+entier s'arrête au milieu du bootstrap — toujours passer par les marqueurs.)
+
+NE LIS RIEN D'AUTRE avant d'avoir lancé le pre-flight §7.1 : c'est lui qui te
+dit quels fichiers sont pertinents pour ton cas. Pas de lecture spéculative
+de PATTERNS.md / THREAT_MODEL.md / plans de sprint avant.
+
+Process courant (ne pas réinventer) :
+  - Mode ULTRACODE ON : exhaustivité + correction, pas coût ni vitesse.
+  - Orchestration PAR WORKFLOW à chaque étape de DÉCOUVERTE/VÉRIFICATION
+    (kickoff, audit gate, preflight de phase, review de phase, recherche) :
+    fan-out + vérif adversariale + synthèse. Le Workflow LIT/vérifie, il ne
+    code JAMAIS une phase en parallèle ; l'écriture d'une phase reste
+    main-thread, séquentielle, un commit atomique par phase.
+  - PAS DE SUPERVISEUR (amendement 2026-06-17) : ne crée aucun teammate
+    supervisor, n'attends aucun verdict GO-*/BLOCK-*. Codex (GPT 5.5) = vérif
+    croisée externe après review Workflow PASS-PENDING. Seul gate automatisé
+    au commit = hook phase-precommit-lightcheck.sh.
+  - Modèle agents : ID explicite claude-opus-4-8[1m], jamais l'alias « opus »,
+    jamais passer le param model à Agent().
+
+GATE DE CONFIRMATION DE LECTURE (obligatoire, AVANT toute action). Quand le
+pre-flight §7.1 a tourné, restitue en <=6 lignes :
+  1. Cas détecté : A / B / C / D (+ le signal §7.1 qui le prouve).
+  2. Prochaine action concrète (ex. « INVOQUER nexus-audit-gate », « Workflow
+     preflight Phase X », « commit chore(planning) d'abord »).
+  3. Règle EXÉCUTER vs DEMANDER appliquée ici, citée du §7.1.
+Si tu ne peux pas remplir ces 3 points depuis ce que tu as lu, ta lecture est
+partielle : retourne lire le bootstrap. Puis enchaîne sans demander
+confirmation quand le cas est procéduralement déterminé.
+
+Langue : français (réponses, docs planning, commit bodies) ; anglais (code,
+identifiants, commit titles, logs).
+```
+
+### Comment lire ce README parfaitement
+
+Ce document est la **source de vérité unique** du process. Une lecture
+partielle reproduit le bug récurrent « session fraîche qui ré-invente les
+règles ». La bonne lecture est **bornée et vérifiée**, pas exhaustive ligne
+à ligne.
+
+**Lecture bornée par marqueurs (drift-proof).** La région critique d'une
+session fraîche est le bloc de bootstrap §7.1, délimité par
+`<!-- BOOTSTRAP:BEGIN -->` et `<!-- BOOTSTRAP:END -->`. C'est le seul passage
+à lire **intégralement** avant d'agir. Ne code JAMAIS un numéro de ligne en
+dur (ce fichier bouge) : Grep les deux marqueurs pour obtenir la plage
+courante, puis Read `offset = ligne BEGIN`, `limit = END - BEGIN + 5`. Le
+bloc (~430 lignes) tient en UN Read sous le cap de 2000 lignes ; un Read naïf
+du fichier entier s'arrête au milieu du bootstrap. Le reste du README se lit
+**à la demande**, section par section, quand le pre-flight ou un agent t'y
+renvoie.
+
+**Étape de confirmation (anti-lecture-bâclée).** Avant la moindre action,
+après le bootstrap + le pre-flight §7.1, restitue en <=6 lignes : (1) le cas
+A/B/C/D et le signal qui le prouve, (2) la prochaine action concrète, (3) la
+règle EXÉCUTER vs DEMANDER appliquée. Si tu ne peux pas produire ces trois
+points, la lecture est incomplète : retourne au bootstrap. Ce n'est pas une
+demande de permission — quand le cas est procéduralement déterminé, tu
+enchaînes sans attendre l'humain.
+
+**Si le bootstrap paraît tronqué.** Critère objectif : tu n'as **pas vu**
+`<!-- BOOTSTRAP:END -->`. N'agis pas sur une lecture partielle ; re-Read par
+fenêtres jusqu'à voir le marqueur de fin. Tant que `<!-- BOOTSTRAP:END -->`
+n'est pas apparu, le pre-flight ne démarre pas.
+
+---
+
 ## 1. Vue d'ensemble
 
 Le projet nexus-grid (SBFB) est un réseau P2P de compute LLM
@@ -1828,6 +1915,7 @@ coller, puis en routant vers la procédure du cas détecté.
 
 ### 7.1 Le prompt à coller
 
+<!-- BOOTSTRAP:BEGIN (v3) — prompt canonique à coller ; lire jusqu'à BOOTSTRAP:END -->
 ```
 Tu démarres une session sur nexus-grid (SBFB). Ne lis RIEN tant
 que tu n'as pas exécuté le pre-flight ci-dessous — il te dit
@@ -2256,6 +2344,7 @@ Avant d'écrire du code :
 Langue : français pour réponses utilisateur, docs planning,
 commit bodies. Anglais pour code, identifiants, commit titles.
 ```
+<!-- BOOTSTRAP:END -->
 
 ### 7.2 Templates de commit par cas
 

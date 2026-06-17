@@ -48,26 +48,30 @@ if ! command -v tdd-guard >/dev/null 2>&1; then
   :
 fi
 
-# ------- 2. Emettre additionalContext -------
+# ------- 2. Emettre additionalContext (UN objet JSON, chaque session) -------
 
-SHOULD_EMIT=0
-[ ! -f "$MARKER" ] && [ ${#MISSING_COMPONENTS[@]} -gt 0 ] && SHOULD_EMIT=1
+# 2a. Directive bootstrap README — TOUJOURS (chaque startup|resume).
+# Une session fraiche n'auto-lit PAS docs/claude/README.md ; le
+# additionalContext SessionStart, lui, atteint le modele. On impose donc
+# la lecture de la source de verite AVANT toute action, ciblee par
+# marqueurs (drift-proof : aucun numero de ligne code en dur).
+CTX="[session-start] AVANT toute action (avant tout Read, avant le pre-flight, avant de detecter le cas) : ouvre docs/claude/README.md section 0 puis LIS INTEGRALEMENT le bloc bootstrap section 7.1. Cible la plage par Grep BOOTSTRAP:BEGIN et BOOTSTRAP:END dans docs/claude/README.md -> 2 numeros de ligne -> Read en UN appel (offset=ligne BEGIN, limit=END-BEGIN+5). Tu DOIS voir BOOTSTRAP:END dans ce que tu lis, sinon re-Read avant de continuer. Puis execute le pre-flight section 7.1, detecte le cas A/B/C/D, et RESTITUE en 6 lignes max : cas + signal + prochaine action + regle EXECUTER vs DEMANDER, AVANT de coder ou invoquer un agent. Mode ULTRACODE ON ; orchestration Workflow par etape ; PAS DE SUPERVISEUR (pas de teammate, pas de GO/BLOCK).\n"
 
-if [ "$SHOULD_EMIT" = "1" ]; then
-  CTX=""
-  if [ ${#MISSING_COMPONENTS[@]} -gt 0 ]; then
-    CTX="${CTX}[session-start] Composants process tooling manquants (optionnels) :\n"
-    for comp in "${MISSING_COMPONENTS[@]}"; do
-      CTX="${CTX}  - ${comp}\n"
-    done
-    CTX="${CTX}[session-start] Install all-in-one : bash scripts/install-claude-tooling.sh\n"
-    CTX="${CTX}[session-start] Doc : docs/claude/TOOLING.md\n"
-  fi
+# 2b. Avertissement tooling optionnel — une seule fois (marker-gated).
+if [ ! -f "$MARKER" ] && [ ${#MISSING_COMPONENTS[@]} -gt 0 ]; then
+  CTX="${CTX}[session-start] Composants process tooling manquants (optionnels) :\n"
+  for comp in "${MISSING_COMPONENTS[@]}"; do
+    CTX="${CTX}  - ${comp}\n"
+  done
+  CTX="${CTX}[session-start] Install all-in-one : bash scripts/install-claude-tooling.sh\n"
+  CTX="${CTX}[session-start] Doc : docs/claude/TOOLING.md\n"
+  touch "$MARKER" 2>/dev/null || true
+fi
 
-  # Format JSON pour additionalContext (protocole Claude Code)
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c "
-import json, sys
+# 2c. Emettre UN objet JSON additionalContext (protocole Claude Code).
+if command -v python3 >/dev/null 2>&1; then
+  python3 -c "
+import json
 ctx = '''$CTX'''
 print(json.dumps({
     'hookSpecificOutput': {
@@ -76,13 +80,9 @@ print(json.dumps({
     }
 }))
 "
-  else
-    # Fallback : print en clair sur stdout (Claude le verra mais moins proprement)
-    echo -e "$CTX"
-  fi
-
-  # Marquer qu'on a signale (jusqu'a prochain cleanup ou install manuel)
-  touch "$MARKER" 2>/dev/null || true
+else
+  # Fallback : print en clair sur stdout (Claude le verra, moins proprement)
+  echo -e "$CTX"
 fi
 
 exit 0

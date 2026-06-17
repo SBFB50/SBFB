@@ -21,7 +21,13 @@ Pivot 2026-04-10 depuis l'ancien NEXUS cold-case (supprime S51,
 code dans l'historique Git pour reference).
 
 ## Source de vérité pour le workflow Claude
-**Avant toute action, lire `docs/claude/README.md`.** Ce document
+**Avant toute action, lis `docs/claude/README.md` §0** (prompt de
+bootstrap canonique + protocole « comment lire ce README parfaitement »),
+puis le bloc §7.1 EN ENTIER entre `<!-- BOOTSTRAP:BEGIN -->` et
+`<!-- BOOTSTRAP:END -->` (Grep les marqueurs pour la plage exacte, ne
+devine aucun numéro de ligne), exécute le pre-flight, détecte le cas
+A/B/C/D, et RESTITUE cas + action + règle EXÉCUTER/DEMANDER avant de
+coder. Ce document
 capture le système de travail multi-sprint qu'on utilise : cycle
 kickoff → plan → code → verification → audit_plan, audit gate
 pattern entre sprints, commit discipline atomique, memory system
