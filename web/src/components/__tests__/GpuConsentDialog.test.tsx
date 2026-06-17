@@ -141,6 +141,17 @@ describe("<GpuConsentDialog>", () => {
     expect(screen.getByTestId("consent-cap-hours")).toHaveTextContent("12 h");
   });
 
+  it("oriente l'opérateur vers le guide de quantization sous le cap VRAM", () => {
+    // Sprint 76 Phase F (D5) — pointeur doc-only vers QUANTIZATION.md.
+    // Lien non-cliquable (la SPA ne sert aucun markdown du repo) : il
+    // énonce la cible single-GPU honnête et renvoie au guide opérateur.
+    renderDialog();
+    const hint = screen.getByTestId("consent-quantization-hint");
+    expect(hint).toHaveTextContent("≤14B");
+    expect(hint).toHaveTextContent("Q4_K_M");
+    expect(hint).toHaveTextContent("docs/operators/QUANTIZATION.md");
+  });
+
   it("POST /api/v1/consent/set au save (L4 exige une double confirmation)", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
     fetchMock.mockResolvedValue(

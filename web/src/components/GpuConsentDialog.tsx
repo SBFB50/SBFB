@@ -335,6 +335,16 @@ export function GpuConsentDialog({
             unit="GB"
             testId="consent-cap-vram"
           />
+          <p
+            className="text-xs text-white/40"
+            data-testid="consent-quantization-hint"
+          >
+            Ta carte 16 Go fait tourner des modèles entiers jusqu'à
+            ≤14B en Q4_K_M. Les très gros modèles (70B) ne tiennent sur
+            aucune carte 16 Go et relèvent du sharding cross-machine
+            (à venir). Détail des formats et empreintes VRAM :
+            docs/operators/QUANTIZATION.md.
+          </p>
           <CapSlider
             label="Heures par jour"
             value={maxHoursDay}
