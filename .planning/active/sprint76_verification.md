@@ -9,9 +9,11 @@
 
 - **HEAD entree S76** : handoff kickoff `3faee6e` (docs(sprint76), POUSSE
   origin/master apres gate dual-platform vert).
-- **HEAD courant** : `1cc28e7` (Phase C). NON push (ahead 4 vs origin :
-  Phase A `ce43894` + chore agents `d6dea45` + Phase B `6904cdd` + Phase C
-  `1cc28e7`). Push differe post-phases C-G + recovery Docker dual-platform.
+- **HEAD courant** : `d75ae77` (Phase D feat) + ce chore verification. NON
+  push (ahead 7 vs origin : Phase A `ce43894` + chore agents `d6dea45` +
+  Phase B `6904cdd` + Phase C `1cc28e7` + chore verif C `5b07472` + Phase D
+  `d75ae77` + ce chore). Push differe post-phases D-G + recovery Docker
+  dual-platform.
 
 ## §2 §7.4 par phase (fail-fast)
 
@@ -20,6 +22,22 @@
 | A | `ce43894` | 1763 -> 1767 (+4) 0-skip | subset 582 (crates touches) | Vitest 379 -> 386 (+7) | 0 / 0 / 0 / 0 |
 | B | `6904cdd` | 1767 -> 1775 (+8) 0-skip | 3 crates 675/675 (+3 cfg(unix)) | Vitest 386 -> 396 (+10) | 0 / 0 / 0 / 0 |
 | C | `1cc28e7` | 1775 -> **1785** (+10) 0-skip | **1789/1789** 0-skip (code fonctionnel, round 1) | 0 (aucun changement web) | 0 / 0 / 0 / 0 |
+| D | `d75ae77` | 1785 -> **1789** (+4) 0-skip | DIFFERE recovery pre-push (§4) | 0 (aucun changement web) | 0 / 0 / 0 / 0 |
+
+Delta tests Phase D = **+4 Rust** (2 result_sync.rs hermetiques + 1
+runtime.rs seed + 1 validator.rs verrou). Detail des suites Phase D :
+- Windows : `cargo fmt --all --check` 0 ; `cargo clippy --workspace
+  --all-targets --locked -- -D warnings` 0 ; `cargo nextest run --workspace
+  --locked` **1789/1789** 0-skip ; `cargo test --workspace --locked --doc` 0 ;
+  `cargo build -p nexus-shell-daemon --release` 0 (code fix inchange depuis le
+  build vert §7.4 ; seuls tests + commentaires + docs modifies apres).
+- **Gate P2 (Codex S76-D)** `cargo test -p nexus-shell-daemon --locked`
+  shared-process : 383 + 6 + 7 = 0-fail (le 3-noeuds E2E qui timeout-ait sous
+  contention pleine-crate a ete RETIRE en reconciliation Codex ; quorum prouve
+  par composition — 2 hermetiques sur le vrai bridge + cross-node redundancy=1
+  existant + Phase G LIVE).
+- Docker Linux sbfb-ci (canonique) : **DIFFERE** a la recovery avant push (§4) ;
+  diff platform-agnostique Rust (0 `#[cfg(unix)]`, logique bridge daemon-interne).
 
 Delta tests Phase C = **+10 Rust** (6 task.rs + 1 dispatcher.rs + 3
 engine/runtime.rs). Detail des suites Phase C :
@@ -76,13 +94,23 @@ Docker Desktop) AVANT push.
 
 ## §5 Carries / Phase G TODO
 
-- THREAT_MODEL : ajouter la ligne « compute-cohort homogeneity = advisory
-  routing, pas une frontiere de confiance » (la vraie defense reste le
-  quorum exact-match qui rejette un resultat divergent comme outlier).
-  Route par le preflight Phase C (P3).
+- THREAT_MODEL compute-cohort row : **FAIT en Phase D** (§15.2 + table
+  compute-quorum : cohorte = routage advisory, quorum exact-match = vraie
+  frontiere ; self-inflation/Sybil/cross-GPU/TOPLOC). Le TODO Phase C P3 est
+  clos.
+- **Acceptance LIVE palier 2 (quorum redundancy=2, VPS+PC+Mac)** : DIFFERE
+  Phase G (materiel operateur). Meme posture que B-3 (§3) : deux workers
+  homogenes (meme quant Ollama) sur une tache `verifiable` redundancy=2 ->
+  deux `result_text` byte-identiques -> consensus accepte ; resultat
+  heterogene-diverge ECRIT comme attendu (anti faux-vert). Le fix bridge
+  result-sync (dedup per-worker, `d75ae77`) est le prerequis prod qui rend
+  cette acceptance possible (avant : le 2e worker etait jete). > 30s
+  convergence = BLOCK a diagnostiquer, PAS un timeout a rallonger.
 - Consigner la trace de l'acceptance LIVE B-3 une fois executee (§3).
 - Re-run Docker dual-platform sur l'arbre final apres recovery du moteur
-  (§4), AVANT push.
+  (§4), AVANT push — inclut le delta Phase D (platform-agnostique, attendu vert).
+- P3-D-3 (branche send-failure `seen.remove` non testee) + P3-D-4 (log
+  cosmetique) : routes `sprint77_audit_plan.md`.
 - model_digest : durcissement en hash du fichier GGUF = S77 (chemin
   `llm_llama_cpp` C-API, reserve etage-2 de D3) — doc-note honnete livre
   Phase C (task.rs + verification.rs + 2 maps).
