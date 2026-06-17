@@ -725,3 +725,40 @@ export function shellDiscover(baseUrl: string): Promise<ShellDiscoverResponse> {
 export function getWorkerState(baseUrl: string): Promise<WorkerStateResponse> {
   return getJson(baseUrl, "/api/v1/worker/state", WorkerStateResponseSchema);
 }
+
+// Sprint 76 Phase E (D4) — one node's contribution dashboard. Mirrors the
+// Rust `contributor_dashboard` handler: EMA-decayed kudos, tasks served
+// (= quorum-validated ledger lines) and a per-project breakdown. `.strict()`
+// so any drift in the daemon shape surfaces as a protocol error, not a
+// silent partial render. GPU-hours are NOT here — they are a local,
+// non-attested figure read from the worker's `usage.json` (the snapshot's
+// `consent.hours_used_today`), never aggregated server-side.
+export const ContributorProjectSchema = z
+  .object({
+    project_id: z.string(),
+    effective_kudos: z.number().int().nonnegative(),
+    tasks_served: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ContributorProject = z.infer<typeof ContributorProjectSchema>;
+
+export const ContributorSummarySchema = z
+  .object({
+    worker_node_id: z.string(),
+    effective_kudos: z.number().int().nonnegative(),
+    tasks_served: z.number().int().nonnegative(),
+    per_project: z.array(ContributorProjectSchema),
+  })
+  .strict();
+export type ContributorSummary = z.infer<typeof ContributorSummarySchema>;
+
+export function getContributorDashboard(
+  baseUrl: string,
+  nodeId: string,
+): Promise<ContributorSummary> {
+  return getJson(
+    baseUrl,
+    `/api/v1/contributor/${encodeURIComponent(nodeId)}`,
+    ContributorSummarySchema,
+  );
+}

@@ -137,3 +137,40 @@ describe("Network — offer my power panel (Sprint 76 Phase A)", () => {
     expect(cta.textContent ?? "").not.toMatch(/consent\/set|kind|provider/i);
   });
 });
+
+describe("Network — contributor dashboard (Sprint 76 Phase E, D4)", () => {
+  it("rend les 3 métriques honnêtes (kudos effectifs, tâches servies, GPU-heures locales non attestées)", async () => {
+    mockFetch({
+      "/api/v1/worker/state": workerStateRunning({
+        level: 4,
+        max_hours_day: 12,
+        hours_used_today: 2.5,
+        max_watts: 400,
+        max_vram_mb: 16384,
+      }),
+      "/api/v1/consent": consentConfig,
+      "/api/v1/contributor": {
+        worker_node_id: "n".repeat(64),
+        effective_kudos: 4200,
+        tasks_served: 7,
+        per_project: [
+          { project_id: "proj-1", effective_kudos: 4200, tasks_served: 7 },
+        ],
+      },
+    });
+    renderNetwork();
+
+    await screen.findByTestId("contributor-card");
+    // The contributor metrics resolve on a second async hop (the query is
+    // keyed on the node_id from the worker snapshot), so await the value.
+    await screen.findByText("4200");
+    expect(screen.getByTestId("contributor-kudos")).toHaveTextContent("4200");
+    expect(screen.getByTestId("contributor-tasks")).toHaveTextContent("7");
+    // GPU-hours come from the LOCAL usage snapshot, not the ledger, and the
+    // label must say so honestly (this machine, non-attested).
+    const gpuHours = screen.getByTestId("contributor-gpu-hours");
+    expect(gpuHours).toHaveTextContent("2.5 h");
+    expect(gpuHours).toHaveTextContent(/cette machine/i);
+    expect(gpuHours).toHaveTextContent(/non attestées/i);
+  });
+});

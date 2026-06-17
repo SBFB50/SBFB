@@ -1092,6 +1092,15 @@ impl Engine {
                 // hash-exact quorum (Sprint 71 Phase B, B-2 / D2).
                 let params = build_generate_params(&task_entry.task, &self.worker_config.watermark);
 
+                // Measure the real inference wall-clock so the signed payload
+                // carries a truthful `generation_time_ms` (Sprint 76 Phase E,
+                // D4-Q). The coordinator's kudos sanity-bound clamps the
+                // self-declared token count against this duration, so a
+                // hardcoded 0 would collapse every honest credit > the per-ms
+                // ceiling. `Instant` is monotonic (immune to wall-clock jumps);
+                // `started_at`/`finished_at` bracket the same call in epoch secs.
+                let started_at = now_unix_secs();
+                let gen_start = Instant::now();
                 let generated = match self.llm.generate(params).await {
                     Ok(r) => r,
                     Err(e) => {
@@ -1099,6 +1108,7 @@ impl Engine {
                         continue;
                     }
                 };
+                let generation_time_ms = gen_start.elapsed().as_millis() as u64;
 
                 // Build the result payload.
                 //
@@ -1116,17 +1126,16 @@ impl Engine {
                 // logprobs_hash: 32 zero bytes — "logprobs not
                 //   provided" in the Sprint 3 Verifier semantics.
                 let model_digest: [u8; 32] = model_name_digest(&task_entry.task.model);
-                let now = now_unix_secs();
                 let payload = ResultPayload {
                     version: TASK_FORMAT_VERSION,
                     task_id: task_entry.task.task_id.clone(),
                     result_text: generated.text,
                     tokens_generated: generated.completion_tokens.unwrap_or(0),
-                    generation_time_ms: 0,
+                    generation_time_ms,
                     model_digest,
                     logprobs_hash: [0u8; 32],
-                    started_at: now,
-                    finished_at: now,
+                    started_at,
+                    finished_at: now_unix_secs(),
                     output_token_ids: generated.output_token_ids,
                 };
                 let result_entry = match ResultEntry::sign(payload, &self.keypair) {

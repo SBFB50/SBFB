@@ -215,7 +215,11 @@ mod tests {
             keypair: KeyPair::generate(),
             allowlist,
             data_dir: None,
-            llm_override: Some(Box::new(StubBackend::new())),
+            // Sprint 76 Phase E: a 5 ms inference delay gives the worker's
+            // Instant-measured `generation_time_ms` a deterministic non-zero
+            // floor, so the assertion below proves it is a real measurement
+            // (not the pre-S76-E hardcoded 0).
+            llm_override: Some(Box::new(StubBackend::new().with_delay_ms(5))),
             sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
             rate_limit_policy_path_override: None,
         };
@@ -298,6 +302,21 @@ mod tests {
         result
             .verify_signature()
             .expect("worker result carries a valid Ed25519 signature");
+
+        // Sprint 76 Phase E (D4-Q): the worker must stamp a REAL measured
+        // inference duration, not the pre-S76-E hardcoded 0. With the 5 ms
+        // stub delay the monotonic measurement is reliably >= 1 ms; a
+        // regression to the hardcoded 0 would fail here. This is the field
+        // the coordinator's kudos sanity-bound reads to clamp token claims.
+        assert!(
+            result.payload.generation_time_ms >= 1,
+            "worker must stamp a real generation_time_ms (got {})",
+            result.payload.generation_time_ms
+        );
+        assert!(
+            result.payload.finished_at >= result.payload.started_at,
+            "finished_at must not precede started_at"
+        );
 
         let _ = w_stop.send(());
         worker.await.expect("worker joins").expect("worker ok");

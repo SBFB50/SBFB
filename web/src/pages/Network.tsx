@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Award,
   Cpu,
   Activity,
   HardDrive,
@@ -24,10 +25,12 @@ import { Button } from "@/components/ui/button";
 import { GpuConsentDialog } from "@/components/GpuConsentDialog";
 import {
   type ConsentSnapshot,
+  type ContributorSummary,
   type GpuSnapshot,
   type LastTask,
   type ProjectServed,
   type WorkerStateV1,
+  getContributorDashboard,
   getWorkerState,
 } from "@/api/coordinator";
 import {
@@ -115,6 +118,24 @@ function NetworkContent({ url }: { url: string }) {
     | ConsentLevel
     | undefined;
 
+  // Sprint 76 Phase E (D4) — this node's contribution standing. Keyed on
+  // the worker's own node_id (64-hex Ed25519 pubkey = the kudos ledger key),
+  // so it only runs once the worker snapshot is available.
+  const nodeId =
+    query.data && query.data.running === true
+      ? query.data.state.node_id
+      : undefined;
+  const contributorQuery = useQuery({
+    queryKey: ["contributor", url, nodeId],
+    queryFn: () => getContributorDashboard(url, nodeId as string),
+    enabled: nodeId !== undefined,
+    // Kudos accrue at task-completion cadence (minutes), not seconds, so a
+    // 5 s poll is a deliberate light-touch refresh — more responsive than the
+    // credit cadence yet far below the 2 s worker-state poll's load.
+    refetchInterval: 5000,
+    retry: 0,
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -155,6 +176,12 @@ function NetworkContent({ url }: { url: string }) {
       {query.data && query.data.running === true && (
         <>
           {query.data.stale && <StaleBanner />}
+          <ContributorCard
+            summary={contributorQuery.data}
+            isLoading={contributorQuery.isLoading}
+            isError={contributorQuery.isError}
+            localHoursToday={liveConsent?.hours_used_today ?? null}
+          />
           <WorkerCards state={query.data.state} />
         </>
       )}
@@ -337,6 +364,87 @@ function StaleBanner() {
           verifie que le process tourne encore.
         </p>
       </div>
+    </div>
+  );
+}
+
+// ================================================================
+// Sprint 76 Phase E (D4) — contributor dashboard
+// ================================================================
+
+function ContributorMetric({
+  label,
+  value,
+  testid,
+}: {
+  label: string;
+  value: string;
+  testid: string;
+}) {
+  return (
+    <div className="rounded-lg bg-white/[0.04] p-3" data-testid={testid}>
+      <p className="font-mono text-xl font-bold text-white/90">{value}</p>
+      <p className="mt-1 text-[11px] leading-tight text-white/40">{label}</p>
+    </div>
+  );
+}
+
+/**
+ * "Ma contribution au réseau" — a second aggregation view over the kudos
+ * ledger, keyed on this node. Three honest metrics: effective (EMA) kudos,
+ * tasks served (quorum-validated lines), and GPU-hours GIVEN BY THIS MACHINE
+ * today. The last one is read from the local `usage.json` (snapshot consent
+ * field), is non-attested, and is never aggregated across nodes — the label
+ * says so explicitly to avoid over-claiming a verifiable network metric.
+ */
+function ContributorCard({
+  summary,
+  isLoading,
+  isError,
+  localHoursToday,
+}: {
+  summary?: ContributorSummary;
+  isLoading: boolean;
+  isError: boolean;
+  localHoursToday: number | null;
+}) {
+  return (
+    <div className="glass-card p-6" data-testid="contributor-card">
+      <div className="mb-1 flex items-center gap-2 text-base font-bold">
+        <Award className="h-4 w-4 text-amber-300" />
+        Ma contribution au réseau
+      </div>
+      <p className="mb-4 text-sm text-white/50">
+        Ce que cette machine a apporté au calcul du réseau. Kudos non
+        monétaires, agrégés depuis le registre local de ce noeud.
+      </p>
+      {isError ? (
+        <p className="text-sm text-white/40" data-testid="contributor-error">
+          Registre de contribution indisponible pour l'instant.
+        </p>
+      ) : (
+        <div className="grid grid-cols-3 gap-3">
+          <ContributorMetric
+            label="Kudos effectifs (réputation, EMA)"
+            value={isLoading ? "…" : String(summary?.effective_kudos ?? 0)}
+            testid="contributor-kudos"
+          />
+          <ContributorMetric
+            label="Tâches servies (validées par quorum)"
+            value={isLoading ? "…" : String(summary?.tasks_served ?? 0)}
+            testid="contributor-tasks"
+          />
+          <ContributorMetric
+            label="GPU-heures données par cette machine aujourd'hui (non attestées)"
+            value={
+              localHoursToday === null
+                ? "—"
+                : `${localHoursToday.toFixed(1)} h`
+            }
+            testid="contributor-gpu-hours"
+          />
+        </div>
+      )}
     </div>
   );
 }

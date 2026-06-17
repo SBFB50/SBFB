@@ -925,6 +925,33 @@ physique assume, rendu visible (pas masque) ; sa resorption = TOPLOC etage 2
 (S77). Le fix bridge result-sync n'ajoute AUCUNE surface : il fait passer une
 voix par worker distinct la ou il les collapsait sur la premiere.
 
+### 15.3 Extension Sprint 76 Phase E — dashboard contributeur (D4)
+
+S76 Phase E expose une **deuxieme vue de lecture** sur le ledger kudos
+existant (agregation keyee `worker_node_id`, route authentifiee
+`GET /api/v1/contributor/{node_id}` sous `authed_routes` =
+bearer + Host + Origin loopback). La vue n'ecrit RIEN : elle agrege en lecture
+des lignes deja creditees apres acceptation quorum. Deux champs self-declares
+du payload signe (`tokens_generated`, `generation_time_ms`, `task.rs:476-481`)
+alimentent le credit ; ils sont HORS quorum (le validator ne compare que
+`result_text`). Phase E **durcit** le credit via un sanity-bound de
+plausibilite (`sanity_bounded_tokens`, `kudos_ledger.rs`).
+
+| Menace | Exemple | Sev. brute | Mitigation (file:line) | res |
+|---|---|:---:|---|:---:|
+| T | **Gonflage de kudos** (un worker solo declare `tokens_generated` absurde, ex. 1e9 tokens en 5 ms, pour farmer la reputation) | M | sanity-bound `tokens <= TOKENS_PER_MS_CEILING * max(1, generation_time_ms)` AVANT `log_utility` (`kudos_ledger::credit`, applique aux 2 sites prod `validator_loop.rs` + `http.rs`) ; ferme la fuite de valeur absolue que `log_utility` (<10x marginal) laisse ouverte ; ancrage BOINC `wu.rsc_fpops_bound` | **L** |
+| T/D | **Forge coherente des deux champs** (l'adversaire qui controle le payload declare `tokens` ET `generation_time_ms` mutuellement plausibles) | M | NON couvert par le sanity-bound : les deux champs vivent dans le MEME payload signe — c'est un **plausibility-check**, PAS une attestation anti-Sybil. Residuel = Sybil multi-keypair pre-existant §15.2 (PoW/AgeWitness + pilote ferme). Le `median` du groupe d'accord est DOC-P2 (infaisable sans casser « validator INCHANGE » ; inerte a `redundancy=1` ; non OSS-fidele) | **M** |
+| I | **Sur-promesse GPU-heures** (presenter les heures locales comme une metrique reseau verifiable) | L | GPU-heures lues du `usage.json` worker LOCAL (`consent.rs`, `hours_used_today`), JAMAIS repliquees ni agregees cross-nœud ; libelle UI honnete « donnees par cette machine aujourd'hui (non attestees) » (`Network.tsx` ContributorCard) | **L** |
+| I/D | **Fuite via la route** (un appelant lit l'activite kudos d'un node arbitraire) | L | route sous `authed_routes` (loopback bearer + Host + Origin) ; le ledger est deja local et `worker_node_id` = pubkey Ed25519 publique en clair ; self-view per-node, PAS de ranking reseau-wide (rejet EigenTrust tenu) | **L** |
+
+**Residual S76-E** : le gonflage coherent des deux champs self-declares
+(T/D, **M**) reste le cout assume — il se confond avec le Sybil multi-keypair
+pre-existant (§15.2) et se mitige hors-quorum (PoW/AgeWitness + pilote ferme).
+Le sanity-bound est une borne ASYMETRIQUE : il attrape le bug et l'exageration
+grossiere du worker naif, pas l'adversaire qui forge un couple plausible. La
+vue ne cree aucune frontiere de confiance nouvelle ; elle rend visible une
+contribution deja creditee.
+
 ---
 
 ## 16. Revue et evolution

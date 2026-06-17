@@ -320,6 +320,10 @@ pub struct StubBackend {
     /// Runtime family this stub reports from [`Self::runtime_tuple`].
     /// Defaults to `"stub"`.
     pub runtime_family: String,
+    /// Artificial inference latency in milliseconds (Sprint 76 Phase E).
+    /// Defaults to 0 (instant). Tests set this via [`Self::with_delay_ms`]
+    /// to make the worker's measured `generation_time_ms` observably > 0.
+    pub delay_ms: u64,
 }
 
 impl StubBackend {
@@ -331,6 +335,7 @@ impl StubBackend {
             forced_output: None,
             quant: "stub".to_string(),
             runtime_family: "stub".to_string(),
+            delay_ms: 0,
         }
     }
 
@@ -341,7 +346,16 @@ impl StubBackend {
             forced_output: None,
             quant: "stub".to_string(),
             runtime_family: "stub".to_string(),
+            delay_ms: 0,
         }
+    }
+
+    /// Make `generate()` await `delay_ms` milliseconds before returning
+    /// (Sprint 76 Phase E). Used to give the worker's `Instant`-measured
+    /// `generation_time_ms` a deterministic non-zero floor in tests.
+    pub fn with_delay_ms(mut self, delay_ms: u64) -> Self {
+        self.delay_ms = delay_ms;
+        self
     }
 
     /// Force every `generate()` call to return the provided text.
@@ -380,6 +394,9 @@ impl LlmBackend for StubBackend {
     }
 
     async fn generate(&self, params: GenerateParams) -> LlmBackendResult<GenerateResponse> {
+        if self.delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
+        }
         let text = match &self.forced_output {
             Some(forced) => forced.clone(),
             None => format!(

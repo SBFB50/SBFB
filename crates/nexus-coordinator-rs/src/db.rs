@@ -653,6 +653,39 @@ impl CoordinatorDb {
         Ok(result)
     }
 
+    /// All kudos entries credited to one node, across every project
+    /// (Sprint 76 Phase E, D4). Mirror of [`Self::get_project_entries`]
+    /// keyed on `worker_node_id`; the `WHERE worker_node_id = ?1` filter is
+    /// served by the pre-existing `idx_kudos_worker` index (migration M0).
+    /// `ORDER BY created_at ASC` mirrors the project query — the EMA fold in
+    /// `effective_score` is order-independent.
+    pub fn get_worker_entries(
+        &self,
+        worker_node_id: &str,
+    ) -> Result<Vec<KudosEntry>, CoordinatorError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT entry_id, worker_node_id, task_id, project_id, amount, created_at, prev_hash, entry_hash
+             FROM kudos WHERE worker_node_id = ?1 ORDER BY created_at ASC, rowid ASC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![worker_node_id], |row| {
+            Ok(KudosEntry {
+                entry_id: row.get(0)?,
+                worker_node_id: row.get(1)?,
+                task_id: row.get(2)?,
+                project_id: row.get(3)?,
+                amount: row.get::<_, i64>(4)? as u64,
+                created_at: row.get::<_, i64>(5)? as u64,
+                prev_hash: row.get(6)?,
+                entry_hash: row.get(7)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
     pub fn load_outbox(&self) -> Result<Vec<Vec<u8>>, CoordinatorError> {
         let mut stmt = self
             .conn
@@ -1573,6 +1606,62 @@ mod tests {
 
         assert_eq!(db.get_worker_kudos_total("worker-a").expect("total"), 150);
         assert_eq!(db.get_worker_kudos_total("nobody").expect("total"), 0);
+    }
+
+    #[test]
+    fn get_worker_entries_filters_by_node() {
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        for (i, (worker, project)) in [
+            ("worker-a", "proj-1"),
+            ("worker-a", "proj-2"),
+            ("worker-b", "proj-1"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            db.insert_kudos(&KudosEntry {
+                entry_id: format!("k{i}"),
+                worker_node_id: (*worker).into(),
+                task_id: format!("t{i}"),
+                project_id: (*project).into(),
+                amount: 10,
+                created_at: 1_714_300_000 + i as u64,
+                prev_hash: "genesis".into(),
+                entry_hash: format!("h{i}"),
+            })
+            .expect("insert");
+        }
+        let a = db.get_worker_entries("worker-a").expect("worker-a");
+        assert_eq!(a.len(), 2, "worker-a has 2 entries across 2 projects");
+        assert!(a.iter().all(|e| e.worker_node_id == "worker-a"));
+        assert_eq!(db.get_worker_entries("worker-b").expect("b").len(), 1);
+        assert!(db.get_worker_entries("nobody").expect("none").is_empty());
+    }
+
+    #[test]
+    fn contributor_query_uses_worker_index() {
+        // Sprint 76 Phase E (D4): the worker-scoped contributor query must
+        // ride the PRE-EXISTING idx_kudos_worker index (migration M0), not a
+        // full table scan. EXPLAIN QUERY PLAN's `detail` column (index 3)
+        // names the access path.
+        let db = CoordinatorDb::open_in_memory().expect("open");
+        let mut stmt = db
+            .conn()
+            .prepare(
+                "EXPLAIN QUERY PLAN SELECT entry_id, worker_node_id, task_id, project_id, amount, created_at, prev_hash, entry_hash
+                 FROM kudos WHERE worker_node_id = ?1 ORDER BY created_at ASC, rowid ASC",
+            )
+            .expect("prepare explain");
+        let details: Vec<String> = stmt
+            .query_map(rusqlite::params!["worker-a"], |row| row.get::<_, String>(3))
+            .expect("explain rows")
+            .collect::<Result<_, _>>()
+            .expect("collect");
+        let plan = details.join(" | ");
+        assert!(
+            plan.contains("idx_kudos_worker"),
+            "worker-scoped kudos query must use idx_kudos_worker, got: {plan}"
+        );
     }
 
     #[test]

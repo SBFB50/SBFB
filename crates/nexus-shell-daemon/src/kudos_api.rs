@@ -4,6 +4,8 @@
 //! Completes the kudos API surface started in S36 (get + verify).
 //! - `GET /api/v1/kudos/entries` — list all entries, optional worker filter
 //! - `GET /api/v1/kudos/{project_id}/leaderboard` — top contributors
+//! - `GET /api/v1/contributor/{node_id}` — one node's contribution standing
+//!   across all projects (Sprint 76 Phase E, D4)
 
 use std::sync::Arc;
 
@@ -131,6 +133,68 @@ pub async fn leaderboard(
                     "project_id": project_id,
                     "leaderboard": entries,
                     "count": count,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("{e}")})),
+        )
+            .into_response(),
+    }
+}
+
+/// Sprint 76 Phase E (D4) — one node's contribution dashboard.
+///
+/// Second aggregation view over the existing kudos ledger, keyed on
+/// `worker_node_id` (the node's 64-hex Ed25519 pubkey — the same id the
+/// ledger credits). Mirror of [`leaderboard`] but per-node instead of
+/// per-project: returns the node's EMA-decayed kudos, tasks served (=
+/// quorum-validated ledger lines), and a per-project breakdown. It is a
+/// self-view, NOT a network-wide ranking. Lives under `authed_routes`
+/// (loopback bearer + Host + Origin gate). GPU-hours are intentionally
+/// absent here: they are a local, non-attested figure read from the
+/// worker's `usage.json` and never aggregated server-side.
+pub async fn contributor_dashboard(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(node_id): Path<String>,
+) -> impl IntoResponse {
+    debug!(node = %node_id, "GET /api/v1/contributor/:node_id");
+    let db = match state.coordinator_db.lock() {
+        Ok(db) => db,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "db lock poisoned"})),
+            )
+                .into_response();
+        }
+    };
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    match nexus_coordinator_rs::kudos_ledger::get_contributor_summary(&db, &node_id, now_secs) {
+        Ok(summary) => {
+            let per_project: Vec<serde_json::Value> = summary
+                .per_project
+                .into_iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "project_id": p.project_id,
+                        "effective_kudos": p.effective_total,
+                        "tasks_served": p.tasks_served,
+                    })
+                })
+                .collect();
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "worker_node_id": summary.worker_node_id,
+                    "effective_kudos": summary.effective_total,
+                    "tasks_served": summary.tasks_served,
+                    "per_project": per_project,
                 })),
             )
                 .into_response()

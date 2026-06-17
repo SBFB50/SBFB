@@ -3413,6 +3413,44 @@ Cross-ref: S76 Phase C (`1cc28e7`, RuntimeTuple + cohort gate), §P53
 (deterministic quorum B-2), §P54 (cross-process compute E2E B-3), §P59.4
 (guardrail-before-persist terminal), kickoff §D3.
 
+## §P61 — Sprint 76 Phase E : sanity-bound plausibility-check on a self-declared, out-of-quorum reward input
+
+Origin: the contributor dashboard credits kudos from `tokens_generated`, a
+field self-declared in the signed result payload but OUTSIDE the quorum (the
+validator hash-compares only `result_text`). A solo worker could farm
+reputation by declaring an absurd token count. The D4-Q hardening clamps the
+credited count to a plausible maximum derived from another field of the same
+payload, the wall-clock `generation_time_ms`:
+`tokens.min(TOKENS_PER_MS_CEILING * max(1, generation_time_ms))`, applied
+inside `credit()` BEFORE `log_utility` (`kudos_ledger.rs`). OSS analogue:
+BOINC CreditNew's `wu.rsc_fpops_bound` — a plausibility ceiling on a
+self-declared reward input (PFC).
+
+Three properties make this a reusable idiom, distinct from the multi-worker
+agreement patterns (§P60.2 exact-match, §P53 quorum):
+1. **Asymmetric bound, not attestation.** Both inputs (`tokens_generated`,
+   `generation_time_ms`) live in the SAME signed payload, so an adversary who
+   controls the payload can satisfy the bound by forging both consistently.
+   It catches the bug and the naive over-claim, NOT the Sybil/forger — document
+   it as a plausibility-check, never as an anti-Sybil defense (THREAT_MODEL §15.3).
+2. **Centralize the clamp at the single credit chokepoint**, not at each call
+   site, so a new caller cannot bypass it. The two prod sites
+   (`validator_loop.rs`, `http.rs`) just forward `entry.payload.*`.
+3. **The bounding input must be REAL end-to-end.** A latent producer bug is the
+   trap: the worker hardcoded `generation_time_ms: 0`, which (with the `max(1)`
+   floor) collapsed every honest credit > the per-ms ceiling to a flat value —
+   degrading the existing signal instead of bounding only the absurd. The fix
+   is to measure the true duration at the producer (`Instant` around the
+   inference call, `runtime.rs`) and to TEST the producer path
+   (`StubBackend::with_delay_ms` → assert `generation_time_ms >= 1` on the
+   signed result), not only the consumer arithmetic. A clamp is only as honest
+   as the value it clamps against.
+
+Cross-ref: §P60.2 (homogeneous exact-match — agreement, not self-report),
+THREAT_MODEL §15.3, kickoff §D4 (BOINC/Gridcoin/EigenTrust survey),
+`sprint76_phase_e_preflight.md` (D4-Q decision: HARDEN sanity-bound,
+median-of-group re-scoped P2).
+
 ## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
 
 Origin: S74 Phase D was committed while its Codex review still carried an

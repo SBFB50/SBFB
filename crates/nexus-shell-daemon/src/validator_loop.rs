@@ -112,6 +112,7 @@ fn process_result(db: &Arc<Mutex<CoordinatorDb>>, entry: &ResultEntry) {
                 &worker_id,
                 &entry.payload.task_id,
                 entry.payload.tokens_generated,
+                entry.payload.generation_time_ms,
             ) {
                 tracing::warn!(
                     task_id = %entry.payload.task_id,
