@@ -9,11 +9,12 @@
 
 - **HEAD entree S76** : handoff kickoff `3faee6e` (docs(sprint76), POUSSE
   origin/master apres gate dual-platform vert).
-- **HEAD courant** : `d75ae77` (Phase D feat) + ce chore verification. NON
-  push (ahead 7 vs origin : Phase A `ce43894` + chore agents `d6dea45` +
+- **HEAD courant** : `768e235` (Phase E feat) + ce chore verification. NON
+  push (ahead 11 vs origin : Phase A `ce43894` + chore agents `d6dea45` +
   Phase B `6904cdd` + Phase C `1cc28e7` + chore verif C `5b07472` + Phase D
-  `d75ae77` + ce chore). Push differe post-phases D-G + recovery Docker
-  dual-platform.
+  `d75ae77` + chore verif D `1de6f8a` + chore supervisor-supprime `42c7448` +
+  chore README-bootstrap `a21aaad` + Phase E `768e235` + ce chore). Push
+  differe post-phases E-G + recovery Docker dual-platform.
 
 ## §2 §7.4 par phase (fail-fast)
 
@@ -23,6 +24,25 @@
 | B | `6904cdd` | 1767 -> 1775 (+8) 0-skip | 3 crates 675/675 (+3 cfg(unix)) | Vitest 386 -> 396 (+10) | 0 / 0 / 0 / 0 |
 | C | `1cc28e7` | 1775 -> **1785** (+10) 0-skip | **1789/1789** 0-skip (code fonctionnel, round 1) | 0 (aucun changement web) | 0 / 0 / 0 / 0 |
 | D | `d75ae77` | 1785 -> **1789** (+4) 0-skip | DIFFERE recovery pre-push (§4) | 0 (aucun changement web) | 0 / 0 / 0 / 0 |
+| E | `768e235` | 1789 -> **1799** (+10) 0-skip | DIFFERE recovery pre-push (§4) | Vitest 396 -> 397 (+1) | 0 / 0 / 0 / 0 |
+
+Delta tests Phase E = **+10 Rust** (1789 -> 1799) + **+1 Vitest** (396 -> 397) :
+kudos_ledger.rs +6 (sanity-bound clamp/preserve/credit + contributor summary
+EMA/tasks/empty), db.rs +2 (get_worker_entries + EXPLAIN QUERY PLAN index),
+http.rs +2 (route aggregates/empty) ; dispatch_loop.rs = test E2E existant ETENDU
+(generation_time_ms >= 1, pas un net-new) ; Network.test.tsx +1. Detail des suites
+Phase E :
+- Windows : `cargo fmt --all --check` 0 ; `cargo clippy --workspace --all-targets
+  --locked -- -D warnings` 0 ; `cargo nextest run --workspace --locked` **1799/1799**
+  0-skip ; `cargo test --workspace --locked --doc` 0 ; `cargo build -p
+  nexus-shell-daemon --release` 0. Frontend : lint 0 err ; tsc 0 ; test:unit 397 ;
+  coverage 87.2/79.01/85.92/88.52 (>= 85/78/85/85) ; build + size + scan-en-strings 0.
+- **P1 review resolu a la racine** : le worker codait `generation_time_ms: 0` (bug
+  latent, 1er consommateur prod = le sanity-bound) -> mesure Instant reelle +
+  `StubBackend::with_delay_ms` + assertion E2E `generation_time_ms >= 1` (dispatch_loop).
+- Codex GPT5.5 : 14 CONFIRME / 0 GAP / 0 PARTIEL (9 livrables + 5 invariants).
+- Docker Linux sbfb-ci (canonique) : **DIFFERE** recovery avant push (§4) ; diff
+  platform-agnostique (SQLite/axum/React, 0 `#[cfg(unix)]`).
 
 Delta tests Phase D = **+4 Rust** (2 result_sync.rs hermetiques + 1
 runtime.rs seed + 1 validator.rs verrou). Detail des suites Phase D :
