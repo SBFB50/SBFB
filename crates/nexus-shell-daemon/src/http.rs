@@ -8528,8 +8528,10 @@ mod tests {
         let state = mk_state().await;
         {
             let db = state.coordinator_db.lock().unwrap();
-            nexus_coordinator_rs::kudos_ledger::credit(&db, "proj-vc", "worker-a", "task-1", 10, 1_000)
-                .expect("credit");
+            nexus_coordinator_rs::kudos_ledger::credit(
+                &db, "proj-vc", "worker-a", "task-1", 10, 1_000,
+            )
+            .expect("credit");
         }
         let app = build_test_router(state);
         let resp = app

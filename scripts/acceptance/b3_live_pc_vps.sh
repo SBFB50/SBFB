@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# Sprint 76 Phase C (D2 / B-3 palier 1) — cross-machine compute
-# acceptance harness. Proves the FIRST compute execution across two OS
+# Sprint 76 (D2/D3 — B-3 palier 1 + redundancy quorum palier 2) —
+# cross-machine compute acceptance harness, switched by REDUNDANCY.
+# Proves the FIRST compute execution across two OS
 # processes on two physical hosts: a VPS coordinator/anchor dispatches a
 # task that a PC (RTX 5080, real Ollama) claims and executes on its GPU,
 # and the signed `result:` replicates back over the WAN. This is a
@@ -23,15 +24,36 @@
 # (root-cause — is it inference or replication?), NOT a timeout to
 # inflate.
 #
-# Palier 1 uses redundancy=1 (single worker, no cohort gate). The
-# `required_runtime` cohort gate and the redundancy>1 deterministic
-# quorum are exercised by Phase D (palier 2), which reuses this harness.
+# Two paliers, one harness, switched by the REDUNDANCY env:
+#   - Palier 1 (REDUNDANCY=1, default): single worker, no cohort gate.
+#     PC<->VPS, proves the first cross-machine compute execution.
+#   - Palier 2 (REDUNDANCY=2): the redundancy>1 deterministic quorum
+#     over a HOMOGENEOUS cohort (Phase D). Enroll a SECOND worker that is
+#     byte-for-byte homogeneous with the first (same MODEL tag + same
+#     quant/runtime family — e.g. PC RTX 5080 + Mac, both Ollama
+#     llama3.1:8b) BEFORE running. The task is submitted with
+#     redundancy_factor=REDUNDANCY AND verifiable=true (deterministic
+#     greedy temp=0 + fixed seed — the quorum PREREQUISITE: without it the
+#     workers sample and diverge, and the dispatcher skips the cohort gate,
+#     so no quorum ever forms). result_text becoming visible means the
+#     validator formed a quorum of REDUNDANCY byte-identical results (the
+#     `d75ae77` per-worker bridge dedup is the prod prerequisite — before
+#     it the 2nd worker's result was dropped). A non-homogeneous 2nd
+#     worker is EXPECTED to diverge and never reach quorum (anti
+#     false-green): that is the correct negative, not a failure of the
+#     harness.
 #
 # Usage (from the PC):
+#   # palier 1
 #   VPS_SSH=user@vps.example.net \
 #   VPS_DAEMON=http://127.0.0.1:7777 \
 #   PROJECT_ID=<project-id-known-to-the-vps> \
 #   MODEL=llama3.1:8b \
+#   WORKER_BIN=./target/release/nexus-worker \
+#     bash scripts/acceptance/b3_live_pc_vps.sh
+#   # palier 2 — after a 2nd homogeneous worker (same MODEL) is enrolled
+#   # and started on another host (e.g. the Mac):
+#   REDUNDANCY=2 VPS_SSH=… PROJECT_ID=… MODEL=llama3.1:8b \
 #   WORKER_BIN=./target/release/nexus-worker \
 #     bash scripts/acceptance/b3_live_pc_vps.sh
 #
@@ -47,6 +69,12 @@
 #   WORKER_BIN   path to the local nexus-worker binary. If set, the
 #                script enrolls + starts it; otherwise it prints the
 #                invite and waits for you to enroll the worker yourself.
+#                For palier 2, this enrolls ONE worker (the PC); enroll the
+#                2nd homogeneous worker yourself on its host first.
+#   REDUNDANCY   redundancy_factor of the submitted task (default 1).
+#                Set REDUNDANCY=2 for palier 2 (needs 2 homogeneous
+#                workers already running, else the poll BLOCKs on no
+#                quorum — diagnose, do not inflate).
 #   GATE_TIMEOUT_SECS  convergence budget in seconds (default 30).
 #   POLL_SECS    result poll interval (default 2).
 #
@@ -61,11 +89,34 @@ VPS_DAEMON="${VPS_DAEMON:-http://127.0.0.1:7777}"
 MODEL="${MODEL:-llama3.1:8b}"
 PROMPT="${PROMPT:-In one word, what is the capital of France?}"
 WORKER_BIN="${WORKER_BIN:-}"
+REDUNDANCY="${REDUNDANCY:-1}"
 GATE_TIMEOUT_SECS="${GATE_TIMEOUT_SECS:-30}"
 POLL_SECS="${POLL_SECS:-2}"
 
 log() { printf '[b3] %s\n' "$*"; }
 die() { printf '[b3][FATAL] %s\n' "$*" >&2; exit 1; }
+
+# Validate REDUNDANCY (after die() is defined). Palier 2 (>=2) demands a
+# DETERMINISTIC task so the homogeneous workers converge byte-for-byte:
+# `verifiable` flips inference to greedy temp=0 + fixed seed (task.rs /
+# runtime.rs); without it the workers sample and DIVERGE, so the hash-exact
+# quorum never forms. So REDUNDANCY>=2 submits `"verifiable":true`.
+#
+# SCOPE NOTE: this harness proves the deterministic QUORUM cross-machine via
+# verifiable + OPERATOR-ensured homogeneity (you enroll 2 byte-homogeneous
+# workers). It deliberately does NOT submit `required_runtime`, so it does
+# not exercise the dispatcher's AUTO claim-gate (dispatcher.rs only copies
+# `required_runtime` into the task when verifiable && redundancy>1, and an
+# omitted field leaves it None). That auto-routing of replicas to a
+# homogeneous cohort is covered by the in-process unit test
+# `dispatcher_routes_replicas_to_homogeneous_cohort` (Phase C); submitting a
+# tuple here would only add tuple-mismatch fragility to a manual run.
+case "$REDUNDANCY" in
+  ''|*[!0-9]*) die "REDUNDANCY must be a positive integer, got '$REDUNDANCY'" ;;
+esac
+REDUNDANCY=$((10#$REDUNDANCY))  # canonicalize (strip leading zeros; base-10, no octal) so the JSON int is valid
+[ "$REDUNDANCY" -ge 1 ] || die "REDUNDANCY must be >= 1, got '$REDUNDANCY'"
+if [ "$REDUNDANCY" -ge 2 ]; then VERIFIABLE=true; else VERIFIABLE=false; fi
 
 # Run a curl against the VPS daemon loopback through SSH. The daemon's
 # loopback routes are bearer + Host + Origin gated; we fetch the token
@@ -74,11 +125,26 @@ vps() { ssh "$VPS_SSH" "$@"; }
 
 command -v ssh >/dev/null || die "ssh not found on PATH"
 
-log "=== Sprint 76 Phase C — B-3 cross-machine compute acceptance (palier 1) ==="
+if [ "$REDUNDANCY" -ge 2 ]; then
+  PALIER="palier 2 — redundancy=$REDUNDANCY deterministic quorum (homogeneous cohort)"
+else
+  PALIER="palier 1 — redundancy=1 single worker"
+fi
+log "=== Sprint 76 — B-3 cross-machine compute acceptance ($PALIER) ==="
 log "VPS coordinator : $VPS_SSH ($VPS_DAEMON)"
 log "PC worker model : $MODEL"
 log "project         : $PROJECT_ID"
+log "redundancy      : $REDUNDANCY"
 log "convergence gate: < ${GATE_TIMEOUT_SECS}s (else BLOCK, do not extend)"
+if [ "$REDUNDANCY" -ge 2 ]; then
+  log "palier 2 NOTE   : the task is submitted verifiable=true (deterministic"
+  log "                  greedy) so honest workers CAN converge. You must also"
+  log "                  enroll a 2nd worker HOMOGENEOUS with the PC (same MODEL"
+  log "                  '$MODEL' + same quant/runtime) on another host BEFORE"
+  log "                  this run. If verifiable were false, OR the 2nd worker"
+  log "                  is non-homogeneous, the cohort diverges and the poll"
+  log "                  BLOCKs on no quorum — diagnose, do not inflate."
+fi
 
 # --- 1. Bearer token (VPS loopback, public /auth/token) ------------------
 log "step 1: fetching VPS daemon bearer token over SSH"
@@ -114,10 +180,10 @@ else
 fi
 
 # --- 4. Submit a task to the VPS coordinator -----------------------------
-log "step 4: submitting a task to the VPS (redundancy=1)"
+log "step 4: submitting a task to the VPS (redundancy=$REDUNDANCY, verifiable=$VERIFIABLE)"
 SUBMIT_JSON="$(vps "curl -fsS -X POST $AUTH -H 'Content-Type: application/json' -d '$(
-  printf '{\"project_id\":\"%s\",\"task_type\":\"analysis\",\"prompt\":\"%s\",\"model\":\"%s\",\"redundancy_factor\":1}' \
-    "$PROJECT_ID" "$PROMPT" "$MODEL"
+  printf '{\"project_id\":\"%s\",\"task_type\":\"analysis\",\"prompt\":\"%s\",\"model\":\"%s\",\"redundancy_factor\":%s,\"verifiable\":%s}' \
+    "$PROJECT_ID" "$PROMPT" "$MODEL" "$REDUNDANCY" "$VERIFIABLE"
 )' '$VPS_DAEMON/api/v1/tasks/submit'")"
 TASK_ID="$(printf '%s' "$SUBMIT_JSON" | sed -n 's/.*\"task_id\":\"\([^\"]*\)\".*/\1/p')"
 [ -n "$TASK_ID" ] || die "tasks/submit returned no task_id: $SUBMIT_JSON"
@@ -152,5 +218,11 @@ log "=== PASS ==="
 log "task_id        : $TASK_ID"
 log "result_text    : $RESULT_TEXT"
 log "submit->visible: ${DELAY}s end-to-end (budget ${GATE_TIMEOUT_SECS}s; upper bound on result: WAN convergence)"
+if [ "$REDUNDANCY" -ge 2 ]; then
+  log "quorum         : redundancy=$REDUNDANCY — result_text became visible only"
+  log "                 after the validator agreed $REDUNDANCY byte-identical"
+  log "                 results from the homogeneous cohort (a diverging or"
+  log "                 non-homogeneous worker would never have reached quorum)."
+fi
 log "The PC executed a task submitted to the VPS; the signed result was"
 log "rendered back over the WAN. Paste this trace into sprint76_verification.md."

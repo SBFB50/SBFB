@@ -30,6 +30,22 @@ Détail : `sprint75_verification.md`. **Prochain : S76 = GPU partagé
 cross-machine** (la ligne « S75 — GPU partagé » §3 se lit S76 ; sharding
 S77 inchangé).
 
+**LIVRAISON 2026-06-17 (S76 Phase G) — Arc 3.5 Factory Complete Vision
+6/6 CLOS** : S76 a livré le **GPU partagé cross-machine** — le task-routing
+du **modèle ENTIER** d'une machine à une autre (panneau « offrir ma
+puissance » + enrôlement worker co-localisé D1 ; E2E cross-machine compute
+B-3 + cohorte homogène `RuntimeTuple` D2/D3 ; quorum redundancy>1
+déterministe + fix prod bridge result-sync dedup `(worker_pubkey,task_id)`
+D3 ; dashboard contributeur + anti-gaming sanity-bound D4 ; quantization
+4-bit doc-only D5). Arbitrage PO **« personne n'a 2 GPU »** → le
+mono-machine 2-GPU est ENTERRÉ ; le multi-GPU réaliste = **cross-machine
+2+ machines × 1 GPU = sharding pipeline S77** (feature distincte, pas un
+defer). Acceptance LIVE cross-machine = différée-matériel-opérateur
+(harness `b3_live_pc_vps.sh` runnable palier 1+2 via `REDUNDANCY`). Détail :
+`sprint76_verification.md`. **Prochain : S77 = sharding pipeline** (modèle
+70B éclaté cross-machine ; prérequis livré = routing modèle entier + quorum
++ cohorte homogène). Audit gate S76 = `sprint77_audit_plan.md`.
+
 ---
 
 ## 0. Le pourquoi — Factory ferme la boucle SBFB
@@ -130,6 +146,13 @@ valeur.
 ---
 
 ## 3. L'arc S71-S76
+
+> **NOTE de numérotation (amendement 2026-06-09, exécuté S75-G + S76-G)** :
+> le découpage ci-dessous est PRÉ-amendement. Réel : la découverte PULL
+> node-centrique s'est intercalée en **S75**, donc « ### S75 — GPU partagé »
+> ci-dessous = **S76 (LIVRÉ, Arc 3.5 6/6 clos)** et « ### S76 — STRETCH
+> sharding » = **S77 (à ouvrir, feature distincte non-stretch)**. L'arc réel
+> est S71-S77. Cf. les deux blocs LIVRAISON en tête de fichier.
 
 ### S71 — Assainissement compute + securite + reconciliation
 

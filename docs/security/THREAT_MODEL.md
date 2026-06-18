@@ -1004,3 +1004,23 @@ Historique versions :
   du placement « Tes sources » via ProjectAnnouncement.node_id non
   signe (review P1 SEC-UXARR-1 → mitigation : from_subscribed
   CATALOG-BACKED contre l'annuaire Ed25519-verifie du noeud reclame).
+- **v9 (Sprint 76 Phase G, 2026-06-17)** : consolidation de la surface
+  **compute partage cross-machine** (GPU partage, Arc 3.5 6/6 clos). Pas de
+  nouvelle row STRIDE — les surfaces sont deja documentees par les phases :
+  **§15.2** (Phase D) quorum cross-machine redundancy>1 = la cohorte homogene
+  (`RuntimeTuple`) n'est qu'un ROUTAGE ADVISORY, jamais une frontiere de
+  confiance ; la vraie defense est le quorum exact-match `(worker_pubkey,
+  task_id)` sur `result_text` (fix bridge `d75ae77`, miroir du validator) ;
+  Sybil multi-keypair = residuel M pre-existant (PoW/AgeWitness + pilote
+  ferme). **§15.3** (Phase E) dashboard contributeur : `tokens_generated`
+  self-declare hors-quorum → sanity-bound plausibilite (clamp vs
+  `generation_time_ms` reel) = catch-the-bug, PAS anti-Sybil ; option
+  median-de-groupe DEFERRED P2. **Duress-freres (B1)** : deja FERME §15.1
+  (row « Surfaces front F sans duress gate », residual Nil) — `seed_voluntary`
+  + `set_keep_online` no-op en duress (early-return, bytes leurre==succes).
+  **Acceptance compute LIVE** (B-3 palier 1 + quorum palier 2) : differe-
+  materiel-operateur, harness `b3_live_pc_vps.sh` runnable (`REDUNDANCY`) ;
+  le chemin compute (dispatch/pompe/result-sync/validator/sign-verify) est
+  couvert in-process. **Etage-2 TOPLOC** (`logprobs_hash` commitment hidden
+  state) = S77, requis pour le quorum cross-GPU heterogene (impossible en
+  stock : meme GGUF diverge cross-GPU).

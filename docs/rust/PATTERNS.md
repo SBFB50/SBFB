@@ -3451,6 +3451,46 @@ THREAT_MODEL §15.3, kickoff §D4 (BOINC/Gridcoin/EigenTrust survey),
 `sprint76_phase_e_preflight.md` (D4-Q decision: HARDEN sanity-bound,
 median-of-group re-scoped P2).
 
+## §P62 — Sprint 76 wrap-up: whole-model cross-machine task routing proven, before sharding
+
+S76 proved the prerequisite for sharding (S77): a node can route a WHOLE model
+to a worker on ANOTHER physical machine and trust the result. The chain landed
+across phases C–E and is the foundation a split-model pipeline will reuse:
+
+1. **Homogeneous-cohort claim gate (Phase C).** A `RuntimeTuple{model, quant,
+   runtime_family}` rides on `Task.required_runtime` (additive `#[serde(default)]`,
+   0 wire bump). The worker is a PULLER: it does NOT claim a task whose tuple
+   mismatches (the task stays live for a matching worker), instead of failing it.
+   The dispatcher only sets `required_runtime` when `verifiable && redundancy > 1`.
+   Wildcard-on-empty keeps legacy tasks claimable. This is advisory ROUTING, not
+   a trust boundary (THREAT_MODEL §15.2).
+2. **Per-worker bridge dedup (Phase D).** The result-sync bridge must dedup on
+   `(worker_pubkey, task_id)` — a MIRROR of the validator — not on `task_id`
+   alone. With `task_id` alone, two homogeneous workers writing the same
+   `result:{task_id}` key under distinct iroh-docs authors collapsed to one, so
+   the redundancy>1 quorum NEVER formed cross-machine (HTTP co-located path hid
+   it). The fix (`forward_result_entry`, ~5 prod lines, 0 wire/dep) was proven
+   red-before-green by revert. Lesson: any dedup in front of a quorum validator
+   must use the validator's EXACT key, or it silently starves the quorum.
+3. **Deterministic seed is little-endian, not the digest.** `verifiable_seed` =
+   `u32::from_le_bytes(blake3(task_id)[..4])` — cross-worker-stable so every
+   replica picks the same sampling path; the digest itself is NOT the seed.
+4. **Validator untouched.** The cohort + bridge work added zero lines to the
+   quorum core (`validator.rs`); a `validator_quorum_unchanged` test + a
+   `git diff --stat` are the guard. Routing/transport changes must never need a
+   trust-core edit.
+
+Tech-debt forward (S77, do not re-derive): the cross-GPU HETEROGENEOUS quorum
+(same GGUF diverges on different GPUs in stock llama.cpp) needs the **TOPLOC
+stage-2 commitment** — the `logprobs_hash` slot is posted but unimplemented
+(§P60.3). The redundancy>1 LIVE acceptance (palier 2) runs via
+`scripts/acceptance/b3_live_pc_vps.sh REDUNDANCY=2` with a 2nd homogeneous
+worker; it is operator-hardware-deferred, never claimed green from CI.
+
+Cross-ref: §P60 (.1 dedup-mirror / .2 exact-match homogeneous / .3 TOPLOC=S77),
+§P53 (quorum), §P54 (cross-process E2E), THREAT_MODEL §15.2,
+`sprint76_phase_{c,d}_preflight.md`.
+
 ## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
 
 Origin: S74 Phase D was committed while its Codex review still carried an

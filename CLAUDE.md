@@ -165,9 +165,10 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-75 CLOSED**, **S76 a ouvrir** (Arc 3.5 Factory
-  Complete Vision, roadmap v5 amendee — GPU partage cross-machine ;
-  S76 Phase 0 = audit gate S75, cf. `sprint76_audit_plan.md`).
+- **Sprints 0-76 CLOSED**, **S77 a ouvrir** (Arc 3.5 Factory
+  Complete Vision **6/6 COMPLET** ; S77 = **sharding pipeline**
+  feature distincte — modele 70B eclate cross-machine 2+ machines x
+  1 GPU ; S77 Phase 0 = audit gate S76, cf. `sprint77_audit_plan.md`).
   v2.1 ouverte. **Tag v1.0 pose et pousse (LT-2 ARME, dry-run
   Radicle prive fait).**
   Projet Rust+Frontend pur depuis S50-S51.
@@ -286,19 +287,57 @@ Runtime isolation roadmap dans
   Invariant **heberger != publier, seeder != auteur** tenu ; 0 bump
   wire, 0 dep. Rust nextest 1674→1755 Win (+81) / 1759 Docker ;
   Vitest 331→367. Arc 3.5 Factory Complete Vision 5/6.
+  S76 DONE : Phase 0 audit gate S75 CONDITIONAL PASS (`73831c0` +
+  fix duress `23a08c9`) + 7 phases A-G — **GPU partage cross-machine**
+  (S76 prouve le task-routing du modele ENTIER cross-machine ; le
+  modele eclate = sharding S77 ; arbitrage PO « personne n'a 2 GPU »
+  -> mono-machine 2-GPU ENTERRE). Phase A `ce43894` panneau « offrir
+  ma puissance » + enrolement worker co-localise (`ConsentSnapshot`
+  additif 0-bump + fix prod route `/api/v1/consent` + `CONSENT_LEVEL`
+  named-const) ; B `6904cdd` dette reservee (duress no-op B1 +
+  **3 carries 2-reports FERMES** CARRY-3/LOOPBACK-TIERS/PULL-3 + T6 +
+  hoist + discriminateur + 5 pages smoke) ; C `1cc28e7` E2E
+  cross-machine compute B-3 + cohorte homogene (`RuntimeTuple` sur
+  `required_runtime` additif 0-bump + claim-gate worker PULL +
+  `model_digest`=blake3(name) doc-note champ mort) ; D `d75ae77`
+  quorum redundancy>1 deterministe + **FIX PROD bridge result-sync**
+  (dedup `(worker_pubkey,task_id)` miroir validator — avant : quorum
+  cross-machine JAMAIS forme ; rouge-avant-vert ; validator INCHANGE ;
+  PO Option A) ; E `768e235` dashboard contributeur + D4-Q
+  sanity-bound + **P1 `generation_time_ms` FIX ROOT-CAUSE** (worker
+  mesure `Instant` reelle) ; F `a547de6` quantization 4-bit **doc-only**
+  (`QUANTIZATION.md` cible <=14B + 70B=S77 + backend inchange) ;
+  G wrap-up : **fmt-fix ROOT-CAUSE** `http.rs:8531` (mal-diagnostique
+  « derive 1.95/1.94 » suites D/E/F → re-run Docker 1.94 montre le
+  MEME diff byte-identique → vraie violation latente reformatee, fmt 0
+  sous les 2 toolchains) + harness palier 2 runnable (`REDUNDANCY`) +
+  **acceptance LIVE B-3+quorum DIFFERE-trace-user** (materiel operateur
+  absent ; 36/38 verts session) + THREAT_MODEL v9 + PATTERNS §P62/P38 +
+  `sprint77_audit_plan.md` + Arc 3.5 6/6 clos. G8 7/7 (0 DESIGN-CONFLICT ;
+  A/B SCOPE-CUT-CONSISTENT, C/E/F/G PLAN-ADAPT, D EXECUTE) ; reviews 7/7
+  PASS ; Codex A-G. **PROCESS : superviseur long-lived supprime
+  `42c7448` + README bootstrap fiable `a21aaad`**. Invariant
+  **heberger != publier, seeder != auteur** tenu ; 0 bump wire, 0 dep.
+  Rust nextest 1763→1804 Win (+41) / 1808 Docker ; Vitest 367→398.
+  Arc 3.5 Factory Complete Vision **6/6 COMPLET**.
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~2129 tests total** (1755 Rust nextest Windows natif 0-skip /
-  1759 canonique Docker Linux [+4 `#[cfg(unix)]`] / 367 Vitest `web/` /
-  7 Vitest factory-operator / 6/6 size-limit) — tous verts. S75
-  delta : +81 Rust Windows depuis S74 sortie 1674 (A +8 [→1682],
-  B +32, C +10, D +11, E +13, F +2, G +5 ; somme = 81 → 1755),
-  +36 Vitest (C +3, F +33 ; 331->367). Image `sbfb-ci` re-pinnee
-  S75-G (`rust:1.94` + libgtk-3-dev au Dockerfile — une derive locale
-  l'avait rebuildee trixie/rustc 1.95 glibc 2.41, incompatible binaire
-  VPS Ubuntu 24.04 glibc 2.39 ; les builds binaires VPS passent par
-  `rust:1.94-bookworm`).
+- **~2209 tests total** (1804 Rust nextest Windows natif 0-skip /
+  1808 canonique Docker Linux [+4 `#[cfg(unix)]`] / 398 Vitest `web/` /
+  7 Vitest factory-operator / 6/6 size-limit) — tous verts. S76
+  delta : +41 Rust Windows depuis l'entree phases 1763 (A +4 [→1767],
+  B +8, C +10, D +4, E +10, F +5, G +0 [fmt-fix whitespace seul] ;
+  somme = 41 → 1804), +19 Vitest depuis l'entree phases 379 (A +7,
+  B +10, E +1, F +1 → 398 ; 367→398 = +31 dont +12 hotfixes off-sprint
+  UX-ARRIVAL+duress pre-phase-A, comme le +8 Rust 1755→1763).
+  **Gate dual-platform S76-G vert AVANT push** : Win nextest 1804 +
+  Docker canonique `sbfb-ci` rust:1.94 nextest 1808 + **fmt 0 sous les
+  2 toolchains** (le fix `http.rs:8531` resout un faux-diagnostic
+  « derive 1.95/1.94 » des suites D/E/F : le diff etait byte-identique
+  sous canonique 1.94, donc une vraie violation fmt latente, pas un
+  drift). Image `sbfb-ci` = `rust:1.94` + libgtk-3-dev (binaires VPS
+  via `rust:1.94-bookworm`, glibc 2.39 Ubuntu 24.04).
 - Carry S73 CLOSED :
   P2-RESULT-TEXT-GUARDRAIL-ORDER (Phase A — guardrail AVANT persist
   2 chemins HTTP+gossip, split pre/post, claims THREAT_MODEL §14 +

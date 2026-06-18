@@ -9,13 +9,15 @@
 
 - **HEAD entree S76** : handoff kickoff `3faee6e` (docs(sprint76), POUSSE
   origin/master apres gate dual-platform vert).
-- **HEAD courant** : `a547de6` (Phase F feat) + ce chore verification. NON
-  push (ahead 13 vs origin : Phase A `ce43894` + chore agents `d6dea45` +
-  Phase B `6904cdd` + Phase C `1cc28e7` + chore verif C `5b07472` + Phase D
-  `d75ae77` + chore verif D `1de6f8a` + chore supervisor-supprime `42c7448` +
-  chore README-bootstrap `a21aaad` + Phase E `768e235` + chore verif E
-  `24bda54` + Phase F `a547de6` + ce chore). Push differe post-phase G +
-  recovery Docker dual-platform.
+- **HEAD courant** : Phase G `feat(daemon)` wrap-up (ce commit finalise
+  verification.md + cree `sprint77_audit_plan.md` + MAJ docs longue-vie +
+  fmt-fix root-cause `http.rs`). NON push (ahead ~15 vs origin : A `ce43894`
+  + agents `d6dea45` + B `6904cdd` + C `1cc28e7` + verif C `5b07472` +
+  D `d75ae77` + verif D `1de6f8a` + supervisor-supprime `42c7448` +
+  README-bootstrap `a21aaad` + E `768e235` + verif E `24bda54` + F `a547de6`
+  + verif F `df86bdc` + G feat + ce). **Gate dual-platform Phase G VERT AVANT
+  push** (Win 1804 + Docker 1808 + fmt 0 sous les 2 toolchains + web 398) —
+  cf. §4 + §6. Push = decision operateur (LT-2/Radicle hors-sprint).
 
 ## §2 §7.4 par phase (fail-fast)
 
@@ -24,15 +26,23 @@
 | A | `ce43894` | 1763 -> 1767 (+4) 0-skip | subset 582 (crates touches) | Vitest 379 -> 386 (+7) | 0 / 0 / 0 / 0 |
 | B | `6904cdd` | 1767 -> 1775 (+8) 0-skip | 3 crates 675/675 (+3 cfg(unix)) | Vitest 386 -> 396 (+10) | 0 / 0 / 0 / 0 |
 | C | `1cc28e7` | 1775 -> **1785** (+10) 0-skip | **1789/1789** 0-skip (code fonctionnel, round 1) | 0 (aucun changement web) | 0 / 0 / 0 / 0 |
-| D | `d75ae77` | 1785 -> **1789** (+4) 0-skip | DIFFERE recovery pre-push (§4) | 0 (aucun changement web) | 0 / 0 / 0 / 0 |
-| E | `768e235` | 1789 -> **1799** (+10) 0-skip | DIFFERE recovery pre-push (§4) | Vitest 396 -> 397 (+1) | 0 / 0 / 0 / 0 |
-| F | `a547de6` | 1799 -> **1804** (+5) 0-skip | DIFFERE recovery pre-push (§4) | Vitest 397 -> 398 (+1) | drift* / 0 / 0 / 0 |
+| D | `d75ae77` | 1785 -> **1789** (+4) 0-skip | consolide G (§4) | 0 (aucun changement web) | 0 / 0 / 0 / 0 |
+| E | `768e235` | 1789 -> **1799** (+10) 0-skip | consolide G (§4) | Vitest 396 -> 397 (+1) | 0 / 0 / 0 / 0 |
+| F | `a547de6` | 1799 -> **1804** (+5) 0-skip | consolide G (§4) | Vitest 397 -> 398 (+1) | drift*->fix G / 0 / 0 / 0 |
+| G | `<feat>` | 1804 -> **1804** (+0, fmt-fix whitespace) 0-skip | **1808/1808** 0-skip (recovery, §4) | Vitest 398 (0) | **0 (fix)** / 0 / 0 / 0 |
 
-(*) Phase F `cargo fmt --all --check` : SEUL `crates/nexus-shell-daemon/src/http.rs:8528`
-flagge = **faux positif derive toolchain local** (rustfmt 1.9.0 / rustc 1.95 vs
-canonique 1.94, pas de pin `rust-toolchain.toml`). `http.rs` N'EST PAS touche par
-Phase F (committe clean en Phase E sous 1.94). Les 4 fichiers Phase F sont fmt-clean
-sous 1.95. Fmt canonique = Docker `rust:1.94`, differe au pre-push (§4, pattern S74/S75).
+(*) **CORRECTION DE DIAGNOSTIC (Phase G).** Les suites D/E/F annoncaient
+`http.rs:8528` flagge par `cargo fmt --all --check` comme un « faux positif derive
+toolchain local 1.95 vs canonique 1.94 ». **C'etait FAUX.** Le re-run Docker
+canonique `rust:1.94` de Phase G produit le **MEME diff byte-identique** : un appel
+`kudos_ledger::credit(&db, "proj-vc", "worker-a", "task-1", 10, 1_000)` (test
+`#[cfg(test)]` du dashboard contributeur, introduit Phase E `768e235`) depasse la
+largeur de ligne et rustfmt — 1.94 ET 1.95 a l'identique — veut le wrapper. Le diff
+n'avait jamais ete vu sous 1.94 car le Docker etait DIFFERE chaque phase depuis C.
+Phase G **corrige a la racine** (reformate l'appel, le wrapping que les deux
+toolchains produisent) -> **fmt = 0 sous Win 1.95 ET Docker 1.94** (verifie :
+`WIN_FMT_EXIT=0` + `DOCKER_FMT_EXIT=0`). Ce n'etait pas un drift toolchain, c'etait
+une vraie violation fmt latente.
 
 Delta tests Phase F = **+5 Rust** (1799 -> 1804) + **+1 Vitest** (397 -> 398) : phase
 **doc-only D5** (quantization 4-bit documentee). `crates/nexus-worker-core/tests/quantization_doc.rs`
@@ -106,7 +116,12 @@ engine/runtime.rs). Detail des suites Phase C :
   (endpoints reels verifies contre le code : `POST /api/v1/invite/create`
   scope:worker -> token sous cle `wire` ; `nexus-worker join` +
   `nexus-worker start --headless` ; `POST /api/v1/tasks/submit` ;
-  `GET /api/v1/tasks/{id}/result` -> `result_text`).
+  `GET /api/v1/tasks/{id}/result` -> `result_text`). **Phase G : le harness
+  sert maintenant les DEUX paliers** via le parametre `REDUNDANCY` (defaut 1)
+  cable a `redundancy_factor` du submit + une section d'enrolement d'un 2e
+  worker homogene — `REDUNDANCY=2` rend le palier 2 (quorum, §5) reellement
+  runnable par l'operateur (`bash -n` clean ; correction PLAN-ADAPT G : avant,
+  `redundancy_factor:1` etait hardcode et le palier 2 non-runnable).
 - **Critere falsifiable (D2 adjust)** : `DELAY` = delai submit (VPS) ->
   result_text visible (VPS), END-TO-END = borne SUP de la convergence WAN
   `result:` (claim + inference GPU + replication). Pour le petit prompt
@@ -133,39 +148,122 @@ moteur Docker Desktop Linux s'est wedge (`500 Internal Server Error` sur
 deja passe Docker canonique 1789/1789 (round 1, avant les doc-fixes) ; le
 delta doc-only (commentaires + `.md` + `.sh`) est platform-agnostique et
 Windows-confirme. **Lecon : relancer les suites SEQUENTIELLEMENT (Windows
-seul, puis Docker seul), jamais simultanement.** Le re-run Docker sur le
-doc-delta est differe a la recovery du moteur (`wsl --shutdown` + restart
-Docker Desktop) AVANT push.
+seul, puis Docker seul), jamais simultanement.**
 
-## §5 Carries / Phase G TODO
+**RECOVERY EXECUTEE EN PHASE G (gate AVANT push).** Le moteur Docker etait sain
+(server 29.4.3, `ServerErrors []`, image `sbfb-ci:latest` rust:1.94). Suites
+re-jouees SEQUENTIELLEMENT sur l'arbre FINAL (Windows d'abord, puis Docker seul,
+target Linux isole en volume nomme `sbfb-linux-target`) :
+- **Windows** : fmt 0 (apres fix `http.rs`, cf. note *) + clippy 0 + nextest
+  **1804/1804** 0-skip + doctests 0 + release 0.
+- **Docker canonique `sbfb-ci` rust:1.94** : fmt **0** (`http.rs` clean sous
+  1.94 apres fix) + clippy 0 + nextest **1808/1808** 0-skip (+4 `#[cfg(unix)]`)
+  + doctests 0.
+- **Web** : lint 0-err + tsc 0 + Vitest **398/398** + coverage
+  87.2/79.01/85.92/88.52 + size 6/6 + scan-en-strings clean.
+Le wedge S76-C ne s'est PAS reproduit (un seul build lourd a la fois). Gate
+dual-platform VERT, push debloque cote technique.
 
-- THREAT_MODEL compute-cohort row : **FAIT en Phase D** (§15.2 + table
-  compute-quorum : cohorte = routage advisory, quorum exact-match = vraie
-  frontiere ; self-inflation/Sybil/cross-GPU/TOPLOC). Le TODO Phase C P3 est
-  clos.
-- **Acceptance LIVE palier 2 (quorum redundancy=2, VPS+PC+Mac)** : DIFFERE
-  Phase G (materiel operateur). Meme posture que B-3 (§3) : deux workers
-  homogenes (meme quant Ollama) sur une tache `verifiable` redundancy=2 ->
-  deux `result_text` byte-identiques -> consensus accepte ; resultat
-  heterogene-diverge ECRIT comme attendu (anti faux-vert). Le fix bridge
-  result-sync (dedup per-worker, `d75ae77`) est le prerequis prod qui rend
-  cette acceptance possible (avant : le 2e worker etait jete). > 30s
-  convergence = BLOCK a diagnostiquer, PAS un timeout a rallonger.
-- Consigner la trace de l'acceptance LIVE B-3 une fois executee (§3).
-- **Phase F (doc-only D5) DONE** (`a547de6`) : `QUANTIZATION.md` (reco format
-  par carte + table empreintes VRAM + cible <=14B + 70B=S77 + pre-condition
-  quorum meme-GGUF + design-note caps VRAM) + pointeur panneau D1 (Option B
-  non-cliquable) + 5 tests garde. Lien D1 -> doc livre. Arc 3.5 5/6 -> Phase G.
-- **Env-note fmt (Phase F)** : la derive toolchain local (rustc 1.95 / rustfmt
-  1.9.0 vs canonique 1.94) fait faux-positiver `cargo fmt --all --check` sur
-  `http.rs:8528` (non touche Phase F). A confirmer clean sous Docker `rust:1.94`
-  au pre-push (attendu : 0, car committe clean sous 1.94). NE PAS reformater
-  http.rs localement (casserait le canonique 1.94).
-- Re-run Docker dual-platform sur l'arbre final apres recovery du moteur
-  (§4), AVANT push — inclut le delta Phases D + E + F (platform-agnostiques,
-  attendu vert) ET la verification fmt canonique 1.94 (resout le faux-positif http.rs).
-- P3-D-3 (branche send-failure `seen.remove` non testee) + P3-D-4 (log
-  cosmetique) : routes `sprint77_audit_plan.md`.
-- model_digest : durcissement en hash du fichier GGUF = S77 (chemin
-  `llm_llama_cpp` C-API, reserve etage-2 de D3) — doc-note honnete livre
-  Phase C (task.rs + verification.rs + 2 maps).
+## §5 Cloture Phase G + acceptance LIVE
+
+**Phase G a livre** : finalisation de ce verification.md (colonne Observed §6) +
+`sprint77_audit_plan.md` (10 tracks Phase 0 S77) + MAJ docs longue-vie
+(THREAT_MODEL v9, PATTERNS rust §P62 + shell P38, SPRINT_LOG row S76, CLAUDE.md
+0-76 CLOSED, roadmap_v5 Arc 3.5 6/6 clos + S77 ouvert) + **fmt-fix root-cause
+`http.rs:8531`** (cf. note * §2) + **harness palier 2 runnable** (`REDUNDANCY`,
+§3) + recovery Docker dual-platform VERT (§4).
+
+**RETRACTATION env-note fmt** : la consigne « NE PAS reformater http.rs (faux
+positif 1.95) » des suites D/E/F est **ANNULEE** — c'etait un vrai diff fmt
+latent (note * §2), corrige Phase G. fmt = 0 sous les deux toolchains.
+
+**Acceptance LIVE cross-machine — DIFFERE materiel operateur, jamais faux-vert** :
+- **B-3 palier 1** (row #26) : DIFFERE — env de session sans PC RTX 5080 + VPS +
+  WAN. Harness `b3_live_pc_vps.sh` runnable (token cle `wire`, worker
+  `start --headless`). Critere falsifiable <30s = BLOCK-a-diagnostiquer encode.
+- **Quorum palier 2** (row #30, redundancy=2 VPS+PC+Mac) : DIFFERE — exige 2
+  workers homogenes (meme MODEL/quant) + Mac. Harness rendu runnable Phase G
+  (`REDUNDANCY=2` → le submit pose `redundancy_factor:2` **ET `verifiable:true`**
+  — P1 review : sans `verifiable`, le worker echantillonne [task.rs] et le
+  dispatcher saute le cohort gate [dispatcher.rs:70] → divergence → quorum
+  JAMAIS forme ; le harness le met automatiquement). Deux `result_text`
+  byte-identiques -> consensus accepte ; heterogene-diverge ECRIT comme attendu
+  (anti faux-vert T1). Le fix bridge result-sync (`d75ae77`, dedup per-worker)
+  est le prerequis prod (avant : 2e worker jete). > 30s = BLOCK, PAS un timeout
+  rallonge. **Scope (note Codex D2)** : le harness prouve le QUORUM
+  cross-machine via `verifiable` + homogeneite ASSUREE-PAR-L'OPERATEUR ; il ne
+  soumet PAS `required_runtime`, donc il n'exerce PAS l'auto-claim-gate du
+  dispatcher (couvert in-process par le test Phase C
+  `dispatcher_routes_replicas_to_homogeneous_cohort`) — choix delibere pour
+  eviter une fragilite tuple-mismatch dans un run manuel.
+- Le chemin compute (dispatch/pompe/result-sync/validator/sign-verify) est
+  couvert IN-PROCESS par le gate anti-regression + les 2 tests hermetiques quorum
+  2-auteurs (accept + diverge). La DIFFERE est une dependance materiel user
+  (CONCERN), PAS un defaut du code compute. Traces a consigner ici quand
+  l'operateur execute les runs.
+
+## §6 Fail-fast final dual-platform (38 rows, Observed — gate AVANT push)
+
+| # | Check | Observed |
+|---|---|---|
+| 1 | fmt `--all --check` | **0** (Win 1.95 + Docker 1.94 apres fix http.rs) |
+| 2 | clippy `--workspace --all-targets -D warnings` | **0** (Win + Docker) |
+| 3 | nextest workspace (Win) | **1804/1804** 0-skip |
+| 4 | doctests | **0** (Win + Docker) |
+| 5 | release build `nexus-shell-daemon` | **OK** |
+| 6 | Docker Linux canonique `sbfb-ci` rust:1.94 | **1808/1808** 0-skip (+4 cfg(unix)) |
+| 7 | web tsc | **0** |
+| 8 | web lint | **0 err** (5 warn benins) |
+| 9 | web Vitest | **398/398** (37 files) |
+| 10 | web coverage | **87.2/79.01/85.92/88.52** >= seuils |
+| 11 | web build+size | **6/6** (102.48/263.13/9.84/128.76 kB sous limites) |
+| 12 | scan-en-strings | **clean** |
+| 13 | A snapshot additif 0-bump | PASS (`consent_snapshot_serializes_additively` + `SCHEMA_VERSION=1`) |
+| 14 | A enrolement worker public | PASS (`colocated_worker_honors_user_consent_when_public`) |
+| 15 | A least-priv OFF | PASS (`colocated_worker_least_privilege_when_off`) |
+| 16 | A route consent daemon | PASS (`consent_route_reaches_daemon_prefix`) |
+| 17 | B duress `seed_voluntary` no-op | PASS (`seed_voluntary_noop_in_duress`) |
+| 18 | B duress `set_keep_online` no-op | PASS (`set_keep_online_noop_in_duress`) |
+| 19 | B aggregator downgrade ingress | PASS (`aggregator_downgrades_open_source_without_provenance`) |
+| 20 | B failover multi-tier | PASS (`pull_falls_back_across_tiers_when_ticket_dead`) |
+| 21 | B outbox 2-noeuds | PASS (`outbox_gossip_has_neighbors_two_nodes`) |
+| 22 | B 5 pages front smoke | PASS (Network/Curators/Projects/OnboardingEmpty/ProjectDetail) |
+| 23 | B LOOPBACK §3 a jour | PASS (7 routes S74+S75 inscrites) |
+| 24 | C routing cohorte homogene | PASS (`dispatcher_routes_replicas_to_homogeneous_cohort`) |
+| 25 | C gate compute anti-regression | PASS (`e2e_network_execute_gate_real_http_no_frontier_mock`) |
+| 26 | C acceptance LIVE B-3 + WAN <30s | **DIFFERE materiel operateur** (PC+VPS+WAN absents ; harness runnable, §5) |
+| 27 | D quorum 2 byte-identique | PASS (`quorum_redundancy_two_stubworkers_byte_identical`) |
+| 28 | D divergence rejetee | PASS (`quorum_diverging_outputs_rejected`) |
+| 29 | D validator inchange | PASS (`git diff --stat validator.rs` quorum = 0 ligne) |
+| 30 | D acceptance LIVE quorum | **DIFFERE materiel operateur** (VPS+PC+Mac ; harness `REDUNDANCY=2` -> submit `verifiable:true` auto, runnable, §5) |
+| 31 | E agregation contributeur EMA | PASS (`get_contributor_summary_aggregates_ema`) |
+| 32 | E route dashboard | PASS (route `/api/v1/contributor/{node_id}` + `_empty`) |
+| 33 | E page 3 metriques | PASS (`Network.test.tsx` contributor) |
+| 34 | F doc quantization presente | PASS (`QUANTIZATION.md` + table + <=14B + S77) |
+| 35 | F backend doc-only inchange | PASS (grep `with_split_mode`/`with_devices` = 0 ; `llama_cpp_unchanged_doc_only`) |
+| 36 | 0 bump wire | PASS (`*_FORMAT_VERSION`/`*_ANNOUNCEMENT_VERSION`/`SCHEMA_VERSION` = 1) |
+| 37 | verification.md ecrit | PASS (ce fichier) |
+| 38 | audit_plan S77 ecrit | PASS (`sprint77_audit_plan.md`) |
+
+**Bilan : 36/38 verts en session + 2 rows LIVE (#26/#30) DIFFERE-trace-user**
+(materiel operateur), gate technique VERT AVANT push.
+
+## §7 Carry-over for memory (a fusionner dans `nexus_grid_pivot.md` / MEMORY.md)
+
+- **Tip** : HEAD = Phase G `feat(daemon)` wrap-up. S76 CLOSED, Arc 3.5 Factory
+  Complete Vision **6/6 COMPLET**. Prochain = S77 sharding (Phase 0 audit gate
+  S76 = `sprint77_audit_plan.md`).
+- **Compteurs** : Rust nextest Win **1804** (1763 -> +41) / Docker **1808** /
+  Vitest **398** (367 -> +31). 0 bump wire, 0 dep sur tout S76.
+- **Carries reconduits S77** (cf. `sprint77_audit_plan.md` §3) : SYBIL-SEEDER-TAIL
+  2/3 (exemption nommee « dependance sharding »), REVISION-HOME-DURABILITY 2/3,
+  KNOWN-ENTRY-OVERCOUNT 2/3, seeder `catalog_len:0` 2/3, RE-DRIVE-ON-INGEST 2/3,
+  T-NN+3 (JCS), **P3-D-3 NOUVEAU 1/3**, **MEDIAN-DE-GROUPE DOC-P2 NOUVEAU**.
+  3 carries 2-reports FERMES en B (CARRY-3/LOOPBACK-TIERS/PULL-3). Externes
+  inchanges (P2-A-1, P2-AUDIT-2, T-NN+2, P3-OS-1, LT-2 ARME). LT-5 resorbe.
+- **Lecons process G** : (1) un fmt-diff sous Windows DOIT etre confirme sous
+  Docker canonique AVANT de le diagnostiquer « drift toolchain » — ici les deux
+  toolchains voulaient le MEME wrapping (vraie violation, pas drift) ; ne jamais
+  differer Docker plusieurs phases de suite sur du code qui touche des tests.
+  (2) le verdict preflight G8 PLAN-ADAPT a evite un faux-vert « 38/38 » sur
+  l'acceptance LIVE.

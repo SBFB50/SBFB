@@ -2270,3 +2270,25 @@ DaemonResult consumer gets the daemon's error string in `reason` instead
 of a generic failure — cold-start/CTA gating must key on KNOWN-empty data
 (`kind === "data"` and empty), never on a non-data error state collapsing
 to "empty".
+
+### P38 — Sprint 76 : contributor dashboard (front, honest non-monetary metrics)
+
+**Surface only metrics the network can actually back; label the unattested
+ones.** The contributor view (`/api/v1/contributor/{node_id}`) renders THREE
+metrics, each with an explicit honesty class:
+1. **Effective kudos** — the EMA score (`alpha=0.97`), read through the SAME
+   `effective_score()` the leaderboard uses (one aggregation, mirrored — never a
+   second divergent formula). Quorum-validated, network-authoritative.
+2. **Tasks served** — count of quorum-validated result rows. Authoritative.
+3. **GPU-hours** — read from the node's LOCAL `usage.json` and labelled
+   non-attested. They are NEVER aggregated network-wide and NEVER signed into a
+   wire field: a self-declared compute claim is gameable (same class as
+   `tokens_generated`, §P61), and a signed network-wide GPU-hour field would
+   open a pre-launch wire surface for nothing. The honest local number suffices
+   for an "your contribution" panel; the wire stays untouched.
+
+Rule: a contributor/reputation panel must compose from EXISTING validated
+signals (reuse the leaderboard's EMA, the validated-row count) and clearly mark
+any self-declared local stat as non-attested, rather than minting a new signed
+metric to make the panel look richer. Kudos remain non-monetary, non-transferable
+(no token/stake/burn). Cross-ref: rust §P61 (sanity-bound), THREAT_MODEL §15.3.
