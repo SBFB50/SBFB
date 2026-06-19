@@ -146,11 +146,13 @@ if [ "$REDUNDANCY" -ge 2 ]; then
   log "                  BLOCKs on no quorum — diagnose, do not inflate."
 fi
 
-# --- 1. Bearer token (VPS loopback, public /auth/token) ------------------
-log "step 1: fetching VPS daemon bearer token over SSH"
+# --- 1. Loopback token (VPS loopback, public /auth/token) ----------------
+# The daemon's authed routes gate on the `x-sbfb-token` header (http.rs:4220),
+# NOT `Authorization: Bearer`. /auth/token returns the value under "token".
+log "step 1: fetching VPS daemon loopback token over SSH"
 TOKEN="$(vps "curl -fsS '$VPS_DAEMON/auth/token'" | sed -n 's/.*\"token\":\"\([^\"]*\)\".*/\1/p')"
-[ -n "$TOKEN" ] || die "could not read bearer token from $VPS_DAEMON/auth/token on the VPS"
-AUTH="-H 'Authorization: Bearer $TOKEN'"
+[ -n "$TOKEN" ] || die "could not read loopback token from $VPS_DAEMON/auth/token on the VPS"
+AUTH="-H 'x-sbfb-token: $TOKEN'"
 
 # --- 2. Mint a worker-scope invite on the VPS ----------------------------
 log "step 2: minting a worker-scope invite on the VPS"

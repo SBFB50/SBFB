@@ -202,6 +202,42 @@ latent (note * §2), corrige Phase G. fmt = 0 sous les deux toolchains.
   (CONCERN), PAS un defaut du code compute. Traces a consigner ici quand
   l'operateur execute les runs.
 
+### §5.1 Live attempt 2026-06-19 (post-audit, materiel operateur PRESENT)
+
+Run live tente cette session (PC RTX 5080 + VPS Hetzner `135.181.42.188` + Mac
+`192.168.1.53`, SSH `~/.ssh/config`) :
+
+- **Bug harness CORRIGE** : `b3_live_pc_vps.sh` envoyait `Authorization: Bearer`
+  alors que le daemon gate sur `x-sbfb-token` (http.rs:4220) -> **401 sur tout
+  run**. Latent (harness jamais execute, juste `bash -n`). Corrige
+  (`fix(sprint76)`).
+- **Deploiement S76 sur le VPS** : binaire Linux build `rust:1.94-bookworm`
+  (glibc 2.36 <= VPS 2.39), scp + `install` + restart ; anchor SAIN
+  (`is-active`, `known_browse_entries:3`, gossip actif, 0 crash-loop) ; backup
+  `/usr/local/bin/nexus-shell-daemon.s75.bak` (rollback). Worker S76 rebuild +
+  home propre + re-register.
+- **Machinerie exercee LIVE** : auth loopback, mint invite (201), enroll/join
+  worker, iroh-docs sync (`imported project task doc`, `sync finished`),
+  verification de signature des taches, healthcheck Ollama GPU (llama3.1:8b).
+- **CONFIRMATION empirique Track I (audit P3)** : les taches signees S75 (avant
+  redeploy) ECHOUENT la verif de signature sous le worker S76 (`task signature
+  invalid: Verification equation was not satisfied`) = l'ajout
+  `required_runtime:null` aux canonical bytes (Track I). Validation reelle du
+  finding par le terrain.
+- **BLOCK** : les taches S76 nouvellement soumises ne se propagent PAS a la
+  replique doc du worker (`grep <task_id>` worker = 0 ; tache reste `pending`,
+  `worker_node_id:null`). Le sync INITIAL bulk n'a livre que les vieilles taches
+  S75, aucune nouvelle entree S76 ; submit-avant-start n'a pas aide. =
+  convergence de DELIVERY WAN des taches (carry connu `SeedAnnounced
+  peer_count:0` / `RE-DRIVE-ON-INGEST`), possiblement aggravee par le swap de
+  binaire a chaud sur un etat iroh-docs persistant.
+
+**Conclusion** : machinerie compute cross-machine (deploy, auth, enroll, sync,
+signature) exercee LIVE + chemin in-process prouve (audit) ; le gap restant pour
+un trace VERT = la convergence de delivery WAN des taches au worker, deja routee
+S77 (carries). #26/#30 NON verts ; diagnostic bien plus riche que « materiel
+absent ». Palier 2 (#30) en plus bloque : Mac sans Ollama.
+
 ## §6 Fail-fast final dual-platform (38 rows, Observed — gate AVANT push)
 
 | # | Check | Observed |
@@ -231,11 +267,11 @@ latent (note * §2), corrige Phase G. fmt = 0 sous les deux toolchains.
 | 23 | B LOOPBACK §3 a jour | PASS (7 routes S74+S75 inscrites) |
 | 24 | C routing cohorte homogene | PASS (`cohort_gate_admits_homogeneous_worker`/`cohort_gate_blocks_non_homogeneous_worker` + `submit_sets_required_runtime_only_for_verifiable_redundant`) |
 | 25 | C gate compute anti-regression | PASS (`e2e_network_execute_gate_real_http_no_frontier_mock`) |
-| 26 | C acceptance LIVE B-3 + WAN <30s | **DIFFERE materiel operateur** (PC+VPS+WAN absents ; harness runnable, §5) |
+| 26 | C acceptance LIVE B-3 + WAN <30s | **ATTEMPTED 2026-06-19 -> BLOCK delivery WAN** (S76 deploye VPS + worker S76 ; auth harness corrigee `x-sbfb-token` ; machinerie OK ; tache S76 non propagee a la replique doc worker = carry WAN, §5.1) |
 | 27 | D quorum 2 byte-identique | PASS (`quorum_redundancy_two_workers_reach_validator`) |
 | 28 | D divergence rejetee | PASS (`quorum_redundancy_diverging_outputs_rejected`) |
 | 29 | D validator inchange | PASS (`git diff --stat validator.rs` quorum = 0 ligne) |
-| 30 | D acceptance LIVE quorum | **DIFFERE materiel operateur** (VPS+PC+Mac ; harness `REDUNDANCY=2` -> submit `verifiable:true` auto, runnable, §5) |
+| 30 | D acceptance LIVE quorum | **NON ATTEINT** (prerequis #26 non vert + Mac sans Ollama pour le 2e worker homogene ; §5.1) |
 | 31 | E agregation contributeur EMA | PASS (`get_contributor_summary_aggregates_ema`) |
 | 32 | E route dashboard | PASS (route `/api/v1/contributor/{node_id}` + `_empty`) |
 | 33 | E page 3 metriques | PASS (`Network.test.tsx` contributor) |
@@ -245,8 +281,9 @@ latent (note * §2), corrige Phase G. fmt = 0 sous les deux toolchains.
 | 37 | verification.md ecrit | PASS (ce fichier) |
 | 38 | audit_plan S77 ecrit | PASS (`sprint77_audit_plan.md`) |
 
-**Bilan : 36/38 verts en session + 2 rows LIVE (#26/#30) DIFFERE-trace-user**
-(materiel operateur), gate technique VERT AVANT push.
+**Bilan : 36/38 verts en session ; #26/#30 LIVE tentes 2026-06-19 (post-audit)
+-> BLOCK convergence delivery WAN** (S76 deploye VPS, machinerie OK, harness auth
+corrigee ; carry S77, §5.1), gate technique VERT AVANT push.
 
 ## §7 Carry-over for memory (a fusionner dans `nexus_grid_pivot.md` / MEMORY.md)
 
