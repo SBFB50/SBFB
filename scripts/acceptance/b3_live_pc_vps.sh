@@ -108,8 +108,8 @@ die() { printf '[b3][FATAL] %s\n' "$*" >&2; exit 1; }
 # not exercise the dispatcher's AUTO claim-gate (dispatcher.rs only copies
 # `required_runtime` into the task when verifiable && redundancy>1, and an
 # omitted field leaves it None). That auto-routing of replicas to a
-# homogeneous cohort is covered by the in-process unit test
-# `dispatcher_routes_replicas_to_homogeneous_cohort` (Phase C); submitting a
+# homogeneous cohort is covered by the in-process unit tests
+# `cohort_gate_admits_homogeneous_worker`/`cohort_gate_blocks_non_homogeneous_worker` (Phase C); submitting a
 # tuple here would only add tuple-mismatch fragility to a manual run.
 case "$REDUNDANCY" in
   ''|*[!0-9]*) die "REDUNDANCY must be a positive integer, got '$REDUNDANCY'" ;;

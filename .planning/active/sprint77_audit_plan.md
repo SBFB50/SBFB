@@ -188,7 +188,8 @@ honnetement documente comme champ mort ?
 
 - `RuntimeTuple{model, quant, runtime_family}` sur `Task.required_runtime`,
   `#[serde(default)]`, 0 bump `TASK_FORMAT_VERSION`/`DOMAIN`/dep ; `matches()`
-  wildcard-sur-vide. Re-executer `dispatcher_routes_replicas_to_homogeneous_cohort`.
+  wildcard-sur-vide. Re-executer `submit_sets_required_runtime_only_for_verifiable_redundant`
+  (dispatcher pose le tag) + `cohort_gate_admits_homogeneous_worker`/`cohort_gate_blocks_non_homogeneous_worker` (worker enforce).
 - Cohorte au CLAIM-GATE worker (PULL : ne claim PAS si tuple mismatch → continue,
   tache reste live) ; dispatcher pose `required_runtime` SEULEMENT si
   `verifiable && redundancy>1`.
@@ -210,8 +211,8 @@ le trou quorum cross-machine, et le validator reste-t-il INCHANGE ?
 - Fix `forward_result_entry` (result_sync.rs) : dedup `(worker_pubkey, task_id)`
   miroir EXACT du validator (avant : `task_id` seul → 2e worker jete). Prouve
   rouge-avant-vert par revert. Re-executer
-  `quorum_redundancy_two_stubworkers_byte_identical` +
-  `quorum_diverging_outputs_rejected`.
+  `quorum_redundancy_two_workers_reach_validator` +
+  `quorum_redundancy_diverging_outputs_rejected`.
 - `verifiable_seed` = u32 LITTLE-ENDIAN de `blake3(task_id)[..4]` (PAS le digest).
   Re-executer `verifiable_seed_is_cross_worker_stable`.
 - **Validator INCHANGE** : `git diff --stat validator.rs` sur le quorum = 0 ligne ;

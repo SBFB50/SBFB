@@ -193,8 +193,8 @@ latent (note * §2), corrige Phase G. fmt = 0 sous les deux toolchains.
   rallonge. **Scope (note Codex D2)** : le harness prouve le QUORUM
   cross-machine via `verifiable` + homogeneite ASSUREE-PAR-L'OPERATEUR ; il ne
   soumet PAS `required_runtime`, donc il n'exerce PAS l'auto-claim-gate du
-  dispatcher (couvert in-process par le test Phase C
-  `dispatcher_routes_replicas_to_homogeneous_cohort`) — choix delibere pour
+  dispatcher (couvert in-process par les tests Phase C
+  `cohort_gate_admits_homogeneous_worker`/`cohort_gate_blocks_non_homogeneous_worker`) — choix delibere pour
   eviter une fragilite tuple-mismatch dans un run manuel.
 - Le chemin compute (dispatch/pompe/result-sync/validator/sign-verify) est
   couvert IN-PROCESS par le gate anti-regression + les 2 tests hermetiques quorum
@@ -229,11 +229,11 @@ latent (note * §2), corrige Phase G. fmt = 0 sous les deux toolchains.
 | 21 | B outbox 2-noeuds | PASS (`outbox_gossip_has_neighbors_two_nodes`) |
 | 22 | B 5 pages front smoke | PASS (Network/Curators/Projects/OnboardingEmpty/ProjectDetail) |
 | 23 | B LOOPBACK §3 a jour | PASS (7 routes S74+S75 inscrites) |
-| 24 | C routing cohorte homogene | PASS (`dispatcher_routes_replicas_to_homogeneous_cohort`) |
+| 24 | C routing cohorte homogene | PASS (`cohort_gate_admits_homogeneous_worker`/`cohort_gate_blocks_non_homogeneous_worker` + `submit_sets_required_runtime_only_for_verifiable_redundant`) |
 | 25 | C gate compute anti-regression | PASS (`e2e_network_execute_gate_real_http_no_frontier_mock`) |
 | 26 | C acceptance LIVE B-3 + WAN <30s | **DIFFERE materiel operateur** (PC+VPS+WAN absents ; harness runnable, §5) |
-| 27 | D quorum 2 byte-identique | PASS (`quorum_redundancy_two_stubworkers_byte_identical`) |
-| 28 | D divergence rejetee | PASS (`quorum_diverging_outputs_rejected`) |
+| 27 | D quorum 2 byte-identique | PASS (`quorum_redundancy_two_workers_reach_validator`) |
+| 28 | D divergence rejetee | PASS (`quorum_redundancy_diverging_outputs_rejected`) |
 | 29 | D validator inchange | PASS (`git diff --stat validator.rs` quorum = 0 ligne) |
 | 30 | D acceptance LIVE quorum | **DIFFERE materiel operateur** (VPS+PC+Mac ; harness `REDUNDANCY=2` -> submit `verifiable:true` auto, runnable, §5) |
 | 31 | E agregation contributeur EMA | PASS (`get_contributor_summary_aggregates_ema`) |
