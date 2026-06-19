@@ -157,12 +157,29 @@ class SBFBBridge {
   }
 
   /**
-   * Submit a compute task to the SBFB network.
-   * @param {Object} payload — task parameters (prompt, task_type, etc.)
-   * @returns {Promise<Object>} — coordinator response (task_id, etc.)
+   * Submit a compute task to the SBFB network. The host injects the
+   * local node's project so the task is computed locally; you only
+   * provide a prompt + model (+ optional `task_type`, default
+   * "inference"). Returns immediately with a `task_id` — the generated
+   * text lands later, read it via {@link getTaskResult}. Sprint 76
+   * Phase H re-points this at the daemon-level submit.
+   * @param {{prompt: string, model: string, task_type?: string, system_prompt?: string}} payload
+   * @returns {Promise<{task_id: string}>}
    */
   submitTask(payload) {
     return this._call("task_submit", payload || {});
+  }
+
+  /**
+   * Read a previously submitted compute task's result (Sprint 76
+   * Phase H). The host polls the daemon's pull-only result route; a
+   * task still running resolves to `{ready:false, status:"pending"}`
+   * (poll again), a completed task to `{ready:true, result_text, ...}`.
+   * @param {string} taskId — id returned by {@link submitTask}
+   * @returns {Promise<{ready:false,status:"pending"}|{ready:true,status:string,result_text:string,result_hash:string|null}>}
+   */
+  getTaskResult(taskId) {
+    return this._call("task_result", { task_id: taskId });
   }
 
   /**

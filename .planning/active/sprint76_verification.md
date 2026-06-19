@@ -238,6 +238,53 @@ un trace VERT = la convergence de delivery WAN des taches au worker, deja routee
 S77 (carries). #26/#30 NON verts ; diagnostic bien plus riche que « materiel
 absent ». Palier 2 (#30) en plus bloque : Mac sans Ollama.
 
+### §5.2 Phase H (post-audit) — acceptance compute LOCAL **PASS** 2026-06-19
+
+But (plan `sprint76_phase_h_compute_tester_plan.md`) : prouver le compute S76 EN
+VRAI **en LOCAL** (app + worker meme machine, 0 sync reseau), pour isoler la chaine
+compute de la convergence WAN bloquee en §5.1.
+
+**STEP 0 (trace code AVANT de coder)** : le chemin compute depuis une iframe
+n'etait cable sur AUCUN segment — route submit app-scoped morte (supprimee S50),
+payload `task_submit` mismatch, aucun canal de retour resultat (push
+`task_result_ready` jamais emis en prod). Verdict preflight **PLAN-ADAPT**
+(`sprint76_phase_h_preflight.md`). Point dur : le worker local on-demand ne claime
+que `project_id == project_doc.id()` (`local_worker.rs:335`), or ce doc id n'etait
+expose par aucune route.
+
+**Cablage livre (additif, 0 bump wire)** :
+- daemon : route read-only `GET /api/daemon/project-info` -> `{project_doc_id}`
+  (`http.rs`, auth loopback, test `project_info_field_present_and_null_without_doc`).
+- parite allowlist cross-langage : `task_result` ajoute a `BRIDGE_METHOD_ALLOWLIST`
+  (`sbfb-manifest`, test miroir) ET `BridgeMethodSchema` (`protocol.ts`, test B10
+  16 methodes).
+- bridge : `task_submit` re-pointe vers le daemon-level prouve (host injecte
+  `project_id`, l'app reste node-agnostique) + `task_result` poll (404=pending) ;
+  SDK `getTaskResult` propage aux 5 copies ; app `examples/compute-tester/`.
+  4 tests `useBridge.test.ts`.
+
+**Run LIVE LOCAL (daemon release `start --web-root web/dist`, Ollama
+llama3.1:8b, RTX 5080)** — replique EXACTEMENT le flux HTTP du bridge :
+1. `GET /api/daemon/project-info` -> `project_doc_id 6552cbdd…` (route neuve OK).
+2. `POST /api/v1/tasks/submit` (project_id injecte) -> reponse `{task:{task_id…}}`
+   (task_id imbrique, gere) ; worker local **auto-spawne** (Hotfix #5), claime
+   (project_id == whitelist), execute llama3.1:8b.
+3. `GET /api/v1/tasks/{id}/result` -> **200 apres 12 s** :
+   `result_text="Les options sont : Garfield, Feu follet et Ronce."` + result_hash
+   (`80d060d3…`). **PASS** (script `scripts/acceptance/phase_h_compute_local.sh`).
+4. **App deployee** (`deploy-workspace`, `deployed:true` hash `ae950d72…`) — le
+   manifeste declarant `task_result` PASSE la validation live (preuve allowlist
+   Rust). Visible dans `/api/daemon/browse` ; **render path OK** : blob-serve sert
+   `index.html` (200, text/html) + `sbfb-bridge.js` (200) — le chemin exact de
+   l'iframe sandboxee.
+
+**Honnete** : le flux HTTP que pilote le bridge est prouve LIVE bout-en-bout + la
+logique bridge est couverte par 4 tests unitaires ; le clic literal dans l'iframe
+in-browser n'est pas drive en session (meme code bridge teste, meme render path
+blob-serve que les 4 autres apps deployees). L'attribution de la tache locale =
+`project_doc.id()` du noeud (pas l'app) ; l'attribution compute par-app = produit,
+route S77 avec le push SSE/iroh-docs subscribe (option B differee, decision PO).
+
 ## §6 Fail-fast final dual-platform (38 rows, Observed — gate AVANT push)
 
 | # | Check | Observed |

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SBFB Compute Tester</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      margin: 0; padding: 1.5rem; line-height: 1.5;
+      background: #0f1115; color: #e6e8eb;
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
+    .sub { opacity: 0.6; font-size: 0.85rem; margin: 0 0 1.25rem; }
+    label { display: block; font-size: 0.85rem; margin: 0.75rem 0 0.25rem; opacity: 0.85; }
+    textarea, input {
+      width: 100%; padding: 0.6rem 0.7rem; border-radius: 8px;
+      border: 1px solid #2a2f3a; background: #161a21; color: inherit;
+      font: inherit; resize: vertical;
+    }
+    textarea { min-height: 90px; }
+    .btn {
+      margin-top: 1rem; padding: 0.6rem 1.1rem; border: none; border-radius: 8px;
+      background: #3b82f6; color: #fff; font: inherit; font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .state {
+      margin-top: 1.25rem; padding: 0.6rem 0.8rem; border-radius: 8px;
+      background: #161a21; border: 1px solid #2a2f3a; font-size: 0.85rem;
+      min-height: 1.2em;
+    }
+    .state.err { border-color: #b4423a; color: #f3a7a1; }
+    .state.ok { border-color: #2f8a4e; }
+    .result {
+      margin-top: 0.75rem; padding: 0.8rem; border-radius: 8px;
+      background: #11151c; border: 1px solid #2a2f3a;
+      white-space: pre-wrap; word-break: break-word;
+      font-family: ui-monospace, "Cascadia Code", monospace; font-size: 0.85rem;
+      display: none;
+    }
+    .meta { margin-top: 0.5rem; font-size: 0.75rem; opacity: 0.55; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>SBFB Compute Tester</h1>
+  <p class="sub">Soumet une tache IA au reseau via le pont, executee par un worker GPU local, puis affiche le resultat.</p>
+
+  <label for="prompt">Votre demande</label>
+  <textarea id="prompt" placeholder="Ex : Donne trois noms pour un chat roux.">Donne trois noms pour un chat roux.</textarea>
+
+  <label for="model">Modele</label>
+  <input id="model" type="text" value="llama3.1:8b" autocomplete="off">
+
+  <button type="button" class="btn" id="submit">Soumettre</button>
+
+  <div class="state" id="state">Pret.</div>
+  <pre class="result" id="result"></pre>
+  <div class="meta" id="meta"></div>
+
+  <script src="sbfb-bridge.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

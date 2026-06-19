@@ -41,6 +41,11 @@ export const BridgeMethodSchema = z.enum([
   "search",
   // Sprint 68 Phase A — ProofCard evidence score.
   "proof_card_get",
+  // Sprint 76 Phase H — read a completed compute task's result text.
+  // `task_submit` returns only a task_id; the result lands later and
+  // the iframe polls `task_result` (no host push channel exists — a
+  // daemon SSE backed by iroh-docs subscribe is scoped for S77).
+  "task_result",
 ]);
 
 export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;

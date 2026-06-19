@@ -622,6 +622,124 @@ export function submitAppTask(
   );
 }
 
+// =================================================================
+// Sprint 76 Phase H — bridge compute path (task_submit + task_result)
+//
+// An iframe app submits an AI task and reads its result through the
+// postMessage bridge. The app-scoped `/app/{name}/tasks/submit` route
+// no longer exists (it died with the Python coordinator at S50), so
+// the bridge targets the daemon-level submit proven by the in-process
+// B-3 E2E, and reads the result by polling the daemon's pull-only
+// result route. The host injects `project_id` (the app stays
+// node-agnostic); see `getDaemonProjectInfo`.
+// =================================================================
+
+/**
+ * Local project doc id, from `GET /api/daemon/project-info`. The
+ * node's on-demand worker is whitelisted to exactly this id, so a
+ * locally-computed task must carry it as `project_id`. `null` when no
+ * project doc is mounted yet (the bridge surfaces a clear error).
+ */
+export const DaemonProjectInfoSchema = z.object({
+  project_doc_id: z.string().nullable(),
+});
+export type DaemonProjectInfo = z.infer<typeof DaemonProjectInfoSchema>;
+
+export function getDaemonProjectInfo(
+  baseUrl: string,
+): Promise<DaemonProjectInfo> {
+  return getJson(baseUrl, "/api/daemon/project-info", DaemonProjectInfoSchema);
+}
+
+/**
+ * Body the bridge POSTs for a local compute task. Mirrors the required
+ * fields of the Rust `TaskSubmission` (`project_id` + `task_type` +
+ * `prompt` + `model`); the daemon fills the rest with serde defaults
+ * (redundancy=1, verifiable=false → no cohort/runtime gate, a single
+ * local worker claims it).
+ */
+export const SubmitComputeTaskBodySchema = z.object({
+  project_id: z.string().min(1),
+  task_type: z.string().min(1).default("inference"),
+  prompt: z.string().min(1),
+  model: z.string().min(1),
+  system_prompt: z.string().default(""),
+});
+export type SubmitComputeTaskBody = z.infer<typeof SubmitComputeTaskBodySchema>;
+
+// The daemon returns the full signed `TaskEntry`; the id is nested
+// under `task` (cf. the B-3 E2E `sub["task"]["task_id"]`).
+const SubmitComputeTaskResponseSchema = z.object({
+  task: z.object({ task_id: z.string() }),
+});
+
+/**
+ * Submit a compute task to the local daemon
+ * (`POST /api/v1/tasks/submit`). Surfaces just the `task_id`, matching
+ * the rest of the submit API.
+ */
+export async function submitComputeTask(
+  baseUrl: string,
+  body: SubmitComputeTaskBody,
+): Promise<{ task_id: string }> {
+  const entry = await postJson(
+    baseUrl,
+    "/api/v1/tasks/submit",
+    body,
+    SubmitComputeTaskResponseSchema,
+  );
+  return { task_id: entry.task.task_id };
+}
+
+const TaskResultSchema = z.object({
+  task_id: z.string(),
+  status: z.string(),
+  result_text: z.string(),
+  result_hash: z.string().nullable(),
+});
+
+/**
+ * Result of one poll of a compute task. `GET /api/v1/tasks/{id}/result`
+ * is a 404 while the task is pending/dispatched/has no text yet, and a
+ * 200 with the text once completed. The bridge maps 404 → a `pending`
+ * state (not an error) so the iframe can keep polling.
+ */
+export type TaskResultPoll =
+  | { ready: false; status: "pending" }
+  | {
+      ready: true;
+      status: string;
+      result_text: string;
+      result_hash: string | null;
+    };
+
+export async function getTaskResult(
+  baseUrl: string,
+  taskId: string,
+): Promise<TaskResultPoll> {
+  const path = `/api/v1/tasks/${encodeURIComponent(taskId)}/result`;
+  const res = await authFetch(`${baseUrl}${path}`, {
+    headers: { accept: "application/json" },
+  });
+  if (res.status === 404) {
+    return { ready: false, status: "pending" };
+  }
+  if (!res.ok) {
+    throw new ApiHttpError(path, res.status, res.statusText);
+  }
+  const raw: unknown = await res.json();
+  const parsed = TaskResultSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ApiProtocolError(path, parsed.error.issues, raw);
+  }
+  return {
+    ready: true,
+    status: parsed.data.status,
+    result_text: parsed.data.result_text,
+    result_hash: parsed.data.result_hash,
+  };
+}
+
 /**
  * Fetch an app's Sprint 8 D2 command palette descriptors.
  */

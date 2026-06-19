@@ -465,6 +465,160 @@ describe("useBridge", () => {
     });
   });
 
+  describe("compute bridge Sprint 76 Phase H", () => {
+    it("task_submit injects the local project_id and returns the task id", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        // 1. host resolves the local project doc id
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ project_doc_id: "doc-abc" }), {
+            status: 200,
+          }),
+        )
+        // 2. daemon-level submit returns the full signed TaskEntry
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ task: { task_id: "t-1" } }), {
+            status: 200,
+          }),
+        );
+      renderHook(() =>
+        useBridge("http://localhost:8000", "compute-tester", iframeRef),
+      );
+
+      const req = makeRequest({
+        id: "77777777-7777-4777-8777-777777777777",
+        method: "task_submit",
+        payload: { prompt: "ping", model: "llama3.1:8b" },
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      expect((resp.data as { task_id: string }).task_id).toBe("t-1");
+      // project-info resolved first, then the submit POST.
+      expect(fetchSpy).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining("/api/daemon/project-info"),
+        expect.any(Object),
+      );
+      // The host injected the local project_id into the submit body so
+      // the node's own worker (whitelisted to it) claims the task.
+      const submitInit = fetchSpy.mock.calls[1][1] as RequestInit;
+      const submitBody = JSON.parse(String(submitInit.body));
+      expect(submitBody.project_id).toBe("doc-abc");
+      expect(submitBody.prompt).toBe("ping");
+      expect(submitBody.task_type).toBe("inference");
+    });
+
+    it("task_submit errors when the node has no project doc", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ project_doc_id: null }), { status: 200 }),
+      );
+      renderHook(() =>
+        useBridge("http://localhost:8000", "compute-tester", iframeRef),
+      );
+
+      const req = makeRequest({
+        id: "88888888-8888-4888-8888-888888888888",
+        method: "task_submit",
+        payload: { prompt: "ping", model: "llama3.1:8b" },
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(false);
+      expect(resp.error).toContain("no local project doc");
+    });
+
+    it("task_result maps a 404 to a pending poll", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "no result yet" }), {
+          status: 404,
+        }),
+      );
+      renderHook(() =>
+        useBridge("http://localhost:8000", "compute-tester", iframeRef),
+      );
+
+      const req = makeRequest({
+        id: "99999999-9999-4999-8999-999999999999",
+        method: "task_result",
+        payload: { task_id: "t-1" },
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      expect(resp.data).toEqual({ ready: false, status: "pending" });
+    });
+
+    it("task_result surfaces the completed result text", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            task_id: "t-1",
+            status: "completed",
+            result_text: "pong",
+            result_hash: "deadbeef",
+          }),
+          { status: 200 },
+        ),
+      );
+      renderHook(() =>
+        useBridge("http://localhost:8000", "compute-tester", iframeRef),
+      );
+
+      const req = makeRequest({
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        method: "task_result",
+        payload: { task_id: "t-1" },
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: req,
+          source: fakeWindow as unknown as Window,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      });
+
+      const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+      expect(resp.success).toBe(true);
+      const data = resp.data as { ready: boolean; result_text: string };
+      expect(data.ready).toBe(true);
+      expect(data.result_text).toBe("pong");
+    });
+  });
+
   describe("pushEvent (Sprint 15 Phase A)", () => {
     it("posts a bridge-event to the iframe contentWindow", () => {
       const { result } = renderHook(() =>

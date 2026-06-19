@@ -149,9 +149,10 @@ pub struct DaemonHttpState {
     pub sbfb_home: Option<std::path::PathBuf>,
     /// Sprint 49 Phase A: handle to the project iroh-docs document.
     /// `Some` in coordinator mode (daemon start), `None` in tests
-    /// that don't need doc wiring. Read by future endpoints and the
-    /// doc subscription task.
-    #[allow(dead_code)]
+    /// that don't need doc wiring. Read by the task submit handler
+    /// (dispatch + on-demand local worker spawn) and, since Sprint 76
+    /// Phase H, by `GET /api/daemon/project-info` (exposes the doc id
+    /// so the bridge routes a compute task to the node's own worker).
     pub project_doc: Option<std::sync::Arc<nexus_core_rs::docs::DocHandle>>,
     /// Sprint 49 Phase A: MPSC sender for the dispatch loop. HTTP
     /// task submit handler sends signed TaskEntry values here; the
@@ -274,6 +275,7 @@ pub fn build_router(
     // X-SBFB-Token + loopback Host + (absent or loopback) Origin.
     let authed_routes = Router::new()
         .route("/api/daemon/info", get(info))
+        .route("/api/daemon/project-info", get(project_info))
         .route("/api/daemon/curators", get(list_curators))
         .route("/api/daemon/curators/subscribe", post(subscribe_curator))
         .route("/api/daemon/curators/{pubkey}", delete(unsubscribe_curator))
@@ -823,6 +825,26 @@ async fn health(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse 
 async fn info(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
     debug!("GET /info");
     (StatusCode::OK, Json(state.snapshot()))
+}
+
+/// `GET /project-info` — expose the local project doc id (Sprint 76
+/// Phase H). An iframe app submits a compute task via the bridge, but
+/// the node's on-demand local worker is whitelisted to exactly this
+/// `project_doc.id()` (`local_worker.rs` provisioning): a task that
+/// carries any other `project_id` is never claimed and its result
+/// never materializes. The browser cannot derive the doc id (it is
+/// not the daemon `node_id`), so the host bridge reads it here and
+/// injects it as the submission's `project_id`. Read-only, same
+/// loopback auth tier as the rest of `/api/daemon/*`; the id is not a
+/// secret — it is already shared to the local worker via a write
+/// ticket. `null` when no project doc is mounted yet.
+async fn project_info(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
+    debug!("GET /project-info");
+    let project_doc_id = state.project_doc.as_ref().map(|doc| doc.id().to_string());
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "project_doc_id": project_doc_id })),
+    )
 }
 
 /// `GET /curators` — list every cached curator list + the
@@ -6883,6 +6905,40 @@ mod tests {
         let body = to_bytes(resp.into_body(), 4096).await.unwrap();
         let res: DefaultCuratorsResponse = serde_json::from_slice(&body).unwrap();
         assert!(res.default_curators.is_empty());
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 76 Phase H: project-info endpoint (bridge compute)
+    // ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn project_info_field_present_and_null_without_doc() {
+        // The bridge reads `project_doc_id` to inject the submission's
+        // `project_id` (the local worker is whitelisted to it). The
+        // field must always be present so the bridge can branch on
+        // `null`; the `mk_state` harness mounts no project doc.
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/project-info")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            v.get("project_doc_id").is_some(),
+            "project_doc_id must always be present"
+        );
+        assert!(
+            v["project_doc_id"].is_null(),
+            "project_doc_id is null when no project doc is mounted"
+        );
     }
 
     #[tokio::test]

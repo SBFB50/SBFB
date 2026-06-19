@@ -1,0 +1,10 @@
+{
+  "schema_version": 2,
+  "name": "compute-tester",
+  "version": "0.1.0",
+  "description": "Compute Tester — soumet une tache IA via le pont et affiche le resultat",
+  "category": "tools",
+  "bridge": {
+    "methods": ["task_submit", "task_result"]
+  }
+}

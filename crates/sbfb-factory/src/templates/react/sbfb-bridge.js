@@ -26,6 +26,7 @@ class SBFBBridge {
   }
 
   submitTask(payload) { return this._call("task_submit", payload || {}); }
+  getTaskResult(taskId) { return this._call("task_result", { task_id: taskId }); }
   getStorage(key) { return this._call("storage_get", { key: key }); }
   setStorage(key, value) { return this._call("storage_set", Object.assign({ key: key }, value || {})); }
   getNodeStatus() { return this._call("node_status", {}); }

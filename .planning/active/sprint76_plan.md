@@ -693,6 +693,41 @@ LT-7 dormant décision actée).
 
 ---
 
+## §11 Phase H — Pont compute iframe câblé + acceptance compute LOCAL (post-audit)
+
+**Ajout post-audit** (hors plan A-G initial), demandé par le PO après la clôture
+S76 : prouver EN VRAI le compute S76 **en LOCAL** via un projet SBFB dédié
+(« Compute Tester ») qui soumet une tâche IA par le pont et affiche le résultat.
+Plan détaillé : `sprint76_phase_h_compute_tester_plan.md`. Préflight :
+`sprint76_phase_h_preflight.md` (verdict **PLAN-ADAPT**).
+
+STEP 0 (trace code) a montré que le chemin compute depuis une iframe sandboxée
+n'était câblé sur **aucun** segment (route submit app-scoped morte depuis S50,
+payload mismatch, aucun canal de retour résultat). Adaptation livrée, additive,
+0 bump wire :
+- daemon : route read-only `GET /api/daemon/project-info` → `{project_doc_id}`
+  (le worker local on-demand ne claime que `project_id == project_doc.id()`) ;
+- parité allowlist cross-langage : `task_result` ajouté (Rust `sbfb-manifest` +
+  TS `BridgeMethodSchema`, 16 méthodes) ;
+- bridge : `task_submit` re-pointé vers le daemon-level prouvé (host injecte
+  `project_id`) + `task_result` poll (404=pending) ; SDK `getTaskResult` (5 bundles
+  + 4 templates Factory) ; app `examples/compute-tester/`.
+
+**Décision PO** : poll (option A) maintenant ; le push live (SSE daemon adossé
+iroh-docs `subscribe`, option B) est routé **S77** avec la convergence WAN.
+
+Acceptance LIVE LOCAL = **PASS** (12 s, llama3.1:8b, `result_text` réel, app
+déployée + browsable + render path blob-serve ; manifeste `task_result` validé
+live) — trace `sprint76_verification.md §5.2`.
+
+Commit (1 commit atomique) :
+`feat(bridge+daemon): Sprint 76 Phase H — wire iframe compute path + LOCAL acceptance`
+Body 9 sections. Review `sprint76_phase_h_review.md` PASS ; Codex
+`sprint76_phase_h_codex_review.md` PARTIAL-not-reject (2 items corrigés, 3
+documentés/carry). Carry neuf **TABVIEW-APP-SUBMIT-DEAD** S77.
+
+---
+
 ## Delta tests estimé
 
 | Phase | Rust | Vitest | Détail |

@@ -24,9 +24,11 @@ import {
   type BridgeRequest,
 } from "@/bridge/protocol";
 import {
-  submitAppTask,
+  getDaemonProjectInfo,
+  submitComputeTask,
+  SubmitComputeTaskBodySchema,
+  getTaskResult,
   setAppState,
-  SubmitAppTaskBodySchema,
 } from "@/api/coordinator";
 import { authFetch } from "@/api/auth";
 import { detectAndRedact, type PiiPolicy } from "@/sdk/pii";
@@ -232,8 +234,31 @@ async function dispatch(
   try {
     switch (req.method) {
       case "task_submit": {
-        const taskBody = SubmitAppTaskBodySchema.parse(req.payload);
-        return await submitAppTask(coordUrl, appName, taskBody);
+        // Sprint 76 Phase H: the app sends only {prompt, model,
+        // task_type?}; the host injects `project_id` (the local
+        // project doc id) so the node's own on-demand worker claims
+        // the task. The app-scoped `/app/{name}/tasks/submit` route is
+        // gone — target the daemon-level submit proven by the B-3 E2E.
+        const info = await getDaemonProjectInfo(coordUrl);
+        if (!info.project_doc_id) {
+          throw new Error(
+            "no local project doc — the node has no project to compute on",
+          );
+        }
+        const body = SubmitComputeTaskBodySchema.parse({
+          ...req.payload,
+          project_id: info.project_doc_id,
+        });
+        return await submitComputeTask(coordUrl, body);
+      }
+
+      case "task_result": {
+        // Sprint 76 Phase H: poll a completed task's result text. 404
+        // (pending / no text yet) is mapped to a `pending` state by
+        // `getTaskResult`, not an error, so the iframe keeps polling.
+        const id = String(req.payload.task_id ?? "");
+        if (!id) throw new Error("task_result requires payload.task_id");
+        return await getTaskResult(coordUrl, id);
       }
 
       case "storage_get": {

@@ -60,7 +60,7 @@ pub enum ManifestError {
 ///
 /// Sprint 76 Phase B (B10, BRIDGE-ALLOWLIST-DRIFT): this list MUST mirror the
 /// host dispatch schema `BridgeMethodSchema` in `web/src/bridge/protocol.ts`
-/// (15 methods). Pre-B10 it carried only 10, so a manifest declaring a genuinely
+/// (16 methods; S76-H added `task_result`). Pre-B10 it carried only 10, so a manifest declaring a genuinely
 /// host-dispatched method (`pii_redact`, `storage_version`, `provenance_get`,
 /// `provenance_verify`, `feed_cursor_get`) was wrongly rejected. The parity test
 /// `allowlist_mirrors_host_dispatch_schema` locks the two sides together.
@@ -86,6 +86,8 @@ const BRIDGE_METHOD_ALLOWLIST: &[&str] = &[
     "search",
     // Sprint 68 Phase A — ProofCard evidence score.
     "proof_card_get",
+    // Sprint 76 Phase H — poll a completed compute task's result text.
+    "task_result",
 ];
 
 impl SbfbManifest {
@@ -186,7 +188,7 @@ mod tests {
     /// Sprint 76 Phase B (B10, BRIDGE-ALLOWLIST-DRIFT): the declarative manifest
     /// allowlist MUST mirror the host dispatch schema `BridgeMethodSchema` in
     /// `web/src/bridge/protocol.ts`. This `EXPECTED` list is the canonical mirror
-    /// of that TS enum (15 methods); if either side adds/removes a method, this
+    /// of that TS enum (16 methods); if either side adds/removes a method, this
     /// test fails until both are updated. The allowlist is DECLARATIVE manifest
     /// validation, not the sandbox/dispatch boundary — a method present here is a
     /// method an app may legitimately DECLARE, never a sandbox escape.
@@ -209,6 +211,7 @@ mod tests {
             "feed_cursor_get",
             "search",
             "proof_card_get",
+            "task_result",
         ];
         let actual: std::collections::BTreeSet<&str> =
             BRIDGE_METHOD_ALLOWLIST.iter().copied().collect();

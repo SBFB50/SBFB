@@ -162,9 +162,10 @@ describe("BridgeMethodSchema parity (Sprint 76 Phase B, B10)", () => {
     "feed_cursor_get",
     "search",
     "proof_card_get",
+    "task_result",
   ];
 
-  it("the host dispatch schema is exactly the 15 canonical methods", () => {
+  it("the host dispatch schema is exactly the 16 canonical methods", () => {
     expect([...BridgeMethodSchema.options].sort()).toEqual(
       [...CANONICAL].sort(),
     );
