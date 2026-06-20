@@ -133,6 +133,14 @@ test-results/
 # Git bundles (backup artifacts, never commit)
 *.bundle
 
+# Live acceptance rig (process-evolution Commit 2): the rig config
+# carries SSH targets (per-operator secrets) and the harness writes a
+# machine-readable result artefact + a worker log — all runtime-local,
+# never committed.
+scripts/acceptance/rig.local.env
+scripts/acceptance/.b3_last_result.json
+scripts/acceptance/.b3_worker.log
+
 # In-progress app design docs (pre-sprint intake, not planning)
 docs/DND_P2P_DESIGN.md
 docs/VISION_USE_CASES.md

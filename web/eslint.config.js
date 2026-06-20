@@ -57,4 +57,20 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  {
+    // Playwright E2E specs/fixtures, the daemon global setup/teardown,
+    // and the Playwright config run under Node (not the browser) and are
+    // not React modules. Give them Node + browser globals and silence the
+    // component-only fast-refresh rule.
+    files: ['e2e/**/*.ts', 'tests/**/*.ts', 'playwright.config.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+    },
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

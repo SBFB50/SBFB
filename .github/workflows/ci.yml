@@ -78,12 +78,30 @@ jobs:
       - name: "[9] size-limit"
         run: cd web && npm run size
 
-      # Sprint 76 Phase B (B9, CI-PLAYWRIGHT-NOOP): the former "[10] playwright"
-      # step ran `playwright test` with NO playwright.config and NO *.spec.ts —
-      # a vacuous green (plus a slow chromium install) that gave false E2E
-      # confidence. Removed rather than faked. A real browser E2E (serve dist +
-      # navigate) is a post-launch investment, not a debt-phase placeholder; the
-      # `@playwright/test` devDep is kept for that future, unused for now.
+      # Process-evolution Commit 2: real hermetic Playwright E2E. Replaces
+      # the former vacuous "[10] playwright" no-op (config-less, spec-less
+      # green removed in Sprint 76 Phase B). Builds the daemon (debug),
+      # serves the dist from step [8] via `--web-root`, and drives the real
+      # shell in chromium. The @compute flagship spec is env-gated and stays
+      # local (needs Ollama + a deployed app); CI runs only the hermetic specs.
+      - name: "[10a] build daemon for E2E"
+        run: cargo build -p nexus-shell-daemon
+      - name: "[10b] install playwright chromium"
+        run: cd web && npx playwright install --with-deps chromium
+      - name: "[10c] playwright E2E (hermetic)"
+        run: cd web && npm run test:e2e
+        env:
+          SBFB_DAEMON_BIN: ${{ github.workspace }}/target/debug/nexus-shell-daemon
+      - name: "[10d] upload playwright report on failure"
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: "[11] scan-en-strings"
         run: cd web && bash scripts/scan-en-strings.sh

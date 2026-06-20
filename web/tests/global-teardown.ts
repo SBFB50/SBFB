@@ -19,12 +19,25 @@ async function globalTeardown() {
     console.log("[pw] no state file; nothing to tear down");
     return;
   }
-  const { pid, gridRoot } = JSON.parse(readFileSync(STATE_FILE, "utf-8")) as {
-    pid: number;
-    gridRoot: string;
+  const state = JSON.parse(readFileSync(STATE_FILE, "utf-8")) as {
+    pid?: number;
+    gridRoot?: string;
+    external?: boolean;
   };
 
-   
+  // External-daemon mode: nothing was spawned — just drop the marker.
+  if (state.external) {
+    console.log("[pw] external daemon mode; nothing to tear down");
+    try {
+      rmSync(STATE_FILE);
+    } catch {
+      /* tolerate */
+    }
+    return;
+  }
+
+  const { pid, gridRoot } = state as { pid: number; gridRoot: string };
+
   console.log(`[pw] killing daemon pid=${pid}`);
   if (process.platform === "win32") {
     // /T kills the entire process tree. /F is force.

@@ -77,8 +77,18 @@ step 14 "npm run size"
 npm run size
 
 if [[ "$QUICK" -eq 0 ]]; then
-  step 15 "npx playwright test"
-  npx playwright test
+  # Real hermetic Playwright E2E (process-evolution Commit 2): spawns a
+  # real daemon serving the dist built at step 13 via --web-root and
+  # drives the actual shell in chromium. The @compute flagship is
+  # env-gated and excluded here (needs Ollama + a deployed app).
+  # Build the daemon explicitly and PIN SBFB_DAEMON_BIN so global-setup
+  # never silently picks up a stale target/release binary. `playwright
+  # install chromium` must have been run once on the machine.
+  step 15 "build daemon + npm run test:e2e (hermetic Playwright)"
+  ( cd "$REPO_ROOT" && cargo build -p nexus-shell-daemon )
+  E2E_DAEMON_BIN="$REPO_ROOT/target/debug/nexus-shell-daemon"
+  [ -f "$E2E_DAEMON_BIN.exe" ] && E2E_DAEMON_BIN="$E2E_DAEMON_BIN.exe"
+  SBFB_DAEMON_BIN="$E2E_DAEMON_BIN" npm run test:e2e
 else
   echo ""
   echo "==> [15] SKIPPED Playwright (--quick mode)"
