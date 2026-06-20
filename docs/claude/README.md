@@ -564,6 +564,54 @@ prévoir un audit rétroactif au sprint suivant.
 
 ## 4. Phase breakdown dans un sprint
 
+**Budget de phases : ouvert, jamais plafonné.** Un sprint a exactement
+autant de phases que son objectif l'exige — le nombre de phases est une
+*sortie* du travail, jamais une *cible* en entrée. Les phases d'impl
+sont nommées `A, B, C, … Z, AA, AB, …` (bijectif base-26, illimité ;
+suffixe chiffre optionnel `A1`/`AA2` pour une re-coupe / hotfix de
+sous-phase). **L'ancien plafond « 4-7 phases A-G » est SUPPRIMÉ** : la
+phase de wrap-up est la dernière lettre réellement utilisée, et
+`verification.md` énumère chaque phase livrée. Ajouter une phase `AA`
+« durcissement acceptance » quand le cœur remplit A–Z est le résultat
+*attendu*, jamais un dépassement. `Phase 0` reste réservé au gate
+d'audit (commit `chore(planning)` / `fix(sprint{N-1})`, déclaré dans
+`sprint{N}_audit_plan.md` — convention, non parsé comme phase d'impl par
+le validateur). Le regex de phase est `Phase [A-Z]+[0-9]?` partout
+(`agentctl.py`, hooks lightcheck/auditor) — strict superset de l'ancien
+`[A-Z][0-9]?`, donc tout sprint A-G reste byte-valide.
+
+**Definition of done d'un sprint.** Un sprint est DONE quand (a) chaque
+objectif roadmap a une phase atterrie, (b) chaque carry d'audit routé
+est CLOSED ou re-routé avec rationale, ET (c) le **gate de testabilité
+par-sprint** ci-dessous est VERT (ou `RIG-ABSENT` machine-lisible pour
+le seul tier multi-machine). Tant que (c) n'est pas satisfait, le sprint
+n'est pas fermable, peu importe le nombre de phases déjà livrées.
+
+**Gate de testabilité par-sprint** (évalué à la phase de wrap-up,
+consigné dans `sprint{N}_verification.md` sous `## Acceptance`). Trois
+tiers, chacun avec un vocabulaire de verdict FERMÉ et machine-lisible —
+**fini le `DIFFERE-materiel` tapé en prose** :
+
+| Tier | Preuve | Verdicts autorisés | Au wrap-up |
+|---|---|---|---|
+| **T0** Unit/Integration | `cargo nextest` + Vitest (§7.4) | counts, tous verts | déjà enforced |
+| **T1** E2E hermétique (solo) | `npm run test:e2e` (Playwright, vrai daemon `--web-root`, sans Ollama) | `GREEN` / `RED` / `N-A-no-frontend-change` | **BLOQUANT** : `RED` bloque le wrap-up. Toujours exécutable (le binaire build en CI) → jamais légitimement skippable. CI relance l'hermétique à chaque push |
+| **T2** Acceptance live | spec compute flagship (solo, Ollama) **et/ou** `scripts/acceptance/b3_live_pc_vps.sh` (multi-machine, **artefact JSON**) | `PASS` / `BLOCK{diagnosis}` / `RIG-ABSENT` / `N-A-no-cross-machine-feature` | l'artefact JSON DOIT exister et parser ; `PASS` ou `RIG-ABSENT` laisse fermer ; `BLOCK` exige un `diagnosis` non vide + route un carry P1 |
+
+**Invariant d'honnêteté (mécanique).** `RIG-ABSENT` n'est émis QUE par
+le préflight du harness (échec SSH / Ollama absent / binaire absent /
+`project_doc_id` ≠ `PROJECT_ID`) et écrit comme champ JSON `status`.
+Aucun verdict T2 ne se tape à la main. Une feature **cross-machine** ne
+peut être DONE que si (a) le test d'intégration de convergence (deux
+nœuds iroh se découvrant via le vrai chemin discovery, propagation d'une
+entrée `task:` **incrémentale** écrite *après* subscribe) est VERT — le
+maillon que les tests in-process co-localisés ne couvrent pas — ET (b)
+`b3` émet `status: PASS` sur le rig. Sinon la feature est **PROVISIONAL**
+dans `verification.md` (jamais DONE) + carry P1 forcé vers l'audit gate
+suivant ; le test de convergence est le **prérequis dur** (probable
+`Phase A` du sprint cross-machine) avant qu'aucune phase ne puisse
+revendiquer une feature cross-machine.
+
 Chaque phase respecte une discipline stricte :
 
 ### 4.1 Un commit atomique par phase
@@ -1194,6 +1242,15 @@ c'est un index.
 ---
 
 ## 6. Conventions non négociables
+
+**Gate de testabilité par-sprint (non négociable).** Un sprint n'est pas
+fermable tant que le gate de §4 n'est pas VERT : **T1** E2E Playwright
+hermétique BLOQUANT au wrap-up (+ CI à chaque push), **T2** acceptance via
+artefact JSON machine-lisible (`PASS` / `BLOCK{diagnosis}` / `RIG-ABSENT`).
+Un `DIFFERE-materiel` en prose ne satisfait plus aucun tier ; une feature
+cross-machine sans test de convergence vert + `b3 status: PASS` reste
+**PROVISIONAL** avec carry P1 forcé vers l'audit gate suivant. Détail et
+table des tiers : §4 (« Gate de testabilité par-sprint »).
 
 ### 6.1 Décisions Day 0 gelées
 

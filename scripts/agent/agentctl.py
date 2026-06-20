@@ -25,11 +25,11 @@ PROMPT_KINDS = {
 
 PHASE_TITLE_RE = re.compile(
     r"^(feat|fix|docs|chore|test|refactor)\(sprint(?P<sprint>\d+)\):\s*"
-    r"Sprint\s+(?P=sprint)\s+Phase\s+(?P<phase>[A-Z][0-9]?)\b"
+    r"Sprint\s+(?P=sprint)\s+Phase\s+(?P<phase>[A-Z]+[0-9]?)\b"
 )
 PHASE_TITLE_FALLBACK_RE = re.compile(
     r"^(feat|fix|docs|chore|test|refactor)\([^)]+\):\s*"
-    r"Sprint\s+(?P<sprint>\d+)\s+Phase\s+(?P<phase>[A-Z][0-9]?)\b"
+    r"Sprint\s+(?P<sprint>\d+)\s+Phase\s+(?P<phase>[A-Z]+[0-9]?)\b"
 )
 FINAL_PASS_RE = re.compile(r"^## Verdict\s*:\s*PASS\s*$", re.MULTILINE)
 REQUIRED_PHASE_BODY_SECTIONS = (
@@ -551,7 +551,7 @@ def phase_commit_requires_codex(title: str) -> bool:
     """True for phase implementation commits that must carry Codex evidence."""
     if not re.match(r"^(feat|fix|docs|test|refactor)\(", title):
         return False
-    return bool(re.search(r"Sprint\s+\d+\s+Phase\s+[A-Z][0-9]?\b", title))
+    return bool(re.search(r"Sprint\s+\d+\s+Phase\s+[A-Z]+[0-9]?\b", title))
 
 
 def codex_review_errors(title: str, message: str, sprint: str | None, phase: str | None, staged: set[str]) -> list[str]:

@@ -76,7 +76,7 @@ fi
 [ -z "$COMMIT_TITLE" ] && COMMIT_TITLE="$CMD"
 # Primary: scope-based detection (feat(sprint64): Sprint 64 Phase A)
 SPRINT=$(echo "$COMMIT_TITLE" | grep -oE '(feat|fix|docs|chore|test|refactor)\(sprint[0-9]+\)' | head -1 | grep -oE '[0-9]+' || true)
-TITLE_SPRINT=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' | head -1 | grep -oE '[0-9]+' || true)
+TITLE_SPRINT=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]+' | head -1 | grep -oE '[0-9]+' || true)
 if [ -n "$SPRINT" ] && [ -n "$TITLE_SPRINT" ] && [ "$SPRINT" != "$TITLE_SPRINT" ]; then
   echo "[lightcheck] BLOCK: commit scope sprint${SPRINT} conflicts with title Sprint ${TITLE_SPRINT}" >&2
   ERRORS=$((ERRORS + 1))
@@ -85,7 +85,7 @@ fi
 if [ -z "$SPRINT" ]; then
   SPRINT="$TITLE_SPRINT"
 fi
-PHASE_RAW=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z][0-9]?' | head -1 | awk '{print $NF}' || true)
+PHASE_RAW=$(echo "$COMMIT_TITLE" | grep -oE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]+[0-9]?' | head -1 | awk '{print $NF}' || true)
 PHASE=$(echo "$PHASE_RAW" | tr '[:upper:]' '[:lower:]' || true)
 PHASE_UPPER=$(echo "$PHASE" | tr '[:lower:]' '[:upper:]' || true)
 
@@ -282,7 +282,7 @@ fi
 if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
   # Enforce on all phase commits including chore(sprintN) Phase.
   IS_PHASE_IMPL=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|chore|test|refactor)\(' || true)
-  HAS_SPRINT_PHASE_7=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' || true)
+  HAS_SPRINT_PHASE_7=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]+' || true)
   if [ "$IS_PHASE_IMPL" -gt 0 ] && [ "$HAS_SPRINT_PHASE_7" -gt 0 ]; then
     CODEX_REVIEW=".planning/active/sprint${SPRINT}_phase_${PHASE}_codex_review.md"
     if [ ! -f "$CODEX_REVIEW" ]; then
@@ -386,7 +386,7 @@ fi
 # §6.9 : preflight obligatoire avant code pour chaque phase.
 if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
   IS_PHASE_IMPL_8=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|chore|test|refactor)\(' || true)
-  HAS_SPRINT_PHASE_8=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' || true)
+  HAS_SPRINT_PHASE_8=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]+' || true)
   if [ "$IS_PHASE_IMPL_8" -gt 0 ] && [ "$HAS_SPRINT_PHASE_8" -gt 0 ]; then
     PREFLIGHT_FILE=".planning/active/sprint${SPRINT}_phase_${PHASE}_preflight.md"
     if [ ! -f "$PREFLIGHT_FILE" ]; then
@@ -406,7 +406,7 @@ fi
 # Zero exemption : Codex verification ne se skippe pas par body marker.
 if [ -n "$SPRINT" ] && [ -n "$PHASE" ] && [ -n "$BODY" ]; then
   IS_PHASE_IMPL=$(echo "$COMMIT_TITLE" | grep -cE '^(feat|fix|docs|chore|test|refactor)\(' || true)
-  HAS_SPRINT_PHASE=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]' || true)
+  HAS_SPRINT_PHASE=$(echo "$COMMIT_TITLE" | grep -cE 'Sprint[[:space:]]+[0-9]+[[:space:]]+Phase[[:space:]]+[A-Z]+' || true)
   if [ "$IS_PHASE_IMPL" -gt 0 ] && [ "$HAS_SPRINT_PHASE" -gt 0 ]; then
       MISSING_SECTIONS=""
       MISSING_COUNT=0

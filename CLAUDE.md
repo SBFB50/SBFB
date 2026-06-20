@@ -526,8 +526,16 @@ Jusque-la, on edite le canonical librement.
 
 ## Discipline de travail
 **Tout est dans `docs/claude/README.md`.** Résumé ultra-court :
-- un sprint = kickoff + plan + 4-7 phases A-G + verification +
-  audit_plan, tous dans `.planning/`
+- un sprint = kickoff + plan + **N phases (A, B, … Z, AA, AB, … ;
+  nombre piloté par le travail, JAMAIS plafonné ; `Phase 0` = audit
+  gate)** + verification + audit_plan, tous dans `.planning/`. Le regex
+  de phase est `Phase [A-Z]+[0-9]?` (cf. README §4 « Budget de phases »)
+- **gate de testabilité par-sprint (non négociable, README §4)** : un
+  sprint n'est DONE que si T1 E2E Playwright hermétique est BLOQUANT-vert
+  au wrap-up (+ CI chaque push) et T2 acceptance a un artefact JSON
+  machine-lisible (`PASS`/`BLOCK{diagnosis}`/`RIG-ABSENT`) — plus jamais
+  un `DIFFERE-materiel` en prose ; une feature cross-machine sans test de
+  convergence vert + `b3 PASS` reste PROVISIONAL + carry P1
 - un commit par phase (`feat(scope): Sprint N Phase X — titre`),
   body riche avec delta de tests cumulé et scope cuts respectés
 - pas de band-aid fix — toujours root cause
