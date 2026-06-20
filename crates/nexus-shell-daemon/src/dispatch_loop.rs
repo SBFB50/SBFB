@@ -62,8 +62,13 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_lite::StreamExt;
+    use nexus_core_rs::create_node;
     use nexus_core_rs::crypto::KeyPair;
+    use nexus_core_rs::discovery::DiscoveryClient;
+    use nexus_core_rs::docs::{DocsClient, DocsLiveEvent};
     use nexus_core_rs::task::{TASK_FORMAT_VERSION, Task};
+    use std::time::Duration;
 
     fn make_test_entry() -> TaskEntry {
         let task = Task {
@@ -320,5 +325,191 @@ mod tests {
 
         let _ = w_stop.send(());
         worker.await.expect("worker joins").expect("worker ok");
+    }
+
+    // -----------------------------------------------------------------
+    // Sprint 77 Phase A — WAN task delivery convergence (2-node)
+    // -----------------------------------------------------------------
+
+    /// Seed `node_b`'s address lookup with `node_a`'s current address so
+    /// the dial resolves without depending on live pkarr DHT timing
+    /// (mirrors the existing 2-node tests and `blobs.rs::fetch_ticket`).
+    async fn seed_addr(node_a: &nexus_core_rs::Node, node_b: &nexus_core_rs::Node) {
+        let a_addr = DiscoveryClient::new(node_a.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("node A publishes its address");
+        node_b.memory_lookup().add_endpoint_info(a_addr);
+    }
+
+    /// Block until `doc` reports a gossip neighbor (`NeighborUp`) or the
+    /// deadline elapses, so the write under test is a genuine *live
+    /// incremental* delivery rather than the initial bulk sync.
+    async fn await_neighbor(doc: &DocHandle, within: Duration) {
+        let mut events = doc.subscribe().await.expect("subscribe for neighbor wait");
+        tokio::time::timeout(within, async {
+            while let Some(ev) = events.next().await {
+                if matches!(ev, Ok(DocsLiveEvent::NeighborUp(_))) {
+                    return;
+                }
+            }
+        })
+        .await
+        .expect("a gossip neighbor must form within the deadline");
+    }
+
+    /// Poll `doc` until an entry under `prefix` whose key equals
+    /// `exact_key` appears, or the deadline elapses.
+    async fn await_exact_key(
+        doc: &DocHandle,
+        prefix: &[u8],
+        exact_key: &[u8],
+        within: Duration,
+    ) -> bool {
+        let deadline = std::time::Instant::now() + within;
+        loop {
+            let entries = doc.get_many_by_prefix(prefix).await.expect("scan prefix");
+            if entries.iter().any(|e| e.key() == exact_key) {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// Convergence #1: a `task:` entry written by the REAL dispatch loop
+    /// **after** a remote replica has imported and joined the doc must
+    /// reach that replica via live incremental sync.
+    ///
+    /// This is the first cross-node test to exercise *incremental
+    /// post-subscribe* delivery through `dispatch_loop::run` — every
+    /// prior cross-node test wrote before the replica booted, covering
+    /// only the initial bulk sync (the blind spot that hid the live
+    /// `recv:0` blocker, `sprint76_verification.md` §5.1). In-process the
+    /// gossip neighbor forms trivially, so this is the GREEN
+    /// non-regression guard; the dropped-neighbor recovery (the actual
+    /// prod fix) is proven red→green by
+    /// `nexus_core_rs::doc_sync::tests::keepalive_rejoins_doc_after_neighbor_loss`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn convergence_incremental_task_reaches_remote_replica() {
+        let node_a = create_node().await.expect("boot node A (coordinator)");
+        let node_b = create_node().await.expect("boot node B (worker replica)");
+
+        let docs_a = DocsClient::new(node_a.docs());
+        let docs_b = DocsClient::new(node_b.docs());
+        let author_a = docs_a.author_default().await.expect("author A");
+        let doc_a = docs_a.create_doc().await.expect("create project doc on A");
+
+        seed_addr(&node_a, &node_b).await;
+
+        // B imports A's write ticket → start_sync → gossip neighbor forms.
+        let ticket = doc_a.share_write().await.expect("share write ticket");
+        let doc_b = docs_b.import_ticket(ticket).await.expect("B imports doc");
+
+        // Ensure the neighbor is up so the dispatch write is live, not bulk.
+        await_neighbor(&doc_b, Duration::from_secs(20)).await;
+
+        // A writes a task through the PRODUCTION dispatch loop AFTER B joined.
+        let doc_a = Arc::new(doc_a);
+        let (tx, rx) = create_dispatch_channel();
+        let (stop_tx, stop_rx) = oneshot::channel::<()>();
+        let dispatch = tokio::spawn(run(rx, Arc::clone(&doc_a), author_a, stop_rx));
+
+        let entry = make_test_entry();
+        let task_id = entry.task.task_id.clone();
+        tx.send(entry).await.expect("queue task to dispatcher");
+
+        let want_key = format!("task:{task_id}").into_bytes();
+        assert!(
+            await_exact_key(&doc_b, b"task:", &want_key, Duration::from_secs(15)).await,
+            "an incremental task: entry written post-subscribe must reach the remote replica"
+        );
+
+        drop(tx);
+        let _ = stop_tx.send(());
+        dispatch.await.expect("dispatch loop joins");
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    /// Convergence #2 (non-regression): a `task:` entry written **before**
+    /// the replica imports must still reach it via the initial bulk sync.
+    /// Guards against a keepalive/sync change breaking boot catch-up.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn convergence_boot_catchup_still_works() {
+        let node_a = create_node().await.expect("boot node A (coordinator)");
+        let node_b = create_node().await.expect("boot node B (worker replica)");
+
+        let docs_a = DocsClient::new(node_a.docs());
+        let docs_b = DocsClient::new(node_b.docs());
+        let author_a = docs_a.author_default().await.expect("author A");
+        let doc_a = docs_a.create_doc().await.expect("create project doc on A");
+
+        seed_addr(&node_a, &node_b).await;
+
+        // Write the task BEFORE B imports — only the bulk catch-up can find it.
+        let entry = make_test_entry();
+        let task_id = entry.task.task_id.clone();
+        let value = serde_json::to_vec(&entry).expect("serialize entry");
+        doc_a
+            .set(author_a, format!("task:{task_id}").into_bytes(), value)
+            .await
+            .expect("A writes task before share");
+
+        let ticket = doc_a.share_write().await.expect("share write ticket");
+        let doc_b = docs_b.import_ticket(ticket).await.expect("B imports doc");
+
+        let want_key = format!("task:{task_id}").into_bytes();
+        assert!(
+            await_exact_key(&doc_b, b"task:", &want_key, Duration::from_secs(15)).await,
+            "a task: written before import must still reach the replica via bulk catch-up"
+        );
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    /// Convergence #3 (symmetry): a `result:` entry written by the worker
+    /// replica must reach the coordinator's subscriber — the inverse
+    /// direction of the dispatch path, the leg `result_sync` relies on.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn convergence_remote_write_visible_to_local_subscriber() {
+        let node_a = create_node().await.expect("boot node A (coordinator)");
+        let node_b = create_node().await.expect("boot node B (worker replica)");
+
+        let docs_a = DocsClient::new(node_a.docs());
+        let docs_b = DocsClient::new(node_b.docs());
+        let doc_a = docs_a.create_doc().await.expect("create project doc on A");
+        let author_b = docs_b.author_default().await.expect("author B");
+
+        seed_addr(&node_a, &node_b).await;
+
+        let ticket = doc_a.share_write().await.expect("share write ticket");
+        let doc_b = docs_b.import_ticket(ticket).await.expect("B imports doc");
+
+        // Wait until A has formed a neighbor so the result: write is live.
+        await_neighbor(&doc_a, Duration::from_secs(20)).await;
+
+        // The worker writes a result: entry; the coordinator must observe it.
+        doc_b
+            .set(author_b, b"result:rid-conv".to_vec(), b"{}".to_vec())
+            .await
+            .expect("B writes result entry");
+
+        assert!(
+            await_exact_key(
+                &doc_a,
+                b"result:",
+                b"result:rid-conv",
+                Duration::from_secs(15)
+            )
+            .await,
+            "a result: entry written by the worker must reach the coordinator subscriber"
+        );
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
     }
 }

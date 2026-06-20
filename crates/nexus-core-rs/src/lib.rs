@@ -41,6 +41,7 @@ pub mod curator;
 pub mod dht_quorum;
 pub mod discovery;
 pub mod dns_fallback;
+pub mod doc_sync;
 pub mod docs;
 pub mod error;
 pub mod gossip;
@@ -91,6 +92,7 @@ pub use dns_fallback::{
     DOT_PORT, DnsEndpoint, DnsFallbackConfig, DnsFallbackResolve, DnsFallbackResolver,
     concat_txt_strings, load_dns_fallback_from_env,
 };
+pub use doc_sync::{KeepaliveConfig, spawn_doc_sync_keepalive};
 pub use docs::{DocHandle, DocsClient};
 pub use error::{NexusError, Result};
 pub use gossip::{

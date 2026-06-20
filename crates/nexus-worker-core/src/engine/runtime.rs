@@ -46,6 +46,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
+use nexus_core_rs::doc_sync::{EndpointAddr, KeepaliveConfig, spawn_doc_sync_keepalive};
 use nexus_core_rs::docs::{DocHandle, DocsAuthorId, DocsClient, DocsTicket};
 use nexus_core_rs::task::{
     Claim, ClaimEntry, ResultEntry, ResultPayload, TASK_FORMAT_VERSION, Task, TaskEntry,
@@ -158,6 +159,15 @@ pub struct Engine {
     /// that has a non-None `tasks_doc_ticket`, plus tests can
     /// inject docs directly via [`Engine::register_task_doc`].
     task_docs: HashMap<String, DocHandle>,
+    /// Sprint 77 Phase A: coordinator peer addresses for each imported
+    /// task doc, keyed by project_id (captured from `DocTicket::nodes`
+    /// at boot). Drives [`spawn_doc_sync_keepalive`]: when a doc's gossip
+    /// neighbor drops on real transport (NAT rebind, relay change, stale
+    /// ticket addrs), the keepalive re-issues `start_sync(peers)` so the
+    /// coordinator's incremental `task:` writes keep arriving. Docs
+    /// injected via [`Engine::register_task_doc`] (tests) have no entry
+    /// here and get no keepalive.
+    task_doc_peers: HashMap<String, Vec<EndpointAddr>>,
     /// Default author id on this worker's local docs store,
     /// used to write `claim:*` and `result:*` entries.
     worker_author: Option<DocsAuthorId>,
@@ -340,6 +350,7 @@ impl Engine {
         // Failed imports are logged but non-fatal so a single broken
         // project can't prevent the engine from booting.
         let mut task_docs: HashMap<String, DocHandle> = HashMap::new();
+        let mut task_doc_peers: HashMap<String, Vec<EndpointAddr>> = HashMap::new();
         match allowlist.list_enabled() {
             Ok(projects) => {
                 for p in projects {
@@ -347,23 +358,32 @@ impl Engine {
                         continue;
                     };
                     match ticket_str.parse::<DocsTicket>() {
-                        Ok(ticket) => match docs_client.import_ticket(ticket).await {
-                            Ok(doc) => {
-                                info!(
-                                    project = %p.id,
-                                    doc_id = %doc.id(),
-                                    "imported project task doc",
-                                );
-                                task_docs.insert(p.id.clone(), doc);
+                        Ok(ticket) => {
+                            // Sprint 77 Phase A: capture the coordinator
+                            // peer addresses before `import_ticket`
+                            // consumes the ticket, so the doc-sync
+                            // keepalive can re-dial them when the gossip
+                            // neighbor drops (`DocTicket::nodes`).
+                            let peers = ticket.nodes.clone();
+                            match docs_client.import_ticket(ticket).await {
+                                Ok(doc) => {
+                                    info!(
+                                        project = %p.id,
+                                        doc_id = %doc.id(),
+                                        "imported project task doc",
+                                    );
+                                    task_docs.insert(p.id.clone(), doc);
+                                    task_doc_peers.insert(p.id.clone(), peers);
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        project = %p.id,
+                                        error = %e,
+                                        "failed to import task doc; project will be skipped",
+                                    );
+                                }
                             }
-                            Err(e) => {
-                                warn!(
-                                    project = %p.id,
-                                    error = %e,
-                                    "failed to import task doc; project will be skipped",
-                                );
-                            }
-                        },
+                        }
                         Err(e) => {
                             warn!(
                                 project = %p.id,
@@ -520,6 +540,7 @@ impl Engine {
             shutdown_tx_handle: Some(shutdown_tx),
             keypair,
             task_docs,
+            task_doc_peers,
             worker_author,
             completed_task_ids: HashSet::new(),
             boot_time: SystemTime::now(),
@@ -660,6 +681,25 @@ impl Engine {
         // Apply Start now that we are actually about to loop.
         self.apply_event(WorkerEvent::Start).await;
 
+        // Sprint 77 Phase A: keep each imported task doc's gossip
+        // neighborhood alive so the coordinator's incremental `task:`
+        // writes keep reaching this worker after transport churn. Docs
+        // injected via `register_task_doc` carry no peers and are skipped.
+        let (keepalive_stop_tx, keepalive_stop_rx) = watch::channel(false);
+        let mut keepalive_handles = Vec::new();
+        for (project_id, doc) in &self.task_docs {
+            if let Some(peers) = self.task_doc_peers.get(project_id) {
+                if !peers.is_empty() {
+                    keepalive_handles.push(spawn_doc_sync_keepalive(
+                        doc.clone(),
+                        peers.clone(),
+                        KeepaliveConfig::default(),
+                        keepalive_stop_rx.clone(),
+                    ));
+                }
+            }
+        }
+
         let shutdown_rx = self
             .shutdown_rx
             .take()
@@ -716,6 +756,13 @@ impl Engine {
         // Sprint 5 Phase A: one last flush on the way out so the
         // shell's last view of the worker reflects the shutdown.
         self.flush_state_snapshot();
+
+        // Sprint 77 Phase A: stop the doc-sync keepalives and wait for
+        // them to exit before tearing down the node they hold handles to.
+        let _ = keepalive_stop_tx.send(true);
+        for h in keepalive_handles {
+            let _ = h.await;
+        }
 
         info!("engine loop exited, shutting down iroh node");
         // Best-effort shutdown; log on failure but do not
@@ -1622,6 +1669,77 @@ mod tests {
 
         let _ = tx.send(());
         handle.await.unwrap().unwrap();
+    }
+
+    /// Sprint 77 Phase A: the engine must capture the coordinator peer
+    /// addresses from each imported task doc's ticket — the input the
+    /// doc-sync keepalive re-dials when the gossip neighbor drops. Closes
+    /// the wiring-coverage gap: every other engine test injects docs via
+    /// `register_task_doc`, which leaves `task_doc_peers` empty and never
+    /// exercises the import → `ticket.nodes` capture branch.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn engine_captures_coordinator_peers_from_imported_ticket() {
+        // A coordinator node mints a write ticket carrying its EndpointAddr.
+        let coord = nexus_core_rs::create_node()
+            .await
+            .expect("boot coordinator node");
+        // Wait for a routable address so the minted ticket's `nodes` is
+        // populated (share snapshots the current addr_info).
+        nexus_core_rs::DiscoveryClient::new(coord.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("coordinator publishes an address");
+        let coord_docs = RsDocsClient::new(coord.docs());
+        let coord_doc = coord_docs
+            .create_doc()
+            .await
+            .expect("create coordinator doc");
+        let ticket = coord_doc
+            .share_write()
+            .await
+            .expect("share write ticket")
+            .to_string();
+
+        let allowlist = Allowlist::open_in_memory().unwrap();
+        allowlist
+            .enroll(crate::allowlist::NewProject {
+                id: "proj-ka".into(),
+                name: "KA".into(),
+                enabled: true,
+                budget_joules: 0,
+                tasks_doc_ticket: Some(ticket),
+            })
+            .unwrap();
+
+        let boot = EngineBoot {
+            worker_config: WorkerConfig::default(),
+            keypair: KeyPair::generate(),
+            allowlist,
+            data_dir: None,
+            llm_override: Some(Box::new(StubBackend::new())),
+            sbfb_home_override: None,
+            rate_limit_policy_path_override: None,
+        };
+        let engine = Engine::new(boot).await.expect("engine boots");
+
+        // The child test module can read the private fields directly:
+        // the engine imported the ticket-backed task doc AND captured
+        // >= 1 coordinator peer from the ticket — exactly the input the
+        // Phase A keepalive re-dials on neighbor loss.
+        assert!(
+            engine.task_docs.contains_key("proj-ka"),
+            "engine must import the ticket-backed task doc"
+        );
+        let peers = engine
+            .task_doc_peers
+            .get("proj-ka")
+            .expect("engine must record a task_doc_peers entry for the imported project");
+        assert!(
+            !peers.is_empty(),
+            "engine must capture the coordinator EndpointAddr(s) from the ticket for the keepalive"
+        );
+
+        coord.shutdown().await.ok();
     }
 
     // P2-A-1 (S71->S73) MANDATORY: the worker-side mirror of the dispatch

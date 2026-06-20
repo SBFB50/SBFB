@@ -954,6 +954,29 @@ contribution deja creditee.
 
 ---
 
+### §15.3 Convergence delivery WAN — keepalive de voisinage gossip (Sprint 77 Phase A)
+
+Le fix de convergence (`nexus-core-rs/doc_sync.rs`, keepalive cable dans l'engine
+worker) re-emet `Doc::start_sync(peers)` quand le voisinage gossip du doc de taches
+tombe, pour que les ecritures `task:` incrementales du coordinateur continuent
+d'arriver apres une rupture de transport (NAT rebind, relay change, adresses ticket
+perimees, swap binaire). **Aucune frontiere d'admission nouvelle** : le worker re-dial
+le MEME coordinateur dont il detient deja le `DocTicket` write-capable (minte par
+l'invite loopback authentifie M19, `invite_api.rs`) ; il ne joint aucun pair
+supplementaire. La re-resolution d'adresse passe par la decouverte pkarr native de
+`presets::N0` — exactement le chemin de confiance de tout dial SBFB, deja couvert par
+le canary Eclipse-by-DHT (`dht_quorum` / `pkarr_resolver`) : un relay pkarr malveillant
+peut au pire refuser/perimer une reponse, pas forger une adresse (paquet signe par la
+cle du node). Le `task:` reste une cle de DOCUMENT hors bytes canonical (0 bump wire) ;
+la subscription ajoutee est observabilite-seule (drain best-effort, pas de
+backpressure, le claim reste poll-based). **Caveat amplification** : le keepalive est
+borne par `min_rejoin_interval` (cooldown) pour eviter un storm de re-join sur des
+`NeighborDown` en rafale ; il ne s'execute que pour les docs importes via ticket (pas
+pour les docs injectes en test). Surface inchangee, residual nul au-dela du modele de
+confiance pkarr deja accepte.
+
+---
+
 ## 16. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation

@@ -3491,6 +3491,58 @@ Cross-ref: §P60 (.1 dedup-mirror / .2 exact-match homogeneous / .3 TOPLOC=S77),
 §P53 (quorum), §P54 (cross-process E2E), THREAT_MODEL §15.2,
 `sprint76_phase_{c,d}_preflight.md`.
 
+## §P63 — Sprint 77 Phase A: iroh-docs live delivery needs a gossip-neighbor keepalive
+
+The S76 live cross-machine attempt blocked on convergence: a `task:` entry written
+onto the project doc AFTER a remote worker imported never reached the worker
+(`recv:0`, "gossip neighborhood non formé"), LAN+WAN (`sprint76_verification.md`
+§5.1). Root cause, read against the installed `iroh-docs-0.98.0` source (NOT the
+brief's guess that "the worker never subscribes"):
+
+1. **The coordinator's incremental broadcast is gated by `is_syncing(namespace)`**
+   (`live.rs:711-718`), and `is_syncing` is inserted ONLY by `start_sync`
+   (`live.rs:409-414`). The coordinator opens the project doc via
+   `create_doc`/`open_doc` (sync=false) and never calls `start_sync` — it relies
+   entirely on the worker's INCOMING dial forming a gossip neighbor
+   (`NeighborUp -> sync_with_peer`) to flip `is_syncing` true.
+2. **`DocsApi::import(ticket)` calls `start_sync(ticket.nodes)` exactly once at
+   boot** (`api.rs:220-225`), seeding the dial with the addresses frozen into the
+   ticket at share time. So "the worker subscribes" is already true at engine level
+   — adding an app-facing `doc.subscribe()` for sync is a FALSE LEVER
+   (`ToLiveActor::Subscribe`, `live.rs:334-341`, only adds a stream consumer; it
+   does NOT insert the namespace into the sync-set).
+3. On real transport (NAT rebind, relay change, stale ticket addrs, a hot binary
+   swap over persistent `docs.redb`) that one dial does not form/maintain a
+   neighbor → the namespace swarm stays empty → only the initial bulk sync
+   delivers, never the incremental writes.
+
+Fix (`nexus-core-rs/src/doc_sync.rs`, wired into the worker engine
+`run_until_shutdown`): a per-doc keepalive that **observes `NeighborUp`/
+`NeighborDown` and re-issues `Doc::start_sync(peers)` whenever the neighbor is
+absent** (immediate on `NeighborDown`, plus a periodic backstop for a missed
+initial `NeighborUp`). Passing the coordinator's `EndpointAddr` (which carries the
+endpoint id) lets `presets::N0` discovery re-resolve the coordinator's CURRENT
+address via pkarr instead of the ticket's frozen addrs. The read path stays
+poll-based; the subscription is observability-only and drained best-effort so it
+can never backpressure the boot hot path (§P54). 0 wire bump — `start_sync` is an
+existing 0.98 primitive, the `task:` key and canonical bytes are untouched.
+
+Lessons (do not re-derive):
+- **`import` already does `start_sync`; the convergence lever is keeping the gossip
+  NEIGHBOR alive, not re-subscribing.** Read the dep source before naming a fix.
+- **An in-process 2-node test converges trivially** (the golden
+  `two_nodes_docs_sync.rs` proves 0.98 is not broken), so it is a GREEN guard, not
+  the red→green proof. The dropped-neighbor recovery is proven red→green by forcing
+  `doc.leave()` then asserting non-delivery (control) before the keepalive re-joins
+  (`doc_sync::tests::keepalive_rejoins_doc_after_neighbor_loss`). The live WAN proof
+  is the `b3` cross-machine harness (T2), never claimed from in-process tests.
+- **Beware the coordinator-side faux-vert**: forcing `is_syncing` on the
+  coordinator (`start_sync` at boot with no peer) can pass LAN while leaving WAN
+  broken. The worker keepalive is the correct lever.
+
+Cross-ref: §P54 (cross-process E2E / hot path), §P62 (whole-model routing),
+`sprint77_phase_A_preflight.md`, THREAT_MODEL §15.
+
 ## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
 
 Origin: S74 Phase D was committed while its Codex review still carried an
