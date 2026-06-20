@@ -36,6 +36,7 @@
 pub mod attestations;
 pub mod blobs;
 pub mod canonical;
+pub mod compute_group;
 pub mod crypto;
 pub mod curator;
 pub mod dht_quorum;
@@ -57,6 +58,7 @@ pub mod relay_config;
 pub mod relay_pow_policy;
 pub mod schemas;
 pub mod seed;
+pub mod shard;
 pub mod signed_list;
 pub mod task;
 pub mod tls_pinning;
@@ -72,11 +74,16 @@ pub use attestations::{
 };
 pub use blobs::{BlobsClient, Store};
 pub use canonical::{
-    DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_CONTRIBUTOR_ATTESTATION_V1,
-    DOMAIN_CURATOR_LIST_V1, DOMAIN_DELEGATION_CERT_V1, DOMAIN_DURESS_ACK_V1, DOMAIN_FEED_V1,
-    DOMAIN_INVITE_V1, DOMAIN_KEY_ROTATION_V1, DOMAIN_KUDOS_V1, DOMAIN_NODE_DIRECTORY_V1,
-    DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1, DOMAIN_RESULT_V1, DOMAIN_SEED_REQUEST_V1,
-    DOMAIN_SEED_RESPONSE_V1, DOMAIN_TASK_V1, DOMAIN_WARRANT_CANARY_V1, canonical_bytes,
+    DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_COMPUTE_GROUP_V1,
+    DOMAIN_CONTRIBUTOR_ATTESTATION_V1, DOMAIN_CURATOR_LIST_V1, DOMAIN_DELEGATION_CERT_V1,
+    DOMAIN_DURESS_ACK_V1, DOMAIN_FEED_V1, DOMAIN_INVITE_V1, DOMAIN_KEY_ROTATION_V1,
+    DOMAIN_KUDOS_V1, DOMAIN_NODE_DIRECTORY_V1, DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1,
+    DOMAIN_RESULT_V1, DOMAIN_SEED_REQUEST_V1, DOMAIN_SEED_RESPONSE_V1, DOMAIN_TASK_V1,
+    DOMAIN_WARRANT_CANARY_V1, canonical_bytes,
+};
+pub use compute_group::{
+    COMPUTE_GROUP_FORMAT_VERSION, COMPUTE_GROUP_ID_MAX, COMPUTE_GROUP_MAX_MEMBERS, ComputeGroup,
+    ComputeGroupEntry,
 };
 pub use crypto::{Blake3Chain, KeyPair, blake3_hash, verify};
 pub use curator::{
@@ -112,7 +119,7 @@ pub use keystore::{
     TAG_LEN, UnlockError,
 };
 pub use node::{
-    BlobStore, ExtraProtocolFactory, Node, NodeConfig, SEED_ALPN, create_node,
+    BlobStore, ExtraProtocolFactory, Node, NodeConfig, SEED_ALPN, SHARD_ALPN, create_node,
     create_node_with_config, create_node_with_protocols,
 };
 pub use node_directory::{
@@ -153,6 +160,10 @@ pub use schemas::{
 pub use seed::{
     SEED_FORMAT_VERSION, SEED_NONCE_LEN, SEED_TS_WINDOW_SECS, SeedDecision, SeedRequest,
     SeedRequestEnvelope, SeedResponse, SeedResponseEnvelope, random_nonce,
+};
+pub use shard::{
+    MAX_SHARD_FRAME_BYTES, SHARD_REJECT_NOT_MEMBER, ShardProtocol, conn_rtt, open_shard_connection,
+    read_frame, shard_protocol_factory, write_frame,
 };
 pub use signed_list::SignedList;
 pub use task::{Claim, ClaimEntry, ResultEntry, ResultPayload, RuntimeTuple, Task, TaskEntry};

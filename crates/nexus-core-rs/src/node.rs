@@ -67,6 +67,18 @@ use crate::error::{NexusError, Result};
 /// [`crate::seed::SEED_FORMAT_VERSION`]).
 pub const SEED_ALPN: &[u8] = b"sbfb/seed/0";
 
+/// ALPN for the Sprint 77 sharded-inference data plane. Registered via
+/// the same [`create_node_with_protocols`] `extra_protocols` mechanism as
+/// [`SEED_ALPN`]; the handler ([`crate::shard::ShardProtocol`]) carries a
+/// private [`crate::compute_group::ComputeGroupEntry`] allowlist and
+/// rejects a non-member at the handshake before any activation frame.
+///
+/// The trailing `/1` is the protocol generation; the activation frames
+/// carry a fine-grained `version` under it (see
+/// [`crate::compute_group::COMPUTE_GROUP_FORMAT_VERSION`] for the admission
+/// payload).
+pub const SHARD_ALPN: &[u8] = b"sbfb/shard/1";
+
 /// A factory that builds an extra ALPN protocol handler once the node's
 /// blob store, endpoint and address lookup exist.
 ///

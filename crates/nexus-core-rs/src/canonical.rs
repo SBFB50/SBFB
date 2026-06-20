@@ -238,6 +238,22 @@ pub const DOMAIN_SEED_RESPONSE_V1: &[u8] = b"nexus-seed-response-v1";
 /// `DOMAIN_SEED_REQUEST_V1` pattern).
 pub const DOMAIN_NODE_DIRECTORY_V1: &[u8] = b"nexus-node-directory-v1";
 
+/// Domain separation tag for compute-group canonical bytes.
+///
+/// Sprint 77 Phase B — sharded inference data plane. The initiator of a
+/// private compute session signs a [`crate::compute_group::ComputeGroup`]
+/// — an Ed25519 allowlist of the `worker_pubkey`s authorised to open a
+/// `sbfb/shard/1` data-plane connection. A worker absent from the
+/// allowlist is rejected at the ALPN handshake (before any activation
+/// frame). The domain tag keeps a compute-group signature from being
+/// replayed as a node-directory / curator-list / seed / task / result /
+/// claim / invite / kudos / provenance / canary / PoW / duress-ack /
+/// age-witness / contributor / key-rotation / delegation / feed signature
+/// — the pre-image spaces are disjoint by construction. A brand-new
+/// signed type with its own domain: purely additive, 0-bump of every
+/// existing `*_FORMAT_VERSION` (the S74 `DOMAIN_SEED_REQUEST_V1` pattern).
+pub const DOMAIN_COMPUTE_GROUP_V1: &[u8] = b"nexus-compute-group-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///
