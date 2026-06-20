@@ -57,10 +57,22 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
   throw new Error(`daemon /health did not respond in ${timeoutMs} ms: ${lastError}`);
 }
 
-async function initDaemon(configPath: string, daemonBin: string): Promise<void> {
+async function initDaemon(
+  configPath: string,
+  daemonBin: string,
+  gridRoot: string,
+): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     const proc = spawn(daemonBin, ["--config", configPath, "init"], {
-      env: { ...process.env, SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN },
+      // SBFB_HOME pins the node's home (auth_token, node_key, consent.json,
+      // ...) to the hermetic tempdir — so consent/identity writes never
+      // touch the real ~/.sbfb. SBFB_AUTH_TOKEN still overrides the token
+      // (proven coexisting in operator_server.rs).
+      env: {
+        ...process.env,
+        SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN,
+        SBFB_HOME: gridRoot,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -121,14 +133,18 @@ async function globalSetup() {
   console.log(`[pw] web root:      ${webRoot}`);
 
   console.log("[pw] initialising daemon");
-  await initDaemon(configPath, daemonBin);
+  await initDaemon(configPath, daemonBin, gridRoot);
 
   console.log("[pw] spawning daemon start");
   const startProc: ChildProcessWithoutNullStreams = spawn(
     daemonBin,
     ["--config", configPath, "start", "--web-root", webRoot],
     {
-      env: { ...process.env, SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN },
+      env: {
+        ...process.env,
+        SBFB_AUTH_TOKEN: TEST_AUTH_TOKEN,
+        SBFB_HOME: gridRoot,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
