@@ -36,7 +36,7 @@ Read `audit_plan.md` first to understand the tracks assigned to this audit.
 Then form your own opinion from the code before reading PATTERNS.md (opinion-
 first pattern to avoid anchoring).
 
-## 9 Tracks
+## 10 Tracks
 
 Execute each track independently. Classify findings as P0/P1/P2/P3.
 
@@ -178,6 +178,48 @@ For each phase commit:
 Missing body section is P2. Wrong commit format is P2. Skipped hook evidence
 is P1.
 
+### Track J — Testability
+
+Verify the audited sprint N-1 honored the per-sprint testability gate
+defined in `docs/claude/README.md` §4 (« Gate de testabilité par-sprint »).
+Do NOT redefine the gate here — only verify the wrap-up respected it. The
+T1/T2 verdict vocabulary is CLOSED and machine-readable; the recurring
+project bug is closing a sprint with a hand-typed `DIFFERE-materiel` prose
+instead of a JSON `status`.
+
+```bash
+# T1 — hermetic E2E Playwright spec must exist and be referenced
+ls web/e2e/*.spec.ts
+rg -n "test:e2e" web/package.json
+rg -n "GREEN|RED|N-A-no-frontend-change|test:e2e|Playwright" .planning/active/sprint{N-1}_verification.md
+# T2 — acceptance JSON artifact verdict vocabulary
+rg -n "PASS|BLOCK|RIG-ABSENT|N-A-no-cross-machine-feature|b3_live" .planning/active/sprint{N-1}_verification.md
+# Forbidden hand-typed prose verdict (cardinal anti-pattern)
+rg -n "DIFFERE-materiel|DIFFERE-trace-user|DIFFERE-materiel-operateur" .planning/active/sprint{N-1}_verification.md CLAUDE.md docs/claude/SPRINT_LOG.md
+# Frontend surface touched this sprint?
+git diff --name-only <sprint_start_sha>..HEAD -- 'web/'
+```
+
+For the audited sprint:
+- Did a sprint that touched `web/` create or extend at least one
+  `web/e2e/*.spec.ts` spec, AND does `verification.md` §Acceptance carry a
+  T1 verdict from the closed set {`GREEN`, `RED`, `N-A-no-frontend-change`}?
+- Is the T2 acceptance JSON artifact present and parsable, with a `status`
+  from {`PASS`, `BLOCK`, `RIG-ABSENT`, `N-A-no-cross-machine-feature`}?
+- For a claimed cross-machine feature (e.g. sharding): is there a GREEN
+  convergence integration test (two iroh nodes, incremental `task:`
+  propagation post-subscribe) AND `b3 status: PASS`? If either is missing,
+  the feature MUST be marked PROVISIONAL + carry P1 in verification.md.
+
+Missing T1 spec when `web/` was touched without a documented
+`N-A-no-frontend-change` is P1. A hand-typed `DIFFERE-*` prose substituted
+for a verdict is P1 (cf. README §4 invariant d'honnêteté). T2 artifact
+absent or unparsable is P1. Cross-machine feature marked DONE without
+convergence test + `b3 PASS` is P1. A legitimate `RIG-ABSENT` (hardware
+absent, emitted by the harness preflight as JSON `status`) or a justified
+`N-A-no-cross-machine-feature` is NOT a finding — these are closed,
+authorized verdicts. Minor count/wording incoherence is P2.
+
 ## Verdict
 
 Aggregate findings:
@@ -244,6 +286,14 @@ Verdict: **PASS | CONDITIONAL PASS | FAIL**
 ## Track I — Meta-Process
 - Phase commits: <count>
 - Body format: <compliant count>/<total>
+- Findings: <list or none>
+
+## Track J — Testability
+- T1 E2E spec present (web/e2e/*.spec.ts): <yes/no/N-A-no-frontend-change>
+- T1 CI status: <GREEN/RED/N-A>
+- T2 acceptance JSON status: <PASS/BLOCK/RIG-ABSENT/N-A-no-cross-machine-feature/absent>
+- DIFFERE-* prose verdict detected: <yes/no>
+- Cross-machine convergence test + b3 PASS (if applicable): <yes/no/N-A>
 - Findings: <list or none>
 
 ## Summary

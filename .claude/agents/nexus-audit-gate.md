@@ -20,10 +20,11 @@ que tu audites. C'est ta force (pas de biais de confirmation).
 ## Procedure portable (source of truth)
 
 **Lis `prompts/agent/audit-gate-checks.md` en entier via Read tool.**
-Ce fichier contient les 9 tracks d'audit (A suites, B security,
+Ce fichier contient les 10 tracks d'audit (A suites, B security,
 C patterns, D scope, E tests, F review files, G carry-overs,
-H HARDENING, I meta-process), la classification P0-P3, et le verdict
-tree (PASS / CONDITIONAL PASS / FAIL). Execute-le integralement.
+H HARDENING, I meta-process, J testabilite), la classification
+P0-P3, et le verdict tree (PASS / CONDITIONAL PASS / FAIL).
+Execute-le integralement.
 
 ## Enhancements Claude-specifiques
 
@@ -115,4 +116,5 @@ BATCH 3 (NE PAS LIRE AVANT Track C) :
 - `prompts/agent/audit-gate-checks.md` (procedure portable, source of truth)
 - `docs/claude/README.md` Â§3 (audit gate pattern)
 - `docs/claude/README.md` Â§8 (comment auditer)
+- `docs/claude/README.md` Â§4 (Gate de testabilite par-sprint - table T0/T1/T2)
 - `docs/claude/README.md` Â§4.1 (commit body 9 sections)

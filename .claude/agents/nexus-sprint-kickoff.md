@@ -755,9 +755,18 @@ ici â€” pas de disparition silencieuse.}
 
 ## Â§10 Audit gate pattern â€” rappel
 {Confirmer que Phase 0 a ete jouee (avec verdict et SHA).
-Confirmer que la Phase {derniere} du sprint devra produire :
-- `sprint{N}_verification.md` (self-report fail-fast)
-- `sprint{N+1}_audit_plan.md` (plan pour Phase 0 S{N+1})
+Confirmer que la Phase {derniere} (wrap-up) du sprint devra produire :
+- `sprint{N}_verification.md` (self-report fail-fast) AVEC une section
+  `## Acceptance` portant les verdicts du gate de testabilite
+  (README Â§4) : T1 `GREEN`/`RED`/`N-A-no-frontend-change` et T2
+  `PASS`/`BLOCK{diagnosis}`/`RIG-ABSENT`/`N-A-no-cross-machine-feature`
+  (vocabulaire ferme, jamais un `DIFFERE-materiel` en prose).
+- `sprint{N+1}_audit_plan.md` (plan pour Phase 0 S{N+1}) qui DOIT
+  inscrire une track Testabilite standing (miroir Track A Suites)
+  exigeant que l'audit gate S{N+1} verifie la creation du spec T1
+  `web/e2e/*.spec.ts`, son statut CI, et l'artefact JSON T2. La phase
+  wrap-up ECRIT cette track ; l'agent kickoff n'ecrit pas l'audit_plan,
+  il en SPECIFIE l'exigence ici.
 - Mise a jour `docs/rust/PATTERNS.md` et `docs/shell/PATTERNS.md`
   si nouveaux patterns ou tech debt.}
 
@@ -847,9 +856,22 @@ decrits qualitativement (code sample si applicable).}
 1. `test_xxx` â€” verifie que {scenario}
 2. `test_yyy` â€” verifie que {scenario}
 Pas juste "+N tests". Le nom du test est verifiable au commit.}
+{Si la phase touche le frontend (`web/`) ou livre une feature
+E2E-able, NOMMER aussi le(s) spec(s) Playwright hermetique(s)
+qui la couvriront (T1, README Â§4) :
+- `web/e2e/{nom}.spec.ts` : scenario E2E lance via `npm run test:e2e`
+  (vrai daemon, sans Ollama). Si aucune surface frontend nouvelle,
+  ecrire explicitement `N-A-no-frontend-change` et le justifier.}
 
 ### Â§X.4 Critere d'acceptation
 {Commandes exactes pour verifier + condition binaire.}
+{Pour la phase wrap-up et toute phase livrant une feature
+cross-machine, NOMMER l'acceptance T2 (README Â§4) qui produira
+l'artefact JSON machine-lisible :
+`scripts/acceptance/b3_live_pc_vps.sh` -> `status` dans
+{`PASS`, `BLOCK{diagnosis}`, `RIG-ABSENT`,
+`N-A-no-cross-machine-feature`}. Jamais un `DIFFERE-materiel`
+tape en prose : le verdict est un champ JSON.}
 
 ### Â§X.5 Commit cible
 {Titre exact : `feat(scope): Sprint {N} Phase {X} â€” {titre court}`
@@ -882,6 +904,14 @@ Inclure obligatoirement :
 - scan-trust-wording.sh (si script existant)
 - sync bridge SDK (diff sbfb-bridge.js copies)
 - 1 row par test specifique nomme dans les Â§X.3
+- 1 row T1 E2E Playwright hermetique (`npm run test:e2e`, spec
+  `web/e2e/*.spec.ts` nomme couvrant la feature du sprint, BLOQUANT
+  au wrap-up ; verdict `GREEN`/`RED`/`N-A-no-frontend-change`).
+  Cf. README Â§4 (Gate de testabilite par-sprint).
+- 1 row T2 acceptance produisant l'artefact JSON
+  (`scripts/acceptance/b3_live_pc_vps.sh`, `status` dans
+  `PASS`/`BLOCK{diagnosis}`/`RIG-ABSENT`/`N-A-no-cross-machine-feature`)
+  si feature cross-machine. Jamais un `DIFFERE-materiel` en prose.
 - 1 row par artefact documentaire requis (test -f)
 La colonne `Observed` est vide au plan, sera remplie au
 verification.md.}
@@ -911,7 +941,7 @@ pour que l'agent executeur n'ait pas a switcher de fichier.}
 
 ### Step 9 â€” Verification coherence croisee
 
-Avant de livrer, verifier ces 15 invariants :
+Avant de livrer, verifier ces 16 invariants :
 
 1. **Tous les items 3/3 MANDATORY** du Step 4.1 sont dans une phase
    du plan (pas en carry).
@@ -946,6 +976,13 @@ Avant de livrer, verifier ces 15 invariants :
     descriptions vagues.
 15. **G6 prep** : les items carry-over memory du sprint N-1 sont
     listes dans l'output avec leur destination.
+16. **Gate de testabilite (README Â§4)** : le plan NOMME >= 1 spec T1
+    `web/e2e/*.spec.ts` (`npm run test:e2e`) couvrant la feature, ou
+    consigne `N-A-no-frontend-change` motive ; il NOMME l'acceptance
+    T2 (`scripts/acceptance/b3_live_pc_vps.sh`, artefact JSON) si
+    feature cross-machine ; la Fail-fast checklist a une row T1 et une
+    row T2 ; le Â§10 exige que le wrap-up inscrive la track
+    Testabilite dans l'audit_plan S{N+1}.
 
 ---
 
@@ -1080,6 +1117,7 @@ Pour git/cargo/npm, PowerShell ou Bash selon contexte.
 - `docs/claude/README.md` Â§2.1 (kickoff 12 sections canoniques)
 - `docs/claude/README.md` Â§2.2 (plan 9 sections canoniques)
 - `docs/claude/README.md` Â§3 (audit gate pattern)
+- `docs/claude/README.md` Â§4 (Budget de phases ouvert + Gate de testabilite par-sprint T0/T1/T2)
 - `docs/claude/README.md` Â§4.1 (commit body 9 sections obligatoires)
 - `docs/claude/README.md` Â§4.1.1 (mecanique commit Windows)
 - `docs/claude/README.md` Â§6.1.1 (G1 Design Review Board)

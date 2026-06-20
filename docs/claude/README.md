@@ -612,6 +612,21 @@ suivant ; le test de convergence est le **prérequis dur** (probable
 `Phase A` du sprint cross-machine) avant qu'aucune phase ne puisse
 revendiquer une feature cross-machine.
 
+**Enforcement (mécanique).** Ce gate n'est plus seulement documenté, il
+est appliqué par trois backstops. (1) L'**audit gate** du sprint N+1 joue
+une **Track J — Testabilité** (`prompts/agent/audit-gate-checks.md`) qui
+vérifie que N a créé un spec T1 `web/e2e/*.spec.ts`, son statut CI, et
+l'artefact JSON T2 — absence quand `web/` est touché, ou prose `DIFFERE-*`
+substituée à un verdict, = **P1** (bloque le PASS, force un `fix(sprintN)`
+avant la Phase A suivante). (2) Le **kickoff** (`nexus-sprint-kickoff`,
+invariant #16) exige que le plan NOMME le spec T1 + l'acceptance T2 dès
+l'ouverture, et que le wrap-up écrive la Track J dans l'audit_plan S{N+1}.
+(3) Le hook **lightcheck** (Check 10) émet un WARN au commit de wrap-up si
+`verification.md` ne porte pas de verdict T1/T2 machine-lisible. Un sprint
+sans surface frontend (`N-A-no-frontend-change`) ou non cross-machine
+(`N-A-no-cross-machine-feature`) passe les trois — seuls l'oubli et la
+prose-au-lieu-de-JSON sont punis.
+
 Chaque phase respecte une discipline stricte :
 
 ### 4.1 Un commit atomique par phase

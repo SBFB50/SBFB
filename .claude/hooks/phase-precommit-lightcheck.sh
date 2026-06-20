@@ -471,6 +471,39 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ] && [ -n "$BODY" ]; then
   fi
 fi
 
+# === Check 10 : Testability gate at wrap-up (WARN, non-blocking) ===
+# §4 : gate de testabilite par-sprint. Detecte le wrap-up par le STAGING
+# de sprint{N}_verification.md (signal fiable — le keyword titre ne l'est
+# PAS, cf. S71/S72/S73 sans "wrap-up"). WARN seulement, par conception :
+# l'autorite BLOQUANTE est l'audit-gate Track J (P1 si T1/T2 manquant) + la
+# Definition of done README §4 ; un BLOCK ici risquerait un faux positif si
+# verification.md formule le verdict autrement que le grep. Le hook se limite
+# a NUDGER au bon moment. Vocabulaire ferme T1/T2 : cf. README §4.
+STAGED_VERIF=$(git diff --cached --name-only 2>/dev/null | grep -E 'sprint[0-9]+_verification\.md$' | grep -v '/archive/' || true)
+if [ -n "$STAGED_VERIF" ]; then
+  while IFS= read -r verif_file; do
+    [ -z "$verif_file" ] && continue
+    VERIF_ADDED=$(git diff --cached -- "$verif_file" 2>/dev/null | grep -E '^\+' || true)
+    HAS_T1=$(echo "$VERIF_ADDED" | grep -cE 'test:e2e|Playwright|N-A-no-frontend-change|\bGREEN\b|\bRED\b' || true)
+    HAS_T2=$(echo "$VERIF_ADDED" | grep -cE 'b3_live|RIG-ABSENT|N-A-no-cross-machine-feature|\bPASS\b|BLOCK\{' || true)
+    HAS_DIFFERE=$(echo "$VERIF_ADDED" | grep -cE 'DIFFERE-materiel|DIFFERE-trace-user' || true)
+    if [ "$HAS_T1" -eq 0 ] || [ "$HAS_T2" -eq 0 ]; then
+      echo "[lightcheck] WARN: gate testabilite §4 — verification.md ne reference pas" >&2
+      echo "  de verdict T1 et/ou T2 machine-lisible (fichier: $verif_file)." >&2
+      echo "  T1 attendu: GREEN/RED/N-A-no-frontend-change (npm run test:e2e)." >&2
+      echo "  T2 attendu: PASS/BLOCK{diagnosis}/RIG-ABSENT/N-A-no-cross-machine-feature" >&2
+      echo "    (artefact JSON scripts/acceptance/b3_live_pc_vps.sh). Cf. README §4." >&2
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    if [ "$HAS_DIFFERE" -gt 0 ]; then
+      echo "[lightcheck] WARN: gate testabilite §4 — 'DIFFERE-materiel' en prose detecte" >&2
+      echo "  dans $verif_file. Un verdict est un champ JSON status (PASS/BLOCK/RIG-ABSENT)," >&2
+      echo "  jamais une prose tapee a la main. Cf. README §4 invariant d'honnetete." >&2
+      WARNINGS=$((WARNINGS + 1))
+    fi
+  done <<< "$STAGED_VERIF"
+fi
+
 if [ "$ERRORS" -gt 0 ]; then
   echo "" >&2
   echo "[lightcheck] BLOCK: ${ERRORS} erreur(s) pre-commit" >&2
