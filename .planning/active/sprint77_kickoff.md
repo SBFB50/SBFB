@@ -350,6 +350,17 @@ scheduler (D3) sans ping applicatif.
 
 ### D3 — Pipeline/layer-split EXCLUSIVEMENT + scheduler Parallax 2-phases COMPLET + benchmark 70B sur 3-5 machines (SCOPE MAXIMAL, arbitrage PO)
 
+> **AMENDEMENT PO 2026-06-21 — le benchmark 70B sur 3-5 machines est ABANDONNÉ.** Le rig
+> réel disponible = **RTX 5080 (16 Go CUDA) + Mac M2 (8 Go Metal)** ; un 70B (~40 Go) est
+> hors de portée. Nouvelle cible d'acceptation (Phase K) : un modèle **~20 Go arch-llama**
+> éclaté sur ces **2 machines hétérogènes**, chacune ne chargeant QUE ses couches. Le
+> **mécanisme reste inchangé** (pipeline/layer-split, scheduler Phase D/E déjà codé) ; seule
+> l'échelle de démo change. Conséquence dure : le **chargement partiel des couches (P-D)
+> devient OBLIGATOIRE** en Phase F (un 20 Go ne tient sur aucune machine seule). Le backend
+> d'exécution du bloc passe du wrapper safe (infaisable, DESIGN-CONFLICT préflight F) au
+> **fork llama.cpp prouvé** (spike GO : bit-exact CPU/CUDA/Metal + cross-backend cosine 0.999
+> sur Mistral-7B Q4). Cf. `sprint77_phase_f_spike.md` + `sprint77_phase_f_preflight.md` §Résolution.
+
 **Sources consultées** :
 - WebSearch 2026-06-20 : Petals (arXiv 2209.01188) 1.71 steps/s à <5ms, « degrades with
   higher latency, not bandwidth » ; Parallax (arXiv 2509.26182) « 3.1× lower latency,

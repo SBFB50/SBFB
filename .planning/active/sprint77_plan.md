@@ -284,43 +284,64 @@ worker-drop ; perf-map propagée sur le doc.
 
 ---
 
-## §9 Phase F — Backend shard `llm_llama_cpp` (bloc de couches, 70B layer-subset)
+## §9 Phase F — Backend shard FORKÉ `llm_llama_cpp` (fork llama.cpp, layer-subset + chargement partiel)
+
+> **RE-CADRÉ 2026-06-21** après DESIGN-CONFLICT du préflight Phase F + arbitrage PO
+> option (a) fork + **spike de faisabilité GO** (cf. `sprint77_phase_f_preflight.md`
+> §Résolution + `sprint77_phase_f_spike.md`). Le livrable original « forward partiel via
+> le wrapper safe `llama-cpp-2` » est **INFAISABLE** (aucun eval-callback / layer-range /
+> injection dans l'API safe) ; remplacé par le fork **prouvé** bit-exact sur CUDA + Metal.
+> Amendement PO : cible ~20 Go sur 5080(16Go)+Mac(8Go) → **P-D chargement partiel OBLIGATOIRE**.
 
 ### §9.1 Scope
-Exécuter un sous-ensemble de couches Transformer in-process via `llama-cpp-2` (le seul
-backend qui expose les hidden states, requis pour N0/N1). Le worker shard claim une
-`ShardAssignment` et calcule son bloc de couches.
+Forker llama.cpp (vendoré par `llama-cpp-2`) pour exécuter un sous-ensemble contigu de
+couches `[layer_start, layer_end)`, **injecter** le hidden state amont (`llama_batch.embd`,
+déjà câblé) et **extraire** le hidden de frontière. Spike validé : patch minimal
+backend-agnostique, coupe bit-exact CPU/CUDA-sm120/Metal-M2 + cross-backend cosine 0.999
+sur Mistral-7B Q4. Le worker shard claim une `ShardAssignment` et ne charge QUE ses couches.
 
 ### §9.2 Livrables
-- **Backend shard** (`nexus-worker-core/src/llm/llama_cpp.rs` étendu, feature-gated
-  `llm_llama_cpp`) : charger layer_start..layer_end (de la `ShardAssignment`), forward
-  partiel, hidden state de sortie (transmis au shard suivant via `sbfb/shard/1`) +
-  extraction top-k pour TOPLOC.
+- **Fork llama.cpp patché** (vendoré via fork de `llama-cpp-sys-2` — submodule patché OU
+  source override ; patch minimal backend-agnostique) :
+  - API partial-decode : `shard_layer_start/end/is_first/is_last` via `llama_context_params`
+    (AVANT le reserve des buffers) ; boucle bornée `[start,end)` ; gather `inp_out_ids` au
+    dernier layer **exécuté** de chaque shard ; sortie `is_last ? (norm+lm_head) : résiduel brut`.
+  - **P-D chargement partiel** (`TENSOR_SKIP` : chaque nœud n'alloue/ne lit QUE les couches
+    de son shard depuis le GGUF — **OBLIGATOIRE** pour qu'un 20 Go tienne sur 16+8).
+  - extraction top-k du dernier hidden state (matériel TOPLOC N0, encodage réel = Phase G).
+  - Patch par **architecture** : builder LLAMA d'abord (couvre Llama/Mistral/Mixtral) ;
+    autres archs (gemma…) à part selon la cible de démo.
+- **Backend Rust** (`nexus-worker-core/src/llm/llama_cpp.rs` étendu, feature-gated
+  `llm_llama_cpp`) : charge `layer_start..layer_end` via le fork, forward partiel, hidden
+  state transmis aval via `sbfb/shard/1`. **Prérequis build : LLVM/libclang** (`LIBCLANG_PATH`,
+  requis par bindgen pour `llama-cpp-sys-2`).
 - **Worker shard claim** (`nexus-worker-core/src/engine/runtime.rs`) : claim une
-  `ShardAssignment` (filtre groupe privé + VRAM caps), démarre la connexion `sbfb/shard/1`
-  amont/aval.
-- Validation `cargo build --features llm_llama_cpp` tôt (R2).
+  `ShardAssignment` (filtre `ComputeGroup` + **cap VRAM fail-closed** sur `GpuStats.vram_free_bytes`
+  mesuré — VRAM déjà snapshotée, PAS de nouvelle pompe live, scope cut #7 respecté ; +
+  vérif signature `ShardedSessionManifest` côté dialer), connexion `sbfb/shard/1` amont/aval.
+- **Build vert CUDA ET Metal** (les 2 backends du rig réel) matérialisé tôt (R2).
 
 ### §9.3 Tests plan
-1. `shard_backend_loads_layer_subset` (`#[ignore]`-gated, GGUF) — charge layer_start..layer_end,
-   hidden state de la bonne forme.
-2. `shard_backend_hidden_state_extractable` (`#[ignore]`-gated) — top-k extractible (prérequis
-   N0).
-3. `shard_assignment_claim_respects_group` (hermétique) — claim une `ShardAssignment` ssi
-   dans le `ComputeGroup` + sous caps VRAM.
-4. `shard_backend_primitive_*` (hermétique, sans GGUF) — découpage layer-range + format
-   hidden state sur fixtures (CI).
+1. `shard_backend_loads_layer_subset` (`#[ignore]`-gated, GGUF) — P-D : charge SEULEMENT
+   layer_start..layer_end (VRAM réduite), hidden state de la bonne forme.
+2. `shard_backend_partial_equals_full` (`#[ignore]`-gated, GGUF) — preuve spike portée en
+   test : `decode([0,k))+inject+decode([k,L)) == decode([0,L))` (bit-exact même backend).
+3. `shard_backend_hidden_state_extractable` (`#[ignore]`-gated) — top-k extractible (prérequis N0).
+4. `shard_assignment_claim_respects_group` (hermétique) — claim ssi dans `ComputeGroup` + sous caps VRAM.
+5. `shard_backend_primitive_*` (hermétique, sans GGUF) — découpage layer-range + format hidden state (CI).
 
 T1 E2E : `N-A-no-frontend-change`.
 
 ### §9.4 Critère d'acceptation
-`cargo nextest run -p nexus-worker-core --locked` vert (3-4 hermétiques) ; `cargo build -p
-nexus-worker --features llm_llama_cpp` réussit ; #1-2 `#[ignore]` runnable localement (GGUF).
-SI extraction logits impossible sans fork → dégrader N2 seul + doc-note (R2).
+`cargo nextest run -p nexus-worker-core --locked` vert (hermétiques CI) ; `cargo build -p
+nexus-worker --features llm_llama_cpp` réussit **sur CUDA ET Metal** ; tests `#[ignore]` GGUF
+runnable localement (P-D + partial==full). Cross-backend CUDA↔Metal cosine > 0.99 (spike-validé,
+calibre le seuil TOPLOC N0). Le fork est jamais-CI (R2) → double test (primitive hermétique + GGUF).
 
 ### §9.5 Commit cible
-`feat(worker): Sprint 77 Phase F — sharded layer-block execution backend`
-Risk R2 tracé (backend jamais-CI, double test).
+`feat(worker): Sprint 77 Phase F — forked layer-block execution backend (partial load)`
+Phase LARGE (fork + P-D + claim + wiring) : le préflight de F finalisera un éventuel split
+en sous-phases atomiques (renumérotation G→… traitée alors). Risk R2 tracé.
 
 ---
 
@@ -469,12 +490,22 @@ T1 spec nommée. Route additive 0-bump.
 
 ---
 
-## §14 Phase K — Benchmark 70B 3→5 machines + acceptance + wrap-up
+## §14 Phase K — Benchmark ~20 Go sur le rig réel (RTX 5080 + Mac M2) + acceptance + wrap-up
+
+> **RE-CADRÉ 2026-06-21 (amendement PO).** Le **70B sur 3-5 machines est ABANDONNÉ** (hors
+> de portée du rig réel : 16 Go + 8 Go ≈ 24 Go). Cible = un modèle **~20 Go arch-llama**
+> éclaté sur **2 machines hétérogènes : RTX 5080 (CUDA) + Mac M2 (Metal)**, chacune ne
+> chargeant QUE ses couches (P-D). Le modèle ne tient sur AUCUNE machine seule → prouve la
+> vraie valeur du sharding (et le pipeline hétérogène, déjà validé au spike cross-backend).
 
 ### §14.1 Scope
-La preuve falsifiable : bring-up spike toy 1B/7B (2-3 machines) PUIS benchmark 70B Q4 (3
-puis 5 machines), gate réseau GO/NO-GO produit + test worker-drop. Plus le wrap-up canonique.
-C'est le **gate produit** du sprint phare.
+La preuve falsifiable. Le bring-up cross-backend est **déjà fait** au spike
+(`sprint77_phase_f_spike.md` : CUDA↔Metal prouvé cosine 0.999 sur Mistral-7B Q4, hand-off
+fichier). Benchmark réel : un modèle **~20 Go** (ex. Mixtral-8x7B Q3 ~20 Go MoE, ou un 34B Q4
+dense, arch llama) éclaté **5080↔Mac via `sbfb/shard/1`** (transport réseau temps-réel, plus
+le fichier du spike), gate réseau GO/NO-GO produit + test worker-drop. Plus le wrap-up
+canonique. C'est le **gate produit** du sprint phare. Placement = scheduler Phase D
+(water-filling sur VRAM libre mesurée : ~2/3 des couches sur la 5080, ~1/3 sur le Mac).
 
 ### §14.2 Livrables
 - **Harness acceptance** `scripts/acceptance/b3_shard_pipeline.sh` (étend `b3_live_pc_vps.sh`) :
@@ -482,8 +513,8 @@ C'est le **gate produit** du sprint phare.
   `RunProof` (fingerprints N0-N3) de chaque shard, teste un worker-drop (churn). Artefact JSON
   `{status, stage, model, n_shards, ttft_s, toks_per_s, rtt_frontier_ms, run_proof, diagnosis,
   last_response}` ; exit PASS=0 / BLOCK=1 / RIG-ABSENT=3. Gate réseau : `BLOCK{rtt>80ms}` ou
-  `BLOCK{relay-hot-path}` = NO-GO produit, pas un timeout à rallonger. Séquencement interne :
-  toy 1B/7B (2-3) → 70B (3) → 70B (5).
+  `BLOCK{relay-hot-path}` = NO-GO produit, pas un timeout à rallonger. Cible : un modèle
+  **~20 Go arch-llama** éclaté **5080↔Mac M2** (2 shards, P-D, placement Phase D water-filling).
 - **`sprint77_verification.md`** : fail-fast (Observed) + section `## Acceptance` (T1 GREEN +
   T2 du benchmark : PASS / BLOCK{diag} / RIG-ABSENT). Si DIFFERE-matériel honnête (5 PC + GPU)
   → PROVISIONAL + carry P1 (jamais DIFFERE en prose).
@@ -503,7 +534,7 @@ benchmark. `b3_shard_pipeline.sh` `bash -n` clean.
 ### §14.4 Critère d'acceptation
 Fail-fast `verification.md` toutes rows vertes (Win nextest + Docker canonique + web + E2E).
 **T1** : `compute-shard.spec.ts` GREEN (BLOQUANT). **T2** : `b3_shard_pipeline.sh` produit un
-artefact JSON — `PASS` (benchmark 70B < gate réseau, tok/s ≥ 1-2) OU `BLOCK{diagnosis}` OU
+artefact JSON — `PASS` (benchmark ~20 Go sur 5080+Mac < gate réseau, tok/s ≥ 1) OU `BLOCK{diagnosis}` OU
 `RIG-ABSENT` (matériel absent). Si BLOCK/RIG-ABSENT → la feature shard reste **PROVISIONAL +
 carry P1** vers S78. Verdict T2 = champ JSON `status`, JAMAIS `DIFFERE-materiel` en prose.
 
@@ -526,7 +557,7 @@ status (pas prose).
 | C | +3 | +0 | shard_plan sig, shard_assignment serde, run_proof sig |
 | D | +5 | +0 | water-fill VRAM, refuse-single, k-medoids RTT, 5-workers-70b, sybil sampling |
 | E | +4 | +0 | DAG sweep min-latency, churn replace-failed, perf-map republish, routing-recompute |
-| F | +4 | +0 | layer-subset load (#[ignore]), hidden-state extract (#[ignore]), claim-respects-group, primitive hermétique |
+| F | +5 | +0 | P-D layer-subset load (#[ignore]), partial==full (#[ignore], spike porté), hidden-state extract (#[ignore]), claim-respects-group+VRAM, primitive hermétique. Fork llama.cpp build CUDA+Metal |
 | G | +3 | +0 | TOPLOC encode/decode, detect-swap, accept-within-threshold |
 | H | +4 | +0 | VRF deterministic verifier, randomize temp+seed, reputation credit, criticality mapping |
 | I | +5 | +0 | N2 accept/reject, validator-exact-unchanged, N3 commit-reveal, SENTINEL localize-stage |
@@ -584,7 +615,7 @@ status (pas prose).
 | 37 | I N3 bissection localise stage | `... -E 'test(n3_sentinel_localizes)'` | PASS | |
 | 38 | 0 bump wire | grep `*_FORMAT_VERSION`/`*_ANNOUNCEMENT_VERSION`/`SCHEMA_VERSION` | tous = 1 ; nouveaux `DOMAIN_*` additifs | |
 | 39 | **T1 E2E shard hermétique** | `(cd web && npm run test:e2e)` (`web/e2e/compute-shard.spec.ts`) | **GREEN** (BLOQUANT wrap-up + CI) | |
-| 40 | **T2 acceptance benchmark 70B JSON** | `bash scripts/acceptance/b3_shard_pipeline.sh` | `status` ∈ {`PASS`,`BLOCK{diag}`,`RIG-ABSENT`} (jamais prose) | |
+| 40 | **T2 acceptance benchmark ~20Go (5080+Mac) JSON** | `bash scripts/acceptance/b3_shard_pipeline.sh` | `status` ∈ {`PASS`,`BLOCK{diag}`,`RIG-ABSENT`} (jamais prose) | |
 | 41 | THREAT_MODEL §16 sharding écrit | `test -f` + grep `§16` SI-1..SI-5 + incentive | présent | |
 | 42 | verification.md écrit | `test -f .planning/active/sprint77_verification.md` | présent + `## Acceptance` | |
 | 43 | sprint78_audit_plan.md écrit | `test -f .planning/active/sprint78_audit_plan.md` | présent + Track Testabilité | |
