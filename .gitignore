@@ -78,6 +78,9 @@ web/.env.local
 
 # Rust / Cargo (SBFB monorepo, Sprint 1+)
 target/
+# Separate target dir used by the dual-platform Docker (Linux) verification
+# so the canonical run does not clobber the Windows cache (Sprint 77 Phase D).
+target-linux/
 **/*.rs.bk
 Cargo.lock.bak
 # Ignore per-user cargo state (credentials, local overrides) but keep
