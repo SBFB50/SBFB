@@ -31,6 +31,7 @@ pub mod provenance;
 pub mod public_feed;
 pub mod quarantine_queue;
 pub mod rerun;
+pub mod routing;
 pub mod search;
 pub mod types;
 pub mod upload_queue;
