@@ -254,6 +254,37 @@ pub const DOMAIN_NODE_DIRECTORY_V1: &[u8] = b"nexus-node-directory-v1";
 /// existing `*_FORMAT_VERSION` (the S74 `DOMAIN_SEED_REQUEST_V1` pattern).
 pub const DOMAIN_COMPUTE_GROUP_V1: &[u8] = b"nexus-compute-group-v1";
 
+/// Domain separation tag for sharded-session manifest canonical bytes.
+///
+/// Sprint 77 Phase C — sharded inference wire primitives. The initiator of
+/// a private compute session signs a
+/// [`crate::shard_plan::ShardedSessionManifest`] — the ordered
+/// [`crate::shard_plan::ShardPlan`] of per-worker layer-block assignments
+/// that, together with the model/tokenizer digests, fully describes one
+/// pipeline-parallel run. The domain tag keeps a session-manifest
+/// signature ("here is the plan I AUTHORISE") from being replayed as a
+/// compute-group / run-proof / node-directory / curator / seed / task /
+/// result / claim / invite / kudos / provenance / canary / PoW /
+/// duress-ack / age-witness / contributor / key-rotation / delegation /
+/// feed signature — the pre-image spaces are disjoint by construction. A
+/// brand-new signed type with its own domain: purely additive, 0-bump of
+/// every existing `*_FORMAT_VERSION` (the S74 `DOMAIN_SEED_REQUEST_V1`
+/// pattern).
+pub const DOMAIN_SHARD_PLAN_V1: &[u8] = b"nexus-shard-plan-v1";
+
+/// Domain separation tag for run-proof canonical bytes.
+///
+/// Sprint 77 Phase C — sharded inference wire primitives. A worker signs a
+/// [`crate::shard_plan::RunProof`] after executing its layer block: an
+/// auto-attestation ("here is what I EXECUTED") carrying the reserved N0
+/// TOPLOC `activation_fingerprint` slot and all-integer run metrics.
+/// Distinct from [`DOMAIN_SHARD_PLAN_V1`] so a worker's run-proof signature
+/// can never be replayed as an initiator's session-manifest signature even
+/// though both are minted with the same node Ed25519 key — the domain
+/// prefix forces disjoint pre-images. Purely additive, 0-bump (the S74
+/// `DOMAIN_SEED_REQUEST_V1` pattern).
+pub const DOMAIN_RUN_PROOF_V1: &[u8] = b"nexus-run-proof-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///
