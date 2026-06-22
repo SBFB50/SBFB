@@ -66,7 +66,8 @@ use super::{
 /// once per process — subsequent calls panic. We wrap the init in
 /// a `OnceLock` so multiple `LlamaCppBackend` instances (tests,
 /// model rotation) all land on the same singleton.
-fn shared_backend() -> LlmBackendResult<&'static llama_cpp_2::llama_backend::LlamaBackend> {
+pub(crate) fn shared_backend() -> LlmBackendResult<&'static llama_cpp_2::llama_backend::LlamaBackend>
+{
     static BACKEND: OnceLock<Result<llama_cpp_2::llama_backend::LlamaBackend, String>> =
         OnceLock::new();
     let entry = BACKEND.get_or_init(|| {
@@ -362,7 +363,7 @@ fn generate_blocking(
             let logit_biases: Vec<llama_cpp_2::token::logit_bias::LlamaLogitBias> = bias
                 .iter()
                 .enumerate()
-                .filter(|(_, &b)| b != 0.0)
+                .filter(|&(_, &b)| b != 0.0)
                 .map(|(i, &b)| {
                     llama_cpp_2::token::logit_bias::LlamaLogitBias::new(
                         llama_cpp_2::token::LlamaToken::new(i as i32),
@@ -414,7 +415,11 @@ fn generate_blocking(
             .map_err(|e| LlmBackendError::Api(format!("decode step: {e}")))?;
     }
 
-    // Detokenize the accumulated output
+    // Detokenize the accumulated output. `tokens_to_str` is deprecated upstream in favour of
+    // per-token `token_to_piece`; the bulk call is correct for this whole-sequence detokenize
+    // and reworking the generate path is out of Sprint 77 Phase F1 scope (shard backend), so
+    // the deprecation is locally allowed to keep the feature build warning-clean.
+    #[allow(deprecated)]
     let text = model
         .tokens_to_str(&output_tokens, llama_cpp_2::model::Special::Tokenize)
         .map_err(|e| LlmBackendError::Api(format!("detokenize: {e}")))?;

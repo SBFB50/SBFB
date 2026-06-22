@@ -480,3 +480,14 @@ incremental = true
 
 [profile.dev.package."*"]
 opt-level = 1
+
+# Sprint 77 Phase F1: vendored fork of llama.cpp (llama-cpp-sys-2 + llama-cpp-2,
+# pinned 0.1.146) carrying the SBFB pipeline layer-split patch (partial-decode API
+# + TENSOR_SKIP partial load). MIT upstream (utilityai/llama-cpp-rs sha 4afdaf0,
+# ggml-org/llama.cpp), vendored under vendor/ with notices in THIRD-PARTY-NOTICES.
+# Only consumed when an operator builds with `--features llm_llama_cpp*`; CI never
+# builds that feature so this override has zero impact on the standard pipeline.
+# The patch is tracked re-appliably in patches/llama-cpp-shard.patch.
+[patch.crates-io]
+llama-cpp-sys-2 = { path = "vendor/llama-cpp-sys-2" }
+llama-cpp-2 = { path = "vendor/llama-cpp-2" }

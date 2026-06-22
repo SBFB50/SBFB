@@ -91,3 +91,12 @@ Dockerfile text eol=lf
 *.db       binary
 *.sqlite   binary
 *.sqlite3  binary
+
+# --- Vendored third-party source (Sprint 77 llama.cpp fork) -------
+# vendor/ holds the patched llama.cpp / llama-cpp-rs fork. Not SBFB-authored:
+# exclude from the whitespace check (upstream conventions, e.g. trailing
+# whitespace in vendored miniaudio) and mark vendored so it does not skew
+# language stats. The SBFB delta is tracked in patches/llama-cpp-shard.patch.
+vendor/** linguist-vendored -whitespace
+*.patch    -whitespace
+*codex_review.md -whitespace

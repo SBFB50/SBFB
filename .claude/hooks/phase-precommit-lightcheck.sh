@@ -98,6 +98,10 @@ while IFS= read -r line; do
   fi
   if echo "$line" | grep -qE '^\+pub[[:space:]]+mod[[:space:]]+[a-z_][a-z0-9_]*[[:space:]]*;'; then
     [ -z "$CURRENT_FILE" ] && continue
+    # Vendored third-party crates (e.g. the Sprint 77 llama.cpp fork under vendor/)
+    # use the modern `foo.rs` + `foo/` module layout this naive same-dir resolution
+    # does not follow; they are not SBFB-authored, so skip the coherence check.
+    case "$CURRENT_FILE" in vendor/*) continue ;; esac
     MOD_NAME=$(echo "$line" | grep -oE 'pub[[:space:]]+mod[[:space:]]+[a-z_][a-z0-9_]*' | awk '{print $NF}')
     CURRENT_DIR=$(dirname "$CURRENT_FILE")
     EXPECTED_FILE="$CURRENT_DIR/$MOD_NAME.rs"

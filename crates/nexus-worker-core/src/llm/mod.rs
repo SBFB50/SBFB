@@ -52,6 +52,9 @@ pub mod factory;
 pub mod llama_cpp;
 pub mod ollama;
 pub mod schema_bridge;
+// Sprint 77 Phase F1: pipeline layer-split shard primitives. The pure window/top-k logic
+// compiles and is unit-tested in CI; the forked `ShardBackend` inside is feature-gated.
+pub mod shard;
 pub mod watermark;
 
 use async_trait::async_trait;

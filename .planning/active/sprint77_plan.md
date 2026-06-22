@@ -284,7 +284,7 @@ worker-drop ; perf-map propagée sur le doc.
 
 ---
 
-## §9 Phase F — Backend shard FORKÉ `llm_llama_cpp` (fork llama.cpp, layer-subset + chargement partiel)
+## §9 Phase F (= Phase F1 + Phase F2) — Backend shard FORKÉ `llm_llama_cpp` (fork llama.cpp, layer-subset + chargement partiel)
 
 > **RE-CADRÉ 2026-06-21** après DESIGN-CONFLICT du préflight Phase F + arbitrage PO
 > option (a) fork + **spike de faisabilité GO** (cf. `sprint77_phase_f_preflight.md`
@@ -292,6 +292,13 @@ worker-drop ; perf-map propagée sur le doc.
 > le wrapper safe `llama-cpp-2` » est **INFAISABLE** (aucun eval-callback / layer-range /
 > injection dans l'API safe) ; remplacé par le fork **prouvé** bit-exact sur CUDA + Metal.
 > Amendement PO : cible ~20 Go sur 5080(16Go)+Mac(8Go) → **P-D chargement partiel OBLIGATOIRE**.
+>
+> **SPLIT F1/F2 2026-06-21** (préflight `sprint77_phase_f1_preflight.md`, verdict PLAN-ADAPT) :
+> la Phase F est re-coupée en **F1** (vendor+patch+P-D+backend Rust+build CUDA/Metal+tests) et
+> **F2** (claim ComputeGroup+cap VRAM fail-closed+vérif sig manifest, câblage `sbfb/shard/1`,
+> threat §16). Suffixe chiffré sanctionné README §4 → **0 renumérotation** de G–K. Tout reste
+> dans S77 (pas un defer). §9.1–9.4 ci-dessous décrivent F1 ; les livrables claim/wiring/threat
+> sont portés en F2.
 
 ### §9.1 Scope
 Forker llama.cpp (vendoré par `llama-cpp-2`) pour exécuter un sous-ensemble contigu de
@@ -557,7 +564,8 @@ status (pas prose).
 | C | +3 | +0 | shard_plan sig, shard_assignment serde, run_proof sig |
 | D | +5 | +0 | water-fill VRAM, refuse-single, k-medoids RTT, 5-workers-70b, sybil sampling |
 | E | +4 | +0 | DAG sweep min-latency, churn replace-failed, perf-map republish, routing-recompute |
-| F | +5 | +0 | P-D layer-subset load (#[ignore]), partial==full (#[ignore], spike porté), hidden-state extract (#[ignore]), claim-respects-group+VRAM, primitive hermétique. Fork llama.cpp build CUDA+Metal |
+| F1 | +5 | +0 | hermétiques CI : ShardWindow valide/end-0/rejette + top_k largest/clamp-NaN (5). Plus 3 `#[ignore]` GGUF (load-subset P-D, partial==full bit-exact spike porté, hidden-extract) — non comptés CI, **3/3 prouvés local sur Mistral-7B-Q4**. Fork llama.cpp build CUDA+Metal vert |
+| F2 | +1 | +0 | claim-respects-group+VRAM (hermétique CI) |
 | G | +3 | +0 | TOPLOC encode/decode, detect-swap, accept-within-threshold |
 | H | +4 | +0 | VRF deterministic verifier, randomize temp+seed, reputation credit, criticality mapping |
 | I | +5 | +0 | N2 accept/reject, validator-exact-unchanged, N3 commit-reveal, SENTINEL localize-stage |
@@ -671,7 +679,7 @@ arbitrage PO scope maximal.)
 Conditions binaires pour dire « S77 fermé » :
 - [ ] 44/44 fail-fast verts (Win + Docker + web + E2E) — OU PROVISIONAL documenté pour #40
       si DIFFERE-matériel (carry P1 S78)
-- [ ] 11 commits feat (A-K) (wrap-up intégré Phase K)
+- [ ] 12 commits feat (A-K, F=F1+F2) (wrap-up intégré Phase K)
 - [ ] `sprint77_verification.md` écrit + section `## Acceptance` (T1 GREEN + T2 status JSON)
 - [ ] `sprint78_audit_plan.md` écrit + Track Testabilité standing
 - [ ] THREAT_MODEL §16 sharding (SI-1..SI-5 + incentive) + PATTERNS rust/shell mis à jour

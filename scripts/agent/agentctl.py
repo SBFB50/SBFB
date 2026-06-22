@@ -375,6 +375,11 @@ def pub_mod_errors(diff: str, staged: set[str]) -> list[str]:
         m = re.match(r"^\+pub\s+mod\s+([a-z_][a-z0-9_]*)\s*;", line)
         if not m or not current_file:
             continue
+        # Vendored third-party crates (the Sprint 77 llama.cpp fork under vendor/) use the
+        # modern `foo.rs` + `foo/` module layout this same-dir resolution does not follow;
+        # they are not SBFB-authored, so skip the coherence check for them.
+        if current_file.startswith("vendor/"):
+            continue
         mod_name = m.group(1)
         current_dir = str(Path(current_file).parent).replace("\\", "/")
         candidates = [f"{current_dir}/{mod_name}.rs", f"{current_dir}/{mod_name}/mod.rs"]
