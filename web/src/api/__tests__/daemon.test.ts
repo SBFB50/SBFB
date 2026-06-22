@@ -26,6 +26,7 @@ import {
   blobServeUrl,
   daemonBaseUrlFromInfo,
   getDaemonInfo,
+  getShardSession,
   isValidCuratorPubkey,
   listBrowse,
   listCurators,
@@ -33,6 +34,7 @@ import {
   NodesResponseSchema,
   searchBrowse,
   SearchResponseSchema,
+  ShardSessionStatusResponseSchema,
   seedCount,
   seedVoluntary,
   subscribeCurator,
@@ -972,5 +974,82 @@ describe("triggerPanicWipe", () => {
     ][];
     expect(String(calls[0][0])).toBe(`${BASE}/api/daemon/panic/wipe`);
     expect(calls[0][1]?.method).toBe("POST");
+  });
+});
+
+// ---------------------------------------------------------------
+// getShardSession (Sprint 77 Phase J)
+// ---------------------------------------------------------------
+
+describe("getShardSession", () => {
+  it("parses the empty-state envelope { found:false, session:null }", async () => {
+    // Phase J: no live shard-session store on the daemon → every id misses and
+    // the route answers 200 { found:false, session:null } (NOT 404). The
+    // `.strict()` envelope must parse this as a SUCCESS so the panel renders the
+    // empty state, never a transport error.
+    const spy = vi.fn(async () =>
+      mockFetchResponse({ status: 200, body: { found: false, session: null } }),
+    );
+    vi.stubGlobal("fetch", spy);
+    const result = await getShardSession(BASE, "session-xyz");
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.found).toBe(false);
+    expect(result.body.session).toBeNull();
+    const calls = spy.mock.calls as unknown as [RequestInfo | URL][];
+    expect(String(calls[0][0])).toBe(
+      `${BASE}/api/daemon/shard-session/session-xyz`,
+    );
+  });
+
+  it("URL-encodes the session id path param", async () => {
+    const spy = vi.fn(async () =>
+      mockFetchResponse({ status: 200, body: { found: false, session: null } }),
+    );
+    vi.stubGlobal("fetch", spy);
+    await getShardSession(BASE, "a b/c");
+    const calls = spy.mock.calls as unknown as [RequestInfo | URL][];
+    expect(String(calls[0][0])).toBe(
+      `${BASE}/api/daemon/shard-session/a%20b%2Fc`,
+    );
+  });
+
+  it("parses a found session with its aggregate member_count", async () => {
+    mockFetchOk({
+      found: true,
+      session: { session_id: "session-xyz", member_count: 4 },
+    });
+    const result = await getShardSession(BASE, "session-xyz");
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.session?.member_count).toBe(4);
+    expect(result.body.session?.session_id).toBe("session-xyz");
+  });
+
+  it("rejects an unknown key on the ENVELOPE (strict)", async () => {
+    // The envelope is pinned by the Rust producer test
+    // (`shard_session_response_pins_empty_envelope`) — an extra top-level key
+    // is a protocol drift, not a tolerated shape.
+    mockFetchOk({ found: false, session: null, extra_envelope_key: 1 });
+    await expect(getShardSession(BASE, "x")).rejects.toThrow();
+  });
+
+  it("tolerates an additive field on the session ROW (rows NOT strict)", () => {
+    // Pre-launch policy adds runtime fields (pipeline_status, verification_level
+    // — Phase K) additively with 0 bump; the FIRST additive Rust field must not
+    // brick the panel. Unknown keys are STRIPPED (Zod default object behaviour).
+    const parsed = ShardSessionStatusResponseSchema.parse({
+      found: true,
+      session: {
+        session_id: "s1",
+        member_count: 2,
+        pipeline_status: "running",
+        verification_level: "n2",
+      },
+    });
+    expect(parsed.session?.member_count).toBe(2);
+    expect(
+      (parsed.session as Record<string, unknown>)["pipeline_status"],
+    ).toBeUndefined();
   });
 });

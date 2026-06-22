@@ -10,6 +10,7 @@ import {
   Compass,
   BookmarkPlus,
   Rocket,
+  Boxes,
   Plus,
   Check,
   Trash2,
@@ -59,6 +60,7 @@ const NAV_ENTRIES: NavEntry[] = [
   { to: "/browse", label: "Explorer", icon: Compass },
   { to: "/my-projects", label: "Projets", icon: FolderKanban },
   { to: "/my-network", label: "Reseau", icon: Cpu },
+  { to: "/compute", label: "Calcul", icon: Boxes },
   { to: "/curators", label: "Curators", icon: BookmarkPlus },
   { to: "/deploy", label: "Publier", icon: Rocket },
 ];

@@ -527,6 +527,62 @@ export function listNodes(
   return callDaemon(baseUrl, "/api/daemon/nodes", NodesResponseSchema);
 }
 
+// =================================================================
+// Shard session — Sprint 77 Phase J
+// =================================================================
+
+/**
+ * Mirrors the daemon's `ShardSessionView` — an AGGREGATE status of one private
+ * compute-group shard session. Privacy-whitelisted by the producer: it carries
+ * a `member_count`, NEVER the worker/initiator pubkeys of the private group
+ * (THREAT_MODEL §16 SI-3/SI-4).
+ *
+ * Row tolerant (NOT `.strict()`, S73/S75 rule): the runtime `pipeline_status`
+ * and attained `verification_level` are added additively (0-bump) once a live
+ * data-plane store can populate them (Sprint 77 Phase K) — an additive Rust
+ * field must not brick this panel.
+ */
+export const ShardSessionViewSchema = z.object({
+  session_id: z.string(),
+  member_count: z.number().int().nonnegative(),
+});
+
+export type ShardSessionView = z.infer<typeof ShardSessionViewSchema>;
+
+/**
+ * Mirrors `GET /api/daemon/shard-session/{id}` — `{ found, session }`. The
+ * ENVELOPE is `.strict()` (pinned by the Rust test
+ * `shard_session_response_pins_empty_envelope`); `session` is `.nullable()`
+ * (NOT `.optional()`) because the producer ALWAYS serializes the key — `null`
+ * on a miss. Phase J has no live session store, so the daemon returns
+ * `{found:false, session:null}` for every id (the panel's empty state).
+ */
+export const ShardSessionStatusResponseSchema = z
+  .object({
+    found: z.boolean(),
+    session: ShardSessionViewSchema.nullable(),
+  })
+  .strict();
+
+export type ShardSessionStatusResponse = z.infer<
+  typeof ShardSessionStatusResponseSchema
+>;
+
+/**
+ * Sprint 77 Phase J — read-only status of a private compute-group shard
+ * session. Control-plane only: an aggregate status, never member identities.
+ */
+export function getShardSession(
+  baseUrl: string,
+  id: string,
+): Promise<DaemonResult<ShardSessionStatusResponse>> {
+  return callDaemon(
+    baseUrl,
+    `/api/daemon/shard-session/${encodeURIComponent(id)}`,
+    ShardSessionStatusResponseSchema,
+  );
+}
+
 /**
  * Sprint 75 Phase F — "ajouter une ancre". An anchor IS a subscription in the
  * SAME attention set as curators (kickoff D1/Q3/DQ3: one attention set, no

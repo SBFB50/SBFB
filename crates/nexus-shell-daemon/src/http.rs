@@ -302,6 +302,11 @@ pub fn build_router(
         // Sprint 75 Phase D: node identity exposure — the subscribed node
         // directories grouped by publishing node (read-only projection).
         .route("/api/daemon/nodes", get(list_nodes))
+        // Sprint 77 Phase J: read-only status of a private compute-group shard
+        // session. Control-plane only — an AGGREGATE status (member count),
+        // NEVER the group's member identities. Same loopback bearer+Host+Origin
+        // tier as its siblings (authed_routes).
+        .route("/api/daemon/shard-session/{session_id}", get(shard_session))
         .route("/api/daemon/publish", post(publish_project))
         .route("/api/daemon/publish-blob", post(publish_blob))
         .route("/api/daemon/directory/publish", post(publish_directory))
@@ -2073,6 +2078,106 @@ async fn list_nodes(State(state): State<Arc<DaemonHttpState>>) -> impl IntoRespo
         )),
     )
         .into_response()
+}
+
+// =====================================================================
+// Sprint 77 Phase J — read-only shard-session status (control plane)
+// =====================================================================
+
+/// Aggregate, privacy-whitelisted view of one shard session.
+///
+/// Exposes ONLY a `member_count` — NEVER the `worker_pubkey`/`initiator`
+/// identities of the private compute group (THREAT_MODEL §16 SI-3/SI-4,
+/// preflight S3). The `ComputeGroup` is ADMISSION control, not a
+/// confidentiality guarantee, and a loopback caller still has no business
+/// enumerating who composes someone's pipeline.
+///
+/// Scope, honestly bounded (PLAN-ADAPT): the two fields here are everything a
+/// control-plane WITHOUT a running data plane can truthfully know about a
+/// session — its identity and its member count, both derivable from a stored
+/// manifest. The runtime lifecycle status and the ATTAINED verification level
+/// require live telemetry from a running pipeline, so they are added — additive
+/// `#[serde(default)]`, 0-bump — once the data-plane store lands (Sprint 77
+/// Phase K). Shipping them now would be an un-populatable contract (dead enum
+/// variants), not an honest one.
+#[derive(Debug, Clone, Serialize)]
+struct ShardSessionView {
+    /// The session id (only present when a session is actually found).
+    session_id: String,
+    /// Number of workers in the pipeline = `plan.assignments.len()`. An
+    /// aggregate count, never the member identities.
+    member_count: usize,
+}
+
+/// Envelope for `GET /api/daemon/shard-session/{id}`.
+///
+/// ENVELOPE, not a bare optional (S73-E / S75-D lesson): the frontend Zod
+/// schema is `.strict()` on `{found, session}` and `session` is ALWAYS
+/// serialized (`null` when absent), so an additive field stays possible and an
+/// empty result is a successful parse, not a 404 transport error.
+#[derive(Debug, Clone, Serialize)]
+struct ShardSessionStatusResponse {
+    /// Whether a live session matched the requested id.
+    found: bool,
+    /// The aggregate view when `found`, else `null` (the key is always
+    /// present — the `.strict()` envelope contract).
+    session: Option<ShardSessionView>,
+}
+
+/// Read-only, privacy-whitelisted projection of a shard session manifest.
+///
+/// Exposes ONLY the aggregate `member_count`, never any `worker_pubkey` /
+/// `initiator` (the private-group composition, SI-3/SI-4).
+fn project_shard_session(manifest: &nexus_core_rs::ShardedSessionManifest) -> ShardSessionView {
+    ShardSessionView {
+        session_id: manifest.session_id.clone(),
+        member_count: manifest.plan.assignments.len(),
+    }
+}
+
+/// Stub lookup for a live shard session by id.
+///
+/// Phase J ships the front contract against an EMPTY store: the `sbfb/shard/1`
+/// protocol primitive exists, but the live HTTP-readable shard-session store
+/// lands in Phase K, so this always misses and returns `None`. It is the
+/// explicit seam where the future store plugs in — and that ingest MUST gate on
+/// a `DOMAIN_SHARD_PLAN_V1` signature + `is_member` check BEFORE insert
+/// (preflight S3), so the route can never serve an unauthenticated manifest.
+fn live_shard_session(_session_id: &str) -> Option<nexus_core_rs::ShardedSessionManifest> {
+    None
+}
+
+/// Pure projection for `GET /api/daemon/shard-session/{id}` — pinned by a unit
+/// test without a network boot. With no live store (Phase J) every id misses
+/// and the deterministic empty envelope `{found:false, session:null}` is
+/// returned (200, not 404 — `seed_count` precedent: a read-only route answers
+/// 200 with honest defaults so the parse succeeds).
+fn shard_session_response(session_id: &str) -> ShardSessionStatusResponse {
+    match live_shard_session(session_id) {
+        Some(manifest) => ShardSessionStatusResponse {
+            found: true,
+            session: Some(project_shard_session(&manifest)),
+        },
+        None => ShardSessionStatusResponse {
+            found: false,
+            session: None,
+        },
+    }
+}
+
+/// `GET /api/daemon/shard-session/{id}` — Sprint 77 Phase J — read-only status
+/// of a private compute-group shard session.
+///
+/// Control-plane only: an AGGREGATE status (member count), NEVER the group's
+/// member identities (SI-3/SI-4). The richer status (pipeline status, attained
+/// verification level) is added with the live data plane (Phase K). Loopback-
+/// authenticated (lives in `authed_routes`). Phase J has no live session
+/// registry yet (Phase K+), so the route deterministically returns
+/// `{found:false, session:null}` for every id; the front renders the "no active
+/// session" empty state from that.
+async fn shard_session(Path(session_id): Path<String>) -> impl IntoResponse {
+    debug!("GET /api/daemon/shard-session");
+    (StatusCode::OK, Json(shard_session_response(&session_id))).into_response()
 }
 
 /// `POST /api/daemon/seed` — Sprint 74 Phase E — VOLUNTARY community seed.
@@ -5128,6 +5233,94 @@ mod tests {
         assert_eq!(nodes[1]["node_id"], hex::encode(kp_b.public_bytes()));
         assert_eq!(nodes[1]["revision"], 7);
         assert_eq!(nodes[1]["app_count"], 1);
+    }
+
+    #[test]
+    fn shard_session_response_pins_empty_envelope() {
+        // Sprint 77 Phase J. No live shard-session store exists yet (the
+        // `sbfb/shard/1` data plane is not wired to a control-plane registry —
+        // Phase K+), so EVERY id misses and the route answers a deterministic
+        // empty envelope. 200 + `{found:false, session:null}`, NEVER a 404: the
+        // frontend Zod schema is `.strict()` on the envelope and a miss must be a
+        // SUCCESSFUL parse (seed_count precedent), not a transport error. The
+        // `session` key is ALWAYS serialized (null), so an additive field stays
+        // possible and the "no active session" empty state is unambiguous.
+        let json = serde_json::to_value(shard_session_response("any-session-id")).unwrap();
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj["found"], false);
+        // The `session` key must be PHYSICALLY PRESENT (serialized as null on a
+        // miss), not absent: `json["session"].is_null()` alone also passes for a
+        // MISSING key under serde_json indexing, so assert key presence first.
+        assert!(
+            obj.contains_key("session"),
+            "the session key is always serialized (.strict() envelope contract)"
+        );
+        assert!(obj["session"].is_null(), "session is null on a miss");
+        assert_eq!(obj.len(), 2, "envelope = exactly {{found, session}}");
+    }
+
+    #[test]
+    fn shard_session_projection_hides_member_identities() {
+        // The projection is the PRIVACY seam (THREAT_MODEL §16 SI-3/SI-4): it
+        // exposes an AGGREGATE `member_count` but NEVER a worker_pubkey /
+        // initiator (the private group's composition). Two distinct workers must
+        // collapse to `member_count: 2` with ZERO identity bytes in the
+        // serialized view. The view is exactly the two whitelisted fields.
+        let initiator = [0x11u8; 32];
+        let worker_a = [0xAAu8; 32];
+        let worker_b = [0xBBu8; 32];
+        let mk = |pk: [u8; 32], start: u32, end: u32| nexus_core_rs::ShardAssignment {
+            worker_pubkey: pk,
+            layer_start: start,
+            layer_end: end,
+            role: nexus_core_rs::ShardRole::LayerWorker,
+            shard_hashes: vec![[0x22u8; 32]],
+            kv_cache_policy: nexus_core_rs::KvCachePolicy::LocalEphemeral,
+            fallback_node: None,
+            launch_profile_hash: [0x33u8; 32],
+        };
+        let plan = nexus_core_rs::ShardPlan::new(vec![mk(worker_a, 0, 16), mk(worker_b, 16, 32)]);
+        let manifest = nexus_core_rs::ShardedSessionManifest::new(
+            initiator,
+            "session-xyz",
+            "group-abc",
+            1,
+            plan,
+            [0x44u8; 32],
+            [0x55u8; 32],
+            [0x66u8; 32],
+        );
+
+        let view = project_shard_session(&manifest);
+        assert_eq!(
+            view.member_count, 2,
+            "two workers collapse to an aggregate count"
+        );
+
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["session_id"], "session-xyz");
+        assert_eq!(json["member_count"], 2);
+        // The whitelist seam: NO member identity ever appears in the projection.
+        let serialized = serde_json::to_string(&view).unwrap();
+        assert!(
+            !serialized.contains(&hex::encode(worker_a)),
+            "worker_a pubkey must not leak"
+        );
+        assert!(
+            !serialized.contains(&hex::encode(worker_b)),
+            "worker_b pubkey must not leak"
+        );
+        assert!(
+            !serialized.contains(&hex::encode(initiator)),
+            "initiator pubkey must not leak"
+        );
+        assert!(!serialized.contains("worker_pubkey"));
+        assert!(!serialized.contains("initiator"));
+        assert_eq!(
+            json.as_object().unwrap().len(),
+            2,
+            "view = exactly {{session_id, member_count}} — runtime status/level are Phase K (additive)"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

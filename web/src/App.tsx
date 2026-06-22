@@ -79,6 +79,12 @@ const router = createBrowserRouter([
         path: "/deploy",
         lazy: () => import("@/pages/Deploy"),
       },
+      // Sprint 77 Phase J — « Calcul en réseau » : statut d'un groupe de calcul
+      // privé (sharding LLM cross-machine) + intentions rejoindre / lancer.
+      {
+        path: "/compute",
+        lazy: () => import("@/components/ShardSessionPanel"),
+      },
     ],
   },
 ]);
