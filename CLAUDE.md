@@ -165,10 +165,16 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-76 CLOSED**, **S77 a ouvrir** (Arc 3.5 Factory
-  Complete Vision **6/6 COMPLET** ; S77 = **sharding pipeline**
-  feature distincte — modele 70B eclate cross-machine 2+ machines x
-  1 GPU ; S77 Phase 0 = audit gate S76, cf. `sprint77_audit_plan.md`).
+- **Sprints 0-77 CLOSED**, **S78 a ouvrir** (Arc 3.5 Factory
+  Complete Vision **6/6 COMPLET** ; S77 = **sharding pipeline** LIVRE —
+  coeur teste hermetiquement [primitives wire C, placement Parallax D,
+  routing+churn E, fork llama.cpp F1/F2, data-plane `sbfb/shard/1`,
+  N0-N3 G/H/I, front `/compute` J] ; **feature shard PROVISIONAL** : le
+  benchmark live cross-machine T2 = **RIG-ABSENT** (aucun orchestrateur
+  de session in-vivo + rig 2-machines RTX 5080/Mac M2 absents) → carry
+  P1 S78, cf. `sprint78_audit_plan.md` §7/§10. **S78** = orchestrateur de
+  session in-vivo + benchmark live, plus 4 carries 3/3 a escalader ;
+  S78 Phase 0 = audit gate S77, cf. `sprint78_audit_plan.md`).
   v2.1 ouverte. **Tag v1.0 pose et pousse (LT-2 ARME, dry-run
   Radicle prive fait).**
   Projet Rust+Frontend pur depuis S50-S51.
@@ -323,9 +329,14 @@ Runtime isolation roadmap dans
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~2209 tests total** (1804 Rust nextest Windows natif 0-skip /
-  1808 canonique Docker Linux [+4 `#[cfg(unix)]`] / 398 Vitest `web/` /
-  7 Vitest factory-operator / 6/6 size-limit) — tous verts. S76
+- **~2370 tests total** (1949 Rust nextest Windows natif 0-skip /
+  1953 canonique Docker Linux [+4 `#[cfg(unix)]`] / 411 Vitest `web/` /
+  41+1skip E2E `compute-shard` / 7 Vitest factory-operator / 6/6
+  size-limit) — Win + Docker fmt/clippy/doctest verts ; les tests
+  iroh-networked `multi_daemon` sont env-bloques en Docker-on-Windows
+  (reseau hote degrade `create_node`, verts sur Win natif + le CI Linux
+  Woodpecker/GHA). S77 delta : +145 Rust Win (1804→1949) / +13 Vitest
+  (398→411). S76
   delta : +41 Rust Windows depuis l'entree phases 1763 (A +4 [→1767],
   B +8, C +10, D +4, E +10, F +5, G +0 [fmt-fix whitespace seul] ;
   somme = 41 → 1804), +19 Vitest depuis l'entree phases 379 (A +7,

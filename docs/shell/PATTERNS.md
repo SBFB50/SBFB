@@ -2292,3 +2292,37 @@ signals (reuse the leaderboard's EMA, the validated-row count) and clearly mark
 any self-declared local stat as non-attested, rather than minting a new signed
 metric to make the panel look richer. Kudos remain non-monetary, non-transferable
 (no token/stake/burn). Cross-ref: rust §P61 (sanity-bound), THREAT_MODEL §15.3.
+
+---
+
+### P39 — Sprint 77 Phase J : front `/compute` shard-session + daemon read-only stub (privacy-whitelist + intentions FR)
+
+The shell exposes a sharded compute session WITHOUT leaking the private group's
+membership and WITHOUT inventing a wire surface. Load-bearing:
+
+1. **The daemon route is a read-only PROJECTION, not the manifest.**
+   `GET /api/daemon/shard-session/{id}` returns a `ShardSessionView` whitelist —
+   `member_count` (an aggregate `assignments.len()`), NEVER `worker_pubkey` or
+   `initiator` (SI-3/SI-4). The leak is PHYSICALLY impossible by construction: the
+   serialize chain only carries the count. The route is additive under
+   `authed_routes` (auth inherited); `/browse` stays byte-identical.
+2. **Empty state is `{found:false, session:null}` 200, never 404.** `live_shard_session`
+   is a STUB returning `None` (the HTTP-readable session store is an S78 seam, NOT
+   Phase K). The Zod envelope is `.strict()`, `session` is `.nullable()`, the row
+   tolerant — a future field is additive, no bump. Mirrors the `seed_count`
+   precedent (S74), never a 404-on-absent. NB: the Phase J source comments
+   (`http.rs`, `daemon.ts`, `ShardSessionPanel.tsx`) still say the live store
+   "lands in Phase K" — STALE (Phase K is the 0-code wrap-up; the store lands
+   S78). Scrubbing those comments is an explicit S78 carry (STALE-PHASE-K-COMMENTS).
+3. **The CTA speaks INTENTIONS, never jargon.** The panel reads « Lancer un gros
+   modele en reseau » / « Rejoindre un groupe de calcul » (PO-9), NEVER
+   `shard`/`ALPN`/`session_id` in the primary CTA. The `scan-en-strings.sh` gate
+   keeps the user-facing strings French.
+4. **The DTO carries ONLY what the daemon can populate.** Fields with no runtime
+   source (`pipeline_status`, `verification_level`) are NOT in the DTO — shipping
+   them would be real dead-code under clippy, not `allow(dead_code)`. Add them
+   additively (tolerant row + nullable Zod) WHEN the session orchestrator
+   populates them (S78), root-cause not suppression.
+
+Cross-ref: rust §P67 (shard data-plane), THREAT_MODEL §16 + §5.9 (route phrase),
+`sprint77_phase_j_preflight.md`.

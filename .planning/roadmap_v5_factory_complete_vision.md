@@ -46,6 +46,28 @@ defer). Acceptance LIVE cross-machine = différée-matériel-opérateur
 70B éclaté cross-machine ; prérequis livré = routing modèle entier + quorum
 + cohorte homogène). Audit gate S76 = `sprint77_audit_plan.md`.
 
+**LIVRAISON 2026-06-22 (S77 Phase K) — sharding pipeline cœur LIVRÉ, feature
+PROVISIONAL** : S77 a livré le **cœur** du sharding LLM cross-machine — modèle
+~20 Go éclaté sur 2 machines hétérogènes (RTX 5080 CUDA + Mac M2 Metal),
+pipeline-parallel : primitives wire signées (C `DOMAIN_SHARD_PLAN_V1` /
+`DOMAIN_RUN_PROOF_V1`), scheduler Parallax (D water-filling VRAM entier +
+k-medoids PAM RTT), routing DAG min-latency + churn actif (E), fork llama.cpp
+layer-block CUDA/Metal (F1, partial==full bit-exact au spike), claim + data-plane
+`sbfb/shard/1` (F2), vérification graduée N0-N3 TOPLOC/VRF/quorum-tolérant/
+commit-reveal (G/H/I), front `/compute` + route read-only whitelist (J) — tout
+testé **hermétiquement** (1949 Win nextest). **MAIS feature shard PROVISIONAL**
+: le **benchmark live cross-machine** (gate produit T2) = **RIG-ABSENT** car
+aucun **orchestrateur de session in-vivo** ne monte/pilote une génération
+token-par-token cross-shard ni n'émet de `RunProof` signé in-vivo
+(aucun caller prod de `RunProof::new` ; les seuls appels vivent sous `#[cfg(test)]`,
+route `/shard-session` = stub `None`), et
+le rig 2-machines est absent. Le harness `b3_shard_pipeline.sh` produit
+l'artefact JSON T2 honnête (`status=RIG-ABSENT`, jamais `DIFFERE` prose). Détail
+: `sprint77_verification.md`. **Prochain : S78** = **orchestrateur de session
+in-vivo + benchmark live** (sort la feature de PROVISIONAL), plus 4 carries 3/3
+à escalader. Audit gate S77 = `sprint78_audit_plan.md`. **Arc 3.5 reste 6/6 ;
+S77 = feature phare distincte au-delà de l'arc, cœur livré.**
+
 ---
 
 ## 0. Le pourquoi — Factory ferme la boucle SBFB

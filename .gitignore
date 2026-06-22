@@ -142,6 +142,7 @@ test-results/
 # never committed.
 scripts/acceptance/rig.local.env
 scripts/acceptance/.b3_last_result.json
+scripts/acceptance/.b3_shard_last_result.json
 scripts/acceptance/.b3_worker.log
 
 # In-progress app design docs (pre-sprint intake, not planning)

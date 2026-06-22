@@ -3412,7 +3412,7 @@ already v1).
 **Update (S77 Phase G)**: the real commitment primitive is now delivered
 (`nexus-core-rs/src/toploc.rs`, see §P64) and the consumer Layer-3 of
 `verification.rs` treats `logprobs_hash` as a TOPLOC commitment by equality. The
-on-wire SIGNED emission of the slot still rides the session data-plane (H/I/J);
+on-wire SIGNED emission of the slot still rides the session data-plane (S78);
 this note's "currently `[0u8; 32]`" describes the S76 state, not S77 Phase G.
 
 Cross-ref: S76 Phase C (`1cc28e7`, RuntimeTuple + cohort gate), §P53
@@ -3565,7 +3565,7 @@ a logprob hash). Four load-bearing decisions, do not re-derive:
    tolerant comparator. The tolerant exponent/mantissa compare
    (`ToplocFingerprint::compare`) needs the full sketch on both sides; that is the
    "separate off-canonical payload" the old Layer-3 doc-note anticipated, and it
-   rides the data-plane in N1/N2 (Phase H/I). Do NOT claim a 32-byte slot resolves
+   rides the data-plane in N1/N2 (S78). Do NOT claim a 32-byte slot resolves
    cross-GPU tolerant verification.
 
 2. **Sketch-direct over the GF(65497) polynomial (a verdict-sanctioned
@@ -3589,14 +3589,14 @@ a logprob hash). Four load-bearing decisions, do not re-derive:
    is `errs[n/2-1] + errs[n/2]`), and an empty exponent-match set is a `u64::MAX`
    sentinel reject. Thresholds (`TOPLOC_THRESH_EXP_MISMATCH=38`, mean 10, median 8)
    are named consts from arXiv 2501.16007v2 (bf16 set); rig re-calibration is
-   Phase K. A `compare()` whose call-sites are all `#[cfg(test)]` is correct for
+   S78. A `compare()` whose call-sites are all `#[cfg(test)]` is correct for
    Phase G: the primitive is exposed for the verifiers, NOT wired in-vivo.
 
 **Auto-attestation (cardinal, mirror `task.rs` `model_digest`)**: a commitment a
 worker computes for its own run is a self-claim, never proof, until an independent
 verifier (N1/N2) recomputes it. Phase G delivers the primitive + the worker-side
 helper that COMPUTES the commitment; writing it into a signed `RunProof` and
-emitting it on-wire rides the session data-plane (H/I/J). The live result path
+emitting it on-wire rides the session data-plane (S78). The live result path
 stays the hash-exact `result_text` quorum, unchanged.
 
 Cross-ref: §P60.3 (the slot was reserved here), §P62 (whole-model routing),
@@ -3656,7 +3656,7 @@ load-bearing decisions, do not re-derive:
 **Scope (mirror Phase G)**: Phase H delivers the PRIMITIVES (draw, tolerant
 compare, Token-DiFR, credit gate, criticality mapping) + hermetic tests. The real
 GPU prefill re-execution and the full-sketch transport (off the 32-byte
-binding-only slot) are gated to Phase I/K. Criticality →
+binding-only slot) are gated to S78. Criticality →
 level (`criticality_maps_to_verification_level`) derives from `Task.verifiable`
 (SIGNED — part of the canonical identity) and `Task.redundancy_factor` (NOT
 signed — a dispatch policy excluded from the canonical bytes since Sprint 23
@@ -3731,19 +3731,107 @@ Phase I wires N2 (`nexus-core-rs/src/redundancy.rs` + additive
    the wire or in the decision (cf. §P64 item 3). A flagged frontier does not fold
    into the EMA (outlier rejection, anti-spike-poisoning); the static threshold +
    slow-drift evasion (SI-11) is a DISCLOSED carry (adaptive IQR fence + absolute
-   magnitude signal = Phase K), exactly like the N1 anti-lazy-verifier gap (§P65
+   magnitude signal = S78), exactly like the N1 anti-lazy-verifier gap (§P65
    item 5). Sanction of a localised corrupt frontier is a correctness/reject
    verdict, NEVER a slash (PO-12).
 
 0 bump wire (1 additive `DOMAIN_ACTIVATION_COMMIT_V1`, `*_FORMAT_VERSION` already
 v1), 0 new dependency, no-float core. Scope (mirror Phase G/H): Phase I delivers
 the PRIMITIVES + hermetic tests; the real cross-GPU in-vivo recompute, the
-data-plane sketch transport, and the dispute arbitration loop are gated to Phase
-J/K.
+data-plane sketch transport, and the dispute arbitration loop are gated to S78
+(Phase K is the wrap-up, 0 functional code).
 
 Cross-ref: §P65 (N1 draw + tolerant recompute), §P64 (N0 commitment binding),
 §P60.2 (homogeneous exact-match vs cross-GPU divergence), `sprint77_phase_i_preflight.md`,
 THREAT_MODEL §16 (N2 + N3).
+
+## §P67 — Sprint 77 (B/F2): the `sbfb/shard/1` data-plane forwards boundary frames over a bi-stream with admission, but has NO generation orchestrator; integrity is OUT-OF-BAND
+
+The shard data-plane (`nexus-core-rs/src/shard.rs` + worker
+`nexus-worker-core/src/llm/shard.rs`) is deliberately minimal. Load-bearing:
+
+1. **A SEAM trait keeps the layer-block backend off the transport.**
+   `ShardForwarder` is defined in `nexus-core-rs` (where the ALPN + QUIC live);
+   `EchoForwarder` (preserves the Phase B echo) and the feature-gated
+   `ShardBackendForwarder` (real llama.cpp layer-block) implement it. The
+   transport calls the trait; the layer-block backend never sees an iroh
+   `Connection` — it is pure compute over a decoded frame. `nexus-worker-core`
+   DOES link `nexus-core-rs` (the worker owns its own iroh node), but adding the
+   real backend (F2) added NO new iroh surface to the forwarder itself.
+2. **Admission is crypto-BEFORE-IO.** `accept` verifies the peer `is_member` of
+   the signed `ComputeGroup` before reading the frame; the worker claim
+   (`shard_claim.rs::authorize_claim`) runs `verify_sig -> is_member -> in-plan`
+   BEFORE any GGUF load, and `assess_capacity` pre-validates the layer window
+   against MEASURED VRAM with a fail-CLOSED `is_degenerate_geometry` guard (a
+   model whose head/embed geometry reads as 0 is REFUSED, never loaded
+   fail-open). Cap the frame (256 MiB) before alloc.
+3. **It serves a long-lived bi-stream; it does NOT orchestrate generation.**
+   `accept` admits the peer, then loops (`while let Some(frame) = read_frame`)
+   forwarding EACH inbound boundary frame through its layer block
+   (`self.forwarder.forward(&frame)`) and writing the output downstream — that is
+   transport, not an autoregressive token-generation driver. There is NO
+   autoregressive decode loop, NO TTFT/tok-s metric, NO `RunProof` emission here.
+   `open_shard_connection` documents a "caller" that drives the generation over
+   that bi-stream — that production ORCHESTRATOR does not exist yet (S78 carry).
+   Do not read the frame forwarder as an end-to-end sharded-generation pipeline.
+4. **Integrity rides OUT-OF-BAND.** The transport proves nothing about the
+   computation; the `RunProof` (N0-N3, §P64-66) carries the verdict. A lying
+   shard is caught by the verification primitives, not by the frame protocol.
+
+0 bump wire (ALPN string + raw frames; `DOMAIN_SHARD_PLAN_V1`/`DOMAIN_RUN_PROOF_V1`
+additive §P64). Cross-ref: §P68 (placement), §P69 (routing/churn), THREAT_MODEL
+§16 + §5.9, `sprint77_phase_f2_preflight.md`.
+
+## §P68 — Sprint 77 Phase D: Parallax placement is INTEGER water-filling + deterministic k-medoids on MEASURED signals
+
+`nexus-coordinator-rs/src/placement.rs` splits a model across workers. Load-bearing:
+
+1. **Water-filling is INTEGER largest-remainder, proportional to MEASURED
+   `vram_free_bytes`.** No float: layers are apportioned to each worker's measured
+   free VRAM (`GpuStats`), remainder by largest fractional part with a pubkey
+   tie-break. The sharding THRESHOLD is explicit — shard ONLY when the quantized
+   model does not fit the single largest `vram_free` (`> max(...)`), else
+   `EndpointFederation` (route the whole model). Refusing to shard a model that
+   fits one machine is a tested invariant (`placement_refuses_when_model_fits_single_worker`).
+2. **k-medoids is PAM BUILD+SWAP, fully DETERMINISTIC (0 rand).** Grouping
+   low-RTT workers uses the classic PAM passes over a pairwise RTT matrix built
+   from MEASURED `conn_rtt` (Phase B), NOT a stale `conn.stats()` snapshot and NOT
+   geo-IP. Ties break on pubkey so two coordinators reach the SAME plan.
+3. **Coverage is checked, not assumed.** `covers_full_model` requires
+   `is_pipeline_contiguous` AND the union of windows = `[0..L)` exactly; a plan
+   with a gap or overlap is rejected (`covers_full_model` in `placement.rs`; the
+   contiguity primitive `is_pipeline_contiguous` is delegated to `shard_plan.rs`),
+   never dispatched.
+4. **Sybil-tail sampling is deterministic, non-lexicographic.** When more seeders
+   than slots crowd the tail, selection is `blake3(session_id || pubkey)` ordered
+   (anti lexicographic-crowding, reproducible) — closes SYBIL-SEEDER-TAIL (S75).
+
+Internal types are non-wire (placement is a computation). 0 bump wire, no-float.
+Cross-ref: §P67 (data-plane), §P69 (routing), `sprint77_phase_d_preflight.md`.
+
+## §P69 — Sprint 77 Phase E: min-latency DAG routing + ACTIVE churn, with an UNSIGNED raw-op perf-map
+
+`nexus-coordinator-rs/src/routing.rs`. Load-bearing:
+
+1. **Routing is a deterministic DP sweep; `tau` is ADVISORY.** `route_min_latency`
+   sweeps the pipeline DAG (`saturating_add`, pubkey tie-break) over MEASURED link
+   cost `rho`; the per-stage compute `tau` is ADVISORY (it informs routing, never
+   integrity). SI-3: churn re-orders by measured `rho` ALONE (`fallback_link_cost`
+   EXCLUDES `stage_tau`).
+2. **Churn is ACTIVE and bounded.** `replace_failed_server` is O(R) per stage
+   (independent of pipeline length L); `assign_fallback_nodes` peoples
+   `fallback_node` AT PLAN time and re-signs `revision+1`; the
+   `ActivationReplayCache` is bounded (`ACTIVATION_REPLAY_CACHE_MAX`, oldest-first
+   eviction). SI-4: fallbacks are allowlist-only members of the signed
+   `ComputeGroup`, never an anonymous peer.
+3. **The perf-map is an UNSIGNED raw-op of INTEGER micros.** `PerfMap` rides
+   iroh-docs as a `serde_json::Value` raw-op (`PerfMapWire`), UNSIGNED (advisory
+   telemetry, not a trust input), integer microseconds (no float on the wire). Cap
+   BOTH `rho` and `tau` (DoS) BEFORE building the `BTreeMap`. As a raw-op it adds 0
+   `DOMAIN_*` and 0 `FEED_FORMAT_VERSION` bump (pre-launch raw-op policy).
+
+0 bump wire, 0 new iroh dep (crate-boundary split: the glue `doc.set` lives in the
+daemon). Cross-ref: §P67, §P68, `sprint77_phase_e_preflight.md`, THREAT_MODEL §16.
 
 ## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
 
