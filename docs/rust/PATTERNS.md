@@ -3602,6 +3602,73 @@ stays the hash-exact `result_text` quorum, unchanged.
 Cross-ref: §P60.3 (the slot was reserved here), §P62 (whole-model routing),
 `sprint77_phase_g_preflight.md`, THREAT_MODEL §16 (N0).
 
+## §P65 — Sprint 77 Phase H: a verifiable DRAW (not an ECVRF) + tolerant recompute + Token-DiFR for the N1 spot-check
+
+N1 (`nexus-core-rs/src/verifiable_draw.rs` + `nexus-coordinator-rs/src/rerun.rs`)
+picks which worker re-runs a ~1% prefill to audit a peer's N0 commitment. Five
+load-bearing decisions, do not re-derive:
+
+1. **The selector must be UNPREDICTABLE to the verified worker.** The Sprint 40
+   `simple_hash(task_id) = BLAKE3(task_id)` selector is publicly computable, so a
+   worker knew ex-ante whether it would be spot-checked and cheated only when
+   unwatched. The fix signs a draw `seed` with the node key; the signature is the
+   "proof", `BLAKE3(domain || proof)` the "output". A worker cannot precompute the
+   output of a key it does not hold. Replace predictable selectors, never restore
+   them.
+
+2. **A deterministic Ed25519 draw is NOT an ECVRF (RFC 9381) — say so verbatim.**
+   Ed25519 is malleable (a third party can derive another valid signature for the
+   same message), so draw UNIQUENESS is not proven; Ed25519 is not a PRF, so
+   UNPREDICTABILITY is not proven. This is a MITIGATION under one-honest-verifier
+   for a 1-5% sample, not a guarantee. The 0-dep reuse of `crypto.rs` (precedent
+   Phase D `blake3(session_id||pubkey)`) is assumed against a heavyweight ECVRF
+   crate on a second curve. Over-claiming "VRF guarantees fair selection" is the
+   exact over-promise the preflight flags (recurring S77: SI-3 doc-overstate
+   Phase E, doc-honesty Phase G).
+
+3. **The draw `seed` must be data the verified worker CANNOT choose.** Use
+   `session_id || epoch || result_commitment` (all already signed). A seed the
+   worker controls lets it grind the draw to steer a colluding verifier
+   (THREAT_MODEL §16, surface "grinding"). Tested: `vrf_verify` rejects a tampered
+   seed/key/proof.
+
+4. **Recompute is TOLERANT (delegates to `ToplocFingerprint::compare`), never
+   byte-equality, AND checks tokens (Token-DiFR).** A commitment-equality N1 would
+   false-reject every honest cross-GPU re-run (§P64 item 1, §P60.2). And comparing
+   ONLY the activation fingerprint lets a worker forge tokens then back-compute a
+   matching fingerprint — so the verdict also requires output-token agreement
+   under the SHARED VRF-derived seed (DiFR >98% match a fixed seed; we require
+   `TOKEN_AGREEMENT_PCT=95`). temp+seed are derived deterministically from the
+   draw output (`derive_spotcheck_temp_milli`/`derive_spotcheck_seed`) — milli-unit
+   integers, the worker floats only at the GPU boundary (cf. §P64 item 3).
+
+5. **Incentive is reputational and GATED; sanction is non-economic.** A drawn,
+   proven verifier earns kudos via the EXISTING `kudos_ledger::credit` (there is no
+   `curator` module; the kudos ledger IS the reputation). `spotcheck_creditable`
+   requires (a) a re-verified VRF draw AND (b) a valid SIGNED `RunProof` from that
+   verifier — never a self-declaration. Do NOT add a `reason=spotcheck` field to
+   `HashableKudosEntry` (it would change the `DOMAIN_KUDOS_V1` pre-image = a silent
+   wire bump). Sanction of a lazy/false verifier is non-credit / negative trust
+   delta on the prover path — NEVER slash/bond/burn (PO-12 kudos invariant;
+   VeriLLM's slashing-based game theory is forbidden here, so there is no
+   anti-lazy-verifier defense — carry it honestly).
+
+**Scope (mirror Phase G)**: Phase H delivers the PRIMITIVES (draw, tolerant
+compare, Token-DiFR, credit gate, criticality mapping) + hermetic tests. The real
+GPU prefill re-execution and the full-sketch transport (off the 32-byte
+binding-only slot) are gated to Phase I/K. Criticality →
+level (`criticality_maps_to_verification_level`) derives from `Task.verifiable`
+(SIGNED — part of the canonical identity) and `Task.redundancy_factor` (NOT
+signed — a dispatch policy excluded from the canonical bytes since Sprint 23
+`34c77ce`), so the returned level is ADVISORY w.r.t. redundancy; the BINDING
+minimum level is set by the consumer/group policy, never trusted from the
+unsigned hint nor self-declared (auto-downgrade defense), and the N1 lottery
+applies regardless of the criticality tag. 0 bump wire (1 additive
+`DOMAIN_VRF_DRAW_V1`, slots already v1), 0 new dependency.
+
+Cross-ref: §P64 (N0 commitment binding), §P61 (out-of-quorum reward inputs),
+`sprint77_phase_h_preflight.md`, THREAT_MODEL §16 (N1 + Incentive).
+
 ## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
 
 Origin: S74 Phase D was committed while its Codex review still carried an

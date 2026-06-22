@@ -60,6 +60,9 @@
 //! - [`DOMAIN_NODE_DIRECTORY_V1`] — [`crate::node_directory::NodeDirectory`]
 //!   (Sprint 75 Phase B; the self-published catalog of apps a node
 //!   hosts/seeds, replicated on subscription like a curator list)
+//! - [`DOMAIN_VRF_DRAW_V1`]      — the N1 spot-check verifiable draw in
+//!   [`crate::verifiable_draw`] (Sprint 77 Phase H; a deterministic
+//!   Ed25519 draw, NOT an ECVRF — see the constant's note)
 //!
 //! The `v1` suffix is the domain version, independent from any
 //! struct version field. Bumping it changes the signature surface
@@ -285,6 +288,26 @@ pub const DOMAIN_SHARD_PLAN_V1: &[u8] = b"nexus-shard-plan-v1";
 /// prefix forces disjoint pre-images. Purely additive, 0-bump (the S74
 /// `DOMAIN_SEED_REQUEST_V1` pattern).
 pub const DOMAIN_RUN_PROOF_V1: &[u8] = b"nexus-run-proof-v1";
+
+/// Domain separation tag for the N1 verifiable draw (spot-check verifier
+/// selection).
+///
+/// Sprint 77 Phase H — the N1 spot-check lottery. A potential verifier signs
+/// the session draw seed (`session_id || epoch || result_commitment`) with its
+/// node key; the signature is the draw "proof" and BLAKE3 of the proof is the
+/// draw "output" ([`crate::verifiable_draw`]). The domain tag keeps this draw
+/// signature from being replayed as a run-proof / session-manifest / task /
+/// result / kudos / … signature even though it is minted with the same node
+/// Ed25519 key — the pre-image spaces are disjoint by construction.
+///
+/// **Honesty:** this is a deterministic, publicly *verifiable* Ed25519 draw,
+/// NOT an ECVRF (RFC 9381): Ed25519 is malleable, so uniqueness and
+/// unpredictability are not cryptographically proven. It is a mitigation under
+/// the one-honest-verifier assumption for a 1–5% spot-check, not a guarantee.
+/// Purely additive, 0-bump of every existing `*_FORMAT_VERSION` (the S74
+/// `DOMAIN_SEED_REQUEST_V1` pattern); the proof is recomputable and need not
+/// cross the wire (if transported, it rides a raw-op `serde_json::Value`).
+pub const DOMAIN_VRF_DRAW_V1: &[u8] = b"nexus-vrf-draw-v1";
 
 /// Produce the canonical byte representation of any serializable
 /// value for signing.

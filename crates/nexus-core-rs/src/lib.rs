@@ -65,6 +65,7 @@ pub mod task;
 pub mod tls_pinning;
 pub mod toploc;
 pub mod tor_transport;
+pub mod verifiable_draw;
 pub mod verification;
 
 pub use attestations::{
@@ -81,7 +82,8 @@ pub use canonical::{
     DOMAIN_DURESS_ACK_V1, DOMAIN_FEED_V1, DOMAIN_INVITE_V1, DOMAIN_KEY_ROTATION_V1,
     DOMAIN_KUDOS_V1, DOMAIN_NODE_DIRECTORY_V1, DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1,
     DOMAIN_RESULT_V1, DOMAIN_RUN_PROOF_V1, DOMAIN_SEED_REQUEST_V1, DOMAIN_SEED_RESPONSE_V1,
-    DOMAIN_SHARD_PLAN_V1, DOMAIN_TASK_V1, DOMAIN_WARRANT_CANARY_V1, canonical_bytes,
+    DOMAIN_SHARD_PLAN_V1, DOMAIN_TASK_V1, DOMAIN_VRF_DRAW_V1, DOMAIN_WARRANT_CANARY_V1,
+    canonical_bytes,
 };
 pub use compute_group::{
     COMPUTE_GROUP_FORMAT_VERSION, COMPUTE_GROUP_ID_MAX, COMPUTE_GROUP_MAX_MEMBERS, ComputeGroup,
@@ -186,4 +188,13 @@ pub use toploc::{
     ToplocComparison, ToplocFingerprint, bf16_bits,
 };
 pub use tor_transport::{TorConfig, TorTransport};
-pub use verification::{CheckStatus, LayerResult, VerificationReport, Verifier, spot_check_rate};
+pub use verifiable_draw::{
+    VRF_MAX_TEMP_MILLI, VRF_RATE_DENOMINATOR, VrfDraw, derive_spotcheck_seed,
+    derive_spotcheck_temp_milli, vrf_draw, vrf_is_selected, vrf_verify,
+};
+pub use verification::{
+    CheckStatus, LayerResult, SPOT_CHECK_RATE_DENOMINATOR_BP, SPOT_CHECK_RATE_STANDARD_BP,
+    SPOT_CHECK_RATE_SUSPECT_BP, SPOT_CHECK_RATE_TRUSTED_BP, TRUST_TIER_STANDARD,
+    TRUST_TIER_TRUSTED, VerificationLevel, VerificationReport, Verifier,
+    criticality_maps_to_verification_level, spot_check_rate, spot_check_rate_bp,
+};

@@ -915,7 +915,7 @@ sans deplacer cette frontiere.
 | T/D | **Sybil multi-keypair** (N identites forgees votent la meme reponse pour forcer un faux consensus) | H | inchange par le fix (le fix forwarde une voix par pubkey distincte, il n'en cree aucune) ; gonfler le quorum exige N keypairs reels = surface Sybil pre-existante (PoW / AgeWitness + pilote ferme) ; le quorum n'est PAS une frontiere anti-Sybil par lui-meme | **M** |
 | T | **Worker menteur** (un GGUF/poids different ou un mensonge sur la cohorte) | M | rejet outlier exact-match (`validator.rs:290-336`) : un `result_text` divergent ne forme jamais la majorite — la cohorte advisory ne sert qu'au routage, pas a la confiance ; tests `quorum_redundancy_diverging_outputs_rejected` (bridge) + `quorum_rejects_nondeterministic_divergence` (in-DB) | **L** |
 | Faux-vert | **Divergence cross-GPU lue comme un bug** | M | anti faux-vert (T1) : exact-match garanti HOMOGENE seulement (meme model/quant/runtime) ; divergence cross-GPU heterogene = ATTENDUE (float reordering, Thinking Machines/Ingonyama) et rejetee comme outlier, ECRITE comme resultat attendu dans l'acceptance LIVE (PATTERNS §P60.2) | **M** |
-| I | **Verification cross-hardware semantique manquante** (l'exact-match ne couvre pas les GPU heterogenes) | L | **etage 2 primitive CABLEE (S77 Phase G)** : primitive N0 TOPLOC (`toploc.rs`, commitment BLAKE3 du sketch entier top-k du dernier hidden state) + helper worker qui le calcule + Layer-3 `verification.rs` consommant le commitment dans `logprobs_hash` par egalite (detection ~100% du swap modele/precision par INEGALITE). L'**ecriture/emission signee** du commitment dans `RunProof.activation_fingerprint` / `ResultPayload.logprobs_hash` ride le data-plane (Phase H/I/J). La comparaison TOLERANTE cross-GPU (`ToplocFingerprint::compare`) est recomputee independamment par N1 (Phase H) / N2 (Phase I) — voir §16 « N0 TOPLOC fingerprint » | **M (emission + recompute N1/N2 = Phase H/I)** |
+| I | **Verification cross-hardware semantique manquante** (l'exact-match ne couvre pas les GPU heterogenes) | L | **etage 2 primitive CABLEE (S77 Phase G)** : primitive N0 TOPLOC (`toploc.rs`, commitment BLAKE3 du sketch entier top-k du dernier hidden state) + helper worker qui le calcule + Layer-3 `verification.rs` consommant le commitment dans `logprobs_hash` par egalite (detection ~100% du swap modele/precision par INEGALITE). L'**ecriture/emission signee** du commitment dans `RunProof.activation_fingerprint` / `ResultPayload.logprobs_hash` ride le data-plane (Phase H/I/J). La comparaison TOLERANTE cross-GPU (`ToplocFingerprint::compare`) est recomputee independamment par N1 (Phase H) / N2 (Phase I) — voir §16 « N0 TOPLOC fingerprint ». **Phase H** cable la PRIMITIVE N1 (tirage verifiable Ed25519 `verifiable_draw.rs` + recompute tolerant `ToplocFingerprint::compare` + Token-DiFR + incentive reputationnel `spotcheck_creditable`/`kudos_ledger::credit` + mapping criticite→niveau `criticality_maps_to_verification_level`) ; le re-exec prefill REEL sur GPU + le transport du sketch complet hors du slot 32B restent gates (Phase I/K), comme G a livre la primitive N0 sans cablage in-vivo | **M (primitive N1 CABLEE Phase H ; re-exec prefill in-vivo + transport sketch = Phase I/K → L pour l'echantillon tire une fois in-vivo)** |
 
 **Residual S76-D** : le Sybil multi-keypair (T/D, **M**) reste le cout
 assume du quorum par accord de sortie — le quorum prouve la reproductibilite
@@ -1083,11 +1083,72 @@ prive** — pas d'observateur tiers. **Retention/GC** (addendum sharding §10 q.
 OUVERT) : le fingerprint persiste tant que le `RunProof` persiste ; le GC
 post-fenetre-de-contestation n'est PAS cable (renvoi N3 / Phase I).
 
-### Incentive a verifier (residuel economique, non-monetaire)
+### N1 spot-check VRF (Sprint 77 Phase H)
+
+Phase H cable la **primitive du 2e etage, N1** : un verifieur est **tire au sort
+de facon verifiable** (`nexus-core-rs/src/verifiable_draw.rs`) pour re-executer un
+prefill (~1%, VeriLLM arXiv:2509.24257) et recomparer le fingerprint N0 du prover
+via la comparaison **tolerante** (`ToplocFingerprint::compare`, jamais l'egalite a
+`temperature > 0`). La selection remplace l'ancien `simple_hash(task_id)`
+publiquement predictible (Sprint 40) — un prover ne sait plus ex-ante s'il sera
+audite. Le verdict combine l'activation-fingerprint ET les **tokens sous seed
+partage** (Token-DiFR, arXiv:2511.20621) : comparer seulement l'activation
+laisserait un worker forger des tokens puis recalculer un fingerprint coherent.
+
+**Construction et honnetete cardinale** : le tirage est une **signature Ed25519
+deterministe** (`DOMAIN_VRF_DRAW_V1`) hashee, PAS un ECVRF (RFC 9381). Ed25519
+est malleable → l'**unicite** du tirage n'est pas prouvee, et Ed25519 n'etant pas
+une PRF, l'**imprevisibilite** ne l'est pas non plus. C'est une **mitigation sous
+l'hypothese one-honest-verifier pour un echantillon 1-5%**, pas une garantie. Le
+choix 0-dep (reutilisation de `crypto.rs`, precedent Phase D
+`blake3(session_id||pubkey)`) est assume contre l'ajout d'une crate ECVRF lourde
+sur une 2e courbe ; un ECVRF formel et la garantie N4 zkML restent hors-scope S77.
+
+**Ce que N1 livre (Phase H) et ne livre PAS** : Phase H livre les primitives
+(tirage, recompute tolerant, Token-DiFR, gate d'incentive, mapping criticite) +
+leurs tests hermetiques. Le **re-exec prefill REEL sur GPU** et le **transport du
+sketch complet** (hors du slot commitment 32B, qui reste binding-only) sont gates
+(Phase I/K) — exactement le pattern Phase G (primitive sans cablage in-vivo).
+
+**Nouvelles surfaces N1** (toutes Sev **M**) :
+- **Predictibilite / grinding du tirage** : qui detient la cle peut faire varier
+  l'entree pour biaiser le verifieur tire. **Mitigation cablee** : le `seed` du
+  tirage DOIT etre une valeur que le worker verifie ne peut PAS choisir
+  (`session_id || epoch || result_commitment`, deja signes) ; documente dans la
+  primitive et teste (`vrf_verify` rejette seed/cle alteres).
+- **Farming de kudos / Sybil-verifieur** : un verifieur pourrait reclamer du
+  credit sans travail, ou un collusionnaire s'auto-tirer. **Mitigation** :
+  `spotcheck_creditable` exige (1) un tirage VRF re-verifie + (2) un `RunProof`
+  N1 SIGNE par le verifieur (preuve du travail), jamais une auto-declaration ;
+  Sybil amont borne par PoW/AgeWitness + pilote ferme (D5).
+- **Criticite auto-declaree / non-signee pour echapper a N2** : un initiateur
+  pourrait taguer sa tache « faible-criticite ». **Provenance honnete des champs** :
+  `criticality_maps_to_verification_level` derive le niveau de `Task.verifiable`
+  (SIGNE — partie de l'identite canonique, un MITM ne peut le retourner sans casser
+  la signature) ET de `Task.redundancy_factor` qui n'est PAS signe (dispatch policy
+  EXCLUE des bytes canoniques, Sprint 23 `34c77ce`). Le niveau retourne est donc
+  **advisory** vis-a-vis de la redondance : un MITM applicatif peut baisser
+  `redundancy_factor` pour suggerer N1 a la place de N2. **Mitigation** : le niveau
+  MINIMAL liant est impose par la policy du groupe/consommateur, jamais fait
+  confiance au hint non-signe ni auto-declare par l'initiateur ; et le tirage N1
+  s'applique INDEPENDAMMENT du tag (un downgrade ne supprime pas le risque d'etre
+  tire). 0 champ wire nouveau.
+
+**Confidentialite INCHANGEE** : SI-1 (reconstruction, High) et SI-4 (collusion,
+High) restent identiques — N1 ne chiffre rien, il re-execute.
+
+### Incentive a verifier (residuel economique, non-monetaire) — CABLE Phase H
 
 L'incentive de S77 a executer/verifier honnetement est **reputationnel**
-(kudos curator-reputation, jamais monetaire — PO-12 interdit stake/token, cf.
-risk **R8** du plan) : c'est une **mitigation**, pas une garantie economique. Un
+(kudos non-monetaire, jamais monetaire — PO-12 interdit stake/token, cf.
+risk **R8** du plan) : c'est une **mitigation**, pas une garantie economique.
+**Phase H le cable** : un verifieur tire et prouve credite du kudos reputationnel
+via le mecanisme **existant** `kudos_ledger::credit` (il n'existe AUCUN module
+`curator` ; le ledger kudos EST la reputation), gate par `spotcheck_creditable`.
+La sanction d'un verifieur faux/paresseux est **strictement non-economique**
+(non-credit / trust-delta negatif sur le chemin prover), **jamais** slash/bond/
+burn — VeriLLM tire sa defense game-theoretique du slashing, INTERDIT ici. Il n'y
+a donc **pas de defense anti-verifieur-paresseux** en S77 (carry honnete) : un
 verifieur paresseux rationnel peut ne pas verifier ; la garantie cryptographique
 (N4 zkML) est hors-scope S77 (scope cut #1). Le pilote ferme (D5) + l'anti-Sybil
 amont (PoW/AgeWitness) bornent l'exposition. Severite residuelle **M**.
@@ -1189,3 +1250,16 @@ Historique versions :
   → CABLE Phase G, residuel **M** tant que le recompute N1/N2 Phase H/I n'est pas
   livre). 0 nouvelle row STRIDE (surfaces SI-1..5 deja v10), 0 bump wire (slots
   `logprobs_hash` / `activation_fingerprint` deja v1).
+- **v12 (Sprint 77 Phase H, 2026-06-22)** : cablage **primitive N1 spot-check
+  VRF + incentive reputationnel** — ajout sous-section §16 « N1 spot-check VRF
+  (Phase H) » (tirage verifiable Ed25519 `verifiable_draw.rs` NON-ECVRF assume +
+  recompute tolerant `ToplocFingerprint::compare` + Token-DiFR + 3 nouvelles
+  surfaces Sev M : grinding-tirage / farming-kudos-Sybil-verifieur /
+  criticite-auto-declaree, chacune avec mitigation cablee) ; sous-section
+  « Incentive a verifier » passee de **concu** a **CABLE Phase H**
+  (`spotcheck_creditable` + `kudos_ledger::credit`, sanction strictement
+  non-economique, carry honnete « pas de defense anti-verifieur-paresseux ») ;
+  MAJ §15.2 row I (primitive N1 cablee Phase H, re-exec prefill in-vivo +
+  transport sketch = Phase I/K → L pour l'echantillon tire). Confidentialite
+  SI-1/SI-4 High INCHANGEE (N1 ne chiffre rien). 0 nouvelle row STRIDE,
+  0 bump wire (1 `DOMAIN_VRF_DRAW_V1` additif, slots deja v1), 0 dep nouvelle.
