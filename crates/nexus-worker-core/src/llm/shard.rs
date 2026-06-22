@@ -173,6 +173,22 @@ pub fn hidden_token_count(hidden_len: usize, n_embd: usize) -> Option<usize> {
     Some(hidden_len / n_embd)
 }
 
+/// Sprint 77 Phase G — compute the **N0 TOPLOC commitment** of a post-norm
+/// hidden state `hidden` (one token's `[n_embd]` activation vector, typically
+/// the last token of the last shard): extract the top-`TOPLOC_TOP_K`
+/// activations by magnitude (lossless, [`top_k_by_magnitude`]) and commit to
+/// the canonical all-integer [`nexus_core_rs::ToplocFingerprint`]. Returns the
+/// 32-byte BLAKE3 commitment to write into `RunProof::activation_fingerprint`
+/// (shard path) or `ResultPayload::logprobs_hash` (whole-model path).
+///
+/// Pure (no GGUF, no native build) so it is unit-tested in CI; the gated
+/// backend wires it through [`ShardBackend::toploc_commitment_last_token`].
+#[must_use]
+pub fn toploc_commitment(hidden: &[f32]) -> [u8; 32] {
+    let topk = top_k_by_magnitude(hidden, nexus_core_rs::TOPLOC_TOP_K);
+    nexus_core_rs::ToplocFingerprint::from_topk(&topk).commitment()
+}
+
 #[cfg(feature = "llm_llama_cpp")]
 pub use backend::{ShardBackend, ShardBackendForwarder};
 
@@ -331,6 +347,31 @@ mod backend {
         #[must_use]
         pub fn n_embd(&self) -> usize {
             self.n_embd
+        }
+
+        /// Sprint 77 Phase G — the **N0 TOPLOC commitment** of this shard's
+        /// boundary output for the LAST token. Only meaningful on the last
+        /// shard, where the boundary is the post-norm hidden state TOPLOC
+        /// fingerprints. `boundary` is the `[n_tokens, n_embd]` row-major fp32
+        /// buffer from [`Self::forward_tokens`] / [`Self::forward_hidden`].
+        ///
+        /// # Errors
+        ///
+        /// [`LlmBackendError`] if `boundary` is not a positive multiple of
+        /// `n_embd`.
+        pub fn toploc_commitment_last_token(&self, boundary: &[f32]) -> LlmBackendResult<[u8; 32]> {
+            let n_tokens =
+                super::hidden_token_count(boundary.len(), self.n_embd).ok_or_else(|| {
+                    LlmBackendError::InvalidConfig {
+                        reason: format!(
+                            "toploc boundary length {} is not a positive multiple of n_embd {}",
+                            boundary.len(),
+                            self.n_embd
+                        ),
+                    }
+                })?;
+            let last = &boundary[(n_tokens - 1) * self.n_embd..];
+            Ok(super::toploc_commitment(last))
         }
 
         fn context_params(&self) -> LlamaContextParams {
@@ -611,6 +652,26 @@ mod tests {
             "non-multiple of n_embd rejected"
         );
         assert_eq!(hidden_token_count(4, 0), None, "zero n_embd rejected");
+    }
+
+    #[test]
+    fn toploc_commitment_is_deterministic_and_swap_sensitive() {
+        // Phase G: the worker-side N0 commitment over a hidden state vector is
+        // deterministic, and a different hidden state (a swapped model) yields a
+        // different commitment.
+        let a = [0.1_f32, 5.0, -3.0, 2.0, 0.5, -8.0];
+        let b = [0.1_f32, 5.0, -3.0, 2.0, 0.5, -8.0];
+        assert_eq!(
+            toploc_commitment(&a),
+            toploc_commitment(&b),
+            "same hidden state → same commitment"
+        );
+        let c = [9.0_f32, -1.0, 0.2, 7.0, -4.0, 0.3];
+        assert_ne!(
+            toploc_commitment(&a),
+            toploc_commitment(&c),
+            "different hidden state → different commitment"
+        );
     }
 }
 

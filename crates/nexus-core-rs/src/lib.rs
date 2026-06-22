@@ -63,6 +63,7 @@ pub mod shard_plan;
 pub mod signed_list;
 pub mod task;
 pub mod tls_pinning;
+pub mod toploc;
 pub mod tor_transport;
 pub mod verification;
 
@@ -179,6 +180,10 @@ pub use tls_pinning::{
     CUSTOM_PINS_FILE_ENV, PIN_FILE_FORMAT_VERSION, PinError, PinSource, PinValidator,
     RELAY_PINS_FILE_NAME, RelayPin, RelayPinsFile, extract_spki_sha256,
     extract_spki_sha256_from_pem, relay_pins_file_path,
+};
+pub use toploc::{
+    TOPLOC_THRESH_EXP_MISMATCH, TOPLOC_THRESH_MANT_MEAN, TOPLOC_THRESH_MANT_MEDIAN, TOPLOC_TOP_K,
+    ToplocComparison, ToplocFingerprint, bf16_bits,
 };
 pub use tor_transport::{TorConfig, TorTransport};
 pub use verification::{CheckStatus, LayerResult, VerificationReport, Verifier, spot_check_rate};

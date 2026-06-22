@@ -276,8 +276,9 @@ pub const DOMAIN_SHARD_PLAN_V1: &[u8] = b"nexus-shard-plan-v1";
 ///
 /// Sprint 77 Phase C — sharded inference wire primitives. A worker signs a
 /// [`crate::shard_plan::RunProof`] after executing its layer block: an
-/// auto-attestation ("here is what I EXECUTED") carrying the reserved N0
-/// TOPLOC `activation_fingerprint` slot and all-integer run metrics.
+/// auto-attestation ("here is what I EXECUTED") carrying the N0 TOPLOC
+/// `activation_fingerprint` slot (a BLAKE3 commitment, [`crate::toploc`]) and
+/// all-integer run metrics.
 /// Distinct from [`DOMAIN_SHARD_PLAN_V1`] so a worker's run-proof signature
 /// can never be replayed as an initiator's session-manifest signature even
 /// though both are minted with the same node Ed25519 key — the domain

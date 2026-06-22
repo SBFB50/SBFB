@@ -915,7 +915,7 @@ sans deplacer cette frontiere.
 | T/D | **Sybil multi-keypair** (N identites forgees votent la meme reponse pour forcer un faux consensus) | H | inchange par le fix (le fix forwarde une voix par pubkey distincte, il n'en cree aucune) ; gonfler le quorum exige N keypairs reels = surface Sybil pre-existante (PoW / AgeWitness + pilote ferme) ; le quorum n'est PAS une frontiere anti-Sybil par lui-meme | **M** |
 | T | **Worker menteur** (un GGUF/poids different ou un mensonge sur la cohorte) | M | rejet outlier exact-match (`validator.rs:290-336`) : un `result_text` divergent ne forme jamais la majorite — la cohorte advisory ne sert qu'au routage, pas a la confiance ; tests `quorum_redundancy_diverging_outputs_rejected` (bridge) + `quorum_rejects_nondeterministic_divergence` (in-DB) | **L** |
 | Faux-vert | **Divergence cross-GPU lue comme un bug** | M | anti faux-vert (T1) : exact-match garanti HOMOGENE seulement (meme model/quant/runtime) ; divergence cross-GPU heterogene = ATTENDUE (float reordering, Thinking Machines/Ingonyama) et rejetee comme outlier, ECRITE comme resultat attendu dans l'acceptance LIVE (PATTERNS §P60.2) | **M** |
-| I | **Verification cross-hardware semantique manquante** (l'exact-match ne couvre pas les GPU heterogenes) | L | reserve etage 2 : commitment TOPLOC sur `ResultPayload.logprobs_hash` (deja v1, `task.rs:511`), gate sur backend exposant les hidden states (`llm_llama_cpp`, S77). Design note seul ce phase, zero code, zero bump (PATTERNS §P60.3) | **L (S77)** |
+| I | **Verification cross-hardware semantique manquante** (l'exact-match ne couvre pas les GPU heterogenes) | L | **etage 2 primitive CABLEE (S77 Phase G)** : primitive N0 TOPLOC (`toploc.rs`, commitment BLAKE3 du sketch entier top-k du dernier hidden state) + helper worker qui le calcule + Layer-3 `verification.rs` consommant le commitment dans `logprobs_hash` par egalite (detection ~100% du swap modele/precision par INEGALITE). L'**ecriture/emission signee** du commitment dans `RunProof.activation_fingerprint` / `ResultPayload.logprobs_hash` ride le data-plane (Phase H/I/J). La comparaison TOLERANTE cross-GPU (`ToplocFingerprint::compare`) est recomputee independamment par N1 (Phase H) / N2 (Phase I) — voir §16 « N0 TOPLOC fingerprint » | **M (emission + recompute N1/N2 = Phase H/I)** |
 
 **Residual S76-D** : le Sybil multi-keypair (T/D, **M**) reste le cout
 assume du quorum par accord de sortie — le quorum prouve la reproductibilite
@@ -1033,6 +1033,56 @@ des entrees confidentielles.
   allocation ; borner `n_ctx` au placement borne simultanement le frame et le
   KV-cache.
 
+### N0 TOPLOC fingerprint (Sprint 77 Phase G)
+
+Phase G cable le **premier etage de la verification graduee, N0** : la primitive
+`nexus-core-rs/src/toploc.rs` calcule le **commitment BLAKE3 32B** de l'encodage
+canonique tout-entier du top-k (`TOPLOC_TOP_K=128`) du dernier hidden state, et le
+worker dispose du helper (`toploc_commitment`) qui le produit apres son bloc de
+couches. Les slots porteurs `[u8;32]` existent deja
+(`RunProof.activation_fingerprint` chemin shard, `ResultPayload.logprobs_hash`
+chemin modele entier) ; leur **ecriture dans un proof signe et leur emission
+on-wire sont cablees avec le data-plane de session (Phase H/I/J)** — G livre la
+primitive + le calcul cote worker, pas encore l'emission signee. Cote
+consommateur, la Layer-3 de `verification.rs` traite deja `logprobs_hash` comme un
+commitment TOPLOC (egalite), remplacant le Layer-3 logprob inerte. 0 bump wire
+(slots deja v1), 0 nouveau `DOMAIN_*`.
+
+**Ce que N0 detecte** : un worker qui execute un GGUF / une quantification
+DIFFERENTE produit un top-k (indices + exposants bf16) divergent → commitment
+different → swap detecte par inegalite (~100%, propriete LSH TOPLOC arXiv
+2501.16007).
+
+**Ce que N0 ne detecte PAS** (honnetete) :
+- la **confidentialite** des activations — SI-1 (reconstruction, High) et SI-4
+  (collusion, High) restent INCHANGES, le fingerprint ne chiffre rien ;
+- une **activation/fingerprint forge mais coherent** par un worker qui controle
+  son propre payload signe ;
+- la **correction du calcul** en general — N0 est un detecteur de swap, PAS une
+  preuve de calcul correct.
+
+**Caveat auto-attestation (cardinal)** : le commitment qu'un worker publie pour
+SON propre run est un **self-claim**, jamais une preuve, tant qu'un verifieur
+independant ne le **recompute** pas. La comparaison TOLERANTE (exposant/mantisse,
+`ToplocFingerprint::compare`) exige le sketch complet des deux cotes ; un hash
+BLAKE3 detruit la localite (1 bit → avalanche) donc le commitment seul binde mais
+ne tolere rien. Le recompute cross-worker in-vivo est N1 spot-check (Phase H) +
+N2 redondance tolerante (Phase I) ; le transport du sketch complet hors du slot
+32B y est aussi cable. Le live result path reste le quorum exact-match
+`result_text` (`validate_quorum_pre_guardrail`), INCHANGE.
+
+**Backend** : N0 exige les hidden states → le mode sharding impose
+`llm_llama_cpp` (fork F1/F2). Sur Ollama/HTTP le slot reste `[0u8;32]` (N0
+infaisable, pas de fork HTTP).
+
+**Surface SI-3 (heritage)** : le fingerprint est lui-meme derive du dernier
+hidden state → il herite de SI-3 (Activation fingerprinting, Medium) : il correle
+au TYPE de prompt (langue/domaine), pas a l'input exact. Il circule sur le
+control-plane (`RunProof`, iroh-docs) et n'est lisible que par le **groupe
+prive** — pas d'observateur tiers. **Retention/GC** (addendum sharding §10 q.210,
+OUVERT) : le fingerprint persiste tant que le `RunProof` persiste ; le GC
+post-fenetre-de-contestation n'est PAS cable (renvoi N3 / Phase I).
+
 ### Incentive a verifier (residuel economique, non-monetaire)
 
 L'incentive de S77 a executer/verifier honnetement est **reputationnel**
@@ -1128,3 +1178,14 @@ Historique versions :
   §16 « Revue et evolution »→§17. Section figee co-localisee avec le claim +
   cablage `sbfb/shard/1` que F2 introduit ; STRIDE/LINDDUN formel + SI-5 padding
   derives du benchmark = Phase K.
+- **v11 (Sprint 77 Phase G, 2026-06-22)** : cablage **N0 TOPLOC fingerprint** —
+  ajout sous-section §16 « N0 TOPLOC fingerprint (Phase G) » (detection swap
+  modele/precision par INEGALITE de commitment BLAKE3 du sketch top-k entier
+  `toploc.rs` ; ne couvre PAS la confidentialite SI-1/SI-4 ni la correction de
+  calcul ; caveat auto-attestation cardinal = self-claim tant que N1/N2 ne
+  recomputent pas ; comparaison tolerante = `ToplocFingerprint::compare` recompute
+  N1 Phase H / N2 Phase I ; backend `llm_llama_cpp` requis, slot `[0u8;32]` sur
+  Ollama ; SI-3 herite + retention/GC ouvert) + MAJ §15.2 row I (reserve etage 2
+  → CABLE Phase G, residuel **M** tant que le recompute N1/N2 Phase H/I n'est pas
+  livre). 0 nouvelle row STRIDE (surfaces SI-1..5 deja v10), 0 bump wire (slots
+  `logprobs_hash` / `activation_fingerprint` deja v1).

@@ -3409,6 +3409,12 @@ backend (`LlamaCppBackend`, feature `llm_llama_cpp`) = S77 (étage 2). S76
 Phase D adds NO code here — design note only, zero wire bump (the slot is
 already v1).
 
+**Update (S77 Phase G)**: the real commitment primitive is now delivered
+(`nexus-core-rs/src/toploc.rs`, see §P64) and the consumer Layer-3 of
+`verification.rs` treats `logprobs_hash` as a TOPLOC commitment by equality. The
+on-wire SIGNED emission of the slot still rides the session data-plane (H/I/J);
+this note's "currently `[0u8; 32]`" describes the S76 state, not S77 Phase G.
+
 Cross-ref: S76 Phase C (`1cc28e7`, RuntimeTuple + cohort gate), §P53
 (deterministic quorum B-2), §P54 (cross-process compute E2E B-3), §P59.4
 (guardrail-before-persist terminal), kickoff §D3.
@@ -3542,6 +3548,59 @@ Lessons (do not re-derive):
 
 Cross-ref: §P54 (cross-process E2E / hot path), §P62 (whole-model routing),
 `sprint77_phase_A_preflight.md`, THREAT_MODEL §15.
+
+## §P64 — Sprint 77 Phase G: a hash commitment BINDS a fingerprint, it does NOT make it tolerant
+
+N0 TOPLOC (`nexus-core-rs/src/toploc.rs`) fingerprints the top-k of the last
+hidden state to detect a model/precision swap while tolerating honest GPU
+non-determinism — the property `verification.rs` Layer-3 lacked (hash equality on
+a logprob hash). Four load-bearing decisions, do not re-derive:
+
+1. **The 32-byte wire slot can only hold a COMMITMENT, never the tolerant
+   sketch.** `logprobs_hash` / `RunProof.activation_fingerprint` are `[u8; 32]`
+   (= `BLAKE3_BYTES`); a TOPLOC encoding is 258 B/32 tok. The plan's "0 bump wire"
+   forces a BLAKE3 commitment of the canonical integer encoding into the slot. A
+   hash DESTROYS locality (one bit flip avalanches), so the slot binds the
+   model-swap by EQUALITY and detects it by inequality — it can never be the
+   tolerant comparator. The tolerant exponent/mantissa compare
+   (`ToplocFingerprint::compare`) needs the full sketch on both sides; that is the
+   "separate off-canonical payload" the old Layer-3 doc-note anticipated, and it
+   rides the data-plane in N1/N2 (Phase H/I). Do NOT claim a 32-byte slot resolves
+   cross-GPU tolerant verification.
+
+2. **Sketch-direct over the GF(65497) polynomial (a verdict-sanctioned
+   PLAN-ADAPT).** TOPLOC's native 258 B compression is a Newton interpolation over
+   a finite field with `mod_inverse` + an injective-modulus search — and `y mod
+   65497` aliases negative-activation bf16 patterns in `[65497, 65535]`. None of
+   that buys anything while only the 32-byte commitment is on the wire (Phase G),
+   so SBFB stores the direct integer sketch (indices `u32` + bf16 bits `u16`,
+   index-sorted) for auditability. The GF compression is a deferrable on-wire
+   optimisation for H/I if payload size ever matters.
+
+3. **The hashed pre-image must be ALL-INTEGER or the commitment never matches
+   cross-platform.** The float top-k values are quantised to bf16 bits
+   (`(to_bits() >> 16) as u16`, a bit reinterpret — language semantics, identical
+   on any endianness) BEFORE the encoding. No `f32` is ever serialised; a Rust
+   signer and a Python verifier derive identical bytes. Same rule as `RunMetrics`'s
+   all-integer fields and JCS no-float.
+
+4. **Tolerant comparison stays integer even locally.** `mean < T` is evaluated as
+   `sum < T * count`, `median < T` as `median_x2 < 2*T` (the even-length midpoint
+   is `errs[n/2-1] + errs[n/2]`), and an empty exponent-match set is a `u64::MAX`
+   sentinel reject. Thresholds (`TOPLOC_THRESH_EXP_MISMATCH=38`, mean 10, median 8)
+   are named consts from arXiv 2501.16007v2 (bf16 set); rig re-calibration is
+   Phase K. A `compare()` whose call-sites are all `#[cfg(test)]` is correct for
+   Phase G: the primitive is exposed for the verifiers, NOT wired in-vivo.
+
+**Auto-attestation (cardinal, mirror `task.rs` `model_digest`)**: a commitment a
+worker computes for its own run is a self-claim, never proof, until an independent
+verifier (N1/N2) recomputes it. Phase G delivers the primitive + the worker-side
+helper that COMPUTES the commitment; writing it into a signed `RunProof` and
+emitting it on-wire rides the session data-plane (H/I/J). The live result path
+stays the hash-exact `result_text` quorum, unchanged.
+
+Cross-ref: §P60.3 (the slot was reserved here), §P62 (whole-model routing),
+`sprint77_phase_g_preflight.md`, THREAT_MODEL §16 (N0).
 
 ## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
 

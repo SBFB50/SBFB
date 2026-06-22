@@ -37,10 +37,10 @@
 //! initiator authored this plan*; a valid [`RunProofEntry`] signature
 //! proves only *which worker* produced it (non-repudiation). Neither
 //! attests that the computation is **correct**. The
-//! [`RunProof::activation_fingerprint`] is the N0 TOPLOC slot, reserved
-//! here and left zeroed — its real encoding lands in Phase G and its
-//! verification in Phase G/H/I. Until then a consumer must treat a
-//! `RunProof` exactly like [`crate::task::ResultPayload::model_digest`]: a
+//! [`RunProof::activation_fingerprint`] carries the N0 TOPLOC commitment
+//! (Sprint 77 Phase G, [`crate::toploc`]); its independent tolerant recompute
+//! is N1/N2 (Phase H/I). Until a verifier recomputes it, a consumer must treat
+//! a `RunProof` exactly like [`crate::task::ResultPayload::model_digest`]: a
 //! self-claim, never a guarantee.
 //!
 //! ## No floats in signed payloads
@@ -428,13 +428,21 @@ pub struct RunProof {
     /// recompute the fingerprint; this is that external binding.
     pub prompt_profile_hash: [u8; 32],
 
-    /// **N0 TOPLOC fingerprint slot — reserved.** 32 zeros means "not
-    /// provided". The real LSH-top-k encoding lands in Phase G and its
-    /// verification in Phase G/H/I; until then this is always
-    /// `[0u8; 32]` and a consumer must not treat it as a computed proof
-    /// (mirrors the honest doc-note on
-    /// [`crate::task::ResultPayload::logprobs_hash`]). `#[serde(default)]`
-    /// runtime tolerance: an omitted slot deserializes to zeros.
+    /// **N0 TOPLOC commitment** (Sprint 77 Phase G). The 32-byte BLAKE3
+    /// commitment of the worker's canonical
+    /// [`crate::toploc::ToplocFingerprint`] over the top-k of its block's last
+    /// hidden state (post-norm, last shard). 32 zeros means "not provided"
+    /// (e.g. a non-`llm_llama_cpp` backend, where hidden states are unavailable
+    /// and N0 is infeasible).
+    ///
+    /// **Binding only, not a tolerant proof:** a BLAKE3 commitment is compared
+    /// by equality; the tolerant exponent/mantissa recompute lives in
+    /// [`crate::toploc::ToplocFingerprint::compare`] and runs cross-worker in
+    /// the N1 spot-check (Phase H) / N2 redundancy (Phase I), once the full
+    /// sketch is transported off this 32-byte slot. Until an independent
+    /// verifier recomputes it this is a self-claim — see the module note on
+    /// auto-attestation. `#[serde(default)]` runtime tolerance: an omitted slot
+    /// deserializes to zeros.
     #[serde(default)]
     pub activation_fingerprint: [u8; 32],
 
@@ -447,8 +455,9 @@ pub struct RunProof {
 }
 
 impl RunProof {
-    /// Construct a run-proof at the current format version with an empty
-    /// (reserved-zero) N0 fingerprint slot.
+    /// Construct a run-proof at the current format version. The N0 TOPLOC
+    /// fingerprint slot defaults to zero ("not provided"); a worker overwrites
+    /// it with its commitment ([`crate::toploc`]) before signing.
     pub fn new(
         worker_pubkey: [u8; PUBLIC_KEY_LENGTH],
         session_id: impl Into<String>,
@@ -685,7 +694,7 @@ mod tests {
         assert_eq!(entry.worker_pubkey, worker.public_bytes());
         assert_eq!(
             entry.proof.activation_fingerprint, [0u8; 32],
-            "N0 fingerprint slot is reserved-zero until Phase G"
+            "RunProof::new defaults the N0 fingerprint slot to zero (not provided)"
         );
     }
 

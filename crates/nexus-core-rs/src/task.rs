@@ -501,13 +501,22 @@ pub struct ResultPayload {
     /// digests and rejects any worker that used the wrong model.
     pub model_digest: [u8; 32],
 
-    /// BLAKE3 hash of the canonical logprob fingerprint produced by
-    /// running a calibration prompt on the same model. Serves as
-    /// layer 3 of the verification stack.
+    /// **N0 TOPLOC commitment** (Sprint 77 Phase G): the 32-byte BLAKE3
+    /// commitment of the worker's canonical
+    /// [`crate::toploc::ToplocFingerprint`] (top-k of the last hidden state).
+    /// Serves as layer 3 of the verification stack, compared by equality (see
+    /// [`crate::verification`]). The wire name is kept (`logprobs_hash`, 0 bump
+    /// wire); it no longer carries a logprob-dict hash.
     ///
-    /// 32 zeros means "logprobs not provided" (the coordinator
-    /// can then decide whether to accept or reject based on its
-    /// policy for that task_type).
+    /// 32 zeros means "not provided" — e.g. the Ollama/HTTP backend cannot
+    /// expose hidden states, so N0 is infeasible there (sharding requires the
+    /// `llm_llama_cpp` fork) and the slot stays zero.
+    ///
+    /// **Auto-attestation caveat:** this is a self-claim of the worker, NOT a
+    /// proof of correct computation, until an independent verifier (N1/N2,
+    /// Phase H/I) recomputes the fingerprint and tolerantly compares it. Treat
+    /// it like [`Self::model_digest`]; the live result path remains the
+    /// hash-exact quorum over `result_text`.
     pub logprobs_hash: [u8; 32],
 
     /// Unix timestamp when the worker started inference.

@@ -30,21 +30,32 @@
 //! (`validate_quorum_pre_guardrail`). Callers must not treat the
 //! digest as a weights attestation until S77.
 //!
-//! ## Layer 3 — Logprob fingerprint (DID the model actually run)
+//! ## Layer 3 — N0 TOPLOC fingerprint (DID the model actually run)
 //!
-//! A calibration prompt produces a distinctive token probability
-//! distribution for each model architecture. The worker reports
-//! the BLAKE3 hash of its canonical logprob fingerprint, and we
-//! compare against a registered reference hash. A mismatch is NOT
-//! a critical failure — it lowers trust by 5 (suspect) but does
-//! not ban, so the next dispatch can run a spot-check.
+//! Sprint 77 Phase G upgrades this layer from an inert logprob hash
+//! to the real **N0 TOPLOC commitment** ([`crate::toploc`]). The
+//! worker fingerprints the top-k of its last hidden state and
+//! reports the 32-byte BLAKE3 commitment of the canonical
+//! all-integer encoding in `logprobs_hash`; we compare it for
+//! equality against a registered reference. A mismatch is NOT a
+//! critical failure — it lowers trust by 5 (suspect) but does not
+//! ban, so the next dispatch can run a spot-check.
 //!
-//! Unlike the Python version, which compared raw logprob dicts
-//! with a tolerance threshold, the Rust version uses hash equality
-//! because the canonical on-wire format forbids floats (they don't
-//! round-trip bit-identically across platforms). Upgrading to a
-//! tolerant comparator is a v1.2 concern and will require a
-//! separate off-canonical payload.
+//! The layer still compares by hash **equality**: a BLAKE3
+//! commitment binds a worker to one fingerprint, but a hash
+//! destroys locality, so it can only detect a swap by inequality —
+//! it is NOT the tolerant comparator. The tolerant exponent/mantissa
+//! comparison ([`crate::toploc::ToplocFingerprint::compare`]) needs
+//! the full sketch on both sides; running it in-vivo cross-worker is
+//! the N1 spot-check (Phase H) and N2 tolerant redundancy (Phase I),
+//! i.e. the "separate off-canonical payload" this note previously
+//! deferred to a later release. The wire field keeps the name
+//! `logprobs_hash` (0 bump wire).
+//!
+//! **Auto-attestation caveat:** a commitment a worker reports for
+//! its own run is a self-claim, not proof of correct computation,
+//! until an independent verifier (N1/N2, Phase H/I) recomputes the
+//! fingerprint. Treat it like [`crate::task::ResultPayload::model_digest`].
 
 use std::collections::HashMap;
 
@@ -381,13 +392,17 @@ mod tests {
     }
 
     #[test]
-    fn logprob_hash_match_passes() {
+    fn toploc_commitment_match_passes() {
+        // Phase G: the layer-3 reference is now a real N0 TOPLOC commitment
+        // (BLAKE3 of the canonical fingerprint), compared by equality.
         let task = sample_task("llama-3.1-8b");
-        let lp_hash = [0x42; 32];
-        let (_, result) = sample_result([0u8; 32], lp_hash);
+        let commitment =
+            crate::toploc::ToplocFingerprint::from_topk(&[(3, 12.0), (7, -8.0), (1, 5.0)])
+                .commitment();
+        let (_, result) = sample_result([0u8; 32], commitment);
 
         let mut v = Verifier::new();
-        v.register_logprob_profile("llama-3.1-8b", "prompt-a", lp_hash);
+        v.register_logprob_profile("llama-3.1-8b", "prompt-a", commitment);
 
         let report = v.verify(&task, &result, "prompt-a");
         assert!(report.passed);
@@ -396,12 +411,20 @@ mod tests {
     }
 
     #[test]
-    fn logprob_hash_mismatch_lowers_trust_without_ban() {
+    fn toploc_commitment_mismatch_lowers_trust_without_ban() {
+        // A different model → different top-k → different commitment → the
+        // equality check fails (suspect, not ban: the tolerant recompute is
+        // the N1/N2 verifier's job, Phase H/I).
         let task = sample_task("llama-3.1-8b");
-        let (_, result) = sample_result([0u8; 32], [0x42; 32]);
+        let reported =
+            crate::toploc::ToplocFingerprint::from_topk(&[(3, 12.0), (7, -8.0)]).commitment();
+        let reference =
+            crate::toploc::ToplocFingerprint::from_topk(&[(9, 99.0), (2, -50.0)]).commitment();
+        assert_ne!(reported, reference, "fixtures must differ");
+        let (_, result) = sample_result([0u8; 32], reported);
 
         let mut v = Verifier::new();
-        v.register_logprob_profile("llama-3.1-8b", "prompt-a", [0x11; 32]);
+        v.register_logprob_profile("llama-3.1-8b", "prompt-a", reference);
 
         let report = v.verify(&task, &result, "prompt-a");
         // overall passed (not banworthy) but trust_delta = -5
