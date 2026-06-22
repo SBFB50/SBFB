@@ -7,6 +7,7 @@
 //! in the local database.
 
 use nexus_core_rs::task::ResultEntry;
+use nexus_core_rs::{RunProofEntry, ToplocFingerprint, tolerant_quorum_accepts};
 
 use crate::db::CoordinatorDb;
 use crate::error::CoordinatorError;
@@ -334,6 +335,62 @@ fn validate_quorum_pre_guardrail(
             "build quorum divergence — rejected"
         );
         Ok((ValidationOutcome::QuorumRejected, Some(task.clone()), None))
+    }
+}
+
+/// Outcome of the N2 tolerant shard-redundancy quorum (Sprint 77 Phase I).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShardQuorumOutcome {
+    /// A tolerant majority (`>= min_agree`) of signed, carrier-consistent
+    /// frontier fingerprints mutually agree.
+    Accepted,
+    /// No tolerant quorum: too few fingerprints agreed, or every submission was
+    /// dropped (bad signature / carrier mismatch) before the vote.
+    Rejected,
+}
+
+/// N2 tolerant redundancy quorum for a SHARDED task (Sprint 77 Phase I).
+///
+/// This is an **additive** verification path, fully disjoint from the exact
+/// `result_text` quorum [`validate_quorum_pre_guardrail`] (which is byte-for-byte
+/// unchanged): shard workers run on heterogeneous GPUs whose floating-point
+/// non-determinism makes byte-exact agreement impossible, so corroboration is the
+/// **tolerant** [`nexus_core_rs::ToplocFingerprint::compare`] generalised to
+/// M-of-N ([`nexus_core_rs::tolerant_quorum_accepts`]), never `result_text`
+/// equality. It does NOT touch the database or task state — it is the pure
+/// verdict the caller acts on (the live cross-machine submission path is gated,
+/// addendum §1 / kickoff D4).
+///
+/// **Verdict rests on SIGNED inputs only.** Each `(RunProofEntry, sketch)`
+/// submission is kept iff (1) the [`RunProofEntry`] signature verifies
+/// (`DOMAIN_RUN_PROOF_V1`) and (2) the carried full sketch opens the signed N0
+/// commitment (`sketch.commitment() == proof.activation_fingerprint`) — so the
+/// off-envelope sketch carrier cannot be tampered, and an unsigned/forged proof
+/// never reaches the vote. *Which* tasks use N2 is advisory
+/// (`redundancy_factor`, unsigned, Sprint 23 `34c77ce`); the ACCEPT/REJECT here
+/// is not.
+///
+/// `min_agree` is the tolerant-quorum majority the caller derives from the task
+/// (`redundancy_factor / 2 + 1`, mirroring the exact quorum's
+/// `count > redundancy_factor / 2`).
+#[must_use]
+pub fn validate_tolerant_quorum_shard(
+    submissions: &[(RunProofEntry, ToplocFingerprint)],
+    min_agree: usize,
+) -> ShardQuorumOutcome {
+    let verified: Vec<ToplocFingerprint> = submissions
+        .iter()
+        .filter(|(entry, sketch)| {
+            entry.verify_signature().is_ok()
+                && sketch.commitment() == entry.proof.activation_fingerprint
+        })
+        .map(|(_, sketch)| sketch.clone())
+        .collect();
+
+    if tolerant_quorum_accepts(&verified, min_agree) {
+        ShardQuorumOutcome::Accepted
+    } else {
+        ShardQuorumOutcome::Rejected
     }
 }
 
@@ -911,6 +968,174 @@ mod tests {
                 .result_text
                 .is_none(),
             "no retrievable text before the guardrail clears it"
+        );
+    }
+
+    // -----------------------------------------------------------
+    // Sprint 77 Phase I — N2 tolerant shard redundancy (additive path)
+    // -----------------------------------------------------------
+
+    /// A signed shard run-proof whose N0 commitment binds the carried `sketch`
+    /// (`proof.activation_fingerprint = sketch.commitment()`).
+    fn signed_shard_proof(
+        worker: &KeyPair,
+        session: &str,
+        sketch: &ToplocFingerprint,
+    ) -> RunProofEntry {
+        use nexus_core_rs::{RunMetrics, RunProof};
+        let mut proof = RunProof::new(
+            worker.public_bytes(),
+            session,
+            [1u8; 32],
+            [2u8; 32],
+            RunMetrics::default(),
+            vec![],
+        );
+        proof.activation_fingerprint = sketch.commitment();
+        RunProofEntry::sign(proof, worker).expect("sign run proof")
+    }
+
+    #[test]
+    fn validator_exact_quorum_unchanged() {
+        // Sprint 77 Phase I invariant sentinel: the N2 tolerant path is ADDITIVE,
+        // and the exact `result_text` quorum (`validate_quorum_pre_guardrail`) is
+        // byte-for-byte unchanged — same accept-on-majority / reject-on-divergence
+        // behaviour as before (the git-diff = 0 of the quorum body is the wrap-up
+        // mechanical check; this asserts the BEHAVIOUR is identical).
+
+        // redundancy 3: the exact quorum accepts only at the FULL count, on the
+        // strict majority — two agree, one outlier → Accepted, agreed text
+        // canonical (the unchanged accept-at-full-count / majority behaviour).
+        let db = setup_build_task("exact-q-majority", 3);
+        let agreed = "deterministic greedy answer";
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let w3 = KeyPair::generate();
+        assert_eq!(
+            validate_result(&db, &make_build_result("exact-q-majority", &w1, agreed))
+                .unwrap()
+                .0,
+            ValidationOutcome::AwaitingQuorum
+        );
+        assert_eq!(
+            validate_result(&db, &make_build_result("exact-q-majority", &w2, agreed))
+                .unwrap()
+                .0,
+            ValidationOutcome::AwaitingQuorum,
+            "2 of 3 is not yet the full count"
+        );
+        let (o3, _) = validate_result(
+            &db,
+            &make_build_result("exact-q-majority", &w3, "outlier text"),
+        )
+        .unwrap();
+        assert_eq!(
+            o3,
+            ValidationOutcome::Accepted,
+            "2/3 strict majority at full count accepts"
+        );
+        assert_eq!(
+            db.get_task("exact-q-majority")
+                .unwrap()
+                .unwrap()
+                .result_hash
+                .as_deref(),
+            Some(agreed)
+        );
+
+        // redundancy 3: three distinct texts → no majority → QuorumRejected.
+        let db2 = setup_build_task("exact-q-diverge", 3);
+        let a = KeyPair::generate();
+        let b = KeyPair::generate();
+        let c = KeyPair::generate();
+        validate_result(&db2, &make_build_result("exact-q-diverge", &a, "alpha")).unwrap();
+        validate_result(&db2, &make_build_result("exact-q-diverge", &b, "beta")).unwrap();
+        let (o3, _) =
+            validate_result(&db2, &make_build_result("exact-q-diverge", &c, "gamma")).unwrap();
+        assert_eq!(
+            o3,
+            ValidationOutcome::QuorumRejected,
+            "3 distinct texts reject"
+        );
+
+        // The N2 tolerant path is a SEPARATE function taking fingerprints, never
+        // `result_text` — it cannot influence the exact quorum above.
+        let sketch = ToplocFingerprint::from_topk(&[(1, 100.0), (3, 200.0)]);
+        let p1 = signed_shard_proof(&w1, "exact-q-majority", &sketch);
+        let p2 = signed_shard_proof(&w2, "exact-q-majority", &sketch);
+        assert_eq!(
+            validate_tolerant_quorum_shard(&[(p1, sketch.clone()), (p2, sketch)], 2),
+            ShardQuorumOutcome::Accepted
+        );
+    }
+
+    #[test]
+    fn n2_shard_quorum_accepts_close_signed_fingerprints() {
+        // Three signed run-proofs over cross-GPU-close fingerprints reach the
+        // tolerant majority via compare(), NOT byte-equality.
+        let s1 = ToplocFingerprint::from_topk(&[(1, 100.0), (3, 200.0), (5, 50.0)]);
+        let s2 = ToplocFingerprint::from_topk(&[(1, 101.0), (3, 202.0), (5, 50.5)]);
+        let s3 = ToplocFingerprint::from_topk(&[(1, 100.5), (3, 201.0), (5, 50.25)]);
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let w3 = KeyPair::generate();
+        let subs = vec![
+            (signed_shard_proof(&w1, "sess", &s1), s1.clone()),
+            (signed_shard_proof(&w2, "sess", &s2), s2.clone()),
+            (signed_shard_proof(&w3, "sess", &s3), s3.clone()),
+        ];
+        assert_ne!(
+            s1.commitment(),
+            s2.commitment(),
+            "tolerant, not hash-equality (fixtures differ byte-wise)"
+        );
+        assert_eq!(
+            validate_tolerant_quorum_shard(&subs, 2),
+            ShardQuorumOutcome::Accepted
+        );
+    }
+
+    #[test]
+    fn n2_shard_quorum_rests_on_signed_carrier_consistent_inputs() {
+        // A carrier/commitment mismatch and a forged signature are both DROPPED
+        // before the vote, so the verdict rests on signed, carrier-consistent
+        // fingerprints only (`redundancy_factor` selection is advisory; the
+        // accept/reject is not).
+        let good = ToplocFingerprint::from_topk(&[(1, 100.0), (3, 200.0), (5, 50.0)]);
+        let close = ToplocFingerprint::from_topk(&[(1, 101.0), (3, 202.0), (5, 50.5)]);
+        let w1 = KeyPair::generate();
+        let w2 = KeyPair::generate();
+        let w3 = KeyPair::generate();
+
+        let p1 = signed_shard_proof(&w1, "sess", &good);
+        let p2 = signed_shard_proof(&w2, "sess", &close);
+        // w3: valid signature, but the CARRIED sketch does not open its committed
+        // fingerprint (carrier tampered) → dropped.
+        let p3 = signed_shard_proof(&w3, "sess", &good);
+        let tampered_carrier = ToplocFingerprint::from_topk(&[(9, 9.0), (8, 8.0)]);
+        let subs = vec![
+            (p1.clone(), good.clone()),
+            (p2.clone(), close.clone()),
+            (p3, tampered_carrier),
+        ];
+        // Two survive (w1, w2) and agree → Accepted at min_agree 2; a 3-of-3
+        // demand fails because the tampered submission was dropped.
+        assert_eq!(
+            validate_tolerant_quorum_shard(&subs, 2),
+            ShardQuorumOutcome::Accepted
+        );
+        assert_eq!(
+            validate_tolerant_quorum_shard(&subs, 3),
+            ShardQuorumOutcome::Rejected
+        );
+
+        // Forged signature → dropped: only w1 survives → no 2-quorum.
+        let mut forged = signed_shard_proof(&w2, "sess", &close);
+        forged.signature[0] ^= 0xFF;
+        let subs2 = vec![(p1, good), (forged, close)];
+        assert_eq!(
+            validate_tolerant_quorum_shard(&subs2, 2),
+            ShardQuorumOutcome::Rejected
         );
     }
 }

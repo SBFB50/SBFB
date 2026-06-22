@@ -33,6 +33,7 @@
 #![deny(rust_2018_idioms)]
 #![warn(missing_docs)]
 
+pub mod activation_commit;
 pub mod attestations;
 pub mod blobs;
 pub mod canonical;
@@ -54,10 +55,12 @@ pub mod node_directory;
 pub mod pkarr_resolver;
 pub mod pow;
 pub mod pow_gossip;
+pub mod redundancy;
 pub mod relay_config;
 pub mod relay_pow_policy;
 pub mod schemas;
 pub mod seed;
+pub mod sentinel;
 pub mod shard;
 pub mod shard_plan;
 pub mod signed_list;
@@ -68,6 +71,11 @@ pub mod tor_transport;
 pub mod verifiable_draw;
 pub mod verification;
 
+pub use activation_commit::{
+    ACTIVATION_COMMIT_FORMAT_VERSION, ACTIVATION_NONCE_BYTES, ACTIVATION_SESSION_ID_MAX,
+    ActivationCommitEntry, ActivationCommitPayload, ActivationReveal, RevealVerdict,
+    activation_commitment, verify_reveal,
+};
 pub use attestations::{
     AgeWitness, AgeWitnessError, CONTRIBUTOR_ATTESTATION_PREDICATE_TYPE,
     CONTRIBUTOR_ATTESTATION_STATEMENT_TYPE, ContributorAttestation, ContributorAttestationError,
@@ -77,7 +85,7 @@ pub use attestations::{
 };
 pub use blobs::{BlobsClient, Store};
 pub use canonical::{
-    DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_COMPUTE_GROUP_V1,
+    DOMAIN_ACTIVATION_COMMIT_V1, DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_COMPUTE_GROUP_V1,
     DOMAIN_CONTRIBUTOR_ATTESTATION_V1, DOMAIN_CURATOR_LIST_V1, DOMAIN_DELEGATION_CERT_V1,
     DOMAIN_DURESS_ACK_V1, DOMAIN_FEED_V1, DOMAIN_INVITE_V1, DOMAIN_KEY_ROTATION_V1,
     DOMAIN_KUDOS_V1, DOMAIN_NODE_DIRECTORY_V1, DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1,
@@ -149,6 +157,10 @@ pub use pow::{
 pub use pow_gossip::{
     PowEnvelope, PowGossipError, PowSolveCache, PowVerifyCache, SESSION_WINDOW, SOLVE_TIMEOUT,
 };
+pub use redundancy::{
+    N2_MAX_FINGERPRINTS, TOLERANT_QUORUM_MIN_AGREE, fingerprints_agree, largest_agreeing_cluster,
+    tolerant_quorum_accepts,
+};
 pub use relay_config::{
     CUSTOM_RELAYS_ENV, DEV_MODE_ENV, RELAYS_FILE_NAME, RelayEntry, RelayListFile, SBFB_HOME_ENV,
     load_relay_map, relays_file_path, validate_relay_url,
@@ -164,6 +176,10 @@ pub use schemas::{
 pub use seed::{
     SEED_FORMAT_VERSION, SEED_NONCE_LEN, SEED_TS_WINDOW_SECS, SeedDecision, SeedRequest,
     SeedRequestEnvelope, SeedResponse, SeedResponseEnvelope, random_nonce,
+};
+pub use sentinel::{
+    SENTINEL_ALPHA_BP, SENTINEL_BP_DENOMINATOR, SENTINEL_DEVIATION_THRESH_BP, SentinelMonitor,
+    ema_step, localize_corrupted_frontier,
 };
 pub use shard::{
     EchoForwarder, MAX_SHARD_FRAME_BYTES, MAX_SHARD_N_CTX, SHARD_REJECT_NOT_MEMBER, ShardForwarder,

@@ -915,7 +915,7 @@ sans deplacer cette frontiere.
 | T/D | **Sybil multi-keypair** (N identites forgees votent la meme reponse pour forcer un faux consensus) | H | inchange par le fix (le fix forwarde une voix par pubkey distincte, il n'en cree aucune) ; gonfler le quorum exige N keypairs reels = surface Sybil pre-existante (PoW / AgeWitness + pilote ferme) ; le quorum n'est PAS une frontiere anti-Sybil par lui-meme | **M** |
 | T | **Worker menteur** (un GGUF/poids different ou un mensonge sur la cohorte) | M | rejet outlier exact-match (`validator.rs:290-336`) : un `result_text` divergent ne forme jamais la majorite — la cohorte advisory ne sert qu'au routage, pas a la confiance ; tests `quorum_redundancy_diverging_outputs_rejected` (bridge) + `quorum_rejects_nondeterministic_divergence` (in-DB) | **L** |
 | Faux-vert | **Divergence cross-GPU lue comme un bug** | M | anti faux-vert (T1) : exact-match garanti HOMOGENE seulement (meme model/quant/runtime) ; divergence cross-GPU heterogene = ATTENDUE (float reordering, Thinking Machines/Ingonyama) et rejetee comme outlier, ECRITE comme resultat attendu dans l'acceptance LIVE (PATTERNS §P60.2) | **M** |
-| I | **Verification cross-hardware semantique manquante** (l'exact-match ne couvre pas les GPU heterogenes) | L | **etage 2 primitive CABLEE (S77 Phase G)** : primitive N0 TOPLOC (`toploc.rs`, commitment BLAKE3 du sketch entier top-k du dernier hidden state) + helper worker qui le calcule + Layer-3 `verification.rs` consommant le commitment dans `logprobs_hash` par egalite (detection ~100% du swap modele/precision par INEGALITE). L'**ecriture/emission signee** du commitment dans `RunProof.activation_fingerprint` / `ResultPayload.logprobs_hash` ride le data-plane (Phase H/I/J). La comparaison TOLERANTE cross-GPU (`ToplocFingerprint::compare`) est recomputee independamment par N1 (Phase H) / N2 (Phase I) — voir §16 « N0 TOPLOC fingerprint ». **Phase H** cable la PRIMITIVE N1 (tirage verifiable Ed25519 `verifiable_draw.rs` + recompute tolerant `ToplocFingerprint::compare` + Token-DiFR + incentive reputationnel `spotcheck_creditable`/`kudos_ledger::credit` + mapping criticite→niveau `criticality_maps_to_verification_level`) ; le re-exec prefill REEL sur GPU + le transport du sketch complet hors du slot 32B restent gates (Phase I/K), comme G a livre la primitive N0 sans cablage in-vivo | **M (primitive N1 CABLEE Phase H ; re-exec prefill in-vivo + transport sketch = Phase I/K → L pour l'echantillon tire une fois in-vivo)** |
+| I | **Verification cross-hardware semantique manquante** (l'exact-match ne couvre pas les GPU heterogenes) | L | **etage 2 primitive CABLEE (S77 Phase G)** : primitive N0 TOPLOC (`toploc.rs`, commitment BLAKE3 du sketch entier top-k du dernier hidden state) + helper worker qui le calcule + Layer-3 `verification.rs` consommant le commitment dans `logprobs_hash` par egalite (detection ~100% du swap modele/precision par INEGALITE). L'**ecriture/emission signee** du commitment dans `RunProof.activation_fingerprint` / `ResultPayload.logprobs_hash` ride le data-plane (Phase H/I/J). La comparaison TOLERANTE cross-GPU (`ToplocFingerprint::compare`) est recomputee independamment par N1 (Phase H) / N2 (Phase I) — voir §16 « N0 TOPLOC fingerprint ». **Phase H** cable la PRIMITIVE N1 (tirage verifiable Ed25519 `verifiable_draw.rs` + recompute tolerant `ToplocFingerprint::compare` + Token-DiFR + incentive reputationnel `spotcheck_creditable`/`kudos_ledger::credit` + mapping criticite→niveau `criticality_maps_to_verification_level`) ; le re-exec prefill REEL sur GPU + le transport du sketch complet hors du slot 32B restent gates (Phase I/K), comme G a livre la primitive N0 sans cablage in-vivo. **Phase I** cable les PRIMITIVES N2 (quorum tolerant M-of-N `redundancy.rs::tolerant_quorum_accepts` + chemin ADDITIF `validator.rs::validate_tolerant_quorum_shard`, verdict sur `RunProof` SIGNES, quorum exact `validate_quorum_pre_guardrail` INCHANGE) + N3 (commit-reveal `activation_commit.rs` `DOMAIN_ACTIVATION_COMMIT_V1` + localisateur EMA forward-only `sentinel.rs`) — voir §16 « N2 » / « N3 » ; le re-exec REEL cross-GPU in-vivo + le transport du sketch sur le data-plane + la bissection-sur-litige restent gates (Phase J/K) | **M (primitives N0/N1/N2/N3 CABLEES Phase G/H/I ; re-exec in-vivo + transport sketch + arbitrage litige = Phase J/K → L une fois in-vivo)** |
 
 **Residual S76-D** : le Sybil multi-keypair (T/D, **M**) reste le cout
 assume du quorum par accord de sortie — le quorum prouve la reproductibilite
@@ -1153,6 +1153,102 @@ verifieur paresseux rationnel peut ne pas verifier ; la garantie cryptographique
 (N4 zkML) est hors-scope S77 (scope cut #1). Le pilote ferme (D5) + l'anti-Sybil
 amont (PoW/AgeWitness) bornent l'exposition. Severite residuelle **M**.
 
+### N2 redondance tolerante (Sprint 77 Phase I)
+
+Phase I cable le **3e etage, N2** : une tache haute-criticite tourne sur
+`redundancy_factor` workers et est acceptee ssi un **quorum tolerant** d'entre
+eux corrobore le meme calcul. Comme les workers shard tournent sur des GPU
+heterogenes (non-determinisme flottant), la corroboration est la comparaison
+**TOLERANTE** `ToplocFingerprint::compare` generalisee M-of-N
+(`redundancy.rs::tolerant_quorum_accepts`), **jamais** l'egalite byte de
+`result_text`. Le quorum exact existant (`validate_quorum_pre_guardrail`) reste
+**byte-pour-byte INCHANGE** : N2 est un chemin ADDITIF distinct
+(`validator.rs::validate_tolerant_quorum_shard`), sur les fingerprints, pas sur
+le texte.
+
+**Non-falsifiabilite (load-bearing)** : *quel* niveau N2 s'applique est selectionne
+depuis `criticality_maps_to_verification_level`, **advisory** car
+`redundancy_factor` est exclu des canonical bytes (S23 `34c77ce`). Le verdict
+ACCEPT/REJECT, lui, repose **uniquement sur des `RunProof` SIGNES**
+(`DOMAIN_RUN_PROOF_V1`) : `validate_tolerant_quorum_shard` ne vote que sur les
+soumissions dont (1) la signature verifie et (2) le sketch porte ouvre le
+commitment N0 signe (`sketch.commitment() == proof.activation_fingerprint`) — le
+carrier hors-slot ne peut donc pas etre falsifie, et une preuve forgee/non-signee
+n'atteint jamais le vote.
+
+**Mutual-agreement, pas pivot-star** : l'accord tolerant n'est PAS transitif
+(`A ≈ B` et `B ≈ C` n'impliquent pas `A ≈ C`). Compter les fingerprints qui
+s'accordent avec un seul pivot sur-compterait (un straddler isole gonflerait un
+quorum inexistant) ; N2 exige une **clique** (`largest_agreeing_cluster`), le plus
+gros ensemble deux-a-deux tolerant.
+
+**Nouvelles surfaces N2** :
+- **SI-6 collusion-dans-tolerance** (Sev **M**, instanciation INTEGRITE de SI-4) :
+  M workers s'accordent sur un fingerprint *proche-mais-faux* dans la bande de
+  tolerance → fausse acceptation. **Mitigation** : pilote ferme (D5) + anti-Sybil
+  amont (PoW/AgeWitness) bornent une coalition ; jamais un stake economique
+  (PO-12). Carry honnete (pas de garantie, comme l'anti-lazy-verifier N1).
+- **SI-7 calibration du seuil de tolerance** (faux-accept si trop large Sev **H** /
+  faux-reject cross-GPU si trop etroit Sev **L**) : le seuil est un **parametre de
+  securite**. **Mitigation** : N2 REUTILISE les seuils calibres `TOPLOC_THRESH_*`
+  (toploc.rs, arXiv:2501.16007 bf16) plutot que d'en inventer ; re-calibration sur
+  le rig reel = Phase K.
+
+**Confidentialite INCHANGEE** : SI-1/SI-4 High identiques — N2 recompute/compare,
+ne chiffre rien.
+
+### N3 commit-reveal d'activation + SENTINEL (Sprint 77 Phase I)
+
+Phase I cable le **4e etage, N3** (escalade de litige uniquement, jamais derive de
+la criticite) en **deux primitives orthogonales** :
+
+- **`activation_commit` (opML-style)** : un worker s'engage, par frontiere
+  inter-stage, sur `BLAKE3(sketch || nonce)` de son fingerprint
+  (`DOMAIN_ACTIVATION_COMMIT_V1`, Ed25519 + JCS). En cas de litige il revele le
+  sketch complet + nonce ; le verdict est en **deux temps** : binding (le reveal
+  ouvre le commitment) PUIS **correction TOLERANTE** (`compare`), **jamais**
+  l'egalite du commitment BLAKE3 (qui faux-rejette tout re-run honnete cross-GPU,
+  avalanche 1 bit). Ce n'est donc **PAS** la soundness fraud-proof d'opML : SBFB
+  n'a pas de VM deterministe bit-exacte (raison d'etre de TOPLOC) ; N3 ancre *quel*
+  fingerprint un worker assume et localise une frontiere contestee, il ne prouve
+  pas cryptographiquement la correction (= N4 zkML, hors-scope).
+- **`sentinel` (EMA forward-only)** : localise *quelle* frontiere disputer, par EMA
+  entiere (basis-points, no-float) du signal d'activation forward inter-stage. La
+  localisation est **directe O(1)** par frontiere — PAS une bissection (qui serait
+  O(log L)) ; assimiler « O(1) » et « bissection » est une erreur de categorie. La
+  moitie gradient/backward de SENTINEL (arXiv:2603.03592, training) est inapplicable
+  en inference forward-only et n'est pas repliquee.
+
+**Nouvelles surfaces N3** :
+- **SI-8 grinding du commitment** (Sev **M**) : un worker re-mappe son commit vers
+  une autre frontiere/session a posteriori. **Mitigation** : `session_id` +
+  `frontier_index` + `worker_pubkey` sont dans la pre-image SIGNEE (anti-replay
+  cross-frontiere/cross-session), meme discipline que le seed N1 non-choisi.
+- **SI-9 refus de reveal / withholding** (Sev **M**) : un worker conteste mais ne
+  revele pas. **Mitigation** (concue, cablage timeout/fallback = Phase J/data-plane)
+  : un withholding est un **defaut-coupable** → re-route shard (`fallback_node`,
+  churn Phase E). Carry honnete.
+- **SI-10 replay cross-session du commit** : neutralise par `session_id` dans la
+  signature (cf. SI-8).
+- **SI-11 evasion lente / empoisonnement de baseline EMA** (Sev **M**) : un stage
+  derive juste sous le seuil a chaque pas pour ne jamais flagger, ou empoisonne la
+  baseline. **Mitigation partielle** : un outlier flagge ne met PAS a jour l'EMA
+  (rejet d'outlier, anti-spike) ; mais le seuil est **statique** (pas la fence IQR
+  adaptative du papier) et un drift lent sous-seuil reste possible. Carry honnete
+  (re-calibration + signal de magnitude absolue = Phase K). Garantie crypto = N4
+  zkML, hors-scope.
+
+**Gouvernance « qui arbitre »** : l'arbitre du reveal est un verifieur N1-style
+(coordinateur ou pair tire), **PAS de smart-contract** (design fige). La sanction
+d'une frontiere localisee corrompue est un **verdict de correction / rejet**,
+**jamais** un slash monetaire (PO-12 ; `DOMAIN_KUDOS_V1` / `HashableKudosEntry`
+intouches).
+
+**Confidentialite INCHANGEE** : SI-1/SI-4 High identiques — N3 recompute/localise,
+ne chiffre rien (le nonce du commit cache le fingerprint avant reveal, il ne
+chiffre pas les activations en transit, qui circulent en clair dans le groupe
+prive — SI-1).
+
 > **Completion Phase K** : l'integration STRIDE formelle (§5.x) + LINDDUN (§6) +
 > les lignes §2 Assets / §4 DFD pour le composant sharding, ainsi que la
 > mitigation SI-5 (padding constant-rate) derivee du benchmark reel, sont
@@ -1263,3 +1359,22 @@ Historique versions :
   transport sketch = Phase I/K → L pour l'echantillon tire). Confidentialite
   SI-1/SI-4 High INCHANGEE (N1 ne chiffre rien). 0 nouvelle row STRIDE,
   0 bump wire (1 `DOMAIN_VRF_DRAW_V1` additif, slots deja v1), 0 dep nouvelle.
+- **v13 (Sprint 77 Phase I, 2026-06-22)** : cablage **primitives N2 redondance
+  tolerante + N3 commit-reveal/SENTINEL** — ajout sous-section §16 « N2 redondance
+  tolerante (Phase I) » (quorum tolerant M-of-N `redundancy.rs::tolerant_quorum_accepts`
+  reutilisant `ToplocFingerprint::compare`, clique d'accord mutuel anti-straddle ;
+  chemin ADDITIF `validator.rs::validate_tolerant_quorum_shard` sur `RunProof`
+  SIGNES, quorum exact `validate_quorum_pre_guardrail` byte-pour-byte INCHANGE ;
+  2 surfaces SI-6 collusion-dans-tolerance Sev M + SI-7 calibration-seuil
+  H/L mitigee par reutilisation `TOPLOC_THRESH_*`) + sous-section « N3 commit-reveal
+  d'activation + SENTINEL » (commit-reveal `activation_commit.rs`
+  `DOMAIN_ACTIVATION_COMMIT_V1` verdict tolerant `compare` JAMAIS egalite-commitment ;
+  localisateur EMA forward-only entier `sentinel.rs` O(1) direct, PAS bissection ;
+  4 surfaces SI-8 grinding / SI-9 withholding / SI-10 replay / SI-11 drift-EMA, toutes
+  Sev M, mitigations binding-signe / outlier-no-poison / carries honnetes) ; MAJ
+  §15.2 row I (N2/N3 CABLEES Phase I, re-exec in-vivo + transport sketch + arbitrage
+  litige = Phase J/K). Verdict ACCEPT/REJECT N2 sur inputs SIGNES (`redundancy_factor`
+  reste advisory non-signe). PO-12 non-monetaire tenu (verdict de correction, jamais
+  slash). Confidentialite SI-1/SI-4 High INCHANGEE (N2/N3 recomputent/localisent, ne
+  chiffrent rien). 0 nouvelle row STRIDE, 0 bump wire (1 `DOMAIN_ACTIVATION_COMMIT_V1`
+  additif, `*_FORMAT_VERSION` deja v1), 0 dep nouvelle.

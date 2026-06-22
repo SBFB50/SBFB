@@ -3669,6 +3669,82 @@ applies regardless of the criticality tag. 0 bump wire (1 additive
 Cross-ref: §P64 (N0 commitment binding), §P61 (out-of-quorum reward inputs),
 `sprint77_phase_h_preflight.md`, THREAT_MODEL §16 (N1 + Incentive).
 
+## §P66 — Sprint 77 Phase I: N2 tolerant quorum is a CLIQUE, N3 is TWO primitives (commit-reveal ≠ SENTINEL), and "O(1)" is not "bisection"
+
+Phase I wires N2 (`nexus-core-rs/src/redundancy.rs` + additive
+`nexus-coordinator-rs/src/validator.rs`) and N3 (`activation_commit.rs` +
+`sentinel.rs`). Load-bearing decisions, do not re-derive:
+
+1. **N2 agreement is a CLIQUE of mutual tolerance, NOT a pivot star.** Tolerant
+   agreement is not transitive: `A ≈ B` and `B ≈ C` does not give `A ≈ C` (a
+   "straddling" fingerprint sits in the tolerance band of two mutually-divergent
+   ones). Counting how many agree with one pivot over-counts — a lone straddler
+   inflates a quorum that does not exist. `largest_agreeing_cluster` computes the
+   maximum clique of the symmetric agreement graph (`fingerprints_agree` = both
+   `compare` directions, since `ToplocFingerprint::compare` is directional). Bound
+   the input (`N2_MAX_FINGERPRINTS`) — max clique is NP-hard, but a redundancy
+   fan-out is single-digit. Reuse `TOPLOC_THRESH_*` (cf. §P64/§P65), never invent a
+   second tolerance threshold.
+
+2. **N2 is ADDITIVE; the exact `result_text` quorum is byte-for-byte UNCHANGED.**
+   `validate_quorum_pre_guardrail` (the homogeneous exact-match path, §P60.2/§P53)
+   is not edited — N2 is a separate function `validate_tolerant_quorum_shard` over
+   fingerprints, never `result_text`. Wrap-up sentinel: `git diff` of the quorum
+   body = 0 lines, plus a behavioural test that the exact quorum still
+   accepts-on-majority / rejects-on-divergence (`validator_exact_quorum_unchanged`).
+
+3. **N2's ACCEPT/REJECT rests on SIGNED inputs; selection is advisory.** *Which*
+   tasks use N2 comes from `criticality_maps_to_verification_level`, ADVISORY
+   because `redundancy_factor` is unsigned (S23 `34c77ce`, cf. §P65). The verdict
+   only votes on submissions whose `RunProofEntry` signature verifies AND whose
+   carried full sketch opens the signed N0 commitment
+   (`sketch.commitment() == proof.activation_fingerprint`) — the off-slot sketch
+   carrier (the comparable the 32-byte slot cannot hold, §P64 item 1) cannot be
+   tampered, and a forged/unsigned proof never reaches the vote.
+
+4. **N3 is TWO orthogonal primitives — do not fuse them.** The plan read "bisection
+   opML + SENTINEL O(1 bloc)" as one mechanism; it is two. (a) `activation_commit`
+   = opML-style commit-reveal: a worker signs `BLAKE3(sketch || nonce)` per
+   frontier (`DOMAIN_ACTIVATION_COMMIT_V1`), and on dispute reveals the full sketch
+   + nonce. (b) `sentinel` = a statistical forward-EMA monitor that localises
+   *which* frontier to dispute. A true opML bisection is interactive and **O(log
+   L)**; SENTINEL's direct per-frontier flag is **O(1)**. "Bisection O(1)" is an
+   oxymoron — the O(1) comes precisely from the ABSENCE of a search. Name the two
+   primitives separately and never claim opML fraud-proof soundness (SBFB has no
+   bit-exact deterministic VM — the open question that motivates TOPLOC's tolerant
+   compare in the first place; a cryptographic guarantee is N4 zkML, out of scope).
+
+5. **The N3 reveal verdict is the TOLERANT compare, NEVER commitment equality.**
+   Two steps: binding (`reveal.opens(committed)` — does `BLAKE3(sketch||nonce)`
+   match the committed value?) THEN correctness (`verifier_recompute.compare(reveal
+   .sketch).accepted`). Comparing the 32-byte commitments by equality would
+   false-reject every honest cross-GPU reveal (BLAKE3 avalanche, §P64 item 1). The
+   nonce binds the frontier `(session_id, frontier_index, worker_pubkey)` into the
+   signed pre-image (anti-grinding/replay, same discipline as the N1 seed §P65
+   item 3) and hides the fingerprint before reveal.
+
+6. **SENTINEL is forward-only and integer; a flagged outlier does NOT update the
+   baseline.** The paper (arXiv:2603.03592) is a TRAINING detector (forward +
+   backward gradients); inference is forward-only, so only the forward-activation
+   half is portable — do not replicate the gradient half. The EMA runs in integer
+   basis points (`ema_step`, `SENTINEL_ALPHA_BP`), `bf16_bits`-style: no float on
+   the wire or in the decision (cf. §P64 item 3). A flagged frontier does not fold
+   into the EMA (outlier rejection, anti-spike-poisoning); the static threshold +
+   slow-drift evasion (SI-11) is a DISCLOSED carry (adaptive IQR fence + absolute
+   magnitude signal = Phase K), exactly like the N1 anti-lazy-verifier gap (§P65
+   item 5). Sanction of a localised corrupt frontier is a correctness/reject
+   verdict, NEVER a slash (PO-12).
+
+0 bump wire (1 additive `DOMAIN_ACTIVATION_COMMIT_V1`, `*_FORMAT_VERSION` already
+v1), 0 new dependency, no-float core. Scope (mirror Phase G/H): Phase I delivers
+the PRIMITIVES + hermetic tests; the real cross-GPU in-vivo recompute, the
+data-plane sketch transport, and the dispute arbitration loop are gated to Phase
+J/K.
+
+Cross-ref: §P65 (N1 draw + tolerant recompute), §P64 (N0 commitment binding),
+§P60.2 (homogeneous exact-match vs cross-GPU divergence), `sprint77_phase_i_preflight.md`,
+THREAT_MODEL §16 (N2 + N3).
+
 ## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
 
 Origin: S74 Phase D was committed while its Codex review still carried an

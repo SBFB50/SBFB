@@ -309,6 +309,28 @@ pub const DOMAIN_RUN_PROOF_V1: &[u8] = b"nexus-run-proof-v1";
 /// cross the wire (if transported, it rides a raw-op `serde_json::Value`).
 pub const DOMAIN_VRF_DRAW_V1: &[u8] = b"nexus-vrf-draw-v1";
 
+/// Domain separation tag for an N3 activation commitment (opML-style
+/// commit-reveal of a shard frontier's activation fingerprint).
+///
+/// Sprint 77 Phase I — the dispute/audit primitive of the graded verification
+/// schema. A worker commits, per inter-stage frontier, to `BLAKE3(sketch || nonce)`
+/// of its [`crate::toploc::ToplocFingerprint`] over the frontier activations
+/// ([`crate::activation_commit::ActivationCommitPayload`]); on a later dispute it
+/// reveals the full sketch + nonce and the verdict is the TOLERANT
+/// [`crate::toploc::ToplocFingerprint::compare`] (NOT commitment equality, which a
+/// cross-GPU honest re-run fails by construction — toploc avalanche). The domain
+/// tag keeps an activation-commit signature from being replayed as a run-proof /
+/// session-manifest / vrf-draw / … signature even though it is minted with the
+/// same node Ed25519 key — the pre-image spaces are disjoint by construction.
+///
+/// **Honesty:** the commit binds *which* fingerprint a worker stands behind at a
+/// frontier (non-repudiation + hiding via the nonce); it is NOT a fraud-proof
+/// soundness guarantee in opML's sense (SBFB has no bit-exact deterministic VM,
+/// the open design question that motivates TOPLOC's tolerant comparison in the
+/// first place). N4 zkML stays out of scope. Purely additive, 0-bump of every
+/// existing `*_FORMAT_VERSION` (the S74 `DOMAIN_SEED_REQUEST_V1` pattern).
+pub const DOMAIN_ACTIVATION_COMMIT_V1: &[u8] = b"nexus-activation-commit-v1";
+
 /// Produce the canonical byte representation of any serializable
 /// value for signing.
 ///
