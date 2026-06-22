@@ -642,6 +642,54 @@ impl Engine {
         self.gpu.snapshot(index)
     }
 
+    /// Decide whether to claim the shard [`ShardAssignment`](nexus_core_rs::ShardAssignment)
+    /// this worker was assigned in a signed
+    /// [`ShardedSessionManifest`](nexus_core_rs::ShardedSessionManifest)
+    /// (Sprint 77 Phase F2).
+    ///
+    /// **Crypto-before-I/O.** The manifest signature, this worker's
+    /// compute-group membership, and its presence in the signed plan are
+    /// checked FIRST ([`shard_claim::authorize_claim`](crate::engine::shard_claim::authorize_claim)) —
+    /// no GGUF read, no GPU query for a forged / non-member / not-in-plan
+    /// manifest. Only an authorised claim then reads the GGUF header
+    /// (header-only, no weights) and takes ONE point-in-time GPU snapshot (the
+    /// `gpu_snapshot` model — never a live VRAM-admission pump, scope cut #7)
+    /// to run the fail-closed VRAM capacity check
+    /// ([`shard_claim::assess_capacity`](crate::engine::shard_claim::assess_capacity)),
+    /// which also validates the layer window against the model's layer count
+    /// BEFORE any native load could abort on an out-of-range window.
+    ///
+    /// A refusal is a normal outcome — the worker DEFERS — returned as `Err`;
+    /// it never crashes, even on an out-of-range window or an unreadable GGUF.
+    #[cfg(feature = "llm_llama_cpp")]
+    pub fn claim_shard_assignment(
+        &self,
+        manifest_entry: &nexus_core_rs::ShardedSessionManifestEntry,
+        group: &nexus_core_rs::ComputeGroupEntry,
+        model_path: &std::path::Path,
+        requested_n_ctx: u32,
+        gpu_index: u32,
+    ) -> Result<crate::engine::shard_claim::ClaimAccept, crate::engine::shard_claim::ClaimRejection>
+    {
+        let self_pubkey = self.keypair.public_bytes();
+        // Phase 1 — signature + membership + in-plan (pure, no I/O).
+        let assignment =
+            crate::engine::shard_claim::authorize_claim(manifest_entry, group, &self_pubkey)?;
+        // Authorised → the I/O the gate justified: header-only GGUF read + one
+        // GPU snapshot.
+        let facts = crate::engine::shard_claim::read_gguf_model_facts(model_path)?;
+        let snapshot = self.gpu_snapshot(gpu_index).map_err(|e| {
+            crate::engine::shard_claim::ClaimRejection::GpuUnavailable(e.to_string())
+        })?;
+        let effective_n_ctx = requested_n_ctx.min(nexus_core_rs::MAX_SHARD_N_CTX);
+        crate::engine::shard_claim::assess_capacity(
+            assignment,
+            &facts,
+            effective_n_ctx,
+            snapshot.vram_free_bytes,
+        )
+    }
+
     /// Mutate the state machine and broadcast the resulting
     /// state on the watch channel. Returns the previous state
     /// on a legal transition; logs a warning and keeps the

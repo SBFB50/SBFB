@@ -174,7 +174,7 @@ pub fn hidden_token_count(hidden_len: usize, n_embd: usize) -> Option<usize> {
 }
 
 #[cfg(feature = "llm_llama_cpp")]
-pub use backend::ShardBackend;
+pub use backend::{ShardBackend, ShardBackendForwarder};
 
 #[cfg(feature = "llm_llama_cpp")]
 mod backend {
@@ -465,6 +465,52 @@ mod backend {
                 out.extend_from_slice(emb);
             }
             Ok(out)
+        }
+    }
+
+    /// A [`nexus_core_rs::ShardForwarder`] over a loaded [`ShardBackend`].
+    ///
+    /// The Sprint 77 Phase F2 dependency-inversion bridge: it lets the core-rs
+    /// `sbfb/shard/1` handler ([`nexus_core_rs::ShardProtocol`]) run this
+    /// worker's layer block without `nexus-core-rs` depending on
+    /// `nexus-worker-core`. The `accept()` server is always a downstream shard,
+    /// so each inbound frame is an upstream boundary hidden state: it is decoded
+    /// from row-major **little-endian fp32** bytes (the documented wire shape),
+    /// run through [`ShardBackend::forward_hidden`], and the resulting boundary
+    /// state re-encoded the same way.
+    #[derive(Debug)]
+    pub struct ShardBackendForwarder {
+        backend: Arc<ShardBackend>,
+    }
+
+    impl ShardBackendForwarder {
+        /// Wrap a loaded backend as a data-plane forwarder.
+        #[must_use]
+        pub fn new(backend: Arc<ShardBackend>) -> Self {
+            Self { backend }
+        }
+    }
+
+    impl nexus_core_rs::ShardForwarder for ShardBackendForwarder {
+        fn forward(&self, upstream_frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
+            if upstream_frame.len() % 4 != 0 {
+                return Err(nexus_core_rs::NexusError::Other(format!(
+                    "shard frame {} bytes is not a multiple of 4 (fp32)",
+                    upstream_frame.len()
+                )));
+            }
+            let hidden: Vec<f32> = upstream_frame
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            let out = self.backend.forward_hidden(&hidden).map_err(|e| {
+                nexus_core_rs::NexusError::Other(format!("shard forward_hidden: {e}"))
+            })?;
+            let mut bytes = Vec::with_capacity(out.len() * 4);
+            for v in out {
+                bytes.extend_from_slice(&v.to_le_bytes());
+            }
+            Ok(bytes)
         }
     }
 }

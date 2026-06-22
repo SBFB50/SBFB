@@ -977,7 +977,80 @@ confiance pkarr deja accepte.
 
 ---
 
-## 16. Revue et evolution
+## 16. Surface sharding inference (Sprint 77)
+
+Le sharding pipeline (modele eclate sur 2+ machines, une `ShardAssignment`
+contigue `[layer_start,layer_end)` par worker, hand-off des activations de
+frontiere sur le data plane `sbfb/shard/1`) met un worker **a l'interieur** du
+pipeline d'inference : il voit en clair les activations intermediaires des
+couches qu'il execute. Source du catalogue : `SPLIT_INFERENCE_DESIGN.md §3.1`.
+
+> **Provenance doc.** `SPLIT_INFERENCE_DESIGN.md` est anterieur (S30) a la
+> decision S77 de **forker** llama.cpp (Phase F, arbitrage PO option (a),
+> livre par F1). Sa recommandation §4.2 « ne pas forker les runtimes, preferer
+> un wrapper » est donc **superseded** : seul son §3.1 (catalogue de menaces,
+> ci-dessous) reste vivant. Ne pas lire §4.2 comme une regle courante.
+
+### Catalogue SI (severites de `SPLIT_INFERENCE_DESIGN.md §3.1`)
+
+| Vecteur | Description | Severite | Statut S77 |
+|---|---|---|---|
+| **SI-1 Activation reconstruction** | un worker reconstruit l'input via un modele inverse entraine sur le meme modele (demontre sur CNN, plus dur sur transformers mais pas impossible) | **High** | **residuel ASSUME** — limite physique, pas de TEE GPU consumer 2026 (scope cut #4) |
+| **SI-2 Layer gradient leakage** | leak via backward pass (fine-tuning distribue) | N/A | **non applicable** — SBFB est inference-only, aucun gradient transmis |
+| **SI-3 Activation fingerprinting** | les patterns statistiques des activations identifient le TYPE de prompt (langue/domaine), pas l'input exact | Medium | residuel assume ; corrélation bornee par le groupe prive (pas d'observateur tiers) |
+| **SI-4 Collusion inter-workers** | la collusion de TOUS les workers du pipeline reconstruit le calcul complet ; la confidentialite ne tient que si >=1 worker est honnete (modele honest-but-curious) | **High** | **residuel ASSUME** — l'allowlist borne QUI participe, pas l'honnetete ; mitige par le pilote ferme (D5) |
+| **SI-5 Latence side-channel** | le temps de compute d'un layer revele la complexite du prompt (longueur, heads actifs) | Low | residuel ; padding constant-rate = raffinement post-benchmark (Phase K) |
+
+### Caveat d'usage cardinal
+
+L'admission `ComputeGroup` (allowlist Ed25519 signee, `compute_group.rs`) est un
+controle d'**ADMISSION** (qui peut participer), **PAS** de la confidentialite des
+activations : celles-ci circulent **en clair** (aucun TEE GPU grand public en
+2026, scope cut #4) et l'allowlist ne garantit pas une majorite honnete (SI-4
+residuel — deja documente cote code `nexus-core-rs/src/shard.rs`). En
+consequence : **aucun secret applicatif ne doit transiter par les prompts d'une
+session shardee** — un membre admis mais curieux voit les activations de son
+segment. Le sharding sert a executer un GROS modele public eclate, pas a traiter
+des entrees confidentielles.
+
+### Mitigations cablees (Sprint 77 Phase B + F2)
+
+- **Admission server-side** (`ShardProtocol::accept`, Phase B) : `is_member` sur
+  `conn.remote_id()` (Ed25519 QUIC non-spoofable) AVANT tout `accept_bi` — un
+  non-membre est ferme au handshake (`SHARD_REJECT_NOT_MEMBER`).
+- **Verif signature manifest cote claim** (Phase F2, `engine/shard_claim.rs`
+  `authorize_claim`) : la signature du `ShardedSessionManifest`
+  (`DOMAIN_SHARD_PLAN_V1`) est verifiee AVANT toute I/O — un membre admis ne peut
+  pas se voir imposer un plan non signe par l'initiateur de session.
+- **Cap VRAM fail-closed au claim** (Phase F2, `assess_capacity`) : estimation
+  header-only over-estimee (headroom backend) comparee au `vram_free_bytes`
+  MESURE (snapshot ponctuel, pas de pompe live — scope cut #7) ; pre-valide aussi
+  la fenetre `[layer_start,layer_end) ⊆ [0,n_layer)` AVANT le load natif (anti
+  process-abort sur fenetre hors-bornes). DoS : un manifeste forge/non-membre
+  n'atteint jamais le read GGUF ni le snapshot GPU (crypto-avant-I/O).
+- **Cap frame data-plane** (`MAX_SHARD_FRAME_BYTES=256 MiB`,
+  `MAX_SHARD_N_CTX=8192`) : un frame d'activation au-dela du cap est rejete AVANT
+  allocation ; borner `n_ctx` au placement borne simultanement le frame et le
+  KV-cache.
+
+### Incentive a verifier (residuel economique, non-monetaire)
+
+L'incentive de S77 a executer/verifier honnetement est **reputationnel**
+(kudos curator-reputation, jamais monetaire — PO-12 interdit stake/token, cf.
+risk **R8** du plan) : c'est une **mitigation**, pas une garantie economique. Un
+verifieur paresseux rationnel peut ne pas verifier ; la garantie cryptographique
+(N4 zkML) est hors-scope S77 (scope cut #1). Le pilote ferme (D5) + l'anti-Sybil
+amont (PoW/AgeWitness) bornent l'exposition. Severite residuelle **M**.
+
+> **Completion Phase K** : l'integration STRIDE formelle (§5.x) + LINDDUN (§6) +
+> les lignes §2 Assets / §4 DFD pour le composant sharding, ainsi que la
+> mitigation SI-5 (padding constant-rate) derivee du benchmark reel, sont
+> finalisees au wrap-up Phase K. Le present §16 fige le catalogue de surface et
+> les mitigations co-localisees avec le code claim/wiring que F2 introduit.
+
+---
+
+## 17. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -1047,3 +1120,11 @@ Historique versions :
   couvert in-process. **Etage-2 TOPLOC** (`logprobs_hash` commitment hidden
   state) = S77, requis pour le quorum cross-GPU heterogene (impossible en
   stock : meme GGUF diverge cross-GPU).
+- **v10 (Sprint 77 Phase F2, 2026-06-22)** : ajout **§16 Surface sharding
+  inference** (catalogue SI-1..SI-5 de `SPLIT_INFERENCE_DESIGN.md §3.1` +
+  caveat « activations en clair / pas de TEE GPU consumer / aucun secret app
+  dans les prompts » + mitigations cablees admission/manifest-verify/cap-VRAM-
+  fail-closed/cap-frame + incentive reputationnel residuel M), renommage
+  §16 « Revue et evolution »→§17. Section figee co-localisee avec le claim +
+  cablage `sbfb/shard/1` que F2 introduit ; STRIDE/LINDDUN formel + SI-5 padding
+  derives du benchmark = Phase K.

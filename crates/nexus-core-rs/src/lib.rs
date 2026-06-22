@@ -163,8 +163,9 @@ pub use seed::{
     SeedRequestEnvelope, SeedResponse, SeedResponseEnvelope, random_nonce,
 };
 pub use shard::{
-    MAX_SHARD_FRAME_BYTES, SHARD_REJECT_NOT_MEMBER, ShardProtocol, conn_rtt, open_shard_connection,
-    read_frame, shard_protocol_factory, write_frame,
+    EchoForwarder, MAX_SHARD_FRAME_BYTES, MAX_SHARD_N_CTX, SHARD_REJECT_NOT_MEMBER, ShardForwarder,
+    ShardProtocol, conn_rtt, open_shard_connection, read_frame, shard_protocol_factory,
+    write_frame,
 };
 pub use shard_plan::{
     KvCachePolicy, RUN_PROOF_FORMAT_VERSION, RUN_PROOF_MAX_PARTICIPANTS, RunMetrics, RunProof,

@@ -90,6 +90,87 @@ impl GgufContext {
     pub fn n_tensors(&self) -> i64 {
         unsafe { llama_cpp_sys_2::gguf_get_n_tensors(self.ctx.as_ptr()) }
     }
+
+    /// Name of the tensor at `tensor_id`, or `None` if the pointer is null or
+    /// not valid UTF-8.
+    ///
+    /// # Aborts
+    ///
+    /// `tensor_id` MUST be in `0..n_tensors()`. Unlike the `Option`-returning
+    /// KV getters, the underlying ggml `gguf_get_tensor_*` functions
+    /// `GGML_ASSERT` an in-range id and **abort the process** on an
+    /// out-of-range one — they cannot signal the error in-band. Always iterate
+    /// `0..n_tensors()` (or otherwise pre-bound the id); never pass an
+    /// unvalidated id. This `# Aborts` contract applies equally to
+    /// [`Self::tensor_size`] and [`Self::tensor_type`].
+    pub fn tensor_name(&self, tensor_id: i64) -> Option<&str> {
+        let ptr = unsafe { llama_cpp_sys_2::gguf_get_tensor_name(self.ctx.as_ptr(), tensor_id) };
+        if ptr.is_null() {
+            return None;
+        }
+        unsafe { CStr::from_ptr(ptr).to_str().ok() }
+    }
+
+    /// On-disk byte size of the tensor at `tensor_id`, exactly as computed by
+    /// ggml (block-quantization aware — Q4_0/Q4_K/Q6_K/F16/... all handled by
+    /// the same `ggml_type` traits the runtime uses). This is the authoritative
+    /// per-tensor size for a header-only VRAM estimate, so a caller never has
+    /// to re-derive a `block_size`/`type_size` table that would drift from the
+    /// ggml actually compiled into this build.
+    ///
+    /// # Aborts
+    ///
+    /// Out-of-range `tensor_id` aborts the process — see [`Self::tensor_name`].
+    pub fn tensor_size(&self, tensor_id: i64) -> u64 {
+        let sz = unsafe { llama_cpp_sys_2::gguf_get_tensor_size(self.ctx.as_ptr(), tensor_id) };
+        sz as u64
+    }
+
+    /// `ggml_type` of the tensor at `tensor_id`.
+    ///
+    /// # Aborts
+    ///
+    /// Out-of-range `tensor_id` aborts the process — see [`Self::tensor_name`].
+    pub fn tensor_type(&self, tensor_id: i64) -> llama_cpp_sys_2::ggml_type {
+        unsafe { llama_cpp_sys_2::gguf_get_tensor_type(self.ctx.as_ptr(), tensor_id) }
+    }
+
+    /// Read a string metadata value by key, or `None` if the key is absent or
+    /// not stored as a GGUF string. Type-checked before the read so a
+    /// wrong-typed value never triggers the in-llama.cpp `gguf_get_val_*` panic.
+    /// Lets callers in crates that do not depend on `llama-cpp-sys-2` read typed
+    /// metadata without touching the `GGUF_TYPE_*` discriminants directly.
+    pub fn meta_str(&self, key: &str) -> Option<String> {
+        let idx = self.find_key(key);
+        if idx < 0 {
+            return None;
+        }
+        if self.kv_type(idx) != llama_cpp_sys_2::GGUF_TYPE_STRING {
+            return None;
+        }
+        self.val_str(idx).map(str::to_string)
+    }
+
+    /// Read an unsigned-integer metadata value by key as `u32`, tolerating the
+    /// `UINT32` / `INT32` / `UINT64` encodings a GGUF writer may use, or `None`
+    /// if the key is absent, not an integer, or out of `u32` range. Type-checked
+    /// before the read (no panic on a wrong-typed value).
+    pub fn meta_u32(&self, key: &str) -> Option<u32> {
+        let idx = self.find_key(key);
+        if idx < 0 {
+            return None;
+        }
+        let ty = self.kv_type(idx);
+        if ty == llama_cpp_sys_2::GGUF_TYPE_UINT32 {
+            Some(self.val_u32(idx))
+        } else if ty == llama_cpp_sys_2::GGUF_TYPE_INT32 {
+            u32::try_from(self.val_i32(idx)).ok()
+        } else if ty == llama_cpp_sys_2::GGUF_TYPE_UINT64 {
+            u32::try_from(self.val_u64(idx)).ok()
+        } else {
+            None
+        }
+    }
 }
 
 impl Drop for GgufContext {

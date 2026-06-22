@@ -4,6 +4,16 @@
 # + TENSOR_SKIP partial load (P-D, S77 F1). Apply with: patch -p1 < this file, from
 # vendor/llama-cpp-sys-2/llama.cpp/. Rust-side setters/batch live in vendor/llama-cpp-2/.
 #
+# SBFB Sprint 77 Phase F2 — Rust-side addition (committed directly in
+# vendor/llama-cpp-2/src/gguf/mod.rs, same convention as the F1 setters/batch):
+# GgufContext gains tensor_name / tensor_size / tensor_type accessors over the
+# already-bound FFI (gguf_get_tensor_name/size/type), plus typed metadata getters
+# meta_str / meta_u32 (type-checked find_key + val_*; they keep the GGUF_TYPE_*
+# discriminants inside this crate so worker-core needs no llama-cpp-sys-2 dep).
+# Used by the worker shard claim gate to estimate per-shard VRAM from the GGUF
+# header (block-quant-aware sizes computed by ggml itself, no hand-rolled
+# type-size table). No C++ change.
+#
 --- a/include/llama.h	2006-07-24 03:21:28.000000000 +0200
 +++ b/include/llama.h	2026-06-21 20:22:48.992485600 +0200
 @@ -319,6 +319,18 @@

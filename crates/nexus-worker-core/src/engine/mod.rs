@@ -16,6 +16,10 @@
 //! any async plumbing is written.
 
 pub mod runtime;
+// Sprint 77 Phase F2: worker-side shard claim gate (crypto-before-I/O
+// authorisation + fail-closed VRAM capacity check). Pure logic is CI-tested;
+// the GGUF header read is feature-gated on `llm_llama_cpp`.
+pub mod shard_claim;
 pub mod state;
 pub mod state_writer;
 

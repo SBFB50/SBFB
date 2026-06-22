@@ -69,13 +69,32 @@ use crate::node::{ExtraProtocolFactory, SHARD_ALPN};
 
 /// Maximum bytes accepted in a single shard data-plane frame (anti-DoS).
 ///
-/// One frame carries a boundary hidden-state tensor between two
-/// layer-blocks: for a 70B-class model (hidden dim ~8K, fp16) a multi-token
-/// prefill activation can reach tens of MiB, so the cap is generous (64
-/// MiB) but bounded — mirrors `MAX_SEED_MSG_BYTES` (a few-hundred-byte seed
-/// request needed only 64 KiB). Enforced at both [`write_frame`] and
-/// [`read_frame`].
-pub const MAX_SHARD_FRAME_BYTES: usize = 64 * 1024 * 1024;
+/// One frame carries a boundary hidden-state tensor between two layer-blocks:
+/// a `[n_tokens, n_embd]` tensor at **fp32** (4 bytes/elem — the boundary is
+/// fp32 on both ends, `llama_batch.embd` / `llama_get_embeddings` are `float*`
+/// regardless of the GGUF quant; see `nexus-worker-core` `llm/shard.rs`). The
+/// worst case is a full prefill: `n_embd × n_ctx × 4`. For the ~20 GB
+/// arch-llama target (n_embd ≈ 8192) bounded by [`MAX_SHARD_N_CTX`] tokens,
+/// that is `8192 × 8192 × 4 = 256 MiB` — so the cap is **256 MiB**, raised
+/// from the Sprint 77 Phase B 64 MiB (which the original doc mis-stated as
+/// fp16, under-counting 2×: 64 MiB held only 2048 tokens at n_embd 8192, too
+/// tight for a long prefill). A frame larger than the cap is rejected BEFORE
+/// any allocation (see [`header_to_frame_len`]). The *effective* bound is the
+/// placement scheduler's choice of n_ctx (Phase D); the cap is the absolute
+/// DoS ceiling. Enforced at both [`write_frame`] and [`read_frame`].
+pub const MAX_SHARD_FRAME_BYTES: usize = 256 * 1024 * 1024;
+
+/// Upper bound on the context length (`n_ctx`) a shard session may run with,
+/// used by the placement scheduler (Phase D) and the worker claim gate.
+///
+/// Bounding `n_ctx` bounds BOTH the data-plane frame size (`n_embd × n_ctx ×
+/// 4`, see [`MAX_SHARD_FRAME_BYTES`]) AND the per-shard KV-cache VRAM (`2 ×
+/// n_layers × n_ctx × n_kv_heads × head_dim × dtype`). At `n_embd = 8192` this
+/// value keeps a full-prefill frame at exactly 256 MiB; a larger `n_embd`
+/// model requires the placement to pick a smaller `n_ctx` to stay under the
+/// frame cap. This is a placement/claim policy constant, never serialised on
+/// the wire (0-bump).
+pub const MAX_SHARD_N_CTX: u32 = 8192;
 
 /// QUIC application close code used when rejecting a peer that is not on
 /// the [`ComputeGroupEntry`] allowlist. Distinct from a graceful close
@@ -181,36 +200,94 @@ pub async fn open_shard_connection(
         .map_err(|e| NexusError::Endpoint(format!("shard dial failed: {e}")))
 }
 
+/// Server-side hook that turns one inbound boundary activation frame into
+/// the outbound boundary frame to forward downstream.
+///
+/// **Dependency-inversion seam (Sprint 77 Phase F2).** `nexus-core-rs` owns
+/// the `sbfb/shard/1` data plane but cannot depend on `nexus-worker-core`
+/// (where the forked `ShardBackend` lives) without a crate cycle — the
+/// dependency edge runs the other way (worker-core → core-rs). So
+/// [`ShardProtocol`] holds a `dyn ShardForwarder` and the worker injects the
+/// concrete layer-block forwarder ([`crate`] users implement this trait over
+/// their backend). This mirrors the dyn-dispatch seam Petals / llama.cpp-RPC /
+/// exo use to split transport from compute.
+///
+/// The frame bytes are the opaque `[n_tokens, n_embd]` row-major fp32 boundary
+/// tensor documented at the module level; this trait stays agnostic to the
+/// backend that produced them.
+///
+/// `accept()` is always a downstream / intermediate shard (it RECEIVES an
+/// upstream hidden state and forwards through its layer block); the first
+/// shard, which embeds raw tokens, is driven by the session orchestrator on
+/// the DIALER side, never through `accept()`.
+pub trait ShardForwarder: Send + Sync + std::fmt::Debug {
+    /// Process one inbound boundary frame, returning the boundary frame to
+    /// send downstream. An `Err` aborts THIS connection cleanly (the accept
+    /// loop finishes the stream and closes); it must never panic.
+    fn forward(&self, upstream_frame: &[u8]) -> Result<Vec<u8>>;
+}
+
+/// A [`ShardForwarder`] that returns every frame unchanged.
+///
+/// This is the Sprint 77 Phase B data-plane proof preserved as an explicit
+/// forwarder: it exercises the length-prefixed framing + admission control
+/// without any model. It is the right forwarder for a node that registers the
+/// shard ALPN purely to prove transport, and the default the data-plane tests
+/// inject. A node serving a real layer block injects a backend forwarder
+/// instead (the worker's feature-gated `ShardBackendForwarder`).
+#[derive(Debug, Clone, Default)]
+pub struct EchoForwarder;
+
+impl ShardForwarder for EchoForwarder {
+    fn forward(&self, upstream_frame: &[u8]) -> Result<Vec<u8>> {
+        Ok(upstream_frame.to_vec())
+    }
+}
+
 /// The shard data-plane ALPN handler for `sbfb/shard/1`.
 ///
-/// Holds a verified [`ComputeGroupEntry`] allowlist. On each inbound
-/// connection it admits the peer iff `conn.remote_id()` is a member,
-/// rejecting a non-member at the handshake before any frame is read.
+/// Holds a verified [`ComputeGroupEntry`] allowlist and an injected
+/// [`ShardForwarder`]. On each inbound connection it admits the peer iff
+/// `conn.remote_id()` is a member, rejecting a non-member at the handshake
+/// before any frame is read.
 ///
-/// Phase B processes admitted frames with an **echo** — this proves the
-/// bidirectional length-prefixed data plane works over a reused long-lived
-/// `open_bi`. Phase F replaces the echo body with the real layer-block
-/// forward (load `layer_start..layer_end`, forward, send the boundary
-/// hidden state downstream).
+/// Each admitted frame is run through the [`ShardForwarder`] (the layer
+/// block) and its output sent downstream. Sprint 77 Phase B proved this loop
+/// with an [`EchoForwarder`]; Phase F2 wires the real layer-block forward
+/// through the dependency-inversion seam (the worker injects a backend
+/// forwarder that loads `layer_start..layer_end`, runs it, and emits the
+/// boundary hidden state).
 #[derive(Debug, Clone)]
 pub struct ShardProtocol {
     admission: std::sync::Arc<ComputeGroupEntry>,
+    forwarder: std::sync::Arc<dyn ShardForwarder>,
 }
 
 impl ShardProtocol {
-    /// Build a handler from an allowlist, verifying its signature up front
-    /// so a malformed / forged group can never be installed.
-    pub fn new(group: ComputeGroupEntry) -> Result<Self> {
+    /// Build a handler from an allowlist + forwarder, verifying the
+    /// allowlist signature up front so a malformed / forged group can never
+    /// be installed.
+    pub fn new(
+        group: ComputeGroupEntry,
+        forwarder: std::sync::Arc<dyn ShardForwarder>,
+    ) -> Result<Self> {
         group.verify_signature()?;
         Ok(ShardProtocol {
             admission: std::sync::Arc::new(group),
+            forwarder,
         })
     }
 
     /// Build a handler from an already-verified allowlist (used by the
     /// factory, which verifies once before constructing the closure).
-    fn from_verified(group: std::sync::Arc<ComputeGroupEntry>) -> Self {
-        ShardProtocol { admission: group }
+    fn from_verified(
+        group: std::sync::Arc<ComputeGroupEntry>,
+        forwarder: std::sync::Arc<dyn ShardForwarder>,
+    ) -> Self {
+        ShardProtocol {
+            admission: group,
+            forwarder,
+        }
     }
 }
 
@@ -230,11 +307,17 @@ impl ProtocolHandler for ShardProtocol {
             return Ok(());
         }
 
-        // Admitted: serve the long-lived bi-stream. Phase B echoes each
-        // frame (Phase F forwards the layer block instead).
+        // Admitted: serve the long-lived bi-stream. Each inbound boundary
+        // frame runs through the injected forwarder (the layer block) and its
+        // output is sent downstream. A forwarder error aborts THIS connection
+        // cleanly — it is surfaced as an `AcceptError`, never a panic.
         let (mut send, mut recv) = conn.accept_bi().await?;
         while let Some(frame) = read_frame(&mut recv).await.map_err(AcceptError::from_err)? {
-            write_frame(&mut send, &frame)
+            let out = self
+                .forwarder
+                .forward(&frame)
+                .map_err(AcceptError::from_err)?;
+            write_frame(&mut send, &out)
                 .await
                 .map_err(AcceptError::from_err)?;
         }
@@ -251,12 +334,17 @@ impl ProtocolHandler for ShardProtocol {
 /// node refuses to serve an unverifiable compute group. The shard handler
 /// needs none of the node's store / endpoint / lookup (unlike the seed
 /// handler) — admission is decided purely from the QUIC peer id against
-/// the in-memory allowlist — so the factory closure ignores all three.
-pub fn shard_protocol_factory(group: ComputeGroupEntry) -> Result<ExtraProtocolFactory> {
+/// the in-memory allowlist — so the factory closure ignores all three. The
+/// `forwarder` is the injected layer-block compute (an [`EchoForwarder`] for a
+/// transport-only node, or the worker's feature-gated backend forwarder).
+pub fn shard_protocol_factory(
+    group: ComputeGroupEntry,
+    forwarder: std::sync::Arc<dyn ShardForwarder>,
+) -> Result<ExtraProtocolFactory> {
     group.verify_signature()?;
     let group = std::sync::Arc::new(group);
     Ok(Box::new(move |_store, _ep, _ml| {
-        Box::new(ShardProtocol::from_verified(group)) as Box<dyn DynProtocolHandler>
+        Box::new(ShardProtocol::from_verified(group, forwarder)) as Box<dyn DynProtocolHandler>
     }))
 }
 
@@ -306,9 +394,35 @@ mod tests {
 
     // ---- Two-node data-plane tests (in-process, mirror seed fixture) ----
 
+    /// A forwarder that doubles every frame (`f -> f ++ f`) — proves the
+    /// accept loop runs the INJECTED forwarder, not a hard-coded echo.
+    #[derive(Debug)]
+    struct DoublingForwarder;
+    impl ShardForwarder for DoublingForwarder {
+        fn forward(&self, upstream_frame: &[u8]) -> Result<Vec<u8>> {
+            let mut out = upstream_frame.to_vec();
+            out.extend_from_slice(upstream_frame);
+            Ok(out)
+        }
+    }
+
+    /// A forwarder that always errors — proves a forwarder failure aborts the
+    /// connection cleanly (no panic, no frame returned).
+    #[derive(Debug)]
+    struct FailingForwarder;
+    impl ShardForwarder for FailingForwarder {
+        fn forward(&self, _upstream_frame: &[u8]) -> Result<Vec<u8>> {
+            Err(NexusError::Other("forwarder refused this frame".into()))
+        }
+    }
+
     /// Spin up client node A (known identity) and server node B running a
-    /// [`ShardProtocol`] whose allowlist contains A iff `admit_a`.
-    async fn two_node_shard_fixture(admit_a: bool) -> (Node, Node, EndpointAddr) {
+    /// [`ShardProtocol`] whose allowlist contains A iff `admit_a`, with the
+    /// given `forwarder` wired as the layer-block compute.
+    async fn two_node_shard_fixture_with(
+        admit_a: bool,
+        forwarder: std::sync::Arc<dyn ShardForwarder>,
+    ) -> (Node, Node, EndpointAddr) {
         let a_secret = KeyPair::generate().secret_bytes();
         let a_kp = KeyPair::from_secret_bytes(&a_secret);
         let node_a = create_node_with_config(NodeConfig::default().with_secret_key(a_secret))
@@ -322,7 +436,7 @@ mod tests {
             group = group.with_member(a_kp.public_bytes());
         }
         let entry = ComputeGroupEntry::sign(group, &b_kp).unwrap();
-        let factory = shard_protocol_factory(entry).expect("verified allowlist");
+        let factory = shard_protocol_factory(entry, forwarder).expect("verified allowlist");
         let node_b = create_node_with_protocols(
             NodeConfig::default().with_secret_key(b_secret),
             vec![(SHARD_ALPN.to_vec(), factory)],
@@ -334,6 +448,12 @@ mod tests {
             .await
             .expect("B addr");
         (node_a, node_b, b_addr)
+    }
+
+    /// The Phase B data-plane fixture: admission + echo forwarder (proves the
+    /// framing / admission without a backend).
+    async fn two_node_shard_fixture(admit_a: bool) -> (Node, Node, EndpointAddr) {
+        two_node_shard_fixture_with(admit_a, std::sync::Arc::new(EchoForwarder)).await
     }
 
     #[tokio::test]
@@ -463,6 +583,52 @@ mod tests {
         );
         send.finish().ok();
         conn.close(0u32.into(), b"done");
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn shard_forward_invokes_forwarder() {
+        // The accept loop must run the INJECTED forwarder, not a hard-coded
+        // echo: a doubling forwarder turns "ab" into "abab" on the wire.
+        let (node_a, node_b, b_addr) =
+            two_node_shard_fixture_with(true, std::sync::Arc::new(DoublingForwarder)).await;
+        let conn = open_shard_connection(node_a.endpoint(), node_a.memory_lookup(), b_addr)
+            .await
+            .expect("dial");
+        let (mut send, mut recv) = conn.open_bi().await.expect("open_bi");
+        write_frame(&mut send, b"ab").await.expect("write");
+        let out = read_frame(&mut recv)
+            .await
+            .expect("read ok")
+            .expect("a forwarded frame, not EOF");
+        assert_eq!(
+            out, b"abab",
+            "the data plane must run the injected forwarder, not echo"
+        );
+        send.finish().ok();
+        conn.close(0u32.into(), b"done");
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn shard_forwarder_error_closes_cleanly() {
+        // A forwarder that refuses a frame must abort the connection cleanly:
+        // the server surfaces an AcceptError (no panic), and the client gets
+        // no forwarded frame back (an error or a clean EOF, never a payload).
+        let (node_a, node_b, b_addr) =
+            two_node_shard_fixture_with(true, std::sync::Arc::new(FailingForwarder)).await;
+        let conn = open_shard_connection(node_a.endpoint(), node_a.memory_lookup(), b_addr)
+            .await
+            .expect("dial");
+        let (mut send, mut recv) = conn.open_bi().await.expect("open_bi");
+        let _ = write_frame(&mut send, b"will-be-refused").await;
+        let got = read_frame(&mut recv).await;
+        assert!(
+            matches!(got, Err(_) | Ok(None)),
+            "a refused frame must not yield a forwarded payload (got {got:?})"
+        );
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
     }
