@@ -13,6 +13,16 @@ readme.workspace = true
 name = "nexus_worker_core"
 path = "src/lib.rs"
 
+# Sprint 77 acceptance driver (NOT a product binary): a one-shot cross-machine
+# shard runner that proves a layer-block split across two physical machines
+# yields the same result as the whole model. It links the in-process llama.cpp
+# backend (`ShardBackend`), which is feature-gated, so `required-features` makes
+# `cargo build/clippy --all-targets` SKIP it when `llm_llama_cpp` is off (the
+# default cmake-free build) instead of failing on the gated import.
+[[example]]
+name = "shard_node"
+required-features = ["llm_llama_cpp"]
+
 [features]
 # Default stays cmake-free : any developer can `cargo build` on a
 # fresh machine (no llama.cpp, no CUDA toolkit, no NASM). The
