@@ -693,3 +693,158 @@ Conditions binaires pour dire « S77 fermé » :
       justifié)
 - [ ] Gate produit GO/NO-GO inscrit (benchmark 70B mesuré ou PROVISIONAL honnête)
 - [ ] Incentive-à-vérifier conçu (curator-reputation) + note honnête (mitigation, pas garantie)
+
+---
+
+## §20 — AVENANT 2026-06-23 : 3 phases documentation (L, M, N)
+
+> **Directive PO 2026-06-23.** Le coeur sharding (S77 A-K) est livré, mais la feature n'est
+> pas « ultra-complète » sans sa **documentation d'usage**. On ajoute **3 phases atomiques**
+> L/M/N livrant (1) le contrat machine-lisible, (2) la doc humaine FR, (3) la couche
+> agent-consommable — couvrant **« comment ça marche »** + **« comment câbler un projet
+> du protocole pour utiliser la feature »**, pour un lecteur **humain** ET pour un **LLM/agent**.
+> Cadrage produit par Workflow ultracode (4 lecteurs Opus 4.8 1M + synthèse) ancré dans le
+> code réel. Chaque phase a un **gate d'acceptation vérifiable non-prose** (testabilité
+> par-sprint respectée — docs NON exemptées). Honnêteté **PROVISIONAL/S78 enforced
+> mécaniquement** (grep des marqueurs), pas seulement promise.
+
+**Ordre imposé L → M → N** (single-source-of-truth) : les schémas générés (L) sont la vérité
+machine ancrée au code ; la doc humaine (M) et la couche agent (N) y pointent sans inventer.
+
+**5 décisions PO tranchées par défaut (override possible — dis-le, je fais un commit de suivi) :**
+1. **Quadrant Diataxis TUTORIAL** → **DIFFÉRÉ S78** : pas d'orchestrateur in-vivo (T2
+   RIG-ABSENT) → un walkthrough end-to-end sur-promettrait ; le hub renvoie au harness
+   hermétique `b3_shard_pipeline.sh` + `compute-shard.spec.ts` comme preuve-de-vie.
+2. **`#[derive(JsonSchema)]`** additif sur les types wire shard → **OUI** : schemars 1.2 déjà
+   dep workspace, précédent `TaskResponse` ; c'est le mécanisme anti-drift de L (pas un
+   type-miroir fragile).
+3. **`llms.txt` racine** → indexe **uniquement le sous-système sharding** : un llms.txt
+   repo-entier = livrable transverse hors scope sharding (sa propre phase/sprint).
+4. **Méthode bridge shard** → marquée **PROPOSED / GAP-not-shipped**, nom + forme **figés en
+   S78** : ne pas pré-engager le design de l'opt-in iframe.
+5. **Seuils TOPLOC/SENTINEL/spot-check** dans REFERENCE → **valeurs actuelles documentées +
+   marqueur « S78-pending tuning »** : utile à l'implémenteur, honnête sur la calibration.
+
+### §20.1 Phase L — Spec wire machine-lisible + JSON Schemas générés (contrat LLM/agent, drift-gated)
+
+**Audience** : LLM / machine. **Dépend de** : rien (types wire S77 figés).
+
+**Scope.** Le contrat machine-lisible de la feature : une spec wire structurée + des JSON
+Schemas **générés par schemars** depuis les types Rust, gardés par un test de drift (miroir
+de `test_schema_snapshot_matches_struct` existant). Couche que l'agent/LLM ingère sans
+deviner ; ancrage vérifiable que M et N référencent. Couvre « comment ça marche » au niveau
+primitives signées + ALPN.
+
+**Livrables.**
+- `docs/protocol/SHARD_PROTOCOL_SPEC.md` (anglais, style `PUBLIC_FEED_SPEC.md` ; banner régime
+  pre-v1.0 raw-op additif : `*_FORMAT_VERSION=1`, 5 `DOMAIN_*_V1`, 0-bump/0-dep ; section par
+  type `ShardAssignment`/`ShardPlan`/`ShardedSessionManifest(+Entry)`/`RunProof(+Entry)`/
+  `RunMetrics`/`ComputeGroup(+Entry)` ; ALPN `sbfb/shard/1` : bi-stream QUIC long-lived,
+  framing length-prefixed BE, `MAX_SHARD_FRAME_BYTES=256MiB`, `MAX_SHARD_N_CTX=8192`,
+  `is_member` crypto-before-`accept_bi`, caps DoS sign ET verify, verdict hors-bande ;
+  renvoi THREAT_MODEL §16 + PATTERNS §P64-69).
+- `crates/nexus-core-rs/src/schemas/shard.rs` (`schema_for!` pour `ShardPlan`,
+  `ShardedSessionManifest`, `RunProof`, `RunMetrics`, `ShardAssignment` + DTO
+  `ShardSessionView`/`ShardSessionStatusResponse` ; enums fermés `ShardRole`/`KvCachePolicy`).
+- `crates/nexus-core-rs/src/schemas/*.schema.json` snapshots générés (draft 2020-12).
+- `#[derive(JsonSchema)]` additif sur les types wire shard + DTO (décision PO #2).
+
+**Tests plan.** +2/+3 Rust `nexus-core-rs` : `shard_schema_snapshot_matches_struct` (drift),
+`schema_parses_as_valid_json_object` + required-fields par type, `spec_consts_exist`
+(grep-assert : chaque `DOMAIN_*_V1`/cap citée dans la spec existe comme const, anti-drift doc↔code).
+
+**Critère d'acceptation.** `cargo nextest run -p nexus-core-rs` : drift-test FAIL loud si un
+`.schema.json` commité ≠ `schema_for!(T)` régénéré ; const-check doc↔code vert.
+
+**Commit cible.** `feat(core): Sprint 77 Phase L — machine wire spec + generated shard schemas`
+(porte du code : schemas + derives + tests → phase feat avec gate Codex + 9 sections).
+
+### §20.2 Phase M — Docs humaines Diataxis : comment ça marche + comment câbler (FR, honnêteté PROVISIONAL)
+
+**Audience** : humain. **Dépend de** : L (REFERENCE = jumeau humain des schémas générés).
+
+**Scope.** Docs humaines françaises sous `docs/sharding/` : hub + explication + how-to +
+référence. Couvre (a) « comment ça marche » et (b) « comment câbler un projet » côté humain,
+en s'appuyant sur la spec machine L sans dupliquer THREAT_MODEL §16 ni PATTERNS.
+
+**Livrables.**
+- `docs/sharding/README.md` (FR, hub Diataxis + banner statut PROVISIONAL/T2 RIG-ABSENT +
+  caveat cardinal **admission ≠ confidentialité** en gras + table des 4 quadrants).
+- `docs/sharding/EXPLANATION.md` (FR : pipeline-parallel pas tensor-parallel [latence-bound
+  WAN-friendly], bloc `[layer_start,layer_end)` demi-ouvert, initiator-signe-le-plan /
+  worker-signe-le-RunProof, frontière = auto-attestation, échelle N0 TOPLOC → N1 VRF → N2
+  quorum tolérant → N3 commit-reveal/SENTINEL en termes simples, invariant no-floats-signés,
+  posture honest-but-curious ; **indexe** THREAT_MODEL §16, ne duplique pas).
+- `docs/sharding/HOW_TO_WIRE.md` (FR par rôle : START via `/compute` « Lancer un gros modèle
+  en réseau » [texte explicatif seul aujourd'hui], JOIN « Rejoindre un groupe de calcul »
+  [lookup read-only id hors-bande], OBSERVE `GET /api/daemon/shard-session/{id}` → member_count ;
+  contrainte **llama-arch-only + même-GGUF** ; bannière honnête : pas de store live,
+  orchestrateur = carry **S78**, `sbfb-bridge.js` n'a **AUCUNE** méthode shard → entrée =
+  panel shell, pas appel bridge).
+- `docs/sharding/REFERENCE.md` (corps anglais, audience both, style `PUBLIC_FEED_SPEC.md` :
+  jumeau humain lisible des schémas L, table par type name/type/units/signed?/cap + exemple
+  JSON + DOMAIN tag ; relation single-source-of-truth avec `SHARD_PROTOCOL_SPEC.md` énoncée).
+
+**Tests plan.** 0 net-new fonctionnel Rust/Vitest ; gate = script doc-lint net-new.
+
+**Critère d'acceptation.** `scripts/check-sharding-docs.sh` en CI : (1) **link-check** — chaque
+lien repo-relatif + ancre §-citée (THREAT_MODEL §16, PATTERNS §P64-69/§P39, routes, sources)
+résout ; (2) **honesty-gate** — grep : README+EXPLANATION+HOW_TO_WIRE contiennent le marqueur
+`PROVISIONAL` + la phrase caveat admission≠confidentialité, et HOW_TO_WIRE contient `S78` sur
+le bloc orchestrateur ; (3) **scan-en-strings** réutilisé → corps humain FR.
+
+**Commit cible.** `docs(sharding): Sprint 77 Phase M — docs humaines how-it-works + how-to-wire`.
+
+### §20.3 Phase N — Couche agent-consommable : llms.txt + WIRING_SPEC + exemples runnable (source-anchored)
+
+**Audience** : LLM / agent. **Dépend de** : L et M.
+
+**Scope.** Couche agent au-dessus des schémas (L) et des docs humaines (M) : index `llms.txt`,
+spec contract-dense ancrée `file:symbol`, exemples **runnable**. Couvre « comment câbler »
+pour un agent qui doit câbler/réviser **sans halluciner**, avec garantie que les snippets
+compilent et que l'index résout vers la vérité.
+
+**Livrables.**
+- `docs/sharding/llms.txt` (index Markdown : Truth Stack `repo files > .planning/active/ >
+  commits > prompts > chat`, annotations 1-ligne + liens repo-relatifs vers
+  `SHARD_PROTOCOL_SPEC.md`, `schemas/`, `shard_plan.rs:symbol`, route `http.rs`, `daemon.ts`,
+  THREAT_MODEL §16, harness ; règle « fait absent du rang-1 = Not evidenced »).
+- `llms.txt` racine du repo indexant `docs/sharding/llms.txt` (décision PO #3 : **sharding seul**).
+- `docs/sharding/WIRING_SPEC.md` (anglais contract-dense, ordre fixe : (1) authority +
+  Truth-Stack header ; (2) actor model initiator/worker/observer + séquence
+  start→plan→sign→claim→run-proof→observe ; (3) contrat par étape : source `file:line`,
+  signed?, DOMAIN tag, caps, préconditions [`is_pipeline_contiguous` couvre `[0..L)`,
+  `is_member` avant `accept_bi`, `authorize_claim` crypto-before-IO] ; (4) contrat HTTP
+  control-plane : méthode/path/auth tier loopback bearer+Host+Origin / réponse stub
+  `{found:false,session:null}` ; (5) invariants INVIOLABLES : no-floats signés, jamais exposer
+  `worker_pubkey`/`initiator`, additive-only pre-v1.0, 0-bump ; chaque claim porte un source_ref).
+- `docs/sharding/examples/` : (a) `sign_verify.rs` **lifté VERBATIM** des `#[test]`
+  `shard_plan_signature_roundtrip` + `run_proof_signature_roundtrip` [compilable] ;
+  (b) `observe.curl.md` `GET /api/daemon/shard-session/{id}` + headers loopback + réponse
+  `{found:false,session:null}` ; (c) `bridge_gap.md` : `sbfb-bridge.js` n'expose AUCUNE
+  méthode shard ; signature future marquée **PROPOSED / GAP-not-shipped** (décision PO #4).
+
+**Tests plan.** +1 Rust (`sign_verify.rs` compilé+exécuté comme example cargo OU ré-importé en
+`#[test]` ; vert par construction car lifté verbatim) ; extension `check-sharding-docs.sh`.
+
+**Critère d'acceptation.** (1) `examples/sign_verify.rs` compilé+exécuté par la suite (drift =
+échec compile) ; (2) `check-sharding-docs.sh` **source-ref-check** — chaque `file:symbol` /
+`file:line` cité dans WIRING_SPEC + llms.txt existe ET est grep-trouvé (fail si ancrage dans le
+vide), + assertion Truth-Stack-header + règle « Not evidenced » présents.
+
+**Commit cible.** `docs(sharding): Sprint 77 Phase N — couche agent llms.txt + WIRING_SPEC + exemples`.
+
+### §20.4 Delta tests + checkpoint (avenant)
+
+- **Delta tests** : L ~+2/+3 Rust (drift + parse + const-check) ; M +0 fonctionnel (gate =
+  `check-sharding-docs.sh`) ; N +1 Rust (example) + extension doc-lint. **Avenant ≈ +4 Rust**
+  + 1 script CI net-new (`check-sharding-docs.sh`).
+- **Commits** : A-N = **15 commits** (12 A-K + 3 doc L/M/N). Le « 12 commits » du §19 devient
+  indicatif pré-avenant.
+- **Conditions checkpoint additionnelles** :
+  - [ ] `docs/protocol/SHARD_PROTOCOL_SPEC.md` + schemas générés + **drift-test vert**
+  - [ ] `docs/sharding/{README,EXPLANATION,HOW_TO_WIRE,REFERENCE}.md` + `check-sharding-docs.sh` **vert**
+  - [ ] `docs/sharding/{llms.txt,WIRING_SPEC.md,examples/}` + **source-ref-check vert** + example compilé
+  - [ ] honnêteté PROVISIONAL/S78 **grep-enforced** dans M + N (pas seulement promise)
+- **Note testabilité** : aucune phase doc n'est exemptée de gate — drift-test schemars (L),
+  link+honesty+lang (M), compile+source-ref (N). T1/T2 du sprint restent inchangés.
