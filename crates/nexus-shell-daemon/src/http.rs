@@ -2084,45 +2084,14 @@ async fn list_nodes(State(state): State<Arc<DaemonHttpState>>) -> impl IntoRespo
 // Sprint 77 Phase J — read-only shard-session status (control plane)
 // =====================================================================
 
-/// Aggregate, privacy-whitelisted view of one shard session.
-///
-/// Exposes ONLY a `member_count` — NEVER the `worker_pubkey`/`initiator`
-/// identities of the private compute group (THREAT_MODEL §16 SI-3/SI-4,
-/// preflight S3). The `ComputeGroup` is ADMISSION control, not a
-/// confidentiality guarantee, and a loopback caller still has no business
-/// enumerating who composes someone's pipeline.
-///
-/// Scope, honestly bounded (PLAN-ADAPT): the two fields here are everything a
-/// control-plane WITHOUT a running data plane can truthfully know about a
-/// session — its identity and its member count, both derivable from a stored
-/// manifest. The runtime lifecycle status and the ATTAINED verification level
-/// require live telemetry from a running pipeline, so they are added — additive
-/// `#[serde(default)]`, 0-bump — once the data-plane store lands (Sprint 77
-/// Phase K). Shipping them now would be an un-populatable contract (dead enum
-/// variants), not an honest one.
-#[derive(Debug, Clone, Serialize)]
-struct ShardSessionView {
-    /// The session id (only present when a session is actually found).
-    session_id: String,
-    /// Number of workers in the pipeline = `plan.assignments.len()`. An
-    /// aggregate count, never the member identities.
-    member_count: usize,
-}
-
-/// Envelope for `GET /api/daemon/shard-session/{id}`.
-///
-/// ENVELOPE, not a bare optional (S73-E / S75-D lesson): the frontend Zod
-/// schema is `.strict()` on `{found, session}` and `session` is ALWAYS
-/// serialized (`null` when absent), so an additive field stays possible and an
-/// empty result is a successful parse, not a 404 transport error.
-#[derive(Debug, Clone, Serialize)]
-struct ShardSessionStatusResponse {
-    /// Whether a live session matched the requested id.
-    found: bool,
-    /// The aggregate view when `found`, else `null` (the key is always
-    /// present — the `.strict()` envelope contract).
-    session: Option<ShardSessionView>,
-}
+// Sprint 77 Phase L: `ShardSessionView` + `ShardSessionStatusResponse` moved to
+// `nexus-core-rs` (`schemas/shard.rs`) so their `schema_for!` can live next to
+// the other shard wire schemas — the daemon depends on core, so a core schema
+// cannot reference a daemon-private type. The projection + route below consume
+// the re-exported types unchanged; the privacy whitelist (THREAT_MODEL §16
+// SI-3/SI-4) is the type shape itself — only `session_id` + `member_count` are
+// exposed, never a `worker_pubkey`/`initiator`.
+use nexus_core_rs::{ShardSessionStatusResponse, ShardSessionView};
 
 /// Read-only, privacy-whitelisted projection of a shard session manifest.
 ///

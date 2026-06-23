@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Envelope for `GET /api/daemon/shard-session/{id}`.\n\nENVELOPE, not a bare optional (S73-E / S75-D lesson): the frontend Zod\nschema is `.strict()` on `{found, session}` and `session` is ALWAYS\nserialized (`null` when absent), so an additive field stays possible and an\nempty result is a successful parse, not a 404 transport error.",
+  "properties": {
+    "found": {
+      "description": "Whether a live session matched the requested id.",
+      "type": "boolean"
+    },
+    "session": {
+      "description": "The aggregate view when `found`, else `null` (the key is always\npresent — the `.strict()` envelope contract). `#[schemars(required)]`\nmakes the generated schema reflect that contract: `session` is always\npresent (nullable), NOT an omittable optional — otherwise the schema\nwould be looser than the wire (Codex Phase L PARTIAL).",
+      "properties": {
+        "member_count": {
+          "description": "Number of workers in the pipeline = `plan.assignments.len()`. An\naggregate count, never the member identities.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_id": {
+          "description": "The session id (only present when a session is actually found).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "member_count"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "found",
+    "session"
+  ],
+  "title": "ShardSessionStatusResponse",
+  "type": "object"
+}

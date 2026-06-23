@@ -1,0 +1,181 @@
+{
+  "$defs": {
+    "RunMetrics": {
+      "description": "All-integer execution metrics carried by a [`RunProof`].\n\nNo floats: a signed JCS payload must round-trip bit-identically across\nplatforms (see the module-level note). Rates are expressed in\ninteger-friendly units (milli-tokens/sec, bytes, milliseconds).",
+      "properties": {
+        "decode_milli_tokens_per_sec": {
+          "description": "Decode throughput in **milli-tokens per second** (tokens/sec ×\n1000), so a fractional rate stays an integer (e.g. 2_300 = 2.3\ntok/s). Avoids a float ratio in the signed bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "network_rx_bytes": {
+          "description": "Bytes received over the shard data plane during the run.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "network_tx_bytes": {
+          "description": "Bytes sent over the shard data plane during the run.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "p95_token_latency_ms": {
+          "description": "95th-percentile per-token latency, milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ttft_ms": {
+          "description": "Time to first token, milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "worker_drop_count": {
+          "description": "Number of mid-run worker drops the pipeline recovered from (churn).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ttft_ms",
+        "decode_milli_tokens_per_sec",
+        "p95_token_latency_ms",
+        "network_rx_bytes",
+        "network_tx_bytes",
+        "worker_drop_count"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The unsigned run-proof payload — a worker's self-attestation of one\nexecuted run.\n\n**Attestation scope:** a valid signature proves only *which worker*\nsigned this (non-repudiation). It does NOT attest that the computation\nwas correct. See the module-level note.",
+  "properties": {
+    "activation_fingerprint": {
+      "default": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "description": "**N0 TOPLOC commitment** (Sprint 77 Phase G). The 32-byte BLAKE3\ncommitment of the worker's canonical\n[`crate::toploc::ToplocFingerprint`] over the top-k of its block's last\nhidden state (post-norm, last shard). 32 zeros means \"not provided\"\n(e.g. a non-`llm_llama_cpp` backend, where hidden states are unavailable\nand N0 is infeasible).\n\n**Binding only, not a tolerant proof:** a BLAKE3 commitment is compared\nby equality; the tolerant exponent/mantissa recompute lives in\n[`crate::toploc::ToplocFingerprint::compare`] and runs cross-worker in\nthe N1 spot-check (Phase H) / N2 redundancy (Phase I), once the full\nsketch is transported off this 32-byte slot. Until an independent\nverifier recomputes it this is a self-claim — see the module note on\nauto-attestation. `#[serde(default)]` runtime tolerance: an omitted slot\ndeserializes to zeros.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    },
+    "metrics": {
+      "$ref": "#/$defs/RunMetrics",
+      "description": "All-integer execution metrics."
+    },
+    "model_digest": {
+      "description": "BLAKE3 digest of the model the worker ran.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    },
+    "participants": {
+      "description": "The other pipeline participants this run involved (their Ed25519\npubkeys). Bounded by [`RUN_PROOF_MAX_PARTICIPANTS`].",
+      "items": {
+        "items": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxItems": 32,
+        "minItems": 32,
+        "type": "array"
+      },
+      "type": "array"
+    },
+    "prompt_profile_hash": {
+      "description": "BLAKE3 digest binding the prompt/precision profile. TOPLOC requires\nthe verifier to supply the same model + prompt + precision to\nrecompute the fingerprint; this is that external binding.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    },
+    "session_id": {
+      "description": "The session this proof belongs to — binds the proof to one\n[`ShardedSessionManifest::session_id`] so an honest proof from a\npast session cannot be replayed into a current one. Bounded by\n[`SESSION_ID_MAX`].",
+      "type": "string"
+    },
+    "version": {
+      "description": "Must equal [`RUN_PROOF_FORMAT_VERSION`]; `#[serde(default)]` NOT\napplied (a missing version is malformed).",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "worker_pubkey": {
+      "description": "Ed25519 public key of the worker that executed and signed this.\nCross-checked against the envelope's redundant `worker_pubkey`.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    }
+  },
+  "required": [
+    "version",
+    "worker_pubkey",
+    "session_id",
+    "model_digest",
+    "prompt_profile_hash",
+    "metrics",
+    "participants"
+  ],
+  "title": "RunProof",
+  "type": "object"
+}

@@ -60,6 +60,7 @@
 //! sign and verify so a node can never produce a payload its own peers
 //! would reject.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -112,7 +113,7 @@ pub const SHARD_HASHES_MAX: usize = 64;
 /// runs a block of layers. Kept as an enum rather than a free string so an
 /// unknown role is a deserialization error at the signed boundary, not a
 /// silently-tolerated value.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ShardRole {
     /// Runs a contiguous block of transformer layers.
@@ -125,7 +126,7 @@ pub enum ShardRole {
 /// KV cache locally and ephemerally; distributed KV cache is post-S77
 /// (scope cut #5). An enum so the domain stays closed at the signed
 /// boundary.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum KvCachePolicy {
     /// KV cache kept local to the worker, discarded at session end.
@@ -139,7 +140,7 @@ pub enum KvCachePolicy {
 /// `[layer_start, layer_end)`, so a block runs layers `layer_start`
 /// through `layer_end - 1`, and two consecutive blocks are contiguous when
 /// `next.layer_start == prev.layer_end`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct ShardAssignment {
     /// Ed25519 public key of the worker that runs this block. MUST be a
     /// member of the session's [`crate::compute_group::ComputeGroup`]
@@ -184,7 +185,7 @@ pub struct ShardAssignment {
 /// the canonical bytes (it only sorts object keys), so a signed plan keeps
 /// its order — but consumers should still validate contiguity rather than
 /// trust position alone (see [`Self::is_pipeline_contiguous`]).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct ShardPlan {
     /// The per-worker layer-block assignments, in pipeline order. Bounded
     /// by [`SHARD_PLAN_MAX_ASSIGNMENTS`].
@@ -230,7 +231,7 @@ impl ShardPlan {
 /// Every field here contributes to the canonical bytes the initiator
 /// signs; nothing outside this struct (the envelope's redundant
 /// `initiator` / `signature`) is covered by the signature.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct ShardedSessionManifest {
     /// Must equal [`SHARD_PLAN_FORMAT_VERSION`]. `#[serde(default)]` is
     /// intentionally NOT applied: a missing version is a malformed
@@ -375,7 +376,7 @@ impl ShardedSessionManifestEntry {
 /// No floats: a signed JCS payload must round-trip bit-identically across
 /// platforms (see the module-level note). Rates are expressed in
 /// integer-friendly units (milli-tokens/sec, bytes, milliseconds).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema)]
 pub struct RunMetrics {
     /// Time to first token, milliseconds.
     pub ttft_ms: u64,
@@ -404,7 +405,7 @@ pub struct RunMetrics {
 /// **Attestation scope:** a valid signature proves only *which worker*
 /// signed this (non-repudiation). It does NOT attest that the computation
 /// was correct. See the module-level note.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct RunProof {
     /// Must equal [`RUN_PROOF_FORMAT_VERSION`]; `#[serde(default)]` NOT
     /// applied (a missing version is malformed).

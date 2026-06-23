@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "All-integer execution metrics carried by a [`RunProof`].\n\nNo floats: a signed JCS payload must round-trip bit-identically across\nplatforms (see the module-level note). Rates are expressed in\ninteger-friendly units (milli-tokens/sec, bytes, milliseconds).",
+  "properties": {
+    "decode_milli_tokens_per_sec": {
+      "description": "Decode throughput in **milli-tokens per second** (tokens/sec ×\n1000), so a fractional rate stays an integer (e.g. 2_300 = 2.3\ntok/s). Avoids a float ratio in the signed bytes.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "network_rx_bytes": {
+      "description": "Bytes received over the shard data plane during the run.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "network_tx_bytes": {
+      "description": "Bytes sent over the shard data plane during the run.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "p95_token_latency_ms": {
+      "description": "95th-percentile per-token latency, milliseconds.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "ttft_ms": {
+      "description": "Time to first token, milliseconds.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "worker_drop_count": {
+      "description": "Number of mid-run worker drops the pipeline recovered from (churn).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "ttft_ms",
+    "decode_milli_tokens_per_sec",
+    "p95_token_latency_ms",
+    "network_rx_bytes",
+    "network_tx_bytes",
+    "worker_drop_count"
+  ],
+  "title": "RunMetrics",
+  "type": "object"
+}

@@ -39,8 +39,15 @@
 //! rejects any other value — there is no tolerant multi-version
 //! decoder because the project has no live protocol speakers yet.
 
+pub mod shard;
 pub mod task_response;
 
+pub use shard::{
+    ShardSessionStatusResponse, ShardSessionView, compute_group_schema, run_metrics_schema,
+    run_proof_schema, shard_assignment_schema, shard_plan_schema,
+    shard_session_status_response_schema, shard_session_view_schema,
+    sharded_session_manifest_schema,
+};
 pub use task_response::{
     TASK_RESPONSE_DOMAIN_TAG, TASK_RESPONSE_VERSION, TaskResponse, ToolCall, task_response_schema,
 };

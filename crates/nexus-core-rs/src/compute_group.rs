@@ -50,6 +50,7 @@
 //! BOTH sign and verify so an initiator cannot accidentally produce a
 //! group its own members reject.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -83,7 +84,7 @@ pub const COMPUTE_GROUP_ID_MAX: usize = 128;
 /// Every field here contributes to the canonical bytes the initiator
 /// signs; nothing outside this struct (the envelope's redundant
 /// `initiator` / `signature`) is covered by the signature.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct ComputeGroup {
     /// Must equal [`COMPUTE_GROUP_FORMAT_VERSION`] to be accepted by this
     /// build. `#[serde(default)]` is intentionally NOT applied: a missing

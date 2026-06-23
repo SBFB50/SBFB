@@ -1,0 +1,114 @@
+{
+  "$defs": {
+    "KvCachePolicy": {
+      "description": "How a worker manages the KV cache for its layer block.\n\nFrozen to `LocalEphemeral` for S77 (addendum §1): each worker keeps its\nKV cache locally and ephemerally; distributed KV cache is post-S77\n(scope cut #5). An enum so the domain stays closed at the signed\nboundary.",
+      "oneOf": [
+        {
+          "const": "local_ephemeral",
+          "description": "KV cache kept local to the worker, discarded at session end.",
+          "type": "string"
+        }
+      ]
+    },
+    "ShardRole": {
+      "description": "The role a worker plays in the pipeline.\n\nAn enumerated domain (mirrors the named-constant discipline): a worker\nruns a block of layers. Kept as an enum rather than a free string so an\nunknown role is a deserialization error at the signed boundary, not a\nsilently-tolerated value.",
+      "oneOf": [
+        {
+          "const": "layer_worker",
+          "description": "Runs a contiguous block of transformer layers.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One worker's contiguous block of model layers in a pipeline.\n\nUnsigned on its own — it carries meaning only inside a signed\n[`ShardedSessionManifest`]. The layer range is **half-open**:\n`[layer_start, layer_end)`, so a block runs layers `layer_start`\nthrough `layer_end - 1`, and two consecutive blocks are contiguous when\n`next.layer_start == prev.layer_end`.",
+  "properties": {
+    "fallback_node": {
+      "default": null,
+      "description": "Optional fallback worker to re-route this block to on churn\n(Petals-style active re-balancing, addendum §2). `#[serde(default)]`\nruntime tolerance: a client that omits it deserializes to `None`\nrather than failing — it is genuinely optional, not identity.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "kv_cache_policy": {
+      "$ref": "#/$defs/KvCachePolicy",
+      "description": "How the worker manages its KV cache."
+    },
+    "launch_profile_hash": {
+      "description": "BLAKE3 hash of the launch profile (runtime config) the worker must\nboot with, so every shard of a session agrees on its parameters.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    },
+    "layer_end": {
+      "description": "Exclusive upper bound of the contiguous layer block. A well-formed\nassignment has `layer_start < layer_end` (non-empty block); the\npipeline-level contiguity invariant is checked by\n[`ShardPlan::is_pipeline_contiguous`].",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "layer_start": {
+      "description": "Inclusive lower bound of the contiguous layer block.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "role": {
+      "$ref": "#/$defs/ShardRole",
+      "description": "What this worker does in the pipeline."
+    },
+    "shard_hashes": {
+      "description": "BLAKE3 hash-pin of the shard weight artifact(s) this worker must\nload. Pinning the weights by content hash makes a worker that swaps\nin different weights detectable. Bounded by [`SHARD_HASHES_MAX`].",
+      "items": {
+        "items": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxItems": 32,
+        "minItems": 32,
+        "type": "array"
+      },
+      "type": "array"
+    },
+    "worker_pubkey": {
+      "description": "Ed25519 public key of the worker that runs this block. MUST be a\nmember of the session's [`crate::compute_group::ComputeGroup`]\nallowlist (checked at the `sbfb/shard/1` handshake, Phase B).",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    }
+  },
+  "required": [
+    "worker_pubkey",
+    "layer_start",
+    "layer_end",
+    "role",
+    "shard_hashes",
+    "kv_cache_policy",
+    "launch_profile_hash"
+  ],
+  "title": "ShardAssignment",
+  "type": "object"
+}

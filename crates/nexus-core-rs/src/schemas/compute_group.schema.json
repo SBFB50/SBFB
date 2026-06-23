@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The unsigned compute-group allowlist payload.\n\nEvery field here contributes to the canonical bytes the initiator\nsigns; nothing outside this struct (the envelope's redundant\n`initiator` / `signature`) is covered by the signature.",
+  "properties": {
+    "group_id": {
+      "description": "Stable, initiator-chosen handle for this private session. Lets a\nlater session manifest (Phase C/J) correlate a running pipeline to\nthe allowlist that admits its workers. Bounded by\n[`COMPUTE_GROUP_ID_MAX`].",
+      "type": "string"
+    },
+    "initiator": {
+      "description": "Ed25519 public key of the node that owns + signs this allowlist.\nThis is the group *owner*, NOT necessarily a worker: if the\ninitiator also runs a shard it must appear in [`Self::members`] as\nwell. Cross-checked against the envelope's redundant `initiator`.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    },
+    "members": {
+      "description": "The authorised worker public keys (the admission allowlist). A peer\nwhose `conn.remote_id()` is not in this list is rejected at the\n`sbfb/shard/1` handshake. MUST have\n`members.len() <= COMPUTE_GROUP_MAX_MEMBERS`. An empty list is a\nvalid (degenerate) group that admits no one.",
+      "items": {
+        "items": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxItems": 32,
+        "minItems": 32,
+        "type": "array"
+      },
+      "type": "array"
+    },
+    "revision": {
+      "description": "Monotonic revision counter. The initiator bumps it when rotating\nthe allowlist (adding / removing members). Rollback protection (a\nstateful \"strictly greater\" check) is an ingest-layer concern, not\nenforced in this crypto module — mirrors\n[`crate::node_directory::NodeDirectory::revision`].",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "version": {
+      "description": "Must equal [`COMPUTE_GROUP_FORMAT_VERSION`] to be accepted by this\nbuild. `#[serde(default)]` is intentionally NOT applied: a missing\nversion is a malformed group, not a runtime-tolerant omission.",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "group_id",
+    "initiator",
+    "revision",
+    "members"
+  ],
+  "title": "ComputeGroup",
+  "type": "object"
+}
