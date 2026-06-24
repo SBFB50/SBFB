@@ -178,12 +178,13 @@ Runtime isolation roadmap dans
   **DIRECTIVE PO 2026-06-23** : demarrer le **sprint Factory « app-authoring »
   (S79)** a la prochaine session — maitrise anime.js + daisyUI dans le process
   Factory (module de connaissance versionne + prompt-kind `app-authoring` + gate
-  CSP deterministe Rust). Package PRET dans `.planning/active/`
-  (`sprint79_kickoff.md` / `_plan.md` / `_design_review.md` +
-  `_NEXT_SESSION.md` = entree a lire en premier). Knowledge packs (anime.js +
+  CSP deterministe Rust). **S79 OUVERT** ; package dans `.planning/active/`
+  (`sprint79_{kickoff,plan,design_review}.md`) ; **Phase A LIVREE `9297f08`** ;
+  handoff canonique = `nexus_grid_pivot.md` + plan + git (PAS de `_NEXT_SESSION.md`,
+  artefact hors-process supprime). Knowledge packs (anime.js +
   daisyUI 5.5.23) + design durci dans
   `examples/daisyui-animejs-showcase/knowledge/`. **Arbitrage ordre Factory-vs-S78
-  sharding (carry P1) au boot** — cf. `.planning/active/_NEXT_SESSION.md`.
+  sharding (carry P1) RESOLU : Factory-first** (sharding S78 differe + tracke).
   v2.1 ouverte. **Tag v1.0 pose et pousse (LT-2 ARME, dry-run
   Radicle prive fait).**
   Projet Rust+Frontend pur depuis S50-S51.
