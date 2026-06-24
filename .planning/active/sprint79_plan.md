@@ -434,6 +434,15 @@ Factory + le doc-lint factory-scopé + le wrap-up. **Aucune nouvelle primitive d
   [self-check viewer requis] ; connaissance CONSOMMÉE jamais autoritaire [0 verdict PASS] ») +
   french-body (REFERENCE.md exempté). **CÂBLÉ BLOQUANT 3 surfaces** (`ci.yml` + `ci-linux.yml` +
   `verify.sh`). [Le gate GÉNÉRIQUE `check-frontier-contracts.sh` est livré Phase B ; ici = le lint factory-scopé.]
+- **Couverture de l'arête de provenance du prompt-kind (P2 — `sprint79_phase_c_doc_verification.md`)** :
+  étendre EXPLICITEMENT `check-factory-docs.sh` à `prompts/agent/app-authoring.md` (et son extension
+  daisyUI de Phase F) — résoudre chaque source_ref `PRIMITIVES.md:N` / `README.md:N` (la ligne existe
+  ET supporte la claim) ET asserter chaque hash blake3 16-hex inline
+  `== docs/factory/knowledge/animejs/MANIFEST.json`. Aujourd'hui ces ~21 refs + 5 hashes sont **NON
+  GARDÉS** (`check-frontier-contracts.sh` exclut `prompts/`, le test ne vérifie que 5 strings CSP,
+  `prompt_kinds_resolve_to_existing_files` ne fait que `.exists()`) → la fiche est un **GUIDE non gaté**
+  dont la copie de hashes ment silencieusement à la prochaine rotation du pack (suite verte). Sans cette
+  extension, le gap reste non couvert.
 - **Honnêteté (non négociable)** : aucun « shipped/LIVE » faux ; `PROVISIONAL` pour ce qui ne tourne
   pas in-vivo ; Truth-Stack `repo > planning > commits > prompts > chat`.
 - **Wrap-up FINAL du sprint** : `docs/claude/SPRINT_LOG.md` (row S79), `CLAUDE.md` (état + capacité +
@@ -444,7 +453,8 @@ Factory + le doc-lint factory-scopé + le wrap-up. **Aucune nouvelle primitive d
 **Fichiers touchés** : `docs/factory/{README,EXPLANATION,HOW_TO_WIRE,REFERENCE,llms.txt,WIRING_SPEC.md}` ;
 `docs/factory/examples/*` ; `llms.txt` (racine, section factory) ; `scripts/check-factory-docs.sh` (new) ;
 `.github/workflows/ci.yml` + `.woodpecker/ci-linux.yml` + `scripts/verify.sh` (câblage check-factory-docs) ;
-`crates/sbfb-factory/tests/*` (test `include!`) ; `docs/claude/SPRINT_LOG.md` ; `CLAUDE.md` ;
+`crates/sbfb-factory/tests/*` (test `include!`) ; `prompts/agent/app-authoring.md` (couverture lint
+source-ref-check + hash, P2 doc-verification Phase C) ; `docs/claude/SPRINT_LOG.md` ; `CLAUDE.md` ;
 `.planning/active/sprint80_audit_plan.md`.
 **Gates** : G8 preflight Phase I ; review Workflow ; Codex ; `check-factory-docs.sh` **vert** ;
 **gate dual-platform (Win nextest + Docker canonique `sbfb-ci` rust:1.94, fmt 0 sous les 2 toolchains)
