@@ -93,13 +93,43 @@ E (pack daisyUI — extension knowledge + prompt-kind)
 F (copilote Ollama + starter template daisyui vendoré)
    │
    ▼
-G (self-check runtime viewer + confirmation BLOB_SERVE_CSP == contrat + wrap-up + T1/T2)
+G (self-check runtime viewer + confirmation BLOB_SERVE_CSP == contrat + T1/T2)
+   │
+   ▼
+H (docs-contract closure — mirror S77 Phase N : Diataxis docs/factory + llms.txt + WIRING_SPEC
+   + include! example + check-factory-docs.sh BLOQUANT 3 surfaces + canon PATTERNS §P / AGENT_SYSTEM
+   + wrap-up final SPRINT_LOG/CLAUDE.md/sprint80_audit_plan/memory)
 ```
 
 **Note** : la factorisation CSP (source unique D4/D5) est intégrée **dans la Phase D** (elle conditionne
 le gate). Le pack daisyUI **existe déjà partiellement** (`knowledge/daisyui/` : MANIFEST + 4 couches,
 68 composants, 0 risk) — Phase E le **promeut + complète + câble** dans le prompt-kind, ce n'est pas une
 extraction from-scratch.
+
+## §3bis Cadence docs-contrat (doctrine « contrat-pour-LLM », appliquée à S79)
+
+Référence : `.planning/research/doctrine_contrat_pour_llm.md` §2 (5 couches CODE / ÉTIQUETTE /
+COMMIT / GUIDE+llms.txt / arête provenance) + §3 (règle de cadence). **S79 est la 1re instance
+concrète** de cette cadence. Deux régimes, additifs, sans alourdir les phases :
+
+- **ÉTIQUETTE générée drift-gated → PAR PHASE**, livrée DANS LE COMMIT de la primitive de
+  frontière (gratuite — le schéma/hash est généré ; la gate ne peut pas pourrir : drift → build
+  rouge). Pour S79 :
+  - **A / E** : `MANIFEST.json` + test de re-calcul blake3 par couche == MANIFEST (étiquette du
+    knowledge pack). [A : **LIVRÉ** `9297f08` — `tests/animejs_manifest.rs`.]
+  - **B** : prompt-kind `app-authoring` + invariant `prompt_kinds_resolve_to_existing_files`
+    (contrat kind↔fichier : build cassé si kind sans `.md`).
+  - **C** : champ context-pack `authoring_knowledge{path,hash}` + test hash-recompute.
+  - **D** : **SOURCE CSP UNIQUE** = manifeste de règles dérivé de `BLOB_SERVE_CSP` + **test
+    cross-crate anti-drift** (l'étiquette CSP générée — cœur « étiquette générée drift-gated »).
+- **GUIDE + `llms.txt` (synthèse) → UNE phase de clôture = Phase H** (l'image complète n'est
+  figeable qu'à la fin ; mirror EXACT de S77 Phase N). **PAS** « une phase de doc par phase ».
+
+**Arête de provenance in-code (rang-1)** : chaque primitive de frontière porte un commentaire
+`// Sprint 79 Phase X · décision D#` pointant **uniquement vers du passé immuable** (sprint /
+phase / décision qui ont eu lieu), **JAMAIS une promesse future** (anti STALE-PHASE-K, cf.
+doctrine §2 + l'incident réel `http.rs:2111` « lands in Phase K »). Gaté par le source-ref-check
+de `check-factory-docs.sh` (Phase H).
 
 ---
 
@@ -337,7 +367,7 @@ assemble_prompt prepend bloc capacité) ; +front si Operator UX touché (T1c).
 
 ---
 
-## Phase G — Self-check runtime viewer + confirmation CSP daemon + wrap-up
+## Phase G — Self-check runtime viewer + confirmation CSP daemon + testabilité (T1/T2)
 
 **Objectif** : filet RUNTIME pour les violations CSP construites à l'exécution (échappent au lint statique :
 `url()`/`@font-face` dynamiques) + clôture du sprint avec gate de testabilité vert.
@@ -351,21 +381,118 @@ assemble_prompt prepend bloc capacité) ; +front si Operator UX touché (T1c).
   fictive). Champ `blob_serve_csp_equals_contract` de T2.
 - **T1** (E2E hermétique BLOQUANT) vert + tagué CI ; **T2** (artefact JSON acceptance) = **PASS**
   (`scripts/acceptance/app_authoring_capability.sh`).
-- Docs longue-vie : `docs/rust/PATTERNS.md` (§ gate CSP-authoring + source CSP unique),
-  `docs/factory/FACTORY_GATES.md` (finalisé), `docs/claude/SPRINT_LOG.md` (row S79),
-  `CLAUDE.md` (état actuel + capacité), `nexus_grid_pivot.md` + `MEMORY.md` (post-commit).
-- `sprint80_audit_plan.md` (Track Testabilité standing + tout carry P2/P3 routé).
+- Docs gate-spécifiques (le reste de la doc = **Phase H** clôture) : `docs/rust/PATTERNS.md`
+  (§ gate CSP-authoring + source CSP unique), `docs/factory/FACTORY_GATES.md` (finalisé, nouveau
+  FG-CSP-authoring). [SPRINT_LOG row S79 / CLAUDE.md état / `nexus_grid_pivot.md` + `MEMORY.md` /
+  `sprint80_audit_plan.md` → **Phase H** (clôture finale, après les docs-contract).]
 
 **Fichiers touchés** : `tools/factory-ui/src/readonly/*` ;
 `crates/nexus-shell-daemon-core/src/blob_serve.rs` (consommé, confirmé) ;
-`docs/factory/FACTORY_GATES.md` ; `docs/rust/PATTERNS.md` ; `docs/claude/SPRINT_LOG.md` ; `CLAUDE.md` ;
+`docs/factory/FACTORY_GATES.md` ; `docs/rust/PATTERNS.md` (§ gate CSP) ;
 `scripts/acceptance/app_authoring_capability.sh` (new) ;
-`web/e2e/app-authoring.spec.ts` ou équivalent (T1) ; `.planning/active/sprint80_audit_plan.md`.
-**Gates** : G8 preflight Phase G ; review Workflow multi-dimensions ; Codex ; **gate dual-platform
-(Win nextest + Docker canonique `sbfb-ci` rust:1.94, fmt 0 sous les 2 toolchains) AVANT push** ;
-gate de testabilité par-sprint vert.
+`web/e2e/app-authoring.spec.ts` ou équivalent (T1). [SPRINT_LOG / CLAUDE.md / sprint80_audit_plan → Phase H.]
+**Gates** : G8 preflight Phase G ; review Workflow multi-dimensions ; Codex ; gate de testabilité
+par-sprint vert. [Le gate dual-platform AVANT push est porté par la **Phase H** = phase de clôture.]
 **Delta tests** : +front (self-check viewer) + T1 E2E + T2 artefact JSON.
-**Commit** : `feat(factory): Sprint 79 Phase G — self-check runtime + confirmation CSP daemon + wrap-up`
+**Commit** : `feat(factory): Sprint 79 Phase G — self-check runtime + confirmation CSP daemon + testabilité T1/T2`
+
+---
+
+## Phase H — Docs-contract closure Factory (couche GUIDE + llms.txt, mirror EXACT S77 Phase N)
+
+**Objectif** : le nœud GUIDE de la doctrine contrat-pour-LLM (`.planning/research/doctrine_contrat_pour_llm.md`
+§2/§3) — synthèse navigable LLM + humaine de la capacité app-authoring, figée à la clôture car
+l'image complète n'est figeable qu'à la fin. Mirror EXACT de S77 Phase L/M/N (que la cadence
+§3bis a déjà dispersé en étiquettes-par-phase ; H ne fait QUE la synthèse + le doc-lint + la
+canonisation + le wrap-up). **Aucune nouvelle primitive de code** ; additif, 0 bump wire.
+**Livrables** :
+- **HUMAIN — Diataxis FR** : `docs/factory/{README,EXPLANATION,HOW_TO_WIRE,REFERENCE}.md` pour la
+  capacité app-authoring (anime.js + daisyUI + gate CSP `run_gate_csp_authoring` + vendorisation UMD
+  same-origin). FR pour les 3 premiers ; `REFERENCE.md` **corps EN** (agent-facing, exempté
+  french-body, comme S77).
+- **LLM/agent** : `docs/factory/llms.txt` (format llmstxt.org, Truth-Stack
+  `repo files > .planning/active/ > commits > prompts > chat` + règle « Not evidenced ») +
+  **entrée racine `llms.txt`** indexant `docs/factory/llms.txt` (le root llms.txt existe déjà,
+  scope sharding — ajouter la section factory).
+- **`docs/factory/WIRING_SPEC.md`** (EN contract-dense, sections fixes) : source_refs `path:Symbol`
+  vers les primitives de frontière S79 — au minimum `PROMPT_KINDS`, `app-authoring`,
+  `run_gate_csp_authoring`, `BLOB_SERVE_CSP`, `authoring_knowledge`, `TemplateConfig` (daisyui),
+  `handle_context_pack`, le `MANIFEST.json` + son test. Required-anchor allowlist sur ces symboles.
+- **Exemple runnable lifté VERBATIM via `include!`** (modèle S77 `examples/sign_verify.rs` →
+  `crates/nexus-core-rs/tests/shard_sign_verify.rs`) : un snippet d'authoring CSP-clean
+  (`docs/factory/examples/*`) `include!`-é dans un test nextest → l'exemple ne peut pas mentir
+  (build rouge s'il drift).
+- **`scripts/check-factory-docs.sh`** — CLONE de `scripts/check-sharding-docs.sh` :
+  (1) link-check repo-relatif ; (2) **source-ref-check rank-1** (chaque `path:Symbol` : fichier
+  existe ET symbole grep-trouvé, sinon EXIT 1) ; (3) **required-anchor allowlist** ;
+  (4) **honesty-gate** (marqueurs `PROVISIONAL` / `Not evidenced` + **caveat cardinal** Factory =
+  « lint statique CSP ≠ garantie runtime complète [self-check viewer requis] ; connaissance
+  CONSOMMÉE jamais autoritaire [0 verdict PASS] ») ; (5) **french-body** (REFERENCE.md exempté).
+  **CÂBLÉ BLOQUANT sur 3 surfaces** (exactement comme check-sharding-docs) : `.github/workflows/ci.yml`
+  + `.woodpecker/ci-linux.yml` + `scripts/verify.sh`.
+- **Honnêteté (non négociable)** : aucun « shipped/LIVE » faux ; marquer `PROVISIONAL` ce qui ne
+  tourne pas in-vivo ; Truth-Stack `repo > planning > commits > prompts > chat`.
+- [Le **CANON dans le process Claude Code** (README + AGENT_SYSTEM + PATTERNS §P) + le **gate-map
+  GÉNÉRIQUE** + le **wrap-up final** sont portés par la **Phase I** : H ne livre QUE l'instance
+  Factory de la couche GUIDE + son doc-lint factory-scopé.]
+
+**Fichiers touchés** : `docs/factory/{README,EXPLANATION,HOW_TO_WIRE,REFERENCE,llms.txt,WIRING_SPEC.md}` ;
+`docs/factory/examples/*` ; `llms.txt` (racine, section factory) ; `scripts/check-factory-docs.sh` (new) ;
+`.github/workflows/ci.yml` + `.woodpecker/ci-linux.yml` + `scripts/verify.sh` (câblage check-factory-docs) ;
+`crates/sbfb-factory/tests/*` (test `include!` de l'exemple).
+**Gates** : G8 preflight Phase H ; review Workflow ; Codex ; `check-factory-docs.sh` **vert**.
+**Delta tests** : +1 Rust (example `include!` runnable) + 1 script doc-lint net-new (`check-factory-docs.sh`).
+**Commit** : `docs(factory): Sprint 79 Phase H — couche agent llms.txt + WIRING_SPEC + Diataxis Factory`
+
+---
+
+## Phase I — Canon de la cadence docs-contrat DANS LE PROCESS Claude Code + gate-map générique + wrap-up
+
+**Objectif** : la directive PO va **plus loin que Factory** — la cadence docs-contrat devient une
+**règle du process Claude Code SBFB lui-même**, appliquée à TOUT sprint/phase futur (pas seulement
+S79). S79 en est la **1re instance de référence** ; Phase I la **canonise** et l'**outille
+génériquement**. Doctrine §6 (« où ça doit vivre ») + §7/§10 (gate-map + trous réels).
+**Livrables** :
+- **Process source-of-truth** : `docs/claude/README.md` — nouvelle **convention de cadence**
+  docs-contrat (étiquette générée drift-gated PAR PHASE dans le commit de la primitive ; GUIDE +
+  `llms.txt` en UNE phase de clôture ; arête de provenance rang-1 vers le passé immuable, jamais
+  une promesse). Standing rule = chaque futur sprint la suit.
+- **Pattern nommé** : `docs/rust/PATTERNS.md` nouveau §P « cadence docs-contrat » (les 5 couches +
+  leçon L/M/N S77 + anti STALE-PHASE-K) ; miroir shell `docs/shell/PATTERNS.md` si pertinent.
+- **Généralisation portable** : `docs/agent/AGENT_SYSTEM.md` (la doctrine portable, S79 = 1re
+  instance ; consommée jamais autoritaire).
+- **GATE-MAP GÉNÉRIQUE** `scripts/check-frontier-contracts.sh` (doctrine §7/§10), **câblé BLOQUANT
+  CI 3 surfaces** (`.github/workflows/ci.yml` + `.woodpecker/ci-linux.yml` + `scripts/verify.sh`),
+  `set -euo pipefail`, BusyBox-safe (modèle `check-sharding-docs.sh`). Cœur livrable S79 (le reste
+  = carry honnête) :
+  - **Anti STALE-PHASE-K source-ref GÉNÉRIQUE repo-wide** : grep `lands in Phase [A-Z]|will
+    (populate|expose|add|read|land)` → **FAIL** si la phase promise est close (le trou EDGE réel :
+    ~356 commentaires de provenance non gatés aujourd'hui ; `http.rs:2111` « lands in Phase K » LIVE).
+  - **Couverture étiquette** sur un **registre explicite `// FRONTIER: <name> domain=… version=…`**
+    (arbitrage doctrine §7 Q2 — registre explicite vs convention : à trancher au preflight Phase I) ;
+    **FAIL** si un type `// FRONTIER:` n'a ni snapshot schéma ni exemption `// FRONTIER-NO-SCHEMA:`.
+  - **Honnêteté** : marqueur de statut requis sur tout doc de frontière (modèle PROVISIONAL).
+- **Fix du faux-vert CI réel** (doctrine §10) : `phase-review-cross-check.yml` regex obsolète
+  `[A-F]` (0 match, plafond périmé alors qu'on est ≥ Phase H/I) → régex `Phase [A-Z]+[0-9]?`.
+  + cross-check `BLOB_SERVE_CSP.contains("form-action")` ajouté (les 2 tests substring laissent
+  passer un drift — fermé par la Phase D, re-asserté ici en méta).
+- **Carry honnête** : la couverture étiquette des **~21 familles wire** non-schématisées (doctrine
+  §10) n'est PAS faite en S79 → documentée `PROVISIONAL` + routée `sprint80_audit_plan.md`. Ne PAS
+  prétendre « tout est gaté ».
+- **Wrap-up FINAL du sprint** : `docs/claude/SPRINT_LOG.md` (row S79), `CLAUDE.md` (état + capacité +
+  cadence canonisée), `nexus_grid_pivot.md` + `MEMORY.md` (post-commit), `sprint80_audit_plan.md`.
+
+**Fichiers touchés** : `docs/claude/README.md` ; `docs/rust/PATTERNS.md` (§P) ; `docs/shell/PATTERNS.md` ;
+`docs/agent/AGENT_SYSTEM.md` ; `scripts/check-frontier-contracts.sh` (new) ; `.github/workflows/ci.yml`
++ `.woodpecker/ci-linux.yml` + `scripts/verify.sh` (câblage) ; `.github/workflows/phase-review-cross-check.yml`
+(fix régex) ; `docs/claude/SPRINT_LOG.md` ; `CLAUDE.md` ; `.planning/active/sprint80_audit_plan.md`.
+**Gates** : G8 preflight Phase I (trancher registre `// FRONTIER:` explicite vs convention, doctrine
+§7 Q2) ; review Workflow ; Codex ; `check-frontier-contracts.sh` **vert** ; **gate dual-platform
+(Win nextest + Docker canonique `sbfb-ci` rust:1.94, fmt 0 sous les 2 toolchains) AVANT push** (phase
+finale) ; gate de testabilité par-sprint (T1/T2) confirmé vert.
+**Delta tests** : extension doc-lint générique + éventuels tests d'auto-vérif du script ; +tests de
+fix régex CI (au besoin).
+**Commit** : `chore(process): Sprint 79 Phase I — canon cadence docs-contrat + check-frontier-contracts générique`
 
 ---
 
@@ -384,7 +511,13 @@ gate de testabilité par-sprint vert.
   `app.css` same-origin ; Tailwind-CDN + Google Fonts interdits.
 - **Pré-launch** : 0 bump wire, 0 dépendance runtime nouvelle, contrat 8→9 prompt-kinds étendu proprement.
 - **Pas de wrapper `.claude/skills/`** au 1er jet (additif, différable).
-- **Sprint ultra-complet A→G d'un bloc, 0 defer du cœur** (la dette/gates = phases du sprint).
+- **Sprint ultra-complet A→I d'un bloc, 0 defer du cœur** (G = testabilité/self-check, H = docs-contract
+  Factory instance, I = canon process + gate-map générique ; la dette/gates = phases du sprint).
+- **Cadence docs-contrat (doctrine §3 + §3bis)** : étiquette générée drift-gated PAR PHASE dans le
+  commit de la primitive ; GUIDE + `llms.txt` en UNE phase de clôture ; arête de provenance in-code
+  rang-1 vers le passé immuable seulement (anti STALE-PHASE-K). **S79 = 1re instance ; la règle est
+  canonisée dans le PROCESS Claude Code lui-même (README + AGENT_SYSTEM + PATTERNS + check-frontier-contracts
+  générique), pas seulement dans Factory.**
 
 ## §6 Risques (du design durci) + mitigations
 
