@@ -3846,3 +3846,39 @@ next sprint's audit plan), and (3) the phase review.md documents the
 reconciliation decision. A silent commit over a GAP — body says "0 GAP" or
 omits it — is a P1 process violation (lightcheck Check 7 enforces the
 artifact side; this rule covers the routing side).
+
+## Sprint 77 audit gate — tech debt (2026-06-24, verdict PASS)
+
+Logged by `sprint77_audit_findings.md` (Cas A audit gate, 11-track Workflow).
+0 P0 / 0 P1 ; these are the rust-side P2 carries into the S78 ledger.
+
+- **PAT-1 (P2) — §P69 overstates the perf-map daemon glue as shipped.** §P69
+  (PATTERNS.md §P69 + `nexus-coordinator-rs/src/routing.rs:30-43`) narrates in the
+  present tense that the perf-map republish + `is_member` ingest gate `doc.set`
+  "lives in the daemon" / "the daemon owns the doc handle". That wiring exists
+  NOWHERE — there is 0 daemon caller of `routing.rs`/`PerfMap` (the routing/churn
+  primitives are correct and behave as claimed; only the daemon-side glue is
+  unwired). Consistent with SHARD-PROVISIONAL (no orchestrator consumes it), so
+  not a false-green — but §P69 lacks the explicit "not-yet-wired (S78 carry)"
+  disclaimer that §P67 point 3 applies correctly. Fix: mark the perf-map
+  republish + ingest gate as an S78 seam. Doc-only, 0 code.
+- **CARRY-1 (P2) — SEEDER-DIAL-TAIL residual (SYBIL-SEEDER-TAIL mis-credited).**
+  §P68 point 4 + `sprint78_audit_plan.md §3` declare "SYBIL-SEEDER-TAIL clos", but
+  the blake3 anti-crowding sampling was applied to the WORKER shard-placement tail
+  (`placement.rs:309-350`), NOT to the SEEDER dial-set the S75/S76 carry originally
+  named. `seed_registry.rs:331 seeders_recent` still does plain `ids.sort()`
+  (lexicographic), capped in `directory_pull_providers` (`http.rs:1709-1743`, whose
+  own comment still says "carried to the S76 audit"). Availability-only (BLAKE3
+  content-addressing keeps integrity intact — a crowding Sybil costs failed dials,
+  never wrong bytes), so NOT P0/P1. Fix: track SEEDER-DIAL-TAIL explicitly in the
+  S78 ledger, OR re-scope §P68 to "closes the WORKER-PLACEMENT Sybil tail only",
+  OR apply the same `blake3(context||pubkey)` sampling to `seeders_recent`.
+- **HARD-2 (P2) — TEST-ISOLATION-SBFB-HOME (pre-existing, not an S77 regression).**
+  The e2e daemon-spawn tests (`nexus-shell-daemon/tests/e2e.rs`, last touched
+  Sprint 10, 0 S77 delta) set `.env("NEXUS_GRID_ROOT", tmp)` but NEVER `SBFB_HOME`,
+  so they share the global `$HOME/.sbfb` (`auth.rs:73 sbfb_home()` falls back to
+  `$HOME/.sbfb`). Masked on real CI/dev by an existing `~/.sbfb`; surfaces as an
+  `auth_token` race in a fresh parallel Docker-on-Windows nextest (the 6 failing
+  iroh-networked tests in the canonical-Docker S77 audit run). Root-cause fix: add
+  `.env("SBFB_HOME", tmp)` (or a per-test TempDir) alongside `NEXUS_GRID_ROOT` on
+  every daemon-spawn e2e test. Carry S78.

@@ -2326,3 +2326,29 @@ membership and WITHOUT inventing a wire surface. Load-bearing:
 
 Cross-ref: rust §P67 (shard data-plane), THREAT_MODEL §16 + §5.9 (route phrase),
 `sprint77_phase_j_preflight.md`.
+
+## Sprint 77 audit gate — tech debt (2026-06-24, verdict PASS)
+
+Logged by `sprint77_audit_findings.md` (Cas A audit gate, 11-track Workflow).
+0 P0 / 0 P1 ; shell-side P2 carries into the S78 ledger.
+
+### T15 — `scripts/verify.sh` is stale (removed Python `packages/` toolchain)
+`scripts/verify.sh` steps 4-8 invoke `uv run ruff format/check packages/ examples/`
+and three `uv run pytest packages/nexus-{sdk,coordinator,app-gov}/tests/` — a
+toolchain removed when the project went Rust+Frontend pure at S50-S51. `git ls-files
+packages/` returns 0 tracked files; under `set -euo pipefail` the script aborts at
+step 4 on a fresh checkout. NOT on the gate path (`.github/workflows/ci.yml` is the
+clean Rust+Frontend version; its header comment "mirrors scripts/verify.sh" is now
+inaccurate). S77 Phase M (`91be0e4`) touched the script (added step 19
+check-sharding-docs) without cleaning the dead Python steps. Fix: remove steps 4-8
++ the `--quick` venv/packages preamble so the script matches reality. P2, carry S78.
+
+### T16 — Hermetic compute-shard E2E runs only in GHA, not in the Woodpecker mirror
+`web/e2e/compute-shard.spec.ts` (T1 testability gate) is wired BLOCKING in
+`.github/workflows/ci.yml:91-92 [10c]` (`npm run test:e2e`) on every push/PR — but
+`.woodpecker/ci-linux.yml` (the GHA-independence Linux mirror, which carries
+fmt/clippy/test/build/sharding-docs) has NO Playwright/E2E step. T1 is satisfied
+(blocking on canonical GHA), but if GHA were decommissioned the E2E gate would
+silently vanish with it. Fix: add a Playwright hermetic step (build daemon +
+`npm run test:e2e` with `SBFB_DAEMON_BIN`) to `.woodpecker/ci-linux.yml`. P2,
+carry S78. Not gate-blocking for S77.
