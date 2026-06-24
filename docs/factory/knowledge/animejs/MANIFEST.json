@@ -1,0 +1,46 @@
+{
+  "pack": "animejs",
+  "method": "5-layer (src/ signatures + tests/ semantics + examples/ patterns + docs scrape + dist types)",
+  "date": "2026-06-23",
+  "versions": {
+    "animejs": "4.5.0"
+  },
+  "sources": [
+    "juliangarnier/anime v4.5.0 (clone 2026-06-23): src/ (70 files, signatures) + tests/suites/ (33 suites, tested semantics) + examples/ + tests/playground/ (patterns) + dist/modules/**/*.d.ts (types)",
+    "animejs.com/documentation (full scrape 2026-06-23, verbatim, 0 failure)",
+    "synthesis.json: Opus 4.8 analysis over the 4 extracted layers"
+  ],
+  "layers": {
+    "primitives": "primitives.json/PRIMITIVES.md",
+    "examples": "examples-bank.json/EXAMPLES.md",
+    "docs": "docs.json/DOCS.md",
+    "synthesis": "synthesis.json",
+    "types": "anime-types.d.ts"
+  },
+  "counts": {
+    "primitives": 93,
+    "csp_usable": 93,
+    "risk": 0,
+    "demos": 52,
+    "doc_pages": 419,
+    "code_examples": 836,
+    "types": 70
+  },
+  "freshness": {
+    "snapshot_date": "2026-06-23",
+    "source_ref": "juliangarnier/anime v4.5.0 clone",
+    "refresh": "manual re-extraction at version bump (no auto-fetch; connect-src 'none')"
+  },
+  "hash_convention": "blake3(file_bytes).to_hex()[..16] (16 hex chars, mirrors knowledge/daisyui/MANIFEST.json); covers ALL promoted layer files (MANIFEST.json + dotfiles excluded)",
+  "hashes": {
+    "primitives.json": "8faa36021466192a",
+    "PRIMITIVES.md": "663c90b1a1f10cb9",
+    "examples-bank.json": "e0bf5d2ee3f35fd0",
+    "EXAMPLES.md": "48eac05dd15077be",
+    "docs.json": "a8790812191c1c5b",
+    "DOCS.md": "9a42cb88471e9bf7",
+    "synthesis.json": "a63150afd6e9a719",
+    "anime-types.d.ts": "31835934518dbe5e",
+    "README.md": "9b8ea83da05a80b3"
+  }
+}
