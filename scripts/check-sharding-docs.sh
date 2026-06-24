@@ -112,10 +112,129 @@ for d in "${FR_DOCS[@]}"; do
   fi
 done
 
+# ── (4) Phase N — agent-consumable layer (llms.txt + WIRING_SPEC + examples) ──
+# These docs are ENGLISH (agent-facing, like REFERENCE.md), so the french-body
+# check does NOT apply. They get: existence + repo-relative link resolution + a
+# source-ref-check (every cited `path:Symbol` resolves) + a Truth-Stack header
+# assertion + the PROVISIONAL/S78 honesty markers.
+
+WIRING_SPEC="$DOCS_DIR/WIRING_SPEC.md"
+SHARD_LLMS="$DOCS_DIR/llms.txt"
+ROOT_LLMS="llms.txt"
+AGENT_DOCS=("$WIRING_SPEC" "$SHARD_LLMS" "$ROOT_LLMS")
+EXAMPLE_DOCS=("$DOCS_DIR/examples/observe.curl.md" "$DOCS_DIR/examples/bridge_gap.md")
+EXAMPLE_SRC="$DOCS_DIR/examples/sign_verify.rs"
+EXAMPLE_TEST="crates/nexus-core-rs/tests/shard_sign_verify.rs"
+
+for d in "${AGENT_DOCS[@]}" "${EXAMPLE_DOCS[@]}" "$EXAMPLE_SRC" "$EXAMPLE_TEST"; do
+  if [ ! -f "$d" ]; then
+    echo "MISSING PHASE-N FILE: $d"
+    fail=1
+  fi
+done
+
+# Repo-relative markdown links must resolve from the linking doc's own directory
+# (same rule as the human docs above).
+for d in "${AGENT_DOCS[@]}" "${EXAMPLE_DOCS[@]}"; do
+  [ -f "$d" ] || continue
+  doc_dir="$(dirname "$d")"
+  while IFS= read -r link; do
+    target="${link#](}"
+    target="${target%)}"
+    case "$target" in
+      http://*|https://*|mailto:*|'#'*|'') continue ;;
+    esac
+    path="${target%%#*}"
+    [ -z "$path" ] && continue
+    if ! ( cd "$doc_dir" && [ -e "$path" ] ); then
+      echo "BROKEN LINK in $d -> $target"
+      fail=1
+    fi
+  done < <(grep -oE '\]\([^)]+\)' "$d" || true)
+done
+
+# source-ref-check: every backtick `path` or `path:Symbol` whose path is rank-1
+# (crates/ docs/ web/ scripts/) must resolve — the file exists, and a non-numeric
+# Symbol is grep-found in it (a numeric line stays within the file). `.planning/`
+# is an in-flight pointer, NOT a rank-1 prefix, so it is never resolved here.
+bt='`'
+for d in "$WIRING_SPEC" "$SHARD_LLMS" "$ROOT_LLMS"; do
+  [ -f "$d" ] || continue
+  while IFS= read -r tok; do
+    ref="${tok#$bt}"
+    ref="${ref%$bt}"
+    path="${ref%%:*}"
+    if [ "$path" = "$ref" ]; then
+      sym=""
+    else
+      sym="${ref#*:}"
+    fi
+    if [ ! -f "$path" ]; then
+      echo "SOURCE-REF into the void in $d -> $ref (no file '$path')"
+      fail=1
+      continue
+    fi
+    [ -z "$sym" ] && continue
+    case "$sym" in
+      *[!0-9]*)
+        if ! grep -qF "$sym" "$path"; then
+          echo "SOURCE-REF symbol not found in $d -> $path:$sym"
+          fail=1
+        fi
+        ;;
+      *)
+        lines="$(wc -l < "$path" | tr -d ' ')"
+        if [ "$sym" -lt 1 ] || [ "$sym" -gt "$lines" ]; then
+          echo "SOURCE-REF line out of range in $d -> $path:$sym ($lines lines)"
+          fail=1
+        fi
+        ;;
+    esac
+  done < <(grep -oE "${bt}(crates|docs|web|scripts)/[^${bt}]+${bt}" "$d" || true)
+done
+
+# required-anchor check: the source-ref-check above validates refs that ARE
+# present; this asserts that each load-bearing clause HAS one. Without it, a
+# pillar clause that forgot its `path:Symbol` (e.g. the is_member-before-accept_bi
+# ordering) would pass silently. The required symbols are the security/correctness
+# pillars WIRING_SPEC must anchor; each must appear as the tail of a rank-1
+# source-ref token in WIRING_SPEC.md.
+REQUIRED_ANCHORS="is_pipeline_contiguous covers_full_model verify_signature \
+DOMAIN_SHARD_PLAN_V1 DOMAIN_RUN_PROOF_V1 is_member authorize_claim accept_bi \
+project_shard_session auth_required SHARD_PLAN_FORMAT_VERSION"
+wiring_symbols="$(grep -oE "${bt}(crates|docs|web|scripts)/[^${bt}]+${bt}" "$WIRING_SPEC" \
+  | sed "s/.*://; s/${bt}//g")"
+for req in $REQUIRED_ANCHORS; do
+  if ! printf '%s\n' "$wiring_symbols" | grep -qx "$req"; then
+    echo "MISSING REQUIRED source_ref '$req' in $WIRING_SPEC (load-bearing clause unanchored)"
+    fail=1
+  fi
+done
+
+# Truth-Stack authority header + the "Not evidenced" rank-1 rule must be present
+# in the two agent contract files (consommée-jamais-autoritaire: the docs point,
+# they never emit a PASS verdict).
+TRUTH_STACK="repo files > .planning/active/ > commits > prompts > chat"
+for d in "$WIRING_SPEC" "$SHARD_LLMS"; do
+  anchor_present "$d" "$TRUTH_STACK"
+  anchor_present "$d" "Not evidenced"
+done
+
+# honesty-gate extension (plan §20.4: PROVISIONAL/S78 grep-enforced in M AND N):
+# the agent wiring spec carries the PROVISIONAL / S78 markers and the cardinal
+# caveat; the sharding index pins PROVISIONAL + S78 (so a future flip to a
+# "shipped/done" banner fails CI); the root index pins its sharding-only scope.
+require_marker "$WIRING_SPEC" "PROVISIONAL" "provisional-banner"
+require_marker "$WIRING_SPEC" "S78" "orchestrator-carry"
+require_marker "$WIRING_SPEC" "admission ≠ confidentialité" "cardinal-caveat"
+require_marker "$SHARD_LLMS" "PROVISIONAL" "llms-provisional-banner"
+require_marker "$SHARD_LLMS" "S78" "llms-orchestrator-carry"
+require_marker "$ROOT_LLMS" "sharding subsystem only" "root-scope-banner"
+
 if [ "$fail" -ne 0 ]; then
   echo "check-sharding-docs: FAILED"
   exit 1
 fi
 
-echo "check-sharding-docs: clean (links + anchors + honesty + french-body)"
+echo "check-sharding-docs: clean (links + anchors + honesty + french-body + source-ref)"
 exit 0

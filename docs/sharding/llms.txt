@@ -1,0 +1,56 @@
+# SBFB sharding — agent index
+
+> Distributed LLM inference across machines: a model too large for one node is
+> split layer-wise into a signed pipeline over a private compute group, on the
+> custom ALPN `sbfb/shard/1`. This index points an agent at the rank-1 sources
+> it must read to wire or review sharding **without hallucinating**.
+>
+> **Status: PROVISIONAL.** The signed primitives, data plane, and read-only
+> control plane are live; the in-vivo session orchestrator (pilots generation,
+> emits signed proofs, populates a live session store) is a carry **S78**.
+>
+> **Truth Stack** (trust the higher rank on conflict):
+> `repo files > .planning/active/ > commits > prompts > chat`. A fact absent from
+> rank-1 (a repo file) is **`Not evidenced`** — do not assert it. `.planning/`
+> is an in-flight pointer, not a durable anchor.
+
+## Start here (agent contract)
+
+- [WIRING_SPEC.md](./WIRING_SPEC.md): contract-dense, source-anchored wiring spec — actor model, per-step contract, INVIOLABLE invariants. Read this first.
+- [SHARD_PROTOCOL_SPEC.md](../protocol/SHARD_PROTOCOL_SPEC.md): the machine wire spec — domain tags, generated JSON Schemas, types, caps.
+
+## Wire primitives (rank-1 source)
+
+- [shard_plan.rs](../../crates/nexus-core-rs/src/shard_plan.rs): signed manifest + run proof; sign/verify is `crates/nexus-core-rs/src/shard_plan.rs:verify_signature`, contiguity is `crates/nexus-core-rs/src/shard_plan.rs:is_pipeline_contiguous`.
+- [placement.rs](../../crates/nexus-coordinator-rs/src/placement.rs): full-model coverage is the SEPARATE check `crates/nexus-coordinator-rs/src/placement.rs:covers_full_model` (contiguity ≠ coverage).
+- [canonical.rs](../../crates/nexus-core-rs/src/canonical.rs): domain-separation tags, e.g. `crates/nexus-core-rs/src/canonical.rs:DOMAIN_SHARD_PLAN_V1` and `crates/nexus-core-rs/src/canonical.rs:DOMAIN_RUN_PROOF_V1`.
+- [compute_group.rs](../../crates/nexus-core-rs/src/compute_group.rs): private admission allowlist; membership is `crates/nexus-core-rs/src/compute_group.rs:is_member`.
+- [shard.rs](../../crates/nexus-core-rs/src/shard.rs): data plane `sbfb/shard/1`; non-member rejected by `crates/nexus-core-rs/src/shard.rs:SHARD_REJECT_NOT_MEMBER` before any frame read.
+- [shard_claim.rs](../../crates/nexus-worker-core/src/engine/shard_claim.rs): worker admission `crates/nexus-worker-core/src/engine/shard_claim.rs:authorize_claim` (crypto before IO).
+
+## Control plane + front
+
+- [http.rs](../../crates/nexus-shell-daemon/src/http.rs): read-only route, body built by `crates/nexus-shell-daemon/src/http.rs:shard_session_response`, privacy projection `crates/nexus-shell-daemon/src/http.rs:project_shard_session`.
+- [daemon.ts](../../web/src/api/daemon.ts): front wrapper `web/src/api/daemon.ts:getShardSession`.
+- [protocol.ts](../../web/src/bridge/protocol.ts): the bridge whitelist `web/src/bridge/protocol.ts:BridgeMethodSchema` — a closed enum of app-facing methods, none a shard method.
+
+## Runnable examples (compiled / exact)
+
+- [sign_verify.rs](./examples/sign_verify.rs): sign + verify both envelopes; compiled+run by [shard_sign_verify.rs](../../crates/nexus-core-rs/tests/shard_sign_verify.rs).
+- [observe.curl.md](./examples/observe.curl.md): `GET /api/daemon/shard-session/{id}` + loopback headers + empty-store response.
+- [bridge_gap.md](./examples/bridge_gap.md): why there is NO shard bridge method (PROPOSED / GAP-not-shipped).
+
+## Human docs (Diátaxis, French)
+
+- [README.md](./README.md): orientation.
+- [EXPLANATION.md](./EXPLANATION.md): why pipeline-parallel, the trust model.
+- [HOW_TO_WIRE.md](./HOW_TO_WIRE.md): the three roles START / JOIN / OBSERVE.
+- [REFERENCE.md](./REFERENCE.md): exact types, caps, thresholds.
+
+## Optional
+
+*Deep dives — read after the contract + examples.*
+
+- [THREAT_MODEL.md](../security/THREAT_MODEL.md): §16 — graded verification N0-N3, SI-1..SI-11, the cardinal "admission ≠ confidentialité" caveat.
+- [PATTERNS.md](../rust/PATTERNS.md): §P64-69 shard wire / verification patterns.
+- [Generated schemas](../../crates/nexus-core-rs/src/schemas/shard.rs): `schema_for!` definitions co-located with the wire types; emitted `*.schema.json` next to them.
