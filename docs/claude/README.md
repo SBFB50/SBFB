@@ -2452,6 +2452,17 @@ Avant d'écrire du code :
      force push
   5. Avant chaque commit : verifier toutes les suites pertinentes
      (cf. §7.4 ci-dessous)
+  6. Cadence docs-contrat (§6.12, canon S79 Phase B) : toute
+     primitive de FRONTIÈRE (wire/API/contrat d'app/prompt-kind/
+     knowledge) porte son étiquette générée PAR PHASE (dans le
+     commit de la primitive) ; GUIDE + llms.txt en UNE phase de
+     clôture ; commentaires de provenance in-code vers le PASSÉ
+     immuable seulement — JAMAIS une promesse future (« Phase X
+     will/adds/ships », « lands in Phase K », « Sprint N will » ;
+     anti STALE-PHASE-K). Gate BLOQUANT
+     `scripts/check-frontier-contracts.sh` (câblé CI 3 surfaces +
+     backstop commit). Détail : §6.12 + `docs/rust/PATTERNS.md`
+     §P70 + `docs/agent/AGENT_SYSTEM.md` §7.
 
 Langue : français pour réponses utilisateur, docs planning,
 commit bodies. Anglais pour code, identifiants, commit titles.
