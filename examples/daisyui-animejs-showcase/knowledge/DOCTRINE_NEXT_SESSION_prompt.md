@@ -8,7 +8,7 @@
 - `examples/daisyui-animejs-showcase/knowledge/README.md` + `daisyui/README.md` — les 2 knowledge packs (anime.js 93 primitives / daisyUI 68 composants), méthode 5-couches, ancrés source.
 - `…/knowledge/factory-integration-design.md` + `…/factory-integration-hardened.md` — capacité Factory « app-authoring » (design durci, 8 questions tranchées, contrat CSP).
 - `…/knowledge/ideas/IDEAS.md` + `sbfb-mapping.md` — Idea Engine (génératif → curation humaine) + mapping SBFB.
-- `.planning/active/sprint79_factory_kickoff.md` / `_plan.md` / `_design_review.md` + `_NEXT_SESSION.md` — le sprint Factory PRÊT (à ne pas confondre avec CETTE réflexion).
+- `.planning/active/sprint79_kickoff.md` / `_plan.md` / `_design_review.md` + `_NEXT_SESSION.md` — le sprint Factory PRÊT (à ne pas confondre avec CETTE réflexion).
 
 ## La thèse (à continuer, pas à re-prouver)
 **Toute primitive de FRONTIÈRE du projet** (wire format, protocole, API publique, contrat d'app — *pas* un helper interne) **= un contrat source-ancré, drift-gated, consommable par un LLM.** Ce n'est pas « plus de doc » : c'est un **graphe de surfaces ancrées dans la source et gatées contre le drift**.

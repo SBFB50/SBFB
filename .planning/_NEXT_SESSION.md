@@ -33,7 +33,7 @@
 > **S77 est CLOS sur le fond** — reste la housekeeping git mv. **CETTE session =
 > ouvrir S79** (quasi-Cas B : kickoff + plan déjà écrits) : 1) `git mv` les
 > `sprint77_*.md` + `sprint78_audit_plan.md` de `active/` → `archive/v2.1/` ;
-> 2) relocaliser `sprint79_factory_{kickoff,plan,design_review}.md` de `.planning/`
+> 2) relocaliser `sprint79_{kickoff,plan,design_review}.md` de `.planning/`
 > → `active/` ; 3) dérouler Factory **A→G** (sprint ultra-complet, 0 defer du cœur).
 > Le carry P1 sharding (S78) reste différé + tracké (`sprint78_audit_plan` à
 > conserver pour le slot S78).
@@ -44,9 +44,9 @@ Factory opérationnel.** Tout est déjà conçu, durci et planifié — il n'y a
 re-concevoir, seulement à **exécuter**.
 
 ## Ce qui est PRÊT (relocalisé à la racine `.planning/`, à remettre dans `active/` à l'ouverture S79)
-- `sprint79_factory_kickoff.md` — objectif, scope (A→G), assets, contrat CSP, Day-0 gelé.
-- `sprint79_factory_plan.md` — Phase 0 (audit gate) + phases A→G + gate de testabilité (T1 E2E + T2 JSON) + titres de commit.
-- `sprint79_factory_design_review.md` — 8 questions tranchées (preuve / reco / PO), contrat CSP, risques.
+- `sprint79_kickoff.md` — objectif, scope (A→G), assets, contrat CSP, Day-0 gelé.
+- `sprint79_plan.md` — Phase 0 (audit gate) + phases A→G + gate de testabilité (T1 E2E + T2 JSON) + titres de commit.
+- `sprint79_design_review.md` — 8 questions tranchées (preuve / reco / PO), contrat CSP, risques.
 
 ## Les assets (déjà construits, à relocaliser par les phases A/E)
 - Pack **anime.js** : `examples/daisyui-animejs-showcase/knowledge/` (93 primitives, 419 pages doc, synthesis, types).
@@ -55,7 +55,7 @@ re-concevoir, seulement à **exécuter**.
 
 ## Routage bootstrap
 Le **kickoff + plan existent déjà** → ce n'est pas un Cas C « concevoir » mais un
-quasi-Cas B « exécuter » : lire `sprint79_factory_kickoff.md` + `sprint79_factory_plan.md`,
+quasi-Cas B « exécuter » : lire `sprint79_kickoff.md` + `sprint79_plan.md`,
 faire le **pre-flight Phase 0 = audit gate** du dernier sprint réellement CLOSED, puis
 dérouler A→G (sprint ultra-complet, 0 defer du cœur). Capacité = module de connaissance
 versionné + prompt-kind `app-authoring` + gate CSP déterministe Rust (importe `BLOB_SERVE_CSP`).
@@ -79,7 +79,7 @@ pas sur l'ordre) — honesty-gate CI armé pour empêcher tout claim « done » 
    produire `sprint77_audit_findings.md` (verdict PASS / CONDITIONAL / FAIL +
    commits fix(sprint77) pour P0/P1).
 2. Audit PASS/CONDITIONAL levé → **git mv** S77 `active/` → `archive/v2.1/`.
-3. **Relocaliser** `sprint79_factory_{kickoff,plan,design_review}.md` racine →
+3. **Relocaliser** `sprint79_{kickoff,plan,design_review}.md` racine →
    `active/` ; dérouler Factory **A→G** (sprint ultra-complet, 0 defer du cœur).
 
 Numérotation « S79 » = étiquette de slot ; Factory s'exécute avant le S78 sharding.

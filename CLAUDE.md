@@ -179,7 +179,7 @@ Runtime isolation roadmap dans
   (S79)** a la prochaine session — maitrise anime.js + daisyUI dans le process
   Factory (module de connaissance versionne + prompt-kind `app-authoring` + gate
   CSP deterministe Rust). Package PRET dans `.planning/active/`
-  (`sprint79_factory_kickoff.md` / `_plan.md` / `_design_review.md` +
+  (`sprint79_kickoff.md` / `_plan.md` / `_design_review.md` +
   `_NEXT_SESSION.md` = entree a lire en premier). Knowledge packs (anime.js +
   daisyUI 5.5.23) + design durci dans
   `examples/daisyui-animejs-showcase/knowledge/`. **Arbitrage ordre Factory-vs-S78
