@@ -13,6 +13,13 @@ const PROMPT_KINDS: &[&str] = &[
     "commit-body",
     "audit-gate",
     "phase-auditor",
+    // app-authoring (Sprint 79 Phase C, decision D2): surfaces the anime.js
+    // CSP-safe authoring mastery to app-building agents. Resolves through the
+    // generic `prompt_filename` arm to `prompts/agent/app-authoring.md` (no
+    // alias, no special case). `prompt_kinds_resolve_to_existing_files` fails
+    // the build if that file is absent — the drift-gated label for this
+    // LLM-frontier primitive (docs/claude/README.md §6.12).
+    "app-authoring",
 ];
 
 const KIND_ALIASES: &[(&str, &str)] = &[
@@ -901,6 +908,36 @@ mod tests {
                 "PROMPT_KINDS entry '{kind}' has no prompt file at {}",
                 path.display()
             );
+        }
+    }
+
+    #[test]
+    fn app_authoring_prompt_surfaces_csp_markers() {
+        // Sprint 79 Phase C: the app-authoring fiche must surface the hard CSP
+        // pitfalls verbatim so any authoring agent (claude / gpt / local)
+        // inherits the sealed-iframe doctrine. These five markers are the T1a
+        // assertion of the per-sprint testability gate (plan §4). Asserting both
+        // providers proves *today* that all five markers survive the `local`
+        // path's `strip_cloud_references` pass (the fiche carries no
+        // websearch/context7/mcp token, so the strip is currently a no-op), and
+        // stands as a forward guard: it bites the day a marker ever shares a line
+        // with a stripped token. Both providers must print the identical doctrine.
+        const MARKERS: &[&str] = &[
+            "box-shadow STATIQUE",
+            "motion-path cx=0",
+            "morphTo mono-trace",
+            "prefers-reduced-motion → état-final",
+            "UMD classic-script jamais type=module",
+        ];
+        for provider in ["claude", "local"] {
+            let out = prompt_data("app-authoring", "shallow", provider)
+                .unwrap_or_else(|e| panic!("prompt_data app-authoring/{provider}: {e}"));
+            for marker in MARKERS {
+                assert!(
+                    out.contains(marker),
+                    "app-authoring prompt ({provider}) missing CSP marker {marker:?}"
+                );
+            }
         }
     }
 
