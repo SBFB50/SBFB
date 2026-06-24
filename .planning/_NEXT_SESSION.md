@@ -9,6 +9,18 @@
 > « active/ = 1 seul sprint » + il casse `operator_sprint_history_endpoint`). Il a
 > donc été relocalisé à la **racine `.planning/`** (intact, untracked). Au vrai boot
 > S79 (après clôture S77 + audit gate), remettre le package dans `active/`.
+>
+> **MAJ 2026-06-24 (session S77 Phase N)** : **Phase N committée `a795700` → avenant
+> doc L/M/N COMPLET → S77 ENTIÈREMENT LIVRÉ** (cœur A-K + doc L-N). Il ne reste QUE
+> l'audit gate pour clore S77. **ARBITRAGE PO TRANCHÉ : Factory-first (option a).**
+> Vérifié orthogonal au compute (le plan S79 ne touche AUCUNE surface
+> sharding/worker/coordinator ; 0 dépendance sharding↔authoring ; le seul gate réel
+> du sharding live est le rig 2-machines, pas l'ordre — Factory-first achète même du
+> temps pour le monter). **Prochaine session fraîche = Cas A / Phase 0 = audit gate
+> S77** (`nexus-audit-gate` ou Workflow lit `sprint78_audit_plan.md` qui cible déjà
+> S77 → produit `sprint77_audit_findings.md`), PUIS relocaliser le package S79 dans
+> `active/` + dérouler Factory A→G. Le carry P1 sharding (S78, RIG-ABSENT T2) reste
+> ouvert et tracké (sprint78_audit_plan + plan S79 l.156).
 
 ## Directive PO (de cette session)
 **Démarrer le sprint Factory « app-authoring » (S79) à la prochaine session et rendre
@@ -32,17 +44,29 @@ faire le **pre-flight Phase 0 = audit gate** du dernier sprint réellement CLOSE
 dérouler A→G (sprint ultra-complet, 0 defer du cœur). Capacité = module de connaissance
 versionné + prompt-kind `app-authoring` + gate CSP déterministe Rust (importe `BLOB_SERVE_CSP`).
 
-## ⚠️ ARBITRAGE PO REQUIS AU BOOT — ordre vs S78 sharding
-Ce sprint Factory est **orthogonal au compute**. Or l'état canonique dit « **S78 à ouvrir**
-= orchestrateur de session sharding in-vivo + benchmark live » — un **carry P1 PROVISIONAL**,
-avec `sprint78_audit_plan.md` déjà posé (qui cible l'audit de S77). Démarrer Factory à la
-prochaine session **précède donc S78**.
+## ✅ ARBITRAGE PO RÉSOLU (2026-06-24) — Factory-first (option a)
+Le PO a tranché : **Factory (S79) d'abord, sharding live (S78) après.** Le carry P1
+sharding (orchestrateur de session in-vivo + benchmark live + 4 carries 3/3) est
+**différé**, intact et tracké (`sprint78_audit_plan.md` + plan S79 l.156).
 
-**À confirmer par le PO au démarrage :**
-- (a) **Factory d'abord** (directive de cette session) → on diffère le carry sharding S78. Phase 0 Factory = audit gate de **S77** (réutiliser/adapter `sprint78_audit_plan.md` qui cible déjà S77).
-- (b) **S78 sharding d'abord** (fermer le carry P1) → Factory devient S79 après. Le package Factory reste prêt, intact.
+Vérifié sans risque technique (session S77 Phase N) : le plan S79 ne touche aucune
+surface sharding/compute (knowledge packs + gate CSP `gates.rs`/`blob_serve.rs` +
+templates) ; 0 dépendance sharding↔authoring (plan S79 A0-1 + invariants) ; aucune
+dépendance dans les deux sens ; l'audit gate S77 tourne d'abord dans tous les cas ;
+le sharding GPU est un investissement « pont » long terme (pas d'expiration). Seul
+résiduel : le sharding reste PROVISIONAL plus longtemps (gated sur le rig matériel,
+pas sur l'ordre) — honesty-gate CI armé pour empêcher tout claim « done » prématuré.
 
-Numérotation « S79 » = étiquette de slot du design durci ; l'ordre réel d'exécution est l'arbitrage ci-dessus. Ne pas trancher sans le PO.
+**Séquence prochaine session fraîche (Cas A puis Factory) :**
+1. **Phase 0 = audit gate S77** (Cas A) : ingérer le diff complet S77 (cœur A-K +
+   doc L/M/N), jouer les 9 tracks via `sprint78_audit_plan.md` (cible S77),
+   produire `sprint77_audit_findings.md` (verdict PASS / CONDITIONAL / FAIL +
+   commits fix(sprint77) pour P0/P1).
+2. Audit PASS/CONDITIONAL levé → **git mv** S77 `active/` → `archive/v2.1/`.
+3. **Relocaliser** `sprint79_factory_{kickoff,plan,design_review}.md` racine →
+   `active/` ; dérouler Factory **A→G** (sprint ultra-complet, 0 defer du cœur).
+
+Numérotation « S79 » = étiquette de slot ; Factory s'exécute avant le S78 sharding.
 
 ## Invariants du sprint Factory
 0 bump wire · 0 dépendance nouvelle · scellage 100% Factory intact · gate CSP **bloquant**
