@@ -158,24 +158,29 @@ fn detect_sprint(active_dir: &Path) -> Option<SprintInfo> {
 }
 
 fn detect_current_phase(active_dir: &Path, sprint: u32) -> String {
-    let phases = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
-    let mut last_completed = None;
-    for &p in &phases {
-        let review = active_dir.join(format!("sprint{sprint}_phase_{p}_review.md"));
-        if review.exists() {
-            if let Ok(content) = std::fs::read_to_string(&review) {
-                if has_final_pass_verdict(&content) {
-                    last_completed = Some(p);
-                }
-            }
-        }
+    // A sprint is "done" once its verification.md exists — the same signal
+    // `sprint_history::build_sprint_summary` already uses. Completion is NEVER
+    // keyed on a literal phase letter: the old `Some('G') => "done"` meant a
+    // >7-phase sprint (S77 reached phase N) could never report "done".
+    if active_dir
+        .join(format!("sprint{sprint}_verification.md"))
+        .exists()
+    {
+        return "done".to_string();
     }
-    match last_completed {
-        Some('G') => "done".to_string(),
-        Some(p) => {
-            let next = (p as u8 + 1) as char;
-            next.to_string()
-        }
+    // Otherwise the current phase is the successor of the furthest phase whose
+    // review carries a final PASS verdict, discovered from disk (unbounded +
+    // case-insensitive) rather than from a hardcoded ['A'..'G'] alphabet.
+    let last_pass = crate::phase::discover_phase_artifacts(active_dir, sprint, "review")
+        .into_iter()
+        .rfind(|a| {
+            std::fs::read_to_string(&a.path)
+                .map(|c| has_final_pass_verdict(&c))
+                .unwrap_or(false)
+        })
+        .map(|a| a.label);
+    match last_pass {
+        Some(label) => crate::phase::display_label(&crate::phase::next_phase_label(&label)),
         None => "A".to_string(),
     }
 }
@@ -296,26 +301,35 @@ pub fn status_sprint_data(root: &Path) -> Option<StatusSprintResult> {
     let info = detect_sprint(&active_dir)?;
     let s = info.number;
 
-    let phases: Vec<PhaseStatusEntry> = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
-        .iter()
-        .map(|&p| {
-            let prefix = format!("sprint{s}_phase_{p}");
-            let has_review = active_dir.join(format!("{prefix}_review.md")).exists();
-            let verdict = if has_review {
-                std::fs::read_to_string(active_dir.join(format!("{prefix}_review.md")))
-                    .ok()
-                    .and_then(|c| extract_verdict(&c))
-            } else {
-                None
-            };
+    // One entry per phase actually present on disk (unbounded + case-insensitive
+    // discovery), replacing the hardcoded ['A'..'G'] alphabet + uppercase path
+    // construction that capped status at 7 phases and read nothing on Linux/CI.
+    let phases: Vec<PhaseStatusEntry> = crate::phase::discover_phase_labels(&active_dir, s)
+        .into_iter()
+        .map(|label| {
+            let review_path = crate::phase::find_phase_artifact(&active_dir, s, &label, "review");
+            let verdict = review_path
+                .as_ref()
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .and_then(|c| extract_verdict(&c));
             PhaseStatusEntry {
-                letter: p.to_string(),
-                has_preflight: active_dir.join(format!("{prefix}_preflight.md")).exists(),
-                has_review,
+                letter: crate::phase::display_label(&label),
+                has_preflight: crate::phase::find_phase_artifact(
+                    &active_dir,
+                    s,
+                    &label,
+                    "preflight",
+                )
+                .is_some(),
+                has_review: review_path.is_some(),
                 review_verdict: verdict,
-                has_codex: active_dir
-                    .join(format!("{prefix}_codex_review.md"))
-                    .exists(),
+                has_codex: crate::phase::find_phase_artifact(
+                    &active_dir,
+                    s,
+                    &label,
+                    "codex_review",
+                )
+                .is_some(),
             }
         })
         .collect();
@@ -528,8 +542,11 @@ pub fn run_lint_planning(json: bool) -> Result<(), Box<dyn std::error::Error>> {
 
 // --- audit-commit ---
 
+// Phase token is `[A-Z]+[0-9]?` (README §4): A..Z, then AA.., with an optional
+// sub-phase digit (F1/F2). A `[A-Z]` (single letter) would silently truncate a
+// multi-letter phase and break this commit gate on it.
 const PHASE_TITLE_RE: &str =
-    r"^(feat|fix|docs|chore|test|refactor)\([^)]+\):\s*Sprint\s+(\d+)\s+Phase\s+([A-Z][0-9]?)";
+    r"^(feat|fix|docs|chore|test|refactor)\([^)]+\):\s*Sprint\s+(\d+)\s+Phase\s+([A-Z]+[0-9]?)";
 
 const REQUIRED_BODY_SECTIONS: &[(&str, &str)] = &[
     ("Contexte", r"(?mi)^## Contexte\s*$"),
@@ -585,7 +602,12 @@ pub fn audit_commit_data(
     if let Some(caps) = caps {
         let commit_type = &caps[1];
         let sprint_num: u32 = caps[2].parse().unwrap_or(0);
-        let phase_letter = &caps[3];
+        // The commit title carries the phase UPPERCASE ("Phase A"); on-disk
+        // artifacts are lowercase for the active sprint and mixed-case in the
+        // archive. Match case-insensitively against the real file name (never
+        // rebuild the path from the title letter) so this gate is correct on
+        // case-sensitive filesystems (Linux/CI/VPS), not only on Windows.
+        let phase_label = caps[3].to_ascii_lowercase();
 
         if matches!(
             commit_type,
@@ -593,9 +615,9 @@ pub fn audit_commit_data(
         ) {
             let active_dir = root.join(".planning/active");
             let review_path =
-                active_dir.join(format!("sprint{sprint_num}_phase_{phase_letter}_review.md"));
+                crate::phase::find_phase_artifact(&active_dir, sprint_num, &phase_label, "review");
 
-            if review_path.exists() {
+            if let Some(review_path) = review_path {
                 let review_content = std::fs::read_to_string(&review_path)?;
                 if !has_final_pass_verdict(&review_content) {
                     issues.push(
@@ -609,11 +631,13 @@ pub fn audit_commit_data(
                         .ok()
                         .map(|entries| {
                             entries.flatten().any(|e| {
-                                e.path()
-                                    .join(format!(
-                                        "sprint{sprint_num}_phase_{phase_letter}_review.md"
-                                    ))
-                                    .exists()
+                                crate::phase::find_phase_artifact(
+                                    &e.path(),
+                                    sprint_num,
+                                    &phase_label,
+                                    "review",
+                                )
+                                .is_some()
                             })
                         })
                         .unwrap_or(false);
@@ -622,20 +646,25 @@ pub fn audit_commit_data(
                 }
             }
 
-            let codex_path = active_dir.join(format!(
-                "sprint{sprint_num}_phase_{phase_letter}_codex_review.md"
-            ));
-            if !codex_path.exists() {
+            let codex_path = crate::phase::find_phase_artifact(
+                &active_dir,
+                sprint_num,
+                &phase_label,
+                "codex_review",
+            );
+            if codex_path.is_none() {
                 let archive_codex = root.join(".planning/archive").exists()
                     && std::fs::read_dir(root.join(".planning/archive"))
                         .ok()
                         .map(|entries| {
                             entries.flatten().any(|e| {
-                                e.path()
-                                    .join(format!(
-                                        "sprint{sprint_num}_phase_{phase_letter}_codex_review.md"
-                                    ))
-                                    .exists()
+                                crate::phase::find_phase_artifact(
+                                    &e.path(),
+                                    sprint_num,
+                                    &phase_label,
+                                    "codex_review",
+                                )
+                                .is_some()
                             })
                         })
                         .unwrap_or(false);
@@ -938,6 +967,48 @@ mod tests {
                     "app-authoring prompt ({provider}) missing CSP marker {marker:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn detect_current_phase_is_unbounded_and_case_insensitive() {
+        // Regression guard for the ['A'..'G'] cap + the uppercase-path bug.
+        // Active-sprint artifacts are lowercase; phases run past G (S77 hit N).
+        // On a case-sensitive filesystem the old code read nothing here and
+        // froze at "A"; the cap also made >G phases invisible.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let active = dir.path();
+        for label in ["a", "b", "h", "i"] {
+            std::fs::write(
+                active.join(format!("sprint79_phase_{label}_review.md")),
+                "## Verdict: PASS\n",
+            )
+            .unwrap();
+        }
+        // Furthest PASS is phase i -> current phase is j (uppercased display).
+        assert_eq!(detect_current_phase(active, 79), "J");
+
+        // verification.md present => "done", never keyed on a literal letter.
+        std::fs::write(active.join("sprint79_verification.md"), "done").unwrap();
+        assert_eq!(detect_current_phase(active, 79), "done");
+    }
+
+    #[test]
+    fn phase_title_re_accepts_unbounded_multi_letter() {
+        // Guard the most visible line of the unbounded-phase fix: the commit
+        // title token is [A-Z]+[0-9]?, NOT the old capped [A-G][0-9]?. A typo
+        // reverting the class would otherwise pass every other test (they all
+        // use a mono-letter "Phase A").
+        let re = regex::Regex::new(PHASE_TITLE_RE).unwrap();
+        for (title, want) in [
+            ("feat(x): Sprint 77 Phase N — t", "N"),   // letter beyond G
+            ("fix(x): Sprint 79 Phase AA — t", "AA"),  // multi-letter
+            ("docs(x): Sprint 80 Phase F1 — t", "F1"), // sub-phase digit
+        ] {
+            let caps = re
+                .captures(title)
+                .unwrap_or_else(|| panic!("PHASE_TITLE_RE no match: {title}"));
+            assert_eq!(&caps[3], want, "phase token for {title}");
         }
     }
 

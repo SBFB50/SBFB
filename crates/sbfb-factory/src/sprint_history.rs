@@ -149,8 +149,12 @@ pub struct PreflightPhase {
 }
 
 static PHASE_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    // Phase token is `[A-Z]+[0-9]?` (README §4 — unbounded): A..Z, then AA..,
+    // with an optional sub-phase digit (F1/F2). The old `[A-G][0-9]?` was a
+    // DOUBLE cap (letter <= G AND single letter): a `Sprint 77 Phase N` or
+    // `Phase AA` commit parsed as non-phase and dropped from the history.
     Regex::new(
-        r"^(feat|fix|docs|chore|test|refactor)\(([^)]+)\):\s*Sprint\s+(\d+)\s+Phase\s+([A-G][0-9]?)\s*[—–-]\s*(.+)"
+        r"^(feat|fix|docs|chore|test|refactor)\(([^)]+)\):\s*Sprint\s+(\d+)\s+Phase\s+([A-Z]+[0-9]?)\s*[—–-]\s*(.+)"
     ).unwrap()
 });
 
@@ -246,22 +250,21 @@ fn find_sprint_dir(root: &Path, sprint: u32) -> Option<PathBuf> {
 }
 
 fn build_sprint_summary(dir: &Path, sprint: u32, version: &str) -> SprintSummary {
-    let letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+    // Phases discovered from disk (unbounded + case-insensitive) rather than a
+    // hardcoded ['A'..'G'] alphabet read via uppercase paths.
     let mut phase_count = 0usize;
     let mut phases_pass = 0usize;
 
-    for letter in &letters {
-        let review = dir.join(format!("sprint{sprint}_phase_{letter}_review.md"));
-        if let Ok(content) = std::fs::read_to_string(&review) {
-            phase_count += 1;
-            if content.lines().any(|l| l.trim() == "## Verdict: PASS") {
-                phases_pass += 1;
-            }
-        } else {
-            let preflight = dir.join(format!("sprint{sprint}_phase_{letter}_preflight.md"));
-            if preflight.exists() {
+    for label in crate::phase::discover_phase_labels(dir, sprint) {
+        if let Some(review) = crate::phase::find_phase_artifact(dir, sprint, &label, "review") {
+            if let Ok(content) = std::fs::read_to_string(&review) {
                 phase_count += 1;
+                if content.lines().any(|l| l.trim() == "## Verdict: PASS") {
+                    phases_pass += 1;
+                }
             }
+        } else if crate::phase::find_phase_artifact(dir, sprint, &label, "preflight").is_some() {
+            phase_count += 1;
         }
     }
 
@@ -440,18 +443,53 @@ fn build_phase_histories(
     sprint: u32,
     commits: &[CommitInfo],
 ) -> Vec<PhaseHistory> {
-    let letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
-    letters
-        .iter()
-        .filter_map(|&letter| {
-            let l = letter.to_string();
-            let phase_commit = commits.iter().find(|c| c.phase.as_deref() == Some(&l));
-            if phase_commit.is_none() {
-                let preflight =
-                    active_dir.join(format!("sprint{sprint}_phase_{letter}_preflight.md"));
-                if !preflight.exists() {
-                    return None;
-                }
+    // Phases discovered from disk (preflight/review/codex) UNIONed with the
+    // phases present in commit titles, in canonical order — unbounded +
+    // case-insensitive, replacing the hardcoded ['A'..'G'] alphabet (which
+    // dropped phases H+ and read nothing on case-sensitive filesystems).
+    let mut labels = crate::phase::discover_phase_labels(active_dir, sprint);
+    for c in commits {
+        if let Some(p) = &c.phase {
+            let lower = p.to_ascii_lowercase();
+            if !labels.contains(&lower) {
+                labels.push(lower);
+            }
+        }
+    }
+    labels.sort_by_key(|a| crate::phase::phase_order_key(a));
+
+    labels
+        .into_iter()
+        .filter_map(|label| {
+            let phase_commit = commits.iter().find(|c| {
+                c.phase
+                    .as_deref()
+                    .map(|p| p.eq_ignore_ascii_case(&label))
+                    .unwrap_or(false)
+            });
+
+            // Real on-disk paths (case-insensitive); fall back to the canonical
+            // lowercase name (which simply won't exist) when an artifact is
+            // absent, so the verdict/finding parsers return their empty default.
+            let preflight_path =
+                crate::phase::find_phase_artifact(active_dir, sprint, &label, "preflight")
+                    .unwrap_or_else(|| {
+                        active_dir.join(format!("sprint{sprint}_phase_{label}_preflight.md"))
+                    });
+            let review_path =
+                crate::phase::find_phase_artifact(active_dir, sprint, &label, "review")
+                    .unwrap_or_else(|| {
+                        active_dir.join(format!("sprint{sprint}_phase_{label}_review.md"))
+                    });
+            let codex_path =
+                crate::phase::find_phase_artifact(active_dir, sprint, &label, "codex_review")
+                    .unwrap_or_else(|| {
+                        active_dir.join(format!("sprint{sprint}_phase_{label}_codex_review.md"))
+                    });
+
+            // A phase needs either a commit or at least a preflight artifact.
+            if phase_commit.is_none() && !preflight_path.exists() {
+                return None;
             }
 
             let title = phase_commit
@@ -459,17 +497,9 @@ fn build_phase_histories(
                 .map(|cap| cap[5].to_string())
                 .unwrap_or_default();
 
-            let preflight_verdict = read_verdict(
-                &active_dir.join(format!("sprint{sprint}_phase_{letter}_preflight.md")),
-                "EXECUTE",
-            );
-            let review_verdict = read_verdict(
-                &active_dir.join(format!("sprint{sprint}_phase_{letter}_review.md")),
-                "PASS",
-            );
-            let (codex_confirmed, codex_partial, codex_gap) = parse_codex_counts(
-                &active_dir.join(format!("sprint{sprint}_phase_{letter}_codex_review.md")),
-            );
+            let preflight_verdict = read_verdict(&preflight_path, "EXECUTE");
+            let review_verdict = read_verdict(&review_path, "PASS");
+            let (codex_confirmed, codex_partial, codex_gap) = parse_codex_counts(&codex_path);
 
             let (rust_delta, vitest_delta) = phase_commit
                 .map(|c| extract_test_deltas_from_body(&c.sha))
@@ -483,12 +513,10 @@ fn build_phase_histories(
                 .map(|c| extract_deliverables(&c.sha))
                 .unwrap_or_default();
 
-            let findings = parse_review_findings(
-                &active_dir.join(format!("sprint{sprint}_phase_{letter}_review.md")),
-            );
+            let findings = parse_review_findings(&review_path);
 
             Some(PhaseHistory {
-                letter: l,
+                letter: crate::phase::display_label(&label),
                 title,
                 commit_sha: phase_commit.map(|c| c.short.clone()),
                 commit_date: phase_commit.map(|c| c.date.clone()),
@@ -640,15 +668,16 @@ fn parse_verification(active_dir: &Path, sprint: u32) -> Option<VerificationSumm
 }
 
 fn build_preflight_bilan(active_dir: &Path, sprint: u32) -> PreflightBilan {
-    let letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
     let mut phases_out = Vec::new();
     let mut execute = 0u32;
     let mut plan_adapt = 0u32;
     let mut design_conflict = 0u32;
 
-    for letter in &letters {
-        let path = active_dir.join(format!("sprint{sprint}_phase_{letter}_preflight.md"));
-        if let Ok(content) = std::fs::read_to_string(&path) {
+    // Preflight artifacts discovered from disk (unbounded + case-insensitive);
+    // the emitted `file` field is the REAL on-disk name, not a rebuilt
+    // uppercase one. Replaces the hardcoded ['A'..'G'] alphabet.
+    for art in crate::phase::discover_phase_artifacts(active_dir, sprint, "preflight") {
+        if let Ok(content) = std::fs::read_to_string(&art.path) {
             let verdict = extract_preflight_verdict(&content);
             match verdict.as_str() {
                 "EXECUTE" => execute += 1,
@@ -657,9 +686,14 @@ fn build_preflight_bilan(active_dir: &Path, sprint: u32) -> PreflightBilan {
                 _ => {}
             }
             phases_out.push(PreflightPhase {
-                phase: letter.to_string(),
+                phase: crate::phase::display_label(&art.label),
                 verdict,
-                file: format!("sprint{sprint}_phase_{letter}_preflight.md"),
+                file: art
+                    .path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default()
+                    .to_string(),
             });
         }
     }
@@ -1126,6 +1160,47 @@ mod tests {
         assert_eq!(
             extract_preflight_verdict_generic(content).as_deref(),
             Some("PLAN-ADAPT")
+        );
+    }
+
+    #[test]
+    fn phase_re_accepts_unbounded_multi_letter() {
+        // PHASE_RE token is [A-Z]+[0-9]? (README §4) — guard against a
+        // regression to the old capped [A-G][0-9]? (which dropped S77's
+        // Phase N and any multi-letter / >G phase from the history).
+        for (title, want) in [
+            ("feat(core): Sprint 77 Phase N — title", "N"),
+            ("feat(web): Sprint 79 Phase AA — title", "AA"),
+            ("fix(x): Sprint 80 Phase F1 — title", "F1"),
+        ] {
+            let caps = PHASE_RE
+                .captures(title)
+                .unwrap_or_else(|| panic!("PHASE_RE no match: {title}"));
+            assert_eq!(&caps[4], want, "phase token for {title}");
+        }
+    }
+
+    #[test]
+    fn sprint_summary_is_unbounded_and_case_insensitive() {
+        // Regression guard: phase counting must span past G and read both the
+        // lowercase active convention and an uppercase archive-style file.
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        std::fs::write(p.join("sprint80_phase_a_review.md"), "## Verdict: PASS").unwrap();
+        std::fs::write(p.join("sprint80_phase_h_review.md"), "## Verdict: PASS").unwrap(); // beyond G
+        std::fs::write(
+            p.join("sprint80_phase_B_review.md"), // UPPERCASE archive-style
+            "intro\n## Verdict: PASS-PENDING",
+        )
+        .unwrap();
+        let summary = build_sprint_summary(p, 80, "vX");
+        assert_eq!(
+            summary.phase_count, 3,
+            "a + B + h all counted (case-insensitive, beyond the old G cap)"
+        );
+        assert_eq!(
+            summary.phases_pass, 2,
+            "only the two final PASS reviews count (B is PASS-PENDING)"
         );
     }
 }

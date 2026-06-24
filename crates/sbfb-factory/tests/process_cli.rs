@@ -559,6 +559,89 @@ fn audit_commit_valid_phase_commit() {
 }
 
 #[test]
+fn audit_commit_resolves_lowercase_active_artifacts() {
+    // Regression guard for the cross-platform casing bug: the commit title
+    // always carries the phase UPPERCASE ("Phase A"), but active-sprint
+    // artifacts are LOWERCASE (sprint1_phase_a_review.md). The audit gate must
+    // resolve them case-insensitively. The sibling `audit_commit_valid_phase_commit`
+    // exercises only the UPPERCASE-on-disk direction; before the fix this exact
+    // lowercase scenario reported a false "missing review file" on a
+    // case-sensitive filesystem (Linux/CI/VPS), failing the gate.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = dir.path();
+    for args in [
+        ["init"].as_slice(),
+        ["config", "user.email", "test@test.com"].as_slice(),
+        ["config", "user.name", "Test"].as_slice(),
+    ] {
+        Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .unwrap();
+    }
+    let active = repo.join(".planning/active");
+    std::fs::create_dir_all(&active).unwrap();
+    // lowercase, mirroring the active-sprint convention
+    std::fs::write(
+        active.join("sprint1_phase_a_review.md"),
+        "# Phase A review\n\n## Verdict: PASS\n",
+    )
+    .unwrap();
+    std::fs::write(
+        active.join("sprint1_phase_a_codex_review.md"),
+        "raw codex exec -o output\n",
+    )
+    .unwrap();
+    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let body = [
+        "feat(test): Sprint 1 Phase A — lowercase active artifact resolution",
+        "",
+        "## Contexte",
+        "ctx",
+        "## Fichiers",
+        "f",
+        "## Delta tests",
+        "d",
+        "## Verification",
+        "v",
+        "## Scope cuts",
+        "s",
+        "## G8 traceability",
+        "g",
+        "## Pre-launch protocol",
+        "p",
+        "## Codex verification",
+        "c",
+        "## Carry closure",
+        "cc",
+    ]
+    .join("\n");
+    Command::new("git")
+        .args(["commit", "-m", &body])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let output = factory_bin()
+        .args(["process", "audit-commit", "--rev", "HEAD", "--json"])
+        .current_dir(repo)
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["ok"], true,
+        "uppercase 'Phase A' title must resolve lowercase phase_a artifacts: {stdout}"
+    );
+    assert_eq!(parsed["is_phase_commit"], true);
+}
+
+#[test]
 fn audit_commit_non_phase_commit() {
     // P2-TEST-ZOMBIE (S73 Phase B): de-hardcode the former `c4494a6` SHA —
     // same zombie class as `audit_commit_valid_phase_commit`. A conventional

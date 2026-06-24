@@ -14,6 +14,7 @@ mod fork;
 mod gates;
 mod llm_bridge;
 mod operator_server;
+mod phase;
 mod pipeline;
 mod preview_cmd;
 mod process;
