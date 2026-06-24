@@ -112,3 +112,7 @@ jobs:
       # ── SPDX ─────────────────────────────────────────────
       - name: "[13] SPDX check"
         run: bash scripts/check-spdx.sh
+
+      # ── sharding docs lint (Sprint 77 Phase M) ───────────
+      - name: "[14] sharding docs check"
+        run: bash scripts/check-sharding-docs.sh

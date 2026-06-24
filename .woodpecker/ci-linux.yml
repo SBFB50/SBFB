@@ -70,3 +70,8 @@ steps:
     image: bash:5@sha256:2003051c5eb5154cbd44fd4b1a2b8f1be886517b383813c998c72cb15840357f
     commands:
       - bash scripts/check-spdx.sh
+
+  - name: sharding-docs-check
+    image: bash:5@sha256:2003051c5eb5154cbd44fd4b1a2b8f1be886517b383813c998c72cb15840357f
+    commands:
+      - bash scripts/check-sharding-docs.sh

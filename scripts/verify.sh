@@ -105,5 +105,8 @@ cd "$REPO_ROOT"
 step 18 "bash scripts/check-spdx.sh"
 bash scripts/check-spdx.sh
 
+step 19 "bash scripts/check-sharding-docs.sh"
+bash scripts/check-sharding-docs.sh
+
 echo ""
 echo "==> verify.sh passed all steps"
