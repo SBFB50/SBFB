@@ -28,11 +28,11 @@
 #     does not spill over) prevents a single abusive consumer
 #     from starving other consumers' worker bandwidth.
 #
-# Scope-cut R1 (2026-04-19): HTTP middleware on /task/submit is
-# NOT applied Phase A — that endpoint vit Python FastAPI, the
-# slowapi middleware will land in a dedicated S22+ sprint. The
-# rate-limit enforced via this file is worker-engine side only
-# (checked by the engine loop before admitting a task).
+# Scope-cut R1 (2026-04-19): the rate-limit enforced via this file
+# is worker-engine side only (checked by the engine loop before
+# admitting a task). The pre-pivot HTTP-middleware path (slowapi on
+# a Python FastAPI /task/submit) was removed at the S50-S51
+# Rust-only pivot.
 
 [default]
 per_min = 60

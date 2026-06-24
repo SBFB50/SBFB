@@ -2310,10 +2310,14 @@ membership and WITHOUT inventing a wire surface. Load-bearing:
    is a STUB returning `None` (the HTTP-readable session store is an S78 seam, NOT
    Phase K). The Zod envelope is `.strict()`, `session` is `.nullable()`, the row
    tolerant — a future field is additive, no bump. Mirrors the `seed_count`
-   precedent (S74), never a 404-on-absent. NB: the Phase J source comments
-   (`http.rs`, `daemon.ts`, `ShardSessionPanel.tsx`) still say the live store
-   "lands in Phase K" — STALE (Phase K is the 0-code wrap-up; the store lands
-   S78). Scrubbing those comments is an explicit S78 carry (STALE-PHASE-K-COMMENTS).
+   precedent (S74), never a 404-on-absent. NB: the `http.rs` Phase J source
+   comments that said the live store "lands in Phase K" were STALE (Phase K
+   closed 0-code; the store is an S78 seam). **CLOSED S79 Phase B**: scrubbed to
+   point at the immutable past + recurrence gated repo-wide by
+   `scripts/check-frontier-contracts.sh` (the docs-contract cadence, canonical
+   `docs/rust/PATTERNS.md` §P70). The web shard-session UI (`daemon.ts`,
+   `ShardSessionPanel.tsx`) was scrubbed the same way (its Phase-K
+   data-plane-store promises → S78 seam).
 3. **The CTA speaks INTENTIONS, never jargon.** The panel reads « Lancer un gros
    modele en reseau » / « Rejoindre un groupe de calcul » (PO-9), NEVER
    `shard`/`ALPN`/`session_id` in the primary CTA. The `scan-en-strings.sh` gate

@@ -31,13 +31,12 @@
 //!
 //! ## Forward-compat paths
 //!
-//! - **S22 kudos-weighted admission** : the receiver verify path
-//!   will add a `kudos_threshold` field alongside
-//!   `default_difficulty`, plus `kudos_overrides` next to
-//!   `topic_overrides`. Pre-launch policy lets us redefine the
-//!   schema in place for v1 ; post-v1.0 we bump a version tag
-//!   and ship a tolerant decoder.
-//! - **S26 PQC migration** : the policy file is untouched — the
+//! - **Kudos-weighted admission (possible future)** : a
+//!   `kudos_threshold` field could sit alongside `default_difficulty`,
+//!   plus `kudos_overrides` next to `topic_overrides`. Pre-launch
+//!   policy lets us redefine the schema in place for v1 ; post-v1.0
+//!   we bump a version tag and ship a tolerant decoder.
+//! - **PQC migration (possible future)** : the policy file is untouched — the
 //!   difficulty is orthogonal to the pubkey cipher. Only the
 //!   pubkey field in [`crate::pow::HashcashChallenge`] changes.
 

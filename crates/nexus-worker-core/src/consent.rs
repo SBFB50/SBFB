@@ -341,10 +341,9 @@ pub struct TaskContext<'a> {
     pub project_id: &'a str,
     /// True iff the project's `ProjectAnnouncement` carries the
     /// `is_open_source = true` flag set by the coordinator at
-    /// deploy-from-repo time. Phase D wires this through end-to-
-    /// end; until then the engine passes `false` for every task,
-    /// which means L2 rejects everything (acceptable: L2 is
-    /// inert until Phase D ships).
+    /// deploy-from-repo time. When the engine receives `false`
+    /// (e.g. the flag is unset), L2 rejects the task — L2 only
+    /// admits tasks from projects flagged open-source.
     pub is_open_source: bool,
     /// Estimated sustained watts the task will draw.
     pub estimated_watts: u32,

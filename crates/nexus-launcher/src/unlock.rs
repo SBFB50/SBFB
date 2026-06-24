@@ -31,11 +31,11 @@
 //!
 //! ## PIN acquisition
 //!
-//! Phase A accepts the PIN only as a CLI argument (`--pin <p>`)
-//! so the flow is trivially testable. Plaintext CLI args show up
+//! The PIN is accepted only as a CLI argument (`--pin <p>`) so
+//! the flow is trivially testable. Plaintext CLI args show up
 //! in shell history and `ps` listings — acceptable for dev /
-//! smoke-test use but not for real deployments. Phase B adds an
-//! interactive `rpassword`-style prompt.
+//! smoke-test use but not for real deployments. An interactive
+//! `rpassword`-style prompt is not yet implemented.
 
 use std::path::PathBuf;
 

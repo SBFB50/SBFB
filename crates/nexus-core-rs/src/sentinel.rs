@@ -40,7 +40,7 @@
 //! just under threshold every step (SI-11 baseline poisoning) and an adversary
 //! that knows the fixed threshold: the threshold is a static security parameter
 //! here, not the adaptive IQR fence of the paper, and re-calibration on the real
-//! rig is Phase K. Like the N1 anti-lazy-verifier gap (Phase H), this is a
+//! rig is a tracked S78 carry. Like the N1 anti-lazy-verifier gap (Phase H), this is a
 //! disclosed mitigation, not a guarantee; a cryptographic guarantee is N4 zkML
 //! (out of scope).
 
@@ -55,7 +55,7 @@ pub const SENTINEL_ALPHA_BP: u128 = 9_000;
 /// Relative deviation, in basis points of the EMA, at or above which a frontier
 /// is flagged as corrupt: `|signal - ema| * 10000 >= THRESH * ema`. 5000 bp =
 /// 50% — an abrupt half-or-more jump in the inter-stage activation statistic. A
-/// fixed integer threshold (calibration on the real rig is Phase K).
+/// fixed integer threshold (calibration on the real rig is a tracked S78 carry).
 pub const SENTINEL_DEVIATION_THRESH_BP: u128 = 5_000;
 
 /// One integer EMA step in basis points:

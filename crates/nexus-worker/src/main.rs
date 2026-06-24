@@ -183,11 +183,11 @@ async fn handle_start(
         None
     };
 
-    // Build the engine. Phase D adds a data_dir so the worker's
-    // iroh-docs replica + default author survive reboots, and a
-    // --stub-ollama override (resolved from the CLI flag) so
-    // hermetic e2e tests can run without an Ollama install.
-    // Sprint 20 Phase D : `--stub-ollama` is now a dual-backend
+    // Build the engine. The data_dir lets the worker's iroh-docs
+    // replica + default author survive reboots, and a
+    // --stub-ollama override (resolved from the CLI flag) lets
+    // hermetic e2e tests run without an Ollama install.
+    // Sprint 20 Phase D : `--stub-ollama` is a dual-backend
     // stub (it fronts the `LlmBackend` trait) but the CLI flag
     // name is preserved to avoid breaking scripts.
     let llm_override: Option<Box<dyn nexus_worker_core::llm::LlmBackend>> = if stub_ollama {
@@ -408,9 +408,9 @@ async fn handle_browse(_paths: &WorkerPaths) -> Result<()> {
 }
 
 async fn handle_stats(paths: &WorkerPaths) -> Result<()> {
-    // W4/W6/W7 will fill in real numbers. For W3 we at least
-    // report whether the worker is registered and where its
-    // identity lives.
+    // This stats view reports whether the worker is registered and
+    // where its identity lives; richer runtime numbers are not
+    // surfaced here.
     match WorkerConfig::load_required(&paths.config_file) {
         Ok(cfg) => {
             let key_path = cfg.resolve_secret_key_path(paths);

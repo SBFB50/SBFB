@@ -2,20 +2,22 @@
 //! # nexus-core-rs
 //!
 //! Core Rust library for the SBFB P2P compute network. Wraps the iroh
-//! stack (net, docs, gossip, blobs, pkarr) behind a small, stable API
-//! that is also exposed to Python via `crates/nexus-core-py` (PyO3).
+//! stack (net, docs, gossip, blobs, pkarr) behind a small, stable API.
+//! (The pre-pivot Python/PyO3 bindings were removed at the S50-S51
+//! Rust-only pivot.)
 //!
 //! This crate is intentionally thin: it does not implement any
 //! business logic (task dispatching, kudos, apps, ...). Those live in
-//! the Python coordinator (`packages/nexus-coordinator`) and in the
-//! `nexus-worker` binary. The only responsibility here is to give
+//! `nexus-coordinator-rs` and the `nexus-worker` binary. The only
+//! responsibility here is to give
 //! callers a stable handle to a running iroh node and a minimal
 //! surface for the primitives the coordinator needs.
 //!
-//! ## Sprint 1 scope
+//! ## Module scope
 //!
-//! `create_node()` only. Sprint 2 will add `Doc`, `Gossip`, `Blobs`,
-//! `Discovery` and `Verifier` wrappers as separate submodules.
+//! `create_node()` is the entry constructor; the `Doc`, `Gossip`,
+//! `Blobs`, `Discovery` and `Verifier` wrappers live in their own
+//! submodules (layered on after the Sprint 1 foundation).
 //!
 //! ## Example (Rust)
 //!

@@ -69,7 +69,7 @@ pub const TOPLOC_TOP_K: usize = 128;
 /// exponent is robust to GPU non-determinism (a small relative perturbation
 /// almost never changes the 8 exponent bits), so a same-model re-run stays well
 /// under 38 out of `k=128`, while a model/precision swap blows past it. From
-/// arXiv 2501.16007v2 (bf16 set); re-calibration on the real rig is Phase K.
+/// arXiv 2501.16007v2 (bf16 set); re-calibration on the real rig is a tracked S78 carry.
 pub const TOPLOC_THRESH_EXP_MISMATCH: u32 = 38;
 
 /// Accept iff the mantissa absolute-error **mean** is strictly below this

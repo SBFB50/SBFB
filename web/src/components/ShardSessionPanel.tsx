@@ -7,9 +7,10 @@
  * Read-only sur le statut (control-plane) : il interroge
  * `GET /api/daemon/shard-session/{id}` et n'expose qu'un AGRÉGAT (nombre de
  * membres), jamais les identités du groupe privé (THREAT_MODEL §16 SI-3/SI-4).
- * En Phase J le daemon n'a pas encore de session vivante (le plan de données
- * `sbfb/shard/1` n'est pas câblé à un registre lisible — Phase K), donc l'état
- * par défaut est « Aucune session active » : c'est honnête, pas un bug.
+ * Le daemon n'a pas encore de session vivante : le plan de données
+ * `sbfb/shard/1` n'est pas câblé à un registre lisible (un seam non encore
+ * branché, carry S78), donc l'état par défaut est « Aucune session active » —
+ * c'est honnête, pas un bug.
  *
  * UX (PO-9) : intentions utilisateur (« Lancer un gros modèle en réseau » /
  * « Rejoindre un groupe de calcul »), zéro jargon shard/ALPN/ComputeGroup en
@@ -133,7 +134,7 @@ function ComputeContent({ coordUrl }: { coordUrl: string }) {
 /**
  * « Rejoindre un groupe de calcul » : on rejoint avec l'identifiant que
  * l'initiateur a partagé hors-bande. La soumission interroge le statut
- * (read-only) ; le plan de données réel arrive en Phase K.
+ * (read-only) ; le plan de données réel n'est pas encore branché (carry S78).
  */
 function JoinForm({
   value,
@@ -177,9 +178,9 @@ function JoinForm({
 /**
  * « Lancer un gros modèle en réseau » : décrit honnêtement le flux réel
  * (rassembler des machines qui partagent leur puissance, puis répartir le
- * modèle). La session démarrée apparaîtra dans le statut ci-dessous une fois le
- * plan de données câblé (Phase K) — pas de « bientôt » creux, juste l'étape
- * suivante.
+ * modèle). Cette version n'expose que l'état lecture-seule : aucun plan de
+ * données n'est câblé (un seam non encore branché), donc aucune session vivante
+ * n'apparaît dans le statut.
  */
 function LaunchIntent() {
   return (

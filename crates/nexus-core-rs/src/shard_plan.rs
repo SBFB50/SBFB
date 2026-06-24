@@ -185,6 +185,9 @@ pub struct ShardAssignment {
 /// the canonical bytes (it only sorts object keys), so a signed plan keeps
 /// its order — but consumers should still validate contiguity rather than
 /// trust position alone (see [`Self::is_pipeline_contiguous`]).
+// FRONTIER: ShardPlan domain=DOMAIN_SHARD_PLAN_V1 version=SHARD_PLAN_FORMAT_VERSION
+// Sprint 79 Phase B · doctrine §7 — its generated JSON schema lives in
+// `crates/nexus-core-rs/src/schemas/shard.rs`; gated by scripts/check-frontier-contracts.sh.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct ShardPlan {
     /// The per-worker layer-block assignments, in pipeline order. Bounded

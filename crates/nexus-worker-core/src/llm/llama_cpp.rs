@@ -38,9 +38,9 @@
 //! rather than relying on the `-DLLAMA_LLGUIDANCE=ON` llama.cpp
 //! build flag.
 //!
-//! ## Partial runtime coverage at Sprint 20
+//! ## Runtime coverage (since Sprint 20 Phase D)
 //!
-//! Sprint 20 Phase D ships the **complete primitive** (config +
+//! Sprint 20 Phase D shipped the **complete primitive** (config +
 //! healthcheck + full generate loop + llguidance wiring), tested
 //! at the primitive level (matcher build, config validation,
 //! grammar mask, healthcheck error paths). End-to-end generation

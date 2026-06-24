@@ -18,7 +18,7 @@
 //! - [`DiscoveryClient::my_addr`] — wait until the endpoint has a
 //!   ready [`NodeAddr`] and convert it into a [`NodeAddrInfo`].
 //!
-//! Sprint 4 will add:
+//! Possible extensions beyond the Sprint 4 baseline (not built here):
 //!
 //! - Explicit resolve(node_id) for proactive peer lookup
 //! - Curator list record publishing on top of pkarr signed packets

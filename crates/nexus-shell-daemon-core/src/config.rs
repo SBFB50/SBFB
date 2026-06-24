@@ -22,12 +22,11 @@
 //! 2. <shell-daemon-dir>/config.toml (if present)   ← from disk
 //! ```
 //!
-//! Phase C / E will layer environment variables on top of this
-//! (`NEXUS_SHELL_DAEMON__LOGGING__LEVEL=debug` etc.) using the
-//! same `config` crate pattern the worker follows. The Phase A
-//! scope deliberately keeps the loader to a 10-line function
-//! so the first commit stays small and the singleton behaviour
-//! is the focus.
+//! Environment-variable layering on top of this
+//! (`NEXUS_SHELL_DAEMON__LOGGING__LEVEL=debug` etc.), using the
+//! same `config` crate pattern the worker follows, is a possible
+//! extension; the loader is deliberately kept to a small function
+//! so the singleton behaviour stays the focus.
 
 use std::path::{Path, PathBuf};
 

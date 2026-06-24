@@ -3833,6 +3833,71 @@ Cross-ref: §P67 (data-plane), §P69 (routing), `sprint77_phase_d_preflight.md`.
 0 bump wire, 0 new iroh dep (crate-boundary split: the glue `doc.set` lives in the
 daemon). Cross-ref: §P67, §P68, `sprint77_phase_e_preflight.md`, THREAT_MODEL §16.
 
+## §P70 — Sprint 79 Phase B: the docs-contract cadence (generated étiquette drift-gated per phase, GUIDE at closure, provenance edges to the immutable past)
+
+Origin: doctrine `.planning/research/doctrine_contrat_pour_llm.md` (§2 the 5
+layers, §7 the gate-map). S79 is the first concrete instance. This is a PROCESS
+STANDING RULE — every future sprint follows it, not just Factory — canonised here
++ in `docs/claude/README.md` §6.12 + `docs/agent/AGENT_SYSTEM.md`.
+
+A *frontier* primitive is one read by an actor that is NOT the code: another node
+(wire), an external client (API), a network app (app-contract / CSP), another LLM
+(prompt-kind / knowledge). A purely internal helper is NOT a frontier — code +
+tests suffice. The 5 layers of a frontier contract:
+
+1. **CODE** — the behaviour (last-resort authority).
+2. **ÉTIQUETTE** (generated schema, drift-gated) — the contract shape. Cadence:
+   **PER PHASE**, in the commit of the primitive. FREE (the schema is generated)
+   and un-rottable (drift → red build). Incarnated by `schema_for!` snapshots
+   (8 sharding types + `TaskResponse`), `BRIDGE_METHOD_ALLOWLIST` Rust↔TS parity,
+   Zod `.strict()`, the knowledge-pack `MANIFEST.json` per-file hash manifest
+   (it records a blake3 per layer and excludes itself from the hash set; S79 A; F to come).
+3. **COMMIT** — why/when/delta (attributable, 9-section body, signed).
+4. **GUIDE + `llms.txt`** — the navigable index. Cadence: **ONE closure phase**
+   (the full picture is only freezable at the end — mirror of S77 Phase N).
+5. **Provenance edge in-code** (rank-1 comments) — code↔decision links. They
+   point ONLY at the **immutable past** (a sprint/phase/§/decision that HAS
+   happened), NEVER a future promise.
+
+**Anti STALE-PHASE-K (cardinal lesson).** A provenance comment promising future
+work anchored to a phase/sprint rots into a lie. Real incident: an S77 `http.rs`
+comment promising the live shard store for a later phase survived that phase's
+close (the store is an S78 carry). S79 Phase B scrubbed these comments across
+`crates/` and the `web/src/` shard-session UI (doc-comments only, 0 behaviour
+change) and gated recurrence: `scripts/check-frontier-contracts.sh` fails CI on a
+phase/sprint/wave token adjacent to a future verb (the "Phase X will|adds|ships",
+"lands [in] Phase X", "arrive en Phase X" [FR], "Sprint N will", "Wn[.n]
+will|introduce", "inert until Phase", "will land in|with" forms), scoped to
+`crates/` + `web/src/` (docs/ describe the anti-pattern verbatim → out of scope
+by construction). The pattern is ANCHORED so it never fires on generic prose
+("the values the consumer will read", "node A adds a blob", "a future sprint
+adds a field"). Two classes are intentionally NOT gated (uncatchable without
+false-positives on legit prose) and are caught by review, not the gate:
+parenthetical forms ("(Phase K)") and non-adjacent forms where the future verb
+is separated from the phase/sprint token ("the Sprint 4 coordinator will rely").
+
+**The `// FRONTIER:` registry (opt-in, INCREMENTAL).** A type opts in with
+`// FRONTIER: <name> domain=DOMAIN_X_V1 version=X_FORMAT_VERSION`. The gate then
+requires its domain + version consts to resolve AND a generated schema
+(`schema_for!(<name>)`) OR an explicit `// FRONTIER-NO-SCHEMA: <name> <reason>`.
+UNannotated types are NOT violations — the registry grows one primitive at a time
+(S79 annotates `ShardPlan` as the first dogfood entry; 22 of the 25 `DOMAIN_*_V1`
+families have no generated schema and stay unannotated, a tracked carry routed to
+the S80 audit-plan (created at sprint closure)). This is
+the doctrine §7 Q2 "explicit registry, opt-in" arbitration (PO-tranché).
+
+**The cadence in one sentence**: generated étiquette PER PHASE in the primitive's
+commit; GUIDE + `llms.txt` in ONE closure phase; provenance edges point only
+backward at the immutable past. Neither "one doc phase per phase" (heavy) nor
+"all docs at the end" (false mid-sprint). Truth-Stack for the GUIDE layer
+(canonical form): `repo files > .planning/active/ > commits > prompts > chat`,
+with "Not evidenced" for anything outside ranks 1-4.
+
+Cross-ref: `docs/claude/README.md` §6.12 (process rule), `docs/agent/AGENT_SYSTEM.md`
+(portable doctrine + Truth-Stack), `scripts/check-frontier-contracts.sh` (the
+gate), `scripts/check-sharding-docs.sh` (the per-subsystem GUIDE lint it clones),
+doctrine `.planning/research/doctrine_contrat_pour_llm.md`.
+
 ## Note — META-1 rule: a Codex GAP at commit time must be a DISCLOSED, TRACKED carry
 
 Origin: S74 Phase D was committed while its Codex review still carried an

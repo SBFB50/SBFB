@@ -11,9 +11,9 @@ readme.workspace = true
 
 [lib]
 name = "nexus_core_rs"
-# Standard `rlib` library consumed by nexus-core-py (via path dep) and
-# by nexus-worker (also via path dep). When Sprint 2 adds PyO3 bindings
-# the library stays a regular rlib — only nexus-core-py is cdylib.
+# Standard `rlib` library consumed by nexus-worker (via path dep).
+# The pre-pivot Python bindings (PyO3 / nexus-core-py cdylib) were
+# removed at the S50-S51 Rust-only pivot; this stays a plain rlib.
 
 [dependencies]
 iroh = { workspace = true }

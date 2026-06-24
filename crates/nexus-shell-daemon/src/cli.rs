@@ -50,20 +50,19 @@ pub struct Cli {
 
 /// Top-level subcommands.
 ///
-/// Only the minimum Phase A needs is implemented in `main.rs`;
-/// the others return a `"not yet implemented"` error with a
-/// pointer to the wave that will wire them. Keep the shape
-/// stable across Sprint 7 so external scripts and the Phase E
-/// coordinator proxy do not have to change mid-sprint.
+/// Only the minimum the daemon needs is implemented in `main.rs`;
+/// the stub subcommands print a "not yet implemented" status and
+/// exit successfully (Ok). The enum shape is kept stable so
+/// external scripts and the coordinator proxy do not have to change.
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Start the shell daemon.
     ///
-    /// Phase A: boots the iroh endpoint, writes a singleton
-    /// `running.json`, binds an ephemeral loopback HTTP port,
-    /// and blocks on ctrl+c. Phase C will add the curator
-    /// subscribe pipeline; Phase D will add pkarr browse
-    /// resolution; the HTTP surface grows additively.
+    /// Boots the iroh endpoint, writes a singleton `running.json`,
+    /// binds an ephemeral loopback HTTP port, and blocks on
+    /// ctrl+c. The curator subscribe pipeline and pkarr browse
+    /// resolution are layered on the same boot; the HTTP surface
+    /// grows additively.
     Start {
         /// Force headless mode. The daemon has **no** interactive
         /// frontend — there is no TUI, no prompt, no opt-in
@@ -91,25 +90,26 @@ pub enum Command {
 
     /// Stop a running shell daemon.
     ///
-    /// Phase A stub. Phase E will read `running.json`, locate
-    /// the live pid, and send a platform-appropriate shutdown
-    /// signal (SIGTERM on Unix, a shutdown HTTP request on
-    /// Windows where signal handling is more awkward).
+    /// Stub (not yet implemented). A real implementation would
+    /// read `running.json`, locate the live pid, and send a
+    /// platform-appropriate shutdown signal (SIGTERM on Unix, a
+    /// shutdown HTTP request on Windows where signal handling is
+    /// more awkward).
     Stop,
 
     /// Print the live daemon's public state to stdout.
     ///
-    /// Phase A stub. Phase E will read `running.json` and curl
-    /// the daemon's `/info` endpoint via the coordinator proxy
-    /// (or directly, since both point at the same loopback
-    /// listener).
+    /// Stub (not yet implemented). A real implementation would
+    /// read `running.json` and curl the daemon's `/info` endpoint
+    /// via the coordinator proxy (or directly, since both point at
+    /// the same loopback listener).
     Status,
 
     /// Read or update shell daemon config values.
     ///
     /// The key format is dotted (e.g. `logging.level`,
-    /// `network.api_host`). Phase A stub; Phase E will wire
-    /// this to `ShellDaemonConfig::save`.
+    /// `network.api_host`). Stub (not yet implemented); a real
+    /// implementation would wire this to `ShellDaemonConfig::save`.
     #[command(subcommand)]
     Config(ConfigCommand),
 

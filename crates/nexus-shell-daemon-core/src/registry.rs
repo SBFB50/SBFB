@@ -34,11 +34,10 @@
 //! ## Schema versioning
 //!
 //! [`SCHEMA_VERSION`] is literal in every `running.json`. Breaking
-//! changes must bump it in lock-step with the TypeScript Zod
-//! mirror the Sprint 7 Phase E coordinator proxy will define.
-//! Additive changes (new optional fields) may stay on the same
-//! version as long as a Phase E-era reader can parse a
-//! Phase A-era file.
+//! changes must bump it in lock-step with any TypeScript Zod mirror
+//! on the coordinator-proxy side. Additive changes (new optional
+//! fields) may stay on the same version as long as an older reader
+//! can still parse a newer file.
 
 use std::fs;
 use std::io::Write;
@@ -262,9 +261,9 @@ pub fn remove_running(path: &Path) {
 /// Best-effort read of an existing `running.json`. Returns
 /// `None` if the file is missing, unreadable, or malformed.
 ///
-/// Phase A uses this only from inside [`check_stale_or_bail`];
-/// Phase E will expose it through the coordinator proxy's
-/// `/daemon/info` handler.
+/// Used from inside [`check_stale_or_bail`] (and tests); it is NOT
+/// wired into any HTTP handler — `/api/daemon/info` serves a
+/// distinct `DaemonStateSnapshot`, not this `RunningState`.
 pub fn read_running(path: &Path) -> Option<RunningState> {
     let body = fs::read_to_string(path).ok()?;
     serde_json::from_str::<RunningState>(&body).ok()

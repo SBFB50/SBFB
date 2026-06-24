@@ -537,10 +537,10 @@ export function listNodes(
  * a `member_count`, NEVER the worker/initiator pubkeys of the private group
  * (THREAT_MODEL §16 SI-3/SI-4).
  *
- * Row tolerant (NOT `.strict()`, S73/S75 rule): the runtime `pipeline_status`
- * and attained `verification_level` are added additively (0-bump) once a live
- * data-plane store can populate them (Sprint 77 Phase K) — an additive Rust
- * field must not brick this panel.
+ * Row tolerant (NOT `.strict()`, S73/S75 rule): the parser stays tolerant if a
+ * later producer adds runtime fields (e.g. `pipeline_status`,
+ * `verification_level`) to the session row — an unknown/extra field must not
+ * brick this panel. No live data-plane store populates such fields today.
  */
 export const ShardSessionViewSchema = z.object({
   session_id: z.string(),

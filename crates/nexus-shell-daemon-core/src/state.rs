@@ -10,16 +10,15 @@
 //!
 //! ## Additive evolution
 //!
-//! - Phase A writes: `schema_version`, `node_id`, `daemon_version`,
-//!   `uptime_secs`, `started_at`, `last_updated_at`, `api_host`,
-//!   `api_port`. Curator / browse counts are all zero because
-//!   nothing feeds them yet.
-//! - Phase C will populate `subscribed_curators`, `known_lists`.
-//! - Phase D will populate `known_browse_entries`.
+//! - The base snapshot carries: `schema_version`, `node_id`,
+//!   `daemon_version`, `uptime_secs`, `started_at`,
+//!   `last_updated_at`, `api_host`, `api_port`.
+//! - `subscribed_curators`, `known_lists`, `known_browse_entries`
+//!   are additive fields the snapshot can carry once a feeder
+//!   supplies them; they default to empty/zero otherwise.
 //!
-//! All future fields land as new optional keys with `#[serde(default)]`
-//! so a Phase A daemon's `/info` response is still parseable by
-//! a Phase D shell.
+//! All such fields are optional keys with `#[serde(default)]` so an
+//! older daemon's `/info` response stays parseable by a newer shell.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -77,22 +76,21 @@ pub struct DaemonStateSnapshot {
     pub api_port: u16,
 
     /// Curator pubkeys (hex) the daemon is currently interested
-    /// in. Phase A: always empty (no subscribe pipeline wired).
-    /// Phase C will populate from the `ShellDaemonRuntime`'s
-    /// `HashSet<CuratorPubkey>` attention set.
+    /// in. Defaults to empty; a feeder can supply it from the
+    /// `ShellDaemonRuntime`'s `HashSet<CuratorPubkey>` attention
+    /// set.
     #[serde(default)]
     pub subscribed_curators: Vec<String>,
 
     /// Number of `CuratorListEntry` blobs the daemon has
-    /// received + verified since boot. Phase A: always 0.
-    /// Phase C will populate from the `DashMap<pubkey, entry>`
-    /// size.
+    /// received + verified since boot. Defaults to 0; a feeder
+    /// can supply it from the `DashMap<pubkey, entry>` size.
     #[serde(default)]
     pub known_lists: u32,
 
     /// Number of project entries cached across every known
-    /// curator list. Phase A: always 0. Phase D will populate
-    /// from the browse aggregator.
+    /// curator list. Defaults to 0; a feeder can supply it from
+    /// the browse aggregator.
     #[serde(default)]
     pub known_browse_entries: u32,
 }
@@ -211,10 +209,10 @@ mod tests {
 
     #[test]
     fn snapshot_populates_curator_fields_when_present() {
-        // Phase A inputs are all zero, but the snapshot must
-        // still propagate non-zero values Phase C will supply —
-        // this is the forward-compat test for the additive
-        // schema evolution promise.
+        // Base inputs are all zero, but the snapshot must still
+        // propagate non-zero values a feeder may supply — this is
+        // the forward-compat test for the additive schema
+        // evolution.
         let mut inputs = mk_inputs();
         inputs.subscribed_curators = vec!["abcd".to_string(), "1234".to_string()];
         inputs.known_lists = 2;

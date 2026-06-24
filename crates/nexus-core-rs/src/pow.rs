@@ -42,11 +42,11 @@
 //!
 //! ## Forward-compat paths
 //!
-//! - **S22 kudos-weighted admission** : the receiver verify path
-//!   will add a `kudos_score >= policy.threshold` check alongside
-//!   the PoW verify. The cache key stays `(pubkey, topic)` ; only
-//!   the verify predicate changes.
-//! - **S26 post-quantum migration** : `publisher_pubkey` is a
+//! - **Kudos-weighted admission (possible future)** : a receiver
+//!   verify path could gate on `kudos_score >= policy.threshold`
+//!   alongside the PoW verify. The cache key stays `(pubkey, topic)`
+//!   ; only the verify predicate would change.
+//! - **Post-quantum migration (possible future)** : `publisher_pubkey` is a
 //!   `[u8; 32]` today (Ed25519). When the hybrid ML-DSA-65 +
 //!   Ed25519 cutover lands, the field becomes a variable-length
 //!   byte vector and the format version bumps `v1 → v2`. Since

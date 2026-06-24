@@ -116,3 +116,7 @@ jobs:
       # ── sharding docs lint (Sprint 77 Phase M) ───────────
       - name: "[14] sharding docs check"
         run: bash scripts/check-sharding-docs.sh
+
+      # ── frontier contracts gate (Sprint 79 Phase B) ──────
+      - name: "[15] frontier contracts check"
+        run: bash scripts/check-frontier-contracts.sh

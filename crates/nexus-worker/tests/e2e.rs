@@ -12,12 +12,11 @@
 //!
 //! The Sprint 3 plan originally called for a Python
 //! coordinator + Rust worker subprocess + 10 signed tasks end
-//! to end. That test requires the coordinator side (Sprint 4)
-//! AND the W9.1 task claim/execute flow, neither of which has
-//! shipped. W12 instead locks every CLI-visible path that the
-//! Sprint 4 coordinator will rely on: register, join a valid
-//! invite, projects CRUD, a bounded `start --headless`
-//! sanity run.
+//! to end. That test requires the coordinator side AND the task
+//! claim/execute flow, neither of which is wired here. This suite
+//! instead locks every CLI-visible path the coordinator side
+//! relies on: register, join a valid invite, projects CRUD, a
+//! bounded `start --headless` sanity run.
 //!
 //! Every test uses `tempfile::TempDir` for the `--config`
 //! path so the suite is reproducible across machines and

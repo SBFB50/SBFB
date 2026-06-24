@@ -195,8 +195,8 @@ impl Node {
     /// Access the Docs protocol handle.
     ///
     /// Use this to create/import documents, create authors and
-    /// manage replicated key/value logs. Sprint 2 will layer a
-    /// typed [`crate::docs`] wrapper on top of this raw handle.
+    /// manage replicated key/value logs. The typed
+    /// [`crate::docs`] wrapper sits on top of this raw handle.
     pub fn docs(&self) -> &Docs {
         &self.docs
     }
@@ -204,8 +204,8 @@ impl Node {
     /// Access the Gossip protocol handle.
     ///
     /// Use this to subscribe to topics and broadcast messages.
-    /// Sprint 2 will layer a typed [`crate::gossip`] wrapper on
-    /// top of this raw handle.
+    /// The typed [`crate::gossip`] wrapper sits on top of this
+    /// raw handle.
     pub fn gossip(&self) -> &Gossip {
         &self.gossip
     }

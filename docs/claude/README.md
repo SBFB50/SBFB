@@ -1977,6 +1977,46 @@ But : reproductibilité audit, source pivot G8, drift detection.
 
 ---
 
+### 6.12 Cadence docs-contrat — étiquette générée par phase, GUIDE en clôture, provenance vers le passé (canon S79 Phase B)
+
+`[DETER]` Toute **primitive de frontière** (lue par un acteur qui n'est PAS le
+code : un autre nœud = wire, un client externe = API, une app réseau =
+contrat/CSP, un autre LLM = prompt-kind/knowledge) porte un **contrat
+source-ancré, drift-gaté**. Un helper purement interne n'est PAS une frontière
+(le code + les tests suffisent). Règle de cadence (doctrine
+`.planning/research/doctrine_contrat_pour_llm.md`) :
+
+1. **Étiquette générée (schéma drift-gaté) → PAR PHASE**, dans le commit de la
+   primitive. Gratuite (le schéma est généré), in-pourrissable (drift → build
+   rouge). Ex. `schema_for!` snapshots, parité `BRIDGE_METHOD_ALLOWLIST`
+   Rust↔TS, Zod `.strict()`, `MANIFEST.json` registre de hash par fichier des
+   knowledge packs (blake3 par couche, le MANIFEST s'exclut du hash-set).
+2. **GUIDE + `llms.txt` (synthèse) → UNE phase de clôture** (l'image complète
+   n'est figeable qu'à la fin ; miroir S77 Phase N). Ni « une phase de doc par
+   phase », ni « tout à la fin ».
+3. **Arête de provenance in-code (rang-1)** : un commentaire `// Sprint N Phase X
+   · …` pointe UNIQUEMENT vers du **passé immuable**, JAMAIS une promesse future
+   (le motif « phase/sprint + verbe futur » ADJACENT). Anti STALE-PHASE-K
+   (incident réel S77). Gaté par `scripts/check-frontier-contracts.sh` (BLOQUANT
+   CI, scope `crates/` + `web/src/` ; docs/ exclus car ils décrivent l'anti-pattern ;
+   formes non-adjacentes / parenthétiques attrapées par la review, pas le gate).
+
+**Gate générique** `scripts/check-frontier-contracts.sh` (câblé CI 3 surfaces :
+`ci.yml`, `ci-linux.yml`, `verify.sh`) : (1) anti-promesse source-ref ; (2)
+couverture-étiquette sur le registre opt-in `// FRONTIER: <name>
+domain=DOMAIN_X_V1 version=X_FORMAT_VERSION` (un type annoté DOIT avoir un schéma
+généré ou une exemption `// FRONTIER-NO-SCHEMA:`) ; (3) non-régression
+`BLOB_SERVE_CSP`. Le registre est **incrémental** : un type non-annoté n'est pas
+une violation (les 22 des 25 familles `DOMAIN_*_V1` sans schéma généré sont un
+carry routé vers l'audit-plan S80, créé à la clôture du sprint).
+
+Truth-Stack canonique de la couche GUIDE :
+`repo files > .planning/active/ > commits > prompts > chat` (+ « Not evidenced »
+hors rangs 1-4). Détail pattern : `docs/rust/PATTERNS.md` §P70 ; doctrine
+portable : `docs/agent/AGENT_SYSTEM.md`.
+
+---
+
 ## 7. Prompt générique de bootstrap session fraîche (v3)
 
 Ce prompt est conçu pour être collé tel quel au démarrage d'une

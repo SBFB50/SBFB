@@ -108,5 +108,8 @@ bash scripts/check-spdx.sh
 step 19 "bash scripts/check-sharding-docs.sh"
 bash scripts/check-sharding-docs.sh
 
+step 20 "bash scripts/check-frontier-contracts.sh"
+bash scripts/check-frontier-contracts.sh
+
 echo ""
 echo "==> verify.sh passed all steps"

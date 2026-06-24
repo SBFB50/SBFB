@@ -30,9 +30,9 @@
 //! The module set is deliberately a strict subset of what the
 //! worker core ships — the daemon is a simpler beast: no GPU
 //! monitor, no Ollama client, no allowlist database, no invite
-//! flow. Phase C will add a `curator_runtime` module for the
-//! gossip subscribe pipeline, but that wave is explicitly out
-//! of scope here.
+//! flow. The gossip subscribe pipeline (the
+//! `iroh_runtime::CuratorRuntime` type) was layered on after this
+//! foundation.
 //!
 //! - `paths` — shared nexus-grid filesystem layout + the
 //!   `NEXUS_GRID_ROOT` env override for hermetic tests.

@@ -23,9 +23,9 @@ nexus-events-core = { path = "../nexus-events-core" }
 nexus-trace-core = { path = "../nexus-trace-core" }
 
 # Direct dependency on nexus-core-rs so the runtime can call
-# `create_node()` at boot. Phase A only uses `create_node` and
-# `Node::shutdown`; Phase C will reach into `Node::gossip()` and
-# `Node::blobs_store()` for the curator subscribe pipeline.
+# `create_node()` at boot. The runtime also reaches into
+# `Node::gossip()` and `Node::blobs_store()` for the curator
+# subscribe pipeline.
 nexus-core-rs = { path = "../nexus-core-rs" }
 nexus-coordinator-rs = { path = "../nexus-coordinator-rs" }
 nexus-worker-core = { path = "../nexus-worker-core" }

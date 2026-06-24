@@ -5,13 +5,12 @@
 //!
 //! This module is **observation-only**: it persists periodic
 //! per-device snapshots (gpu_util, vram_used_mb, running compute
-//! processes) into a small SQLite database so that, in Sprint 24,
-//! the consumer-side re-run sampler can join "task signed by
-//! worker N at time T" with "what was worker N's GPU actually
-//! doing at time T". Phase D ships no anomaly detector and no
-//! enforcement — that is explicitly Sprint 24 scope per
-//! `docs/security/HARDENING_ROADMAP.md` §3 ligne 280-281 and
-//! §15 pipeline ligne 793-794.
+//! processes) into a small SQLite database so that a consumer-side
+//! re-run sampler can join "task signed by worker N at time T" with
+//! "what was worker N's GPU actually doing at time T". This module
+//! ships no anomaly detector and no enforcement — that is out of
+//! scope here per `docs/security/HARDENING_ROADMAP.md` §3 ligne
+//! 280-281 and §15 pipeline ligne 793-794.
 //!
 //! ## Wire / pre-launch posture
 //!
@@ -368,8 +367,8 @@ impl NvmlProfile {
         let util = device.utilization_rates()?;
         let mem = device.memory_info()?;
         // `running_compute_processes` returns Vec<ProcessInfo>.
-        // The per-entry `last_seen_timestamp` accessor is what
-        // the Sprint 24 re-run sampler will join against — until
+        // The per-entry `last_seen_timestamp` accessor is what a
+        // consumer-side re-run sampler joins against — until
         // 0.11.0 you had to call `process_utilization_stats`
         // separately. Keep both shapes in mind: ProcessInfo's
         // `used_gpu_memory` is a `UsedGpuMemory` enum (Used /
@@ -551,8 +550,8 @@ mod tests {
         assert_eq!(count, 1);
 
         // Round-trip the JSON column to make sure the per-process
-        // payload survives intact (this is what the Sprint 24
-        // sampler will join against).
+        // payload survives intact (this is what a consumer-side
+        // re-run sampler joins against).
         let json: String = conn
             .query_row(
                 "SELECT compute_processes_json FROM nvml_samples LIMIT 1",

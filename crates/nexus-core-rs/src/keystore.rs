@@ -311,7 +311,7 @@ impl Identity {
     }
 
     /// Return whether this identity was unlocked in Normal or
-    /// Duress mode (cf. Phase B).
+    /// Duress mode.
     pub fn mode(&self) -> IdentityMode {
         self.mode
     }
@@ -319,9 +319,10 @@ impl Identity {
 
 /// Which blob the unlock path read from.
 ///
-/// Phase A only produces `Normal` because `init` does not yet
-/// accept a duress PIN. Phase B will add the `init_with_duress`
-/// path and the runtime routing logic that interprets `Duress`.
+/// `Normal` is the identity `init` produces by default; the
+/// duress-init path produces `Duress`, and the runtime routing
+/// logic interprets it (the decoy keypair is revealed only on
+/// the duress PIN).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentityMode {
     /// Real user identity. Gossip publishes, kudos, and curator
@@ -329,8 +330,8 @@ pub enum IdentityMode {
     Normal,
 
     /// Fake identity revealed only when the user types the duress
-    /// PIN. Phase B implements the noop-gossip routing that keeps
-    /// the decoy indistinguishable to a remote peer.
+    /// PIN. The noop-gossip routing keeps the decoy
+    /// indistinguishable to a remote peer.
     Duress,
 }
 
@@ -393,9 +394,9 @@ impl Default for KdfParams {
 ///
 /// The trait is intentionally small — `init`, `unlock`,
 /// `rotate_pin`, `wipe`. Duress-specific methods live on
-/// [`LocalFileKeyStore`] directly and will be promoted here in
-/// Phase B once the Android StrongBox impl reveals whether
-/// duress maps naturally onto a hardware-backed slot.
+/// [`LocalFileKeyStore`] directly; promoting them onto the trait
+/// depends on a future hardware-backed (Android StrongBox) impl
+/// and is not done.
 pub trait KeyStore: Send + Sync {
     /// Generate a fresh Ed25519 keypair, derive the KEK from the
     /// given PIN + a random salt, wrap the keypair under the KEK,
@@ -887,8 +888,9 @@ impl LocalFileKeyStore {
     /// Argon2id KDF (the normal derivation runs first and fails
     /// AEAD). This is a documented Phase B scope cut — see
     /// `.planning/research/S20_phase_B_duress_panic_design.md §5`.
-    /// A Sprint 22+ refactor will derive both KDFs in parallel and
-    /// cancel the loser to erase the timing side channel.
+    /// Deriving both KDFs in parallel and cancelling the loser to
+    /// erase the timing side channel is a tracked future hardening
+    /// (not yet done).
     pub fn unlock_differential(&self, pin: &str) -> Result<Identity, UnlockError> {
         match self.unlock(pin) {
             Ok(id) => Ok(id),

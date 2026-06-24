@@ -249,7 +249,32 @@ handoff, l'agent recepteur ecrit `Not evidenced`.
 
 ---
 
-## 7. Non-Goals
+## 7. Docs-contract cadence (doctrine portable)
+
+Toute **primitive de frontière** (lue par un acteur qui n'est pas le code :
+autre nœud, client externe, app réseau, autre LLM) est un **contrat
+source-ancré, drift-gaté**, consommable par un LLM. Les 5 couches :
+
+1. **CODE** — le comportement (autorité de dernier ressort).
+2. **ÉTIQUETTE** (schéma généré, drift-gaté) — la forme du contrat, **par phase**
+   dans le commit de la primitive (gratuite, in-pourrissable : drift → build rouge).
+3. **COMMIT** — pourquoi/quand/delta (attribuable, body à sections, signé).
+4. **GUIDE + `llms.txt`** — l'index navigable, **en UNE phase de clôture**.
+5. **Arête de provenance in-code** (rang-1) — liens code↔décision, **vers le
+   passé immuable uniquement** (anti STALE-PHASE-K).
+
+Compagnons transverses : priorité des sources (généré > tests > llms.txt > prose ;
+jamais inventer) ; sonde de comportement (verdict machine PASS/ADJUST/RIG-ABSENT,
+cf. `scripts/acceptance/*.sh`) ; vérification adversariale des faits (agent
+indépendant). Gate générique : `scripts/check-frontier-contracts.sh` (registre
+opt-in `// FRONTIER:`, incrémental). Truth-Stack (§1) :
+`repo files > .planning/active/ > commits > prompts > chat`. S79 = 1re instance ;
+détail `docs/rust/PATTERNS.md` §P70 + doctrine
+`.planning/research/doctrine_contrat_pour_llm.md`.
+
+---
+
+## 8. Non-Goals
 
 Ce que AGENT_SYSTEM.md ne fait pas :
 

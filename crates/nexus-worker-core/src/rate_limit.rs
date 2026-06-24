@@ -10,11 +10,10 @@
 //! paper-flood) + `C-DosFlood` (§7 DoS flood).
 //!
 //! Le middleware HTTP `/task/submit` proposé initialement plan §4.1
-//! ne s'applique pas Phase A : cet endpoint vit côté Python FastAPI
-//! (`packages/nexus-coordinator/src/nexus_coordinator/api/tasks.py
-//! ::POST /tasks/submit`, depuis Sprint 4 Phase A), `tower-governor`
-//! axum ne peut pas middleware FastAPI. Ré-évaluation S22+ sprint
-//! API sécurité dédié (slowapi ou équivalent Python).
+//! n'a jamais été appliqué : le chemin Python FastAPI pré-pivot
+//! (`packages/nexus-coordinator`, slowapi / `tower-governor`) a été
+//! retiré au pivot Rust-only S50-S51. La limitation de débit vit
+//! désormais uniquement côté engine worker (cette primitive).
 //!
 //! ## Algo
 //!

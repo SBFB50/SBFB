@@ -213,7 +213,8 @@ function FullScreenApp({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Sprint 74 Phase A (D-DISPO) — availability surfacing.
-  // Ownership is the local-node check in Phase A (precise signal lands Phase D).
+  // Ownership is approximated by the local-node check (isLocal); a more
+  // precise per-entry ownership signal is not wired into this view.
   const isOwn = isLocal;
   const isOffline = entry.status === "unreachable";
   // Greffe A — the offline reminder is state-triggered (not pushed at publish),

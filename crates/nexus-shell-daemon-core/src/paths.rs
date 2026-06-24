@@ -88,10 +88,9 @@ pub fn running_json_path() -> Option<PathBuf> {
 }
 
 /// Return `<root>/shell-daemon/config.toml` — the on-disk
-/// [`crate::config::ShellDaemonConfig`] file. Phase A does not
-/// yet auto-create this file; `config set` is wired as a
-/// Phase A stub and will be filled in Phase E alongside the
-/// coordinator proxy wiring.
+/// [`crate::config::ShellDaemonConfig`] file. The daemon does not
+/// auto-create this file; `config set` is a stub (not yet wired to
+/// persist the config).
 pub fn config_toml_path() -> Option<PathBuf> {
     shell_daemon_dir().map(|d| d.join("config.toml"))
 }

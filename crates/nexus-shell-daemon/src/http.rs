@@ -2106,21 +2106,22 @@ fn project_shard_session(manifest: &nexus_core_rs::ShardedSessionManifest) -> Sh
 
 /// Stub lookup for a live shard session by id.
 ///
-/// Phase J ships the front contract against an EMPTY store: the `sbfb/shard/1`
-/// protocol primitive exists, but the live HTTP-readable shard-session store
-/// lands in Phase K, so this always misses and returns `None`. It is the
-/// explicit seam where the future store plugs in — and that ingest MUST gate on
-/// a `DOMAIN_SHARD_PLAN_V1` signature + `is_member` check BEFORE insert
+/// The `sbfb/shard/1` protocol primitive exists and the front contract is
+/// pinned against an EMPTY store (Sprint 77 Phase J), but there is no
+/// live HTTP-readable shard-session store yet, so this always misses and
+/// returns `None`. It is the explicit seam where such a store would plug
+/// in (a tracked carry-over, not yet built). Any future ingest MUST gate
+/// on a `DOMAIN_SHARD_PLAN_V1` signature + `is_member` check BEFORE insert
 /// (preflight S3), so the route can never serve an unauthenticated manifest.
 fn live_shard_session(_session_id: &str) -> Option<nexus_core_rs::ShardedSessionManifest> {
     None
 }
 
 /// Pure projection for `GET /api/daemon/shard-session/{id}` — pinned by a unit
-/// test without a network boot. With no live store (Phase J) every id misses
-/// and the deterministic empty envelope `{found:false, session:null}` is
-/// returned (200, not 404 — `seed_count` precedent: a read-only route answers
-/// 200 with honest defaults so the parse succeeds).
+/// test without a network boot. With no live store every id misses and the
+/// deterministic empty envelope `{found:false, session:null}` is returned
+/// (200, not 404 — `seed_count` precedent: a read-only route answers 200
+/// with honest defaults so the parse succeeds).
 fn shard_session_response(session_id: &str) -> ShardSessionStatusResponse {
     match live_shard_session(session_id) {
         Some(manifest) => ShardSessionStatusResponse {
@@ -2139,9 +2140,9 @@ fn shard_session_response(session_id: &str) -> ShardSessionStatusResponse {
 ///
 /// Control-plane only: an AGGREGATE status (member count), NEVER the group's
 /// member identities (SI-3/SI-4). The richer status (pipeline status, attained
-/// verification level) is added with the live data plane (Phase K). Loopback-
-/// authenticated (lives in `authed_routes`). Phase J has no live session
-/// registry yet (Phase K+), so the route deterministically returns
+/// verification level) would be added with a live data plane (a tracked S78
+/// carry). Loopback-authenticated (lives in `authed_routes`). There is no live
+/// session registry yet, so the route deterministically returns
 /// `{found:false, session:null}` for every id; the front renders the "no active
 /// session" empty state from that.
 async fn shard_session(Path(session_id): Path<String>) -> impl IntoResponse {
@@ -5208,7 +5209,7 @@ mod tests {
     fn shard_session_response_pins_empty_envelope() {
         // Sprint 77 Phase J. No live shard-session store exists yet (the
         // `sbfb/shard/1` data plane is not wired to a control-plane registry —
-        // Phase K+), so EVERY id misses and the route answers a deterministic
+        // a tracked S78 carry), so EVERY id misses and the route answers a deterministic
         // empty envelope. 200 + `{found:false, session:null}`, NEVER a 404: the
         // frontend Zod schema is `.strict()` on the envelope and a miss must be a
         // SUCCESSFUL parse (seed_count precedent), not a transport error. The
@@ -5288,7 +5289,7 @@ mod tests {
         assert_eq!(
             json.as_object().unwrap().len(),
             2,
-            "view = exactly {{session_id, member_count}} — runtime status/level are Phase K (additive)"
+            "view = exactly {{session_id, member_count}} — runtime status/level are additive fields"
         );
     }
 

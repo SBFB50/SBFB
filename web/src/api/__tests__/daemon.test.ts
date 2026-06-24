@@ -1036,7 +1036,7 @@ describe("getShardSession", () => {
 
   it("tolerates an additive field on the session ROW (rows NOT strict)", () => {
     // Pre-launch policy adds runtime fields (pipeline_status, verification_level
-    // — Phase K) additively with 0 bump; the FIRST additive Rust field must not
+    // — an S78 carry) additively with 0 bump; the FIRST additive Rust field must not
     // brick the panel. Unknown keys are STRIPPED (Zod default object behaviour).
     const parsed = ShardSessionStatusResponseSchema.parse({
       found: true,

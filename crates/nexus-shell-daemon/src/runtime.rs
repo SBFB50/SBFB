@@ -206,10 +206,11 @@ pub struct DaemonStartOptions {
 /// state and the gossip task, so from the `cargo build` main
 /// binary's perspective it looks unused (the main code path
 /// only hands the clone off once and forgets about it). The
-/// test harness and Phase D browse path need access to it
-/// through [`DaemonRuntime::curator_runtime`], so the field is
-/// explicitly allowed as dead_code. Phase D will reach into it
-/// to filter browse entries by the current attention set.
+/// test harness and the browse path reach it through
+/// [`DaemonRuntime::curator_runtime`], so the field is
+/// explicitly allowed as dead_code: the main binary hands the
+/// clone off to the HTTP + gossip state, where the `/browse`
+/// aggregation consumes it (attention-set + directory snapshot).
 pub struct DaemonRuntime {
     node: Option<Arc<Node>>,
     #[allow(dead_code)]

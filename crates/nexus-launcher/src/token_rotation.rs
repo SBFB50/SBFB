@@ -21,10 +21,9 @@
 //!
 //! Wiring the rotator through the daemon HTTP router (swap the
 //! static [`nexus_shell_daemon_core::auth::AuthState`] for the
-//! rotator) is deliberately *not* part of Phase D; it requires
-//! a file-watcher story the Sprint 18 plan defers to Phase F or
-//! Sprint 19 — tracked as a carry-over. Phase D ships the
-//! primitive and the file format.
+//! rotator) is deliberately out of scope here; it requires a
+//! file-watcher story that remains a tracked carry-over. This
+//! module ships the rotation primitive and the file format.
 
 use std::path::PathBuf;
 use std::sync::Arc;

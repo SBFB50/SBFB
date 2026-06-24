@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Tor transport wrapper (arti-client, feature-gated).
 //!
-//! Phase 1 scope: coordinator outbound TCP via Tor. Config opt-in
+//! Scope today: coordinator outbound TCP via Tor. Config opt-in
 //! (disabled by default). Fallback to direct if Tor is unavailable.
-//! Phase 2 will hold the `TorClient` handle for actual connections.
+//! Holding the `TorClient` handle for actual connection routing is
+//! not yet wired (the bootstrap handle is dropped after probing).
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -121,8 +122,9 @@ impl TorTransport {
             Ok(Ok(_client)) => {
                 tracing::info!("Tor client bootstrapped");
                 self.available.store(true, Ordering::Relaxed);
-                // Phase 1: client handle dropped here. Phase 2 will
-                // store it for actual connection routing.
+                // The bootstrapped client handle is dropped here;
+                // storing it for actual connection routing is not
+                // yet wired.
             }
             Ok(Err(e)) => {
                 tracing::warn!("Tor bootstrap failed, falling back to direct: {e}");

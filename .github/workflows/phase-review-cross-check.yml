@@ -2,12 +2,15 @@
 #
 # Phase review cross-check — Sprint 22 Phase F P2-S21-5 fix.
 #
-# Parses `git log master..HEAD` for commits matching
-# `feat(sprintNN): Phase X — ...` and verifies that a matching
-# `.planning/active/sprint{N}_phase_{X}_review.md` file exists
-# in the commit diff OR in `.planning/archive/v*/`. Fails the
+# Parses `git log master..HEAD` for phase commits matching
+# `<type>(<scope>): Sprint N Phase X — ...` (any conventional-commit
+# type: feat/fix/docs/chore/refactor/test) and verifies that a
+# matching `.planning/active/sprint{N}_phase_{x}_review.md` file
+# exists in the commit diff OR in `.planning/archive/v*/`. Fails the
 # check if the review file is missing (signals a bypass of the
-# phase-auditor-gate hook).
+# phase-auditor-gate hook). NOTE: the review filename uses the
+# LOWERCASE phase letter (e.g. sprint79_phase_b_review.md), so the
+# phase extracted from the subject is lowercased before the lookup.
 #
 # Trigger: pull_request to master. Does NOT run on push (master
 # commits are post-audit). Complements the pre-commit hook
@@ -44,19 +47,19 @@ jobs:
 
           echo "Auditing range: $base_sha..$head_sha"
 
-          # Extract feat(sprintNN): Phase X commits.
+          # Extract <type>(<scope>): Sprint N Phase X commits.
           phase_commits=$(git log --format='%H %s' "$base_sha..$head_sha" \
-            | grep -E 'feat\(sprint[0-9]+\): Phase [A-F]' || true)
+            | grep -E '^[0-9a-f]+ [a-z]+(\([a-z0-9_+-]+\))?: Sprint [0-9]+ Phase [A-Z]+[0-9]?' || true)
 
           if [[ -z "$phase_commits" ]]; then
-            echo "No phase feat commits in range — nothing to check."
+            echo "No phase commits in range — nothing to check."
             echo "has_phases=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "has_phases=true" >> "$GITHUB_OUTPUT"
           echo "$phase_commits" > /tmp/phase_commits.txt
-          echo "Found $(wc -l < /tmp/phase_commits.txt) phase feat commits"
+          echo "Found $(wc -l < /tmp/phase_commits.txt) phase commits"
           cat /tmp/phase_commits.txt
 
       - name: Verify review.md presence per phase
@@ -71,22 +74,23 @@ jobs:
             subject=$(echo "$line" | cut -d' ' -f2-)
 
             # Parse sprint number + phase letter from subject.
-            sprint=$(echo "$subject" | sed -nE 's/feat\(sprint([0-9]+)\): Phase ([A-F]).*/\1/p')
-            phase=$(echo "$subject" | sed -nE 's/feat\(sprint([0-9]+)\): Phase ([A-F]).*/\2/p')
+            sprint=$(echo "$subject" | sed -nE 's/^[a-z]+(\([a-z0-9_+-]+\))?: Sprint ([0-9]+) Phase ([A-Z]+[0-9]?).*/\2/p')
+            phase=$(echo "$subject" | sed -nE 's/^[a-z]+(\([a-z0-9_+-]+\))?: Sprint ([0-9]+) Phase ([A-Z]+[0-9]?).*/\3/p')
 
             if [[ -z "$sprint" || -z "$phase" ]]; then
               echo "::warning::Could not parse sprint/phase from: $subject"
               continue
             fi
 
-            review_active=".planning/active/sprint${sprint}_phase_${phase}_review.md"
-            review_archive=$(find .planning/archive -name "sprint${sprint}_phase_${phase}_review.md" 2>/dev/null | head -1)
+            phase_lc=$(echo "$phase" | tr '[:upper:]' '[:lower:]')
+            review_active=".planning/active/sprint${sprint}_phase_${phase_lc}_review.md"
+            review_archive=$(find .planning/archive -name "sprint${sprint}_phase_${phase_lc}_review.md" 2>/dev/null | head -1)
 
             if [[ -f "$review_active" ]] || [[ -n "$review_archive" ]]; then
               echo "✅ Sprint $sprint Phase $phase — review present ($sha)"
             else
               echo "❌ Sprint $sprint Phase $phase — review MISSING ($sha)"
-              missing_reviews+=("sprint${sprint}_phase_${phase}_review.md ($sha)")
+              missing_reviews+=("sprint${sprint}_phase_${phase_lc}_review.md ($sha)")
             fi
           done < /tmp/phase_commits.txt
 

@@ -101,9 +101,9 @@ pub enum FrostError {
 /// A single FROST K-of-N share held by one participant.
 ///
 /// In the Phase E.2 in-process scaffolding, the
-/// [`FrostCanarySigner`] holds all `N` of these locally; the
-/// distribution layer (Sprint 25-30) will move them onto K
-/// independent maintainer machines.
+/// [`FrostCanarySigner`] holds all `N` of these locally; moving
+/// them onto K independent maintainer machines (the distribution
+/// layer) is tracked future work, not yet built.
 #[derive(Debug, Clone)]
 pub struct FrostKeyShare {
     pub identifier: Identifier,

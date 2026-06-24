@@ -20,12 +20,13 @@
 //! - `start` — singleton check → iroh node boot → HTTP serve on
 //!   an ephemeral loopback port → `running.json` write → block
 //!   on ctrl+c → graceful shutdown.
-//! - `stop` / `status` / `config` — stubs that land in Phase E
-//!   alongside the coordinator proxy.
+//! - `stop` / `status` / `config` — stubs (they print a "not yet
+//!   implemented" pointer; the wiring never shipped).
 //!
-//! Phase C adds the curator gossip subscribe pipeline; Phase D
-//! adds pkarr browse resolution; Phase E adds the coordinator
-//! proxy + the shell pages. **None of those are in Phase A.**
+//! Later phases layered on the curator gossip subscribe pipeline
+//! (Phase C), pkarr browse resolution (Phase D), and the
+//! coordinator proxy + shell pages (Phase E). **None of those
+//! were in the Phase A foundation.**
 
 mod apps;
 mod canary_api;

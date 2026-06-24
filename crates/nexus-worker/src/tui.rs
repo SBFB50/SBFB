@@ -167,10 +167,10 @@ pub async fn run_tui(mut engine: Engine, worker_config: WorkerConfig, db: Allowl
     ui.tick_projects(&db);
 
     // Live GPU snapshots cannot run from here because the
-    // Engine was moved into engine_task. W9.1 will introduce a
-    // `tokio::sync::watch<Vec<GpuStats>>` broadcast on the
-    // Engine so the TUI can subscribe. Until then we render
-    // only the static gpu_info (name + total VRAM) collected
+    // Engine was moved into engine_task. A
+    // `tokio::sync::watch<Vec<GpuStats>>` broadcast on the Engine
+    // (so the TUI could subscribe) is not yet wired; until then we
+    // render only the static gpu_info (name + total VRAM) collected
     // at boot.
     let loop_result = render_loop(&mut terminal, &mut ui, state_rx, shutdown_tx, &db).await;
 
@@ -449,8 +449,8 @@ fn render_gpu(f: &mut Frame<'_>, area: Rect, ui: &UiState) {
             Style::default().fg(Color::DarkGray),
         )));
 
-        // Live stats will land with W9.1 (gpu_stats watch
-        // channel on the engine). For now we render the static
+        // Live GPU stats (a gpu_stats watch channel on the engine)
+        // are not wired yet; for now we render the static
         // info from the boot probe.
         lines.push(Line::from(""));
     }
