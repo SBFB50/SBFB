@@ -1,0 +1,840 @@
+{
+  "matrix_synthesis": {
+    "cross_products": [
+      {
+        "combo": [
+          "createTimer.onUpdate",
+          "utils.damp",
+          "animatable.property.getter"
+        ],
+        "why_interesting": "Le couplage damp (frame-rate independant) avec un getter d'animatable permet de DERIVER une grandeur secondaire (acceleration = delta de la vitesse lue frame-a-frame) et de la reinjecter. La vitrine utilise lerp/damp en suivi simple mais jamais en cascade derivative multi-couches : c'est un pont vers de la physique fake sans solveur de ressort.",
+        "novelty_class": "unexplored",
+        "example_idea": "8 anneaux SVG peints en var(--accent). Un createAnimatable suit une cible auto-pilotee (sin/cos de currentTime d'un Timer, 0 pointeur). Chaque frame un createTimer lit la valeur, calcule la vitesse via damp puis l'acceleration au meme procede, et mappe |acceleration| sur scale+rotation. Les anneaux ne s'etirent que dans les phases d'a-coup. prefers-reduced-motion: l'auto-pilote pose l'etat median fixe."
+      },
+      {
+        "combo": [
+          "ease.irregular",
+          "value.functionBased",
+          "utils.stagger"
+        ],
+        "why_interesting": "irregular() par-CIBLE (une courbe irregular distincte par index via ease:(el,i)=>irregular(...)) donne a chaque element son propre rythme casse, signature impossible avec un ease nomme. La vitrine n'utilise irregular qu'en playbackEase global (typewriter), jamais en ease individualise par cible.",
+        "novelty_class": "unexplored",
+        "example_idea": "Une grille 12x12 de barres var(--bar). translateY:[0,'-40px'] avec ease:(el,i)=>animeIrregular(6, 0.15+ (i%5)*0.12) : la rugosite augmente par colonne. Stagger grid from:'center'. Resultat: vague qui part lisse au centre et devient saccadee aux bords, un seul tween, deterministe via seed. reduced-motion: opacity-only."
+      },
+      {
+        "combo": [
+          "ease.linear",
+          "svg.createDrawable",
+          "keyframes.array"
+        ],
+        "why_interesting": "Donner a 'draw' un ease.linear() a points irreguliers (0,0.05,0.4,0.42,1) fait HESITER le trace puis foncer = calligraphie procedurale. La vitrine fait du draw stagger et des draw-keyframes de fractions mais jamais couple a un piecewise-linear qui dessine le PROFIL temporel du trait lui-meme.",
+        "novelty_class": "fresh",
+        "example_idea": "Une signature manuscrite en un seul path createDrawable, draw:'0 1' avec ease=animeLinear(0,0.04,0.06,0.5,0.52,0.9,1) : le stylo demarre, marque deux pauses (les leves de plume), repart vite. Coupler strokeWidth keyframes [1,3,1] pour l'epaisseur de pression. reduced-motion: draw pose direct a '0 1'."
+      },
+      {
+        "combo": [
+          "composition.add",
+          "ease.spring",
+          "value.functionBased"
+        ],
+        "why_interesting": "Empiler sur la MEME prop un tween de base (slide spring) + un tween additif de bruit haute-frequence (sin) via composition:'add', chacun function-based par cible. La vitrine fait du blend additif pour des particules mais pas la decomposition 'porteuse spring + modulation bruit' sur un meme element UI.",
+        "novelty_class": "fresh",
+        "example_idea": "Une carte qui entre : animate(card,{translateY:[60,0], ease:spring({bounce:.4})}) PLUS animate(card,{translateY:'+=0', composition:'add'}) ou le second a un keyframes sin de +-2px en loop:true frequence rapide = la carte 'respire' nerveusement pendant qu'elle se pose, puis garde le micro-tremblement idle. reduced-motion: seul le tween porteur, sans la couche add."
+      },
+      {
+        "combo": [
+          "createAnimatable",
+          "stagger (as duration)",
+          "utils.degToRad"
+        ],
+        "why_interesting": "Le stagger comme DUREE de setter (pas comme delay) cree un lag radial sans timer ni boucle (cf animatable-follow-cursor). Mais la vitrine ne combine pas ce lag-par-distance avec une cible AUTO-pilotee trigonometrique : on peut produire un champ qui ondule en continu, 0 pointeur, donc compatible iframe inerte.",
+        "novelty_class": "fresh",
+        "example_idea": "441 points en grille. createAnimatable x/y avec duration=stagger grid from:'center'. Un Timer loop pousse en continu une cible circulaire (rayon*cos/sin de currentTime). Comme la duree de suivi est radiale, l'onde se propage du centre vers les bords avec un retard physique pur. unit:'turn' sur une 3e prop rotate pour des spins differes. reduced-motion: cible figee au centre."
+      },
+      {
+        "combo": [
+          "timeline.stretch",
+          "createTimer",
+          "controls.timelineState (speed setter)"
+        ],
+        "why_interesting": "Animer la DUREE d'une timeline (stretch) ou son speed via un autre timer cree une 'dilatation temporelle' progressive sur une sequence entiere. La vitrine anime currentTime et speed (clock-playback) mais n'anime jamais stretch() en continu pour un speed-ramp fluide d'orchestration.",
+        "novelty_class": "unexplored",
+        "example_idea": "Une timeline de montage (5 plans SVG var(--ink)). Un createTimer separe ease un facteur de 1.0->0.15->1.0 (inOutSine) applique via tl.stretch(base/factor) toutes les N frames : la sequence ralentit jusqu'au quasi-arret au climax puis repart = bullet-time narratif sans toucher les children. reduced-motion: stretch fige a 1.0."
+      },
+      {
+        "combo": [
+          "text.scrambleText",
+          "callbacks.onUpdate (onChange)",
+          "tween.property.cssVar"
+        ],
+        "why_interesting": "Le hook onChange de scrambleText peut piloter une CSS var --glitch a chaque rafraichissement de glyphe, et cette var nourrit un conic-gradient/clip-path consomme par d'autres elements. La vitrine fait scramble+audio tick mais jamais scramble->CSS var->repaint d'elements tiers (orchestration centralisee 1 var -> N consommateurs).",
+        "novelty_class": "unexplored",
+        "example_idea": "Un titre scrambleText from:'random' seed fixe. onChange ecrit --decode-noise = (compteur%7)/7 sur :root. Un fond clip-path:polygon() et un degrade conic consomment --decode-noise : le fond 'grezille' EXACTEMENT au rythme du decodage du texte, zero timeline supplementaire. reduced-motion: texte final pose, --decode-noise=0."
+      },
+      {
+        "combo": [
+          "layout.createLayout",
+          "ease.spring",
+          "utils.shuffle (seeded)"
+        ],
+        "why_interesting": "FLIP (createLayout.update) sur une grille re-triee par un shuffle seede deterministe + spring par enfant = 'magic move' reproductible en iframe. La vitrine entiere n'utilise createLayout dans AUCUN exemple-banque hors le test dedie : c'est une primitive quasi-vierge cote vitrine.",
+        "novelty_class": "unexplored",
+        "example_idea": "16 tuiles de donnees simulees (valeurs locales). Un Timer loop appelle layout.update(()=>shuffle(tiles, seededRng) puis reorder DOM) toutes les 2.5s, ease spring({bounce:.3}) par tuile via stagger delay : les cartes glissent fluidement vers leurs nouvelles cases, sans jamais se telporter. enterFrom scale .8. reduced-motion: update sans animation (duration:0)."
+      },
+      {
+        "combo": [
+          "svg.createMotionPath",
+          "svg.morphTo",
+          "timeline.add"
+        ],
+        "why_interesting": "Faire courir un objet sur un rail (motion-path) PENDANT que ce rail lui-meme morphe (morphTo sur le path du rail) : trajectoire + contenant evoluent ensemble = trajectoire impossible a scripter. La vitrine fait motion-path et morph separement, jamais imbriques sur le meme path en simultane.",
+        "novelty_class": "unexplored",
+        "example_idea": "Un point lumineux (cercle var(--spark)) suit createMotionPath('#rail'). Dans la meme timeline, animate('#rail',{d: morphTo('#rail-2')}) deforme le rail d'une vague vers une boucle. timeline.refresh() apres morph pour re-echantillonner getPointAtLength. Le point semble surfer une corde vivante. reduced-motion: rail statique, point pose a 50%."
+      },
+      {
+        "combo": [
+          "utils.wrap (modifier)",
+          "tween.relative",
+          "composition.add"
+        ],
+        "why_interesting": "wrap en modifier sur un rotate relatif '+=2turn' donne une rotation infinie SANS accumulation numerique, et composition:'add' permet d'y superposer un wobble. La vitrine utilise wrap pour le carrousel infini mais pas en combinaison rotate-relatif+wobble-additif pour un objet en spin perpetuel module.",
+        "novelty_class": "fresh",
+        "example_idea": "Un engrenage SVG (var(--metal)). Tween 1: rotate:'+=1turn' loop:true ease:linear, modifier:wrap(0,360). Tween 2 composition:'add': rotate keyframes sin +-4deg loop rapide = le spin constant porte un leger jeu mecanique (backlash). reduced-motion: rotation lente lineaire seule, pas de wobble."
+      },
+      {
+        "combo": [
+          "utils.createSeededRandom",
+          "callbacks.onLoop",
+          "controls.refresh"
+        ],
+        "why_interesting": "refresh() dans onLoop re-evalue les valeurs function-based : avec un RNG seede partage, chaque cycle RE-RANDOMISE de facon deterministe-mais-jamais-identique. La vitrine fait onLoop+refresh (starlings) mais sans RNG seede explicite => non reproductible. Le seed rend l'animation generative IDENTIQUE a chaque chargement d'iframe.",
+        "novelty_class": "fresh",
+        "example_idea": "30 petales (var(--bloom)). Positions function-based piochees dans un seededRandom(1234). loop:true, onLoop:()=> reseed depuis un compteur puis self.refresh() : a chaque boucle les petales se reorganisent en un motif different mais la SEQUENCE complete est identique a chaque rechargement de l'iframe (preview reproductible). reduced-motion: une seule pose, pas de loop."
+      },
+      {
+        "combo": [
+          "waapi.convertEase",
+          "ease.irregular",
+          "tween.property.cssVar"
+        ],
+        "why_interesting": "Echantillonner irregular() en chaine CSS linear() via convertEase, puis l'appliquer comme transition CSS pure sur des elements NON animes par JS = courbe procedurale impossible a la main, en compositing GPU, sans cout par-frame. La vitrine n'exploite jamais convertEase pour generer une banque de linear() reutilisee en CSS statique.",
+        "novelty_class": "unexplored",
+        "example_idea": "Au boot, convertEase(animeIrregular(8,0.4)) produit une string linear(...). On l'injecte dans une CSS var --ease-glitch sur :root. 40 elements ont transition:transform .6s var(--ease-glitch) et basculent une classe via un Timer : tous bougent avec le MEME jitter procedural, 0 animation JS par frame. reduced-motion: --ease-glitch=linear, transitions courtes."
+      },
+      {
+        "combo": [
+          "text.splitText (clone+clip)",
+          "ease.steps",
+          "utils.stagger (grid)"
+        ],
+        "why_interesting": "Combiner clone:'top'+wrap:'clip' (rouleau de glyphes) avec un ease.steps faible et un stagger grid 2D produit un afficheur split-flap / panneau de gare par caractere. La vitrine fait clone-clip (split-playground) et steps (sprite) mais jamais leur croisement en grille pour un effet mecanique split-flap.",
+        "novelty_class": "fresh",
+        "example_idea": "Un mot decoupe par char, chaque char clone:'bottom' wrap:'clip'. translateY 0->-100% du wrapper avec ease:steps(3) (le glyphe 'cliquete' en 3 paliers comme une palette qui tombe), stagger 2D from:'first' axis:'x'. Boucle alternate avec scrambleText du texte cible entre deux passes. reduced-motion: texte final, pas de flip."
+      },
+      {
+        "combo": [
+          "engine.globalControls (speed)",
+          "ease.spring",
+          "utils.stagger"
+        ],
+        "why_interesting": "Animer engine.speed lui-meme (ramp 1->0.1) applique un bullet-time GLOBAL a toute la scene d'un coup, par-dessus des springs et staggers locaux intacts. Aucun exemple-banque n'anime engine.speed (seul engine.fps/speed sont LUS dans playback) : c'est une dimension d'orchestration globale inexploitee.",
+        "novelty_class": "unexplored",
+        "example_idea": "Une explosion de 60 eclats (var(--shard)) lances en spring stagger. Un Timer dedie ease engine.speed de 1->0.08->1 sur 1.2s declenche a mi-vol : toute la scene passe au ralenti puis reprend, springs compris, sans recoder une seule animation. reduced-motion: engine.speed reste a 1, eclats en fondu simple."
+      },
+      {
+        "combo": [
+          "draggable.velocity_angle",
+          "tween.property.cssVar",
+          "utils.mapRange"
+        ],
+        "why_interesting": "Projeter self.velocity d'un draggable dans une CSS var --energy (mappee/clampee) qui pilote un glow STATIQUE sur ::after (opacity, jamais box-shadow anime) = l'objet 's'echauffe' selon l'energie du geste, conforme composite-safe. La vitrine mentionne velocity->glow mais aucun exemple ne le cable via CSS var consommee par un degrade.",
+        "novelty_class": "fresh",
+        "example_idea": "Un palet draggable. onDrag/onUpdate: setProperty('--energy', mapRange(clamp(self.velocity)) ). Le ::after a opacity:var(--energy) et un radial-gradient var(--hot). Plus on lance vite, plus la trainee chaude est intense, sans animer box-shadow. onRelease: animate --energy ->0 en spring. reduced-motion: drag desactive, etat statique."
+      },
+      {
+        "combo": [
+          "keyframes.percent",
+          "playbackEase",
+          "tween.property.cssVar"
+        ],
+        "why_interesting": "Des @keyframes-style % sur une var --progress, re-time globalement par un playbackEase irregulier, la var nourrissant un conic-gradient/clip-path. La vitrine fait des % keyframes mais jamais pilotant UNE var de progression consommee par des effets CSS impossibles a tweener (conic, clip).",
+        "novelty_class": "fresh",
+        "example_idea": "Une jauge circulaire: --p anime en keyframes {'0%':0,'60%':0.9,'62%':0.55,'100%':1} (depasse puis recule), playbackEase:irregular(5,.3). conic-gradient(var(--fill) calc(var(--p)*360deg), transparent 0). La jauge monte par a-coups organiques, recule, finit. reduced-motion: --p pose a 1."
+      },
+      {
+        "combo": [
+          "utils.roundPad",
+          "value.functionBased",
+          "callbacks.onUpdate"
+        ],
+        "why_interesting": "Un compteur anime via modifier:roundPad(2) sur une valeur derivee en onUpdate d'une autre animation = un afficheur stable a largeur fixe couple a un visuel. La vitrine fait des compteurs innerHTML (50K-stars, svg-graph) mais sans roundPad/padStart pour la largeur fixe anti-jitter, ni couple a une grandeur derivee d'animation.",
+        "novelty_class": "fresh",
+        "example_idea": "Un cadran qui suit la 'distance parcourue' d'un objet sur un motion-path : onUpdate lit la progress du motion-tween, l'integre, et ecrit innerHTML via modifier roundPad(1)+padStart(6,'0') : '004.7'. Les chiffres defilent sans faire sauter la mise en page. reduced-motion: valeur finale posee."
+      },
+      {
+        "combo": [
+          "timeline.call",
+          "timeline.label",
+          "text.TextSplitter.refresh"
+        ],
+        "why_interesting": "Poser un call() sur un label nomme qui declenche un re-split (refresh) du texte avec une nouvelle phrase = narration procedurale recalable en un point. La vitrine fait scramble-trailer par positions relatives mais n'utilise jamais call()+label pour re-splitter du texte a un beat editorial deplaçable.",
+        "novelty_class": "unexplored",
+        "example_idea": "Une timeline avec labels 'intro','twist','outro'. call(fn,'twist') reecrit textContent puis splitter.refresh() et relance un reveal par char (stagger from:'center'). Deplacer le label 'twist' re-chorégraphie tout le timing. reduced-motion: phrases posees sans reveal."
+      },
+      {
+        "combo": [
+          "timeline.sync",
+          "controls.timelineState (progress as prop)",
+          "ease.spring"
+        ],
+        "why_interesting": "Piloter la progress d'une SOUS-timeline comme une simple prop animable depuis la parente ouvre un time-remapping recursif (ralentir/accelerer une sous-sequence entiere avec un spring). La vitrine fait du sync imbrique (timeline-nested) mais n'anime pas la progress d'une enfant en spring pour un remapping elastique.",
+        "novelty_class": "unexplored",
+        "example_idea": "Une sous-timeline 'logo morph' synced. La parente fait animate(subTl,{progress:[0,1], ease:spring({bounce:.5})}) : la sous-sequence entiere joue avec un overshoot temporel (depasse la fin, revient) = la sequence elle-meme rebondit dans le temps. reduced-motion: progress lineaire, pas de spring."
+      },
+      {
+        "combo": [
+          "ease.cubicBezier (illegal Y)",
+          "tween.property.transform",
+          "utils.stagger"
+        ],
+        "why_interesting": "Des points de controle bezier 'illegaux' (Y negatif ou >1) creent anticipation+overshoot precis et REPRODUCTIBLES, contrairement a elastic/back parametres. La vitrine utilise cubicBezier (logos) mais pas en exploitant deliberement les Y hors-borne en stagger pour une signature de courbe maison.",
+        "novelty_class": "fresh",
+        "example_idea": "Liste de 9 items qui entrent: translateX:[40,0] avec cubicBezier(.2,1.6,.3,-0.4) (depasse vers l'avant puis recule sous zero avant settle), stagger from:'last' ease:'outQuad' sur les delays. Mouvement 'fouet' net, identique a chaque run. reduced-motion: items poses, opacity fade."
+      },
+      {
+        "combo": [
+          "utils.snap (array non-uniforme)",
+          "utils.stagger (modifier)",
+          "ease.steps"
+        ],
+        "why_interesting": "snap sur un tableau de points NON uniformes (gamme musicale, ancres narratives) en modifier de stagger quantifie les delais sur des 'temps' irreguliers = cascade rythmique musicale. La vitrine fait snap de drag mais jamais snap-array-non-uniforme comme modifier de stagger pour un groove.",
+        "novelty_class": "unexplored",
+        "example_idea": "16 blocs (var(--key)). Stagger delay [0,1600] avec modifier:snap([0,180,180,360,720,760,1200,1600]) : les blocs ne s'allument pas regulierement mais sur un motif rythmique syncope (doubles-croches groupees). scale steps(2). reduced-motion: tous poses ensemble."
+      },
+      {
+        "combo": [
+          "events.onScroll (sync:Number)",
+          "timeline.label",
+          "controls.seek"
+        ],
+        "why_interesting": "Lier une timeline a labels au scroll avec sync:Number (momentum inertiel) ou chaque label = un beat narratif = scrollytelling amorti. La vitrine fait onScroll sticky/sync mais SBFB iframe a un scroll limite ; un faux-scroll local (Timer pseudo-position) permet le meme scrub sans dependre du scroll reel.",
+        "novelty_class": "fresh",
+        "example_idea": "Pas de vrai scroll (iframe inerte): un Timer simule une 'position' 0->1 en boucle alternate, mappee sur tl.seek(pos*duration). La timeline a labels 'chap1/2/3' fait avancer des plans SVG. Le sync:Number inertiel s'imite via damp sur pos. reduced-motion: pose au premier label."
+      },
+      {
+        "combo": [
+          "utils.keepTime",
+          "scope.createScope (mediaQueries)",
+          "timeline.createTimeline"
+        ],
+        "why_interesting": "keepTime reconstruit une timeline au changement de breakpoint SANS perdre la phase de lecture (l'anim ne 'saute' pas au resize de l'iframe). La vitrine a timekeeper/scope mais c'est sous-exploite : pour une iframe SBFB redimensionnable, c'est LE pattern de continuite visuelle responsive.",
+        "novelty_class": "fresh",
+        "example_idea": "Une animation d'ambiance (orbites var(--orbit)) dans createScope avec mediaQueries sm/md. self.keepTime(()=>createTimeline(...)) : quand l'utilisateur redimensionne l'iframe, l'orbite passe de layout horizontal a vertical mais continue exactement a sa phase. mediaQuery 'reduced' pose l'etat final. reduced-motion natif honore."
+      },
+      {
+        "combo": [
+          "animate (objet JS)",
+          "createTimer (render loop)",
+          "utils.lerp"
+        ],
+        "why_interesting": "Animer des objets JS purs et peindre soi-meme un canvas 2D decouple le moteur de tweening du rendu : signature non-DOM totale. La vitrine a canvas-2d et color-trail mais c'est un combo a re-mettre en avant car il echappe a tout cliche DOM/SVG et reste 100% local (0 reseau).",
+        "novelty_class": "fresh",
+        "example_idea": "Champ de 300 points en objets {x,y,h}. animate chacun vers des cibles re-tirees onComplete (seededRandom). Un createTimer peint un canvas: trail via fillRect alpha .08 + globalCompositeOperation:'lighter'. lerp pour adoucir. Couleurs en hsl par h. reduced-motion: une seule frame statique du champ."
+      },
+      {
+        "combo": [
+          "draggable.progressX_progressY",
+          "controls.seek",
+          "ease.linear (piecewise)"
+        ],
+        "why_interesting": "progressX d'un draggable pilote tl.seek avec une ease piecewise appliquee a la valeur AVANT injection = sensibilite variable (zones mortes, acceleration) sur un scrub manuel. La vitrine fait drag->progress->timeline (drawer) mais sans remapping non-lineaire piecewise du progress.",
+        "novelty_class": "fresh",
+        "example_idea": "Un curseur draggable horizontal. progressX passe par animeLinear(0,0,0.3,0.3,0.7,0.7,1) avant tl.seek : zones plates au debut/fin (le scrub 'colle' aux extremes), reactif au centre. La timeline anime un storyboard SVG. reduced-motion: drag desactive, slider clavier alternatif."
+      },
+      {
+        "combo": [
+          "tween.property.color (sqrt-lerp)",
+          "value.functionBased (HSL palette)",
+          "utils.stagger"
+        ],
+        "why_interesting": "Le blending RGB gamma-correct (sqrt-lerp) d'anime donne des degrades animes perceptuellement plus riches que le CSS ; coupler une palette HSL calculee par index function-based + stagger = arc-en-ciel procedural premium. La vitrine fait des couleurs cross-format et hsl-by-index mais pas en exploitant explicitement la richesse du sqrt-lerp comme argument esthetique.",
+        "novelty_class": "fresh",
+        "example_idea": "Bande de 24 segments. backgroundColor function-based: from=hsl(i*15,70,50) to=hsl(i*15+40,80,60), stagger from:'center' ease:'inOutSine'. La transition traverse des teintes intermediaires riches (sqrt-lerp) plutot que de passer par un gris. reduced-motion: couleurs cibles posees."
+      }
+    ],
+    "novelty_levers": [
+      {
+        "lever": "modifier procedural par-frame (quantize/sin/bruit) sur n'importe quelle prop",
+        "description": "modifier:(v)=>... transforme la valeur lerpee AVANT ecriture. C'est le levier de non-genericite le plus transversal : il s'applique a transform, color, unit, cssVar, attrs SVG, objets JS. La vitrine l'emploie surtout pour snap/round et currentTime-sine (additive-creature, starlings).",
+        "primitives": [
+          "animate",
+          "value.functionBased",
+          "utils.snap",
+          "utils.wrap",
+          "utils.degToRad"
+        ],
+        "how_to_push": "Au lieu d'un snap simple, composer un PIPE callable (mapRange->clamp->snap-array-non-uniforme->ajout d'un sin(v*k) d'amplitude decroissante) et le reutiliser comme modifier ET comme transfert de stagger. Pousser vers du bruit 1D deterministe (table seedee) plutot que Math.random, pour un grain reproductible en iframe."
+      },
+      {
+        "lever": "points custom de ease.linear() / irregular() comme courbe de timing dessinee main",
+        "description": "linear() piecewise permet paliers (pause), reculs (y decroissant), micro-rebonds ; irregular() est linear() a x aleatoires. C'est ce qu'aucun ease nomme ne fait. La vitrine n'utilise irregular qu'en playbackEase global.",
+        "primitives": [
+          "ease.linear",
+          "ease.irregular",
+          "ease.parseEase",
+          "waapi.convertEase"
+        ],
+        "how_to_push": "Generer les points depuis un signal echantillonne (forme d'onde sin+harmoniques, ou bruit 1D seede) pour synchroniser le mouvement a une 'donnee' simulee localement. Donner a CHAQUE cible d'un stagger sa propre irregular() via ease:(el,i)=>... Echantillonner ces courbes via convertEase en CSS linear() reutilisable en transition statique (GPU, 0 cout/frame)."
+      },
+      {
+        "lever": "stagger grid 2D + jitter rampant + from fractionnaire/data-driven",
+        "description": "Le coeur du stagger procedural : grille auto-mesuree, axis signe, from:[0.73,0.21] origine arbitraire, jitter croissant seede, use:(t,i)=>donnee pour ordonner par valeur metier simulee. La vitrine maitrise grid/from/axis/range mais peu from fractionnaire et use:data-driven.",
+        "primitives": [
+          "utils.stagger",
+          "utils.createSeededRandom",
+          "value.functionBased",
+          "utils.snap"
+        ],
+        "how_to_push": "Ordonner la cascade par une DONNEE simulee (score, hash d'id) via use:, pas par l'ordre DOM. Jitter [0,N] croissant + seed = cascade qui devient chaotique vers la fin mais reproductible. Combiner from fractionnaire hors-centre + axis signe pour une vague oblique. Mettre un ease:spring SUR le stagger lui-meme (la distribution des delais rebondit, pas l'anim cible)."
+      },
+      {
+        "lever": "composition:'add' pour decomposer un mouvement en porteuse + modulation",
+        "description": "Empiler des tweens additifs sur la meme prop : une porteuse (slide/spring) + une modulation (sin haute frequence) = mouvement organique. La vitrine l'emploie pour des particules en nuee mais pas pour des elements UI individuels (carte qui respire en se posant).",
+        "primitives": [
+          "composition.add",
+          "ease.spring",
+          "value.functionBased",
+          "timing.loopAlternate"
+        ],
+        "how_to_push": "Sur un meme element : tween porteur one-shot spring + 1..3 tweens add en loop infini de frequences/phases differentes (sin lent + sin rapide + bruit) = mouvement Lissajous/organique jamais periodique a l'oeil. Declencher des impulsions additives onComplete pour accumuler une physique fake."
+      },
+      {
+        "lever": "scrub d'une timeline par une source non-temporelle (drag/faux-scroll/derivee)",
+        "description": "seek/progress comme fonction pure d'une position d'entree decouple l'animation de l'horloge. La vitrine fait drag->progress (drawer) et mouse->progress (tl-seek) mais l'iframe SBFB inerte invite un faux-scroll local et des remappings non-lineaires.",
+        "primitives": [
+          "controls.timelineState",
+          "draggable.progressX_progressY",
+          "controls.seek",
+          "events.onScroll",
+          "ease.linear"
+        ],
+        "how_to_push": "Remapper le progress par une ease piecewise AVANT seek (zones mortes, sensibilite variable). Amortir l'entree par damp (momentum inertiel frame-independant). Generer une fausse 'position' via un Timer alternate pour un scrub auto sans scroll reel, compatible iframe sans interaction."
+      },
+      {
+        "lever": "une seule CSS var animee orchestrant N consommateurs (conic/clip/calc)",
+        "description": "Animer --progress/--accent/--energy puis la consommer dans conic-gradient, clip-path, calc() repeint des dizaines d'elements impossibles a tweener directement. Pont SBFB obligatoire (SVG peint en var). La vitrine lit des vars mais n'en anime pas comme bus d'orchestration central.",
+        "primitives": [
+          "tween.property.cssVar",
+          "callbacks.onUpdate",
+          "keyframes.percent",
+          "tween.property.color"
+        ],
+        "how_to_push": "Faire piloter UNE var par un hook secondaire (scrambleText.onChange, draggable.velocity, motion-path progress) puis la consommer dans des effets CSS purs (conic-gradient angle, clip-path polygon, filter via opacity statique). 1 source -> N elements sans timeline supplementaire."
+      },
+      {
+        "lever": "valeurs/positions relatives (+=,-=,*=) et positions timeline symboliques (<,<<)",
+        "description": "Relatif rend l'anim agnostique a l'etat courant (part d'ou que ce soit) ; positions '<'/'<<+=N' accrochent au plan precedent sans connaitre les durees. La vitrine exploite bien '<<'/'-=N' dans les logos/trailers mais peu '*=' exponentiel.",
+        "primitives": [
+          "tween.relative",
+          "timeline.add",
+          "keyframes.array",
+          "utils.wrap"
+        ],
+        "how_to_push": "'*=2' pour espacer exponentiellement des entrees (cadence acceleree). Spins cumulatifs '+=2turn' en loop + wrap modifier pour rotation infinie propre. Keyframes relatifs chaines [{to:'+=10'},{to:'-=10'}] pour oscillations autour de la position courante, sans jamais lire l'etat."
+      },
+      {
+        "lever": "loop infini + onLoop:refresh() + RNG seede = generatif reproductible",
+        "description": "refresh() re-evalue les function-based ; avec un seededRandom partage, chaque cycle mute deterministiquement. La vitrine fait onLoop+refresh (starlings) mais sans seed => non reproductible entre chargements d'iframe.",
+        "primitives": [
+          "callbacks.onLoop",
+          "controls.refresh",
+          "utils.createSeededRandom",
+          "value.functionBased"
+        ],
+        "how_to_push": "Deriver le seed d'un compteur de boucle pour une SEQUENCE entiere identique a chaque chargement mais non-repetitive cycle-a-cycle. Plusieurs RNG seedes independants (un par calque) pour du bruit decorrele mais reproductible. C'est la cle d'une preview SBFB stable sans persistance."
+      },
+      {
+        "lever": "dilatation temporelle globale (engine.speed) et locale (stretch/sub-progress)",
+        "description": "Animer engine.speed = bullet-time sur TOUTE la scene ; animer stretch() ou la progress d'une sous-timeline = remapping local. Aucun exemple-banque n'anime engine.speed ni stretch en continu : dimension d'orchestration quasi-vierge.",
+        "primitives": [
+          "engine.globalControls",
+          "timeline.stretch",
+          "timeline.sync",
+          "controls.timelineState"
+        ],
+        "how_to_push": "Ramp engine.speed 1->0.08->1 declenche a un beat pour un ralenti global sans recoder une anim. Animer la progress d'une sous-timeline avec un spring (overshoot temporel: la sequence rebondit dans le temps). stretch() pilote par un slider/Timer pour speed-ramp d'une chorégraphie entiere."
+      },
+      {
+        "lever": "physique fake par damp/lerp derivative frame-independante",
+        "description": "damp donne un smoothing stable quel que soit le fps ; en chaine (vitesse->acceleration) il imite un ressort sans solveur. La vitrine fait du suivi lerp/damp simple mais pas de derivation multi-couches ni d'injection croisee de la grandeur derivee.",
+        "primitives": [
+          "utils.damp",
+          "utils.lerp",
+          "createTimer",
+          "animatable.property.getter",
+          "draggable.velocity_angle"
+        ],
+        "how_to_push": "Lire une valeur via getter, deriver vitesse puis acceleration par damp successifs, et reinjecter |acceleration| dans scale/skew/CSS var. Cascade de damp a factors croissants = trainee multi-couches. Auto-piloter la cible (sin/cos de currentTime) pour fonctionner sans pointeur dans une iframe inerte."
+      },
+      {
+        "lever": "morph + draw + motion-path imbriques sur un meme trace SVG",
+        "description": "draw (dessiner) pendant morphTo (deformer) sur le meme path, ou faire courir un motion-path sur un rail qui morphe : deux/trois tweens simultanes sur la meme geometrie. La vitrine fait ces primitives separement, jamais simultanement sur un trace partage.",
+        "primitives": [
+          "svg.createDrawable",
+          "svg.morphTo",
+          "svg.createMotionPath",
+          "timeline.refresh"
+        ],
+        "how_to_push": "Animer 'd' (morphTo) et 'draw' ensemble : la forme se dessine en se deformant. Faire courir createMotionPath sur un path lui-meme morphe puis timeline.refresh() pour re-echantillonner getPointAtLength. Respecter morphTo mono-trace (un seul path resolu) et motion-path cx=0 pour la CSP SBFB."
+      }
+    ],
+    "generic_vs_novel": {
+      "generic_patterns": [
+        "Stagger grid from:'center' + scale/opacity fade-in (vu partout : advanced-grid, stagger, waapi-composition) — devenu le 'hello world' du stagger",
+        "scrambleText sur un titre au load avec cursor par defaut — signature anime.js ultra-reconnaissable, sature",
+        "svg.createDrawable draw:'0 1' d'un logo au chargement — le cliche du 'logo qui se dessine'",
+        "spring sur une entree de carte (translateY+opacity) sans aucune couche additionnelle — correct mais attendu",
+        "morphTo en chaine A->B->C->A en boucle sur des formes geometriques simples — demo morph standard",
+        "Compteur innerHTML qui grimpe de 0 a N avec toLocaleString — pattern dashboard vu mille fois",
+        "onScroll sticky qui revele des cartes 3D rotateX — pattern scrollytelling sature (et limite en iframe SBFB)",
+        "sprite-sheet via steps() sur backgroundPosition — demo pedagogique classique",
+        "ease nomme outElastic/outBack en preset sans parametrage — 'pop' generique"
+      ],
+      "novel_directions": [
+        "irregular()/linear() piecewise INDIVIDUALISE par cible (ease:(el,i)=>...) plutot que global — chaque element son rythme casse, deterministe via seed",
+        "Decomposition porteuse+modulation via composition:'add' sur des elements UI uniques (respiration/backlash) et non seulement des nuees de particules",
+        "Bus d'orchestration par UNE CSS var animee consommee en conic-gradient/clip-path/calc — repaint massif sans timeline par element",
+        "Physique fake derivative (damp en cascade vitesse->acceleration) auto-pilotee, fonctionnant dans une iframe inerte sans pointeur",
+        "Dilatation temporelle (engine.speed anime, stretch anime, sub-timeline.progress en spring) comme effet d'orchestration jamais montre dans la banque",
+        "FLIP (createLayout) sur donnees simulees re-triees par shuffle seede — 'magic move' reproductible, primitive quasi-absente de la vitrine",
+        "convertEase(irregular/bruit) -> banque de CSS linear() appliquee en transition statique GPU, 0 cout/frame",
+        "Imbrication simultanee draw+morph+motion-path sur un meme trace SVG (trajectoire+contenant evoluent ensemble)",
+        "Generatif reproductible (onLoop+refresh+seededRandom) garantissant une preview identique a chaque chargement d'iframe",
+        "split-flap / panneau de gare par croisement clone-clip + steps + stagger 2D, au-dela du simple reveal de texte"
+      ]
+    },
+    "coverage_gaps": [
+      "layout.createLayout / AutoLayout.update (FLIP) : present uniquement dans le test dedie, AUCUN exemple-banque creatif — magic-move sur donnees simulees totalement inexploite",
+      "engine.globalControls : engine.speed/fps seulement LUS (playback) jamais ANIMES — bullet-time global et look stop-motion (fps cap bas) absents",
+      "timeline.stretch anime en continu (speed-ramp d'orchestration) — jamais utilise dynamiquement",
+      "composition:'add' sur des elements UI individuels (porteuse+modulation) — limite aux systemes de particules dans la banque",
+      "waapi.convertEase pour generer des CSS linear() reutilisees en transition statique — primitive jamais mise en oeuvre cote vitrine",
+      "ease.irregular / ease.linear piecewise par-CIBLE (function-based) — irregular n'apparait qu'en playbackEase global (typewriter)",
+      "tween.property.cssVar comme bus central animant conic-gradient/clip-path/calc consommes par N elements — vars seulement LUES, jamais animees comme orchestrateur",
+      "utils.damp en cascade derivative (vitesse->acceleration) et reinjection croisee — damp/lerp restent en suivi simple",
+      "utils.createSeededRandom couple a onLoop+refresh pour generatif reproductible — refresh present (starlings) mais sans seed",
+      "imbrication simultanee svg.morphTo + svg.createDrawable + svg.createMotionPath sur un meme trace — toujours separes",
+      "timeline.call + timeline.label declenchant TextSplitter.refresh (re-split a un beat editorial) — narration recalable inexploitee",
+      "sub-timeline.progress animee en spring (time-remapping recursif elastique) — sync imbrique present mais sans remapping temporel",
+      "utils.snap sur tableau NON-uniforme comme modifier de stagger (groove rythmique syncope) — snap limite au drag",
+      "utils.roundPad / padStart pour compteurs a largeur fixe anti-jitter — compteurs presents mais sans padding stable",
+      "ease.cubicBezier a points de controle Y hors-borne (anticipation/overshoot maison reproductible) — bezier utilise mais sans exploiter les Y illegaux",
+      "scope.createScope mediaQueries 'reduced' comme implementation propre de prefers-reduced-motion + keepTime pour continuite responsive de l'iframe — sous-exploite"
+    ]
+  },
+  "novelty_space": {
+    "fingerprint_clusters": [
+      {
+        "cluster_label": "Additive-blend particle systems (composition:'blend')",
+        "member_examples": [
+          "additive-creature",
+          "additive-fireflies",
+          "additive-animations-2 (particle spheres, composition:'blend')"
+        ],
+        "shared_signature": "animate + composition:'blend' (tweens additifs qui se somment au lieu d'ecraser) + per-particle/per-element createTimer(frameRate bas) qui re-cible periodiquement vers un attracteur pointeur via cos/sin radial + utils.random. Glow composite-safe (scale/opacity/filter, jamais box-shadow). Le signe distinctif = N timers independants + sommation additive de mouvement organique."
+      },
+      {
+        "cluster_label": "Stagger-de-grille comme primitive geometrique (NxN, from:center/index, axis-split)",
+        "member_examples": [
+          "additive-creature",
+          "advanced-grid-staggering",
+          "animatable-follow-cursor",
+          "stagger",
+          "stagger-grid-demo (24x24 grid choreography)",
+          "advanced-staggering-demos (catalogue from/grid/axis/range)",
+          "waapi-composition (3 engines side-by-side: waapi vs js)"
+        ],
+        "shared_signature": "Grille de divs generee en JS (grid:true infere ou explicite [N,M]) + stagger(from:'center'|index|nextIndex, axis:'x'/'y' separe) qui propage une vague radiale ou axiale. Variantes: stagger-as-position-timeline, stagger-as-duration, stagger-as-strength-function, moving-origin. Le stagger n'est jamais qu'un delai — il est detourne en valeur statique/duree/force/position."
+      },
+      {
+        "cluster_label": "anime comme moteur de tween decouple du rendu (objets JS purs + createTimer render-loop)",
+        "member_examples": [
+          "canvas-2d",
+          "color-trail-canvas (plain-object targets + sibling color chaining)",
+          "timeline-refresh-starlings",
+          "timeline-50K-stars"
+        ],
+        "shared_signature": "animate(plainObject{x,y,...}) anime des objets JS purs (jamais le DOM) + un createTimer({onUpdate}) separe lit l'etat chaque frame et peint un canvas 2D (trail via fillRect alpha bas + globalCompositeOperation screen). onComplete self-re-anime a l'infini. anime = tweening, canvas = sortie."
+      },
+      {
+        "cluster_label": "Timeline scrubbee / pilotee comme tete-de-lecture (progress/currentTime setter)",
+        "member_examples": [
+          "tl-seek-test (mouse-scrubbed 2000-element timeline)",
+          "clock-playback-controls",
+          "text/hover-effects",
+          "timeline-50K-stars",
+          "draggable-playground",
+          "playback (engine + animation playback control surface)"
+        ],
+        "shared_signature": "createTimeline(autoplay:false) + ecriture directe de tl.progress / tl.currentTime / animate(tl,{progress}) par une source externe (souris, drag, autre animation). La timeline devient une cible animable: on scrub, on seek, on slowmo en animant currentTime/speed eux-memes."
+      },
+      {
+        "cluster_label": "Scroll-lie (onScroll.link / onScroll-as-autoplay, sync modes)",
+        "member_examples": [
+          "onscroll-responsive-scope",
+          "onscroll-sticky",
+          "onscroll-sync-modes (scroll-linked sync mode catalogue)",
+          "onscroll-sticky-snap (scroll-scrubbed 3D card-stack)"
+        ],
+        "shared_signature": "events.onScroll passe DIRECTEMENT comme autoplay d'une timeline (scroll = horloge) ou .link() attache la progression au scroll, avec sync:.N smoothing / 'play pause' / 'play alternate' / easeString. Souvent combine 3D cards + sticky/scroll-snap CSS + per-card random tilt."
+      },
+      {
+        "cluster_label": "SVG stroke-draw (createDrawable, draw keyframes fractionnaires)",
+        "member_examples": [
+          "svg-line-drawing",
+          "svg-path-animation (createDrawable line-draw map)",
+          "animejs-v2-logo (mass createDrawable staggered line-draw)",
+          "animejs-v4-logo-animation"
+        ],
+        "shared_signature": "svg.createDrawable(selector souvent all-paths) + draw passe en keyframes de fractions ('0 0'->'0 1'->'1 1' ou '.5 .5'->random->'.5 .5') + duration randomisee par path + stagger temporel. Le trait se dessine puis se referme; couleur de stroke resolue par fonction depuis le parent DOM."
+      },
+      {
+        "cluster_label": "SVG morph chains (svg.morphTo, attr d/points)",
+        "member_examples": [
+          "svg-morph-timeline (svg.morphTo chains, path & polygon)",
+          "animejs-v4-logo-animation",
+          "animejs-v3-logo (orchestrated morph + motion-path + spring)",
+          "animejs-mgs-logo (classList-branching function values + attr morph)"
+        ],
+        "shared_signature": "svg.morphTo('#shape') ou d:el=>dataset.dN enchaine en sequence A->B->C->A (boucle close) entre memes types d'element (path d<->d, polygon points<->points), souvent orchestre par labels de position relatifs dans une timeline de logo."
+      },
+      {
+        "cluster_label": "SVG motion-path (createMotionPath, spread params)",
+        "member_examples": [
+          "svg-motion-path (createMotionPath responsive, spread params)",
+          "animejs-v3-logo (orchestrated morph + motion-path + spring)"
+        ],
+        "shared_signature": "svg.createMotionPath('#path') retourne {translateX,translateY,rotate} SPREAD (...) dans les params pour piloter simultanement des cibles heterogenes (DOM + SVG rect) le long d'un chemin, responsive viewBox."
+      },
+      {
+        "cluster_label": "Choregraphie de logo orchestree par labels/positions relatives",
+        "member_examples": [
+          "animejs-v4-logo-animation",
+          "animejs-v3-logo (orchestrated morph + motion-path + spring)",
+          "animejs-v2-logo (mass createDrawable staggered line-draw)",
+          "animejs-mgs-logo (classList-branching function values + attr morph)",
+          "text/scramble-tl"
+        ],
+        "shared_signature": "createTimeline tissant une douzaine de pistes via positions relatives anime ('<<','<','<+=N','-=N','<-=600') au lieu de delais absolus. Combine morph + draw + motion-path + spring; valeurs function-based branchees sur classList/dataset pour direction d'entree."
+      },
+      {
+        "cluster_label": "scrambleText (function-tween sur innerHTML, param matrix)",
+        "member_examples": [
+          "text/scramble",
+          "text/scramble-tl",
+          "scramble (scrambleText param matrix)",
+          "animejs-v4-logo-animation"
+        ],
+        "shared_signature": "animate({innerHTML: scrambleText({from,chars,cursor,perturbation,seed,settleRate,revealRate,text,override,reversed})}) — reveal per-caractere directionnel, curseur balayant, scramble bidirectionnel (reveal + hide via text:'' reversed), seed reproductible, retarget de texte."
+      },
+      {
+        "cluster_label": "splitText (lines/words/chars, addEffect, clone:dir, fonts.ready)",
+        "member_examples": [
+          "text/split-effects",
+          "text/split-playground",
+          "text/hover-effects"
+        ],
+        "shared_signature": "splitText({lines/words/chars:{wrap:'clip',clone:dir,accessible}}) + split.addEffect(cb) qui retourne une animation OU une cleanup-fn persistant des coords, + revert/refresh lifecycle, gate document.fonts.ready, re-split sur diff-JSON en rAF, clone:dir = glyphe duplique scroll sous overflow clip."
+      },
+      {
+        "cluster_label": "createScope (root, mediaQueries, keepTime, addOnce, revert)",
+        "member_examples": [
+          "text/hover-effects",
+          "onscroll-responsive-scope",
+          "timekeeper (createScope mediaQueries + keepTime)",
+          "scope (createScope root + addOnce + keepTime + revert)",
+          "layout (createLayout FLIP auto-animate on DOM change)"
+        ],
+        "shared_signature": "createScope({root,mediaQueries,defaults}) scope les selecteurs + methodes nommees; keepTime() reconstruit la timeline au breakpoint en preservant le temps; addOnce one-shot; scope.matches.X branche 2 choregraphies; retourne cleanup-fn + scope.revert()."
+      },
+      {
+        "cluster_label": "createDraggable avance (snap, internals, progress drives, mapTo)",
+        "member_examples": [
+          "draggable-infinite-auto-carousel",
+          "draggable-mouse-scroll-snap-carousel",
+          "draggable-playground",
+          "draggables-callbacks (createDraggable snap + lifecycle + animate target)"
+        ],
+        "shared_signature": "createDraggable avec snap fonction + container + full lifecycle callbacks (onGrab/Snap/Settle...) + manipulation directe des internals (pointer[], computeVelocity, handleUp) pour synthese wheel->drag; progressX/Y drives timeline; x:{mapTo:'rotateY'}; animate(draggableInstance) cohabite avec drag."
+      },
+      {
+        "cluster_label": "createAnimatable comme setters pointeur (utils.wrap modifier, multi-source velocity)",
+        "member_examples": [
+          "animatable-follow-cursor",
+          "draggable-infinite-auto-carousel"
+        ],
+        "shared_signature": "createAnimatable enregistre x/y/rotate comme setters appeles dans pointermove/timer; modifier:utils.wrap pour boucle infinie; somme multi-source de vitesse (auto + drag.deltaX + wheel.lerp) par frame; duration par-prop pouvant elle-meme etre un stagger radial."
+      },
+      {
+        "cluster_label": "Procedural perpetuel non-repetitif (keyframes generes, ease randomise, onLoop refresh)",
+        "member_examples": [
+          "layered-css-transforms",
+          "timeline-refresh-starlings",
+          "timeline-seamless-loop",
+          "timeline-stress-test",
+          "timeline-50K-stars"
+        ],
+        "shared_signature": "Generation de N keyframes/elements + ease tire d'un pool (utils.randomPick) + per-element function-values (souvent polaires theta/radius en Symbol() keys) + onLoop:self.refresh() qui re-randomise puis relit les fonctions => boucle qui ne se repete jamais. Variante seamless: loopDelay=loopDur-animDur."
+      },
+      {
+        "cluster_label": "ease specialisees comme effet primaire (steps, irregular, spring, playbackEase)",
+        "member_examples": [
+          "sprite-animation (steps() sprite-sheet)",
+          "irregular-playback-typewriter",
+          "layered-css-transforms",
+          "timeline-stress-test",
+          "keyframes (percent-keyframe object syntax vs WAAPI vs CSS)"
+        ],
+        "shared_signature": "L'ease EST l'effet: steps(N) sur backgroundPosition = frame-stepping sprite; easings.irregular(n,2) en playbackEase re-time toute la lecture en saccade humaine; createSpring/spring; per-keyframe ease; playbackEase global re-timing."
+      },
+      {
+        "cluster_label": "WAAPI / engine comparison (waapi.animate, sync, equivalence)",
+        "member_examples": [
+          "waapi-composition (3 engines side-by-side: waapi vs js)",
+          "sandbox (timeline.sync of WAAPI animations)",
+          "keyframes (percent-keyframe object syntax vs WAAPI vs CSS)",
+          "playback (engine + animation playback control surface)"
+        ],
+        "shared_signature": "waapi.animate compare cote-a-cote au moteur JS sur memes params (stagger grid, function-values random), ou waapi.animate(autoplay:false) sync dans une timeline anime; demonstration d'equivalence API anime/WAAPI/CSS @keyframes."
+      },
+      {
+        "cluster_label": "Compteur innerHTML tween (modifier locale/charset, mask-wipe sync)",
+        "member_examples": [
+          "svg-graph",
+          "timeline-50K-stars",
+          "animejs-v4-logo-animation"
+        ],
+        "shared_signature": "animate({innerHTML:{from:0}}) + modifier:v=>round(v).toLocaleString() ou textContent tween via index dans charset (slot-machine), synchronise a un reveal (rect mask sweep x+width) par position '<<'."
+      },
+      {
+        "cluster_label": "Frame-rate decouple smoothing (lerp/damp, createTimer frameRate, readback)",
+        "member_examples": [
+          "lerp (frame-decoupled follow via utils.lerp / utils.damp)",
+          "additive-fireflies",
+          "draggable-infinite-auto-carousel"
+        ],
+        "shared_signature": "createTimer({frameRate}) + utils.get readback de la position courante + utils.lerp(geometric, fps-dependant) vs utils.damp(deltaTime, fps-independant) pour un suivi 'follow the leader' lisse."
+      },
+      {
+        "cluster_label": "timeline.sync composition (timelines + timers + waapi imbriques)",
+        "member_examples": [
+          "timeline-nested (tl.sync of timelines + timers)",
+          "clock-playback-controls",
+          "sandbox (timeline.sync of WAAPI animations)"
+        ],
+        "shared_signature": "createTimeline.sync(animation|timeline|timer|waapiAnim, position) imbrique animations autonomes, sous-timelines, timers et anims WAAPI comme citoyens de premiere classe sous un parent unique loop, avec overlaps relatifs."
+      },
+      {
+        "cluster_label": "Color interpolation cross-format + sibling chaining",
+        "member_examples": [
+          "color-conversion (cross-format color interpolation)",
+          "color-trail-canvas (plain-object targets + sibling color chaining)",
+          "animejs-mgs-logo (classList-branching function values + attr morph)"
+        ],
+        "shared_signature": "Interpolation backgroundColor/fill entre formats melanges (hex/hex8 alpha/rgb/hsl) avec config lue depuis le DOM, ou chainage de couleur from-precedent (prevSibling._value) ou alpha-hex fade '#xxxx0000'."
+      },
+      {
+        "cluster_label": "createLayout FLIP (auto-animate on DOM mutation)",
+        "member_examples": [
+          "layout (createLayout FLIP auto-animate on DOM change)"
+        ],
+        "shared_signature": "createLayout(selector) capture geometrie + layout.update(mutateFn,{duration}) anime automatiquement first->last apres mutation DOM (toggle classe, data-layout-id swap, display:none), scope-isole, spring ease. Singleton dans le corpus = zone peu exploree."
+      }
+    ],
+    "dejavu_corpus": [
+      {
+        "pattern": "Grille NxN de divs + stagger(grid:true, from:'center') propageant une vague radiale au pointeur",
+        "why_derivative": "Combinaison la plus saturee du corpus: grille generee + stagger radial est le 'hello world' visuel d'anime.js. Un candidat qui s'arrete a 'grille qui ondule depuis le centre vers le curseur' n'apporte aucune surprise.",
+        "seen_in": [
+          "additive-creature",
+          "advanced-grid-staggering",
+          "animatable-follow-cursor",
+          "stagger",
+          "stagger-grid-demo (24x24 grid choreography)",
+          "advanced-staggering-demos",
+          "waapi-composition"
+        ]
+      },
+      {
+        "pattern": "Systeme de particules avec composition:'blend' + per-particle createTimer re-ciblant vers le pointeur (cos/sin radial)",
+        "why_derivative": "Trois exemples quasi-identiques (creature, fireflies, spheres). L'additive-blend autour d'un attracteur pointeur est devenu un cliche de la banque; le seul vrai differenciateur restant serait l'absence de pointeur ou une sommation non-spatiale.",
+        "seen_in": [
+          "additive-creature",
+          "additive-fireflies",
+          "additive-animations-2 (particle spheres, composition:'blend')"
+        ]
+      },
+      {
+        "pattern": "anime anime des objets JS purs {x,y} + createTimer render-loop peint un canvas 2D avec trail alpha-fade + onComplete self-re-anime",
+        "why_derivative": "Le 'tween-engine decouple du render' canvas est repete a l'identique (canvas-2d, color-trail-canvas) avec la meme recette trail screen-blend. Sur-exploite comme demonstration de scalabilite.",
+        "seen_in": [
+          "canvas-2d",
+          "color-trail-canvas (plain-object targets + sibling color chaining)",
+          "timeline-50K-stars",
+          "timeline-refresh-starlings"
+        ]
+      },
+      {
+        "pattern": "Scroll-as-clock: onScroll passe en autoplay d'une timeline de cartes 3D sticky (rotateX flip + per-card random tilt)",
+        "why_derivative": "onscroll-sticky et onscroll-sticky-snap sont presque le meme demo (deck 3D revele au scroll). Le 'card-stack flip-in au scroll' est un pattern de portfolio sature.",
+        "seen_in": [
+          "onscroll-sticky",
+          "onscroll-sticky-snap (scroll-scrubbed 3D card-stack)",
+          "onscroll-sync-modes"
+        ]
+      },
+      {
+        "pattern": "Logo cinematique orchestre par positions relatives ('<<','<','-=N') tissant morph + draw + motion-path + spring",
+        "why_derivative": "Quatre logos (v2/v3/v4/mgs) couvrent deja exhaustivement le 'logo reveal choreographie par labels relatifs'. Un nouveau logo-reveal est presque definitionnellement derivatif.",
+        "seen_in": [
+          "animejs-v4-logo-animation",
+          "animejs-v3-logo (orchestrated morph + motion-path + spring)",
+          "animejs-v2-logo (mass createDrawable staggered line-draw)",
+          "animejs-mgs-logo (classList-branching function values + attr morph)"
+        ]
+      },
+      {
+        "pattern": "svg.createDrawable(all-paths) + draw keyframes '0 0'->'0 1'->'1 1' + duration random + stagger temporel",
+        "why_derivative": "Le 'line-draw qui se dessine puis se referme avec timing aleatoire par path' est repete (line-drawing, path-animation map, v2-logo). Recette figee.",
+        "seen_in": [
+          "svg-line-drawing",
+          "svg-path-animation (createDrawable line-draw map)",
+          "animejs-v2-logo",
+          "animejs-v4-logo-animation"
+        ]
+      },
+      {
+        "pattern": "scrambleText sur innerHTML (cursor '░▒▓█', perturbation, reveal per-char) en intro ou hover",
+        "why_derivative": "scrambleText est documente trois fois (scramble, scramble-tl, param matrix) couvrant toute la surface de params. Un effet scramble seul, sans detournement structurel, lit comme une demo de doc.",
+        "seen_in": [
+          "text/scramble",
+          "text/scramble-tl",
+          "scramble (scrambleText param matrix)",
+          "animejs-v4-logo-animation"
+        ]
+      },
+      {
+        "pattern": "splitText(chars) + stagger reveal lettre-par-lettre (typewriter / vague de texte)",
+        "why_derivative": "Le reveal de texte caractere-par-caractere via splitText+stagger est le cas d'usage canonique de splitText; sans clone:dir, addEffect-cleanup ou drag-persistence il n'apporte rien.",
+        "seen_in": [
+          "text/split-effects",
+          "text/split-playground",
+          "text/hover-effects",
+          "irregular-playback-typewriter"
+        ]
+      },
+      {
+        "pattern": "Timeline autoplay:false scrubbee par mouseX (tl.progress = clientX/innerWidth) sur N elements",
+        "why_derivative": "Le 'mouse-scrub de la playhead' est un pattern de stress-test direct (tl-seek-test) deja montre; reproduire 'la souris controle la progression' sur une grille est attendu.",
+        "seen_in": [
+          "tl-seek-test (mouse-scrubbed 2000-element timeline)",
+          "timeline-50K-stars",
+          "text/hover-effects"
+        ]
+      },
+      {
+        "pattern": "Compteur innerHTML montant de 0 a N avec modifier:toLocaleString() synchronise a un reveal",
+        "why_derivative": "Le counter formate (svg-graph, 50K-stars) est un trope d'analytics/dashboard. Faible surprise sauf detournement (charset slot-machine).",
+        "seen_in": [
+          "svg-graph",
+          "timeline-50K-stars"
+        ]
+      },
+      {
+        "pattern": "Catalogue/matrice de reference cote-a-cote (modes de stagger, scramble params, sync modes, engines)",
+        "why_derivative": "Les exemples 'catalogue' (advanced-staggering, scramble matrix, onscroll-sync-modes, waapi-composition) sont par nature exhaustifs et pedagogiques; un candidat qui ressemble a une grille de demonstration de params est intrinsequement derivatif (c'est de la doc, pas de la creation).",
+        "seen_in": [
+          "advanced-staggering-demos (catalogue from/grid/axis/range)",
+          "scramble (scrambleText param matrix)",
+          "onscroll-sync-modes (scroll-linked sync mode catalogue)",
+          "waapi-composition (3 engines side-by-side)",
+          "keyframes (percent-keyframe object syntax vs WAAPI vs CSS)"
+        ]
+      },
+      {
+        "pattern": "onLoop:self.refresh() qui re-randomise des function-values per-element pour une boucle non-repetitive",
+        "why_derivative": "Le 'refresh re-lit les valeurs-fonctions => boucle infinie variee' est la recette procedurale standard (starlings, layered-transforms, stress-test). Attendu des qu'on voit des function-values.",
+        "seen_in": [
+          "timeline-refresh-starlings",
+          "layered-css-transforms",
+          "timeline-stress-test",
+          "timeline-50K-stars"
+        ]
+      },
+      {
+        "pattern": "Carrousel infini/snap via createDraggable + utils.wrap modifier + somme multi-source velocity",
+        "why_derivative": "Les deux carrousels (infinite-auto, snap) couvrent le drag+wheel+wrap; un troisieme carrousel serait redondant.",
+        "seen_in": [
+          "draggable-infinite-auto-carousel",
+          "draggable-mouse-scroll-snap-carousel",
+          "draggable-playground"
+        ]
+      },
+      {
+        "pattern": "3D faces via rotateX par face (cylindre de chiffres, mot 3D, carte flip)",
+        "why_derivative": "Le 'cylindre/cube de faces anime en rotateX' apparait dans l'horloge, le 3D-word et les card-stacks; le 3D-by-faces est un motif connu.",
+        "seen_in": [
+          "clock-playback-controls",
+          "text/hover-effects",
+          "onscroll-sticky-snap"
+        ]
+      }
+    ],
+    "novelty_heuristic": {
+      "description": "Juge de nouveaute pour des flipbooks de candidats anime.js v4.5. Le but n'est PAS de recompenser la complexite brute ni l'usage de primitives rares en soi, mais de mesurer a quel point un candidat s'eloigne du corpus de 52 exemples distilles ci-dessus, par DETOURNEMENT structurel (une primitive employee hors de son role canonique), par COMBINAISON inattendue de clusters qui ne co-occurrent jamais dans la banque, et par PROFONDEUR procedurale qui produit un comportement emergent non-trivialement previsible. Comparer chaque candidat a son cluster fingerprint le plus proche (voir fingerprint_clusters) et au dejavu_corpus: si la signature du candidat matche un fingerprint a >80%, c'est derivatif quel que soit le polish visuel. La vivacite/le rendu fini comptent mais ne peuvent JAMAIS compenser une signature deja-vue (un beau clone reste un clone). Privilegier l'idee-mecanique sur le theme visuel: deux 'particules autour du curseur' avec mecaniques internes differentes peuvent diverger, mais deux mecaniques identiques sous deux themes (etoiles vs lucioles) sont le meme exemple. Penaliser explicitement les candidats qui ressemblent a de la documentation/catalogue de params.",
+      "scoring_dimensions": [
+        {
+          "dimension": "surprise_mecanique",
+          "what_high_means": "La mecanique centrale detourne une primitive de son role canonique d'une facon absente du corpus (ex: stagger employe comme fonction de force/duree/position est deja pris, donc il faut aller PLUS loin — ex: utiliser un draggable.computeVelocity pour piloter un scrambleText, ou onScroll.link sur un createLayout FLIP). On ne devine pas le resultat a partir des primitives listees.",
+          "what_low_means": "La primitive est utilisee exactement comme dans la doc/les exemples (stagger=delai radial, createDrawable=line-draw, scrambleText=reveal de texte). Le comportement est entierement predictible des le nom des primitives."
+        },
+        {
+          "dimension": "originalite_de_combinaison",
+          "what_high_means": "Le candidat marie deux ou trois clusters qui ne co-occurrent JAMAIS dans la banque (ex: createLayout FLIP + onScroll-link + scrambleText; ou splitText.addEffect-cleanup + canvas render-loop + draggable internals). Les ponts inter-cluster sont le gisement de nouveaute le plus fiable.",
+          "what_low_means": "Le candidat reste dans un seul cluster, ou combine des clusters qui co-occurrent deja systematiquement (grid-stagger + additive-blend + pointer; ou morph + draw + motion-path + labels relatifs = encore un logo)."
+        },
+        {
+          "dimension": "profondeur_procedurale",
+          "what_high_means": "Comportement emergent issu de regles couplees (boids, mutual-agreement, sommation additive non-spatiale, systeme avec etat persistant inter-frame ou inter-revert) ou la sortie n'est pas une simple fonction du temps. Plusieurs niveaux d'indirection (timeline pilote une sous-timeline qui pilote un objet de donnees qui module un modifier).",
+          "what_low_means": "Animation single-shot ou loop fixe pilotee uniquement par le temps; pas d'etat, pas de couplage, pas de boucle de retroaction; ce qu'on voit a t=0 determine tout le reste."
+        },
+        {
+          "dimension": "vivacite_et_finition",
+          "what_high_means": "Le rendu est fluide, le timing lisible, l'effet 'se tient' visuellement (composite-safe, pas de jank, ease coherent). Bonus si la mecanique nouvelle est rendue PERCEPTIBLE (on voit pourquoi c'est different).",
+          "what_low_means": "Effet plat, jank, ou si poli qu'il masque l'absence d'idee; finition seule sur une signature derivative ne remonte pas le score global."
+        },
+        {
+          "dimension": "distance_au_dejavu",
+          "what_high_means": "La fingerprint du candidat ne matche aucun item du dejavu_corpus; le cluster le plus proche est faiblement peuple (ex: createLayout FLIP, singleton) ou inexistant; le candidat ouvre une zone vierge de l'espace.",
+          "what_low_means": "La fingerprint matche directement un pattern dejavu_corpus (grille radiale au pointeur, particules additives a l'attracteur, logo a labels relatifs, line-draw qui se referme, scramble-reveal, mouse-scrub de progress, counter toLocaleString, catalogue de params)."
+        }
+      ],
+      "red_flags": [
+        "Grille NxN qui ondule radialement depuis le centre vers le curseur — signature la plus saturee.",
+        "Particules en composition:'blend' re-ciblees vers le pointeur par per-particle timer (cos/sin radial) — triple-couvert.",
+        "Logo qui se reveille: morph + createDrawable + motion-path tisses par positions relatives '<<'/'-=N' — quatre exemplaires existants.",
+        "createDrawable all-paths avec draw '0 0'->'0 1'->'1 1' et duration aleatoire par path.",
+        "scrambleText avec curseur '░▒▓█' en intro/hover sans detournement structurel.",
+        "splitText(chars)+stagger pour un simple reveal lettre-par-lettre (typewriter).",
+        "tl.progress = mouseX/innerWidth sur N elements (mouse-scrub direct).",
+        "Compteur innerHTML 0->N avec modifier toLocaleString synchronise a un wipe.",
+        "Deck de cartes 3D rotateX-flip revele au scroll sticky avec tilt random par carte.",
+        "Le candidat ressemble a une matrice/catalogue de demonstration de parametres (stagger modes, scramble params, sync modes, engine comparison) — c'est de la doc, intrinsequement non-novateur.",
+        "onLoop:self.refresh() re-randomisant des function-values pour 'boucle infinie variee' presente comme l'idee principale.",
+        "Trail canvas via fillRect alpha-bas + globalCompositeOperation 'screen' sur objets JS purs presente comme la nouveaute.",
+        "Theme visuel re-skinne (etoiles/lucioles/neige/confettis) plaque sur une mecanique deja presente — meme exemple sous nouveau costume.",
+        "Usage 'par-defaut/canonique' de chaque primitive (la primitive fait exactement ce que son nom suggere) sans aucune torsion."
+      ]
+    }
+  }
+}

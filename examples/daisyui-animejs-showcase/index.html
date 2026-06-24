@@ -1,0 +1,1061 @@
+<!doctype html>
+<!--
+  Vitrine daisyUI v5 x anime.js v4 — APP SBFB AUTO-PORTANTE.
+  0 CDN, 0 fetch, 0 worker. Tout est embarque (CSS compile + anime.js vendorise).
+  Tourne tel quel sous la CSP du bac a sable blob-serve. Voir README.md.
+-->
+<html lang="fr" data-theme="sbfb-reflect">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>daisyUI × anime.js — vitrine SBFB</title>
+  <meta name="description" content="Design system Reflect + animations avancees (CSS scroll-driven, View Transitions, anime.js v4). App SBFB scellee, conforme CSP." />
+  <link rel="stylesheet" href="app.css" />
+</head>
+
+<body class="min-h-screen bg-base-100 text-base-content antialiased">
+
+  <a href="#contenu" class="sr-only focus:not-sr-only focus:absolute focus:z-[200] focus:m-3 btn btn-primary btn-sm">Aller au contenu</a>
+
+  <!-- decor de fond : parallaxe pilotee par le scroll (CSS natif, 0 JS) -->
+  <div class="bg-decor" aria-hidden="true">
+    <span class="bg-blob bg-blob--a"></span>
+    <span class="bg-blob bg-blob--b"></span>
+    <span class="bg-grid-lines"></span>
+  </div>
+
+  <!-- ───────────────── NAVBAR ───────────────── -->
+  <header class="navbar sticky top-0 z-50 bg-base-100/70 backdrop-blur border-b border-base-300/60 px-4">
+    <div class="flex-1">
+      <a href="#contenu" class="btn btn-ghost text-lg font-bold tracking-tight gap-1">
+        <span class="inline-grid size-6 place-items-center rounded-md bg-primary text-primary-content text-sm font-black">◆</span>
+        daisyUI<span class="text-secondary">×</span>anime.js
+      </a>
+    </div>
+    <nav class="flex-none items-center gap-1 hidden md:flex" aria-label="Sections">
+      <a href="#design-system" class="btn btn-ghost btn-sm">Design system</a>
+      <a href="#composants" class="btn btn-ghost btn-sm">Composants</a>
+      <a href="#motion" class="btn btn-ghost btn-sm">Motion</a>
+      <a href="#atelier" class="btn btn-ghost btn-sm">Atelier</a>
+      <a href="#sbfb-vivant" class="btn btn-ghost btn-sm">SBFB</a>
+      <a href="#babel" class="btn btn-ghost btn-sm">Babel</a>
+      <a href="#combos" class="btn btn-ghost btn-sm">Combos</a>
+      <a href="#sismographe" class="btn btn-ghost btn-sm">Sismographe</a>
+      <a href="#engrenages" class="btn btn-ghost btn-sm">Engrenages</a>
+      <a href="#css-natif" class="btn btn-ghost btn-sm">CSS natif</a>
+    </nav>
+    <div class="flex-none gap-2 ml-1">
+      <label class="hidden sm:flex items-center gap-2 text-xs opacity-70">
+        Thème
+        <select id="theme" class="select select-sm select-bordered" aria-label="Choisir un thème">
+          <option value="sbfb-reflect">sbfb-reflect</option>
+          <option value="sbfb-light">sbfb-light</option>
+          <option value="night">night</option>
+          <option value="dracula">dracula</option>
+          <option value="synthwave">synthwave</option>
+          <option value="cyberpunk">cyberpunk</option>
+          <option value="retro">retro</option>
+          <option value="aqua">aqua</option>
+          <option value="valentine">valentine</option>
+          <option value="business">business</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <main id="contenu">
+
+    <!-- ───────────────── HERO ───────────────── -->
+    <section class="hero relative min-h-[78vh] overflow-hidden">
+      <div class="hero-content text-center py-20">
+        <div class="max-w-3xl">
+          <div class="badge badge-outline badge-primary mb-6 gap-1 hero-in">
+            <span class="size-1.5 rounded-full bg-success inline-block"></span>
+            vanilla · 0 framework · scellé dans l'archive
+          </div>
+          <h1 class="hero-title text-5xl sm:text-7xl font-black tracking-tight leading-[1.04]">
+            Des interfaces qui respirent.
+          </h1>
+          <p class="py-7 text-lg sm:text-xl opacity-70 hero-in max-w-2xl mx-auto">
+            <b class="text-base-content">daisyUI v5</b> pour les composants (classes Tailwind, 0 JS expédié) ·
+            <b class="text-base-content">anime.js v4</b> + <b class="text-base-content">CSS moderne</b> pour le mouvement.
+            Le tout compilé, vendorisé, <b class="text-base-content">conforme à la CSP du bac à sable</b>.
+          </p>
+          <div class="flex flex-wrap gap-3 justify-center hero-in">
+            <button class="btn btn-primary magnetic" data-anim="hero-cta">Lancer l'effet&nbsp;↯</button>
+            <a href="#design-system" class="btn btn-outline magnetic">Voir le design system</a>
+          </div>
+          <p class="mt-8 text-xs opacity-50 hero-in font-mono">
+            grep "http" → 0 résultat · connect-src 'none' · honore prefers-reduced-motion
+          </p>
+        </div>
+      </div>
+      <div class="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-base-content/15 to-transparent"></div>
+    </section>
+
+    <!-- ───────────────── STATS (count-up) ───────────────── -->
+    <section class="py-14 relative">
+      <div class="max-w-5xl mx-auto px-4">
+        <div class="stats stats-vertical sm:stats-horizontal shadow-lg w-full bg-base-200 border border-base-300/60 scroll-reveal" data-countgroup>
+          <div class="stat">
+            <div class="stat-title">anime.js v4</div>
+            <div class="stat-value text-primary"><span class="count" data-to="116">0</span> Ko</div>
+            <div class="stat-desc">ESM minifié, vendorisé</div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">Composants daisyUI</div>
+            <div class="stat-value"><span class="count" data-to="61">0</span></div>
+            <div class="stat-desc">classes, 0 JS expédié</div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">Dépendances runtime</div>
+            <div class="stat-value text-success"><span class="count" data-to="0">0</span></div>
+            <div class="stat-desc">tout dans l'archive</div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">Appels réseau</div>
+            <div class="stat-value text-success"><span class="count" data-to="0">0</span></div>
+            <div class="stat-desc">connect-src 'none'</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── DESIGN SYSTEM ───────────────── -->
+    <section id="design-system" class="py-16 relative scroll-mt-20">
+      <div class="max-w-6xl mx-auto px-4">
+        <header class="mb-10 scroll-reveal">
+          <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2">Design system</p>
+          <h2 class="text-3xl sm:text-4xl font-bold">Reflect — la couche per-app</h2>
+          <p class="opacity-60 mt-3 max-w-2xl">
+            Les tokens sont <b>copiés dans l'app</b> (jamais référencés : <code class="text-secondary">connect-src 'none'</code>),
+            puis exposés comme thème daisyUI. Palette restreinte, un seul accent quasi-blanc,
+            mouvement court et sans rebond.
+          </p>
+        </header>
+
+        <!-- Palette -->
+        <div class="card bg-base-200 border border-base-300/60 shadow-lg mb-8 scroll-reveal">
+          <div class="card-body">
+            <h3 class="card-title text-base">Palette</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mt-2" id="palette"></div>
+          </div>
+        </div>
+
+        <div class="grid lg:grid-cols-2 gap-8">
+          <!-- Typo -->
+          <div class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <h3 class="card-title text-base">Échelle typographique</h3>
+              <div class="space-y-1 mt-1">
+                <p class="text-4xl font-black tracking-tight leading-tight">Display 36</p>
+                <p class="text-2xl font-bold">Titre 24</p>
+                <p class="text-lg font-semibold">Sous-titre 18</p>
+                <p class="text-base">Corps 16 — la lecture courante.</p>
+                <p class="text-sm opacity-70">Légende 14 — métadonnées.</p>
+                <p class="text-xs font-mono opacity-60">mono 12 — code, valeurs, hash</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Spacing 8px -->
+          <div class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <h3 class="card-title text-base">Espacement — grille 8&nbsp;px</h3>
+              <div class="space-y-2 mt-2" id="spacing"></div>
+            </div>
+          </div>
+
+          <!-- Radii -->
+          <div class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <h3 class="card-title text-base">Rayons</h3>
+              <div class="flex flex-wrap items-end gap-4 mt-2" id="radii"></div>
+            </div>
+          </div>
+
+          <!-- Elevation -->
+          <div class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <h3 class="card-title text-base">Élévation</h3>
+              <div class="grid grid-cols-3 gap-4 mt-2">
+                <div class="aspect-square rounded-box bg-base-100 grid place-items-center text-xs opacity-60 shadow-sm">sm</div>
+                <div class="aspect-square rounded-box bg-base-100 grid place-items-center text-xs opacity-60 shadow-md">md</div>
+                <div class="aspect-square rounded-box bg-base-100 grid place-items-center text-xs opacity-60 shadow-xl">xl</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Motion tokens -->
+        <div class="card bg-base-200 border border-base-300/60 shadow-lg mt-8 scroll-reveal">
+          <div class="card-body">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+              <h3 class="card-title text-base">Mouvement — 80 / 120 / 200&nbsp;ms, sans overshoot</h3>
+              <button class="btn btn-sm btn-outline" data-anim="motion-demo">Rejouer la démo</button>
+            </div>
+            <div class="grid grid-cols-3 gap-4 mt-3 text-center" id="motion-tokens">
+              <div><div class="motion-dot mx-auto" data-dur="80"></div><span class="text-xs font-mono opacity-60">80ms</span></div>
+              <div><div class="motion-dot mx-auto" data-dur="120"></div><span class="text-xs font-mono opacity-60">120ms</span></div>
+              <div><div class="motion-dot mx-auto" data-dur="200"></div><span class="text-xs font-mono opacity-60">200ms</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── COMPOSANTS (galerie filtrable + View Transitions) ───────────────── -->
+    <section id="composants" class="py-16 relative scroll-mt-20">
+      <div class="max-w-6xl mx-auto px-4">
+        <header class="mb-8 scroll-reveal">
+          <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2">Composants</p>
+          <h2 class="text-3xl sm:text-4xl font-bold">daisyUI re-skinné aux tokens</h2>
+          <p class="opacity-60 mt-3 max-w-2xl">Du HTML sémantique + des classes. Le filtre utilise les
+            <b>View Transitions</b> de l'API native quand le navigateur les supporte.</p>
+        </header>
+
+        <div role="tablist" class="tabs tabs-boxed bg-base-200 w-fit mb-6 scroll-reveal" id="filters">
+          <button role="tab" class="tab tab-active" data-filter="all">Tout</button>
+          <button role="tab" class="tab" data-filter="action">Actions</button>
+          <button role="tab" class="tab" data-filter="form">Formulaire</button>
+          <button role="tab" class="tab" data-filter="feedback">Feedback</button>
+          <button role="tab" class="tab" data-filter="data">Données</button>
+        </div>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5" id="gallery">
+          <!-- Boutons -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal" data-cat="action">
+            <div class="card-body">
+              <h3 class="card-title text-base">Boutons <span class="badge badge-secondary badge-sm">btn</span></h3>
+              <div class="flex flex-wrap gap-2 mt-1">
+                <button class="btn btn-primary btn-sm">primary</button>
+                <button class="btn btn-secondary btn-sm">secondary</button>
+                <button class="btn btn-accent btn-sm">accent</button>
+                <button class="btn btn-outline btn-sm">outline</button>
+                <button class="btn btn-ghost btn-sm">ghost</button>
+                <button class="btn btn-sm" disabled>disabled</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- Spring CSS pur -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal" data-cat="action">
+            <div class="card-body">
+              <h3 class="card-title text-base">Spring <span class="badge badge-sm">CSS linear()</span></h3>
+              <p class="text-sm opacity-60">Survole : ressort en easing <code>linear()</code>, 0 JS.</p>
+              <div class="mt-2"><button class="btn btn-primary spring-btn">Survole-moi</button></div>
+            </div>
+          </article>
+
+          <!-- Badges & alertes -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal" data-cat="feedback">
+            <div class="card-body">
+              <h3 class="card-title text-base">Badges &amp; alertes</h3>
+              <div class="flex flex-wrap gap-2">
+                <span class="badge badge-primary">nouveau</span>
+                <span class="badge badge-success">ok</span>
+                <span class="badge badge-warning">attention</span>
+                <span class="badge badge-error">erreur</span>
+              </div>
+              <div class="alert alert-success text-sm mt-2 py-2">Tout passe la CSP.</div>
+            </div>
+          </article>
+
+          <!-- Progress -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal" data-cat="feedback">
+            <div class="card-body">
+              <h3 class="card-title text-base">Progression</h3>
+              <progress class="progress progress-primary w-full" value="70" max="100"></progress>
+              <progress class="progress progress-secondary w-full" value="45" max="100"></progress>
+              <progress class="progress progress-success w-full" value="90" max="100"></progress>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="loading loading-spinner loading-sm text-secondary"></span>
+                <span class="text-xs opacity-60">chargement…</span>
+              </div>
+            </div>
+          </article>
+
+          <!-- Form controls -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal" data-cat="form">
+            <div class="card-body">
+              <h3 class="card-title text-base">Contrôles</h3>
+              <input type="text" placeholder="Champ texte" class="input input-bordered input-sm w-full" />
+              <div class="flex items-center gap-3 mt-1">
+                <input type="checkbox" class="toggle toggle-primary" checked aria-label="Toggle primary" />
+                <input type="checkbox" class="checkbox checkbox-secondary" checked aria-label="Checkbox" />
+                <input type="radio" name="r" class="radio radio-accent" checked aria-label="Radio" />
+              </div>
+              <input type="range" min="0" max="100" value="60" class="range range-primary range-sm mt-2" aria-label="Plage" />
+            </div>
+          </article>
+
+          <!-- Select + kbd -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal" data-cat="form">
+            <div class="card-body">
+              <h3 class="card-title text-base">Sélecteurs &amp; touches</h3>
+              <select class="select select-bordered select-sm w-full" aria-label="Exemple de select">
+                <option>Option un</option>
+                <option>Option deux</option>
+              </select>
+              <p class="text-sm opacity-60 mt-1">Raccourci : <kbd class="kbd kbd-sm">Ctrl</kbd> + <kbd class="kbd kbd-sm">K</kbd></p>
+            </div>
+          </article>
+
+          <!-- Steps -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal" data-cat="data">
+            <div class="card-body">
+              <h3 class="card-title text-base">Étapes</h3>
+              <ul class="steps steps-vertical mt-1">
+                <li class="step step-primary">Cloner</li>
+                <li class="step step-primary">Signer</li>
+                <li class="step step-primary">Zipper</li>
+                <li class="step">Publier</li>
+              </ul>
+            </div>
+          </article>
+
+          <!-- Stat carte -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal" data-cat="data">
+            <div class="card-body">
+              <h3 class="card-title text-base">Tableau</h3>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead><tr><th>Nœud</th><th>Latence</th></tr></thead>
+                  <tbody>
+                    <tr><td>local</td><td><span class="badge badge-success badge-sm">12 ms</span></td></tr>
+                    <tr><td>VPS</td><td><span class="badge badge-warning badge-sm">38 ms</span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </article>
+
+          <!-- Carte accentuée -->
+          <article class="card bg-primary text-primary-content shadow-lg scroll-reveal" data-cat="action">
+            <div class="card-body">
+              <h3 class="card-title text-base">Surface accentuée</h3>
+              <p class="opacity-90 text-sm">L'accent quasi-blanc, utilisé avec parcimonie (≤ 3× par écran).</p>
+              <div class="card-actions justify-end mt-1"><button class="btn btn-sm">Action</button></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── MOTION LAB (anime.js) ───────────────── -->
+    <section id="motion" class="py-16 relative scroll-mt-20">
+      <div class="max-w-3xl mx-auto px-4 text-center">
+        <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2 scroll-reveal">Motion lab</p>
+        <h2 class="text-3xl sm:text-4xl font-bold scroll-reveal">anime.js v4 — vague en grille</h2>
+        <p class="opacity-60 mt-3 mb-8 scroll-reveal">Une <code>createTimeline</code> en boucle, <code>stagger({grid, from:'center'})</code>.
+          Interactions sur transform/opacity uniquement (GPU).</p>
+        <div class="wave mx-auto max-w-md p-4 rounded-box bg-base-200 border border-base-300/60 shadow-xl scroll-reveal" id="wave"></div>
+        <div class="mt-6 flex gap-3 justify-center scroll-reveal">
+          <button class="btn btn-secondary btn-sm magnetic" data-anim="burst">Burst aléatoire</button>
+          <button class="btn btn-outline btn-sm magnetic" data-anim="pulse">Onde centrale</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── ATELIER anime.js × daisyUI ───────────────── -->
+    <section id="atelier" class="py-16 relative scroll-mt-20">
+      <div class="max-w-6xl mx-auto px-4">
+        <header class="mb-8 scroll-reveal">
+          <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2">Atelier</p>
+          <h2 class="text-3xl sm:text-4xl font-bold">anime.js × daisyUI — composants vivants</h2>
+          <p class="opacity-60 mt-3 max-w-2xl">Les techniques v4 avancées câblées sur de vrais composants daisyUI :
+            suivi du curseur, physique de ressort, tracé SVG, déplacement le long d'un chemin. Tout en transform/opacity.</p>
+        </header>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+
+          <!-- 1. Carte 3D réactive au curseur (createAnimatable) -->
+          <article class="tilt-card card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="tilt-card__inner card-body">
+              <span class="tilt-card__glow" aria-hidden="true"></span>
+              <h3 class="card-title text-base">Carte réactive <span class="badge badge-sm badge-secondary">createAnimatable</span></h3>
+              <p class="text-sm opacity-60">Survole : inclinaison 3D qui suit le curseur, retour amorti.</p>
+              <div class="card-actions justify-end mt-2"><button class="btn btn-primary btn-sm">Action</button></div>
+            </div>
+          </article>
+
+          <!-- 2. Jauge radiale daisyUI pilotée par anime.js -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body items-center text-center">
+              <h3 class="card-title text-base self-start">Jauge animée <span class="badge badge-sm badge-secondary">radial-progress</span></h3>
+              <div class="gauge radial-progress text-primary my-2" style="--value:0; --size:7rem; --thickness:8px;" role="progressbar" aria-label="Disponibilité" data-to="87">0%</div>
+              <button class="btn btn-outline btn-sm" data-gauge-replay>Rejouer</button>
+            </div>
+          </article>
+
+          <!-- 3. Signature SVG (createDrawable) + texte scramble -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <h3 class="card-title text-base">Signature <span class="badge badge-sm badge-secondary">createDrawable</span></h3>
+              <svg viewBox="0 0 120 56" class="sig-svg w-full h-16" aria-hidden="true">
+                <path id="sig-path" d="M8 36 C 18 8, 28 52, 42 28 S 66 4, 80 34 T 114 24" />
+              </svg>
+              <p class="text-sm font-mono opacity-70 min-h-5" id="sig-text">en attente…</p>
+              <div class="card-actions justify-end mt-1"><button class="btn btn-primary btn-sm" data-sign-run>Vérifier la signature</button></div>
+            </div>
+          </article>
+
+          <!-- 4. Étiquettes draggables à ressort (createDraggable + spring) -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal lg:col-span-2">
+            <div class="card-body">
+              <h3 class="card-title text-base">Étiquettes <span class="badge badge-sm badge-secondary">createDraggable + spring</span></h3>
+              <p class="text-sm opacity-60">Glisse-les dans le cadre : inertie + retour élastique, contraints au conteneur.</p>
+              <div class="drag-zone rounded-box border border-dashed border-base-content/20 bg-base-100 mt-1">
+                <span class="drag-chip badge badge-primary badge-lg">React</span>
+                <span class="drag-chip badge badge-secondary badge-lg">WASM</span>
+                <span class="drag-chip badge badge-accent badge-lg">Pyodide</span>
+                <span class="drag-chip badge badge-outline badge-lg">HTML pur</span>
+                <span class="drag-chip badge badge-info badge-lg">Notebook</span>
+              </div>
+            </div>
+          </article>
+
+          <!-- 5. Paquet sur une route (createMotionPath) -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <h3 class="card-title text-base">Routage <span class="badge badge-sm badge-secondary">createMotionPath</span></h3>
+              <p class="text-sm opacity-60">Un paquet suit le tracé, en boucle.</p>
+              <svg viewBox="0 0 200 80" class="route-svg w-full mt-1" aria-hidden="true">
+                <path id="route" class="route-line" d="M12 64 C 60 6, 140 6, 188 64" />
+                <circle id="route-dot" cx="0" cy="0" r="5" />
+              </svg>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── SBFB — composants vivants ───────────────── -->
+    <section id="sbfb-vivant" class="py-16 relative scroll-mt-20">
+      <div class="max-w-6xl mx-auto px-4">
+        <header class="mb-8 scroll-reveal">
+          <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2">SBFB · composants vivants</p>
+          <h2 class="text-3xl sm:text-4xl font-bold">Des composants utiles au réseau, animés</h2>
+          <p class="opacity-60 mt-3 max-w-3xl">Chacun est ancré dans le code SBFB réel (fichier cité) et conçu pour être repris
+            dans le shell. <b class="text-base-content">Données simulées</b> : l'app tourne en bac à sable
+            (<code class="text-secondary">connect-src 'none'</code>) et ne joint jamais le daemon — c'est une démonstration
+            de patterns, pas un panneau live.</p>
+        </header>
+
+        <div class="grid lg:grid-cols-2 gap-5">
+
+          <!-- 1. Échelle de vérification N0→N3 -->
+          <article id="vc-ladder" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal lg:col-span-2">
+            <div class="card-body">
+              <div class="flex items-start justify-between flex-wrap gap-2">
+                <h3 class="card-title text-base">Échelle de vérification N0→N3 <span class="badge badge-sm badge-secondary">verification.rs</span></h3>
+                <span class="badge badge-outline badge-sm">preuve de calcul</span>
+              </div>
+              <p class="text-sm opacity-60">Le niveau <b>minimum liant</b> est dérivé de la criticité, jamais auto-déclaré. Bascule les conditions :</p>
+              <div class="grid md:grid-cols-[1.1fr_1fr] gap-6 mt-1">
+                <ul class="steps steps-vertical" id="vc-steps">
+                  <li class="step" data-lvl="0"><span class="text-left text-sm"><b>N0</b> — TOPLOC, auto-déclaration</span></li>
+                  <li class="step" data-lvl="1"><span class="text-left text-sm"><b>N1</b> — spot-check VRF <span class="opacity-50">(loterie indépendante)</span></span></li>
+                  <li class="step" data-lvl="2"><span class="text-left text-sm"><b>N2</b> — redondance tolérante M-of-N</span></li>
+                  <li class="step step-neutral" data-lvl="3"><span class="text-left text-sm opacity-50"><b>N3</b> — commit-reveal opML <span class="badge badge-xs badge-ghost">litige seulement</span></span></li>
+                </ul>
+                <div class="space-y-3">
+                  <label class="flex items-center gap-3 text-sm cursor-pointer">
+                    <input type="checkbox" id="vc-verifiable" class="toggle toggle-primary toggle-sm" />
+                    <span><code>verifiable</code> <span class="opacity-50">(signé, canonical)</span></span>
+                  </label>
+                  <label class="flex items-center gap-3 text-sm cursor-pointer">
+                    <input type="checkbox" id="vc-redundancy" class="toggle toggle-primary toggle-sm" />
+                    <span><code>redundancy &gt; 1</code> <span class="opacity-50">(non signé, advisory)</span></span>
+                  </label>
+                  <div class="flex items-center gap-2 text-sm">Plancher liant : <span class="badge badge-lg" id="vc-level">N0</span></div>
+                  <div class="alert alert-soft text-xs py-2"><span>Plancher <b>consumer-enforced</b> : un initiateur ne peut pas downgrader en silence. Le risque de loterie N1 reste indépendant de la criticité.</span></div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- 2. Couverture du pipeline sharded -->
+          <article id="sc-coverage" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal lg:col-span-2">
+            <div class="card-body">
+              <div class="flex items-start justify-between flex-wrap gap-2">
+                <h3 class="card-title text-base">Couverture du pipeline <code class="text-sm">[0..total_layers)</code> <span class="badge badge-sm badge-secondary">placement.rs</span></h3>
+                <span class="badge badge-outline badge-sm">invariant : contigu + plein-span</span>
+              </div>
+              <p class="text-sm opacity-60">Un plan sharded n'est valide que s'il couvre tout le modèle, sans trou ni chevauchement. Modèle de l'invariant <code>is_pipeline_contiguous</code> + <code>covers_full_model</code>.</p>
+              <div role="tablist" class="tabs tabs-boxed bg-base-100 w-fit mt-1" id="sc-fixtures">
+                <button role="tab" class="tab tab-active" data-fix="valide">Valide</button>
+                <button role="tab" class="tab" data-fix="trou">Trou</button>
+                <button role="tab" class="tab" data-fix="chevauchement">Chevauchement</button>
+                <button role="tab" class="tab" data-fix="partiel">Partiel</button>
+              </div>
+              <div class="sc-ribbon mt-3" id="sc-ribbon" aria-hidden="true"></div>
+              <div class="flex items-center justify-between mt-2 text-sm">
+                <span class="font-mono opacity-60" id="sc-axis">0 → 32 couches</span>
+                <span class="badge" id="sc-verdict">—</span>
+              </div>
+            </div>
+          </article>
+
+          <!-- 3. Pouls de joignabilité -->
+          <article id="rp-pulse" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <h3 class="card-title text-base">Pouls de joignabilité <span class="badge badge-sm badge-secondary">browse.rs</span></h3>
+              <p class="text-sm opacity-60"><b>Unknown</b> ≠ hors-ligne : c'est « jamais sondé / cache froid ». Statut tri-état + fraîcheur TTL.</p>
+              <ul class="mt-2 space-y-2" id="rp-list"></ul>
+              <p class="text-xs opacity-50 mt-2 font-mono">TTL 60s (compressé pour la démo) · last_probed_at RFC3339</p>
+            </div>
+          </article>
+
+          <!-- 4. Carte de preuve -->
+          <article id="pc-proof" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <h3 class="card-title text-base">Carte de preuve <span class="badge badge-sm badge-secondary">proof_card.rs</span></h3>
+              <div role="tablist" class="tabs tabs-boxed bg-base-100 w-fit" id="pc-fixtures">
+                <button role="tab" class="tab tab-active" data-case="ideal">Source vérifiable</button>
+                <button role="tab" class="tab" data-case="risky">Risquée</button>
+              </div>
+              <div class="flex items-center gap-4 mt-3">
+                <div class="radial-progress text-success shrink-0" id="pc-gauge" style="--value:0; --size:6.5rem; --thickness:8px;" role="progressbar" aria-label="Confiance">0</div>
+                <div class="flex-1 min-w-0">
+                  <div class="pc-bar h-3 rounded-full overflow-hidden bg-base-100 flex" id="pc-bar"></div>
+                  <ul class="mt-2 space-y-1 text-xs" id="pc-layers"></ul>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-1 mt-2" id="pc-risks"></div>
+              <p class="text-xs opacity-50 mt-1">Score additif déterministe 0–100 · seuils 40 / 70 · provenance = SLSA L1 (binaire)</p>
+            </div>
+          </article>
+
+          <!-- 5. Constellation de redondance -->
+          <article id="sd-const" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <h3 class="card-title text-base">Constellation de redondance <span class="badge badge-sm badge-secondary">daemon.ts</span></h3>
+              <p class="text-sm opacity-60">« Toi + N pairs » gardent <b>cette version</b> en ligne — best-effort, BLAKE3 = vérité au pull.</p>
+              <div class="sd-stage relative mx-auto my-2" id="sd-stage" aria-hidden="true">
+                <span class="sd-core badge badge-primary badge-lg" id="sd-core">Toi</span>
+              </div>
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-1">
+                  <button class="btn btn-xs btn-outline" data-sd="-1">−</button>
+                  <span class="badge badge-ghost font-mono" id="sd-count">3 pairs</span>
+                  <button class="btn btn-xs btn-outline" data-sd="1">+</button>
+                </div>
+                <label class="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" id="sd-self" class="toggle toggle-success toggle-xs" checked /> je seede</label>
+              </div>
+            </div>
+          </article>
+
+          <!-- 6. Cockpit contributeur GPU -->
+          <article id="gc-cockpit" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal lg:col-span-2">
+            <div class="card-body">
+              <div class="flex items-start justify-between flex-wrap gap-2">
+                <h3 class="card-title text-base">Cockpit contributeur GPU <span class="badge badge-sm badge-secondary">consent.ts · QUANTIZATION.md</span></h3>
+                <span class="badge badge-outline badge-sm">expérience « offrir ma puissance »</span>
+              </div>
+              <div class="grid md:grid-cols-[1fr_1.2fr] gap-6 mt-1">
+                <div>
+                  <p class="text-sm opacity-60 mb-2">Consentement — ce que ton GPU accepte :</p>
+                  <ul class="steps steps-vertical" id="gc-levels">
+                    <li class="step step-primary" data-lvl="1"><span class="text-left text-sm">L1 — mes projets</span></li>
+                    <li class="step" data-lvl="2"><span class="text-left text-sm">L2 — open-source <span class="badge badge-xs badge-info gc-bc">diffuse</span></span></li>
+                    <li class="step" data-lvl="3"><span class="text-left text-sm">L3 — liste blanche</span></li>
+                    <li class="step" data-lvl="4"><span class="text-left text-sm">L4 — tout public <span class="badge badge-xs badge-info gc-bc">diffuse</span></span></li>
+                  </ul>
+                  <input type="range" min="1" max="4" value="1" class="range range-primary range-sm mt-2" id="gc-range" aria-label="Niveau de consentement" />
+                  <div class="alert alert-soft text-xs py-2 mt-2" id="gc-note"><span>L1 : seuls tes propres projets s'exécutent.</span></div>
+                </div>
+                <div>
+                  <div class="grid grid-cols-3 gap-2 text-center">
+                    <div><div class="radial-progress text-primary" id="gc-watts" style="--value:0;--size:5rem;--thickness:6px;" role="progressbar">0</div><div class="text-xs opacity-60 mt-1">watts</div></div>
+                    <div><div class="radial-progress text-primary" id="gc-vram" style="--value:0;--size:5rem;--thickness:6px;" role="progressbar">0</div><div class="text-xs opacity-60 mt-1">VRAM</div></div>
+                    <div><div class="radial-progress text-primary" id="gc-hours" style="--value:0;--size:5rem;--thickness:6px;" role="progressbar">0</div><div class="text-xs opacity-60 mt-1">heures/j</div></div>
+                  </div>
+                  <div class="flex flex-wrap gap-2 mt-3">
+                    <button class="btn btn-xs btn-outline" data-gc-task="ok">Tâche normale</button>
+                    <button class="btn btn-xs btn-outline" data-gc-task="watts">Tâche trop gourmande</button>
+                    <button class="btn btn-xs btn-outline" data-gc-task="hours">Quota épuisé</button>
+                  </div>
+                  <div class="alert alert-soft text-xs py-2 mt-2" id="gc-reject"><span>Caps respectés — la tâche passerait.</span></div>
+                  <div class="mt-3">
+                    <p class="text-xs opacity-60 mb-1">Tiendra-t-il en VRAM (16 Go) ? <span class="opacity-50">poids + KV-cache, Q4_K_M</span></p>
+                    <select class="select select-bordered select-xs w-full" id="gc-model" aria-label="Modèle">
+                      <option value="7">Llama 7B (~4.4 Go)</option>
+                      <option value="14" selected>14B (~8.5 Go)</option>
+                      <option value="32">32B (~20 Go)</option>
+                      <option value="70">70B (~42.5 Go)</option>
+                    </select>
+                    <div class="gc-reservoir h-4 rounded-full overflow-hidden bg-base-100 mt-2 relative" id="gc-reservoir"></div>
+                    <div class="text-xs mt-1" id="gc-fit">—</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- 7. Relais d'inférence éclaté — timeline GPU multi-nœud -->
+          <article id="sp-pipeline" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal lg:col-span-2">
+            <div class="card-body">
+              <div class="flex items-start justify-between flex-wrap gap-2">
+                <h3 class="card-title text-base">Relais d'inférence éclaté <span class="badge badge-sm badge-secondary">shard_plan.rs · routing.rs</span></h3>
+                <span class="badge badge-outline badge-sm">pipeline-parallel · groupe privé</span>
+              </div>
+              <p class="text-sm opacity-60">Un jeton parcourt les nœuds : chaque shard calcule sa tranche de couches, passe l'activation au suivant, puis un <code>RunProof</code> signé déclenche la vérification. <b class="text-base-content">Anonyme</b> : Shard 1..N, jamais de clé publique.</p>
+              <div class="sp-scene mt-3">
+                <svg viewBox="0 0 600 96" class="sp-route w-full" aria-hidden="true" preserveAspectRatio="none">
+                  <path id="sp-path" class="sp-line" d="M30 70 C 110 70, 110 26, 175 26 C 250 26, 270 70, 320 70 C 380 70, 400 26, 460 26 C 525 26, 545 70, 575 70" />
+                  <circle id="sp-token" class="sp-token" cx="0" cy="0" r="6" />
+                </svg>
+                <div class="sp-stations" id="sp-stations">
+                  <div class="sp-card" data-stage="dispatch"><span class="badge badge-ghost badge-sm">Dispatch</span><div class="sp-meta font-mono text-[10px] opacity-60">requête</div></div>
+                  <div class="sp-card" data-stage="s1"><span class="badge badge-primary badge-sm">Shard 1</span><div class="sp-meta font-mono text-[10px] opacity-60">couches [0..11)</div></div>
+                  <div class="sp-card" data-stage="s2"><span class="badge badge-primary badge-sm">Shard 2</span><div class="sp-meta font-mono text-[10px] opacity-60">couches [11..22)</div></div>
+                  <div class="sp-card" data-stage="s3"><span class="badge badge-primary badge-sm">Shard 3</span><div class="sp-meta font-mono text-[10px] opacity-60">couches [22..32)</div></div>
+                  <div class="sp-card" data-stage="proof"><span class="badge badge-secondary badge-sm">RunProof</span><div class="sp-meta font-mono text-[10px] opacity-60" id="sp-verif">N0 → N2</div></div>
+                </div>
+              </div>
+              <div class="flex items-center justify-between flex-wrap gap-3 mt-4">
+                <div class="flex gap-4">
+                  <div class="text-center"><div class="font-mono text-lg" id="sp-ttft">— ms</div><div class="text-[10px] opacity-50 uppercase tracking-wider">ttft</div></div>
+                  <div class="text-center"><div class="font-mono text-lg text-success" id="sp-tps">— tok/s</div><div class="text-[10px] opacity-50 uppercase tracking-wider">débit</div></div>
+                  <div class="text-center"><div class="font-mono text-lg" id="sp-rtt">— ms</div><div class="text-[10px] opacity-50 uppercase tracking-wider">rtt relais</div></div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="badge badge-sm" id="sp-status">en boucle</span>
+                  <button class="btn btn-xs btn-outline" id="sp-toggle" aria-pressed="true">Pause</button>
+                </div>
+              </div>
+              <p class="text-xs opacity-50 mt-2 font-mono">N3 = commit-reveal sur litige (jamais auto-dérivé) · données simulées</p>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── BABEL — SVG + texte animés ───────────────── -->
+    <section id="babel" class="py-16 relative scroll-mt-20">
+      <div class="max-w-6xl mx-auto px-4">
+        <header class="mb-8 scroll-reveal">
+          <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2">Babel · bibliothèque universelle</p>
+          <h2 class="text-3xl sm:text-4xl font-bold">SVG &amp; texte animés pour la traduction</h2>
+          <p class="opacity-60 mt-3 max-w-3xl">Composants pour l'app de traduction P2P : source → cible, portée multilingue, et
+            provenance signée de chaque traduction. <b class="text-base-content">Données simulées</b> (bac à sable, 0 réseau).</p>
+        </header>
+
+        <div class="grid lg:grid-cols-2 gap-5">
+
+          <!-- 1. Traduction en direct (splitText + scrambleText) -->
+          <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal lg:col-span-2">
+            <div class="card-body gap-5">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <h3 class="card-title text-base">La bibliothèque traduit sous vos yeux <span class="badge badge-sm badge-secondary">splitText · scrambleText</span></h3>
+                  <p class="text-sm opacity-70">Un texte source devient sa traduction. ~200 langues (NLLB-200) + Masakhane.</p>
+                </div>
+                <span class="badge badge-outline badge-primary gap-1 shrink-0"><span class="size-1.5 rounded-full bg-success inline-block"></span> source → cible vérifiable</span>
+              </div>
+              <div class="flex flex-col gap-3">
+                <div class="join" id="babel-langs" role="group" aria-label="Choisir la paire de langues">
+                  <button class="join-item btn btn-sm btn-active" data-pair="fr-en">Français → Anglais</button>
+                  <button class="join-item btn btn-sm" data-pair="fr-sw">Français → Swahili</button>
+                  <button class="join-item btn btn-sm" data-pair="fr-zu">Français → Zoulou</button>
+                  <button class="join-item btn btn-sm" data-pair="fr-ar">Français → Arabe</button>
+                </div>
+                <div class="flex items-center gap-2 text-xs opacity-70">
+                  <label for="babel-target" class="shrink-0">Variante de cible</label>
+                  <select id="babel-target" class="select select-xs select-bordered" aria-label="Variante de cible">
+                    <option value="literal">littérale</option>
+                    <option value="idiom">idiomatique</option>
+                  </select>
+                  <button id="babel-replay" class="btn btn-xs btn-primary ml-auto">Traduire&nbsp;↯</button>
+                </div>
+              </div>
+              <div class="rounded-box bg-base-100 border border-base-300/60 p-5 sm:p-7">
+                <p class="text-[11px] uppercase tracking-widest opacity-50 mb-1">Source</p>
+                <p id="babel-source" class="babel-line text-xl sm:text-2xl font-semibold leading-snug min-h-[2.2em]" lang="fr">Bonjour le monde</p>
+                <div class="divider my-3 opacity-40 text-[11px]">traduction</div>
+                <p class="text-[11px] uppercase tracking-widest opacity-50 mb-1">Cible</p>
+                <p id="babel-target-line" class="babel-line babel-target text-xl sm:text-2xl font-black leading-snug text-primary min-h-[2.2em]" lang="en" aria-live="polite">Hello world</p>
+              </div>
+              <ol class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-mono opacity-70">
+                <li class="badge badge-ghost badge-sm">MachineDraft · NLLB-200</li><li aria-hidden="true">→</li>
+                <li class="badge badge-ghost badge-sm">AutoValidation</li><li aria-hidden="true">→</li>
+                <li class="badge badge-ghost badge-sm">HumanReview</li><li aria-hidden="true">→</li>
+                <li class="badge badge-success badge-sm gap-1">ConsensusAttestation ✓</li>
+              </ol>
+            </div>
+          </article>
+
+          <!-- 2. Constellation de langues (createDrawable + createMotionPath) -->
+          <article id="babel-card" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body gap-3">
+              <div class="flex items-center justify-between">
+                <h3 class="card-title text-base">Portée multilingue <span class="badge badge-sm badge-secondary">createMotionPath</span></h3>
+                <span class="badge badge-primary badge-outline" id="babel-count">7 langues</span>
+              </div>
+              <p class="text-sm opacity-70">Chaque traduction voyage d'une source vers ses cibles, route traçable.</p>
+              <svg id="babel-svg" viewBox="0 0 400 260" class="w-full h-auto select-none" role="img" aria-label="Constellation de langues, traduction du français vers six langues cibles">
+                <g id="babel-arcs">
+                  <path class="babel-arc" id="arc-en" d="M200 130 Q140 60 70 50"></path>
+                  <path class="babel-arc" id="arc-sw" d="M200 130 Q300 60 330 55"></path>
+                  <path class="babel-arc" id="arc-yo" d="M200 130 Q330 130 360 130"></path>
+                  <path class="babel-arc" id="arc-zu" d="M200 130 Q300 200 330 210"></path>
+                  <path class="babel-arc" id="arc-ar" d="M200 130 Q140 200 70 210"></path>
+                  <path class="babel-arc" id="arc-ja" d="M200 130 Q70 130 40 130"></path>
+                </g>
+                <g id="babel-nodes">
+                  <g class="lang-node lang-target" data-arc="arc-en"><circle cx="70" cy="50" r="16"/><text x="70" y="54" text-anchor="middle" class="lang-label">EN</text><text x="86" y="40" text-anchor="middle" class="lang-check">✓</text></g>
+                  <g class="lang-node lang-target" data-arc="arc-sw"><circle cx="330" cy="55" r="16"/><text x="330" y="59" text-anchor="middle" class="lang-label">SW</text><text x="346" y="45" text-anchor="middle" class="lang-check">✓</text></g>
+                  <g class="lang-node lang-target" data-arc="arc-yo"><circle cx="360" cy="130" r="16"/><text x="360" y="134" text-anchor="middle" class="lang-label">YO</text><text x="376" y="120" text-anchor="middle" class="lang-check">✓</text></g>
+                  <g class="lang-node lang-target" data-arc="arc-zu"><circle cx="330" cy="210" r="16"/><text x="330" y="214" text-anchor="middle" class="lang-label">ZU</text><text x="346" y="200" text-anchor="middle" class="lang-check">✓</text></g>
+                  <g class="lang-node lang-target" data-arc="arc-ar"><circle cx="70" cy="210" r="16"/><text x="70" y="214" text-anchor="middle" class="lang-label">AR</text><text x="86" y="200" text-anchor="middle" class="lang-check">✓</text></g>
+                  <g class="lang-node lang-target" data-arc="arc-ja"><circle cx="40" cy="130" r="16"/><text x="40" y="134" text-anchor="middle" class="lang-label">JA</text><text x="56" y="120" text-anchor="middle" class="lang-check">✓</text></g>
+                  <g class="lang-node lang-source"><circle cx="200" cy="130" r="22"/><text x="200" y="135" text-anchor="middle" class="lang-label">FR</text></g>
+                </g>
+                <circle id="babel-packet" r="5" cx="0" cy="0" opacity="0"/>
+              </svg>
+              <div class="card-actions justify-between items-center">
+                <span class="text-xs opacity-60" id="babel-status" aria-live="polite">Prêt à traduire</span>
+                <button class="btn btn-primary btn-sm" data-babel-run>Traduire depuis FR</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- 3. Un glyphe, toutes les écritures (morphTo) -->
+          <article id="babel-morph" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <div class="flex items-start justify-between flex-wrap gap-2">
+                <h3 class="card-title text-base">Un glyphe, toutes les écritures <span class="badge badge-sm badge-secondary">morphTo</span></h3>
+              </div>
+              <p class="text-sm opacity-60">La même forme traverse les systèmes d'écriture.</p>
+              <div class="flex flex-col gap-4 mt-1">
+                <div class="babel-stage rounded-box bg-base-100 border border-base-300/60 grid place-items-center p-4">
+                  <svg viewBox="0 0 100 100" class="babel-svg-morph w-36 h-36" role="img" aria-label="Glyphe qui morphe à travers plusieurs écritures">
+                    <path id="babel-glyph" d="M50 16 L80 84 L64 84 L56 64 L44 64 L36 84 L20 84 Z" />
+                    <defs>
+                      <path id="g-latin" d="M50 16 L80 84 L64 84 L56 64 L44 64 L36 84 L20 84 Z" />
+                      <path id="g-hira" d="M34 26 C58 18 72 34 60 46 C52 54 42 48 48 40 C40 52 58 62 52 78 C38 84 30 68 36 54 C24 50 24 32 34 26 Z" />
+                      <path id="g-arab" d="M28 54 C26 34 48 30 62 40 C74 48 68 64 52 62 C44 61 42 52 50 52 C42 48 40 40 50 38 L70 84 L26 84 Z" />
+                      <path id="g-cyr" d="M62 16 L62 84 L50 84 L50 58 L40 84 L26 84 L41 55 C26 51 26 30 44 20 L62 16 Z" />
+                    </defs>
+                  </svg>
+                </div>
+                <div class="space-y-3">
+                  <div class="flex items-baseline gap-3">
+                    <span class="text-3xl font-black tracking-tight" id="babel-char">A</span>
+                    <span class="text-sm opacity-60">écriture : <b class="text-base-content" id="babel-script">latine</b></span>
+                  </div>
+                  <p class="text-sm font-mono opacity-70 min-h-5" id="babel-lang">en attente…</p>
+                  <ul class="steps steps-vertical">
+                    <li class="step step-primary text-sm">SourceWork</li>
+                    <li class="step step-primary text-sm">MachineDraft <span class="opacity-50">(NLLB-200)</span></li>
+                    <li class="step step-primary text-sm">HumanReview</li>
+                    <li class="step text-sm" id="babel-consensus">ConsensusAttestation</li>
+                  </ul>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="badge badge-success badge-sm" id="babel-sig">signée</span>
+                    <span class="badge badge-ghost badge-sm font-mono">~200 langues · Masakhane</span>
+                  </div>
+                  <div class="card-actions justify-end"><button class="btn btn-primary btn-sm" data-babel-step>Traduire la suivante ↻</button></div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- 4. Chaîne de provenance signée (createDrawable + createMotionPath) -->
+          <article id="babel-prov" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal lg:col-span-2">
+            <div class="card-body gap-4">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <h3 class="card-title text-base">Provenance signée d'une traduction <span class="badge badge-sm badge-secondary">createDrawable</span></h3>
+                  <p class="text-sm opacity-70">Chaque maillon est un enregistrement signé Ed25519. Données illustratives.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span id="bp-role" class="badge badge-primary badge-outline font-mono text-xs">en attente</span>
+                  <button class="btn btn-primary btn-sm" data-babel-prov-run>Signer la chaîne ↯</button>
+                </div>
+              </div>
+              <div class="rounded-box bg-base-100 border border-base-300/60 p-2 overflow-hidden">
+                <svg id="bp-svg" viewBox="0 0 760 220" class="w-full h-auto" role="img" aria-label="Chaîne de provenance : neuf enregistrements signés de l'œuvre à la traduction publiée">
+                  <path id="bp-track" class="bp-track" d="M 40 150 L 130 90 L 220 150 L 310 90 L 400 150 L 490 90 L 580 150 L 670 90 L 720 130" fill="none"/>
+                  <path id="bp-draw" class="bp-draw" d="M 40 150 L 130 90 L 220 150 L 310 90 L 400 150 L 490 90 L 580 150 L 670 90 L 720 130" fill="none"/>
+                  <g class="bp-node" data-i="0" transform="translate(40,150)"><circle r="9" class="bp-dot"/><circle r="9" class="bp-ring"/><text y="28" class="bp-cap">Œuvre</text></g>
+                  <g class="bp-node" data-i="1" transform="translate(130,90)"><circle r="9" class="bp-dot"/><circle r="9" class="bp-ring"/><text y="-16" class="bp-cap">Manifeste</text></g>
+                  <g class="bp-node" data-i="2" transform="translate(220,150)"><circle r="9" class="bp-dot"/><circle r="9" class="bp-ring"/><text y="28" class="bp-cap">Segment</text></g>
+                  <g class="bp-node" data-i="3" transform="translate(310,90)"><circle r="9" class="bp-dot"/><circle r="9" class="bp-ring"/><text y="-16" class="bp-cap">Ébauche NLLB</text></g>
+                  <g class="bp-node" data-i="4" transform="translate(400,150)"><circle r="9" class="bp-dot"/><circle r="9" class="bp-ring"/><text y="28" class="bp-cap">Auto-valid.</text></g>
+                  <g class="bp-node" data-i="5" transform="translate(490,90)"><circle r="9" class="bp-dot"/><circle r="9" class="bp-ring"/><text y="-16" class="bp-cap">Correction</text></g>
+                  <g class="bp-node" data-i="6" transform="translate(580,150)"><circle r="9" class="bp-dot"/><circle r="9" class="bp-ring"/><text y="28" class="bp-cap">Relecture</text></g>
+                  <g class="bp-node" data-i="7" transform="translate(670,90)"><circle r="9" class="bp-dot"/><circle r="9" class="bp-ring"/><text y="-16" class="bp-cap">Consensus</text></g>
+                  <g class="bp-node" data-i="8" transform="translate(720,130)"><circle r="9" class="bp-dot"/><circle r="9" class="bp-ring"/><text y="28" class="bp-cap">Publiée</text></g>
+                  <circle id="bp-token" r="5" cx="0" cy="0" class="bp-token"/>
+                </svg>
+              </div>
+              <div class="flex items-center justify-between text-xs font-mono opacity-60 flex-wrap gap-2">
+                <span>source → cible · NLLB-200 + Masakhane</span>
+                <span id="bp-count" class="badge badge-ghost badge-sm">0 / 9 signés</span>
+              </div>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── COMBOS — plusieurs modules anime ensemble ──────── -->
+    <section id="combos" class="py-16 relative scroll-mt-20">
+      <div class="max-w-6xl mx-auto px-4">
+        <header class="mb-8 scroll-reveal">
+          <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2">Combos profonds</p>
+          <h2 class="text-3xl sm:text-4xl font-bold">Plusieurs outils anime.js, orchestrés ensemble</h2>
+          <p class="opacity-60 mt-3 max-w-3xl">Chaque carte combine 4-5 modules anime v4 <b class="text-base-content">interlockés</b> sur un même axe de temps — pas juste co-présents.</p>
+        </header>
+        <div class="grid lg:grid-cols-2 gap-5">
+
+          <!-- A. Intro cinétique : timeline + splitText + stagger + createDrawable + scrambleText + createSpring -->
+          <article id="ci-card" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body items-center text-center gap-4 py-8">
+              <span class="badge badge-outline badge-primary font-mono text-[11px]">timeline · splitText · drawable · scramble · spring</span>
+              <h3 id="ci-title" class="text-5xl font-black tracking-tight text-primary leading-none select-none" aria-label="Babel">Babel</h3>
+              <svg class="ci-underline" viewBox="0 0 240 14" width="240" height="14" aria-hidden="true">
+                <path id="ci-underline-path" d="M6 9 C 60 2, 90 12, 120 7 S 184 2, 234 8" />
+              </svg>
+              <p id="ci-sub" class="font-mono text-sm opacity-70 min-h-6">Traduction vérifiable, pair à pair</p>
+              <span id="ci-seal" class="badge badge-success gap-1 font-mono text-[11px]"><span aria-hidden="true">✓</span> attesté · Ed25519</span>
+              <button class="btn btn-xs btn-outline mt-1" data-ci-replay>Rejouer ↻</button>
+            </div>
+          </article>
+
+          <!-- B. Panier à kudos : draggable+spring + createAnimatable + count-up createSpring + stagger -->
+          <article id="kb-card" class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+            <div class="card-body">
+              <div class="flex items-center justify-between">
+                <h3 class="card-title text-base">Panier à kudos <span class="badge badge-sm badge-secondary">draggable · animatable · spring · stagger</span></h3>
+                <span class="badge badge-ghost font-mono text-xs" id="kb-score">0 kudos</span>
+              </div>
+              <p class="text-sm opacity-60">Glisse une contribution dans le panier (ou double-clic). Aiguille réactive au curseur, compteur à ressort.</p>
+              <div class="grid grid-cols-[1fr_auto] gap-4 items-center mt-1">
+                <div class="kb-zone relative rounded-box border border-dashed border-base-content/20 bg-base-100 p-3" id="kb-zone">
+                  <span class="kb-chip badge badge-primary badge-lg" data-amt="3">+3 calcul</span>
+                  <span class="kb-chip badge badge-secondary badge-lg" data-amt="5">+5 validation</span>
+                  <span class="kb-chip badge badge-accent badge-lg" data-amt="8">+8 relecture</span>
+                  <span class="kb-chip badge badge-info badge-lg" data-amt="2">+2 réplication</span>
+                  <div class="kb-basket" id="kb-basket">panier</div>
+                </div>
+                <div class="flex flex-col items-center gap-1">
+                  <div class="kb-gaugewrap relative">
+                    <div class="radial-progress text-success" id="kb-gauge" style="--value:0;--size:6rem;--thickness:8px;" role="progressbar">0</div>
+                    <svg class="kb-needle-svg" viewBox="0 0 100 100" aria-hidden="true"><line id="kb-needle" x1="50" y1="50" x2="50" y2="16" /></svg>
+                  </div>
+                  <span class="text-xs opacity-50">réputation</span>
+                </div>
+              </div>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── SISMOGRAPHE — engine.speed piloté par le jerk ─────── -->
+    <section id="sismographe" class="py-16 relative scroll-mt-20">
+      <div class="max-w-5xl mx-auto px-4">
+        <header class="mb-8 scroll-reveal">
+          <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2">Sismographe temporel</p>
+          <h2 class="text-3xl sm:text-4xl font-bold">Le temps se fige sur les à-coups, jamais sur les beats</h2>
+          <p class="opacity-60 mt-3 max-w-3xl">Un stylet trace une oscillation auto-pilotée. Tant que le tracé est lisse, tout coule.
+            Mais dès qu'une <b class="text-base-content">secousse</b> survient — le <i>jerk</i> (3ᵉ dérivée de la position) dépasse un seuil —
+            <b class="text-base-content">toute la scène plonge au ralenti</b>, puis repart. Aucun beat n'est scripté : c'est la physique du
+            tracé qui déclenche le gel, via <code class="text-secondary">engine.speed</code> animé. L'horloge de détection est découplée
+            (rAF natif, jamais ralenti). <b class="text-base-content">Données simulées</b>, 0 réseau.</p>
+        </header>
+
+        <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+          <div class="card-body gap-4">
+            <div class="flex items-start justify-between flex-wrap gap-2">
+              <span class="badge badge-outline badge-primary font-mono text-[11px]">engine.speed · damp³ (jerk) · createTimer · CSS var</span>
+              <span class="badge badge-ghost font-mono text-xs" id="seis-state">vitesse ×1.00</span>
+            </div>
+
+            <div class="seis-stage" id="seis-stage" aria-hidden="true">
+              <svg class="seis-svg" viewBox="0 0 600 200" role="img"
+                   aria-label="Tracé de sismographe : le temps ralentit sur les secousses brusques du stylet">
+                <g class="seis-grid">
+                  <line x1="0" y1="0" x2="0" y2="200"></line>
+                  <line x1="50" y1="0" x2="50" y2="200"></line>
+                  <line x1="100" y1="0" x2="100" y2="200"></line>
+                  <line x1="150" y1="0" x2="150" y2="200"></line>
+                  <line x1="200" y1="0" x2="200" y2="200"></line>
+                  <line x1="250" y1="0" x2="250" y2="200"></line>
+                  <line x1="300" y1="0" x2="300" y2="200"></line>
+                  <line x1="350" y1="0" x2="350" y2="200"></line>
+                  <line x1="400" y1="0" x2="400" y2="200"></line>
+                  <line x1="450" y1="0" x2="450" y2="200"></line>
+                  <line x1="500" y1="0" x2="500" y2="200"></line>
+                  <line x1="550" y1="0" x2="550" y2="200"></line>
+                  <line x1="600" y1="0" x2="600" y2="200"></line>
+                  <line x1="0" y1="40" x2="600" y2="40"></line>
+                  <line x1="0" y1="80" x2="600" y2="80"></line>
+                  <line x1="0" y1="120" x2="600" y2="120"></line>
+                  <line x1="0" y1="160" x2="600" y2="160"></line>
+                </g>
+                <polyline class="seis-trace" id="seis-trace" points=""></polyline>
+                <line class="seis-arm" id="seis-arm" x1="597" y1="0" x2="597" y2="200"></line>
+                <circle class="seis-needle" id="seis-needle" cx="597" cy="100" r="5"></circle>
+              </svg>
+              <span class="seis-meter"><span class="seis-meter-fill" id="seis-meter"></span></span>
+            </div>
+
+            <div class="flex items-center justify-between flex-wrap gap-3 text-sm">
+              <div class="flex gap-4">
+                <div class="text-center"><div class="font-mono text-lg" id="seis-jerk">0.000</div><div class="text-[10px] opacity-50 uppercase tracking-wider">jerk |d³y|</div></div>
+                <div class="text-center"><div class="font-mono text-lg text-info" id="seis-freeze-pct">0 %</div><div class="text-[10px] opacity-50 uppercase tracking-wider">gel</div></div>
+                <div class="text-center"><div class="font-mono text-lg" id="seis-quakes">0</div><div class="text-[10px] opacity-50 uppercase tracking-wider">secousses</div></div>
+              </div>
+              <p class="text-xs opacity-50 font-mono max-w-xs text-right">le rAF natif mesure le temps réel ; <code>engine.speed</code> ne ralentit que les tickables anime → l'horloge de détection reste fidèle</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ───────────────── ENGRENAGES — pipeline de shards (propagation de couple) ─── -->
+    <section id="engrenages" class="py-16 relative scroll-mt-20">
+      <div class="max-w-5xl mx-auto px-4">
+        <header class="mb-8 scroll-reveal">
+          <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2">Pipeline de shards · propagation de couple</p>
+          <h2 class="text-3xl sm:text-4xl font-bold">L'activation traverse les couches comme une onde</h2>
+          <p class="opacity-60 mt-3 max-w-3xl">Chaque engrenage est un <b class="text-base-content">shard</b> du pipeline. Quand une requête arrive,
+            la roue motrice force : une <b class="text-base-content">onde de vitesse</b> voyage de roue en roue <b class="text-base-content">avec retard et amortissement</b>
+            (couplage amont→aval = RTT relais + buffering KV) — on voit l'activation se propager. La <b class="text-base-content">tension</b> entre deux roues
+            révèle le <b class="text-base-content">goulot</b> : le shard le plus lent borne le débit. Le jeu mécanique (backlash) tremble dans les à-coups.
+            Modèle de <code class="text-secondary">shard_plan.rs · routing.rs</code>. <b class="text-base-content">Données simulées</b>, 0 réseau.</p>
+        </header>
+
+        <article class="card bg-base-200 border border-base-300/60 shadow-lg scroll-reveal">
+          <div class="card-body gap-4">
+            <div class="flex items-start justify-between flex-wrap gap-2">
+              <span class="badge badge-outline badge-primary font-mono text-[11px]">createTimer · damp (couplage) · wrap · mapRange (tension)</span>
+              <span class="badge badge-ghost font-mono text-xs">pipeline-parallel · groupe privé</span>
+            </div>
+
+            <div class="gears-stage" id="gears-stage" aria-hidden="true">
+              <svg class="gears-svg" viewBox="0 0 335 195" role="img"
+                   aria-label="Train d'engrenages : l'activation se propage de shard en shard comme une onde de couple">
+                <defs>
+                  <path id="gt" d="M22.22 -5.95 L29.82 -3.29 L29.82 3.29 L22.22 5.95 L22.22 5.95 L27.47 12.06 L24.18 17.76 L16.26 16.26 L16.26 16.26 L17.76 24.18 L12.06 27.47 L5.95 22.22 L5.95 22.22 L3.29 29.82 L-3.29 29.82 L-5.95 22.22 L-5.95 22.22 L-12.06 27.47 L-17.76 24.18 L-16.26 16.26 L-16.26 16.26 L-24.18 17.76 L-27.47 12.06 L-22.22 5.95 L-22.22 5.95 L-29.82 3.29 L-29.82 -3.29 L-22.22 -5.95 L-22.22 -5.95 L-27.47 -12.06 L-24.18 -17.76 L-16.26 -16.26 L-16.26 -16.26 L-17.76 -24.18 L-12.06 -27.47 L-5.95 -22.22 L-5.95 -22.22 L-3.29 -29.82 L3.29 -29.82 L5.95 -22.22 L5.95 -22.22 L12.06 -27.47 L17.76 -24.18 L16.26 -16.26 L16.26 -16.26 L24.18 -17.76 L27.47 -12.06 L22.22 -5.95 Z"></path>
+                </defs>
+                <g class="gear is-drive" transform="translate(55 110)">
+                  <g class="gear-rot"><use href="#gt" class="gear-teeth"></use><circle class="gear-hub" r="7"></circle></g>
+                  <circle class="gear-axle" r="2.5"></circle>
+                  <text class="gear-label" x="0" y="56">Dispatch</text>
+                </g>
+                <g class="gear" transform="translate(100 84)">
+                  <g class="gear-rot"><use href="#gt" class="gear-teeth"></use><circle class="gear-hub" r="7"></circle></g>
+                  <circle class="gear-axle" r="2.5"></circle>
+                  <text class="gear-label" x="0" y="-48">Shard 1</text>
+                </g>
+                <g class="gear" transform="translate(145 110)">
+                  <g class="gear-rot"><use href="#gt" class="gear-teeth"></use><circle class="gear-hub" r="7"></circle></g>
+                  <circle class="gear-axle" r="2.5"></circle>
+                  <text class="gear-label" x="0" y="56">Shard 2</text>
+                </g>
+                <g class="gear" transform="translate(190 84)">
+                  <g class="gear-rot"><use href="#gt" class="gear-teeth"></use><circle class="gear-hub" r="7"></circle></g>
+                  <circle class="gear-axle" r="2.5"></circle>
+                  <text class="gear-label" x="0" y="-48">Shard 3</text>
+                </g>
+                <g class="gear" transform="translate(235 110)">
+                  <g class="gear-rot"><use href="#gt" class="gear-teeth"></use><circle class="gear-hub" r="7"></circle></g>
+                  <circle class="gear-axle" r="2.5"></circle>
+                  <text class="gear-label" x="0" y="56">Shard 4</text>
+                </g>
+                <g class="gear is-proof" transform="translate(280 84)">
+                  <g class="gear-rot"><use href="#gt" class="gear-teeth"></use><circle class="gear-hub" r="7"></circle></g>
+                  <circle class="gear-axle" r="2.5"></circle>
+                  <text class="gear-label" x="0" y="-48">RunProof</text>
+                </g>
+                <circle class="gear-bottleneck" r="44" cx="0" cy="0" transform="translate(55 110)"></circle>
+              </svg>
+            </div>
+
+            <div class="flex items-center justify-between flex-wrap gap-3 text-sm">
+              <div class="flex gap-4">
+                <div class="text-center"><div class="font-mono text-lg text-success" id="ge-tps">— tok/s</div><div class="text-[10px] opacity-50 uppercase tracking-wider">débit</div></div>
+                <div class="text-center"><div class="font-mono text-lg" id="ge-stage">—</div><div class="text-[10px] opacity-50 uppercase tracking-wider">activation</div></div>
+                <div class="text-center"><div class="font-mono text-lg text-error" id="ge-goulot">—</div><div class="text-[10px] opacity-50 uppercase tracking-wider">goulot</div></div>
+                <div class="text-center"><div class="font-mono text-lg" id="ge-proofs">0</div><div class="text-[10px] opacity-50 uppercase tracking-wider">RunProofs</div></div>
+              </div>
+              <p class="text-xs opacity-50 font-mono max-w-xs text-right">propagation émergente : aucun ordonnanceur central, chaque shard réagit au précédent (couplage damp à retard croissant)</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ───────────────── CSS NATIF ───────────────── -->
+    <section id="css-natif" class="py-16 relative scroll-mt-20">
+      <div class="max-w-5xl mx-auto px-4">
+        <header class="mb-8 scroll-reveal">
+          <p class="text-sm font-mono uppercase tracking-widest text-secondary mb-2">CSS moderne</p>
+          <h2 class="text-3xl sm:text-4xl font-bold">Le natif fait déjà beaucoup</h2>
+          <p class="opacity-60 mt-3 max-w-2xl">Reveals pilotés par le scroll (<code>animation-timeline: view()</code>),
+            entrées/sorties discrètes (<code>@starting-style</code> + <code>allow-discrete</code>) — sans une ligne de JS d'animation.</p>
+        </header>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
+          <div class="card bg-base-200 border border-base-300/60 p-5 scroll-pop"><b>scroll()</b><p class="text-sm opacity-60">timeline globale</p></div>
+          <div class="card bg-base-200 border border-base-300/60 p-5 scroll-pop"><b>view()</b><p class="text-sm opacity-60">par élément</p></div>
+          <div class="card bg-base-200 border border-base-300/60 p-5 scroll-pop"><b>animation-range</b><p class="text-sm opacity-60">fenêtre d'entrée</p></div>
+          <div class="card bg-base-200 border border-base-300/60 p-5 scroll-pop"><b>@starting-style</b><p class="text-sm opacity-60">état d'apparition</p></div>
+          <div class="card bg-base-200 border border-base-300/60 p-5 scroll-pop"><b>allow-discrete</b><p class="text-sm opacity-60">transitionne display</p></div>
+          <div class="card bg-base-200 border border-base-300/60 p-5 scroll-pop"><b>linear()</b><p class="text-sm opacity-60">ressort en CSS pur</p></div>
+        </div>
+
+        <div class="flex flex-wrap gap-3 scroll-reveal">
+          <button class="btn btn-primary magnetic" data-open-modal>Ouvrir le panneau</button>
+          <button class="btn btn-outline magnetic" data-toast>Afficher un toast</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── FOOTER ───────────────── -->
+    <footer class="footer footer-center p-10 bg-base-200 text-base-content/60 border-t border-base-300/60 mt-8">
+      <aside class="space-y-1">
+        <p class="font-semibold text-base-content/80">daisyUI v5 (MIT) × anime.js v4 (MIT)</p>
+        <p class="text-sm">App SBFB scellée · CSS compilé + anime.js vendorisé · 0 CDN · 0 fetch · CSP-safe</p>
+        <p class="text-xs font-mono opacity-60">heberger ≠ publier · seeder ≠ auteur</p>
+      </aside>
+    </footer>
+  </main>
+
+  <!-- panneau (modale) : @starting-style + transition-behavior: allow-discrete -->
+  <div class="sbfb-modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
+    <div class="sbfb-modal__backdrop" data-close-modal></div>
+    <div class="sbfb-modal__card card bg-base-100 border border-base-300 shadow-2xl max-w-md w-[92vw]">
+      <div class="card-body">
+        <h3 id="modal-title" class="card-title">Entrée &amp; sortie discrètes</h3>
+        <p class="opacity-70 text-sm">Ce panneau apparaît et disparaît avec <code>@starting-style</code> +
+          <code>transition-behavior: allow-discrete</code> : la propriété <code>display</code> est elle-même
+          transitionnée. Aucune lib, aucun timer JS d'animation.</p>
+        <div class="card-actions justify-end mt-2">
+          <button class="btn btn-ghost btn-sm" data-close-modal>Fermer</button>
+          <button class="btn btn-primary btn-sm" data-close-modal>Compris</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- pile de toasts (injectes en JS, animes par @starting-style) -->
+  <div class="toast toast-end z-[120]" id="toasts" aria-live="polite"></div>
+
+  <!-- anime.js v4 vendorisé (UMD → global `anime`), puis l'app. Scripts
+       classiques (no-cors) : se chargent sous default-src 'self' même en
+       origine opaque. Ordre garanti : anime AVANT app.js. -->
+  <script src="vendor/anime.umd.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

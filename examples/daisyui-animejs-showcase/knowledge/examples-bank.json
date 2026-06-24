@@ -1,0 +1,1556 @@
+[
+  {
+    "name": "additive-creature",
+    "source_path": "examples/additive-creature/index.js",
+    "primitives_used": [
+      "animate",
+      "createTimeline",
+      "createTimer",
+      "stagger",
+      "utils.set",
+      "utils.round",
+      "composition:'blend'",
+      "ease:'inOutExpo'",
+      "ease:'inQuad'",
+      "modifier"
+    ],
+    "idea": "Une grille 13x13 de blobs en mix-blend-mode:plus-lighter devient une creature organique : un createTimer a frameRate:15 relance EN CONTINU une animate avec composition:'blend', donc chaque pas de cible se fond additivement avec l'inertie de la position precedente au lieu de l'ecraser. Le curseur est pilote par une timeline auto (Math.sin/cos sur currentTime via modifier) tant que la souris ne bouge pas, sinon un createTimer de 1.5s rebascule en auto.",
+    "technique_tags": [
+      "grid-stagger",
+      "additive-blend",
+      "framerate-throttled-retarget",
+      "procedural-modifier",
+      "auto-vs-manual-pointer-handoff",
+      "stagger-as-static-value"
+    ],
+    "novelty_fingerprint": "prims{animate,composition:blend,createTimeline,createTimer(frameRate),stagger(grid,from:center),utils.set}+struct{grid NxN de divs blend-mode, timer-retarget periodique vers cursor partage, dual sin/cos-modifier autopilot, pulse keyframes onLoop}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Aucun reseau/fetch/worker, pur DOM+anime UMD. mix-blend-mode:plus-lighter et composition:'blend' marchent dans l'iframe. Adaptations: importer window.anime au lieu de l'ESM; boxShadow est seulement POSE via utils.set/stagger (jamais transitionne) donc OK; honorer prefers-reduced-motion en figeant la timeline auto (etat-final via utils.set scaleStagger/opacityStagger sans pulse)."
+    },
+    "snippet": "const mainLoop = createTimer({\n  frameRate: 15, // retarget toward cursor every ~250ms\n  onUpdate: () => {\n    animate(particuleEls, {\n      x: cursor.x,\n      y: cursor.y,\n      delay: stagger(40, { grid, from }),\n      duration: stagger(120, { start: 750, ease: 'inQuad', grid, from }),\n      ease: 'inOut',\n      composition: 'blend', // overlapping animations blend instead of overwrite\n    });\n  }\n});\nconst autoMove = createTimeline()\n.add(cursor, {\n  x: [-viewport.w * .45, viewport.w * .45],\n  modifier: x => x + Math.sin(mainLoop.currentTime * .0007) * viewport.w * .5,\n  duration: 3000, ease: 'inOutExpo', alternate: true, loop: true,\n  onBegin: pulse, onLoop: pulse,\n}, 0);"
+  },
+  {
+    "name": "additive-fireflies",
+    "source_path": "examples/additive-fireflies/index.js",
+    "primitives_used": [
+      "animate",
+      "createTimer",
+      "utils.set",
+      "utils.random",
+      "utils.mapRange",
+      "composition:'blend'",
+      "ease:`inOut(${n})`",
+      "per-particle createTimer(frameRate:4)"
+    ],
+    "idea": "225 particules, chacune possede SON PROPRE createTimer a frameRate:4 qui, a chaque tick, choisit un angle aleatoire et anime la particule vers un point sur un cercle (cos/sin * rayon) autour du pointeur, avec duration/ease randomises per-axe et composition:'blend'. Le glow du pointeur n'anime QUE scale/opacity/filter (jamais box-shadow, qui est statique sur ::before/::after) — exactement la regle composite-safe.",
+    "technique_tags": [
+      "additive-blend",
+      "per-element-independent-timer",
+      "radial-scatter",
+      "composite-safe-glow",
+      "random-per-axis-duration",
+      "pointer-attractor"
+    ],
+    "novelty_fingerprint": "prims{animate,composition:blend,createTimer(frameRate:4),utils.random,utils.set}+struct{N timers independants un-par-particule, retarget radial cos/sin*radius autour pointeur, ease inOut(rand 1-5), glow box-shadow statique sur pseudo-el opacity-only anime}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pas de reseau. Le pattern 'un createTimer par element' est lourd (225 timers) mais reste local. Le glow respecte deja la regle SBFB (box-shadow statique sur :before/:after, seuls opacity/scale/filter sont animes au mousedown). Adaptations: window.anime UMD; sous prefers-reduced-motion, ne pas demarrer les timers et poser une disposition statique."
+    },
+    "snippet": "function animateParticule($el) {\n  createTimer({\n    frameRate: 4,\n    onUpdate: () => {\n      const angle = Math.random() * Math.PI * 2;\n      const radius = pointer.isDown ? activeRadius : baseRadius;\n      animate($el, {\n        x: { to: (Math.cos(angle) * radius) + pointer.x, duration: () => utils.random(1000, 2000) },\n        y: { to: (Math.sin(angle) * radius) + pointer.y, duration: () => utils.random(1000, 2000) },\n        scale: .5 + utils.random(.1, 1, 2),\n        ease: `inOut(${utils.random(1, 5)})`,\n        composition: 'blend'\n      });\n    }\n  })\n}"
+  },
+  {
+    "name": "advanced-grid-staggering",
+    "source_path": "examples/advanced-grid-staggering/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "stagger",
+      "utils.get",
+      "utils.set",
+      "utils.random",
+      "keyframes",
+      "axis:'x'/'y'",
+      "from:index",
+      "negative-time-position '-=1500'"
+    ],
+    "idea": "Un seul curseur saute d'index aleatoire en index aleatoire sur une grille 41x41 de points ; le SECRET est que stagger est calcule deux fois par axe avec from:index (origine = l'emplacement courant du curseur) puis re-cible avec from:nextIndex pour le deplacement, et la ripple des points utilise {from, to} stagger PAR AXE pour creer un ressac qui converge vers l'origine mobile. Le curseur chevauche la ripple via une position negative '-=1500' dans la timeline.",
+    "technique_tags": [
+      "grid-stagger",
+      "moving-stagger-origin",
+      "axis-split-stagger",
+      "from-to-stagger",
+      "self-chaining-timeline",
+      "negative-timeline-offset"
+    ],
+    "novelty_fingerprint": "prims{createTimeline(onComplete:self),stagger(grid,from:dynamicIndex,axis),keyframes,utils.random,utils.get(css-var)}+struct{origine de stagger = index courant variable (pas 'center'/'first'), stagger x et y separes par axis, from->to stagger entre index et nextIndex, overlap negatif '-=1500'}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "100% local, donnees simulees (positions aleatoires), aucun reseau. Le --rows lu via utils.get(document.body,'--rows') marche. Adaptations: window.anime UMD; sous prefers-reduced-motion, ne pas relancer onComplete:animateGrid (poser le curseur a un index fixe). Aucun piege SBFB touche (pas de SVG, pas de box-shadow)."
+    },
+    "snippet": "animation = createTimeline({ defaults: { ease: 'inOutQuad' }, onComplete: animateGrid })\n  .add('.dot', {\n    keyframes: [\n      { x: stagger('-.175rem', {grid, from: index, axis: 'x'}), y: stagger('-.175rem', {grid, from: index, axis: 'y'}), duration: 200 },\n      { x: stagger('.125rem', {grid, from: index, axis: 'x'}), y: stagger('.125rem', {grid, from: index, axis: 'y'}), scale: 2, duration: 500 },\n      { x: 0, y: 0, scale: 1, duration: 600 }\n    ],\n    delay: stagger(50, {grid, from: index}),\n  }, 0)\n  .add('.cursor', {\n    x: { from: stagger('-1rem', {grid, from: index, axis: 'x'}), to: stagger('-1rem', {grid, from: nextIndex, axis: 'x'}), duration: utils.random(800, 1200) },\n    y: { from: stagger('-1rem', {grid, from: index, axis: 'y'}), to: stagger('-1rem', {grid, from: nextIndex, axis: 'y'}), duration: utils.random(800, 1200) },\n    ease: 'outCirc'\n  }, '-=1500')\nindex = nextIndex;"
+  },
+  {
+    "name": "animatable-follow-cursor",
+    "source_path": "examples/animatable-follow-cursor/index.js",
+    "primitives_used": [
+      "createAnimatable",
+      "utils.$",
+      "utils.get",
+      "utils.mapRange",
+      "stagger",
+      "ease:'outElastic(.3, 1.4)'",
+      "rotate unit:'rad' duration:0",
+      "per-prop duration"
+    ],
+    "idea": "createAnimatable enregistre x/y/rotate comme setters appelables a chaque pointermove ; le truc est que la DUREE de chaque setter est elle-meme un stagger grid (from:'center') — donc une seule valeur pointeur poussee a 441 elements produit un retard radial sans aucune boucle ni timer. rotate a duration:0 (setter instantane) tandis que x/y trainent avec outElastic, et atan2 oriente toute la grille vers le curseur.",
+    "technique_tags": [
+      "createAnimatable",
+      "stagger-as-duration",
+      "pointer-driven-setter",
+      "radial-lag",
+      "elastic-trail",
+      "no-loop-no-timer"
+    ],
+    "novelty_fingerprint": "prims{createAnimatable,stagger(grid,from:center)-as-duration,utils.mapRange,Math.atan2,ease:outElastic}+struct{setters x/y/rotate appeles dans onpointermove, duration=stagger radial donc lag par distance, rotate duration:0 instantane, zero timeline/timer}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pleinement rejouable : DOM + pointermove + anime UMD, aucun reseau. mix-blend-mode:plus-lighter et box-shadow STATIQUE dans le CSS (pas anime) sont conformes. Adaptations: window.anime UMD; sous prefers-reduced-motion, ne pas brancher onpointermove (ou mapper sans easing). C'est le pattern le plus econome (zero loop) — ideal en iframe."
+    },
+    "snippet": "const duration = stagger(50, { ease: 'in(1)', from: 'center', grid: [rows, rows] });\nconst particles = createAnimatable('.particles div', {\n  x: { duration }, // staggered per-element duration => radial lag\n  y: { duration },\n  rotate: { unit: 'rad', duration: 0 }, // instant setter, no easing\n  ease: 'outElastic(.3, 1.4)',\n});\nwindow.onpointermove = e => {\n  const { clientX, clientY } = e;\n  particles.x(utils.mapRange(clientX, 0, w, -hw, hw));\n  particles.y(utils.mapRange(clientY, 0, h, -hh, hh));\n  particles.rotate(-Math.atan2(hw - clientX, hh - clientY));\n}"
+  },
+  {
+    "name": "layered-css-transforms",
+    "source_path": "examples/layered-css-transforms/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "createSpring",
+      "utils.random",
+      "utils.randomPick",
+      "animation.init()",
+      "keyframes-array",
+      "function-based value",
+      "SVG attr animation (r, width, height, points)"
+    ],
+    "idea": "Genere proceduralement 100 keyframes par propriete, chacune avec un ease tire au sort dans un pool {inOutQuad,inOutCirc,inOutSine,createSpring()} et une duree aleatoire 300-1600ms — un mouvement perpetuel non-repetitif. Anime SIMULTANEMENT le transform du SVG host ET les attributs geometriques internes (circle r, rect width/height, polygon points re-scales depuis les points d'origine parses), le tout reboucle par onComplete recursif.",
+    "technique_tags": [
+      "procedural-keyframes",
+      "random-ease-pool",
+      "svg-attribute-morph",
+      "spring-ease-in-pool",
+      "recursive-self-restart",
+      "non-repeating-loop"
+    ],
+    "novelty_fingerprint": "prims{createTimeline(onComplete:self),createSpring()-as-ease-in-pool,utils.randomPick(eases),utils.random,keyframes(100x),svg-attrs:r/width/height/points}+struct{100 keyframes generes par prop, ease randomise par frame, SVG host transform + geometrie interne animes ensemble, polygon points recalcules*scale}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Local, pas de reseau. ATTENTION piege #6 : createSpring() est DEPRECIE en v4.5 -> remplacer par spring() (valide aussi comme ease:). SVG ici utilise stroke/fill via CSS currentColor/.color-red, pas les utilitaires Tailwind fill-*/stroke-* (donc conforme piege #3 si on garde la peinture CSS var). Adaptations: window.anime UMD + spring(); sous prefers-reduced-motion, init() une seule passe sans onComplete recursif."
+    },
+    "snippet": "const eases = ['inOutQuad', 'inOutCirc', 'inOutSine', createSpring()]; // v4.5: use spring()\nfunction createKeyframes(value) {\n  var keyframes = [];\n  for (let i = 0; i < 100; i++) {\n    keyframes.push({ to: value, ease: utils.randomPick(eases), duration: utils.random(300, 1600) });\n  }\n  return keyframes;\n}\nanimation.add(polyEl, {\n  points: createKeyframes(() => {\n    const s = utils.random(.9, 1.6, 3);\n    return `${points[0]*s} ${points[1]*s} ${points[2]*s} ${points[3]*s} ${points[4]*s} ${points[5]*s}`;\n  }),\n}, 0);\nanimation.init();"
+  },
+  {
+    "name": "stagger",
+    "source_path": "examples/stagger/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "stagger",
+      "utils.set",
+      "utils.random",
+      "from:'+=' relative values",
+      "stagger([0,2000] grid axis:'x')",
+      "composition:false",
+      "loop:true"
+    ],
+    "idea": "1000 points disperses aleatoirement, animes par une SEULE timeline ; le truc est le stagger comme POSITION de timeline (3e arg de .add) avec une plage [0,2000]ms, grid:true (grille inferee automatiquement) et axis:'x' from:'center' — produit une vague horizontale qui se propage du centre. Les keyframes utilisent des valeurs RELATIVES ('-=1'/'+=2', '-=180'/'+=180') donc l'animation part de l'etat aleatoire courant de chaque point sans le connaitre.",
+    "technique_tags": [
+      "grid-stagger",
+      "stagger-as-timeline-position",
+      "inferred-grid",
+      "relative-keyframe-values",
+      "axis-wave",
+      "composition:false"
+    ],
+    "novelty_fingerprint": "prims{createTimeline(composition:false,loop),stagger([min,max],grid:true,from:center,axis:x)-as-position,utils.set(random),relative-values(+=/-=)}+struct{1000 elts dispersion aleatoire, stagger range en 3e arg de add = vague axiale, keyframes relatifs etat-courant-agnostiques, grid auto-inferee}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Trivialement rejouable : DOM + anime UMD, donnees aleatoires locales, aucun reseau. Couleurs via var(--color-N) dataset, conforme. Adaptations: window.anime UMD; 1000 elts est OK mais sous prefers-reduced-motion poser un etat statique sans loop. Aucun SVG/box-shadow/morph en jeu."
+    },
+    "snippet": "createTimeline({ composition: false })\n  .add(dots, {\n    scale: [{ from: '-=1', to: '+=2' }],   // relative to each dot's random current state\n    rotate: [{ from: '-=180', to: '+=180' }],\n    background: [{ from: '#FFF' }],\n    duration: 1000,\n    ease: 'inOut(3)',\n    loop: true,\n  }, stagger([0, 2000], { grid: true, from: 'center', axis: 'x' })) // stagger as timeline position\n  .init();"
+  },
+  {
+    "name": "text/scramble",
+    "source_path": "examples/text/scramble/index.js",
+    "primitives_used": [
+      "animate",
+      "scrambleText",
+      "createTimer",
+      "createTimeline",
+      "$ (utils.$)",
+      "innerHTML tween",
+      "scrambleText opts: from/chars/cursor/perturbation/settleDuration/revealRate/override"
+    ],
+    "idea": "scrambleText() retourne une valeur de tween basee-fonction passee a animate($el,{innerHTML: scrambleText({...})}) : chaque element capture son texte courant et calcule une reveal-timeline per-caractere (override, cursor '░▒▓█', perturbation aleatoire de timing, settleDuration). Bonus: un createTimer frameRate:30 + WebAudio cree un 'tick' sonore synchronise via le callback onChange du scramble.",
+    "technique_tags": [
+      "scramble-text",
+      "innerHTML-tween",
+      "function-based-tween-value",
+      "per-char-reveal",
+      "cursor-sweep",
+      "onChange-audio-tick",
+      "intro-timeline-overlap"
+    ],
+    "novelty_fingerprint": "prims{animate(innerHTML:scrambleText),scrambleText(from,chars,cursor,perturbation,settleDuration,revealRate,override),createTimer(frameRate:30),createTimeline}+struct{scrambleText=function-tween sur innerHTML, override+cursor+perturbation, hover/pointerdown=replay, onChange->WebAudio tick}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Le coeur (scrambleText sur innerHTML) est 100% local et conforme au piege #5 (animate(el,{innerHTML:...}), texte cible pose d'abord). MAIS retirer tout le bloc 'tweaks' GUI (import 'tweaks' via importmap ESM = non-classique, dev-only). WebAudio AudioContext fonctionne dans l'iframe (pas de reseau) mais doit etre gate par geste utilisateur. Adaptations: window.anime UMD; supprimer importmap+tweaks; strings FR; honorer prefers-reduced-motion en posant le texte final sans animer."
+    },
+    "snippet": "$('.scramble').forEach($el => {\n  const replay = () => animate($el, { innerHTML: scrambleText({ ...scrambleParams, text: scrambleParams.text || undefined, onChange: tickSound }) });\n  intro.add($el, {\n    innerHTML: scrambleText({\n      override: '',\n      duration: 750,\n      settleDuration: 250,\n      perturbation: .2,\n      cursor: '░▒▓█',\n    }),\n  }, '-=620');\n  $el.addEventListener('pointerenter', replay);\n  $el.addEventListener('pointerdown', replay);\n});\nintro.init();"
+  },
+  {
+    "name": "text/scramble-tl",
+    "source_path": "examples/text/scramble-tl/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "scrambleText",
+      "stagger",
+      "tl.label-relative positions '<<' '<<+=50' '<-=600'",
+      "innerHTML tween x12",
+      "stagger([min,max] grid:true from:center reversed)",
+      "background var() tween"
+    ],
+    "idea": "Une bande-annonce auto-jouee : une seule timeline enchaine ~25 scrambleText sur 3 slides, orchestree entierement par les positions relatives anime ('<<' = avec le precedent, '<<+=50', '<-=600', '<+=750') au lieu de delais absolus. Le scramble est utilise dans LES DEUX sens : reveal (text:'Anime.js...') et masquage inverse (text:'', reversed:true) pour faire disparaitre. stagger([0,1000],{grid:true,from:'center'}) cadence des grilles de mots.",
+    "technique_tags": [
+      "scramble-text",
+      "relative-timeline-positions",
+      "scrubbed-trailer",
+      "reverse-scramble-hide",
+      "grid-stagger-words",
+      "background-color-tween",
+      "multi-slide-sequence"
+    ],
+    "novelty_fingerprint": "prims{createTimeline,scrambleText(reversed,override,from,cursor,perturbation),stagger([min,max],grid:true,from:center,reversed),relative-pos('<<','<+=','<-=')}+struct{trailer mono-timeline 3 slides, ~25 scramble sequences par positions relatives, scramble bidirectionnel reveal+hide(text:'' reversed), background var() anime entre slides}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Coeur rejouable et tres demonstratif. MAIS retirer import 'animatorkit/editor/gui' showGUI() (dev-only, chemin hors-repo) + l'importmap. Le pattern de positions relatives + scramble bidirectionnel est ideal pour une intro scellee. Adaptations: window.anime UMD; supprimer showGUI; remplacer les libelles anglais ('Introducing','Custom Easing'...) par du FR; sous prefers-reduced-motion, seek a la fin ou poser le dernier slide statique."
+    },
+    "snippet": "tl.add('.slide:nth-child(1) p:not(.center)', {\n  scale: { from: .75 }, color: { to: 'var(--red-1)' },\n  innerHTML: scrambleText({ override: ' ', from: 'center', duration: 500, revealDelay: 250, cursor: '░▒▓', perturbation: .25 }),\n}, stagger([250, 750], { grid: true, from: 'center', ease: 'out(3)', start: '<<' }));\ntl.add('.slide:nth-child(1) p:not(.center)', {\n  innerHTML: scrambleText({ text: '', override: false, from: 'center', ease: 'outQuad', reversed: true, duration: 800, cursor: '░▒▓' })\n}, '<+=150');\ntl.add('body', { background: 'var(--black-1)' }, '<-=600');"
+  },
+  {
+    "name": "text/split-effects",
+    "source_path": "examples/text/split-effects/index.js",
+    "primitives_used": [
+      "splitText({lines,debug})",
+      "split.addEffect",
+      "split.revert/refresh",
+      "createTimeline",
+      "animate",
+      "stagger(use:'data-line')",
+      "utils.set/get",
+      "split.lines/words"
+    ],
+    "idea": "splitText avec lines:true expose split.lines ET split.words ; le pattern cle est split.addEffect(cb) : le callback recoit l'objet split et retourne soit une animation, soit une FONCTION de cleanup executee au revert/refresh. Ici on combine deux effets — une vague de lignes (stagger 'data-line') + un mode drag par mot qui PERSISTE ses coordonnees (le cleanup capture utils.get(w,'x/y') dans coords[] pour les restaurer apres re-split).",
+    "technique_tags": [
+      "split-text",
+      "split-addEffect",
+      "effect-cleanup-persistence",
+      "data-line-stagger",
+      "line-word-dual-split",
+      "draggable-words-reorder",
+      "revert-refresh-lifecycle"
+    ],
+    "novelty_fingerprint": "prims{splitText(lines,debug),split.addEffect(return-cleanup-fn),split.lines/words,stagger(use:data-line),animate,utils.get/set}+struct{addEffect retourne animation OU cleanup-fn, coords[] persistes via utils.get au revert et restaures au re-split, dual line-wave + per-word drag/tidy}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Le coeur splitText+addEffect+persistance est rejouable et conforme au piege #5 (splitText enveloppe le contenu courant). MAIS: retirer le bloc tweaks GUI + l'importmap ESM, ET surtout supprimer le Google Fonts (preconnect fonts.googleapis.com = CDN INTERDIT) -> embarquer une police locale en data:/relative ou utiliser une font systeme. Adaptations: window.anime UMD; texte FR; reduced-motion = split sans boucle (etat final)."
+    },
+    "snippet": "split = splitText('p', { lines: true, debug });\nsplit.addEffect(split => {\n  return createTimeline({ defaults: { alternate: true, loop: true, loopDelay: 75, duration: 1500, ease: 'inOutQuad' } })\n  .add(split.lines, { color: { from: 'var(--sega-1)' }, y: -10, scale: 1.1 }, stagger(100, { start: 0 }))\n  .add(split.words, { scale: [.98, 1.04] }, stagger(100, { use: 'data-line', start: 0 }))\n  .init()\n});\nsplit.addEffect(split => {\n  split.words.forEach(($el, i) => { const c = coords[i]; if (c) utils.set($el, { x: c.x, y: c.y }); });\n  return () => { split.words.forEach((w, i) => coords[i] = { x: utils.get(w, 'x'), y: utils.get(w, 'y') }); }; // cleanup persists coords\n});"
+  },
+  {
+    "name": "text/split-playground",
+    "source_path": "examples/text/split-playground/index.js",
+    "primitives_used": [
+      "splitText({lines/words/chars: {wrap,clone,accessible,includeSpaces}})",
+      "split.addEffect",
+      "split.revert",
+      "animate(loop,alternate)",
+      "stagger(from:'random')",
+      "document.fonts.ready",
+      "rAF dirty-check re-split"
+    ],
+    "idea": "Demontre TOUTE la surface de splitText : split simultane lines+words+chars avec options wrap:'clip'/'visible', clone:'top|bottom|left|right' (duplique le glyphe pour un effet de defilement masque par overflow), includeSpaces, accessible (aria). Le clone:dir choisit la direction d'animation (x/y +/-100%) ; un re-split est declenche par diff JSON dans une boucle rAF, et tout attend document.fonts.ready avant le 1er split (le metrics de split depend des fonts chargees).",
+    "technique_tags": [
+      "split-text",
+      "split-clone-direction",
+      "wrap-clip-overflow",
+      "fonts-ready-gate",
+      "raf-dirty-check-resplit",
+      "scrolling-glyph",
+      "accessible-split"
+    ],
+    "novelty_fingerprint": "prims{splitText(lines+words+chars,wrap:clip,clone:dir,includeSpaces,accessible),split.addEffect,split.revert,animate(loop,alternate),stagger(from:random),document.fonts.ready,rAF}+struct{triple-niveau split, clone:dir=glyphe duplique scroll sous overflow clip, gate fonts.ready avant 1er split, re-split sur diff-JSON en rAF}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Le coeur splitText (wrap/clone/clip) est rejouable et conforme piege #5. document.fonts.ready marche en iframe. MAIS retirer le bloc tweaks GUI + importmap ESM (c'est un playground de debug). Si on utilise une police custom, l'embarquer en local (pas Google Fonts). Adaptations: window.anime UMD; texte FR; gate prefers-reduced-motion (split statique sans loop). La technique clone:dir+wrap:clip = scroll de glyphe sans box-shadow ni canvas, parfaitement scellable."
+    },
+    "snippet": "const animateSplit = (targets, opts) => {\n  const dir = opts.clone;\n  return animate(targets, {\n    x: dir === 'left' ? '100%' : dir === 'right' ? '-100%' : 0,\n    y: dir === 'top' ? '100%' : dir === 'bottom' ? '-100%' : !dir ? '-100%' : 0,\n    loop: true, alternate: true, duration: opts.duration,\n    delay: stagger(opts.stagger==='random' ? 10 : +opts.stagger, { from: opts.stagger==='random' ? 'random' : 0 }),\n  });\n};\ndocument.fonts.ready.then(() => {           // split metrics depend on loaded fonts\n  split = splitText('article', { lines, words, chars, includeSpaces, accessible, debug });\n  // ... clone:'top'/'clip' duplicates each glyph, overflow-clipped for scroll effect\n});"
+  },
+  {
+    "name": "text/hover-effects",
+    "source_path": "examples/text/hover-effects/index.js",
+    "primitives_used": [
+      "createScope({root,defaults})",
+      "scope.add('method',fn)+scope.methods",
+      "splitText(chars:{class,clone:'left/top',wrap:'clip'})",
+      "splitText(words:'<span>{value}</span>' template)",
+      "createSpring({stiffness,damping})",
+      "createTimeline(autoplay:false)",
+      "animate(tl,{progress})",
+      "stagger(use:'data-char'/'data-word', from:'random')",
+      "composition:'blend'",
+      "seek(1000)"
+    ],
+    "idea": "Six effets hover empaquetes chacun dans createScope (root scopant les selecteurs + methods nommees onEnter/onLeave reliees aux pointerenter/leave). Truc structurel cle : on cree une timeline autoplay:false UNE fois puis on l'avance/recule par animate(tl,{progress:1/0}) au survol (scrub d'une timeline par une autre animation). Le split clone:'left'/'top'+wrap:'clip' fait glisser un glyphe duplique sous overflow clip ; le 3D-word utilise un template splitText multi-faces (rotateX -180 + opacities par face).",
+    "technique_tags": [
+      "createScope",
+      "scoped-methods",
+      "split-text",
+      "scrub-timeline-via-progress",
+      "spring-ease",
+      "clone-clip-glyph-slide",
+      "3d-word-faces-template",
+      "data-attr-stagger",
+      "additive-blend-hover"
+    ],
+    "novelty_fingerprint": "prims{createScope(root,methods),splitText(chars/words template,clone,wrap:clip),createSpring,createTimeline(autoplay:false),animate(tl,{progress}),stagger(use:data-char,from:random),composition:blend,seek}+struct{6 effets scopes, scrub timeline via animate-progress 0<->1 au hover, glyphe clone+clip slide, mots 3D template multi-face rotateX, spring(stiffness,damping)}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "createScope/scope.methods/scrub-via-progress/3D-faces sont 100% locaux et tres reutilisables. PIEGE #6: createSpring({...}) deprecie v4.5 -> spring({stiffness,damping}). RETIRER le Google Fonts (preconnect+css2 = CDN INTERDIT) : utiliser une police systeme ou locale (le glyphe JP '3Dで単語' demande une police a glyphes CJK -> remplacer par texte FR pour rester local). Adaptations: window.anime UMD; spring(); strings FR; reduced-motion = pas de hover-anim (etat final)."
+    },
+    "snippet": "createScope({ root: '#horizontal-split', defaults: { ease: 'outQuad', duration: 500 } }).add((scope) => {\n  const { root, methods } = scope;\n  splitText('h2', { chars: { class: 'char', clone: 'left', wrap: 'clip' } });\n  const rotateAnim = createTimeline({ autoplay: false, defaults: { ease: 'inOutQuad', duration: 400 } })\n    .add('.char > span', { x: '100%' }, stagger(5, { use: 'data-char' }));\n  scope.add('onEnter', () => animate(rotateAnim, { progress: 1 })); // scrub timeline via progress\n  scope.add('onLeave', () => animate(rotateAnim, { progress: 0 }));\n  root.addEventListener('pointerenter', methods.onEnter);\n  root.addEventListener('pointerleave', methods.onLeave);\n});"
+  },
+  {
+    "name": "animejs-v4-logo-animation",
+    "source_path": "examples/animejs-v4-logo-animation/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "stagger",
+      "svg.morphTo",
+      "svg.createDrawable",
+      "draw:'0 1'",
+      "cubicBezier",
+      "eases.outElastic",
+      "feGaussianBlur stdDeviation tween",
+      "textContent tween (charset index)",
+      "tl.label + relative positions '<<'/'<+='/'-='",
+      "cloneNode onion-skin"
+    ],
+    "idea": "Animation logo cinematique entierement SVG : morph en chaine svg.morphTo entre paliers ('#line-0' -> line-0-1..6 -> line-1..5) pour un liquide qui tombe et rebondit, svg.createDrawable+draw:'0 1' pour tracer les traits j/s, animation de filtre feGaussianBlur (stdDeviation '15,15'->'0,0') pour un focus-in, et un effet 'machine a sous' textuel ou textContent est tween via un INDEX dans une chaine de chars (to:[0,chars.indexOf(c)] + modifier qui mappe la valeur arrondie au glyphe). Onion-skin par cloneNode anime avec opacity stagger.",
+    "technique_tags": [
+      "svg-morph-chain",
+      "motion-blur-fegaussianblur",
+      "svg-draw-stroke",
+      "textContent-charset-scrub",
+      "onion-skin-clones",
+      "label-relative-choreography",
+      "custom-cubicbezier-ease",
+      "splash-keyframes"
+    ],
+    "novelty_fingerprint": "prims{createTimeline(labels),svg.morphTo(chain),svg.createDrawable+draw,feGaussianBlur:stdDeviation-tween,textContent:to[0,idx]+modifier,cubicBezier,eases.outElastic,stagger(from:center),cloneNode}+struct{morph multi-palier liquide, blur-focus-in via filter, draw stroke j/s, slot-machine textContent index-mapped-to-charset, onion-skin clones opacity-stagger, choreographie par labels relatifs}",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Tout est local-SVG, aucun reseau. Conforme piege #4 : svg.morphTo paire bien path-d<->path-d (#a-1->#a-2) et polygon-points<->polygon (#i-1->#i-2) — meme type d'element. feGaussianBlur est anime sur un FILTRE SVG (pas box-shadow CSS) donc OK vs piege #2. ATTENTION: l'effet 'slot-machine' tween textContent (pas innerHTML) directement, le texte est wrappe en <span> AVANT (conforme #5). Adaptations: window.anime UMD (svg.*/eases/cubicBezier exposes sous window.anime); le SVG inline doit peindre via CSS var(--color-*) pas fill-*/stroke-* Tailwind (piege #3); reduced-motion = tl.seek(tl.duration) etat final."
+    },
+    "snippet": "tl.add('#line-0', {\n  d: [\n    { to: svg.morphTo('#line-0-1', 0), delay: 320, duration: 60, ease: 'inQuad' },\n    { to: svg.morphTo('#line-0-2', 0), duration: 80 },\n    { to: svg.morphTo('#line-0-3', 0), duration: 90 },\n  ],\n});\n// slot-machine: tween textContent through a charset index\nfunction wrapInSpan(sel){ const t=document.querySelector(sel); t.innerHTML=[...t.textContent].map(c=>`<span>${c===' '?'&nbsp;':c}</span>`).join(''); }\nwrapInSpan('#sub-text');\ntl.add('#sub-text span', {\n  textContent: {\n    to: $el => [0, chars.indexOf($el.textContent)],\n    modifier: v => { const c = chars[utils.round(v, 0)]; return c ? c : ' ' },\n  },\n  delay: stagger(30, { from: 'center', ease: 'inOut(2)' }),\n}, 'TEXT')\n.add('#blur feGaussianBlur', { stdDeviation: ['15,15', '0,0'], ease: 'out(2)', duration: 1000 }, '<<');"
+  },
+  {
+    "name": "timeline-50K-stars",
+    "source_path": "examples/timeline-50K-stars/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "animate",
+      "utils.$",
+      "utils.set",
+      "utils.random",
+      "utils.round",
+      "steps",
+      "cubicBezier",
+      "tl.add(animation,{progress:1})",
+      "tl.add(data,{...modifier})",
+      ".call",
+      ".label",
+      ".set",
+      "loop",
+      "onLoop:self.refresh()"
+    ],
+    "idea": "Une timeline maitre 'scenarise' un faux compteur GitHub qui grimpe de 1 a 50000 : elle pilote la PROGRESSION (progress:1) d'une sous-timeline de clic en boucle ET un objet de donnees `data.mult` keyframe pour moduler l'intensite, pendant qu'un compteur innerHTML est anime via des courbes cubicBezier extremes (1,0,1,1 / 0,1,0,1) qui simulent l'acceleration/saturation virale.",
+    "technique_tags": [
+      "timeline-as-director",
+      "animate-child-progress",
+      "data-object-keyframes",
+      "innerHTML-counter",
+      "cubic-bezier-extreme",
+      "label-positioning",
+      "particle-spawn",
+      "loop-refresh"
+    ],
+    "novelty_fingerprint": "prims{animate,createTimeline,cubicBezier,steps,utils.random,utils.round}|struct:master-tl-drives-childTL-progress+data-obj-modifier-keyframes+innerHTML-count-rampe-via-bezier-saturant+spawn-particules-clones",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "100% DOM/transform/opacity/color + innerHTML compteur, 0 reseau (donnees deja simulees: faux compteur scenarise). Charger via window.anime UMD; destructurer anime.createTimeline/animate/utils/steps/cubicBezier. Le sprite curseur (cursor.png) est un asset local relatif: OK. Aucune box-shadow animee. Le compteur 'views' est exactement le genre de donnee SIMULEE attendu en iframe."
+    },
+    "snippet": ".add(clickAnimation, {\n  progress: 1,\n  duration: 10000,\n  ease: cubicBezier(.65,0,0,1),\n}, 'CLICK START')\n.add($count, {\n  innerHTML: ['5', '40000'],\n  modifier: utils.round(0),\n  ease: cubicBezier(1,0,1,1),\n  duration: 5000\n}, 'CLICK START+=800')\n.add($count, {\n  innerHTML: '49999',\n  modifier: utils.round(0),\n  ease: cubicBezier(0,1,0,1),\n  duration: 4250\n}, '<')\n.add(data, {\n  mult: [0, 0, 1.5, .25, 0, 0],\n  duration: 10000,\n  ease: cubicBezier(1,0,1,1),\n}, 'CLICK START')"
+  },
+  {
+    "name": "timeline-refresh-starlings",
+    "source_path": "examples/timeline-refresh-starlings/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "stagger",
+      "utils.set",
+      "utils.random",
+      "onLoop:self.refresh()",
+      "loop:true",
+      "modifier",
+      "tl.currentTime",
+      "function-values($el=>...)",
+      "Symbol()-as-prop-key"
+    ],
+    "idea": "Murmuration de 2500 elements: chaque div porte ses params polaires (theta,radius) dans des cles Symbol() pour ne pas polluer le dataset; les positions sont des FONCTIONS lues par element, et onLoop re-randomise theta/radius PUIS appelle self.refresh() pour relire les valeurs-fonctions — donc une boucle qui ne se repete jamais. Une cible-attracteur (objet `target`) est animee en parallele avec un modifier sinusoidal sur tl.currentTime pour un mouvement de groupe organique.",
+    "technique_tags": [
+      "per-element-function-values",
+      "loop-refresh-rerandomize",
+      "symbol-prop-storage",
+      "attractor-object",
+      "currentTime-modifier-sine",
+      "polar-positioning",
+      "stagger-temporal",
+      "boids-illusion"
+    ],
+    "novelty_fingerprint": "prims{createTimeline,stagger,utils.random,utils.set,modifier,onLoop-refresh}|struct:per-el-fn-values-polaires+onLoop-rerandomize-puis-refresh+attractor-obj-anime-en-parallele-modifier-sin(currentTime)",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM (2500 divs translate x/y) + objet JS attracteur, 0 reseau. 2500 elements est lourd mais reste raisonnable en iframe; reduire le count si besoin. Aucun piege touche. La cle = function-values + onLoop refresh, parfaitement rejouable. Honorer prefers-reduced-motion en posant l'etat final via seek() sans loop."
+    },
+    "snippet": "tl.add('div', {\n  x: $el => target.x + ($el[radius] * cos($el[theta])),\n  y: $el => target.y + ($el[radius] * sin($el[theta])),\n  duration: () => duration + utils.random(-100, 100),\n  ease: 'inOut(1.5)',\n  onLoop: self => {\n    const t = self.targets[0];\n    t[theta] = random() * PI * 2;\n    t[radius] = target.r * sqrt(random());\n    self.refresh();\n  },\n}, stagger((duration / count) * 1.125))\n.add(target, {\n  x: () => utils.random(-win.w, win.w),\n  modifier: x => x + sin(tl.currentTime * .0007) * (win.w * .65),\n  duration: 2800,\n}, 0)"
+  },
+  {
+    "name": "timeline-seamless-loop",
+    "source_path": "examples/timeline-seamless-loop/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "stagger",
+      "stagger([0,1],{ease,reversed,from:'center'})-as-strength-fn",
+      "utils.set",
+      "utils.round",
+      "utils.degToRad",
+      "loopDelay",
+      "loop:-1",
+      "keyframe-segments [{to},{to}]",
+      "tl.seek(0)"
+    ],
+    "idea": "Boucle parfaitement seamless de 500 elements disposes en cercle: le truc est d'echantillonner un stagger([0,1]) UNE fois comme 'fonction de force' par index (strengthFn), puis de baker rest/peak positions, hues, scales a partir de cette force. Chaque element anime rest->peak->rest (keyframes a 2 segments) avec un loopDelay = loopDuration - animDuration, decale par stagger, donnant une onde qui circule sans coupure.",
+    "technique_tags": [
+      "seamless-loop",
+      "stagger-as-strength-function",
+      "baked-rest-peak-positions",
+      "loopDelay-gap",
+      "two-segment-keyframes",
+      "radial-layout",
+      "wave-propagation",
+      "vh-units"
+    ],
+    "novelty_fingerprint": "prims{createTimeline,stagger,utils.set,utils.degToRad,loopDelay,loop:-1,keyframe-2seg}|struct:stagger([0,1])-echantillonne-en-strengthFn+bake-rest/peak+loopDelay=loopDur-animDur+onde-circulaire-seamless",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM transform (translateX/Y en vh, rotate, scale, backgroundColor hsl), 0 reseau. Le mecanisme seamless-loop via loopDelay+stagger est exactement reutilisable. Aucun piege. Les unites vh fonctionnent dans l'iframe (viewport = taille iframe). prefers-reduced-motion: poser le rest layout via utils.set et ne pas demarrer la tl."
+    },
+    "snippet": "const strengthFn = stagger([0, 1], { ease: 'inOutSine', reversed: true, from: 'center' });\nconst strengths = els.map((el, i) => utils.round(+strengthFn(el, i, els), 100));\nconst restPositions = angles.map(a => posOnCircle(a, RADIUS_VH));\nconst peakPositions = angles.map((a, i) => posOnCircle(a + 10 * strengths[i], RADIUS_VH * 1.1));\n// ...\nconst tl = createTimeline({\n  defaults: { ease: 'inOut(2)', loopDelay: loopDuration - animDuration, duration: animDuration },\n})\n.add(els, {\n  translateX: [ { to: (_, i) => peakPositions[i].x + 'vh' }, { to: (_, i) => restPositions[i].x + 'vh' } ],\n  translateY: [ { to: (_, i) => peakPositions[i].y + 'vh' }, { to: (_, i) => restPositions[i].y + 'vh' } ],\n  loop: -1,\n}, stagger(delay, { start: 0 }));"
+  },
+  {
+    "name": "timeline-stress-test",
+    "source_path": "examples/timeline-stress-test/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "stagger",
+      "stagger([0,duration])",
+      "utils.mapRange",
+      "utils.round",
+      "utils.set",
+      "playbackEase",
+      "loop:true",
+      "keyframe-array scale:[0,.4,.2,.9,0]",
+      ".init",
+      ".seek"
+    ],
+    "idea": "Stress-test de 2024 elements en spirale: une seule timeline avec un stagger TEMPOREL etale sur toute la duree (stagger([0,duration])) — chaque element demarre a un instant different — combinee a utils.mapRange pour transformer l'index en angle de spirale (0..PI*100). Le `playbackEase` global re-time toute la lecture. Demontre que 2000+ animations sur une timeline restent fluides via le moteur unifie.",
+    "technique_tags": [
+      "stress-test",
+      "stagger-over-full-duration",
+      "mapRange-index-to-angle",
+      "spiral-layout",
+      "playbackEase-global",
+      "scale-keyframe-array",
+      "hsl-rainbow-by-index"
+    ],
+    "novelty_fingerprint": "prims{createTimeline,stagger,utils.mapRange,utils.round,playbackEase,loop:true}|struct:2000+el-une-seule-tl+stagger([0,duration])-temporel-total+mapRange(i->angle-spirale)+playbackEase-global",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM (x/y en rem, scale, hsl background), 0 reseau. 2024 elements peut etre lourd — ajuster le count pour iframe modeste. Le pattern stagger([0,duration])+mapRange+playbackEase est directement rejouable via UMD. Aucun piege. Reduced-motion: seek a un etat stable, pas de loop."
+    },
+    "snippet": "const angle = utils.mapRange(0, count, 0, Math.PI * 100);\n// ...\ncreateTimeline()\n.add('div', {\n  x: (_, i) => `${Math.sin(angle(i)) * distance}rem`,\n  y: (_, i) => `${Math.cos(angle(i)) * distance}rem`,\n  scale: [0, .4, .2, .9, 0],\n  playbackEase: 'inOutSine',\n  loop: true,\n  duration,\n}, stagger([0, duration]))\n.init()\n.seek(10000);"
+  },
+  {
+    "name": "svg-graph",
+    "source_path": "examples/svg-graph/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "animate(implicite-via-add)",
+      "svg(import)",
+      "stagger(import-inutilise)",
+      "utils.round",
+      "innerHTML:{from:0}",
+      "modifier:v=>round.toLocaleString()",
+      "x/width-rect-animation",
+      "loop:true",
+      "position '<<' '+=500'",
+      ".init"
+    ],
+    "idea": "Graphe d'analytics: une barre-masque (rect #b) balaye de gauche a droite (x:0->900, width:900->0) pour 'reveler' la courbe area sous un masque SVG, synchronisee a un compteur innerHTML qui s'incremente depuis 0 avec modifier toLocaleString() pour le formatage milliers. La position '<<' verrouille le compteur sur le debut du reveal — un wipe de revelation propre.",
+    "technique_tags": [
+      "mask-wipe-reveal",
+      "rect-sweep",
+      "innerHTML-counter-locale",
+      "modifier-toLocaleString",
+      "timeline-position-sync",
+      "svg-area-chart",
+      "previous-start-position"
+    ],
+    "novelty_fingerprint": "prims{createTimeline,svg,utils.round,innerHTML-from,modifier-locale}|struct:rect-mask-sweep(x+width)-revele-area-chart+compteur-innerHTML-toLocaleString-sync-via-'<<'",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "SVG inline + animation de rect (x/width) + innerHTML, 0 reseau (donnees graphe en dur = simulees). ATTENTION piege #3: ici les couleurs SVG sont en attributs (stroke=#B7FF54, fill=url(#c)) PAS via classes Tailwind fill-/stroke-, donc deja conforme; si on refactor en CSS, utiliser var(--color-*) sur fill/stroke. Le path area est statique, seul le masque bouge. Rejouable via UMD."
+    },
+    "snippet": ".add('#b', {\n  x: [0, 0],\n  width: [0, 900],\n}, 0)\n.add('#count', {\n  innerHTML: { from:  0 },\n  modifier: v => utils.round(v, 0).toLocaleString(),\n}, '<<')\n.add('#b', {\n  x: 900,\n  width: 0,\n  duration: 1500,\n}, '+=500')\n.add('#views', {\n  opacity: 0,\n  duration: 1500,\n}, '<<')"
+  },
+  {
+    "name": "svg-line-drawing",
+    "source_path": "examples/svg-line-drawing/index.js",
+    "primitives_used": [
+      "svg.createDrawable",
+      "createTimeline",
+      "stagger",
+      "stagger([0,8000],{start,from:'first'})",
+      "utils.random",
+      "draw:['.5 .5', fn, '0.5 0.5']",
+      "loop:true",
+      "string-template-svg-injection",
+      ".init"
+    ],
+    "idea": "100 lignes + 50 cercles concentriques generes en string SVG puis injectes; l'animation `draw` (attribut anime de stroke-dashoffset/array via createDrawable) prend des KEYFRAMES de fractions de trace ('.5 .5' = invisible au centre -> '.05..0.95' = revele -> retour), avec des bornes randomisees par fonction a chaque keyframe. Le stagger([0,8000]) etale le dessin dans le temps pour une vague de trace qui s'ouvre et se referme.",
+    "technique_tags": [
+      "svg-draw-keyframes",
+      "createDrawable",
+      "partial-stroke-reveal",
+      "random-draw-bounds",
+      "stagger-temporal-spread",
+      "procedural-svg-injection",
+      "concentric-circles",
+      "vertical-lines-grid"
+    ],
+    "novelty_fingerprint": "prims{svg.createDrawable,createTimeline,stagger,utils.random,draw-keyframes,loop:true}|struct:SVG-genere-en-string+draw-keyframes-fractions('.5 .5'->random->'.5 .5')+stagger([0,8000])-vague-de-trace",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "createDrawable + draw keyframes = pur SVG stroke-dash, 0 reseau. ATTENTION piege #3: les stroke sont poses en attribut stroke=#A4FF4F (conforme); si CSS, var(--color-*). L'injection via innerHTML += de strings SVG fonctionne en iframe (unsafe-inline OK pour le CSS, mais l'injection est du SVG markup, pas de script). createDrawable est expose sur anime.svg en UMD. Rejouable."
+    },
+    "snippet": ".add(svg.createDrawable('.line-v'), {\n  draw: [\n    '.5 .5',\n    () => { const l = utils.random(.05, .45, 2); return `${.5 - l} ${.5 + l}` },\n    '0.5 0.5',\n  ],\n  stroke: '#FF4B4B',\n}, stagger([0, 8000], { start: 0, from: 'first' }))\n.add(svg.createDrawable('.circle'), {\n  draw: [\n    () => { const v = utils.random(-1, -.5, 2); return `${v} ${v}`},\n    () => `${utils.random(0, .25, 2)} ${utils.random(.5, .75, 2)}`,\n    () => { const v = utils.random(1, 1.5, 2); return `${v} ${v}`},\n  ],\n  stroke: '#FF4B4B',\n}, stagger([0, 8000], { start: 0 }))"
+  },
+  {
+    "name": "onscroll-responsive-scope",
+    "source_path": "examples/onscroll-responsive-scope/index.js",
+    "primitives_used": [
+      "createScope",
+      "createScope({mediaQueries})",
+      "scope.matches.landscape",
+      "onScroll",
+      "onScroll({enter,leave,sync}).link(anim)",
+      "animate",
+      "stagger",
+      "stagger(['-40vh','40vh'],{from:'center'})",
+      "stagger-as-delay",
+      "from-value-function"
+    ],
+    "idea": "Le MEME effet scroll-lie a deux chorEographies differentes selon l'orientation: createScope avec mediaQueries.landscape branche conditionnellement l'animation (eventail rotatif en paysage vs cascade verticale en portrait), et onScroll(...).link() attache la PROGRESSION de l'animation choisie au scroll (sync:.1 = smoothing). Le scope re-evalue automatiquement au changement de media query.",
+    "technique_tags": [
+      "responsive-scope",
+      "media-query-branch",
+      "scroll-linked-progress",
+      "onScroll-link",
+      "scroll-sync-smoothing",
+      "stagger-from-center",
+      "stagger-delay-cascade",
+      "vw-vh-from-values"
+    ],
+    "novelty_fingerprint": "prims{createScope,onScroll-link,animate,stagger,scope.matches}|struct:createScope-mediaQueries-branche-2-choreos+onScroll(enter/leave/sync).link(anim-conditionnel)+responsive-auto-reeval",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Le scroll EST local au document de l'iframe (sticky-container scrollable), 0 reseau, cartes = assets SVG relatifs. createScope+onScroll exposes sur window.anime UMD. ATTENTION: l'iframe doit etre assez haute/scrollable pour declencher enter/leave; sinon proposer une variante autoplay ou un faux scroll programmatique. mediaQueries fonctionnent sur la taille de l'iframe. Reduced-motion: scope honore prefers-reduced-motion via etat final."
+    },
+    "snippet": "createScope({\n  mediaQueries: { landscape: '(orientation: landscape)' },\n  defaults: { ease: 'out(3)', duration: 500 },\n}).add((scope) => {\n  let cardsAnimation;\n  if (scope.matches.landscape) {\n    cardsAnimation = animate('.card', {\n      y: { from: stagger(['-40vh','40vh'], {from: 'center'}) },\n      rotate: { to: stagger([-30, 30]), delay: stagger([0, 950], { from: 'last', start: 200 }) },\n      x: ['-60vw', stagger(['-20%', '20%'])],\n    });\n  } else {\n    cardsAnimation = animate('.card', { y: ['150vh', stagger(['20%', '-20%'])] });\n  }\n  onScroll({ target: '.sticky-container', enter: 'top', leave: 'bottom', sync: .1 }).link(cardsAnimation)\n});"
+  },
+  {
+    "name": "onscroll-sticky",
+    "source_path": "examples/onscroll-sticky/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "onScroll-as-autoplay",
+      "autoplay:onScroll({enter,leave,sync})",
+      "composition:'blend'",
+      "stagger",
+      "stagger([0,-360],{from:'last'})",
+      "utils.set",
+      "utils.$",
+      "utils.random",
+      "filter:brightness-via-stagger-modifier",
+      "animate-onmouseenter"
+    ],
+    "idea": "Un deck de 52 cartes 3D 'eventaille' au scroll: chaque carte est enveloppee runtime dans un .spinner (transformOrigin pivot bas), et onScroll est passe DIRECTEMENT comme autoplay de la timeline (le scroll devient l'horloge). composition:'blend' (additive) permet aux animations hover de s'AJOUTER a la pose scroll sans la casser. stagger modifier applique un brightness() degrade recto/verso pour la profondeur.",
+    "technique_tags": [
+      "scroll-as-autoplay-clock",
+      "additive-blend-composition",
+      "3d-card-spinner",
+      "transform-origin-pivot",
+      "stagger-rotate-fan",
+      "filter-brightness-stagger",
+      "hover-blend-on-scroll",
+      "runtime-wrap-element"
+    ],
+    "novelty_fingerprint": "prims{createTimeline,onScroll-autoplay,composition:blend,stagger,utils.set,animate-hover}|struct:onScroll-passe-comme-autoplay(scroll=horloge)+composition:blend-hover-s-ajoute-a-pose-scroll+spinner-wrap-3D+stagger-rotate-fan",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Scroll local, transforms 3D (rotateY/rotateZ/translateY), filter brightness, 0 reseau, cartes = SVG relatifs. ATTENTION piege #2: la .card a une box-shadow STATIQUE en CSS (jamais animee) — conforme. composition:'blend' = additive blend natif, rejouable via UMD. onScroll-as-autoplay fonctionne tant que l'iframe scrolle (sticky-container 400lvh). 52 cartes OK. Reduced-motion: poser etat final, ne pas lier au scroll."
+    },
+    "snippet": "createTimeline({\n  defaults: { ease: 'linear', duration: 500, composition: 'blend' },\n  autoplay: onScroll({ target: '.sticky-container', enter: 'top top', leave: 'bottom bottom', sync: .5 }),\n})\n.add('.spinner', {\n  rotate: 0,\n  rotateZ: { to: stagger([0, -360], { from: 'last' }), ease: 'inOut(2)' },\n  transformOrigin: ['50% 100%', '50% 50%'],\n  delay: stagger(1, { from: 'first' }),\n}, 0)\n// hover s'ajoute via blend, sans casser la pose scroll:\n$card.onmouseenter = () => animate($card, { y: '-70%', duration: 350, composition: 'blend' });"
+  },
+  {
+    "name": "irregular-playback-typewriter",
+    "source_path": "examples/irregular-playback-typewriter/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "easings.irregular(steps,randomness)",
+      "easings.steps",
+      "playbackEase:irregular",
+      "stagger",
+      ".set($spans,{opacity:[0,1]},stagger(interval))",
+      "animate",
+      "loop:true,alternate:true"
+    ],
+    "idea": "Effet machine a ecrire au rythme HUMAIN imparfait: chaque lettre (span) apparait via .set opacity avec stagger temporel regulier, MAIS le playbackEase:easings.irregular(n,2) re-time toute la lecture de facon saccadee/imprevisible (la frappe accelere et hesite). Un curseur separe avance en easings.steps(n) (saut discret par caractere) et clignote en boucle alternee.",
+    "technique_tags": [
+      "irregular-ease",
+      "playbackEase-retiming",
+      "typewriter",
+      "stagger-reveal-letters",
+      "steps-ease-discrete-cursor",
+      "blink-loop-alternate",
+      "human-rhythm-simulation"
+    ],
+    "novelty_fingerprint": "prims{createTimeline,easings.irregular,easings.steps,stagger,animate-loop-alternate}|struct:stagger-regulier-lettres+playbackEase:irregular(n,2)-retime-tout-en-saccade+curseur-steps(n)+blink-alternate",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur opacity/left sur spans pre-existants, 0 reseau. easings.irregular et easings.steps exposes sur anime.easings (ou anime.eases) en UMD. Texte en dur dans les <span> = facile a passer en FRANCAIS. Aucun piege (pas de splitText ici, les spans sont deja dans le HTML — si on voulait splitText, appliquer piege #5: reposer textContent avant re-split). Rejouable."
+    },
+    "snippet": "const keystrokesSteps = $spans.length - 1;\nconst keystrokesInterval = 125;\ncreateTimeline({\n  playbackEase: easings.irregular(keystrokesSteps, 2),\n})\n.set($spans, { opacity: [0, 1] }, stagger(keystrokesInterval))\n.add($cursor, {\n  left: '100%',\n  duration: keystrokesSteps * keystrokesInterval,\n  ease: easings.steps(keystrokesSteps),\n}, 0)\n.init();\n\nanimate($cursor, { opacity: 0, duration: 750, ease: 'inIn(2)', loop: true, alternate: true });"
+  },
+  {
+    "name": "clock-playback-controls",
+    "source_path": "examples/clock-playback-controls/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "masterTL.sync(childTL,0)",
+      "animate(masterTL,{currentTime})",
+      "animate(masterTL,{speed})",
+      "masterTL.onUpdate",
+      "masterTL.currentTime=",
+      "masterTL.duration/iterationDuration",
+      "utils.sync",
+      "utils.set",
+      "utils.degToRad",
+      "cubicBezier",
+      "utils.$"
+    ],
+    "idea": "Horloge digitale 3D ou chaque chiffre est un cylindre de 10 faces (rotateX par face); une masterTL d'une JOURNEE entiere (86.4M ms) synchronise (masterTL.sync) des sous-timelines par roue de chiffres avec des durees/eases differentes selon le chiffre (les dizaines d'heures tournent en cubicBezier avec arret, les secondes en linear). On ANIME masterTL.currentTime et masterTL.speed eux-memes pour seek/slowmo/speedup — la timeline est une cible animable.",
+    "technique_tags": [
+      "animate-the-timeline",
+      "currentTime-as-animatable",
+      "speed-as-animatable",
+      "timeline-sync-nested",
+      "3d-digit-cylinder",
+      "rotateX-faces",
+      "onUpdate-bind-controls",
+      "utils.sync-flush",
+      "day-length-timeline"
+    ],
+    "novelty_fingerprint": "prims{createTimeline,masterTL.sync,animate(tl.currentTime),animate(tl.speed),onUpdate,utils.sync,cubicBezier}|struct:masterTL-1-journee+sync(childTL-par-roue)+animate-currentTime/speed-de-la-timeline-elle-meme+chiffres-cylindre-3D-rotateX",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM 3D (rotateX/translateY/z en ch), Date locale (pas de reseau), controles UI sliders/boutons. La cle = animate(masterTL,{currentTime/speed}) + masterTL.sync, tout expose via UMD. new Date() est local, OK en iframe. Labels boutons a passer en FRANCAIS. Aucun piege (transforms only). Rejouable; reduced-motion: figer currentTime sans loop."
+    },
+    "snippet": "const numTL = createTimeline({ defaults: { ease }, loop: true });\n// ...add rotateX per face...\nmasterTL.sync(numTL, 0);\n// ...\nmasterTL.duration = oneday;\nmasterTL.iterationDuration = oneday;\nmasterTL.currentTime = getNow();\nmasterTL.onUpdate = ({currentTime, speed}) => { /* bind to UI */ };\n// The timeline itself is the animation target:\nanimate(masterTL, { currentTime: getNow(), ease: 'inOut(3)', duration: 1500 });\nanimate(masterTL, { speed: .1, ease: 'out(3)', duration: 1500 });\nanimate(masterTL, { speed: 5, ease: 'out(3)', duration: 1500 });"
+  },
+  {
+    "name": "canvas-2d",
+    "source_path": "examples/canvas-2d/index.js",
+    "primitives_used": [
+      "animate",
+      "createTimer",
+      "createTimer({onUpdate})",
+      "animate(plain-object,{x,y,radius})",
+      "onComplete:re-animate",
+      "utils.random",
+      "utils.randomPick",
+      "per-property-duration"
+    ],
+    "idea": "4000 particules animees SANS toucher le DOM: anime.js anime des OBJETS JS purs (p.x, p.y, p.radius) avec des durees independantes par axe (proportionnelles a la distance) et un onComplete qui se re-anime a l'infini vers une nouvelle cible. Un createTimer separe est le 'render loop' qui peint le canvas a chaque frame (fade trail via fillRect alpha .1 + globalCompositeOperation 'screen'). anime = moteur de tweening, canvas = sortie.",
+    "technique_tags": [
+      "animate-plain-objects",
+      "createTimer-render-loop",
+      "canvas-2d-main-thread",
+      "tween-engine-decoupled-from-render",
+      "self-perpetuating-onComplete",
+      "per-axis-duration",
+      "composite-screen-trail",
+      "alpha-fade-trail"
+    ],
+    "novelty_fingerprint": "prims{animate,createTimer,utils.random,utils.randomPick,onComplete-recurse}|struct:anime-tween-objets-JS-purs(x,y,radius)+createTimer-render-loop-canvas2D+onComplete-self-reanime+screen-blend-trail",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Canvas 2D sur le MAIN THREAD (pas de worker), getContext('2d'), 0 reseau, 0 CDN. C'est le pattern le plus important du cluster: anime = tween engine sur objets purs, createTimer = boucle de rendu. ATTENTION: contrainte SBFB interdit 'canvas via worker' — ici c'est main-thread, donc CONFORME. 4000 particules ajustables. Rejouable via window.anime UMD (animate/createTimer/utils)."
+    },
+    "snippet": "function animateParticule(p, i) {\n  const newX = utils.random(0, viewport.width);\n  const durX = Math.abs((newX - p.x) * 20);\n  animate(p, {\n    x: { to: newX, duration: durX },\n    y: { to: utils.random(0, viewport.height), duration: /*durY*/ },\n    radius: utils.random(2, 6),\n    ease: 'out(1)',\n    onComplete: () => { animateParticule(p, i); }\n  });\n}\ncreateTimer({\n  onUpdate: self => {\n    ctx.globalAlpha = .1; ctx.fillStyle = '#000';\n    ctx.fillRect(0, 0, viewport.width, viewport.height);\n    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'screen';\n    for (let i = 0; i < maxParticules; i++) drawParticule(particules[i]);\n  },\n})"
+  },
+  {
+    "name": "draggable-infinite-auto-carousel",
+    "source_path": "examples/draggable-infinite-auto-carousel/index.js",
+    "primitives_used": [
+      "createDraggable",
+      "createAnimatable",
+      "createAnimatable({x,modifier:utils.wrap})",
+      "createTimer",
+      "animate",
+      "utils.wrap",
+      "utils.lerp",
+      "draggable.deltaX",
+      "onGrab/onRelease",
+      "releaseStiffness",
+      "velocityMultiplier"
+    ],
+    "idea": "Carrousel infini auto-defilant: le contenu est duplique (innerHTML+=innerHTML) et createAnimatable applique un modifier utils.wrap(v, -width/2, 0) qui boucle la position en continu (illusion d'infini). Un createTimer combine 3 sources de vitesse dans une seule equation: vitesse auto constante + draggable.deltaX (drag) + delta molette lerpe — toutes additionnees par frame. onGrab/onRelease animent la vitesse auto vers 0 et retour.",
+    "technique_tags": [
+      "infinite-carousel",
+      "utils.wrap-modifier",
+      "createAnimatable",
+      "multi-source-velocity-sum",
+      "createTimer-drive",
+      "content-duplication-illusion",
+      "wheel-lerp-smoothing",
+      "drag-delta-injection",
+      "spring-release"
+    ],
+    "novelty_fingerprint": "prims{createDraggable,createAnimatable,createTimer,utils.wrap,utils.lerp,animate}|struct:innerHTML-double+createAnimatable(modifier:wrap)-boucle-infinie+timer-somme-vitesses(auto+drag.deltaX+wheel.lerp)/frame",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pointer drag + wheel events sont locaux a l'iframe (allow-scripts suffit, pas besoin de reseau), pur transform x. 0 reseau. createDraggable/createAnimatable/createTimer/utils.wrap tous exposes UMD. Items du carrousel = contenu local (texte FR/images relatives). Aucun piege. Rejouable. Note: e.preventDefault sur wheel avec {passive:false} OK en iframe."
+    },
+    "snippet": "$carousel.innerHTML += $carousel.innerHTML; // illusion d'infini\nconst animatable = createAnimatable($carousel, {\n  x: 0, modifier: v => utils.wrap(v, -carousel.width / 2, 0)\n});\nconst { x } = animatable;\nconst draggable = createDraggable(carousel, {\n  trigger: '#infinite-carousel', y: false,\n  onGrab: () => animate(carousel, { speedX: 0, duration: 500 }),\n  onRelease: () => animate(carousel, { speedX: 2, duration: 500 }),\n  releaseStiffness: 20, velocityMultiplier: 1.5\n});\ncreateTimer({\n  onUpdate: () => { x(x() - carousel.speedX + draggable.deltaX - carousel.wheelX - carousel.wheelY); }\n});"
+  },
+  {
+    "name": "draggable-mouse-scroll-snap-carousel",
+    "source_path": "examples/draggable-mouse-scroll-snap-carousel/index.js",
+    "primitives_used": [
+      "createDraggable",
+      "createDraggable({snap,container,onAfterResize})",
+      "createTimer({frameRate,duration,autoplay:false})",
+      "utils.snap",
+      "utils.lerp",
+      "utils.get('--spacing')",
+      "draggable.computeVelocity",
+      "draggable.pointer[]",
+      "draggable.handleUp",
+      "containerFriction"
+    ],
+    "idea": "Carrousel bornE avec snap, pilote a la fois par drag ET molette: deux createTimer (un debounce 30fps pour detecter l'etat 'wheeling', un autre pour injecter la velocite molette dans le draggable). Le truc avance: il manipule directement l'INTERNE du draggable (draggable.pointer[], computeVelocity, handleUp) pour traduire un geste molette en geste de drag synthetique, avec friction hors-bornes calculee a la main.",
+    "technique_tags": [
+      "snap-carousel",
+      "wheel-to-drag-synthesis",
+      "draggable-internals-poke",
+      "computeVelocity",
+      "debounce-timer",
+      "out-of-bounds-friction",
+      "utils.snap",
+      "css-var-spacing-read",
+      "frameRate-timer"
+    ],
+    "novelty_fingerprint": "prims{createDraggable,createTimer,utils.snap,utils.lerp,utils.get-cssvar,draggable.computeVelocity/pointer/handleUp}|struct:2-timers(debounce-wheeling+velocity-inject)+molette-traduite-en-drag-synthetique-via-internals+snap+friction-hors-bornes-manuelle",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Drag + wheel locaux iframe, transform x, 0 reseau. createDraggable + utils.snap/lerp/get exposes UMD. ATTENTION: ce demo touche des champs INTERNES (draggable.pointer[2..4], computeVelocity, handleUp, coords) potentiellement instables entre versions — fonctionne en v4.5 mais a verifier au pin. utils.get('--spacing') lit une CSS var locale, OK. Items = contenu FR local. Rejouable avec prudence sur l'API interne."
+    },
+    "snippet": "const draggable = createDraggable($carousel, {\n  trigger: document.body,\n  container: () => [0, 0, 0, -carousel.totalWidth + $carousel.offsetWidth - carousel.spacing],\n  x: { snap: () => carousel.itemWidth },\n  y: false,\n  onAfterResize: self => self.setX(utils.snap(self.x, self.snapX)),\n  releaseStiffness: 100, velocityMultiplier: 1.5, containerFriction: .5,\n});\nconst wheelVelocityTimer = createTimer({ duration: 500, autoplay: false, onUpdate: () => {\n  const x = /* clamp + friction hors-bornes */;\n  draggable.pointer[0] = x;\n  draggable.computeVelocity(x - draggable.coords[2], 0);\n}});"
+  },
+  {
+    "name": "draggable-playground",
+    "source_path": "examples/draggable-playground/index.js",
+    "primitives_used": [
+      "createDraggable",
+      "createAnimatable",
+      "createTimer",
+      "createTimeline",
+      "animate",
+      "createSpring(DEPRECIE)",
+      "eases.outElastic",
+      "stagger",
+      "utils.wrap",
+      "utils.snap",
+      "utils.set",
+      "utils.round().clamp()",
+      "engine.timeUnit",
+      "x:{mapTo:'rotateY'}",
+      "x:{snap}",
+      "container:[]",
+      "onSnap/onGrab/onRelease/onSettle",
+      "progressX/progressY",
+      "draggable.animateInView"
+    ],
+    "idea": "Banc d'essai exhaustif de createDraggable: drawer pilotant la PROGRESS d'une timeline via self.progressY, carrousel 3D ou x est mappe sur rotateY (x:{mapTo:'rotateY'}), liste reordonnable via onSnap qui splice un tableau et anime les voisins en outElastic, ranges qui se rejouent en boucle quand relaches, conteneurs dynamiques dont le padding d'un draggable depend de la position d'un autre. Demonstration que le draggable expose progress/snap/mapTo comme valeurs animables.",
+    "technique_tags": [
+      "draggable-progress-drives-timeline",
+      "x-mapTo-rotateY",
+      "snap-reorder-list",
+      "outElastic-neighbors",
+      "dynamic-container-padding",
+      "interdependent-draggables",
+      "engine-timeUnit",
+      "onSnap-callback",
+      "animatable-drag-props",
+      "drawer-physics"
+    ],
+    "novelty_fingerprint": "prims{createDraggable,createAnimatable,createTimeline,createSpring,eases.outElastic,utils.wrap/snap,x:mapTo:rotateY,progressX/Y,onSnap}|struct:playground-draggable+progressY-drive-tl+x-mapTo-rotateY-3D+onSnap-splice-reorder-outElastic+containerPadding-interdependant",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Tout est pointer/transform local, 0 reseau. PIEGE #6 CONFIRME: ce demo utilise createSpring() (DEPRECIE v4.5) en releaseEase — a remplacer par spring({mass,stiffness,damping}) pour SBFB. blockScrolling manipule document.scrollingElement/overflow: fonctionne dans l'iframe mais le hack 'sticky' Safari-mobile est superflu en bac a sable. engine.timeUnit='ms' OK. Le reste (mapTo:'rotateY', onSnap-reorder, progress-drives-timeline) est directement rejouable via UMD."
+    },
+    "snippet": "// PIEGE #6: createSpring DEPRECIE -> remplacer par spring(...)\nreleaseEase: createSpring({ mass: 1, stiffness: 400, damping: 30 }),\n// x mappe sur rotateY pour carrousel 3D:\nconst carousel = createDraggable('#map-props .carousel', {\n  x: { mapTo: 'rotateY' }, y: false, snap: itemAngle, dragSpeed: .4,\n});\n// drawer dont le drag pilote la progress d'une timeline:\nconst drawer = createDraggable($drawer, {\n  y: { snap: ({ $target }) => $target.offsetHeight }, x: false,\n  onUpdate: (self) => { drawerOpenAnim.progress = self.progressY; }\n});\n// onSnap reordonne une liste + anime les voisins en outElastic:\nonSnap: self => {\n  const toIndex = utils.round(0).clamp(0, list.length - 1)(self.destY / snap);\n  list.forEach((item, i) => { if (i !== toIndex) animate(item, { y: i * snap, ease: eases.outElastic(.8, 1) }); });\n}"
+  },
+  {
+    "name": "additive-animations-2 (particle spheres, composition:'blend')",
+    "source_path": "tests/playground/additive-animations-2.html",
+    "primitives_used": [
+      "animate",
+      "createTimer",
+      "createTimeline",
+      "stagger",
+      "utils.set",
+      "utils.random",
+      "utils.randomPick",
+      "utils.round",
+      "composition:'blend'",
+      "ease:'outElastic'",
+      "ease:'inOut(2.25)'"
+    ],
+    "idea": "200 particles/sphere ou chaque particule recoit PLUSIEURS animate() concurrents sur x/y avec composition:'blend' : les tweens additifs se somment au lieu de s'ecraser, donnant un mouvement organique de nuee. Un createTimer loop par particule re-tire une cible toutes les 250-1000ms (handoff entre spheres).",
+    "technique_tags": [
+      "additive-blend",
+      "particle-system",
+      "per-element-timer",
+      "random-walk",
+      "composition-blend",
+      "pointer-spawn"
+    ],
+    "novelty_fingerprint": "animate+composition:blend+createTimer(loop,onLoop)+stagger | N concurrent additive tweens per element summed, per-particle re-target timer, pointer spawns new emitter",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM+transform, 0 reseau, composition:'blend' est cote moteur anime — rejouable. Swap import ESM->UMD (window.anime.animate/createTimer/stagger/utils). PIEGE 2 a corriger : .ball:before utilise box-shadow STATIQUE pour le glow (deja le cas ici, seul opacity bouge) — conforme. 200 particules*3 spheres peut etre lourd dans l'iframe : reduire maxParticles ~60. prefers-reduced-motion a brancher (etat final statique)."
+    },
+    "snippet": "animate(this.$el, {\n  x: Math.cos(a) * r + x,\n  y: Math.sin(a) * r + y,\n  duration: 1100 * speedScale,\n  ease: 'inOut(2.25)',\n  composition: 'blend'\n});\n// ...\nthis.loop = createTimer({\n  duration: utils.random(250, 1000) * speedScale,\n  loop: true,\n  onLoop: () => { this.updatePosition() },\n});"
+  },
+  {
+    "name": "advanced-staggering-demos (catalogue from/grid/axis/range)",
+    "source_path": "tests/playground/advanced-staggering-demos.html",
+    "primitives_used": [
+      "createTimeline",
+      "stagger",
+      "stagger(value,{from})",
+      "stagger([a,b])",
+      "stagger({grid,axis})",
+      "stagger({reversed})",
+      "stagger({ease})",
+      "timeline.add(target,params,0)"
+    ],
+    "idea": "Banque de reference VISUELLE des modes de stagger cote a cote : from 'first'/'last'/'center'/index numerique, reversed, range [-2em,2em], grid [10,5] avec from numerique=38, axis 'x'/'y' separes, et ease INTERNE au stagger (stagger(...,{ease:'easeOutExpo'}) distribue non-lineairement les delais). Toutes les pistes demarrent a 0 dans une meme timeline alternate+loop.",
+    "technique_tags": [
+      "grid-stagger",
+      "stagger-from",
+      "stagger-range",
+      "stagger-axis",
+      "stagger-ease",
+      "reversed-stagger",
+      "reference-catalogue"
+    ],
+    "novelty_fingerprint": "createTimeline.alternate.loop + stagger(from|grid|axis|range|reversed|ease) all at position 0 | side-by-side stagger-mode visual reference matrix",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "100% DOM transform+color, 0 reseau. Le seul ajustement : import ESM->UMD. color:red litteral OK. C'est le meilleur exemple pour comprendre l'espace des parametres stagger — base de gout pour toute grille SBFB."
+    },
+    "snippet": ".add('.grid span', {\n  scale: stagger([1, 0], {grid: [10, 5], from: 38}),\n  color: red,\n  delay: stagger(100, {grid: [10, 5], from: 38})\n}, 0)\n.add('.grid-axis span', {\n  translateX: stagger('.5rem', {grid: [10, 5], from: 38, axis: 'x'}),\n  translateY: stagger('.5rem', {grid: [10, 5], from: 38, axis: 'y'}),\n  delay: stagger(100, {grid: [10, 5], from: 38})\n}, 0)\n.add('.ease span', {\n  translateY: stagger(['2rem', '-2rem'], {from: 'center', ease: 'easeOutQuad'}),\n  delay: stagger([0, 600], {from: 'center', ease: 'easeOutExpo'})\n}, 0)"
+  },
+  {
+    "name": "stagger-grid-demo (24x24 grid choreography)",
+    "source_path": "tests/playground/stagger-grid-demo.html",
+    "primitives_used": [
+      "createTimeline",
+      "stagger({grid,from,axis})",
+      "utils.random (function-based value)",
+      "tween keyframe array [{to},{to}]",
+      "backgroundColor:{from}",
+      "init()"
+    ],
+    "idea": "576 divs generes en JS, choreographie multi-segments sur grille 24x24 ou chaque segment combine stagger axial (translateX/Y avec axis:'x'/'y' from 'center') ET des valeurs function-based () => utils.random(-10,10) pour casser la regularite. Mix de tween-keyframe array sur translateX ([{to:stagger(-.1rem)},{to:stagger(.1rem)}]) pour un aller-retour radial avant dispersion aleatoire.",
+    "technique_tags": [
+      "grid-stagger",
+      "grid-choreography",
+      "function-based-values",
+      "tween-keyframes",
+      "procedural-generation",
+      "axis-stagger"
+    ],
+    "novelty_fingerprint": "createTimeline.loop + 576 generated divs + stagger(grid,axis,from:center) + ()=>utils.random function-values + per-prop keyframe-array | large grid multi-segment radial-then-scatter choreography",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM, generation procedurale en JS (documentFragment), 0 reseau. 576 elements anime — coute cher mais tient dans l'iframe sur desktop. UMD swap requis. Brancher prefers-reduced-motion sur l'etat repos."
+    },
+    "snippet": ".add('.stagger-visualizer div', {\n  translateX: [\n    {to: stagger('-.1rem', {grid, from: 'center', axis: 'x'}) },\n    {to: stagger('.1rem', {grid, from: 'center', axis: 'x'}) }\n  ],\n  translateY: [\n    {to: stagger('-.1rem', {grid, from: 'center', axis: 'y'}) },\n    {to: stagger('.1rem', {grid, from: 'center', axis: 'y'}) }\n  ],\n  backgroundColor: { from: '#FFF' },\n  duration: 1000, scale: .5,\n  delay: stagger(100, {grid, from: 'center'})\n})\n.add('.stagger-visualizer div', {\n  translateX: () => utils.random(-10, 10),\n  translateY: () => utils.random(-10, 10),\n  delay: stagger(8, {from: 'last'})\n})"
+  },
+  {
+    "name": "sprite-animation (steps() sprite-sheet)",
+    "source_path": "tests/playground/sprite-animation.html",
+    "primitives_used": [
+      "animate",
+      "steps(9)",
+      "backgroundPosition",
+      "loop:true"
+    ],
+    "idea": "Animation de sprite-sheet pixel-art en animant backgroundPosition de '0px' a '100% 0px' avec ease:steps(9) : le step-easing fige la position sur 9 paliers discrets = 9 frames d'un personnage (Ryu) au lieu d'un glissement continu. La cle est steps() comme courbe d'easing, pas un timer manuel.",
+    "technique_tags": [
+      "sprite-sheet",
+      "step-easing",
+      "background-position-anim",
+      "pixel-art",
+      "frame-stepping"
+    ],
+    "novelty_fingerprint": "animate + ease:steps(N) + backgroundPosition loop | discrete frame stepping of a sprite-sheet via step-ease, no manual frame timer",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Trivialement rejouable : 1 element, 1 image locale (chemin relatif assets/media/ryu.png), 0 reseau. Pour SBFB packager le PNG dans l'archive. backgroundPosition est composite-safe. UMD : window.anime.animate + window.anime.steps. Idees produit : indicateur d'etat anime, loader retro."
+    },
+    "snippet": "const ryu = animate('.ryu', {\n  backgroundPosition: '100% 0px',\n  ease: steps(9),\n  duration: 450,\n  loop: true\n});"
+  },
+  {
+    "name": "svg-path-animation (createDrawable line-draw map)",
+    "source_path": "tests/playground/svg-path-animation.html",
+    "primitives_used": [
+      "createTimeline",
+      "svg.createDrawable('path')",
+      "draw:['0 0','0 1','1 1']",
+      "strokeWidth keyframes",
+      "stroke:{from}",
+      "duration:()=>utils.random",
+      "stagger(100)"
+    ],
+    "idea": "Trace d'une carte SVG entiere (dizaines de paths colores) : svg.createDrawable('path') cible TOUS les paths, draw passe par keyframes ['0 0','0 1','1 1'] = la ligne se dessine (0->1) puis se 'remplit/efface' (1 1) ; duration randomisee par path + stagger(100) donne un trace organique non synchronise.",
+    "technique_tags": [
+      "svg-line-draw",
+      "createDrawable",
+      "draw-keyframes",
+      "stroke-dash-anim",
+      "stagger",
+      "random-duration"
+    ],
+    "novelty_fingerprint": "createTimeline + svg.createDrawable(selector-all) + draw:['0 0','0 1','1 1'] + ()=>random duration + stagger | mass SVG stroke-draw with 3-stage draw keyframes and per-path random timing",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "SVG inline, 0 reseau. PIEGE 3 a respecter : ici stroke est pose par attribut SVG (stroke=\"#31B495\"), pas par classe Tailwind — conforme ; pour SBFB peindre via var(--color-*) en CSS si on veut theming, jamais fill-*/stroke-* Tailwind. createDrawable manipule stroke-dasharray/offset (composite-friendly). UMD swap."
+    },
+    "snippet": "createTimeline()\n.add(svg.createDrawable('path'), {\n  draw: ['0 0', '0 1', '1 1'],\n  strokeWidth: [4, 2],\n  stroke: { from: '#FFF', duration: 1000 },\n  duration: () => utils.random(2000, 4000),\n  loop: 2,\n  ease: 'inOutSine'\n}, stagger(100));"
+  },
+  {
+    "name": "svg-morph-timeline (svg.morphTo chains, path & polygon)",
+    "source_path": "tests/playground/svg-morph-timeline/index.js",
+    "primitives_used": [
+      "createTimeline",
+      "svg.morphTo('#shape')",
+      "d: morphTo",
+      "points: morphTo (polygon)",
+      "timeline sequential add",
+      "loop:true"
+    ],
+    "idea": "Chaines de morph A->B->C->D et A->B->C->A (boucle) en sequencant des add() qui chacun fait d: svg.morphTo('#shape-x'). Demontre morph entre MEME type d'element (path d<->path d, polygon points<->polygon points) et le retour au shape initial pour boucler proprement.",
+    "technique_tags": [
+      "svg-morph",
+      "morphTo",
+      "shape-interpolation",
+      "sequential-timeline",
+      "seamless-loop",
+      "polygon-morph"
+    ],
+    "novelty_fingerprint": "createTimeline.loop + svg.morphTo (d for path, points for polygon) chained sequential adds back-to-origin | same-element-type shape morph chain with loop-close",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Shapes en <defs>, 0 reseau. PIEGE 4 respecte : morphTo path->path et polygon->polygon (jamais path<->polygon), sous-traces fermees uniques. Pour boucler, dernier add revient au shape A. UMD : window.anime.svg.morphTo. Cas d'usage SBFB : icone d'etat qui se transforme (check/croix/sablier)."
+    },
+    "snippet": "const tlLoop = createTimeline({ loop: true, defaults: { duration, ease: 'inOutQuad' } });\ntlLoop.add('#morph-loop', { d: svg.morphTo('#shape-b') });\ntlLoop.add('#morph-loop', { d: svg.morphTo('#shape-c') });\ntlLoop.add('#morph-loop', { d: svg.morphTo('#shape-a') }); // back to origin = clean loop\n\nconst tlPoly = createTimeline({ loop: true, defaults: { duration, ease: 'inOutQuad' } });\ntlPoly.add('#morph-poly', { points: svg.morphTo('#poly-b') });\ntlPoly.add('#morph-poly', { points: svg.morphTo('#poly-c') });"
+  },
+  {
+    "name": "svg-motion-path (createMotionPath responsive, spread params)",
+    "source_path": "tests/playground/svg-motion-path/index.js",
+    "primitives_used": [
+      "animate",
+      "svg.createMotionPath('#path')",
+      "spread ...svg.createMotionPath",
+      "multi-target animate (DOM el + SVG rect)",
+      "ease:'linear' loop"
+    ],
+    "idea": "Un meme createMotionPath('#path') est SPREAD (...) dans les params pour piloter SIMULTANEMENT un element DOM absolu ET un <rect> SVG le long du chemin, en testant 3 contextes de mise a l'echelle (no width / specified width / preserveAspectRatio). createMotionPath retourne {translateX, translateY, rotate} pretes a etaler.",
+    "technique_tags": [
+      "motion-path",
+      "createMotionPath",
+      "param-spread",
+      "responsive-svg",
+      "multi-target",
+      "follow-path"
+    ],
+    "novelty_fingerprint": "animate + ...svg.createMotionPath(selector) spread on mixed DOM+SVG targets | single motion-path driving heterogeneous targets, responsive viewBox scaling",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "0 reseau. PIEGE 1 CRITIQUE : tout element deplace par createMotionPath doit avoir cx=\"0\" cy=\"0\" (le translate de la motion-path s'ajoute a la geometrie) — ici le <rect> est pose a x=-10 y=-10 centre sur 0, et le .dom-el est top:-1rem left:-1rem (offset negatif = meme intention). UMD : window.anime.svg.createMotionPath."
+    },
+    "snippet": "animate(['.specified-width .dom-el', '.specified-width .rect-el'], {\n  duration: 3000,\n  loop: true,\n  ease: 'linear',\n  ...svg.createMotionPath('#specifiedWidth')\n});"
+  },
+  {
+    "name": "animejs-v3-logo (orchestrated morph + motion-path + spring)",
+    "source_path": "tests/playground/animejs-v3-logo-animation.html",
+    "primitives_used": [
+      "createTimeline",
+      "svg.createMotionPath('.bounce path')",
+      "bouncePath.translateX/translateY",
+      "d: el => el.dataset.d2 (path morph via attr)",
+      "createSpring({velocity})",
+      "stagger({from})",
+      "position labels '<<' '<' '-=N'",
+      "onBegin/onRender removeAttribute",
+      "init()"
+    ],
+    "idea": "Animation logo cinematographique : une balle (.dot) suit une motion-path (bouncePath.translateX/Y) tandis que les lettres morphent leur attribut d via data-d2/data-d3 et rebondissent. Usage avance des LABELS de position timeline ('<<'=debut du precedent, '<'=fin du precedent, '-=290'=overlap relatif) pour tisser une douzaine de pistes. fitElementToParent recalcule scale au resize.",
+    "technique_tags": [
+      "timeline-position-labels",
+      "motion-path",
+      "path-morph-attr",
+      "spring-ease",
+      "responsive-fit",
+      "logo-animation",
+      "relative-offsets"
+    ],
+    "novelty_fingerprint": "createTimeline + svg.createMotionPath driving .dot + d:el=>dataset.d2 morph + position-labels(<<,<,-=N) + spring + stagger(from) | multi-track logo choreography woven via relative timeline labels",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "SVG+DOM, 0 reseau. PIEGE 6 IMPORTANT : ce demo importe createSpring (DEPRECIE en v4.5) — pour SBFB remplacer par spring() (utilise dans layout/index.js : import {spring}). PIEGE 1 : .dot est pose par utils.set translateX/Y avant la motion-path. Sinon UMD swap. Grosse demo de reference pour orchestration timeline serieuse."
+    },
+    "snippet": ".add('.dot', {\n  translateX: bouncePath.translateX,\n  translateY: bouncePath.translateY,\n  rotate: { to: '1turn', duration: 790 },\n  ease: 'cubicBezier(0, .74, 1, .255)',\n  duration: 800\n}, '<<')\n.add('.letter-m .line', {\n  d: el => el.dataset.d3,\n  ease: createSpring({velocity:10}),  // SBFB: remplacer par spring({velocity:10})\n}, '-=680')"
+  },
+  {
+    "name": "animejs-v2-logo (mass createDrawable staggered line-draw)",
+    "source_path": "tests/playground/animejs-v2-logo-animation.html",
+    "primitives_used": [
+      "createTimeline",
+      "svg.createDrawable('.fill')",
+      "draw:{to:'0 1'} / draw:'1 1'",
+      "stroke:{to:[...,el=>utils.get(el.parentNode,'stroke')]}",
+      "strokeWidth keyframes",
+      "stagger({start})",
+      "alternate",
+      "init()"
+    ],
+    "idea": "Logo dessine au trait : createDrawable cible des groupes de paths ('.fill', '.line.out', '.icon-line') et anime draw '0 1' (apparait) puis '1 1' (se referme), avec stagger({start:700}) pour cascader. Astuce : la couleur de stroke cible est resolue par fonction depuis le parent (el => utils.get(el.parentNode, 'stroke')) — chaque lettre garde sa propre couleur.",
+    "technique_tags": [
+      "svg-line-draw",
+      "createDrawable",
+      "draw-keyframes",
+      "stagger-start-offset",
+      "function-stroke-from-parent",
+      "logo-animation"
+    ],
+    "novelty_fingerprint": "createTimeline.alternate + svg.createDrawable(group) + draw '0 1'->'1 1' + stagger({start}) + stroke:to=el=>utils.get(parent,'stroke') | grouped stroke-draw logo, per-element color resolved from DOM parent",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "SVG inline, 0 reseau, 0 createSpring. utils.get lit une valeur CSS/attr de l'element — local. PIEGE 3 : stroke pose en attribut SVG (stroke=\"#5E89FB\") sur les <g>, lu par utils.get — pour SBFB on peut basculer en var(--color-*) lus de la meme facon. UMD swap. Excellent patron pour reveal de logo/illustration au trait."
+    },
+    "snippet": ".add(fillDraggable, {\n  draw: { to: '0 1', duration: 600, ease: 'outQuart' },\n  stroke: {\n    to: ['#FFF', el => utils.get(el.parentNode, 'stroke')],\n    duration: 350, ease: 'inOutQuart',\n  },\n}, stagger(60, { start: 700 }))\n.add(fillDraggable, {\n  draw: { to: '1 1', duration: 800, ease: 'inQuart' }\n}, stagger(80, { start: 2000 }))"
+  },
+  {
+    "name": "animejs-mgs-logo (classList-branching function values + attr morph)",
+    "source_path": "tests/playground/animejs-mgs-logo-animation.html",
+    "primitives_used": [
+      "createTimeline.alternate.loop",
+      "translateX/Y: target => branch on target.classList",
+      "d: $el => $el.getAttribute('data-d') (morph via attr)",
+      "fill keyframes ['#F9C10000','#F9C100']",
+      "stagger({start})",
+      "delay:()=>utils.random"
+    ],
+    "idea": "Construction facon HUD Metal Gear : chaque trait SVG (.line) recoit translateX/translateY via une FONCTION qui branche sur classList (hori/vert/diag-left/diag-right) pour decider sa direction et amplitude d'entree (utils.random(0,1)?x:-x). Les katakana morphent leur d depuis data-d. fill anime avec alpha-zero '#F9C10000' pour fondu de teinte.",
+    "technique_tags": [
+      "function-based-values",
+      "classlist-branching",
+      "directional-entrance",
+      "path-morph-attr",
+      "alpha-hex-fade",
+      "stagger-start",
+      "hud-assembly"
+    ],
+    "novelty_fingerprint": "createTimeline.alternate.loop + translateX/Y=target=>classList branch direction + d=$el=>getAttribute(data-d) + fill ['#xxxx0000','#xxxx'] | per-target direction chosen by class, attr-driven morph, alpha-hex color fade",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "SVG inline, 0 reseau, 0 createSpring. La technique classList->direction est purement locale et tres reutilisable pour des entrees directionnelles theming-aware. fill par attribut ici ; SBFB peut peindre via var(--color-*). UMD swap."
+    },
+    "snippet": ".add('.line', {\n  translateX: (target) => {\n    let x = 1200, translate;\n    if (target.classList.contains('hori')) translate = utils.random(0, 1) ? x : -x;\n    if (target.classList.contains('diag-right') || target.classList.contains('diag-left')) translate = x / 3;\n    return [translate, 0];\n  },\n  stroke: {to: ['#FFF', '#F9C100'], duration: 1200, ease: 'linear'},\n  opacity: { to: [0, 1], duration: 10 },\n  delay: stagger(25), duration: 500, ease: 'outSine',\n}, 0)"
+  },
+  {
+    "name": "color-trail-canvas (plain-object targets + sibling color chaining)",
+    "source_path": "tests/playground/color-trail-canvas.html",
+    "primitives_used": [
+      "createTimeline",
+      "createTimer({onUpdate})",
+      "animate plain-object target {x,y,color}",
+      "color interpolation on JS object",
+      "timeline.add overlap '-=500'",
+      "sibling from-color chaining (prevSibling._value)",
+      "canvas 2d manual draw"
+    ],
+    "idea": "anime anime des OBJETS JS plain ({x,y,color}) — pas le DOM — et un createTimer({onUpdate}) lit state.x/state.color a chaque frame pour peindre un canvas avec trail (fillRect alpha quasi-nul = fade exponentiel). Truc cle : la couleur de DEPART de chaque add() vient du add precedent via sibling-chaining (prevSibling._value), donc seul le 'to' est specifie ; overlap '-=500' fait que chaque tween prend la main a mi-course.",
+    "technique_tags": [
+      "plain-object-target",
+      "canvas-render",
+      "onUpdate-draw-loop",
+      "color-sibling-chaining",
+      "trail-fade",
+      "timeline-overlap",
+      "value-interpolation"
+    ],
+    "novelty_fingerprint": "createTimer.onUpdate canvas draw + animate(plainObject{x,y,color}) + timeline.add overlap '-=N' + implicit from-color via prevSibling | anime drives JS object state, manual canvas paints it, color chains across sibling tweens",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Canvas 2d DIRECT (PAS via worker), 0 reseau — conforme. Le pattern 'anime pilote un objet, je peins' contourne le DOM et marche pour tout rendu custom dans l'iframe. UMD swap. Note: canvas via worker est INTERDIT (contrainte SBFB), mais ici c'est du main-thread getContext('2d') — OK."
+    },
+    "snippet": "const state = { x: corners[0].x, y: corners[0].y, color: colors[0] };\nfor (let i = 1; i <= 4; i++) {\n  const isLast = i === 4;\n  // overshoot so midpoint lands on corner; -=500 hands off at that midpoint\n  tl.add(state, {\n    x: targetX, y: targetY,\n    color: colors[i % colors.length],\n    duration: isLast ? 500 : 1000,\n  }, i === 1 ? 0 : '-=500');\n}\ncreateTimer({ autoplay: true, onUpdate: () => {\n  ctx.fillStyle = `rgba(17,17,17,${trailFadeAlpha})`;\n  ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight); // trail fade\n  drawBall(state);\n}});"
+  },
+  {
+    "name": "color-conversion (cross-format color interpolation)",
+    "source_path": "tests/playground/color-conversion.html",
+    "primitives_used": [
+      "animate",
+      "backgroundColor: [fromStr, toStr]",
+      "alternate loop",
+      "DOM-read color strings"
+    ],
+    "idea": "Verifie qu'anime interpole entre TOUS les formats de couleur melanges : hex court (#F47), hex6, hex8 (#FF447799 avec alpha), rgb/rgba, hsl/hsla. Chaque cellule lit ses deux couleurs depuis le DOM (split sur '<br>▾<br>') et anime backgroundColor de l'une a l'autre — preuve que le type COLOR d'anime normalise les espaces avant lerp.",
+    "technique_tags": [
+      "color-interpolation",
+      "cross-format-color",
+      "hex8-alpha",
+      "hsl-rgb-mix",
+      "dom-driven-config",
+      "alternate-loop"
+    ],
+    "novelty_fingerprint": "animate + backgroundColor:[anyFormat, anyFormat] alternate | interpolate across hex/hex8/rgb/rgba/hsl/hsla mixed, config parsed from DOM text",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM, 0 reseau. backgroundColor est composite-acceptable. Lire la config depuis le DOM est un patron data-SIMULEE ideal pour SBFB. UMD swap. Bon pour des transitions de theme/etat."
+    },
+    "snippet": "const testValues = el.innerHTML.split('<br>▾<br>');\nconst animation = animate(colorEl, {\n  backgroundColor: [testValues[0], testValues[1]], // e.g. '#FF447799' -> 'hsla(213,100%,70%,.15)'\n  ease: 'inOut', duration: 4000, loop: true, alternate: true,\n});"
+  },
+  {
+    "name": "scramble (scrambleText param matrix)",
+    "source_path": "tests/playground/scramble/index.js",
+    "primitives_used": [
+      "animate",
+      "innerHTML: scrambleText(params)",
+      "scrambleText({from,chars,cursor,perturbation,seed,settleRate,revealRate,settleDuration,override,text,reversed})",
+      "createTimeline +=offset",
+      "anim.restart()"
+    ],
+    "idea": "Catalogue exhaustif de scrambleText : from 'right'/'center'/'random'/index, chars:'01' (data-stream), cursor:true ou pattern '░▒▓█', perturbation, seed:42 (reproductible), settleRate/revealRate, et surtout text:'...' pour SCRAMBLER VERS un autre texte (croissance/reduction de longueur) avec override:' ' ou false. S'applique via innerHTML: scrambleText(params).",
+    "technique_tags": [
+      "scramble-text",
+      "text-effect",
+      "seeded-random",
+      "cursor-reveal",
+      "text-retarget",
+      "param-matrix"
+    ],
+    "novelty_fingerprint": "animate + innerHTML:scrambleText({from|chars|cursor|perturbation|seed|text|override}) | character-scramble reveal with directional origin, cursor front, seeded reproducibility, retarget text",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur texte DOM, 0 reseau. PIEGE 5 : scrambleText = animate(el,{innerHTML: scrambleText(...)}) ; poser le texte cible d'abord. Strings utilisateur en FRANCAIS pour SBFB. UMD : window.anime.scrambleText. seed:42 garantit le meme rendu a chaque replay = utile pour tests hermetiques. Excellent pour titres/labels d'app."
+    },
+    "snippet": "const anim = animate($els, {\n  innerHTML: scrambleText(demo.params), // ex: { from: 'center', cursor: '░▒▓█', perturbation: 0.5 }\n  duration: 1500,\n  ...demo.animParams, // ex: { delay: stagger(200) }\n});\n$test.addEventListener('pointerenter', () => anim.restart());\n// retarget: scrambleText({ text: 'Nouveau texte', override: ' ' })"
+  },
+  {
+    "name": "lerp (frame-decoupled follow via utils.lerp / utils.damp)",
+    "source_path": "tests/playground/lerp/index.js",
+    "primitives_used": [
+      "createTimer({frameRate,onUpdate})",
+      "utils.lerp(a,b,t)",
+      "utils.damp(a,b,deltaTime,t)",
+      "utils.get(el,'x',false)",
+      "utils.set",
+      "utils.snap (modifier)",
+      "utils.createSeededRandom"
+    ],
+    "idea": "Smoothing 'follow the leader' decouple du framerate : un createTimer({frameRate:10}) lit chaque frame la position SOURCE et la position COURANTE via utils.get, puis ecrit utils.lerp(courant, source, .075) (geometrique, frame-dependant) versus utils.damp(..., clock.deltaTime, ...) (correct en temps reel, independant du fps). modifier:utils.snap(100) sur la source montre l'easing implicite du suivi.",
+    "technique_tags": [
+      "lerp-follow",
+      "frame-rate-decoupled",
+      "damp-vs-lerp",
+      "read-back-value",
+      "procedural-modifier",
+      "seeded-random"
+    ],
+    "novelty_fingerprint": "createTimer.onUpdate + utils.get readback + utils.lerp vs utils.damp(deltaTime) + modifier:utils.snap | manual per-frame smoothing of one target toward another, fps-independent via damp",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM transform, 0 reseau. Retirer les console.log de debug. utils.damp est la bonne primitive pour un suivi fluide robuste au fps. UMD : window.anime.utils.lerp/damp/get/set. Cas SBFB : curseur/indicateur qui suit doucement une valeur simulee."
+    },
+    "snippet": "createTimer({\n  frameRate: 10,\n  onUpdate: clock => {\n    const sourceX = utils.get($input, 'x', false);\n    const dampedX = utils.get($damped, 'x', false);\n    utils.set($damped, {\n      x: utils.damp(dampedX, sourceX, clock.deltaTime, .075) // fps-independent\n    });\n  }\n});\n// vs utils.lerp(lerpedX, sourceX, .075) // fps-dependent"
+  },
+  {
+    "name": "timekeeper (createScope mediaQueries + keepTime)",
+    "source_path": "tests/playground/timekeeper/index.js",
+    "primitives_used": [
+      "createScope({mediaQueries})",
+      "scope.add(self => ...)",
+      "self.keepTime(scope => createTimeline(...))",
+      "scope.matches.minM",
+      "responsive params inside scope"
+    ],
+    "idea": "Anime responsive : createScope avec une mediaQuery nommee (minM); self.keepTime(fn) RECONSTRUIT la timeline a chaque changement de breakpoint MAIS preserve la position de lecture courante (le timing ne saute pas). Les params dependent de scope.matches.minM (axe x vs y selon la largeur). Le scope toggle aussi une classe body.",
+    "technique_tags": [
+      "scope",
+      "media-query-anim",
+      "keepTime",
+      "responsive-rebuild",
+      "time-preserving-rebuild"
+    ],
+    "novelty_fingerprint": "createScope({mediaQueries}) + self.keepTime(()=>createTimeline) + scope.matches.X branching | rebuild animation on breakpoint change while preserving current playback time",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM, 0 reseau. mediaQueries fonctionnent dans l'iframe (responsive a la taille de l'iframe). keepTime evite les sauts visuels au resize. UMD : window.anime.createScope. Tres utile pour des apps SBFB qui doivent rester propres a tout viewport."
+    },
+    "snippet": "createScope({\n  mediaQueries: { minM: '(min-width: 800px)' }\n}).add(self => {\n  self.keepTime(scope => {\n    const isMinM = scope.matches.minM;\n    document.body.classList.toggle('is-min-m', isMinM);\n    return createTimeline().add('.square', {\n      x: isMinM ? 0 : [-50, 50],\n      y: isMinM ? [-50, 50] : 0,\n      rotate: -90, scale: .75, alternate: true, loop: true, ease: 'inOutQuad',\n    });\n  });\n});"
+  },
+  {
+    "name": "scope (createScope root + addOnce + keepTime + revert)",
+    "source_path": "tests/playground/scope/index.js",
+    "primitives_used": [
+      "createScope({mediaQueries,defaults,root})",
+      "self.addOnce(fn)",
+      "self.keepTime(fn)",
+      "scope.revert()",
+      "scope cleanup return fn",
+      "background:($el)=>utils.get(--var) randomPick",
+      "pointer handlers inside scope"
+    ],
+    "idea": "Demonstration complete du cycle de vie createScope : root limite les selecteurs ('.scoped'), addOnce() execute une fois et n'est PAS reverte aux changements de mediaQuery, keepTime() reconstruit en gardant le temps, le scope retourne une fonction de cleanup (remove listeners), et scope.revert() defait tout au click. background lit une CSS var aleatoire via utils.get($el, '--cyan-1').",
+    "technique_tags": [
+      "scope",
+      "scope-root",
+      "addOnce",
+      "keepTime",
+      "scope-revert",
+      "scope-cleanup",
+      "css-var-read"
+    ],
+    "novelty_fingerprint": "createScope({root,mediaQueries}) + addOnce + keepTime + return cleanup + scope.revert + background=$el=>utils.get('--var') | full scope lifecycle: rooted selectors, one-shot, time-preserving rebuild, teardown",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM, 0 reseau. createScope({root}) est ideal pour composants SBFB isoles. La fonction de cleanup + revert() est le bon patron pour monter/demonter sans fuite. utils.get('--cyan-1') lit une CSS var locale (theming SBFB via var(--color-*)). UMD swap. Retirer console.log."
+    },
+    "snippet": "const scope = createScope({ mediaQueries:{isSmall:'(max-width:800px)'}, defaults:{ease:'linear'}, root:'.scoped' })\n.add(self => {\n  self.addOnce(() => animate('.square', { y:[0,-50,0,50,0], loop:true, ease:'inOut(2)', duration:2500 }));\n  self.keepTime(() => animate('.square', { rotate:360, duration:2000, loop:true, alternate:true }));\n  self.keepTime(() => animate('.square', {\n    background: ($el) => utils.get($el, utils.randomPick(['--cyan-1','--lavender-1','--pink-1'])),\n    loop:true, alternate:true, duration:2000,\n  }));\n  return () => { /* remove listeners */ };\n});\ndocument.body.addEventListener('click', () => scope.revert());"
+  },
+  {
+    "name": "playback (engine + animation playback control surface)",
+    "source_path": "tests/playground/playback/index.js",
+    "primitives_used": [
+      "createTimeline({onUpdate,onLoop})",
+      "engine.fps",
+      "engine.speed",
+      "animation.fps",
+      "animation.speed",
+      "animation.reversed",
+      "animation.alternate()",
+      "animation.pause/resume",
+      "animation.iterationProgress",
+      "self.currentTime/iterationProgress/reversed/currentIteration"
+    ],
+    "idea": "Banc de controle exhaustif de la lecture : engine.fps/engine.speed (global), animation.fps/animation.speed (local), set reversed=true/false au lieu de reverse(), iterationProgress comme setter pour scrubber, monitoring de la 'time drift' (currentTime vs Date.now elapsed) toutes les secondes. onUpdate(self) ecrit iterationProgress/currentTime/reversed dans des inputs.",
+    "technique_tags": [
+      "playback-control",
+      "engine-fps",
+      "engine-speed",
+      "scrub-progress",
+      "reversed-setter",
+      "time-drift-monitor",
+      "onUpdate-readout"
+    ],
+    "novelty_fingerprint": "createTimeline + engine.fps/speed + animation.fps/speed/reversed/iterationProgress setter + onUpdate(self) readout | full playback-rate/frame-rate control surface + scrub + drift monitoring",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM + inputs, 0 reseau. engine.fps/speed sont globaux (cote moteur) — pratique pour ralentir tout l'iframe. iterationProgress en setter = scrubber. UMD : window.anime.engine. Les <input type=button> marchent (sandbox allow-scripts ne bloque que les <form> submit, PAS les click handlers — cf. piege iframe-sandbox-forms : ici ce sont des boutons+handlers, conforme)."
+    },
+    "snippet": "$enginePlaybackrate.oninput = () => { engine.speed = +$enginePlaybackrate.value; };\n$animPlaybackrate.oninput = () => { animation.speed = +$animPlaybackrate.value; };\n$animReverse.onclick = () => { animation.reversed = true; };\n$animToggle.onclick = () => { animation.alternate(); };\n$animProgress.oninput = v => { animation.iterationProgress = v.target.value; }; // scrub\n// onUpdate: self => { $animProgress.value = `${self.iterationProgress}`; }"
+  },
+  {
+    "name": "timeline-nested (tl.sync of timelines + timers)",
+    "source_path": "tests/playground/timeline/nested/index.js",
+    "primitives_used": [
+      "animate (autonomous)",
+      "createTimeline.sync(animation, position)",
+      "createTimeline.sync(otherTimeline)",
+      "createTimeline.sync(timer,0)",
+      "createTimer",
+      "'-=500' overlap"
+    ],
+    "idea": "Composition par SYNC : on cree des animate() autonomes (A,B,C,rotateAll), puis une timeline les .sync() ensemble avec overlap ('-=500'), puis une timeline PARENT .sync(cette timeline) ET .sync(un createTimer) — donc timelines et timers s'imbriquent comme citoyens de premiere classe sous un parent unique loop.",
+    "technique_tags": [
+      "timeline-sync",
+      "nested-timeline",
+      "timer-in-timeline",
+      "animation-composition",
+      "timeline-overlap"
+    ],
+    "novelty_fingerprint": "createTimeline.sync(animate) + .sync(timeline) + .sync(timer) nested under loop parent | compose standalone animations, child timelines and timers into one parent via sync",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM, 0 reseau. .sync() (vs .add()) reutilise des animations DEJA construites — bon pour modulariser de gros sequencages SBFB. UMD swap. Retirer console.log."
+    },
+    "snippet": "const A = animate('.square:nth-child(1)', { x: 200 });\nconst B = animate('.square:nth-child(2)', { x: 200 });\nconst rotateAll = animate('.square', { rotate: 360 });\nconst TL = createTimeline({ loop: true, alternate: true })\n  .sync(A).sync(B, '-=500').sync(C, '-=500').sync(rotateAll, 0);\nconst timer = createTimer({ onUpdate: self => console.log(self.currentTime) });\ncreateTimeline({ loop: true }).sync(TL).sync(timer, 0); // timelines+timers nest"
+  },
+  {
+    "name": "tl-seek-test (mouse-scrubbed 2000-element timeline)",
+    "source_path": "tests/playground/tl-seek-test/index.js",
+    "primitives_used": [
+      "createTimeline({autoplay:false})",
+      "tl.add per element",
+      "tl.progress = value (setter scrub)",
+      "window.onmousemove",
+      "procedural hsl generation"
+    ],
+    "idea": "Scrubbing manuel : une timeline de 2000 elements (chacun un add() opacity/scale 100ms, teinte hsl repartie sur 360deg) avec autoplay:false ; window.onmousemove ecrit tl.progress = clientX/innerWidth — la position X de la souris devient la tete de lecture de toute la timeline. Stress-test + patron scrubber generique.",
+    "technique_tags": [
+      "scrubbed-timeline",
+      "progress-setter",
+      "mouse-scrub",
+      "stress-test",
+      "procedural-hsl",
+      "manual-playhead"
+    ],
+    "novelty_fingerprint": "createTimeline(autoplay:false) + 2000 adds + tl.progress = mouseX/width | pointer position directly drives timeline playhead over many elements",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM, 0 reseau. tl.progress en setter est LE patron de scrubber (utilisable avec une valeur SIMULEE, un slider, un scroll). 2000 elements = lourd ; reduire a quelques centaines dans l'iframe. UMD swap."
+    },
+    "snippet": "const tl = createTimeline({ autoplay: false });\nfor (let i = 0; i < count; i++) {\n  const $el = document.createElement('div');\n  $el.style.backgroundColor = `hsl(${Math.round(360/count*i)}, 60%, 60%)`;\n  document.body.appendChild($el);\n  tl.add($el, { opacity: 0, scale: 2, duration: 100 });\n}\nwindow.onmousemove = (e) => { tl.progress = e.clientX / window.innerWidth; };"
+  },
+  {
+    "name": "onscroll-sync-modes (scroll-linked sync mode catalogue)",
+    "source_path": "tests/playground/onscroll/assets/sync-modes.js",
+    "primitives_used": [
+      "animate",
+      "autoplay: onScroll({...})",
+      "onScroll sync:.5 (smoothed scrub)",
+      "sync:'play pause'",
+      "sync:'play alternate reverse reset'",
+      "sync:'inOutExpo' (eased scrub)",
+      "enter/leave thresholds",
+      "onEnterForward/onLeaveBackward etc",
+      "self.linked.progress"
+    ],
+    "idea": "Catalogue des modes de synchronisation onScroll passes a autoplay: sync:.5 (scrub LISSE avec smoothing), sync:'play pause' (declenche/suspend en entree/sortie), sync:'play alternate reverse reset' (chaine de commandes de lecture par evenement de scroll), sync:'inOutExpo' (scrub easee par une courbe). enter/leave avec offsets 'max-=100 top' et 8 callbacks directionnels.",
+    "technique_tags": [
+      "scroll-linked",
+      "onScroll",
+      "scrubbed-scroll",
+      "scroll-sync-modes",
+      "directional-callbacks",
+      "enter-leave-thresholds"
+    ],
+    "novelty_fingerprint": "animate + autoplay:onScroll({sync: number|'play pause'|'play alternate reverse reset'|easeString, enter,leave, onEnterForward...}) | scroll-driven playback with smoothed/eased/command scrub modes and directional hooks",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Scroll DANS l'iframe (l'iframe a son propre scroll), 0 reseau. onScroll observe le scroll local — fonctionne. debug:true dessine des marqueurs (a retirer en prod). UMD : window.anime.onScroll. Idees SBFB : reveal au scroll d'une longue page d'app. Retirer les helpers de log."
+    },
+    "snippet": "animate('#section-01 .card', {\n  rotate: [stagger(utils.random(-1,1,2)), stagger(15)],\n  transformOrigin: ['75% 75%', '75% 75%'],\n  ease: 'inOut(2)',\n  autoplay: onScroll({\n    enter: 'max-=100 top', leave: 'min+=100 bottom',\n    sync: .5, // smoothed scrub; try 'play pause' | 'play alternate reverse reset' | 'inOutExpo'\n    onEnterForward: () => {}, onLeaveBackward: () => {},\n    onUpdate: self => self.linked.progress,\n  }),\n});"
+  },
+  {
+    "name": "onscroll-sticky-snap (scroll-scrubbed 3D card-stack)",
+    "source_path": "tests/playground/onscroll/assets/sticky-snap.js",
+    "primitives_used": [
+      "createTimeline",
+      "autoplay: onScroll({target,sync:1,enter:'top',leave:'bottom'})",
+      "rotateX/rotateY/rotateZ 3D",
+      "z translate",
+      "per-card random tilt utils.random",
+      "tl.add per card",
+      "tl.init()"
+    ],
+    "idea": "Pile de cartes 3D revelee par le scroll : onScroll({target:'.sticky-container', sync:1}) lie 1:1 la progression de scroll a une timeline ; chaque carte entre depuis -100vh/50vh (alterne i%2), rotateX -180->0 (flip), avec rotateY/Z tires aleatoirement par carte pour un desempilement naturel. scroll-snap CSS + position:sticky cadrent la scene.",
+    "technique_tags": [
+      "scroll-linked",
+      "scrubbed-scroll",
+      "3d-transform",
+      "card-stack-reveal",
+      "per-element-random",
+      "sticky-scroll",
+      "flip-rotateX"
+    ],
+    "novelty_fingerprint": "createTimeline + autoplay:onScroll({sync:1,target}) + per-card rotateX[-180,0]+rotateY/Z=random + z stagger | scroll-scrubbed 3D card-stack flip-in with per-card random tilt",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Scroll + transform 3D dans l'iframe, 0 reseau. transform/rotate/opacity composite-safe (perspective en CSS sur .sticky). sync:1 = scrub strict. UMD : window.anime.onScroll. Retirer debug:true. Bon patron d'entree spectaculaire pour un onboarding SBFB."
+    },
+    "snippet": "const tl = createTimeline({ defaults:{ease:'inOut(1)'},\n  autoplay: onScroll({ target:'.sticky-container', sync:1, enter:'top', leave:'bottom' }) });\nutils.$('.card').forEach(($card, i) => {\n  tl.add($card, {\n    z: [40, i],\n    y: [i % 2 ? '-100vh' : '50vh', `${-i * 3}px`],\n    opacity: { to: [0, 1], duration: 50 },\n    rotateX: [-180, 0],\n    rotateY: [utils.random(-30, 30), 0],\n    rotateZ: [utils.random(-30, 30), 0],\n  });\n});\ntl.init();"
+  },
+  {
+    "name": "waapi-composition (3 engines side-by-side: waapi vs js)",
+    "source_path": "tests/playground/waapi/composition/index.js",
+    "primitives_used": [
+      "waapi.animate",
+      "animate (js)",
+      "translate shorthand 'Xpx Ypx'",
+      "x/y separate",
+      "stagger({grid,from:'center'})",
+      "to:()=>utils.random per-element",
+      "duration:()=>utils.random per-element"
+    ],
+    "idea": "Compare 3 moteurs sur la meme grille 10x10 au click : waapi.animate avec translate shorthand, waapi.animate avec x/y, et animate() JS — chacun avec stagger grille from center et des valeurs/durees function-based () => utils.random(...) RE-EVALUEES par element. Montre que waapi (composite-only) et le moteur JS partagent la meme API de params.",
+    "technique_tags": [
+      "waapi",
+      "engine-comparison",
+      "grid-stagger",
+      "function-based-values",
+      "per-element-random",
+      "translate-shorthand"
+    ],
+    "novelty_fingerprint": "waapi.animate(translate shorthand) vs waapi.animate(x,y) vs js animate + stagger(grid,from:center) + to/duration=()=>random | same params across WAAPI and JS engines, per-element random targets",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM, 0 reseau. waapi.animate delegue a la Web Animations API (composite, perf GPU) — utile pour grosses grilles dans l'iframe. translate/x/y/opacity/scale composite-safe. UMD : window.anime.waapi.animate. Decommenter createSpring/box-shadow EVITE (createSpring deprecie + box-shadow non-composite — piege 2/6)."
+    },
+    "snippet": "waapi.animate('.container-A .square', {\n  translate: `${X}px ${Y}px`,\n  opacity: { to: () => utils.random(.1, 1, 3), duration: () => utils.random(500, 4000, 0) },\n  scale:   { to: () => utils.random(.1, 2, 3), duration: () => utils.random(500, 4000, 0) },\n  duration, ease: 'out',\n  delay: stagger(24, { grid: [10, 10], from: 'center' }),\n});\n// vs js: const jsAnimation = animate('.container-C .square', { x: X, y: Y, ... });"
+  },
+  {
+    "name": "sandbox (timeline.sync of WAAPI animations)",
+    "source_path": "tests/playground/sandbox/index.js",
+    "primitives_used": [
+      "waapi.animate({autoplay:false})",
+      "createTimeline.sync(waapiAnim, position)"
+    ],
+    "idea": "Le plus court patron utile : creer des waapi.animate(autoplay:false) puis les .sync() dans une timeline anime a des positions explicites (0, 500). Prouve qu'une timeline JS anime peut piloter/sequencer des animations WAAPI natives.",
+    "technique_tags": [
+      "waapi",
+      "timeline-sync",
+      "waapi-in-timeline",
+      "autoplay-false-then-sync"
+    ],
+    "novelty_fingerprint": "waapi.animate(autoplay:false) + createTimeline.sync(waapiAnim, position) | sequence native WAAPI animations from an anime timeline",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM, 0 reseau. Combine la perf WAAPI composite avec le sequencage timeline anime. UMD : window.anime.waapi + window.anime.createTimeline. Minimal et directement copiable."
+    },
+    "snippet": "const { animate } = waapi;\nconst red = animate('.red', { x: '15rem', autoplay: false });\nconst blue = animate('.blue', { x: '15rem', autoplay: false });\nconst tl = createTimeline({loop: 1})\n  .sync(red, 0)\n  .sync(blue, 500);"
+  },
+  {
+    "name": "keyframes (percent-keyframe object syntax vs WAAPI vs CSS)",
+    "source_path": "tests/playground/keyframes/index.js",
+    "primitives_used": [
+      "animate({keyframes:{'0%':{...},'30%':{...,ease}}})",
+      "per-keyframe ease",
+      "element.animate (native WAAPI offset array)",
+      "CSS @keyframes (class toggle)"
+    ],
+    "idea": "Trois implementations equivalentes d'une meme trajectoire cote a cote : (1) anime keyframes en objet pourcentage {'0%':{x,y}, '30%':{x,y,rotate,ease:easeOut}} ou la duration est divisee par le nb de keyframes et l'ease peut etre par-keyframe, (2) Element.animate WAAPI avec offsets, (3) CSS @keyframes pur. Pedagogie d'equivalence.",
+    "technique_tags": [
+      "percent-keyframes",
+      "per-keyframe-ease",
+      "waapi",
+      "css-keyframes-equivalent",
+      "engine-comparison"
+    ],
+    "novelty_fingerprint": "animate({keyframes:{'0%':{},'30%':{...,ease}}}) + native el.animate(offset[]) + CSS @keyframes | percent-keyframe object with per-keyframe ease, equivalence across anime/WAAPI/CSS",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM transform, 0 reseau. La syntaxe keyframes objet-pourcentage est tres lisible pour des trajectoires complexes. x/y/rotate composite-safe. UMD swap. La duration totale / nb keyframes est un piege documente (commentaire dans le code)."
+    },
+    "snippet": "animate('.anime', {\n  keyframes: {\n    '0%'  : { x: '0rem', y: '0rem' },\n    '30%' : { x: '0rem', y: '-2.5rem', rotate: 45, ease: easeOut },\n    '40%' : { x: '17rem', y: '-2.5rem' },\n    '50%' : { x: '17rem', y: '2.5rem', rotate: 90 },\n    '100%': { x: '0rem', y: '0rem', rotate: 180, ease: easeOut }\n  },\n  duration: 4000, // divided by number of keyframes\n  ease: 'linear', loop: true,\n});"
+  },
+  {
+    "name": "layout (createLayout FLIP auto-animate on DOM change)",
+    "source_path": "tests/playground/layout/index.js",
+    "primitives_used": [
+      "createLayout('.container')",
+      "layout.update(({root})=>{...}, {duration})",
+      "createScope({root})",
+      "spring (ease, v4.5 correct)",
+      "stagger",
+      "layout.revert()"
+    ],
+    "idea": "Animation de LAYOUT facon FLIP : createLayout('.container') capture la geometrie, puis layout.update(fn,{duration}) execute une mutation DOM (toggle classe 'vertical', swap d'elements via data-layout-id, display:none, ajout/retrait) DANS le callback et anime automatiquement la transition first->last. Chaque test est encapsule dans createScope({root}) pour isoler les selecteurs. Importe spring (l'ease correct v4.5, pas createSpring).",
+    "technique_tags": [
+      "layout-animation",
+      "FLIP",
+      "createLayout",
+      "layout-update",
+      "scope-root",
+      "layout-id-swap",
+      "spring-ease"
+    ],
+    "novelty_fingerprint": "createLayout(selector) + layout.update(mutateFn,{duration}) + data-layout-id swap + createScope(root) + spring | FLIP-style auto layout animation on DOM mutation, scoped, id-based element swap",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pur DOM, 0 reseau. createLayout anime des changements de flux/position (couteux a la main) automatiquement. data-layout-id permet de morpher entre deux elements. PIEGE 6 respecte ici : ce demo utilise spring() (correct v4.5), PAS createSpring. UMD : window.anime.createLayout. Excellent pour reorganisations d'UI d'app SBFB (tri, filtre, expand)."
+    },
+    "snippet": "createScope({ root: '#simple-fixed-root' }).add(({ data }) => {\n  data.layout = createLayout('.container');\n  data.$button.addEventListener('click', () => {\n    data.layout.update(({ root }) => {\n      root.classList.toggle('vertical'); // mutate DOM inside update -> auto FLIP\n    }, { duration });\n  });\n});"
+  },
+  {
+    "name": "draggables-callbacks (createDraggable snap + lifecycle + animate target)",
+    "source_path": "tests/playground/draggables/callbacks/index.js",
+    "primitives_used": [
+      "createDraggable('#el',{container,snap,velocityMultiplier})",
+      "onGrab/onDrag/onRelease/onSettle/onSnap/onResize callbacks",
+      "snap: self => self.$target.offsetWidth",
+      "animate(draggableInstance, {x:fn,y:fn})"
+    ],
+    "idea": "createDraggable avec snap fonction (snap a la largeur de la cible), container de contrainte, velocityMultiplier:0 (pas d'inertie) et tous les callbacks de cycle (onGrab/onDrag/onUpdate/onRelease/onSettle/onSnap/onResize/onAfterResize). Truc avance : on peut passer l'INSTANCE draggable a animate() pour deplacer programmatiquement sa position (x:(draggable)=>...), anime et drag cohabitent sur la meme cible.",
+    "technique_tags": [
+      "draggable",
+      "createDraggable",
+      "snap-grid",
+      "drag-lifecycle-callbacks",
+      "container-constraint",
+      "animate-draggable-instance"
+    ],
+    "novelty_fingerprint": "createDraggable({container,snap:self=>w,velocityMultiplier}) + full on* callbacks + animate(draggableInstance,{x:fn,y:fn}) | constrained draggable with function-snap and programmatic position animation of the draggable",
+    "sbfb_reusable": {
+      "ok": true,
+      "why": "Pointer events DANS l'iframe, 0 reseau. createDraggable gere pointerdown/move/up localement — conforme. snap-as-function et container-as-selector sont locaux. UMD : window.anime.createDraggable. Retirer les log() helpers. Cas SBFB : sliders, poignees, reordonnancement tactile. Strings FR."
+    },
+    "snippet": "const manualDraggable = createDraggable('#manual', {\n  velocityMultiplier: 0,\n  container: '#container',\n  snap: self => self.$target.offsetWidth,\n  onSnap: () => log($log1, 'A onSnap'),\n  onSettle: () => log($log1, 'A onSettle'),\n});\nanimate(animatedDraggable, {\n  x: (draggable) => $container.offsetWidth - draggable.$target.offsetWidth,\n  y: (draggable) => $container.offsetHeight - draggable.$target.offsetHeight * 2,\n}); // anime drives the draggable's own position"
+  }
+]

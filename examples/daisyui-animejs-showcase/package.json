@@ -1,0 +1,23 @@
+{
+  "name": "sbfb-daisyui-animejs-showcase",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Build-time tooling for the SBFB daisyUI x anime.js showcase. RUNTIME has zero dependencies (everything is vendored into the archive).",
+  "license": "AGPL-3.0",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/input.css -o ./app.css --minify",
+    "vendor:anime": "node ./scripts/vendor-anime.mjs",
+    "build": "npm run vendor:anime && npm run build:css",
+    "check:csp": "node ./scripts/check-csp.mjs"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "animejs": "^4.0.0",
+    "chrome-launcher": "^1.2.1",
+    "daisyui": "^5.0.0",
+    "lighthouse": "^13.4.0",
+    "playwright": "^1.61.0",
+    "sharp": "^0.35.2",
+    "tailwindcss": "^4.1.0"
+  }
+}

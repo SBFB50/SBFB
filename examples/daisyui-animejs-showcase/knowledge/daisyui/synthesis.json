@@ -1,0 +1,144 @@
+{
+  "synthesis": {
+    "csp_ruleset": [
+      "CSP servie a l'iframe scellee : default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ; connect-src 'none' ; worker-src 'none' ; frame-src 'none' ; object-src 'none' ; base-uri 'none' ; form-action 'none' ; + COEP require-corp + sandbox allow-scripts SANS allow-same-origin (origine opaque). Toute regle ci-dessous decoule de ce contrat.",
+      "url() distante INTERDITE partout (background-image/mask-image/border-image vers http(s)). default-src 'self' ne couvre PAS une origine opaque vers le reseau distant et COEP require-corp bloque tout cross-origin sans CORP. Seules valeurs admises : data: (SVG/png inline), blob: (genere localement), ou chemin relatif same-origin servi DEPUIS l'archive blob-serve. daisyUI respecte deja ce contrat : toutes ses formes (mask.css, loading.css, tooltip fleche, chat queue, mockup loupe) et sa texture --fx-noise sont des data:image/svg+xml INLINE, jamais des url() http.",
+      "@font-face vers une URL distante INTERDIT (Google Fonts/CDN bloques par default-src 'self' + COEP). daisyUI :root --default-font-family pointe sur une pile SYSTEME (ui-sans-serif, system-ui, sans-serif, emoji) = zero requete reseau. Une police custom doit etre embarquee en @font-face src:url(data:...) ou fichier vendore same-origin dans l'archive.",
+      "connect-src 'none' : AUCUN fetch/XHR/WebSocket/EventSource possible. Tout composant a comportement dynamique (compteur countdown, avancee progress/radial-progress, ajout/retrait de toast/chat/modal, carousel autoplay, calendrier interactif, tri de table) = structure CSS OK mais comportement a coder en JS LOCAL pur (setInterval, scrollTo, manipulation DOM, FileReader/Blob), jamais via reseau.",
+      "form-action 'none' + sandbox sans allow-forms : tout <form> submit (POST/GET, method=dialog) est BLOQUE. Idiome SBFB obligatoire = div/button type=button + handler JS local ; lire l'etat via input.value / input.checked / input.files / textarea.value. Les composants form (input, checkbox, radio, select, textarea, range, file-input, fieldset, validator, filter) sont CSP-safe pour la SAISIE et l'etat CSS (:checked, :user-valid), jamais pour la soumission reseau.",
+      "frame-src 'none' + base-uri 'none' + origine opaque : aucune sous-iframe, aucune navigation hors-iframe (allow-top-navigation absent). Les <a href> externes ne naviguent pas (le STYLE link/breadcrumbs/btn s'applique mais le clic est inerte). Pour une action in-app, utiliser ancre interne #id ou handler JS local. <img>/<svg> source toujours same-origin/data:/blob:.",
+      "backdrop-filter (glass, ::backdrop popover) AUTORISE : c'est un effet composite GPU, non soumis a default-src. Il ne floute que le contenu DERRIERE l'element DANS le meme document iframe (origine opaque) et ne traverse jamais la frontiere vers le shell hote = comportement sur et attendu. A noter pour la perf seulement.",
+      "object-src 'none' : aucun <object>/<embed>/<applet>. Les pictogrammes = <svg> inline DOM ou mask-image data: + background-color, jamais <object data=...>.",
+      "Le theme racine (data-theme + tokens --color-*/--radius-*/--border/--depth/--size-*/--fx-noise) DOIT etre compile dans le app.css vendore. Sans theme racine, glass/join/prose/radius et tous les modifiers couleur ont des variables indefinies (couleurs/rayons absents) — verifier la presence du bloc :root/[data-theme] au build."
+    ],
+    "safe_by_default": [
+      "Layout & structure (CSS pur, zero precaution) : divider, indicator, kbd, footer, navbar, stack, join, list, fieldset (hors form), hero (sauf background-image distant), mockup-window, mockup-code, mockup-phone (cadre).",
+      "Affichage statique themable : badge, alert, card (hors img distant), stat/stats, status, timeline, breadcrumbs (style), label, link (style), prose/typography (avec plugin compile), radius/rounded-*.",
+      "Controles form natifs pour la SAISIE et l'etat CSS (:checked/:user-valid/:placeholder-shown) : checkbox, radio, toggle, range, input, textarea, select, validator, filter, swap (mode label+checkbox) — tous CSP-safe tant qu'on ne SOUMET pas de form.",
+      "Toggle/reveal 100% CSS sans JS : collapse (input:checked / <details>), drawer (checkbox + label[for]), tabs (radios name partage), dropdown (<details>/<summary> ou :focus-within), modal (mode .modal-toggle:checked / :target), fab (:focus-within), menu sous-menus (<details>), accordion via collapse.",
+      "Formes & masques 100% data: inline (jamais url http) : mask (toutes formes), loading (SVG SMIL inline), tooltip (fleche), chat (queue), mockup-browser (loupe), radial-progress (mask par radial-gradient genere), select (fleche par linear-gradient), status (reflet radial-gradient). Aucune ressource reseau.",
+      "Animations purement CSS (keyframes/transition, zero JS) : skeleton shimmer, text-rotate, loading, progress indeterminee, countdown (presentation), hover3d, hover-gallery, swap, status reflet — toutes respectent ou peuvent respecter prefers-reduced-motion.",
+      "Effets composite surs dans l'iframe : glass (backdrop-filter, note perf), modal/drawer overlay (background-color oklch translucide, PAS backdrop-filter), dropdown/popover ::backdrop (couleur)."
+    ],
+    "risk_classes": [
+      {
+        "target": "Tous composants media : avatar, card (figure), carousel, diff, hover3d, hover-gallery, hero (background-image), mockup-phone display, prose (img), chat-image, mask (img source)",
+        "risk": "<img src> ou CSS background-image:url() vers une URL http(s) distante : bloque par connect-src 'none' (origine opaque) + COEP require-corp. Les exemples daisyUI pointent vers img.daisyui.com.",
+        "mitigation": "Servir toute image en data: URI, blob: genere localement, ou fichier relatif same-origin embarque dans l'archive. Remplacer systematiquement les src img.daisyui.com des exemples par des assets locaux. Pour hero, prefe url('./asset.webp') relatif ou data:."
+      },
+      {
+        "target": "glass ; modal/drawer/dropdown backdrops",
+        "risk": "backdrop-filter:blur() = effet composite GPU (cout perf, pas un blocage CSP). Confusion possible avec un risque de fuite : il ne floute que le contenu interne a l'iframe.",
+        "mitigation": "Autorise tel quel. Noter le cout perf sur grandes surfaces. Verifier qu'un empilement existe derriere (sur fond plat l'effet parait nul). overlay modal/drawer n'est PAS un backdrop-filter (simple oklch translucide) = zero cout special."
+      },
+      {
+        "target": "calendar (cally / react-day-picker / pikaday)",
+        "risk": "Composant INTRINSEQUEMENT pilote par une lib JS tierce (custom element Cally, React, Pikaday). L'habillage CSS est safe mais le rendu/navigation/selection des jours necessite le script.",
+        "mitigation": "Vendorer la lib JS dans l'archive (script inline ou same-origin), JAMAIS via CDN (connect-src 'none'). Cally repose sur Shadow DOM + ::part() : allow-scripts suffit. Chevrons internes = SVG inline, pas <img> distant."
+      },
+      {
+        "target": "carousel (autoplay/boutons prev-next)",
+        "risk": "Le scroll-snap est CSS pur mais autoplay et boutons de navigation programmatiques ne sont pas fournis.",
+        "mitigation": "Navigation par swipe/scroll = native, zero JS. Boutons prev/next via ancres #id internes (navigation intra-document, OK iframe) ou scrollTo/scrollIntoView en JS local. Autoplay = setInterval local, jamais reseau."
+      },
+      {
+        "target": "countdown, progress, radial-progress, stat (compteur), toast, chat (flux), modal (showModal)",
+        "risk": "Affichage statique CSS-safe mais l'evolution dynamique (decompte, avancee de barre, ajout/retrait d'elements, ouverture imperative) suppose du JS.",
+        "mitigation": "Coder le comportement en JS LOCAL pur (setInterval pour countdown, set var(--value)/--radialprogress ou attribut value, manipulation DOM pour toast/chat), zero fetch. Preferer pour modal les modes CSS-only (.modal-toggle:checked / :target) si pas besoin d'imperatif."
+      },
+      {
+        "target": "Composants form dans un <form> qui submit : input, textarea, checkbox, radio, select, range, file-input, fieldset, filter, validator",
+        "risk": "form-action 'none' + sandbox sans allow-forms : tout submit (y compris <form method=dialog> pour fermer une modal) est bloque.",
+        "mitigation": "Idiome div/button type=button + handler JS local. Lire l'etat via input.value/.checked/.files. validator s'appuie sur :user-valid/:user-invalid natifs (interaction, pas submit). file-input : lire via FileReader/Blob, aucun upload (connect-src 'none')."
+      },
+      {
+        "target": "file-input, badge, alert, button, toggle, radio, menu, fieldset, file-input (--fx-noise / --btn-noise)",
+        "risk": "La texture --fx-noise/--btn-noise est theoriquement une url() ; si un theme custom la pointait vers un http distant, ce serait bloque.",
+        "mitigation": "Le defaut daisyUI 5 = SVG feTurbulence en data: URI inline (svg.css) = OK. Au build, verifier que --fx-noise reste data:/none et jamais url(http). N'utiliser que le theme vendore."
+      },
+      {
+        "target": "swap (mode swap-active), menu (menu-dropdown-show), dock (dock-active), steps (etat actif), tabs (variante <button> role=tab), filter (action sur changement)",
+        "risk": "L'etat actif/toggle hors mecanisme natif (checkbox/radio/details) suppose un toggle de classe JS.",
+        "mitigation": "Preferer les modes natifs CSS-only quand ils existent (swap label+checkbox, menu via <details>, tabs via radios name partage). Sinon toggle de classe en JS local sans reseau."
+      },
+      {
+        "target": "Icones SVG dans dock, fab, stat-figure, timeline-middle, steps-icon, mask (picto colore)",
+        "risk": "Tentation d'utiliser les utilitaires Tailwind fill-*/stroke-* qui NE compilent PAS de maniere fiable dans l'iframe, ou un <img src=http> distant.",
+        "mitigation": "Peindre le SVG via fill=\"currentColor\" ou var(--color-*)/color-mix sur le <svg> inline ; ou mask-image data: + background-color:var(--color-*). Jamais fill-*/stroke-* ni <img src=http>."
+      },
+      {
+        "target": "link, breadcrumbs, btn (en <a href>), prose (liens externes)",
+        "risk": "Navigation externe inerte en iframe scellee (origine opaque, pas d'allow-top-navigation). Le style s'applique mais le clic ne navigue pas.",
+        "mitigation": "Utiliser ancres internes #id ou handler JS local pour les actions in-app. Ne pas faire dependre le rendu d'une navigation externe."
+      }
+    ],
+    "tailwind_gotchas": [
+      "fill-* / stroke-* (Tailwind v4 SVG utilities) NE sont PAS garantis de compiler/etre purges correctement dans le contexte iframe scellee : ne jamais peindre une icone via class=\"fill-primary\". Peindre le <svg> inline avec fill=\"currentColor\" ou fill=\"var(--color-primary)\", ou via mask-image data: + background-color. C'est la regle la plus recurrente (dock, fab, stat, timeline, steps, mask).",
+      "Purge/detection des classes (Tailwind v4 @source / source(none)) : daisyUI et les classes dynamiquement composees (variants is-drawer-open:, menu-dropdown-show, sm:/md:/lg:/xl:/2xl:, tab-active applique en JS) doivent etre VUES par le scanner au build sinon elles sont absentes du app.css. Declarer explicitement les sources (@source) couvrant le HTML/JS de l'app et le HTML genere dynamiquement (safelist si construit en runtime).",
+      "Jamais @apply vers une classe absente du build (purgee) : @apply d'un utilitaire non genere casse la compilation ou produit une regle vide. Verifier que toute classe referencee en @apply est dans le scope @source.",
+      "Le plugin @tailwindcss/typography (prose) doit etre explicitement charge au build sinon prose ne rend que le pont de variables --tw-prose-* sans les marges/tailles reelles. Idem : aucune dependance reseau du plugin.",
+      "Les container-query units (cqi/cqw — diff, range remplissage) et @property (--radialprogress) exigent un Chromium recent (OK dans l'iframe) mais doivent etre presents dans le app.css compile ; ne pas s'appuyer sur un polyfill reseau.",
+      "Le theme racine (data-theme tokens) doit etre dans le meme app.css vendore : si on charge daisyUI sans bloc :root/[data-theme], toutes les var(--color-*)/var(--radius-*)/var(--depth)/--fx-noise sont indefinies. Compiler un theme par defaut explicite.",
+      "Aucun @import distant ni url() de police dans la source Tailwind : tout @import doit etre local (fichiers de l'archive), source(none) pour neutraliser la detection auto puis @source explicite sur les fichiers reels."
+    ],
+    "vendoring_doctrine": "Doctrine build-time stricte : compiler daisyUI + Tailwind v4 via le CLI tailwindcss (npx @tailwindcss/cli -i app.in.css -o app.css) AU MOMENT DU BUILD/PUBLISH, produisant un app.css statique vendore servi SAME-ORIGIN depuis l'archive blob-serve. Le fichier d'entree utilise @import \\\"tailwindcss\\\" source(none); pour neutraliser la detection auto de sources, puis @source \\\"./**/*.{html,js,tsx}\\\" pour declarer explicitement les fichiers a scanner (et une safelist pour les classes construites en runtime : is-drawer-open:, menu-dropdown-show, tab-active, variantes responsive). @plugin \\\"daisyui\\\"; avec un theme racine explicite (:root/[data-theme] tokens --color-*/--radius-*/--depth/--fx-noise) pour que glass/join/prose/radius et tous les modifiers aient leurs variables. INTERDICTIONS ABSOLUES : jamais le Tailwind Play CDN, jamais cdn.jsdelivr/unpkg daisyui, jamais @import url(Google Fonts) ni <link rel=stylesheet href=cdn> (bloques par default-src 'self' + COEP + connect-src 'none'). Toutes les formes/textures/icones du framework (mask SVG, --fx-noise feTurbulence, loading, tooltip) sont deja des data: URI inline dans le CSS compile = aucune ressource reseau residuelle. Resultat : un seul app.css same-origin, 100% statique apres purge, zero requete sortante. Bonus SBFB : ce app.css est un asset de l'archive donc entre dans compute_output_hash (provenance/scellage gratuit).",
+    "daisyui_anime_compositions": [
+      {
+        "combo": "btn + anime.js spring (createSpring / animate scale)",
+        "idea": "Au click handler local, animer scale 1->1.06->1 avec un spring anime.js pour un micro-pop tactile. Le btn reste CSS pur (couleur/depth daisyUI), anime ne touche que transform inline.",
+        "csp_note": "CSP-safe : anime.js bundle same-origin (jamais CDN), 'unsafe-inline'/'unsafe-eval' autorisent l'execution, anime n'ecrit que des transform inline (style attr), aucun fetch. Respecter prefers-reduced-motion via matchMedia local."
+      },
+      {
+        "combo": "card + anime.js createAnimatable (tilt 3D au pointeur)",
+        "idea": "Sur mousemove local, piloter rotateX/rotateY de la .card via un Animatable anime.js (alternative programmable a hover3d). Le card garde son style daisyUI (radius-box, shadow).",
+        "csp_note": "CSP-safe : transform/perspective inline, zero ressource reseau. createAnimatable ecrit des proprietes CSS inline autorisees par 'unsafe-inline'. Image de la card reste data:/blob:/same-origin."
+      },
+      {
+        "combo": "stat (stat-value) + anime.js animate sur un proxy numerique (compteur)",
+        "idea": "Animer la valeur affichee d'un stat de 0 a N : anime.js sur un objet {v:0} avec update -> textContent = round(v). Effet compteur croissant, le stat reste CSS.",
+        "csp_note": "CSP-safe : anime.js modifie textContent en local (zero innerHTML d'HTML distant, zero fetch). connect-src 'none' n'est jamais sollicite. Ajouter aria-live=polite."
+      },
+      {
+        "combo": "steps + anime.js stagger (reveal sequentiel)",
+        "idea": "A l'entree, reveler les .step un par un avec animate opacity/translateY et stagger(80) anime.js. Les compteurs et la barre de liaison restent CSS daisyUI.",
+        "csp_note": "CSP-safe : stagger = orchestration locale d'opacity/translate inline, aucune ressource. Gate sous prefers-reduced-motion:no-preference."
+      },
+      {
+        "combo": "modal (@starting-style CSS) + anime.js timeline (overshoot d'entree)",
+        "idea": "Ouvrir la modal en mode .modal-toggle:checked (CSS) puis enrichir la .modal-box d'une timeline anime.js (scale .9->1.02->1, opacity) pour un easing spring au-dela du @starting-style natif.",
+        "csp_note": "CSP-safe : overlay daisyUI = oklch translucide (pas backdrop-filter), anime n'anime que transform/opacity inline. Fermeture par button type=button + handler (jamais form method=dialog, bloque)."
+      },
+      {
+        "combo": "tabs + View Transition API + anime.js (cross-fade de contenu)",
+        "idea": "Sur changement d'onglet (radios CSS daisyUI), wrapper le swap de .tab-content dans document.startViewTransition et completer par anime.js sur les pseudo si besoin pour un cross-fade fluide.",
+        "csp_note": "CSP-safe : View Transitions et anime.js sont 100% client-side, zero reseau. Fallback gracieux si startViewTransition absent. Bascule de base reste CSS (radios)."
+      },
+      {
+        "combo": "toast + anime.js timeline (enter + auto-dismiss)",
+        "idea": "A l'ajout DOM local d'un .toast, jouer une timeline anime.js (slide+fade in, hold, fade out) puis remove() le noeud. Remplace le timer brut par un easing soigne ; placement reste CSS daisyUI.",
+        "csp_note": "CSP-safe : creation/suppression de noeud + transform/opacity inline, aucun fetch. Le contenu du toast est texte local, pas d'HTML distant."
+      },
+      {
+        "combo": "drawer (checkbox CSS) + anime.js (parallax du contenu interne)",
+        "idea": "Le glissement du panneau reste CSS (translate sur :checked). anime.js anime en plus un leger stagger/parallax des items du menu interne a l'ouverture (ecoute le change du checkbox).",
+        "csp_note": "CSP-safe : le toggle natif checkbox+label ne soumet aucun form ; anime ne touche que transform/opacity inline des items. Zero reseau."
+      },
+      {
+        "combo": "radial-progress + anime.js animate(--value) (registered property)",
+        "idea": "Animer la custom property --value de 0 a N avec anime.js (qui sait interpoler les @property registered), le conic-gradient daisyUI suit en CSS. Anneau qui se remplit fluidement.",
+        "csp_note": "CSP-safe : anime ecrit --value en style inline ; le mask est un radial-gradient genere (pas d'url). Aucune ressource reseau. Pour un vrai pourcentage temps-reel, source de donnees locale uniquement (connect-src 'none')."
+      },
+      {
+        "combo": "swap / fab + anime.js spring (rotation/expansion d'icone)",
+        "idea": "Sur toggle (checkbox CSS), superposer un spring anime.js sur la rotation de l'icone swap-rotate ou l'epanouissement radial du fab-flower pour un ressort plus expressif que la transition CSS.",
+        "csp_note": "CSP-safe : icones = <svg> inline peints currentColor/var (pas fill-* Tailwind) ; anime anime rotate/scale inline. cos()/sin() du fab restent CSS. Zero fetch."
+      },
+      {
+        "combo": "skeleton + anime.js (transition skeleton -> contenu reel)",
+        "idea": "Pendant un chargement LOCAL (decode data:/blob:, calcul), montrer le skeleton CSS daisyUI puis, a la dispo, cross-fader vers le contenu reel avec anime.js (opacity skeleton->0, contenu->1).",
+        "csp_note": "CSP-safe : le shimmer est CSS pur, anime ne fait qu'un fade inline. Aucune donnee distante (connect-src 'none') : le skeleton couvre une attente LOCALE, pas un fetch reseau."
+      }
+    ],
+    "coverage_notes": "68 verdicts couverts ; tous classes usable:true (aucun composant intrinsequement bloque). Les seuls risques sont CONDITIONNELS et tous mitigables : (1) sources media distantes -> assets locaux data:/blob:/same-origin ; (2) comportement dynamique -> JS local pur (connect-src 'none' interdit tout reseau) ; (3) <form> submit -> div/button+handler ; (4) icones SVG -> currentColor/var, jamais fill-*/stroke-* Tailwind ; (5) calendar -> lib JS vendoree, jamais CDN. Fait load-bearing verifie : toutes les formes/masques daisyUI (mask, loading, tooltip, chat, mockup-browser) et la texture --fx-noise sont des data: URI INLINE dans le CSS source — donc autorisees par 'data:' dans default-src, jamais des url() http. backdrop-filter (glass) est composite-safe et ne traverse pas l'origine opaque. Familles 100%-safe-sans-precaution = layout/typo/statique/formes-data: ; familles a precaution unique = media (src local), dynamique (JS local), form (no-submit). Les compositions anime.js proposees n'ecrivent que transform/opacity/custom-properties/textContent INLINE (autorise par 'unsafe-inline'/'unsafe-eval') et exigent anime.js bundle same-origin, jamais CDN."
+  }
+}

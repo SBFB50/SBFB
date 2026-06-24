@@ -1,0 +1,788 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   SOURCE DE BUILD (build-time uniquement). Compilé en ../app.css par :
+     npm run build:css   (tailwindcss -i src/input.css -o app.css --minify)
+   Le runtime ne charge QUE app.css. Aucune dépendance réseau.
+   `source(none)` désactive la détection auto ; on liste explicitement les
+   fichiers à scanner pour ne garder que les classes réellement utilisées.
+   ─────────────────────────────────────────────────────────────────────────── */
+@import "tailwindcss" source(none);
+@source "../index.html";
+@source "../app.js";
+
+/* Thèmes daisyUI intégrés disponibles dans le sélecteur (démo du système). */
+@plugin "daisyui" {
+  themes: night, dracula, synthwave, cyberpunk, retro, aqua, valentine, business;
+}
+
+/* ===== Thème « sbfb-reflect » (défaut) — palette Reflect en oklch ===========
+   Sources hex copiées dans la page : #111111 / #191919 / #2E2E2E / #EBEBEB /
+   #999 / #666 / accent #EBEBEB / ok #4ADE80 / warn #FACC15 / danger #F87171. */
+@plugin "daisyui/theme" {
+  name: "sbfb-reflect";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: oklch(18% 0 0);
+  --color-base-200: oklch(22.5% 0 0);
+  --color-base-300: oklch(30% 0 0);
+  --color-base-content: oklch(93% 0 0);
+
+  --color-primary: oklch(93% 0 0);
+  --color-primary-content: oklch(18% 0 0);
+  --color-secondary: oklch(68% 0 0);
+  --color-secondary-content: oklch(16% 0 0);
+  --color-accent: oklch(55% 0 0);
+  --color-accent-content: oklch(95% 0 0);
+  --color-neutral: oklch(30% 0 0);
+  --color-neutral-content: oklch(92% 0 0);
+
+  --color-info: oklch(75% 0.04 230);
+  --color-info-content: oklch(18% 0.02 230);
+  --color-success: oklch(80% 0.18 152);
+  --color-success-content: oklch(20% 0.06 152);
+  --color-warning: oklch(85% 0.19 92);
+  --color-warning-content: oklch(24% 0.05 92);
+  --color-error: oklch(70% 0.19 22);
+  --color-error-content: oklch(18% 0.05 22);
+
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* ===== Thème « sbfb-light » — même grammaire, inversée ===================== */
+@plugin "daisyui/theme" {
+  name: "sbfb-light";
+  default: false;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: oklch(99% 0 0);
+  --color-base-200: oklch(96% 0 0);
+  --color-base-300: oklch(91% 0 0);
+  --color-base-content: oklch(20% 0 0);
+
+  --color-primary: oklch(22% 0 0);
+  --color-primary-content: oklch(98% 0 0);
+  --color-secondary: oklch(45% 0 0);
+  --color-secondary-content: oklch(98% 0 0);
+  --color-accent: oklch(55% 0 0);
+  --color-accent-content: oklch(98% 0 0);
+  --color-neutral: oklch(25% 0 0);
+  --color-neutral-content: oklch(96% 0 0);
+
+  --color-info: oklch(55% 0.08 230);
+  --color-info-content: oklch(98% 0 0);
+  --color-success: oklch(62% 0.17 152);
+  --color-success-content: oklch(98% 0 0);
+  --color-warning: oklch(72% 0.17 80);
+  --color-warning-content: oklch(20% 0.04 80);
+  --color-error: oklch(58% 0.20 25);
+  --color-error-content: oklch(98% 0 0);
+
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COUCHE PER-APP — tokens copiés + CSS natif avancé
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --sbfb-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  --sbfb-font-mono: ui-monospace, "SFMono-Regular", "SF Mono", "Cascadia Code",
+    "Segoe UI Mono", Consolas, "Liberation Mono", Menlo, monospace;
+
+  /* Mouvement Reflect : 80 / 120 / 200 ms, sans overshoot. */
+  --sbfb-dur-1: 80ms;
+  --sbfb-dur-2: 120ms;
+  --sbfb-dur-3: 200ms;
+  --sbfb-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --sbfb-ease-out: cubic-bezier(0, 0, 0, 1);
+
+  /* Ressort en CSS pur via linear() — RÉSERVÉ aux moments « démo » (modale,
+     toast, bouton spring). Le DS standard reste sans overshoot. */
+  --sbfb-ease-spring: linear(
+    0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938, 1.077, 1.121, 1.106,
+    1.058, 1.013 32.8%, 0.995, 0.991, 0.998, 1.005, 1.006, 1.002
+  );
+}
+
+html {
+  font-family: var(--sbfb-font-sans);
+  scroll-behavior: smooth;
+}
+code,
+kbd,
+pre,
+.font-mono {
+  font-family: var(--sbfb-font-mono);
+}
+
+/* ===== Décor de fond : parallaxe pilotée par le scroll (CSS natif) ========= */
+.bg-decor {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.bg-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.13;
+  will-change: transform;
+}
+.bg-blob--a {
+  width: 38rem;
+  height: 38rem;
+  top: -9rem;
+  left: -7rem;
+  background: var(--color-primary);
+}
+.bg-blob--b {
+  width: 30rem;
+  height: 30rem;
+  bottom: -10rem;
+  right: -8rem;
+  background: var(--color-info);
+}
+.bg-grid-lines {
+  position: absolute;
+  inset: 0;
+  --line: color-mix(in srgb, var(--color-base-content) 7%, transparent);
+  background-image: linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 28%, transparent 72%);
+  mask-image: radial-gradient(ellipse at 50% 0%, #000 28%, transparent 72%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: scroll()) {
+    .bg-blob--a {
+      animation: sbfb-rise linear;
+      animation-timeline: scroll(root);
+    }
+    .bg-blob--b {
+      animation: sbfb-fall linear;
+      animation-timeline: scroll(root);
+    }
+  }
+}
+@keyframes sbfb-rise {
+  to {
+    transform: translateY(-150px);
+  }
+}
+@keyframes sbfb-fall {
+  to {
+    transform: translateY(130px);
+  }
+}
+
+/* ===== Reveals pilotés par le scroll (animation-timeline: view()) ==========
+   Défaut : visible (si l'API n'existe pas ou reduced-motion → rien à cacher). */
+.scroll-reveal,
+.scroll-pop {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .scroll-reveal {
+      animation: sbfb-reveal both linear;
+      animation-timeline: view();
+      animation-range: entry 0% entry 78%;
+    }
+    .scroll-pop {
+      animation: sbfb-pop both linear;
+      animation-timeline: view();
+      animation-range: entry 5% cover 32%;
+    }
+  }
+}
+@keyframes sbfb-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sbfb-pop {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ===== Grille anime.js ===================================================== */
+.wave {
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  gap: 6px;
+}
+.wave i {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--color-primary) 78%, transparent);
+  opacity: 0.9;
+  will-change: transform, opacity;
+}
+
+/* ===== Tokens « mouvement » ================================================ */
+.motion-dot {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  will-change: transform;
+}
+
+/* ===== Bouton « spring » 100 % CSS (easing linear()) ====================== */
+.spring-btn {
+  transition: transform var(--sbfb-dur-3) var(--sbfb-ease-spring);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .spring-btn:hover {
+    transform: scale(1.08);
+  }
+  .spring-btn:active {
+    transform: scale(0.95);
+  }
+}
+
+/* ===== Panneau modal : @starting-style + transition-behavior allow-discrete */
+.sbfb-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  opacity: 1;
+  transition: opacity var(--sbfb-dur-3) var(--sbfb-ease-out),
+    display var(--sbfb-dur-3) allow-discrete;
+}
+.sbfb-modal[hidden] {
+  display: none;
+  opacity: 0;
+}
+@starting-style {
+  .sbfb-modal:not([hidden]) {
+    opacity: 0;
+  }
+}
+.sbfb-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, #000 55%, transparent);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.sbfb-modal__card {
+  position: relative;
+  transform: translateY(0) scale(1);
+  transition: transform var(--sbfb-dur-3) var(--sbfb-ease-spring);
+}
+.sbfb-modal[hidden] .sbfb-modal__card {
+  transform: translateY(14px) scale(0.96);
+}
+@starting-style {
+  .sbfb-modal:not([hidden]) .sbfb-modal__card {
+    transform: translateY(14px) scale(0.96);
+  }
+}
+
+/* ===== Toasts : entrée par @starting-style, sortie par classe ============= */
+.sbfb-toast {
+  transition: opacity var(--sbfb-dur-3) var(--sbfb-ease-out),
+    transform var(--sbfb-dur-3) var(--sbfb-ease-spring);
+}
+@starting-style {
+  .sbfb-toast {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+}
+.sbfb-toast.is-leaving {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+}
+
+/* ═══════════ Atelier anime.js × daisyUI ══════════════════════════════════ */
+
+/* 1) Carte 3D réactive au curseur (createAnimatable) */
+.tilt-card {
+  perspective: 900px;
+}
+.tilt-card__inner {
+  position: relative;
+  overflow: hidden;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.tilt-card__glow {
+  position: absolute;
+  left: 20%;
+  top: 20%;
+  width: 60%;
+  aspect-ratio: 1;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--color-primary) 35%, transparent),
+    transparent 70%
+  );
+  filter: blur(22px);
+  opacity: 0.55;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* 3) Signature SVG (createDrawable) */
+.sig-svg path {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 4) Étiquettes draggables (createDraggable + spring) */
+.drag-zone {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 0.5rem;
+  height: 9rem;
+  padding: 0.75rem;
+}
+.drag-chip {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  will-change: transform;
+}
+.drag-chip:active {
+  cursor: grabbing;
+}
+
+/* 5) Paquet sur une route (createMotionPath) */
+.route-svg .route-line {
+  fill: none;
+  stroke: color-mix(in oklch, var(--color-base-content) 28%, transparent);
+  stroke-width: 2;
+  stroke-dasharray: 4 5;
+  stroke-linecap: round;
+}
+.route-svg #route-dot {
+  fill: var(--color-success);
+  filter: drop-shadow(0 0 4px color-mix(in oklch, var(--color-success) 60%, transparent));
+}
+
+/* ═══════════ SBFB — composants vivants ═══════════════════════════════════ */
+
+/* 2) Couverture du pipeline sharded — ruban absolu (montre trous/chevauchements) */
+.sc-ribbon {
+  position: relative;
+  height: 2.75rem;
+  border-radius: 0.5rem;
+  background: var(--color-base-100);
+  overflow: hidden;
+}
+.sc-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  font: 10px var(--sbfb-font-mono);
+  color: var(--color-primary-content);
+  background: color-mix(in oklch, var(--color-primary) 72%, transparent);
+  border-right: 1px solid var(--color-base-100);
+  transform-origin: left center;
+  will-change: transform;
+}
+.sc-block.is-fault {
+  background: color-mix(in oklch, var(--color-error) 82%, transparent);
+  color: var(--color-error-content);
+  z-index: 2;
+}
+.sc-token {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 9999px;
+  background: var(--color-base-content);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--color-base-content) 60%, transparent);
+  will-change: transform;
+  z-index: 3;
+}
+
+/* 4) Carte de preuve — barre additive empilée */
+.pc-seg {
+  height: 100%;
+  transform-origin: left center;
+  will-change: transform;
+}
+
+/* 5) Constellation de redondance */
+.sd-stage {
+  width: 100%;
+  height: 190px;
+}
+.sd-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  z-index: 2;
+}
+/* Glow composité : box-shadow STATIQUE sur un ::after dont seule l'opacity
+   transitionne (GPU), au lieu de transitionner box-shadow (paint-bound). */
+.sd-core::after {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, color-mix(in oklch, var(--color-success) 45%, transparent) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity var(--sbfb-dur-3) var(--sbfb-ease-out);
+  pointer-events: none;
+  z-index: -1;
+}
+.sd-core.is-seeding::after { opacity: 1; }
+.sd-orbit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  will-change: transform;
+}
+.sd-node {
+  position: absolute;
+  left: -7px;
+  top: -7px;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--color-secondary) 90%, transparent);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--color-secondary) 50%, transparent);
+  will-change: transform, opacity;
+}
+.sd-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 9999px;
+  border: 1px dashed color-mix(in oklch, var(--color-base-content) 14%, transparent);
+  translate: -50% -50%;
+}
+
+/* 6) Cockpit GPU — réservoir VRAM */
+.gc-reservoir {
+  position: relative;
+}
+.gc-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--color-primary) 80%, transparent);
+  transform-origin: left center;
+  will-change: transform;
+}
+.gc-fill.is-over {
+  background: color-mix(in oklch, var(--color-error) 82%, transparent);
+}
+.gc-budget {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--color-base-content);
+  opacity: 0.5;
+}
+
+/* ═══════════ GPU multi-nœud — relais d'inférence (timeline) ═══════════════ */
+.sp-scene { position: relative; }
+.sp-route { display: block; height: 96px; overflow: visible; }
+.sp-line {
+  fill: none;
+  stroke: color-mix(in oklch, var(--color-base-content) 22%, transparent);
+  stroke-width: 2;
+  stroke-dasharray: 4 6;
+  stroke-linecap: round;
+}
+.sp-token {
+  fill: var(--color-success);
+  filter: drop-shadow(0 0 5px color-mix(in oklch, var(--color-success) 65%, transparent));
+  will-change: transform;
+}
+.sp-stations {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+  margin-top: -0.5rem;
+}
+.sp-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.25rem;
+  border-radius: var(--radius-box, 0.5rem);
+  background: var(--color-base-100);
+  border: 1px solid color-mix(in oklch, var(--color-base-content) 8%, transparent);
+  opacity: 0.5;
+  transition: border-color var(--sbfb-dur-3) var(--sbfb-ease-out),
+    opacity var(--sbfb-dur-3) var(--sbfb-ease-out);
+  will-change: opacity, transform;
+}
+/* Glow composité (box-shadow statique, opacity transitionnée) — boucle continue,
+   donc on évite tout paint répété par cycle. */
+.sp-card::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-primary) 28%, transparent),
+    0 0 16px color-mix(in oklch, var(--color-primary) 30%, transparent);
+  opacity: 0;
+  transition: opacity var(--sbfb-dur-3) var(--sbfb-ease-out);
+  pointer-events: none;
+}
+.sp-card.is-active {
+  opacity: 1;
+  border-color: color-mix(in oklch, var(--color-primary) 45%, transparent);
+}
+.sp-card.is-active::after { opacity: 1; }
+.sp-meta { text-align: center; line-height: 1.1; }
+
+/* ═══════════ Babel — traduction (splitText/scrambleText) ══════════════════ */
+#babel-source { perspective: 600px; }
+#babel-source span { display: inline-block; will-change: transform, opacity; }
+#babel-target-line[lang="ar"] { direction: rtl; unicode-bidi: plaintext; }
+
+/* ═══════════ Babel — constellation (SVG peint en var(--color-*)) ══════════ */
+.babel-arc {
+  fill: none;
+  stroke: color-mix(in oklch, var(--color-primary) 50%, transparent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+.lang-node circle {
+  fill: var(--color-base-100);
+  stroke: color-mix(in oklch, var(--color-base-content) 30%, transparent);
+  transition: stroke 0.2s ease, filter 0.2s ease;
+}
+.lang-node .lang-label { fill: var(--color-base-content); font-size: 11px; font-weight: 600; }
+.lang-source circle { fill: var(--color-primary); stroke: var(--color-primary); }
+.lang-source .lang-label { fill: var(--color-primary-content); font-size: 13px; font-weight: 700; }
+.lang-check { fill: var(--color-success); font-size: 12px; font-weight: 700; opacity: 0; transition: opacity 0.25s ease; }
+.lang-arrived .lang-check { opacity: 1; }
+.lang-arrived circle {
+  stroke: var(--color-success);
+  filter: drop-shadow(0 0 4px color-mix(in oklch, var(--color-success) 70%, transparent));
+}
+#babel-packet { fill: var(--color-secondary); }
+
+/* ═══════════ Babel — glyphe qui morphe (morphTo, fill plein) ══════════════ */
+.babel-stage { min-height: 11rem; }
+.babel-svg-morph #babel-glyph {
+  fill: var(--color-primary);
+  stroke: color-mix(in oklch, var(--color-base-content) 25%, transparent);
+  stroke-width: 0.5;
+  transition: none;
+}
+#babel-char { line-height: 1; min-width: 1.4em; text-align: center; }
+
+/* ═══════════ Babel — provenance signée (createDrawable) ═══════════════════ */
+.bp-track { fill: none; stroke: color-mix(in oklch, var(--color-base-content) 18%, transparent); stroke-width: 2; }
+.bp-draw {
+  fill: none;
+  stroke: var(--color-success);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.bp-node .bp-dot { fill: color-mix(in oklch, var(--color-base-content) 35%, transparent); transition: fill 0.25s ease; }
+.bp-node .bp-ring { fill: none; stroke: color-mix(in oklch, var(--color-base-content) 25%, transparent); stroke-width: 2; }
+.bp-node.is-signed .bp-dot { fill: var(--color-success); }
+.bp-node.is-signed .bp-ring { stroke: color-mix(in oklch, var(--color-success) 55%, transparent); }
+.bp-cap { fill: var(--color-base-content); opacity: 0.6; font-size: 11px; font-family: var(--sbfb-font-mono); text-anchor: middle; }
+.bp-node.is-signed .bp-cap { opacity: 1; font-weight: 600; }
+.bp-token { fill: var(--color-warning); }
+
+/* ═══════════ Combos profonds ══════════════════════════════════════════════ */
+/* A. Intro cinétique */
+#ci-title { perspective: 600px; }
+#ci-title span { display: inline-block; will-change: transform, opacity; }
+.ci-underline { display: block; }
+.ci-underline path { fill: none; stroke: var(--color-primary); stroke-width: 3; stroke-linecap: round; }
+
+/* B. Panier à kudos */
+.kb-zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 0.5rem;
+  min-height: 9rem;
+  padding-bottom: 2.5rem;
+}
+.kb-chip { cursor: grab; user-select: none; touch-action: none; will-change: transform; }
+.kb-chip:active { cursor: grabbing; }
+.kb-basket {
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.5rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-box, 0.5rem);
+  border: 1px dashed color-mix(in oklch, var(--color-success) 50%, transparent);
+  color: color-mix(in oklch, var(--color-base-content) 60%, transparent);
+  font: 11px var(--sbfb-font-mono);
+  background: color-mix(in oklch, var(--color-success) 8%, transparent);
+}
+.kb-gaugewrap { width: 6rem; height: 6rem; }
+.kb-needle-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#kb-needle {
+  stroke: var(--color-primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transform-box: view-box;
+  transform-origin: 50px 50px;
+  will-change: transform;
+}
+
+/* ═══════════ Sismographe temporel — engine.speed piloté par le jerk ═══════
+   Une SEULE variable --seis-freeze (écrite par le rAF natif) orchestre N
+   consommateurs CSS, tous compositables (opacity + transform), JAMAIS box-shadow. */
+.seis-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-box, 0.75rem);
+  background: var(--color-base-100);
+  border: 1px solid color-mix(in oklch, var(--color-base-content) 8%, transparent);
+}
+.seis-svg { display: block; width: 100%; height: auto; }
+.seis-grid line {
+  stroke: color-mix(in oklch, var(--color-base-content) 12%, transparent);
+  stroke-width: 1;
+}
+/* Les graduations s'éclairent quand le temps gèle (consomme --seis-freeze). */
+.seis-grid { opacity: calc(0.4 + var(--seis-freeze, 0) * 0.55); }
+.seis-trace {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.seis-arm { stroke: color-mix(in oklch, var(--color-base-content) 28%, transparent); stroke-width: 1.5; }
+.seis-needle { fill: var(--color-success); }
+/* Voile de gel : opacity pilotée par --seis-freeze (composite-safe). */
+.seis-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 50%,
+    color-mix(in oklch, var(--color-info) 40%, transparent) 0%, transparent 66%);
+  opacity: calc(var(--seis-freeze, 0) * 0.6);
+  mix-blend-mode: screen;
+}
+/* Jauge de gel : scaleX piloté par --seis-freeze (transform, composite). */
+.seis-meter {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: color-mix(in oklch, var(--color-base-content) 10%, transparent);
+}
+.seis-meter-fill {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  transform: scaleX(var(--seis-freeze, 0));
+  background: color-mix(in oklch, var(--color-info) 70%, transparent);
+  will-change: transform;
+}
+
+/* ═══════════ Train d'engrenages — pipeline de shards (propagation de couple) ═
+   Chaque engrenage = un shard ; l'onde de vitesse qui voyage = l'activation qui
+   traverse les couches. Rotation via attribut SVG transform (set en JS) ; chaleur
+   et goulot via opacity (composite), jamais box-shadow. */
+.gears-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-box, 0.75rem);
+  background: var(--color-base-100);
+  border: 1px solid color-mix(in oklch, var(--color-base-content) 8%, transparent);
+}
+.gears-svg { display: block; width: 100%; height: auto; }
+.gear { --gear-base: color-mix(in oklch, var(--color-base-content) 55%, var(--color-base-300)); }
+.gear.is-drive { --gear-base: var(--color-primary); }
+.gear.is-proof { --gear-base: var(--color-success); }
+/* Chaleur = la COULEUR de la roue vire au jaune (var(--color-warning)) selon la
+   tension --heat (pilotée en JS) ; pas de halo, juste le fill du shard actif. */
+.gear-teeth {
+  fill: color-mix(in oklch, var(--gear-base), var(--color-warning) calc(var(--heat, 0) * 100%));
+  stroke: color-mix(in oklch, var(--color-base-content) 30%, transparent);
+  stroke-width: 1;
+}
+/* RunProof émis : le shard final passe au jaune plein un court instant. */
+.gear.is-proof.is-firing .gear-teeth { fill: var(--color-warning); }
+.gear-hub { fill: var(--color-base-100); stroke: color-mix(in oklch, var(--color-base-content) 38%, transparent); stroke-width: 2; }
+.gear-axle { fill: color-mix(in oklch, var(--color-base-content) 50%, transparent); }
+.gear-label { fill: color-mix(in oklch, var(--color-base-content) 62%, transparent); font: 9px var(--sbfb-font-mono); text-anchor: middle; }
+/* Goulot : la roue la plus lente borne le débit (anneau rouge déplacé en JS). */
+.gear-bottleneck { fill: none; stroke: var(--color-error); stroke-width: 2; stroke-dasharray: 4 3; opacity: 0; }
+
+/* ===== View Transitions (cadence alignée sur les tokens) ================== */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--sbfb-dur-3);
+  }
+}
+
+/* ===== Garde-fou global prefers-reduced-motion ============================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

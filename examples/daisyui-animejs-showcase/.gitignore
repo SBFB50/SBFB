@@ -1,0 +1,6 @@
+# Build-time tooling only — never published, never required at runtime.
+node_modules/
+package-lock.json
+
+# Dev/preview screenshots — regenerable by the audit scripts, not repo content.
+.shots/

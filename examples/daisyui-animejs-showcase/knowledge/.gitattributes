@@ -1,0 +1,5 @@
+# Extracted knowledge corpora (anime.js + daisyUI docs/primitives/examples),
+# verbatim data — NOT hand-written source code. Their bytes are hashed in the
+# MANIFEST.json files (provenance blake3), so they must stay byte-identical.
+# Disable git whitespace linting (git diff --check) on the whole corpus.
+* -whitespace
