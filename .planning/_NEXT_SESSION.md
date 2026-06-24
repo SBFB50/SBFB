@@ -21,6 +21,22 @@
 > S77 → produit `sprint77_audit_findings.md`), PUIS relocaliser le package S79 dans
 > `active/` + dérouler Factory A→G. Le carry P1 sharding (S78, RIG-ABSENT T2) reste
 > ouvert et tracké (sprint78_audit_plan + plan S79 l.156).
+>
+> **MAJ 2026-06-24 (session audit gate S77)** : **AUDIT GATE S77 JOUÉ → VERDICT
+> PASS** (commit `909b8d1` `chore(planning): Sprint 77 audit findings — PASS` +
+> `sprint77_audit_findings.md`). 0 P0 / 0 P1 défaut-neuf ; 5 P2 + 5 P3 ;
+> **SHARD-PROVISIONAL = carry P1 honnête routé S78**. Suite Win nextest 1956/1956
+> 0-skip + web Vitest 411 + T1 E2E hermétique 2+1skip + Docker canonique 1820
+> passed / 6 iroh-networked env-bloqués (jeu documenté, 0 delta S77 = pas une
+> régression). Workflow 12 agents / 11 tracks + adjudication adversariale des faits
+> (G3 vendor-pin REFUTÉ, G1 data-plane test-only CONFIRMÉ, G2 GPU hors-CI by-design).
+> **S77 est CLOS sur le fond** — reste la housekeeping git mv. **CETTE session =
+> ouvrir S79** (quasi-Cas B : kickoff + plan déjà écrits) : 1) `git mv` les
+> `sprint77_*.md` + `sprint78_audit_plan.md` de `active/` → `archive/v2.1/` ;
+> 2) relocaliser `sprint79_factory_{kickoff,plan,design_review}.md` de `.planning/`
+> → `active/` ; 3) dérouler Factory **A→G** (sprint ultra-complet, 0 defer du cœur).
+> Le carry P1 sharding (S78) reste différé + tracké (`sprint78_audit_plan` à
+> conserver pour le slot S78).
 
 ## Directive PO (de cette session)
 **Démarrer le sprint Factory « app-authoring » (S79) à la prochaine session et rendre
