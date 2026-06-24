@@ -434,15 +434,16 @@ Factory + le doc-lint factory-scopé + le wrap-up. **Aucune nouvelle primitive d
   [self-check viewer requis] ; connaissance CONSOMMÉE jamais autoritaire [0 verdict PASS] ») +
   french-body (REFERENCE.md exempté). **CÂBLÉ BLOQUANT 3 surfaces** (`ci.yml` + `ci-linux.yml` +
   `verify.sh`). [Le gate GÉNÉRIQUE `check-frontier-contracts.sh` est livré Phase B ; ici = le lint factory-scopé.]
-- **Couverture de l'arête de provenance du prompt-kind (P2 — `sprint79_phase_c_doc_verification.md`)** :
-  étendre EXPLICITEMENT `check-factory-docs.sh` à `prompts/agent/app-authoring.md` (et son extension
-  daisyUI de Phase F) — résoudre chaque source_ref `PRIMITIVES.md:N` / `README.md:N` (la ligne existe
-  ET supporte la claim) ET asserter chaque hash blake3 16-hex inline
-  `== docs/factory/knowledge/animejs/MANIFEST.json`. Aujourd'hui ces ~21 refs + 5 hashes sont **NON
-  GARDÉS** (`check-frontier-contracts.sh` exclut `prompts/`, le test ne vérifie que 5 strings CSP,
-  `prompt_kinds_resolve_to_existing_files` ne fait que `.exists()`) → la fiche est un **GUIDE non gaté**
-  dont la copie de hashes ment silencieusement à la prochaine rotation du pack (suite verte). Sans cette
-  extension, le gap reste non couvert.
+- **Couverture de l'arête de provenance du prompt-kind — volet SÉMANTIQUE restant
+  (P2 — `sprint79_phase_c_doc_verification.md`)** : le volet **DÉTERMINISTE** (chaque hash blake3
+  16-hex inline `== un MANIFEST.json` + chaque chemin `docs/factory/knowledge/...` cité existe) est
+  **DÉJÀ FERMÉ génériquement** par le **4e volet de `check-frontier-contracts.sh`** (renfort forward
+  post-Phase-C, prouvé adversarialement + Codex 4/5). `check-frontier-contracts.sh` ne traite donc
+  PLUS `prompts/` comme « exclu » — son volet 4 garde hash+path de toute fiche knowledge-backed. Reste
+  à Phase I, dans `check-factory-docs.sh`, le volet **SÉMANTIQUE** seul : pour chaque
+  `prompts/agent/*.md` knowledge-backed, vérifier que chaque source_ref `PRIMITIVES.md:N` /
+  `README.md:N` pointe une ligne qui **supporte encore la claim** (line-semantic ; complément du gate
+  déterministe générique).
 - **Honnêteté (non négociable)** : aucun « shipped/LIVE » faux ; `PROVISIONAL` pour ce qui ne tourne
   pas in-vivo ; Truth-Stack `repo > planning > commits > prompts > chat`.
 - **Wrap-up FINAL du sprint** : `docs/claude/SPRINT_LOG.md` (row S79), `CLAUDE.md` (état + capacité +

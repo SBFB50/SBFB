@@ -3886,6 +3886,21 @@ families have no generated schema and stay unannotated, a tracked carry routed t
 the S80 audit-plan (created at sprint closure)). This is
 the doctrine §7 Q2 "explicit registry, opt-in" arbitration (PO-tranché).
 
+**The prompt-kind provenance edge (volet 4, S79 forward-reinforcement).** A
+knowledge-backed prompt-kind fiche (`prompts/agent/*.md` referencing
+`docs/factory/knowledge/`) copies blake3 16-hex pack digests and layer paths
+inline — a GUIDE artifact (doctrine §2 layer 4), not a generated étiquette. A
+copied digest rots silently when the pack is re-extracted (the "GUIDE non gaté"
+gap surfaced by the S79 Phase C doc-verification, `sprint79_phase_c_doc_verification.md`).
+`check-frontier-contracts.sh` now asserts, for each such fiche, that every inline
+16-hex digest equals a value recorded in some `docs/factory/knowledge/*/MANIFEST.json`
+AND that every cited `docs/factory/knowledge/...` layer path exists on disk. This is
+the deterministic path + hash drift-guard; the semantic "the cited line still
+supports the claim" check stays the adversarial LLM review's job (companion).
+Generic — any future prompt-kind is covered without re-touching the gate. CONVENTION:
+inside such a fiche EVERY lowercase 16-hex token is treated as a pack digest (do not
+embed an unrelated 16-hex identifier, e.g. a git SHA prefix).
+
 **The cadence in one sentence**: generated étiquette PER PHASE in the primitive's
 commit; GUIDE + `llms.txt` in ONE closure phase; provenance edges point only
 backward at the immutable past. Neither "one doc phase per phase" (heavy) nor

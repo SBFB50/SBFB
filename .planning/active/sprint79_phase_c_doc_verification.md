@@ -102,3 +102,17 @@ cadence par-phase. Le seul gap réel = **l'arête de provenance (refs+hashes) n'
 source-ref-checkée** → 2 P2 routés **Phase I (clôture)**, dont le **scope du `check-factory-docs.sh`
 de Phase I doit être étendu explicitement** pour inclure `prompts/agent/app-authoring.md`
 (amendé dans le même chore).
+
+## Suivi — P2 hash/path FERMÉ génériquement (renfort forward, hors-phase)
+Le volet déterministe des 2 P2 (drift de **hash copié** + **chemin** de couche) a été **fermé
+maintenant, génériquement**, par un **4e volet de `check-frontier-contracts.sh`** (gate Phase B,
+déjà câblé CI 3 surfaces) : pour toute fiche `prompts/agent/*.md` adossée à
+`docs/factory/knowledge/`, (4a) chaque hash blake3 16-hex inline **doit == un digest d'un
+`MANIFEST.json`**, et (4b) chaque chemin `docs/factory/knowledge/...` cité **doit exister**.
+Prouvé adversarialement (clean → exit 0 ; hash trafiqué → **FAIL `PROMPT-PROVENANCE`** exit 1) +
+Codex 4/5 CONFIRMÉ (1 PARTIEL = convention « tout 16-hex = digest de pack » explicitée). **Tout
+futur prompt-kind est désormais couvert sans re-toucher le gate.** Reste à **Phase I**
+(`check-factory-docs.sh`) le seul volet **sémantique** : « la ligne `PRIMITIVES.md:N` citée
+supporte-t-elle encore la claim ? » (line-semantic, hors portée d'un gate déterministe) + la
+synthèse GUIDE Diataxis. La couche **GUIDE → drift-gated** est donc passée de « non gardée » à
+« hash+path gardés génériquement, line-semantic en clôture ».

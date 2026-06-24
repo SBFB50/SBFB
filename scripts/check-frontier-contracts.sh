@@ -5,7 +5,7 @@
 # Canonises the docs-contract cadence in the SBFB process itself
 # (docs/claude/README.md, docs/agent/AGENT_SYSTEM.md, docs/rust/PATTERNS.md
 # §P70, doctrine .planning/research/doctrine_contrat_pour_llm.md §2/§7).
-# Three deterministic checks (mirrors scripts/check-sharding-docs.sh
+# Four deterministic checks (mirrors scripts/check-sharding-docs.sh
 # discipline — BusyBox-safe so it also runs on the Woodpecker bash:5
 # image: no grep -P, no --include, no \b, no \s, no mapfile/readarray):
 #
@@ -36,6 +36,17 @@
 #       check asserts EACH of the 6 'none' directives against the const
 #       source-of-truth (blob_serve.rs); the served-HTTP-header / vitrine
 #       per-directive CSP gate is the Sprint 79 Phase E/H scope.
+#   (4) prompt-kind provenance edge — a knowledge-backed prompt-kind
+#       fiche (prompts/agent/*.md that references docs/factory/knowledge/)
+#       must keep its copied provenance resolvable: every inline blake3
+#       16-hex digest must equal a value recorded in some
+#       docs/factory/knowledge/*/MANIFEST.json (a copied digest that rots
+#       silently when the pack is re-extracted is a lie — the "GUIDE non
+#       gate" gap surfaced by the sprint79 doc-verification), and every
+#       cited docs/factory/knowledge/... layer path must exist on disk.
+#       The semantic "the cited line still supports the claim" check stays
+#       the adversarial LLM review's job (companion); this gate guards the
+#       path + hash drift only. Generic: any future prompt-kind is covered.
 #
 # Exit 0 = clean, exit 1 = at least one violation.
 
@@ -142,10 +153,48 @@ else
   fi
 fi
 
+# ── (4) prompt-kind provenance edge (knowledge-backed fiches) ─────
+# Closes the "GUIDE non gate" gap (sprint79 doc-verification): the generic
+# frontier gate excluded prompts/, so a fiche's copied pack digests and
+# layer paths were ungated and could rot silently at the next pack rotation.
+KNOW_DIR="docs/factory/knowledge"
+if [ -d "$KNOW_DIR" ] && [ -d "prompts/agent" ]; then
+  # Union of every blake3 16-hex digest recorded across all pack MANIFESTs.
+  manifest_hashes="$(find "$KNOW_DIR" -name MANIFEST.json -exec grep -oE '[0-9a-f]{16}' {} + 2>/dev/null | sort -u || true)"
+  for pf in prompts/agent/*.md; do
+    [ -f "$pf" ] || continue
+    # Only knowledge-backed fiches are in scope (they reference the pack dir).
+    grep -qF "$KNOW_DIR" "$pf" || continue
+    # 4a — every inline 16-hex digest must be a known pack digest.
+    # CONVENTION: inside a knowledge-backed fiche EVERY lowercase 16-hex token
+    # is treated as a pack digest — do not embed an unrelated 16-hex identifier
+    # (e.g. a git SHA prefix) in such a fiche, or it will be flagged here.
+    # Intentional word-split over the unique hash list.
+    # shellcheck disable=SC2046
+    for h in $(grep -oE '[0-9a-f]{16}' "$pf" | sort -u || true); do
+      if ! printf '%s\n' "$manifest_hashes" | grep -qxF "$h"; then
+        echo "PROMPT-PROVENANCE: $pf cites blake3 16-hex '$h' absent from every $KNOW_DIR/*/MANIFEST.json"
+        echo "  -> a copied pack digest rots when the pack is re-extracted; re-sync the fiche to MANIFEST.json or drop the hash."
+        fail=1
+      fi
+    done
+    # 4b — every cited knowledge layer path must exist on disk.
+    # Intentional word-split over the unique path list.
+    # shellcheck disable=SC2046
+    for kp in $(grep -oE "$KNOW_DIR/[A-Za-z0-9_./-]+\.(json|md|ts)" "$pf" | sort -u || true); do
+      if [ ! -f "$kp" ]; then
+        echo "PROMPT-PROVENANCE: $pf cites '$kp' which does not exist on disk"
+        echo "  -> a moved/removed knowledge layer; re-anchor the path."
+        fail=1
+      fi
+    done
+  done
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "check-frontier-contracts: FAILED"
   exit 1
 fi
 
-echo "check-frontier-contracts: clean (anti-promise + frontier-tag coverage [$frontier_count tagged] + BLOB_SERVE_CSP non-regression)"
+echo "check-frontier-contracts: clean (anti-promise + frontier-tag coverage [$frontier_count tagged] + BLOB_SERVE_CSP non-regression + prompt-kind provenance)"
 exit 0
