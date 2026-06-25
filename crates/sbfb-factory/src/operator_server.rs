@@ -352,6 +352,26 @@ fn file_hash(root: &std::path::Path, rel: &str) -> serde_json::Value {
     serde_json::json!({"path": rel, "exists": false})
 }
 
+/// Authoring knowledge packs surfaced to a fresh session via the context-pack,
+/// as hashed path references (model: `process_docs`), never inlined.
+///
+/// Sprint 79 Phase D — decision D1: the packs live under
+/// `docs/factory/knowledge/<pack>/` (hashed by provenance, outside any app
+/// workspace); decision D6: they are consumed/displayed and never
+/// authoritative. Single source for the manifest list (one edit point per
+/// pack). animejs pack only at this revision.
+const AUTHORING_KNOWLEDGE_MANIFESTS: &[&str] = &["docs/factory/knowledge/animejs/MANIFEST.json"];
+
+/// Builds the `authoring_knowledge` array of hashed path references from
+/// [`AUTHORING_KNOWLEDGE_MANIFESTS`]. Shared by `handle_context_pack` and
+/// `handle_chat_session` so both surfaces carry an identical field.
+fn authoring_knowledge(root: &std::path::Path) -> Vec<serde_json::Value> {
+    AUTHORING_KNOWLEDGE_MANIFESTS
+        .iter()
+        .map(|rel| file_hash(root, rel))
+        .collect()
+}
+
 async fn handle_context_pack(
     State(state): State<OperatorState>,
     Json(req): Json<ContextPackRequest>,
@@ -407,6 +427,7 @@ async fn handle_context_pack(
             file_hash(root, "AGENTS.md"),
             file_hash(root, "CLAUDE.md"),
         ],
+        "authoring_knowledge": authoring_knowledge(root),
         "active_artifacts": active_artifacts,
         "operator_intent": {
             "intent": req.intent,
@@ -658,6 +679,12 @@ async fn handle_chat_session(
         "base_prompt": file_hash(root, "prompts/agent/base.md"),
         "universal_prompt": file_hash(root, "prompts/agent/universal.md"),
         "handoff_prompt": file_hash(root, "prompts/agent/handoff.md"),
+        // Sprint 79 Phase D — decision D6: dual-write so chat sessions carry
+        // the same non-authoritative authoring knowledge as the context-pack.
+        // handle_chat_session rebuilds its own context_pack literal rather than
+        // reusing handle_context_pack's, so the field is written via the shared
+        // authoring_knowledge() helper at both sites.
+        "authoring_knowledge": authoring_knowledge(root),
         "runtime_context": {
             "head": ctx.get("head"),
             "sprint": ctx.get("sprint"),

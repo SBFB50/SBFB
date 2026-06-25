@@ -723,6 +723,74 @@ fn operator_chat_session_starts_from_context_pack() {
     assert_eq!(cp["chat_history_authoritative"], false);
 }
 
+// Sprint 79 Phase D: a fresh session receives the authoring knowledge matrix
+// as a hashed path reference, verifiable by recompute.
+#[test]
+fn operator_context_pack_includes_authoring_knowledge() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/context-pack",
+        serde_json::json!({"provider": "claude", "intent": "test phase D"}),
+    );
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    let ak = body["authoring_knowledge"]
+        .as_array()
+        .expect("authoring_knowledge should be an array");
+    let animejs = ak
+        .iter()
+        .find(|e| {
+            e["path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with("animejs/MANIFEST.json"))
+        })
+        .expect("authoring_knowledge should reference the animejs MANIFEST");
+    assert_eq!(animejs["exists"], true, "animejs MANIFEST should exist");
+
+    // The hash is verifiable by recompute: blake3(MANIFEST bytes)[..8] (8 hex
+    // of the file itself), distinct from the 16-hex per-layer hashes inside
+    // MANIFEST.hashes that `tests/animejs_manifest.rs` already covers.
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let bytes = std::fs::read(repo_root.join("docs/factory/knowledge/animejs/MANIFEST.json"))
+        .expect("read animejs MANIFEST");
+    let expected = blake3::hash(&bytes).to_hex()[..8].to_string();
+    assert_eq!(
+        animejs["hash"].as_str().unwrap(),
+        expected,
+        "authoring_knowledge hash must equal recomputed blake3(MANIFEST)[..8]"
+    );
+}
+
+// Sprint 79 Phase D: handle_chat_session rebuilds its own context_pack literal
+// (it does not inherit handle_context_pack), so the authoring_knowledge field
+// must be present there too — guards the dual-write invariant.
+#[test]
+fn operator_chat_session_includes_authoring_knowledge() {
+    let server = TestServer::start();
+    let resp = server.post_json(
+        "/api/chat/session",
+        serde_json::json!({"provider": "claude", "intent": "test phase D"}),
+    );
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    let cp = &body["context_pack"];
+    let ak = cp["authoring_knowledge"].as_array().expect(
+        "chat session context_pack should carry authoring_knowledge (dual-write invariant)",
+    );
+    assert!(
+        ak.iter().any(|e| e["path"]
+            .as_str()
+            .is_some_and(|p| p.ends_with("animejs/MANIFEST.json"))),
+        "chat session authoring_knowledge should reference the animejs MANIFEST"
+    );
+    // The authority invariant stays intact alongside the new field.
+    assert_eq!(cp["chat_history_authoritative"], false);
+}
+
 #[test]
 fn operator_chat_message_endpoint() {
     let server = TestServer::start();

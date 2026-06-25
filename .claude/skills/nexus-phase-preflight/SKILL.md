@@ -119,6 +119,7 @@ un design que les memories rejettent ou contraignent.
 | governance / funding / modele | `vision_model.md` | OpenBSD solo maintainer, no startup |
 | deploy / crypto / Ed25519 | `sprint14_keyoxide_decision.md` | from-source verified deploy |
 | lib externe / dep / API spec | `feedback_context7_systematic.md` | context7 obligatoire avant code |
+| UI / animation / design app SBFB | `prompts/agent/app-authoring.md` + `docs/factory/knowledge/` | CSP iframe connect-src 'none', vendorisation UMD same-origin, knowledge consommee non-autoritaire |
 
 Matcher zone depuis Step 1.3 fichiers cibles. Toute modification
 future de cette table doit toucher les 2 skills (grep "Routing
