@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>csp-dirty</title>
+  </head>
+  <body>
+    <h1 id="title">dirty</h1>
+    <script>
+      // Runtime-assembled network call the STATIC authoring lint CANNOT see:
+      // the host is base64-decoded at runtime, so the string-scan gate
+      // (crates/sbfb-factory/src/gates.rs run_gate_csp_authoring /
+      // examples/daisyui-animejs-showcase/scripts/check-csp.mjs) never sees
+      // the URL. fetch() then violates `connect-src 'none'` -> the browser
+      // refuses it and emits a CSP console error that the runtime self-check
+      // captures at browser level. This is exactly the "fetch via atob"
+      // runtime vector named in the gate's out-of-static-scope list, and the
+      // reason a RUNTIME net is needed on top of the static gate.
+      // (the literal host is base64 so even THIS source carries no scannable URL;
+      // build-fixtures.mjs asserts it decodes to an external https:// origin.)
+      var target = atob("aHR0cHM6Ly9leGFtcGxlLmNvbS9zYmZiLXBpbmc=");
+      fetch(target).catch(function () {});
+      document.getElementById("title").textContent = "dirty-app-ran";
+    </script>
+  </body>
+</html>

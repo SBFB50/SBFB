@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>csp-clean</title>
+  </head>
+  <body>
+    <h1 id="title">clean</h1>
+    <script>
+      // CSP-clean runtime work: inline DOM mutation only. No network,
+      // no external sub-resource, no dynamically-assembled url()/fetch.
+      // Served under the production BLOB_SERVE_CSP it must emit ZERO
+      // securitypolicyviolation — the positive control of the runtime
+      // self-check (Sprint 79 Phase H).
+      document.getElementById("title").textContent = "clean-app-ready";
+      document.title = "csp-clean-ready";
+    </script>
+  </body>
+</html>

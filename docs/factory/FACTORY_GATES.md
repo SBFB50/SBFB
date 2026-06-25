@@ -133,8 +133,8 @@ origin distant — `base-uri 'none'` le bloque.
 le code assemble au runtime (`fetch` via `atob`, `form.action`/`base.href`/
 `img.src`/`url()` CSS construits dynamiquement ; un `//host` protocol-relatif
 isole dans une string JS hors contexte attribut). Ces cas sont rattrapes par (a)
-le CSP runtime chez chaque client et (b) le self-check runtime qui rejoue l'app
-sous la CSP reelle (Sprint 79 Phase H). Le gate garantit la conformite des
+le CSP runtime chez chaque client et (b) le self-check runtime (S79 Phase H,
+LIVRE) qui rejoue l'app sous la CSP reelle. Le gate garantit la conformite des
 assets *livres* + le feedback auteur, **pas** l'absence d'exfiltration a
 l'execution.
 
@@ -156,6 +156,31 @@ est unique (`nexus_core_rs::csp`), miroitee dans `csp-contract.json` (verifiee
 par test) et consommee par le lint JS `check-csp.mjs` ; un test cross-crate
 asserte que la detection couvre **toutes** les directives `'none'` de
 `BLOB_SERVE_CSP` (anti-drift).
+
+**Le filet runtime (S79 Phase H, LIVRE) — complement du lint statique.** Le lint
+ne voit pas le code assemble a l'execution ; le self-check runtime rejoue l'app
+dans le **vrai iframe-host de prod** (`BrowsedProject`, `sandbox="allow-scripts"`
+sans `allow-same-origin`, origine opaque) sous la CSP **reellement servie** par le
+daemon, et observe les violations au **niveau navigateur** (`page.on('console')`),
+**sans** sonde injectee dans l'app (impossible sur l'iframe opaque, et le template
+phare `daisyui` n'embarque aucun `sbfb-bridge.js`). T1 (`web/e2e/app-authoring.spec.ts`,
+BLOQUANT, dans `test:e2e`) seede deux fixtures — une **CLEAN** (0 violation,
+controle positif) et une **DIRTY** (`fetch(atob(...))` que le lint statique ne voit
+pas → viole `connect-src 'none'` → capturee) : le controle negatif est porteur, un
+self-check clean-only ne prouve que « le harnais tourne », pas « il detecte ». T2
+(`scripts/acceptance/app_authoring_capability.sh`) emet l'artefact JSON
+`{status, blob_serve_csp_equals_contract, clean_clean, dirty_detected, …}` ;
+**PASS** exige CSP-servie == contrat **ET** clean propre **ET** dirty detectee.
+L'egalite CSP-servie == `nexus_core_rs::csp::BLOB_SERVE_CSP` a deux temoins : un
+nextest Rust byte-exact (`http.rs`, 200 **et** 404, fermant le trou substring/
+presence anterieur) et la comparaison cote E2E (client Playwright `request`) dans
+T1 (mirroir `csp-contract.json` ; les sous-tests clean/dirty, eux, rejouent dans
+l'iframe navigateur reelle). **Filet, pas preuve totale** : `blockedURI` est caviarde a
+origine opaque, un echec COEP-pur ne fire pas l'evenement, le self-check vise les
+auteurs honnetes (une app peut supprimer son propre rapport) — le gate de record
+reste FG-CSP-authoring (statique, publish) + la CSP browser-enforced chez le
+client. Le `status` du self-check est un verdict de **test**, jamais une autorite
+de publish (Day-0 « 0 verdict PASS auto »).
 
 ### FG7 — Preview
 

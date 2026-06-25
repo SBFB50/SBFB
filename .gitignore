@@ -144,6 +144,9 @@ scripts/acceptance/rig.local.env
 scripts/acceptance/.b3_last_result.json
 scripts/acceptance/.b3_shard_last_result.json
 scripts/acceptance/.b3_worker.log
+scripts/acceptance/.app_authoring_last_result.json
+scripts/acceptance/.app_authoring_pw.json
+scripts/acceptance/.app_authoring_pw.log
 
 # In-progress app design docs (pre-sprint intake, not planning)
 docs/DND_P2P_DESIGN.md

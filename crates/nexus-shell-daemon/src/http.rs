@@ -7548,6 +7548,76 @@ mod tests {
         );
     }
 
+    /// Sprint 79 Phase H: the CSP header SERVED by the daemon must be
+    /// byte-for-byte equal to the single-source contract
+    /// `nexus_core_rs::csp::BLOB_SERVE_CSP` — on BOTH the 200 success path
+    /// and the 404 error path. The pre-existing assertions only check a
+    /// substring (`contains("connect-src 'none'")`, success path above) or
+    /// mere presence (`.is_some()`, T37 — the 404 test above); neither catches
+    /// a drift in any OTHER directive of the served string. This is the
+    /// runtime backing of the T2 acceptance field `blob_serve_csp_equals_contract`:
+    /// it proves the Phase E gate protects the CSP that is ACTUALLY served, not
+    /// a fictional one. The production middleware injects `blob_serve::BLOB_SERVE_CSP`
+    /// (re-exported from this same const), so equality here witnesses the whole
+    /// served path, not just the const definition.
+    #[tokio::test]
+    async fn blob_serve_csp_header_byte_exact_matches_contract() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+
+        // 200 path: store a zip and GET its index.html.
+        let zip_bytes = make_zip(&[("index.html", b"<h1>Hello SBFB</h1>")]);
+        let blobs = BlobsClient::new(state.node.blobs_store());
+        let hash = blobs.add_bytes(zip_bytes).await.unwrap();
+        let hash_hex = hex::encode(hash);
+
+        let resp_200 = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/blob-serve/{hash_hex}/index.html"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp_200.status(), StatusCode::OK);
+        assert_eq!(
+            resp_200
+                .headers()
+                .get("content-security-policy")
+                .expect("CSP header on 200 blob-serve response")
+                .to_str()
+                .unwrap(),
+            nexus_core_rs::csp::BLOB_SERVE_CSP,
+            "served CSP on 200 drifted from the single-source BLOB_SERVE_CSP contract",
+        );
+
+        // 404 path: GET a hash that does not exist (middleware posts CSP on errors too).
+        let resp_404 = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/blob-serve/{}/index.html", "ab".repeat(32)))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp_404.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            resp_404
+                .headers()
+                .get("content-security-policy")
+                .expect("CSP header on 404 blob-serve response")
+                .to_str()
+                .unwrap(),
+            nexus_core_rs::csp::BLOB_SERVE_CSP,
+            "served CSP on 404 drifted from the single-source BLOB_SERVE_CSP contract",
+        );
+    }
+
     // =============================================================
     // Sprint 20 Phase B — duress runtime HTTP surface
     // =============================================================

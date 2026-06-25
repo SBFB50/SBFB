@@ -3962,3 +3962,66 @@ Logged by `sprint77_audit_findings.md` (Cas A audit gate, 11-track Workflow).
   iroh-networked tests in the canonical-Docker S77 audit run). Root-cause fix: add
   `.env("SBFB_HOME", tmp)` (or a per-test TempDir) alongside `NEXUS_GRID_ROOT` on
   every daemon-spawn e2e test. Carry S78.
+
+## §P71 — Sprint 79 Phase H: runtime CSP self-check = browser-level console capture across the opaque iframe (no in-app shim), byte-exact served==contract, negative control mandatory
+
+The static authoring gate (`run_gate_csp_authoring`, §P70/FG-CSP-authoring, Phase E)
+is a deterministic string scan — blind to violations a script assembles at RUNTIME
+(`fetch` via `atob`, dynamic `url()`/`@font-face`, `el.action`/`base.href` built in
+JS). Phase H adds the runtime net. Five load-bearing design points, each one a
+naive-choice trap that would have produced a lying test or a Day-0 break:
+
+1. **Observe at BROWSER level, not via an in-app shim.** The replay runs in the
+   PRODUCTION iframe host (`web/src/pages/BrowsedProject.tsx`,
+   `sandbox="allow-scripts"` WITHOUT `allow-same-origin`, opaque origin) under the
+   REAL served `BLOB_SERVE_CSP`. Violations are captured with Playwright
+   `page.on('console')` across the opaque frame — NOT a `securitypolicyviolation`
+   reporter injected into the app. Why: without `allow-same-origin` the parent
+   cannot reach the opaque iframe's DOM to inject a listener, and the flagship
+   `daisyui` template (the app this sprint exists to enable) carries no
+   `sbfb-bridge.js` to host one. A console listener captures CSP errors for ANY
+   app, zero cooperation, zero deliverable mutation. The empirical proof is the
+   green E2E, not a spec reading.
+2. **Single-source equality, two witnesses.** The served CSP is byte-compared to
+   `nexus_core_rs::csp::BLOB_SERVE_CSP`. (a) Rust nextest
+   `http.rs::blob_serve_csp_header_byte_exact_matches_contract` asserts
+   `served == const` on **200 AND 404** — closing the prior substring
+   (`contains("connect-src 'none'")`) / `.is_some()` presence hole (the
+   "BLOB_SERVE_CSP tested by substring" gap of `doctrine_contrat_pour_llm`). (b)
+   the E2E reads the served header (via the Playwright request client) and
+   compares it to `csp-contract.json` (the machine mirror). The T2 field
+   `blob_serve_csp_equals_contract` is this E2E/client-side witness (the
+   clean/dirty sub-tests, by contrast, replay inside the real browser iframe).
+3. **Negative control is load-bearing.** T1 seeds a CLEAN fixture (0 violation,
+   positive control) AND a DIRTY fixture (a `fetch` to a base64-decoded host →
+   violates `connect-src 'none'` → caught). A clean-only check proves the harness
+   RUNS, not that it DETECTS — a vacuous gate (README §4). T2 PASS requires
+   `served==contract` AND clean-clean AND dirty-detected; a missing signal is a
+   BLOCK to diagnose, never a hollow PASS.
+4. **Seed via `/blob-serve`, NOT `--web-root`.** The CSP middleware is scoped to
+   the `/blob-serve` nest (`http.rs` `blob_serve_csp_middleware`); a fixture posted
+   to `web/dist` via `--web-root` (the hermetic shell origin) carries ZERO CSP and
+   would test a fictional policy. The spec seeds via `publish-blob` → `publish`
+   (real `archive_hash` browse entry, `project_id = blake3(project_name)`) then
+   drives the production Browse → `BrowsedProject` iframe. Auth = loopback
+   `x-sbfb-token`, Host loopback, Origin absent.
+5. **Fixtures committed as `.zip`.** `publish-blob` needs a real zip body (the
+   daemon decompresses with the `zip` crate); neither Node nor Playwright ships a
+   native zip writer and the runtime-0-dep rule forbids `jszip`/`fflate`. A
+   Node-builtin deterministic builder (`build-fixtures.mjs`, hand-rolled
+   local-file-header writer + `zlib` deflate) produces them and asserts the dirty
+   target still decodes to an external URL, so the fixture can never silently stop
+   exercising the violation.
+
+**Limits (a NET, not a total proof — documented honestly).** `blockedURI` is
+redacted at an opaque origin (only `effectiveDirective`/`violatedDirective`
+survive — coarser than the static lint's file:directive); a pure-COEP failure
+(sub-resource without CORP) does not fire `securitypolicyviolation` (but
+`connect-src 'none'` + `default-src` without a remote host blocks-and-emits first,
+covering it); a `<form>` submit under the sandbox without `allow-forms` is
+preempted by the sandbox attribute, not the CSP event. The self-check is a net for
+HONEST authors with dynamic violations, NOT an adversarial proof: an app can
+suppress its own report. The record gate stays the static Phase E gate +
+browser-enforced CSP at the client (posted on every response including 404, the
+author cannot alter it). The self-check `status` is a TEST verdict, never a publish
+authority (Day-0 "connaissance CONSOMMÉE jamais autoritaire, 0 verdict PASS auto").
