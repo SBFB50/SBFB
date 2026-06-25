@@ -152,6 +152,63 @@ const PYODIDE_TEMPLATE: &[TemplateFile] = &[
     },
 ];
 
+// Sprint 79 Phase G: a daisyUI + anime.js starter. Unlike the React no-build
+// template, daisyUI needs an ahead-of-time build (Tailwind v4 + daisyUI compiled
+// into `app.css`); but the build OUTPUT is a static, same-origin stylesheet, so
+// the published archive still has ZERO runtime dependency. anime.js v4.5.0 is
+// vendored same-origin as a classic UMD `<script src>` (never `type=module`:
+// COEP require-corp + opaque origin reject CORS-mode module fetches). The whole
+// template loads under the sandbox CSP (`default-src 'self'; connect-src 'none'`)
+// and passes the FG-CSP-authoring gate clean. First template with subdirectory
+// entries (`src/`, `vendor/`, `scripts/`) — `create` materializes parents.
+const DAISYUI_TEMPLATE: &[TemplateFile] = &[
+    TemplateFile {
+        name: "index.html",
+        content: include_str!("templates/daisyui/index.html"),
+        substitute: true,
+    },
+    TemplateFile {
+        name: "app.js",
+        content: include_str!("templates/daisyui/app.js"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "app.css",
+        content: include_str!("templates/daisyui/app.css"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "src/input.css",
+        content: include_str!("templates/daisyui/src/input.css"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "vendor/anime.umd.js",
+        content: include_str!("templates/daisyui/vendor/anime.umd.js"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "scripts/vendor-anime.mjs",
+        content: include_str!("templates/daisyui/scripts/vendor-anime.mjs"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "package.json",
+        content: include_str!("templates/daisyui/package.json"),
+        substitute: false,
+    },
+    TemplateFile {
+        name: "README.md",
+        content: include_str!("templates/daisyui/README.md"),
+        substitute: true,
+    },
+    TemplateFile {
+        name: ".gitignore",
+        content: include_str!("templates/daisyui/gitignore"),
+        substitute: false,
+    },
+];
+
 fn substitute(content: &str, name: &str, version: &str) -> String {
     content
         .replace("{{name}}", name)
@@ -200,6 +257,14 @@ const TEMPLATES: &[TemplateConfig] = &[
         category: "general",
         bridge_methods: &[],
     },
+    TemplateConfig {
+        id: "daisyui",
+        version: "1.0.0",
+        files: DAISYUI_TEMPLATE,
+        description: "SBFB daisyUI + anime.js app (vendored, CSP-safe) created with sbfb-factory",
+        category: "general",
+        bridge_methods: &[],
+    },
 ];
 
 fn find_template(id: &str) -> Result<&'static TemplateConfig, FactoryError> {
@@ -224,7 +289,15 @@ pub fn create(template: &str, name: &str, output_dir: &str) -> Result<(), Factor
         } else {
             tf.content.to_string()
         };
-        fs::write(out.join(tf.name), &content)?;
+        // `tf.name` may carry a forward-slash subpath (`src/input.css`,
+        // `vendor/anime.umd.js`) — the daisyui template (Sprint 79 Phase G) is
+        // the first non-flat one. `fs::write` does not create missing parents,
+        // so materialize them first (the flat templates have no parent here).
+        let dest = out.join(tf.name);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(dest, &content)?;
         template_files.push((tf.name.to_string(), tf.content.to_string()));
     }
 
@@ -654,5 +727,111 @@ mod tests {
         let out = tmp.path().join("app");
         create("pyodide", "valid-py", out.to_str().unwrap()).unwrap();
         assert!(validate(out.to_str().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn test_create_daisyui_template() {
+        // Sprint 79 Phase G: the first template with subdirectory entries. This
+        // proves `create` materializes parent directories (`src/`, `vendor/`,
+        // `scripts/`) — before the fix, `fs::write` panicked with NotFound on the
+        // first subpath, on Windows and Linux alike.
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("daisyui", "test-daisy", out.to_str().unwrap()).unwrap();
+
+        assert!(out.join("index.html").exists());
+        assert!(out.join("app.js").exists());
+        assert!(out.join("app.css").exists());
+        assert!(out.join("src/input.css").exists(), "subdir file must exist");
+        assert!(
+            out.join("vendor/anime.umd.js").exists(),
+            "vendored anime must exist"
+        );
+        assert!(out.join("scripts/vendor-anime.mjs").exists());
+        assert!(out.join("package.json").exists());
+        assert!(out.join("README.md").exists());
+        assert!(out.join(".gitignore").exists());
+        assert!(out.join("SBFB.json").exists());
+        assert!(out.join("factory.template.lock").exists());
+        assert!(out.join("factory.provenance.json").exists());
+
+        // Substitution + no CDN: anime is loaded from a same-origin relative
+        // path, never an absolute http(s) src, and never as an ES module.
+        let html = fs::read_to_string(out.join("index.html")).unwrap();
+        assert!(html.contains("test-daisy"));
+        assert!(!html.contains("{{name}}"));
+        assert!(html.contains("src=\"vendor/anime.umd.js\""));
+        assert!(html.contains("data-theme=\"sbfb-reflect\""));
+        assert!(
+            !html.contains("src=\"http") && !html.to_lowercase().contains("type=\"module\""),
+            "no CDN, no module script — runtime is vendored same-origin classic"
+        );
+
+        // The vendored anime bundle is the real v4.5.0 UMD (license header kept).
+        let anime = fs::read_to_string(out.join("vendor/anime.umd.js")).unwrap();
+        assert!(anime.contains("anime.js v4.5.0"));
+    }
+
+    #[test]
+    fn test_daisyui_template_no_false_eight_themes() {
+        // Sprint 79 Phase G (PLAN-ADAPT): the plan said "8 themes removed", which
+        // Phase F proved false (daisyUI 5.5.23 ships 35 built-in themes; the lean
+        // template activates none of them). Guard the corrected wording so the
+        // stale "8 themes" claim never reappears in the shipped artifacts.
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("daisyui", "lean-themes", out.to_str().unwrap()).unwrap();
+
+        let input_css = fs::read_to_string(out.join("src/input.css")).unwrap();
+        let readme = fs::read_to_string(out.join("README.md")).unwrap();
+        for doc in [&input_css, &readme] {
+            assert!(
+                !doc.contains("8 themes") && !doc.contains("8 thèmes"),
+                "the stale '8 themes' claim must not appear"
+            );
+        }
+        // The lean config loads daisyUI with zero built-in themes + only the
+        // custom oklch theme.
+        assert!(input_css.contains("themes: false"));
+        assert!(input_css.contains("sbfb-reflect"));
+        assert!(readme.contains("35 built-in"));
+    }
+
+    #[test]
+    fn test_daisyui_package_json_pins_resolved_versions() {
+        // Day-0 #10: pin the resolved build-time versions exactly (no carets), so
+        // the compiled `app.css` is reproducible.
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("daisyui", "pinned", out.to_str().unwrap()).unwrap();
+
+        let pkg = fs::read_to_string(out.join("package.json")).unwrap();
+        assert!(
+            !pkg.contains('^') && !pkg.contains('~'),
+            "no caret/tilde ranges"
+        );
+        for pin in [
+            "\"daisyui\": \"5.5.23\"",
+            "\"tailwindcss\": \"4.3.1\"",
+            "\"@tailwindcss/cli\": \"4.3.1\"",
+            "\"@tailwindcss/node\": \"4.3.1\"",
+            "\"@tailwindcss/oxide\": \"4.3.1\"",
+            "\"animejs\": \"4.5.0\"",
+        ] {
+            assert!(pkg.contains(pin), "missing exact pin: {pin}");
+        }
+    }
+
+    #[test]
+    fn test_validate_daisyui_passes() {
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        create("daisyui", "valid-daisy", out.to_str().unwrap()).unwrap();
+        assert!(validate(out.to_str().unwrap()).is_ok());
+
+        let json = fs::read_to_string(out.join("SBFB.json")).unwrap();
+        let m = SbfbManifest::parse(&json).unwrap();
+        assert_eq!(m.effective_schema_version(), 2);
+        assert_eq!(m.name.as_deref(), Some("valid-daisy"));
     }
 }

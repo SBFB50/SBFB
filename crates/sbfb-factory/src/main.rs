@@ -154,7 +154,8 @@ enum ProcessCommand {
 
     /// Assemble a portable prompt by kind
     Prompt {
-        /// Prompt kind: handoff, preflight, phase-review, commit-body, audit-gate, phase-auditor
+        /// Prompt kind (PROMPT_KINDS): base, universal, handoff, preflight,
+        /// phase-review, commit-body, audit-gate, phase-auditor, app-authoring
         #[arg(long)]
         kind: String,
 

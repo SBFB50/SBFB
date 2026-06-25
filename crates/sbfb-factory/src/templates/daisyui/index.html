@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="sbfb-reflect">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <title>{{name}}</title>
+  <!--
+    daisyUI (structure) + anime.js (mouvement), CSP-safe par construction.
+    - app.css : Tailwind v4 + daisyUI compilés build-time (npm run build:css).
+      Le runtime ne charge QUE ce fichier, jamais le CDN Tailwind.
+    - vendor/anime.umd.js : anime.js v4.5.0 vendoré same-origin, chargé en
+      classic <script src> (JAMAIS type=module : COEP require-corp ⇒ origine
+      opaque ⇒ un module ES est fetché en mode CORS et échoue). Expose le
+      global `window.anime`.
+    Aucun CDN, aucun fetch runtime — tout vit dans l'archive. Voir README.md.
+  -->
+  <link rel="stylesheet" href="app.css">
+  <script src="vendor/anime.umd.js"></script>
+</head>
+<body class="min-h-screen bg-base-100 text-base-content antialiased">
+  <main class="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-6 p-8">
+    <header class="flex flex-col gap-2">
+      <span class="badge badge-primary badge-sm w-fit">app SBFB</span>
+      <h1 class="reveal text-3xl font-bold tracking-tight">{{name}}</h1>
+      <p class="reveal opacity-70">
+        Composants daisyUI + animations anime.js, rendus dans le bac à sable
+        sans build runtime ni CDN.
+      </p>
+    </header>
+
+    <div class="card reveal bg-base-200 shadow-md">
+      <div class="card-body items-center gap-4 text-center">
+        <span id="badge" class="badge badge-lg badge-secondary">prêt</span>
+        <button id="pulse" type="button" class="btn btn-primary">Animer</button>
+        <progress id="bar" class="progress progress-primary w-full" value="0" max="100"></progress>
+      </div>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

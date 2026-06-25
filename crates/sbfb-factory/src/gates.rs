@@ -812,6 +812,48 @@ mod tests {
     }
 
     #[test]
+    fn test_csp_gate_daisyui_template_passes() {
+        // Sprint 79 Phase G: the shipped `daisyui` starter template (compiled
+        // app.css + vendored anime + lean input.css + build scripts) must pass
+        // the authoring gate clean — it is the clean fixture of T1b. This scans
+        // the WHOLE generated workspace (src/input.css + scripts/*.mjs included),
+        // not just the runtime archive.
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        template_engine::create("daisyui", "gate-daisy", out.to_str().unwrap()).unwrap();
+
+        let r = run_gate_csp_authoring(&out).unwrap();
+        assert!(
+            r.passed,
+            "the daisyui template must pass FG-CSP-authoring clean: {:?}",
+            r.issues
+        );
+    }
+
+    #[test]
+    fn test_daisyui_template_fg5_fg6_pass() {
+        // Sprint 79 Phase G: the daisyui template must also clear the existing
+        // sandbox (FG5) and secret-scan (FG6) gates — vendored anime is a UMD
+        // bundle (no secrets), and the layout stays inside the workspace.
+        let tmp = TempDir::new().unwrap();
+        let out = tmp.path().join("app");
+        template_engine::create("daisyui", "gates-daisy", out.to_str().unwrap()).unwrap();
+
+        let fg5 = run_gate_fg5_sandbox(&out).unwrap();
+        assert!(
+            fg5.passed,
+            "daisyui template should pass FG5: {:?}",
+            fg5.issues
+        );
+        let fg6 = run_gate_fg6_secrets(&out).unwrap();
+        assert!(
+            fg6.passed,
+            "daisyui template should pass FG6: {:?}",
+            fg6.issues
+        );
+    }
+
+    #[test]
     fn test_csp_gate_rejects_violations() {
         // (case name, file, content, expected issue substring)
         let cases: &[(&str, &str, &str, &str)] = &[

@@ -58,6 +58,29 @@ pub enum StreamChunk {
     Debug { label: String, content: String },
 }
 
+/// Sprint 79 Phase G: a non-authoritative capability notice prepended to every
+/// assembled copilot prompt (Claude / Ollama / Network alike, since
+/// `assemble_prompt` feeds all three execution targets). It surfaces the
+/// app-authoring knowledge capability — daisyUI + anime.js, CSP-safe by
+/// construction — so a keyless local copilot can mention and consult it without
+/// ever becoming authoritative. Mirrors `prompts/agent/app-authoring.md`
+/// (§12 / §227): the knowledge is *consumed and displayed, never authoritative*;
+/// it emits no verdict and lifts no gate. The SENSITIVE_ACTIONS gate scans the
+/// raw user message BEFORE this block is assembled (`operator_server.rs`), so
+/// the block is never a gate-bypass path, and it carries the
+/// `chat_history_authoritative=false` marker rather than any PASS instruction.
+const CAPABILITY_BLOCK: &str = "[Capability — app-authoring knowledge (advisory, non-authoritative)]\n\
+This node ships a versioned UI-authoring knowledge pack for building SBFB apps that are \
+CSP-safe by construction: daisyUI components (structure) composed with anime.js animations \
+(motion), vendored same-origin — no CDN, no runtime fetch (sandbox CSP: connect-src 'none', \
+opaque origin, COEP require-corp; classic scripts only). Consult it with \
+`sbfb-factory process prompt --kind app-authoring`, or scaffold a ready-to-edit app with \
+`sbfb-factory create --template daisyui --name <name>`.\n\
+This knowledge is guidance you may surface; it is NEVER authoritative. It emits no verdict \
+and lifts no gate — final verdicts, commits and pushes go through a real agent session with \
+repo-visible proofs (chat_history_authoritative=false). Do not assert a PASS yourself; defer \
+it to that session.\n\n";
+
 pub fn assemble_prompt(
     context: &serde_json::Value,
     messages: &[(String, String)],
@@ -88,6 +111,11 @@ pub fn assemble_prompt(
         prompt.push_str("---\n\n");
     }
 
+    // Sprint 79 Phase G: surface the app-authoring capability right before the
+    // user turn, non-authoritatively. Placed AFTER the context header + history
+    // and BEFORE `new_msg` so the copilot reads it as standing guidance, not as
+    // part of the user's request.
+    prompt.push_str(CAPABILITY_BLOCK);
     prompt.push_str(new_msg);
     prompt
 }
@@ -332,7 +360,46 @@ mod tests {
     fn test_assemble_prompt_no_context() {
         let ctx = serde_json::json!({});
         let result = assemble_prompt(&ctx, &[], "test");
-        assert_eq!(result, "test");
+        // Sprint 79 Phase G: the capability block is prepended, so the prompt is
+        // no longer bare — but with no context and no history it is exactly the
+        // capability block followed by the user message.
+        assert_eq!(result, format!("{CAPABILITY_BLOCK}test"));
+    }
+
+    #[test]
+    fn assemble_prompt_surfaces_non_authoritative_capability_block() {
+        // Sprint 79 Phase G: the copilot prompt advertises the app-authoring
+        // capability, but always non-authoritatively, and the block sits AFTER
+        // the conversation history and BEFORE the user turn (standing guidance,
+        // not part of the request). Exercised WITH a non-empty history so the
+        // full `history < block < message` ordering is asserted, not just half.
+        let ctx = serde_json::json!({"sprint": 79, "phase": "G", "head": "deadbee"});
+        let history = vec![("user".to_string(), "earlier question".to_string())];
+        let result = assemble_prompt(&ctx, &history, "build me a card");
+
+        // Capability + the anti-PASS / non-authoritative markers are present.
+        assert!(result.contains("app-authoring"));
+        assert!(result.contains("non-authoritative"));
+        assert!(result.contains("NEVER authoritative"));
+        assert!(result.contains("chat_history_authoritative=false"));
+        // It is guidance, never an instruction to fabricate a PASS verdict.
+        assert!(result.contains("Do not assert a PASS yourself"));
+        // The advertised commands are the REAL CLI verbs (regression guard for
+        // the non-existent `new` verb: the subcommand is `create --name`).
+        assert!(result.contains("sbfb-factory create --template daisyui --name"));
+        assert!(!result.contains("sbfb-factory new"));
+        // Full ordering: history, then the capability block, then the user turn.
+        let history_at = result.find("earlier question").expect("history present");
+        let block_at = result
+            .find("[Capability")
+            .expect("capability block present");
+        let msg_at = result
+            .find("build me a card")
+            .expect("user message present");
+        assert!(
+            history_at < block_at && block_at < msg_at,
+            "ordering must be history < capability block < user turn"
+        );
     }
 
     // G12: a missing agent CLI yields a clear diagnostic, not an

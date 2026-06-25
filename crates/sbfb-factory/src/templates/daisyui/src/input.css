@@ -1,0 +1,59 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   SOURCE DE BUILD (build-time uniquement). Compilé en ../app.css par :
+     npm run build:css   (tailwindcss -i src/input.css -o app.css --minify)
+   Le runtime ne charge QUE app.css — aucune dépendance réseau, aucun CDN.
+
+   `source(none)` désactive la détection automatique ; on liste explicitement
+   les fichiers à scanner pour ne garder que les classes réellement utilisées.
+
+   Thèmes : ce template est LEAN. Le bloc `@plugin "daisyui" { themes: false; }`
+   charge les composants daisyUI SANS aucun des 35 thèmes built-in (0/35). Le
+   seul thème compilé est le thème custom « sbfb-reflect » ci-dessous.
+   ─────────────────────────────────────────────────────────────────────────── */
+@import "tailwindcss" source(none);
+@source "../index.html";
+@source "../app.js";
+
+@plugin "daisyui" {
+  themes: false;
+}
+
+/* ===== Thème « sbfb-reflect » (défaut) — palette Reflect en oklch =========== */
+@plugin "daisyui/theme" {
+  name: "sbfb-reflect";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: oklch(18% 0 0);
+  --color-base-200: oklch(22.5% 0 0);
+  --color-base-300: oklch(30% 0 0);
+  --color-base-content: oklch(93% 0 0);
+
+  --color-primary: oklch(93% 0 0);
+  --color-primary-content: oklch(18% 0 0);
+  --color-secondary: oklch(68% 0 0);
+  --color-secondary-content: oklch(16% 0 0);
+  --color-accent: oklch(55% 0 0);
+  --color-accent-content: oklch(95% 0 0);
+  --color-neutral: oklch(30% 0 0);
+  --color-neutral-content: oklch(92% 0 0);
+
+  --color-info: oklch(75% 0.04 230);
+  --color-info-content: oklch(18% 0.02 230);
+  --color-success: oklch(80% 0.18 152);
+  --color-success-content: oklch(20% 0.06 152);
+  --color-warning: oklch(85% 0.19 92);
+  --color-warning-content: oklch(24% 0.05 92);
+  --color-error: oklch(70% 0.19 22);
+  --color-error-content: oklch(18% 0.05 22);
+
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
