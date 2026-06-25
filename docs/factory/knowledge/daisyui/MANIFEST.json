@@ -1,0 +1,46 @@
+{
+  "pack": "daisyui",
+  "method": "5-layer (components CSS source + theming oklch + synthesis + official llms.txt + curated classes-bank), mirror anime.js pack",
+  "date": "2026-06-23",
+  "versions": {
+    "daisyui": "5.5.23",
+    "tailwindcss": "4.3.1",
+    "@tailwindcss/cli": "4.3.1",
+    "animejs": "4.5.0"
+  },
+  "default_theme": "sbfb-reflect (custom oklch dark) ; sbfb-light",
+  "sources": [
+    "node_modules/daisyui/components/*.css (ground truth)",
+    "node_modules/daisyui/theme/ + themes.css",
+    "daisyui.com/llms.txt (official LLM doc, saved verbatim)",
+    "examples/daisyui-animejs-showcase/src/input.css (real theming)"
+  ],
+  "layers": {
+    "components": "components.json/COMPONENTS.md",
+    "theming": "theming.json",
+    "synthesis": "synthesis.json",
+    "docs": "docs-llms.txt",
+    "classes-bank": "classes-bank.json"
+  },
+  "counts": {
+    "components": 68,
+    "csp_usable": 68,
+    "risk": 0,
+    "classes_bank": 16
+  },
+  "freshness": {
+    "snapshot_date": "2026-06-23",
+    "source_ref": "daisyui 5.5.23 + tailwindcss 4.3.1 (lockfile-resolved) + daisyui.com/llms.txt verbatim",
+    "refresh": "manual re-extraction at version bump (no auto-fetch; connect-src 'none')"
+  },
+  "hash_convention": "blake3(file_bytes).to_hex()[..16] (16 hex chars, mirrors knowledge/animejs/MANIFEST.json); covers ALL promoted layer files (MANIFEST.json + dotfiles excluded)",
+  "hashes": {
+    "components.json": "01632e0b4a95dad4",
+    "COMPONENTS.md": "69306d7652712df8",
+    "docs-llms.txt": "d523aeb9635556ab",
+    "synthesis.json": "fc084fcd88eb8f44",
+    "theming.json": "f44553ffe9ba2cfe",
+    "README.md": "a01b86a763bcc2ea",
+    "classes-bank.json": "ccc1e9fae1649876"
+  }
+}

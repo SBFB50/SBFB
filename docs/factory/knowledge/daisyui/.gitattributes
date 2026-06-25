@@ -1,0 +1,5 @@
+# Extracted daisyUI 5.5.23 / Tailwind 4.3.1 knowledge corpus, verbatim text data — NOT
+# hand-written code. Its bytes are hashed (16-hex blake3) in MANIFEST.json, so they MUST stay
+# byte-identical on every platform/checkout. Pin LF explicitly here (self-contained — does not
+# rely on the repo-root .gitattributes) and disable git whitespace linting (git diff --check).
+* text eol=lf -whitespace

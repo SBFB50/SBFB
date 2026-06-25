@@ -1,9 +1,10 @@
 # daisyUI Knowledge Pack — daisyUI 5.5.23 × Tailwind 4.3.1
 
-Base de connaissances **dev-only**, miroir du pack anime.js. Donne à un LLM/agent la
+Base de connaissances **dev-only**, miroir du pack anime.js (`../animejs/`). Donne à un LLM/agent la
 maîtrise de daisyUI pour fabriquer des apps SBFB **stylées et conformes à la CSP du bac à sable**.
-Destiné à devenir une capacité du process Factory (cf. `../factory-integration-design.md`),
-à relocaliser sous `docs/factory/knowledge/daisyui/`.
+Capacité du process Factory (prompt-kind `app-authoring`), promue ici sous
+`docs/factory/knowledge/daisyui/` (Sprint 79 Phase F). Étude de conception :
+`examples/daisyui-animejs-showcase/knowledge/factory-integration-design.md`.
 
 > **Source de vérité = le code.** Composants/classes extraits du **CSS source local**
 > (`node_modules/daisyui/components/*.css`, vérité terrain), theming depuis `theme/` + la
@@ -32,7 +33,7 @@ risques ne sont pas des blocages de daisyUI mais des usages à éviter** :
 - **Images** (`<img src>`, `background-image:url()`, `mask`, `hero`, `avatar`, `chat-image`…) : une URL http distante est **bloquée** (`connect-src 'none'` + COEP + origine opaque ; les exemples daisyUI pointent vers `img.daisyui.com`). → servir en `data:` / `blob:` / fichier relatif same-origin.
 - **`<form>` submit** (`input`, `select`, `validator`, `<form method=dialog>`…) : bloqué (`form-action 'none'` + sandbox). → idiome `div`/`button type=button` + handler JS local, lire `input.value`/`.checked`.
 - **Composants pilotés par JS** (`calendar` Cally/Pikaday, `carousel` autoplay, `countdown`, `radial-progress`, `toast`, `modal.showModal`) : habillage CSS safe, mais **comportement à coder en JS local** (lib **vendorée** dans l'archive, jamais CDN).
-- **Icônes SVG** (`dock`, `fab`, `stat`, `timeline`, `steps`, `mask`) : les utilitaires Tailwind **`fill-*`/`stroke-*` ne compilent PAS de façon fiable** dans l'iframe → peindre le `<svg>` via `fill="currentColor"` ou `var(--color-*)`/`color-mix`. **C'est le piège le plus récurrent.**
+- **Icônes SVG** (`dock`, `fab`, `stat`, `timeline`, `steps`, `mask`) : les utilitaires Tailwind `fill-*`/`stroke-*` **se compilent** pourtant en CSS statique (`fill:var(--color-*)`, CSP-safe) — le vrai risque n'est PAS la compilation mais (a) l'absence de build Tailwind **au runtime** dans l'iframe scellée et (b) la **purge** si la classe n'est pas vue par `@source` (ex. composée en JS). → chemin **fiable** : peindre le `<svg>` directement via `fill="currentColor"` / `var(--color-*)` / `color-mix(in oklch …)` (robuste à la purge + theme-aware). Tout `fill="url(http…)"` / `<use href="http…">` reste **bloqué** (réseau). **C'est le piège le plus récurrent.**
 - **`backdrop-filter`** (`glass`, backdrops de `modal`/`drawer`) : autorisé (composite GPU), juste un coût perf.
 - **`--fx-noise`/`--btn-noise`** : par défaut un SVG `feTurbulence` en `data:` URI inline (`base/svg.css`) = OK ; ne le repointe jamais vers un http distant.
 
@@ -44,6 +45,9 @@ risques ne sont pas des blocages de daisyUI mais des usages à éviter** :
 
 ## Couplage
 
-Ce pack + le pack anime.js (`../`) forment la matière de la capacité **`app-authoring`** du process
-Factory : un agent qui fabrique une app SBFB reçoit la maîtrise composants (daisyUI) + mouvement
-(anime.js) + le contrat CSP, et produit du CSP-safe par construction. Détails : `../factory-integration-design.md` + `../factory-integration-hardened.md`.
+Ce pack + le pack anime.js (`../animejs/`) forment la matière de la capacité **`app-authoring`** du
+process Factory : un agent qui fabrique une app SBFB reçoit la maîtrise composants (daisyUI) +
+mouvement (anime.js) + le contrat CSP, et produit du CSP-safe par construction. Le contrat CSP est
+la source unique `BLOB_SERVE_CSP` (`crates/nexus-core-rs/src/csp.rs`, miroir `csp-contract.json`).
+Études de conception : `examples/daisyui-animejs-showcase/knowledge/factory-integration-design.md` +
+`factory-integration-hardened.md`.

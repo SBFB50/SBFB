@@ -165,10 +165,10 @@ Skins CSS pour 3 librairies calendrier tierces: Cally (web component, style via 
 
 - **Sous-parties** : `react-day-picker`, `pika-single`, `rdp-day`, `rdp-day_button`, `rdp-nav`, `rdp-chevron`, `rdp-month_grid`, `rdp-selected`, `rdp-range_start`, `rdp-range_middle`, `rdp-range_end`, `pika-lendar`, `pika-title`, `pika-button`, `pika-prev`, `pika-next`
 - **Mécanismes CSS** : ::part() styling (Cally web component, Shadow DOM) · calendar-month custom element · border-collapse table grid (rdp/pika) · fill:var(--color-base-content) sur .rdp-chevron (SVG peint via CSS fill, pas un utilitaire Tailwind fill-*) · rotate/transform RTL · :hover/:disabled states · border-radius:var(--radius-field) · --tw-content pour chevrons pika (content:'‹'/'›')
-- **CSP SBFB** : ✅ usable — L'habillage CSS est utilisable (couleurs/parts/tables). MAIS le composant est intrinsequement pilote par une lib JS tierce (Cally <calendar-date> custom element, react-day-picker React, Pikaday): structure CSS OK, comportement (rendu des jours, navigation, selection) a coder/embarquer localement sans reseau. Cally requiert le script web-component du package vendore same-origin (pas de CDN). Le .rdp-chevron utilise fill:var(--color-base-content) directement en CSS (pas l'utilitaire Tailwind fill-* non compile), donc le SVG est peint correctement.
+- **CSP SBFB** : ✅ usable — L'habillage CSS est utilisable (couleurs/parts/tables). MAIS le composant est intrinsequement pilote par une lib JS tierce (Cally <calendar-date> custom element, react-day-picker React, Pikaday): structure CSS OK, comportement (rendu des jours, navigation, selection) a coder/embarquer localement sans reseau. Cally requiert le script web-component du package vendore same-origin (pas de CDN). Le .rdp-chevron utilise fill:var(--color-base-content) directement en CSS (pas l'utilitaire Tailwind fill-*, qui se compile mais est purgeable si non vu par @source), donc le SVG est peint correctement.
   - ⚠️ depend d'une lib JS tierce qui doit etre vendore dans l'archive (Cally web component / react-day-picker / Pikaday) — jamais charger via CDN (connect-src 'none')
   - ⚠️ Cally repose sur Shadow DOM + ::part(): allow-scripts suffit, mais le script du custom-element doit etre inline ou same-origin
-  - ⚠️ fill:var(--color-base-content) est en CSS source donc OK; ne PAS compter sur des utilitaires Tailwind fill-*/stroke-* qui ne compilent pas dans l'iframe
+  - ⚠️ fill:var(--color-base-content) est en CSS source donc OK; ne PAS dependre des utilitaires Tailwind fill-*/stroke-* (ils se compilent en CSS statique mais ne sont pas fiables: pas de build Tailwind au runtime + purge si non vus par @source)
   - ⚠️ les chevrons SVG internes (rdp-chevron) viennent de la lib JS: s'assurer qu'ils sont des SVG inline, pas des <img> distants
 
 ```html
@@ -341,7 +341,7 @@ Barre de navigation fixee en bas de l'ecran (bottom navigation / tab bar mobile)
 - **Modifiers** : `dock-active`, `dock-xs`, `dock-sm`, `dock-md`, `dock-lg`, `dock-xl`, `sm:dock`, `md:dock`, `lg:dock`, `xl:dock`, `2xl:dock`
 - **Mécanismes CSS** : position:fixed bottom:0 left:0 right:0 ; display:flex justify-content:space-around · height:calc(4rem + env(safe-area-inset-bottom)) + padding-bottom:env(safe-area-inset-bottom) (safe-area iOS) · border-top color-mix(in oklab, var(--color-base-content) 5%, transparent) · enfants flex-direction:column ; transition opacity hover · dock-active:after = indicateur (background-color:currentColor, width 2.5rem) ; transition width/background-color · etats [aria-disabled=true]/[disabled] : pointer-events:none + couleur attenuee via color-mix · tailles dock-xs..dock-xl ajustent height + font-size du dock-label
 - **CSP SBFB** : ✅ usable — Structure et style 100% CSS (flex fixe, currentColor, color-mix, env() safe-area). Aucun url(), font distante, backdrop-filter ni mask. La navigation active est appliquee via la classe dock-active.
-  - ⚠️ L'icone est typiquement un <svg> inline : le peindre via currentColor / var(--color-*) ; les utilitaires Tailwind fill-*/stroke-* ne compilent pas dans l'iframe scellee — utiliser fill="currentColor" sur le SVG
+  - ⚠️ L'icone est typiquement un <svg> inline : le peindre via currentColor / var(--color-*) ; les utilitaires Tailwind fill-*/stroke-* se compilent en CSS statique mais ne sont pas un chemin fiable (pas de build runtime + purge possible) — peindre via fill="currentColor" sur le SVG
   - ⚠️ Le changement d'onglet actif (toggle dock-active) suppose du JS : coder le handler localement, aucun reseau requis
   - ⚠️ env(safe-area-inset-bottom) sans effet hors contexte mobile mais inoffensif
 
@@ -406,7 +406,7 @@ Floating Action Button fixe dans le coin bas. Au focus, revele des boutons d'act
 - **Mécanismes CSS** : position:fixed bottom:1rem inset-inline-end:1rem z-index:999 · ouverture via :focus-within (CSS pur, pas de JS) : enfants n+2 passent de visibility:hidden/opacity:0/scale:80% a visible/opacity:1/scale:100% · transition opacity/scale/visibility + transition-delay echelonne (nth-child 3..6) · rotate:90deg sur le bouton original quand fab-close/fab-main-action present · fab-flower : disposition radiale via transform translateX(cos(var(--degree))*var(--position)) translateY(sin(...)) — trigonometrie CSS (cos/sin) · var --degree/--position calcules selon :has(:nth-child(n)) ; support [dir=rtl] (--flip-degree)
 - **CSP SBFB** : ✅ usable — Ouverture/fermeture 100% CSS via :focus-within ; disposition flower via fonctions trigonometriques CSS (cos/sin). Aucun url(), font distante, backdrop-filter ni mask. S'appuie sur le composant btn (lui-meme CSS pur).
   - ⚠️ L'ouverture repose sur :focus-within : sur certains environnements tactiles le focus peut etre capricieux — un handler JS local peut completer (sans reseau)
-  - ⚠️ Les icones SVG internes doivent etre peintes via currentColor/var(--color-*) ; fill-*/stroke-* Tailwind ne compilent pas dans l'iframe
+  - ⚠️ Les icones SVG internes doivent etre peintes via currentColor/var(--color-*) ; fill-*/stroke-* Tailwind ne sont pas un chemin fiable (compiles en CSS statique mais purgeables, pas de build runtime)
   - ⚠️ cos()/sin() CSS requierent un navigateur recent (Chromium OK) ; sinon la version verticale (sans fab-flower) reste fonctionnelle
 
 ```html
@@ -981,7 +981,7 @@ Conteneur (stats) en grille qui aligne des blocs .stat separes par une bordure p
 - **Modifiers** : `stats-horizontal`, `stats-vertical`
 - **Mécanismes CSS** : display:inline-grid + grid-auto-flow:column (ou row pour vertical) · overflow-x:auto / overflow-y:auto · border-inline-end / border-block-end dashed via var(--border) sur :not(:last-child) (separateurs) · color-mix(in oklab,var(--color-base-content) 60%,transparent) pour title/desc attenues · grid-template-columns/grid-row span pour positionner figure et textes · border-radius via var(--radius-box)
 - **CSP SBFB** : ✅ usable — Pur CSS Grid + color-mix + bordures. Aucune url() distante, aucun mask-image, aucun backdrop-filter, aucun font distant, aucun JS. La structure est statique et compile dans le app.css vendore same-origin.
-  - ⚠️ Aucun risque CSP propre au composant. Une icone placee dans stat-figure via un SVG inline doit etre peinte par CSS (currentColor/var(--color-*)) car les utilitaires Tailwind fill-*/stroke-* ne sont pas garantis de compiler dans l'iframe scellee.
+  - ⚠️ Aucun risque CSP propre au composant. Une icone placee dans stat-figure via un SVG inline doit etre peinte par CSS (currentColor/var(--color-*)) car les utilitaires Tailwind fill-*/stroke-* se compilent en CSS statique mais sont purgeables si non vus par @source (pas de build runtime).
 
 ```html
 <div class="stats {MODIFIER}">
@@ -1149,7 +1149,7 @@ Affiche une liste d'evenements chronologiques sur une <ul>/<li>. Chaque li est u
 - **Mécanismes CSS** : display:grid avec grid-template-rows/columns pilotees par --timeline-row-start/col-start (minmax(0,1fr) auto minmax(0,1fr)) · grid-area + place-self pour positionner start/middle/end · <hr> stylises (background-color:var(--color-base-300), height/width .25rem) comme connecteurs · border-radius logique (border-start-start-radius etc.) conditionnee par :has(.timeline-middle) · var(--radius-selector)/var(--radius-box)/var(--border) · @media print bordures sur hr · flex-direction column/row pour vertical/horizontal
 - **CSP SBFB** : ✅ usable — Structure purement CSS (grid + hr + place-self). Aucune url() distante, aucun mask, aucun JS. Les icones dans timeline-middle sont fournies par l'auteur (souvent un <svg> inline ou caractere) — a peindre via currentColor/var(--color-*), pas via fill-* Tailwind. color-mix/oklch/logical-props composes offline.
   - ⚠️ Aucun risque CSP structurel
-  - ⚠️ Si l'icone middle est un SVG : utiliser un <svg> inline avec fill="currentColor" ou var(--color-*) — les utilitaires Tailwind fill-*/stroke-* ne compilent PAS de maniere fiable dans l'iframe scellee
+  - ⚠️ Si l'icone middle est un SVG : utiliser un <svg> inline avec fill="currentColor" ou var(--color-*) — les utilitaires Tailwind fill-*/stroke-* ne sont pas un chemin fiable dans l'iframe scellee (compiles en CSS statique mais purgeables si non vus par @source, pas de build Tailwind au runtime)
   - ⚠️ Pas d'image bitmap via url() distant pour les icones (interdit) : inliner en data: ou SVG
 
 ```html
@@ -1323,7 +1323,7 @@ Recadre n'importe quel element (souvent <img>) a une forme geometrique. .mask po
 - **Modifiers** : `mask-squircle`, `mask-heart`, `mask-hexagon`, `mask-hexagon-2`, `mask-decagon`, `mask-pentagon`, `mask-diamond`, `mask-square`, `mask-circle`, `mask-star`, `mask-star-2`, `mask-triangle`, `mask-triangle-2`, `mask-triangle-3`, `mask-triangle-4`, `mask-half-1`, `mask-half-2`
 - **Mécanismes CSS** : mask-image:url("data:image/svg+xml,...") (data URI inline) · mask-position / mask-size:contain / mask-repeat:no-repeat · mask-size:200% (half) · :dir(rtl) / [dir=rtl] (mirroring) · @layer daisyui.l1.l2.l3 (cascade layers)
 - **CSP SBFB** : ✅ usable — PIEGE EVITE : les masques daisyUI utilisent mask-image avec des SVG en DATA URI inline (data: autorise par default-src ... data:), PAS d'url() http distante. Donc sur dans l'iframe scellee une fois compile dans app.css same-origin. La forme est purement decorative/CSS.
-  - ⚠️ PIEGE SVG/peinture : .mask masque la FORME mais ne PEINT pas un SVG ; pour un picto SVG colore via CSS, ne PAS compter sur fill-*/stroke-* Tailwind (ils ne compilent pas dans l'iframe) — peindre via mask-image + background-color:var(--color-*) ou color-mix, JAMAIS un <img src=http>
+  - ⚠️ PIEGE SVG/peinture : .mask masque la FORME mais ne PEINT pas un SVG ; pour un picto SVG colore via CSS, ne PAS dependre de fill-*/stroke-* Tailwind (compiles en CSS statique mais purgeables, pas de build runtime) — peindre via mask-image + background-color:var(--color-*) ou color-mix, JAMAIS un <img src=http>
   - ⚠️ L'image source du <img class=mask> doit etre same-origin ou data: (img-src herite 'self' + COEP require-corp) ; un src http externe est bloque
   - ⚠️ Pas de JS ; statique. Le contenu sous le masque doit exister localement
 

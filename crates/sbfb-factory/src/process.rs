@@ -971,6 +971,38 @@ mod tests {
     }
 
     #[test]
+    fn app_authoring_prompt_surfaces_daisyui_markers() {
+        // Sprint 79 Phase F: the app-authoring fiche must also surface the
+        // daisyUI build + per-class CSP doctrine so an authoring agent inherits
+        // the corrected facts (no in-iframe Tailwind build / purge — not "fails
+        // to compile"; lean template = NONE of the 35 built-in themes, never the
+        // false "8"). These markers are the Phase F slice of the per-sprint
+        // testability gate. Asserting both providers proves the markers survive
+        // the `local` path's `strip_cloud_references` pass (the daisyUI section
+        // carries no websearch/context7/mcp token, so the strip is a no-op) and
+        // stands as a forward guard against a future marker sharing a line with a
+        // stripped token.
+        const MARKERS: &[&str] = &[
+            "daisyUI 5.5.23",
+            "source(none)",
+            "sbfb-reflect",
+            "aucun des 35 thèmes built-in",
+            "app.css --minify",
+            "classes-bank.json",
+        ];
+        for provider in ["claude", "local"] {
+            let out = prompt_data("app-authoring", "shallow", provider)
+                .unwrap_or_else(|e| panic!("prompt_data app-authoring/{provider}: {e}"));
+            for marker in MARKERS {
+                assert!(
+                    out.contains(marker),
+                    "app-authoring prompt ({provider}) missing daisyUI marker {marker:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn detect_current_phase_is_unbounded_and_case_insensitive() {
         // Regression guard for the ['A'..'G'] cap + the uppercase-path bug.
         // Active-sprint artifacts are lowercase; phases run past G (S77 hit N).

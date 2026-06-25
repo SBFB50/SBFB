@@ -1,10 +1,13 @@
-# app-authoring — sealed-iframe UI mastery (anime.js v4.5)
+# app-authoring — sealed-iframe UI mastery (anime.js v4.5 + daisyUI 5.5.23)
 
-You are about to author or modify a SBFB app that uses **anime.js** for motion. This
-fiche surfaces the CSP-safe authoring doctrine distilled from the versioned knowledge
-pack at `docs/factory/knowledge/animejs/` (anime.js `4.5.0`, snapshot `2026-06-23`,
-93/93 primitives CSP-usable). It is a **gateway**: the heavy layers (full API,
-docs, generative analysis) are referenced by path + hash for `depth=deep` loading.
+You are about to author or modify a SBFB app that uses **anime.js** for motion and
+**daisyUI** (on Tailwind v4) for components/styling. This fiche surfaces the CSP-safe
+authoring doctrine distilled from two versioned knowledge packs:
+`docs/factory/knowledge/animejs/` (anime.js `4.5.0`, snapshot `2026-06-23`, 93/93
+primitives CSP-usable) and `docs/factory/knowledge/daisyui/` (daisyUI `5.5.23` ×
+Tailwind `4.3.1`, 68/68 components CSP-usable). It is a **gateway**: the heavy layers
+(full API, components, theming, docs, generative analysis) are referenced by path + hash
+for `depth=deep` loading.
 
 > **This fiche is consumed and displayed, never authoritative.** It *shows* the sandbox
 > constraints — it grants no exemption, emits no verdict, and lifts no gate. The
@@ -20,9 +23,10 @@ SBFB apps render inside a sealed iframe: `sandbox="allow-scripts"` **without**
 `connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri
 'none'; form-action 'none'` (on a `default-src 'self' 'unsafe-inline' 'unsafe-eval' data:
 blob:` base), plus COOP `same-origin` and COEP `require-corp`. The **canonical, complete**
-string — including `data: blob:`, `frame-ancestors *` and `sandbox allow-scripts` — lives
-in `BLOB_SERVE_CSP` (`crates/nexus-shell-daemon-core/src/blob_serve.rs`) and is posted on
-every response (even 404). **Zero network. Zero remote import. Zero worker.**
+string — including `data: blob:`, `frame-ancestors *` and `sandbox allow-scripts` — is the
+single source `BLOB_SERVE_CSP` (defined in `crates/nexus-core-rs/src/csp.rs`, re-exported by
+`crates/nexus-shell-daemon-core/src/blob_serve.rs`, machine mirror `csp-contract.json`) and is
+posted on every response (even 404). **Zero network. Zero remote import. Zero worker.**
 
 ## Vendorization doctrine — `UMD classic-script jamais type=module`
 
@@ -62,9 +66,11 @@ to `synthesis.json`, which carries no CSP/pitfall key.
    whose **only** animated channel is `opacity`. Holds for `animate`, `utils.set`, and the
    default set alike. Source: `PRIMITIVES.md:3356/3450/750/2105`.
 3. **SVG `var(--color-*)`** — paint SVG `fill`/`stroke` through CSS custom properties
-   `var(--color-*)`. Tailwind `fill-*`/`stroke-*` utilities do **not** compile inside the
-   sealed iframe (no in-iframe Tailwind build). This is the *recommended* path: animating a
-   single `var(--color-*)` (type `CSS_VAR`) repaints N SVG elements from one tween. Source:
+   `var(--color-*)`. Tailwind `fill-*`/`stroke-*` utilities **do** compile to static CSS but
+   are not a *reliable* path in the sealed iframe (no in-iframe Tailwind build at runtime +
+   purge if a class is not seen by `@source`). The custom-property route is the *recommended*
+   path: animating a single `var(--color-*)` (type `CSS_VAR`) repaints N SVG elements from one
+   tween. Source:
    `PRIMITIVES.md:3573/3583/1041/3632`.
 4. **`morphTo mono-trace`** — `svg.morphTo` requires the **same** target type: path `d` ⇄
    path `d`, or polygon/polyline `points` ⇄ `points` (path ↔ polygon does not work — the
@@ -152,6 +158,71 @@ locally by the authoring agent — there is no network fetch.
 - `docs/factory/knowledge/animejs/synthesis.json` — `a63150afd6e9a719` — cross_products /
   novelty_levers / novelty_heuristic.
 - `docs/factory/knowledge/animejs/anime-types.d.ts` — `31835934518dbe5e` — 70 canonical types.
+
+## daisyUI 5.5.23 — components, theming, and the build-time vendoring recipe
+
+daisyUI is **CSP-safe by default**: every component is pure CSS once compiled build-time into a
+single same-origin `app.css`. The 68 components are all `csp_usable:true`; the risks are never
+daisyUI blocks, only usages to avoid. Per-class verdicts live in `classes-bank.json`.
+
+**Build recipe (build-time devDeps only — the runtime archive ships 0 dependency).** Compile with
+the Tailwind v4 CLI: `tailwindcss -i src/input.css -o app.css --minify`. The entry `src/input.css`
+uses `@import "tailwindcss" source(none);` to disable auto source detection, then `@source "./index.html"`
+/ `@source "./app.js"` (plus a safelist for classes built at runtime: `tab-active`, `is-drawer-open:`,
+`menu-dropdown-show`, responsive `sm:/md:/lg:`), and `@plugin "daisyui";`. No `tailwind.config.js` in
+v4. The result is one static same-origin `app.css`, zero outgoing request.
+
+**Theme.** Default same-origin theme = `sbfb-reflect` (custom oklch dark), declared via
+`@plugin "daisyui/theme" { name: "sbfb-reflect"; default: true; color-scheme: dark; --color-*: …; }`.
+The template is **lean**: it activates **aucun des 35 thèmes built-in** of daisyUI 5.5.23 (`@plugin
+"daisyui" {}` with no `themes:` list) — only the vendored custom theme is compiled. The root theme
+tokens (`--color-*`/`--radius-*`/`--depth`/`--fx-noise`) MUST live in the same `app.css`, else every
+`var(--color-*)` is undefined.
+
+**Per-class CSP taxonomy (the verdict that matters — `classes-bank.json`).** Reserve the
+**network-exfil** category for a remote `url()` under ANY CSS property (background-image, mask-image,
+border-image, cursor, list-style-image, content, `@font-face src:url()`, remote `@import`, `<img src>`,
+SVG `fill="url(http…#id)"` / `<use href="http…">`): all blocked by `default-src 'self'` + COEP
+require-corp; serve `data:`/`blob:`/relative same-origin instead. The other "risk" cases are NOT
+network vectors:
+
+- **`@apply`** = compile-time, resolved at build, absent at runtime → **safe** (the only pitfall is
+  build-time: `@apply` a purged/absent class breaks the build or yields an empty rule).
+- **`backdrop-filter`** (`glass`) = GPU composite, not subject to `default-src`/`connect-src`; it only
+  blurs content behind the element inside the same opaque-origin iframe and never crosses to the host
+  shell → **safe (perf-only)**, not a leak.
+- **`mask`** shapes = `mask-image:url("data:image/svg+xml,…")` inline → **safe** (allowed by `data:`).
+- **`fill-*`/`stroke-*`** Tailwind SVG utilities **do compile** to static CSS (`fill:var(--color-*)`,
+  CSP-safe) — they do **not** "fail to compile". The real reason not to rely on them: there is no
+  Tailwind build **at runtime** in the sealed iframe, and a class not seen by `@source` (or composed
+  in JS) is **purged** out of `app.css`. Reliable, theme-aware path: paint the inline SVG directly via
+  `fill="currentColor"` / `fill="var(--color-*)"` / `stroke="color-mix(in oklch, var(--color-primary)
+  70%, transparent)"`.
+- **`<form>` submit** (`form-action 'none'` + sandbox without `allow-forms`) is blocked → use
+  `div`/`button type=button` + a local handler; read state via `input.value`/`.checked`/`.files`.
+
+**daisyUI × anime.js compositions** stay CSP-safe when anime is vendored same-origin (UMD classic
+script, never `type=module`) and only writes `transform`/`opacity`/custom-properties/`textContent`
+inline. `synthesis.json` lists 11; `classes-bank.json` distills 16 reusable blocks with per-class
+verdicts (`btn` spring micro-pop, `card` 3D tilt, `stat` counter, `steps` stagger, `modal` overshoot,
+`tabs` View-Transition, `toast`, `drawer` parallax, `radial-progress` `--value`, `swap`/`fab` icon
+spring, `skeleton` cross-fade).
+
+## Heavy layers — daisyUI `depth=deep` pointers (read locally, never fetched)
+
+Path + blake3 16-hex from `docs/factory/knowledge/daisyui/MANIFEST.json` (re-verify the hash at read
+time; the hermetic recompute test `daisyui_manifest.rs` guards integrity). Repo files read locally —
+no network fetch.
+
+- `docs/factory/knowledge/daisyui/components.json` — `01632e0b4a95dad4` — 68 components (classes,
+  modifiers, CSS mechanisms, per-component `sbfb_csp` verdict, verbatim `html_example`). Markdown view:
+  `docs/factory/knowledge/daisyui/COMPONENTS.md` (`69306d7652712df8`).
+- `docs/factory/knowledge/daisyui/classes-bank.json` — `ccc1e9fae1649876` — 16 reusable CSP-safe
+  blocks + explicit per-class CSP verdict (`csp_class`) + `sbfb_reusable{ok,why}`.
+- `docs/factory/knowledge/daisyui/theming.json` — `f44553ffe9ba2cfe` — oklch token system, the 35
+  built-in themes, the custom-theme recipe.
+- `docs/factory/knowledge/daisyui/synthesis.json` — `fc084fcd88eb8f44` — CSP ruleset, risk classes,
+  Tailwind gotchas, daisyUI × anime compositions.
 
 ## Closing reminder (non-authoritative)
 

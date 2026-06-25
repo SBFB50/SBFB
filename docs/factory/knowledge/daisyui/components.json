@@ -226,11 +226,11 @@
     ],
     "sbfb_csp": {
       "usable": true,
-      "reason": "L'habillage CSS est utilisable (couleurs/parts/tables). MAIS le composant est intrinsequement pilote par une lib JS tierce (Cally <calendar-date> custom element, react-day-picker React, Pikaday): structure CSS OK, comportement (rendu des jours, navigation, selection) a coder/embarquer localement sans reseau. Cally requiert le script web-component du package vendore same-origin (pas de CDN). Le .rdp-chevron utilise fill:var(--color-base-content) directement en CSS (pas l'utilitaire Tailwind fill-* non compile), donc le SVG est peint correctement.",
+      "reason": "L'habillage CSS est utilisable (couleurs/parts/tables). MAIS le composant est intrinsequement pilote par une lib JS tierce (Cally <calendar-date> custom element, react-day-picker React, Pikaday): structure CSS OK, comportement (rendu des jours, navigation, selection) a coder/embarquer localement sans reseau. Cally requiert le script web-component du package vendore same-origin (pas de CDN). Le .rdp-chevron utilise fill:var(--color-base-content) directement en CSS (pas l'utilitaire Tailwind fill-*, qui se compile mais est purgeable si non vu par @source), donc le SVG est peint correctement.",
       "risks": [
         "depend d'une lib JS tierce qui doit etre vendore dans l'archive (Cally web component / react-day-picker / Pikaday) — jamais charger via CDN (connect-src 'none')",
         "Cally repose sur Shadow DOM + ::part(): allow-scripts suffit, mais le script du custom-element doit etre inline ou same-origin",
-        "fill:var(--color-base-content) est en CSS source donc OK; ne PAS compter sur des utilitaires Tailwind fill-*/stroke-* qui ne compilent pas dans l'iframe",
+        "fill:var(--color-base-content) est en CSS source donc OK; ne PAS dependre des utilitaires Tailwind fill-*/stroke-* (ils se compilent en CSS statique mais ne sont pas fiables: pas de build Tailwind au runtime + purge si non vus par @source)",
         "les chevrons SVG internes (rdp-chevron) viennent de la lib JS: s'assurer qu'ils sont des SVG inline, pas des <img> distants"
       ]
     }
@@ -571,7 +571,7 @@
       "usable": true,
       "reason": "Structure et style 100% CSS (flex fixe, currentColor, color-mix, env() safe-area). Aucun url(), font distante, backdrop-filter ni mask. La navigation active est appliquee via la classe dock-active.",
       "risks": [
-        "L'icone est typiquement un <svg> inline : le peindre via currentColor / var(--color-*) ; les utilitaires Tailwind fill-*/stroke-* ne compilent pas dans l'iframe scellee — utiliser fill=\"currentColor\" sur le SVG",
+        "L'icone est typiquement un <svg> inline : le peindre via currentColor / var(--color-*) ; les utilitaires Tailwind fill-*/stroke-* se compilent en CSS statique mais ne sont pas un chemin fiable (pas de build runtime + purge possible) — peindre via fill=\"currentColor\" sur le SVG",
         "Le changement d'onglet actif (toggle dock-active) suppose du JS : coder le handler localement, aucun reseau requis",
         "env(safe-area-inset-bottom) sans effet hors contexte mobile mais inoffensif"
       ]
@@ -693,7 +693,7 @@
       "reason": "Ouverture/fermeture 100% CSS via :focus-within ; disposition flower via fonctions trigonometriques CSS (cos/sin). Aucun url(), font distante, backdrop-filter ni mask. S'appuie sur le composant btn (lui-meme CSS pur).",
       "risks": [
         "L'ouverture repose sur :focus-within : sur certains environnements tactiles le focus peut etre capricieux — un handler JS local peut completer (sans reseau)",
-        "Les icones SVG internes doivent etre peintes via currentColor/var(--color-*) ; fill-*/stroke-* Tailwind ne compilent pas dans l'iframe",
+        "Les icones SVG internes doivent etre peintes via currentColor/var(--color-*) ; fill-*/stroke-* Tailwind ne sont pas un chemin fiable (compiles en CSS statique mais purgeables, pas de build runtime)",
         "cos()/sin() CSS requierent un navigateur recent (Chromium OK) ; sinon la version verticale (sans fab-flower) reste fonctionnelle"
       ]
     }
@@ -1759,7 +1759,7 @@
       "usable": true,
       "reason": "Pur CSS Grid + color-mix + bordures. Aucune url() distante, aucun mask-image, aucun backdrop-filter, aucun font distant, aucun JS. La structure est statique et compile dans le app.css vendore same-origin.",
       "risks": [
-        "Aucun risque CSP propre au composant. Une icone placee dans stat-figure via un SVG inline doit etre peinte par CSS (currentColor/var(--color-*)) car les utilitaires Tailwind fill-*/stroke-* ne sont pas garantis de compiler dans l'iframe scellee."
+        "Aucun risque CSP propre au composant. Une icone placee dans stat-figure via un SVG inline doit etre peinte par CSS (currentColor/var(--color-*)) car les utilitaires Tailwind fill-*/stroke-* se compilent en CSS statique mais sont purgeables si non vus par @source (pas de build runtime)."
       ]
     }
   },
@@ -2083,7 +2083,7 @@
       "reason": "Structure purement CSS (grid + hr + place-self). Aucune url() distante, aucun mask, aucun JS. Les icones dans timeline-middle sont fournies par l'auteur (souvent un <svg> inline ou caractere) — a peindre via currentColor/var(--color-*), pas via fill-* Tailwind. color-mix/oklch/logical-props composes offline.",
       "risks": [
         "Aucun risque CSP structurel",
-        "Si l'icone middle est un SVG : utiliser un <svg> inline avec fill=\"currentColor\" ou var(--color-*) — les utilitaires Tailwind fill-*/stroke-* ne compilent PAS de maniere fiable dans l'iframe scellee",
+        "Si l'icone middle est un SVG : utiliser un <svg> inline avec fill=\"currentColor\" ou var(--color-*) — les utilitaires Tailwind fill-*/stroke-* ne sont pas un chemin fiable dans l'iframe scellee (compiles en CSS statique mais purgeables si non vus par @source, pas de build Tailwind au runtime)",
         "Pas d'image bitmap via url() distant pour les icones (interdit) : inliner en data: ou SVG"
       ]
     }
@@ -2439,7 +2439,7 @@
       "usable": true,
       "reason": "PIEGE EVITE : les masques daisyUI utilisent mask-image avec des SVG en DATA URI inline (data: autorise par default-src ... data:), PAS d'url() http distante. Donc sur dans l'iframe scellee une fois compile dans app.css same-origin. La forme est purement decorative/CSS.",
       "risks": [
-        "PIEGE SVG/peinture : .mask masque la FORME mais ne PEINT pas un SVG ; pour un picto SVG colore via CSS, ne PAS compter sur fill-*/stroke-* Tailwind (ils ne compilent pas dans l'iframe) — peindre via mask-image + background-color:var(--color-*) ou color-mix, JAMAIS un <img src=http>",
+        "PIEGE SVG/peinture : .mask masque la FORME mais ne PEINT pas un SVG ; pour un picto SVG colore via CSS, ne PAS dependre de fill-*/stroke-* Tailwind (compiles en CSS statique mais purgeables, pas de build runtime) — peindre via mask-image + background-color:var(--color-*) ou color-mix, JAMAIS un <img src=http>",
         "L'image source du <img class=mask> doit etre same-origin ou data: (img-src herite 'self' + COEP require-corp) ; un src http externe est bloque",
         "Pas de JS ; statique. Le contenu sous le masque doit exister localement"
       ]

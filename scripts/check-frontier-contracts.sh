@@ -164,7 +164,10 @@ fi
 KNOW_DIR="docs/factory/knowledge"
 if [ -d "$KNOW_DIR" ] && [ -d "prompts/agent" ]; then
   # Union of every blake3 16-hex digest recorded across all pack MANIFESTs.
-  manifest_hashes="$(find "$KNOW_DIR" -name MANIFEST.json -exec grep -oE '[0-9a-f]{16}' {} + 2>/dev/null | sort -u || true)"
+  # `-h` is load-bearing: with >=2 packs `grep` over multiple files prefixes each
+  # match with `filename:`, which would defeat the whole-line `grep -qxF` below and
+  # flag EVERY cited hash as absent. (Latent until a 2nd pack exists; daisyui = S79 F.)
+  manifest_hashes="$(find "$KNOW_DIR" -name MANIFEST.json -exec grep -hoE '[0-9a-f]{16}' {} + 2>/dev/null | sort -u || true)"
   for pf in prompts/agent/*.md; do
     [ -f "$pf" ] || continue
     # Only knowledge-backed fiches are in scope (they reference the pack dir).

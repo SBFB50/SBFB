@@ -1,7 +1,7 @@
 {
   "synthesis": {
     "csp_ruleset": [
-      "CSP servie a l'iframe scellee : default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ; connect-src 'none' ; worker-src 'none' ; frame-src 'none' ; object-src 'none' ; base-uri 'none' ; form-action 'none' ; + COEP require-corp + sandbox allow-scripts SANS allow-same-origin (origine opaque). Toute regle ci-dessous decoule de ce contrat.",
+      "CSP servie a l'iframe scellee : la SOURCE UNIQUE est la constante BLOB_SERVE_CSP (crates/nexus-core-rs/src/csp.rs, miroir machine csp-contract.json, posee sur CHAQUE reponse blob-serve y compris 404). Elle vaut : default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ; connect-src 'none' ; worker-src 'none' ; frame-src 'none' ; object-src 'none' ; base-uri 'none' ; form-action 'none' ; frame-ancestors * ; sandbox allow-scripts (+ COOP same-origin + COEP require-corp, origine opaque SANS allow-same-origin). NE PAS re-deriver cette chaine : se referer a BLOB_SERVE_CSP / csp-contract.json (cette prose est une copie indicative, pas l'autorite). Toute regle ci-dessous decoule de ce contrat.",
       "url() distante INTERDITE partout (background-image/mask-image/border-image vers http(s)). default-src 'self' ne couvre PAS une origine opaque vers le reseau distant et COEP require-corp bloque tout cross-origin sans CORP. Seules valeurs admises : data: (SVG/png inline), blob: (genere localement), ou chemin relatif same-origin servi DEPUIS l'archive blob-serve. daisyUI respecte deja ce contrat : toutes ses formes (mask.css, loading.css, tooltip fleche, chat queue, mockup loupe) et sa texture --fx-noise sont des data:image/svg+xml INLINE, jamais des url() http.",
       "@font-face vers une URL distante INTERDIT (Google Fonts/CDN bloques par default-src 'self' + COEP). daisyUI :root --default-font-family pointe sur une pile SYSTEME (ui-sans-serif, system-ui, sans-serif, emoji) = zero requete reseau. Une police custom doit etre embarquee en @font-face src:url(data:...) ou fichier vendore same-origin dans l'archive.",
       "connect-src 'none' : AUCUN fetch/XHR/WebSocket/EventSource possible. Tout composant a comportement dynamique (compteur countdown, avancee progress/radial-progress, ajout/retrait de toast/chat/modal, carousel autoplay, calendrier interactif, tri de table) = structure CSS OK mais comportement a coder en JS LOCAL pur (setInterval, scrollTo, manipulation DOM, FileReader/Blob), jamais via reseau.",
@@ -63,7 +63,7 @@
       },
       {
         "target": "Icones SVG dans dock, fab, stat-figure, timeline-middle, steps-icon, mask (picto colore)",
-        "risk": "Tentation d'utiliser les utilitaires Tailwind fill-*/stroke-* qui NE compilent PAS de maniere fiable dans l'iframe, ou un <img src=http> distant.",
+        "risk": "Tentation d'utiliser les utilitaires Tailwind fill-*/stroke-* (ils se compilent en CSS statique mais sont purgeables si non vus par @source, pas de build Tailwind au runtime), ou un <img src=http> distant.",
         "mitigation": "Peindre le SVG via fill=\"currentColor\" ou var(--color-*)/color-mix sur le <svg> inline ; ou mask-image data: + background-color:var(--color-*). Jamais fill-*/stroke-* ni <img src=http>."
       },
       {
@@ -73,7 +73,7 @@
       }
     ],
     "tailwind_gotchas": [
-      "fill-* / stroke-* (Tailwind v4 SVG utilities) NE sont PAS garantis de compiler/etre purges correctement dans le contexte iframe scellee : ne jamais peindre une icone via class=\"fill-primary\". Peindre le <svg> inline avec fill=\"currentColor\" ou fill=\"var(--color-primary)\", ou via mask-image data: + background-color. C'est la regle la plus recurrente (dock, fab, stat, timeline, steps, mask).",
+      "fill-* / stroke-* (Tailwind v4 SVG utilities) se compilent en CSS statique mais sont purgeables si non vus par @source (pas de build Tailwind au runtime) : ne jamais peindre une icone via class=\"fill-primary\". Peindre le <svg> inline avec fill=\"currentColor\" ou fill=\"var(--color-primary)\", ou via mask-image data: + background-color. C'est la regle la plus recurrente (dock, fab, stat, timeline, steps, mask).",
       "Purge/detection des classes (Tailwind v4 @source / source(none)) : daisyUI et les classes dynamiquement composees (variants is-drawer-open:, menu-dropdown-show, sm:/md:/lg:/xl:/2xl:, tab-active applique en JS) doivent etre VUES par le scanner au build sinon elles sont absentes du app.css. Declarer explicitement les sources (@source) couvrant le HTML/JS de l'app et le HTML genere dynamiquement (safelist si construit en runtime).",
       "Jamais @apply vers une classe absente du build (purgee) : @apply d'un utilitaire non genere casse la compilation ou produit une regle vide. Verifier que toute classe referencee en @apply est dans le scope @source.",
       "Le plugin @tailwindcss/typography (prose) doit etre explicitement charge au build sinon prose ne rend que le pont de variables --tw-prose-* sans les marges/tailles reelles. Idem : aucune dependance reseau du plugin.",

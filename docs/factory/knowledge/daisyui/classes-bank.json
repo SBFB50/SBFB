@@ -1,0 +1,178 @@
+[
+  {
+    "name": "btn-spring-micropop",
+    "source_path": "synthesis.json#daisyui_anime_compositions (btn + anime spring)",
+    "component_classes": ["btn", "btn-primary"],
+    "idea": "Au click handler local, animer scale 1->1.06->1 avec un spring anime.js pour un micro-pop tactile. Le btn reste CSS pur daisyUI (couleur/depth), anime ne touche que transform inline.",
+    "technique_tags": ["spring", "transform-inline", "click-local", "reduced-motion-branch"],
+    "csp_class": "safe",
+    "csp_note": "Pur CSS daisyUI + transform inline (autorise par 'unsafe-inline'). anime.js bundle same-origin (jamais CDN), zero fetch. Honorer prefers-reduced-motion via matchMedia local (etat-final, pas de pop).",
+    "sbfb_reusable": { "ok": true, "why": "0 reseau/worker. btn = CSS pur ; anime vendore UMD classic-script ecrit transform inline. Brancher l'etat final sous prefers-reduced-motion (pas de scale)." },
+    "snippet": "<button type=\"button\" class=\"btn btn-primary\" id=\"go\">Lancer</button>\n<script>go.addEventListener('click',()=>{ if(matchMedia('(prefers-reduced-motion: reduce)').matches) return; anime.animate(go,{scale:[1,1.06,1],duration:240,ease:'outBack'}); });</script>"
+  },
+  {
+    "name": "card-tilt-3d",
+    "source_path": "synthesis.json#daisyui_anime_compositions (card + createAnimatable)",
+    "component_classes": ["card", "card-body", "shadow-xl"],
+    "idea": "Sur mousemove local, piloter rotateX/rotateY de la .card via un Animatable anime.js (alternative programmable a hover3d). La card garde son style daisyUI (radius-box, shadow).",
+    "technique_tags": ["animatable", "pointer-driven", "transform-3d", "local-only"],
+    "csp_class": "safe",
+    "csp_note": "transform/perspective inline, zero ressource reseau. L'image eventuelle de la card doit etre data:/blob:/same-origin (cf. media-local-only).",
+    "sbfb_reusable": { "ok": true, "why": "createAnimatable ecrit des transform inline autorises ; pointeur = evenement local. Aucune image distante." },
+    "snippet": "<div class=\"card bg-base-200 shadow-xl\" id=\"tilt\"><div class=\"card-body\">Tilt me</div></div>"
+  },
+  {
+    "name": "stat-counter",
+    "source_path": "synthesis.json#daisyui_anime_compositions (stat + animate proxy)",
+    "component_classes": ["stats", "stat", "stat-value", "stat-title"],
+    "idea": "Animer la valeur affichee d'un stat de 0 a N : anime sur un objet {v:0} avec onUpdate -> textContent = round(v). Effet compteur croissant, le stat reste CSS.",
+    "technique_tags": ["counter", "textcontent-only", "aria-live"],
+    "csp_class": "safe",
+    "csp_note": "anime modifie textContent en local (jamais innerHTML distant, jamais fetch). connect-src 'none' non sollicite. Ajouter aria-live=polite.",
+    "sbfb_reusable": { "ok": true, "why": "Donnee source LOCALE uniquement ; textContent ne charge aucune ressource. Sous reduced-motion, ecrire directement la valeur finale." },
+    "snippet": "<div class=\"stats\"><div class=\"stat\"><div class=\"stat-title\">Pairs</div><div class=\"stat-value\" id=\"n\" aria-live=\"polite\">0</div></div></div>"
+  },
+  {
+    "name": "steps-stagger-reveal",
+    "source_path": "synthesis.json#daisyui_anime_compositions (steps + stagger)",
+    "component_classes": ["steps", "step", "step-primary"],
+    "idea": "A l'entree, reveler les .step un par un avec animate opacity/translateY et stagger(80). Les compteurs et la barre de liaison restent CSS daisyUI.",
+    "technique_tags": ["stagger", "reveal", "enter"],
+    "csp_class": "safe",
+    "csp_note": "stagger = orchestration locale d'opacity/translate inline, aucune ressource. Gate sous prefers-reduced-motion:no-preference (sinon etat final pose).",
+    "sbfb_reusable": { "ok": true, "why": "Pur DOM + transform/opacity inline. Reduced-motion: utils.set sur l'etat final, pas de tween." },
+    "snippet": "<ul class=\"steps\"><li class=\"step step-primary\">Clone</li><li class=\"step\">Sign</li><li class=\"step\">Zip</li></ul>"
+  },
+  {
+    "name": "modal-overshoot",
+    "source_path": "synthesis.json#daisyui_anime_compositions (modal CSS-toggle + timeline)",
+    "component_classes": ["modal", "modal-box", "modal-toggle"],
+    "idea": "Ouvrir la modal en mode .modal-toggle:checked (CSS) puis enrichir la .modal-box d'une timeline anime (scale .9->1.02->1, opacity) pour un easing spring au-dela du @starting-style natif.",
+    "technique_tags": ["css-toggle", "timeline", "overshoot", "no-form-submit"],
+    "csp_class": "safe",
+    "csp_note": "Overlay daisyUI = oklch translucide (PAS backdrop-filter). Fermeture par button type=button + handler — JAMAIS <form method=dialog> (form-action 'none' + sandbox sans allow-forms = bloque).",
+    "sbfb_reusable": { "ok": true, "why": "Toggle natif checkbox = pas de submit. anime n'anime que transform/opacity inline. Fermeture via bouton, pas de form." },
+    "snippet": "<input type=\"checkbox\" id=\"m\" class=\"modal-toggle\" />\n<div class=\"modal\" role=\"dialog\"><div class=\"modal-box\">Bonjour<button type=\"button\" class=\"btn\" onclick=\"m.checked=false\">Fermer</button></div></div>"
+  },
+  {
+    "name": "tabs-view-transition",
+    "source_path": "synthesis.json#daisyui_anime_compositions (tabs + View Transition)",
+    "component_classes": ["tabs", "tabs-box", "tab", "tab-active"],
+    "idea": "Sur changement d'onglet (radios CSS daisyUI), wrapper le swap de .tab-content dans document.startViewTransition pour un cross-fade fluide ; fallback gracieux si absent.",
+    "technique_tags": ["view-transition", "radios-css", "crossfade", "progressive-enhancement"],
+    "csp_class": "safe",
+    "csp_note": "View Transitions + anime = 100% client-side, zero reseau. La bascule de base reste CSS (radios name partage). tab-active applique en JS doit etre dans le @source/safelist (purge).",
+    "sbfb_reusable": { "ok": true, "why": "Aucune ressource reseau. Si tab-active est ajoute en JS, le declarer en safelist @source pour qu'il survive a la purge." },
+    "snippet": "<div role=\"tablist\" class=\"tabs tabs-box\"><input type=\"radio\" name=\"t\" class=\"tab\" aria-label=\"Un\" checked /><input type=\"radio\" name=\"t\" class=\"tab\" aria-label=\"Deux\" /></div>"
+  },
+  {
+    "name": "toast-enter-dismiss",
+    "source_path": "synthesis.json#daisyui_anime_compositions (toast + timeline)",
+    "component_classes": ["toast", "toast-end", "alert", "alert-success"],
+    "idea": "A l'ajout DOM local d'un .toast, jouer une timeline anime (slide+fade in, hold, fade out) puis remove() le noeud. Placement reste CSS daisyUI.",
+    "technique_tags": ["timeline", "auto-dismiss", "dom-local", "text-only"],
+    "csp_class": "safe",
+    "csp_note": "creation/suppression de noeud + transform/opacity inline, aucun fetch. Le contenu du toast est texte local, jamais d'HTML distant (pas d'innerHTML de source reseau).",
+    "sbfb_reusable": { "ok": true, "why": "Texte local injecte via textContent. Timeline n'ecrit que transform/opacity inline. 0 reseau." },
+    "snippet": "<div class=\"toast toast-end\"><div class=\"alert alert-success\"><span>Enregistre</span></div></div>"
+  },
+  {
+    "name": "drawer-parallax",
+    "source_path": "synthesis.json#daisyui_anime_compositions (drawer + parallax)",
+    "component_classes": ["drawer", "drawer-toggle", "drawer-side", "menu"],
+    "idea": "Le glissement du panneau reste CSS (translate sur :checked). anime ajoute un leger stagger/parallax des items du menu interne a l'ouverture (ecoute le change du checkbox).",
+    "technique_tags": ["css-toggle", "stagger", "parallax", "no-form-submit"],
+    "csp_class": "safe",
+    "csp_note": "Le toggle natif checkbox+label[for] ne soumet aucun form (pas un submit). anime ne touche que transform/opacity inline des items. Zero reseau.",
+    "sbfb_reusable": { "ok": true, "why": "drawer-toggle = checkbox CSS, aucun submit. Items animes par transform inline." },
+    "snippet": "<div class=\"drawer\"><input id=\"d\" type=\"checkbox\" class=\"drawer-toggle\" /><div class=\"drawer-side\"><ul class=\"menu\"><li><a>Un</a></li><li><a>Deux</a></li></ul></div></div>"
+  },
+  {
+    "name": "radial-progress-animate-value",
+    "source_path": "synthesis.json#daisyui_anime_compositions (radial-progress + animate --value)",
+    "component_classes": ["radial-progress"],
+    "idea": "Animer la custom property --value de 0 a N avec anime (interpole les @property registered), le conic-gradient daisyUI suit en CSS. Anneau qui se remplit fluidement.",
+    "technique_tags": ["registered-property", "css-var", "ring-fill"],
+    "csp_class": "safe",
+    "csp_note": "anime ecrit --value en style inline ; le mask est un radial-gradient genere (pas d'url). Aucune ressource reseau. Pour un vrai pourcentage temps-reel, source de donnees LOCALE uniquement.",
+    "sbfb_reusable": { "ok": true, "why": "@property + var inline, 0 url, 0 fetch. Donnee source locale (connect-src 'none')." },
+    "snippet": "<div class=\"radial-progress\" style=\"--value:0\" role=\"progressbar\" id=\"r\">0%</div>"
+  },
+  {
+    "name": "swap-fab-spring-icon",
+    "source_path": "synthesis.json#daisyui_anime_compositions (swap/fab + spring icone)",
+    "component_classes": ["swap", "swap-rotate", "fab", "fab-flower"],
+    "idea": "Sur toggle (checkbox CSS), superposer un spring anime sur la rotation de l'icone swap-rotate ou l'epanouissement radial du fab-flower.",
+    "technique_tags": ["spring", "svg-paint", "css-var-paint", "toggle-css"],
+    "csp_class": "safe-build",
+    "csp_note": "Icones = <svg> inline peints fill=\"currentColor\" / var(--color-*) — PAS les utilitaires fill-*/stroke-* Tailwind (ils se compilent mais sont purgeables si non vus par @source ; il n'y a pas de build Tailwind au runtime). anime anime rotate/scale inline. cos()/sin() du fab restent CSS. Zero fetch.",
+    "sbfb_reusable": { "ok": true, "why": "SVG peint via var/currentColor (deterministe, theme-aware). transform inline. Reduced-motion: pas de spring, etat final pose." },
+    "snippet": "<label class=\"swap swap-rotate\"><input type=\"checkbox\" /><svg class=\"swap-on\" viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M6 6h12v12H6z\"/></svg><svg class=\"swap-off\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"8\" fill=\"var(--color-primary)\"/></svg></label>"
+  },
+  {
+    "name": "skeleton-crossfade",
+    "source_path": "synthesis.json#daisyui_anime_compositions (skeleton -> contenu)",
+    "component_classes": ["skeleton"],
+    "idea": "Pendant un chargement LOCAL (decode data:/blob:, calcul), montrer le skeleton CSS daisyUI puis cross-fader vers le contenu reel avec anime (opacity skeleton->0, contenu->1).",
+    "technique_tags": ["shimmer", "crossfade", "local-wait"],
+    "csp_class": "safe",
+    "csp_note": "Le shimmer est CSS pur, anime ne fait qu'un fade inline. Aucune donnee distante : le skeleton couvre une attente LOCALE (decode/calcul), jamais un fetch reseau (connect-src 'none').",
+    "sbfb_reusable": { "ok": true, "why": "shimmer keyframes CSS + fade inline. L'attente couverte est locale, pas un appel reseau." },
+    "snippet": "<div class=\"skeleton h-24 w-full\" id=\"sk\"></div>"
+  },
+  {
+    "name": "glass-backdrop",
+    "source_path": "synthesis.json#risk_classes (glass / backdrop-filter)",
+    "component_classes": ["glass", "card", "navbar"],
+    "idea": "Effet verre depoli daisyUI via backdrop-filter:blur(). Verdict CSP explicite d'une classe SOUVENT confondue avec un risque de fuite.",
+    "technique_tags": ["backdrop-filter", "composite-gpu", "perf-only"],
+    "csp_class": "safe-composite",
+    "csp_note": "AUTORISE et SUR. backdrop-filter est un effet composite GPU NON soumis a default-src/connect-src ; il ne floute que le contenu DERRIERE l'element DANS le meme document iframe (origine opaque) et ne traverse JAMAIS la frontiere vers le shell hote. Ce n'est PAS un vecteur reseau. Seul cout = perf GPU sur grandes surfaces. NB: l'overlay modal/drawer n'est PAS un backdrop-filter (simple oklch translucide).",
+    "sbfb_reusable": { "ok": true, "why": "Composite-safe, 0 reseau. A documenter comme SUR (perf-only), pas comme risque CSP. Verifier qu'un empilement existe derriere." },
+    "snippet": "<div class=\"card glass\"><div class=\"card-body\">Glass</div></div>"
+  },
+  {
+    "name": "svg-icon-paint",
+    "source_path": "synthesis.json#tailwind_gotchas (fill-*/stroke-* SVG paint)",
+    "component_classes": ["dock", "fab", "stat-figure", "timeline-middle", "steps"],
+    "idea": "Verdict CSP explicite des utilitaires Tailwind fill-*/stroke-* pour peindre un SVG dans l'iframe scellee. Cas le plus recurrent.",
+    "technique_tags": ["svg-paint", "build-purge", "css-var-paint", "theme-aware"],
+    "csp_class": "safe-build",
+    "csp_note": "CORRECTION load-bearing : fill-*/stroke-* SE COMPILENT en CSS statique (fill:var(--color-primary), CSP-safe, aucun fetch) — ils ne 'ne compilent pas'. Le vrai risque n'est PAS reseau : (a) il n'y a PAS de build Tailwind au RUNTIME dans l'iframe scellee, et (b) une classe non vue par @source / composee en JS est PURGEE (absente de app.css). Chemin FIABLE = peindre directement fill=\"currentColor\" / fill=\"var(--color-*)\" / stroke=\"color-mix(in oklch, var(--color-primary) 70%, transparent)\" dans le SVG inline (deterministe + theme-aware). Vecteur RESEAU distinct (bloque, default-src 'self' + COEP) = fill=\"url(https://...#id)\" ou <use href=\"https://...\"> externe.",
+    "sbfb_reusable": { "ok": true, "why": "Peinture via var/currentColor = deterministe et robuste a la purge. Ne jamais dependre de class=\"fill-primary\" (purgeable). Jamais d'url(http)/<use href=http>." },
+    "snippet": "<svg viewBox=\"0 0 24 24\" class=\"size-6\"><path fill=\"var(--color-primary)\" d=\"M12 2l3 7h7l-6 4 2 7-6-4-6 4 2-7-6-4h7z\"/></svg>"
+  },
+  {
+    "name": "apply-compile-time",
+    "source_path": "synthesis.json#tailwind_gotchas (@apply)",
+    "component_classes": ["@apply"],
+    "idea": "Verdict CSP explicite de la directive @apply, souvent rangee a tort parmi les risques CSP.",
+    "technique_tags": ["compile-time", "build-only", "no-runtime"],
+    "csp_class": "safe-build",
+    "csp_note": "@apply est une directive COMPILE-TIME (Tailwind) resolue au build dans app.css ; elle n'existe PLUS au runtime -> AUCUN risque CSP/reseau runtime. Le seul piege est build-only : @apply vers une classe purgee/absente du @source casse la compilation ou produit une regle vide. A documenter comme SUR (compile-time), PAS comme vecteur d'exfiltration.",
+    "sbfb_reusable": { "ok": true, "why": "Resolu au build, absent du runtime. Verifier que toute classe referencee en @apply est dans le scope @source." },
+    "snippet": ".badge-sbfb { @apply badge badge-primary rounded-field; }"
+  },
+  {
+    "name": "media-local-only",
+    "source_path": "synthesis.json#csp_ruleset + risk_classes (media url())",
+    "component_classes": ["avatar", "card", "hero", "carousel", "chat-image", "mask"],
+    "idea": "Verdict CSP explicite et ENUMERE de toute valeur url() : la categorie reseau-exfil reelle sous connect-src 'none' + default-src 'self' + COEP require-corp.",
+    "technique_tags": ["url-remote", "network-exfil", "data-uri", "same-origin"],
+    "csp_class": "network-exfil-if-remote",
+    "csp_note": "Une url() http(s)/protocol-relative distante est BLOQUEE quelle que soit la propriete CSS qui la porte : background-image, mask-image, border-image, cursor, list-style-image, content, @font-face src:url(), @import distant, <img src>, SVG fill=\"url(http#id)\" / <use href=http>. Cause : default-src 'self' ne couvre pas une origine opaque vers le reseau et COEP require-corp bloque tout cross-origin sans CORP. Seules valeurs admises : data: (SVG/png inline), blob: (genere localement), ou chemin RELATIF same-origin servi depuis l'archive blob-serve. Remplacer systematiquement les src img.daisyui.com des exemples par des assets locaux. NB daisyUI: toutes ses formes/masques/textures (mask, loading, tooltip, --fx-noise feTurbulence) sont deja des data: URI inline = OK.",
+    "sbfb_reusable": { "ok": true, "why": "Le composant est CSP-safe ; seule la SOURCE media doit etre data:/blob:/relatif same-origin. Aucune url() distante, sous aucune propriete." },
+    "snippet": "<div class=\"avatar\"><div class=\"w-16 rounded-full\"><img src=\"data:image/svg+xml,%3Csvg.../%3E\" alt=\"a\" /></div></div>"
+  },
+  {
+    "name": "mask-shape-inline",
+    "source_path": "components.json#mask",
+    "component_classes": ["mask", "mask-squircle", "mask-hexagon"],
+    "idea": "Recadrer un element a une forme geometrique via mask-image. Verdict CSP : les formes daisyUI sont des data: URI inline, pas des url() distantes.",
+    "technique_tags": ["mask-image", "data-uri", "shape"],
+    "csp_class": "safe",
+    "csp_note": "daisyUI pose mask-image:url(\"data:image/svg+xml,...\") INLINE (le SVG du contour est embarque dans le CSS, autorise par 'data:' dans default-src). Aucune ressource distante. L'image SOURCE du <img class=mask> doit rester same-origin/data: (cf. media-local-only).",
+    "sbfb_reusable": { "ok": true, "why": "Masque = data: inline (OK). Seule precaution: l'image masquee doit etre locale, jamais src http." },
+    "snippet": "<img class=\"mask mask-squircle\" src=\"data:image/svg+xml,%3Csvg.../%3E\" alt=\"avatar\" />"
+  }
+]
