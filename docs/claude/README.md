@@ -41,10 +41,19 @@ autre LLM) qui doit ouvrir, livrer ou auditer un sprint.
 
 ## 0. DÉMARRAGE — prompt à coller + comment lire ce README parfaitement
 
-**Tu démarres une session ? Colle le bloc ci-dessous tel quel.** C'est le
-prompt de bootstrap canonique (version courte / pointeur). La version
-longue/détaillée vit en **§7.1**, entre les marqueurs `<!-- BOOTSTRAP:BEGIN -->`
-et `<!-- BOOTSTRAP:END -->` (greppables, drift-proof, insensibles au numéro
+**Au démarrage d'une session, le hook `SessionStart`
+(`.claude/hooks/session-start-autoinstall.sh`, matcher `"*"` = toutes les
+sources `startup`/`resume`/`clear`/`compact`) injecte automatiquement la
+directive de bootstrap : il t'impose de lire CE README vivant sur disque (le
+disque fait autorité) avant toute action.** Le bloc ci-dessous n'est donc
+**plus à coller en routine** — c'est un **secours**, à utiliser uniquement si
+aucune directive `[session-start]` n'apparaît (hook désactivé, autre client).
+Ne le colle jamais en doublon de l'injection du hook : une copie collée peut
+être **périmée** alors que le disque, lui, est à jour (c'est exactement la
+cause du drift que ce mécanisme corrige). C'est le prompt de bootstrap
+canonique (version courte / pointeur). La version longue/détaillée vit en
+**§7.1**, entre les marqueurs `<!-- BOOTSTRAP:BEGIN -->` et
+`<!-- BOOTSTRAP:END -->` (greppables, drift-proof, insensibles au numéro
 de ligne).
 
 ```
@@ -85,7 +94,11 @@ pre-flight §7.1 a tourné, restitue en <=6 lignes :
   2. Prochaine action concrète (ex. « INVOQUER nexus-audit-gate », « Workflow
      preflight Phase X », « commit chore(planning) d'abord »).
   3. Règle EXÉCUTER vs DEMANDER appliquée ici, citée du §7.1.
-Si tu ne peux pas remplir ces 3 points depuis ce que tu as lu, ta lecture est
+  4. Read-proof : le numéro de ligne du marqueur « <!-- BOOTSTRAP:END --> »
+     obtenu par Grep sur le fichier vivant (preuve que tu as lu le README sur
+     disque et non un prompt collé périmé — ce numéro n'est fourni nulle part
+     ailleurs, ni par le hook session-start, ni par un paste).
+Si tu ne peux pas remplir ces 4 points depuis ce que tu as lu, ta lecture est
 partielle : retourne lire le bootstrap. Puis enchaîne sans demander
 confirmation quand le cas est procéduralement déterminé.
 
@@ -114,10 +127,12 @@ renvoie.
 **Étape de confirmation (anti-lecture-bâclée).** Avant la moindre action,
 après le bootstrap + le pre-flight §7.1, restitue en <=6 lignes : (1) le cas
 A/B/C/D et le signal qui le prouve, (2) la prochaine action concrète, (3) la
-règle EXÉCUTER vs DEMANDER appliquée. Si tu ne peux pas produire ces trois
-points, la lecture est incomplète : retourne au bootstrap. Ce n'est pas une
-demande de permission — quand le cas est procéduralement déterminé, tu
-enchaînes sans attendre l'humain.
+règle EXÉCUTER vs DEMANDER appliquée, (4) le **read-proof** : le numéro de
+ligne du marqueur « <!-- BOOTSTRAP:END --> » obtenu par Grep sur le fichier
+vivant (preuve d'avoir lu le README sur disque, non un prompt collé). Si tu ne
+peux pas produire ces quatre points, la lecture est incomplète : retourne au
+bootstrap. Ce n'est pas une demande de permission — quand le cas est
+procéduralement déterminé, tu enchaînes sans attendre l'humain.
 
 **Si le bootstrap paraît tronqué.** Critère objectif : tu n'as **pas vu**
 `<!-- BOOTSTRAP:END -->`. N'agis pas sur une lecture partielle ; re-Read par
@@ -2019,10 +2034,15 @@ portable : `docs/agent/AGENT_SYSTEM.md`.
 
 ## 7. Prompt générique de bootstrap session fraîche (v3)
 
-Ce prompt est conçu pour être collé tel quel au démarrage d'une
-nouvelle session Claude Code sur le projet. Il ne suppose **pas**
-de connaître l'état actuel — l'agent détermine seul dans quel cas
-il est, en commençant par un **bloc pre-flight** d'un seul copier-
+Ce bloc (§7.1, délimité par `<!-- BOOTSTRAP:BEGIN -->` /
+`<!-- BOOTSTRAP:END -->`) est la **source de vérité vivante** que l'agent
+**lit sur disque** à chaque démarrage — le hook `SessionStart` (matcher `"*"`,
+toutes les sources) lui en impose la lecture (cf. §0). Il n'est **plus à
+coller en routine** : un copier-coller fige un snapshot qui peut **drifter**
+alors que le disque, lui, reste à jour. Ne le colle qu'en **secours**, si
+aucune directive `[session-start]` n'apparaît (hook désactivé, autre client).
+Il ne suppose **pas** de connaître l'état actuel — l'agent détermine seul dans
+quel cas il est, en commençant par un **bloc pre-flight** d'un seul copier-
 coller, puis en routant vers la procédure du cas détecté.
 
 ### 7.1 Le prompt à coller
