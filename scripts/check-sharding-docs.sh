@@ -223,13 +223,16 @@ done
 # honesty-gate extension (plan §20.4: PROVISIONAL/S78 grep-enforced in M AND N):
 # the agent wiring spec carries the PROVISIONAL / S78 markers and the cardinal
 # caveat; the sharding index pins PROVISIONAL + S78 (so a future flip to a
-# "shipped/done" banner fails CI); the root index pins its sharding-only scope.
+# "shipped/done" banner fails CI); the root index pins its BOUNDED scope (not a
+# whole-repo index — Sprint 79 Phase I widened the banner to sharding + factory,
+# so the marker is now the deferred-whole-repo clause that survives the reword;
+# the factory section is gated by scripts/check-factory-docs.sh).
 require_marker "$WIRING_SPEC" "PROVISIONAL" "provisional-banner"
 require_marker "$WIRING_SPEC" "S78" "orchestrator-carry"
 require_marker "$WIRING_SPEC" "admission ≠ confidentialité" "cardinal-caveat"
 require_marker "$SHARD_LLMS" "PROVISIONAL" "llms-provisional-banner"
 require_marker "$SHARD_LLMS" "S78" "llms-orchestrator-carry"
-require_marker "$ROOT_LLMS" "sharding subsystem only" "root-scope-banner"
+require_marker "$ROOT_LLMS" "whole-repo agent index is" "root-scope-banner"
 
 if [ "$fail" -ne 0 ]; then
   echo "check-sharding-docs: FAILED"

@@ -1,0 +1,56 @@
+# SBFB factory — app-authoring agent index
+
+> The Factory app-authoring capability: master anime.js (motion) + daisyUI (on
+> Tailwind v4) inside the sealed SBFB iframe, gated by a deterministic CSP scan.
+> This index points an agent at the rank-1 sources it must read to author or
+> review a sealed-iframe app **without hallucinating**.
+>
+> **Status: PROVISIONAL where it counts.** The CSP gate, the two knowledge packs,
+> and the daisyUI starter template are LIVE and hermetically tested; the
+> end-to-end in-vivo journey (real author → publish → cross-peer render) and the
+> *generative efficacy* of the prompt-kind / Ollama copilot are **`Not evidenced`**
+> — plumbing wired and tested, never measured in-vivo.
+>
+> **Caveat cardinal — lint statique ≠ garantie runtime ; connaissance consommée,
+> jamais autoritaire** (0 verdict PASS).
+>
+> **Truth Stack** (trust the higher rank on conflict):
+> `repo files > .planning/active/ > commits > prompts > chat`. A fact absent from
+> rank-1 (a repo file) is **`Not evidenced`** — do not assert it. `.planning/` is
+> an in-flight pointer, not a durable anchor.
+
+## Start here (agent contract)
+
+- [WIRING_SPEC.md](./WIRING_SPEC.md): contract-dense, source-anchored wiring spec — the sealed-iframe contract, the gate, the prompt-kind, the context-pack, INVIOLABLE invariants. Read this first.
+- [FACTORY_GATES.md](./FACTORY_GATES.md): the 11 Factory gates; FG-CSP-authoring (static scan + assumed false-negatives) and its runtime net (self-check viewer).
+
+## Gate primitives (rank-1 source)
+
+- [csp.rs](../../crates/nexus-core-rs/src/csp.rs): the single CSP source of truth — policy is `crates/nexus-core-rs/src/csp.rs:BLOB_SERVE_CSP`, the `'none'` directives are `crates/nexus-core-rs/src/csp.rs:none_directives`, the only absolute-URL exceptions are `crates/nexus-core-rs/src/csp.rs:CSS_URL_ALLOW`.
+- [gates.rs](../../crates/sbfb-factory/src/gates.rs): the deterministic, non-delegable static scan `crates/sbfb-factory/src/gates.rs:run_gate_csp_authoring` (the policy is never re-hardcoded — a cross-crate anti-drift test pins coverage of the `'none'` directives).
+- [process.rs](../../crates/sbfb-factory/src/process.rs): the closed prompt-kind registry `crates/sbfb-factory/src/process.rs:PROMPT_KINDS` and the `crates/sbfb-factory/src/process.rs:app-authoring` entry.
+- [operator_server.rs](../../crates/sbfb-factory/src/operator_server.rs): the context-pack handler `crates/sbfb-factory/src/operator_server.rs:handle_context_pack` surfaces `crates/sbfb-factory/src/operator_server.rs:authoring_knowledge` (hashed path refs, never inlined).
+- [template_engine.rs](../../crates/sbfb-factory/src/template_engine.rs): the starter `crates/sbfb-factory/src/template_engine.rs:DAISYUI_TEMPLATE` (vendored UMD + build-time `app.css`).
+
+## Runnable examples (compiled / exact)
+
+- [csp_contract.rs](./examples/csp_contract.rs): the six exfil-critical `'none'` directives + the absolute-URL allowlist; compiled+run by [factory_csp_contract.rs](../../crates/nexus-core-rs/tests/factory_csp_contract.rs). Drift in the policy → red build.
+
+## The fiche an agent receives
+
+- [app-authoring.md](../../prompts/agent/app-authoring.md): the CSP-safe authoring doctrine (consumed and displayed, never authoritative) distilled from the two packs.
+
+## Human docs (Diátaxis, French)
+
+- [README.md](./README.md): orientation.
+- [EXPLANATION.md](./EXPLANATION.md): why a sealed iframe, why a deterministic gate, why consumed-never-authoritative.
+- [HOW_TO_WIRE.md](./HOW_TO_WIRE.md): authoring an app under the CSP contract (vendor UMD, compile `app.css`, run the gate).
+- [REFERENCE.md](./REFERENCE.md): exact symbols, packs, versions, tiers.
+
+## Optional
+
+*Deep dives — read after the contract + examples.*
+
+- [THREAT_MODEL.md](../security/THREAT_MODEL.md): the sandbox surfaces and the static-lint / runtime-net split.
+- [PATTERNS.md](../rust/PATTERNS.md): §P71 — the runtime CSP self-check (browser-level console capture across the opaque iframe).
+- Knowledge packs: [animejs/MANIFEST.json](./knowledge/animejs/MANIFEST.json), [daisyui/MANIFEST.json](./knowledge/daisyui/MANIFEST.json) — versioned, blake3-hashed, manually refreshed at a version bump.

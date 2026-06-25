@@ -120,3 +120,7 @@ jobs:
       # ── frontier contracts gate (Sprint 79 Phase B) ──────
       - name: "[15] frontier contracts check"
         run: bash scripts/check-frontier-contracts.sh
+
+      # ── factory docs lint (Sprint 79 Phase I) ────────────
+      - name: "[16] factory docs check"
+        run: bash scripts/check-factory-docs.sh

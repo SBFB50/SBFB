@@ -111,5 +111,8 @@ bash scripts/check-sharding-docs.sh
 step 20 "bash scripts/check-frontier-contracts.sh"
 bash scripts/check-frontier-contracts.sh
 
+step 21 "bash scripts/check-factory-docs.sh"
+bash scripts/check-factory-docs.sh
+
 echo ""
 echo "==> verify.sh passed all steps"

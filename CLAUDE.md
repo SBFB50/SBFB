@@ -165,7 +165,7 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-77 CLOSED**, **S78 a ouvrir** (Arc 3.5 Factory
+- **Sprints 0-77 CLOSED + S79 DONE** (S78 différé, Factory-first) (Arc 3.5 Factory
   Complete Vision **6/6 COMPLET** ; S77 = **sharding pipeline** LIVRE —
   coeur teste hermetiquement [primitives wire C, placement Parallax D,
   routing+churn E, fork llama.cpp F1/F2, data-plane `sbfb/shard/1`,
@@ -175,17 +175,21 @@ Runtime isolation roadmap dans
   P1 S78, cf. `sprint78_audit_plan.md` §7/§10. **S78** = orchestrateur de
   session in-vivo + benchmark live, plus 4 carries 3/3 a escalader ;
   S78 Phase 0 = audit gate S77, cf. `sprint78_audit_plan.md`).
-  **DIRECTIVE PO 2026-06-23** : demarrer le **sprint Factory « app-authoring »
-  (S79)** a la prochaine session — maitrise anime.js + daisyUI dans le process
-  Factory (module de connaissance versionne + prompt-kind `app-authoring` + gate
-  CSP deterministe Rust). **S79 OUVERT** ; package dans `.planning/active/`
-  (`sprint79_{kickoff,plan,design_review}.md`) ; **Phase A LIVREE `9297f08`** ;
-  handoff canonique = `nexus_grid_pivot.md` + plan + git (PAS de `_NEXT_SESSION.md`,
-  artefact hors-process supprime). Knowledge packs (anime.js +
-  daisyUI 5.5.23) + design durci dans
-  `examples/daisyui-animejs-showcase/knowledge/`. **Arbitrage ordre Factory-vs-S78
-  sharding (carry P1) RESOLU : Factory-first** (sharding S78 differe + tracke).
-  v2.1 ouverte. **Tag v1.0 pose et pousse (LT-2 ARME, dry-run
+  **S79 DONE — capacité Factory « app-authoring »** (anime.js 4.5.0 + daisyUI
+  5.5.23 maîtrisés dans le process Factory) : 8 phases feature A-H + Phase I
+  docs-contract closure. Knowledge packs versionnés blake3 + prompt-kind
+  `app-authoring` + gate CSP déterministe Rust non-délégable
+  `run_gate_csp_authoring` (source CSP unique `BLOB_SERVE_CSP` -> `csp.rs:33`) +
+  self-check runtime (filet du gate statique, T1 BLOQUANT + T2 JSON) + couche
+  GUIDE docs-contract (`docs/factory/` Diataxis FR + `llms.txt` + `WIRING_SPEC.md`
+  + exemple `include!` runnable + `check-factory-docs.sh` câblé BLOQUANT 3
+  surfaces). Cadence docs-contrat canonisée (Phase B : README §6.12 + PATTERNS
+  §P70 + AGENT_SYSTEM §7 + `check-frontier-contracts.sh` générique). **PROVISIONAL
+  là où ça compte** : gate + packs + template + self-check LIVE-testés ; parcours
+  in-vivo bout-en-bout + efficacité générative = `Not evidenced` -> carry P1
+  `sprint80_audit_plan.md`. Audit gate S79 = Phase 0 de S80. **Arbitrage ordre
+  Factory-vs-S78 sharding (carry P1) RESOLU : Factory-first** (sharding S78 differe
+  + tracke). v2.1 ouverte. **Tag v1.0 pose et pousse (LT-2 ARME, dry-run
   Radicle prive fait).**
   Projet Rust+Frontend pur depuis S50-S51.
   S70 DONE : 7 phases A-G (A AGENT_SYSTEM.md canon portable + B

@@ -80,3 +80,8 @@ steps:
     image: bash:5@sha256:2003051c5eb5154cbd44fd4b1a2b8f1be886517b383813c998c72cb15840357f
     commands:
       - bash scripts/check-frontier-contracts.sh
+
+  - name: factory-docs-check
+    image: bash:5@sha256:2003051c5eb5154cbd44fd4b1a2b8f1be886517b383813c998c72cb15840357f
+    commands:
+      - bash scripts/check-factory-docs.sh
