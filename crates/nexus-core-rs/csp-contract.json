@@ -1,0 +1,17 @@
+{
+  "_comment": "Machine-readable mirror of the blob-serve CSP contract. Single source = crates/nexus-core-rs/src/csp.rs (BLOB_SERVE_CSP / CSS_URL_ALLOW / none_directives). Verified against the Rust consts by csp::tests::csp_contract_json_mirrors_the_rust_consts; consumed by examples/daisyui-animejs-showcase/scripts/check-csp.mjs. Do not hand-edit out of sync — regenerate from the consts.",
+  "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors *; sandbox allow-scripts",
+  "none_directives": [
+    "connect-src",
+    "worker-src",
+    "frame-src",
+    "object-src",
+    "base-uri",
+    "form-action"
+  ],
+  "css_url_allow": [
+    "http://www.w3.org/2000/svg",
+    "http://www.w3.org/1999/xlink",
+    "https://tailwindcss.com"
+  ]
+}

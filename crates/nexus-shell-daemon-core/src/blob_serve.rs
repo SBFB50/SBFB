@@ -274,20 +274,14 @@ pub fn detect_content_type(filename: &str, data: &[u8]) -> &'static str {
 // CSP header value
 // =================================================================
 
-/// The Content-Security-Policy header injected on every blob-serve
-/// response. Defense-in-depth for both iframe and direct URL
-/// navigation: `sandbox allow-scripts` gives an opaque origin even
-/// in a top-level tab (blocks localStorage, cookies, SW scope on
-/// the daemon origin). `worker-src 'none'` prevents Service Worker
-/// registration. `frame-src 'none'` blocks nested iframes (the
-/// `/auth/token` exfiltration vector). `form-action 'none'` blocks
-/// form-based exfiltration that `connect-src 'none'` does not
-/// cover.
-pub const BLOB_SERVE_CSP: &str = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors *; sandbox allow-scripts";
-
-pub const BLOB_SERVE_COOP: &str = "same-origin";
-
-pub const BLOB_SERVE_COEP: &str = "require-corp";
+// The blob-serve CSP / COOP / COEP contract moved to `nexus-core-rs`
+// (`nexus_core_rs::csp`) at Sprint 79 Phase E so the Factory authoring CSP
+// gate imports the same single source instead of re-hardcoding the policy.
+// Re-exported here unchanged so the daemon middleware + http layer keep
+// referencing `blob_serve::BLOB_SERVE_CSP` / `_COOP` / `_COEP` with no
+// call-site change (`http.rs:556`). The defense-in-depth rationale lives on
+// the const in `nexus_core_rs::csp`.
+pub use nexus_core_rs::csp::{BLOB_SERVE_COEP, BLOB_SERVE_COOP, BLOB_SERVE_CSP};
 
 // =================================================================
 // Tests

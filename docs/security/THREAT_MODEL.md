@@ -738,6 +738,42 @@ Mitigations :
 | Mitigation | MAX_PREVIEW_BYTES + MAX_PREVIEW_ENTRIES + TTL + auth |
 | Residual | L (attaquant local avec bearer = compromission machine deja) |
 
+### 13.1 Gate CSP authoring au publish (Sprint 79 Phase E)
+
+Le gate `sbfb-factory::gates::run_gate_csp_authoring` scanne **statiquement**
+les assets d'une app au moment du **publish** et bloque la publication si elle
+violerait la CSP du bac a sable (`nexus_core_rs::csp::BLOB_SERVE_CSP`, source
+unique). C'est une defense de **nature differente** de la mitigation runtime
+deja modelisee en §5.1 (App iframe) : la CSP runtime, reinjectee par blob-serve
+sur chaque reponse (`http.rs` → `blob_serve::BLOB_SERVE_CSP`), bloque
+l'exfiltration **a l'execution chez le client** ; le gate publish-time
+**empeche de distribuer** une app non conforme et donne a l'auteur un
+diagnostic immediat. Defense en profondeur — ni l'un ni l'autre n'est suffisant
+seul.
+
+Surface couverte qui dépassait `connect-src 'none'` (§5.1) : `form-action 'none'`
+(soumission `<form action=remote>` = navigation, pas une connexion fetch) et
+`base-uri 'none'` (`<base href=remote>` detourne les URL relatives) — deux
+vecteurs d'exfiltration que `connect-src` n'arrete pas. Le gate ajoute leur
+**detection statique** (le contrat CSP les declarait deja `'none'` mais aucun
+lint ne les verifiait), plus `object-src`/`frame-src` et `<script type=module>`
+(echoue sous COEP `require-corp`).
+
+Limites assumees : un scanner regex est aveugle au code/URL assemble au runtime
+(`fetch` via `atob`, `action`/`href`/`url()` construits dynamiquement). Ces
+faux-negatifs sont rattrapes par la CSP runtime (browser-enforced) + le
+self-check runtime qui rejoue l'app sous la CSP reelle (Sprint 79 Phase H). Le
+gate ne pretend PAS prouver l'absence d'exfiltration — il prouve la conformite
+des assets *statiques livres*.
+
+| Dimension | Valeur |
+|---|---|
+| Severite | N/A (defense additive, pas une nouvelle menace) |
+| Role | Filtre de distribution + feedback auteur au publish |
+| Couverture | Detection statique des directives `'none'` du contrat CSP (anti-drift par test cross-crate) |
+| Limite | Faux-negatifs runtime → couverts par CSP runtime §5.1 + self-check Phase H |
+| Determinisme | Scan regex/statique pur, aucun ML (FACTORY_GATES.md principe 4) |
+
 ---
 
 ## 14. Operator surface (Sprint 72 Phase A)

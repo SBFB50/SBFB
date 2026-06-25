@@ -102,6 +102,61 @@ publication (curator review asynchrone).
 | **Critere de passage** | 0 secret detecte. Deps avec CVE : warning affiche, pas bloquant (le developpeur decide) |
 | **Sprint cible** | S68 Phase B |
 
+### FG-CSP-authoring — Conformite CSP au publish (Sprint 79 Phase E)
+
+| Champ | Valeur |
+|-------|--------|
+| **Input** | Repertoire app (workspace) |
+| **Output** | Rapport de conformite (violations CSP par fichier:directive) |
+| **Description** | Scan statique deterministe des assets runtime de l'app contre la CSP du bac a sable, importee comme **source unique** depuis `nexus_core_rs::csp::BLOB_SERVE_CSP` (jamais re-hardcodee). Reprend les primitives reseau (`fetch`/XHR/WebSocket/EventSource/`sendBeacon` = `connect-src`; `Worker`/`SharedWorker`/`importScripts`/`serviceWorker` = `worker-src`; remote `<link>`/`<script>`/`@import`/`url()` = `default-src`) et **complete** la detection des directives `'none'` que `check-csp.mjs` ne couvrait pas : `form-action` (`<form action>` vers une URL distante), `base-uri` (`<base href>`), `object-src` (`<object>`/`<embed>`), `frame-src` (`<iframe>` imbriquee), plus `<script type=module>` (echoue sous COEP `require-corp` + origine opaque) et les URLs protocol-relative `//host`. Trois tiers : *scanned* (`*.html`/`*.js`/`*.css` authored) — 0 primitive reseau + chaque URL absolue ∈ allowlist ; *vendored* (`vendor/*` ou `*.umd.js`/`*.min.js`) — 0 primitive reseau seulement (les corps minifies portent legitimement des namespaces XML + bannieres de licence) ; le reste est ignore. |
+| **Critere de passage** | 0 violation dans les assets statiques. **BLOQUANT des son introduction** (pas advisory-puis-bascule). |
+| **Sprint cible** | S79 Phase E |
+
+**Pourquoi un gate statique en plus du CSP runtime ?** Le daemon blob-serve
+reinjecte `BLOB_SERVE_CSP` sur **chaque** reponse — c'est la defense
+d'execution, browser-enforced, du client qui rend l'app. Le gate
+`run_gate_csp_authoring` est une defense **complementaire et distincte** : il
+s'execute au **publish** (cote Factory, a cote de FG5/FG6) et **bloque la
+distribution** d'une app dont les assets statiques violeraient ce CSP, en
+donnant a l'auteur un diagnostic immediat. Ni l'un ni l'autre n'est suffisant
+seul (defense en profondeur).
+
+**Ce que `connect-src 'none'` ne couvre PAS** (d'ou `form-action`/`base-uri`/
+`object-src`/`frame-src 'none'`) : `connect-src` ne regit que le fetch
+*programmatique*. Une soumission `<form action="https://attacker">` est une
+**navigation**, pas une connexion — `form-action 'none'` la bloque (garantie
+portable, independante du flag `allow-forms` du sandbox client). Un
+`<base href="https://attacker/">` **detourne toutes les URL relatives** vers un
+origin distant — `base-uri 'none'` le bloque.
+
+**Limites assumees (faux-negatifs).** Un lint statique deterministe ne voit pas
+le code assemble au runtime (`fetch` via `atob`, `form.action`/`base.href`/
+`img.src`/`url()` CSS construits dynamiquement ; un `//host` protocol-relatif
+isole dans une string JS hors contexte attribut). Ces cas sont rattrapes par (a)
+le CSP runtime chez chaque client et (b) le self-check runtime qui rejoue l'app
+sous la CSP reelle (Sprint 79 Phase H). Le gate garantit la conformite des
+assets *livres* + le feedback auteur, **pas** l'absence d'exfiltration a
+l'execution.
+
+**Discipline no-CDN (faux-positif assume).** Le tier *scanned* refuse TOUTE URL
+`http(s)` absolue non allowlistee — y compris une URL seulement *affichee* (lien
+texte, JSON-LD) jamais fetchee. C'est voulu : une app SBFB est entierement
+locale, les seules URL absolues legitimes sont les identifiants non-fetches de
+`CSS_URL_ALLOW` (namespaces XML, banniere de licence) ; le diagnostic nomme
+l'URL. La classification *vendored* repose sur le repertoire `vendor/` OU le
+suffixe `*.umd.js`/`*.min.js` (le template react livre ses bundles a la racine) :
+un asset authored nomme `app.min.js` herite donc du tier vendored (URL absolues
+tolerees) — limite assumee, les primitives reseau restant verifiees dans TOUS
+les tiers.
+
+**Non-delegable.** Contrairement a FG5/FG6 (relachables via `--skip-gates`, une
+aide au debug), ce gate s'execute **hors du bloc `skip_gates`** : aucune
+dispense CSP n'est possible (Day-0 « scellage 100% Factory »). La verite CSP
+est unique (`nexus_core_rs::csp`), miroitee dans `csp-contract.json` (verifiee
+par test) et consommee par le lint JS `check-csp.mjs` ; un test cross-crate
+asserte que la detection couvre **toutes** les directives `'none'` de
+`BLOB_SERVE_CSP` (anti-drift).
+
 ### FG7 — Preview
 
 | Champ | Valeur |
@@ -174,6 +229,9 @@ Developpeur
 [FG6 Secrets/deps] ----> scan securite
     |
     v
+[FG-CSP-authoring] ----> conformite sandbox CSP (BLOQUANT, ignore --skip-gates)
+    |
+    v
 [FG7 Preview] ---------> test live loopback
     |
     v
@@ -191,7 +249,10 @@ Developpeur
 ## Principes de design
 
 1. **Sequentiel, pas configurable.** Les gates sont parcourues dans
-   l'ordre. Pas de skip (sauf FG8 pour apps N0 sans depot).
+   l'ordre. Pas de skip (sauf FG8 pour apps N0 sans depot). Le flag
+   `--skip-gates` (aide au debug) ne relache que FG5/FG6 ;
+   **FG-CSP-authoring s'execute hors de ce bloc et reste BLOQUANT** —
+   aucune dispense CSP (Day-0 « scellage 100% Factory »).
    La simplicite du flux lineaire est preferee a la flexibilite
    d'un DAG configurable.
 

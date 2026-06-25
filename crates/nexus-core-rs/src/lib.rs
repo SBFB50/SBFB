@@ -41,6 +41,7 @@ pub mod blobs;
 pub mod canonical;
 pub mod compute_group;
 pub mod crypto;
+pub mod csp;
 pub mod curator;
 pub mod dht_quorum;
 pub mod discovery;
@@ -100,6 +101,7 @@ pub use compute_group::{
     ComputeGroupEntry,
 };
 pub use crypto::{Blake3Chain, KeyPair, blake3_hash, verify};
+pub use csp::{BLOB_SERVE_COEP, BLOB_SERVE_COOP, BLOB_SERVE_CSP, CSS_URL_ALLOW, none_directives};
 pub use curator::{
     CURATOR_CATEGORY_MAX, CURATOR_DESCRIPTION_MAX, CURATOR_LIST_FORMAT_VERSION,
     CURATOR_LIST_MAX_ENTRIES, CURATOR_PROJECT_ID_MAX, CURATOR_PROJECT_NAME_MAX,

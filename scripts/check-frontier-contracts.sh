@@ -34,8 +34,12 @@
 #       existing Rust tests only assert a "connect-src 'none'" substring,
 #       so a drift dropping form-action/base-uri would stay green. This
 #       check asserts EACH of the 6 'none' directives against the const
-#       source-of-truth (blob_serve.rs); the served-HTTP-header / vitrine
-#       per-directive CSP gate is the Sprint 79 Phase E/H scope.
+#       source-of-truth. At S79 Phase E the const was factored out of
+#       blob_serve.rs into crates/nexus-core-rs/src/csp.rs (single source,
+#       re-exported by blob_serve.rs for the daemon); this gate follows the
+#       declaration to its new home. The per-directive STATIC ASSET gate now
+#       exists (sbfb-factory run_gate_csp_authoring, S79 Phase E); the runtime
+#       served-header self-check is S79 Phase H.
 #   (4) prompt-kind provenance edge — a knowledge-backed prompt-kind
 #       fiche (prompts/agent/*.md that references docs/factory/knowledge/)
 #       must keep its copied provenance resolvable: every inline blake3
@@ -124,7 +128,7 @@ if ! grep -rqF "// FRONTIER: ShardPlan " crates; then
 fi
 
 # ── (3) BLOB_SERVE_CSP non-regression ────────────────────────────
-CSP_FILE="crates/nexus-shell-daemon-core/src/blob_serve.rs"
+CSP_FILE="crates/nexus-core-rs/src/csp.rs"
 if [ ! -f "$CSP_FILE" ]; then
   echo "MISSING: $CSP_FILE (BLOB_SERVE_CSP source of truth)"
   fail=1
