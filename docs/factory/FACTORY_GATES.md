@@ -157,6 +157,21 @@ par test) et consommee par le lint JS `check-csp.mjs` ; un test cross-crate
 asserte que la detection couvre **toutes** les directives `'none'` de
 `BLOB_SERVE_CSP` (anti-drift).
 
+**Portee du scellage — tous les verbes de publish du client (audit gate S79).**
+Le gate s'applique aux **deux** verbes de publish du client Factory : `publish`
+(pipeline complete) **et** `redeploy` (boucle fork->edit->iterate ; le verbe ne
+zippait pas a travers le gate avant ce fix). « Scellage 100% Factory » se lit
+donc precisement : *le client Factory gate chaque verbe qui publie des octets
+d'app*. Le **daemon reste neutre** — ses routes `deploy-from-repo` /
+`deploy-workspace` ne rejouent pas le gate (ce serait deplacer l'autorite
+metier dans le daemon, contraire a « Factory = outil client externe »). La
+frontiere d'isolation **inconditionnelle** de toute app, quel que soit le
+chemin de deploiement (y compris un appel HTTP loopback direct hors Factory),
+reste la **CSP runtime blob-serve** (`nexus_core_rs::csp`), enforced par le
+navigateur chez chaque client. Le gate statique est un **lint d'auteur** qui
+garantit la conformite des assets *livres* + le feedback auteur, pas une
+barriere reseau a l'execution.
+
 **Le filet runtime (S79 Phase H, LIVRE) — complement du lint statique.** Le lint
 ne voit pas le code assemble a l'execution ; le self-check runtime rejoue l'app
 dans le **vrai iframe-host de prod** (`BrowsedProject`, `sandbox="allow-scripts"`
@@ -276,8 +291,9 @@ Developpeur
 1. **Sequentiel, pas configurable.** Les gates sont parcourues dans
    l'ordre. Pas de skip (sauf FG8 pour apps N0 sans depot). Le flag
    `--skip-gates` (aide au debug) ne relache que FG5/FG6 ;
-   **FG-CSP-authoring s'execute hors de ce bloc et reste BLOQUANT** —
-   aucune dispense CSP (Day-0 « scellage 100% Factory »).
+   **FG-CSP-authoring s'execute hors de ce bloc et reste BLOQUANT** sur
+   `publish` **et** `redeploy` — aucune dispense CSP (Day-0
+   « scellage 100% Factory » ; cf. « Portee du scellage » ci-dessus).
    La simplicite du flux lineaire est preferee a la flexibilite
    d'un DAG configurable.
 

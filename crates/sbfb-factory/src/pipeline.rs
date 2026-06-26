@@ -48,7 +48,10 @@ pub fn run_publish_pipeline(
     // BLOCKING and deliberately OUTSIDE the `skip_gates` block — the Day-0
     // invariant is "no CSP dispensation, 100% Factory sealing". A
     // non-conformant app must never be published, even with `--skip-gates`
-    // (a debugging aid that only relaxes FG5/FG6).
+    // (a debugging aid that only relaxes FG5/FG6). The same gate is applied by
+    // the `redeploy` verb (atelier::redeploy, audit gate S79 fix) so the
+    // fork->edit->iterate authoring loop is sealed identically; the neutral
+    // daemon never runs it (runtime CSP is the unconditional frontier).
     let fg_csp = gates::run_gate_csp_authoring(workspace)?;
     eprintln!("{fg_csp}");
     if !fg_csp.passed {
