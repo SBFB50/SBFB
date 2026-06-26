@@ -47,6 +47,21 @@ Rust + self-check runtime + couche docs-contrat. 8 phases feature (A–H) + Phas
 
 ## 3. Carries à escalader
 
+- **P1 — Gate CSP `run_gate_csp_authoring` non câblé sur `redeploy` /
+  `deploy-workspace` / `deploy-from-repo`** (NOUVEAU — trouvé par l'audit gate S79,
+  cf. `sprint79_audit_findings.md` §P1-1). Le gate « non-délégable » n'est appelé
+  qu'à `pipeline.rs:52` (verbe `publish`) ; `atelier.rs:70 redeploy()` (cœur de la
+  boucle d'authoring fork→edit→iterate) et les routes daemon `deploy.rs:65/233`
+  publient des octets d'app SANS rejouer le gate. La claim Day-0 #1 « scellage 100 %
+  Factory » est matériellement fausse pour la boucle de redeploy. **Atténué** : la CSP
+  runtime blob-serve (`csp.rs:33`, inchangée, `connect-src 'none'`) reste la frontière
+  d'isolation effective — pas d'évasion réseau. **Tension décision gelée** : câbler le
+  gate *côté daemon* contredirait « Factory = outil client externe, hors daemon » (D2).
+  **À trancher PO en Phase 0 S80** : (a) fix client-side `redeploy` (appeler le gate
+  dans `atelier::redeploy` avant POST) ± (b) amendement assumé de la formulation Day-0
+  (« le gate Factory est un lint d'auteur best-effort sur les verbes de publish du
+  client ; le daemon neutre applique la CSP runtime inconditionnellement »). Condition
+  du CONDITIONAL PASS S79.
 - **P1 — Sharding S77 PROVISIONAL** (toujours ouvert) : orchestrateur de session
   in-vivo + benchmark live cross-machine 2-machines = RIG-ABSENT. Factory-first a
   différé S78 ; cf. `sprint78_audit_plan.md` §7/§10. Décider S80 : ouvrir
