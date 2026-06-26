@@ -118,6 +118,10 @@ logs/
 # the cargo workspace).
 .planning/audit_sprint2/
 
+# Session terminal recordings (.cast asciicast) emitted by the
+# narration hook — ephemeral, regenerated per session, not repo content.
+.planning/terminal/
+
 # === Sprint 20 open — P2-2 NOISE coverage (audit S19 finding) ===
 # Untracked root files documented as pre-launch hors-scope dans
 # sprint19_audit_findings.md §Track F + Phase F commit body. These

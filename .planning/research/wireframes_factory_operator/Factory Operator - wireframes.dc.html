@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+</style>
+</helmet>
+
+<!-- ============================ TITRE ============================ -->
+<div style="position:absolute;left:80px;top:48px;width:820px">
+  <div style="font:600 23px/1.2 'Helvetica Neue',Helvetica,system-ui,sans-serif;letter-spacing:.01em;color:#2b2b29">Factory Operator — wireframes low-fi</div>
+  <div style="margin-top:9px;font:400 13px/1.6 'Helvetica Neue',Helvetica,system-ui,sans-serif;color:#6e6e68;max-width:720px">Établi bi-focal souverain (outil de dev local privilégié). Un <b style="color:#3a3a36;font-weight:600">rail d'orientation permanent</b> + une <b style="color:#3a3a36;font-weight:600">scène mono-focale</b> qui ne montre qu'UN mode à la fois — <b style="color:#3a3a36;font-weight:600">STEER</b> ⇄ <b style="color:#3a3a36;font-weight:600">VERIFY</b>. Blueprint structurel : <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;color:#3a3a36">mono = artefact machine</span>, sans = intention humaine. Couleur = signal d'état uniquement.</div>
+</div>
+
+<!-- ============================ LÉGENDE SYSTÈME ============================ -->
+<div style="position:absolute;left:80px;top:206px;width:1320px">
+  <div data-drags-parent="1" style="position:absolute;top:-22px;left:1px;font:600 10.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#8f8f8a">Légende — conventions du blueprint</div>
+  <div style="display:flex;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05)">
+
+    <div style="flex:1;padding:14px 16px;border-right:1px solid #ddddd7">
+      <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:10px">Dualité typo = langage</div>
+      <div style="font:500 13px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">Préparer la phase</div>
+      <div style="font:400 9px/1 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96;margin:2px 0 9px">sans · intention / prose</div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#2b2b29">a7f3c9 · git diff · gate</div>
+      <div style="font:400 9px/1 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96;margin-top:2px">mono · preuve / machine</div>
+    </div>
+
+    <div style="flex:1.4;padding:14px 16px;border-right:1px solid #ddddd7">
+      <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:10px">Signaux d'état (couleur = sens)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 10px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px">
+        <span style="color:#3f7d4e">✓ passed</span>
+        <span style="color:#8a8a86">• en attente</span>
+        <span style="color:#a03c36">BLOQUANT</span>
+        <span style="color:#ab6f1e">2 issues</span>
+        <span style="color:#9c9c96">— non exécuté</span>
+        <span style="color:#3a6491">i info</span>
+      </div>
+      <div style="font:400 10px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96;margin-top:9px">neutre = absence de couleur. Jamais aplati en vert/rouge binaire.</div>
+    </div>
+
+    <div style="flex:1.1;padding:14px 16px;border-right:1px solid #ddddd7">
+      <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:10px">États honnêtes = 1re classe</div>
+      <div style="display:flex;flex-direction:column;gap:5px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#7a7a74">
+        <span style="color:#ab6f1e">PROVISIONAL</span>
+        <span>Not evidenced</span>
+        <span>non exécuté</span>
+        <span style="color:#a03c36">RIG-ABSENT</span>
+      </div>
+    </div>
+
+    <div style="flex:1.1;padding:14px 16px;border-right:1px solid #ddddd7">
+      <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:10px">Surface consultative</div>
+      <div style="border:1px dashed #bcbcb6;border-radius:2px;padding:9px 10px;background:transparent">
+        <div style="font:400 11px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#a6a6a0">suggestion de l'IA / knowledge</div>
+        <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#a6a6a0;margin-top:5px">consultatif — non autoritaire</div>
+      </div>
+      <div style="font:400 9.5px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96;margin-top:7px">contraste réduit · pointillé · jamais de coche verte</div>
+    </div>
+
+    <div style="flex:1.2;padding:14px 16px">
+      <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:10px">Règles & interdits</div>
+      <div style="font:400 11px/1.7 'Helvetica Neue',Helvetica,sans-serif;color:#6e6e68">séparation par la <b style="font-weight:600;color:#3a3a36">ligne</b>, pas l'ombre SaaS</div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.7;color:#a03c36;margin-top:6px">✕ IDE / éditeur-au-centre<br>✕ dashboard / KPI / graphes<br>✕ Approve · Merge · PASS<br>✕ coche verte « Vérifié »<br>✕ auto-bascule en stream</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============================ 01 · SHELL ============================ -->
+<div style="position:absolute;left:80px;top:392px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#56564f"><span style="color:#b3b3ab">01</span>&nbsp;&nbsp;&nbsp;Shell + rail d'orientation&nbsp;&nbsp;<span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-weight:400;letter-spacing:0;text-transform:none;color:#a6a6a0;font-size:11px">— toujours visible · n'entre jamais en transition</span></div>
+
+<div style="position:absolute;left:80px;top:430px;width:1000px">
+  <div data-drags-parent="1" style="position:absolute;top:-22px;left:1px;font:600 10.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.06em;color:#8f8f8a">Shell — état canonique (MODE STEER actif)</div>
+  <div style="display:flex;height:574px;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+
+    <!-- ============ RAIL VERTICAL GAUCHE ============ -->
+    <div style="width:212px;flex:0 0 212px;background:#ecece8;border-right:1px solid #cdcdc7;padding:14px 13px;display:flex;flex-direction:column;gap:15px">
+
+      <!-- sélecteur MODE -->
+      <div style="display:flex;flex-direction:column;gap:7px">
+        <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#9c9c96">mode focal</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 11px;background:#2b2b29;border:1px solid #2b2b29;border-radius:2px">
+          <span style="font:600 13px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.03em;color:#f4f4f1">STEER</span>
+          <span style="font:400 9px/1 'Helvetica Neue',Helvetica,sans-serif;color:#aeaea7">exprimer · observer</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 11px;background:transparent;border:1px solid #c2c2bc;border-radius:2px">
+          <span style="font:600 13px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.03em;color:#6e6e68">VERIFY</span>
+          <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#3a6491">1 diff prêt ›</span>
+        </div>
+        <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">bascule manuelle · jamais auto</div>
+      </div>
+
+      <div style="border-top:1px solid #d8d8d2"></div>
+
+      <!-- orientation ambiante -->
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:4px">sprint · phase</div>
+          <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#2b2b29">80 · Phase 3 — Steering</div>
+        </div>
+        <div>
+          <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:4px">branche</div>
+          <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#2b2b29">feat/seal-preview</div>
+        </div>
+        <div>
+          <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:4px">arbre de travail</div>
+          <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#2b2b29"><span style="color:#3a6491">●</span> 7 modifiés · 2 indexés</div>
+        </div>
+        <div>
+          <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:4px">gates</div>
+          <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#2b2b29"><span style="color:#9c9c96">◑</span> <span style="color:#3f7d4e">4✓</span> <span style="color:#8a8a86">1•</span></div>
+        </div>
+        <div>
+          <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:4px">agent <span style="font-weight:400;letter-spacing:0;text-transform:none">— attribut discret</span></div>
+          <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#2b2b29">claude-code ▾</div>
+        </div>
+      </div>
+
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:4px">
+        <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#8a8a86">loopback :7878 · token <span style="color:#3f7d4e">✓</span></div>
+        <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#b0b0aa">factory-operator · v0</div>
+      </div>
+    </div>
+
+    <!-- ============ SCÈNE MONO-FOCALE (STEER) ============ -->
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid #d8d8d2">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#2b2b29;display:inline-block"></span>
+          <span style="font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">STEER</span>
+          <span style="font:400 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">— exprimer une intention, observer l'agent</span>
+        </div>
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#9c9c96">session · en cours</span>
+      </div>
+
+      <!-- composeur -->
+      <div style="padding:17px 18px;display:flex;flex-direction:column;gap:13px;border-bottom:1px solid #d8d8d2">
+        <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96">composeur d'intention</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span style="padding:7px 12px;border:1px solid #b6b6b0;border-radius:2px;font:500 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29;background:#fff">Préparer la phase</span>
+          <span style="padding:7px 12px;border:1px solid #c2c2bc;border-radius:2px;font:500 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Vérifier avant validation</span>
+          <span style="padding:7px 12px;border:1px solid #c2c2bc;border-radius:2px;font:500 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Transmettre à un autre agent</span>
+        </div>
+        <div style="border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:12px 13px;min-height:52px">
+          <span style="font:400 13px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96">Décrivez l'intention en clair… « scelle l'aperçu pour qu'il rende l'app réelle »</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:16px">
+            <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#6e6e68">agent: claude-code ▾</span>
+            <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#9c9c96">▸ détails techniques</span>
+          </div>
+          <span style="padding:9px 15px;background:#2b2b29;border-radius:2px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#f4f4f1">Lancer l'intention</span>
+        </div>
+      </div>
+
+      <!-- atelier observable -->
+      <div style="padding:16px 18px;display:flex;flex-direction:column;gap:11px;flex:1;background:#fbfbf9">
+        <div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96">atelier observable</div>
+        <div style="border:1px solid #ddddd7;background:#fcfcfb;border-radius:2px;padding:11px 13px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;line-height:1.8;color:#6e6e68">
+          <div><span style="color:#3a6491">agent</span> lit la phase · analyse <span style="color:#2b2b29">src/seal_preview.rs</span></div>
+          <div>propose un rendu scellé pour l'aperçu de vérification</div>
+          <div><span style="color:#2b2b29">▌</span> écrit le diff…&nbsp;&nbsp;<span style="color:#3f7d4e">● en cours</span></div>
+        </div>
+        <div style="border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:10px 13px;display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:11px">
+            <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">édition</span>
+            <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#2b2b29">src/seal_preview.rs</span>
+            <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px"><span style="color:#3f7d4e">+18</span> <span style="color:#a03c36">−4</span></span>
+          </div>
+          <span style="font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#3a6491">voir le diff →</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- post-its shell -->
+<div style="position:absolute;left:1110px;top:470px;width:220px;background:#fbf3c4;border:1px solid #e6d98f;border-radius:1px;padding:11px 12px;box-shadow:0 1px 2px rgba(0,0,0,.06);transform:rotate(-1deg);font:400 11px/1.45 'Helvetica Neue',Helvetica,sans-serif;color:#5a5436">Le <b style="font-weight:600">rail</b> est ambiant et permanent : il ne fait jamais partie d'une transition. Orientation seule — pas un arbre de fichiers.</div>
+<div style="position:absolute;left:1110px;top:600px;width:220px;background:#fbf3c4;border:1px solid #e6d98f;border-radius:1px;padding:11px 12px;box-shadow:0 1px 2px rgba(0,0,0,.06);transform:rotate(1deg);font:400 11px/1.45 'Helvetica Neue',Helvetica,sans-serif;color:#5a5436"><b style="font-weight:600">Scène mono-focale</b> : exactement une chose focale, étiquetée. Pas de tri-panneaux, pas de board multi-agents.</div>
+<div style="position:absolute;left:1110px;top:730px;width:220px;background:#fbf3c4;border:1px solid #e6d98f;border-radius:1px;padding:11px 12px;box-shadow:0 1px 2px rgba(0,0,0,.06);transform:rotate(-.6deg);font:400 11px/1.45 'Helvetica Neue',Helvetica,sans-serif;color:#5a5436">Le <b style="font-weight:600">provider</b> (claude-code / ollama / réseau) est un attribut discret dans le rail — jamais une UI séparée.</div>
+
+
+<!-- ============================ 02 · MODE STEER ============================ -->
+<div style="position:absolute;left:80px;top:1064px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#56564f"><span style="color:#b3b3ab">02</span>&nbsp;&nbsp;&nbsp;Mode STEER&nbsp;&nbsp;<span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-weight:400;letter-spacing:0;text-transform:none;color:#a6a6a0;font-size:11px">— exprimer une intention · observer l'agent · 2 variantes × états</span></div>
+
+<!-- Variante A group -->
+<div style="position:absolute;left:80px;top:1106px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#7a7a74">Variante A &nbsp;<span style="font-weight:400;letter-spacing:0;text-transform:none;color:#9c9c96">— composeur en haut · atelier observable en bas</span></div>
+
+<!-- A · vide -->
+<div style="position:absolute;left:80px;top:1148px;width:450px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">A · état vide / idle</div>
+  <div style="height:474px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px;border-bottom:1px solid #d8d8d2">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">● STEER</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">vide · aucune session</span>
+    </div>
+    <div style="padding:13px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #d8d8d2">
+      <div style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96">composeur d'intention</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span style="padding:5px 9px;border:1px solid #b6b6b0;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29;background:#fff">Préparer la phase</span>
+        <span style="padding:5px 9px;border:1px solid #c2c2bc;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Vérifier avant validation</span>
+        <span style="padding:5px 9px;border:1px solid #c2c2bc;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Transmettre à un agent</span>
+      </div>
+      <div style="border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:10px 11px;min-height:42px;font:400 12px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96">Décrivez l'intention en clair…</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;color:#9c9c96">agent: claude-code ▾&nbsp;&nbsp;▸ détails techniques</span>
+        <span style="padding:7px 11px;background:#d6d6d0;border-radius:2px;font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96">Lancer l'intention</span>
+      </div>
+    </div>
+    <div style="padding:13px;display:flex;flex-direction:column;gap:9px;flex:1;background:#fbfbf9">
+      <div style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96">atelier observable</div>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;border:1px dashed #cdcdc7;border-radius:2px;padding:14px;text-align:center;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.6;color:#9c9c96">aucune session active —<br>exprimez une intention<br>pour commencer</div>
+    </div>
+  </div>
+</div>
+
+<!-- A · en cours -->
+<div style="position:absolute;left:560px;top:1148px;width:450px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">A · en cours / streaming</div>
+  <div style="height:474px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px;border-bottom:1px solid #d8d8d2">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">● STEER</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#3f7d4e">● l'agent travaille</span>
+    </div>
+    <div style="padding:13px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #d8d8d2">
+      <div style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96">composeur d'intention</div>
+      <div style="border:1px solid #b6b6b0;background:#fff;border-radius:2px;padding:10px 11px;min-height:42px;font:400 12px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">Scelle l'aperçu pour qu'il rende l'app réelle.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;color:#6e6e68">agent: claude-code ▾&nbsp;&nbsp;<span style="color:#9c9c96">▸ détails techniques</span></span>
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;color:#9c9c96">⏸ relancer · interrompre</span>
+      </div>
+    </div>
+    <div style="padding:13px;display:flex;flex-direction:column;gap:9px;flex:1;background:#fbfbf9">
+      <div style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96">atelier observable</div>
+      <div style="flex:1;border:1px solid #ddddd7;background:#fcfcfb;border-radius:2px;padding:11px 12px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.85;color:#6e6e68">
+        <div><span style="color:#3a6491">agent</span> lit la phase 3</div>
+        <div>analyse <span style="color:#2b2b29">src/seal_preview.rs</span></div>
+        <div>repère le point d'insertion du scellé</div>
+        <div>écrit la fonction <span style="color:#2b2b29">seal_render()</span></div>
+        <div><span style="color:#2b2b29">▌</span> applique l'édition…&nbsp;<span style="color:#3f7d4e">● en cours</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- A · cartes + détails -->
+<div style="position:absolute;left:1040px;top:1148px;width:450px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">A · cartes tool-call · détails techniques ouverts</div>
+  <div style="height:474px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px;border-bottom:1px solid #d8d8d2">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">● STEER</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">2 éditions · terminé</span>
+    </div>
+    <div style="padding:13px;display:flex;flex-direction:column;gap:9px;border-bottom:1px solid #d8d8d2">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96">composeur · détails techniques</span>
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">▾ replier</span>
+      </div>
+      <div style="border:1px solid #d8d8d2;background:#f1f1ee;border-radius:2px;padding:9px 11px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;line-height:1.75;color:#6e6e68">
+        <div>kind&nbsp;&nbsp;&nbsp;&nbsp;= edit.apply</div>
+        <div>provider = claude-code</div>
+        <div>preflight = <span style="color:#3f7d4e">ok</span> · arbre propre</div>
+        <div>pack&nbsp;&nbsp;&nbsp;&nbsp;= sha256:9f3a…c7 <span style="color:#3a6491">⧉</span></div>
+      </div>
+    </div>
+    <div style="padding:13px;display:flex;flex-direction:column;gap:8px;flex:1;background:#fbfbf9">
+      <div style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96">atelier — cartes tool-call</div>
+      <div style="border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:9px 11px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#2b2b29">src/seal_preview.rs&nbsp;&nbsp;<span style="color:#3f7d4e">+18</span> <span style="color:#a03c36">−4</span></span>
+        <span style="font:500 10px/1 'Helvetica Neue',Helvetica,sans-serif;color:#3a6491">voir le diff →</span>
+      </div>
+      <div style="border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:9px 11px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#2b2b29">preview/mod.ts&nbsp;&nbsp;<span style="color:#3f7d4e">+6</span> <span style="color:#9c9c96">−0</span></span>
+        <span style="font:500 10px/1 'Helvetica Neue',Helvetica,sans-serif;color:#3a6491">voir le diff →</span>
+      </div>
+      <div style="margin-top:auto;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;color:#6e6e68"><span style="color:#3f7d4e">●</span> terminé · prêt à examiner → <span style="color:#3a6491">bascule VERIFY</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Variante B group -->
+<div style="position:absolute;left:80px;top:1646px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#7a7a74">Variante B &nbsp;<span style="font-weight:400;letter-spacing:0;text-transform:none;color:#9c9c96">— atelier dominant · intention repliée en dock invocable</span></div>
+
+<!-- B · atelier dominant -->
+<div style="position:absolute;left:80px;top:1688px;width:450px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">B · atelier dominant · dock replié</div>
+  <div style="height:430px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px;border-bottom:1px solid #d8d8d2">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">● STEER</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">flux agent · plein cadre</span>
+    </div>
+    <div style="padding:13px;display:flex;flex-direction:column;gap:8px;flex:1;background:#fbfbf9;overflow:hidden">
+      <div style="border:1px solid #ddddd7;background:#fcfcfb;border-radius:2px;padding:11px 12px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.8;color:#6e6e68">
+        <div><span style="color:#3a6491">agent</span> analyse · écrit · teste localement</div>
+        <div>applique <span style="color:#2b2b29">seal_render()</span> + garde-fou</div>
+        <div><span style="color:#2b2b29">▌</span> <span style="color:#3f7d4e">● en cours</span></div>
+      </div>
+      <div style="border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:9px 11px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#2b2b29">src/seal_preview.rs&nbsp;&nbsp;<span style="color:#3f7d4e">+18</span> <span style="color:#a03c36">−4</span></span>
+        <span style="font:500 10px/1 'Helvetica Neue',Helvetica,sans-serif;color:#3a6491">voir →</span>
+      </div>
+      <div style="border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:9px 11px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#2b2b29">preview/mod.ts&nbsp;&nbsp;<span style="color:#3f7d4e">+6</span> <span style="color:#9c9c96">−0</span></span>
+        <span style="font:500 10px/1 'Helvetica Neue',Helvetica,sans-serif;color:#3a6491">voir →</span>
+      </div>
+    </div>
+    <div style="border-top:1px solid #d8d8d2;padding:11px 13px;display:flex;align-items:center;justify-content:space-between;background:#f1f1ee">
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#6e6e68">▸ exprimer une intention…</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">claude-code ▾</span>
+    </div>
+  </div>
+</div>
+
+<!-- B · dock étendu -->
+<div style="position:absolute;left:560px;top:1688px;width:450px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">B · dock d'intention invoqué (atelier atténué)</div>
+  <div style="height:430px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px;border-bottom:1px solid #d8d8d2">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">● STEER</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">composeur invoqué</span>
+    </div>
+    <div style="padding:13px;display:flex;flex-direction:column;gap:8px;flex:1;background:#fbfbf9;opacity:.4">
+      <div style="border:1px solid #ddddd7;background:#fcfcfb;border-radius:2px;padding:11px 12px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.8;color:#6e6e68">
+        <div>agent analyse · écrit · teste localement</div>
+        <div>applique seal_render() + garde-fou</div>
+      </div>
+      <div style="border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:9px 11px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#2b2b29">src/seal_preview.rs +18 −4</div>
+    </div>
+    <div style="border-top:1px solid #b6b6b0;padding:13px;display:flex;flex-direction:column;gap:9px;background:#f6f6f4">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span style="padding:5px 9px;border:1px solid #b6b6b0;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29;background:#fff">Préparer la phase</span>
+        <span style="padding:5px 9px;border:1px solid #c2c2bc;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Vérifier avant validation</span>
+        <span style="padding:5px 9px;border:1px solid #c2c2bc;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Transmettre</span>
+      </div>
+      <div style="border:1px solid #b6b6b0;background:#fff;border-radius:2px;padding:9px 11px;min-height:38px;font:400 12px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96">Décrivez l'intention en clair…</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;color:#6e6e68">agent: claude-code ▾&nbsp;&nbsp;<span style="color:#9c9c96">▸ détails</span></span>
+        <span style="padding:7px 11px;background:#2b2b29;border-radius:2px;font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#f4f4f1">Lancer l'intention</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 03 · LE MUR ============================ -->
+<div style="position:absolute;left:80px;top:2186px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#56564f"><span style="color:#b3b3ab">03</span>&nbsp;&nbsp;&nbsp;Le MUR de gouvernance&nbsp;&nbsp;<span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-weight:400;letter-spacing:0;text-transform:none;color:#a6a6a0;font-size:11px">— intention sensible (commit · push · shell · valider) → barrière, pas bouton</span></div>
+
+<div style="position:absolute;left:80px;top:2228px;width:600px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">STEER → carte-MUR centrée · scène atténuée</div>
+  <div style="position:relative;height:498px;border:1px solid #cdcdc7;border-radius:2px;background:#f6f6f4;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+
+    <!-- scène atténuée derrière -->
+    <div style="opacity:.38">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid #d8d8d2">
+        <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">● STEER</span>
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">session · idle</span>
+      </div>
+      <div style="padding:15px;display:flex;flex-direction:column;gap:11px">
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <span style="padding:6px 10px;border:1px solid #c2c2bc;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Préparer la phase</span>
+          <span style="padding:6px 10px;border:1px solid #c2c2bc;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Vérifier avant validation</span>
+        </div>
+        <div style="border:1px solid #b6b6b0;background:#fff;border-radius:2px;padding:11px;font:400 12px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">Valide la phase 3, commit et pousse sur la branche.</div>
+        <div style="height:80px;border:1px solid #ddddd7;background:#fcfcfb;border-radius:2px"></div>
+      </div>
+    </div>
+
+    <!-- scrim -->
+    <div style="position:absolute;inset:0;background:rgba(243,242,238,.62)"></div>
+
+    <!-- carte MUR -->
+    <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;background:#fbf7ef;border:1.5px solid #c08a2e;border-radius:3px;box-shadow:0 8px 30px rgba(60,45,15,.16);padding:22px 22px 18px">
+      <div style="width:30px;height:34px;position:relative;margin-bottom:10px">
+        <div style="position:absolute;left:7px;top:2px;width:16px;height:13px;border:2px solid #b07320;border-bottom:none;border-radius:8px 8px 0 0"></div>
+        <div style="position:absolute;left:3px;top:12px;width:24px;height:19px;border:2px solid #b07320;border-radius:2px;background:#f4e6cb"></div>
+      </div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#b07320;margin-bottom:7px">intention sensible · barrière de gouvernance</div>
+      <div style="font:600 15px/1.35 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29;margin-bottom:9px">Cette intention exige une vraie session agent.</div>
+      <div style="font:400 12px/1.55 'Helvetica Neue',Helvetica,sans-serif;color:#5a5a54;margin-bottom:14px">Commit, push, shell et validation ne s'exécutent jamais depuis le composeur. Ils passent par une session tracée qui produit gates et preuves.</div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">la session produira et exigera</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#5a5a54;margin-bottom:16px;padding-left:2px">
+        <div><span style="color:#b07320">•</span>&nbsp; session agent <span style="color:#9c9c96">(tracée)</span></div>
+        <div><span style="color:#b07320">•</span>&nbsp; gates <span style="color:#9c9c96">(diagnostic)</span></div>
+        <div><span style="color:#b07320">•</span>&nbsp; preuves <span style="color:#9c9c96">(provenance)</span></div>
+        <div><span style="color:#b07320">•</span>&nbsp; signataire</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px">
+        <span style="padding:11px 16px;background:#2b2b29;border-radius:2px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#f4f4f1">Préparer le pack pour la session</span>
+        <span style="font:500 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Retour</span>
+      </div>
+      <div style="margin-top:14px;padding-top:11px;border-top:1px solid #e6dcc4;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#a8895a">— aucun « Forcer » · aucun « Override » · aucun « Exécuter quand même » —</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- post-it MUR -->
+<div style="position:absolute;left:720px;top:2250px;width:230px;background:#fbf3c4;border:1px solid #e6d98f;border-radius:1px;padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,.06);transform:rotate(.8deg);font:400 11px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5436">Le MUR est une <b style="font-weight:600">vraie barrière visuelle</b>, pas un bouton. C'est l'avance de SBFB sur Cursor / Windsurf : on l'<b style="font-weight:600">expose</b>, on ne la dilue pas.<br><br>Une seule issue : <i>préparer le pack</i>. Jamais de contournement.</div>
+<div style="position:absolute;left:720px;top:2430px;width:230px;background:#eef1f4;border:1px solid #c4d0db;border-radius:1px;padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,.06);transform:rotate(-.8deg);font:400 11px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#3f4a55"><b style="font-weight:600">Déclencheurs du MUR :</b> toute intention qui touche <span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:10px">commit · push · shell · valider</span>. Les intentions sûres (préparer, analyser) ne le rencontrent jamais.</div>
+
+<!-- ============================ 04 · MODE VERIFY ============================ -->
+<div style="position:absolute;left:80px;top:2786px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#56564f"><span style="color:#b3b3ab">04</span>&nbsp;&nbsp;&nbsp;Mode VERIFY&nbsp;&nbsp;<span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-weight:400;letter-spacing:0;text-transform:none;color:#a6a6a0;font-size:11px">— l'investissement central · diff · gates · aperçu scellé · preuve · consommée jamais autoritaire</span></div>
+
+<!-- slot ÉTAT global -->
+<div style="position:absolute;left:80px;top:2842px;width:1640px;background:#f1f1ee;border:1px solid #cdcdc7;border-left:3px solid #3a6491;border-radius:2px;padding:11px 15px;display:flex;align-items:center;gap:16px;box-shadow:0 1px 2px rgba(0,0,0,.05)">
+  <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#3a6491;white-space:nowrap">slot ÉTAT global</span>
+  <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#2b2b29">En attente de session agent — <span style="color:#3f7d4e">4✓</span> <span style="color:#8a8a86">1•</span> · <span style="color:#9c9c96">0 verdict auto-clos</span></span>
+  <span style="margin-left:auto;font:400 11px/1.3 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96;white-space:nowrap">ne dit JAMAIS « PASS ✓ » — l'UI ne calcule aucun verdict</span>
+</div>
+
+<!-- Variante A group -->
+<div style="position:absolute;left:80px;top:2914px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#7a7a74">Variante A &nbsp;<span style="font-weight:400;letter-spacing:0;text-transform:none;color:#9c9c96">— onglets pleins · une surface focale, l'onglet actif change</span></div>
+
+<!-- A · onglet DIFF -->
+<div style="position:absolute;left:80px;top:2956px;width:520px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">onglet DIFF · diff prêt</div>
+  <div style="height:560px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">◆ VERIFY</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">en attente de session · <span style="color:#3f7d4e">4✓</span> <span style="color:#8a8a86">1•</span></span>
+    </div>
+    <div style="display:flex;gap:18px;padding:0 13px;border-bottom:1px solid #d8d8d2">
+      <span style="padding:7px 0;border-bottom:2px solid #2b2b29;font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">Diff</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Gates</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Aperçu scellé</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Preuve</span>
+    </div>
+    <div style="padding:11px 13px 8px;border-bottom:1px solid #e2e2dc">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 7px;background:#ecece8;border-radius:2px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#2b2b29">
+        <span>src/seal_preview.rs &nbsp;<span style="color:#3f7d4e">+18</span> <span style="color:#a03c36">−4</span></span><span style="color:#9c9c96">‹ sélectionné</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 7px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#6e6e68">
+        <span>preview/mod.ts &nbsp;<span style="color:#3f7d4e">+6</span> <span style="color:#9c9c96">−0</span></span>
+      </div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96;margin-top:5px">source : git diff (lecture seule) · la vérité, pas un buffer</div>
+    </div>
+    <div style="flex:1;padding:10px 13px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.65;color:#6e6e68;overflow:hidden">
+      <div style="color:#9c9c96">@@ seal_preview.rs · hunk 1/2 @@</div>
+      <div>&nbsp;fn render(app) {</div>
+      <div style="background:#f7edeb;color:#a03c36">−&nbsp;&nbsp;&nbsp;return raw(app)</div>
+      <div style="background:#edf4ee;color:#3f7d4e">+&nbsp;&nbsp;&nbsp;return seal(render(app))</div>
+      <div style="background:#edf4ee;color:#3f7d4e">+&nbsp;&nbsp;&nbsp;// garde-fou : rendu scellé</div>
+      <div>&nbsp;}</div>
+      <div style="display:flex;gap:8px;margin-top:11px">
+        <span style="padding:6px 10px;border:1px solid #b6b6b0;border-radius:2px;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:10.5px;font-weight:500;color:#2b2b29;background:#fff">Transmettre la correction →</span>
+        <span style="padding:6px 10px;border:1px solid #c2c2bc;border-radius:2px;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:10.5px;font-weight:500;color:#4a4a45;background:#fff">Signaler ce hunk</span>
+      </div>
+      <div style="margin-top:9px;font-size:9px;color:#9c9c96">actions = intentions routées à la session — jamais Approve / Merge / Commit</div>
+    </div>
+  </div>
+</div>
+
+<!-- A · onglet GATES (états honnêtes) -->
+<div style="position:absolute;left:640px;top:2956px;width:520px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">onglet GATES · états honnêtes (jamais aplatis)</div>
+  <div style="height:560px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">◆ VERIFY</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">aucun verdict auto-clos</span>
+    </div>
+    <div style="display:flex;gap:18px;padding:0 13px;border-bottom:1px solid #d8d8d2">
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Diff</span>
+      <span style="padding:7px 0;border-bottom:2px solid #2b2b29;font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">Gates</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Aperçu scellé</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Preuve</span>
+    </div>
+    <div style="flex:1;padding:6px 13px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#2b2b29;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>build</span><span style="color:#3f7d4e">✓ passed</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>unit</span><span style="color:#3f7d4e">✓ passed</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>lint</span><span style="color:#3f7d4e">✓ passed</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>typecheck</span><span style="color:#3f7d4e">✓ passed</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>repro-build <span style="color:#9c9c96;font-size:9px">· requiert session</span></span><span style="color:#8a8a86">• en attente</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>seal-verify <span style="color:#9c9c96;font-size:9px">· aperçu non scellé</span></span><span style="color:#a03c36">BLOQUANT</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>provenance <span style="color:#9c9c96;font-size:9px">· 2 couches</span></span><span style="color:#ab6f1e">2 issues</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>license-scan</span><span style="color:#9c9c96">— non exécuté</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>e2e</span><span style="color:#ab6f1e">PROVISIONAL</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e6e6e0"><span>coverage</span><span style="color:#9c9c96">Not evidenced</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0"><span>sbom <span style="color:#9c9c96;font-size:9px">· rig indisponible</span></span><span style="color:#a03c36">RIG-ABSENT</span></div>
+    </div>
+    <div style="padding:8px 13px;border-top:1px solid #d8d8d2;background:#f1f1ee;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">aucun agrégat · aucun « PASS » global · chaque gate garde son état</div>
+  </div>
+</div>
+
+<!-- A · onglet APERÇU SCELLÉ -->
+<div style="position:absolute;left:1200px;top:2956px;width:520px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">onglet APERÇU SCELLÉ · iframe rendu réel</div>
+  <div style="height:560px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">◆ VERIFY</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">rendu scellé · lecture seule</span>
+    </div>
+    <div style="display:flex;gap:18px;padding:0 13px;border-bottom:1px solid #d8d8d2">
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Diff</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Gates</span>
+      <span style="padding:7px 0;border-bottom:2px solid #2b2b29;font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">Aperçu scellé</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Preuve</span>
+    </div>
+    <div style="flex:1;padding:13px;display:flex;flex-direction:column;gap:9px">
+      <div style="position:relative;flex:1;border:1px solid #c2c2bc;border-radius:2px;background:#fff;overflow:hidden">
+        <div style="position:absolute;right:8px;top:8px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#3a6491;border:1px solid #c4d0db;background:#eef1f4;border-radius:2px;padding:2px 6px">⊚ scellé</div>
+        <div style="height:26px;border-bottom:1px solid #e6e6e0;background:#fafaf8;display:flex;align-items:center;padding:0 10px;gap:6px"><span style="width:30px;height:7px;background:#deded8;border-radius:1px"></span><span style="width:46px;height:7px;background:#e8e8e2;border-radius:1px"></span></div>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:9px">
+          <div style="width:60%;height:13px;background:#e2e2dc;border-radius:1px"></div>
+          <div style="width:90%;height:7px;background:#ececE6;border-radius:1px"></div>
+          <div style="width:82%;height:7px;background:#ececE6;border-radius:1px"></div>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <div style="width:78px;height:30px;border:1px solid #d8d8d2;border-radius:2px"></div>
+            <div style="width:78px;height:30px;border:1px solid #d8d8d2;border-radius:2px"></div>
+          </div>
+          <div style="margin-top:auto;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;color:#bcbcb6;text-align:center;padding-top:10px">— rendu réel de l'app produite —</div>
+        </div>
+      </div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;color:#6e6e68">render-seal : sha256:4b1e…a9 &nbsp;<span style="color:#3a6491">⧉</span></div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">scellé = le rendu ne peut être altéré entre build et examen</div>
+    </div>
+  </div>
+</div>
+
+<!-- Variante B group -->
+<div style="position:absolute;left:1200px;top:3548px;width:520px;white-space:nowrap;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#7a7a74">Variante B &nbsp;<span style="font-weight:400;letter-spacing:0;text-transform:none;color:#9c9c96">— liste d'artefacts à gauche, état visible</span></div>
+
+<!-- A · onglet PREUVE -->
+<div style="position:absolute;left:80px;top:3588px;width:520px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">onglet PREUVE · provenance décomposée (Sigstore/Rekor)</div>
+  <div style="height:564px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">◆ VERIFY</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">décomposition · jamais un verdict</span>
+    </div>
+    <div style="display:flex;gap:18px;padding:0 13px;border-bottom:1px solid #d8d8d2">
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Diff</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Gates</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Aperçu scellé</span>
+      <span style="padding:7px 0;border-bottom:2px solid #2b2b29;font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">Preuve</span>
+    </div>
+    <div style="flex:1;padding:11px 13px;overflow:hidden">
+      <div style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9c9c96;margin-bottom:7px">chaîne de provenance</div>
+      <div style="border:1px solid #ddddd7;background:#fcfcfb;border-radius:2px;padding:9px 11px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.9;color:#2b2b29">
+        <div>commit&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;a7f3c9e &nbsp;<span style="color:#3a6491">⧉</span></div>
+        <div style="color:#9c9c96;padding-left:6px">↓</div>
+        <div>archive_hash&nbsp;sha256:9f3a…c7 &nbsp;<span style="color:#3a6491">⧉</span></div>
+        <div style="color:#9c9c96;padding-left:6px">↓</div>
+        <div>signataire&nbsp;&nbsp;maintainer@node &nbsp;<span style="color:#9c9c96">clé f1c2…</span></div>
+      </div>
+      <div style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9c9c96;margin:12px 0 6px">couches</div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#2b2b29">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #e6e6e0"><span>base</span><span style="color:#3a6491">attesté · rekor:1342…</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #e6e6e0"><span>provenance</span><span style="color:#3a6491">attesté · slsa-v1</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #e6e6e0"><span>oss</span><span style="color:#ab6f1e">partiel · 3/5 signées</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #e6e6e0"><span>curateurs</span><span style="color:#6e6e68">2 sig · alice, bob</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0"><span>licence</span><span style="color:#6e6e68">MIT · déclaré</span></div>
+      </div>
+      <div style="margin-top:10px;border:1px solid #e6d3b0;background:#fbf6ec;border-radius:2px;padding:8px 10px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;line-height:1.7;color:#9a6f2e">risques / manques :<br><span style="color:#ab6f1e">•</span> 2 dépendances oss non signées<br><span style="color:#ab6f1e">•</span> licence d'1 sous-module : non déclarée</div>
+    </div>
+  </div>
+</div>
+
+<!-- A · état VIDE -->
+<div style="position:absolute;left:640px;top:3588px;width:520px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">état VIDE · aucun diff à examiner</div>
+  <div style="height:564px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#2b2b29">◆ VERIFY</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">aucun diff — rien à examiner</span>
+    </div>
+    <div style="display:flex;gap:18px;padding:0 13px;border-bottom:1px solid #d8d8d2">
+      <span style="padding:7px 0;border-bottom:2px solid #2b2b29;font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8a8a86">Diff</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#bcbcb6">Gates</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#bcbcb6">Aperçu scellé</span>
+      <span style="padding:7px 0;border-bottom:2px solid transparent;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#bcbcb6">Preuve</span>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px;text-align:center">
+      <div style="width:46px;height:46px;border:1.5px dashed #cdcdc7;border-radius:3px"></div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.7;color:#9c9c96">aucun diff à examiner.<br>la session n'a produit aucune édition.</div>
+      <span style="padding:8px 13px;border:1px solid #b6b6b0;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29;background:#fff">‹ Revenir en STEER</span>
+    </div>
+  </div>
+</div>
+
+<!-- B · liste d'artefacts -->
+<div style="position:absolute;left:1200px;top:3588px;width:520px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">B · liste d'artefacts (état visible d'un coup d'œil)</div>
+  <div style="height:564px;display:flex;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="width:172px;flex:0 0 172px;border-right:1px solid #d8d8d2;background:#ecece8;display:flex;flex-direction:column">
+      <div style="padding:9px 12px;border-bottom:1px solid #d8d8d2"><span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">◆ VERIFY</span></div>
+      <div style="padding:8px 0">
+        <div style="padding:9px 12px;display:flex;flex-direction:column;gap:3px"><span style="font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45">Diff</span><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">3 fichiers</span></div>
+        <div style="padding:9px 12px;border-left:2px solid #2b2b29;background:#f6f6f4;display:flex;flex-direction:column;gap:3px"><span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">Gates</span><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96"><span style="color:#3f7d4e">4✓</span> <span style="color:#8a8a86">1•</span> <span style="color:#a03c36">1!</span></span></div>
+        <div style="padding:9px 12px;display:flex;flex-direction:column;gap:3px"><span style="font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45">Aperçu</span><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">scellé</span></div>
+        <div style="padding:9px 12px;display:flex;flex-direction:column;gap:3px"><span style="font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45">Preuve</span><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">5 couches · 2 risques</span></div>
+      </div>
+      <div style="margin-top:auto;padding:10px 12px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;line-height:1.5;color:#9c9c96">en attente de session<br><span style="color:#3f7d4e">4✓</span> <span style="color:#8a8a86">1•</span> · 0 verdict</div>
+    </div>
+    <div style="flex:1;padding:11px 13px;min-width:0">
+      <div style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9c9c96;margin-bottom:8px">Gates — focal</div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#2b2b29">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e6e6e0"><span>build</span><span style="color:#3f7d4e">✓ passed</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e6e6e0"><span>typecheck</span><span style="color:#3f7d4e">✓ passed</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e6e6e0"><span>repro-build</span><span style="color:#8a8a86">• en attente</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e6e6e0"><span>seal-verify</span><span style="color:#a03c36">BLOQUANT</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e6e6e0"><span>e2e</span><span style="color:#ab6f1e">PROVISIONAL</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>sbom</span><span style="color:#a03c36">RIG-ABSENT</span></div>
+      </div>
+      <div style="margin-top:11px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96;line-height:1.6">l'onglet devient une liste : chaque artefact porte son état sans clic.</div>
+    </div>
+  </div>
+</div>
+
+<!-- post-its VERIFY -->
+<div style="position:absolute;left:1750px;top:2958px;width:226px;background:#fbf3c4;border:1px solid #e6d98f;border-radius:1px;padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,.06);transform:rotate(-.8deg);font:400 11px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5436"><b style="font-weight:600">Consommée, jamais autoritaire.</b> L'UI lit gates &amp; preuves, n'en calcule aucun. Aucune coche verte « Vérifié ».</div>
+<div style="position:absolute;left:1750px;top:3110px;width:226px;background:#fbf3c4;border:1px solid #e6d98f;border-radius:1px;padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,.06);transform:rotate(.7deg);font:400 11px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5436"><b style="font-weight:600">3 artefacts co-localisés</b> dans une seule surface focale. L'onglet change le focal — pas de tri-panneaux co-égaux.</div>
+<div style="position:absolute;left:1750px;top:3262px;width:226px;background:#fbf3c4;border:1px solid #e6d98f;border-radius:1px;padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,.06);transform:rotate(-.5deg);font:400 11px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5436"><b style="font-weight:600">Preuve = décomposition.</b> Chaîne + couches + manques. Échos Sigstore/Rekor &amp; F-Droid « reproducible builds visible ».</div>
+
+<!-- ============================ 05 · TERMINAL PTY ============================ -->
+<div style="position:absolute;left:80px;top:4218px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#56564f"><span style="color:#b3b3ab">05</span>&nbsp;&nbsp;&nbsp;Terminal PTY&nbsp;&nbsp;<span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-weight:400;letter-spacing:0;text-transform:none;color:#a6a6a0;font-size:11px">— sous-surface « steering profond » · tiroir bas escamotable</span></div>
+
+<!-- PTY replié -->
+<div style="position:absolute;left:80px;top:4258px;width:560px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">tiroir replié · poignée seule</div>
+  <div style="height:340px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px;border-bottom:1px solid #d8d8d2"><span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">● STEER</span><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">session · en cours</span></div>
+    <div style="flex:1;padding:14px;display:flex;flex-direction:column;gap:9px;background:#fbfbf9">
+      <div style="height:38px;border:1px solid #ddddd7;background:#fcfcfb;border-radius:2px"></div>
+      <div style="border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:9px 11px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#2b2b29">src/seal_preview.rs &nbsp;<span style="color:#3f7d4e">+18</span> <span style="color:#a03c36">−4</span></div>
+    </div>
+    <div style="border-top:1px solid #cdcdc7;background:#ecece8;padding:10px 13px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#6e6e68">⌃ terminal — steering profond</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">⌥T · pour l'expert</span>
+    </div>
+  </div>
+</div>
+
+<!-- PTY ouvert -->
+<div style="position:absolute;left:700px;top:4258px;width:620px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">tiroir ouvert · xterm (PTY)</div>
+  <div style="height:340px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 13px;border-bottom:1px solid #d8d8d2;opacity:.5"><span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">● STEER</span><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#9c9c96">session · en cours</span></div>
+    <div style="height:46px;background:#fbfbf9;opacity:.5;border-bottom:1px solid #d8d8d2"></div>
+    <div style="flex:1;display:flex;flex-direction:column;background:#201f1d;border-top:1px solid #3a3a36">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #34332f">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;color:#b8b8b0">pty · zsh — loopback :7878</span>
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#88887e">⌄ replier</span>
+      </div>
+      <div style="flex:1;padding:11px 12px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.7;color:#cfcfc6">
+        <div><span style="color:#7fae7f">maintainer@node</span> ~/factory %</div>
+        <div>$ cargo test --offline</div>
+        <div style="color:#9a9a90">running 24 tests …</div>
+        <div style="color:#9a9a90">test seal::render_is_sealed … <span style="color:#7fae7f">ok</span></div>
+        <div style="color:#9a9a90">test result: <span style="color:#7fae7f">ok</span> · 24 passed</div>
+        <div><span style="color:#7fae7f">maintainer@node</span> ~/factory % <span style="color:#cfcfc6">▌</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- post-it PTY -->
+<div style="position:absolute;left:1380px;top:4290px;width:226px;background:#fbf3c4;border:1px solid #e6d98f;border-radius:1px;padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,.06);transform:rotate(.8deg);font:400 11px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5436">Le terminal ne <b style="font-weight:600">remplace pas</b> la scène : c'est un tiroir d'appoint pour l'expert. La scène mono-focale reste la règle.</div>
+
+<!-- ============================ 06 · SECONDAIRES ============================ -->
+<div style="position:absolute;left:80px;top:4690px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#56564f"><span style="color:#b3b3ab">06</span>&nbsp;&nbsp;&nbsp;Surfaces secondaires&nbsp;&nbsp;<span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-weight:400;letter-spacing:0;text-transform:none;color:#a6a6a0;font-size:11px">— esquisses · palette + journal · knowledge consultatif · brouillon non-autoritaire</span></div>
+
+<!-- palette + journal -->
+<div style="position:absolute;left:80px;top:4730px;width:470px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">palette d'actions + journal</div>
+  <div style="height:330px;display:flex;flex-direction:column;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden">
+    <div style="padding:11px 13px;border-bottom:1px solid #d8d8d2">
+      <div style="border:1px solid #b6b6b0;background:#fff;border-radius:2px;padding:8px 10px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#9c9c96"><span style="color:#6e6e68">⌘K</span> &nbsp;tape une intention ou une action…</div>
+      <div style="margin-top:8px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;line-height:2;color:#2b2b29">
+        <div><span style="color:#9c9c96">›</span> Préparer la phase</div>
+        <div><span style="color:#9c9c96">›</span> Vérifier avant validation</div>
+        <div><span style="color:#9c9c96">›</span> Ouvrir le terminal &nbsp;<span style="color:#9c9c96">⌥T</span></div>
+        <div><span style="color:#9c9c96">›</span> Transmettre à un autre agent</div>
+      </div>
+    </div>
+    <div style="flex:1;padding:11px 13px;background:#fbfbf9">
+      <div style="font:600 8.5px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#9c9c96;margin-bottom:8px">journal</div>
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.95;color:#6e6e68">
+        <div><span style="color:#9c9c96">14:02</span>&nbsp; intention lancée · seal-preview</div>
+        <div><span style="color:#9c9c96">14:03</span>&nbsp; 2 éditions appliquées</div>
+        <div><span style="color:#9c9c96">14:05</span>&nbsp; bascule → VERIFY</div>
+        <div><span style="color:#9c9c96">14:06</span>&nbsp; gate seal-verify · <span style="color:#a03c36">BLOQUANT</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- knowledge consultatif -->
+<div style="position:absolute;left:580px;top:4730px;width:470px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">inspecteur knowledge · consultatif</div>
+  <div style="height:330px;display:flex;flex-direction:column;background:#f4f4f2;border:1px dashed #bcbcb6;border-radius:2px;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px dashed #cdcdc7">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96">Inspecteur knowledge</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:#a6a6a0;border:1px dashed #c4c4be;border-radius:2px;padding:2px 6px">consultatif · non autoritaire</span>
+    </div>
+    <div style="flex:1;padding:13px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.85;color:#a6a6a0">
+      <div style="margin-bottom:9px;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:10.5px">Sources que l'agent a consultées :</div>
+      <div>○ doc interne · sealing pattern</div>
+      <div>○ adr-012 · provenance layers</div>
+      <div>○ rustdoc · std::process</div>
+      <div style="margin-top:14px;padding-top:10px;border-top:1px dashed #d2d2cc;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:10px;line-height:1.5;color:#9c9c96">N'affecte aucun verdict. Contraste réduit, pointillé — jamais de coche verte.</div>
+    </div>
+  </div>
+</div>
+
+<!-- brouillon non-autoritaire -->
+<div style="position:absolute;left:1080px;top:4730px;width:470px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">brouillon · non-autoritaire</div>
+  <div style="height:330px;display:flex;flex-direction:column;background:#f4f4f2;border:1px dashed #bcbcb6;border-radius:2px;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px dashed #cdcdc7">
+      <span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96">Brouillon de plan — agent</span>
+      <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:#a6a6a0;border:1px dashed #c4c4be;border-radius:2px;padding:2px 6px">non autoritaire</span>
+    </div>
+    <div style="flex:1;padding:13px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;line-height:2;color:#a6a6a0">
+      <div>☐ sceller l'aperçu de rendu</div>
+      <div>☐ ajouter le garde-fou</div>
+      <div>☐ attester la couche base</div>
+      <div>☐ signer l'archive</div>
+      <div style="margin-top:14px;padding-top:10px;border-top:1px dashed #d2d2cc;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:10px;line-height:1.5;color:#9c9c96">Proposition de l'agent — l'humain garde la main. Aucune case ne « valide » quoi que ce soit.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 07 · FLUX BI-FOCAL ============================ -->
+<div style="position:absolute;left:80px;top:5128px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#56564f"><span style="color:#b3b3ab">07</span>&nbsp;&nbsp;&nbsp;Flux de bascule bi-focal&nbsp;&nbsp;<span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-weight:400;letter-spacing:0;text-transform:none;color:#a6a6a0;font-size:11px">— quand &amp; comment on passe STEER ⇄ VERIFY</span></div>
+
+<div style="position:absolute;left:80px;top:5168px;width:1240px">
+  <div data-drags-parent="1" style="position:absolute;top:-21px;left:1px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.05em;color:#8f8f8a">la bascule suit le travail · jamais automatique</div>
+  <div style="background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);padding:26px 28px">
+    <div style="display:flex;align-items:stretch">
+      <!-- STEER node -->
+      <div style="width:288px;flex:0 0 288px;border:1.5px solid #2b2b29;border-radius:3px;padding:16px 17px;background:#eeeeea">
+        <div style="font:600 16px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">STEER &nbsp;<span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:10px;font-weight:400;color:#6e6e68">· défaut</span></div>
+        <div style="margin-top:8px;font:400 12px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5a54">Exprimer une intention, observer l'agent.</div>
+        <div style="margin-top:9px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;line-height:1.7;color:#9c9c96">composeur · atelier observable<br>+ MUR si intention sensible</div>
+      </div>
+
+      <!-- arrows -->
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:34px;padding:0 26px">
+        <div>
+          <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#2b2b29;text-align:center;margin-bottom:6px">quand un diff / gate est prêt</div>
+          <div style="position:relative;height:0;border-top:1.5px solid #2b2b29"><span style="position:absolute;right:-1px;top:-4px;width:0;height:0;border-left:8px solid #2b2b29;border-top:4.5px solid transparent;border-bottom:4.5px solid transparent"></span></div>
+          <div style="font:400 9.5px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96;text-align:center;margin-top:6px">bascule <b style="font-weight:600;color:#6e6e68">manuelle</b> · invitation « 1 diff prêt » dans le rail</div>
+        </div>
+        <div>
+          <div style="font:400 9.5px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96;text-align:center;margin-bottom:6px">« Transmettre la correction » · « Signaler ce hunk »</div>
+          <div style="position:relative;height:0;border-top:1.5px solid #2b2b29"><span style="position:absolute;left:-1px;top:-4px;width:0;height:0;border-right:8px solid #2b2b29;border-top:4.5px solid transparent;border-bottom:4.5px solid transparent"></span></div>
+          <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:#2b2b29;text-align:center;margin-top:6px">routée à la session → retour STEER</div>
+        </div>
+      </div>
+
+      <!-- VERIFY node -->
+      <div style="width:288px;flex:0 0 288px;border:1.5px solid #2b2b29;border-radius:3px;padding:16px 17px">
+        <div style="font:600 16px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">VERIFY</div>
+        <div style="margin-top:8px;font:400 12px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5a54">Examiner le diff, lire les gates, aperçu scellé, preuve.</div>
+        <div style="margin-top:9px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;line-height:1.7;color:#9c9c96">onglets · slot ÉTAT (jamais PASS)<br>consommée, jamais autoritaire</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:22px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px;border:1px solid #d8d8d2;border-left:3px solid #a03c36;border-radius:2px;padding:10px 13px;font:400 11px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5a54"><b style="font-weight:600;color:#2b2b29">Jamais d'auto-bascule en plein stream.</b> Le focal ne change pas sous les yeux de l'humain sans son geste.</div>
+      <div style="flex:1;min-width:200px;border:1px solid #d8d8d2;border-left:3px solid #6e6e68;border-radius:2px;padding:10px 13px;font:400 11px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5a54"><b style="font-weight:600;color:#2b2b29">Exactement une chose focale, étiquetée.</b> Un seul mode visible à la fois.</div>
+      <div style="flex:1;min-width:200px;border:1px solid #d8d8d2;border-left:3px solid #3a6491;border-radius:2px;padding:10px 13px;font:400 11px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#5a5a54"><b style="font-weight:600;color:#2b2b29">Le rail persiste</b> dans les deux modes — il n'entre jamais dans la transition.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 08 · INVENTAIRE ============================ -->
+<div style="position:absolute;left:80px;top:5640px;font:600 12px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#56564f"><span style="color:#b3b3ab">08</span>&nbsp;&nbsp;&nbsp;Inventaire écrans + composants&nbsp;&nbsp;<span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-weight:400;letter-spacing:0;text-transform:none;color:#a6a6a0;font-size:11px">— planche de vignettes + légende des atomes (montrés une fois)</span></div>
+
+<div style="position:absolute;left:80px;top:5680px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#7a7a74">Planche de vignettes</div>
+
+<div style="position:absolute;left:80px;top:5708px;width:1684px">
+  <div style="display:flex;flex-wrap:wrap;gap:14px;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);padding:16px">
+
+    <!-- 1 Shell -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;display:flex;overflow:hidden"><div style="width:32px;background:#ecece8;border-right:1px solid #ddddd7;padding:5px"><div style="height:9px;background:#2b2b29;border-radius:1px;margin-bottom:4px"></div><div style="height:4px;background:#cdcdc7;margin-bottom:3px"></div><div style="height:4px;background:#cdcdc7"></div></div><div style="flex:1;padding:6px;display:flex;flex-direction:column;gap:4px"><div style="height:6px;width:55%;background:#deded8"></div><div style="height:14px;border:1px solid #ddddd7"></div><div style="height:5px;width:80%;background:#ececE6"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">shell + rail</div></div>
+    <!-- 2 STEER vide -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;padding:7px;display:flex;flex-direction:column;gap:5px;overflow:hidden"><div style="height:15px;border:1px solid #ddddd7"></div><div style="flex:1;border:1px dashed #d2d2cc;border-radius:2px"></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">STEER · vide</div></div>
+    <!-- 3 STEER stream -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;padding:7px;display:flex;flex-direction:column;gap:5px;overflow:hidden"><div style="height:15px;border:1px solid #b6b6b0;background:#fff"></div><div style="flex:1;border:1px solid #ddddd7;padding:5px;display:flex;flex-direction:column;gap:3px"><div style="height:4px;width:80%;background:#deded8"></div><div style="height:4px;width:70%;background:#deded8"></div><div style="height:4px;width:40%;background:#7fae7f"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">STEER · stream</div></div>
+    <!-- 4 STEER cartes -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;padding:7px;display:flex;flex-direction:column;gap:5px;overflow:hidden"><div style="height:13px;background:#f1f1ee;border:1px solid #ddddd7"></div><div style="height:16px;border:1px solid #c2c2bc;background:#fff"></div><div style="height:16px;border:1px solid #c2c2bc;background:#fff"></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">STEER · cartes</div></div>
+    <!-- 5 STEER dock B -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;display:flex;flex-direction:column;overflow:hidden"><div style="flex:1;padding:6px;display:flex;flex-direction:column;gap:3px"><div style="height:4px;width:70%;background:#deded8"></div><div style="height:12px;border:1px solid #ddddd7"></div></div><div style="height:20px;background:#f1f1ee;border-top:1px solid #ddddd7;padding:6px"><div style="height:5px;width:55%;background:#cdcdc7"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">STEER · dock (B)</div></div>
+    <!-- 6 MUR -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#f0f0ec;position:relative;overflow:hidden"><div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:90px;height:54px;border:1.5px solid #c08a2e;background:#fbf7ef;border-radius:2px;display:flex;align-items:center;justify-content:center"><div style="width:16px;height:13px;border:1.5px solid #b07320;border-radius:2px"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">MUR</div></div>
+    <!-- 7 VERIFY Diff -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;overflow:hidden"><div style="display:flex;gap:5px;padding:6px 7px;border-bottom:1px solid #ddddd7"><div style="width:14px;height:4px;background:#2b2b29"></div><div style="width:14px;height:4px;background:#d2d2cc"></div><div style="width:20px;height:4px;background:#d2d2cc"></div></div><div style="padding:6px;display:flex;flex-direction:column;gap:3px"><div style="height:4px;width:70%;background:#f7edeb"></div><div style="height:4px;width:80%;background:#edf4ee"></div><div style="height:4px;width:60%;background:#edf4ee"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">VERIFY · Diff</div></div>
+    <!-- 8 VERIFY Gates -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;overflow:hidden"><div style="display:flex;gap:5px;padding:6px 7px;border-bottom:1px solid #ddddd7"><div style="width:14px;height:4px;background:#d2d2cc"></div><div style="width:14px;height:4px;background:#2b2b29"></div><div style="width:20px;height:4px;background:#d2d2cc"></div></div><div style="padding:6px;display:flex;flex-direction:column;gap:4px"><div style="display:flex;justify-content:space-between"><div style="height:4px;width:34px;background:#deded8"></div><div style="height:4px;width:18px;background:#7fae7f"></div></div><div style="display:flex;justify-content:space-between"><div style="height:4px;width:30px;background:#deded8"></div><div style="height:4px;width:18px;background:#c79a4e"></div></div><div style="display:flex;justify-content:space-between"><div style="height:4px;width:28px;background:#deded8"></div><div style="height:4px;width:18px;background:#bb6a63"></div></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">VERIFY · Gates</div></div>
+    <!-- 9 VERIFY Aperçu -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;overflow:hidden"><div style="display:flex;gap:5px;padding:6px 7px;border-bottom:1px solid #ddddd7"><div style="width:14px;height:4px;background:#d2d2cc"></div><div style="width:14px;height:4px;background:#d2d2cc"></div><div style="width:24px;height:4px;background:#2b2b29"></div></div><div style="padding:7px"><div style="height:48px;border:1px solid #d2d2cc;background:#fff;position:relative"><div style="position:absolute;right:3px;top:3px;width:14px;height:6px;background:#eef1f4;border:1px solid #c4d0db"></div></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">VERIFY · Aperçu</div></div>
+    <!-- 10 VERIFY Preuve -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;overflow:hidden"><div style="display:flex;gap:5px;padding:6px 7px;border-bottom:1px solid #ddddd7"><div style="width:14px;height:4px;background:#d2d2cc"></div><div style="width:14px;height:4px;background:#d2d2cc"></div><div style="width:20px;height:4px;background:#2b2b29"></div></div><div style="padding:7px;display:flex;flex-direction:column;gap:4px"><div style="height:5px;width:80%;background:#e6e6e0"></div><div style="height:5px;width:60%;background:#e6e6e0"></div><div style="height:5px;width:72%;background:#e6e6e0"></div><div style="height:9px;width:100%;background:#fbf6ec;border:1px solid #e6d3b0"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">VERIFY · Preuve</div></div>
+    <!-- 11 VERIFY vide -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;overflow:hidden;display:flex;flex-direction:column"><div style="display:flex;gap:5px;padding:6px 7px;border-bottom:1px solid #ddddd7"><div style="width:14px;height:4px;background:#d2d2cc"></div><div style="width:14px;height:4px;background:#e2e2dc"></div></div><div style="flex:1;display:flex;align-items:center;justify-content:center"><div style="width:22px;height:22px;border:1.5px dashed #cdcdc7;border-radius:2px"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">VERIFY · vide</div></div>
+    <!-- 12 VERIFY liste B -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;display:flex;overflow:hidden"><div style="width:54px;background:#ecece8;border-right:1px solid #ddddd7;padding:5px;display:flex;flex-direction:column;gap:5px"><div style="height:5px;width:80%;background:#cdcdc7"></div><div style="height:5px;width:90%;background:#2b2b29"></div><div style="height:5px;width:70%;background:#cdcdc7"></div></div><div style="flex:1;padding:6px;display:flex;flex-direction:column;gap:4px"><div style="height:4px;width:80%;background:#e6e6e0"></div><div style="height:4px;width:65%;background:#e6e6e0"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">VERIFY · liste (B)</div></div>
+    <!-- 13 PTY -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;display:flex;flex-direction:column;overflow:hidden"><div style="flex:1;padding:6px"><div style="height:5px;width:55%;background:#deded8"></div></div><div style="height:38px;background:#201f1d;padding:6px;display:flex;flex-direction:column;gap:3px"><div style="height:4px;width:46%;background:#7fae7f;opacity:.7"></div><div style="height:4px;width:60%;background:#88887e"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">terminal PTY</div></div>
+    <!-- 14 Palette -->
+    <div style="width:188px"><div style="height:92px;border:1px solid #cdcdc7;border-radius:2px;background:#fcfcfb;padding:7px;display:flex;flex-direction:column;gap:5px;overflow:hidden"><div style="height:13px;border:1px solid #c2c2bc;background:#fff"></div><div style="height:4px;width:75%;background:#deded8"></div><div style="height:4px;width:65%;background:#deded8"></div><div style="height:4px;width:70%;background:#deded8"></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#6e6e68">palette + journal</div></div>
+    <!-- 15 Knowledge -->
+    <div style="width:188px"><div style="height:92px;border:1px dashed #c4c4be;border-radius:2px;background:#f4f4f2;padding:7px;display:flex;flex-direction:column;gap:5px;overflow:hidden"><div style="height:4px;width:50%;background:#d2d2cc"></div><div style="height:4px;width:75%;background:#dedede"></div><div style="height:4px;width:65%;background:#dedede"></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#a6a6a0">knowledge · consultatif</div></div>
+    <!-- 16 Brouillon -->
+    <div style="width:188px"><div style="height:92px;border:1px dashed #c4c4be;border-radius:2px;background:#f4f4f2;padding:7px;display:flex;flex-direction:column;gap:6px;overflow:hidden"><div style="display:flex;gap:5px;align-items:center"><div style="width:7px;height:7px;border:1px solid #c4c4be"></div><div style="height:4px;width:60%;background:#dedede"></div></div><div style="display:flex;gap:5px;align-items:center"><div style="width:7px;height:7px;border:1px solid #c4c4be"></div><div style="height:4px;width:70%;background:#dedede"></div></div><div style="display:flex;gap:5px;align-items:center"><div style="width:7px;height:7px;border:1px solid #c4c4be"></div><div style="height:4px;width:50%;background:#dedede"></div></div></div><div style="margin-top:6px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;color:#a6a6a0">brouillon · non-aut.</div></div>
+
+  </div>
+</div>
+
+<div style="position:absolute;left:80px;top:6028px;font:600 10px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#7a7a74">Légende des composants atomiques &nbsp;<span style="font-weight:400;letter-spacing:0;text-transform:none;color:#9c9c96">— chaque atome montré une fois</span></div>
+
+<div style="position:absolute;left:80px;top:6056px;width:1684px">
+  <div style="display:flex;flex-wrap:wrap;gap:14px 14px;background:#f6f6f4;border:1px solid #cdcdc7;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.05);padding:16px">
+
+    <!-- 01 sélecteur MODE -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">01 · sélecteur MODE</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="display:flex;flex-direction:column;gap:4px;width:140px">
+          <div style="padding:6px 9px;background:#2b2b29;border-radius:2px;font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#f4f4f1">STEER</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 9px;border:1px solid #c2c2bc;border-radius:2px"><span style="font:600 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#6e6e68">VERIFY</span><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8px;color:#3a6491">1 diff</span></div>
+        </div>
+      </div>
+    </div>
+    <!-- 02 segment de rail -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">02 · segment de rail</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div><div style="font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9c9c96;margin-bottom:4px">arbre de travail</div><div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#2b2b29"><span style="color:#3a6491">●</span> 7 modifiés · 2 indexés</div></div>
+      </div>
+    </div>
+    <!-- 03 chip preset -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">03 · chip d'intention (preset)</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="padding:6px 10px;border:1px solid #b6b6b0;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29;background:#fff">Préparer la phase</span>
+        <span style="padding:6px 10px;border:1px solid #c2c2bc;border-radius:2px;font:500 11px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Vérifier</span>
+      </div>
+    </div>
+    <!-- 04 champ d'intention -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">04 · champ langage naturel</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="width:100%;border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:9px 10px;font:400 11px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#9c9c96">Décrivez l'intention en clair…</div>
+      </div>
+    </div>
+    <!-- 05 détails techniques -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">05 · ▸ détails techniques (replié)</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;flex-direction:column;justify-content:center;gap:6px">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#6e6e68">▸ détails techniques</span>
+        <div style="border:1px solid #e2e2dc;background:#f1f1ee;border-radius:2px;padding:5px 7px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;line-height:1.6;color:#9c9c96">kind = edit.apply · pack = sha256:9f3a…</div>
+      </div>
+    </div>
+    <!-- 06 attribut provider -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">06 · attribut provider (discret)</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#6e6e68">agent: claude-code ▾</span>
+      </div>
+    </div>
+    <!-- 07 ligne de flux agent -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">07 · ligne de flux agent</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;line-height:1.6;color:#6e6e68"><span style="color:#2b2b29">▌</span> applique l'édition…&nbsp;<span style="color:#3f7d4e">● en cours</span></div>
+      </div>
+    </div>
+    <!-- 08 carte tool-call -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">08 · carte tool-call / diff</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="width:100%;border:1px solid #c2c2bc;background:#fff;border-radius:2px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between"><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#2b2b29">seal_preview.rs <span style="color:#3f7d4e">+18</span> <span style="color:#a03c36">−4</span></span><span style="font:500 9.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#3a6491">voir →</span></div>
+      </div>
+    </div>
+    <!-- 09 hunk + actions -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">09 · hunk + actions = intentions</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;flex-direction:column;justify-content:center;gap:6px">
+        <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9px;line-height:1.5"><span style="background:#f7edeb;color:#a03c36">−return raw(app)</span><br><span style="background:#edf4ee;color:#3f7d4e">+return seal(render(app))</span></div>
+        <div style="display:flex;gap:5px"><span style="padding:5px 8px;border:1px solid #b6b6b0;border-radius:2px;font:500 9.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29;background:#fff">Transmettre la correction</span><span style="padding:5px 8px;border:1px solid #c2c2bc;border-radius:2px;font:500 9.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#4a4a45;background:#fff">Signaler</span></div>
+      </div>
+    </div>
+    <!-- 10 ligne de gate -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">10 · ligne de gate (états distincts)</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:9px 11px;min-height:66px;display:flex;flex-direction:column;justify-content:center;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#2b2b29">
+        <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #ececE6"><span>build</span><span style="color:#3f7d4e">✓ passed</span></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #ececE6"><span>seal-verify</span><span style="color:#a03c36">BLOQUANT</span></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span>sbom</span><span style="color:#a03c36">RIG-ABSENT</span></div>
+      </div>
+    </div>
+    <!-- 11 slot ÉTAT -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">11 · slot ÉTAT (jamais « PASS »)</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="width:100%;background:#f1f1ee;border:1px solid #dcdcd6;border-left:3px solid #3a6491;border-radius:2px;padding:8px 10px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;line-height:1.5;color:#2b2b29">En attente de session — <span style="color:#3f7d4e">4✓</span> <span style="color:#8a8a86">1•</span> · 0 verdict</div>
+      </div>
+    </div>
+    <!-- 12 aperçu scellé -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">12 · aperçu scellé (iframe)</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="width:100%;height:44px;border:1px solid #c2c2bc;background:#fff;border-radius:2px;position:relative"><div style="position:absolute;right:5px;top:5px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8px;color:#3a6491;border:1px solid #c4d0db;background:#eef1f4;border-radius:2px;padding:1px 4px">⊚ scellé</div><div style="padding:8px"><div style="width:50%;height:6px;background:#e2e2dc;margin-bottom:4px"></div><div style="width:74%;height:5px;background:#ececE6"></div></div></div>
+      </div>
+    </div>
+    <!-- 13 couche de provenance -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">13 · couche de provenance</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:9px 11px;min-height:66px;display:flex;flex-direction:column;justify-content:center;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;color:#2b2b29">
+        <div style="display:flex;justify-content:space-between;padding:2px 0">archive_hash<span style="color:#3a6491">9f3a…c7 ⧉</span></div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0"><span>oss</span><span style="color:#ab6f1e">partiel · 3/5</span></div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0"><span>licence</span><span style="color:#6e6e68">MIT · déclaré</span></div>
+      </div>
+    </div>
+    <!-- 14 carte-MUR réduite -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">14 · carte-MUR (réduite)</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="width:100%;border:1.5px solid #c08a2e;background:#fbf7ef;border-radius:2px;padding:9px 10px;display:flex;align-items:center;gap:9px"><div style="width:13px;height:13px;border:1.5px solid #b07320;border-radius:2px;flex:0 0 13px"></div><div><div style="font:600 10px/1.2 'Helvetica Neue',Helvetica,sans-serif;color:#2b2b29">Exige une session</div><div style="margin-top:4px;font:600 9px/1 'Helvetica Neue',Helvetica,sans-serif;color:#fff;background:#2b2b29;border-radius:2px;padding:4px 7px;display:inline-block">Préparer le pack</div></div></div>
+      </div>
+    </div>
+    <!-- 15 surface consultative -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">15 · surface consultative</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="width:100%;border:1px dashed #bcbcb6;border-radius:2px;padding:9px 10px"><div style="font:400 10.5px/1.3 'Helvetica Neue',Helvetica,sans-serif;color:#a6a6a0">suggestion IA / knowledge</div><div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8px;color:#a6a6a0;margin-top:4px">consultatif — non autoritaire</div></div>
+      </div>
+    </div>
+    <!-- 16 poignée terminal -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">16 · poignée terminal (PTY)</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="width:100%;background:#ecece8;border:1px solid #d8d8d2;border-radius:2px;padding:9px 11px;display:flex;align-items:center;justify-content:space-between"><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#6e6e68">⌃ terminal — steering profond</span><span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;color:#9c9c96">⌥T</span></div>
+      </div>
+    </div>
+    <!-- 17 entrée de journal -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">17 · entrée de journal</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;flex-direction:column;justify-content:center;gap:5px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#6e6e68">
+        <div><span style="color:#9c9c96">14:05</span>&nbsp; bascule → VERIFY</div>
+        <div><span style="color:#9c9c96">14:06</span>&nbsp; gate seal-verify · <span style="color:#a03c36">BLOQUANT</span></div>
+      </div>
+    </div>
+    <!-- 18 pastilles d'état -->
+    <div style="width:262px">
+      <div style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:#9c9c96;margin-bottom:6px">18 · pastilles d'état (jeu complet)</div>
+      <div style="border:1px solid #e2e2dc;border-radius:2px;background:#fcfcfb;padding:11px;min-height:66px;display:flex;align-items:center">
+        <div style="display:flex;flex-wrap:wrap;gap:5px 9px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:10px">
+          <span style="color:#3f7d4e">✓ passed</span><span style="color:#8a8a86">• en attente</span><span style="color:#a03c36">BLOQUANT</span><span style="color:#ab6f1e">2 issues</span><span style="color:#9c9c96">— non exécuté</span><span style="color:#ab6f1e">PROVISIONAL</span><span style="color:#9c9c96">Not evidenced</span><span style="color:#a03c36">RIG-ABSENT</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
