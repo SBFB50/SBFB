@@ -48,8 +48,10 @@ Rust + self-check runtime + couche docs-contrat. 8 phases feature (A–H) + Phas
 ## 3. Carries à escalader
 
 - **P1 — Gate CSP `run_gate_csp_authoring` non câblé sur `redeploy` /
-  `deploy-workspace` / `deploy-from-repo`** (NOUVEAU — trouvé par l'audit gate S79,
-  cf. `sprint79_audit_findings.md` §P1-1). Le gate « non-délégable » n'est appelé
+  `deploy-workspace` / `deploy-from-repo`** — **RÉSOLU en Phase 0 (`c0a2ffe`,
+  Option A)** : `redeploy` gate maintenant comme `publish` (client-side) ; daemon
+  neutre inchangé (D2) ; formulation Day-0 amendée. Conservé ici pour la traçabilité.
+  (NOUVEAU — trouvé par l'audit gate S79, cf. `sprint79_audit_findings.md` §P1-1). Le gate « non-délégable » n'est appelé
   qu'à `pipeline.rs:52` (verbe `publish`) ; `atelier.rs:70 redeploy()` (cœur de la
   boucle d'authoring fork→edit→iterate) et les routes daemon `deploy.rs:65/233`
   publient des octets d'app SANS rejouer le gate. La claim Day-0 #1 « scellage 100 %

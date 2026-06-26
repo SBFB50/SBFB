@@ -119,3 +119,26 @@ Donc le P1-1 est **réel** : le verbe `redeploy` (cœur de la boucle d'authoring
 **Preuve de suites indépendante** : `cargo nextest run --workspace --locked` (Win natif) = **1994 tests run, 1994 passed, 0 skipped** (exit 0). Le delta annoncé 1991→1994 (+`factory_csp_contract`) est CONFIRMÉ, baseline absolu inclus (clôt le P3-1).
 
 **Verdict main-thread** : CONDITIONAL PASS confirmé. Le P1-1 est routé dans `sprint80_audit_plan.md §3` (condition du CONDITIONAL) ; sa résolution (fix vs amendement Day-0) attend l'arbitrage PO avant la Phase A de S80.
+
+### P1-1 — RÉSOLU en Phase 0 (mise à jour post-arbitrage)
+
+Arbitrage PO : **Option A** (fix client-side + amendement Day-0). Fermé par le
+commit `c0a2ffe` :
+- `crates/sbfb-factory/src/atelier.rs` : `redeploy()` appelle désormais
+  `run_gate_csp_authoring` AVANT le zip + la découverte daemon (mirror
+  `pipeline.rs`, gate BLOQUANT) ; le verbe `redeploy` est scellé à l'identique
+  de `publish`. Test `redeploy_blocks_on_csp_violation` (+1 Rust).
+- **Daemon INCHANGÉ** : les routes `deploy.rs` restent neutres (câbler le gate
+  côté daemon contredirait la décision gelée « Factory hors daemon » / D2). La
+  frontière inconditionnelle de toute app reste la CSP runtime (`csp.rs:33`).
+- **Amendement Day-0** : « scellage 100% Factory » = le client Factory gate
+  chaque verbe de publish (`publish` + `redeploy`) ; daemon neutre + CSP runtime
+  = frontière inconditionnelle. Documenté `docs/factory/FACTORY_GATES.md`
+  (§Non-delegable + §Portee du scellage + Principe 1) + commentaires code.
+- Vérification : fmt 0 / clippy 0 (sbfb-factory) / nextest sbfb-factory 201/201
+  0-skip / 3 doc-lints clean.
+
+**Conséquence verdict** : le nouveau P1 (la condition du CONDITIONAL) est levé
+en Phase 0 → **PASS effectif** pour le périmètre S79. Demeurent les **2 carries
+P1 honnêtes** (sharding S77 in-vivo RIG-ABSENT, app-authoring in-vivo
+`Not evidenced`) — escaladés, non bloquants, normaux pour ce sprint.
