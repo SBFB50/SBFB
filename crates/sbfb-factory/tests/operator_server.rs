@@ -212,6 +212,187 @@ fn token_request_succeeds() {
     );
 }
 
+// Sprint 80 Phase A: cookie-authenticated bootstrap (HttpOnly +
+// SameSite=Strict + `Sec-Fetch-Site: same-origin` cross-port guard).
+
+/// Drive the public bootstrap with a valid `?token` and return the
+/// session-secret cookie value set on the 303 response.
+fn bootstrap_cookie(server: &TestServer) -> String {
+    let resp = server.raw_get(&format!("/?token={TEST_TOKEN}"), "Host: 127.0.0.1\r\n");
+    assert!(
+        resp.starts_with("HTTP/1.1 303"),
+        "bootstrap must 303, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+    let needle = "sbfb_operator=";
+    let start = resp.find(needle).expect("set-cookie sbfb_operator present") + needle.len();
+    let rest = &resp[start..];
+    let end = rest.find(';').unwrap_or(rest.len());
+    rest[..end].trim().to_string()
+}
+
+#[test]
+fn bootstrap_valid_token_sets_cookie_and_303() {
+    let server = TestServer::start();
+    let resp = server.raw_get(&format!("/?token={TEST_TOKEN}"), "Host: 127.0.0.1\r\n");
+    let lower = resp.to_lowercase();
+    assert!(
+        resp.starts_with("HTTP/1.1 303"),
+        "valid ?token must 303, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+    assert!(
+        lower.contains("set-cookie: sbfb_operator="),
+        "must set cookie"
+    );
+    assert!(lower.contains("httponly"), "cookie must be HttpOnly");
+    assert!(
+        lower.contains("samesite=strict"),
+        "cookie must be SameSite=Strict"
+    );
+    assert!(lower.contains("path=/"), "cookie must be Path=/");
+    assert!(!lower.contains("secure"), "no Secure on loopback http");
+    assert!(lower.contains("location: /"), "must redirect to /");
+    assert!(
+        lower.contains("referrer-policy: no-referrer"),
+        "no-referrer set"
+    );
+    // P1-B: the cookie value must NOT be the bearer token.
+    let cookie = bootstrap_cookie(&server);
+    assert_ne!(
+        cookie, TEST_TOKEN,
+        "cookie must carry a distinct session secret"
+    );
+    assert_eq!(cookie.len(), 64, "session secret is 64 hex chars");
+}
+
+#[test]
+fn bootstrap_invalid_token_no_cookie() {
+    let server = TestServer::start();
+    let resp = server.raw_get(
+        "/?token=00000000000000000000000000000000000000000000000000000000deadbeef",
+        "Host: 127.0.0.1\r\n",
+    );
+    assert!(
+        !resp.starts_with("HTTP/1.1 303"),
+        "wrong token must not redirect, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+    assert!(
+        !resp.to_lowercase().contains("set-cookie"),
+        "wrong token must not set a cookie (no oracle)"
+    );
+}
+
+#[test]
+fn bootstrap_rejects_non_loopback_host() {
+    let server = TestServer::start();
+    // The public bootstrap bypasses `auth_required`, so it must re-do
+    // its own loopback Host check (anti DNS-rebinding). A foreign Host
+    // is 403 even with a valid `?token`. The CSP middleware is layered
+    // OUTER of the merge, so even this 403 carries the self-origin CSP.
+    let resp = server.raw_get(&format!("/?token={TEST_TOKEN}"), "Host: evil.com\r\n");
+    assert!(
+        resp.starts_with("HTTP/1.1 403"),
+        "non-loopback Host on bootstrap must be 403, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+    assert!(
+        !resp.to_lowercase().contains("set-cookie"),
+        "rejected bootstrap must not set a cookie"
+    );
+    assert!(
+        resp.to_lowercase()
+            .contains("content-security-policy: default-src 'self'"),
+        "CSP must be present even on a 403 (middleware is OUTER)"
+    );
+}
+
+#[test]
+fn cookie_auth_succeeds_with_sec_fetch_site() {
+    let server = TestServer::start();
+    let cookie = bootstrap_cookie(&server);
+    // No bearer header — only the cookie + the same-origin discriminant.
+    let resp = server.raw_get(
+        "/api/providers",
+        &format!(
+            "Host: 127.0.0.1\r\nCookie: sbfb_operator={cookie}\r\nSec-Fetch-Site: same-origin\r\n"
+        ),
+    );
+    assert!(
+        resp.starts_with("HTTP/1.1 200"),
+        "cookie + Sec-Fetch-Site must authenticate, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
+#[test]
+fn cookie_auth_rejected_without_sec_fetch_site() {
+    let server = TestServer::start();
+    let cookie = bootstrap_cookie(&server);
+    // Cross-port CSRF guard: a valid cookie WITHOUT the forbidden
+    // `Sec-Fetch-Site` header (a forged cross-port request) is rejected.
+    let resp = server.raw_get(
+        "/api/providers",
+        &format!("Host: 127.0.0.1\r\nCookie: sbfb_operator={cookie}\r\n"),
+    );
+    assert!(
+        resp.starts_with("HTTP/1.1 401"),
+        "cookie without Sec-Fetch-Site must be 401, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
+#[test]
+fn cookie_auth_rejected_with_wrong_value() {
+    let server = TestServer::start();
+    let resp = server.raw_get(
+        "/api/providers",
+        "Host: 127.0.0.1\r\nCookie: sbfb_operator=not-the-secret\r\nSec-Fetch-Site: same-origin\r\n",
+    );
+    assert!(
+        resp.starts_with("HTTP/1.1 401"),
+        "wrong cookie value must be 401, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
+#[test]
+fn header_wins_over_bad_cookie() {
+    let server = TestServer::start();
+    // Header-first: a valid bearer header authenticates even with a
+    // garbage cookie and no Sec-Fetch-Site (the CLI/Vite path).
+    let resp = server.raw_get(
+        "/api/providers",
+        &format!(
+            "Host: 127.0.0.1\r\n{AUTH_HEADER}: {TEST_TOKEN}\r\nCookie: sbfb_operator=garbage\r\n"
+        ),
+    );
+    assert!(
+        resp.starts_with("HTTP/1.1 200"),
+        "valid header must win regardless of cookie, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
+#[test]
+fn operator_csp_header_present() {
+    let server = TestServer::start();
+    let resp = server.raw_get(
+        "/api/providers",
+        &format!("Host: 127.0.0.1\r\n{AUTH_HEADER}: {TEST_TOKEN}\r\n"),
+    );
+    let lower = resp.to_lowercase();
+    assert!(
+        lower.contains("content-security-policy: default-src 'self'"),
+        "self-origin CSP must be present"
+    );
+    assert!(
+        lower.contains("connect-src 'self'"),
+        "connect-src 'self' for SSE/ws must be present"
+    );
+}
+
 // G2 (D3): the SSE chat-stream gates sensitive actions before
 // spawning a bypassPermissions agent.
 

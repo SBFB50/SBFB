@@ -48,17 +48,65 @@ pub const AUTH_TOKEN_ENV: &str = "SBFB_AUTH_TOKEN";
 /// Hex length of a 256-bit token (32 bytes, 2 hex chars per byte).
 const TOKEN_HEX_LEN: usize = 64;
 
-/// Auth state cloned into the axum middleware: the expected token.
+/// Name of the cookie carrying the per-boot session secret. The
+/// bootstrap handler (`GET /?token`) sets it; [`auth_required`] accepts
+/// it as the browser fallback transport for the bearer (SSE/WS cannot
+/// set the `x-sbfb-token` header). Sprint 80 Phase A.
+pub const OPERATOR_COOKIE: &str = "sbfb_operator";
+
+/// Fetch-metadata header (lowercase to match axum's normalized
+/// `HeaderMap`). On the COOKIE auth path only, [`auth_required`]
+/// requires `Sec-Fetch-Site: same-origin`. The cookie is sent
+/// same-site to every loopback port (cookies are not port-scoped, RFC
+/// 6265 §8.5; `Origin`/[`is_loopback_origin`] accept any port too), so
+/// without this discriminant a hostile page on any `127.0.0.1:<other>`
+/// could drive the Operator's write/spawn routes via the ambient
+/// cookie. `Sec-Fetch-Site` is a forbidden header the browser sets and
+/// page JS cannot forge, and it is emitted on same-origin GET/SSE/WS
+/// requests that omit `Origin`. The header path (CLI / Vite proxy) does
+/// NOT require it. Sprint 80 Phase A (preflight P1-A).
+pub const SEC_FETCH_SITE_HEADER: &str = "sec-fetch-site";
+const SEC_FETCH_SITE_SAME_ORIGIN: &str = "same-origin";
+
+/// Auth state cloned into the axum middleware. Holds two secrets:
+///
+/// - `token`: the bearer (`x-sbfb-token` header / `?token` bootstrap),
+///   the root of trust shared with the daemon and coordinator.
+/// - `session_secret`: a per-boot random value used ONLY as the
+///   `sbfb_operator` cookie value. Because cookies are not port-scoped,
+///   a stolen or cross-port cookie must NOT leak the master bearer —
+///   so the cookie carries this distinct secret, never the token
+///   itself (Sprint 80 Phase A preflight P1-B).
+///
+/// Both are compared in constant time.
 #[derive(Clone)]
 pub struct AuthState {
     token: Arc<String>,
+    session_secret: Arc<String>,
 }
 
 impl AuthState {
     pub fn new(token: String) -> Self {
         Self {
             token: Arc::new(token),
+            // Fresh per-boot secret, distinct from the bearer. Same
+            // CSPRNG primitive (256-bit, 64 hex) as the token.
+            session_secret: Arc::new(generate_token()),
         }
+    }
+
+    /// The per-boot session secret the bootstrap handler writes into
+    /// the `sbfb_operator` cookie and [`auth_required`] checks on the
+    /// cookie path. Distinct from the bearer [`Self::token`].
+    pub fn session_secret(&self) -> &str {
+        &self.session_secret
+    }
+
+    /// Constant-time check of a candidate bearer against the expected
+    /// token (header path and `?token` bootstrap). Length-safe: a
+    /// wrong-length candidate fails without a timing oracle.
+    pub fn token_matches(&self, candidate: &str) -> bool {
+        constant_time_eq(candidate.as_bytes(), self.token.as_bytes())
     }
 }
 
@@ -223,9 +271,39 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// Axum middleware enforcing Host + Origin + bearer token on every
+/// Extract the value of cookie `name` from a `Cookie:` header value.
+///
+/// Manual parse — no `cookie` / `axum-extra` dependency, mirroring the
+/// hand-rolled loopback helpers above (the crate deliberately avoids
+/// pulling extra trees). Handles multiple `name=value` pairs separated
+/// by `;`, surrounding whitespace, and an empty value (treated as
+/// absent). Returns the FIRST non-empty match. The values we store
+/// (token / session secret) are pure hex, so no percent-decoding.
+pub fn cookie_value<'a>(cookie_header: &'a str, name: &str) -> Option<&'a str> {
+    cookie_header.split(';').find_map(|pair| {
+        let (k, v) = pair.split_once('=')?;
+        let v = v.trim();
+        if k.trim() == name && !v.is_empty() {
+            Some(v)
+        } else {
+            None
+        }
+    })
+}
+
+/// Axum middleware enforcing Host + Origin + bearer on every guarded
 /// Operator route. 403 on a non-loopback Host/Origin, 401 on a
-/// missing/wrong token.
+/// missing/wrong bearer.
+///
+/// The bearer has two transports (Sprint 80 Phase A, D5): the
+/// `x-sbfb-token` header is tried FIRST (CLI, Vite proxy, scripts —
+/// unchanged, intrinsically CSRF-immune because page JS cannot set this
+/// header cross-origin). Failing that, the `sbfb_operator` cookie set
+/// by the bootstrap handler is accepted, but ONLY when
+/// `Sec-Fetch-Site: same-origin` is also present — the cross-port CSRF
+/// guard ([`SEC_FETCH_SITE_HEADER`]). The cookie carries the per-boot
+/// session secret, never the master bearer. A missing cookie never
+/// fabricates authority.
 pub async fn auth_required(State(auth): State<AuthState>, req: Request, next: Next) -> Response {
     let headers = req.headers();
 
@@ -249,13 +327,30 @@ pub async fn auth_required(State(auth): State<AuthState>, req: Request, next: Ne
         }
     }
 
-    let token_ok = headers
+    // First transport: the bearer header (unchanged S71 logic).
+    let header_ok = headers
         .get(AUTH_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(|t| constant_time_eq(t.as_bytes(), auth.token.as_bytes()))
         .unwrap_or(false);
-    if !token_ok {
-        return (StatusCode::UNAUTHORIZED, "missing or invalid X-SBFB-Token").into_response();
+
+    if !header_ok {
+        // Second transport: the session-secret cookie, gated on
+        // `Sec-Fetch-Site: same-origin` (cross-port CSRF guard).
+        let cookie_ok = headers
+            .get(header::COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|c| cookie_value(c, OPERATOR_COOKIE))
+            .map(|val| constant_time_eq(val.as_bytes(), auth.session_secret.as_bytes()))
+            .unwrap_or(false);
+        let same_origin = headers
+            .get(SEC_FETCH_SITE_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s == SEC_FETCH_SITE_SAME_ORIGIN)
+            .unwrap_or(false);
+        if !(cookie_ok && same_origin) {
+            return (StatusCode::UNAUTHORIZED, "missing or invalid X-SBFB-Token").into_response();
+        }
     }
 
     next.run(req).await
@@ -299,6 +394,41 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"ab"));
+    }
+
+    #[test]
+    fn cookie_value_extracts_named_cookie() {
+        assert_eq!(
+            cookie_value("sbfb_operator=deadbeef", OPERATOR_COOKIE),
+            Some("deadbeef")
+        );
+        // Multiple pairs, target in the middle, with `; ` separators.
+        assert_eq!(
+            cookie_value("a=1; sbfb_operator=deadbeef; b=2", OPERATOR_COOKIE),
+            Some("deadbeef")
+        );
+        // Absent.
+        assert_eq!(cookie_value("a=1; b=2", OPERATOR_COOKIE), None);
+        // Empty value treated as absent (never fabricate authority).
+        assert_eq!(cookie_value("sbfb_operator=", OPERATOR_COOKIE), None);
+        assert_eq!(cookie_value("", OPERATOR_COOKIE), None);
+        // A prefix-only name must not match the target.
+        assert_eq!(
+            cookie_value("sbfboperator=x; sbfb_operator=y", OPERATOR_COOKIE),
+            Some("y")
+        );
+    }
+
+    #[test]
+    fn session_secret_is_distinct_from_token() {
+        // P1-B: the cookie value must never be the bearer token, so a
+        // cross-port cookie leak does not hand out the master bearer.
+        let token = "b".repeat(TOKEN_HEX_LEN);
+        let auth = AuthState::new(token.clone());
+        assert!(auth.token_matches(&token));
+        assert_ne!(auth.session_secret(), token);
+        assert_eq!(auth.session_secret().len(), TOKEN_HEX_LEN);
+        assert!(auth.session_secret().chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]

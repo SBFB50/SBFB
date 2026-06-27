@@ -6,15 +6,17 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
-use axum::extract::{Path, Query, State, WebSocketUpgrade};
+use axum::extract::{Path, Query, Request, State, WebSocketUpgrade};
 use axum::http::header::HeaderName;
-use axum::http::{Method, StatusCode, header};
+use axum::http::{HeaderValue, Method, StatusCode, header};
+use axum::middleware::Next;
 use axum::response::sse::{Event, Sse};
-use axum::response::{IntoResponse, Json};
+use axum::response::{Html, IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
 
 use crate::auth::{self, AuthState};
 use crate::llm_bridge;
@@ -33,6 +35,26 @@ const ARTIFACT_DRAFT_ALLOWLIST: &[&str] = &[
 ];
 
 const SENSITIVE_ACTIONS: &[&str] = &["shell", "commit", "push", "PASS"];
+
+/// Subdirectory (relative to the repo root) holding the Operator's
+/// built SPA bundle that [`ServeDir`] serves. Deliberately NOT the repo
+/// root — a `ServeDir` rooted there would expose every source file
+/// (Sprint 80 Phase A preflight, code guard) — and NOT the legacy Vite
+/// `tools/factory-operator/dist` of the front thrown away in Phase B.
+/// The Sprint 80 greenfield front (Phase B) builds here; until then the
+/// directory is absent and `ServeDir` 404s the assets while
+/// `auth_required` still runs (the bootstrap + `/api/*` keep working).
+const OPERATOR_BUNDLE_SUBDIR: &str = "tools/factory-operator/bundle";
+
+/// State for the public bootstrap route (`GET /`). Distinct from
+/// [`OperatorState`]: the bootstrap sits OUTSIDE `auth_required` and
+/// needs only the auth secrets (to validate `?token` and mint the
+/// cookie) plus the bundle path (to serve `index.html`).
+#[derive(Clone)]
+struct BootstrapState {
+    auth: AuthState,
+    bundle: PathBuf,
+}
 
 #[derive(Clone)]
 pub struct OperatorState {
@@ -94,7 +116,7 @@ fn log_action(state: &OperatorState, action: &str, args: serde_json::Value, resu
     }
 }
 
-pub fn build_router(root: PathBuf, auth_state: AuthState) -> Router {
+pub fn build_router(root: PathBuf, bundle: PathBuf, auth_state: AuthState) -> Router {
     let state = OperatorState {
         root,
         action_log: Arc::new(Mutex::new(Vec::new())),
@@ -105,7 +127,8 @@ pub fn build_router(root: PathBuf, auth_state: AuthState) -> Router {
     // and the bearer header — replaces the prior `Any/Any/Any`. This
     // is browser-side defence in depth; the server-side enforcement
     // is the `auth::auth_required` middleware below (Host + Origin +
-    // token on every route).
+    // token on every route). No `allow_credentials(true)`: the
+    // same-origin cookie path never relies on a cross-origin credential.
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin, _parts| {
             origin
@@ -119,7 +142,32 @@ pub fn build_router(root: PathBuf, auth_state: AuthState) -> Router {
             HeaderName::from_static(auth::AUTH_HEADER),
         ]);
 
-    Router::new()
+    // Public bootstrap (Sprint 80 Phase A): `GET /` sits OUTSIDE
+    // `auth_required` — it must be reachable before any cookie exists
+    // (chicken-and-egg). With a valid `?token` it mints the session
+    // cookie and 303s to `/`; otherwise it serves `index.html` (which
+    // carries no secret). axum matches `route("/")` ignoring the
+    // query-string, so this single route covers both the `?token` hit
+    // and the post-303 `/`.
+    let bootstrap = Router::new()
+        .route("/", get(handle_bootstrap))
+        .with_state(BootstrapState {
+            auth: auth_state.clone(),
+            bundle: bundle.clone(),
+        });
+
+    // Static SPA assets (JS/CSS) served behind `auth_required` (D4:
+    // stricter than the daemon's public static dir). Rooted at the
+    // dedicated bundle dir, NEVER the repo root. `fallback` to
+    // `index.html` so client-side routes resolve.
+    let serve_assets =
+        ServeDir::new(bundle.clone()).fallback(ServeFile::new(bundle.join("index.html")));
+
+    // Authenticated surface: every `/api/*` route + the asset
+    // `ServeDir` sit behind `auth_required` (header OR cookie). `.layer`
+    // wraps the routes AND the fallback service, so the assets require
+    // the cookie too.
+    let authed = Router::new()
         .route("/api/status", get(handle_status))
         .route("/api/lint", get(handle_lint))
         .route("/api/audit/{rev}", get(handle_audit))
@@ -148,29 +196,39 @@ pub fn build_router(root: PathBuf, auth_state: AuthState) -> Router {
             "/api/terminal/sessions/{name}",
             get(handle_terminal_session_content),
         )
+        .fallback_service(serve_assets)
         // Inner: `auth_required` guards every data-bearing request
-        // (GET/POST/WS upgrade) with Host + Origin + token. Outer:
-        // CORS, so a browser's OPTIONS *preflight* is answered before
-        // the token check. That is intentional and harmless: a
-        // preflight carries no body and triggers no handler — it only
-        // tells the browser whether the *real* request is allowed, and
-        // that real request still passes through `auth_required` (a
-        // foreign Host/Origin or a missing token is rejected there).
-        // CORS must stay outer; if auth were outer it would 401 every
-        // preflight (browsers never send the bearer on a preflight) and
-        // break legitimate cross-origin use.
+        // (GET/POST/WS upgrade) + the asset fallback with Host + Origin
+        // + bearer (header or cookie).
         .layer(axum::middleware::from_fn_with_state(
             auth_state,
             auth::auth_required,
         ))
+        .with_state(state);
+
+    // Merge the public bootstrap with the authed surface, then layer
+    // the minimal self-origin CSP (covers 401/403/404 too) and CORS.
+    // CORS stays OUTERMOST so a browser's OPTIONS *preflight* is
+    // answered before the token check — a preflight carries no body and
+    // triggers no handler; the real request still passes through
+    // `auth_required`. If auth were outer it would 401 every preflight
+    // (browsers never send the bearer on a preflight) and break
+    // legitimate cross-origin use.
+    Router::new()
+        .merge(bootstrap)
+        .merge(authed)
+        .layer(axum::middleware::from_fn(operator_csp_middleware))
         .layer(cors)
-        .with_state(state)
 }
 
 pub async fn run_server(port: u16, once_smoke: bool) -> Result<(), Box<dyn std::error::Error>> {
     let root = crate::process::repo_root_pub();
+    // ServeDir root: the dedicated Operator bundle dir, NEVER `root`
+    // (which would expose the whole repo). Absent until the Phase B
+    // greenfield front builds it.
+    let bundle = root.join(OPERATOR_BUNDLE_SUBDIR);
     let token = auth::load_or_generate_token()?;
-    let app = build_router(root, AuthState::new(token.clone()));
+    let app = build_router(root, bundle, AuthState::new(token.clone()));
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await?;
     let actual_port = listener.local_addr()?.port();
@@ -199,6 +257,101 @@ pub async fn run_server(port: u16, once_smoke: bool) -> Result<(), Box<dyn std::
         axum::serve(listener, app).await?;
         Ok(())
     }
+}
+
+// --- Bootstrap + cross-cutting middleware (Sprint 80 Phase A) ---
+
+/// Find the first `key=value` in a raw URL query string, returning the
+/// (un-decoded) value. The bootstrap token is pure hex, so no
+/// percent-decoding; a missing or empty value yields `None`.
+fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
+    query.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=')?;
+        if k == key && !v.is_empty() {
+            Some(v)
+        } else {
+            None
+        }
+    })
+}
+
+/// Serve the bundle's `index.html` for the public bootstrap path. The
+/// greenfield front (Phase B) populates the bundle; until then the file
+/// is absent and we answer a neutral 404. This response is IDENTICAL
+/// for "no token" and "wrong token" — no oracle on token validity.
+fn serve_bootstrap_index(bundle: &std::path::Path) -> Response {
+    match std::fs::read_to_string(bundle.join("index.html")) {
+        Ok(html) => Html(html).into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "Operator bundle not built").into_response(),
+    }
+}
+
+/// `GET /` — public bootstrap, OUTSIDE `auth_required` (it must be
+/// reachable before any cookie exists). Re-does the loopback `Host`
+/// check itself (anti DNS-rebinding, since it bypasses the middleware).
+/// With a valid `?token=<hex>` it sets the session-secret cookie and
+/// 303s to `/` (dropping the token from the address bar +
+/// `Referrer-Policy: no-referrer`); otherwise it serves `index.html`
+/// publicly (no secret) with a response that does not reveal whether a
+/// token was present or wrong. Never returns API data.
+async fn handle_bootstrap(State(boot): State<BootstrapState>, req: Request) -> Response {
+    let host_ok = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(auth::is_loopback_host)
+        .unwrap_or(false);
+    if !host_ok {
+        return (StatusCode::FORBIDDEN, "non-loopback Host rejected").into_response();
+    }
+
+    if let Some(token) = req.uri().query().and_then(|q| query_param(q, "token")) {
+        if boot.auth.token_matches(token) {
+            // Valid bearer in the URL: mint the session cookie (the
+            // per-boot secret, never the bearer itself) and 303 to `/`
+            // so the token leaves the address bar.
+            let cookie = format!(
+                "{}={}; HttpOnly; SameSite=Strict; Path=/",
+                auth::OPERATOR_COOKIE,
+                boot.auth.session_secret()
+            );
+            return (
+                StatusCode::SEE_OTHER,
+                [
+                    (header::SET_COOKIE, cookie),
+                    (header::LOCATION, "/".to_string()),
+                    (header::REFERRER_POLICY, "no-referrer".to_string()),
+                ],
+                axum::body::Body::empty(),
+            )
+                .into_response();
+        }
+        // Wrong token -> fall through to the neutral index response.
+    }
+
+    serve_bootstrap_index(&boot.bundle)
+}
+
+/// Minimal self-origin CSP + `nosniff` on EVERY Operator response
+/// (200/303/401/403/404). The Operator is NOT under the sealed
+/// `BLOB_SERVE_CSP` (that governs untrusted published apps only); this
+/// is plain defence-in-depth for the privileged control-center.
+/// `default-src 'self'` (no `'unsafe-inline'`/`'unsafe-eval'` — the
+/// greenfield front must ship without inline scripts) + `connect-src
+/// 'self'` so the same-origin SSE (`/api/chat/{id}/stream`) and `ws://`
+/// terminal (`/api/terminal/ws`) are allowed.
+async fn operator_csp_middleware(req: Request, next: Next) -> Response {
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("default-src 'self'; connect-src 'self'"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    response
 }
 
 // --- Handlers ---

@@ -810,15 +810,46 @@ Mitigation (S71 G7, `a0337c6`) : middleware `auth_required`
 sinon) ; (2) header `Host:` doit etre loopback (403 sinon) ; (3) header
 `Origin:` doit etre loopback ou absent (403 sinon) ; (4) `CorsLayer`
 epingle a `is_loopback_origin` (`operator_server.rs:103`, plus de
-`allow_origin(Any)`). Un navigateur tiers ne connait pas le token et ne
-peut forger un `Origin` loopback.
+`allow_origin(Any)`).
+
+**Amendement Sprint 80 Phase A (cookie de transport + garde cross-port).**
+Pour rendre SSE (`EventSource`) et WS exploitables en prod same-origin
+sous `ServeDir` (ils ne posent pas l'en-tete `x-sbfb-token`), le bearer
+a desormais **deux transports** : le header `x-sbfb-token` (essaye
+D'ABORD, inchange, intrinsequement CSRF-immune car le JS d'une page ne
+peut pas le poser cross-origin) ; et un **cookie `sbfb_operator`**
+HttpOnly + SameSite=Strict pose par le bootstrap `GET /?token` (D5). Le
+cookie change le modele de menace et **invalide l'affirmation S71 « un
+navigateur tiers ne connait pas le token »** : un cookie est une
+autorite **ambiante** envoyee automatiquement par le navigateur. Deux
+P1 specifiques au **cross-port loopback** sont donc fermes ici :
+
+- **CSRF cross-port** : SameSite et `is_loopback_origin` ne sont PAS
+  port-scopes — une page hostile sur `http://127.0.0.1:<autre-port>` est
+  *same-site* et son `Origin` loopback passe, donc le cookie partirait.
+  Garde : sur le **chemin cookie uniquement**, `auth_required` exige
+  `Sec-Fetch-Site: same-origin` (en-tete *forbidden* que le JS ne peut
+  forger, emis y compris sur GET/SSE/WS same-origin qui omettent
+  `Origin`). Le chemin header n'exige rien de plus (CLI/Vite). Pas de
+  `allow_credentials(true)` au CORS.
+- **Fuite du bearer maitre** : les cookies ne sont pas isoles par port
+  (RFC 6265 §8.5) ; pour qu'un cookie vole/cross-port ne livre jamais le
+  bearer partage `~/.sbfb/auth_token`, la **valeur du cookie est un
+  secret de session per-boot distinct** (`AuthState.session_secret`,
+  64 hex CSPRNG), jamais le token. Compare en `constant_time_eq` cote
+  serveur.
+
+Defense-en-profondeur additionnelle : CSP self-origin de l'Operator
+(`default-src 'self'; connect-src 'self'`, hors `BLOB_SERVE_CSP`
+scellee) ; `Referrer-Policy: no-referrer` + 303 qui retire `?token` de
+la barre d'adresse sur le bootstrap.
 
 | Dimension | Valeur |
 |---|---|
 | Severite | H (write disque + spawn bypassPermissions) |
-| Likelihood | L (token bearer 256-bit + Host/Origin loopback bloque le navigateur) |
-| Mitigation | `X-SBFB-Token` (constant_time_eq) + Host + Origin + CORS epingle (S71 G7) |
-| Residual | Processus local hostile lisant `~/.sbfb/auth_token` (frontiere OS-sandbox, accepte — cf. AD2 « abuse de auth_token » / §5.7, meme modele que daemon loopback) |
+| Likelihood | L (token bearer 256-bit + Host/Origin loopback ; chemin cookie garde par `Sec-Fetch-Site: same-origin`) |
+| Mitigation | `X-SBFB-Token` (constant_time_eq) + Host + Origin + CORS epingle (S71 G7) ; **+ S80 Phase A** : cookie HttpOnly/SameSite=Strict a secret de session distinct, garde `Sec-Fetch-Site: same-origin` sur le chemin cookie, CSP self-origin |
+| Residual | (1) Processus local hostile lisant `~/.sbfb/auth_token` (frontiere OS-sandbox, accepte — cf. AD2 / §5.7) ; (2) `?token` survit dans l'history/Referer du navigateur apres le 303 (mitige `no-referrer` ; aucun `TraceLayer` ne logge la query — attaquant local = deja T0/AD2, accepte) |
 
 ### T-OPERATOR-SPAWN — Spawn agent autonome non gate
 
