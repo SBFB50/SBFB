@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Sprint 77 Phase N — compile + run the canonical agent-facing example.
 //!
 //! The agent-consumable example lives, by design, at
