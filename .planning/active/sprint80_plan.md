@@ -7,6 +7,20 @@
 > avant chaque commit ; T1 hermétique grandit incrémentalement (BLOQUANT au wrap-up +
 > CI chaque push), T2 artefact JSON committé.
 
+> **AMENDEMENT PO 2026-06-27 — fold §5.1 du catalogue dans S80.** Décision PO : intégrer
+> **tous les 8 quick-wins** de `.planning/research/factory_front_feature_catalog.md` §5.1
+> dans les phases front (tous sur routes existantes + le seul backend-neuf prévu
+> `GET /api/gates`). Conséquence : C/D/H grossissent (S80 plus riche, cohérent « 0 defer
+> du cœur »). **Garde-fou cardinal de tous ces ajouts** : tout verdict est **RESTITUÉ**
+> (gravé au commit par le Rust, lu depuis `sprint_history.rs`/`/api/audit`/`/api/gates`),
+> **JAMAIS calculé par l'UI** — 0 score/jauge/trust-score (cf. catalogue §6 rejets). Les
+> features pliées portent leur **ID catalogue** (A=arborescence, D=docs, V=VERIFY, S=STEER,
+> U=unique) dans chaque phase ci-dessous. Surfaces de contenu (pack reader, TOC, search,
+> graphe provenance, Viewer) restent **S81** (routes de lecture neuves). **Maquette hi-fi
+> dispo** : `wireframes_factory_operator/Factory Operator - hi-fi.dc.html` (dark oklch,
+> Q4/Q5/Q6 réconciliés) — le code re-thème oklch + vendore Geist (0 CDN) + câble l'API
+> réelle + teste (verrou D2/D5/D10 ; la maquette est la spec, jamais le livrable).
+
 ---
 
 ## Phase 0 — Audit gate S79 (DÉJÀ JOUÉ)
@@ -62,9 +76,20 @@
   transcript SSE (J3, `EventSource` via cookie) ; provider = attribut ; MUR `requires_gate` inline ;
   rail = bandeau sprint·phase·branche·dirty/staged·pouls gates + sélecteur de MODE + secondaires
   (sessions, historique, knowledge) ; CTA en intentions, jargon `kind/provider/preflight` replié.
+- **Livrables §5.1 pliés (catalogue)** :
+  - **S1 — Bibliothèque d'intentions versionnée** : presets repo-visible (`.planning/factory/intentions.json`,
+    kind/provider sous le capot) — socle S80, enrichi S81. Via `POST /api/artifacts/draft` + lecture front.
+  - **S3/D3 — Prompt inspector** : sous « ▸ détails techniques », le prompt RÉEL assemblé par
+    `kind×provider×depth` (`GET /api/prompt/{kind}`), bascule provider. Repli technique strict.
+  - **S4 — Provider attribut + amorce diagnostic** : Claude/Ollama/réseau en attribut discret
+    (`GET /api/providers`) ; diagnostic de joignabilité = signal VRAI (santé route S81).
+  - **S5 — Relancer le tour** : re-stream idempotent sans re-saisie (`/chat/{id}/stream` re-spawn,
+    quasi-gratuit) ; **S6a — Interrompre l'écoute** : `EventSource.close()` honnête (« j'arrête
+    d'écouter », ne ment jamais « arrêté » ; l'abandon réel kill-child = future, backend neuf).
 - **Backend deps** : déjà câblé : `/api/status:123`, `/context:127`, `/context-pack:128`,
   `/providers:129`, `/chat/session:133`, `/chat/{id}/send:135`, `/chat/{id}/stream` SSE `:136`,
-  `/actions/run:130`, `/actions/log:131`, `/prompt:126`, `/sprint-history*:138-144`.
+  `/actions/run:130`, `/actions/log:131`, `/prompt:126`, `/sprint-history*:138-144`. (S1 = lecture
+  d'un fichier presets repo-visible, neuf-léger côté front ; 0 route daemon.)
 - **T1** : sous-tests (2) composeur → session créée + (3) **SSE token→Done déterministe** (un seul
   `Done`, PO-14) via cible mockée (préparée Phase I, stub possible dès ici).
 
@@ -79,11 +104,39 @@
   passés** (route existante, 0 ajout) ; inspecteur knowledge advisory (typo mono + bordure pointillée
   + chip hash, lecture seule) ; brouillon non-autoritaire refusant PASS ; **MUR** plein-largeur,
   action unique « Préparer le pack », zéro Forcer/Override.
+- **Livrables §5.1 pliés (catalogue — surfaçage du gisement `sprint_history.rs` déjà calculé)** :
+  - **A1/U1 — Arbre de procédé (MVP sprint actif) = la signature unique SBFB** : sprint→phase→commit→
+    artefact (preflight/review/codex/verification) inspectable, via `GET /api/sprint-history/{n}`
+    (données DÉJÀ calculées : `phases[]{preflight_verdict,review_verdict,codex_*,deltas,findings}`,
+    `preflight_bilan`, `carries`, `tests.per_phase`). **Restitution mono, 0 calcul UI.** Clic nœud →
+    diff (A5, via `/sprint-history/diff/{sha}`, ouverture D / rendu H).
+  - **V8 — Frise des verdicts de procédé** par phase (vue resserrée de A1).
+  - **U2 — Provenance-de-verdict (TRANSVERSAL D+H)** : tout verdict affiché est cliquable → ouvre
+    l'artefact `.planning/` source. Matérialise « 0 verdict calculé UI ». (Ajouter
+    `preflight_bilan.phases[].file` si absent = trivial.)
+  - **S8/U5 — Journal de bord du nœud + registre des refus du MUR** : actions allowlistées + rejets
+    (PASS/traversal/non-allowlist avec raison) via `GET /api/actions/log`. Renforce le MUR (registre
+    lecture-seule, jamais « réessayer en forçant »).
+  - **S2 — Inspecteur de context-pack pré-vol** : le pack EXACT scellé+hashé envoyé à l'agent
+    (`POST /api/context-pack`), pointillé consultatif. **D2 — Dérive de hash des sources consommées**
+    (`◦ dérive — relu` si le hash on-disk a bougé ; `file_hash()`). Fraîcheur ≠ verdict.
+  - **U3/A9/V10 — Carte de conformité du commit** : 9 sections body + `/api/audit/{rev}` + `/api/lint`,
+    « N manques » jamais une coche ✓ (issues from Rust).
+  - **U6/V9 — Rejeu des passages de gate** (`.cast` asciinema, sortie brute clippy/nextest/fmt) via
+    `/terminal/sessions` + `/{name}`.
+  - **S7 — Tiroir Sessions** (liste simple + replay STEER incl. rejets du mur, `/chat/{id}/log` ;
+    persistance disque = S81). PAS un board multi-agents (coupé).
+  - **D1 — Fix gap daisyui** : ajouter `docs/factory/knowledge/daisyui/MANIFEST.json` à
+    `AUTHORING_KNOWLEDGE_MANIFESTS` (`operator_server.rs:521`, animejs seul aujourd'hui) — backend
+    trivial + test miroir.
 - **Backend deps** : déjà câblé : `/api/terminal/ws:145`, `/terminal/sessions:146`,
-  `/sprint-history/diff/{sha}:144`, `authoring_knowledge:430`, refus PASS `:574/:596`,
-  `requires_gate:766-779`.
+  `/sprint-history/diff/{sha}:144`, `/sprint-history{,/all,/{n}}`, `/api/actions/log`, `/api/context-pack`,
+  `/api/audit/{rev}`, `/api/lint`, `authoring_knowledge:430`, refus PASS `:574/:596`, `requires_gate:766-779`.
+  **AJOUTÉ (Rust, trivial)** : D1 entrée `AUTHORING_KNOWLEDGE_MANIFESTS` daisyui ; U2 champ `file` sur
+  `preflight_bilan.phases[]` si absent. 0 route daemon.
 - **T1** : sous-test (4) MUR `requires_gate` asserté SANS exécution (shell/commit/push/PASS →
-  `requires_gate:true`, 0 spawn).
+  `requires_gate:true`, 0 spawn) + assertion arbre de procédé rend ≥1 phase avec son verdict restitué
+  (pas un score) + scan anti-PASS sur les surfaces de procédé/journal.
 
 ## Phase E — Design-system oklch + 5 signatures de motion sens-porteuses
 
@@ -120,6 +173,11 @@
   fraîcheur (`run@<rev>`) ; états `non exécuté`/`informatif`/`BLOQUANT`/`N issues` **distincts**
   (jamais aplatis vert/rouge) ; l'Operator **ne clôt aucun verdict** (diagnostic 1:1, pas d'agrégat
   « PASS »).
+- **Décision load-bearing au preflight G (fold §5.1)** : la shape de `GateResult.issues` conditionne
+  V5 (pouls de gate en gouttière → `fichier:ligne`) et V6 (filtre change-set « par gate ») de la
+  Phase H. **Figer au preflight** si `issues` porte `{path, line?, message}` (→ V5/V6 livrables S80)
+  ou seulement un message (→ V5/V6 dégradés/carry S81). Idem A1/U2 : exposer le **rattachement
+  gate↔fichier** si possible.
 - **Backend deps** : AJOUTÉ (Rust, crate `sbfb-factory`).
 - **T1** : la route répond un état gate déterministe (au moins 1 gate `non exécuté` + 1 `passed`).
 
@@ -135,19 +193,39 @@
   #N »), jamais `Approve`/`Merge`/`Commit` ; provenance de fraîcheur (`◦ obsolète, relancer`) ;
   bascule STEER↔VERIFY pilotée par l'état [fin de tour ET diff/gate frais], **jamais arrachée au
   stream** (View-Transitions, rail exclu).
-- **Backend deps** : déjà câblé (F+G).
+- **Livrables §5.1 pliés (catalogue)** :
+  - **V1 — Diff-viewer bi-mode** (inline ⇄ side-by-side) + word-diff intra-ligne (spans front sur le
+    texte Rust, jamais un re-diff JS).
+  - **V2/U7 — Diff bi-usage** : LE MÊME composant rend le working-tree (`/api/git/diff`, F) ET un
+    commit passé (`/api/sprint-history/diff/{sha}`) → relie l'arbre de procédé (A5) au diff-viewer.
+  - **V3 — Nav hunk clavier + minimap de densité `+/−`** + saut au hunk « marqué gate ».
+  - **V4 — Panneau gates riche** : marqueur de gate **par fichier** dans le change-set + états distincts
+    jamais aplatis (`✓/•/✕/N issues/—/PROVISIONAL/Not evidenced/RIG-ABSENT`) + `run@<rev>` + `◦ obsolète`.
+    (V5 pouls-gate-en-gouttière + V6 filtre-par-gate : conditionnés à la shape `GateResult.issues{path,line?}`
+    figée au preflight G ; sinon dégrader/carry S81.)
+  - **U2 (transversal) — Provenance-de-verdict** dans le slot ÉTAT et le panneau gates : chaque état
+    restitué est cliquable → artefact source ; l'UI ne calcule aucun verdict.
+  - Onglets **Aperçu scellé** + **Preuve** = **désactivés « à venir » (S81)** (les coder rouvrirait le
+    P1 app-authoring in-vivo). VERIFY-plein S80 = Diff + change-set + bande gates.
+- **Backend deps** : déjà câblé (F+G). (V5/V6 dépendent de la shape `GateResult.issues` décidée Phase G.)
 - **T1** : sous-test (5) diff-viewer rend les hunks du `GET /api/git/diff` Rust + panneau gates 1:1,
-  **sans jamais afficher « PASS »** dans le slot ÉTAT (scan anti-PASS BLOQUANT).
+  **sans jamais afficher « PASS »** dans le slot ÉTAT (scan anti-PASS BLOQUANT) + diff bi-usage rend
+  aussi un commit passé via `/sprint-history/diff/{sha}`.
 
 ## Phase I — Testabilité T1/T2 + re-couverture SSE single-Done + comptabilité du delta
 
 - **But** : consolider la harness hermétique et acter la comptabilité honnête du delta de couverture.
 - **Jobs/surfaces** : test infra. Backend : `provider_router` (cible de test echo).
-- **Livrables** : T1 consolidé (5 sous-tests ci-dessus, BLOQUANT, CI chaque push) ; **re-couverture
+- **Livrables** : T1 consolidé (5 sous-tests de base, BLOQUANT, CI chaque push) ; **re-couverture
   du parsing SSE single-Done** (intention PO-14 portée d'`executionChat.test.ts`) ; **acter le delta**
   (perte des Vitest factory-operator + factory-ui) — interdire la chute silencieuse du total ; T2
   artefact JSON **committé** (corrige P3-6), `PASS` déterministe. Env : `SBFB_HOME` isolé + workspace
   git fixture (ferme `TEST-ISOLATION-SBFB-HOME`).
+- **T1 étendu (fold §5.1)** : assertions sur les surfaces pliées — arbre de procédé rend un verdict
+  **restitué** (pas un score ; provenance-de-verdict U2 cliquable) ; journal/registre du MUR (S8/U5)
+  affiche un refus avec sa raison ; inspecteur context-pack (S2) montre le hash ; **scan anti-PASS
+  étendu** à toutes les surfaces de procédé/journal/conformité ; diff bi-usage (V2). Le **scan front
+  anti-score/jauge** (garde-fou §6) = un lint/scan BLOQUANT supplémentaire (0 « % santé », 0 trust-score).
 - **Backend deps** : AJOUTÉ (petit, Rust) : cible `ExecutionTarget` echo/fixture côté
   `provider_router.rs` pour un SSE déterministe (ou stub HTTP/SSE — à figer au preflight).
 - **T1/T2** : T1 BLOQUANT-vert complet ; T2 JSON `PASS` committé.
@@ -169,12 +247,15 @@
 
 | Phase | Ajout backend Rust |
 |---|---|
-| A | fallback cookie `auth_required` + `GET /?token` bootstrap + `ServeDir` + CSP Operator |
-| F | `GET /api/git/diff` (working-tree, hunks JSON calculés Rust) |
-| G | `GET /api/gates` (sémantique gate-live — design au preflight) |
+| A | fallback cookie `auth_required` + `GET /?token` bootstrap + `ServeDir` + CSP Operator — **DONE `a5ace8d`** |
+| F | `GET /api/git/diff` (working-tree, hunks JSON calculés Rust) — **DONE `bb35d39`** |
+| G | `GET /api/gates` (sémantique gate-live — design au preflight ; **shape `issues{path,line?,message}` load-bearing pour V5/V6**) |
 | I | cible `ExecutionTarget` echo/fixture (`provider_router`) pour SSE déterministe |
+| D | (fold §5.1, triviaux) D1 entrée `AUTHORING_KNOWLEDGE_MANIFESTS` daisyui (`:521`) ; U2 champ `file` sur `preflight_bilan.phases[]` si absent |
 
-Tout le reste consomme les routes existantes (`operator_server.rs:122-146`).
+Tout le reste consomme les routes existantes (`operator_server.rs` routes `/api/*`). Le fold §5.1
+est **surfaçage** du gisement déjà calculé (`sprint_history.rs`) — pas de nouvelles routes (hors les
+2 triviaux Phase D ci-dessus). Catalogue complet : `.planning/research/factory_front_feature_catalog.md`.
 
 ## Scope cuts (rappel — cf. kickoff §Out)
 
