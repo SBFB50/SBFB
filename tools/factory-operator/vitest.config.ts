@@ -20,5 +20,14 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     include: ['src/**/*.test.{ts,tsx}'],
+    coverage: {
+      // `all: true` makes untested source files visible in the report (honest
+      // debt) instead of inflating the % over only-imported modules. The
+      // presentational components (Rail, OrientationBar, SteerScene, Atelier,
+      // VerifyPlaceholder) are exercised by the Playwright E2E, not Vitest.
+      all: true,
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/main.tsx', 'src/vite-env.d.ts'],
+    },
   },
 })

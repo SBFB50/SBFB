@@ -21,7 +21,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 //   src/. (The package.json + production-tree layers live in
 //   scripts/check-no-radix-runtime.sh.)
 export default defineConfig([
-  globalIgnores(['bundle', 'dist', 'node_modules', 'playwright-report', 'test-results']),
+  globalIgnores(['bundle', 'dist', 'coverage', 'node_modules', 'playwright-report', 'test-results']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
