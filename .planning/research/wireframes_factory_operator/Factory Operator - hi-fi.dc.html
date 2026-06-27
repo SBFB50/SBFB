@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --s0: oklch(0.165 0.004 260);
+    --s1: oklch(0.205 0.005 260);
+    --s2: oklch(0.245 0.006 260);
+    --s3: oklch(0.290 0.007 260);
+    --bd: oklch(0.330 0.006 260);
+    --bd2: oklch(0.430 0.008 260);
+    --tx: oklch(0.930 0.004 260);
+    --tx2: oklch(0.720 0.005 260);
+    --tx3: oklch(0.540 0.006 260);
+    --tx4: oklch(0.450 0.006 260);
+    --ok: oklch(0.74 0.14 150);
+    --warn: oklch(0.80 0.12 78);
+    --bad: oklch(0.68 0.18 25);
+    --info: oklch(0.72 0.11 240);
+    --neu: oklch(0.54 0.006 260);
+    --ok-bg: oklch(0.30 0.045 150);
+    --bad-bg: oklch(0.31 0.055 27);
+    --mur: oklch(0.66 0.105 78);
+    --mur-bg: oklch(0.235 0.030 78);
+    --mono: 'Geist Mono','SF Mono',ui-monospace,Menlo,monospace;
+    --sans: 'Geist','Helvetica Neue',system-ui,sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--s0); color: var(--tx); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+</style>
+</helmet>
+
+<!-- dark backdrop covering the board -->
+<div style="position:absolute;left:0;top:0;width:1880px;height:8400px;background:var(--s0);pointer-events:none"></div>
+
+<!-- ============================ TITRE ============================ -->
+<div style="position:absolute;left:80px;top:52px;width:1000px">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="width:9px;height:9px;background:var(--tx);border-radius:1px"></div>
+    <div style="font:600 13px/1 var(--mono);letter-spacing:.04em;color:var(--tx2)">FACTORY&nbsp;OPERATOR</div>
+    <div style="font:500 11px/1 var(--mono);color:var(--tx4);border:1px solid var(--bd);border-radius:2px;padding:4px 7px">hi-fi · dark · oklch</div>
+  </div>
+  <div style="margin-top:16px;font:600 24px/1.2 var(--sans);letter-spacing:-.01em;color:var(--tx)">Passe hi-fi — établi bi-focal souverain</div>
+  <div style="margin-top:10px;font:400 13px/1.65 var(--sans);color:var(--tx2);max-width:880px">Outil de dev <b style="color:var(--tx);font-weight:600">local solo</b> — pas un SaaS. Rail d'orientation permanent + scène mono-focale (<b style="color:var(--tx);font-weight:600">STEER</b> ⇄ <b style="color:var(--tx);font-weight:600">VERIFY</b>). Thème dark achromatique : <b style="color:var(--tx);font-weight:600">la couleur ne porte qu'un signal d'état</b>. Dualité typo = le langage : <span style="font-family:var(--sans)">sans = intention</span> · <span style="font-family:var(--mono)">mono = preuve machine</span>. Lignée OpenBSD / F-Droid / Sigstore — raffiné, dense, jamais décoratif.</div>
+</div>
+
+<!-- ============================ FEUILLE DE TOKENS ============================ -->
+<div style="position:absolute;left:80px;top:226px;width:1680px">
+  <div data-drags-parent="1" style="position:absolute;top:-26px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Feuille de tokens — système hi-fi (valeurs oklch · voir TOKENS.md pour le détail)</div>
+  <div style="display:flex;background:var(--s1);border:1px solid var(--bd);border-radius:4px;overflow:hidden">
+
+    <!-- col surfaces -->
+    <div style="flex:1.05;padding:16px 17px;border-right:1px solid var(--bd)">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx3);margin-bottom:13px">Surfaces — par la ligne, pas l'ombre</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:10px;color:var(--tx2)">
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;background:var(--s0);border:1px solid var(--bd);border-radius:2px"></span><span style="color:var(--tx)">s0</span> <span style="color:var(--tx3)">0.165&nbsp;.004&nbsp;260</span></div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;background:var(--s1);border:1px solid var(--bd);border-radius:2px"></span><span style="color:var(--tx)">s1</span> <span style="color:var(--tx3)">0.205&nbsp;.005&nbsp;260</span></div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;background:var(--s2);border:1px solid var(--bd);border-radius:2px"></span><span style="color:var(--tx)">s2</span> <span style="color:var(--tx3)">0.245&nbsp;.006&nbsp;260</span></div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;background:var(--s3);border:1px solid var(--bd);border-radius:2px"></span><span style="color:var(--tx)">s3</span> <span style="color:var(--tx3)">0.290&nbsp;.007&nbsp;260</span></div>
+        <div style="display:flex;align-items:center;gap:9px;margin-top:3px"><span style="width:26px;height:26px;background:transparent;border:1px solid var(--bd);border-radius:2px"></span><span style="color:var(--tx)">bd</span> <span style="color:var(--tx3)">0.330 · ligne</span></div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;background:transparent;border:1px solid var(--bd2);border-radius:2px"></span><span style="color:var(--tx)">bd2</span> <span style="color:var(--tx3)">0.430 · forte</span></div>
+      </div>
+    </div>
+
+    <!-- col texte -->
+    <div style="flex:1;padding:16px 17px;border-right:1px solid var(--bd)">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx3);margin-bottom:13px">Texte — 4 niveaux</div>
+      <div style="display:flex;flex-direction:column;gap:11px">
+        <div><div style="font:500 14px/1 var(--sans);color:var(--tx)">Primaire</div><div style="font-family:var(--mono);font-size:9.5px;color:var(--tx3);margin-top:3px">tx · 0.930</div></div>
+        <div><div style="font:500 14px/1 var(--sans);color:var(--tx2)">Secondaire</div><div style="font-family:var(--mono);font-size:9.5px;color:var(--tx3);margin-top:3px">tx2 · 0.720</div></div>
+        <div><div style="font:500 14px/1 var(--sans);color:var(--tx3)">Atténué</div><div style="font-family:var(--mono);font-size:9.5px;color:var(--tx3);margin-top:3px">tx3 · 0.540</div></div>
+        <div><div style="font:500 14px/1 var(--sans);color:var(--tx4)">Fantôme</div><div style="font-family:var(--mono);font-size:9.5px;color:var(--tx4);margin-top:3px">tx4 · 0.450 · consultatif</div></div>
+      </div>
+    </div>
+
+    <!-- col états -->
+    <div style="flex:1.05;padding:16px 17px;border-right:1px solid var(--bd)">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx3);margin-bottom:13px">États — couleur = sens</div>
+      <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--mono);font-size:10.5px">
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:11px;height:11px;border-radius:50%;background:var(--ok)"></span><span style="color:var(--ok)">ok</span><span style="color:var(--tx3);margin-left:auto">0.74 .14 150</span></div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:11px;height:11px;border-radius:50%;background:var(--warn)"></span><span style="color:var(--warn)">warn</span><span style="color:var(--tx3);margin-left:auto">0.80 .12 78</span></div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:11px;height:11px;border-radius:50%;background:var(--bad)"></span><span style="color:var(--bad)">bad</span><span style="color:var(--tx3);margin-left:auto">0.68 .18 25</span></div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:11px;height:11px;border-radius:50%;background:var(--info)"></span><span style="color:var(--info)">info</span><span style="color:var(--tx3);margin-left:auto">0.72 .11 240</span></div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:11px;height:11px;border-radius:50%;border:1px solid var(--bd2);background:transparent"></span><span style="color:var(--neu)">neutre</span><span style="color:var(--tx3);margin-left:auto">= absence</span></div>
+      </div>
+      <div style="margin-top:12px;font:400 9.5px/1.5 var(--sans);color:var(--tx4)">Aucune couleur décorative. Jamais aplati vert/rouge binaire.</div>
+    </div>
+
+    <!-- col typo -->
+    <div style="flex:1.25;padding:16px 17px;border-right:1px solid var(--bd)">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx3);margin-bottom:13px">Typo — dualité = langage</div>
+      <div style="font:450 19px/1 var(--sans);color:var(--tx)">Préparer la phase</div>
+      <div style="font:400 9.5px/1 var(--sans);color:var(--tx3);margin:4px 0 12px">Geist Sans · intention / prose humaine</div>
+      <div style="font-family:var(--mono);font-weight:450;font-size:15px;color:var(--tx)">sha256:9f3a…c7</div>
+      <div style="font:400 9.5px/1 var(--sans);color:var(--tx3);margin:4px 0 12px">Geist Mono · preuve / artefact machine</div>
+      <div style="display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--bd);padding-top:10px;font-family:var(--mono);font-size:9.5px;color:var(--tx3)">
+        <div>Intent&nbsp;L&nbsp;&nbsp;15/450&nbsp;&nbsp;·&nbsp;Prose&nbsp;12.5/400</div>
+        <div>Microlabel&nbsp;9/600&nbsp;.15em&nbsp;UC</div>
+        <div>Data&nbsp;12&nbsp;mono&nbsp;<span style="color:var(--tx2)">tabular-nums</span></div>
+        <div>Mono&nbsp;11&nbsp;·&nbsp;Mono&nbsp;S&nbsp;9.5</div>
+      </div>
+    </div>
+
+    <!-- col espacement -->
+    <div style="flex:1;padding:16px 17px">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx3);margin-bottom:13px">Espacement — base 4</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:2px;height:9px;background:var(--bd2)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">2</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:4px;height:9px;background:var(--bd2)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">4</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:9px;background:var(--bd2)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">8</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:9px;background:var(--bd2)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">12</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:16px;height:9px;background:var(--bd2)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">16</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:24px;height:9px;background:var(--bd2)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">24</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:32px;height:9px;background:var(--bd2)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--tx3)">32</span></div>
+      </div>
+      <div style="font:400 10px/1.5 var(--sans);color:var(--tx3)">Composeur <b style="color:var(--tx2);font-weight:600">aéré</b> · VERIFY <b style="color:var(--tx2);font-weight:600">dense/tabulaire</b>.</div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ============================ 01 · SHELL ============================ -->
+<div style="position:absolute;left:80px;top:566px;font:600 12px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--tx2)"><span style="color:var(--tx4)">01</span>&nbsp;&nbsp;&nbsp;Shell — orientation &amp; rail&nbsp;&nbsp;<span style="font:400 11px/1 var(--mono);letter-spacing:0;text-transform:none;color:var(--tx3)">— barre fine EN HAUT (n'anime jamais) · rail vertical étroit = MODE + sous-surfaces</span></div>
+
+<div style="position:absolute;left:80px;top:604px;width:1360px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Shell complet — état canonique (MODE STEER actif)</div>
+  <div style="height:660px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+
+    <!-- ===== BARRE D'ORIENTATION (HAUT, permanente, n'anime jamais) ===== -->
+    <div style="height:46px;flex:0 0 46px;display:flex;align-items:center;gap:0;padding:0 14px;background:var(--s2);border-bottom:1px solid var(--bd)">
+      <div style="display:flex;align-items:center;gap:9px;padding-right:14px;border-right:1px solid var(--bd)">
+        <div style="width:8px;height:8px;background:var(--tx2);border-radius:1px"></div>
+        <span style="font:600 11px/1 var(--mono);letter-spacing:.03em;color:var(--tx2)">FACTORY&nbsp;OPERATOR</span>
+      </div>
+      <!-- breadcrumb orientation, tout en mono -->
+      <div style="display:flex;align-items:center;gap:10px;padding-left:14px;font-family:var(--mono);font-size:11.5px;color:var(--tx2);font-variant-numeric:tabular-nums">
+        <span style="color:var(--tx)">Sprint&nbsp;80</span>
+        <span style="color:var(--tx3)">·</span>
+        <span>Phase&nbsp;3 — Steering</span>
+        <span style="color:var(--tx4)">▸</span>
+        <span style="color:var(--tx)">feat/seal-preview</span>
+        <span style="color:var(--tx4)">▸</span>
+        <span style="color:var(--info)">●</span><span>7 modifiés</span><span style="color:var(--tx3)">·</span><span style="color:var(--tx3)">2 indexés</span>
+        <span style="color:var(--tx4)">▸</span>
+        <span style="color:var(--tx3)">◑</span><span style="color:var(--tx3)">gates</span><span style="color:var(--ok)">4✓</span><span style="color:var(--tx3)">1•</span>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+        <span style="font:400 10.5px/1 var(--mono);color:var(--tx3)">agent: <span style="color:var(--tx2)">claude-code ▾</span></span>
+        <span style="display:flex;align-items:center;gap:6px;font:400 10px/1 var(--mono);color:var(--tx3)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ok)"></span>loopback :7878</span>
+      </div>
+    </div>
+
+    <!-- ===== CORPS : rail étroit + scène ===== -->
+    <div style="flex:1;display:flex;min-height:0">
+
+      <!-- RAIL VERTICAL ÉTROIT -->
+      <div style="width:158px;flex:0 0 158px;background:var(--s1);border-right:1px solid var(--bd);display:flex;flex-direction:column;padding:13px 11px">
+        <!-- bascule MODE (groupée, en tête) -->
+        <div style="font:600 8.5px/1 var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--tx4);margin-bottom:9px">mode focal</div>
+        <div style="display:flex;flex-direction:column;border:1px solid var(--bd);border-radius:3px;overflow:hidden;margin-bottom:7px">
+          <div style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:var(--s3);border-left:2px solid var(--tx)">
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--tx)"></span>
+            <span style="font:600 12px/1 var(--sans);color:var(--tx)">STEER</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:transparent;border-top:1px solid var(--bd);border-left:2px solid transparent">
+            <span style="width:6px;height:6px;border-radius:50%;border:1px solid var(--bd2)"></span>
+            <span style="font:500 12px/1 var(--sans);color:var(--tx3)">VERIFY</span>
+            <span style="margin-left:auto;font:400 8.5px/1 var(--mono);color:var(--info)">1 diff</span>
+          </div>
+        </div>
+        <div style="font:400 8.5px/1.4 var(--mono);color:var(--tx4);margin-bottom:16px">bascule manuelle · jamais auto</div>
+
+        <!-- sous-surfaces secondaires -->
+        <div style="font:600 8.5px/1 var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--tx4);margin-bottom:9px">surfaces</div>
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:3px;background:transparent">
+            <span style="font:400 11px/1 var(--mono);color:var(--tx4);width:13px">⌃</span><span style="font:400 11.5px/1 var(--sans);color:var(--tx2)">Terminal</span><span style="margin-left:auto;font:400 8.5px/1 var(--mono);color:var(--tx4)">⌥T</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:3px">
+            <span style="font:400 11px/1 var(--mono);color:var(--tx4);width:13px">≣</span><span style="font:400 11.5px/1 var(--sans);color:var(--tx2)">Sessions</span><span style="margin-left:auto;font:400 9px/1 var(--mono);color:var(--tx4);font-variant-numeric:tabular-nums">3</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:3px">
+            <span style="font:400 11px/1 var(--mono);color:var(--tx4);width:13px">◴</span><span style="font:400 11.5px/1 var(--sans);color:var(--tx2)">Historique</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:3px">
+            <span style="font:400 11px/1 var(--mono);color:var(--tx4);width:13px">◇</span><span style="font:400 11.5px/1 var(--sans);color:var(--tx3)">Knowledge</span><span style="margin-left:auto;font:400 7.5px/1 var(--mono);color:var(--tx4);border:1px dashed var(--bd2);border-radius:2px;padding:2px 4px">consult.</span>
+          </div>
+        </div>
+
+        <div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--bd);font:400 8.5px/1.6 var(--mono);color:var(--tx4)">token <span style="color:var(--ok)">✓</span> · node souverain<br>factory-operator · v0</div>
+      </div>
+
+      <!-- SCÈNE MONO-FOCALE (STEER) -->
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:var(--s0)">
+        <div style="display:flex;align-items:center;gap:9px;padding:11px 18px;border-bottom:1px solid var(--bd)">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--tx2)"></span>
+          <span style="font:600 12px/1 var(--sans);letter-spacing:.04em;color:var(--tx)">STEER</span>
+          <span style="font:400 12px/1 var(--sans);color:var(--tx3)">— exprimer une intention · observer l'agent</span>
+          <span style="margin-left:auto;font:400 10px/1 var(--mono);color:var(--tx4)">scène mono-focale · une seule chose focale</span>
+        </div>
+
+        <!-- composeur (aéré) -->
+        <div style="padding:20px 22px;display:flex;flex-direction:column;gap:15px;border-bottom:1px solid var(--bd)">
+          <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx4)">composeur d'intention</div>
+          <div style="display:flex;gap:9px;flex-wrap:wrap">
+            <span style="padding:8px 14px;border:1px solid var(--bd2);border-radius:3px;font:500 12.5px/1 var(--sans);color:var(--tx);background:var(--s2)">Préparer la phase</span>
+            <span style="padding:8px 14px;border:1px solid var(--bd);border-radius:3px;font:500 12.5px/1 var(--sans);color:var(--tx2);background:transparent">Vérifier avant validation</span>
+            <span style="padding:8px 14px;border:1px solid var(--bd);border-radius:3px;font:500 12.5px/1 var(--sans);color:var(--tx2);background:transparent">Transmettre à un autre agent</span>
+          </div>
+          <div style="border:1px solid var(--bd2);background:var(--s1);border-radius:4px;padding:14px 15px;min-height:54px">
+            <span style="font:400 13.5px/1.5 var(--sans);color:var(--tx3)">Décrivez l'intention en clair… « scelle l'aperçu pour qu'il rende l'app réelle »</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font:400 10.5px/1 var(--mono);color:var(--tx4)">▸ détails techniques <span style="color:oklch(0.40 0.006 260)">(kind · provider · preflight · hash)</span></span>
+            <span style="padding:10px 17px;background:var(--tx);border-radius:3px;font:600 12.5px/1 var(--sans);color:var(--s0)">Lancer l'intention</span>
+          </div>
+        </div>
+
+        <!-- atelier observable (dense) -->
+        <div style="padding:16px 22px;display:flex;flex-direction:column;gap:11px;flex:1">
+          <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx4)">atelier observable</div>
+          <div style="border:1px solid var(--bd);background:var(--s1);border-radius:4px;padding:12px 14px;font-family:var(--mono);font-size:11px;line-height:1.85;color:var(--tx2)">
+            <div><span style="color:var(--info)">agent</span> lit la phase · analyse <span style="color:var(--tx)">src/seal_preview.rs</span></div>
+            <div>propose un rendu scellé pour l'aperçu de vérification</div>
+            <div><span style="color:var(--tx)">▌</span> écrit le diff…&nbsp;&nbsp;<span style="color:var(--ok)">● en cours</span></div>
+          </div>
+          <div style="display:flex;gap:11px">
+            <div style="flex:1;border:1px solid var(--bd);background:var(--s2);border-radius:4px;padding:11px 13px;display:flex;align-items:center;justify-content:space-between">
+              <span style="font-family:var(--mono);font-size:11px;color:var(--tx);font-variant-numeric:tabular-nums">src/seal_preview.rs&nbsp;&nbsp;<span style="color:var(--ok)">+18</span> <span style="color:var(--bad)">−4</span></span>
+              <span style="font:500 11px/1 var(--sans);color:var(--info)">voir le diff →</span>
+            </div>
+            <div style="flex:1;border:1px solid var(--bd);background:var(--s2);border-radius:4px;padding:11px 13px;display:flex;align-items:center;justify-content:space-between">
+              <span style="font-family:var(--mono);font-size:11px;color:var(--tx);font-variant-numeric:tabular-nums">preview/mod.ts&nbsp;&nbsp;<span style="color:var(--ok)">+6</span> <span style="color:var(--tx4)">−0</span></span>
+              <span style="font:500 11px/1 var(--sans);color:var(--info)">voir le diff →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- annotations 01 -->
+<div style="position:absolute;left:1474px;top:628px;width:236px;border:1px solid var(--bd);border-left:2px solid var(--info);background:var(--s1);border-radius:3px;padding:12px 13px;font:400 11px/1.5 var(--sans);color:var(--tx2)"><b style="color:var(--tx);font-weight:600">Barre d'orientation</b> en haut, pleine largeur, permanente. Elle <b style="color:var(--tx);font-weight:600">n'entre jamais</b> dans une transition (exclue de l'altitude-shift).</div>
+<div style="position:absolute;left:1474px;top:742px;width:236px;border:1px solid var(--bd);border-left:2px solid var(--bd2);background:var(--s1);border-radius:3px;padding:12px 13px;font:400 11px/1.5 var(--sans);color:var(--tx2)"><b style="color:var(--tx);font-weight:600">Rail étroit</b> (158px) : bascule MODE groupée en tête, puis sous-surfaces (terminal, sessions, historique, knowledge consultatif).</div>
+<div style="position:absolute;left:1474px;top:864px;width:236px;border:1px solid var(--bd);border-left:2px solid var(--bd2);background:var(--s1);border-radius:3px;padding:12px 13px;font:400 11px/1.5 var(--sans);color:var(--tx2)"><b style="color:var(--tx);font-weight:600">Provider</b> = attribut discret dans la barre. Le jargon (<span style="font-family:var(--mono);font-size:10px">kind·preflight·hash</span>) est replié.</div>
+
+<!-- ============================ 02 · STEER (variante B) ============================ -->
+<div style="position:absolute;left:80px;top:1346px;font:600 12px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--tx2)"><span style="color:var(--tx4)">02</span>&nbsp;&nbsp;&nbsp;STEER — variante B retenue&nbsp;&nbsp;<span style="font:400 11px/1 var(--mono);letter-spacing:0;text-transform:none;color:var(--tx3)">— atelier dominant · composeur en dock invocable · états au même détail que A</span></div>
+
+<!-- B · état VIDE (composeur en grand) -->
+<div style="position:absolute;left:80px;top:1394px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">État vide — pas de session · composeur EN GRAND (découvrabilité)</div>
+  <div style="height:486px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:9px;padding:11px 16px;border-bottom:1px solid var(--bd);background:var(--s1)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--tx2)"></span>
+      <span style="font:600 12px/1 var(--sans);letter-spacing:.04em;color:var(--tx)">STEER</span>
+      <span style="margin-left:auto;font:400 10px/1 var(--mono);color:var(--tx4)">aucune session active</span>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:26px 30px;gap:18px;background:var(--s0)">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx4)">composeur d'intention</div>
+      <div style="display:flex;gap:9px;flex-wrap:wrap">
+        <span style="padding:9px 15px;border:1px solid var(--bd2);border-radius:3px;font:500 13px/1 var(--sans);color:var(--tx);background:var(--s2)">Préparer la phase</span>
+        <span style="padding:9px 15px;border:1px solid var(--bd);border-radius:3px;font:500 13px/1 var(--sans);color:var(--tx2)">Vérifier avant validation</span>
+        <span style="padding:9px 15px;border:1px solid var(--bd);border-radius:3px;font:500 13px/1 var(--sans);color:var(--tx2)">Transmettre à un autre agent</span>
+      </div>
+      <div style="border:1px solid var(--bd2);background:var(--s1);border-radius:4px;padding:17px 17px;min-height:96px">
+        <span style="font:400 15px/1.55 var(--sans);color:var(--tx3)">Décrivez l'intention en clair…</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:14px">
+          <span style="font:400 11px/1 var(--mono);color:var(--tx3)">agent: <span style="color:var(--tx2)">claude-code ▾</span></span>
+          <span style="font:400 11px/1 var(--mono);color:var(--tx4)">▸ détails techniques</span>
+        </div>
+        <span style="padding:11px 19px;background:var(--tx);border-radius:3px;font:600 13px/1 var(--sans);color:var(--s0)">Lancer l'intention</span>
+      </div>
+      <div style="font:400 11px/1.5 var(--sans);color:var(--tx4);text-align:center;border-top:1px solid var(--bd);padding-top:15px">Une intention démarre une session observable — l'agent fabrique, vous vérifiez.</div>
+    </div>
+  </div>
+</div>
+
+<!-- B · atelier dominant + dock replié -->
+<div style="position:absolute;left:772px;top:1394px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Session active — atelier dominant · composeur replié en dock</div>
+  <div style="height:486px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:9px;padding:11px 16px;border-bottom:1px solid var(--bd)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--tx2)"></span>
+      <span style="font:600 12px/1 var(--sans);letter-spacing:.04em;color:var(--tx)">STEER</span>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font:400 10px/1 var(--mono);color:var(--ok)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ok)"></span>l'agent travaille</span>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:11px;padding:16px 18px;background:var(--s0);min-height:0">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx4)">atelier observable</div>
+      <div style="border:1px solid var(--bd);background:var(--s1);border-radius:4px;padding:12px 14px;font-family:var(--mono);font-size:11px;line-height:1.9;color:var(--tx2)">
+        <div><span style="color:var(--info)">agent</span> lit la phase 3 · repère le point d'insertion</div>
+        <div>écrit <span style="color:var(--tx)">seal_render()</span> + le garde-fou</div>
+        <div>teste localement&nbsp;&nbsp;<span style="color:var(--ok)">cargo test · 24 passed</span></div>
+        <div><span style="color:var(--tx)">▌</span> applique la 2ᵉ édition…&nbsp;<span style="color:var(--ok)">● en cours</span></div>
+      </div>
+      <div style="border:1px solid var(--bd);background:var(--s2);border-radius:4px;padding:11px 13px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:var(--mono);font-size:11px;color:var(--tx);font-variant-numeric:tabular-nums">src/seal_preview.rs&nbsp;&nbsp;<span style="color:var(--ok)">+18</span> <span style="color:var(--bad)">−4</span></span>
+        <span style="font:500 11px/1 var(--sans);color:var(--info)">voir le diff →</span>
+      </div>
+      <div style="border:1px solid var(--bd);background:var(--s2);border-radius:4px;padding:11px 13px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:var(--mono);font-size:11px;color:var(--tx);font-variant-numeric:tabular-nums">preview/mod.ts&nbsp;&nbsp;<span style="color:var(--ok)">+6</span> <span style="color:var(--tx4)">−0</span></span>
+        <span style="font:500 11px/1 var(--sans);color:var(--info)">voir le diff →</span>
+      </div>
+    </div>
+    <!-- dock composeur replié -->
+    <div style="border-top:1px solid var(--bd);background:var(--s2);padding:12px 16px;display:flex;align-items:center;gap:12px">
+      <span style="font:400 11px/1 var(--mono);color:var(--tx3)">▸ exprimer une intention…</span>
+      <span style="margin-left:auto;font:400 10px/1 var(--mono);color:var(--tx4)">claude-code ▾</span>
+      <span style="font:400 10px/1 var(--mono);color:var(--tx4)">⏸ relancer · interrompre</span>
+    </div>
+  </div>
+</div>
+
+<!-- B · cartes tool-call + détails techniques ouverts -->
+<div style="position:absolute;left:80px;top:1922px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Terminé — cartes tool-call · ▾ détails techniques dépliés</div>
+  <div style="height:470px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:9px;padding:11px 16px;border-bottom:1px solid var(--bd)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--tx2)"></span>
+      <span style="font:600 12px/1 var(--sans);letter-spacing:.04em;color:var(--tx)">STEER</span>
+      <span style="margin-left:auto;font:400 10px/1 var(--mono);color:var(--tx3)">2 éditions · terminé</span>
+    </div>
+    <!-- composeur dock + détails ouverts -->
+    <div style="padding:13px 16px;border-bottom:1px solid var(--bd);background:var(--s1);display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx4)">détails techniques</span>
+        <span style="font:400 10px/1 var(--mono);color:var(--tx3)">▾ replier</span>
+      </div>
+      <div style="border:1px solid var(--bd);background:var(--s0);border-radius:4px;padding:11px 13px;font-family:var(--mono);font-size:10.5px;line-height:1.85;color:var(--tx2)">
+        <div>kind&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <span style="color:var(--tx)">edit.apply</span></div>
+        <div>provider&nbsp;= <span style="color:var(--tx)">claude-code</span> <span style="color:var(--tx4)">· local</span></div>
+        <div>preflight = <span style="color:var(--ok)">ok</span> · arbre propre · base à jour</div>
+        <div>pack&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <span style="color:var(--tx)">sha256:9f3a…c7</span> <span style="color:var(--info)">⧉</span></div>
+      </div>
+    </div>
+    <div style="flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:10px;background:var(--s0)">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx4)">cartes tool-call</div>
+      <div style="border:1px solid var(--bd);background:var(--s2);border-radius:4px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:11px"><span style="font:400 9px/1 var(--mono);color:var(--tx4)">édition</span><span style="font-family:var(--mono);font-size:11.5px;color:var(--tx);font-variant-numeric:tabular-nums">src/seal_preview.rs&nbsp;&nbsp;<span style="color:var(--ok)">+18</span> <span style="color:var(--bad)">−4</span></span></div>
+        <span style="font:500 11px/1 var(--sans);color:var(--info)">voir le diff →</span>
+      </div>
+      <div style="border:1px solid var(--bd);background:var(--s2);border-radius:4px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:11px"><span style="font:400 9px/1 var(--mono);color:var(--tx4)">édition</span><span style="font-family:var(--mono);font-size:11.5px;color:var(--tx);font-variant-numeric:tabular-nums">preview/mod.ts&nbsp;&nbsp;<span style="color:var(--ok)">+6</span> <span style="color:var(--tx4)">−0</span></span></div>
+        <span style="font:500 11px/1 var(--sans);color:var(--info)">voir le diff →</span>
+      </div>
+      <div style="margin-top:auto;display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:10.5px;color:var(--tx3)"><span style="color:var(--ok)">●</span> terminé · prêt à examiner&nbsp;<span style="color:var(--info)">→ bascule VERIFY</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- B · streaming (relance / interrompre) -->
+<div style="position:absolute;left:772px;top:1922px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Streaming — flux en direct · relancer / interrompre (jamais d'auto-bascule)</div>
+  <div style="height:470px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:9px;padding:11px 16px;border-bottom:1px solid var(--bd)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--tx2)"></span>
+      <span style="font:600 12px/1 var(--sans);letter-spacing:.04em;color:var(--tx)">STEER</span>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font:400 10px/1 var(--mono);color:var(--ok)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ok)"></span>streaming</span>
+    </div>
+    <div style="padding:13px 16px;border-bottom:1px solid var(--bd);background:var(--s1)">
+      <div style="border:1px solid var(--bd2);background:var(--s0);border-radius:4px;padding:11px 13px;font:400 12.5px/1.4 var(--sans);color:var(--tx)">Scelle l'aperçu pour qu'il rende l'app réelle.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:9px">
+        <span style="font:400 10.5px/1 var(--mono);color:var(--tx3)">agent: claude-code ▾&nbsp;&nbsp;<span style="color:var(--tx4)">▸ détails techniques</span></span>
+        <div style="display:flex;gap:8px">
+          <span style="padding:6px 11px;border:1px solid var(--bd2);border-radius:3px;font:500 10.5px/1 var(--sans);color:var(--tx2)">⏸ Interrompre</span>
+          <span style="padding:6px 11px;border:1px solid var(--bd);border-radius:3px;font:500 10.5px/1 var(--sans);color:var(--tx3)">↻ Relancer</span>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;padding:14px 16px;background:var(--s0);min-height:0">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx4);margin-bottom:11px">atelier observable</div>
+      <div style="border:1px solid var(--bd);background:var(--s1);border-radius:4px;padding:13px 15px;font-family:var(--mono);font-size:11px;line-height:2;color:var(--tx2);height:100%">
+        <div><span style="color:var(--info)">agent</span> lit la phase 3</div>
+        <div>analyse <span style="color:var(--tx)">src/seal_preview.rs</span> · 142 lignes</div>
+        <div>repère <span style="color:var(--tx)">fn render()</span> · point d'insertion ligne 88</div>
+        <div>écrit le rendu scellé + garde-fou</div>
+        <div><span style="color:var(--tx)">▌</span> applique l'édition…&nbsp;<span style="color:var(--ok)">● en cours</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 03 · LE MUR ============================ -->
+<div style="position:absolute;left:80px;top:2456px;font:600 12px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--tx2)"><span style="color:var(--tx4)">03</span>&nbsp;&nbsp;&nbsp;Le MUR de gouvernance&nbsp;&nbsp;<span style="font:400 11px/1 var(--mono);letter-spacing:0;text-transform:none;color:var(--tx3)">— barrière EN-FLUX pleine largeur (jamais un modal) · interrompt physiquement le composeur</span></div>
+
+<div style="position:absolute;left:80px;top:2504px;width:1360px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Intention sensible (commit · push · shell · valider) → le MUR scinde le flux</div>
+  <div style="display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+
+    <div style="display:flex;align-items:center;gap:9px;padding:11px 16px;border-bottom:1px solid var(--bd)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--tx2)"></span>
+      <span style="font:600 12px/1 var(--sans);letter-spacing:.04em;color:var(--tx)">STEER</span>
+      <span style="margin-left:auto;font:400 10px/1 var(--mono);color:var(--mur)">⚠ intention sensible détectée</span>
+    </div>
+
+    <!-- composeur (haut du flux) -->
+    <div style="padding:17px 20px 18px;background:var(--s0)">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx4);margin-bottom:11px">composeur d'intention</div>
+      <div style="border:1px solid var(--bd2);background:var(--s1);border-radius:4px;padding:13px 15px;font:400 13.5px/1.4 var(--sans);color:var(--tx)">Valide la phase 3, commit et pousse sur la branche <span style="font-family:var(--mono);font-size:12px;color:var(--tx2)">feat/seal-preview</span>.</div>
+    </div>
+
+    <!-- ===== LE MUR : encart en retrait, pleine largeur, dans le flux ===== -->
+    <div style="position:relative;background:var(--mur-bg);border-top:1px solid var(--mur);border-bottom:1px solid var(--mur)">
+      <!-- hachures haut -->
+      <div style="height:7px;background:repeating-linear-gradient(135deg, oklch(0.66 0.105 78 / .55) 0, oklch(0.66 0.105 78 / .55) 2px, transparent 2px, transparent 9px)"></div>
+      <div style="display:flex;gap:0;padding:4px 0 8px">
+        <!-- barre lourde gauche -->
+        <div style="width:5px;flex:0 0 5px;background:var(--mur);margin:14px 0 14px 0"></div>
+        <div style="flex:1;padding:18px 24px 20px 22px;display:flex;gap:30px;align-items:flex-start">
+          <!-- icône cadenas -->
+          <div style="flex:0 0 auto;width:42px;height:46px;position:relative;margin-top:4px">
+            <div style="position:absolute;left:11px;top:0;width:20px;height:17px;border:2.5px solid var(--mur);border-bottom:none;border-radius:10px 10px 0 0"></div>
+            <div style="position:absolute;left:4px;top:15px;width:34px;height:28px;border:2.5px solid var(--mur);border-radius:3px;background:oklch(0.30 0.04 78)"></div>
+            <div style="position:absolute;left:18px;top:25px;width:6px;height:10px;background:var(--mur);border-radius:3px"></div>
+          </div>
+          <!-- corps -->
+          <div style="flex:1;min-width:0">
+            <div style="font:600 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mur);margin-bottom:9px">barrière de gouvernance</div>
+            <div style="font:600 17px/1.3 var(--sans);color:var(--tx);margin-bottom:9px">Cette intention exige une vraie session agent.</div>
+            <div style="font:400 12.5px/1.6 var(--sans);color:var(--tx2);max-width:620px">Commit, push, shell et validation ne s'exécutent jamais depuis le composeur. Ils passent par une session tracée qui produit gates et preuves — c'est la barrière, pas un bouton à franchir.</div>
+          </div>
+          <!-- décomposition de ce que la session exige -->
+          <div style="flex:0 0 300px;border-left:1px solid var(--mur);padding-left:22px">
+            <div style="font:600 8.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mur);margin-bottom:10px">la session produira &amp; exigera</div>
+            <div style="display:flex;flex-direction:column;gap:6px;font-family:var(--mono);font-size:11.5px;color:var(--tx2);margin-bottom:18px">
+              <div><span style="color:var(--mur)">•</span>&nbsp; session agent <span style="color:var(--tx4)">(tracée)</span></div>
+              <div><span style="color:var(--mur)">•</span>&nbsp; gates <span style="color:var(--tx4)">(diagnostic)</span></div>
+              <div><span style="color:var(--mur)">•</span>&nbsp; preuves <span style="color:var(--tx4)">(provenance)</span></div>
+              <div><span style="color:var(--mur)">•</span>&nbsp; signataire</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px">
+              <span style="padding:11px 17px;background:var(--mur);border-radius:3px;font:600 12.5px/1 var(--sans);color:oklch(0.20 0.02 78)">Préparer le pack pour la session</span>
+              <span style="font:500 12px/1 var(--sans);color:var(--tx3)">Retour</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- hachures bas + interdits -->
+      <div style="padding:0 24px 11px 27px;font:400 9.5px/1 var(--mono);color:oklch(0.62 0.07 78)">— aucun « Forcer » · aucun « Override » · aucun « Bypass » · aucun « Exécuter quand même » —</div>
+      <div style="height:7px;background:repeating-linear-gradient(135deg, oklch(0.66 0.105 78 / .55) 0, oklch(0.66 0.105 78 / .55) 2px, transparent 2px, transparent 9px)"></div>
+    </div>
+
+    <!-- atelier halté (sous le MUR) -->
+    <div style="padding:15px 20px 18px;background:var(--s0)">
+      <div style="font:600 9px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--tx4);margin-bottom:11px">atelier observable</div>
+      <div style="border:1px dashed var(--bd);background:transparent;border-radius:4px;padding:16px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--tx4)">le flux ne démarre pas tant que le pack n'est pas préparé — la barrière tient</div>
+    </div>
+  </div>
+</div>
+
+<!-- annotations 03 -->
+<div style="position:absolute;left:1474px;top:2540px;width:236px;border:1px solid var(--bd);border-left:2px solid var(--mur);background:var(--s1);border-radius:3px;padding:12px 13px;font:400 11px/1.5 var(--sans);color:var(--tx2)"><b style="color:var(--tx);font-weight:600">Barrière, pas modal.</b> Le MUR est un encart en retrait qui <b style="color:var(--tx);font-weight:600">scinde le flux</b> sur toute la largeur — pas une carte flottante sur scrim.</div>
+<div style="position:absolute;left:1474px;top:2662px;width:236px;border:1px solid var(--bd);border-left:2px solid var(--bd2);background:var(--s1);border-radius:3px;padding:12px 13px;font:400 11px/1.5 var(--sans);color:var(--tx2)">C'est l'<b style="color:var(--tx);font-weight:600">avance de SBFB</b> sur Cursor / Windsurf : on l'<b style="color:var(--tx);font-weight:600">expose</b>. Une seule issue — préparer le pack. Zéro contournement.</div>
+<div style="position:absolute;left:1474px;top:2784px;width:236px;border:1px solid var(--bd);border-left:2px solid var(--bd2);background:var(--s1);border-radius:3px;padding:12px 13px;font:400 11px/1.5 var(--sans);color:var(--tx2)">Amber = signal de <b style="color:var(--tx);font-weight:600">gravité</b> (gating), pas décor. Motion : <span style="font-family:var(--mono);font-size:10px">confirmation gravity</span> — le MUR s'impose, pèse.</div>
+
+<!-- ============================ 04 · VERIFY (variante B canonique) ============================ -->
+<div style="position:absolute;left:80px;top:3026px;font:600 12px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--tx2)"><span style="color:var(--tx4)">04</span>&nbsp;&nbsp;&nbsp;VERIFY — l'investissement central&nbsp;&nbsp;<span style="font:400 11px/1 var(--mono);letter-spacing:0;text-transform:none;color:var(--tx3)">— change-set (marqueur de gate / fichier) · 3 onglets · bande GATES+ÉTAT permanente EN BAS</span></div>
+
+<!-- HERO : VERIFY Diff (défaut) -->
+<div style="position:absolute;left:80px;top:3074px;width:1360px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Disposition canonique — onglet Diff (défaut) · Gates n'est PAS un onglet</div>
+  <div style="height:626px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+
+    <!-- top scène -->
+    <div style="display:flex;align-items:center;gap:9px;padding:11px 16px;border-bottom:1px solid var(--bd)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--info);box-shadow:0 0 0 3px oklch(0.72 0.11 240 / .18)"></span>
+      <span style="font:600 12px/1 var(--sans);letter-spacing:.04em;color:var(--tx)">VERIFY</span>
+      <span style="font:400 12px/1 var(--sans);color:var(--tx3)">— examiner le diff · lire les gates · aperçu scellé · preuve</span>
+      <span style="margin-left:auto;font:400 10px/1 var(--mono);color:var(--tx4)">la vérité = git diff, pas un buffer</span>
+    </div>
+
+    <!-- corps : change-set + panneau -->
+    <div style="flex:1;display:flex;min-height:0">
+
+      <!-- COLONNE CHANGE-SET (repliable · marqueur de gate / fichier) -->
+      <div style="width:248px;flex:0 0 248px;border-right:1px solid var(--bd);background:var(--s1);display:flex;flex-direction:column;min-height:0">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px solid var(--bd)">
+          <span style="font:600 9px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--tx4)">change-set · 3 fichiers</span>
+          <span style="font:400 11px/1 var(--mono);color:var(--tx3)">↔</span>
+        </div>
+        <div style="flex:1;overflow:hidden">
+          <!-- fichier sélectionné -->
+          <div style="padding:10px 13px;background:var(--s2);border-left:2px solid var(--tx);display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--bad)" title="gate bloquant"></span>
+              <span style="font-family:var(--mono);font-size:11.5px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">src/seal_preview.rs</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding-left:15px;font-family:var(--mono);font-size:10px;color:var(--tx3);font-variant-numeric:tabular-nums">
+              <span style="color:var(--ok)">+18</span><span style="color:var(--bad)">−4</span>
+              <span style="margin-left:auto;color:var(--bad)">seal-verify ✕</span>
+            </div>
+          </div>
+          <!-- fichier ok -->
+          <div style="padding:10px 13px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--ok)"></span>
+              <span style="font-family:var(--mono);font-size:11.5px;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">preview/mod.ts</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding-left:15px;font-family:var(--mono);font-size:10px;color:var(--tx3);font-variant-numeric:tabular-nums">
+              <span style="color:var(--ok)">+6</span><span style="color:var(--tx4)">−0</span>
+              <span style="margin-left:auto;color:var(--ok)">gates ✓</span>
+            </div>
+          </div>
+          <!-- fichier pending -->
+          <div style="padding:10px 13px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:7px;height:7px;border-radius:50%;border:1px solid var(--bd2);background:transparent"></span>
+              <span style="font-family:var(--mono);font-size:11.5px;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Cargo.lock</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding-left:15px;font-family:var(--mono);font-size:10px;color:var(--tx3);font-variant-numeric:tabular-nums">
+              <span style="color:var(--ok)">+2</span><span style="color:var(--tx4)">−0</span>
+              <span style="margin-left:auto;color:var(--neu)">• en attente</span>
+            </div>
+          </div>
+        </div>
+        <div style="padding:10px 13px;border-top:1px solid var(--bd);font:400 8.5px/1.5 var(--mono);color:var(--tx4)">marqueur de gate par fichier<br>replier → diff plein</div>
+      </div>
+
+      <!-- PANNEAU PRINCIPAL (3 onglets) -->
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:var(--s0)">
+        <div style="display:flex;gap:22px;padding:0 18px;border-bottom:1px solid var(--bd)">
+          <span style="padding:11px 0;border-bottom:2px solid var(--tx);font:600 12px/1 var(--sans);color:var(--tx)">Diff</span>
+          <span style="padding:11px 0;border-bottom:2px solid transparent;font:500 12px/1 var(--sans);color:var(--tx3)">Aperçu scellé</span>
+          <span style="padding:11px 0;border-bottom:2px solid transparent;font:500 12px/1 var(--sans);color:var(--tx3)">Preuve</span>
+          <span style="margin-left:auto;align-self:center;font:400 9.5px/1 var(--mono);color:var(--tx4)">Diff · défaut</span>
+        </div>
+        <!-- diff -->
+        <div style="flex:1;padding:13px 18px;font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--tx2);overflow:hidden">
+          <div style="color:var(--tx4);margin-bottom:4px">diff --git a/src/seal_preview.rs b/src/seal_preview.rs</div>
+          <div style="color:var(--info);margin-bottom:7px">@@ -86,7 +86,11 @@ impl Preview · hunk 1/2</div>
+          <div style="color:var(--tx3)">&nbsp;&nbsp;fn render(&amp;self, app: &amp;App) -&gt; Html {</div>
+          <div style="background:var(--bad-bg);color:var(--bad);margin:0 -18px;padding:1px 18px">−&nbsp;&nbsp;&nbsp;&nbsp;return self.raw(app)</div>
+          <div style="background:var(--ok-bg);color:var(--ok);margin:0 -18px;padding:1px 18px">+&nbsp;&nbsp;&nbsp;&nbsp;let html = self.raw(app);</div>
+          <div style="background:var(--ok-bg);color:var(--ok);margin:0 -18px;padding:1px 18px">+&nbsp;&nbsp;&nbsp;&nbsp;// garde-fou : rendu scellé, non altérable</div>
+          <div style="background:var(--ok-bg);color:var(--ok);margin:0 -18px;padding:1px 18px">+&nbsp;&nbsp;&nbsp;&nbsp;return self.seal(html)</div>
+          <div style="color:var(--tx3)">&nbsp;&nbsp;}</div>
+          <!-- actions de hunk = intentions -->
+          <div style="display:flex;align-items:center;gap:9px;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">
+            <span style="padding:8px 13px;border:1px solid var(--bd2);border-radius:3px;font-family:var(--sans);font-size:11.5px;font-weight:500;color:var(--tx);background:var(--s2)">Transmettre la correction →</span>
+            <span style="padding:8px 13px;border:1px solid var(--bd);border-radius:3px;font-family:var(--sans);font-size:11.5px;font-weight:500;color:var(--tx2)">Signaler ce hunk</span>
+            <span style="margin-left:auto;font-family:var(--sans);font-size:10px;color:var(--tx4)">actions = intentions routées à la session — jamais Approve / Merge / Commit</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== BANDE GATES + ÉTAT (BAS, permanente, pleine largeur) ===== -->
+    <div style="flex:0 0 auto;border-top:1px solid var(--bd2);background:var(--s2)">
+      <div style="display:flex;align-items:stretch">
+        <div style="flex:1;padding:11px 16px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0">
+          <span style="font:600 8.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--tx4);margin-right:6px">gates</span>
+          <span style="font-family:var(--mono);font-size:10.5px;color:var(--ok)">build ✓</span><span style="color:var(--tx4)">·</span>
+          <span style="font-family:var(--mono);font-size:10.5px;color:var(--ok)">unit ✓</span><span style="color:var(--tx4)">·</span>
+          <span style="font-family:var(--mono);font-size:10.5px;color:var(--ok)">lint ✓</span><span style="color:var(--tx4)">·</span>
+          <span style="font-family:var(--mono);font-size:10.5px;color:var(--ok)">typecheck ✓</span><span style="color:var(--tx4)">·</span>
+          <span style="font-family:var(--mono);font-size:10.5px;color:var(--neu)">repro-build •</span><span style="color:var(--tx4)">·</span>
+          <span style="font-family:var(--mono);font-size:10.5px;color:var(--bad)">seal-verify ✕ BLOQUANT</span>
+          <span style="margin-left:10px;font:400 9.5px/1 var(--mono);color:var(--tx3)">▴ détails</span>
+        </div>
+        <!-- slot ÉTAT : ne dit JAMAIS PASS -->
+        <div style="flex:0 0 auto;border-left:1px solid var(--bd2);background:var(--s3);padding:11px 17px;display:flex;align-items:center;gap:12px">
+          <span style="font:600 8px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--info)">état</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--tx);font-variant-numeric:tabular-nums">En attente de session agent — <span style="color:var(--ok)">4✓</span> <span style="color:var(--neu)">1•</span> · <span style="color:var(--tx3)">0 verdict auto-clos</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- annotation hero -->
+<div style="position:absolute;left:1474px;top:3110px;width:236px;border:1px solid var(--bd);border-left:2px solid var(--info);background:var(--s1);border-radius:3px;padding:12px 13px;font:400 11px/1.5 var(--sans);color:var(--tx2)"><b style="color:var(--tx);font-weight:600">3 onglets seulement</b> : Diff · Aperçu scellé · Preuve. <b style="color:var(--tx);font-weight:600">Gates n'est pas un onglet</b> — il vit dans la bande du bas, jamais masqué.</div>
+<div style="position:absolute;left:1474px;top:3232px;width:236px;border:1px solid var(--bd);border-left:2px solid var(--bd2);background:var(--s1);border-radius:3px;padding:12px 13px;font:400 11px/1.5 var(--sans);color:var(--tx2)"><b style="color:var(--tx);font-weight:600">Slot ÉTAT</b> ne dit JAMAIS « PASS ». Au mieux : « En attente de session — 4✓ 1• · <b style="color:var(--tx);font-weight:600">0 verdict auto-clos</b> ». L'UI ne calcule aucun verdict.</div>
+<div style="position:absolute;left:1474px;top:3372px;width:236px;border:1px solid var(--bd);border-left:2px solid var(--bd2);background:var(--s1);border-radius:3px;padding:12px 13px;font:400 11px/1.5 var(--sans);color:var(--tx2)"><b style="color:var(--tx);font-weight:600">Change-set</b> : un marqueur de gate par fichier (● bloquant / ✓ / • attente). Repliable → diff plein.</div>
+
+<!-- VERIFY · Aperçu scellé -->
+<div style="position:absolute;left:80px;top:3760px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Onglet Aperçu scellé — iframe · rendu réel de l'app produite</div>
+  <div style="height:498px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--bd)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--info)"></span><span style="font:600 11.5px/1 var(--sans);color:var(--tx)">VERIFY</span>
+      <span style="margin-left:auto;font:400 9.5px/1 var(--mono);color:var(--tx4)">rendu scellé · lecture seule</span>
+    </div>
+    <div style="flex:1;display:flex;min-height:0">
+      <div style="width:50px;flex:0 0 50px;border-right:1px solid var(--bd);display:flex;flex-direction:column;align-items:center;padding-top:11px;gap:11px">
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--bad)"></span>
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--ok)"></span>
+        <span style="width:7px;height:7px;border-radius:50%;border:1px solid var(--bd2)"></span>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:var(--s0)">
+        <div style="display:flex;gap:18px;padding:0 15px;border-bottom:1px solid var(--bd)">
+          <span style="padding:10px 0;border-bottom:2px solid transparent;font:500 11.5px/1 var(--sans);color:var(--tx3)">Diff</span>
+          <span style="padding:10px 0;border-bottom:2px solid var(--tx);font:600 11.5px/1 var(--sans);color:var(--tx)">Aperçu scellé</span>
+          <span style="padding:10px 0;border-bottom:2px solid transparent;font:500 11.5px/1 var(--sans);color:var(--tx3)">Preuve</span>
+        </div>
+        <div style="flex:1;padding:14px;display:flex;flex-direction:column;gap:10px">
+          <div style="position:relative;flex:1;border:1px solid var(--bd);border-radius:4px;background:oklch(0.99 0 0);overflow:hidden">
+            <div style="position:absolute;right:8px;top:8px;z-index:2;font:400 9px/1 var(--mono);color:var(--info);border:1px solid var(--info);background:oklch(0.72 0.11 240 / .12);border-radius:3px;padding:3px 7px">⊚ rendu scellé</div>
+            <div style="height:24px;border-bottom:1px solid oklch(0.90 0 0);background:oklch(0.96 0 0);display:flex;align-items:center;padding:0 9px;gap:5px"><span style="width:28px;height:6px;background:oklch(0.85 0 0);border-radius:1px"></span><span style="width:44px;height:6px;background:oklch(0.88 0 0);border-radius:1px"></span></div>
+            <div style="padding:13px;display:flex;flex-direction:column;gap:8px">
+              <div style="width:58%;height:12px;background:oklch(0.80 0 0);border-radius:1px"></div>
+              <div style="width:88%;height:6px;background:oklch(0.88 0 0);border-radius:1px"></div>
+              <div style="width:80%;height:6px;background:oklch(0.88 0 0);border-radius:1px"></div>
+              <div style="display:flex;gap:7px;margin-top:5px"><div style="width:74px;height:26px;border:1px solid oklch(0.84 0 0);border-radius:3px"></div><div style="width:74px;height:26px;background:oklch(0.82 0 0);border-radius:3px"></div></div>
+            </div>
+          </div>
+          <div style="font-family:var(--mono);font-size:9.5px;color:var(--tx3)">render-seal : <span style="color:var(--tx2)">sha256:4b1e…a9</span> <span style="color:var(--info)">⧉</span> · non altérable entre build et examen</div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:0 0 auto;border-top:1px solid var(--bd2);background:var(--s2);padding:8px 14px;display:flex;flex-direction:column;gap:4px">
+      <div style="font-family:var(--mono);font-size:9.5px;color:var(--tx3)"><span style="color:var(--tx4)">gates</span> <span style="color:var(--ok)">build✓ unit✓ lint✓ typecheck✓</span> <span style="color:var(--neu)">repro•</span> <span style="color:var(--bad)">seal-verify✕</span></div>
+      <div style="font-family:var(--mono);font-size:9.5px;color:var(--tx2);font-variant-numeric:tabular-nums"><span style="color:var(--info)">état</span> En attente de session — <span style="color:var(--ok)">4✓</span> <span style="color:var(--neu)">1•</span> · 0 verdict auto-clos</div>
+    </div>
+  </div>
+</div>
+
+<!-- VERIFY · Preuve -->
+<div style="position:absolute;left:772px;top:3760px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Onglet Preuve — provenance décomposée (chaîne + couches + manques)</div>
+  <div style="height:498px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--bd)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--info)"></span><span style="font:600 11.5px/1 var(--sans);color:var(--tx)">VERIFY</span>
+      <span style="margin-left:auto;font:400 9.5px/1 var(--mono);color:var(--tx4)">décomposition · jamais un verdict</span>
+    </div>
+    <div style="flex:1;display:flex;min-height:0">
+      <div style="width:50px;flex:0 0 50px;border-right:1px solid var(--bd);display:flex;flex-direction:column;align-items:center;padding-top:11px;gap:11px">
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--bad)"></span>
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--ok)"></span>
+        <span style="width:7px;height:7px;border-radius:50%;border:1px solid var(--bd2)"></span>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:var(--s0)">
+        <div style="display:flex;gap:18px;padding:0 15px;border-bottom:1px solid var(--bd)">
+          <span style="padding:10px 0;border-bottom:2px solid transparent;font:500 11.5px/1 var(--sans);color:var(--tx3)">Diff</span>
+          <span style="padding:10px 0;border-bottom:2px solid transparent;font:500 11.5px/1 var(--sans);color:var(--tx3)">Aperçu scellé</span>
+          <span style="padding:10px 0;border-bottom:2px solid var(--tx);font:600 11.5px/1 var(--sans);color:var(--tx)">Preuve</span>
+        </div>
+        <div style="flex:1;padding:13px 15px;overflow:hidden">
+          <div style="font:600 8.5px/1 var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--tx4);margin-bottom:8px">chaîne de provenance — mono copiable</div>
+          <div style="border:1px solid var(--bd);background:var(--s1);border-radius:4px;padding:10px 12px;font-family:var(--mono);font-size:10.5px;line-height:1.95;color:var(--tx2)">
+            <div>commit&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--tx)">a7f3c9e</span> <span style="color:var(--info)">⧉</span></div>
+            <div style="color:var(--tx4);padding-left:4px">↓</div>
+            <div>archive_hash&nbsp;<span style="color:var(--tx)">sha256:9f3a…c7</span> <span style="color:var(--info)">⧉</span></div>
+            <div style="color:var(--tx4);padding-left:4px">↓</div>
+            <div>signataire&nbsp;&nbsp;<span style="color:var(--tx)">maintainer@node</span> <span style="color:var(--tx4)">f1c2…</span></div>
+          </div>
+          <div style="font:600 8.5px/1 var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--tx4);margin:12px 0 6px">couches</div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--tx2)">
+            <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd)"><span>base</span><span style="color:var(--info)">attesté · rekor:1342…</span></div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd)"><span>provenance</span><span style="color:var(--info)">attesté · slsa-v1</span></div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd)"><span>oss</span><span style="color:var(--warn)">partiel · 3/5 signées</span></div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd)"><span>curateurs</span><span style="color:var(--tx3)">2 sig · alice, bob</span></div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0"><span>licence</span><span style="color:var(--tx3)">MIT · déclaré</span></div>
+          </div>
+          <div style="margin-top:9px;border:1px solid oklch(0.50 0.07 78);background:var(--mur-bg);border-radius:4px;padding:7px 10px;font-family:var(--mono);font-size:9.5px;line-height:1.65;color:var(--warn)">risques / manques :<br><span>•</span> 2 dépendances oss non signées · <span>•</span> licence d'1 sous-module non déclarée</div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:0 0 auto;border-top:1px solid var(--bd2);background:var(--s2);padding:8px 14px;display:flex;flex-direction:column;gap:4px">
+      <div style="font-family:var(--mono);font-size:9.5px;color:var(--tx3)"><span style="color:var(--tx4)">gates</span> <span style="color:var(--ok)">build✓ unit✓ lint✓ typecheck✓</span> <span style="color:var(--neu)">repro•</span> <span style="color:var(--bad)">seal-verify✕</span></div>
+      <div style="font-family:var(--mono);font-size:9.5px;color:var(--tx2);font-variant-numeric:tabular-nums"><span style="color:var(--info)">état</span> En attente de session — <span style="color:var(--ok)">4✓</span> <span style="color:var(--neu)">1•</span> · 0 verdict auto-clos</div>
+    </div>
+  </div>
+</div>
+
+<!-- VERIFY · états honnêtes (tray gates déplié depuis la bande) -->
+<div style="position:absolute;left:80px;top:4316px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">États honnêtes — tray GATES déplié depuis la bande (▾ détails) · jamais un onglet</div>
+  <div style="height:512px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--bd)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--info)"></span><span style="font:600 11.5px/1 var(--sans);color:var(--tx)">VERIFY</span>
+      <span style="margin-left:auto;font:400 9.5px/1 var(--mono);color:var(--tx4)">aucun agrégat · chaque gate garde son état</span>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0;padding:13px 15px;background:var(--s0);overflow:hidden">
+      <div style="font:600 8.5px/1 var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--tx4);margin-bottom:4px">gates — diagnostic · états jamais aplatis</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--tx2)">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>build</span><span style="color:var(--ok)">✓ passed</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>unit</span><span style="color:var(--ok)">✓ passed</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>typecheck</span><span style="color:var(--ok)">✓ passed</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>repro-build <span style="color:var(--tx4)">· requiert session</span></span><span style="color:var(--neu)">• en attente</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>seal-verify <span style="color:var(--tx4)">· aperçu non scellé</span></span><span style="color:var(--bad)">✕ BLOQUANT</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>provenance <span style="color:var(--tx4)">· 2 couches</span></span><span style="color:var(--warn)">2 issues</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>license-scan</span><span style="color:var(--neu)">— non exécuté</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>e2e</span><span style="color:var(--warn)">PROVISIONAL</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>coverage</span><span style="color:var(--tx3)">Not evidenced</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>sbom <span style="color:var(--tx4)">· rig indisponible</span></span><span style="color:var(--bad)">RIG-ABSENT</span></div>
+      </div>
+    </div>
+    <div style="flex:0 0 auto;border-top:1px solid var(--bd2);background:var(--s3);padding:10px 15px;display:flex;align-items:center;gap:11px">
+      <span style="font:600 8px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--info)">état</span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--tx);font-variant-numeric:tabular-nums">En attente de session agent — <span style="color:var(--ok)">4✓</span> <span style="color:var(--neu)">1•</span> · <span style="color:var(--tx3)">0 verdict auto-clos</span></span>
+      <span style="margin-left:auto;font:400 9px/1 var(--mono);color:var(--tx4)">▾ replier</span>
+    </div>
+  </div>
+</div>
+
+<!-- VERIFY · change-set replié → diff plein -->
+<div style="position:absolute;left:772px;top:4316px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Change-set replié → diff plein largeur (densité maximale)</div>
+  <div style="height:512px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--bd)">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--info)"></span><span style="font:600 11.5px/1 var(--sans);color:var(--tx)">VERIFY</span>
+      <span style="margin-left:auto;font:400 9.5px/1 var(--mono);color:var(--tx4)">la vérité = git diff</span>
+    </div>
+    <div style="flex:1;display:flex;min-height:0">
+      <!-- spine repliée -->
+      <div style="width:34px;flex:0 0 34px;border-right:1px solid var(--bd);background:var(--s1);display:flex;flex-direction:column;align-items:center;padding-top:11px;gap:13px">
+        <span style="font:400 12px/1 var(--mono);color:var(--tx3)">↔</span>
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--bad)"></span>
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--ok)"></span>
+        <span style="width:7px;height:7px;border-radius:50%;border:1px solid var(--bd2)"></span>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:var(--s0)">
+        <div style="display:flex;gap:18px;padding:0 15px;border-bottom:1px solid var(--bd)">
+          <span style="padding:10px 0;border-bottom:2px solid var(--tx);font:600 11.5px/1 var(--sans);color:var(--tx)">Diff</span>
+          <span style="padding:10px 0;border-bottom:2px solid transparent;font:500 11.5px/1 var(--sans);color:var(--tx3)">Aperçu scellé</span>
+          <span style="padding:10px 0;border-bottom:2px solid transparent;font:500 11.5px/1 var(--sans);color:var(--tx3)">Preuve</span>
+        </div>
+        <div style="flex:1;padding:12px 15px;font-family:var(--mono);font-size:11px;line-height:1.65;color:var(--tx2);overflow:hidden">
+          <div style="color:var(--tx4)">src/seal_preview.rs</div>
+          <div style="color:var(--info);margin:3px 0 5px">@@ -86,7 +86,11 @@ hunk 1/2</div>
+          <div style="color:var(--tx3)">&nbsp;&nbsp;fn render(&amp;self, app: &amp;App) -&gt; Html {</div>
+          <div style="background:var(--bad-bg);color:var(--bad);margin:0 -15px;padding:1px 15px">−&nbsp;&nbsp;&nbsp;return self.raw(app)</div>
+          <div style="background:var(--ok-bg);color:var(--ok);margin:0 -15px;padding:1px 15px">+&nbsp;&nbsp;&nbsp;let html = self.raw(app);</div>
+          <div style="background:var(--ok-bg);color:var(--ok);margin:0 -15px;padding:1px 15px">+&nbsp;&nbsp;&nbsp;return self.seal(html)</div>
+          <div style="color:var(--tx3)">&nbsp;&nbsp;}</div>
+          <div style="color:var(--info);margin:9px 0 5px">@@ -120,3 +124,6 @@ hunk 2/2</div>
+          <div style="background:var(--ok-bg);color:var(--ok);margin:0 -15px;padding:1px 15px">+&nbsp;&nbsp;&nbsp;fn seal(&amp;self, h: Html) -&gt; Html {…}</div>
+          <div style="display:flex;gap:8px;margin-top:13px;padding-top:11px;border-top:1px solid var(--bd)">
+            <span style="padding:7px 11px;border:1px solid var(--bd2);border-radius:3px;font-family:var(--sans);font-size:11px;font-weight:500;color:var(--tx);background:var(--s2)">Transmettre la correction →</span>
+            <span style="padding:7px 11px;border:1px solid var(--bd);border-radius:3px;font-family:var(--sans);font-size:11px;font-weight:500;color:var(--tx2)">Signaler ce hunk</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:0 0 auto;border-top:1px solid var(--bd2);background:var(--s2);padding:8px 14px;display:flex;flex-direction:column;gap:4px">
+      <div style="font-family:var(--mono);font-size:9.5px;color:var(--tx3)"><span style="color:var(--tx4)">gates</span> <span style="color:var(--ok)">build✓ unit✓ lint✓ typecheck✓</span> <span style="color:var(--neu)">repro•</span> <span style="color:var(--bad)">seal-verify✕</span></div>
+      <div style="font-family:var(--mono);font-size:9.5px;color:var(--tx2);font-variant-numeric:tabular-nums"><span style="color:var(--info)">état</span> En attente de session — <span style="color:var(--ok)">4✓</span> <span style="color:var(--neu)">1•</span> · 0 verdict auto-clos</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 05 · TERMINAL + SECONDAIRES ============================ -->
+<div style="position:absolute;left:80px;top:4894px;font:600 12px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--tx2)"><span style="color:var(--tx4)">05</span>&nbsp;&nbsp;&nbsp;Terminal PTY &amp; surfaces consultatives&nbsp;&nbsp;<span style="font:400 11px/1 var(--mono);letter-spacing:0;text-transform:none;color:var(--tx3)">— steering profond (tiroir) · knowledge &amp; brouillon non autoritaires</span></div>
+
+<!-- Terminal PTY ouvert -->
+<div style="position:absolute;left:80px;top:4926px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Tiroir terminal (xterm/PTY) ouvert — la scène reste, le tiroir s'ajoute</div>
+  <div style="height:360px;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--bd);opacity:.5">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--tx2)"></span><span style="font:600 11.5px/1 var(--sans);color:var(--tx)">STEER</span>
+      <span style="margin-left:auto;font:400 9.5px/1 var(--mono);color:var(--tx4)">session · en cours</span>
+    </div>
+    <div style="height:46px;opacity:.5;border-bottom:1px solid var(--bd);background:var(--s0)"></div>
+    <div style="flex:1;display:flex;flex-direction:column;background:oklch(0.135 0.004 260);border-top:1px solid var(--bd2);min-height:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 13px;border-bottom:1px solid var(--bd)">
+        <span style="font-family:var(--mono);font-size:9.5px;color:var(--tx3)">pty · zsh — loopback :7878</span>
+        <span style="font-family:var(--mono);font-size:9.5px;color:var(--tx4)">⌄ replier</span>
+      </div>
+      <div style="flex:1;padding:11px 13px;font-family:var(--mono);font-size:10.5px;line-height:1.75;color:var(--tx2)">
+        <div><span style="color:var(--ok)">maintainer@node</span> ~/factory %</div>
+        <div>$ cargo test --offline</div>
+        <div style="color:var(--tx3)">running 24 tests …</div>
+        <div style="color:var(--tx3)">test seal::render_is_sealed … <span style="color:var(--ok)">ok</span></div>
+        <div style="color:var(--tx3)">test result: <span style="color:var(--ok)">ok</span> · 24 passed · 0 failed</div>
+        <div><span style="color:var(--ok)">maintainer@node</span> ~/factory % <span style="color:var(--tx);background:var(--tx2);width:7px;display:inline-block">&nbsp;</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Surfaces consultatives -->
+<div style="position:absolute;left:772px;top:4926px;width:668px">
+  <div data-drags-parent="1" style="position:absolute;top:-25px;left:2px;font:600 10.5px/1 var(--sans);letter-spacing:.04em;color:oklch(0.62 0.005 260)">Surfaces consultatives — pointillé · contraste réduit · jamais de coche verte</div>
+  <div style="height:360px;display:flex;gap:16px">
+    <!-- knowledge -->
+    <div style="flex:1;display:flex;flex-direction:column;background:transparent;border:1px dashed var(--bd2);border-radius:5px;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px dashed var(--bd)">
+        <span style="font:600 11px/1 var(--sans);color:var(--tx3)">Inspecteur knowledge</span>
+        <span style="font:400 7.5px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--tx4);border:1px dashed var(--bd2);border-radius:2px;padding:3px 5px">consultatif</span>
+      </div>
+      <div style="flex:1;padding:13px;font-family:var(--mono);font-size:10px;line-height:1.9;color:var(--tx3)">
+        <div style="font-family:var(--sans);font-size:10.5px;color:var(--tx3);margin-bottom:8px">Sources consultées par l'agent :</div>
+        <div>○ doc interne · sealing pattern</div>
+        <div>○ adr-012 · provenance layers</div>
+        <div>○ rustdoc · std::process</div>
+        <div style="margin-top:13px;padding-top:10px;border-top:1px dashed var(--bd);font-family:var(--sans);font-size:9.5px;line-height:1.5;color:var(--tx4)">N'affecte aucun verdict. Contraste réduit, pointillé — non autoritaire.</div>
+      </div>
+    </div>
+    <!-- brouillon -->
+    <div style="flex:1;display:flex;flex-direction:column;background:transparent;border:1px dashed var(--bd2);border-radius:5px;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px dashed var(--bd)">
+        <span style="font:600 11px/1 var(--sans);color:var(--tx3)">Brouillon de plan — agent</span>
+        <span style="font:400 7.5px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--tx4);border:1px dashed var(--bd2);border-radius:2px;padding:3px 5px">non autoritaire</span>
+      </div>
+      <div style="flex:1;padding:13px;font-family:var(--mono);font-size:10.5px;line-height:2.1;color:var(--tx3)">
+        <div>☐ sceller l'aperçu de rendu</div>
+        <div>☐ ajouter le garde-fou</div>
+        <div>☐ attester la couche base</div>
+        <div>☐ signer l'archive</div>
+        <div style="margin-top:11px;padding-top:10px;border-top:1px dashed var(--bd);font-family:var(--sans);font-size:9.5px;line-height:1.5;color:var(--tx4)">Proposition — l'humain garde la main. Aucune case ne « valide » rien.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 06 · ÉTATS D'INTERACTION ============================ -->
+<div style="position:absolute;left:80px;top:5354px;font:600 12px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--tx2)"><span style="color:var(--tx4)">06</span>&nbsp;&nbsp;&nbsp;États d'interaction des atomes&nbsp;&nbsp;<span style="font:400 11px/1 var(--mono);letter-spacing:0;text-transform:none;color:var(--tx3)">— sobres · dark · la couleur ne sert qu'au focus (info) et à l'état porté</span></div>
+
+<div style="position:absolute;left:80px;top:5386px;width:1360px">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:5px;overflow:hidden">
+    <!-- header row -->
+    <div style="display:flex;border-bottom:1px solid var(--bd2);background:var(--s2)">
+      <div style="width:172px;flex:0 0 172px;padding:10px 14px;border-right:1px solid var(--bd);font:600 8.5px/1 var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--tx4)">atome</div>
+      <div style="flex:1;padding:10px 14px;font:600 8.5px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--tx3)">rest</div>
+      <div style="flex:1;padding:10px 14px;font:600 8.5px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--tx3)">hover</div>
+      <div style="flex:1;padding:10px 14px;font:600 8.5px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--info)">focus-visible</div>
+      <div style="flex:1;padding:10px 14px;font:600 8.5px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--tx3)">active</div>
+      <div style="flex:1;padding:10px 14px;font:600 8.5px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--tx4)">disabled</div>
+    </div>
+
+    <!-- bouton primaire -->
+    <div style="display:flex;border-bottom:1px solid var(--bd);align-items:stretch">
+      <div style="width:172px;flex:0 0 172px;padding:15px 14px;border-right:1px solid var(--bd);display:flex;flex-direction:column;gap:3px"><span style="font:500 12px/1 var(--sans);color:var(--tx)">Bouton primaire</span><span style="font:400 9px/1 var(--mono);color:var(--tx4)">intention</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;background:var(--tx);border-radius:3px;font:600 11.5px/1 var(--sans);color:var(--s0)">Lancer</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;background:oklch(0.97 0.004 260);border-radius:3px;font:600 11.5px/1 var(--sans);color:var(--s0)">Lancer</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;background:var(--tx);border-radius:3px;font:600 11.5px/1 var(--sans);color:var(--s0);outline:2px solid var(--info);outline-offset:2px">Lancer</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;background:oklch(0.86 0.004 260);border-radius:3px;font:600 11.5px/1 var(--sans);color:var(--s0);transform:translateY(1px)">Lancer</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;background:var(--s3);border-radius:3px;font:600 11.5px/1 var(--sans);color:var(--tx4)">Lancer</span></div>
+    </div>
+
+    <!-- bouton secondaire -->
+    <div style="display:flex;border-bottom:1px solid var(--bd);align-items:stretch">
+      <div style="width:172px;flex:0 0 172px;padding:15px 14px;border-right:1px solid var(--bd);display:flex;flex-direction:column;gap:3px"><span style="font:500 12px/1 var(--sans);color:var(--tx)">Bouton secondaire</span><span style="font:400 9px/1 var(--mono);color:var(--tx4)">action sobre</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;border:1px solid var(--bd2);border-radius:3px;font:500 11.5px/1 var(--sans);color:var(--tx2);background:transparent">Signaler</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;border:1px solid var(--bd2);border-radius:3px;font:500 11.5px/1 var(--sans);color:var(--tx);background:var(--s2)">Signaler</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;border:1px solid var(--bd2);border-radius:3px;font:500 11.5px/1 var(--sans);color:var(--tx2);background:transparent;outline:2px solid var(--info);outline-offset:2px">Signaler</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;border:1px solid var(--bd2);border-radius:3px;font:500 11.5px/1 var(--sans);color:var(--tx);background:var(--s3)">Signaler</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:8px 13px;border:1px solid var(--bd);border-radius:3px;font:500 11.5px/1 var(--sans);color:var(--tx4);background:transparent">Signaler</span></div>
+    </div>
+
+    <!-- onglet -->
+    <div style="display:flex;border-bottom:1px solid var(--bd);align-items:stretch">
+      <div style="width:172px;flex:0 0 172px;padding:15px 14px;border-right:1px solid var(--bd);display:flex;flex-direction:column;gap:3px"><span style="font:500 12px/1 var(--sans);color:var(--tx)">Onglet</span><span style="font:400 9px/1 var(--mono);color:var(--tx4)">Diff·Aperçu·Preuve</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:6px 0;font:500 11.5px/1 var(--sans);color:var(--tx3)">Preuve</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:6px 0;font:500 11.5px/1 var(--sans);color:var(--tx2)">Preuve</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:6px 3px;font:500 11.5px/1 var(--sans);color:var(--tx2);outline:2px solid var(--info);outline-offset:2px;border-radius:2px">Preuve</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:6px 0;border-bottom:2px solid var(--tx);font:600 11.5px/1 var(--sans);color:var(--tx)">Preuve</span></div>
+      <div style="flex:1;padding:15px 14px;display:flex;align-items:center"><span style="padding:6px 0;font:500 11.5px/1 var(--sans);color:var(--tx4)">Preuve</span></div>
+    </div>
+
+    <!-- ligne de gate -->
+    <div style="display:flex;border-bottom:1px solid var(--bd);align-items:stretch">
+      <div style="width:172px;flex:0 0 172px;padding:15px 14px;border-right:1px solid var(--bd);display:flex;flex-direction:column;gap:3px"><span style="font:500 12px/1 var(--sans);color:var(--tx)">Ligne de gate</span><span style="font:400 9px/1 var(--mono);color:var(--tx4)">diagnostic</span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--tx2);padding:6px 8px"><span>seal-verify</span><span style="color:var(--bad)">✕</span></span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--tx);background:var(--s2);border-radius:3px;padding:6px 8px"><span>seal-verify</span><span style="color:var(--bad)">✕</span></span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--tx);padding:6px 8px;outline:2px solid var(--info);outline-offset:-1px;border-radius:3px"><span>seal-verify</span><span style="color:var(--bad)">✕</span></span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--tx);background:var(--s3);border-left:2px solid var(--tx);border-radius:0 3px 3px 0;padding:6px 8px"><span>seal-verify</span><span style="color:var(--bad)">✕</span></span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--tx4);padding:6px 8px"><span>license-scan</span><span>—</span></span></div>
+    </div>
+
+    <!-- item change-set -->
+    <div style="display:flex;align-items:stretch">
+      <div style="width:172px;flex:0 0 172px;padding:15px 14px;border-right:1px solid var(--bd);display:flex;flex-direction:column;gap:3px"><span style="font:500 12px/1 var(--sans);color:var(--tx)">Item change-set</span><span style="font:400 9px/1 var(--mono);color:var(--tx4)">fichier + gate</span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--tx2);padding:6px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--bad)"></span>seal_preview.rs</span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--tx);background:var(--s2);border-radius:3px;padding:6px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--bad)"></span>seal_preview.rs</span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--tx);padding:6px 8px;outline:2px solid var(--info);outline-offset:-1px;border-radius:3px"><span style="width:6px;height:6px;border-radius:50%;background:var(--bad)"></span>seal_preview.rs</span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--tx);background:var(--s2);border-left:2px solid var(--tx);border-radius:0 3px 3px 0;padding:6px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--bad)"></span>seal_preview.rs</span></div>
+      <div style="flex:1;padding:11px 12px;display:flex;align-items:center"><span style="width:100%;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--tx4);padding:6px 8px"><span style="width:6px;height:6px;border-radius:50%;border:1px solid var(--bd2)"></span>seal_preview.rs</span></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
