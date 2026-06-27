@@ -19,6 +19,7 @@
 import { useCallback, useState } from 'react'
 import { createSession, sendMessage, streamUrl } from '../api/operator'
 import { DEFAULT_PROVIDER, type ExecProvider } from '../catalog/intentions'
+import type { SecondarySurface } from '../catalog/surfaces'
 import { useTokenStream } from '../lib/useTokenStream'
 
 export type FocalMode = 'steer' | 'verify'
@@ -53,6 +54,15 @@ export interface OperatorTurn {
 export interface Operator {
   mode: FocalMode
   setMode: (mode: FocalMode) => void
+  /** The open secondary inspector (procédé / sessions / knowledge), or null
+   * when the focal scene (STEER / VERIFY) is shown. */
+  surface: SecondarySurface | null
+  openSurface: (surface: SecondarySurface) => void
+  closeSurface: () => void
+  /** The MUR forward action: prepare the sealed handoff pack for a real agent
+   * session (opens the Knowledge inspector's context-pack — the brouillon that
+   * refuses PASS). The ONLY way past the wall, and it is not "execute". */
+  preparePack: () => void
   provider: ExecProvider
   setProvider: (provider: ExecProvider) => void
   sessionId: string | null
@@ -71,7 +81,8 @@ export interface Operator {
 }
 
 export function useOperator(): Operator {
-  const [mode, setMode] = useState<FocalMode>('steer')
+  const [mode, setModeState] = useState<FocalMode>('steer')
+  const [surface, setSurface] = useState<SecondarySurface | null>(null)
   const [provider, setProvider] = useState<ExecProvider>(DEFAULT_PROVIDER)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -146,11 +157,26 @@ export function useOperator(): Operator {
     setLaunchError(null)
   }, [streamReset])
 
+  // Selecting a focal MODE returns to that scene, closing any open inspector.
+  const setMode = useCallback((m: FocalMode) => {
+    setModeState(m)
+    setSurface(null)
+  }, [])
+  const openSurface = useCallback((s: SecondarySurface) => setSurface(s), [])
+  const closeSurface = useCallback(() => setSurface(null), [])
+  // "Préparer le pack": the MUR's only forward affordance — it hands off to a
+  // real agent session via the sealed context-pack, never executes the action.
+  const preparePack = useCallback(() => setSurface('knowledge'), [])
+
   const gate = sendGate ?? stream.gate
 
   return {
     mode,
     setMode,
+    surface,
+    openSurface,
+    closeSurface,
+    preparePack,
     provider,
     setProvider,
     sessionId,

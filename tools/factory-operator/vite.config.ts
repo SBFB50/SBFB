@@ -75,6 +75,13 @@ export default defineConfig({
           ) {
             return 'vendor-react'
           }
+          // Sprint 80 Phase D: xterm (~345 kB) into its OWN chunk. Only the
+          // lazy <TerminalXterm>/<CastXterm> import it, so this chunk stays
+          // ASYNC (loaded when the operator starts/replays a session) and never
+          // bloats the 40 kB `index` hero (.size-limit.json `vendor-xterm`).
+          if (nid.includes('/node_modules/@xterm/')) {
+            return 'vendor-xterm'
+          }
         },
       },
     },

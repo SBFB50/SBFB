@@ -43,6 +43,13 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T
 }
 
+/** Plain-text GET (a `.cast` recording is served as raw text, not JSON). */
+async function getText(path: string, signal?: AbortSignal): Promise<string> {
+  const res = await fetch(path, { credentials: 'same-origin', signal })
+  if (!res.ok) throw new OperatorError(res.status, path)
+  return res.text()
+}
+
 // --- response shapes (mirror operator_server.rs / process.rs) ---
 
 /** `GET /api/context` — carries the working-tree counts the rail needs. */
@@ -118,4 +125,218 @@ export function sendMessage(
 /** The bodyless SSE GET. Auth rides the same-origin cookie automatically. */
 export function streamUrl(id: string): string {
   return `/api/chat/${encodeURIComponent(id)}/stream`
+}
+
+// --- Sprint 80 Phase D — VERIFY-bootstrap + procédé surfaces ---
+//
+// Every shape below MIRRORS a Rust struct (sprint_history.rs / process.rs /
+// operator_server.rs) and is RESTITUTED by the front, never computed: the
+// arbre de procédé, the conformity card, the gates pulse — all carry a
+// verdict GRAVED by Rust (kickoff cardinal: 0 verdict calculé UI).
+
+/** A hashed path reference (`file_hash`): the sealed context-pack never
+ * inlines content, only `{path, hash, exists}` — provenance, not payload. */
+export interface HashRef {
+  path: string
+  hash?: string
+  exists: boolean
+}
+
+/** One phase in the arbre de procédé (`PhaseHistory`). The verdicts are the
+ * RESTITUTED record (preflight EXECUTE/PLAN-ADAPT…, review PASS…), read from
+ * the on-disk artifacts — the UI asserts nothing. */
+export interface PhaseHistory {
+  letter: string
+  title: string
+  commit_sha: string | null
+  commit_date: string | null
+  commit_type: string | null
+  preflight_verdict: string | null
+  review_verdict: string | null
+  codex_confirmed: number | null
+  codex_partial: number | null
+  codex_gap: number | null
+  rust_delta: number
+  vitest_delta: number
+  files_changed: { path: string; insertions: number; deletions: number; status: string }[]
+  deliverables: string[]
+  findings: { severity: string; code: string; description: string; status: string }[]
+}
+
+/** `PreflightPhase` — the verdict AND its source artifact filename (U2
+ * provenance-de-verdict: every verdict is clickable to its `.planning/` file). */
+export interface PreflightPhase {
+  phase: string
+  verdict: string
+  file: string
+}
+
+export interface SprintHistory {
+  sprint: number
+  status: string
+  branch: string
+  head: string
+  entry_tip: string | null
+  exit_tip: string | null
+  total_commits: number
+  phase_commits: number
+  chore_commits: number
+  phases: PhaseHistory[]
+  preflight_bilan: {
+    total: number
+    execute: number
+    plan_adapt: number
+    design_conflict: number
+    phases: PreflightPhase[]
+  }
+  tests: {
+    rust_entry: number
+    rust_exit: number
+    vitest_entry: number
+    vitest_exit: number
+    per_phase: { phase: string; rust_delta: number; vitest_delta: number; detail: string }[]
+  }
+  scope_cuts: { number: number; item: string; target: string; respected: boolean }[]
+  carries_open: { code: string; description: string; disposition: string }[]
+  carries_closed: { code: string; description: string; phase_closed: string | null }[]
+}
+
+export interface DiffLine {
+  kind: 'add' | 'del' | 'ctx'
+  content: string
+  old_lineno: number | null
+  new_lineno: number | null
+}
+export interface FileDiff {
+  path: string
+  insertions: number
+  deletions: number
+  hunks: { header: string; lines: DiffLine[] }[]
+}
+/** `CommitDiffResult` — the diff of a PAST commit (J11). The same shape backs
+ * the Phase H bespoke working-tree viewer (`/api/git/diff` envelope). */
+export interface CommitDiff {
+  sha: string
+  title: string
+  files: FileDiff[]
+}
+
+/** `ActionLogEntry` — the node journal + the MUR refusal register (S8/U5):
+ * `result` carries either `"ok"` or a `"rejected: …"` reason. */
+export interface ActionLogEntry {
+  timestamp: string
+  action: string
+  args: unknown
+  result: string
+}
+
+/** The sealed context-pack (`handle_context_pack`) — hashed references only. */
+export interface ContextPack {
+  base_prompt: HashRef
+  universal_prompt: HashRef
+  handoff_prompt: HashRef
+  specialized_prompt: HashRef | null
+  agent_system: HashRef
+  process_docs: HashRef[]
+  authoring_knowledge: HashRef[]
+  active_artifacts: HashRef[]
+  runtime_context: Record<string, unknown>
+  chat_history_authoritative: boolean
+  notice: string
+}
+
+/** `AuditCommitResult` — `issues` is a list of MISSING things ("N manques"),
+ * never a tick (U3/A9/V10 conformity card). */
+export interface AuditCommit {
+  rev: string
+  title: string
+  is_phase_commit: boolean
+  ok: boolean
+  issues: string[]
+}
+
+export interface LintDiagnostic {
+  code: string
+  message: string
+  file: string | null
+}
+export interface Lint {
+  ok: boolean
+  errors: LintDiagnostic[]
+  warnings: LintDiagnostic[]
+}
+
+/** A recorded terminal `.cast` (asciicast v2) available for replay (U6/V9). */
+export interface TerminalCast {
+  name: string
+  path: string
+  size_bytes: number
+}
+export interface TerminalSessions {
+  sessions: TerminalCast[]
+  claude_sessions: unknown[]
+}
+
+export interface ChatLog {
+  id: string
+  /** The session-sealed pack is REDUCED vs the full `/api/context-pack` one:
+   * `handle_chat_session` (operator_server.rs) omits agent_system /
+   * specialized_prompt / process_docs / active_artifacts. Typed `Partial` so a
+   * consumer (D2 hash-drift) never assumes a field the backend did not seal. */
+  context_pack: Partial<ContextPack>
+  messages: { role: string; content: string; action?: string }[]
+}
+
+/** `GET /api/sprint-history` (active sprint) or `/{n}` for a specific one. */
+export function getSprintHistory(sprint?: number, signal?: AbortSignal): Promise<SprintHistory> {
+  const path = sprint == null ? '/api/sprint-history' : `/api/sprint-history/${sprint}`
+  return getJson<SprintHistory>(path, signal)
+}
+
+export function getCommitDiff(sha: string, signal?: AbortSignal): Promise<CommitDiff> {
+  return getJson<CommitDiff>(`/api/sprint-history/diff/${encodeURIComponent(sha)}`, signal)
+}
+
+export function getActionLog(signal?: AbortSignal): Promise<ActionLogEntry[]> {
+  return getJson<ActionLogEntry[]>('/api/actions/log', signal)
+}
+
+export function postContextPack(req: {
+  provider?: string
+  intent?: string
+  role?: string
+  specialized_kind?: string
+}): Promise<ContextPack> {
+  return postJson<ContextPack>('/api/context-pack', req)
+}
+
+export function getAudit(rev: string, signal?: AbortSignal): Promise<AuditCommit> {
+  return getJson<AuditCommit>(`/api/audit/${encodeURIComponent(rev)}`, signal)
+}
+
+export function getLint(signal?: AbortSignal): Promise<Lint> {
+  return getJson<Lint>('/api/lint', signal)
+}
+
+export function getTerminalSessions(signal?: AbortSignal): Promise<TerminalSessions> {
+  return getJson<TerminalSessions>('/api/terminal/sessions', signal)
+}
+
+/** Raw `.cast` text of a recorded session (path-validated server-side). */
+export function getTerminalCast(name: string, signal?: AbortSignal): Promise<string> {
+  return getText(`/api/terminal/sessions/${encodeURIComponent(name)}`, signal)
+}
+
+export function getChatLog(id: string, signal?: AbortSignal): Promise<ChatLog> {
+  return getJson<ChatLog>(`/api/chat/${encodeURIComponent(id)}/log`, signal)
+}
+
+/** Same-origin WebSocket URL for the live PTY (`handle_terminal_ws`). The
+ * HttpOnly cookie rides the handshake automatically — a WS cannot set a
+ * custom auth header (kickoff Day-0 #5, why the cookie is the 1st gesture).
+ * `resume` re-attaches a prior `claude --resume` session. */
+export function terminalWsUrl(resume?: string): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const base = `${proto}//${window.location.host}/api/terminal/ws`
+  return resume ? `${base}?resume=${encodeURIComponent(resume)}` : base
 }

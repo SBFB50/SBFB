@@ -38,7 +38,7 @@ export function SteerScene({ op }: { op: Operator }) {
             {turn.message}
           </div>
         </div>
-        <Mur message={turn.gate} onBack={op.dismissGate} />
+        <Mur message={turn.gate} onBack={op.dismissGate} onPrepare={op.preparePack} />
         <div className="px-5 py-4">
           <div className="rounded-md border border-dashed border-bd px-4 py-4 text-center font-mono text-[11px] text-tx4">
             le flux ne démarre pas tant que la barrière tient

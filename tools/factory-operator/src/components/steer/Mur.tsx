@@ -1,16 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Sprint 80 Phase C — the MUR, restituted INLINE when the backend returns
+// Sprint 80 Phase C → D — the MUR, restituted when the backend returns
 // `requires_gate` (a sensitive intention: shell / commit / push / valider).
 // The front RESTITUTES the barrier — it never decides it: the keyword gate
 // lives in the backend (SENSITIVE_ACTIONS, operator_server.rs:37), runs
 // BEFORE any spawn, and no front pre-filter is "smarter". There is ZERO
-// "Forcer / Override / Bypass" affordance — the only control is going back.
+// "Forcer / Override / Bypass" affordance.
 //
-// This is the inline restitution; the full-width MUR with the "Préparer le
-// pack" forward action lands in Phase D. The amber is gravity, not decor.
+// Sprint 80 Phase D — the wall now carries its ONE forward affordance:
+// "Préparer le pack" (onPrepare) opens the sealed context-pack to hand off to
+// a real agent session. It is the only way past the wall, and it is NOT
+// "execute" — it is a handoff that produces gates and proofs. The amber is
+// gravity, not decor.
 
-export function Mur({ message, onBack }: { message: string; onBack: () => void }) {
+export function Mur({
+  message,
+  onBack,
+  onPrepare,
+}: {
+  message: string
+  onBack: () => void
+  onPrepare?: () => void
+}) {
   return (
     <section
       data-testid="mur"
@@ -33,12 +44,23 @@ export function Mur({ message, onBack }: { message: string; onBack: () => void }
           <p className="max-w-prose font-sans text-[12.5px] leading-relaxed text-tx2">
             {message} Commit, push, shell et validation ne s'exécutent jamais depuis le composeur :
             ils passent par une session tracée qui produit gates et preuves — c'est la barrière, pas
-            un bouton à franchir. La préparation du pack pour la session arrive à l'étape suivante.
+            un bouton à franchir.
           </p>
           <div className="mt-3 font-mono text-[9.5px] text-mur">
             — aucun « Forcer » · aucun « Override » · aucun « Bypass » · aucun « Exécuter quand même » —
           </div>
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap items-center gap-2.5">
+            {onPrepare ? (
+              <button
+                type="button"
+                data-testid="mur-prepare"
+                onClick={onPrepare}
+                title="ouvrir le pack scellé à transmettre à une vraie session agent"
+                className="rounded-sm border border-mur bg-mur/10 px-4 py-2 font-sans text-[12px] font-semibold text-mur hover:bg-mur/20"
+              >
+                Préparer le pack
+              </button>
+            ) : null}
             <button
               type="button"
               data-testid="mur-back"

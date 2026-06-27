@@ -22,7 +22,14 @@ cd "$(dirname "$0")/.."
 # is not a false positive; the rendered verdict badge is always capitalised.
 FORBIDDEN='\b(PASS|Vérifié|Verifie|Approuvé|Approuve)\b'
 
+# Sprint 80 Phase D: this gate guards SHIPPED UI text. Unit tests legitimately
+# reference a RESTITUTED verdict (`reviewTone('PASS')`, a fixture
+# `review_verdict: 'PASS'`, a `not.toMatch(/PASS/)` guard) — they render no
+# user-facing UI, so `*.test.{ts,tsx}` are excluded. The arbre de procédé that
+# RESTITUTES a recorded verdict reads it from a variable (no literal in source),
+# so production components stay covered.
 MATCHES=$(grep -rnE --include='*.tsx' --include='*.ts' \
+  --exclude='*.test.ts' --exclude='*.test.tsx' \
   --exclude-dir=node_modules \
   --exclude-dir=bundle \
   --exclude-dir=dist \

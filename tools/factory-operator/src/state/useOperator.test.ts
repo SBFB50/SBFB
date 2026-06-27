@@ -117,4 +117,28 @@ describe('useOperator', () => {
     act(() => result.current.setMode('verify'))
     expect(result.current.mode).toBe('verify')
   })
+
+  it('opens and closes a secondary inspector surface (Phase D)', () => {
+    const { result } = renderHook(() => useOperator())
+    expect(result.current.surface).toBeNull()
+    act(() => result.current.openSurface('procede'))
+    expect(result.current.surface).toBe('procede')
+    act(() => result.current.closeSurface())
+    expect(result.current.surface).toBeNull()
+  })
+
+  it('selecting a focal mode closes any open inspector', () => {
+    const { result } = renderHook(() => useOperator())
+    act(() => result.current.openSurface('sessions'))
+    expect(result.current.surface).toBe('sessions')
+    act(() => result.current.setMode('verify'))
+    expect(result.current.mode).toBe('verify')
+    expect(result.current.surface).toBeNull() // back to the focal scene
+  })
+
+  it('preparePack opens the Knowledge inspector (the MUR handoff brouillon)', () => {
+    const { result } = renderHook(() => useOperator())
+    act(() => result.current.preparePack())
+    expect(result.current.surface).toBe('knowledge')
+  })
 })

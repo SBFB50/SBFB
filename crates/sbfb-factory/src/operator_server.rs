@@ -517,8 +517,14 @@ fn file_hash(root: &std::path::Path, rel: &str) -> serde_json::Value {
 /// `docs/factory/knowledge/<pack>/` (hashed by provenance, outside any app
 /// workspace); decision D6: they are consumed/displayed and never
 /// authoritative. Single source for the manifest list (one edit point per
-/// pack). animejs pack only at this revision.
-const AUTHORING_KNOWLEDGE_MANIFESTS: &[&str] = &["docs/factory/knowledge/animejs/MANIFEST.json"];
+/// pack). Sprint 80 Phase D (fold D1): the daisyui pack — promoted to the
+/// repo in S79 Phase F and already provenance-checked by
+/// `tests/daisyui_manifest.rs` — is surfaced alongside animejs, so the
+/// Knowledge advisory inspector lists both consumed packs.
+const AUTHORING_KNOWLEDGE_MANIFESTS: &[&str] = &[
+    "docs/factory/knowledge/animejs/MANIFEST.json",
+    "docs/factory/knowledge/daisyui/MANIFEST.json",
+];
 
 /// Builds the `authoring_knowledge` array of hashed path references from
 /// [`AUTHORING_KNOWLEDGE_MANIFESTS`]. Shared by `handle_context_pack` and

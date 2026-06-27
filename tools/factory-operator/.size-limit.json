@@ -19,5 +19,19 @@
     "limit": "20 KB",
     "brotli": false,
     "gzip": false
+  },
+  {
+    "name": "vendor-xterm",
+    "path": "bundle/assets/vendor-xterm-*.js",
+    "limit": "360 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "vendor-xterm-css",
+    "path": "bundle/assets/vendor-xterm-*.css",
+    "limit": "6 KB",
+    "brotli": false,
+    "gzip": false
   }
 ]

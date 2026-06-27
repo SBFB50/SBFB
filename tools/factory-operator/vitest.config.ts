@@ -24,10 +24,20 @@ export default defineConfig({
       // `all: true` makes untested source files visible in the report (honest
       // debt) instead of inflating the % over only-imported modules. The
       // presentational components (Rail, OrientationBar, SteerScene, Atelier,
-      // VerifyPlaceholder) are exercised by the Playwright E2E, not Vitest.
+      // VerifyScene, Terminal) are exercised by the Playwright E2E, not Vitest.
+      // The xterm-mounting modules (TerminalXterm, CastXterm) need a real DOM /
+      // canvas and are E2E-only by nature — excluded from coverage rather than
+      // reported as permanent 0% debt.
       all: true,
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/main.tsx', 'src/vite-env.d.ts'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/test/**',
+        'src/main.tsx',
+        'src/vite-env.d.ts',
+        'src/components/verify/TerminalXterm.tsx',
+        'src/components/surfaces/CastXterm.tsx',
+      ],
     },
   },
 })

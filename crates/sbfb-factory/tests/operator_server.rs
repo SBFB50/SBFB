@@ -944,6 +944,20 @@ fn operator_context_pack_includes_authoring_knowledge() {
         expected,
         "authoring_knowledge hash must equal recomputed blake3(MANIFEST)[..8]"
     );
+
+    // Sprint 80 Phase D (fold D1): the daisyui pack is now surfaced too, so the
+    // Knowledge advisory inspector lists both consumed packs. Guards the const
+    // edit point (AUTHORING_KNOWLEDGE_MANIFESTS) — the corpus bytes themselves
+    // are provenance-checked by `tests/daisyui_manifest.rs`.
+    let daisyui = ak
+        .iter()
+        .find(|e| {
+            e["path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with("daisyui/MANIFEST.json"))
+        })
+        .expect("authoring_knowledge should reference the daisyui MANIFEST (S80 Phase D)");
+    assert_eq!(daisyui["exists"], true, "daisyui MANIFEST should exist");
 }
 
 // Sprint 79 Phase D: handle_chat_session rebuilds its own context_pack literal
@@ -967,6 +981,24 @@ fn operator_chat_session_includes_authoring_knowledge() {
             .as_str()
             .is_some_and(|p| p.ends_with("animejs/MANIFEST.json"))),
         "chat session authoring_knowledge should reference the animejs MANIFEST"
+    );
+    // Sprint 80 Phase D (fold D1): daisyui is dual-written here too — assert it
+    // is referenced AND exists (non-vacant; `file_hash` only sets exists:true
+    // after a successful read, so this proves the daisyui bytes are read at the
+    // chat/session site as well as the context-pack site).
+    let daisyui = ak
+        .iter()
+        .find(|e| {
+            e["path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with("daisyui/MANIFEST.json"))
+        })
+        .expect(
+            "chat session authoring_knowledge should reference the daisyui MANIFEST (S80 Phase D)",
+        );
+    assert_eq!(
+        daisyui["exists"], true,
+        "chat session daisyui MANIFEST should exist"
     );
     // The authority invariant stays intact alongside the new field.
     assert_eq!(cp["chat_history_authoritative"], false);
