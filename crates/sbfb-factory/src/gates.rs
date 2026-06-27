@@ -6,9 +6,25 @@ use crate::template_engine::FactoryError;
 use nexus_core_rs::canonical::DOMAIN_PROVENANCE_V1;
 use nexus_core_rs::csp::CSS_URL_ALLOW;
 use regex::Regex;
+use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
+
+// Canonical Factory-gate names — the single source mirrored by every
+// `GateResult` constructor below and by the live registry
+// (`gates_live_data`). README §6.9: an enumerated domain is one named
+// constant reused everywhere, never a duplicated literal. (Scope-minimal:
+// the publish-side substring comparisons in `pipeline.rs` are out of this
+// phase; the definition points that mint the name live here.)
+pub const GATE_FG4_DIFF: &str = "FG4-diff";
+pub const GATE_FG5_SANDBOX: &str = "FG5-sandbox";
+pub const GATE_FG6_SECRETS: &str = "FG6-secrets";
+pub const GATE_CSP_AUTHORING: &str = "FG-CSP-authoring";
+pub const GATE_FG7_PREVIEW: &str = "FG7-preview";
+pub const GATE_FG8_PROVENANCE: &str = "FG8-provenance";
+/// The process-discipline gate the Operator restitutes live (planning lint).
+pub const GATE_LINT_PLANNING: &str = "lint-planning";
 
 #[derive(Debug)]
 pub struct GateResult {
@@ -46,6 +62,131 @@ impl std::fmt::Display for GateResult {
     }
 }
 
+// --- live gate registry (Sprint 80 Phase G: `GET /api/gates`) ---
+
+/// The distinct, never-flattened status of a gate as restituted by
+/// `GET /api/gates`. Mirrors the multi-state modelling of GitHub Checks
+/// (lifecycle ≠ verdict) and SARIF (`pass`/`notApplicable`): the Operator
+/// restitutes a 1:1 diagnostic and computes no aggregate "PASS" verdict
+/// (the cardinal "0 verdict calculé UI" invariant). Never collapsed to a
+/// bare `passed: bool`.
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GateStatus {
+    /// A publish-pipeline gate, not executed in the Operator context (it
+    /// scans an app workspace, not the SBFB repo; a side-effectful run on a
+    /// GET would break idempotence).
+    NotRun,
+    /// Out of scope on the SBFB repo (e.g. the app-scoped CSP gate) — never
+    /// reported as a false `passed`.
+    NotApplicable,
+    /// A discipline check that holds.
+    Passed,
+    /// Non-blocking findings (e.g. planning-lint warnings).
+    Informational,
+    /// Blocking findings (e.g. planning-lint errors).
+    Blocking,
+}
+
+/// One issue attached to a gate, structured from an already-structured
+/// source (`process::LintDiagnostic`) — never parsed from the flat
+/// `GateResult.issues` strings. `line` is always `None` in S80
+/// (`LintDiagnostic` carries no line); a line anchor needs the
+/// `GateResult.issues -> struct` refactor (carry S81).
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct GateIssueView {
+    pub message: String,
+    pub file: Option<String>,
+    pub line: Option<u32>,
+}
+
+/// One gate's restituted state for the live registry.
+#[derive(Debug, Serialize, Clone)]
+pub struct GateEntryView {
+    pub gate: &'static str,
+    pub status: GateStatus,
+    pub issues: Vec<GateIssueView>,
+}
+
+/// The `GET /api/gates` envelope: a flat list of restituted gate states,
+/// with NO aggregate field at the root (no `overall`/`all_passed`/score).
+///
+/// A single `gate` name can appear in more than one entry: `lint-planning`
+/// is restituted as both a `blocking` entry (its errors) and an
+/// `informational` entry (its warnings) when it has both, so consumers key
+/// by `(gate, status)`, never by `gate` alone.
+#[derive(Debug, Serialize, Clone)]
+pub struct GatesView {
+    pub gates: Vec<GateEntryView>,
+}
+
+/// Build the live registry of Factory gates for `GET /api/gates`. Read-only
+/// and idempotent: it runs NO publish scan (the FG gates above target an app
+/// workspace via WalkDir+regex, not `root`, and a safe HTTP GET must not
+/// trigger them). The publish gates are restituted `not_run` /
+/// `not_applicable`; the bounded planning lint (`lint_planning_data`,
+/// already GET-safe via `/api/lint`) supplies the live
+/// `passed`/`blocking`/`informational` state. No verdict is aggregated —
+/// the Operator closes no verdict.
+pub fn gates_live_data(root: &Path) -> GatesView {
+    let mut gates = Vec::new();
+
+    // Publish-pipeline gates: app-workspace scoped, never run on read.
+    for gate in [
+        GATE_FG4_DIFF,
+        GATE_FG5_SANDBOX,
+        GATE_FG6_SECRETS,
+        GATE_FG7_PREVIEW,
+        GATE_FG8_PROVENANCE,
+    ] {
+        gates.push(GateEntryView {
+            gate,
+            status: GateStatus::NotRun,
+            issues: Vec::new(),
+        });
+    }
+    // App-scoped CSP gate: not applicable to the SBFB repo (never a false pass).
+    gates.push(GateEntryView {
+        gate: GATE_CSP_AUTHORING,
+        status: GateStatus::NotApplicable,
+        issues: Vec::new(),
+    });
+
+    // Process-discipline gate, restituted live from the bounded planning lint.
+    let lint = crate::process::lint_planning_data(root);
+    let to_view = |d: &crate::process::LintDiagnostic| GateIssueView {
+        message: d.message.clone(),
+        file: d.file.clone(),
+        line: None,
+    };
+    // mustFix (preflight adversarial "shape"): a gate with BOTH errors and
+    // warnings must restitute TWO distinct entries — never drop the warnings,
+    // never flatten the two severities.
+    if !lint.errors.is_empty() {
+        gates.push(GateEntryView {
+            gate: GATE_LINT_PLANNING,
+            status: GateStatus::Blocking,
+            issues: lint.errors.iter().map(to_view).collect(),
+        });
+    }
+    if !lint.warnings.is_empty() {
+        gates.push(GateEntryView {
+            gate: GATE_LINT_PLANNING,
+            status: GateStatus::Informational,
+            issues: lint.warnings.iter().map(to_view).collect(),
+        });
+    }
+    if lint.errors.is_empty() && lint.warnings.is_empty() {
+        gates.push(GateEntryView {
+            gate: GATE_LINT_PLANNING,
+            status: GateStatus::Passed,
+            issues: Vec::new(),
+        });
+    }
+
+    GatesView { gates }
+}
+
 pub fn run_gate_fg4_diff(workspace: &Path) -> Result<GateResult, FactoryError> {
     let entries = diff::diff_workspace(workspace)?;
     let mut lines = Vec::new();
@@ -58,7 +199,7 @@ pub fn run_gate_fg4_diff(workspace: &Path) -> Result<GateResult, FactoryError> {
         lines.push(format!("{tag}: {}", entry.path));
     }
     Ok(GateResult {
-        gate: "FG4-diff",
+        gate: GATE_FG4_DIFF,
         passed: true,
         issues: lines,
     })
@@ -71,7 +212,7 @@ pub fn run_gate_fg5_sandbox(workspace: &Path) -> Result<GateResult, FactoryError
 
     if !canonical.is_dir() {
         return Ok(GateResult::fail(
-            "FG5-sandbox",
+            GATE_FG5_SANDBOX,
             vec![format!("'{}' is not a directory", workspace.display())],
         ));
     }
@@ -110,9 +251,9 @@ pub fn run_gate_fg5_sandbox(workspace: &Path) -> Result<GateResult, FactoryError
     }
 
     if issues.is_empty() {
-        Ok(GateResult::pass("FG5-sandbox"))
+        Ok(GateResult::pass(GATE_FG5_SANDBOX))
     } else {
-        Ok(GateResult::fail("FG5-sandbox", issues))
+        Ok(GateResult::fail(GATE_FG5_SANDBOX, issues))
     }
 }
 
@@ -160,9 +301,9 @@ pub fn run_gate_fg6_secrets(workspace: &Path) -> Result<GateResult, FactoryError
     }
 
     if issues.is_empty() {
-        Ok(GateResult::pass("FG6-secrets"))
+        Ok(GateResult::pass(GATE_FG6_SECRETS))
     } else {
-        Ok(GateResult::fail("FG6-secrets", issues))
+        Ok(GateResult::fail(GATE_FG6_SECRETS, issues))
     }
 }
 
@@ -389,7 +530,7 @@ pub fn run_gate_csp_authoring(workspace: &Path) -> Result<GateResult, FactoryErr
     })?;
     if !canonical.is_dir() {
         return Ok(GateResult::fail(
-            "FG-CSP-authoring",
+            GATE_CSP_AUTHORING,
             vec![format!("'{}' is not a directory", workspace.display())],
         ));
     }
@@ -403,7 +544,7 @@ pub fn run_gate_csp_authoring(workspace: &Path) -> Result<GateResult, FactoryErr
                 Ok(re) => compiled.push((rule.directive, re, label)),
                 Err(e) => {
                     return Ok(GateResult::fail(
-                        "FG-CSP-authoring",
+                        GATE_CSP_AUTHORING,
                         vec![format!("internal: bad CSP rule /{pat}/: {e}")],
                     ));
                 }
@@ -464,24 +605,24 @@ pub fn run_gate_csp_authoring(workspace: &Path) -> Result<GateResult, FactoryErr
     }
 
     if issues.is_empty() {
-        Ok(GateResult::pass("FG-CSP-authoring"))
+        Ok(GateResult::pass(GATE_CSP_AUTHORING))
     } else {
-        Ok(GateResult::fail("FG-CSP-authoring", issues))
+        Ok(GateResult::fail(GATE_CSP_AUTHORING, issues))
     }
 }
 
 pub fn run_gate_fg7_preview(workspace: &Path) -> Result<GateResult, FactoryError> {
     if !workspace.join("index.html").exists() {
         return Ok(GateResult::fail(
-            "FG7-preview",
+            GATE_FG7_PREVIEW,
             vec!["index.html not found".into()],
         ));
     }
 
     match crate::daemon_client::DaemonConnection::discover() {
-        Ok(_) => Ok(GateResult::pass("FG7-preview")),
+        Ok(_) => Ok(GateResult::pass(GATE_FG7_PREVIEW)),
         Err(e) => Ok(GateResult::fail(
-            "FG7-preview",
+            GATE_FG7_PREVIEW,
             vec![format!("daemon: {e}")],
         )),
     }
@@ -544,9 +685,9 @@ pub fn run_gate_fg8_provenance(
     );
 
     match nexus_core_rs::crypto::verify(node_public_key, &canonical, &sig) {
-        Ok(()) => Ok(GateResult::pass("FG8-provenance")),
+        Ok(()) => Ok(GateResult::pass(GATE_FG8_PROVENANCE)),
         Err(_) => Ok(GateResult::fail(
-            "FG8-provenance",
+            GATE_FG8_PROVENANCE,
             vec!["Ed25519 signature verification failed".into()],
         )),
     }
@@ -562,6 +703,109 @@ mod tests {
         let out = tmp.path().join("app");
         template_engine::create("static", "test-app", out.to_str().unwrap()).unwrap();
         out
+    }
+
+    // --- Sprint 80 Phase G: live gate registry (`GET /api/gates`) ---
+
+    #[test]
+    fn gates_live_data_restitutes_distinct_statuses_on_a_clean_repo() {
+        // A clean fixture has no `.planning/active` -> the planning lint is
+        // `ok` with no findings -> the process gate restitutes `Passed`,
+        // while the publish gates restitute `not_run`/`not_applicable`. This
+        // is the deterministic T1 invariant: at least one not-executed gate
+        // AND at least one passed gate, with no live scan triggered.
+        let tmp = TempDir::new().unwrap();
+        let view = gates_live_data(tmp.path());
+
+        assert!(
+            view.gates.iter().any(|g| g.status == GateStatus::NotRun),
+            "publish gates must be restituted not_run in the Operator context"
+        );
+        assert!(
+            view.gates.iter().any(|g| g.status == GateStatus::Passed),
+            "the planning-lint gate must restitute passed on a clean fixture"
+        );
+
+        // No publish gate (FG*) ever carries an issue onto the route: this is
+        // the structural secret-non-leak guard (FG6's secret findings, which
+        // would embed a value, are `not_run` here and never reach the route).
+        for g in &view.gates {
+            if g.gate != GATE_LINT_PLANNING {
+                assert!(
+                    g.issues.is_empty(),
+                    "publish gate {} must carry no issues on the registry",
+                    g.gate
+                );
+            }
+        }
+
+        // The CSP gate is app-scoped: it is `not_applicable` to the SBFB repo,
+        // never a false `passed`.
+        let csp = view
+            .gates
+            .iter()
+            .find(|g| g.gate == GATE_CSP_AUTHORING)
+            .expect("CSP gate present");
+        assert_eq!(csp.status, GateStatus::NotApplicable);
+
+        // No aggregate verdict is computed: the view is a flat list, and the
+        // status is an enum, never a collapsed bool.
+        assert!(
+            view.gates.len() >= 6,
+            "registry restitutes every known gate, not a single verdict"
+        );
+    }
+
+    #[test]
+    fn gates_live_data_splits_lint_errors_and_warnings_into_distinct_entries() {
+        // mustFix (preflight adversarial "shape"): a process gate with BOTH
+        // errors and warnings must NOT drop the warnings — it restitutes a
+        // `blocking` entry (errors) AND a distinct `informational` entry
+        // (warnings), never flattened ("états distincts jamais aplatis").
+        let tmp = TempDir::new().unwrap();
+        let active = tmp.path().join(".planning/active");
+        fs::create_dir_all(&active).unwrap();
+        // current sprint = 10 (kickoff+plan present -> no PLAN_WITHOUT_KICKOFF).
+        fs::write(active.join("sprint10_kickoff.md"), "k").unwrap();
+        fs::write(active.join("sprint10_plan.md"), "p").unwrap();
+        // a review stuck at PASS-PENDING -> a blocking lint error.
+        fs::write(active.join("sprint10_phase_a_review.md"), "PASS-PENDING\n").unwrap();
+        // a file from an old sprint (5+1 < 10) -> an informational orphan warning.
+        fs::write(active.join("sprint5_kickoff.md"), "old").unwrap();
+
+        let view = gates_live_data(tmp.path());
+        let lint: Vec<&GateEntryView> = view
+            .gates
+            .iter()
+            .filter(|g| g.gate == GATE_LINT_PLANNING)
+            .collect();
+
+        let blocking = lint
+            .iter()
+            .find(|g| g.status == GateStatus::Blocking)
+            .expect("lint errors must restitute a blocking entry");
+        assert!(
+            lint.iter().any(|g| g.status == GateStatus::Informational),
+            "lint warnings must restitute a distinct informational entry (not dropped)"
+        );
+        assert!(
+            !lint.iter().any(|g| g.status == GateStatus::Passed),
+            "with findings present there is no passed entry"
+        );
+
+        // V5 at the file level: the blocking issue restitutes its file
+        // attachment, and `line` is None in S80 (carry S81 for line anchors).
+        assert!(
+            blocking
+                .issues
+                .iter()
+                .any(|i| i.file.as_deref() == Some("sprint10_phase_a_review.md")),
+            "issue restitutes its file attachment"
+        );
+        assert!(
+            blocking.issues.iter().all(|i| i.line.is_none()),
+            "line is None in S80"
+        );
     }
 
     #[test]

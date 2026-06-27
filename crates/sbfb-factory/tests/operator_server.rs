@@ -746,6 +746,79 @@ fn operator_lint_endpoint() {
     assert!(body.get("ok").is_some(), "should have ok field");
 }
 
+// Sprint 80 Phase G: the live gate registry. Shape-only against the live
+// repo (the planning-lint status is non-deterministic here); the
+// deterministic semantics (>=1 not_run + >=1 passed, errors/warnings split)
+// live in the hermetic `gates_live_data` unit tests in `gates.rs`.
+#[test]
+fn operator_gates_endpoint() {
+    let server = TestServer::start();
+    let resp = server.get("/api/gates");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+
+    let gates = body["gates"].as_array().expect("gates array");
+    assert!(
+        !gates.is_empty(),
+        "registry should restitute the known gates"
+    );
+
+    // The publish gates are repo-independent (hardcoded `not_run`) and the
+    // CSP gate is always `not_applicable` to the SBFB repo, so these two
+    // snake_case status strings are deterministic even against the live
+    // repo — this pins the `#[serde(rename_all = "snake_case")]` wire
+    // contract the Phase H panel reads (the lint status alone varies).
+    let statuses: Vec<&str> = gates.iter().filter_map(|g| g["status"].as_str()).collect();
+    assert!(
+        statuses.contains(&"not_run"),
+        "FG gates restitute the snake_case `not_run` status"
+    );
+    assert!(
+        statuses.contains(&"not_applicable"),
+        "the CSP gate restitutes the snake_case `not_applicable` status"
+    );
+
+    // 1:1 diagnostic — no aggregate verdict anywhere (the cardinal
+    // "0 verdict calculé" invariant): no flattened bool at the root, and
+    // every entry carries a distinct `status` string, never a `passed:bool`.
+    assert!(
+        body.get("overall").is_none(),
+        "no aggregate verdict at root"
+    );
+    assert!(
+        body.get("all_passed").is_none(),
+        "no aggregate verdict at root"
+    );
+    assert!(body.get("passed").is_none(), "no flattened bool at root");
+    for g in gates {
+        assert!(
+            g.get("status").and_then(|s| s.as_str()).is_some(),
+            "each gate restitutes a distinct status string"
+        );
+        assert!(
+            g.get("issues").map(|i| i.is_array()).unwrap_or(false),
+            "each gate carries an issues array"
+        );
+        assert!(
+            g.get("passed").is_none(),
+            "a gate entry never collapses to passed:bool"
+        );
+    }
+}
+
+// The gate registry sits behind `auth_required` (the `authed` sub-router),
+// never on the public bootstrap router — a missing token is 401.
+#[test]
+fn operator_gates_requires_auth() {
+    let server = TestServer::start();
+    let resp = server.raw_get("/api/gates", "Host: 127.0.0.1\r\n");
+    assert!(
+        resp.starts_with("HTTP/1.1 401"),
+        "gates must require a token, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
 #[test]
 fn operator_audit_endpoint() {
     let server = TestServer::start();

@@ -195,6 +195,7 @@ pub fn build_router(root: PathBuf, bundle: PathBuf, auth_state: AuthState) -> Ro
         // diff-viewer (Phase H). Read-only, behind `auth_required` like every
         // /api route. Additive `/api/git/` namespace, 0 daemon route.
         .route("/api/git/diff", get(handle_git_diff))
+        .route("/api/gates", get(handle_gates))
         .route("/api/terminal/ws", get(handle_terminal_ws))
         .route("/api/terminal/sessions", get(handle_terminal_sessions))
         .route(
@@ -1322,6 +1323,17 @@ async fn handle_commit_diff(Path(sha): Path<String>) -> impl IntoResponse {
 async fn handle_git_diff(State(state): State<OperatorState>) -> Json<serde_json::Value> {
     let diff = crate::sprint_history::working_tree_diff_data(&state.root);
     Json(serde_json::json!(diff))
+}
+
+/// Sprint 80 Phase G: the live registry of Factory gates as a 1:1
+/// diagnostic — each entry restitutes a distinct status (not_run/
+/// not_applicable/passed/informational/blocking), never an aggregated
+/// verdict (the Operator closes no verdict; the front never fabricates a
+/// "PASS"). Read-only, 0 user input, reads `state.root`; runs no publish
+/// scan on this GET. Envelope `{gates:[...]}`.
+async fn handle_gates(State(state): State<OperatorState>) -> Json<serde_json::Value> {
+    let gates = crate::gates::gates_live_data(&state.root);
+    Json(serde_json::json!(gates))
 }
 
 #[cfg(test)]
