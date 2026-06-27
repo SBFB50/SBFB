@@ -717,6 +717,20 @@ fn git_cmd(args: &[&str]) -> String {
         .unwrap_or_default()
 }
 
+/// Like [`git_cmd`] but pinned to a working directory. Sprint 80 Phase F:
+/// the working-tree diff must target `OperatorState.root` (and a temp
+/// fixture in tests) rather than the process cwd, so it takes the root
+/// explicitly via `current_dir` (no `-C <path>` arg — nothing user-supplied
+/// reaches the command line).
+fn git_cmd_in(root: &Path, args: &[&str]) -> String {
+    std::process::Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
 fn git_diff_stats(sha: &str) -> (u32, u32, Vec<String>) {
     let numstat = git_cmd(&["diff", "--numstat", &format!("{sha}^..{sha}")]);
     let mut ins = 0u32;
@@ -969,6 +983,69 @@ pub struct DiffLine {
     pub new_lineno: Option<u32>,
 }
 
+/// Working-tree line ceiling (per diff source) before truncation. Guards
+/// the auto-rendered VERIFY diff-viewer (Phase H) against a multi-MB JSON
+/// from a huge refactor / vendored bundle. Beyond it, the source is cut at
+/// a line boundary and [`WorkingTreeDiff::truncated`] is set. Sprint 80
+/// Phase F (preflight P2 hardening).
+const MAX_DIFF_LINES: usize = 20_000;
+
+/// The repo working-tree diff, computed in Rust (the single source of truth
+/// — never a divergent JS diff; kickoff invariant #11). Sprint 80 Phase F.
+///
+/// `unstaged` = `git diff`, `staged` = `git diff --cached`. A partially
+/// staged file legitimately appears in BOTH (git semantics), hence the
+/// two-array envelope rather than a flat per-path list. `head` is the short
+/// HEAD sha for freshness (`run@<rev>`). Untracked files are absent (they
+/// are not in `git diff`, consistent with `git_dirty_files`). `old_lineno`/
+/// `new_lineno` serialize as `null` when absent — the Phase H Zod contract
+/// is `.nullable()`, and the envelope is `{head,unstaged,staged,truncated}`.
+#[derive(Serialize)]
+pub struct WorkingTreeDiff {
+    pub head: String,
+    pub unstaged: Vec<FileDiff>,
+    pub staged: Vec<FileDiff>,
+    pub truncated: bool,
+}
+
+pub fn working_tree_diff_data(root: &Path) -> WorkingTreeDiff {
+    let head = git_cmd_in(root, &["rev-parse", "--short", "HEAD"]);
+    let (unstaged_raw, t_unstaged) = bounded_working_tree_diff(root, false);
+    let (staged_raw, t_staged) = bounded_working_tree_diff(root, true);
+    WorkingTreeDiff {
+        head,
+        unstaged: parse_unified_diff(&unstaged_raw),
+        staged: parse_unified_diff(&staged_raw),
+        truncated: t_unstaged || t_staged,
+    }
+}
+
+/// Run a deterministic working-tree `git diff` and cap it at
+/// [`MAX_DIFF_LINES`] lines. `-c color.ui=false` + `--no-color` neutralise a
+/// global `color.ui=always` (ANSI codes would break `parse_unified_diff`);
+/// `--no-ext-diff` neutralises a user `diff.external`. No user input reaches
+/// the command, so no `--end-of-options`/`is_safe_git_rev` is needed.
+fn bounded_working_tree_diff(root: &Path, cached: bool) -> (String, bool) {
+    let mut args: Vec<&str> = vec![
+        "-c",
+        "color.ui=false",
+        "diff",
+        "--no-color",
+        "-U3",
+        "--no-ext-diff",
+    ];
+    if cached {
+        args.push("--cached");
+    }
+    let raw = git_cmd_in(root, &args);
+    let mut lines: Vec<&str> = raw.lines().collect();
+    let truncated = lines.len() > MAX_DIFF_LINES;
+    if truncated {
+        lines.truncate(MAX_DIFF_LINES);
+    }
+    (lines.join("\n"), truncated)
+}
+
 pub fn commit_diff_data(sha: &str) -> Option<CommitDiffResult> {
     // `--end-of-options` forces git to treat `sha` as a revision, never an
     // option, even if a guard upstream were bypassed (defense in depth vs
@@ -1133,6 +1210,101 @@ mod tests {
                 .iter()
                 .any(|l| l.kind == "del" && l.content == "removed line"),
             "removed inline code retained"
+        );
+    }
+
+    #[test]
+    fn working_tree_diff_separates_unstaged_and_staged() {
+        // Sprint 80 Phase F: hermetic test of the working-tree diff against a
+        // throwaway git repo, so hunk classification is deterministic (the
+        // HTTP test in tests/operator_server.rs only asserts the envelope
+        // shape on the live, dirty repo).
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .output()
+                .expect("git command");
+        };
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "t@t.test"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(root.join("a.txt"), "line1\nline2\nline3\n").expect("write a");
+        std::fs::write(root.join("b.txt"), "x\n").expect("write b");
+        run(&["add", "."]);
+        run(&["commit", "-q", "-m", "init"]);
+        // Unstaged edit to a.txt (one line changed -> add + del + ctx).
+        std::fs::write(root.join("a.txt"), "line1\nline2 changed\nline3\n").expect("edit a");
+        // Staged edit to b.txt.
+        std::fs::write(root.join("b.txt"), "x\ny\n").expect("edit b");
+        run(&["add", "b.txt"]);
+
+        let diff = working_tree_diff_data(root);
+        assert!(
+            !diff.head.is_empty(),
+            "short HEAD sha present after a commit"
+        );
+        assert!(!diff.truncated, "small diff is not truncated");
+
+        let a = diff
+            .unstaged
+            .iter()
+            .find(|f| f.path == "a.txt")
+            .expect("a.txt is an unstaged change");
+        assert!(a.insertions >= 1 && a.deletions >= 1, "a.txt has +/- lines");
+        let a_kinds: Vec<&str> = a
+            .hunks
+            .iter()
+            .flat_map(|h| h.lines.iter().map(|l| l.kind.as_str()))
+            .collect();
+        assert!(a_kinds.contains(&"add"), "add line classified");
+        assert!(a_kinds.contains(&"del"), "del line classified");
+        assert!(a_kinds.contains(&"ctx"), "context line classified");
+
+        assert!(
+            diff.staged.iter().any(|f| f.path == "b.txt"),
+            "b.txt is a staged change"
+        );
+        // A purely-unstaged file must not leak into staged and vice-versa.
+        assert!(
+            !diff.staged.iter().any(|f| f.path == "a.txt"),
+            "a.txt (unstaged only) absent from staged"
+        );
+    }
+
+    #[test]
+    fn working_tree_diff_truncates_beyond_cap() {
+        // Sprint 80 Phase F (review F1): a diff beyond MAX_DIFF_LINES is cut at
+        // a line boundary and `truncated` is set. A freshly staged large file
+        // emits one `+` per content line, easily exceeding the cap.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .output()
+                .expect("git command");
+        };
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "t@t.test"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(root.join("seed.txt"), "seed\n").expect("write seed");
+        run(&["add", "."]);
+        run(&["commit", "-q", "-m", "init"]);
+        // Stage a file with > MAX_DIFF_LINES content lines.
+        let big: String = (0..MAX_DIFF_LINES + 100)
+            .map(|i| format!("line {i}\n"))
+            .collect();
+        std::fs::write(root.join("big.txt"), big).expect("write big");
+        run(&["add", "big.txt"]);
+
+        let diff = working_tree_diff_data(root);
+        assert!(
+            diff.truncated,
+            "a diff beyond MAX_DIFF_LINES must set truncated"
         );
     }
 

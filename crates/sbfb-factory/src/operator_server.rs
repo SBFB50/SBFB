@@ -190,6 +190,11 @@ pub fn build_router(root: PathBuf, bundle: PathBuf, auth_state: AuthState) -> Ro
             get(handle_sprint_history_by_number),
         )
         .route("/api/sprint-history/diff/{sha}", get(handle_commit_diff))
+        // Sprint 80 Phase F: working-tree diff (unstaged + staged) as hunks
+        // computed in Rust — the single source of truth for the VERIFY
+        // diff-viewer (Phase H). Read-only, behind `auth_required` like every
+        // /api route. Additive `/api/git/` namespace, 0 daemon route.
+        .route("/api/git/diff", get(handle_git_diff))
         .route("/api/terminal/ws", get(handle_terminal_ws))
         .route("/api/terminal/sessions", get(handle_terminal_sessions))
         .route(
@@ -1302,6 +1307,15 @@ async fn handle_commit_diff(Path(sha): Path<String>) -> impl IntoResponse {
         )
             .into_response(),
     }
+}
+
+/// Sprint 80 Phase F: the working-tree diff (unstaged + staged) computed in
+/// Rust — the truth the VERIFY diff-viewer renders (Phase H), never a JS
+/// diff. Reads `state.root` (the repo), no user input. Envelope
+/// `{head, unstaged, staged, truncated}`.
+async fn handle_git_diff(State(state): State<OperatorState>) -> Json<serde_json::Value> {
+    let diff = crate::sprint_history::working_tree_diff_data(&state.root);
+    Json(serde_json::json!(diff))
 }
 
 #[cfg(test)]

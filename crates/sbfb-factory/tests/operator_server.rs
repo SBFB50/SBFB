@@ -1198,6 +1198,35 @@ fn operator_sprint_history_all_endpoint() {
     assert!(body.get("total").is_some(), "should have total");
 }
 
+// Sprint 80 Phase F: GET /api/git/diff returns the working-tree diff
+// envelope. Shape-only (the live repo is dirty during the run, so the
+// content is non-deterministic; hunk classification is asserted in the
+// hermetic unit test in sprint_history.rs).
+#[test]
+fn operator_git_diff_endpoint_returns_envelope() {
+    let server = TestServer::start();
+    let resp = server.get("/api/git/diff");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(body.get("head").is_some(), "envelope has head");
+    assert!(body["unstaged"].is_array(), "unstaged is an array");
+    assert!(body["staged"].is_array(), "staged is an array");
+    assert!(body["truncated"].is_boolean(), "truncated is a bool");
+}
+
+// The working-tree diff is behind the same auth as every /api route
+// (it reveals uncommitted source) — no token => 401.
+#[test]
+fn operator_git_diff_requires_auth() {
+    let server = TestServer::start();
+    let resp = server.raw_get("/api/git/diff", "Host: 127.0.0.1\r\n");
+    assert!(
+        resp.starts_with("HTTP/1.1 401"),
+        "git diff without token must be 401, got: {}",
+        resp.lines().next().unwrap_or("")
+    );
+}
+
 #[test]
 fn operator_commit_diff_endpoint_returns_inline_code() {
     let server = TestServer::start();
