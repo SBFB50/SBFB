@@ -32,16 +32,23 @@ PHASE_TITLE_FALLBACK_RE = re.compile(
     r"Sprint\s+(?P<sprint>\d+)\s+Phase\s+(?P<phase>[A-Z]+[0-9]?)\b"
 )
 FINAL_PASS_RE = re.compile(r"^## Verdict\s*:\s*PASS\s*$", re.MULTILINE)
+# A canonical section header must START with the title; a descriptive
+# suffix is tolerated (e.g. "## Scope cuts respectés (kickoff §8)",
+# "## Verification §7.4", "## Carry closure / Unblock"). This matches the
+# README §7.2 template AND the bash lightcheck's `^## <title>` prefix
+# check. Previously 6 of the 9 used `\s*$` (exact) while Verification +
+# Carry used a looser form — an internal inconsistency that rejected the
+# documented template and blocked commits on an invisible mismatch.
 REQUIRED_PHASE_BODY_SECTIONS = (
-    ("Contexte", r"^## Contexte\s*$"),
-    ("Fichiers", r"^## Fichiers\s*$"),
-    ("Delta tests", r"^## Delta tests\s*$"),
+    ("Contexte", r"^## Contexte\b"),
+    ("Fichiers", r"^## Fichiers\b"),
+    ("Delta tests", r"^## Delta tests\b"),
     ("Verification", r"^## V[eé]rification\b"),
-    ("Scope cuts", r"^## Scope cuts\s*$"),
-    ("G8 traceability", r"^## G8 traceability\s*$"),
-    ("Pre-launch protocol", r"^## Pre-launch protocol\s*$"),
-    ("Codex verification", r"^## Codex verification\s*$"),
-    ("Carry closure", r"^## Carry closure(?:\s*/\s*Unblock)?\s*$"),
+    ("Scope cuts", r"^## Scope cuts\b"),
+    ("G8 traceability", r"^## G8 traceability\b"),
+    ("Pre-launch protocol", r"^## Pre-launch protocol\b"),
+    ("Codex verification", r"^## Codex verification\b"),
+    ("Carry closure", r"^## Carry closure\b"),
 )
 
 

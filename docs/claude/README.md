@@ -2553,6 +2553,16 @@ feat(scope): Sprint N Phase X — titre court
 Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
 
+> **Headers des 9 sections (enforcement)** : chaque `## <titre>` doit
+> **commencer** par le titre canonique ; un suffixe descriptif est toléré
+> (ex. `## Scope cuts respectés (kickoff §8)`, `## Verification §7.4`,
+> `## Carry closure / Unblock`). Le hook bash et `agentctl.py` matchent en
+> préfixe `^## <titre>\b` (incohérence `\s*$` corrigée S80 Phase B). En cas
+> de doute, le header **bare** (`## Scope cuts`) est toujours sûr. La
+> review promue porte un header EXACT `## Verdict: PASS`. Pour un body long :
+> `git commit -F fichier.txt` avec un **chemin sans guillemets ni pipe**
+> (le hook lit `tool_input.command` ; un `-F "x" | tail` casse l'extraction).
+
 **Cas C — docs (planning d'ouverture sprint)** :
 
 ```
