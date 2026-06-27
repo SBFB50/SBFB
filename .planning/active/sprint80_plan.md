@@ -21,6 +21,15 @@
 > Q4/Q5/Q6 réconciliés) — le code re-thème oklch + vendore Geist (0 CDN) + câble l'API
 > réelle + teste (verrou D2/D5/D10 ; la maquette est la spec, jamais le livrable).
 
+> **AMENDEMENT PO 2026-06-27 (suite) — re-check D1 + fold SSE.** Le re-check de la charnière D1
+> (`react_vs_solid2_eval_2026-06-27.md`, `19da665`) **CONFIRME React 19** : Solid 2.0 = beta juin 2026,
+> 0 date GA (clause de réouverture falsifiable = 3 conditions, aucune remplie). Marge blueprint
+> honnêtement révisée (459-381 gonflé en greenfield ; direction tient sur corpus-agent + écosystème
+> mûr + lignée stabilité). **Trouvaille actionnable pliée** (Phase C/I) : le stream SSE passe par
+> `fetch()`+`ReadableStream`+`AbortController` (jamais `EventSource`) → neutralise PO-14 + header
+> `X-SBFB-Token` natif (supprime la raison du proxy Vite) + abort déterministe ; primitive
+> `useTokenStream` testée. Le cookie de Phase A reste requis (WS terminal + assets ServeDir).
+
 ---
 
 ## Phase 0 — Audit gate S79 (DÉJÀ JOUÉ)
@@ -73,7 +82,7 @@
   intentions-pas-jargon.
 - **Jobs/surfaces** : J1 (rail) + J2→J3 (intention → steering). Backend : toutes routes existantes.
 - **Livrables** : composeur en dock (exception état-vide = composeur en grand) ; atelier dominant ;
-  transcript SSE (J3, `EventSource` via cookie) ; provider = attribut ; MUR `requires_gate` inline ;
+  transcript SSE (J3) via **`fetch()` + `ReadableStream` + `AbortController`** (PAS `EventSource`) ; provider = attribut ; MUR `requires_gate` inline ;
   rail = bandeau sprint·phase·branche·dirty/staged·pouls gates + sélecteur de MODE + secondaires
   (sessions, historique, knowledge) ; CTA en intentions, jargon `kind/provider/preflight` replié.
 - **Livrables §5.1 pliés (catalogue)** :
@@ -84,8 +93,17 @@
   - **S4 — Provider attribut + amorce diagnostic** : Claude/Ollama/réseau en attribut discret
     (`GET /api/providers`) ; diagnostic de joignabilité = signal VRAI (santé route S81).
   - **S5 — Relancer le tour** : re-stream idempotent sans re-saisie (`/chat/{id}/stream` re-spawn,
-    quasi-gratuit) ; **S6a — Interrompre l'écoute** : `EventSource.close()` honnête (« j'arrête
+    quasi-gratuit) ; **S6a — Interrompre l'écoute** : `AbortController.abort()` honnête (« j'arrête
     d'écouter », ne ment jamais « arrêté » ; l'abandon réel kill-child = future, backend neuf).
+  - **SSE-FETCH (trouvaille éval React-vs-Solid `19da665`, orthogonale au framework)** : le stream
+    passe par **`fetch()` + `ReadableStream` + `AbortController`**, jamais `EventSource`. Raison :
+    `EventSource` auto-reconnecte (re-rejoue le dernier tour → casse PO-14) ; `fetch` permet le header
+    `X-SBFB-Token` natif (**supprime la raison du proxy Vite**, cf. `executionChat.ts:13-16`) + abort
+    déterministe. Encapsuler **une fois** dans une primitive testée `useTokenStream` (accumulateur +
+    Done-unique PO-14 + abort/reconnect contrôlé). **Le cookie de Phase A reste requis** pour le WS
+    terminal (WS ne pose pas de header) + les assets `ServeDir` ; le SSE peut désormais s'authentifier
+    par header OU cookie (same-origin). Décision tranchée : React 19 **CONFIRMÉ** (re-check D1 —
+    Solid 2.0 = beta juin 2026, cf. `react_vs_solid2_eval_2026-06-27.md`).
 - **Backend deps** : déjà câblé : `/api/status:123`, `/context:127`, `/context-pack:128`,
   `/providers:129`, `/chat/session:133`, `/chat/{id}/send:135`, `/chat/{id}/stream` SSE `:136`,
   `/actions/run:130`, `/actions/log:131`, `/prompt:126`, `/sprint-history*:138-144`. (S1 = lecture
@@ -217,7 +235,9 @@
 - **But** : consolider la harness hermétique et acter la comptabilité honnête du delta de couverture.
 - **Jobs/surfaces** : test infra. Backend : `provider_router` (cible de test echo).
 - **Livrables** : T1 consolidé (5 sous-tests de base, BLOQUANT, CI chaque push) ; **re-couverture
-  du parsing SSE single-Done** (intention PO-14 portée d'`executionChat.test.ts`) ; **acter le delta**
+  du parsing SSE single-Done** (intention PO-14 portée d'`executionChat.test.ts`, désormais ciblant la
+  primitive **`useTokenStream`** fetch+ReadableStream — single-Done + abort/reconnect contrôlé, 0
+  auto-reconnect EventSource) ; **acter le delta**
   (perte des Vitest factory-operator + factory-ui) — interdire la chute silencieuse du total ; T2
   artefact JSON **committé** (corrige P3-6), `PASS` déterministe. Env : `SBFB_HOME` isolé + workspace
   git fixture (ferme `TEST-ISOLATION-SBFB-HOME`).
