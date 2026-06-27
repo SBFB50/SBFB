@@ -1,0 +1,8 @@
+node_modules
+bundle
+dist
+test-results
+playwright-report
+playwright/.cache
+*.tsbuildinfo
+.vite

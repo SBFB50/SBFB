@@ -491,9 +491,13 @@ Cf. `nexus_grid_pivot.md` (memory) — **a ne PAS re-debattre** :
   config, puis contrat RRV/Factory. Pas SearchManifest, pas RRV total,
   pas route shell produit `/factory` : S70 livre le Viewer comme app
   SBFB sandboxee de consultation/preuve et l'Operator comme outil local
-  privilegie Rust du noeud. Les deux reutilisent un socle
-  `tools/factory-ui/src/readonly` pour les preuves, previews, statuts et
-  labels ; seul l'Operator importe les extensions `factory-ui/operator`.
+  privilegie Rust du noeud. **SUPERSEDE S80 Phase B** : le socle partage
+  `tools/factory-ui` est jete (front Operator greenfield) ; la fondation
+  partagee Viewer/Operator est re-planifiee S81 (cf. sprint80_kickoff
+  Arbitrage PO #2). [Decision S70 d'origine, conservee pour historique :]
+  Les deux reutilisent un socle `tools/factory-ui/src/readonly` pour les
+  preuves, previews, statuts et labels ; seul l'Operator importe les
+  extensions `factory-ui/operator`.
   Phase E commence par un prompt UX a coller dans Claude Design, puis
   un handoff repo-visible contenant le lien ou export avant
   implementation front. L'Operator preserve le mode actuel

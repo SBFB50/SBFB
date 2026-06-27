@@ -1,0 +1,23 @@
+[
+  {
+    "name": "app",
+    "path": "bundle/assets/index-*.js",
+    "limit": "40 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "vendor-react",
+    "path": "bundle/assets/vendor-react-*.js",
+    "limit": "210 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "css",
+    "path": "bundle/assets/index-*.css",
+    "limit": "20 KB",
+    "brotli": false,
+    "gzip": false
+  }
+]

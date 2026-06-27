@@ -1,50 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { cn } from './lib/cn'
 
-import { Routes, Route } from "react-router-dom";
-import { Sidebar } from "@/components/Sidebar";
-import { StatusBar } from "@/components/StatusBar";
-import { useApi } from "@/hooks/useApi";
-import { SprintOverview } from "@/pages/SprintOverview";
-import { AgentSelector } from "@/pages/AgentSelector";
-import { PhaseAssistant } from "@/pages/PhaseAssistant";
-import { LintOperator } from "@/pages/LintOperator";
-import { CommitAuditor } from "@/pages/CommitAuditor";
-import { AgentTransfer } from "@/pages/AgentTransfer";
-import { ContextPackBuilder } from "@/pages/ContextPackBuilder";
-import { ActionCenter } from "@/pages/ActionCenter";
-import { ExecutionChat } from "@/pages/ExecutionChat";
-import { AgentChat } from "@/pages/AgentChat";
-import { ActionLog } from "@/pages/ActionLog";
-import { SprintHistory } from "@/pages/SprintHistory";
-
-interface StatusData {
-  sprint: number;
-  head: string;
-}
-
+// Sprint 80 Phase B — minimal greenfield shell. The bi-focal STEER /
+// VERIFY surfaces and the ambient rail land in Phases C→H; this scaffold
+// proves the oklch @theme utilities generate (ADAPT-2), the dark theme
+// applies, Geist sans/mono are vendored, and the build is CSP-clean
+// (asserted by e2e/boot.spec.ts on the BUILT bundle). No inline styles
+// (CSP `default-src 'self'`): every surface is a Tailwind utility.
 export function App() {
-  const { data } = useApi<StatusData>("/status");
-
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 overflow-auto p-6 pb-12">
-        <Routes>
-          <Route path="/" element={<SprintOverview />} />
-          <Route path="/agents" element={<AgentSelector />} />
-          <Route path="/phase" element={<PhaseAssistant />} />
-          <Route path="/lint" element={<LintOperator />} />
-          <Route path="/audit" element={<CommitAuditor />} />
-          <Route path="/transfer" element={<AgentTransfer />} />
-          <Route path="/context" element={<ContextPackBuilder />} />
-          <Route path="/actions" element={<ActionCenter />} />
-          <Route path="/execute" element={<ExecutionChat />} />
-          <Route path="/chat" element={<AgentChat />} />
-          <Route path="/log" element={<ActionLog />} />
-          <Route path="/history" element={<SprintHistory />} />
-        </Routes>
+    <div className="min-h-screen bg-s0 text-tx font-sans">
+      {/* Placeholder for the altitude-0 ambient rail (wired Phase C). */}
+      <header
+        data-testid="operator-rail"
+        className="flex items-center gap-3 border-b border-bd bg-s1 px-4 py-2"
+      >
+        <span className="font-mono text-tx tabular-nums">Factory Operator</span>
+        <span className="text-tx3" aria-hidden>
+          ·
+        </span>
+        <span className="text-sm text-tx2">établi bi-focal — scaffold S80 Phase B</span>
+      </header>
+      <main className="p-6">
+        <section className={cn('max-w-prose rounded-md border border-bd bg-s1 p-4')}>
+          <h1 className="text-lg text-tx">Fondations en place</h1>
+          <p className="mt-2 text-tx2">
+            React&nbsp;19, Tailwind&nbsp;v4 (tokens oklch), Base&nbsp;UI, Motion et
+            Geist sont câblés. Les focales STEER et VERIFY arrivent aux phases
+            suivantes du sprint.
+          </p>
+        </section>
       </main>
-      <StatusBar head={data?.head ?? "..."} sprint={data?.sprint ?? 0} />
     </div>
-  );
+  )
 }

@@ -426,8 +426,7 @@ sbfb/
 |   +-- sbfb-factory/                   # Factory CLI/process/operator server
 +-- web/                                # Shell UI (React + TypeScript + Vite)
 +-- tools/
-|   +-- factory-operator/               # Local management tool
-|   +-- factory-ui/                     # Shared readonly/operator UI components
+|   +-- factory-operator/               # Local control-center front (greenfield S80 Phase B: React 19 + Tailwind v4 oklch + Base UI)
 +-- examples/
 |   +-- sbfb-explorer/                  # Protocol Explorer app
 |   +-- sbfb-ideas/                     # Ideas Hub app

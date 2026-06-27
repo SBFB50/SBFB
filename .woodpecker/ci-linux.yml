@@ -85,3 +85,37 @@ steps:
     image: bash:5@sha256:2003051c5eb5154cbd44fd4b1a2b8f1be886517b383813c998c72cb15840357f
     commands:
       - bash scripts/check-factory-docs.sh
+
+  # ── Factory Operator greenfield front (Sprint 80 Phase B) ──
+  # Discipline gates + build/size. The hermetic T1 (Playwright + the
+  # Operator Rust binary) runs in GHA `ci.yml`; Woodpecker keeps the
+  # lighter front gates so the Codeberg mirror stays fast.
+  - name: factory-operator-deps
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
+    commands:
+      - cd tools/factory-operator && npm ci
+
+  - name: factory-operator-tsc
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
+    commands:
+      - cd tools/factory-operator && npx tsc --noEmit -p tsconfig.app.json
+
+  - name: factory-operator-lint
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
+    commands:
+      - cd tools/factory-operator && npm run lint
+
+  - name: factory-operator-gates
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
+    commands:
+      - cd tools/factory-operator && npm run gates
+
+  - name: factory-operator-build
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
+    commands:
+      - cd tools/factory-operator && npm run build
+
+  - name: factory-operator-size
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
+    commands:
+      - cd tools/factory-operator && npm run size

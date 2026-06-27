@@ -124,3 +124,78 @@ jobs:
       # ── factory docs lint (Sprint 79 Phase I) ────────────
       - name: "[16] factory docs check"
         run: bash scripts/check-factory-docs.sh
+
+  # ── Factory Operator greenfield front (Sprint 80 Phase B) ──
+  # Separate job: its own Node project under tools/factory-operator,
+  # plus the Operator Rust binary for the hermetic T1 (cookie boot +
+  # CSP-clean on the BUILT bundle). The 5 discipline gates
+  # (anti-@radix-ui-runtime, anti-tailwind.config.js-v3, size-limit,
+  # anti-motion.*-nu via eslint, scan-front anti-PASS) run here on
+  # every push.
+  factory-operator:
+    name: Factory Operator front (Sprint 80 Phase B)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-operator-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-operator-${{ runner.os }}-
+
+      - name: Build Operator server (hermetic T1 host)
+        run: cargo build -p sbfb-factory
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tools/factory-operator/package-lock.json
+
+      - name: Install deps
+        run: cd tools/factory-operator && npm ci
+
+      - name: "[1] tsc"
+        run: cd tools/factory-operator && npx tsc --noEmit -p tsconfig.app.json
+
+      - name: "[2] eslint (incl. gate 4 anti-motion.*)"
+        run: cd tools/factory-operator && npm run lint
+
+      - name: "[3] discipline gates (no-radix / no-tailwind-config / scan-front)"
+        run: cd tools/factory-operator && npm run gates
+
+      - name: "[4] build (→ bundle)"
+        run: cd tools/factory-operator && npm run build
+
+      - name: "[5] size-limit"
+        run: cd tools/factory-operator && npm run size
+
+      - name: "[6] install playwright chromium"
+        run: cd tools/factory-operator && npx playwright install --with-deps chromium
+
+      - name: "[7] hermetic T1 (cookie boot + CSP-clean)"
+        run: cd tools/factory-operator && npm run test:e2e
+        env:
+          SBFB_FACTORY_BIN: ${{ github.workspace }}/target/debug/sbfb-factory
+
+      - name: "[8] upload playwright report on failure"
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-operator-playwright-report
+          path: |
+            tools/factory-operator/playwright-report
+            tools/factory-operator/test-results
+          retention-days: 7
+          if-no-files-found: ignore

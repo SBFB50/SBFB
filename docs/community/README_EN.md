@@ -280,8 +280,7 @@ sbfb/
 |   +-- sbfb-factory/                   # Factory CLI (create, validate, publish, gates)
 +-- web/                                # Shell UI (React 19 + TypeScript + Tailwind + shadcn/ui)
 +-- tools/
-|   +-- factory-operator/               # Local management tool (Vite + React)
-|   +-- factory-ui/                     # Shared UI components (readonly + operator)
+|   +-- factory-operator/               # Local control-center front (greenfield S80: React 19 + Tailwind v4 oklch + Base UI)
 +-- examples/
 |   +-- sbfb-explorer/                  # Protocol Explorer app
 |   +-- sbfb-ideas/                     # Ideas Hub app

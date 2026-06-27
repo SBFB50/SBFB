@@ -107,7 +107,9 @@ rendue dans un iframe sandbox (`sandbox="allow-scripts"` sans
 - **Pas d'autorite** : le Viewer affiche ce qui est publie, il ne
   valide pas la qualite.
 - **Lecture seule** : socle partage `tools/factory-ui/src/readonly`
-  pour les modeles, labels, previews et cartes de preuve.
+  pour les modeles, labels, previews et cartes de preuve. (SUPERSEDE
+  S80 Phase B : `tools/factory-ui` jete ; fondation partagee
+  re-planifiee S81 avec la reprise du Viewer scelle.)
 
 ---
 
@@ -139,7 +141,8 @@ tourne en local avec acces au filesystem et au daemon.
   (confirmation ou guard Rust).
 - **Socle partage en lecture** : reutilise `tools/factory-ui/src/readonly`
   comme le Viewer, plus les extensions `factory-ui/operator` pour
-  les actions privilegiees.
+  les actions privilegiees. (SUPERSEDE S80 Phase B : `tools/factory-ui`
+  jete, front Operator greenfield ; fondation re-planifiee S81.)
 
 ### Pilotage agent local privilegie (gate, S71 Phase C, PO-2)
 
