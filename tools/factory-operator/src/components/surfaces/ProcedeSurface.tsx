@@ -606,7 +606,7 @@ export function ProcedeSurface() {
           placeholder="filtrer les phases…"
           aria-label="filtrer les phases"
           data-testid="phase-filter"
-          className="min-w-0 flex-1 rounded-sm border border-bd bg-s0 px-2 py-1 font-mono text-body text-tx placeholder:text-tx4 focus:border-bd2 focus:outline-none"
+          className="min-w-0 flex-1 rounded-sm border border-field bg-s0 px-2 py-1 font-mono text-body text-tx placeholder:text-tx4 focus:border-field focus:outline-none"
         />
         <button
           type="button"
