@@ -46,9 +46,7 @@ export function Composer({
       aria-label="Composeur d'intention"
       className={cn('flex flex-col', grand ? 'gap-4 p-7' : 'gap-3 border-t border-bd bg-s1 p-4')}
     >
-      <div className="font-sans text-[9px] font-semibold uppercase tracking-[0.15em] text-tx4">
-        composeur d'intention
-      </div>
+      <div className="eyebrow">composeur d'intention</div>
 
       <div className="flex flex-wrap gap-2">
         {INTENTIONS.map((intent) => {
@@ -60,7 +58,7 @@ export function Composer({
               aria-pressed={selected}
               onClick={() => setIntentId(intent.id)}
               className={cn(
-                'rounded-sm border px-3.5 py-2 font-sans text-[12.5px] font-medium transition-none',
+                'rounded-sm border px-3.5 py-2 font-sans text-body font-medium transition-none',
                 selected
                   ? 'border-bd2 bg-s2 text-tx'
                   : 'border-bd bg-transparent text-tx2 hover:border-bd2',
@@ -84,18 +82,18 @@ export function Composer({
         }}
         placeholder={`Décrivez l'intention en clair… « ${active.hint} »`}
         rows={grand ? 4 : 2}
-        className="resize-none rounded-md border border-bd2 bg-s1 px-4 py-3 font-sans text-[13.5px] leading-relaxed text-tx placeholder:text-tx3 focus:border-info focus:outline-none"
+        className="resize-none rounded-md border border-bd2 bg-s1 px-4 py-3 font-sans text-body leading-relaxed text-tx placeholder:text-tx3 focus:border-info focus:outline-none"
       />
 
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3.5">
-          <label className="flex items-center gap-1.5 font-mono text-[10.5px] text-tx3">
+          <label className="flex items-center gap-1.5 font-mono text-meta text-tx3">
             <span className="text-tx4">agent</span>
             <select
               data-testid="provider-select"
               value={provider}
               onChange={(e) => onProvider(e.target.value as ExecProvider)}
-              className="rounded-sm border border-bd bg-s2 px-1.5 py-1 font-mono text-[10.5px] text-tx2 focus:border-info focus:outline-none"
+              className="rounded-sm border border-bd bg-s2 px-1.5 py-1 font-mono text-meta text-tx2 focus:border-info focus:outline-none"
             >
               {EXEC_PROVIDERS.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -108,7 +106,7 @@ export function Composer({
             type="button"
             aria-expanded={showDetails}
             onClick={() => setShowDetails((v) => !v)}
-            className="font-mono text-[10.5px] text-tx4 hover:text-tx3"
+            className="font-mono text-meta text-tx4 hover:text-tx3"
           >
             {showDetails ? '▾' : '▸'} détails techniques
           </button>
@@ -120,7 +118,7 @@ export function Composer({
           disabled={!canLaunch}
           onClick={submit}
           className={cn(
-            'rounded-sm px-4 py-2.5 font-sans text-[12.5px] font-semibold transition-none',
+            'rounded-sm px-4 py-2.5 font-sans text-body font-semibold transition-none',
             canLaunch ? 'bg-tx text-s0 hover:bg-tx/90' : 'cursor-not-allowed bg-s3 text-tx4',
           )}
         >

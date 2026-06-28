@@ -16,8 +16,8 @@ function SceneHeader({ subtitle }: { subtitle: string }) {
   return (
     <div className="flex items-center gap-2.5 border-b border-bd px-5 py-3">
       <span className="h-1.5 w-1.5 rounded-full bg-tx2" aria-hidden />
-      <span className="font-sans text-xs font-semibold tracking-wide text-tx">STEER</span>
-      <span className="font-sans text-xs text-tx3">— {subtitle}</span>
+      <span className="font-sans text-scene font-semibold text-tx">STEER</span>
+      <span className="font-sans text-sec text-tx3">— {subtitle}</span>
     </div>
   )
 }
@@ -31,16 +31,14 @@ export function SteerScene({ op }: { op: Operator }) {
       <div data-testid="steer-scene" className="flex min-h-0 flex-1 flex-col bg-s0">
         <SceneHeader subtitle="intention sensible détectée" />
         <div className="border-b border-bd bg-s0 px-5 py-4">
-          <div className="mb-2 font-sans text-[9px] font-semibold uppercase tracking-[0.15em] text-tx4">
-            composeur d'intention
-          </div>
-          <div className="rounded-md border border-bd2 bg-s1 px-3.5 py-3 font-sans text-[13.5px] leading-snug text-tx">
+          <div className="mb-2 eyebrow">composeur d'intention</div>
+          <div className="rounded-md border border-bd2 bg-s1 px-3.5 py-3 font-sans text-body leading-snug text-tx">
             {turn.message}
           </div>
         </div>
         <Mur message={turn.gate} onBack={op.dismissGate} onPrepare={op.preparePack} />
         <div className="px-5 py-4">
-          <div className="rounded-md border border-dashed border-bd px-4 py-4 text-center font-mono text-[11px] text-tx4">
+          <div className="rounded-md border border-dashed border-bd px-4 py-4 text-center font-mono text-meta text-tx4">
             le flux ne démarre pas tant que la barrière tient
           </div>
         </div>
@@ -61,7 +59,7 @@ export function SteerScene({ op }: { op: Operator }) {
             busy={turn.busy}
             onLaunch={op.launch}
           />
-          <p className="border-t border-bd px-7 pb-1 pt-4 text-center font-sans text-[11px] text-tx4">
+          <p className="border-t border-bd px-7 pb-1 pt-4 text-center font-sans text-sec text-tx4">
             Une intention démarre une session observable — l'agent fabrique, vous vérifiez.
           </p>
         </div>

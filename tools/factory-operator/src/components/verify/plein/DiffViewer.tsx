@@ -170,7 +170,7 @@ function marker(kind: DiffLine['kind']): string {
 
 function InlineRow({ line }: { line: PreparedLine }) {
   return (
-    <div className={`flex font-mono text-[10.5px] leading-relaxed ${lineTone(line.line.kind)}`}>
+    <div className={`flex font-mono text-meta leading-relaxed ${lineTone(line.line.kind)}`}>
       <span className="w-10 flex-shrink-0 select-none px-1 text-right text-tx4 tabular-nums">
         {gutter(line.line.old_lineno)}
       </span>
@@ -189,7 +189,7 @@ function SplitCell({ line, side }: { line?: PreparedLine; side: 'old' | 'new' })
   if (!line) return <div className="flex-1 bg-s1/40" aria-hidden />
   const n = side === 'old' ? line.line.old_lineno : line.line.new_lineno
   return (
-    <div className={`flex flex-1 font-mono text-[10.5px] leading-relaxed ${lineTone(line.line.kind)}`}>
+    <div className={`flex flex-1 font-mono text-meta leading-relaxed ${lineTone(line.line.kind)}`}>
       <span className="w-9 flex-shrink-0 select-none px-1 text-right text-tx4 tabular-nums">{gutter(n)}</span>
       <span className="w-3 flex-shrink-0 select-none text-center text-tx4" aria-hidden>
         {marker(line.line.kind)}
@@ -251,8 +251,8 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
   if (files.length === 0) {
     return (
       <div data-testid={testid ?? 'verify-diff'} className="flex flex-1 flex-col">
-        {caption ? <div className="border-b border-bd px-4 py-2 font-mono text-[10.5px] text-tx3">{caption}</div> : null}
-        <div className="flex flex-1 items-center justify-center p-8 font-mono text-[11px] text-tx4">
+        {caption ? <div className="border-b border-bd px-4 py-2 font-mono text-meta text-tx3">{caption}</div> : null}
+        <div className="flex flex-1 items-center justify-center p-8 font-mono text-meta text-tx4">
           {emptyLabel ?? 'aucun changement dans l’arbre de travail'}
         </div>
       </div>
@@ -262,7 +262,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
   return (
     <div data-testid={testid ?? 'verify-diff'} className="flex min-h-0 flex-1 flex-col">
       {/* toolbar: source caption + bi-mode toggle + change-set toggle + counts */}
-      <div className="flex items-center gap-3 border-b border-bd bg-s1 px-4 py-2 font-mono text-[10.5px] text-tx3">
+      <div className="flex items-center gap-3 border-b border-bd bg-s1 px-4 py-2 font-mono text-meta text-tx3">
         {caption ? <span className="truncate text-tx2">{caption}</span> : null}
         <span className="text-ok">+{totalInsertions}</span>
         <span className="text-bad">−{totalDeletions}</span>
@@ -322,7 +322,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
                 data-testid="changeset-file"
                 onClick={() => scrollToFile(pf.fidx)}
                 title={pf.file.path}
-                className="flex items-center gap-2 border-b border-bd/50 px-3 py-1.5 text-left font-mono text-[10px] hover:bg-s2"
+                className="flex items-center gap-2 border-b border-bd/50 px-3 py-1.5 text-left font-mono text-meta hover:bg-s2"
               >
                 {/* per-file gate marker is degraded to S81 (the gate `file` is a
                    .planning basename, not a change-set path); a neutral dot
@@ -333,7 +333,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
                 <span className="text-bad">−{pf.file.deletions}</span>
               </button>
             ))}
-            <div className="mt-auto px-3 py-2 font-mono text-[8px] leading-relaxed text-tx4">
+            <div className="mt-auto px-3 py-2 font-mono text-meta leading-relaxed text-tx4">
               marqueur de gate par fichier · dégradé S81
             </div>
           </div>
@@ -358,7 +358,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
               }}
               className="border-b border-bd"
             >
-              <div className="sticky top-0 z-[1] flex items-center gap-2 border-b border-bd bg-s2 px-3 py-1.5 font-mono text-[10.5px]">
+              <div className="sticky top-0 z-[1] flex items-center gap-2 border-b border-bd bg-s2 px-3 py-1.5 font-mono text-meta">
                 <span className="min-w-0 flex-1 truncate text-tx">{pf.file.path}</span>
                 <span className="text-ok">+{pf.file.insertions}</span>
                 <span className="text-bad">−{pf.file.deletions}</span>
@@ -373,14 +373,14 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
                   }}
                   className={hunk.gid === current ? 'bg-info/5 ring-1 ring-inset ring-info/30' : ''}
                 >
-                  <div className="flex items-center gap-2 bg-s1 px-3 py-1 font-mono text-[10px] text-info">
+                  <div className="flex items-center gap-2 bg-s1 px-3 py-1 font-mono text-meta text-info">
                     <span className="min-w-0 flex-1 truncate">{hunk.header}</span>
                     {onHunkIntent ? (
                       <button
                         type="button"
                         data-testid="hunk-intent"
                         onClick={() => onHunkIntent(pf.file.path, hunk.header)}
-                        className="flex-shrink-0 rounded-sm px-1.5 py-0.5 text-[9.5px] text-tx3 hover:bg-s3 hover:text-tx2"
+                        className="flex-shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-meta text-tx3 hover:bg-s3 hover:text-tx2"
                         title="transmettre cette correction à la session (ne l’exécute pas)"
                       >
                         → transmettre à la session

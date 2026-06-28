@@ -69,7 +69,7 @@ export function TechDetails({
   return (
     <div
       data-testid="tech-details"
-      className="flex flex-col gap-2 rounded-md border border-bd bg-s0 px-3 py-2.5 font-mono text-[10.5px] leading-relaxed text-tx2"
+      className="flex flex-col gap-2 rounded-md border border-bd bg-s0 px-3 py-2.5 font-mono text-meta leading-relaxed text-tx2"
     >
       <div>
         kind&nbsp;&nbsp;&nbsp;&nbsp;= <span className="text-tx">{kind}</span>
@@ -91,7 +91,7 @@ export function TechDetails({
         {!ready ? (
           <div className="text-tx4">assemblage…</div>
         ) : prompt !== null ? (
-          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-[10px] text-tx3">
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-meta text-tx3">
             {prompt}
           </pre>
         ) : (

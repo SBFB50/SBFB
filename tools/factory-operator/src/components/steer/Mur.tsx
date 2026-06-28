@@ -39,18 +39,18 @@ export function Mur({
           <span className="font-mono text-base leading-none">⚿</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-mur">
+          <div className="mb-2 font-sans text-meta font-semibold text-mur">
             barrière de gouvernance
           </div>
-          <div className="mb-2 font-sans text-[15px] font-semibold leading-snug text-tx">
+          <div className="mb-2 font-sans text-scene font-semibold leading-snug text-tx">
             Cette intention exige une vraie session agent.
           </div>
-          <p className="max-w-prose font-sans text-[12.5px] leading-relaxed text-tx2">
+          <p className="max-w-prose font-sans text-body leading-relaxed text-tx2">
             {message} Commit, push, shell et validation ne s'exécutent jamais depuis le composeur :
             ils passent par une session tracée qui produit gates et preuves — c'est la barrière, pas
             un bouton à franchir.
           </p>
-          <div className="mt-3 font-mono text-[9.5px] text-mur">
+          <div className="mt-3 font-mono text-meta text-mur">
             — aucun « Forcer » · aucun « Override » · aucun « Bypass » · aucun « Exécuter quand même » —
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2.5">
@@ -60,7 +60,7 @@ export function Mur({
                 data-testid="mur-prepare"
                 onClick={onPrepare}
                 title="ouvrir le pack scellé à transmettre à une vraie session agent"
-                className="rounded-sm border border-mur bg-mur/10 px-4 py-2 font-sans text-[12px] font-semibold text-mur hover:bg-mur/20"
+                className="rounded-sm border border-mur bg-mur/10 px-4 py-2 font-sans text-body font-semibold text-mur hover:bg-mur/20"
               >
                 Préparer le pack
               </button>
@@ -69,7 +69,7 @@ export function Mur({
               type="button"
               data-testid="mur-back"
               onClick={onBack}
-              className="rounded-sm border border-bd2 px-4 py-2 font-sans text-[12px] font-medium text-tx2 hover:border-bd2 hover:text-tx"
+              className="rounded-sm border border-bd2 px-4 py-2 font-sans text-body font-medium text-tx2 hover:border-bd2 hover:text-tx"
             >
               Retour à la composition
             </button>

@@ -74,7 +74,7 @@ function HashRefRow({ entry, drifted }: { entry: HashRef; drifted: boolean }) {
 
   return (
     <div className="flex items-center gap-2 border border-dashed border-bd2 bg-s0 px-2.5 py-1.5">
-      <span className="w-3 text-center font-mono text-[10px] text-tx4" aria-hidden>
+      <span className="w-3 text-center font-mono text-meta text-tx4" aria-hidden>
         ◇
       </span>
       <button
@@ -82,27 +82,27 @@ function HashRefRow({ entry, drifted }: { entry: HashRef; drifted: boolean }) {
         onClick={() => copy('path', entry.path)}
         data-testid="copy-path"
         title="copier le chemin"
-        className="min-w-0 flex-1 truncate text-left font-mono text-[10.5px] text-tx2 hover:text-tx"
+        className="min-w-0 flex-1 truncate text-left font-mono text-meta text-tx2 hover:text-tx"
       >
         <span className="text-tx4">{entry.path.slice(0, entry.path.length - basename(entry.path).length)}</span>
         <span className="text-tx">{basename(entry.path)}</span>
       </button>
-      {copied === 'path' ? <span className="font-mono text-[9px] text-ok">copié</span> : null}
+      {copied === 'path' ? <span className="font-mono text-meta text-ok">copié</span> : null}
       {entry.exists && entry.hash ? (
         <button
           type="button"
           onClick={() => copy('hash', entry.hash!)}
           data-testid="copy-hash"
           title="copier l'empreinte"
-          className="rounded-sm border border-bd bg-s1 px-1 py-0.5 font-mono text-[9px] tabular-nums text-tx3 hover:text-tx"
+          className="rounded-sm border border-bd bg-s1 px-1 py-0.5 font-mono text-meta tabular-nums text-tx3 hover:text-tx"
         >
           {copied === 'hash' ? 'copié' : entry.hash}
         </button>
       ) : (
-        <span className="font-mono text-[9px] text-warn">absent</span>
+        <span className="font-mono text-meta text-warn">absent</span>
       )}
       {drifted ? (
-        <span className="font-mono text-[9px] text-warn" title="le fichier a changé depuis le scellé de la session">
+        <span className="font-mono text-meta text-warn" title="le fichier a changé depuis le scellé de la session">
           ◦ dérive — relu
         </span>
       ) : null}
@@ -176,23 +176,23 @@ export function ContextPackInspector({
   return (
     <section data-testid="context-pack-inspector" className="flex flex-col gap-3">
       <div className="rounded-md border border-bd bg-s1 px-4 py-3">
-        <div className="mb-1 font-sans text-[12.5px] font-semibold text-tx">
+        <div className="mb-1 font-sans text-card font-semibold text-tx">
           Préparer le pack — brouillon de transmission
         </div>
-        <p className="font-sans text-[11.5px] leading-relaxed text-tx2">
+        <p className="font-sans text-body leading-relaxed text-tx2">
           Le pack scellé ci-dessous est la seule chose qui franchit le mur : il se transmet à une
           vraie session agent qui produit gates et preuves. L'Operator restitue ce qui est tracé — il
           ne clôt aucun verdict, il ne grave aucun « valider ».
         </p>
-        <div className="mt-2 font-mono text-[9.5px] text-tx4">
+        <div className="mt-2 font-mono text-meta text-tx4">
           références hachées · contenu jamais inliné · historique de chat non-autoritaire
         </div>
       </div>
 
       {error ? (
-        <div className="rounded-md border border-bd bg-s0 px-4 py-3 font-mono text-[11px] text-warn">{error}</div>
+        <div className="rounded-md border border-bd bg-s0 px-4 py-3 font-mono text-meta text-warn">{error}</div>
       ) : pack === null ? (
-        <div className="rounded-md border border-bd bg-s0 px-4 py-3 font-mono text-[11px] text-tx4">
+        <div className="rounded-md border border-bd bg-s0 px-4 py-3 font-mono text-meta text-tx4">
           scellement du pack…
         </div>
       ) : (
@@ -204,7 +204,7 @@ export function ContextPackInspector({
               </div>
               <div className="flex flex-col gap-1">
                 {g.refs.length === 0 ? (
-                  <div className="px-2.5 py-1.5 font-mono text-[10px] text-tx4">—</div>
+                  <div className="px-2.5 py-1.5 font-mono text-meta text-tx4">—</div>
                 ) : (
                   g.refs.map((r) => (
                     <HashRefRow key={r.path} entry={r} drifted={!!sealed && sealed.has(r.path) && sealed.get(r.path) !== r.hash} />
@@ -213,7 +213,7 @@ export function ContextPackInspector({
               </div>
             </div>
           ))}
-          <div className="font-mono text-[9.5px] text-tx4">{pack.notice}</div>
+          <div className="font-mono text-meta text-tx4">{pack.notice}</div>
         </div>
       )}
     </section>

@@ -55,7 +55,7 @@ export function App() {
         <div
           role="status"
           data-testid="offline-banner"
-          className="flex h-7 flex-shrink-0 items-center gap-2 border-b border-bd bg-bad-bg px-4 font-mono text-[11px] text-bad"
+          className="flex h-7 flex-shrink-0 items-center gap-2 border-b border-bd bg-bad-bg px-4 font-mono text-sec text-bad"
         >
           <span className="h-1.5 w-1.5 rounded-full bg-bad" aria-hidden />
           Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces

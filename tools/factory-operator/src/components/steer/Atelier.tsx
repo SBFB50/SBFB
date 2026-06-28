@@ -54,21 +54,19 @@ export function Atelier({
     >
       <div className="flex items-center gap-2.5">
         <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden />
-        <span className="font-sans text-[9px] font-semibold uppercase tracking-[0.15em] text-tx4">
-          atelier observable
-        </span>
-        <span className="ml-auto font-mono text-[10px] text-tx3" data-testid="turn-status">
+        <span className="eyebrow">atelier observable</span>
+        <span className="ml-auto font-mono text-meta text-tx3" data-testid="turn-status">
           {status.text}
         </span>
       </div>
 
       {turn.message ? (
-        <div className="rounded-md border border-bd2 bg-s1 px-3.5 py-2.5 font-sans text-[12.5px] leading-snug text-tx">
+        <div className="rounded-md border border-bd2 bg-s1 px-3.5 py-2.5 font-sans text-body leading-snug text-tx">
           {turn.message}
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border border-bd bg-s1 px-3.5 py-3 font-mono text-[11px] leading-relaxed text-tx2">
+      <div className="min-h-0 flex-1 overflow-auto rounded-md border border-bd bg-s1 px-3.5 py-3 font-mono text-meta leading-relaxed text-tx2">
         {turn.thinking ? (
           <pre className="mb-2 whitespace-pre-wrap break-words border-l-2 border-bd pl-2 text-tx4">
             {turn.thinking}
@@ -96,7 +94,7 @@ export function Atelier({
             data-testid="turn-interrupt"
             onClick={onInterrupt}
             title="arrête d'écouter ce flux (le tour serveur peut continuer)"
-            className="rounded-sm border border-bd2 px-3 py-1.5 font-sans text-[11px] font-medium text-tx2 hover:border-bd2 hover:text-tx"
+            className="rounded-sm border border-bd2 px-3 py-1.5 font-sans text-sec font-medium text-tx2 hover:border-bd2 hover:text-tx"
           >
             ⏸ Interrompre l'écoute
           </button>
@@ -107,7 +105,7 @@ export function Atelier({
               data-testid="turn-relaunch"
               onClick={onRelaunch}
               title="relancer = nouveau tour assistant à coût d'inférence plein (jamais un no-op)"
-              className="rounded-sm border border-bd px-3 py-1.5 font-sans text-[11px] font-medium text-tx3 hover:border-bd2 hover:text-tx2"
+              className="rounded-sm border border-bd px-3 py-1.5 font-sans text-sec font-medium text-tx3 hover:border-bd2 hover:text-tx2"
             >
               ↻ Relancer le tour
             </button>
@@ -116,14 +114,14 @@ export function Atelier({
               data-testid="turn-new-session"
               onClick={onNewSession}
               title="repartir d'une session vierge"
-              className="rounded-sm border border-bd px-3 py-1.5 font-sans text-[11px] font-medium text-tx4 hover:border-bd2 hover:text-tx3"
+              className="rounded-sm border border-bd px-3 py-1.5 font-sans text-sec font-medium text-tx4 hover:border-bd2 hover:text-tx3"
             >
               ＋ Nouvelle session
             </button>
           </>
         )}
         {turn.launchError ? (
-          <span className="font-mono text-[10px] text-bad">{turn.launchError}</span>
+          <span className="font-mono text-meta text-bad">{turn.launchError}</span>
         ) : null}
       </div>
     </section>

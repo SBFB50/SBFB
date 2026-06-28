@@ -37,7 +37,7 @@ import { useCommitDiff } from '../../state/useCommitDiff'
 
 function VerdictPill({ verdict, tone }: { verdict: string | null; tone: string }) {
   return (
-    <span className={`font-mono text-[10px] ${tone}`} data-testid="verdict-pill">
+    <span className={`font-mono text-meta ${tone}`} data-testid="verdict-pill">
       {verdict ?? '—'}
     </span>
   )
@@ -54,7 +54,7 @@ function FilesChanged({ files }: { files: FileChange[] }) {
       </div>
       <ul className="flex flex-col gap-0.5">
         {files.map((f, i) => (
-          <li key={`${f.path}-${i}`} className="flex items-baseline gap-2 font-mono text-[10px]">
+          <li key={`${f.path}-${i}`} className="flex items-baseline gap-2 font-mono text-meta">
             <span className="w-3 shrink-0 text-tx4" aria-hidden>
               {f.status}
             </span>
@@ -87,21 +87,21 @@ function PhaseNode({
         onClick={onToggle}
         className="flex w-full items-center gap-2.5 py-1.5 text-left hover:bg-s1"
       >
-        <span className="font-mono text-[11px] font-semibold text-tx">{phase.letter}</span>
-        <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-tx2">{phase.title || '—'}</span>
+        <span className="font-mono text-meta font-semibold text-tx">{phase.letter}</span>
+        <span className="min-w-0 flex-1 truncate font-sans text-sec text-tx2">{phase.title || '—'}</span>
         <VerdictPill verdict={phase.preflight_verdict} tone={toneText(preflightTone(phase.preflight_verdict))} />
         <span className="text-tx4" aria-hidden>
           ·
         </span>
         <VerdictPill verdict={phase.review_verdict} tone={toneText(reviewTone(phase.review_verdict))} />
-        {phase.commit_sha ? <span className="font-mono text-[9.5px] text-tx4">{phase.commit_sha}</span> : null}
-        <span className="font-mono text-[10px] text-tx4" aria-hidden>
+        {phase.commit_sha ? <span className="font-mono text-meta text-tx4">{phase.commit_sha}</span> : null}
+        <span className="font-mono text-meta text-tx4" aria-hidden>
           {expanded ? '▾' : '▸'}
         </span>
       </button>
       {expanded ? (
         <div className="mb-2 ml-1 flex flex-col gap-2 border-l border-bd pl-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-tx3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-meta text-tx3">
             <span>
               préflight{' '}
               <span className={toneText(preflightTone(phase.preflight_verdict))}>
@@ -131,7 +131,7 @@ function PhaseNode({
               <div className="mb-0.5 eyebrow">livrables</div>
               <ul className="flex flex-col gap-0.5">
                 {phase.deliverables.map((d, i) => (
-                  <li key={i} className="font-mono text-[10px] text-tx3">
+                  <li key={i} className="font-mono text-meta text-tx3">
                     <span className="text-tx4" aria-hidden>
                       ·{' '}
                     </span>
@@ -148,7 +148,7 @@ function PhaseNode({
               </div>
               <ul className="flex flex-col gap-0.5">
                 {phase.findings.map((f, i) => (
-                  <li key={i} className="font-mono text-[10px] text-tx3">
+                  <li key={i} className="font-mono text-meta text-tx3">
                     <span className={f.status === 'resolved' ? 'text-ok' : 'text-warn'}>{f.severity}</span> {f.description}
                   </li>
                 ))}
@@ -169,9 +169,9 @@ function PhaseDiff({ sha }: { sha: string }) {
     <div className="flex flex-col gap-2">
       <ConformiteCard rev={sha} />
       {loading ? (
-        <div className="font-mono text-[10px] text-tx4">diff du commit…</div>
+        <div className="font-mono text-meta text-tx4">diff du commit…</div>
       ) : error ? (
-        <div className="font-mono text-[10px] text-warn">{error}</div>
+        <div className="font-mono text-meta text-warn">{error}</div>
       ) : diff ? (
         // Fold V2/U7: the SAME bespoke viewer renders a PAST commit here and the
         // working tree in VERIFY — one component, two usages, on the shared
@@ -207,7 +207,7 @@ function LiveProcessBanner({
       className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-bd bg-s1 px-3 py-2"
     >
       <span className="eyebrow">où on en est</span>
-      <span className="flex items-center gap-1.5 font-mono text-[11px]">
+      <span className="flex items-center gap-1.5 font-mono text-meta">
         <span className={`h-1.5 w-1.5 rounded-full ${currentDone ? 'bg-ok' : 'bg-warn'}`} aria-hidden />
         <span className="text-tx2">phase courante</span>
         <span className="font-semibold text-tx">{current ?? '—'}</span>
@@ -221,7 +221,7 @@ function LiveProcessBanner({
                 : '· en cours · pas encore committée'}
         </span>
       </span>
-      <span className="ml-auto font-mono text-[10px] text-tx3">
+      <span className="ml-auto font-mono text-meta text-tx3">
         {history.phases.length} phases committées · {history.total_commits} commits
       </span>
     </div>
@@ -233,7 +233,7 @@ function TestsBilan({ tests }: { tests: SprintHistory['tests'] }) {
   return (
     <div
       data-testid="tests-bilan"
-      className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-bd bg-s1 px-3 py-2 font-mono text-[10px] text-tx3"
+      className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-bd bg-s1 px-3 py-2 font-mono text-meta text-tx3"
     >
       <span className="eyebrow">bilan tests</span>
       {hasEntryExit ? (
@@ -286,7 +286,7 @@ function CommitTimeline({ commits }: { commits: CommitInfo[] }) {
             <li
               key={c.sha}
               data-testid="commit-row"
-              className="flex items-baseline gap-2 rounded-sm px-1 py-0.5 font-mono text-[10px] hover:bg-s1"
+              className="flex items-baseline gap-2 rounded-sm px-1 py-0.5 font-mono text-meta hover:bg-s1"
             >
               <span className="shrink-0 text-info">{c.short}</span>
               <span className={`shrink-0 ${c.is_phase ? 'text-tx2' : 'text-tx4'}`}>
@@ -315,7 +315,7 @@ function CarriesSection({ open, closed }: { open: CarryItem[]; closed: CarryItem
       </div>
       <ul className="flex flex-col gap-0.5">
         {open.map((c, i) => (
-          <li key={`o-${c.code}-${i}`} className="font-mono text-[10px] text-tx3">
+          <li key={`o-${c.code}-${i}`} className="font-mono text-meta text-tx3">
             <span className="text-warn" aria-hidden>
               ○{' '}
             </span>
@@ -324,7 +324,7 @@ function CarriesSection({ open, closed }: { open: CarryItem[]; closed: CarryItem
           </li>
         ))}
         {closed.map((c, i) => (
-          <li key={`c-${c.code}-${i}`} className="font-mono text-[10px] text-tx4">
+          <li key={`c-${c.code}-${i}`} className="font-mono text-meta text-tx4">
             <span className="text-ok" aria-hidden>
               ●{' '}
             </span>
@@ -344,7 +344,7 @@ function VerificationTable({ verification }: { verification: VerificationSummary
         <div className="eyebrow">
           vérification §1
         </div>
-        <p className="mt-1 font-mono text-[10px] text-tx4">restituée au wrap-up (verification.md)</p>
+        <p className="mt-1 font-mono text-meta text-tx4">restituée au wrap-up (verification.md)</p>
       </div>
     )
   }
@@ -355,7 +355,7 @@ function VerificationTable({ verification }: { verification: VerificationSummary
       </div>
       <ul className="flex flex-col gap-0.5">
         {verification.checks.map((c) => (
-          <li key={c.number} className="flex items-baseline gap-2 font-mono text-[10px]">
+          <li key={c.number} className="flex items-baseline gap-2 font-mono text-meta">
             <span className={toneText(reviewTone(c.result))}>{c.result}</span>
             <span className="min-w-0 flex-1 truncate text-tx3">{c.name}</span>
             <span className="shrink-0 truncate text-tx4" title={c.command}>
@@ -374,7 +374,7 @@ function GlyphLegend() {
       <summary className="cursor-pointer eyebrow hover:text-tx2">
         légende
       </summary>
-      <div className="mt-1 flex flex-col gap-0.5 font-mono text-[10px] text-tx3">
+      <div className="mt-1 flex flex-col gap-0.5 font-mono text-meta text-tx3">
         <span>
           codex : <span className="text-ok">✓</span> confirmé · <span className="text-warn">~</span> partiel ·{' '}
           <span className="text-bad">⚠</span> gap
@@ -426,7 +426,7 @@ function SprintIndex({
               data-testid="sprint-card"
               onClick={() => onSelect(s.sprint)}
               title={`${s.version} · ${s.status}`}
-              className={`flex flex-col gap-0.5 rounded-sm border px-2 py-1.5 text-left font-mono text-[10px] ${
+              className={`flex flex-col gap-0.5 rounded-sm border px-2 py-1.5 text-left font-mono text-meta ${
                 s.sprint === viewing ? 'border-bd2 bg-s2 text-tx' : 'border-bd text-tx3 hover:bg-s1'
               }`}
             >
@@ -498,7 +498,7 @@ export function ProcedeSurface() {
 
   if (error)
     return (
-      <div className="flex flex-col gap-2 p-5 font-mono text-[11px] text-warn">
+      <div className="flex flex-col gap-2 p-5 font-mono text-meta text-warn">
         <span>{error}</span>
         {selectedSprint !== null ? (
           <button
@@ -511,7 +511,7 @@ export function ProcedeSurface() {
         ) : null}
       </div>
     )
-  if (history === null) return <div className="p-5 font-mono text-[11px] text-tx4">lecture du procédé…</div>
+  if (history === null) return <div className="p-5 font-mono text-meta text-tx4">lecture du procédé…</div>
 
   const toggle = (letter: string) =>
     setExpanded((cur) => {
@@ -536,8 +536,8 @@ export function ProcedeSurface() {
 
   return (
     <div data-testid="procede-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-tx2">
-        <span className="font-sans text-[13px] font-semibold text-tx">Sprint {history.sprint}</span>
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-meta text-tx2">
+        <span className="font-sans text-card font-semibold text-tx">Sprint {history.sprint}</span>
         <span className="text-tx3">{history.status}</span>
         <span className="text-tx4">·</span>
         <span className="text-tx">{history.branch}</span>
@@ -563,13 +563,13 @@ export function ProcedeSurface() {
           data-testid="drill-banner"
           className="mb-4 flex items-center gap-3 rounded-md border border-bd bg-s1 px-3 py-2"
         >
-          <span className="font-mono text-[11px] text-tx2">
+          <span className="font-mono text-meta text-tx2">
             sprint {history.sprint} · {history.status} · archivé
           </span>
           <button
             type="button"
             onClick={() => drillTo(null)}
-            className="ml-auto rounded-sm border border-bd px-2 py-0.5 font-mono text-[10px] text-tx3 hover:bg-s2"
+            className="ml-auto rounded-sm border border-bd px-2 py-0.5 font-mono text-meta text-tx3 hover:bg-s2"
           >
             ← sprint actif
           </button>
@@ -579,7 +579,7 @@ export function ProcedeSurface() {
       {/* preflight bilan + verdict frise (fold V8) */}
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-bd bg-s1 px-3 py-2">
         <span className="eyebrow">frise</span>
-        <span className="font-mono text-[10px] text-tx3">
+        <span className="font-mono text-meta text-tx3">
           préflights {history.preflight_bilan.total} · {history.preflight_bilan.execute} EXECUTE ·{' '}
           {history.preflight_bilan.plan_adapt} PLAN-ADAPT · {history.preflight_bilan.design_conflict} conflit
         </span>
@@ -606,19 +606,19 @@ export function ProcedeSurface() {
           placeholder="filtrer les phases…"
           aria-label="filtrer les phases"
           data-testid="phase-filter"
-          className="min-w-0 flex-1 rounded-sm border border-bd bg-s0 px-2 py-1 font-mono text-[11px] text-tx placeholder:text-tx4 focus:border-bd2 focus:outline-none"
+          className="min-w-0 flex-1 rounded-sm border border-bd bg-s0 px-2 py-1 font-mono text-body text-tx placeholder:text-tx4 focus:border-bd2 focus:outline-none"
         />
         <button
           type="button"
           onClick={expandAll}
-          className="rounded-sm border border-bd bg-s1 px-2 py-1 font-mono text-[10px] text-tx3 hover:bg-s2"
+          className="rounded-sm border border-bd bg-s1 px-2 py-1 font-mono text-meta text-tx3 hover:bg-s2"
         >
           tout déplier
         </button>
         <button
           type="button"
           onClick={collapseAll}
-          className="rounded-sm border border-bd bg-s1 px-2 py-1 font-mono text-[10px] text-tx3 hover:bg-s2"
+          className="rounded-sm border border-bd bg-s1 px-2 py-1 font-mono text-meta text-tx3 hover:bg-s2"
         >
           tout replier
         </button>
@@ -626,7 +626,7 @@ export function ProcedeSurface() {
 
       <div className="flex flex-col">
         {filteredPhases.length === 0 ? (
-          <div className="py-3 font-mono text-[10px] text-tx4">aucune phase ne correspond au filtre</div>
+          <div className="py-3 font-mono text-meta text-tx4">aucune phase ne correspond au filtre</div>
         ) : (
           filteredPhases.map((p) => (
             <PhaseNode
@@ -647,7 +647,7 @@ export function ProcedeSurface() {
           </div>
           <ul className="flex flex-col gap-0.5">
             {history.scope_cuts.map((s) => (
-              <li key={s.number} className="font-mono text-[10px] text-tx3">
+              <li key={s.number} className="font-mono text-meta text-tx3">
                 <span className={s.respected ? 'text-ok' : 'text-warn'}>{s.respected ? '◦' : '×'}</span> {s.item}{' '}
                 <span className="text-tx4">→ {s.target}</span>
               </li>

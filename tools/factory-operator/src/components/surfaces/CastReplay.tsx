@@ -40,12 +40,12 @@ export function CastReplay({ name }: { name: string }) {
   const raw = ready ? resolved.raw : null
   const error = ready ? resolved.error : null
 
-  if (error) return <div className="p-4 font-mono text-[11px] text-warn">{error}</div>
-  if (raw === null) return <div className="p-4 font-mono text-[11px] text-tx4">chargement de l'enregistrement…</div>
+  if (error) return <div className="p-4 font-mono text-meta text-warn">{error}</div>
+  if (raw === null) return <div className="p-4 font-mono text-meta text-tx4">chargement de l'enregistrement…</div>
 
   return (
     <div data-testid="cast-replay" className="min-h-0 flex-1 overflow-hidden bg-s0 p-2">
-      <Suspense fallback={<div className="p-4 font-mono text-[11px] text-tx4">rendu…</div>}>
+      <Suspense fallback={<div className="p-4 font-mono text-meta text-tx4">rendu…</div>}>
         <CastXterm raw={raw} />
       </Suspense>
     </div>

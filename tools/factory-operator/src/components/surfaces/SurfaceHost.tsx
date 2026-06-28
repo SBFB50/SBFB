@@ -32,19 +32,19 @@ export function SurfaceHost({ op }: { op: Operator }) {
           data-testid="surface-back"
           onClick={op.closeSurface}
           title={`retour à ${op.mode === 'steer' ? 'STEER' : 'VERIFY'}`}
-          className="rounded-sm border border-bd px-2 py-1 font-mono text-[11px] text-tx3 hover:border-bd2 hover:text-tx2"
+          className="rounded-sm border border-bd px-2 py-1 font-mono text-meta text-tx3 hover:border-bd2 hover:text-tx2"
         >
           ← {op.mode === 'steer' ? 'STEER' : 'VERIFY'}
         </button>
-        <span className="font-mono text-[11px] text-tx4" aria-hidden>
+        <span className="font-mono text-meta text-tx4" aria-hidden>
           {def?.glyph}
         </span>
-        <span className="font-sans text-xs font-semibold tracking-wide text-tx">{def?.label}</span>
-        <span className="font-sans text-xs text-tx3">— {def?.hint}</span>
+        <span className="font-sans text-card font-semibold text-tx">{def?.label}</span>
+        <span className="font-sans text-sec text-tx3">— {def?.hint}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        <Suspense fallback={<div className="p-5 font-mono text-[11px] text-tx4">ouverture de l'inspecteur…</div>}>
+        <Suspense fallback={<div className="p-5 font-mono text-meta text-tx4">ouverture de l'inspecteur…</div>}>
           {surface === 'procede' ? (
             <ProcedeSurface />
           ) : surface === 'sessions' ? (

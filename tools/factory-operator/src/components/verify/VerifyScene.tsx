@@ -33,11 +33,11 @@ function Tab({ label, active, disabled }: { label: string; active?: boolean; dis
   if (disabled) {
     return (
       <span
-        className="flex cursor-not-allowed items-center gap-1.5 py-2.5 font-sans text-[12px] text-tx4"
+        className="flex cursor-not-allowed items-center gap-1.5 py-2.5 font-sans text-sec text-tx4"
         title="à venir (S81)"
       >
         {label}
-        <span className="rounded-sm bg-s3 px-1 py-px font-mono text-[8px] uppercase tracking-wide text-tx4">
+        <span className="rounded-sm bg-s3 px-1 py-px font-mono text-meta text-tx4">
           à venir
         </span>
       </span>
@@ -47,8 +47,8 @@ function Tab({ label, active, disabled }: { label: string; active?: boolean; dis
     <span
       className={
         active
-          ? 'border-b-2 border-tx py-2.5 font-sans text-[12px] font-semibold text-tx'
-          : 'py-2.5 font-sans text-[12px] text-tx3'
+          ? 'border-b-2 border-tx py-2.5 font-sans text-sec font-semibold text-tx'
+          : 'py-2.5 font-sans text-sec text-tx3'
       }
     >
       {label}
@@ -65,7 +65,7 @@ function IntentStrip({ op }: { op: Operator }) {
     return (
       <div
         data-testid="verify-intent-gate"
-        className="flex items-center gap-2 border-t border-mur/40 bg-mur-bg px-4 py-2 font-mono text-[10px] text-mur"
+        className="flex items-center gap-2 border-t border-mur/40 bg-mur-bg px-4 py-2 font-mono text-meta text-mur"
       >
         <span aria-hidden>⛔</span>
         {t.gate}
@@ -74,12 +74,12 @@ function IntentStrip({ op }: { op: Operator }) {
   }
   if (t.launchError) {
     return (
-      <div className="border-t border-bd2 bg-s2 px-4 py-2 font-mono text-[10px] text-warn">{t.launchError}</div>
+      <div className="border-t border-bd2 bg-s2 px-4 py-2 font-mono text-meta text-warn">{t.launchError}</div>
     )
   }
   if (t.busy) {
     return (
-      <div className="border-t border-bd2 bg-s2 px-4 py-2 font-mono text-[10px] text-tx3">
+      <div className="border-t border-bd2 bg-s2 px-4 py-2 font-mono text-meta text-tx3">
         transmission de l’intention à la session…
       </div>
     )
@@ -106,14 +106,14 @@ export function VerifyScene({ op }: { op: Operator }) {
       <div data-testid="verify-scene" className="flex min-h-0 flex-1 flex-col bg-s0">
         <div className="flex items-center gap-2.5 border-b border-bd px-5 py-3">
           <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden />
-          <span className="font-sans text-xs font-semibold tracking-wide text-tx">VERIFY</span>
-          <span className="font-sans text-xs text-tx3">— examiner le diff · lire les gates · aperçu scellé · preuve</span>
+          <span className="font-sans text-scene font-semibold text-tx">VERIFY</span>
+          <span className="font-sans text-sec text-tx3">— examiner le diff · lire les gates · aperçu scellé · preuve</span>
           <button
             type="button"
             data-testid="verify-tool-toggle"
             aria-pressed={tool === 'terminal'}
             onClick={() => setTool((t) => (t === 'terminal' ? 'diff' : 'terminal'))}
-            className="ml-auto rounded-sm border border-bd px-2 py-0.5 font-mono text-[10px] text-tx3 hover:bg-s2"
+            className="ml-auto rounded-sm border border-bd px-2 py-0.5 font-mono text-meta text-tx3 hover:bg-s2"
             title="le terminal PTY reste accessible comme outil secondaire"
           >
             {tool === 'terminal' ? '← Diff' : 'Terminal ▸'}
@@ -126,14 +126,14 @@ export function VerifyScene({ op }: { op: Operator }) {
               <Tab label="Diff" active />
               <Tab label="Aperçu scellé" disabled />
               <Tab label="Preuve" disabled />
-              <span className="ml-auto font-mono text-[9.5px] text-tx4">la vérité = git diff, pas un buffer</span>
+              <span className="ml-auto font-mono text-meta text-tx4">la vérité = git diff, pas un buffer</span>
             </div>
             {diffError ? (
-              <div className="flex flex-1 items-center justify-center p-8 font-mono text-[11px] text-warn">
+              <div className="flex flex-1 items-center justify-center p-8 font-mono text-meta text-warn">
                 {diffError}
               </div>
             ) : loading ? (
-              <div className="flex flex-1 items-center justify-center p-8 font-mono text-[11px] text-tx4">
+              <div className="flex flex-1 items-center justify-center p-8 font-mono text-meta text-tx4">
                 lecture du diff…
               </div>
             ) : (
@@ -170,8 +170,8 @@ export function VerifyScene({ op }: { op: Operator }) {
             />
           </RevealItem>
           <RevealItem className="flex items-center gap-3 border-t border-bd2 bg-s3 px-4 py-2">
-            <span className="font-mono text-[8px] font-semibold uppercase tracking-wide text-info">état</span>
-            <span data-testid="verify-etat" className="font-mono text-[11px] tabular-nums text-tx2">
+            <span className="font-sans text-meta font-semibold text-info">état</span>
+            <span data-testid="verify-etat" className="font-mono text-meta tabular-nums text-tx2">
               {/* gate flip (signature 2): the restituted named état flips on change. */}
               <GateFlip value={VERIFY_ETAT[etat]} />
             </span>

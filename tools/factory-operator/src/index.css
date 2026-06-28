@@ -59,6 +59,19 @@
   /* Type — Geist dual (proof vs intention) */
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+  /* Échelle typographique tokenisée — audit a11y 2026-06-28 L2 (part 2).
+     Rôles, jamais tailles brutes (mémoire feedback_named_constants) : le
+     point-source unique remplace les 189 `text-[Npx]` arbitraires (~85% du
+     texte < 12px). Plancher de lecture = 13px (`text-meta`), corps = 16px
+     (`text-body`, = base body), champ de saisie ≥ 16px (anti zoom iOS).
+     Taille SEULE (pas de `--*--line-height` companion) : les `leading-*`
+     existants et le `line-height:1.5` de body restent intacts.
+     Le 12px sentence-case des étiquettes de section vit dans `.eyebrow`. */
+  --text-scene: 20px;  /* titre de scène (h1 STEER/VERIFY, titre Mur) */
+  --text-card:  18px;  /* titre de carte/section/inspecteur (h2) */
+  --text-body:  16px;  /* corps, intentions, boutons, statuts humains, champ */
+  --text-sec:   14px;  /* libellé secondaire, légende */
+  --text-meta:  13px;  /* plancher : méta, code/diff/terminal, puce technique */
   /* Tight radii from the hi-fi (3-5px), not the blueprint 8/16px */
   --radius-sm: 3px;
   --radius-md: 4px;

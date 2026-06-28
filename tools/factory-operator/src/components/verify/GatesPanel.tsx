@@ -56,7 +56,7 @@ export function GatesPanel({
 
   return (
     <div data-testid="verify-gates" className="flex flex-col bg-s2">
-      <div className="flex items-center gap-2 px-4 py-2 font-mono text-[10.5px]">
+      <div className="flex items-center gap-2 px-4 py-2 font-mono text-meta">
         <span className="eyebrow">gates</span>
 
         {loading ? (
@@ -110,7 +110,7 @@ export function GatesPanel({
               {gates.map((entry) => {
                 const tone = toneText(gateStatusTone(entry.status))
                 return (
-                  <li key={entryKey(entry)} className="font-mono text-[10px]">
+                  <li key={entryKey(entry)} className="font-mono text-meta">
                     <div className="flex items-center gap-2">
                       <span className={`w-3 text-center ${tone}`} aria-hidden>
                         {gateStatusGlyph(entry.status)}
@@ -136,7 +136,7 @@ export function GatesPanel({
               })}
             </ul>
           ) : (
-            <div className="font-mono text-[10px] text-tx4">rien à détailler</div>
+            <div className="font-mono text-meta text-tx4">rien à détailler</div>
           )}
         </div>
       ) : null}

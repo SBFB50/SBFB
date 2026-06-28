@@ -67,12 +67,12 @@ export function OrientationBar({
     >
       <div className="flex items-center gap-2 border-r border-bd pr-4">
         <span className="h-2 w-2 rounded-sm bg-tx2" aria-hidden />
-        <span className="font-mono text-[11px] font-semibold tracking-wide text-tx2">
+        <span className="font-mono text-sec font-semibold tracking-wide text-tx2">
           FACTORY&nbsp;OPERATOR
         </span>
       </div>
 
-      <div className="flex items-center gap-2.5 overflow-hidden pl-4 font-mono text-[11.5px] tabular-nums text-tx2">
+      <div className="flex items-center gap-2.5 overflow-hidden pl-4 font-mono text-meta tabular-nums text-tx2">
         <span className="text-tx">{sprint}</span>
         <span className="text-tx3" aria-hidden>
           ·
@@ -105,7 +105,7 @@ export function OrientationBar({
         <GatePulse counts={status.gateCounts} />
       </div>
 
-      <div className="ml-auto flex items-center gap-3 pl-4 font-mono text-[10.5px] text-tx3">
+      <div className="ml-auto flex items-center gap-3 pl-4 font-mono text-meta text-tx3">
         <button
           type="button"
           onClick={status.refresh}

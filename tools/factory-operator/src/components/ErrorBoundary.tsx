@@ -46,27 +46,27 @@ export class ErrorBoundary extends Component<Props, State> {
         className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-4 bg-s0 p-8 text-center"
       >
         <div className="max-w-lg rounded-md border border-bd bg-s1 p-6">
-          <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-bad">
+          <p className="font-sans text-sec font-semibold text-bad">
             {scope ? `${scope} — erreur de rendu` : 'erreur de rendu'}
           </p>
-          <p className="mt-3 text-sm text-tx2">
+          <p className="mt-3 font-sans text-body text-tx2">
             Une erreur a interrompu l'affichage. Le nœud n'est pas affecté ; tu peux réessayer.
           </p>
-          <pre className="mt-3 max-h-40 overflow-auto rounded-sm border border-bd bg-s0 p-2 text-left font-mono text-[11px] text-tx3">
+          <pre className="mt-3 max-h-40 overflow-auto rounded-sm border border-bd bg-s0 p-2 text-left font-mono text-meta text-tx3">
             {error.message}
           </pre>
           <div className="mt-4 flex items-center justify-center gap-2">
             <button
               type="button"
               onClick={this.reset}
-              className="rounded-sm border border-bd2 bg-s2 px-3 py-1.5 font-mono text-[11px] text-tx hover:bg-s3"
+              className="rounded-sm border border-bd2 bg-s2 px-3 py-1.5 font-mono text-meta text-tx hover:bg-s3"
             >
               Réessayer le rendu
             </button>
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded-sm border border-bd bg-s1 px-3 py-1.5 font-mono text-[11px] text-tx2 hover:bg-s2"
+              className="rounded-sm border border-bd bg-s1 px-3 py-1.5 font-mono text-meta text-tx2 hover:bg-s2"
             >
               Recharger
             </button>

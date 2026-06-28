@@ -38,7 +38,7 @@ function ModeButton({
       )}
     >
       <span className={cn('h-1.5 w-1.5 rounded-full', active ? 'bg-tx' : 'border border-bd2')} aria-hidden />
-      <span className={cn('font-sans text-xs', active ? 'font-semibold text-tx' : 'text-tx3')}>{label}</span>
+      <span className={cn('font-sans text-sec', active ? 'font-semibold text-tx' : 'text-tx3')}>{label}</span>
       {ready && !active ? (
         <span
           data-testid="verify-ready"
@@ -87,7 +87,7 @@ export function Rail({
           ready={verifyReady}
         />
       </div>
-      <div className="mb-4 font-mono text-[8.5px] leading-tight text-tx4">
+      <div className="mb-4 font-mono text-meta leading-tight text-tx4">
         bascule manuelle · jamais auto
         <br />
         clavier : <span className="text-tx3">s</span> / <span className="text-tx3">v</span>
@@ -110,10 +110,10 @@ export function Rail({
                 active ? 'bg-s3' : 'hover:bg-s2',
               )}
             >
-              <span className="w-3 font-mono text-[11px] text-tx4" aria-hidden>
+              <span className="w-3 font-mono text-meta text-tx4" aria-hidden>
                 {s.glyph}
               </span>
-              <span className={cn('font-sans text-[11.5px]', active ? 'font-semibold text-tx' : 'text-tx3')}>
+              <span className={cn('font-sans text-sec', active ? 'font-semibold text-tx' : 'text-tx3')}>
                 {s.label}
               </span>
             </button>
@@ -121,7 +121,7 @@ export function Rail({
         })}
       </div>
 
-      <div className="mt-auto border-t border-bd pt-3 font-mono text-[8.5px] leading-relaxed text-tx4">
+      <div className="mt-auto border-t border-bd pt-3 font-mono text-meta leading-relaxed text-tx4">
         <span className={reachable ? 'text-ok' : 'text-tx4'}>{reachable ? 'token ✓' : 'token ·'}</span> · nœud souverain
         <br />
         factory-operator · v0

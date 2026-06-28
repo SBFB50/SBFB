@@ -30,8 +30,8 @@ export function Terminal() {
     return (
       <div className="flex flex-1 items-center justify-center p-7">
         <div className="max-w-prose rounded-md border border-dashed border-bd bg-s1 px-6 py-6 text-center">
-          <div className="mb-1 font-sans text-sm font-semibold text-tx">Terminal de vérification</div>
-          <div className="mb-4 font-sans text-[12.5px] leading-relaxed text-tx2">
+          <div className="mb-1 font-sans text-card font-semibold text-tx">Terminal de vérification</div>
+          <div className="mb-4 font-sans text-body leading-relaxed text-tx2">
             Une session PTY tracée pour inspecter le dépôt à la main (git diff, status, log) en
             complément du visualiseur de diff dédié de la surface VERIFY. La session est enregistrée et
             rejouable depuis l'inspecteur Sessions.
@@ -40,11 +40,11 @@ export function Terminal() {
             type="button"
             data-testid="terminal-start"
             onClick={() => setStarted(true)}
-            className="rounded-sm bg-tx px-4 py-2 font-sans text-[12.5px] font-semibold text-s0 hover:bg-tx/90"
+            className="rounded-sm bg-tx px-4 py-2 font-sans text-body font-semibold text-s0 hover:bg-tx/90"
           >
             Démarrer la session terminal
           </button>
-          <div className="mt-3 font-mono text-[10px] text-tx4">
+          <div className="mt-3 font-mono text-meta text-tx4">
             commit · push · shell restent derrière le mur — ici, lecture et inspection
           </div>
         </div>
@@ -54,14 +54,14 @@ export function Terminal() {
 
   return (
     <div data-testid="terminal-surface" className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b border-bd bg-s1 px-4 py-1.5 font-mono text-[10px] text-tx3">
+      <div className="flex items-center gap-2 border-b border-bd bg-s1 px-4 py-1.5 font-mono text-meta text-tx3">
         <StatusDot status={status} />
         <span>terminal · {status}</span>
         <span className="ml-auto text-tx4">enregistré en .cast · rejouable</span>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden bg-s0 p-2">
         <Suspense
-          fallback={<div className="p-4 font-mono text-[11px] text-tx4">chargement du terminal…</div>}
+          fallback={<div className="p-4 font-mono text-meta text-tx4">chargement du terminal…</div>}
         >
           <TerminalXterm onStatus={setStatus} />
         </Suspense>
